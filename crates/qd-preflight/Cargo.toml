@@ -1,0 +1,31 @@
+[package]
+name = "qd-preflight"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Environment-independent preflight gate for the qwen-decision training box"
+
+[[bin]]
+name = "qd-preflight"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+# NEW DEPENDENCY, flagged deliberately (repo rule: no new dependency without asking).
+#
+# Why nothing already present suffices: this binary must run on a host with NO CUDA
+# and report that honestly. Linking libcuda at build time makes it unbuildable on this
+# Mac and unrunnable on any box without the driver — which defeats the entire purpose
+# of a preflight that can say "not_run". So the driver has to be opened at RUNTIME,
+# and `std` has no dlopen.
+#
+# `libloading` is the minimal, well-established safe wrapper over dlopen/LoadLibrary
+# (~1k lines, no transitive deps beyond cfg-gated platform bindings). The alternative
+# is raw `libc::dlopen`, which is also a new dependency and an unsafe one.
+libloading = "0.8"

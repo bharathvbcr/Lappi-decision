@@ -1,0 +1,41 @@
+# The Lambda training environment. Resolved for linux/x86_64 + CUDA, NOT for this Mac.
+#
+# Kept out of the repo's own pyproject.toml deliberately: installing this stack here
+# would resolve a CPU/MPS torch and produce a lockfile that does not describe the
+# machine the training actually runs on.
+#
+# Pin decisions, with the evidence behind them:
+#
+# * transformers is pinned to a RELEASE, not a main-branch SHA. The plan assumes
+#   Qwen3.5 is main-only and carries a whole risk row for "main moves daily"; it has
+#   shipped in tagged releases since v5.2.0 (2026-02-16). See docs/plan-corrections.md
+#   RELIEF-1. Pinning a release deletes that risk rather than mitigating it.
+#
+# * flash-linear-attention and causal-conv1d are CUDA-only and must NEVER be installed
+#   in the Mac environment: the Qwen3.5 modeling file dispatches through a bare
+#   `importlib.import_module("fla")` rather than the CUDA-gated helper, so a successful
+#   import on a Mac sends execution into Triton, which has no Metal backend.
+#   See docs/plan-corrections.md DESIGN-3.
+#
+# * causal-conv1d is sdist-only (no wheels) and builds against nvcc, so the image build
+#   needs the CUDA devel base, not runtime.
+
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+torch==2.11.0
+transformers==5.17.0
+accelerate
+safetensors
+datasets
+numpy
+sentencepiece
+einops
+
+# Fast path for the hybrid. Their absence is a 74%-slower step, and their presence is
+# asserted positively at runtime by stack/verify_fast_path.py -- never by grepping a
+# log for an absent warning, which is a check that cannot fail.
+flash-linear-attention
+causal-conv1d
+
+# Teacher labelling only.
+vllm

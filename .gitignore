@@ -25,6 +25,9 @@ __pycache__/
 *.pem
 *-service-account*.json
 
+# Container build logs. The lockfile and Containerfile are tracked; their output is not.
+stack/.build.log
+
 # macOS
 .DS_Store
 

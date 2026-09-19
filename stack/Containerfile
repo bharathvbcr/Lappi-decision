@@ -1,0 +1,69 @@
+# The pinned Lambda training environment (S1). Built with podman, not docker —
+# docker is not installed on the build host. See stack/README.md.
+#
+#   podman build --platform linux/amd64 -t qd-train:s1 -f stack/Containerfile stack/
+#
+# Base is -devel, not -runtime, because causal-conv1d is sdist-only (no wheels) and
+# compiles against nvcc. A -runtime base fails at pip-install time with a confusing
+# "no CUDA toolkit" error rather than at image-design time.
+#
+# Verified 2026-09-19: this tag exists and publishes 2 platform entries (amd64, arm64).
+FROM docker.io/nvidia/cuda:12.8.1-devel-ubuntu24.04
+
+# Fail on any pipeline error, not just the last command's.
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.12 python3.12-dev python3.12-venv git ca-certificates build-essential ninja-build \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:0.11.28 /uv /usr/local/bin/uv
+
+# A venv rather than --system. Ubuntu 24.04 marks its Python externally-managed
+# (PEP 668), so `uv pip install --system` fails outright with EXTERNALLY-MANAGED —
+# the first real build of this file died exactly there. `--break-system-packages`
+# would also work, but mixing apt-managed and pip-managed site-packages in an image
+# that later installs CUDA extensions is how a rebuild stops reproducing.
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
+RUN uv venv --python 3.12 /opt/venv
+
+WORKDIR /opt/qd
+
+# The lockfile is the environment. It is resolved on the build host against
+# x86_64-manylinux_2_28 / py3.12 and committed, so this layer is reproducible and the
+# image cannot silently drift from what was tested.
+#
+# `--index-strategy unsafe-best-match` is REQUIRED and is a deliberate, recorded
+# choice: vllm exists on the pytorch cu128 index only at 0.9.0.1 (which pins
+# torch==2.7.0), so default index precedence makes torch 2.11 + vllm unsatisfiable.
+# The strategy lets uv consider all versions across both indexes. The dependency-
+# confusion caveat is real; it is accepted here because both indexes are first-party
+# and well-known, and because the resolution is pinned in requirements.lock rather
+# than re-resolved at build time.
+COPY requirements.lock /opt/qd/requirements.lock
+RUN uv pip install --python /opt/venv/bin/python \
+        --index-strategy unsafe-best-match -r /opt/qd/requirements.lock
+
+COPY verify_fast_path.py /opt/qd/verify_fast_path.py
+
+# NOTE ON THE S1 GATE.
+#
+# The plan gates this image on a 30-second dry run that greps its own log for the fla
+# fallback warning and exits non-zero if present. That check cannot fail: the warning
+# fires on first forward rather than at import, and is suppressed entirely under
+# torch.compile. A compiled run passes the grep whether or not the fast path is live.
+#
+# So there is deliberately NO log-grep healthcheck here. The gate is
+# `verify_fast_path.py --require-fast`, which asserts the fast implementation actually
+# executed during a real forward, and which exits non-zero on `not_run` as well as on
+# failure — an unchecked environment is not a clean one.
+#
+# It is NOT run at build time: it needs a GPU, and the build host has none. It runs as
+# the first step of Session 0 and again at the head of the 8xH100 block.
+CMD ["python", "/opt/qd/verify_fast_path.py", "--require-fast", "--json"]
