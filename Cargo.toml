@@ -1,0 +1,35 @@
+[workspace]
+resolver = "3"
+members = ["crates/qd-mutate", "crates/qd-runtime"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/bharath/qwen-decision"
+rust-version = "1.98"
+
+# Grammar versions are pinned to the set `devmap-extract` already links
+# (DevCouncil/rust/Cargo.toml:105-121), so a function this repo mutates parses
+# identically to one DevMap indexed. Diverging here would mean two tree-sitter
+# ABIs in one toolchain and two answers to "where does this body start".
+[workspace.dependencies]
+tree-sitter = "0.25"
+tree-sitter-rust = "0.23"
+tree-sitter-go = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-swift = "0.7"
+
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+rand = "0.9"
+rand_chacha = "0.9"
+sha2 = "0.10"
+thiserror = "2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

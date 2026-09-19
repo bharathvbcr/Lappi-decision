@@ -1,0 +1,58 @@
+[project]
+name = "qwen-decision"
+version = "0.1.0"
+description = "A general typed decision model: context, a question, and a schema of slots."
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+
+# Deliberately minimal. The heavy training stack (torch, transformers at a pinned
+# main SHA, flash-linear-attention, causal-conv1d, vLLM) is CUDA-only and lives in
+# the Lambda lockfile under `stack/`, NOT here: installing it on this Mac would
+# resolve a CPU/MPS torch and produce a lockfile that does not describe the machine
+# the training actually runs on.
+dependencies = [
+  "numpy>=1.26",
+  "datasketch>=1.6",   # MinHash LSH for the 0.8-Jaccard dedupe
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# What the Mac can actually run: the depth probe, the text-only export, the toy
+# smoke fine-tune, and the teacher rubric iteration.
+mac = [
+  "torch>=2.12",
+  "transformers>=4.57",
+  "safetensors>=0.4",
+]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "hypothesis>=6.100",  # property tests for the splitter and the prompt renderer
+  "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["python/qd_data", "python/qd_train"]
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+pythonpath = ["python"]
+# A test that reports "no tests ran" as success is exactly the failure mode S7
+# exists to catch, so an empty collection is an error here.
+addopts = "-q --strict-markers --strict-config"
+markers = [
+  "gpu: requires CUDA; reported as NOT RUN on this host, never as passed",
+  "slow: over 10s",
+  "network: reaches a dataset host; skipped offline and recorded as not_run",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF", "SIM", "PTH"]

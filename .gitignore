@@ -1,0 +1,32 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Data pool, shards, checkpoints — large, reproducible from manifests.
+# The manifests themselves ARE tracked: they are the provenance record.
+/data/pool/
+/data/shards/
+/data/checkpoints/
+*.npy.gz
+*.safetensors
+*.bin
+
+# Never commit credentials or environment files.
+.env
+.env.*
+*.pem
+*-service-account*.json
+
+# macOS
+.DS_Store
+
+# The ledger is append-only and IS tracked — it is the decision record.
+# Nothing under ledger/ is ignored.
