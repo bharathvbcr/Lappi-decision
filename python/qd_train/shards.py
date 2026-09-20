@@ -35,6 +35,17 @@ A shard set is a directory:
 ``coverage.json``
     What was written and what was left out, as a tri-state. Separate from ``header.json``
     because that file's shape belongs to the contract; see :func:`write_shards`.
+``span_check.json``
+    Whether this set's span rows had their line->token mapping checked against *decoded*
+    text, as a tri-state, and over how many rows. ``write_shards``' ``decode`` argument is
+    optional -- the repo venv has no tokenizer to decode with -- and until this file
+    existed a set written without it was byte-identical to one written with it, down to
+    ``ShardReader.to_json()``, which is what a ledger row carries. So "the only check that
+    does not consult the offsets it is checking was never run" and "it ran and passed" read
+    the same downstream, which is the one thing this repository refuses to let happen.
+    ``NotRun`` when ``decode`` was absent, and ``NotRun`` again when the set holds no span
+    rows at all -- 0 of 0 verified is not a pass, for the same reason
+    ``artifacts.padding_waste`` refuses to score an empty shard set.
 
 **Storing sequences back-to-back on disk is not packing.** Packing means two examples in
 one *training row*, which is what SAFETY-2 forbids: a GDN layer carries recurrent state
@@ -78,6 +89,7 @@ from typing import Any, Final
 import numpy as np
 
 from qd_data.config import DataConfig
+from qd_data.errors import QdRefusal
 from qd_data.render import DEFAULT_CAPS, M_CTX_END, RenderCaps, render
 from qd_data.rows import DataRow, row_content_hash
 from qd_data.schema import NOUL_LETTER, ChoiceSlot, ScoreSlot, Slot, SpanSlot
@@ -110,6 +122,7 @@ __all__ = [
     "MAX_ROWS_PER_BATCH",
     "OFFSETS_NAME",
     "PAD_ID",
+    "SPAN_CHECK_NAME",
     "SUPERVISION_NAME",
     "TOKENS_NAME",
     "Decode",
@@ -130,6 +143,7 @@ TOKENS_NAME: Final[str] = "tokens.u32"
 OFFSETS_NAME: Final[str] = "offsets.npy"
 COVERAGE_NAME: Final[str] = "coverage.json"
 SUPERVISION_NAME: Final[str] = "supervision.npz"
+SPAN_CHECK_NAME: Final[str] = "span_check.json"
 
 #: ``(char_start, char_end)`` per token, aligned one-to-one with ``tokenize``'s output --
 #: the shape a HuggingFace fast tokenizer returns for ``return_offsets_mapping=True``.
@@ -179,6 +193,15 @@ class UnencodableGold(Exception):
     and a span row with no offset mapping to place it. Each is refused rather than
     approximated, because every one of them ends as a training example that teaches
     something specific and wrong while the loss curve looks ordinary.
+
+    It is **not** the only row-level refusal ``write_shards`` handles. ``render`` refuses a
+    context over ``RenderCaps.max_context_bytes``, a whitespace-only context, an over-long
+    option and an over-long rendered prompt, and those are ``QdRefusal``s raised one frame
+    inside :func:`training_texts`. They say the same thing this exception says -- this row
+    cannot become an example -- so ``write_shards`` treats them identically. Measured on
+    2026-09-20 over a real corpus: four of 321 rows carried a context above the cap, and
+    while the ``except`` here named ``UnencodableGold`` alone, ``allow_unencodable=True``
+    did not cover them and the whole write died at the first one with nothing counted.
     """
 
 
@@ -833,12 +856,23 @@ def write_shards(
     ``buckets`` defaults to :func:`choose_buckets` over the measured lengths. ``seed``
     defaults to ``config.seed`` and drives the per-example option shuffle.
 
-    ``allow_unencodable`` governs rows whose gold no ``Batch`` can express -- since the
-    supervision channel landed, that is the **abstaining span** and nothing else (see
-    :class:`UnencodableGold`). The default refuses the whole write. Passing ``True`` writes
-    the rest and records the exclusion in ``coverage.json`` as a ``Ran`` whose ``n`` and
-    ``n_total`` carry *both* numbers, so a partial corpus can never be read as a complete
-    one; ``ShardReader.coverage`` surfaces it. It is never silent and never a substitution.
+    Whether ``decode`` was supplied is itself recorded, in ``span_check.json``, because a
+    check that did not run must not read as one that ran and passed -- and without that
+    file the two writes produce byte-identical artifacts.
+
+    ``allow_unencodable`` governs rows this writer cannot turn into a sequence: a gold no
+    ``Batch`` can express (see :class:`UnencodableGold`) **and** a row ``render`` refuses
+    outright -- over the context cap, whitespace-only, over the option or rendered-prompt
+    cap. Both are row-level and neither is recoverable by guessing, so both are handled the
+    same way. A ``ShardContractViolation`` and a dropped token are deliberately *not* in
+    that set: those say the artifacts disagree with each other, not that one row is
+    unusable, and absorbing them would turn a contract fault into a smaller corpus.
+
+    The default refuses the whole write and re-raises the original exception. Passing
+    ``True`` writes the rest and records the exclusion in ``coverage.json`` as a ``Ran``
+    whose ``n`` and ``n_total`` carry *both* numbers, so a partial corpus can never be read
+    as a complete one; ``ShardReader.coverage`` surfaces it, and the detail names what
+    refused each row. It is never silent and never a substitution.
     """
     manifest_path = Path(manifest_path)
     out_dir = Path(out_dir)
@@ -881,6 +915,7 @@ def write_shards(
     candidates: list[tuple[int, ...]] = []
     excluded: list[str] = []
     total_tokens = 0
+    n_span_sequences = 0
     for row in ordered:
         # A row is written whole or not at all. Its slots are one example's supervision, so
         # committing the ones that encoded and dropping the rest would leave a corpus that
@@ -918,10 +953,17 @@ def write_shards(
                     staged.append(
                         (new_ids, where, spec.slot_kind, projected[0], projected[1])
                     )
-        except UnencodableGold as exc:
+        except (UnencodableGold, QdRefusal) as exc:
+            # QdRefusal alongside UnencodableGold: `render` refuses an over-cap context, a
+            # whitespace-only one, an over-long option and an over-long prompt, and those
+            # arrive from inside `training_texts`. They are row-level refusals with the
+            # same meaning, and naming only UnencodableGold here made `allow_unencodable`
+            # -- the mechanism that carries both numbers -- blind to a class real corpora
+            # actually produce. ShardContractViolation and TokenNotInRemap are outside
+            # QdRefusal by construction and still escape: those are contract faults.
             if not allow_unencodable:
                 raise
-            excluded.append(f"{row.row_id}: {exc}")
+            excluded.append(f"{row.row_id}: {type(exc).__name__}: {exc}")
             continue
 
         for new_ids, where, kind, span, cands in staged:
@@ -931,6 +973,7 @@ def write_shards(
             spans.append(span)
             candidates.append(cands)
             total_tokens += int(new_ids.size)
+            n_span_sequences += 1 if kind == SLOT_SPAN else 0
             if len(sequences) > max_sequences:
                 raise ShardContractViolation(
                     f"{manifest_path}: over the {max_sequences} sequence bound at {where}"
@@ -1018,6 +1061,13 @@ def write_shards(
         + "\n",
         encoding="utf-8",
     )
+    (out_dir / SPAN_CHECK_NAME).write_text(
+        json.dumps(
+            _span_check(n_span_sequences, decode=decode).to_json(), indent=2, sort_keys=True
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     return header
 
 
@@ -1038,9 +1088,52 @@ def _coverage(n_rows_in: int, excluded: list[str]) -> TriState:
         n=written,
         n_total=n_rows_in,
         detail=(
-            f"{len(excluded)} of {n_rows_in} row(s) were excluded because their gold "
-            "cannot be expressed as a final answer token; see UnencodableGold and "
-            "GAP-S4-SPAN-GOLD-HAS-NO-BATCH-CHANNEL. First: " + "; ".join(excluded[:3])
+            f"{len(excluded)} of {n_rows_in} row(s) could not be turned into a sequence -- "
+            "either a gold no Batch can express (UnencodableGold, "
+            "GAP-S4-SPAN-GOLD-HAS-NO-BATCH-CHANNEL) or a row render refused outright, over "
+            "a cap or empty. Each exclusion below names which. First: "
+            + "; ".join(excluded[:3])
+        ),
+    )
+
+
+def _span_check(n_span_sequences: int, *, decode: Decode | None) -> TriState:
+    """Whether this set's span mapping was checked against decoded text, and over how many.
+
+    Three answers, never two. A set with no span rows is ``NotRun`` rather than a pass:
+    0 of 0 verified says nothing, and ``artifacts.padding_waste`` refuses an empty input on
+    exactly the same ground. A set written without ``decode`` is ``NotRun`` because that
+    check did not execute -- ``NotRun`` has no ``passed`` field to be misread as one.
+    """
+    if n_span_sequences == 0:
+        return NotRun(
+            reason=(
+                "this shard set holds no SLOT_SPAN sequences, so there was no line-to-token "
+                "mapping to verify. 0 of 0 verified is not a pass."
+            )
+        )
+    if decode is None:
+        return NotRun(
+            reason=(
+                f"write_shards was called without decode=, so the {n_span_sequences} span "
+                "sequence(s) here had their gold and candidate positions checked only "
+                "against the offset mapping they were derived from. That circle is "
+                "GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT: a mapping that is "
+                "consistently wrong moves gold and candidates together and every other "
+                "check stays green. Supplying decode= is what "
+                "GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED asks for."
+            )
+        )
+    return Ran(
+        passed=True,
+        value=n_span_sequences,
+        n=n_span_sequences,
+        n_total=n_span_sequences,
+        detail=(
+            "every span sequence's gold positions and full candidate set were checked "
+            "against tokenizer.decode: each checked token decodes to the characters its "
+            "offsets claim, the ids round-trip to the text the spans were measured "
+            "against, and every recorded candidate is a line start of that decoded text"
         ),
     )
 
@@ -1141,6 +1234,25 @@ class ShardReader:
                     f"{coverage_path} is absent, so how much of the manifest reached this "
                     "shard set was not recorded. Absent coverage is unknown coverage, not "
                     "full coverage."
+                )
+            )
+
+        span_check_path = self.root / SPAN_CHECK_NAME
+        if span_check_path.exists():
+            self.span_check: TriState = parse_tristate(
+                json.loads(span_check_path.read_text(encoding="utf-8")),
+                field=f"{span_check_path}",
+            )
+        else:
+            # Absent on every shard set written before the file existed, and on any written
+            # by something else. Unknown, never verified -- the same rule coverage follows,
+            # and the reason the file was added at all.
+            self.span_check = NotRun(
+                reason=(
+                    f"{span_check_path} is absent, so whether this set's span mapping was "
+                    "ever checked against decoded text was not recorded. Unverified and "
+                    "unrecorded read the same here only because the writer said nothing; "
+                    "not_run is the honest reading of silence."
                 )
             )
 
@@ -1381,5 +1493,6 @@ class ShardReader:
             "header": self.header.to_json(),
             "checks": {k: v.to_json() for k, v in sorted(self.checks.items())},
             "coverage": self.coverage.to_json(),
+            "span_check": self.span_check.to_json(),
             "padding_waste": self.padding_waste().to_json(),
         }

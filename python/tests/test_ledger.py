@@ -965,3 +965,58 @@ def test_a_complete_run_still_carries_its_coverage_pair():
     pyt = parse_pytest_output(PYTEST_SAMPLE)
     assert pyt is not None and pyt.collection_complete is True
     assert pyt.as_tristate(exit_code=0).coverage_str() == "1104/1111"
+
+
+# ---------------------------------------------------------------------------
+# The device a row claims is the device the run used
+# ---------------------------------------------------------------------------
+
+
+def test_detect_reports_the_device_the_run_chose_not_the_host_ceiling():
+    """A run placed on a device must not be recorded as the host's best device.
+
+    Measured before `detect` took a device: `tools/rung0_toy_run.py` ran the same toy
+    schedule three times on `mps` and three times on `cpu`, and all six rows said
+    `device: "mps"` -- because `detect` answered `torch.backends.mps.is_available()`,
+    which is a fact about the host and the same for every run on it. A ledger whose rows
+    all name one device cannot be read back for a comparison between two.
+    """
+    from qd_train.ledger import Environment as Env
+
+    for chosen in ("cpu", "mps", "cuda:8xH100-80GB"):
+        assert Env.detect(device=chosen).device == chosen
+
+
+def test_detect_still_auto_detects_when_no_device_is_chosen():
+    """The control. A `device` parameter that silently became mandatory, or that turned
+    auto-detection off, would break `record_build_run` -- whose row should carry what the
+    host is, because it never chose anything."""
+    import importlib.util
+
+    auto = Environment.detect().device
+    if importlib.util.find_spec("torch") is None:
+        assert auto == "cpu"
+    else:
+        import torch as _torch
+
+        expected = "mps" if _torch.backends.mps.is_available() else "cpu"
+        assert auto == expected or auto.startswith("cuda:")
+
+
+def test_a_recorded_row_carries_the_device_it_was_given():
+    """End to end: the parameter has to survive into the written row, not just the object."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as raw:
+        ledger = Ledger(Path(raw) / "runs.jsonl")
+        with RunRecorder(
+            ledger,
+            protocol=_protocol(seed=0),
+            run_kind="smoke",
+            repo=Path(raw),
+            env=Environment.detect(device="cpu"),
+            quick=True,
+            quick_reason="device-provenance test",
+        ):
+            pass
+        assert ledger.rows()[0].env.device == "cpu"

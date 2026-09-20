@@ -44,6 +44,27 @@ is fine". The **span** of a clean example is ``None``, and *that* is a genuine `
 ``generate.rs`` says clean "points at nothing because nothing was found". So a clean example
 supervises the choice slot with a real label and the span slot with an abstention, which is
 the shape that teaches the span head when to abstain at all.
+
+## Rule 3's door for rung 0
+
+:func:`read_examples` is where a rung 0 corpus becomes trainable rows, so it is a door in
+the sense ``CLAUDE.md`` rule 3 means: *"held-out data and the two task-holdout families are
+never read by a training process. A path check in qd-train refuses them."* The S4 path has
+two such doors and both carry the check -- ``qd_train.shards.write_shards`` through
+``open_training_data`` for the manifest, and ``qd_train.artifacts.assert_shard_trainable``
+for the shard, the second added precisely because *"without this the held-out check is
+satisfied on paper and bypassed by indirection"*.
+
+Rung 0 does not go through either. It reads a qd-mutate JSONL directly, so measured against
+this module before the check was added, ``data/heldout/mutate.jsonl`` was refused by
+``assert_path_not_held_out`` and **admitted** by ``read_examples``, which turned it into
+trainable ``ByteDecision``s. :func:`read_examples` now calls the same function the other two
+doors call -- not a second implementation of the rule, which is how two doors come to
+disagree about what "held out" means.
+
+``config`` and ``repo_root`` are **required** keyword arguments. An optional check defaults
+to off, and ``qd_data.config.DataConfig`` already refuses an empty ``held_out_roots`` on the
+same reasoning: a check with nothing to refuse is the check disabled, not the check passing.
 """
 
 from __future__ import annotations
@@ -54,7 +75,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from qd_data.config import DataConfig
+
 from .byte_context import EncodedContext, SpanOutsideWindow, encode_context, line_starts
+from .data_access import assert_path_not_held_out
 
 __all__ = [
     "CLEAN",
@@ -217,12 +241,25 @@ def parse_example(obj: dict[str, Any]) -> MutateExample:
     )
 
 
-def read_examples(path: Path) -> Iterator[MutateExample]:
+def read_examples(
+    path: Path, *, config: DataConfig, repo_root: Path
+) -> Iterator[MutateExample]:
     """Stream a JSONL file. A bad line names its line number and stops the read.
 
     Stops rather than skips: a corpus with silently dropped rows has a coverage number nobody
     can reconstruct, which is the failure `n`/`n_total` exists to prevent.
+
+    Rule 3 is enforced **before** the file is opened, by
+    :func:`qd_train.data_access.assert_path_not_held_out` -- the same function the manifest
+    and shard doors call. Checking the intent to read rather than the read itself is what
+    makes the refusal independent of whether the path exists; see this module's docstring for
+    why rung 0 needs a door of its own at all.
+
+    Raises:
+        qd_data.errors.HeldOutViolation: ``path`` is at or under a configured held-out root,
+            or any of its segments is a held-out marker.
     """
+    assert_path_not_held_out(Path(path), config=config, repo_root=Path(repo_root))
     with path.open(encoding="utf-8") as fh:
         for lineno, line in enumerate(fh, 1):
             line = line.strip()

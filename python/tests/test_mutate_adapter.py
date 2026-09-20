@@ -14,6 +14,8 @@ from pathlib import Path
 import pytest
 from data_fixtures import mutate_row as row
 
+from qd_data.config import DataConfig
+from qd_data.errors import HeldOutViolation
 from qd_train.byte_context import SpanOutsideWindow, line_starts
 from qd_train.mutate_adapter import (
     CLEAN,
@@ -226,27 +228,93 @@ def test_a_gold_outside_the_option_set_is_unanswerable():
         to_decision(ex, max_context_bytes=512, options=("stub", "clean"))
 
 
+def _corpus(tmp_path: Path, *lines: str, name: str = "ex.jsonl") -> Path:
+    """Write a JSONL corpus and return its path. ``read`` opens it under a clean config."""
+    p = tmp_path / name
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("".join(lines), encoding="utf-8")
+    return p
+
+
+def read(path: Path) -> list:
+    """``read_examples`` with the default holdout, rooted at the corpus's own directory.
+
+    Named once so the rule-3 arguments are not restated in every call site, and so the
+    held-out cases below differ from the ordinary ones in the *path* and nothing else.
+    """
+    return list(read_examples(path, config=DataConfig(), repo_root=path.parent))
+
+
 def test_read_examples_names_the_line_it_could_not_read(tmp_path: Path):
-    p = tmp_path / "ex.jsonl"
-    p.write_text(json.dumps(row()) + "\n" + "{not json\n", encoding="utf-8")
+    p = _corpus(tmp_path, json.dumps(row()) + "\n", "{not json\n")
     with pytest.raises(MalformedExample, match=r"ex\.jsonl:2: not JSON"):
-        list(read_examples(p))
+        read(p)
 
 
 def test_read_examples_stops_rather_than_skipping_a_bad_row(tmp_path: Path):
     """A silently skipped row makes the corpus size unreconstructable."""
-    p = tmp_path / "ex.jsonl"
     bad = row(id="ex-2")
     del bad["seed"]
-    p.write_text(json.dumps(row()) + "\n" + json.dumps(bad) + "\n", encoding="utf-8")
+    p = _corpus(tmp_path, json.dumps(row()) + "\n", json.dumps(bad) + "\n")
     with pytest.raises(MalformedExample, match=r"ex\.jsonl:2:.*'seed'"):
-        list(read_examples(p))
+        read(p)
 
 
 def test_blank_lines_are_skipped(tmp_path: Path):
-    p = tmp_path / "ex.jsonl"
-    p.write_text("\n" + json.dumps(row()) + "\n\n", encoding="utf-8")
-    assert len(list(read_examples(p))) == 1
+    p = _corpus(tmp_path, "\n", json.dumps(row()) + "\n", "\n")
+    assert len(read(p)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Rule 3: rung 0's door
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("marker", ["heldout", "held_out", "held-out"])
+def test_read_examples_refuses_a_held_out_corpus(tmp_path: Path, marker: str):
+    """Rule 3 at rung 0's door, which is the door rung 0 actually uses.
+
+    Measured against this module before the check existed: ``assert_path_not_held_out``
+    refused ``data/heldout/mutate.jsonl`` while ``read_examples`` parsed it and
+    ``to_decision`` turned it into a trainable ``ByteDecision``. The S4 path carries the
+    same check twice -- at the manifest and again at the shard, the second one added
+    because the first could be bypassed by indirection -- and rung 0 carried it nowhere.
+
+    Parametrised over every marker ``DataConfig`` declares, because a check that fires on
+    one spelling of the directory and not the others is the check working by luck.
+    """
+    p = _corpus(tmp_path, json.dumps(row()) + "\n", name=f"data/{marker}/mutate.jsonl")
+    with pytest.raises(HeldOutViolation, match="rule 3"):
+        list(read_examples(p, config=DataConfig(), repo_root=tmp_path))
+
+
+def test_read_examples_refuses_before_it_opens_the_file(tmp_path: Path):
+    """The refusal is about the intent to read, not about a successful read.
+
+    A check that only fired on an existing file would pass silently for a path typo and
+    would let a corpus be admitted the moment someone created it.
+    """
+    missing = tmp_path / "data" / "heldout" / "does-not-exist.jsonl"
+    assert not missing.exists()
+    with pytest.raises(HeldOutViolation, match="rule 3"):
+        list(read_examples(missing, config=DataConfig(), repo_root=tmp_path))
+
+
+def test_read_examples_refuses_a_path_that_climbs_into_the_held_out_tree(tmp_path: Path):
+    """Layer 1 is compared on resolved paths, so ``train/../heldout`` does not launder one."""
+    _corpus(tmp_path, json.dumps(row()) + "\n", name="data/heldout/mutate.jsonl")
+    (tmp_path / "data" / "train").mkdir(parents=True, exist_ok=True)
+    sneaky = tmp_path / "data" / "train" / ".." / "heldout" / "mutate.jsonl"
+    with pytest.raises(HeldOutViolation, match="rule 3"):
+        list(read_examples(sneaky, config=DataConfig(), repo_root=tmp_path))
+
+
+def test_read_examples_admits_an_ordinary_corpus_under_the_same_config(tmp_path: Path):
+    """The control. Without it the four refusals above are also satisfied by a door that
+    refuses everything, which would be a rule 3 that passes by training on nothing."""
+    p = _corpus(tmp_path, json.dumps(row()) + "\n", name="data/train/mutate.jsonl")
+    got = list(read_examples(p, config=DataConfig(), repo_root=tmp_path))
+    assert len(got) == 1
 
 
 # ---------------------------------------------------------------------------

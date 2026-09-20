@@ -34,11 +34,11 @@ from data_fixtures import small_corpus
 
 from qd_data.config import DataConfig
 from qd_data.dedupe import dedupe
-from qd_data.errors import EmptyContextRefusal, HeldOutViolation
+from qd_data.errors import ContextTooLargeRefusal, EmptyContextRefusal, HeldOutViolation
 from qd_data.manifest import Manifest, build_manifests
 from qd_data.mixture import _line_span as mixture_line_span
 from qd_data.mixture import build_mixture
-from qd_data.render import render
+from qd_data.render import ESCAPE_WORST_CASE_GROWTH, RenderCaps, render
 from qd_data.rows import DataRow
 from qd_data.schema import Request, SpanSlot
 from qd_data.split import HELD_OUT, split
@@ -65,6 +65,7 @@ from qd_train.shards import (
     HEADER_NAME,
     MAX_ROWS_PER_BATCH,
     PAD_ID,
+    SPAN_CHECK_NAME,
     SUPERVISION_NAME,
     TOKENS_NAME,
     SequenceSpec,
@@ -417,6 +418,145 @@ def test_an_unencodable_row_is_still_counted_in_coverage_never_dropped_quietly(
     assert isinstance(coverage, Ran)
     assert coverage.n is not None and coverage.n < coverage.n_total == 106
     assert not coverage.passed and not coverage.is_complete_coverage
+
+
+def _caps_refusing_the_longest_contexts(rows: Sequence[DataRow]) -> tuple[RenderCaps, int]:
+    """Caps tight enough to refuse some of these rows and loose enough to admit others.
+
+    Derived from the corpus rather than written as a constant: a constant that drifts above
+    every context refuses nothing and the test passes while measuring nothing, which is the
+    vacuous-pass shape this repo keeps finding in its own gates. The count of rows over the
+    cap is returned so the caller can assert the case is actually exercised.
+    """
+    sizes = sorted(len(r.request.context) for r in rows)
+    cap = max(sizes[len(sizes) // 2], 512)
+    caps = RenderCaps(
+        max_context_bytes=cap,
+        max_option_bytes=min(512, cap),
+        max_rendered_bytes=ESCAPE_WORST_CASE_GROWTH * cap + 8192,
+    )
+    return caps, sum(1 for n in sizes if n > cap)
+
+
+def test_a_row_the_renderer_refuses_is_excluded_and_counted_not_fatal(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """A row over the render caps must be counted like any other unwritable row.
+
+    Measured against a real corpus on 2026-09-20: four of this repository's own
+    ``(commit, path)`` pairs carry a context above ``RenderCaps.max_context_bytes``, and
+    ``ContextTooLargeRefusal`` is a ``QdRefusal``, not an ``UnencodableGold``. The writer's
+    ``except`` named only the latter, so ``allow_unencodable=True`` -- documented as
+    "writes the rest and records the exclusion ... never silent" -- did not cover it: the
+    whole write died at that row, after 316 rows of tokenization, with no ``coverage.json``
+    written and no count of what was refused.
+
+    The refusal itself is right; a context over the cap must never be truncated. What is
+    wrong is that it was outside the one mechanism that carries both numbers.
+    """
+    rows = snapshot.rows["train"]
+    caps, n_over = _caps_refusing_the_longest_contexts(rows)
+    assert 0 < n_over < len(rows), (
+        f"the cap must refuse some rows and admit others; it refuses {n_over} of {len(rows)}"
+    )
+
+    out = tmp_path / "shards" / "over-cap"
+    header = _write(snapshot, "train", out, caps=caps, allow_unencodable=True)
+    assert header.n_sequences == len(rows) - n_over
+
+    reader = ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
+    coverage = reader.coverage
+    assert isinstance(coverage, Ran)
+    assert coverage.n == len(rows) - n_over and coverage.n_total == len(rows)
+    assert not coverage.passed and not coverage.is_complete_coverage
+    assert "at most" in (coverage.detail or ""), (
+        "the exclusion must name why the row was refused, not only that it was: "
+        f"{coverage.detail!r}"
+    )
+
+
+def test_a_renderer_refusal_without_the_flag_still_refuses_the_whole_write(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """The default is unchanged: no flag, no partial corpus, and the original exception."""
+    caps, n_over = _caps_refusing_the_longest_contexts(snapshot.rows["train"])
+    assert n_over > 0
+    out = tmp_path / "shards" / "nope"
+    with pytest.raises(ContextTooLargeRefusal):
+        _write(snapshot, "train", out, caps=caps)
+    assert not out.exists(), "refused, and nothing was written"
+
+
+def test_a_shard_set_records_whether_its_span_mapping_was_decode_verified(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """``decode=`` is optional, and a shard set written without it looked identical.
+
+    ``write_shards``' own docstring: *"a real-tokenizer run passes it, and a run that omits
+    it has not had its span mapping verified."* Measured on 2026-09-20 with the real Qwen
+    tokenizer: writing the same corpus with ``decode=`` and without produced a
+    byte-identical ``header.json`` (modulo ``created_at``), a byte-identical
+    ``coverage.json``, and an identical ``ShardReader.to_json()`` -- which is what a ledger
+    row records. So the one check that does not consult the offsets it is checking
+    (``GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED``, and
+    ``GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT`` for why nothing else can) left no
+    trace of having run, and a shard set whose spans were never verified reads downstream
+    exactly like one whose spans were.
+    """
+    checked = tmp_path / "shards" / "decoded"
+    unchecked = tmp_path / "shards" / "undecoded"
+    _write(snapshot, "train", checked, decode=byte_decode)
+    _write(snapshot, "train", unchecked)
+
+    a = ShardReader(checked, config=snapshot.config, repo_root=snapshot.root).to_json()
+    b = ShardReader(unchecked, config=snapshot.config, repo_root=snapshot.root).to_json()
+    assert "span_check" in a, (
+        "a shard set must state whether its span mapping was verified against decoded "
+        f"text; to_json() carries only {sorted(a)}"
+    )
+    assert a["span_check"]["state"] == "ran" and a["span_check"]["passed"] is True
+    assert b["span_check"]["state"] == "not_run", (
+        "a write with no decode= never ran that check, and not_run is the only honest "
+        f"answer; got {b['span_check']}"
+    )
+    assert "passed" not in b["span_check"], "NotRun has no passed to misread"
+    assert a["span_check"]["n"] == a["span_check"]["n_total"] > 0, (
+        "the check must carry how many span rows it actually verified"
+    )
+
+
+def test_a_missing_span_check_reads_as_not_run_not_as_verified(
+    train_shards: tuple[Snapshot, Path, ShardHeader],
+) -> None:
+    """Every shard set written before this file existed has no such file. Silence is
+    ``NotRun``, the same rule ``coverage.json``'s absence follows."""
+    snap, out, _ = train_shards
+    (out / SPAN_CHECK_NAME).unlink()
+    fresh = ShardReader(out, config=snap.config, repo_root=snap.root)
+    assert isinstance(fresh.span_check, NotRun)
+    assert not hasattr(fresh.span_check, "passed")
+
+
+def test_a_split_with_no_span_rows_reports_the_span_check_as_not_run(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """0 of 0 verified is not a pass.
+
+    ``artifacts.padding_waste`` refuses to score an empty shard set for the same reason,
+    and ``all([])`` being ``True`` is that trap one level down. A span check reported as
+    passed over a set with no span in it would make the strongest statement this writer can
+    make about spans available to every set that has none.
+    """
+    rows = snapshot.rows["val"]
+    assert rows and not any(
+        isinstance(slot, SpanSlot) for r in rows for slot in r.request.slots
+    ), "this case needs a non-empty split that holds no span row"
+
+    out = tmp_path / "shards" / "val"
+    _write(snapshot, "val", out, decode=byte_decode)
+    reader = ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
+    assert isinstance(reader.span_check, NotRun)
+    assert "0 of 0" in reader.span_check.reason
 
 
 def test_a_context_whose_lines_share_one_token_is_refused(
@@ -1450,3 +1590,8 @@ def test_to_json_carries_the_checks_the_coverage_and_the_gate(reader: ShardReade
     assert payload["checks"]["shard_not_packed"]["passed"] is True
     assert payload["padding_waste"]["state"] == "ran"
     assert payload["coverage"]["n_total"] == payload["coverage"]["n"] == 106
+    # The `reader` fixture writes without decode=, so this set's span mapping was never
+    # checked against decoded text -- and a ledger row built from this payload has to say
+    # so rather than being silent about it.
+    assert payload["span_check"]["state"] == "not_run"
+    assert "passed" not in payload["span_check"]

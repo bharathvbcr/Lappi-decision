@@ -244,23 +244,45 @@ class Environment:
         }
 
     @classmethod
-    def detect(cls, *, transformers_sha: str = "unknown") -> Self:
+    def detect(cls, *, transformers_sha: str = "unknown", device: str | None = None) -> Self:
+        """The environment a row was produced in.
+
+        ``device`` is the device the run **used**, and a caller that chose one must say so.
+        Without it this method reports the best device the *host* offers, which is the same
+        answer for every run on that host -- so a run deliberately placed on ``cpu`` for a
+        comparison against ``mps`` produced two rows both claiming ``mps``, and the
+        comparison was unfalsifiable from the ledger alone. Measured on this host before the
+        parameter existed: three ``cpu`` runs and three ``mps`` runs, six rows, all saying
+        ``device: "mps"``.
+
+        Auto-detection remains the default because it is right for the caller that never
+        chooses -- ``record_build_run`` compiles and runs a test suite, and "what this host
+        is" is exactly what its row should carry.
+
+        Args:
+            transformers_sha: the transformers commit this run used, if known.
+            device: the device the run actually used, verbatim. ``None`` auto-detects the
+                host's best device.
+        """
         try:
             import torch as _torch
 
             torch_v = _torch.__version__
-            if _torch.cuda.is_available():
-                device = f"cuda:{_torch.cuda.device_count()}x{_torch.cuda.get_device_name(0)}"
+            if device is not None:
+                detected = device
+            elif _torch.cuda.is_available():
+                detected = f"cuda:{_torch.cuda.device_count()}x{_torch.cuda.get_device_name(0)}"
             elif getattr(_torch.backends, "mps", None) and _torch.backends.mps.is_available():
-                device = "mps"
+                detected = "mps"
             else:
-                device = "cpu"
+                detected = "cpu"
         except ImportError:
-            torch_v, device = "not-installed", "cpu"
+            torch_v = "not-installed"
+            detected = device if device is not None else "cpu"
         return cls(
             torch=torch_v,
             transformers_sha=transformers_sha,
-            device=device,
+            device=detected,
             host=socket.gethostname(),
         )
 
