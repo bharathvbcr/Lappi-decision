@@ -1,0 +1,81 @@
+{
+  "device": "NVIDIA GH200 480GB",
+  "recipe": "master",
+  "optimizer_spec": {
+    "name": "AdamW+master",
+    "states_per_param": 2,
+    "state_bytes": 4,
+    "keeps_fp32_master": true
+  },
+  "optimizer_state_bytes_measured": 15054601984,
+  "optimizer_state_bytes_per_param_measured": 8.000000680190741,
+  "optimizer_state_bytes_per_param_described": 8,
+  "spec_agrees_with_measurement": true,
+  "results": [
+    {
+      "width": 2048,
+      "rows": 1,
+      "measured_bytes": 45239441920,
+      "first_step_bytes": 45239441920,
+      "predicted_backbone_bytes": 38023426304,
+      "ratio_predicted_over_measured": 0.8404928241873414,
+      "excluded_from_prediction": {
+        "loss_head_bytes": 2168455168,
+        "score_matrix_bytes": 0,
+        "safety_bytes": 135423590
+      }
+    },
+    {
+      "width": 4096,
+      "rows": 1,
+      "measured_bytes": 45247846912,
+      "first_step_bytes": 45247846912,
+      "predicted_backbone_bytes": 38409302272,
+      "ratio_predicted_over_measured": 0.8488647503316589,
+      "excluded_from_prediction": {
+        "loss_head_bytes": 2168455168,
+        "score_matrix_bytes": 0,
+        "safety_bytes": 270480179
+      }
+    },
+    {
+      "width": 8192,
+      "rows": 1,
+      "measured_bytes": 45264656896,
+      "first_step_bytes": 45264656896,
+      "predicted_backbone_bytes": 39181054208,
+      "ratio_predicted_over_measured": 0.8655992753468191,
+      "excluded_from_prediction": {
+        "loss_head_bytes": 2168455168,
+        "score_matrix_bytes": 0,
+        "safety_bytes": 540593356
+      }
+    },
+    {
+      "width": 14759,
+      "rows": 1,
+      "measured_bytes": 45292474368,
+      "first_step_bytes": 45299473408,
+      "predicted_backbone_bytes": 40418382080,
+      "ratio_predicted_over_measured": 0.8923862660185411,
+      "excluded_from_prediction": {
+        "loss_head_bytes": 2168455168,
+        "score_matrix_bytes": 0,
+        "safety_bytes": 973658111
+      }
+    },
+    {
+      "width": 34522,
+      "rows": 1,
+      "measured_bytes": 45373026816,
+      "first_step_bytes": 45374904832,
+      "predicted_backbone_bytes": 44142047488,
+      "ratio_predicted_over_measured": 0.9728697992092977,
+      "excluded_from_prediction": {
+        "loss_head_bytes": 2168455168,
+        "score_matrix_bytes": 0,
+        "safety_bytes": 2276941004
+      }
+    }
+  ]
+}

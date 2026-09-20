@@ -119,9 +119,27 @@ class OptimizerSpec:
             raise ValueError(f"state_bytes must be positive, got {self.state_bytes}")
 
     def bytes_per_param(self, *, param_bytes: int, grad_bytes: int) -> int:
-        """Weights + gradients + states + any fp32 master copy, per trainable parameter."""
+        """Weights + gradients + states + any fp32 master copy, per trainable parameter.
+
+        A master recipe costs **8** more bytes per parameter than one without, not 4: the
+        fp32 master *and* the fp32 gradient it is stepped with, because an optimizer over
+        fp32 masters cannot consume a bf16 gradient and both copies are live when it steps.
+        Measured on a GH200 at rows=1 width=2048 over 1,881,825,088 parameters: the stage
+        between "forward + backward" and "optimizer step" adds exactly 7.01 GiB = 4.00
+        B/param, on top of the 7.01 GiB the masters already cost. bf16 weights and grads
+        under this recipe are therefore 2+2+4+8+4 = **20** B/param -- 35.05 GiB, which is
+        the enumerated total ``tools/master_overhead.py`` measures to the digit -- and not
+        the 16 B/param this returned before that run.
+        """
         master = 4 if self.keeps_fp32_master else 0
-        return param_bytes + grad_bytes + self.states_per_param * self.state_bytes + master
+        grad_cast = 4 if self.keeps_fp32_master else 0
+        return (
+            param_bytes
+            + grad_bytes
+            + grad_cast
+            + self.states_per_param * self.state_bytes
+            + master
+        )
 
 
 #: What ``tools/ft_toy_run.py:271``, ``tools/real_ft_run.py:574``, ``tools/rung0_toy_run.py:393``
@@ -530,7 +548,14 @@ def estimate_step(
         rows=rows,
         width=width,
         param_bytes=trainable * p_bytes,
-        grad_bytes=trainable * g_bytes,
+        # An fp32-master recipe cannot step on fp32 masters with low-precision gradients, so
+        # every gradient is cast up and BOTH copies are live when the optimizer steps. That
+        # second copy is 4 B/param and this model did not carry it: measured on a GH200 at
+        # rows=1 width=2048, the stage between "forward + backward" and "optimizer step"
+        # adds exactly 7.01 GiB over 1,881,825,088 parameters, which is 4.00 B/param.
+        # Leaving it out made the budget under-state the master recipe by 49% -- past the
+        # 35% safety allowance, in the direction that says a run fits when it does not.
+        grad_bytes=trainable * (g_bytes + 4 if optimizer.keeps_fp32_master else g_bytes),
         optimizer_bytes=trainable * optimizer.states_per_param * optimizer.state_bytes,
         master_bytes=trainable * 4 if optimizer.keeps_fp32_master else 0,
         activation_bytes=activation_bytes,

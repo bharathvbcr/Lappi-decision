@@ -111,6 +111,7 @@ from .memory import (
     StepFootprint,
     estimate_step,
 )
+from .optim import build_optimizer
 from .remap import RemapApplication, apply_remap_to_model
 from .trainer import Supervision
 
@@ -402,8 +403,13 @@ def load_text_tower(
                 "torch.optim.AdamW keeps exp_avg and exp_avg_sq in the parameter's own dtype "
                 "with no fp32 master. The budget would describe a layout nothing builds. Pass "
                 f"a spec whose state_bytes is {state_should_be} (ADAMW_BF16 for bf16, "
-                "ADAMW_FP32 for fp32), or a spec with keeps_fp32_master=True once a recipe "
-                "implements one -- which is the unmade decision, not a default to inherit."
+                "ADAMW_FP32 for fp32), or a spec with keeps_fp32_master=True, which "
+                "qd_train.optim.MasterWeightAdamW now implements -- and which is the "
+                "numerically correct choice for a long run, measured: at beta2=0.999 a bf16 "
+                "exp_avg_sq settles at 0.5 against a true 1.0 after 383 steps and cannot "
+                "recover when the gradient scale changes (tools/moment_precision.py). It "
+                "costs 16 B/param against 8. That is a recipe decision, not a default to "
+                "inherit, which is why nothing here picks it for you."
             )
 
     try:
@@ -718,7 +724,13 @@ class QwenDecisionStep:
         )
         self._nn = nn
         self._torch = torch
-        self.optimizer = torch.optim.AdamW(list(self.parameters()), lr=lr)
+        # Built from the tower's OWN spec rather than hardcoded. `load_text_tower` validates
+        # that spec against the tower's dtype and then this line ignored it, constructing a
+        # plain AdamW whatever the caller asked for -- so a run could pass
+        # keeps_fp32_master=True, have it accepted, and train with bf16 moments anyway. A
+        # spec that is checked and then discarded is worse than no spec: it reads as a
+        # guarantee.
+        self.optimizer = build_optimizer(list(self.parameters()), spec=tower.optimizer, lr=lr)
         #: Component losses per micro-batch. ``TrainResult.loss_log`` carries the combined
         #: number only, and a falling total with a flat span term is a model that learned
         #: the letter and nothing about *where*.

@@ -48,7 +48,7 @@ from qd_train.backbone import (  # noqa: E402
     text_tensor_index,
 )
 from qd_train.ledger import Environment, Ledger, Protocol, RunRecorder  # noqa: E402
-from qd_train.memory import ADAMW_FP32, ModelSpec  # noqa: E402
+from qd_train.memory import ADAMW_BF16, ADAMW_FP32, ModelSpec  # noqa: E402
 from qd_train.remap import build_remap  # noqa: E402
 from qd_train.run_control import (  # noqa: E402
     CostEstimate,
@@ -56,7 +56,12 @@ from qd_train.run_control import (  # noqa: E402
     RunControl,
     WallClockCap,
 )
-from qd_train.trainer import SpanScoringStep, TrainStep, train_ft  # noqa: E402
+from qd_train.trainer import (  # noqa: E402
+    SpanScoringStep,
+    TrainStep,
+    ft_supervision,
+    train_ft,
+)
 from qd_train.tristate import NotRun  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
@@ -142,14 +147,17 @@ def _write_tiny_snapshot(dirpath: Path, *, seed: int = 0):
 
 
 def _tiny_tower(tmp_path: Path, *, gradient_checkpointing: bool = True, **kwargs):
+    # `optimizer` and `dtype` are defaults rather than fixed arguments so a test can ask for
+    # a bf16 tower under the fp32-master recipe; every existing caller passes neither and is
+    # unaffected.
+    kwargs.setdefault("optimizer", ADAMW_FP32)
+    kwargs.setdefault("dtype", "fp32")
     reference = _write_tiny_snapshot(tmp_path / "snapshot")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", GradientCheckpointingDisabled)
         tower = load_text_tower(
             tmp_path / "snapshot",
             gradient_checkpointing=gradient_checkpointing,
-            optimizer=ADAMW_FP32,
-            dtype="fp32",
             rows=1,
             width=64,
             spec=_tiny_spec(),
@@ -676,3 +684,53 @@ def test_a_state_that_lost_its_tensors_is_refused(tmp_path):
     state["tower"] = {name: None for name in state["tower"]}
     with pytest.raises(BackboneContractViolation, match="not a TensorRef"):
         step.load_state(state)
+
+
+# --- the optimizer the tower's spec names ------------------------------------------------
+
+
+def test_the_step_builds_the_optimizer_its_towers_spec_names(tmp_path):
+    """`load_text_tower` validates `optimizer` and `QwenDecisionStep` used to ignore it.
+
+    A run could ask for `keeps_fp32_master=True`, have it accepted by the loader, and then
+    train with bf16 moments anyway -- at beta2=0.999 those settle at 0.5 against a true 1.0
+    after 383 steps. A spec that is checked and then discarded reads as a guarantee, which
+    is worse than no spec at all.
+    """
+    from qd_train.memory import OptimizerSpec
+    from qd_train.optim import MasterWeightAdamW
+
+    master_spec = OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
+    tower, _ = _tiny_tower(tmp_path, dtype="bf16", optimizer=master_spec)
+    step = QwenDecisionStep(tower, lr=1e-3, max_width=64)
+    assert isinstance(step.optimizer, MasterWeightAdamW), (
+        f"the tower's spec asked for an fp32 master and the step built "
+        f"{type(step.optimizer).__name__}"
+    )
+
+    plain, _ = _tiny_tower(tmp_path / "plain", dtype="bf16", optimizer=ADAMW_BF16)
+    plain_step = QwenDecisionStep(plain, lr=1e-3, max_width=64)
+    assert isinstance(plain_step.optimizer, torch.optim.AdamW)
+    assert not isinstance(plain_step.optimizer, MasterWeightAdamW)
+
+
+def test_a_bf16_tower_under_the_master_recipe_trains_and_stays_bf16(tmp_path):
+    """End to end through the real step: the tower trains, and the live weights stay bf16 --
+    if they were promoted to fp32 every matmul after the first step would run at fp32 speed
+    and the memory budget would be wrong by the size of the model."""
+    from qd_train.memory import OptimizerSpec
+
+    master_spec = OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
+    tower, _ = _tiny_tower(tmp_path, dtype="bf16", optimizer=master_spec)
+    step = QwenDecisionStep(tower, lr=1e-2, max_width=64)
+    before = tower.model.get_input_embeddings().weight.detach().clone()
+
+    batch = _ft_batch(0)
+    for _ in range(5):
+        step.accumulate(batch, ft_supervision(batch))
+        step.apply(lr=1e-2)
+
+    after = tower.model.get_input_embeddings().weight.detach()
+    assert after.dtype == torch.bfloat16, f"the live weights became {after.dtype}"
+    assert not torch.equal(after, before), "the tower did not train"
+    assert torch.isfinite(after).all(), "the tower has non-finite weights after 5 steps"

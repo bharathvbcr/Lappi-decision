@@ -38,18 +38,22 @@ and ``exp_avg_sq``, both ``torch.bfloat16`` at 2 bytes, plus a scalar ``step``, 
 master. One name, two quantities, in a file whose subject is keeping them apart.
 
 That is not the same as choosing bf16 moments. ``exp_avg_sq`` accumulates across a whole run
-and bf16 has 8 bits of mantissa; the fp32-moment recipe needs ``keeps_fp32_master=True``,
-which nothing implements yet. This script measures what is built, and the gap between that and
-what should be built is a recipe decision, not an error to route around.
+and bf16 has 8 bits of mantissa, and ``tools/moment_precision.py`` measures what that costs:
+at ``beta2=0.999`` the per-step relative increment is ``1e-3`` against bfloat16's ``2**-8``
+spacing, so the second moment settles at 0.5 against a true 1.0 after 383 steps and cannot
+follow a later change in gradient scale. ``qd_train.optim.MasterWeightAdamW`` implements the
+alternative, and ``--optimizer master`` measures it here: the choice between them is a recipe
+decision with a measured price on both sides, which is the only honest way to have one.
 
 Run it on the box, not here::
 
     PYTHONPATH=/home/ubuntu/qwen-decision/python /home/ubuntu/qd-venv/bin/python \
-        /home/ubuntu/qwen-decision/tools/gh200_footprint.py
+        /home/ubuntu/qwen-decision/tools/gh200_footprint.py --optimizer master
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -59,7 +63,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 import torch
 
 from qd_train.backbone import load_text_tower
-from qd_train.memory import ADAMW_BF16, QWEN3_5_2B_TEXT, estimate_step
+from qd_train.memory import ADAMW_BF16, QWEN3_5_2B_TEXT, OptimizerSpec, estimate_step
+from qd_train.optim import build_optimizer
+
+#: The fp32-master recipe: bf16 weights and grads, an fp32 master copy, fp32 moments.
+#: 16 B/param against ADAMW_BF16's 8. `qd_train.optim.MasterWeightAdamW` builds it.
+ADAMW_MASTER: OptimizerSpec = OptimizerSpec(
+    "AdamW+master", 2, 4, keeps_fp32_master=True
+)
+
+RECIPES = {"bf16": ADAMW_BF16, "master": ADAMW_MASTER}
 
 SNAPSHOT = Path(
     "/home/ubuntu/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots/"
@@ -72,9 +85,11 @@ WIDTHS = (2048, 4096, 8192, 14759, 34522)
 GiB = 1024**3
 
 
-def backbone_predicted_bytes(rows: int, width: int) -> tuple[int, dict[str, int]]:
+def backbone_predicted_bytes(
+    rows: int, width: int, spec: OptimizerSpec = ADAMW_BF16
+) -> tuple[int, dict[str, int]]:
     """The footprint terms this script actually exercises, and the ones it does not."""
-    fp = estimate_step(QWEN3_5_2B_TEXT, rows=rows, width=width, optimizer=ADAMW_BF16)
+    fp = estimate_step(QWEN3_5_2B_TEXT, rows=rows, width=width, optimizer=spec)
     exercised = {
         "param_bytes": fp.param_bytes,
         "grad_bytes": fp.grad_bytes,
@@ -91,7 +106,21 @@ def backbone_predicted_bytes(rows: int, width: int) -> tuple[int, dict[str, int]
     return sum(exercised.values()), {**exercised, **excluded}
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--optimizer",
+        choices=sorted(RECIPES),
+        default="bf16",
+        help=(
+            "which recipe to measure. 'bf16' is what torch.optim.AdamW builds for a bf16 "
+            "tower (8 B/param all-in); 'master' is the fp32-master recipe (16 B/param), "
+            "whose second moment does not freeze -- see tools/moment_precision.py."
+        ),
+    )
+    args = ap.parse_args(argv)
+    spec = RECIPES[args.optimizer]
+
     if not torch.cuda.is_available():
         raise SystemExit(
             "no CUDA device. This script exists to measure one; refusing to report a "
@@ -105,7 +134,7 @@ def main() -> int:
     tower = load_text_tower(
         SNAPSHOT,
         gradient_checkpointing=True,
-        optimizer=ADAMW_BF16,
+        optimizer=spec,
         device="cuda",
         dtype="bf16",
         rows=1,
@@ -116,7 +145,8 @@ def main() -> int:
     trainable = sum(p.numel() for p in tower.model.parameters() if p.requires_grad)
     print(f"trainable: {trainable:,} parameters")
 
-    opt = torch.optim.AdamW(tower.model.parameters(), lr=1e-5)
+    print(f"recipe   : {args.optimizer} -- {spec}")
+    opt = build_optimizer(list(tower.model.parameters()), spec=spec, lr=1e-5)
     vocab = tower.vocab_size
     rows = 1
     results = []
@@ -140,7 +170,7 @@ def main() -> int:
                 peaks.append(torch.cuda.max_memory_allocated())
                 torch.cuda.reset_peak_memory_stats()
             measured = peaks[-1]
-            predicted, parts = backbone_predicted_bytes(rows, width)
+            predicted, parts = backbone_predicted_bytes(rows, width, spec)
             results.append(
                 {
                     "width": width,
@@ -167,21 +197,48 @@ def main() -> int:
         del ids
 
     # What the optimizer actually built, against what ADAMW_FP32 describes.
+    # `MasterWeightAdamW.state` delegates to the inner optimizer, so this reads the real
+    # moments either way. The fp32 MASTER copies are counted separately below, because they
+    # are not optimizer state -- they are a second copy of the weights, and folding them in
+    # would be one name over two quantities again.
     state_bytes = sum(
         v.numel() * v.element_size()
         for s in opt.state.values()
         for v in s.values()
         if torch.is_tensor(v)
     )
+    master_bytes = 0
+    if spec.keeps_fp32_master:
+        master_bytes = sum(
+            m.numel() * m.element_size() for m in opt.state_dict()["masters"]
+        )
+        print(f"fp32 master copies: {master_bytes / GiB:.2f} GiB "
+              f"= {master_bytes / trainable:.2f} B/param (counted apart from the states)")
     per_param = state_bytes / trainable if trainable else 0.0
     print()
     print(f"optimizer state actually allocated: {state_bytes / GiB:.2f} GiB "
           f"= {per_param:.2f} B/param over {trainable:,} params")
-    print(f"ADAMW_BF16 as memory.py describes it: {ADAMW_BF16}")
-    print("if these disagree, the arithmetic describes a recipe not yet implemented")
+    described = spec.states_per_param * spec.state_bytes
+    print(f"{args.optimizer} spec as memory.py describes it: {spec}")
+    print(f"  states the spec describes: {described} B/param; measured {per_param:.2f}")
+    agrees = abs(per_param - described) < 0.01
+    print("  AGREES" if agrees else "  DISAGREES -- the arithmetic describes a layout "
+          "this run did not build")
 
-    out = Path("/home/ubuntu/gh200_footprint.json")
-    out.write_text(json.dumps({"device": dev.name, "results": results}, indent=2))
+    out = Path(f"/home/ubuntu/gh200_footprint_{args.optimizer}.json")
+    out.write_text(json.dumps({
+        "device": dev.name,
+        "recipe": args.optimizer,
+        "optimizer_spec": {
+            "name": spec.name, "states_per_param": spec.states_per_param,
+            "state_bytes": spec.state_bytes, "keeps_fp32_master": spec.keeps_fp32_master,
+        },
+        "optimizer_state_bytes_measured": state_bytes,
+        "optimizer_state_bytes_per_param_measured": per_param,
+        "optimizer_state_bytes_per_param_described": described,
+        "spec_agrees_with_measurement": agrees,
+        "results": results,
+    }, indent=2))
     print(f"\nwrote {out}")
     return 0
 

@@ -143,19 +143,33 @@ def test_adamw_keeps_two_states_per_parameter_and_the_spec_says_so():
     assert ADAMW_FP32.bytes_per_param(param_bytes=4, grad_bytes=4) == 16
 
 
-def test_an_fp32_master_copy_costs_four_more_bytes_per_parameter():
+def test_an_fp32_master_recipe_costs_eight_more_bytes_per_parameter():
+    """This test previously asserted **four**, and the number was wrong.
+
+    It encoded the belief that an fp32 master costs only the master copy. It does not: an
+    optimizer stepping on fp32 masters cannot consume a bf16 gradient, so every gradient is
+    cast up and both copies are live at the step. Measured on a GH200 over 1,881,825,088
+    parameters, the stage between "forward + backward" and "optimizer step" adds exactly
+    7.01 GiB -- 4.00 B/param -- on top of the 7.01 GiB of masters
+    (``tools/master_overhead.py``). The old expectation under-stated the recipe by 49%
+    against a 35% safety allowance, in the direction that says a run fits when it does not.
+    """
     plain = ADAMW_FP32
     master = OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
     assert (
         master.bytes_per_param(param_bytes=2, grad_bytes=2)
         - plain.bytes_per_param(param_bytes=2, grad_bytes=2)
-        == 4
-    )
+        == 8
+    ), "the master copy AND the fp32 gradient it is stepped with"
+    assert master.bytes_per_param(param_bytes=2, grad_bytes=2) == 20
+
     a = estimate_step(M, rows=1, width=1024, optimizer=plain, vocab_size=REMAP_VOCAB, **BF16)
     b = estimate_step(M, rows=1, width=1024, optimizer=master, vocab_size=REMAP_VOCAB, **BF16)
-    assert b.master_bytes == 4 * a.trainable_params
+    n = a.trainable_params
+    assert b.master_bytes == 4 * n
     assert a.master_bytes == 0
-    assert b.static_bytes - a.static_bytes == b.master_bytes
+    assert b.grad_bytes - a.grad_bytes == 4 * n, "the fp32 cast, counted with the gradients"
+    assert b.static_bytes - a.static_bytes == b.master_bytes + 4 * n
 
 
 def test_the_static_term_does_not_move_with_the_batch_shape():
@@ -378,3 +392,63 @@ def test_the_provenance_says_arithmetic_on_every_estimate():
     f = estimate_step(M, rows=1, width=512, vocab_size=REMAP_VOCAB, **BF16)
     assert f.provenance.startswith("ARITHMETIC, not a measurement")
     assert "No CUDA device" in f.provenance
+
+
+def test_an_fp32_master_recipe_budgets_the_gradient_cast_as_well_as_the_master():
+    """Measured on a GH200 and missing from the model until then.
+
+    A master recipe steps on fp32 masters, so every bf16 gradient is cast up and both
+    copies are live when the optimizer steps. The stage between "forward + backward" and
+    "optimizer step" adds exactly 7.01 GiB over 1,881,825,088 parameters -- 4.00 B/param --
+    and `estimate_step` counted only the master. That under-stated the recipe by 49%
+    against a 35% safety allowance, which is the direction that says a run fits when it
+    does not.
+    """
+    master = OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
+    plain = OptimizerSpec("AdamW", 2, 4)
+    kw = {"rows": 1, "width": 2048, "param_dtype": "bf16", "grad_dtype": "bf16"}
+
+    with_master = estimate_step(QWEN3_5_2B_TEXT, optimizer=master, **kw)
+    without = estimate_step(QWEN3_5_2B_TEXT, optimizer=plain, **kw)
+    n = with_master.trainable_params
+
+    assert without.grad_bytes == n * 2, "a bf16 gradient is 2 B/param"
+    assert with_master.grad_bytes == n * 6, (
+        "an fp32-master recipe holds the bf16 gradient AND its fp32 cast: 2 + 4 B/param"
+    )
+    assert with_master.master_bytes == n * 4
+    assert with_master.grad_bytes - without.grad_bytes == n * 4
+
+
+def test_the_master_recipes_enumerated_total_matches_what_the_gh200_measured():
+    """Against the stage-by-stage attribution in ``tools/master_overhead.py``.
+
+    Enumerated there: 3.51 + 3.51 + 7.01 + 7.01 + 14.02 = 35.05 GiB, against a measured
+    steady-state peak of 38.91 GiB at ``foreach=False`` and 42.13 GiB at ``foreach=True``.
+    The model is a lower bound by construction, so it must not EXCEED the measurement, and
+    the shortfall must sit inside the safety allowance.
+    """
+    master = OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
+    fp = estimate_step(
+        QWEN3_5_2B_TEXT, rows=1, width=2048, optimizer=master,
+        param_dtype="bf16", grad_dtype="bf16", activation_dtype="bf16",
+    )
+    static = fp.param_bytes + fp.grad_bytes + fp.optimizer_bytes + fp.master_bytes
+    gib = 1024 ** 3
+    assert static / gib == pytest.approx(35.05, abs=0.05), (
+        f"the enumerated static total is {static / gib:.2f} GiB; the GH200 measured the "
+        "same five components at 35.05 GiB"
+    )
+
+    measured_foreach_off = 38.91 * gib
+    backbone = static + fp.activation_bytes + fp.recurrent_state_bytes
+    assert backbone < measured_foreach_off, (
+        f"the enumerated backbone total {backbone / gib:.2f} GiB exceeds the measured "
+        f"{measured_foreach_off / gib:.2f} GiB; a lower bound that is above the measurement "
+        "is not a lower bound"
+    )
+    shortfall = (measured_foreach_off - backbone) / backbone
+    assert shortfall < fp.safety_fraction, (
+        f"the measurement is {shortfall:.1%} above the enumerated total, past the "
+        f"{fp.safety_fraction:.0%} safety allowance"
+    )

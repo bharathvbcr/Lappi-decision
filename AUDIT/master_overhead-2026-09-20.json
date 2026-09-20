@@ -1,0 +1,19 @@
+{
+  "width": 2048,
+  "results": [
+    {
+      "foreach": true,
+      "trainable": 1881825088,
+      "steady_peak_bytes": 45239441408,
+      "enumerated_bytes": 37636501760,
+      "unexplained_bytes": 7602939648
+    },
+    {
+      "foreach": false,
+      "trainable": 1881825088,
+      "steady_peak_bytes": 41780599808,
+      "enumerated_bytes": 37636501760,
+      "unexplained_bytes": 4144098048
+    }
+  ]
+}
