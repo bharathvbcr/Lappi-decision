@@ -122,6 +122,7 @@ __all__ = [
     "MAX_ROWS_PER_BATCH",
     "OFFSETS_NAME",
     "PAD_ID",
+    "REMAP_NAME",
     "SPAN_CHECK_NAME",
     "SUPERVISION_NAME",
     "TOKENS_NAME",
@@ -144,6 +145,20 @@ OFFSETS_NAME: Final[str] = "offsets.npy"
 COVERAGE_NAME: Final[str] = "coverage.json"
 SUPERVISION_NAME: Final[str] = "supervision.npz"
 SPAN_CHECK_NAME: Final[str] = "span_check.json"
+
+#: Stem of the remap this set's ids were written under. ``RemapTable.write`` appends
+#: ``.npz`` and ``.json``, so the two files are ``remap.npz`` and ``remap.json``.
+#:
+#: The header pins ``remap_hash`` and ``assert_shard_trainable`` reports it as
+#: ``shard_provenance_pinned``. Until this existed that hash named an artifact **nothing
+#: kept**: ``RemapTable.write`` had exactly one caller in the repository and it was a
+#: round-trip test, so the only real remap ever built -- by
+#: ``tools/real_tokenizer_pipeline.py`` -- lived in one process and died with it. A shard
+#: set is a file of renumbered ids; without the table that renumbered them, not one token
+#: can be turned back into text, and the pinned hash cannot be checked against anything.
+#: Re-deriving it means re-tokenizing the whole corpus with the same tokenizer, which is
+#: the thing the hash exists to make unnecessary.
+REMAP_NAME: Final[str] = "remap"
 
 #: ``(char_start, char_end)`` per token, aligned one-to-one with ``tokenize``'s output --
 #: the shape a HuggingFace fast tokenizer returns for ``return_offsets_mapping=True``.
@@ -1068,6 +1083,17 @@ def write_shards(
         + "\n",
         encoding="utf-8",
     )
+    # The table these ids were renumbered by, beside the ids. See `REMAP_NAME`: the header
+    # pins its hash, and until this line the artifact that hash names was not kept by
+    # anything. `RemapTable.write` re-derives nothing -- it stores the two tables and a
+    # sidecar -- and `RemapTable.read` recomputes the hash on load rather than trusting it.
+    written_remap_hash = remap.write(out_dir / REMAP_NAME)
+    if written_remap_hash != header.remap_hash:  # pragma: no cover - both come from `remap`
+        raise ShardContractViolation(
+            f"{out_dir}: the remap written beside the shards hashes to "
+            f"{written_remap_hash!r} but the header pins {header.remap_hash!r}. The set "
+            "would describe a vocabulary it was not written under."
+        )
     return header
 
 
@@ -1255,6 +1281,63 @@ class ShardReader:
                     "not_run is the honest reading of silence."
                 )
             )
+
+        self.remap: RemapTable | None = None
+        self.checks["shard_remap_matches_header"] = self._load_remap()
+
+    def _load_remap(self) -> TriState:
+        """Read the remap beside the shards and check it against the header's ``remap_hash``.
+
+        Sets ``self.remap`` and returns the check. Three answers, never two:
+
+        * ``Ran(passed=True)`` -- the table is there and hashes to what the header pins, so
+          the ids in ``tokens.u32`` can be turned back into text and the provenance the
+          header claims is a fact about a file rather than a claim about a memory.
+        * ``Ran(passed=False)`` -- the table is there and hashes to something else. The set
+          and its vocabulary disagree; every id in it means a different token than the
+          header says. Refused rather than recorded, below.
+        * ``NotRun`` -- absent. Every shard set written before ``REMAP_NAME`` existed is in
+          this state, and so is any set written by something else, so an absent table is
+          not a contract violation. It is *unknown* provenance, and it must not read the
+          same as provenance that was checked: ``shard_provenance_pinned`` reports the
+          header's ``remap_hash`` either way, which is exactly the trap this answers.
+        """
+        stem = self.root / REMAP_NAME
+        if not (stem.with_suffix(".npz").exists() and stem.with_suffix(".json").exists()):
+            return NotRun(
+                reason=(
+                    f"{stem}.npz/.json is absent, so the vocabulary this set's ids were "
+                    f"renumbered under is not available and the header's "
+                    f"remap_hash={self.header.remap_hash[:16]}… names no artifact here. "
+                    "Re-deriving it means re-tokenizing the corpus with the same tokenizer."
+                )
+            )
+        # `RemapTable.read` recomputes the hash from the tables and refuses a sidecar that
+        # disagrees, so a tampered file raises here rather than returning a passing check.
+        remap = RemapTable.read(stem)
+        found = remap.remap_hash()
+        if found != self.header.remap_hash:
+            raise ShardContractViolation(
+                f"{stem}: the remap beside these shards hashes to {found!r} but "
+                f"{self.root / HEADER_NAME} pins {self.header.remap_hash!r}. Every id in "
+                "this set would mean a different token than the header says it does."
+            )
+        if remap.vocab_size != self.header.vocab_size:
+            raise ShardContractViolation(
+                f"{stem}: the remap keeps {remap.vocab_size} tokens but the header declares "
+                f"vocab_size={self.header.vocab_size}"
+            )
+        self.remap = remap
+        return Ran(
+            passed=True,
+            value=found,
+            n=remap.vocab_size,
+            n_total=remap.source_vocab_size,
+            detail=(
+                f"{stem}.npz re-read and re-hashed; matches the header. "
+                f"tokenizer_hash={remap.tokenizer_hash[:16]}…"
+            ),
+        )
 
     def _load_supervision(self) -> None:
         """Read the per-sequence supervision channel and check it against the tokens.

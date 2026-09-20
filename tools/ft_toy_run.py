@@ -58,15 +58,21 @@ needs the real tokenizer and is another lane's live file. What it proves is that
 its supervision routing, its span head and its letter channel are wired to the rows the runtime
 reads. A wiring bug found here costs 30 seconds; the same bug found on 8xH100 costs the run.
 
-## One metric is meant to be red
+## One metric was meant to be red, and is now green
 
-``rule3_shard_door_checks_the_path`` records ``passed=False`` on every verdict row, and that
-is not a regression signal. It is :func:`_rule3_door`'s standing measurement of
+``rule3_shard_door_checks_the_path`` is :func:`_rule3_door`'s standing measurement of
 ``GAP-FT-SHARD-DOOR-DOES-NOT-CHECK-THE-PATH``, re-taken on every run so the finding cannot
-quietly stop being true in either direction. It is deliberately **not** part of the exit
-status: conflating "a known open gap is still open" with "the FT path regressed" would make
-the exit status useless for the job this tool exists to do. When that gap is closed the
-metric flips to ``passed=True`` by itself, and that is the signal to close it.
+quietly stop being true in either direction. It recorded ``passed=False`` on every verdict
+row this tool wrote before commit ``e089d27``, and that was not a regression signal; it is
+deliberately **not** part of the exit status, because conflating "a known open gap is still
+open" with "the FT path regressed" would make the exit status useless for the job this tool
+exists to do.
+
+``e089d27`` closed the gap, and the prediction that the metric would then "flip to
+``passed=True`` by itself" was wrong: the same commit made ``repo_root`` a required keyword,
+so this tool died on a ``TypeError`` before writing any row at all. :func:`_rule3_door` says
+what had to move with it. The metric is green now because the door refuses, not because the
+measurement was relaxed.
 
 RUN
 ---
@@ -799,9 +805,23 @@ def _rule3_door() -> dict[str, object]:
 
     ``qd_train.shards.ShardReader.__init__`` calls
     :func:`qd_train.artifacts.assert_shard_trainable`, whose docstring says it exists because
-    *"without this the held-out check is satisfied on paper and bypassed by indirection"*. It
-    checks the header's **declared** split. It does not check the shard set's **path**, and
-    ``ShardReader`` takes a ``repo_root`` it never reads.
+    *"without this the held-out check is satisfied on paper and bypassed by indirection"*.
+
+    When this was written that door checked the header's **declared** split and not the shard
+    set's **path**, and ``ShardReader`` took a ``repo_root`` it never read. Commit ``e089d27``
+    closed that -- ``repo_root`` is now a **required** keyword and the first thing the door
+    does is call ``assert_path_not_held_out``. Both halves of this measurement had to move
+    with it, and neither is cosmetic:
+
+    * the call gained ``repo_root``, without which the whole tool died on a ``TypeError``
+      before any ledger row was written;
+    * the ``except`` gained ``HeldOutViolation``, because the door now refuses **through the
+      path check**, which raises that and not ``ShardContractViolation``. With only the
+      keyword added the refusal escapes this function and the tool still exits 1.
+
+    So the metric does not "flip to ``passed=True`` by itself" when the gap closes, as this
+    tool's own docstring predicted -- a required-keyword change takes the measurement with
+    it. That is why ``python/tests/test_tool_call_sites.py`` exists.
     """
     config = DataConfig()
     header = ShardHeader(
@@ -825,8 +845,10 @@ def _rule3_door() -> dict[str, object]:
 
     shard_door_refuses = False
     try:
-        assert_shard_trainable(header, config=config, path=under_holdout)
-    except ShardContractViolation:
+        assert_shard_trainable(
+            header, config=config, path=under_holdout, repo_root=REPO
+        )
+    except (ShardContractViolation, data_access.HeldOutViolation):
         shard_door_refuses = True
 
     return {

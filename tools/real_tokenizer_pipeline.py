@@ -260,12 +260,32 @@ def span_rows(*, max_rows: int, blank_line_runs: bool, rev: str) -> tuple[list[S
             if len(rows) >= max_rows:
                 capped = True
                 return rows, capped
+            # THE TWO QUESTIONS MUST DIFFER. Until 2026-09-20 both rows of this pair asked
+            # `f"Which line of {name} states the rule?"` over the same passage, so the
+            # prompt was byte-identical and only the gold differed -- one a real line span,
+            # the other `noul`. That is a corpus no model can score above chance on, and the
+            # REALFT lane measured exactly that: the span loss floor came out at
+            # 0.693147 = ln 2, the entropy of a fair coin, and span accuracy was capped at
+            # 39 of 78 permanently.
+            #
+            # Nothing in qd_data refused it, and that is not an oversight this file can fix:
+            # `dedupe_text` is `f"{question}\n{passage}"`, identical for both rows, so
+            # dedupe correctly makes them ONE content unit for leakage purposes and then
+            # keeps both. The contract has no notion of two rows whose prompts agree and
+            # whose golds contradict. Recorded separately; what this file owes is a corpus
+            # where unanswerable means the passage does not answer THIS question.
+            question = (
+                f"Which line of {name} gives the release date?"
+                if impossible
+                else f"Which line of {name} states the rule?"
+            )
+            assert answer not in question, "the unanswerable question must not contain the gold"
             rows.append(
                 SquadRow(
                     qid=f"{name}:{'imp' if impossible else 'ans'}",
                     title=name,
                     context=passage,
-                    question=f"Which line of {name} states the rule?",
+                    question=question,
                     answers=() if impossible else (answer,),
                     answer_starts=() if impossible else (start,),
                     is_impossible=impossible,

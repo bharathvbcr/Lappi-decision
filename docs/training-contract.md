@@ -104,6 +104,15 @@ apply_remap_to_model ──▶ model with an ~80K lm_head                   ▼
                                                      RunRecorder ──▶ ledger row
 ```
 
+**The remap travels with the shards.** `write_shards` writes `remap.npz`/`remap.json` beside
+`tokens.u32` and refuses if what it wrote does not hash to the header's `remap_hash`;
+`ShardReader` re-reads and re-hashes it into a `shard_remap_matches_header` check with three
+answers — `Ran(passed=True)` when it matches, `ShardContractViolation` when it does not,
+`NotRun` when absent, because every set written before this carries no remap and unknown
+provenance must not read like checked provenance. Before this, `header.remap_hash` named a
+table that existed only in the writing process, so a shard set on disk could not be turned
+back into text by anything. See `GAP-REALFT-SHARD-SET-DID-NOT-CARRY-ITS-REMAP`.
+
 The trainer takes `Iterable[Batch]` rather than a `ShardReader`. That is dependency inversion
 for its own sake only in part; the practical reason is that it makes the trainer testable
 against synthetic batches, and it let the three lanes be built concurrently without one waiting

@@ -256,6 +256,85 @@ def test_masked_positions_contribute_to_neither_the_loss_nor_the_gradients():
     torch.testing.assert_close(w.grad, grads[1], rtol=0, atol=0)
 
 
+class MatmulCount(TorchDispatchMode):
+    """How many matrix multiplies were dispatched inside the block.
+
+    The chunk loop's only per-chunk matmuls are the projection and, with gradients, the two
+    that form them -- so this counts chunks the loop actually walked, which is the claim
+    below. Like ``PeakBytes`` it is asserted against a known case first, because an
+    instrument that sees nothing makes every number it reports look like a pass.
+    """
+
+    _OPS = ("mm", "matmul", "bmm", "addmm")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.matmuls = 0
+
+    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+        if func.overloadpacket.__name__ in self._OPS:
+            self.matmuls += 1
+        return func(*args, **(kwargs or {}))
+
+
+def test_the_matmul_instrument_sees_a_matmul_it_is_shown():
+    """If this fails, the count below is meaningless -- so it is asserted first."""
+    with MatmulCount() as probe:
+        torch.matmul(torch.zeros(4, 4), torch.zeros(4, 4))
+    assert probe.matmuls >= 1
+
+
+def test_a_chunk_with_no_supervised_position_is_not_projected():
+    """FT supervises one position per row; the loop used to project every chunk anyway.
+
+    ``cpt_supervision`` masks in nearly every position, so under CPT this changes almost
+    nothing. ``ft_supervision`` masks in exactly one position per non-span row, so without
+    the skip an FT step pays a CPT-sized projection for FT-sized supervision. Measured
+    against the unmodified loop on the real shard set
+    ``tools/real_tokenizer_pipeline.py`` writes -- 13,787-token vocabulary, one sequence of
+    34,522 tokens, one supervised position -- the loop walked 15 chunks in 0.511s where the
+    same loss and gradient over the supervised positions alone took 0.005s, a factor of 112.
+    Over a whole epoch: 1,459 chunks projected, 243 of them holding a supervised position.
+
+    The claim is exactness as well as cost, so the value and both gradients are compared
+    against the all-supervised reference computed over the live rows.
+    """
+    torch.manual_seed(11)
+    vocab, hidden, positions = 64, 8, 40
+    chunk = 10
+    h = torch.randn(positions, hidden, dtype=torch.float64, requires_grad=True)
+    w = torch.randn(vocab, hidden, dtype=torch.float64, requires_grad=True)
+    targets = torch.randint(0, vocab, (positions,))
+    mask = torch.zeros(positions, dtype=torch.bool)
+    mask[3] = True  # one supervised position, in the first chunk of four
+
+    with MatmulCount() as probe:
+        loss = fused_linear_cross_entropy(h, w, targets, mask=mask, chunk_size=chunk)
+        loss.backward()
+    live_chunks = 1
+    all_chunks = positions // chunk
+    assert probe.matmuls <= 3 * live_chunks + 2, (
+        f"{probe.matmuls} matmuls for {live_chunks} chunk(s) holding a supervised position; "
+        f"{all_chunks} chunks cover the sequence, and projecting the {all_chunks - live_chunks} "
+        "that hold none computes a slab that is then multiplied by zero"
+    )
+
+    got = (loss.detach().clone(), h.grad.clone(), w.grad.clone())
+    h.grad = w.grad = None
+    # The same loss over the supervised positions alone: the value this must not have moved.
+    ref = fused_linear_cross_entropy(h[mask], w, targets[mask])
+    ref.backward()
+    # Not bit-exact, and deliberately not asserted as such: the reference gathers the live
+    # rows into a fresh contiguous tensor while the masked call projects a view, so the two
+    # matmuls reduce in a different order. float64 noise at 1e-15 is the whole difference;
+    # a tolerance of 1e-12 is far tighter than anything a training step could notice and
+    # far looser than the reordering.
+    torch.testing.assert_close(got[0], ref.detach(), rtol=1e-12, atol=1e-12)
+    torch.testing.assert_close(got[1][mask], h.grad[mask], rtol=1e-12, atol=1e-12)
+    assert not got[1][~mask].any(), "an unsupervised position received a gradient"
+    torch.testing.assert_close(got[2], w.grad, rtol=1e-12, atol=1e-12)
+
+
 def test_a_bfloat16_head_still_reduces_in_float32():
     """The memory saving must not buy itself a quietly less accurate loss."""
     torch.manual_seed(3)

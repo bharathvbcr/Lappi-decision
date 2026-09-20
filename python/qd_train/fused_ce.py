@@ -40,6 +40,15 @@ to the loss nor to either gradient. Masked-out positions gather index 0 rather t
 own target, so a shard whose padding slots hold arbitrary ids cannot index out of bounds --
 and their contribution is then multiplied by zero, so the choice of 0 has no effect on the
 result.
+
+A chunk in which *no* position is supervised is skipped outright, which is the same result
+by a cheaper route and is worth stating because of how far apart the two objectives are.
+Under CPT the mask is nearly all true and almost nothing is skippable. Under FT it holds
+exactly one position per non-span row -- the answer token at ``Batch.target_index`` -- so
+without the skip an FT step pays a CPT-sized projection: measured over one epoch of the
+real shard set (321 sequences, 13,787-token vocabulary) the letter channel projected 1,459
+position chunks of which **243** held a supervised position, and its widest batch walked 15
+chunks for a single supervised token.
 """
 
 from __future__ import annotations
@@ -126,6 +135,34 @@ class _FusedLinearCE(torch.autograd.Function):
             hidden_c = hidden[start:stop]
             target_c = targets[start:stop].unsqueeze(1)
             mask_c = mask[start:stop].unsqueeze(1)
+
+            # A chunk with no supervised position contributes nothing, and this skips it
+            # rather than computing the nothing. Exactly nothing, not approximately: the
+            # loss term is `where(mask, ..., 0).sum()` over an all-false mask; `probs` is
+            # multiplied by that mask before either gradient matmul, so `grad_hidden`
+            # lands on the zeros `zeros_like` already put there and `grad_weight` and
+            # `grad_bias` accumulate zero.
+            #
+            # It matters because of the **objective**, not the arithmetic.
+            # `trainer.cpt_supervision` masks in nearly every position, so under CPT almost
+            # no chunk is skippable. `trainer.ft_supervision` masks in exactly **one**
+            # position per non-span row -- `Batch.target_index`, the answer token -- so an
+            # FT batch pays a CPT-sized projection for FT-sized supervision. Measured on
+            # the real shard set that `tools/real_tokenizer_pipeline.py` writes (321
+            # sequences, 13,787-token vocabulary): over one epoch the letter channel
+            # projected 1,459 chunks of which 243 held a supervised position, and its
+            # widest batch -- one sequence of 34,522 tokens -- walked 15 chunks for 1
+            # supervised token, 0.511s against 0.005s for the same value computed over the
+            # supervised positions alone. The loss and `grad_hidden` agreed to 0.0 and
+            # 1.9e-07 respectively.
+            #
+            # The one behaviour that changes is with a non-finite `weight`: `0 * inf` is
+            # `NaN`, so before this a masked chunk could poison `grad_hidden` from a head
+            # that was already broken. This module's own contract is that "a position that
+            # is padding must contribute neither to the loss nor to either gradient", so
+            # contributing nothing is the stated behaviour and `NaN` was not.
+            if not bool(mask_c.any()):
+                continue
 
             # [chunk, V] in float32 -- the only tensor in this function that scales with V
             # times anything, and `chunk` is what keeps it bounded.

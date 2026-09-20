@@ -65,6 +65,7 @@ from qd_train.shards import (
     HEADER_NAME,
     MAX_ROWS_PER_BATCH,
     PAD_ID,
+    REMAP_NAME,
     SPAN_CHECK_NAME,
     SUPERVISION_NAME,
     TOKENS_NAME,
@@ -523,6 +524,88 @@ def test_a_shard_set_records_whether_its_span_mapping_was_decode_verified(
     assert a["span_check"]["n"] == a["span_check"]["n_total"] > 0, (
         "the check must carry how many span rows it actually verified"
     )
+
+
+def test_a_shard_set_carries_the_remap_its_header_pins(
+    train_shards: tuple[Snapshot, Path, ShardHeader],
+) -> None:
+    """A file of renumbered ids is unreadable without the table that renumbered them.
+
+    ``ShardHeader.remap_hash`` pins the vocabulary, and ``assert_shard_trainable`` reports
+    it as ``shard_provenance_pinned`` -- a hash of an artifact that, until this test,
+    **nothing in the repository kept**. ``RemapTable.write`` had exactly one caller and it
+    was a round-trip test in ``test_artifacts.py``; the only real remap ever built (by
+    ``tools/real_tokenizer_pipeline.py``, 248,077 -> 13,787 tokens over the Qwen
+    vocabulary) lived in one process and died with it. The shard set it wrote is on disk
+    and not one of its 2,485,641 ids can be turned back into text.
+
+    So the writer stores it beside the ids, and the reader re-reads and re-hashes it rather
+    than trusting the header. ``RemapTable.read`` recomputes the hash from the tables, so a
+    sidecar edited after the fact raises instead of returning a pass.
+    """
+    snap, out, header = train_shards
+    stem = out / REMAP_NAME
+    assert stem.with_suffix(".npz").exists() and stem.with_suffix(".json").exists(), (
+        "a shard set must carry the remap its header pins; the directory holds only "
+        f"{sorted(p.name for p in out.iterdir())}, and header.remap_hash="
+        f"{header.remap_hash[:16]}… names nothing on disk"
+    )
+    back = RemapTable.read(stem)
+    assert back.remap_hash() == header.remap_hash
+    assert back.vocab_size == header.vocab_size
+
+    reader = ShardReader(out, config=snap.config, repo_root=snap.root)
+    check = reader.checks["shard_remap_matches_header"]
+    assert isinstance(check, Ran) and check.passed, check
+    assert reader.remap is not None
+    assert reader.to_json()["checks"]["shard_remap_matches_header"]["state"] == "ran"
+
+
+def test_a_missing_remap_reads_as_not_run_not_as_matching(
+    train_shards: tuple[Snapshot, Path, ShardHeader],
+) -> None:
+    """Absent is unknown provenance, not checked provenance.
+
+    Every shard set written before ``REMAP_NAME`` existed is in this state, so an absent
+    table is not a contract violation. It must not read like a checked one: the header's
+    ``remap_hash`` is reported by ``shard_provenance_pinned`` either way, which is exactly
+    the trap. ``reader.remap`` stays ``None`` so no consumer can decode against a table it
+    never got.
+    """
+    snap, out, _ = train_shards
+    stem = out / REMAP_NAME
+    stem.with_suffix(".npz").unlink()
+    stem.with_suffix(".json").unlink()
+    fresh = ShardReader(out, config=snap.config, repo_root=snap.root)
+    check = fresh.checks["shard_remap_matches_header"]
+    assert isinstance(check, NotRun)
+    assert not hasattr(check, "passed"), "NotRun has no passed to misread"
+    assert fresh.remap is None
+    assert isinstance(fresh.checks["shard_provenance_pinned"], Ran), (
+        "the header's own claim still reports passed=True with the table gone -- which is "
+        "why the absent case has to be a separate, non-passing answer"
+    )
+
+
+def test_a_remap_that_is_not_the_headers_is_refused_not_recorded(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """A set whose ids mean something other than the header says is not a soft finding.
+
+    ``coverage`` and ``span_check`` are recorded because they describe how much of a corpus
+    got in and whether one check ran. This is different in kind: every id in the file means
+    a different token. ``ShardContractViolation`` is the class ``write_shards`` already
+    reserves for "the artifacts disagree with each other".
+    """
+    out = tmp_path / "shards" / "train"
+    _write(snapshot, "train", out)
+    other = byte_remap(drop=frozenset({7}))
+    assert other.remap_hash() != json.loads(
+        (out / HEADER_NAME).read_text(encoding="utf-8")
+    )["remap_hash"]
+    other.write(out / REMAP_NAME)
+    with pytest.raises(ShardContractViolation, match="would mean a different token"):
+        ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
 
 
 def test_a_missing_span_check_reads_as_not_run_not_as_verified(
