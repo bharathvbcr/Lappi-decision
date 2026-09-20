@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 from data_fixtures import commitpackft_row, small_corpus
+
 from qd_data.config import SPLITS, DataConfig
 from qd_data.dedupe import dedupe
 from qd_data.licences import LicenceConfig

@@ -41,7 +41,6 @@ from pathlib import Path
 from typing import Any
 
 from qd_train.tristate import NotRun, Ran, TriState
-
 from qd_wire.errors import WireParseError, check_keys
 from qd_wire.response import Response, parse_response
 

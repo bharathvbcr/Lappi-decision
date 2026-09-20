@@ -12,6 +12,7 @@ import math
 
 import numpy as np
 import pytest
+
 from qd_train.run_control import (
     APPROVAL_FREE_USD,
     MAX_CAP_S,

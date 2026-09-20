@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+
 from qd_train.calibration_fit import (
     CHOICE,
     MAX_OPTIONS,

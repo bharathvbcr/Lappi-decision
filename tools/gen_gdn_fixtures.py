@@ -66,7 +66,6 @@ if str(NANOLAB) not in sys.path:
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
-
 from nanolab.mixers import gdn_chunked  # noqa: E402
 
 # Mirror of mixers.py:712-713. Named so the doc can cite one place.

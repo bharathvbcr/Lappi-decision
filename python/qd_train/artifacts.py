@@ -69,27 +69,27 @@ from qd_data.config import SPLITS, DataConfig
 from .tristate import NotRun, Ran, TriState
 
 __all__ = [
+    "DROPPED",
+    "NO_SPAN",
     "REMAP_FORMAT",
     "SHARD_FORMAT",
-    "DROPPED",
-    "TOKEN_DTYPE",
-    "Batch",
-    "SLOT_LM",
     "SLOT_CHOICE",
+    "SLOT_LM",
     "SLOT_SCORE",
     "SLOT_SPAN",
-    "NO_SPAN",
     "SPAN_ABSTAIN",
+    "TOKEN_DTYPE",
+    "Batch",
     "RemapTable",
+    "ShardContractViolation",
     "ShardHeader",
     "TokenNotInRemap",
-    "ShardContractViolation",
-    "bucket_for",
-    "assign_buckets",
-    "line_start_indices",
-    "padding_waste",
     "assert_remap_covers",
     "assert_shard_trainable",
+    "assign_buckets",
+    "bucket_for",
+    "line_start_indices",
+    "padding_waste",
 ]
 
 REMAP_FORMAT: Final[str] = "qd-remap-v1"
@@ -167,8 +167,9 @@ class RemapTable:
 
         # Inverse on the kept set, both directions. Checked with array ops rather than a loop
         # because this runs over 248,320 entries on every load.
-        if not np.array_equal(self.old_to_new[self.new_to_old], np.arange(self.new_to_old.size, dtype=np.int32)):
-            bad = int(np.flatnonzero(self.old_to_new[self.new_to_old] != np.arange(self.new_to_old.size))[0])
+        identity = np.arange(self.new_to_old.size, dtype=np.int32)
+        if not np.array_equal(self.old_to_new[self.new_to_old], identity):
+            bad = int(np.flatnonzero(self.old_to_new[self.new_to_old] != identity)[0])
             raise ShardContractViolation(
                 f"tables are not inverse: new id {bad} maps to old id "
                 f"{int(self.new_to_old[bad])}, which maps back to "
@@ -595,7 +596,9 @@ class Batch:
             )
         unknown = sorted({int(k) for k in kinds.tolist()} - _SLOT_KINDS)
         if unknown:
-            raise ShardContractViolation(f"unknown slot kind(s) {unknown}; expected {sorted(_SLOT_KINDS)}")
+            raise ShardContractViolation(
+                f"unknown slot kind(s) {unknown}; expected {sorted(_SLOT_KINDS)}"
+            )
         lm_rows = np.flatnonzero(kinds == SLOT_LM)
         if lm_rows.size:
             raise ShardContractViolation(

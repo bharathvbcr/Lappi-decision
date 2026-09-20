@@ -35,7 +35,7 @@ import importlib
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "python"))
@@ -45,6 +45,7 @@ from qd_data.schema import (  # noqa: E402
     MAX_CHOICE_OPTIONS,
     MAX_SCORE_BINS,
     MIN_SCORE_BINS,
+    NOUL,
     ChoiceSlot,
     Request,
     ScoreSlot,
@@ -467,6 +468,89 @@ def type_shapes() -> dict[str, Any]:
     }
 
 
+def context_whitespace_codepoints() -> list[int]:
+    """Every codepoint this lane's empty-context check treats as whitespace.
+
+    ``render.render`` refuses a context with ``if not ctx_text.strip():``, and
+    ``str.strip()`` with no argument strips exactly the characters for which
+    ``str.isspace()`` is true. So this list *is* the Python half of the
+    ``context_empty`` rule -- computed, never transcribed.
+
+    The Rust half is ``Context::non_whitespace_len``. It used to spell the same
+    rule as ``char::is_whitespace()``, which is the Unicode ``White_Space``
+    property and is **not** the same set: CPython additionally counts U+001C..
+    U+001F, whose bidirectional class is B or S. A context of nothing but those
+    four rendered on the Rust lane and was refused on this one.
+    ``wire_context_crosslang.rs`` compares this list against the Rust predicate
+    codepoint for codepoint, so the two cannot drift again by comment.
+    """
+    return [cp for cp in range(0x110000) if chr(cp).isspace()]
+
+
+#: Strings whose blankness the two lanes must agree about. Every caller-supplied
+#: string on the wire is tested against "is this blank" somewhere -- the task, an
+#: option, a slot name -- and each of those tests is ``str.strip()`` here and was
+#: ``str::trim()`` on the Rust side, which are different sets.
+#: The exotic members are built with ``chr`` rather than written as literals: a bare
+#: U+2028 in a source file is invisible, and several editors and ``str.splitlines``
+#: treat it as a line break, so a probe *for* line-break handling should not smuggle one
+#: into its own source. ``ruff``'s RUF001 says the same thing.
+_LINE_SEP: Final = chr(0x2028)
+_PARA_SEP: Final = chr(0x2029)
+_IDEOGRAPHIC_SPACE: Final = chr(0x3000)
+_ZERO_WIDTH_SPACE: Final = chr(0x200B)
+
+BLANKNESS_PROBE: Final = (
+    "",
+    " ",
+    "\t",
+    "\n",
+    "\x0b",
+    "\x0c",
+    "\x1c",
+    "\x1d",
+    "\x1e",
+    "\x1f",
+    "\x85",
+    "\xa0",
+    _LINE_SEP,
+    _PARA_SEP,
+    _IDEOGRAPHIC_SPACE,
+    _ZERO_WIDTH_SPACE,
+    "\x1c\x1d\x1e\x1f",
+    " \x1c\t",
+    "a",
+    " a ",
+    "\x1ca\x1c",
+    "noul",
+    "NOUL",
+    " noul ",
+    "\x1cnoul",
+    "\x1cnoul\x1f",
+    "\xa0noul\xa0",
+    "noulx",
+)
+
+
+def blankness() -> list[dict[str, Any]]:
+    """For each probe string: is it blank, and does it strip to the reserved label.
+
+    Both questions are asked with ``str.strip()``, which is what
+    ``schema.ChoiceSlot.__post_init__`` and the renderer use. The Rust side asks the
+    same two questions of the same strings and the answers must match, because an
+    option this lane refuses as empty -- or as the reserved abstain label -- and the
+    other lane renders is a prompt shape no training row ever had.
+    """
+    return [
+        {
+            "text": s,
+            "is_blank": s.strip() == "",
+            "strips_to_noul": s.strip().casefold() == NOUL,
+        }
+        for s in BLANKNESS_PROBE
+    ]
+
+
 def main() -> None:
     built = fixtures()
     document = {
@@ -475,6 +559,8 @@ def main() -> None:
         "negatives": negatives(),
         "inventory": inventory(),
         "type_shapes": type_shapes(),
+        "context_whitespace_codepoints": context_whitespace_codepoints(),
+        "blankness": blankness(),
     }
     json.dump(document, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")

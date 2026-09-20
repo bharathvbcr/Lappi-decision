@@ -25,6 +25,8 @@ torch = pytest.importorskip("torch", reason="torch is an optional 'mac' extra, n
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from torch.utils._python_dispatch import TorchDispatchMode  # noqa: E402
+
 from qd_train.artifacts import Batch  # noqa: E402
 from qd_train.fused_ce import (  # noqa: E402
     fused_linear_cross_entropy,
@@ -35,7 +37,6 @@ from qd_train.ledger import Environment, Ledger, Protocol, RunRecorder  # noqa: 
 from qd_train.run_control import CostEstimate, LRSchedule, RunControl, WallClockCap  # noqa: E402
 from qd_train.trainer import cpt_supervision, train_cpt  # noqa: E402
 from qd_train.tristate import NotRun  # noqa: E402
-from torch.utils._python_dispatch import TorchDispatchMode  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 

@@ -14,6 +14,7 @@ import pytest
 torch = pytest.importorskip("torch", reason="torch is an optional 'mac' extra, not in .venv")
 
 from data_fixtures import mutate_row as row  # noqa: E402
+
 from qd_train.byte_batch import MAX_PADDING_WASTE, plan_batch  # noqa: E402
 from qd_train.byte_context import ID_PAD  # noqa: E402
 from qd_train.byte_decider import ByteDeciderConfig  # noqa: E402

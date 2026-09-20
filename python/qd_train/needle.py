@@ -30,8 +30,8 @@ from dataclasses import dataclass, field
 from .tristate import NotRun, Ran, TriState
 
 __all__ = [
-    "NeedleCase",
     "DepthBucket",
+    "NeedleCase",
     "NeedleReport",
     "build_suite",
     "score_suite",
@@ -92,7 +92,8 @@ _NEEDLE: dict[str, str] = {
             "-            total += item.weight * self.scale;\n-        }}\n-        Ok(total)\n"
             "+        Ok(0)\n     }}\n",
     "go": "@@ -{a},6 +{a},3 @@ func ({r} *{name}) {fn}(items []Item) (int, error) {{\n"
-          "-    total := 0\n-    for _, it := range items {{\n-        total += it.Weight\n-    }}\n"
+          "-    total := 0\n-    for _, it := range items {{\n"
+          "-        total += it.Weight\n-    }}\n"
           "-    return total, nil\n+    return 0, nil\n }}\n",
     "python": "@@ -{a},6 +{a},2 @@ class {name}:\n"
               "     def {fn}(self, items):\n-        total = 0\n-        for it in items:\n"

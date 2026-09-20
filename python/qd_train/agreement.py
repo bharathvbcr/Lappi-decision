@@ -18,9 +18,16 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .tristate import NotRun, Ran, TriState
+from .tristate import Ran, TriState
 
-__all__ = ["KappaResult", "cohens_kappa", "kappa_with_ci", "kappa_gate", "disagreements", "confusion"]
+__all__ = [
+    "KappaResult",
+    "cohens_kappa",
+    "confusion",
+    "disagreements",
+    "kappa_gate",
+    "kappa_with_ci",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +82,12 @@ def cohens_kappa(rater_a: list[str], rater_b: list[str]) -> float:
 
 
 def kappa_with_ci(
-    rater_a: list[str], rater_b: list[str], *, n_boot: int = 10_000, level: float = 0.95, seed: int = 0
+    rater_a: list[str],
+    rater_b: list[str],
+    *,
+    n_boot: int = 10_000,
+    level: float = 0.95,
+    seed: int = 0,
 ) -> KappaResult:
     """Kappa plus a bootstrap CI over items.
 

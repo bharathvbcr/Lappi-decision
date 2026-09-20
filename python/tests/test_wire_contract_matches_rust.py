@@ -17,6 +17,7 @@ is never reported as a pass.
 from __future__ import annotations
 
 import pytest
+
 from qd_train.tristate import NotRun, Ran
 from qd_wire import contract
 from qd_wire.rust_source import (

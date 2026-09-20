@@ -48,15 +48,15 @@ from typing import Final
 from .errors import LicenceRefused
 
 __all__ = [
-    "LicenceTier",
-    "LicencePolicy",
-    "LicenceConfig",
-    "LICENCE_POLICY",
     "COMMITPACKFT_DECLARED_VALUES",
-    "normalise_licence",
-    "classify",
+    "LICENCE_POLICY",
+    "LicenceConfig",
+    "LicencePolicy",
+    "LicenceTier",
     "admit_licence",
+    "classify",
     "is_non_commercial",
+    "normalise_licence",
 ]
 
 

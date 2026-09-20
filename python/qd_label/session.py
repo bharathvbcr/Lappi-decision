@@ -20,7 +20,7 @@ import json
 import os
 import random
 from collections.abc import Collection, Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Self
@@ -178,7 +178,13 @@ class LabelSession:
             os.close(fd)
 
     def record(
-        self, item_id: str, label: str, *, note: str = "", seconds: float = 0.0, presentation: int = 1
+        self,
+        item_id: str,
+        label: str,
+        *,
+        note: str = "",
+        seconds: float = 0.0,
+        presentation: int = 1,
     ) -> LabelRecord:
         if item_id not in self.pool:
             raise KeyError(f"{item_id!r} is not in this session's pool")

@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 import pytest
+
 from qd_train.schema_mirror import (
     CHOICE,
     MAX_OPTIONS,

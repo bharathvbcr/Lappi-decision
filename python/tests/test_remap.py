@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+
 from qd_train.artifacts import DROPPED, RemapTable, ShardContractViolation, TokenNotInRemap
 from qd_train.remap import (
     LOGIT_EXACTNESS_TOL,
@@ -337,7 +338,9 @@ def test_a_dense_array_of_the_wrong_length_is_refused():
 
 def test_corpus_counts_over_a_different_vocabulary_are_refused():
     other = count_corpus_tokens([np.array([1])], source_vocab_size=V_OLD + 8, max_sequences=2)
-    with pytest.raises(RemapCoverageError, match="different vocab|were taken over"):
+    # Raw: the `|` is a deliberate alternation over the two wordings build_remap
+    # can refuse with, not a literal pipe in the message.
+    with pytest.raises(RemapCoverageError, match=r"different vocab|were taken over"):
         build_remap(
             counts=other,
             source_vocab_size=V_OLD,

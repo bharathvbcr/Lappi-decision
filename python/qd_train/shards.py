@@ -76,6 +76,7 @@ from pathlib import Path
 from typing import Any, Final
 
 import numpy as np
+
 from qd_data.config import DataConfig
 from qd_data.render import DEFAULT_CAPS, M_CTX_END, RenderCaps, render
 from qd_data.rows import DataRow, row_content_hash

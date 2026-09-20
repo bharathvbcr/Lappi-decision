@@ -32,12 +32,12 @@ from .licences import (
 )
 
 __all__ = [
-    "Reachability",
-    "Source",
-    "TaskFamily",
     "SOURCES",
     "TASK_FAMILIES",
+    "Reachability",
     "SlotKind",
+    "Source",
+    "TaskFamily",
     "admitted_sources",
     "admitted_task_families",
     "refusal_report",

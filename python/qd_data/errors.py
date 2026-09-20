@@ -27,30 +27,30 @@ from typing import Any, Final
 
 __all__ = [
     "NOUL",
-    "QdRefusal",
-    "MalformedRequestRefusal",
-    "UnknownSchemaVersionRefusal",
-    "EmptySlotsRefusal",
-    "DuplicateSlotNameRefusal",
-    "TooManyOptionsRefusal",
-    "DuplicateOptionRefusal",
-    "EmptyOptionRefusal",
-    "ReservedOptionNameRefusal",
-    "OptionTooLongRefusal",
     "BinsOutOfRangeRefusal",
-    "ContextTooLargeRefusal",
-    "ContextNotBytesRefusal",
-    "ContextNotBase64Refusal",
     "ContextLenMissingRefusal",
     "ContextLengthMismatchRefusal",
+    "ContextNotBase64Refusal",
+    "ContextNotBytesRefusal",
+    "ContextTooLargeRefusal",
+    "DuplicateOptionRefusal",
+    "DuplicateSlotNameRefusal",
     "EmptyContextRefusal",
-    "RenderedPromptTooLargeRefusal",
+    "EmptyOptionRefusal",
+    "EmptySlotsRefusal",
     "HashMismatchRefusal",
-    "UnknownSlotTypeRefusal",
-    "LicenceRefused",
     "HeldOutViolation",
-    "is_refusal_payload",
+    "LicenceRefused",
+    "MalformedRequestRefusal",
+    "OptionTooLongRefusal",
+    "QdRefusal",
+    "RenderedPromptTooLargeRefusal",
+    "ReservedOptionNameRefusal",
+    "TooManyOptionsRefusal",
+    "UnknownSchemaVersionRefusal",
+    "UnknownSlotTypeRefusal",
     "is_noul_payload",
+    "is_refusal_payload",
 ]
 
 #: The abstain token. It is a *value* a model may produce, never an error.
@@ -326,6 +326,23 @@ class EmptyContextRefusal(QdRefusal):
 
     check = "context_non_empty"
     rust_kinds = ("context_empty",)
+
+
+class EmptyTaskRefusal(QdRefusal):
+    """A request with no task names nothing.
+
+    The task is the registered route's head-lookup key and one rendered line of
+    every prompt, so a blank one is not a request with a small field -- it is a
+    request that cannot be resolved.
+
+    ``check`` is deliberately the runtime's own identifier rather than a positive
+    restatement like the ``context_non_empty`` above it. The contract asks that both
+    lanes "name the checks identically", and a one-to-one pair that already agrees
+    should not be added to ``KNOWN_VOCABULARY_DIFFERENCES``.
+    """
+
+    check = "empty_task"
+    rust_kinds = ("empty_task",)
 
 
 class RenderedPromptTooLargeRefusal(QdRefusal):

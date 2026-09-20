@@ -37,7 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 
-from qd_train.tristate import NotRun, Ran, TriState  # noqa: E402
+from qd_train.tristate import NotRun, Ran, TriState
 
 EXPECTED_VLLM = "0.29.0"
 EXPECTED_CUDA_MAJOR = 13
@@ -46,13 +46,19 @@ EXPECTED_CUDA_MAJOR = 13
 def verify(*, tensor_parallel: int, expect_vllm: str | None) -> TriState:
     try:
         import torch
-    except Exception as exc:  # noqa: BLE001 - reported, never swallowed
-        return NotRun(reason=f"torch did not import, so nothing could be observed: {type(exc).__name__}: {exc}")
+    except Exception as exc:  # broad by design - reported, never swallowed
+        return NotRun(
+            reason="torch did not import, so nothing could be observed: "
+            f"{type(exc).__name__}: {exc}"
+        )
 
     try:
         import vllm
-    except Exception as exc:  # noqa: BLE001 - reported, never swallowed
-        return NotRun(reason=f"vllm did not import, so nothing could be observed: {type(exc).__name__}: {exc}")
+    except Exception as exc:  # broad by design - reported, never swallowed
+        return NotRun(
+            reason="vllm did not import, so nothing could be observed: "
+            f"{type(exc).__name__}: {exc}"
+        )
 
     vllm_version = getattr(vllm, "__version__", None)
     if expect_vllm is not None and vllm_version != expect_vllm:

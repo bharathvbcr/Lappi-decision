@@ -47,6 +47,17 @@ pub const B64_FIELD: &str = "context_b64";
 /// The decoded-byte-count field name on the wire.
 pub const LEN_FIELD: &str = "context_len";
 
+/// [`crate::is_wire_whitespace`] for a single byte, used when the context is not valid UTF-8.
+///
+/// Deliberately **not** `u8::is_ascii_whitespace`, which was what this branch asked before and
+/// which omits U+000B — so the two branches of [`Context::non_whitespace_len`] disagreed with each
+/// other about the vertical tab as well as with Python about the separators. This is the ASCII
+/// range of the shared predicate and nothing else, so which branch a context takes cannot change
+/// the answer for any byte below 0x80.
+fn is_wire_whitespace_byte(b: u8) -> bool {
+    b.is_ascii() && crate::is_wire_whitespace(b as char)
+}
+
 /// Raw context bytes, exactly as the caller measured them.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Context {
@@ -128,20 +139,25 @@ impl Context {
     /// all-whitespace or empty context to refuse rather than produce a confident letter; this is
     /// what that check counts.
     ///
-    /// Whitespace is the **Unicode** notion when the bytes are valid UTF-8, which is what
-    /// `python/qd_data/render.py` uses (`str.strip()`), so a context of nothing but U+00A0 is
-    /// refused by both lanes rather than by one. When the bytes are not valid UTF-8 there is no
-    /// Unicode reading to take, so it falls back to counting non-ASCII-whitespace bytes; a caller
-    /// on that path is heading for [`crate::refusal::Refusal::ContextNotUtf8`] anyway, and this
-    /// keeps the function total instead of making it fallible for a case that cannot decide
-    /// anything.
+    /// What counts as whitespace is [`crate::is_wire_whitespace`], which is CPython's
+    /// `str.isspace()` and **not** Rust's `char::is_whitespace()`. The difference is four
+    /// codepoints and it is the whole reason that predicate is a named function at the crate root
+    /// instead of a method call here: this comment used to claim the Unicode notion "is what
+    /// `python/qd_data/render.py` uses (`str.strip()`)", and it is not. See
+    /// [`crate::is_wire_whitespace`] for the four, for the three other sites that asked the same
+    /// wrong question, and for what now executes the claim rather than asserting it.
+    ///
+    /// When the bytes are not valid UTF-8 there is no Unicode reading to take, so it falls back to
+    /// [`is_wire_whitespace_byte`]; a caller on that path is heading for
+    /// [`crate::refusal::Refusal::ContextNotUtf8`] anyway, and this keeps the function total
+    /// instead of making it fallible for a case that cannot decide anything.
     pub fn non_whitespace_len(&self) -> usize {
         match std::str::from_utf8(&self.bytes) {
-            Ok(s) => s.chars().filter(|c| !c.is_whitespace()).count(),
+            Ok(s) => s.chars().filter(|c| !crate::is_wire_whitespace(*c)).count(),
             Err(_) => self
                 .bytes
                 .iter()
-                .filter(|b| !b.is_ascii_whitespace())
+                .filter(|b| !is_wire_whitespace_byte(**b))
                 .count(),
         }
     }

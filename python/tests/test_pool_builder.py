@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 import pytest
+
 from qd_data.licences import LicenceConfig, LicenceRefused
 from qd_data.pool_builder import (
     POOL_EXTENSIONS,

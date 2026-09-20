@@ -21,6 +21,7 @@ import math
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+
 from qd_data.minhash import (
     MERSENNE_PRIME,
     BandConfig,

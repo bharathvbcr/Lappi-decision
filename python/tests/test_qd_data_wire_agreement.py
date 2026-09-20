@@ -32,6 +32,7 @@ import re
 from pathlib import Path
 
 import pytest
+
 from qd_data import errors as qd_errors
 from qd_data.errors import QdRefusal
 from qd_data.rows import GoldAnswer
@@ -423,12 +424,19 @@ DATA_LANE_ONLY = {
 
 #: ``Refusal::kind()`` identifiers no ``qd_data`` refusal stands for, because this lane
 #: builds requests and does not serve them: head binding, calibration, the control
-#: socket, the payload line cap, the slot-name cap, and the two checks the builder makes
+#: socket, the payload line cap, the slot-name cap, and the one check the builder makes
 #: structurally impossible rather than refusing.
+#:
+#: ``empty_task`` was in this set until 2026-09-19, under the claim that it was one of
+#: *two* structurally-impossible checks. It was not impossible, it was unchecked:
+#: ``Request(task="")`` built and rendered here while the runtime refuses it. The entry
+#: was an unexecuted claim, and the set is exactly where an unexecuted claim does the
+#: most damage -- it is the list that says "we looked and there is nothing to find".
+#: ``EmptyTaskRefusal`` now stands for the kind and
+#: ``test_an_empty_task_is_refused_here_the_way_the_runtime_refuses_it`` is what looked.
 NO_QD_DATA_COUNTERPART = {
     "ambiguous_envelope",
     "calibration_entry_missing",
-    "empty_task",
     "payload_over_cap",
     "registered_head_missing",
     "registered_head_slot_missing",
@@ -538,3 +546,37 @@ def test_a_seventh_divergence_the_flat_table_never_listed() -> None:
         "task_over_cap",
     )
     assert "context_bytes" not in {c for c, _ in KNOWN_VOCABULARY_DIFFERENCES}
+
+
+def test_an_empty_task_is_refused_here_the_way_the_runtime_refuses_it() -> None:
+    """``empty_task`` sat in ``NO_QD_DATA_COUNTERPART`` under the claim that it is one of
+    "the two checks the builder makes **structurally impossible** rather than refusing".
+
+    It was not structurally impossible. It was unchecked: ``Request(task="")`` built and
+    rendered on this lane while ``wire::validate`` refuses it as ``empty_task`` on the
+    other, so the training lane could emit a row carrying a task the runtime will not
+    serve. The entry was a claim that nothing executed -- the same shape as the
+    ``non_whitespace_len`` comment that produced ``GAP-XLANG-REFUSAL-VOCABULARIES``'s
+    sibling on the Rust side.
+
+    Blankness is ``str.strip()``, which is also what the runtime now asks via
+    ``qd_runtime::is_blank``; ``crates/qd-runtime/tests/wire_context_crosslang.rs``
+    compares the two notions codepoint for codepoint.
+    """
+    for task in ["", " ", "\t", "\xa0", "\x1c", " \x1c\t"]:
+        with pytest.raises(qd_errors.EmptyTaskRefusal):
+            _request(task=task)
+
+    # The control: a task with content still builds, including one that merely contains
+    # a separator. The rule is about blankness, not about the character.
+    assert _request(task="devcouncil.verdict").task == "devcouncil.verdict"
+    assert _request(task="\x1cverdict").task == "\x1cverdict"
+
+
+def test_empty_task_is_no_longer_claimed_to_have_no_counterpart_here() -> None:
+    """The record and the code have to agree about which kinds this lane cannot raise."""
+    assert "empty_task" not in NO_QD_DATA_COUNTERPART, (
+        "qd_data now refuses an empty task, so listing the kind as having no counterpart "
+        "here is a claim that has stopped being true"
+    )
+    assert qd_errors.EmptyTaskRefusal.rust_kinds == ("empty_task",)

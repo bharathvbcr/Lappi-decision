@@ -21,6 +21,7 @@ from data_fixtures import (
     small_corpus,
     squad_row,
 )
+
 from qd_data.config import DataConfig
 from qd_data.errors import LicenceRefused
 from qd_data.licences import LicenceConfig

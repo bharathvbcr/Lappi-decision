@@ -27,6 +27,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+
 from qd_data.schema import encode_context
 from qd_train.tristate import NotRun, Ran
 from qd_wire.answer import AnswerEnvelope, ChoiceValue, ScoreValue, SpanValue

@@ -37,6 +37,7 @@ from .errors import (
     DuplicateSlotNameRefusal,
     EmptyOptionRefusal,
     EmptySlotsRefusal,
+    EmptyTaskRefusal,
     MalformedRequestRefusal,
     ReservedOptionNameRefusal,
     TooManyOptionsRefusal,
@@ -45,26 +46,26 @@ from .errors import (
 )
 
 __all__ = [
-    "SCHEMA_VERSION",
-    "SUPPORTED_SCHEMA_VERSIONS",
-    "OPTION_LETTERS",
-    "NOUL_LETTER",
     "MAX_CHOICE_OPTIONS",
-    "MIN_SCORE_BINS",
     "MAX_SCORE_BINS",
     "MAX_SLOTS",
+    "MIN_SCORE_BINS",
+    "NOUL_LETTER",
+    "OPTION_LETTERS",
+    "SCHEMA_VERSION",
+    "SUPPORTED_SCHEMA_VERSIONS",
     "WIRE_REQUEST_KEYS",
-    "Slot",
     "ChoiceSlot",
-    "ScoreSlot",
-    "SpanSlot",
     "HashExpectation",
     "Request",
     "Route",
-    "slot_set_digest",
+    "ScoreSlot",
+    "Slot",
+    "SpanSlot",
     "canonical_json",
-    "encode_context",
     "decode_context",
+    "encode_context",
+    "slot_set_digest",
 ]
 
 SCHEMA_VERSION: Final[int] = 1
@@ -525,6 +526,17 @@ class Request:
             raise UnknownSchemaVersionRefusal(
                 expected=f"one of {sorted(SUPPORTED_SCHEMA_VERSIONS)}", actual=self.schema_version,
                 detail="forward-compat guessing is how a field changes meaning silently",
+            )
+        if not self.task.strip():
+            raise EmptyTaskRefusal(
+                expected="a task with at least one non-whitespace character",
+                actual=self.task,
+                detail=(
+                    "the task is the registered route's head-lookup key and one rendered "
+                    "line of every prompt, so a blank one names nothing. The runtime "
+                    "already refuses it as `empty_task`; this lane did not, so a training "
+                    "row could carry a task no runtime would serve"
+                ),
             )
         if not isinstance(self.context, (bytes, bytearray)):
             raise UnknownSlotTypeRefusal(

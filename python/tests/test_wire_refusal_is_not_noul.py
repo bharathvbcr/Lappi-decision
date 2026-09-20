@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 
 import pytest
+
 from qd_wire.contract import BACKEND_ERROR_KINDS, HASH_KINDS, REFUSAL_KINDS
 from qd_wire.errors import WireParseError
 from qd_wire.refusal import (

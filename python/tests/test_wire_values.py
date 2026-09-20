@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 
 import pytest
+
 from qd_wire.contract import BACKEND_ERROR_KINDS, HASH_KINDS, REFUSAL_KINDS
 from qd_wire.errors import WireParseError
 from qd_wire.values import as_bool, as_finite_float, as_str, as_uint, check_rust_typed

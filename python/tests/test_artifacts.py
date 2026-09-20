@@ -16,8 +16,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from qd_data.config import DataConfig  # noqa: E402
-from qd_train.artifacts import (  # noqa: E402
+from qd_data.config import DataConfig
+from qd_train.artifacts import (
+    _MIN_ROW_TOKENS,
+    _SLOT_KINDS,
+    DROPPED,
+    MAX_PADDING_WASTE,
     NO_SPAN,
     SLOT_CHOICE,
     SLOT_LM,
@@ -25,10 +29,6 @@ from qd_train.artifacts import (  # noqa: E402
     SLOT_SPAN,
     SPAN_ABSTAIN,
     Batch,
-    _MIN_ROW_TOKENS,
-    _SLOT_KINDS,
-    DROPPED,
-    MAX_PADDING_WASTE,
     RemapTable,
     ShardContractViolation,
     ShardHeader,
@@ -40,7 +40,7 @@ from qd_train.artifacts import (  # noqa: E402
     padding_waste,
 )
 from qd_train.byte_context import line_starts as byte_line_starts
-from qd_train.tristate import NotRun, Ran  # noqa: E402
+from qd_train.tristate import NotRun, Ran
 
 V_OLD = 64
 
@@ -519,7 +519,7 @@ def test_slot_lm_stays_a_known_kind_so_its_refusal_can_explain_itself():
     way and the difference is entirely in what the writer is told.
     """
     assert SLOT_LM in _SLOT_KINDS
-    assert _SLOT_KINDS == {SLOT_LM, SLOT_CHOICE, SLOT_SCORE, SLOT_SPAN}
+    assert {SLOT_LM, SLOT_CHOICE, SLOT_SCORE, SLOT_SPAN} == _SLOT_KINDS
 
 
 def test_supervising_the_last_position_is_refused():

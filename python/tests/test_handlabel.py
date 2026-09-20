@@ -10,8 +10,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from qd_label.session import LabelItem, LabelSession  # noqa: E402
-from qd_train.agreement import cohens_kappa  # noqa: E402
+from qd_label.session import LabelItem, LabelSession
+from qd_train.agreement import cohens_kappa
 
 
 def _pool(n: int = 40) -> list[LabelItem]:
@@ -164,7 +164,12 @@ def test_unsure_items_are_kept_but_marked_unusable(tmp_path: Path):
 def test_stats_report_progress_and_distribution(tmp_path: Path):
     s = LabelSession(_pool(20), tmp_path / "l.jsonl")
     for k, (item, presentation) in enumerate(s.next_items(limit=8)):
-        s.record(item.item_id, "stub" if k % 2 else "clean", presentation=presentation, seconds=12.0)
+        s.record(
+            item.item_id,
+            "stub" if k % 2 else "clean",
+            presentation=presentation,
+            seconds=12.0,
+        )
     st = s.stats()
     assert st.total_items == 20
     assert st.labelled_first_pass == 8
@@ -234,6 +239,7 @@ def test_a_genuinely_disjoint_agreement_pool_opens(tmp_path: Path):
 
 
 def test_disjointness_defaults_to_unenforced_so_a_single_set_still_opens(tmp_path: Path):
-    """Omitting the constraint is allowed: a lone held-out session has nothing to be disjoint from."""
+    """Omitting the constraint is allowed: a lone held-out session has nothing to be
+    disjoint from."""
     session = LabelSession(_pool(5), tmp_path / "h.jsonl")
     assert len(session.pending()) == 5

@@ -18,6 +18,7 @@ from data_fixtures import (
     squad_row,
     vendored_pair,
 )
+
 from qd_data.config import DataConfig
 from qd_data.dedupe import content_unit_key, dedupe
 from qd_data.mixture import build_mixture

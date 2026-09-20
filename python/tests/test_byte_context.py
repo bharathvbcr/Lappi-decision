@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
+
 from qd_train.byte_context import (
     BYTE_VOCAB_SIZE,
     ID_NOUL,

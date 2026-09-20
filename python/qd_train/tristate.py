@@ -13,9 +13,9 @@ not a matter of remembering to check.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, Self
+from typing import Any, Literal
 
-__all__ = ["Ran", "NotRun", "TriState", "aggregate", "parse_tristate"]
+__all__ = ["NotRun", "Ran", "TriState", "aggregate", "parse_tristate"]
 
 
 class _TriStateBase:
@@ -54,7 +54,9 @@ class Ran(_TriStateBase):
             )
         if self.n is not None:
             if self.n < 0 or self.n_total is None or self.n_total < 0:
-                raise ValueError(f"n and n_total must be non-negative: n={self.n}, n_total={self.n_total}")
+                raise ValueError(
+                    f"n and n_total must be non-negative: n={self.n}, n_total={self.n_total}"
+                )
             if self.n > self.n_total:
                 raise ValueError(f"examined {self.n} of {self.n_total}: n exceeds n_total")
 
@@ -178,7 +180,11 @@ def aggregate(parts: dict[str, TriState] | list[TriState], *, name: str = "aggre
             reason=f"{name}: {len(not_run)} of {len(items)} inputs did not run -> {joined}"
         )
 
-    failed = [lbl for lbl, it in zip(labels, items, strict=True) if isinstance(it, Ran) and not it.passed]
+    failed = [
+        lbl
+        for lbl, it in zip(labels, items, strict=True)
+        if isinstance(it, Ran) and not it.passed
+    ]
     return Ran(
         passed=not failed,
         n=len(items),

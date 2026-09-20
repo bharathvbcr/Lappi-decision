@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-import signal
 import subprocess
 import sys
 import time
@@ -20,7 +19,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from qd_train.ledger import (  # noqa: E402
+from qd_train.ledger import (
     NOT_APPLICABLE,
     Environment,
     Ledger,
@@ -29,7 +28,7 @@ from qd_train.ledger import (  # noqa: E402
     Protocol,
     RunRecorder,
 )
-from qd_train.tristate import NotRun, Ran, aggregate, parse_tristate  # noqa: E402
+from qd_train.tristate import NotRun, Ran, aggregate, parse_tristate
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -141,9 +140,11 @@ def test_completed_run_writes_a_row(tmp_path: Path):
 
 def test_failed_run_writes_a_row_saying_so(tmp_path: Path):
     led = Ledger(tmp_path / "runs.jsonl")
-    with pytest.raises(RuntimeError):
-        with RunRecorder(led, protocol=_protocol(1), run_kind="cpt", repo=REPO, env=_env()):
-            raise RuntimeError("deliberate explosion")
+    with (
+        pytest.raises(RuntimeError),
+        RunRecorder(led, protocol=_protocol(1), run_kind="cpt", repo=REPO, env=_env()),
+    ):
+        raise RuntimeError("deliberate explosion")
     rows = led.rows()
     assert len(rows) == 1
     assert rows[0].status == "failed"
@@ -169,7 +170,9 @@ with RunRecorder(led, protocol=p, run_kind='cpt', repo={str(REPO)!r}, env=env):
     os.kill(os.getpid(), signal.SIGTERM)
     time.sleep(5)
 """
-    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+    proc = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=60
+    )
     assert proc.returncode != 0, "process should have died from SIGTERM"
     rows = Ledger(ledger_path).rows()
     assert len(rows) == 1, f"killed run left no row; stderr={proc.stderr}"
@@ -196,7 +199,9 @@ def test_unreported_gates_become_not_run_not_absent(tmp_path: Path):
 def test_three_clean_seeds_promote(tmp_path: Path):
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2, 3):
-        with RunRecorder(led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env()) as rec:
+        with RunRecorder(
+            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env()
+        ) as rec:
             _all_green(rec)
     verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
     assert verdict.promoted, str(verdict)
@@ -205,7 +210,9 @@ def test_three_clean_seeds_promote(tmp_path: Path):
 def test_two_seeds_do_not_promote(tmp_path: Path):
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2):
-        with RunRecorder(led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env()) as rec:
+        with RunRecorder(
+            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env()
+        ) as rec:
             _all_green(rec)
     verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
     assert not verdict.promoted
@@ -234,7 +241,9 @@ def test_a_single_not_run_gate_blocks_promotion(tmp_path: Path, missing_gate: st
 
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2, 3):
-        with RunRecorder(led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env()) as rec:
+        with RunRecorder(
+            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env()
+        ) as rec:
             for g in REQUIRED_GATES:
                 if g != missing_gate:
                     rec.gate(g, Ran(passed=True, n=300, n_total=300))
@@ -270,7 +279,9 @@ def test_chain_verifies_on_an_honest_ledger(tmp_path: Path):
 def test_editing_a_row_breaks_the_chain(tmp_path: Path):
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2, 3):
-        with RunRecorder(led, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env()) as rec:
+        with RunRecorder(
+            led, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env()
+        ) as rec:
             rec.gate("ece", Ran(passed=False, value=0.9))
     # Flip a failing gate to passing, exactly the tamper the chain exists to catch.
     lines = led.path.read_bytes().split(b"\n")

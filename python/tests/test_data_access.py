@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 from data_fixtures import small_corpus
+
 from qd_data.config import DataConfig
 from qd_data.dedupe import dedupe
 from qd_data.errors import HeldOutViolation, is_noul_payload, is_refusal_payload

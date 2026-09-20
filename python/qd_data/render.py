@@ -88,22 +88,22 @@ from .schema import (
 )
 
 __all__ = [
-    "RenderCaps",
-    "SlotRender",
-    "RenderedPrompt",
-    "escape_block",
-    "escape_inline",
-    "unescape",
     "ESCAPE_WORST_CASE_GROWTH",
     "HEX_ESCAPED",
     "INVISIBLE_FORMAT_CHARS",
     "INVISIBLE_FORMAT_RANGES",
+    "MARKERS",
+    "DeterministicRng",
+    "RenderCaps",
+    "RenderedPrompt",
+    "SlotRender",
+    "escape_block",
+    "escape_inline",
     "first_invisible_format_char",
     "render",
     "render_for_serving",
     "shuffle_options",
-    "DeterministicRng",
-    "MARKERS",
+    "unescape",
 ]
 
 # -- structural markers ------------------------------------------------------
@@ -391,7 +391,7 @@ class DeterministicRng:
     has to mean for a training shuffle that a ledger row claims to identify.
     """
 
-    __slots__ = ("_key", "_counter")
+    __slots__ = ("_counter", "_key")
 
     def __init__(self, *parts: object) -> None:
         material = "\x1f".join(repr(p) for p in parts).encode("utf-8")

@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 
-from qd_data.render import escape_inline  # noqa: E402
+from qd_data.render import escape_inline
 
 # Everything Python's str.splitlines() breaks on, plus NUL.
 BREAKS: dict[str, str] = {
@@ -27,8 +27,8 @@ BREAKS: dict[str, str] = {
     r"    GS        U+001D": "\x1d",
     r"    RS        U+001E": "\x1e",
     r"    NEL       U+0085": "\x85",
-    r"    LS        U+2028": " ",
-    r"    PS        U+2029": " ",
+    r"    LS        U+2028": "\u2028",
+    r"    PS        U+2029": "\u2029",
     r"    NUL       U+0000": "\x00",
     r"\r\n CRLF          ": "\r\n",
 }

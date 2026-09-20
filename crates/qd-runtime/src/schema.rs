@@ -74,7 +74,9 @@ pub enum SlotNameFault {
 /// `GAP-RT-WIRE-CONTEXT-ENCODING` each came to exist. So the predicate lives here alone and each
 /// locus formats its own message from the fault it returns.
 pub fn slot_name_fault(name: &str) -> Option<SlotNameFault> {
-    if name.trim().is_empty() {
+    // `crate::is_blank`, not `str::trim`: `python/qd_data/schema.py` asks this with `str.strip()`.
+    // See `crate::is_wire_whitespace` for the four codepoints the two notions disagree about.
+    if crate::is_blank(name) {
         return Some(SlotNameFault::Empty);
     }
     if name.len() > MAX_SLOT_NAME_BYTES {

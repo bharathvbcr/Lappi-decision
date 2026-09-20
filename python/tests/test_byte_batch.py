@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from data_fixtures import mutate_row as row
+
 from qd_train.artifacts import SPAN_ABSTAIN
 from qd_train.byte_batch import _validate, padding_waste, plan_batch, span_supervision
 from qd_train.byte_context import ID_PAD

@@ -986,3 +986,268 @@ fn the_slot_name_cap_is_one_number_here_and_in_qd_wire_and_qd_data_produces_noth
          the cap on both sides in one change, or cap qd_data."
     );
 }
+
+// -- the empty-context rule ----------------------------------------------------------------------
+
+/// `docs/hardening.md` §3's "an empty or all-whitespace context refuses" is **one rule spelled in
+/// two languages**, and until 2026-09-19 the two spellings were different sets.
+///
+/// Python refuses with `if not ctx_text.strip():` (`python/qd_data/render.py`), and `str.strip()`
+/// strips exactly the characters `str.isspace()` accepts. Rust refuses when
+/// `Context::non_whitespace_len() == 0`, which asked `char::is_whitespace()` — the Unicode
+/// `White_Space` property. CPython's set is `White_Space` **plus U+001C..U+001F**, whose
+/// bidirectional class is B or S. So a context of nothing but those four characters rendered on
+/// the Rust lane and was refused on the Python one: one lane served a confident letter from a
+/// context with no content, which is the exact failure the rule exists to prevent.
+///
+/// `Context`'s doc comment asserted the opposite — *"which is what `python/qd_data/render.py` uses
+/// (`str.strip()`), so a context of nothing but U+00A0 is refused by both lanes rather than by
+/// one"*. That sentence was true of the one character it named and false of the class, and nothing
+/// executed it. This test executes it: it reads the **real** `str.isspace()` at test time and
+/// compares the whole set, codepoint for codepoint.
+#[test]
+fn both_lanes_call_exactly_the_same_codepoints_whitespace_for_the_empty_context_rule() {
+    let doc = doc_or_skip!();
+    let python: Vec<u32> = array(doc, "context_whitespace_codepoints")
+        .iter()
+        .map(|v| {
+            v.as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .unwrap_or_else(|| panic!("codepoint {v} is not a u32"))
+        })
+        .collect();
+    assert!(
+        !python.is_empty(),
+        "the Python probe returned no codepoints, so this comparison is measuring nothing"
+    );
+
+    let rust = rust_context_whitespace();
+
+    let only_python: Vec<String> = python
+        .iter()
+        .filter(|cp| !rust.contains(cp))
+        .map(|cp| format!("U+{cp:04X}"))
+        .collect();
+    let only_rust: Vec<String> = rust
+        .iter()
+        .filter(|cp| !python.contains(cp))
+        .map(|cp| format!("U+{cp:04X}"))
+        .collect();
+
+    assert!(
+        only_python.is_empty() && only_rust.is_empty(),
+        "the two lanes disagree about what whitespace is, so they refuse different contexts.\n  \
+         Python strips but Rust keeps (Rust renders what Python refuses): {only_python:?}\n  \
+         Rust strips but Python keeps (Rust refuses what Python renders): {only_rust:?}"
+    );
+}
+
+fn rust_context_whitespace() -> Vec<u32> {
+    (0u32..0x11_0000)
+        .filter(|cp| char::from_u32(*cp).is_some_and(qd_runtime::is_wire_whitespace))
+        .collect()
+}
+
+/// The same rule, pinned without the venv.
+///
+/// The test above is the real cross-language check, and it is guarded by `doc_or_skip!`: on a
+/// machine with no `.venv` it prints a skip notice and returns. A guarantee that evaporates when a
+/// directory is missing is not a guarantee, so the set is **also** pinned here as a literal, which
+/// always runs. The two together are the discipline this repo asks for: the literal is checked
+/// unconditionally, and the cross-language test proves the literal still describes Python.
+#[test]
+fn the_whitespace_set_is_pinned_as_a_literal_so_a_missing_venv_cannot_retire_the_rule() {
+    let expected: Vec<u32> = vec![
+        0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x85, 0xA0, 0x1680, 0x2000,
+        0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200A, 0x2028,
+        0x2029, 0x202F, 0x205F, 0x3000,
+    ];
+    assert_eq!(
+        rust_context_whitespace(),
+        expected,
+        "the context-whitespace set changed. It is CPython's `str.isspace()`, which is Unicode \
+         White_Space plus U+001C..U+001F; if this list is now right, the Python lane must have \
+         changed too and the cross-language test above is what says so"
+    );
+}
+
+/// The four characters the two lanes used to disagree about, driven end to end.
+///
+/// This is the regression proper: a context of nothing but U+001C..U+001F is content-free, and
+/// both lanes must refuse it. Before the fix the Rust lane rendered it.
+#[test]
+fn a_context_of_nothing_but_the_separator_characters_is_refused_like_any_other_blank_one() {
+    use qd_runtime::context::Context;
+    use qd_runtime::refusal::Refusal;
+    use qd_runtime::render::{render, RenderCaps};
+
+    for (label, text) in [
+        ("U+001C alone", "\u{1c}"),
+        ("U+001D alone", "\u{1d}"),
+        ("U+001E alone", "\u{1e}"),
+        ("U+001F alone", "\u{1f}"),
+        ("all four", "\u{1c}\u{1d}\u{1e}\u{1f}"),
+        ("mixed with ordinary whitespace", " \u{1c}\n\u{1f}\t"),
+    ] {
+        let request = request_with_context(Context::from_bytes(text.as_bytes().to_vec()));
+        match render(&request, &RenderCaps::DEFAULT) {
+            Err(Refusal::ContextEmpty { .. }) => {}
+            other => panic!(
+                "{label}: the Python lane refuses this context as `context_empty`; this lane \
+                 answered {other:?}. Two lanes refusing different payloads is the drift the \
+                 cross-language suite exists to catch"
+            ),
+        }
+    }
+
+    // The control: a separator next to real content is a real context on both lanes, so the
+    // widened rule refuses nothing that carries information.
+    let ok = request_with_context(Context::from_bytes("\u{1c}hello".as_bytes().to_vec()));
+    assert!(
+        render(&ok, &RenderCaps::DEFAULT).is_ok(),
+        "a separator beside real text must still render; a rule that refuses this is too wide"
+    );
+}
+
+/// "Is this string blank" is asked of **every** caller-supplied string on this wire — the task, an
+/// option, a slot name — and the two lanes have to answer identically every time.
+///
+/// Widening only [`Context::non_whitespace_len`] fixed the context and left the other three asking
+/// `str::trim()` while Python asked `str.strip()`, which is the same bug in three more places: an
+/// option of a single U+001C is `empty_option` on the Python lane and a rendered option row here,
+/// and `"\u{1c}noul"` is `reserved_option_name` there and an ordinary option here — a seventeenth
+/// option whose text is the abstain label, which `docs/hardening.md` §3 forbids by name.
+///
+/// So the predicate is one function, and this test drives the real `str.strip()` over the same
+/// strings rather than trusting that the one function is the right one.
+#[test]
+fn both_lanes_agree_which_strings_are_blank_and_which_strip_to_the_reserved_label() {
+    use qd_runtime::{is_blank, wire_trim};
+    use qd_runtime::schema::NOUL_LABEL;
+
+    let doc = doc_or_skip!();
+    let probes = array(doc, "blankness");
+    assert!(
+        !probes.is_empty(),
+        "the Python blankness probe is empty, so this comparison is measuring nothing"
+    );
+
+    let mut disagreements: Vec<String> = Vec::new();
+    for probe in probes {
+        let text = text(probe, "text");
+        let py_blank = probe
+            .get("is_blank")
+            .and_then(Value::as_bool)
+            .unwrap_or_else(|| panic!("probe {probe} has no `is_blank`"));
+        let py_noul = probe
+            .get("strips_to_noul")
+            .and_then(Value::as_bool)
+            .unwrap_or_else(|| panic!("probe {probe} has no `strips_to_noul`"));
+
+        let rs_blank = is_blank(text);
+        let rs_noul = wire_trim(text).eq_ignore_ascii_case(NOUL_LABEL);
+
+        if rs_blank != py_blank {
+            disagreements.push(format!(
+                "{text:?}: python says blank={py_blank}, rust says blank={rs_blank}"
+            ));
+        }
+        if rs_noul != py_noul {
+            disagreements.push(format!(
+                "{text:?}: python says strips-to-noul={py_noul}, rust says {rs_noul}"
+            ));
+        }
+    }
+    assert!(
+        disagreements.is_empty(),
+        "the two lanes disagree about blankness, so they accept different options, tasks and \
+         slot names:\n  {}",
+        disagreements.join("\n  ")
+    );
+}
+
+/// The three remaining sites, driven through the wire rather than through the predicate.
+#[test]
+fn a_separator_only_option_or_slot_name_is_refused_the_way_the_python_lane_refuses_it() {
+    use qd_runtime::refusal::Refusal;
+    use qd_runtime::wire::validate;
+
+    let envelope = |slots: Value| -> Result<_, Refusal> {
+        let v = serde_json::json!({
+            "schema_version": 1, "task": "t",
+            "context_b64": "aGVsbG8=", "context_len": 5,
+            "question": "q?", "slots": slots, "route": "generic"
+        });
+        validate(v.as_object().expect("an object"))
+    };
+
+    // An option that is nothing but separators is empty on the Python lane.
+    for text in ["\u{1c}", "\u{1d}", "\u{1e}", "\u{1f}", "\u{1c}\u{1d}\u{1e}\u{1f}", " \u{1c}\t"] {
+        match envelope(serde_json::json!([{"name":"v","type":"choice","options":[text,"b"]}])) {
+            Err(Refusal::EmptyOption { .. }) => {}
+            other => panic!(
+                "option {text:?} is `empty_option` on the Python lane; this lane answered \
+                 {other:?}"
+            ),
+        }
+    }
+
+    // An option that strips to the reserved label is reserved on the Python lane.
+    for text in ["\u{1c}noul", "\u{1c}NOUL\u{1f}", "\u{1f}noul\u{1c}"] {
+        match envelope(serde_json::json!([{"name":"v","type":"choice","options":[text,"b"]}])) {
+            Err(Refusal::ReservedOptionName { .. }) => {}
+            other => panic!(
+                "option {text:?} strips to the reserved abstain label, which the Python lane \
+                 refuses as `reserved_option_name`; this lane answered {other:?}"
+            ),
+        }
+    }
+
+    // A slot name that is nothing but separators has no name.
+    for name in ["\u{1c}", "\u{1f}", "\u{1c}\u{1e}"] {
+        match envelope(serde_json::json!([{"name":name,"type":"choice","options":["a","b"]}])) {
+            Err(Refusal::EmptySlotName { .. }) => {}
+            other => panic!(
+                "slot name {name:?} is refused by the Python lane; this lane answered {other:?}"
+            ),
+        }
+    }
+
+    // A task that is nothing but separators is no task.
+    let v = serde_json::json!({
+        "schema_version": 1, "task": "\u{1c}",
+        "context_b64": "aGVsbG8=", "context_len": 5,
+        "question": "q?",
+        "slots": [{"name":"v","type":"choice","options":["a","b"]}], "route": "generic"
+    });
+    match validate(v.as_object().expect("an object")) {
+        Err(Refusal::EmptyTask) => {}
+        other => panic!("a separator-only task must be `empty_task`; got {other:?}"),
+    }
+
+    // Controls: separators beside real text are ordinary content on both lanes.
+    assert!(
+        envelope(serde_json::json!([{"name":"v\u{1c}x","type":"choice","options":["\u{1c}a","noulx"]}]))
+            .is_ok(),
+        "a separator beside real text must still be accepted; the rule is about blankness, not \
+         about the character"
+    );
+}
+
+fn request_with_context(
+    context: qd_runtime::context::Context,
+) -> qd_runtime::schema::DecisionRequest {
+    use qd_runtime::schema::{DecisionRequest, HashExpectation, Route, SlotSpec};
+    DecisionRequest {
+        schema_version: 1,
+        task: "t".to_string(),
+        context,
+        question: "q?".to_string(),
+        slots: vec![SlotSpec::Choice {
+            name: "v".to_string(),
+            options: vec!["a".to_string(), "b".to_string()],
+        }],
+        route: Route::Generic,
+        expect: HashExpectation::default(),
+    }
+}

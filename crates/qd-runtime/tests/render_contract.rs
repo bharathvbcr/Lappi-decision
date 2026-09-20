@@ -361,3 +361,74 @@ fn a_hand_built_slot_spec_cannot_carry_an_over_cap_name_into_the_prompt() {
         other => panic!("expected SlotNameOverCap at index 1, got {other:?}"),
     }
 }
+
+// -- the second pass's permutation -----------------------------------------------------------
+
+/// A permutation that is not a permutation must be **refused**, never quietly applied in part.
+///
+/// [`permuted_slot_suffix`] mapped the caller's index list with
+/// `order.iter().filter_map(|i| options.get(*i))`. `filter_map` *drops* what it cannot resolve, so
+/// an index outside `0..options.len()` silently removed an option from the rendered prompt instead
+/// of failing. The consequences, all silent:
+///
+/// * every index out of range rendered a `choice` slot with **no options at all** — just the
+///   reserved `Z. noul` line — so the second pass could only ever abstain, and step 4's agreement
+///   check became a check that always says "disagree" while reporting nothing;
+/// * a list with duplicates rendered the same option on two letters;
+/// * a short list dropped the tail; a long one rendered more rows than the slot has options.
+///
+/// In every case `SlotRender::rows` stopped matching `SlotSpec::answer_rows()`, which is the number
+/// `answer::SlotPlan::rows` hands the backend — so the decode was asked for one row count over a
+/// prompt showing another, and `perm.get(cal2.top)` in `answer::answer_generic` indexed a
+/// permutation that no longer described the prompt. That is a wrong answer arrived at quietly,
+/// which is the one outcome this crate's refusal design exists to make impossible.
+///
+/// Not reachable from the wire today: the only caller passes `second_pass_permutation`, which is a
+/// Sattolo cycle and always well formed. This pins it so it stays that way, because "the one
+/// caller happens to be correct" is an argument, not a guarantee.
+#[test]
+fn a_permutation_that_is_not_one_is_refused_rather_than_partly_applied() {
+    use qd_runtime::render::permuted_slot_suffix;
+
+    let caps = RenderCaps::DEFAULT;
+    let slot = SlotSpec::Choice {
+        name: "verdict".to_string(),
+        options: vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()],
+    };
+    let rows_when_intact = slot.answer_rows().expect("a choice slot has a row count");
+
+    for (label, perm) in [
+        ("every index out of range", vec![5, 6, 7]),
+        ("one index out of range", vec![0, 1, 9]),
+        ("duplicated index", vec![0, 0, 2]),
+        ("too short", vec![0]),
+        ("too long", vec![0, 1, 2, 0, 1]),
+        ("saturating index", vec![usize::MAX, 0, 1]),
+    ] {
+        match permuted_slot_suffix(&slot, &caps, &perm, 0) {
+            Err(_) => {}
+            Ok(rendered) => panic!(
+                "{label}: {perm:?} is not a permutation of 0..3, and it was applied anyway. The \
+                 slot rendered {} rows where an intact one has {rows_when_intact}, and the rows \
+                 are {:?}",
+                rendered.rows.len(),
+                rendered.rows
+            ),
+        }
+    }
+
+    // The controls. A real permutation still renders, and still renders every option exactly once.
+    for perm in [vec![1, 2, 0], vec![2, 0, 1], vec![0, 1, 2]] {
+        let rendered = permuted_slot_suffix(&slot, &caps, &perm, 0)
+            .unwrap_or_else(|e| panic!("{perm:?} is a permutation of 0..3 and must render: {e}"));
+        assert_eq!(
+            rendered.rows.len(),
+            rows_when_intact,
+            "a permuted slot has the same row count as an unpermuted one"
+        );
+    }
+
+    // And the empty list keeps meaning "render in the order given", which `render` relies on.
+    let as_given = permuted_slot_suffix(&slot, &caps, &[], 0).expect("empty means as-given");
+    assert_eq!(as_given.rows.len(), rows_when_intact);
+}

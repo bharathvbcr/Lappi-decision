@@ -30,12 +30,13 @@ import argparse
 import importlib
 import json
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1] / "python"))
 
-from qd_train.tristate import NotRun, Ran, TriState  # noqa: E402
+from qd_train.tristate import NotRun, Ran, TriState
 
 # Substrings identifying the two paths inside the Qwen3.5 modeling module.
 # Discovered, not assumed: `discover()` reports exactly what it bound, and refuses
@@ -82,7 +83,11 @@ def discover(module: Any) -> tuple[list[str], list[str]]:
     that never ran.
     """
     names = dir(module)
-    slow = [n for n in names if any(h in n for h in SLOW_HINTS) and callable(getattr(module, n, None))]
+    slow = [
+        n
+        for n in names
+        if any(h in n for h in SLOW_HINTS) and callable(getattr(module, n, None))
+    ]
     fast = [
         n
         for n in names
@@ -173,9 +178,12 @@ def verify(*, model_id: str, seq_len: int = 128, device: str | None = None) -> T
         ids = torch.randint(0, 1000, (1, seq_len), device=device)
         with torch.no_grad():
             model(ids)
-    except Exception as exc:  # noqa: BLE001 - reported, never swallowed
+    except Exception as exc:  # broad by design - reported, never swallowed
         undo()
-        return NotRun(reason=f"forward pass failed, so nothing was observed: {type(exc).__name__}: {exc}")
+        return NotRun(
+            reason="forward pass failed, so nothing was observed: "
+            f"{type(exc).__name__}: {exc}"
+        )
     finally:
         undo()
 

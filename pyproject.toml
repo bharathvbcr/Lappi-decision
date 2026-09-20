@@ -53,6 +53,14 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# The packages live under `python/`, not at the repo root — the same fact
+# `[tool.pytest.ini_options].pythonpath` and `[tool.hatch.build.targets.wheel]`
+# already state. Without it ruff's isort resolves `qd_data`/`qd_train`/`qd_wire`/
+# `qd_label` as third-party and merges them into the third-party block, so I001
+# silently accepted 26 mis-grouped import blocks it should have flagged (3 found
+# before this line, 29 after). A selected rule checking the wrong thing is the
+# same defect as an unselected one.
+src = ["python"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "RUF", "SIM", "PTH"]

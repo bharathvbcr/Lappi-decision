@@ -21,7 +21,7 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
-from .session import VALID_LABELS, LabelItem, LabelSession
+from .session import LabelItem, LabelSession
 
 KEYS: dict[str, str] = {
     "s": "stub",
@@ -99,15 +99,21 @@ def render_diff(diff: str, *, max_lines: int = 120) -> str:
     if len(lines) > max_lines:
         # Say how much was hidden. A silently truncated diff is one the labeller
         # judges without knowing they only saw part of it.
-        out.append(_c("33", f"... {len(lines) - max_lines} more lines hidden of {len(lines)} total"))
+        out.append(
+            _c("33", f"... {len(lines) - max_lines} more lines hidden of {len(lines)} total")
+        )
     return "\n".join(out)
 
 
 def cmd_label(args: argparse.Namespace) -> int:
     pool = load_pool(Path(args.pool))
     session = LabelSession(
-        pool, args.store, purpose=args.purpose, repeat_fraction=args.repeat_fraction, seed=args.seed,
-        disjoint_from=load_disjoint_ids(args.disjoint_from)
+        pool,
+        args.store,
+        purpose=args.purpose,
+        repeat_fraction=args.repeat_fraction,
+        seed=args.seed,
+        disjoint_from=load_disjoint_ids(args.disjoint_from),
     )
     pending = len(session.pending())
     if pending == 0:

@@ -23,11 +23,11 @@ from .licences import DEFAULT_LICENCE_CONFIG, LicenceConfig
 from .sources import TASK_FAMILIES, admitted_task_families
 
 __all__ = [
-    "DataConfig",
-    "Split",
-    "SPLITS",
     "DEFAULT_HELD_OUT_FAMILIES",
     "N_HELD_OUT_FAMILIES",
+    "SPLITS",
+    "DataConfig",
+    "Split",
 ]
 
 Split = str

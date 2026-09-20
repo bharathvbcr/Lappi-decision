@@ -16,12 +16,15 @@ from __future__ import annotations
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 import pytest
 from data_fixtures import commitpackft_row
+
 from qd_data.loaders import (
+    DATASETS_SERVER,
     MAX_FETCH_ROWS,
     MalformedRowRefusal,
     SourceUnavailableRefusal,
@@ -188,16 +191,59 @@ def test_the_fetch_bound_cannot_be_raised_by_a_caller() -> None:
 # -- the one network test ----------------------------------------------------
 
 
-def _host_reachable() -> bool:
+#: The one row this lane fetches for real, named once so the probe and the test cannot
+#: drift into asking about different data.
+_NETWORK_DATASET = "bigcode/commitpackft"
+_NETWORK_CONFIG = "python"
+_NETWORK_SPLIT = "train"
+
+
+def _rows_endpoint_status() -> str | None:
+    """``None`` when the rows endpoint will serve, otherwise the true reason it will not.
+
+    Three outcomes, and collapsing them into a boolean is the defect this replaced. The
+    previous probe asked ``datasets-server.huggingface.co/valid`` -- retired when the
+    dataset-viewer API was reorganised, and answering 404 ever since -- and caught
+    ``urllib.error.URLError``, of which ``HTTPError`` is a **subclass**. So the 404 it was
+    guaranteed to receive was caught as a transport failure, and every run skipped with
+    "datasets-server unreachable".
+
+    The host was never unreachable. Measured 2026-09-19: ``huggingface.co`` answers 200
+    for ``bigcode/commitpackft`` (``gated: false``, MIT) and for ``Qwen/Qwen3.5-2B-Base``
+    (``gated: false``, Apache-2.0), and a ranged GET of the model weights returns 206 with
+    no credentials. What was actually true that day is that ``datasets-server`` answered
+    HTTP 500 *"The server is busier than usual"* -- reachable, and transiently not serving.
+
+    A skip reason naming the wrong cause is worse than no reason. This one sent later
+    records to a blocker that did not exist, and it would report an upstream API change
+    and an unplugged cable in identical words.
+    """
+    query = urllib.parse.urlencode(
+        {
+            "dataset": _NETWORK_DATASET,
+            "config": _NETWORK_CONFIG,
+            "split": _NETWORK_SPLIT,
+            "offset": 0,
+            "length": 1,
+        }
+    )
+    request = urllib.request.Request(
+        f"{DATASETS_SERVER}?{query}",
+        headers={"Accept": "application/json", "User-Agent": "qwen-decision/0.1"},
+    )
     try:
-        request = urllib.request.Request(
-            "https://datasets-server.huggingface.co/valid",
-            headers={"User-Agent": "qwen-decision/0.1"},
+        with urllib.request.urlopen(request, timeout=10):
+            return None
+    except urllib.error.HTTPError as exc:
+        # Caught BEFORE URLError, which is its base class -- that ordering is the fix.
+        # The host answered, so whatever is wrong is not reachability.
+        return (
+            f"host reachable: {DATASETS_SERVER} answered HTTP {exc.code} for "
+            f"{_NETWORK_DATASET}/{_NETWORK_CONFIG}, so the rows endpoint is not serving "
+            "this dataset right now"
         )
-        with urllib.request.urlopen(request, timeout=5):
-            return True
-    except (urllib.error.URLError, TimeoutError, OSError):
-        return False
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return f"no response from {DATASETS_SERVER}: {type(exc).__name__}: {exc}"
 
 
 @pytest.mark.network
@@ -208,10 +254,14 @@ def test_a_few_hundred_real_commitpackft_rows_parse() -> None:
     unreachable. A synthetic fixture proves the parser is self-consistent; only this
     proves it matches what ``bigcode/commitpackft`` actually serves.
     """
-    if not _host_reachable():
-        pytest.skip("datasets-server unreachable: reported NOT RUN, never as passed")
+    reason = _rows_endpoint_status()
+    if reason is not None:
+        pytest.skip(f"reported NOT RUN, never as passed -- {reason}")
     rows = fetch_rows(
-        "bigcode/commitpackft", config_name="python", split_name="train", limit=100
+        _NETWORK_DATASET,
+        config_name=_NETWORK_CONFIG,
+        split_name=_NETWORK_SPLIT,
+        limit=100,
     )
     assert rows, "the host answered but returned no rows"
     parsed = [parse_commitpackft(r, index=i) for i, r in enumerate(rows)]
@@ -222,3 +272,46 @@ def test_a_few_hundred_real_commitpackft_rows_parse() -> None:
 
     unknown = declared - set(COMMITPACKFT_DECLARED_VALUES)
     assert not unknown, f"upstream serves licence values the policy table lacks: {unknown}"
+
+
+def test_the_skip_reason_tells_an_answered_error_from_an_unreachable_host(monkeypatch) -> None:
+    """A host that answered must not be reported as a host that did not.
+
+    Asserted on the skip message of the network test itself rather than on the probe, so
+    that it fails against the pre-fix code for the right reason. The pre-fix probe caught
+    ``HTTPError`` through its ``URLError`` base and returned ``False`` for both, so both
+    messages were the same hardcoded "datasets-server unreachable" string: this test fails
+    on ``assert answered != silent`` rather than erroring on a missing name.
+
+    No network. Both outcomes are injected.
+    """
+
+    def _raising(exc: Exception):
+        def _urlopen(*_args, **_kwargs):
+            raise exc
+
+        return _urlopen
+
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        _raising(urllib.error.HTTPError("https://example.invalid", 503, "busy", {}, None)),
+    )
+    with pytest.raises(pytest.skip.Exception) as answered_exc:
+        test_a_few_hundred_real_commitpackft_rows_parse()
+
+    monkeypatch.setattr(
+        urllib.request, "urlopen", _raising(urllib.error.URLError("no route to host"))
+    )
+    with pytest.raises(pytest.skip.Exception) as silent_exc:
+        test_a_few_hundred_real_commitpackft_rows_parse()
+
+    answered, silent = str(answered_exc.value), str(silent_exc.value)
+    assert "503" in answered, f"an answered error must name its status: {answered!r}"
+    assert "reachable" in answered, f"an answered error must not read as unreachable: {answered!r}"
+    assert "no route to host" in silent, f"a transport failure must name itself: {silent!r}"
+    assert answered != silent, (
+        "the two outcomes produced the same skip reason, so a reader cannot tell an "
+        "upstream API error from an unreachable host: both said "
+        f"{answered!r}"
+    )

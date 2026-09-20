@@ -31,6 +31,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from data_fixtures import small_corpus
+
 from qd_data.config import DataConfig
 from qd_data.dedupe import dedupe
 from qd_data.errors import EmptyContextRefusal, HeldOutViolation

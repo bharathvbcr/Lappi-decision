@@ -69,6 +69,54 @@ pub use service::{Service, ServiceConfig};
 /// Version stamped into `status` responses, so a caller can tell which build answered.
 pub const RUNTIME_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Characters CPython's `str.isspace()` accepts that Unicode's `White_Space` property does not:
+/// bidirectional class B (paragraph separator) for U+001C..U+001E, and S (segment separator) for
+/// U+001F.
+const ISSPACE_BEYOND_WHITE_SPACE: &[char] = &['\u{1c}', '\u{1d}', '\u{1e}', '\u{1f}'];
+
+/// Whether one character is whitespace **for this wire contract**.
+///
+/// # Why this is not `char::is_whitespace`
+///
+/// Every caller-supplied string on this wire is asked "is it blank" somewhere: the task
+/// ([`wire::validate`]), an option and its reserved-label comparison ([`wire::parse_slot`]), a slot
+/// name ([`schema::slot_name_fault`]) and the context ([`context::Context::non_whitespace_len`]).
+/// The Python lane asks all four with `str.strip()`, and `str.strip()` strips exactly what
+/// `str.isspace()` accepts. Rust's `char::is_whitespace()` is the Unicode `White_Space` property:
+/// 25 codepoints against CPython's 29. The four in [`ISSPACE_BEYOND_WHITE_SPACE`] are the whole
+/// difference, and until 2026-09-19 all four Rust sites asked the narrower question.
+///
+/// What that cost, measured rather than imagined:
+///
+/// * a context of nothing but U+001C rendered here and was `context_empty` there — a confident
+///   letter produced from a context with no content, which is the one thing that rule prevents;
+/// * an option of `"\u{1c}"` rendered here and was `empty_option` there;
+/// * an option of `"\u{1c}noul"` rendered here as an ordinary option and was
+///   `reserved_option_name` there — a seventeenth option whose text *is* the abstain label, which
+///   `docs/hardening.md` §3 forbids by name;
+/// * a slot name of `"\u{1c}"` rendered here and was refused there.
+///
+/// Four sites, one rule, so it is one function. `tests/wire_context_crosslang.rs` reads the real
+/// `str.isspace()` and the real `str.strip()` at test time and compares — the whole codepoint set,
+/// and the blank/strips-to-`noul` answer for a table of adversarial strings — so the two lanes
+/// cannot drift apart again by a comment going stale, which is how this one was found.
+pub fn is_wire_whitespace(c: char) -> bool {
+    c.is_whitespace() || ISSPACE_BEYOND_WHITE_SPACE.contains(&c)
+}
+
+/// [`str::trim`] under [`is_wire_whitespace`] — the exact counterpart of Python's `str.strip()`.
+///
+/// Use this instead of `str::trim` anywhere the result is compared against the Python lane's, which
+/// on this wire is everywhere.
+pub fn wire_trim(s: &str) -> &str {
+    s.trim_matches(is_wire_whitespace)
+}
+
+/// Whether a caller-supplied string carries nothing. The counterpart of `not s.strip()`.
+pub fn is_blank(s: &str) -> bool {
+    wire_trim(s).is_empty()
+}
+
 /// Lowercase hex of a byte string. Used for every hash this crate prints or compares.
 pub fn hex(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";

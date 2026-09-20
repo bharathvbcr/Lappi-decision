@@ -584,6 +584,64 @@ fn route_str(route: Route) -> &'static str {
     route.as_str()
 }
 
+/// Whether `permutation` really is a permutation of `0..n`. Empty means "render in the order
+/// given" and is always acceptable.
+///
+/// # Why this is a check and not a comment
+///
+/// [`slot_suffix`] mapped the caller's indices with `filter_map(|i| options.get(*i))`, and
+/// `filter_map` **drops** what it cannot resolve. An index outside the option list therefore
+/// removed an option from the prompt instead of refusing: a fully out-of-range list rendered a
+/// `choice` slot whose only row was the reserved `Z. noul`, so the contract's step-4 agreement
+/// check ran against a prompt with nothing to agree about and abstained on everything, quietly. A
+/// list with duplicates rendered one option twice; a short one truncated; a long one produced more
+/// rows than the slot has options.
+///
+/// Each of those leaves `SlotRender::rows` disagreeing with [`SlotSpec::answer_rows`], which is the
+/// row count [`crate::answer`] hands the backend — so a decode is taken over one shape while the
+/// row index is mapped back through another. The answer that comes out is wrong and nothing says
+/// so, which is the single outcome the refusal design exists to prevent.
+///
+/// No wire payload can reach this: [`second_pass_permutation`] is the only producer and Sattolo's
+/// algorithm always yields a cycle over exactly `n`. That is an argument about today's one caller,
+/// not a property of the function, and the difference between those two is what this check buys.
+fn check_permutation(permutation: &[usize], n: usize, slot: &str) -> Result<(), Refusal> {
+    if permutation.is_empty() {
+        return Ok(());
+    }
+    if permutation.len() != n {
+        return Err(Refusal::MalformedRequest {
+            detail: format!(
+                "slot `{slot}`: the permutation has {} entries for {n} options; a permutation of a \
+                 different length renders a different number of rows than the slot has options",
+                permutation.len()
+            ),
+        });
+    }
+    let mut seen = vec![false; n];
+    for index in permutation {
+        let Some(slot_seen) = seen.get_mut(*index) else {
+            return Err(Refusal::MalformedRequest {
+                detail: format!(
+                    "slot `{slot}`: the permutation names option index {index}, which is outside \
+                     0..{n}; an unresolvable index used to drop that option from the prompt \
+                     instead of refusing"
+                ),
+            });
+        };
+        if *slot_seen {
+            return Err(Refusal::MalformedRequest {
+                detail: format!(
+                    "slot `{slot}`: the permutation names option index {index} twice, so one \
+                     option would be rendered on two letters and another on none"
+                ),
+            });
+        }
+        *slot_seen = true;
+    }
+    Ok(())
+}
+
 fn slot_suffix(
     slot: &SlotSpec,
     caps: &RenderCaps,
@@ -610,16 +668,45 @@ fn slot_suffix(
     // (rendered text, row label) in rendered order, before the reserved noul row.
     let pairs: Vec<(String, RowLabel)> = match slot {
         SlotSpec::Choice { options, .. } => {
+            // One owner for "is this actually a permutation". `render` reaches here with `&[]` and
+            // `permuted_slot_suffix` with the second pass's cycle, so both paths are checked by
+            // this one call rather than by the caller each happens to have.
+            check_permutation(permutation, options.len(), &name)?;
             let order: Vec<usize> = if permutation.is_empty() {
                 (0..options.len()).collect()
             } else {
                 permutation.to_vec()
             };
-            order
-                .iter()
-                .filter_map(|i| options.get(*i))
-                .map(|v| (v.clone(), RowLabel::Choice(v.clone())))
-                .collect()
+            // Total by construction now that `order` is a permutation of `0..options.len()`, but
+            // written as a fallible map rather than an index so no path here can panic, and
+            // checked for length afterwards so "provably total" is a thing this function verifies
+            // rather than a thing its caller argues.
+            let mut pairs = Vec::with_capacity(order.len());
+            for i in &order {
+                let Some(v) = options.get(*i) else {
+                    return Err(Refusal::MalformedRequest {
+                        detail: format!(
+                            "slot `{name}`: option index {i} is outside 0..{} after the \
+                             permutation check accepted it; this is a bug in check_permutation, \
+                             not a caller error",
+                            options.len()
+                        ),
+                    });
+                };
+                pairs.push((v.clone(), RowLabel::Choice(v.clone())));
+            }
+            if pairs.len() != options.len() {
+                return Err(Refusal::MalformedRequest {
+                    detail: format!(
+                        "slot `{name}`: rendered {} option rows for a slot with {} options; a \
+                         rendered row count that does not match the request's option count makes \
+                         the decode's row index name a different option than the caller sent",
+                        pairs.len(),
+                        options.len()
+                    ),
+                });
+            }
+            pairs
         }
         // Ordinal: letters map to bins 1..n in order, never shuffled. The bins are ordered and the
         // loss is cumulative (CORAL-style), so permuting them would destroy what the loss depends

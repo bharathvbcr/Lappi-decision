@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 from data_fixtures import mutate_row as row
+
 from qd_train.byte_context import SpanOutsideWindow, line_starts
 from qd_train.mutate_adapter import (
     CLEAN,

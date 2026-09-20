@@ -309,7 +309,9 @@ pub fn validate(obj: &Map<String, Value>) -> Result<DecisionRequest, Refusal> {
 
     // -- task ------------------------------------------------------------------------------
     let task = string_field(obj, "task")?;
-    if task.trim().is_empty() {
+    // `crate::is_blank`, not `str::trim`: the Python lane asks this with `str.strip()`, which
+    // counts four more codepoints as whitespace. See `crate::is_wire_whitespace`.
+    if crate::is_blank(&task) {
         return Err(Refusal::EmptyTask);
     }
 
@@ -504,13 +506,19 @@ fn parse_slot(raw: &Value, index: usize) -> Result<SlotSpec, Refusal> {
                         actual: format!("options[{i}] is a JSON {}", json_type_name(opt)),
                     });
                 };
-                if text.trim().is_empty() {
+                // Both of these are `crate::wire_trim`, not `str::trim`. `ChoiceSlot.__post_init__`
+                // in `python/qd_data/schema.py` asks them with `str.strip()`, and the four
+                // codepoints the two notions disagree about are exactly the ones that let an
+                // option read as blank on one lane and as content on the other — or, worse, let
+                // `"\u{1c}noul"` past this check as an ordinary option whose text is the reserved
+                // abstain label. See `crate::is_wire_whitespace`.
+                if crate::is_blank(text) {
                     return Err(Refusal::EmptyOption {
                         slot: name,
                         option_index: i,
                     });
                 }
-                if text.trim().eq_ignore_ascii_case(NOUL_LABEL) {
+                if crate::wire_trim(text).eq_ignore_ascii_case(NOUL_LABEL) {
                     return Err(Refusal::ReservedOptionName {
                         slot: name,
                         option_index: i,

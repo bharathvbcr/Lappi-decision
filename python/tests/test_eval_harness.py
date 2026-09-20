@@ -18,8 +18,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from qd_train.baseline import CharNGramHasher, LinearBaseline  # noqa: E402
-from qd_train.eval_harness import (  # noqa: E402
+from qd_train.baseline import CharNGramHasher, LinearBaseline
+from qd_train.eval_harness import (
     conformal_sets,
     degenerate_head_check,
     evaluate,
@@ -27,7 +27,7 @@ from qd_train.eval_harness import (  # noqa: E402
     shuffled_label_control,
     split_conformal_threshold,
 )
-from qd_train.tristate import NotRun, Ran  # noqa: E402
+from qd_train.tristate import NotRun, Ran
 
 RNG = np.random.default_rng(1234)
 
@@ -226,11 +226,15 @@ def test_baseline_learns_a_separable_signal():
     clf = LinearBaseline(hasher=CharNGramHasher(dim=4096), seed=0)
     clf.fit(docs, labels)
     acc = np.mean([p == t for p, t in zip(clf.predict(docs), labels, strict=True)])
-    assert acc > 0.9, f"baseline only reached {acc:.3f} on a separable task; it is too weak to be a control"
+    assert acc > 0.9, (
+        f"baseline only reached {acc:.3f} on a separable task; it is too weak to be a control"
+    )
 
 
 def test_baseline_is_deterministic_across_fits():
-    docs = [f"fn a_{i}() {{ todo!() }}" for i in range(30)] + [f"fn b_{i}() {{ {i} }}" for i in range(30)]
+    docs = [f"fn a_{i}() {{ todo!() }}" for i in range(30)] + [
+        f"fn b_{i}() {{ {i} }}" for i in range(30)
+    ]
     labels = ["stub"] * 30 + ["clean"] * 30
     p1 = LinearBaseline(hasher=CharNGramHasher(dim=4096), seed=5).fit(docs, labels)
     p2 = LinearBaseline(hasher=CharNGramHasher(dim=4096), seed=5).fit(docs, labels)
@@ -239,9 +243,12 @@ def test_baseline_is_deterministic_across_fits():
 
 def test_an_unconverged_baseline_is_not_run_not_a_low_score():
     """A model cannot beat a control that never finished training."""
-    docs = [f"fn a_{i}() {{ todo!() }}" for i in range(30)] + [f"fn b_{i}() {{ {i} }}" for i in range(30)]
+    docs = [f"fn a_{i}() {{ todo!() }}" for i in range(30)] + [
+        f"fn b_{i}() {{ {i} }}" for i in range(30)
+    ]
     labels = ["stub"] * 30 + ["clean"] * 30
-    clf = LinearBaseline(hasher=CharNGramHasher(dim=4096), seed=0, max_iter=2, tol=1e-12)  # cannot possibly converge
+    # max_iter=2 against tol=1e-12: cannot possibly converge.
+    clf = LinearBaseline(hasher=CharNGramHasher(dim=4096), seed=0, max_iter=2, tol=1e-12)
     clf.fit(docs, labels)
     conv = clf.convergence()
     assert isinstance(conv, NotRun)

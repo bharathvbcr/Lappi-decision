@@ -16,6 +16,7 @@ keeps passing.
 from __future__ import annotations
 
 import pytest
+
 from qd_wire.answer import (
     ChoiceSet,
     ChoiceValue,

@@ -18,19 +18,19 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .tristate import NotRun, Ran, TriState, aggregate
+from .tristate import NotRun, Ran, TriState
 
 __all__ = [
     "DEFAULT_ENTROPY_FLOOR",
-    "DEFAULT_MAX_CLASS_SHARE",
     "DEFAULT_FEATURE_VAR_FLOOR",
-    "degenerate_head_check",
-    "shuffled_label_control",
-    "paired_margin_test",
-    "split_conformal_threshold",
-    "conformal_sets",
+    "DEFAULT_MAX_CLASS_SHARE",
     "EvalReport",
+    "conformal_sets",
+    "degenerate_head_check",
     "evaluate",
+    "paired_margin_test",
+    "shuffled_label_control",
+    "split_conformal_threshold",
 ]
 
 # Floors from the plan's "degenerate-head assertion". They are thresholds, and
@@ -61,7 +61,9 @@ def degenerate_head_check(
     dead features fails neither but has nothing to read.
     """
     if probs.ndim != 2 or probs.shape[0] == 0:
-        return NotRun(reason=f"degenerate check needs a 2-D non-empty probs array, got {probs.shape}")
+        return NotRun(
+            reason=f"degenerate check needs a 2-D non-empty probs array, got {probs.shape}"
+        )
 
     failures: list[str] = []
 
@@ -87,7 +89,11 @@ def degenerate_head_check(
 
     detail = (
         f"entropy={mean_entropy:.4f}, top_class_share={top_share:.3f}"
-        + ("" if features is None else f", feature_var={float(np.var(features, axis=0).mean()):.3e}")
+        + (
+            ""
+            if features is None
+            else f", feature_var={float(np.var(features, axis=0).mean()):.3e}"
+        )
     )
     if failures:
         return Ran(passed=False, value=mean_entropy, n=len(probs), n_total=len(probs),
@@ -283,7 +289,8 @@ def evaluate(
     if not (isinstance(degenerate, Ran) and degenerate.passed):
         reason = (
             degenerate.reason if isinstance(degenerate, NotRun)
-            else f"head is degenerate ({degenerate.detail}); no metric is reported from a collapsed head"
+            else f"head is degenerate ({degenerate.detail}); "
+            "no metric is reported from a collapsed head"
         )
         return EvalReport(
             degenerate=degenerate,
@@ -301,9 +308,12 @@ def evaluate(
     }
     if baseline_correct is None:
         metrics["paired_margin_vs_linear"] = NotRun(
-            reason="the linear baseline was not evaluated on these examples, so there is nothing to pair against"
+            reason="the linear baseline was not evaluated on these examples, "
+            "so there is nothing to pair against"
         )
     else:
-        metrics["paired_margin_vs_linear"] = paired_margin_test(correct, baseline_correct, seed=seed)
+        metrics["paired_margin_vs_linear"] = paired_margin_test(
+            correct, baseline_correct, seed=seed
+        )
 
     return EvalReport(degenerate=degenerate, metrics=metrics, controls=controls)

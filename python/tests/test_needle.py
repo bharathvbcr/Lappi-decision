@@ -9,16 +9,20 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from qd_train.needle import (  # noqa: E402
+from qd_train.needle import (
     build_suite,
     score_suite,
     wilson_interval,
 )
-from qd_train.tristate import NotRun, Ran  # noqa: E402
+from qd_train.tristate import NotRun, Ran
 
 
 def _suite(**kw):
-    return build_suite(target_tokens=kw.pop("target_tokens", 1024), cases_per_depth=kw.pop("cpd", 6), **kw)
+    return build_suite(
+        target_tokens=kw.pop("target_tokens", 1024),
+        cases_per_depth=kw.pop("cpd", 6),
+        **kw,
+    )
 
 
 # --------------------------------------------------------------------------

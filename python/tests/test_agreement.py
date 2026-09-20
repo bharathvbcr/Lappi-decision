@@ -10,14 +10,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from qd_train.agreement import (  # noqa: E402
+from qd_train.agreement import (
     cohens_kappa,
     confusion,
     disagreements,
     kappa_gate,
     kappa_with_ci,
 )
-from qd_train.tristate import Ran  # noqa: E402
+from qd_train.tristate import Ran
 
 CLASSES = ["stub", "logic", "cosmetic", "clean"]
 

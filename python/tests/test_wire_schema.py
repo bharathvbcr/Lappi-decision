@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 
 import pytest
+
 from qd_data.errors import (
     ContextLengthMismatchRefusal,
     ContextLenMissingRefusal,

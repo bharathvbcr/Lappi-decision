@@ -36,27 +36,27 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Self
 
-from .tristate import NotRun, Ran, TriState, aggregate, parse_tristate
+from .tristate import NotRun, Ran, TriState, parse_tristate
 
 __all__ = [
-    "Protocol",
-    "LedgerRow",
-    "Ledger",
-    "RunRecorder",
-    "PromotionVerdict",
-    "LedgerChainError",
-    "SuiteFailure",
-    "SuiteCounts",
-    "SuiteOutcome",
-    "NOT_APPLICABLE",
-    "NON_PROMOTING_RUN_KINDS",
     "DEFAULT_LEDGER_PATH",
-    "parse_cargo_test_output",
-    "parse_pytest_output",
-    "parse_command",
-    "run_suite",
-    "record_build_run",
+    "NON_PROMOTING_RUN_KINDS",
+    "NOT_APPLICABLE",
+    "Ledger",
+    "LedgerChainError",
+    "LedgerRow",
+    "PromotionVerdict",
+    "Protocol",
+    "RunRecorder",
+    "SuiteCounts",
+    "SuiteFailure",
+    "SuiteOutcome",
     "main",
+    "parse_cargo_test_output",
+    "parse_command",
+    "parse_pytest_output",
+    "record_build_run",
+    "run_suite",
 ]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -360,8 +360,9 @@ class LedgerRow:
         stated = raw.get("protocol_hash")
         if stated is not None and stated != proto.hash():
             raise LedgerChainError(
-                f"row {raw.get('row_id')}: stated protocol_hash {stated} does not match the hash of "
-                f"the stated protocol components {proto.hash()}. The row was edited."
+                f"row {raw.get('row_id')}: stated protocol_hash {stated} does not match "
+                f"the hash of the stated protocol components {proto.hash()}. "
+                "The row was edited."
             )
         env_raw = dict(raw["env"])
         env = Environment(
@@ -387,7 +388,9 @@ class LedgerRow:
             env=env,
             metrics={k: parse_tristate(v, field=f"metrics.{k}") for k, v in raw["metrics"].items()},
             noul_rate=parse_tristate(raw["noul_rate"], field="noul_rate"),
-            controls={k: parse_tristate(v, field=f"controls.{k}") for k, v in raw["controls"].items()},
+            controls={
+                k: parse_tristate(v, field=f"controls.{k}") for k, v in raw["controls"].items()
+            },
             gates={k: parse_tristate(v, field=f"gates.{k}") for k, v in raw["gates"].items()},
             wall_clock_s=raw["wall_clock_s"],
             cost_usd=raw["cost_usd"],
@@ -465,7 +468,8 @@ class Ledger:
             if stated != prev_hash:
                 raise LedgerChainError(
                     f"line {i + 1} (row {obj.get('row_id')}): prev_row_hash is {stated!r} but the "
-                    f"previous line hashes to {prev_hash!r}. History was edited, reordered, or truncated."
+                    f"previous line hashes to {prev_hash!r}. "
+                    "History was edited, reordered, or truncated."
                 )
             LedgerRow.from_json(obj)  # re-validates the protocol hash and every tri-state
             prev_hash = hashlib.sha256(line).hexdigest()
@@ -547,7 +551,9 @@ class Ledger:
             if r.status != "completed":
                 reasons.append(f"{r.row_id}: status is {r.status!r}, not 'completed'")
             if r.quick:
-                reasons.append(f"{r.row_id}: marked quick ({r.quick_reason}); quick runs cannot promote")
+                reasons.append(
+                    f"{r.row_id}: marked quick ({r.quick_reason}); quick runs cannot promote"
+                )
             if r.run_kind in NON_PROMOTING_RUN_KINDS:
                 # Stated on the run kind, not inferred from empty gates. A build
                 # row's gates are vacuous rather than failed, and a conjunction
@@ -568,9 +574,14 @@ class Ledger:
             for gate in REQUIRED_GATES:
                 g = r.gates.get(gate)
                 if g is None:
-                    reasons.append(f"{r.row_id}: gate {gate!r} absent; an absent gate is not a passed gate")
+                    reasons.append(
+                        f"{r.row_id}: gate {gate!r} absent; an absent gate is not a passed gate"
+                    )
                 elif isinstance(g, NotRun):
-                    reasons.append(f"{r.row_id}: gate {gate!r} did not run ({g.reason}); this blocks promotion")
+                    reasons.append(
+                        f"{r.row_id}: gate {gate!r} did not run ({g.reason}); "
+                        "this blocks promotion"
+                    )
                 elif not g.passed:
                     reasons.append(f"{r.row_id}: gate {gate!r} ran and FAILED")
 
@@ -587,7 +598,10 @@ class Ledger:
             return PromotionVerdict(False, tuple(reasons), ids)
         return PromotionVerdict(
             True,
-            (f"{len(candidates)} completed rows, seeds {sorted(seeds)}, every gate and control ran and passed",),
+            (
+                f"{len(candidates)} completed rows, seeds {sorted(seeds)}, "
+                "every gate and control ran and passed",
+            ),
             ids,
         )
 
@@ -685,12 +699,18 @@ class RunRecorder:
                 pass
         return self
 
-    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: object) -> bool:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: object,
+    ) -> bool:
         for sig, handler in self._prev_handlers.items():
-            try:
+            # The same ValueError __enter__ tolerates: off the main thread the
+            # restore is refused, which is no reason to fail an exit that still
+            # has a row to write.
+            with contextlib.suppress(ValueError):
                 signal.signal(sig, handler)
-            except ValueError:
-                pass
         if self.row is not None:
             return False  # already written by the signal path
         if exc_type is None:

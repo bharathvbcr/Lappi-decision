@@ -27,7 +27,7 @@ import numpy as np
 
 from .tristate import NotRun, Ran, TriState
 
-__all__ = ["CSR", "CharNGramHasher", "LinearBaseline", "BaselineFit"]
+__all__ = ["CSR", "BaselineFit", "CharNGramHasher", "LinearBaseline"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,8 +194,10 @@ class LinearBaseline:
         Y = np.zeros((len(y), n_classes), dtype=np.float64)
         Y[np.arange(len(y)), y] = 1.0
 
-        mW = np.zeros_like(W); vW = np.zeros_like(W)
-        mb = np.zeros_like(b); vb = np.zeros_like(b)
+        mW = np.zeros_like(W)
+        vW = np.zeros_like(W)
+        mb = np.zeros_like(b)
+        vb = np.zeros_like(b)
         b1, b2, eps = 0.9, 0.999, 1e-8
         history: list[float] = []
         converged, grad_norm, it = False, float("inf"), 0
@@ -214,8 +216,10 @@ class LinearBaseline:
                 break
 
             for p, g, m, v in ((W, gW, mW, vW), (b, gb, mb, vb)):
-                m *= b1; m += (1 - b1) * g
-                v *= b2; v += (1 - b2) * (g * g)
+                m *= b1
+                m += (1 - b1) * g
+                v *= b2
+                v += (1 - b2) * (g * g)
                 mhat = m / (1 - b1**it)
                 vhat = v / (1 - b2**it)
                 p -= self.lr * mhat / (np.sqrt(vhat) + eps)
@@ -240,7 +244,7 @@ class LinearBaseline:
         if len(classes) < 2:
             raise ValueError(f"need at least 2 classes, got {classes}")
         index = {c: i for i, c in enumerate(classes)}
-        y = np.array([index[l] for l in labels], dtype=np.int64)
+        y = np.array([index[label] for label in labels], dtype=np.int64)
         X = self.hasher.transform(docs)
 
         rng = np.random.default_rng(self.seed)
@@ -251,7 +255,9 @@ class LinearBaseline:
             raise ValueError("validation split consumed the whole training set")
 
         X_tr, X_val = X.select(tr_idx), X.select(val_idx)
-        best: tuple[float, float, np.ndarray, np.ndarray, bool, int, float, list[float]] | None = None
+        best: (
+            tuple[float, float, np.ndarray, np.ndarray, bool, int, float, list[float]] | None
+        ) = None
         for l2 in self.l2_grid:
             W, b, conv, it, gn, hist = self._train_once(X_tr, y[tr_idx], len(classes), l2)
             acc = float((np.argmax(X_val.matmul(W) + b, axis=1) == y[val_idx]).mean())

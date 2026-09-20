@@ -6,11 +6,9 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from qd_label.__main__ import load_pool, main, render_diff  # noqa: E402
+from qd_label.__main__ import load_pool, main, render_diff
 
 
 def _write_pool(tmp_path: Path, n: int = 24) -> Path:
@@ -41,7 +39,9 @@ def test_pool_loads_from_json_and_jsonl(tmp_path: Path):
 
 
 def test_a_missing_pool_exits_nonzero_without_a_traceback(tmp_path: Path):
-    code = main(["--pool", str(tmp_path / "nope.json"), "--store", str(tmp_path / "s.jsonl"), "stats"])
+    code = main(
+        ["--pool", str(tmp_path / "nope.json"), "--store", str(tmp_path / "s.jsonl"), "stats"]
+    )
     assert code == 2
 
 
