@@ -90,6 +90,50 @@ def test_the_scalar_tables_match(derived):
     assert tuple(derived["routes"]) == contract.ROUTES
 
 
+def test_the_slot_name_cap_is_one_number_on_both_sides(derived):
+    """The running pin for ``GAP-RT-SLOT-NAME-UNCAPPED``.
+
+    A per-field cap is only a cap if every reader of the field enforces the same number. Before
+    this, a slot name had no cap anywhere and ``wire::PayloadBudget.total()`` was documented as a
+    lower bound because of it. The cap now exists on the request (``wire::parse_slot``), on the
+    prompt (``render::slot_suffix``) and on both readers of the answer map
+    (``schema.rs::deserialize_slot_map`` and ``qd_wire.answer.check_slot_name``).
+
+    This test is what keeps them one number rather than four copies of one number, in the same way
+    ``ESCAPE_WORST_CASE_GROWTH`` and ``HEX_ESCAPED`` are pinned: the Python value is re-derived
+    from the Rust source on every run and compared, so editing the Rust constant alone fails here
+    naming both values.
+    """
+    assert derived["max_slot_name_bytes"] == contract.MAX_SLOT_NAME_BYTES, (
+        "crates/qd-runtime/src/schema.rs::MAX_SLOT_NAME_BYTES is "
+        f"{derived['max_slot_name_bytes']} but qd_wire.contract pins "
+        f"{contract.MAX_SLOT_NAME_BYTES}. Regenerate with "
+        "`PYTHONPATH=python python -m qd_wire.rust_source`. Until they agree, the two lanes "
+        "refuse different requests — GAP-RT-SLOT-NAME-UNCAPPED."
+    )
+
+
+def test_the_cap_extractor_cannot_answer_with_a_default(derived):
+    """An extractor that returned 0 or None on a miss would make the pin above vacuous.
+
+    The equality test cannot tell "both sides say 256" from "both sides say nothing", which is the
+    failure mode that let ``GAP-RT-WIRE-CONTEXT-ENCODING`` survive two green suites. So the
+    extractor must raise on a constant it cannot find, and the value must be a positive integer.
+    """
+    from qd_wire.rust_source import RustParseError, extract_const_usize
+
+    assert isinstance(derived["max_slot_name_bytes"], int)
+    assert derived["max_slot_name_bytes"] > 0
+
+    with pytest.raises(RustParseError, match="not found"):
+        extract_const_usize("// nothing here\n", "MAX_SLOT_NAME_BYTES")
+    # A `usize` is required: the cap is a byte count and a `u32` or `&[u32]` spelling would be a
+    # different declaration that this extractor must not silently accept.
+    with pytest.raises(RustParseError, match="not found"):
+        extract_const_usize("pub const MAX_SLOT_NAME_BYTES: u32 = 256;\n", "MAX_SLOT_NAME_BYTES")
+    assert extract_const_usize("pub const X: usize = 1_572_864;\n", "X") == 1572864
+
+
 def test_the_extractor_refuses_to_answer_with_nothing():
     """An extractor that returns ``{}`` on a parse failure would make every test above pass.
 

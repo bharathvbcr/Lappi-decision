@@ -110,3 +110,36 @@ def small_corpus(n: int = 24) -> dict[str, list[object]]:
         "clinc/clinc_oos": [clinc_row(i) for i in range(n)],
         "rajpurkar/squad_v2": [squad_row(i) for i in range(n)],
     }
+
+
+def mutate_row(**over) -> dict:
+    """A valid qd-mutate example row, overridable per test.
+
+    Shaped after ``crates/qd-mutate/src/generate.rs``' output: a Rust `negate_condition`
+    on a two-line span, hunk-constrained, with every documented field populated. Tests
+    override single keys to build the malformed cases rather than restating the row.
+    """
+    base = {
+        "id": "ex-1",
+        "pool_id": "pool-1",
+        "repo": "acme/widget",
+        "path": "src/lib.rs",
+        "language": "Rust",
+        "class": "logic",
+        "operator": "negate_condition",
+        "silent": False,
+        "span": {"start_line": 2, "end_line": 2},
+        "function": {"repo": "acme/widget", "path": "src/lib.rs", "symbol": "f", "arity": 1},
+        "node_kind": "function_item",
+        "is_nested": False,
+        "before": "fn f(x: i32) -> bool {\n    x > 0\n}\n",
+        "after": "fn f(x: i32) -> bool {\n    x < 0\n}\n",
+        "diff": "-    x > 0\n+    x < 0\n",
+        "normalization": {"bom": False, "crlf": False, "lone_cr": False, "mixed_endings": False},
+        "hunk_constrained": True,
+        "detail": "",
+        "seed": 7,
+        "tool_version": "0.1.0",
+    }
+    base.update(over)
+    return base

@@ -1,0 +1,11 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "slot_name_over_cap",
+    "index": 0,
+    "cap": 256,
+    "actual": 257
+  },
+  "message": "slot at index 0 has a name of 257 bytes, over the cap of 256; a slot name is an identifier, and it is refused rather than truncated because the answer map is keyed by it and a truncated key answers a question nobody asked"
+}

@@ -91,7 +91,7 @@ fn the_corpus_covers_every_refusal_and_every_backend_error() {
         .collect();
     assert_eq!(
         refusal_kinds.len(),
-        36,
+        37,
         "every refusal kind needs a fixture; missing one hides a whole failure mode from the \
          other lane"
     );

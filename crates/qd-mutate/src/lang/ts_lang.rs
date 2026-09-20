@@ -339,17 +339,24 @@ impl Language for TypeScript {
         if items.len() < 2 {
             return None;
         }
-        // A side-effect import (`import "./polyfill";` — no clause) runs for what it does, and
-        // what it does is ordered. So does an import whose module is fetched for registration.
-        // Reordering past one is refused, and the reason is recorded rather than assumed away.
-        let has_side_effect_import = items
-            .iter()
-            .any(|n| n.child_by_field_name("source").is_some() && named_children(*n).len() < 2);
+        // Not reorderable, and the clause-less `import "./polyfill";` shape is only the obvious
+        // half of why.
+        //
+        // An ES module is *evaluated* when it is imported, and the evaluation order is specified:
+        // the importer's `[[RequestedModules]]` are walked in source order. So `import { a } from
+        // './a'` runs `./a`'s module body just as surely as `import './a'` does — it merely also
+        // binds a name. Swapping two such statements swaps the order two module bodies run in, and
+        // no check confined to this one file can establish that those bodies do not interact.
+        //
+        // The earlier check looked only for the clause-less shape and declared everything else
+        // safe. That is a `cosmetic` label — a claim of behaviour preservation — resting on a
+        // property nothing verified, which is the poisoned label this crate exists to prevent. The
+        // operator is refused for the language, as it already is for Python and for the same
+        // reason: import order is execution order here.
         Some(ImportBlock {
             items,
-            reorderable: !has_side_effect_import,
-            why_not: has_side_effect_import
-                .then_some("a side-effect import runs for what it does, and side effects are ordered"),
+            reorderable: false,
+            why_not: self.import_order_is_semantic(),
         })
     }
 
@@ -433,11 +440,22 @@ impl Language for TypeScript {
         })
     }
 
+    fn smoke_source(&self) -> &'static str {
+        "const x = 1;\n"
+    }
+
     fn line_wrapping_is_safe(&self) -> bool {
         // Automatic semicolon insertion makes a newline in the wrong place change the program —
         // `return\n  x` returns undefined. The operator is restricted rather than trusted to pick a
         // safe point.
         false
+    }
+
+    fn import_order_is_semantic(&self) -> Option<&'static str> {
+        Some(
+            "an ES module is evaluated when it is imported, in source order; a check confined to \
+             one file cannot rule out an interaction between two module bodies",
+        )
     }
 }
 

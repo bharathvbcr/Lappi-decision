@@ -70,6 +70,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .schema_mirror import CHOICE, MAX_OPTIONS, MIN_OPTIONS, RESERVED_NOUL_ROWS, SCORE, SPAN
 from .tristate import NotRun, Ran, TriState
 
 __all__ = [
@@ -90,15 +91,9 @@ __all__ = [
     "probability_cutoff_from_nonconformity",
 ]
 
-# Mirrors of crates/qd-runtime/src/schema.rs. Restated rather than imported because the
-# Rust crate is not importable from Python; `test_calibration_fit.py` reads schema.rs and
-# fails if any of these drift, so the duplication cannot rot silently.
-CHOICE = "choice"  # SlotKind::as_str, schema.rs:68
-SCORE = "score"  # schema.rs:69
-SPAN = "span"  # schema.rs:70
-MIN_OPTIONS = 2  # schema.rs:21
-MAX_OPTIONS = 16  # schema.rs:19
-RESERVED_NOUL_ROWS = 1  # schema.rs:31
+# The schema constants are imported from `qd_train.schema_mirror` and re-exported through
+# `__all__` above, so existing `from .calibration_fit import CHOICE` sites keep working.
+# `test_schema_mirror.py` pins every one of them against schema.rs.
 
 
 def letters_key(kind: str, rows: int) -> str:

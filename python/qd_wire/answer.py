@@ -27,7 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final, Literal
 
-from qd_wire.contract import STRUCT_FIELDS
+from qd_wire.contract import MAX_SLOT_NAME_BYTES, STRUCT_FIELDS
 from qd_wire.errors import WireParseError, check_keys
 from qd_wire.values import as_bool, as_finite_float, as_str, as_uint
 
@@ -42,6 +42,7 @@ __all__ = [
     "SlotAnswer",
     "SlotValue",
     "SpanValue",
+    "check_slot_name",
     "parse_answer_envelope",
     "parse_conformal_set",
     "parse_slot_answer",
@@ -89,30 +90,24 @@ class SpanValue:
     converts between the two. ``GAP-XLANG-SPAN-THREE-SPELLINGS``: this class is the
     runtime-answer spelling only, and deliberately does not accept the array form.
 
-    ``start_line <= end_line`` is **not** enforced here, and the reason is worth
-    being exact about. The runtime never *emits* an inverted span:
-    ``crates/qd-runtime/src/answer.rs:420`` abstains when ``end.top < start.top``,
-    on the stated ground that a backwards span "is not a low-confidence span, it is
-    not a span". But that check lives in the **producer**. ``SpanValue`` derives its
-    ``Deserialize`` with no ordering check, so the Rust *reader* accepts an inverted
-    span, and the type itself carries no such invariant.
+    ``1 <= start_line <= end_line`` is a **term of the format**, enforced here and in
+    ``crates/qd-runtime/src/schema.rs::SpanValue``'s ``TryFrom<SpanValueWire>``.
 
-    So the ordering is a property of one code path, not a term of the format. This
-    parser therefore reports it rather than refusing on it — refusing would make
-    Python stricter than the Rust reader on a rule the contract never states, which
-    is a second opinion about the format and exactly what the golden corpus exists
-    to remove. ``GAP-XLANG-SPAN-BOUNDS-UNPINNED``.
+    It was not, and this class previously said so: it parsed an inverted span and
+    exposed ``is_ordered`` instead of refusing, because the Rust *reader* accepted one
+    too and making Python stricter than Rust on a rule nothing stated would have been
+    a second opinion about the format. The rule was real but lived in exactly one
+    place — the **producer**, which abstains when the end pointer decodes below the
+    start one — so every reader was trusting a check it could not see.
+
+    Both sides now carry the invariant, so ``is_ordered`` is gone rather than left
+    behind always returning ``True``. ``GAP-XLANG-SPAN-BOUNDS-UNPINNED``.
     """
 
     start_line: int
     end_line: int
 
     kind: Literal["span"] = "span"
-
-    @property
-    def is_ordered(self) -> bool:
-        """Whether the span runs forwards. Reported, never assumed."""
-        return self.start_line <= self.end_line
 
 
 SlotValue = ChoiceValue | ScoreValue | SpanValue
@@ -221,10 +216,25 @@ def parse_slot_value(raw: object, *, path: str) -> SlotValue:
         return ScoreValue(bin=as_uint(raw, path=path, rust_type="u32"))
     if isinstance(raw, dict):
         check_keys(raw, required=_SPAN_KEYS, path=path)
-        return SpanValue(
-            start_line=as_uint(raw["start_line"], path=f"{path}.start_line"),
-            end_line=as_uint(raw["end_line"], path=f"{path}.end_line"),
-        )
+        start = as_uint(raw["start_line"], path=f"{path}.start_line")
+        end = as_uint(raw["end_line"], path=f"{path}.end_line")
+        # The same two bounds `SpanValue::try_from` applies in `schema.rs`, with the same reasons.
+        # Enforced here rather than reported, because they are now a term of the format on both
+        # sides. `GAP-XLANG-SPAN-BOUNDS-UNPINNED`.
+        if start == 0:
+            raise WireParseError(
+                path,
+                "span starts at line 0, but a span is 1-based and inclusive, so line 0 "
+                "does not exist",
+            )
+        if start > end:
+            raise WireParseError(
+                path,
+                f"span runs backwards: start_line {start} is after end_line {end}. A "
+                "backwards span is not a low-confidence span, it is not a span; it is "
+                "refused rather than silently reordered into a plausible-looking answer",
+            )
+        return SpanValue(start_line=start, end_line=end)
     raise WireParseError(
         path,
         "not a `SlotValue`: expected a string (choice), an integer (score) or an "
@@ -287,7 +297,44 @@ def parse_answer_envelope(raw: dict[str, object], *, path: str = "$") -> AnswerE
         backend=as_str(raw["backend"], path=f"{path}.backend"),
         degraded=as_bool(raw["degraded"], path=f"{path}.degraded"),
         slots={
-            name: parse_slot_answer(body, path=f"{path}.slots[{name!r}]")
+            check_slot_name(name, path=f"{path}.slots"): parse_slot_answer(
+                body, path=f"{path}.slots[{name!r}]"
+            )
             for name, body in slots.items()
         },
     )
+
+
+def check_slot_name(name: object, *, path: str) -> str:
+    """Hold an answer's slot key to the same rule the request side holds ``slots[i].name`` to.
+
+    Returns the name so it can be used inline where the key is built.
+
+    The Rust reader enforces this in ``schema.rs::deserialize_slot_map`` and the request side in
+    ``wire::parse_slot``, all three from the one number
+    :data:`qd_wire.contract.MAX_SLOT_NAME_BYTES`, which is generated from
+    ``crates/qd-runtime/src/schema.rs`` rather than typed here. Enforcing on one reader and not the
+    other would recreate ``GAP-RT-SLOT-NAME-UNCAPPED`` in mirror image: a cap only one side keeps
+    is not a cap.
+
+    The cap is on **UTF-8 bytes**, not characters, because that is what the Rust ``str::len`` and
+    ``MAX_PAYLOAD_BYTES`` are denominated in. ``len(name)`` would accept a 256-character name that
+    Rust refuses at 512 bytes.
+    """
+    if not isinstance(name, str):
+        raise WireParseError(path, f"a slot key must be a string, got {type(name).__name__}")
+    if not name.strip():
+        raise WireParseError(
+            path,
+            "the answer's `slots` map has an empty key; a slot answer that cannot be keyed "
+            "cannot be matched to the slot that was asked",
+        )
+    size = len(name.encode("utf-8"))
+    if size > MAX_SLOT_NAME_BYTES:
+        raise WireParseError(
+            path,
+            f"a key of the answer's `slots` map is {size} bytes, over the slot-name cap of "
+            f"{MAX_SLOT_NAME_BYTES}; no request carrying such a name can be accepted, so no "
+            "answer may carry one back",
+        )
+    return name

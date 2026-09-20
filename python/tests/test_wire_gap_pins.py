@@ -17,8 +17,8 @@ The six, and where each stands:
   :func:`test_qd_data_no_longer_spells_a_request_digest_label_set_hash`
 * ``GAP-XLANG-NO-PY-HASH-EXPECTATION`` — open; see
   :func:`test_a_training_lane_request_still_pins_no_hashes`
-* ``GAP-XLANG-EXPECT-FIELD-NAME-DOC-DRIFT`` — open; see
-  :func:`test_the_five_pinnable_hashes_are_known_here_even_though_nothing_produces_them`
+* ``GAP-XLANG-EXPECT-FIELD-NAME-DOC-DRIFT`` — closed by the XLANG-FINISH lane; see
+  :func:`test_the_documented_expect_block_deserializes_against_the_struct`
 * ``GAP-XLANG-SPAN-THREE-SPELLINGS`` — open; see
   :func:`test_a_gold_answer_still_spells_a_span_as_a_two_element_array`
 
@@ -350,27 +350,48 @@ def test_a_training_lane_request_still_pins_no_hashes():
     )
 
 
-def test_the_five_pinnable_hashes_are_known_here_even_though_nothing_produces_them():
-    """The contract table carries ``HashExpectation`` so the absence is specific.
+def test_the_documented_expect_block_deserializes_against_the_struct():
+    """``GAP-XLANG-EXPECT-FIELD-NAME-DOC-DRIFT``, closed — and closed structurally.
 
-    ``docs/schema-api.md`` spells the second field ``weights_hash``; the Rust struct
-    spells it ``weight_hash`` and is ``deny_unknown_fields``, so a caller written from
-    the document would be refused. Recorded as ``GAP-XLANG-EXPECT-FIELD-NAME-DOC-DRIFT``.
+    The document spelled the second pin ``weights_hash``; the struct declares
+    ``weight_hash`` and is ``deny_unknown_fields``, so a caller who copied the
+    documented example earned a refusal naming an unknown field and went looking for a
+    typo in their own code. The other four names matched, which is why reading past it
+    was easy.
+
+    The previous pin asserted the drift was *still there*, so that fixing it would fail
+    the test and tell whoever ran it to delete the pin. That is the right shape for a
+    gap nobody owns yet, and the wrong shape once it is fixed: it goes stale on the day
+    it succeeds, and it only ever guarded the one word.
+
+    This replaces it with the check the gap record asked for — the field names are read
+    out of the document's own ``expect`` example and compared against the **generated**
+    contract table, which is itself re-derived from ``schema.rs`` on every run by
+    ``test_wire_contract_matches_rust.py``. So the document, the Python table and the
+    Rust struct are one set of names, and *any* future divergence in any of the five
+    fails here naming the offending word rather than only the one that happened first.
     """
+    import re
+
     from qd_wire.contract import STRUCT_FIELDS
 
-    assert set(STRUCT_FIELDS["HashExpectation"]) == {
-        "tokenizer_hash",
-        "weight_hash",
-        "head_hash",
-        "label_set_hash",
-        "calibration_hash",
-    }
     doc = (REPO / "docs" / "schema-api.md").read_text(encoding="utf-8")
-    assert '"weights_hash"' in doc, (
-        "docs/schema-api.md no longer spells the field `weights_hash`; if it now "
-        "matches the struct's `weight_hash`, GAP-XLANG-EXPECT-FIELD-NAME-DOC-DRIFT is "
-        "closed and this pin is stale."
+    match = re.search(r'^"expect":\s*\{(.*?)^\}', doc, re.DOTALL | re.MULTILINE)
+    assert match is not None, (
+        "the `expect` example block is no longer in docs/schema-api.md in the shape this "
+        "test reads. It is the thing a first caller copies; if it moved, re-point this "
+        "test at it rather than deleting the check."
+    )
+    documented = set(re.findall(r'"([a-z_]+)"\s*:', match.group(1)))
+    assert documented, "parsed no field names out of the documented `expect` block"
+
+    declared = set(STRUCT_FIELDS["HashExpectation"])
+    assert documented == declared, (
+        f"docs/schema-api.md's `expect` example names {sorted(documented)} but "
+        f"crates/qd-runtime/src/schema.rs::HashExpectation declares {sorted(declared)}. "
+        "HashExpectation is #[serde(deny_unknown_fields)], so a caller copying the "
+        "documented example is refused with `unknown field`, not a hash mismatch — "
+        "GAP-XLANG-EXPECT-FIELD-NAME-DOC-DRIFT."
     )
 
 

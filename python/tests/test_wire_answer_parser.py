@@ -28,7 +28,7 @@ from qd_wire.answer import (
     parse_slot_answer,
     parse_slot_value,
 )
-from qd_wire.contract import STRUCT_FIELDS
+from qd_wire.contract import MAX_SLOT_NAME_BYTES, STRUCT_FIELDS
 from qd_wire.errors import WireParseError
 from qd_wire.response import CallerReading, caller_reading, parse_response, parse_response_line
 
@@ -61,6 +61,17 @@ def envelope(**over):
     assert set(body) - {"status"} == set(STRUCT_FIELDS["AnswerEnvelope"])
     body.update(over)
     return body
+
+
+def body(**over):
+    """An envelope body as :func:`parse_answer_envelope` wants it — without ``status``.
+
+    ``status`` belongs to the ``Response`` discriminant and is consumed by the caller, so the
+    envelope parser refuses it as an unknown field.
+    """
+    out = envelope(**over)
+    del out["status"]
+    return out
 
 
 # -- the three slot kinds, discriminated the way `#[serde(untagged)]` does ------------------
@@ -104,19 +115,56 @@ def test_a_span_refuses_an_unknown_or_missing_line_field():
         parse_slot_value({"start_line": 1}, path="$.value")
 
 
-def test_span_bounds_are_not_enforced_and_that_is_reported_not_assumed():
-    """``GAP-XLANG-SPAN-BOUNDS-UNPINNED``.
+def test_a_backwards_span_is_refused_by_both_readers():
+    """``GAP-XLANG-SPAN-BOUNDS-UNPINNED``, settled: ordering is a term of the format.
 
-    The runtime's span *producer* refuses a backwards span
-    (``crates/qd-runtime/src/answer.rs:420`` abstains when ``end.top < start.top``),
-    but its *reader* does not: ``SpanValue`` derives ``Deserialize`` with no ordering
-    check. The ordering is therefore a property of one code path and not a term of
-    the format, so this parser reports it rather than refusing on it — refusing would
-    make Python stricter than the Rust reader on a rule nothing states.
+    This test asserted the opposite. It read::
+
+        inverted = parse_slot_value({"start_line": 47, "end_line": 41}, path="$")
+        assert inverted.is_ordered is False
+
+    because the rule lived only in the *producer* — ``crates/qd-runtime/src/answer.rs``
+    abstains when the end pointer decodes below the start one — while both readers
+    accepted an inverted span and ``SpanValue`` carried no such invariant. Refusing on
+    one side alone would have been a second opinion about the format, so the previous
+    lane correctly reported it instead. The invariant now belongs to the type on both
+    sides, and ``is_ordered`` is gone rather than left always returning ``True``.
     """
-    inverted = parse_slot_value({"start_line": 47, "end_line": 41}, path="$")
-    assert isinstance(inverted, SpanValue)
-    assert inverted.is_ordered is False
+    with pytest.raises(WireParseError, match="runs backwards"):
+        parse_slot_value({"start_line": 47, "end_line": 41}, path="$")
+
+    assert not hasattr(SpanValue(start_line=1, end_line=2), "is_ordered"), (
+        "is_ordered existed only to report an unenforced rule; with the rule enforced it "
+        "would always be True, and a predicate that cannot be False invites callers to "
+        "keep checking a thing that can no longer happen"
+    )
+
+
+def test_a_span_starting_at_line_zero_is_refused_because_spans_are_one_based():
+    """The other half of the same invariant, and the one the doc comment always claimed.
+
+    ``SpanValue`` has said "1-based and inclusive" since it was written, and the producer
+    cannot emit 0 — it decodes a row index and adds one. Line 0 was nevertheless accepted
+    by both readers, which is the same defect as the ordering one: a rule stated in prose
+    and enforced nowhere.
+    """
+    with pytest.raises(WireParseError, match="1-based"):
+        parse_slot_value({"start_line": 0, "end_line": 3}, path="$")
+
+
+def test_a_single_line_span_and_the_smallest_legal_span_are_accepted():
+    """The boundary from the other direction: ``start == end`` is legal, and line 1 is legal.
+
+    An implementation that used ``>=`` for the ordering check, or ``<= 1`` for the 1-based
+    check, would refuse the two spans the corpus actually contains
+    (``answer-span-only.json`` is ``{2, 2}``) and pass every test above.
+    """
+    assert parse_slot_value({"start_line": 2, "end_line": 2}, path="$") == SpanValue(
+        start_line=2, end_line=2
+    )
+    assert parse_slot_value({"start_line": 1, "end_line": 1}, path="$") == SpanValue(
+        start_line=1, end_line=1
+    )
 
 
 # -- the conformal set ----------------------------------------------------------------------
@@ -302,3 +350,57 @@ def test_parse_answer_envelope_is_reachable_without_the_discriminant():
     body = envelope()
     del body["status"]
     assert parse_answer_envelope(body).schema_version == 1
+
+
+# -- the slot-name cap, the same number on both sides ---------------------------------------
+#
+# `GAP-RT-SLOT-NAME-UNCAPPED`: a slot name was checked non-empty and never checked for length, in
+# neither `wire::parse_slot` nor `render::slot_suffix`, and the answer map's keys were not checked
+# at all here. The cap now exists on all four readers, from the single generated constant
+# `qd_wire.contract.MAX_SLOT_NAME_BYTES`. These tests are the Python half; the Rust half is
+# `wire_refusals.rs::a_slot_name_is_capped_in_bytes_and_the_boundary_is_exact`, and
+# `test_wire_contract_matches_rust.py::test_the_slot_name_cap_is_one_number_on_both_sides` is what
+# keeps the two halves talking about the same number.
+
+
+def test_a_slot_key_at_the_cap_is_accepted_and_one_byte_over_is_refused():
+    at_cap = "n" * MAX_SLOT_NAME_BYTES
+    parsed = parse_answer_envelope(body(slots={at_cap: slot()}))
+    assert at_cap in parsed.slots, "the cap is an inclusive maximum"
+
+    with pytest.raises(WireParseError, match="over the slot-name cap"):
+        parse_answer_envelope(body(slots={"n" * (MAX_SLOT_NAME_BYTES + 1): slot()}))
+
+
+def test_the_slot_key_cap_counts_utf8_bytes_and_not_characters():
+    """``len(name)`` would accept a 256-character name that Rust refuses at 512 bytes.
+
+    ``é`` is two bytes in UTF-8, so 128 of them is exactly the cap and 129 is two over it while
+    still being fewer characters than the cap. A character-counting implementation passes the
+    first case and the over-cap case alike, which is why the second assertion is here.
+    """
+    at_cap = "é" * (MAX_SLOT_NAME_BYTES // 2)
+    assert len(at_cap.encode("utf-8")) == MAX_SLOT_NAME_BYTES
+    assert at_cap in parse_answer_envelope(body(slots={at_cap: slot()})).slots
+
+    over = "é" * (MAX_SLOT_NAME_BYTES // 2 + 1)
+    assert len(over) < MAX_SLOT_NAME_BYTES, "fewer characters than the cap, but more bytes"
+    with pytest.raises(WireParseError, match="over the slot-name cap"):
+        parse_answer_envelope(body(slots={over: slot()}))
+
+
+def test_an_empty_slot_key_is_refused_rather_than_carried():
+    for blank in ("", "   "):
+        with pytest.raises(WireParseError, match="empty key"):
+            parse_answer_envelope(body(slots={blank: slot()}))
+
+
+def test_the_over_cap_message_states_both_numbers_and_does_not_echo_the_key():
+    """A refusal whose size the input chooses is a small amplification, and an avoidable one."""
+    key = "x" * 4096
+    with pytest.raises(WireParseError) as caught:
+        parse_answer_envelope(body(slots={key: slot()}))
+    message = str(caught.value)
+    assert "4096" in message and str(MAX_SLOT_NAME_BYTES) in message
+    assert key not in message, "the oversized key must not be echoed back"
+    assert len(message) < 512, f"the message must stay bounded, got {len(message)} bytes"

@@ -224,7 +224,8 @@ fn expected_silent(id: LangId) -> Vec<(OpId, &'static str)> {
             ),
             (
                 OpId::CosmeticReorderImports,
-                "restricted with reformat: both need a resolvable formatter",
+                "an ES module is evaluated when it is imported, in source order; refused for the \
+                 language, not for the missing formatter",
             ),
         ],
         LangId::Swift => vec![(

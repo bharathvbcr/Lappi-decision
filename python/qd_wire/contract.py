@@ -26,6 +26,7 @@ from typing import Final
 __all__ = [
     "BACKEND_ERROR_KINDS",
     "HASH_KINDS",
+    "MAX_SLOT_NAME_BYTES",
     "NOUL_LABEL",
     "REFUSAL_KINDS",
     "ROUTES",
@@ -198,6 +199,11 @@ REFUSAL_KINDS: Final[dict[str, dict[str, str]]] = {
         'slot': 'String',
         'slot_type': 'String',
     },
+    'slot_name_over_cap': {
+        'actual': 'usize',
+        'cap': 'usize',
+        'index': 'usize',
+    },
     'task_over_cap': {
         'actual': 'usize',
         'cap': 'usize',
@@ -299,4 +305,13 @@ SLOT_KINDS: Final[tuple[str, ...]] = ('choice', 'score', 'span',)
 
 #: `Route`.
 ROUTES: Final[tuple[str, ...]] = ('generic', 'registered',)
+
+#: `schema.rs::MAX_SLOT_NAME_BYTES` — bytes a slot name may occupy, UTF-8, before escaping.
+#:
+#: Generated from the Rust line, not transcribed from it, and re-derived and compared on every
+#: test run. That is the whole mechanism: a cap one lane enforces and the other does not is not a
+#: cap, it is a disagreement, and this repository has already paid for that twice
+#: (``GAP-RT-WIRE-CONTEXT-ENCODING``, ``GAP-SCHEMA-LABEL-SET-HASH-TWO-MEANINGS``).
+#: ``GAP-RT-SLOT-NAME-UNCAPPED``.
+MAX_SLOT_NAME_BYTES: Final[int] = 256
 

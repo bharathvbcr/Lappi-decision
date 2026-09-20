@@ -476,10 +476,20 @@ impl Language for Swift {
         })
     }
 
+    fn smoke_source(&self) -> &'static str {
+        "let qdMutateSmoke = 1\n"
+    }
+
     fn line_wrapping_is_safe(&self) -> bool {
         // A newline terminates a statement in Swift, so `return\n  x` returns Void. The wrap is
         // safe only inside brackets, and "safe where I happened to put it" is not a proof.
         false
+    }
+
+    fn import_order_is_semantic(&self) -> Option<&'static str> {
+        // Not for the language: a Swift module is initialised on first use, not at the import
+        // statement. The order-sensitive shapes are per-file and `import_block` refuses them.
+        None
     }
 }
 

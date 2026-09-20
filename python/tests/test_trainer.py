@@ -26,6 +26,7 @@ from qd_train.artifacts import (
     SLOT_SPAN,
     SPAN_ABSTAIN,
     Batch,
+    ShardContractViolation,
 )
 from qd_train.ledger import Environment, Ledger, Protocol, RunRecorder
 from qd_train.run_control import (
@@ -258,9 +259,21 @@ def test_ft_supervises_the_position_the_batch_names_not_one_inferred_from_length
     assert sup.span is None
 
 
-def test_a_row_with_no_supervised_position_is_refused_rather_than_dropped():
-    with pytest.raises(TrainerContractViolation, match="no supervised position"):
-        cpt_supervision(_batch([4, 1], width=6))
+def test_a_row_with_no_supervised_position_cannot_be_built_in_the_first_place():
+    """GAP-TRAINER-CPT-REFUSES-LENGTH-ONE-ROWS, settled upstream of this loop.
+
+    This test used to call `cpt_supervision` and assert it refused a one-token row. It
+    did -- but `Batch` happily built that row, so the constructor and its only consumer
+    disagreed about what a batch is, which is exactly the two-readings failure
+    `artifacts.py` exists to prevent. The floor now lives in `artifacts._MIN_ROW_TOKENS`
+    and the refusal is here, one layer earlier. `_refuse_unsupervised_rows` stays as a
+    postcondition on the mask arithmetic; it is no longer the contract statement, and
+    `test_artifacts.py` is where the contract is tested.
+    """
+    with pytest.raises(ShardContractViolation, match=r"row\(s\) \[1\] carry \[1\] real token"):
+        _batch([4, 1], width=6)
+    # And the batch one token wider is fine, so the floor is a floor and not a ban.
+    assert cpt_supervision(_batch([4, 2], width=6)).n_supervised == 4
 
 
 def test_cpt_refuses_a_batch_that_carries_slot_answers():
@@ -274,10 +287,18 @@ def test_ft_refuses_a_batch_with_no_supervision_channel():
         ft_supervision(_batch([4, 2], width=6))
 
 
-def test_ft_refuses_an_lm_row_rather_than_guessing_what_it_meant():
-    batch = _ft_batch([4, 3], kinds=[SLOT_LM, SLOT_CHOICE], target_index=[2, 1])
-    with pytest.raises(TrainerContractViolation, match="SLOT_LM inside an FT batch"):
-        ft_supervision(batch)
+def test_an_lm_row_never_reaches_ft_because_the_contract_refuses_it_first():
+    """GAP-TRAINER-FT-SLOT-LM-ROW-UNDEFINED, settled upstream of this loop.
+
+    `ft_supervision` still carries the refusal as defence in depth, alongside its three
+    other "Batch refuses this" guards, but it is no longer the only thing standing between
+    a mislabelled row and a different objective: the batch cannot be built.
+    """
+    with pytest.raises(ShardContractViolation, match=r"row\(s\) \[0\] carry SLOT_LM"):
+        _ft_batch([4, 3], kinds=[SLOT_LM, SLOT_CHOICE], target_index=[2, 1])
+    # The same batch with the row relabelled is accepted and supervises both rows.
+    ok = _ft_batch([4, 3], kinds=[SLOT_CHOICE, SLOT_CHOICE], target_index=[2, 1])
+    assert ft_supervision(ok).n_supervised == 2
 
 
 # --- spans: a position answer, never a letter ------------------------------------------
@@ -427,8 +448,14 @@ def test_the_abstaining_flag_must_agree_with_the_sentinel():
 
 
 def test_a_batch_with_no_next_token_pair_is_refused():
-    with pytest.raises(TrainerContractViolation, match="no next-token pair"):
-        cpt_supervision(_batch([1], width=1))
+    """A width-1 batch needs a length-1 row, so `Batch` now refuses it one layer earlier.
+
+    `_prediction_grid`'s own width check stays as a guard on the arithmetic, but it is
+    unreachable through the constructor: `lengths.max() <= width` and
+    `lengths.min() >= _MIN_ROW_TOKENS` together put the floor under `width` too.
+    """
+    with pytest.raises(ShardContractViolation, match=r"row\(s\) \[0\] carry \[1\] real token"):
+        _batch([1], width=1)
 
 
 def test_the_loss_does_not_depend_on_what_is_in_the_padding():

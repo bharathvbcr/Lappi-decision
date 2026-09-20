@@ -20,6 +20,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from qd_train.ledger import (  # noqa: E402
+    NOT_APPLICABLE,
     Environment,
     Ledger,
     LedgerChainError,
@@ -321,3 +322,128 @@ def test_seed_family_groups_rows_that_differ_only_in_seed():
     assert len(fam) == 1
     other = Protocol("different", "t" * 64, "b" * 40, "r" * 64, 1)
     assert other.hash_without_seed() not in fam
+
+
+# ---------------------------------------------------------------------------
+# run_kind "build": the row a lane that compiles and runs a test suite writes.
+#
+# Repo rule 5 says a number in a report cites a ledger row or is not in the
+# report. Before this existed there was no run_kind whose required fields a
+# build lane could honestly fill, so three lanes in a row printed command
+# output instead and said so (GAP-MUTATE-NO-LEDGER-ROW-KIND). These tests pin
+# the two things that make the new kind safe rather than merely available: it
+# never promotes, and it cannot be confused with a training row in either
+# direction.
+# ---------------------------------------------------------------------------
+
+
+def _build_protocol(*, commands: tuple[str, ...] = ("cargo test --workspace",)) -> Protocol:
+    return Protocol.for_build(commands=commands, toolchain="cargo 1.98.0")
+
+
+def test_a_build_lane_has_a_run_kind_to_write(tmp_path: Path):
+    led = Ledger(tmp_path / "runs.jsonl")
+    with RunRecorder(
+        led, protocol=_build_protocol(), run_kind="build", repo=REPO, env=_env()
+    ) as rec:
+        rec.metric("suite.cargo_test_workspace", Ran(passed=True, value=344, n=344, n_total=344))
+    rows = led.rows()
+    assert len(rows) == 1
+    assert rows[0].run_kind == "build"
+    assert rows[0].status == "completed"
+    assert rows[0].metrics["suite.cargo_test_workspace"].value == 344
+
+
+def test_a_build_protocol_says_which_components_it_does_not_have():
+    proto = _build_protocol()
+    # The three model-protocol components do not exist for a build. They carry an
+    # explicit not-applicable marker rather than a plausible-looking hash: a
+    # fabricated value in the decision record is worse than no row at all, which
+    # is exactly why the earlier lanes declined to invent one.
+    assert proto.data_snapshot_hash == NOT_APPLICABLE
+    assert proto.tokenizer_hash == NOT_APPLICABLE
+    assert proto.backbone_commit == NOT_APPLICABLE
+    # `recipe_hash` is real: it identifies the command set, so two build runs of
+    # different commands are not silently comparable.
+    assert proto.recipe_hash != NOT_APPLICABLE
+    assert len(proto.recipe_hash) == 64
+    other = Protocol.for_build(commands=("pytest python/tests",), toolchain="cargo 1.98.0")
+    assert other.recipe_hash != proto.recipe_hash
+    same = _build_protocol()
+    assert same.recipe_hash == proto.recipe_hash, "the same commands must hash the same"
+
+
+def test_a_build_row_cannot_promote_anything(tmp_path: Path):
+    """Three completed, non-quick build rows with every gate and control green.
+
+    That is every condition in docs/ledger-schema.md's promotion list, and it
+    must still refuse — because a build row's gates are vacuous, not satisfied.
+    Leaving this to "a build lane would never report gates" is the failure mode:
+    `_fill_unreported` would have to be relied on to keep a decision honest.
+    """
+    led = Ledger(tmp_path / "runs.jsonl")
+    for seed in (1, 2, 3):
+        proto = Protocol.for_build(
+            commands=("cargo test --workspace",), toolchain="cargo 1.98.0", seed=seed
+        )
+        with RunRecorder(led, protocol=proto, run_kind="build", repo=REPO, env=_env()) as rec:
+            _all_green(rec)
+    verdict = led.promotion_verdict(_build_protocol().hash_without_seed())
+    assert not verdict.promoted
+    assert any("build" in r for r in verdict.reasons), verdict.reasons
+
+
+def test_a_training_row_may_not_borrow_the_build_marker(tmp_path: Path):
+    """The marker is one-directional: only a build row may carry it.
+
+    Without this, `data_snapshot_hash="n/a"` on a `cpt` row would pass every
+    check in the module and produce a training row whose protocol identifies
+    nothing, which is the same unfalsifiable comparison the marker exists to
+    make visible.
+    """
+    with pytest.raises(ValueError, match="build"):
+        LedgerRow(
+            row_id="x",
+            written_at="2026-09-19T00:00:00+00:00",
+            prev_row_hash=None,
+            protocol=Protocol(NOT_APPLICABLE, "t" * 64, "b" * 40, "r" * 64, 1),
+            run_kind="cpt",
+            status="completed",
+            quick=False,
+            quick_reason=None,
+            code_commit="abc",
+            env=_env(),
+            metrics={},
+            noul_rate=NotRun(reason="not computed"),
+            controls={},
+            gates={},
+            wall_clock_s=1.0,
+            cost_usd=0.0,
+        )
+
+
+def test_a_build_row_must_carry_the_marker_it_claims(tmp_path: Path):
+    """And the other direction: a build row with a real-looking snapshot hash.
+
+    A build lane has no data snapshot. A row saying it does would make the row
+    comparable to training rows it has nothing to do with.
+    """
+    with pytest.raises(ValueError, match="build"):
+        LedgerRow(
+            row_id="x",
+            written_at="2026-09-19T00:00:00+00:00",
+            prev_row_hash=None,
+            protocol=_protocol(1),
+            run_kind="build",
+            status="completed",
+            quick=False,
+            quick_reason=None,
+            code_commit="abc",
+            env=_env(),
+            metrics={},
+            noul_rate=NotRun(reason="not computed"),
+            controls={},
+            gates={},
+            wall_clock_s=1.0,
+            cost_usd=0.0,
+        )

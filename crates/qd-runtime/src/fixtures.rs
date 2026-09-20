@@ -424,6 +424,11 @@ pub fn all_refusals() -> Vec<Refusal> {
             duplicate_index: 1,
         },
         Refusal::EmptySlotName { index: 0 },
+        Refusal::SlotNameOverCap {
+            index: 0,
+            cap: crate::schema::MAX_SLOT_NAME_BYTES,
+            actual: crate::schema::MAX_SLOT_NAME_BYTES + 1,
+        },
         Refusal::TooManySlots { cap: 32, actual: 33 },
         Refusal::BinsOutOfRange {
             slot: "severity".into(),

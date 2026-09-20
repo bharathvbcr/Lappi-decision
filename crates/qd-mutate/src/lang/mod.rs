@@ -258,8 +258,26 @@ pub trait Language: Sync + Send {
     /// Formatter for verifying `cosmetic` really is behaviour-preserving. `None` **restricts** the
     /// cosmetic operator set rather than being assumed harmless.
     fn formatter(&self) -> Option<Formatter>;
+
+    /// A minimal file this language's formatter must accept, used once per run to establish that
+    /// the formatter *runs here* and not merely that a file exists at its path.
+    ///
+    /// Kept deliberately small and boring. It is a liveness check, not a conformance test: if a
+    /// formatter cannot handle this, nothing it says about a real source file is worth recording.
+    fn smoke_source(&self) -> &'static str;
     /// False where the language is whitespace-sensitive, which refuses `cosmetic.wrap_line`.
     fn line_wrapping_is_safe(&self) -> bool;
+
+    /// `Some(reason)` where import order is **execution** order for the whole language, so
+    /// `cosmetic.reorder_imports` is refused here on every machine and for every file.
+    ///
+    /// Required, not defaulted, and separate from [`Language::import_block`] on purpose. The block
+    /// answers a per-file question — this group has a glob, this one a blank import — which is only
+    /// known once a file has been parsed. This answers the per-*language* question, which
+    /// [`crate::manifest::Manifest::new`] needs before any file is read so the restriction is
+    /// recorded as a property of the run. A language that could not answer would default into
+    /// "reordering is fine here", which is the direction that produces a poisoned `cosmetic` label.
+    fn import_order_is_semantic(&self) -> Option<&'static str>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

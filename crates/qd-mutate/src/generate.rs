@@ -172,14 +172,23 @@ impl Generator {
     /// cosmetic coverage depend on when each file was processed — and that is not a property a
     /// reproducible generator may have.
     pub fn new(options: Options) -> Self {
+        // One pass, not two. Resolution now runs the formatter on a smoke input, so calling
+        // `probe_all()` alongside this loop would have paid for every formatter twice and — worse —
+        // left the recorded availability and the formatter actually used as two separate
+        // measurements that could disagree.
         let mut resolved = HashMap::new();
+        let mut formatters = Vec::with_capacity(LangId::ALL.len());
         for id in LangId::ALL {
-            if let Ok(r) = fmt::resolve(crate::lang::for_id(id)) {
-                resolved.insert(id, r);
+            match fmt::resolve(crate::lang::for_id(id)) {
+                Ok(r) => {
+                    formatters.push((id, r.availability.clone()));
+                    resolved.insert(id, r);
+                }
+                Err(a) => formatters.push((id, a)),
             }
         }
         Generator {
-            formatters: fmt::probe_all(),
+            formatters,
             options,
             resolved,
         }
@@ -321,13 +330,26 @@ impl Generator {
                 let mut available: Vec<(OpId, Vec<Candidate>)> = Vec::new();
                 for op in OpId::ALL {
                     match ops::candidates(op, &ctx, body) {
-                        Ok(found) if !found.is_empty() => {
-                            manifest.note_sites(language_id, op, found.len() as u64);
-                            available.push((op, found));
+                        Ok(offered) => {
+                            // Declines first, and unconditionally: an operator that offered
+                            // nothing *because its filter rejected everything* is the case this
+                            // records, and skipping the bookkeeping when the candidate list came
+                            // back empty would drop exactly that case on the floor.
+                            for (reason, count) in &offered.declined {
+                                manifest.note_declined(language_id, op, reason, *count);
+                            }
+                            // An empty list with no declines is "this construct is not present
+                            // here", which is correct and is recorded as `sites_found: 0` rather
+                            // than as a refusal.
+                            if !offered.candidates.is_empty() {
+                                manifest.note_sites(
+                                    language_id,
+                                    op,
+                                    offered.candidates.len() as u64,
+                                );
+                                available.push((op, offered.candidates));
+                            }
                         }
-                        // An empty list is "this construct is not present here", which is correct
-                        // and is recorded as `sites_found: 0` rather than as a refusal.
-                        Ok(_) => {}
                         Err(refusal) => manifest.note_refusal(language_id, &refusal),
                     }
                 }

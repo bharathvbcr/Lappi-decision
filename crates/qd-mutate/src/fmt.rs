@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::lang::{LangId, Language};
+use crate::lang::{Formatter, LangId, Language};
 
 /// Wall clock for one formatter invocation.
 pub const FORMAT_BUDGET: Duration = Duration::from_secs(20);
@@ -38,8 +38,10 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 /// Whether a language's formatter could actually be run **here**.
 ///
-/// Three states, not two. `NotDeclared` and `NotFound` both mean "no formatter-verified cosmetic
-/// operators", but they are different facts about the world and the manifest carries both.
+/// Four states, not two, and the fourth is the one that is easy to leave out. `NotDeclared`,
+/// `NotFound` and `Unusable` all mean "no formatter-verified cosmetic operators", but they are
+/// different facts about the world and the manifest carries all three: nothing to look for, nothing
+/// found, and something found that does not work.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum Availability {
@@ -47,7 +49,21 @@ pub enum Availability {
     NotDeclared,
     /// A formatter is declared but could not be resolved on this machine.
     NotFound { program: String, detail: String },
-    /// Resolved, with the absolute path it resolved to.
+    /// A program was found at `path` and could not format this language's smoke input: it exited
+    /// non-zero, timed out, or wrote nothing.
+    ///
+    /// Separate from `NotFound` because they call for different actions — install the tool, versus
+    /// work out why the installed one is broken — and separate from `Found` because *that* is the
+    /// conflation this module exists to prevent. A `found` that means only "a file exists at this
+    /// path" lets a formatter that cannot run be reported the same way as one that ran and worked,
+    /// and the manifest then records no restriction for the language at all.
+    Unusable {
+        program: String,
+        path: String,
+        detail: String,
+    },
+    /// Resolved **and demonstrated**: the program at `path` formatted this language's smoke input
+    /// and exited zero.
     Found { program: String, path: String },
 }
 
@@ -61,6 +77,7 @@ impl Availability {
         match self {
             Availability::NotDeclared => "not_declared",
             Availability::NotFound { .. } => "not_found",
+            Availability::Unusable { .. } => "unusable",
             Availability::Found { .. } => "found",
         }
     }
@@ -110,14 +127,27 @@ pub struct Resolved {
     pub availability: Availability,
 }
 
-/// Resolve `language`'s declared formatter on this machine.
+/// Resolve `language`'s declared formatter on this machine, and **prove it runs**.
 ///
-/// `via_xcrun` sends the lookup through `xcrun --find`, because the Xcode toolchain is not on
-/// `PATH` — `swift-format` lives inside `XcodeDefault.xctoolchain` and `command -v` does not see it.
+/// The proof is [`Language::smoke_source`]: a minimal valid file for the language, pushed through
+/// the formatter exactly as a real input would be. Locating a file on disk is not evidence that it
+/// formats anything, and the whole value of this module is that its answer is measured.
 pub fn resolve(language: &dyn Language) -> Result<Resolved, Availability> {
     let Some(spec) = language.formatter() else {
         return Err(Availability::NotDeclared);
     };
+    resolve_spec(&spec, language.smoke_source())
+}
+
+/// Locate `spec`'s program and confirm it formats `smoke`.
+///
+/// Split out from [`resolve`] so the states below can be reached from a test with a program chosen
+/// for its behaviour — one that is missing, one that exits non-zero, one that works — rather than
+/// only through whichever tools this machine happens to have.
+///
+/// `via_xcrun` sends the lookup through `xcrun --find`, because the Xcode toolchain is not on
+/// `PATH` — `swift-format` lives inside `XcodeDefault.xctoolchain` and `command -v` does not see it.
+pub fn resolve_spec(spec: &Formatter, smoke: &str) -> Result<Resolved, Availability> {
     let path = if spec.via_xcrun {
         match xcrun_find(spec.program) {
             Ok(p) => p,
@@ -139,21 +169,37 @@ pub fn resolve(language: &dyn Language) -> Result<Resolved, Availability> {
             }
         }
     };
-    Ok(Resolved {
+    let candidate = Resolved {
         args: spec.args.iter().map(|a| (*a).to_string()).collect(),
         availability: Availability::Found {
             program: spec.program.to_string(),
             path: path.clone(),
         },
         path,
-    })
+    };
+    // Bounded by `FORMAT_BUDGET` like any other invocation: a formatter that hangs on a two-line
+    // file must not hang the probe that was asking whether it works.
+    match format_with(&candidate, smoke) {
+        Ok(out) if !out.trim().is_empty() => Ok(candidate),
+        Ok(_) => Err(Availability::Unusable {
+            program: spec.program.to_string(),
+            path: candidate.path,
+            detail: "ran on the smoke input and wrote nothing to stdout".to_string(),
+        }),
+        Err(e) => Err(Availability::Unusable {
+            program: spec.program.to_string(),
+            path: candidate.path,
+            detail: e.to_string(),
+        }),
+    }
 }
 
 /// The availability of every language's formatter, in `LangId::ALL` order.
 ///
 /// This is what the manifest records and what `qd-mutate formatters` prints. It is measured once
 /// per run: a formatter that appears half-way through a run would make the run's own cosmetic
-/// coverage depend on when each file was processed.
+/// coverage depend on when each file was processed. Each entry costs one bounded subprocess,
+/// because each entry is a claim that the formatter runs.
 pub fn probe_all() -> Vec<(LangId, Availability)> {
     LangId::ALL
         .iter()
@@ -428,6 +474,69 @@ mod tests {
     }
 
     #[test]
+    fn a_program_that_exists_but_cannot_format_is_not_reported_as_usable() {
+        // `/usr/bin/false` is on disk, is executable, and exits 1 without writing anything. A
+        // resolution that only asks `is_file()` calls that `found`, the manifest then records *no*
+        // restriction for the language, and `qd-mutate formatters` prints it as usable — so a
+        // formatter that cannot format reads exactly like one that ran and was fine. That is the
+        // conflation this module's own header forbids, and the tri-state does not catch it because
+        // the wrong state is being reported confidently.
+        let spec = Formatter {
+            program: "/usr/bin/false",
+            args: &[],
+            via_xcrun: false,
+        };
+        let got = resolve_spec(&spec, "x = 1\n");
+        match got {
+            Err(Availability::Unusable { path, detail, .. }) => {
+                assert_eq!(path, "/usr/bin/false");
+                assert!(!detail.is_empty(), "an unusable formatter must say why");
+            }
+            other => panic!(
+                "a program that exits non-zero on a smoke input is not a usable formatter, got \
+                 {other:?}"
+            ),
+        }
+        assert!(!Availability::Unusable {
+            program: "false".to_string(),
+            path: "/usr/bin/false".to_string(),
+            detail: "exit 1".to_string(),
+        }
+        .is_usable());
+    }
+
+    #[test]
+    fn a_program_that_formats_the_smoke_input_is_reported_as_found() {
+        // The other side: `cat` echoes its input, which is a legal (if lazy) formatter, and must
+        // still come back `found`. Without this the test above would pass against a `resolve` that
+        // declared every formatter unusable.
+        let spec = Formatter {
+            program: "/bin/cat",
+            args: &[],
+            via_xcrun: false,
+        };
+        let resolved = resolve_spec(&spec, "x = 1\n").expect("cat round-trips its input");
+        assert_eq!(resolved.path, "/bin/cat");
+        assert!(resolved.availability.is_usable());
+        assert_eq!(resolved.availability.key(), "found");
+    }
+
+    #[test]
+    fn a_missing_program_is_not_found_rather_than_unusable() {
+        // `not_found` and `unusable` are different findings and the machine that is missing a tool
+        // must not be described as the machine that has a broken one.
+        let spec = Formatter {
+            program: "qd-mutate-definitely-not-a-real-program-9f3a",
+            args: &[],
+            via_xcrun: false,
+        };
+        match resolve_spec(&spec, "x = 1\n") {
+            Err(Availability::NotFound { .. }) => {}
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn every_language_answers_the_availability_question_one_way_or_the_other() {
         // Not an assertion that any formatter is installed — that is a fact about the machine and
         // is reported, never required. The assertion is that each language answers.
@@ -437,7 +546,12 @@ mod tests {
             let declared = for_id(id).formatter().is_some();
             match (&availability, declared) {
                 (Availability::NotDeclared, false) => {}
-                (Availability::NotFound { .. } | Availability::Found { .. }, true) => {}
+                (
+                    Availability::NotFound { .. }
+                    | Availability::Unusable { .. }
+                    | Availability::Found { .. },
+                    true,
+                ) => {}
                 (a, d) => panic!("{id}: availability {a:?} contradicts declared={d}"),
             }
         }

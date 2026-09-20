@@ -341,6 +341,24 @@ def extract_kind_arms(src: str, enum_name: str) -> dict[str, str]:
     return arms
 
 
+def extract_const_usize(src: str, name: str) -> int:
+    """``pub const NAME: usize = 256;`` -> ``256``, underscores allowed.
+
+    A byte cap is a number both lanes must agree on, and the only way to be sure they do is to
+    read the Rust one rather than retype it. ``ESCAPE_WORST_CASE_GROWTH`` spent a whole lane as
+    "the same number for a different reason, maintained by hand" before a test compared them.
+    """
+    m = re.search(
+        rf"\bpub\s+const\s+{re.escape(name)}\s*:\s*usize\s*=\s*([0-9_]+)\s*;", src
+    )
+    if m is None:
+        raise RustParseError(f"const {name}: not found")
+    digits = m.group(1).replace("_", "")
+    if not digits:
+        raise RustParseError(f"const {name}: parsed as empty")
+    return int(digits)
+
+
 def extract_const_u32_slice(src: str, name: str) -> list[int]:
     """``pub const NAME: &[u32] = &[1];`` -> ``[1]``."""
     m = re.search(
@@ -401,6 +419,7 @@ def derive_contract(src_dir: Path | None = None) -> dict[str, object]:
         ),
         "slot_kinds": sorted(snake_case(v) for v in extract_enum_variants(schema, "SlotKind")),
         "routes": sorted(snake_case(v) for v in extract_enum_variants(schema, "Route")),
+        "max_slot_name_bytes": extract_const_usize(schema, "MAX_SLOT_NAME_BYTES"),
     }
 
 

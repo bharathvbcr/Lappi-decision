@@ -37,6 +37,32 @@ learned vector, which is what makes it a genuine competitor in one softmax rathe
 separate threshold bolted on afterwards. A separate threshold is the design where "abstain"
 and "pick a line" are never actually compared, and the model can be confident in both.
 
+## The training head **is** padded, and the runtime will not accept that padding
+
+``GAP-RT-POINTER-HEAD-PAD-SHAPE-UNRECORDED`` asked whether the training side pads the
+pointer head to a fixed maximum. It does pad -- to **this batch's widest candidate set**,
+not to a global constant -- because a ragged score matrix is not a tensor. So
+[`SpanPointerHead.forward`] returns ``[K, max_cand + RESERVED_NOUL_ROWS]`` while
+``qd-runtime``'s ``backend::validate_logits`` refuses any decode whose length is not
+``query.rows``, and ``answer.rs`` sets that to ``span_rows(context)`` -- this context's
+``line_count + RESERVED_NOUL_ROWS``. Handing the padded matrix straight to the runtime is
+a ``logit_shape_mismatch`` for every row narrower than the batch's widest, and the ``-inf``
+padding is additionally a ``non_finite_logit``.
+
+Three things make the two agree here rather than at serve time:
+
+* [`SpanPlan.runtime_rows`] states the runtime's number, per row, in Python.
+* [`SpanPointerHead.forward`] asserts as a **postcondition** that each row's finite columns
+  are exactly ``0 .. n_candidates[k]`` -- one per line start, then the abstention, nothing
+  after. A padded column that became selectable, or a real column that went dead, fails the
+  batch instead of training on a candidate set nobody serves.
+* [`serving_scores`] is the slice that is actually servable: exactly ``runtime_rows[k]``
+  finite values per row.
+
+Serving is one context at a time, so ``K == 1`` and the batch maximum *is* that context's
+line count -- there is no padding to strip. That is the reason the padding is safe, and
+[`serving_scores`] is what makes it a checked claim rather than an argument.
+
 ## What is *not* verified here
 
 The gold positions this head trains on arrive from a line -> token mapping several
@@ -50,12 +76,13 @@ both sides of the check come from the same mapping. See the report and
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final, Literal
+from typing import Literal
 
 import numpy as np
 import torch
 from torch import nn
 
+from .schema_mirror import RESERVED_NOUL_ROWS
 from .trainer import SpanSupervision
 
 __all__ = [
@@ -63,14 +90,14 @@ __all__ = [
     "SpanPlan",
     "SpanPointerHead",
     "plan_span_batch",
+    "serving_scores",
     "span_head_rows",
 ]
 
-#: Mirrors ``pub const RESERVED_NOUL_ROWS: usize = 1`` in
-#: ``crates/qd-runtime/src/schema.rs``. Pinned against that file by ``test_heads.py``: this
-#: is a duplicated constant, and a duplicated constant that nothing compares is a constant
-#: that drifts.
-RESERVED_NOUL_ROWS: Final[int] = 1
+# `RESERVED_NOUL_ROWS` is re-exported from `qd_train.schema_mirror`, which owns the one
+# Python copy and is pinned against `crates/qd-runtime/src/schema.rs`. It lives there
+# rather than here because this module imports torch, and a pure integer that only
+# torch-capable code can reach is an integer the torch-free half has to restate.
 
 
 def span_head_rows(n_candidates: int) -> int:
@@ -117,8 +144,25 @@ class SpanPlan:
 
     @property
     def max_rows(self) -> int:
-        """Columns in the score matrix: the widest row's candidates plus the abstention."""
+        """Columns in the score matrix: the widest row's candidates plus the abstention.
+
+        A batch-wide number, and therefore **not** what the runtime accepts for any row
+        narrower than the widest. [`runtime_rows`] is that number.
+        """
         return int(self.candidate_pos.shape[1]) + RESERVED_NOUL_ROWS
+
+    @property
+    def runtime_rows(self) -> torch.Tensor:
+        """``[K]`` -- the rows ``qd-runtime`` will demand of each span row's decode.
+
+        ``crates/qd-runtime/src/answer.rs`` sets a span slot's ``query.rows`` to
+        ``span_rows(&request.context)``, and ``backend::validate_logits`` refuses a decode
+        of any other length with ``logit_shape_mismatch``. This is [`span_head_rows`]
+        applied per row -- the scalar function stays the single statement of the formula,
+        and ``test_heads.py`` pins this property to it elementwise so a vectorised copy
+        cannot drift from the one that is pinned to the Rust.
+        """
+        return self.n_candidates + RESERVED_NOUL_ROWS
 
 
 def plan_span_batch(span: SpanSupervision, *, device: torch.device | str = "cpu") -> SpanPlan:
@@ -174,6 +218,81 @@ def plan_span_batch(span: SpanSupervision, *, device: torch.device | str = "cpu"
     )
 
 
+def _check_runtime_rows(scores: torch.Tensor, plan: SpanPlan) -> None:
+    """Refuse a score matrix whose per-row selectable set is not the runtime's row set.
+
+    The invariant: row ``k``'s **finite** columns are exactly ``0 .. n_candidates[k]`` --
+    its line starts in ascending token order, then the abstention, then nothing. Equality
+    in both directions is the point. A finite value past ``n_candidates[k]`` is a padded
+    column that became selectable, which is a phantom duplicate of some earlier line and
+    exactly the bug the ``-inf`` fill exists to prevent; a non-finite value *inside* the
+    range is a dead candidate, or a ``NaN``/``inf`` out of the projection, either of which
+    poisons the softmax while the loss still reduces to a number.
+
+    ``qd-runtime``'s ``backend::validate_logits`` refuses both of these at serve time --
+    the first as ``logit_shape_mismatch`` against ``query.rows``, the second as
+    ``non_finite_logit``. Checking here turns a serve-time refusal into a train-time one,
+    which is the half of ``GAP-RT-POINTER-HEAD-PAD-SHAPE-UNRECORDED`` that was still open:
+    loud was already guaranteed, early was not.
+    """
+    if scores.shape[0] != plan.n_spans:
+        raise ValueError(
+            f"scores has {scores.shape[0]} rows but the plan has {plan.n_spans}"
+        )
+    if scores.shape[1] != plan.max_rows:
+        raise ValueError(
+            f"scores is {scores.shape[1]} columns wide but this plan's score matrix is "
+            f"{plan.max_rows} (its widest candidate set plus {RESERVED_NOUL_ROWS} "
+            "abstention row)"
+        )
+    columns = torch.arange(plan.max_rows, device=scores.device)
+    served = columns.unsqueeze(0) < plan.runtime_rows.unsqueeze(1)
+    disagree = torch.isfinite(scores) != served
+    if bool(disagree.any()):
+        k = int(torch.nonzero(disagree.any(dim=1))[0])
+        raise ValueError(
+            f"span row {k} scores {int(torch.isfinite(scores[k]).sum())} selectable "
+            f"column(s) but its context has {int(plan.n_candidates[k])} line start(s), so "
+            f"qd-runtime will demand exactly {int(plan.runtime_rows[k])} "
+            f"(line_count + RESERVED_NOUL_ROWS). Selectable columns are "
+            f"{torch.nonzero(torch.isfinite(scores[k])).flatten().tolist()[:16]}, expected "
+            f"0..{int(plan.runtime_rows[k]) - 1}. A finite column past the abstention is a "
+            "padded candidate the head can select and the runtime would refuse as a "
+            "logit_shape_mismatch; a non-finite one inside the range is a dead candidate or "
+            "a NaN out of the projection, which validate_logits refuses as non_finite_logit."
+        )
+    return served
+
+
+def serving_scores(scores: torch.Tensor, plan: SpanPlan) -> list[torch.Tensor]:
+    """The rows of each span decode that ``qd-runtime`` will actually accept.
+
+    Training pads the score matrix to the batch's widest candidate set, so what
+    [`SpanPointerHead.forward`] returns is **not** servable as-is: a row with fewer lines
+    than the widest carries trailing ``-inf`` columns that are not its own, and
+    ``backend::validate_logits`` refuses them twice over -- on length against
+    ``query.rows``, and on ``is_finite``. This is the slice that satisfies both: exactly
+    ``plan.runtime_rows[k]`` finite scores for row ``k``, the last of which is its
+    abstention.
+
+    At serve time ``K == 1`` and the batch maximum is that context's own line count, so
+    these slices are the whole matrix and nothing is stripped. That is why the training-side
+    padding is safe, and calling this is what makes it checkable rather than asserted.
+
+    Args:
+        scores: ``[K, max_rows]`` from [`SpanPointerHead.forward`] -- either pointer.
+        plan: the layout those scores were produced against.
+
+    Returns:
+        One 1-D tensor per span row, in ``SpanSupervision.rows`` order, of length
+        ``plan.runtime_rows[k]``.
+    """
+    if not isinstance(plan, SpanPlan):
+        raise TypeError(f"expected SpanPlan, got {type(plan).__name__}")
+    _check_runtime_rows(scores, plan)
+    return [scores[k, : int(plan.runtime_rows[k])] for k in range(plan.n_spans)]
+
+
 class SpanPointerHead(nn.Module):
     """Two bilinear pointers -- start and end -- over line-start tokens plus an abstain row.
 
@@ -208,6 +327,12 @@ class SpanPointerHead(nn.Module):
             ``(start_scores, end_scores)``, each ``[K, max_cand + 1]``. Column ``j`` is the
             ``j``-th line start of that row; column ``n_candidates[k]`` is the abstention;
             columns past it are ``-inf`` and cannot be selected.
+
+            This is the **training** shape, padded to the batch's widest candidate set. The
+            servable shape is [`serving_scores`]; [`_check_runtime_rows`] runs on both
+            pointers before they are returned, so a row whose selectable set is not the
+            runtime's ``line_count + RESERVED_NOUL_ROWS`` fails here rather than at serve
+            time.
         """
         if hidden.dim() != 3:
             raise ValueError(f"hidden must be [K, L, H], got {tuple(hidden.shape)}")
@@ -245,6 +370,7 @@ class SpanPointerHead(nn.Module):
             scores = scores.scatter(
                 1, plan.n_candidates.view(n_spans, 1), abstain_score.view(n_spans, 1)
             )
+            _check_runtime_rows(scores, plan)
             out.append(scores)
         return out[0], out[1]
 

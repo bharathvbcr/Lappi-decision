@@ -177,9 +177,12 @@ fn formatters() -> Result<()> {
         let resolved = match &availability {
             qd_mutate::fmt::Availability::Found { path, .. } => path.clone(),
             qd_mutate::fmt::Availability::NotFound { detail, .. } => format!("NOT FOUND: {detail}"),
+            qd_mutate::fmt::Availability::Unusable { path, detail, .. } => {
+                format!("UNUSABLE at {path}: {detail}")
+            }
             qd_mutate::fmt::Availability::NotDeclared => "-".to_string(),
         };
-        let restricted: Vec<&str> = if availability.is_usable() {
+        let mut restricted: Vec<&str> = if availability.is_usable() {
             Vec::new()
         } else {
             qd_mutate::ops::OpId::ALL
@@ -188,6 +191,14 @@ fn formatters() -> Result<()> {
                 .map(|o| o.as_str())
                 .collect()
         };
+        // The language axis belongs here too. This command is the one a human runs to ask "what
+        // can this machine verify", and answering only about formatters would let a reader take
+        // `cosmetic.reorder_imports`'s absence from the list as "available" when it is refused for
+        // the language on every machine.
+        let language_restriction = language.import_order_is_semantic();
+        if language_restriction.is_some() {
+            restricted.push(qd_mutate::ops::OpId::CosmeticReorderImports.as_str());
+        }
         println!(
             "{:<11} {:<24} {:<10} {}",
             id.as_str(),
@@ -197,6 +208,9 @@ fn formatters() -> Result<()> {
         );
         if !restricted.is_empty() {
             println!("{:<11} restricted: {}", "", restricted.join(", "));
+        }
+        if let Some(why) = language_restriction {
+            println!("{:<11}   cosmetic.reorder_imports: {why}", "");
         }
     }
     Ok(())

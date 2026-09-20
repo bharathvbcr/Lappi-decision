@@ -51,11 +51,24 @@ pub struct OperatorReport {
     pub emitted: u64,
     /// Times the operator refused, by refusal key.
     pub refused: BTreeMap<String, u64>,
+    /// Candidate sites the operator examined and turned down, by reason — see
+    /// [`crate::ops::decline`]. Neither a refusal nor an absence: the operator ran, found work and
+    /// rejected that piece of it. `sites_found: 0` with a non-empty `declined` is an operator whose
+    /// filter ate everything, and it must not read as an operator whose construct was not there.
+    ///
+    /// `serde(default)` so a manifest written before this field existed still deserializes — as an
+    /// empty map, which is honest: that run did not measure declines.
+    #[serde(default)]
+    pub declined: BTreeMap<String, u64>,
 }
 
 impl OperatorReport {
     pub fn total_refused(&self) -> u64 {
         self.refused.values().sum()
+    }
+
+    pub fn total_declined(&self) -> u64 {
+        self.declined.values().sum()
     }
 }
 
@@ -190,6 +203,16 @@ impl Manifest {
                         format!("{id} terminates statements at line ends"),
                     );
                 }
+                // The second language-level restriction, recorded on the same footing as the
+                // first. Without it, a language whose import order is execution order — Python,
+                // TypeScript — shows `cosmetic.reorder_imports` with zero sites and no reason, and
+                // a reader cannot tell "refused for the language" from "no import group in this
+                // slice of the pool". They are different facts and only one of them is a finding.
+                if let Some(why) = language.import_order_is_semantic() {
+                    report
+                        .restricted_operators
+                        .insert(OpId::CosmeticReorderImports.as_str().to_string(), why.to_string());
+                }
                 report
             })
             .collect();
@@ -240,6 +263,25 @@ impl Manifest {
             .entry(op.as_str().to_string())
             .or_default()
             .sites_found += count;
+    }
+
+    /// Record `count` sites `op` examined and turned down for `reason`.
+    ///
+    /// Keyed on the operator, not only on the language, because the question a reader has is "how
+    /// much did *this* operator's filter eat" — an aggregate over the language would answer a
+    /// question nobody asked and hide the one they did.
+    pub fn note_declined(&mut self, id: LangId, op: OpId, reason: &str, count: u64) {
+        if count == 0 {
+            return;
+        }
+        *self
+            .language_mut(id)
+            .operators
+            .entry(op.as_str().to_string())
+            .or_default()
+            .declined
+            .entry(reason.to_string())
+            .or_insert(0) += count;
     }
 
     pub fn note_emitted(&mut self, id: LangId, op: OpId) {
@@ -324,9 +366,27 @@ impl Manifest {
                     .get(key)
                     .map(|why| format!("  RESTRICTED: {why}"))
                     .unwrap_or_default();
+                // `declined` sits next to `sites` on the same line on purpose. Its whole reason for
+                // existing is that `sites 0` is ambiguous without it, and a number printed
+                // somewhere else does not disambiguate anything at the point of reading.
+                let declined = entry
+                    .map(OperatorReport::total_declined)
+                    .filter(|d| *d > 0)
+                    .map(|d| {
+                        let reasons: Vec<String> = entry
+                            .map(|r| {
+                                r.declined
+                                    .iter()
+                                    .map(|(why, n)| format!("{why}={n}"))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        format!("  declined {d:>5} ({})", reasons.join(", "))
+                    })
+                    .unwrap_or_default();
                 out.push_str(&format!(
                     "  {key:<28} sites {sites:>6}  emitted {emitted:>6}  refused {refused:>6}\
-                     {restriction}\n"
+                     {declined}{restriction}\n"
                 ));
             }
             if !report.refusals.is_empty() {
@@ -402,8 +462,74 @@ mod tests {
             .find(|r| r.language == LangId::TypeScript)
             .expect("typescript");
         assert!(ts.restricted_operators.contains_key("cosmetic.reformat"));
-        assert!(ts.restricted_operators.contains_key("cosmetic.reorder_imports"));
         assert!(!ts.formatter.is_usable());
+
+        // `cosmetic.reorder_imports` is restricted here too, but for the language and not for the
+        // missing tool — so the recorded reason must not mention the formatter. Asserting only
+        // that the key is present would keep passing if the two restrictions were ever merged back
+        // onto the formatter axis, which is the mistake this pins.
+        let why = ts
+            .restricted_operators
+            .get("cosmetic.reorder_imports")
+            .expect("TypeScript import order is semantic and the restriction is recorded");
+        assert!(
+            why.contains("evaluated") && !why.contains("formatter"),
+            "the reorder_imports restriction must give the language reason, got {why:?}"
+        );
+    }
+
+    #[test]
+    fn a_declined_site_is_distinguishable_from_a_site_that_never_existed() {
+        // Two operators, both ending at `sites 0`. Before declines were recorded the manifest and
+        // the coverage table said the same thing about both, and the difference — one had work and
+        // rejected it, the other had none — was unrecoverable from the artifact.
+        let mut manifest = Manifest::new(1, pool_report(), &[]);
+        manifest.note_declined(
+            LangId::Rust,
+            OpId::CosmeticReformat,
+            crate::ops::decline::NOT_LAYOUT_ONLY,
+            3,
+        );
+        manifest.note_declined(
+            LangId::Rust,
+            OpId::CosmeticReformat,
+            crate::ops::decline::NOT_LAYOUT_ONLY,
+            2,
+        );
+
+        let rust = manifest
+            .languages
+            .iter()
+            .find(|r| r.language == LangId::Rust)
+            .expect("rust");
+        let reformat = rust
+            .operators
+            .get("cosmetic.reformat")
+            .expect("the operator has an entry once it has declined something");
+        assert_eq!(reformat.sites_found, 0, "a decline is not a site");
+        assert_eq!(reformat.emitted, 0);
+        assert_eq!(reformat.total_declined(), 5, "declines accumulate");
+        assert_eq!(
+            reformat.declined.get("not_layout_only").copied(),
+            Some(5),
+            "and they are kept per reason, not merged into one opaque total"
+        );
+        assert_eq!(
+            rust.operators.get("cosmetic.edit_comment").map(|r| r.total_declined()),
+            None,
+            "an operator that declined nothing gains no entry"
+        );
+
+        // The number has to reach the thing a human reads, not only the JSON.
+        let table = manifest.coverage_table();
+        let line = table
+            .lines()
+            .find(|l| l.trim_start().starts_with("cosmetic.reformat"))
+            .expect("the table has a row per operator");
+        assert!(
+            line.contains("declined") && line.contains("not_layout_only=5"),
+            "the coverage table must show the decline beside the zero it explains, got {line:?}"
+        );
     }
 
     #[test]

@@ -20,10 +20,13 @@ from qd_data.config import DataConfig  # noqa: E402
 from qd_train.artifacts import (  # noqa: E402
     NO_SPAN,
     SLOT_CHOICE,
+    SLOT_LM,
     SLOT_SCORE,
     SLOT_SPAN,
     SPAN_ABSTAIN,
     Batch,
+    _MIN_ROW_TOKENS,
+    _SLOT_KINDS,
     DROPPED,
     MAX_PADDING_WASTE,
     RemapTable,
@@ -318,6 +321,42 @@ def test_a_zero_length_row_is_refused():
         _batch(lengths=np.array([3, 0], dtype=np.int32))
 
 
+def test_a_one_token_row_is_refused_because_no_objective_supervises_it():
+    """GAP-TRAINER-CPT-REFUSES-LENGTH-ONE-ROWS, settled here rather than in the loop.
+
+    `cpt_supervision` refused a one-token row -- it has no next-token pair, so it
+    contributes zero gradient -- while this constructor accepted it. A constructor looser
+    than its only consumer is a contract with two readings, which is the thing this module
+    exists to prevent. Both objectives agree the row is unsupervisable: CPT needs
+    `p < lengths-1` and FT needs `target_index` in `[0, lengths-1)`, an empty range at
+    `lengths == 1`.
+    """
+    with pytest.raises(ShardContractViolation) as exc:
+        _batch(lengths=np.array([3, 1], dtype=np.int32))
+    message = str(exc.value)
+    assert "row(s) [1]" in message, "the refusal must name the offending row"
+    assert "at least 2" in message
+    # The zero-length case keeps its own message: a length of 0 is a malformed length,
+    # a length of 1 is a well-formed row that no objective can supervise.
+    assert "at least one real token" not in message
+
+
+def test_the_one_token_floor_agrees_with_what_the_writer_already_refuses():
+    """`Batch` and S4's writer state one decision, so they are pinned to each other.
+
+    `qd_train.shards._tokenize_checked` has refused `ids.size < 2` since S4 landed, for the
+    same reason and with the same number. Two independent floors that could drift is the
+    shape of `GAP-SCHEMA-LABEL-SET-HASH-TWO-MEANINGS`; this fails if either moves.
+    """
+    source = (Path(__file__).resolve().parents[1] / "qd_train" / "shards.py").read_text()
+    assert "if ids.size < 2:" in source, (
+        "qd_train.shards no longer refuses one-token sequences at write time, so "
+        "artifacts._MIN_ROW_TOKENS is now the only floor and the writer can no longer "
+        "name the source row"
+    )
+    assert _MIN_ROW_TOKENS == 2
+
+
 def test_lengths_must_cover_every_row():
     with pytest.raises(ShardContractViolation, match="one entry per row"):
         _batch(lengths=np.array([3], dtype=np.int32))
@@ -376,6 +415,37 @@ def test_span_target_without_slot_kind_is_refused():
 def test_an_unknown_slot_kind_is_refused():
     with pytest.raises(ShardContractViolation, match="unknown slot kind"):
         _ft(slot_kind=np.array([SLOT_CHOICE, 9], dtype=np.uint8))
+
+
+def test_an_lm_row_cannot_sit_in_the_slot_channel():
+    """GAP-TRAINER-FT-SLOT-LM-ROW-UNDEFINED, settled in the contract rather than guessed.
+
+    `SLOT_LM` is the CPT kind and the CPT case is all three supervision fields `None`, so a
+    batch carrying `slot_kind` is an FT batch and an LM row inside one has no gold letter
+    for its `target_index` to name. The two available readings -- an LM row deliberately
+    mixed into fine-tuning, versus a mislabelled choice/score row -- train different
+    objectives and **both leave the loss curve looking fine**, so neither is guessed.
+    """
+    with pytest.raises(ShardContractViolation) as exc:
+        _ft(slot_kind=np.array([SLOT_LM, SLOT_CHOICE], dtype=np.uint8))
+    message = str(exc.value)
+    assert "row(s) [0]" in message, "the refusal must name the offending row"
+    assert "SLOT_LM" in message
+    # Not the generic message: SLOT_LM is a *known* kind used wrongly, and a reader who
+    # sees "unknown slot kind [0]" will go looking for a typo instead of for the writer.
+    assert "unknown slot kind" not in message
+
+
+def test_slot_lm_stays_a_known_kind_so_its_refusal_can_explain_itself():
+    """The named refusal above only reaches the reader if `SLOT_LM` is in `_SLOT_KINDS`.
+
+    Dropping it from the accepted set would refuse the same batches with the generic
+    "unknown slot kind(s) [0]" message, which says nothing about the two readings. This
+    pins the arrangement rather than the outcome, because the outcome is the same either
+    way and the difference is entirely in what the writer is told.
+    """
+    assert SLOT_LM in _SLOT_KINDS
+    assert _SLOT_KINDS == {SLOT_LM, SLOT_CHOICE, SLOT_SCORE, SLOT_SPAN}
 
 
 def test_supervising_the_last_position_is_refused():

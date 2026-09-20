@@ -305,7 +305,7 @@ fn answer_generic(
             // Step 4: the second pass, with the options permuted.
             let digest = request.digest();
             let perm = second_pass_permutation(&digest, name, options.len());
-            let permuted = permuted_slot_suffix(plan.spec, ctx.caps, &perm)?;
+            let permuted = permuted_slot_suffix(plan.spec, ctx.caps, &perm, slot_index)?;
             let second_query = SlotQuery {
                 slot_name: name,
                 suffix: &permuted.suffix,

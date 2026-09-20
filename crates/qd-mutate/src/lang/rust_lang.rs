@@ -380,8 +380,18 @@ impl Language for Rust {
         })
     }
 
+    fn smoke_source(&self) -> &'static str {
+        "fn qd_mutate_smoke() {}\n"
+    }
+
     fn line_wrapping_is_safe(&self) -> bool {
         true
+    }
+
+    fn import_order_is_semantic(&self) -> Option<&'static str> {
+        // Not for the language: `use` binds a name and runs nothing. The one order-sensitive shape
+        // is a glob, which is a per-file fact and `import_block` refuses it.
+        None
     }
 }
 

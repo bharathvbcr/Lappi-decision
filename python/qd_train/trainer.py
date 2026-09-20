@@ -269,7 +269,7 @@ class Supervision:
 def _prediction_grid(batch: Batch) -> tuple[np.ndarray, np.ndarray, int]:
     """``(positions[1, L-1], lengths[B, 1], width)`` -- the shared arithmetic of both masks."""
     _, width = batch.tokens.shape
-    if width < 2:
+    if width < 2:  # pragma: no cover - Batch.__post_init__ refuses this
         raise TrainerContractViolation(
             f"a batch padded to width {width} has no next-token pair: position p predicts "
             "token p+1, so a row needs at least two columns"
@@ -286,12 +286,21 @@ def _refuse_unsupervised_rows(
 
     ``must_be_supervised`` excludes rows whose answer lives in another channel -- a span
     row is not "unsupervised", it is supervised elsewhere.
+
+    **No ``Batch`` the contract now accepts can reach this.** It used to fire on a
+    one-token row under CPT, which is what ``GAP-TRAINER-CPT-REFUSES-LENGTH-ONE-ROWS`` was
+    opened about: the constructor permitted the row and this loop refused it, so the two
+    disagreed about what a batch is. That is settled in ``artifacts._MIN_ROW_TOKENS``,
+    which refuses the row where the writer can still be named. This guard stays as a
+    postcondition on the mask arithmetic itself -- a mask that loses a row is the failure
+    it names, and the check costs one reduction per batch -- but the *contract* statement
+    is now upstream, and ``test_artifacts.py`` is where it is tested.
     """
     empty = ~mask.any(axis=1)
     if must_be_supervised is not None:
         empty &= must_be_supervised
     rows = np.flatnonzero(empty)
-    if rows.size:
+    if rows.size:  # pragma: no cover - Batch refuses every row that could reach this
         raise TrainerContractViolation(
             f"{what}: rows {rows.tolist()[:16]} (of {mask.shape[0]}) have no supervised "
             f"position, with lengths {batch.lengths[rows].tolist()[:16]}. A row that "
@@ -309,6 +318,12 @@ def cpt_supervision(batch: Batch) -> Supervision:
     A batch carrying the FT supervision channel is refused: ``Batch``'s contract is that
     all three slot fields are ``None`` for CPT, and a batch that carries slot answers is
     one the caller meant to fine-tune on.
+
+    Every row of an acceptable ``Batch`` contributes at least one supervised position,
+    because ``artifacts._MIN_ROW_TOKENS`` is 2 and position 0 is supervised whenever
+    ``lengths > 1``. That floor is the settlement of
+    ``GAP-TRAINER-CPT-REFUSES-LENGTH-ONE-ROWS``: this loop used to be the only thing
+    refusing a one-token row, which made it stricter than the constructor it consumes from.
     """
     if batch.slot_kind is not None or batch.target_index is not None:
         raise TrainerContractViolation(
@@ -336,6 +351,12 @@ def ft_supervision(batch: Batch) -> Supervision:
     alphabet, so its only gold letter is ``noul``: supervising it as a letter would train
     the span head to abstain always, with a loss curve that looked fine. That is the bug
     ``GAP-S4-SPAN-GOLD-HAS-NO-BATCH-CHANNEL`` records, and it is not reintroduced here.
+
+    A ``SLOT_LM`` row cannot reach this function: ``Batch`` refuses one in a batch that
+    carries the slot channel, which is the settlement of
+    ``GAP-TRAINER-FT-SLOT-LM-ROW-UNDEFINED``. The guard below stays as defence in depth
+    against a ``Batch`` built around its own constructor, alongside the three other
+    ``Batch``-refuses-this guards in this function.
     """
     if batch.slot_kind is None or batch.target_index is None:
         raise TrainerContractViolation(
@@ -350,7 +371,7 @@ def ft_supervision(batch: Batch) -> Supervision:
     is_span = kinds == SLOT_SPAN
 
     lm_rows = np.flatnonzero(kinds == SLOT_LM)
-    if lm_rows.size:
+    if lm_rows.size:  # pragma: no cover - Batch.__post_init__ refuses this
         raise TrainerContractViolation(
             f"rows {lm_rows.tolist()[:16]} are SLOT_LM inside an FT batch. SLOT_LM means "
             "next-token over the whole sequence and carries no gold letter, so its "

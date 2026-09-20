@@ -28,7 +28,7 @@ trait Language {
     fn integer_literals<'t>(&self, body: &FunctionBody<'t>) -> Vec<Node<'t>>;
     fn local_bindings<'t>(&self, body: &FunctionBody<'t>) -> Vec<Binding<'t>>;
     fn comments<'t>(&self, body: &FunctionBody<'t>) -> Vec<Node<'t>>;
-    fn import_block<'t>(&self, tree: &'t Tree) -> Option<ImportBlock<'t>>;
+    fn import_block<'t>(&self, tree: &'t Tree, src: &'t str) -> Option<ImportBlock<'t>>;
 
     /// Source text for `stub` bodies, and the zero value for the return type.
     fn panic_stub(&self) -> &'static [&'static str];
@@ -38,8 +38,19 @@ trait Language {
     /// `None` means no formatter is available, which RESTRICTS the cosmetic
     /// operator set rather than being assumed harmless.
     fn formatter(&self) -> Option<Formatter>;
+    /// A minimal file the formatter must accept. Resolution RUNS this: a path
+    /// on disk is not evidence that the program formats anything.
+    fn smoke_source(&self) -> &'static str;
+    /// `Some(reason)` where import order is execution order for the whole
+    /// language, which refuses `cosmetic.reorder_imports` here on every
+    /// machine. Asked before any file is read; `import_block` answers the
+    /// separate per-file question.
+    fn import_order_is_semantic(&self) -> Option<&'static str>;
 }
 ```
+
+This sketch is the shape, not the signature list; `crates/qd-mutate/src/lang/mod.rs` is
+authoritative.
 
 A language whose facade returns an empty list for a construct simply yields no mutations of that kind.
 That is correct and must be **recorded per language**, so a coverage report shows which operators
@@ -83,15 +94,87 @@ One mutation per diff. Classic mutation-testing operators.
 | Id | Operation | Verification |
 | --- | --- | --- |
 | `cosmetic.rename_local` | Rename a local binding and all its uses **within the body** | Refused if the name is captured, shadowed, or referenced outside the body |
-| `cosmetic.reformat` | Reformat via the language formatter | Only where `formatter()` is `Some`. Verified by formatting both sides to a canonical form and comparing |
-| `cosmetic.reorder_imports` | Reorder within one import group | Refused where import order is semantic (Go side effects, Python circular) |
+| `cosmetic.reformat` | Apply one **layout-only** hunk of the formatter's whole-file pass | Only where `formatter()` is `Some`. Verified by formatting both sides to a canonical form and comparing. See *What `reformat` actually emits* below — it is narrower than "reformat" |
+| `cosmetic.reorder_imports` | Reorder within one import group | Refused where import order is semantic. **Needs no formatter** — see below |
 | `cosmetic.edit_comment` | Rewrite a comment or docstring | Always safe; the one operator available in every language |
 | `cosmetic.wrap_line` | Wrap a long line | Refused inside a string literal or where the language is whitespace-sensitive (Python) |
 
-**Where no formatter is available the operator set shrinks to `edit_comment` and, where provably safe,
-`rename_local`.** The restriction is recorded in the manifest for that language. A `cosmetic` label
-whose diff changed behaviour is a poisoned label, and poisoned `cosmetic` labels are worse than
-missing ones: they teach the model that a behaviour change is cosmetic.
+**Where no formatter is available the operator set shrinks to `edit_comment`, `reorder_imports` where
+the language's import order is not semantic, and `rename_local` where provably safe.** The
+restriction is recorded in the manifest for that language. A `cosmetic` label whose diff changed
+behaviour is a poisoned label, and poisoned `cosmetic` labels are worse than missing ones: they teach
+the model that a behaviour change is cosmetic.
+
+An earlier wording of that sentence named only `edit_comment` and `rename_local`, which contradicted
+this document's own operator table (whose `reorder_imports` row states no formatter condition) and
+`docs/hardening.md` §1 (which words the safe set as "comment text, import order within a group").
+The code implemented the narrow wording and the disagreement was carried as
+`GAP-MUTATE-DOC-CONFLICT-REORDER-IMPORTS`. It was settled by running it rather than by picking a
+document, and the measurement is recorded in `HANDOFF/mutate-ops-2026-09-19.md`.
+
+### Why `reorder_imports` takes no formatter
+
+The formatter is the wrong axis for this operator, in **both** directions:
+
+- It cannot establish the claim. `cosmetic.reformat` and `cosmetic.wrap_line` are verified by
+  formatting both sides and comparing canonical forms. A reorder cannot be: it *changes* the
+  canonical form by design, so the check would fail on every candidate. `OpId::verified_by_canonical_form`
+  excludes the operator for exactly this reason, which means the formatter is never consulted about
+  a reorder's safety even when one is installed.
+- It cannot refute it either. Gating on a resolvable formatter deleted provably safe Rust and Swift
+  candidates on a machine merely missing a tool, while on a machine that *had* the tool it waved
+  through a TypeScript swap that nothing had checked.
+
+The real axis is the language, and it is asked in two places for two different questions:
+
+| Question | Asked by | When |
+| --- | --- | --- |
+| Is import order execution order **for this language**? | `Language::import_order_is_semantic` | before any file is read, so `Manifest::new` records the restriction as a property of the run |
+| Does **this file's** group contain an order-sensitive item? | `Language::import_block().reorderable` | per file — a Rust glob, a Go blank import, a Swift `#if` |
+
+Per language, as the code states it:
+
+| Language | Order semantic for the language? | Why |
+| --- | --- | --- |
+| Rust | no | `use` binds a name and runs nothing; a glob is refused per file |
+| Swift | no | a module is initialised on first use, not at the import statement; `#if` / `@_exported` refused per file |
+| Go | no | the spec leaves the initialization order of *independent* imports unspecified, so no correct program may depend on it; a blank import is refused per file |
+| Python | **yes** | imports execute in order; a circular-import workaround depends on it |
+| TypeScript | **yes** | an ES module is evaluated when it is imported, in source order |
+
+TypeScript's entry is a correction, not a restatement. The previous check refused only the clause-less
+`import "./polyfill";` shape and declared everything else reorderable — but `import { a } from './a'`
+evaluates `./a`'s module body just as surely, and a check confined to one file cannot show that two
+module bodies do not interact. On this host the missing `prettier` hid that: the operator was refused
+for the wrong reason and the unsound case never fired. On a host with `prettier` it would have.
+
+### What `reformat` actually emits
+
+`cosmetic.reformat` is **narrower than its name**, and the gap between the two is stated here rather
+than left for a reader to infer from a label.
+
+A whole-file formatter pass can move a token across a line boundary — `swift-format` pulling a `{` up
+onto the signature line, `rustfmt` wrapping a long argument list *and* adding a trailing comma. The
+line alignment splits that single move into two hunks, one removing the token and one adding it, and
+applying either alone leaves a file that does not parse. So the operator emits only hunks whose
+**non-whitespace content is unchanged**, which makes every candidate self-contained by construction.
+
+Two consequences, both load-bearing:
+
+1. A fixture whose only deviation from canonical form is a wrapped long line yields **no** reformat
+   candidate. The operator is layout-only in the strict sense; it is not "whatever the formatter
+   would do".
+2. Hunks declined by that filter are **counted**, per language and per operator, in the manifest's
+   `operators[].declined` table under the key `not_layout_only`. A body where the formatter had
+   twelve hunks and all twelve were declined must not be recorded the same way as a body that was
+   already canonical: the first means the operator ran and produced nothing, the second means there
+   was nothing to do. `sites_found: 0` alone cannot tell them apart, and this document's own rule —
+   *"rather than a silent zero reading as 'no opportunities'"* — is the one that would be broken.
+
+Soundness is not resting on that filter. The proof remains the emit-time canonical-form comparison in
+`generate::build_example`: both sides are formatted and compared, and a candidate whose canonical
+forms differ is dropped as `CosmeticNotPreserving`. The filter exists so unusable candidates are not
+generated in the first place, and so the narrowing is visible.
 
 ### clean
 

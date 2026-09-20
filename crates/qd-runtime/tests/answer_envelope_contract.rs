@@ -21,7 +21,9 @@
 //! parser that trusts `value.is_none()` disagree on `{"value": "stub", "noul": true}`, and nothing
 //! before this file rejected it.
 
-use qd_runtime::schema::{AnswerEnvelope, Response, SlotAnswer, SlotValue};
+use qd_runtime::schema::{
+    AnswerEnvelope, Response, SlotAnswer, SlotValue, SpanValue, MAX_SLOT_NAME_BYTES,
+};
 use serde_json::json;
 
 mod common;
@@ -37,6 +39,104 @@ fn answered_slot() -> serde_json::Value {
         "noul": false,
         "degraded": false
     })
+}
+
+/// An answer envelope whose `slots` map has exactly one key.
+fn envelope_keyed(name: &str) -> serde_json::Value {
+    json!({
+        "schema_version": 1,
+        "backend": "reference-deterministic-v1",
+        "degraded": false,
+        "slots": { name: answered_slot() }
+    })
+}
+
+#[test]
+fn the_answer_maps_keys_obey_the_same_slot_name_cap_the_request_side_does() {
+    // Both *readers* of this format must refuse the same bytes. `qd_wire.answer.check_slot_name`
+    // refuses an over-cap key on the Python side; a derived `BTreeMap<String, SlotAnswer>` here
+    // would accept it, and a cap only one reader keeps is not a cap — it is
+    // `GAP-RT-SLOT-NAME-UNCAPPED` in mirror image.
+    //
+    // This test exists because mutation found nothing covering the check: deleting the
+    // `deserialize_with` attribute from `AnswerEnvelope::slots` left the whole `-p qd-runtime`
+    // suite green.
+    let at_cap = "n".repeat(MAX_SLOT_NAME_BYTES);
+    let parsed = serde_json::from_value::<AnswerEnvelope>(envelope_keyed(&at_cap))
+        .expect("a key of exactly MAX_SLOT_NAME_BYTES is legal");
+    assert!(parsed.slots.contains_key(&at_cap));
+
+    let over = "n".repeat(MAX_SLOT_NAME_BYTES + 1);
+    let err = serde_json::from_value::<AnswerEnvelope>(envelope_keyed(&over))
+        .expect_err("a key one byte over the cap is refused");
+    let rendered = err.to_string();
+    assert!(
+        rendered.contains("slot-name cap"),
+        "the error must name the rule it applied: {rendered}"
+    );
+    assert!(
+        !rendered.contains(&over),
+        "the oversized key must not be echoed back into the error"
+    );
+
+    // Bytes, not characters: 129 two-byte characters is 258 bytes but only 129 chars, so a
+    // character-counting implementation would accept it.
+    let wide = "é".repeat(MAX_SLOT_NAME_BYTES / 2 + 1);
+    assert!(wide.chars().count() < MAX_SLOT_NAME_BYTES);
+    serde_json::from_value::<AnswerEnvelope>(envelope_keyed(&wide))
+        .expect_err("258 bytes is over the cap even though 129 characters is not");
+
+    // And a blank key, which keys nothing.
+    serde_json::from_value::<AnswerEnvelope>(envelope_keyed("   "))
+        .expect_err("a blank key cannot be matched to the slot that was asked");
+}
+
+#[test]
+fn a_span_carries_its_own_bounds_and_both_readers_refuse_a_violation() {
+    // `GAP-XLANG-SPAN-BOUNDS-UNPINNED`, settled: `1 <= start_line <= end_line` is a term of the
+    // format, not a property of the producer. Before this, `SpanValue` derived `Deserialize` with
+    // no check, so `{"start_line": 47, "end_line": 41}` parsed on both sides while the producer
+    // could never emit one — a rule true of everything the system emits and enforced nowhere it is
+    // read.
+    let ok: SpanValue = serde_json::from_value(json!({"start_line": 41, "end_line": 47}))
+        .expect("a forward span parses");
+    assert_eq!((ok.start_line, ok.end_line), (41, 47));
+
+    // `start == end` is a one-line span and must stay legal: `answer-span-only.json` is `{2, 2}`.
+    let one_line: SpanValue = serde_json::from_value(json!({"start_line": 2, "end_line": 2}))
+        .expect("a one-line span is legal");
+    assert_eq!((one_line.start_line, one_line.end_line), (2, 2));
+
+    let backwards = serde_json::from_value::<SpanValue>(json!({"start_line": 47, "end_line": 41}))
+        .expect_err("a backwards span is refused");
+    assert!(
+        backwards.to_string().contains("runs backwards"),
+        "the error must say which rule it applied: {backwards}"
+    );
+
+    let zero = serde_json::from_value::<SpanValue>(json!({"start_line": 0, "end_line": 3}))
+        .expect_err("line 0 does not exist in a 1-based format");
+    assert!(
+        zero.to_string().contains("1-based"),
+        "the error must say which rule it applied: {zero}"
+    );
+
+    // And through the real envelope, which is how it actually arrives: a `SlotValue` is
+    // `#[serde(untagged)]`, so an invalid span must not quietly fall through to another variant.
+    let mut slot = answered_slot();
+    slot["value"] = json!({"start_line": 47, "end_line": 41});
+    let envelope = json!({
+        "schema_version": 1,
+        "backend": "reference-deterministic-v1",
+        "degraded": false,
+        "slots": { "evidence": slot }
+    });
+    let err = serde_json::from_value::<AnswerEnvelope>(envelope)
+        .expect_err("an inverted span must not reach a caller through the untagged union");
+    assert!(
+        !err.to_string().is_empty(),
+        "the untagged union must refuse rather than match another variant"
+    );
 }
 
 /// A well-formed abstention.

@@ -20,9 +20,11 @@ use qd_runtime::refusal::Refusal;
 use qd_runtime::registry::{HeadMatrix, HeadRegistry, RegisteredHead};
 use qd_runtime::render::{RenderCaps, ESCAPE_WORST_CASE_GROWTH};
 use qd_runtime::runtime::Runtime;
-use qd_runtime::schema::{CallerReading, Response};
+use qd_runtime::schema::{CallerReading, Response, MAX_OPTIONS, MAX_SLOT_NAME_BYTES};
 use qd_runtime::service::Service;
-use qd_runtime::wire::{parse_line, payload_budget, MAX_PAYLOAD_BYTES};
+use qd_runtime::wire::{
+    parse_line, payload_budget, JSON_ESCAPE_WORST_CASE_GROWTH, MAX_PAYLOAD_BYTES, MAX_SLOTS,
+};
 use serde_json::{json, Value};
 
 /// Send a wire value through the service and assert the refusal it earns.
@@ -808,25 +810,131 @@ fn the_payload_cap_does_not_cover_a_request_at_every_other_limit_at_once() {
 }
 
 #[test]
-fn the_payload_budget_names_the_fields_it_could_not_count() {
-    // A budget that quietly omitted an unbounded field would be the same failure as the stale
-    // comment it replaces: a number presented as complete coverage of something it did not cover.
+fn the_payload_budget_counts_every_term_so_the_total_is_the_worst_case() {
+    // This test used to assert the opposite. It read:
+    //
+    //     assert!(budget.uncapped.contains(&"slots[].name"));
+    //     assert!(parse_line(&…4096-byte name…).is_ok());
+    //
+    // because a slot name had no cap on any side, which made `total()` a lower bound on the worst
+    // case rather than the worst case. `GAP-RT-SLOT-NAME-UNCAPPED` is now closed by
+    // `MAX_SLOT_NAME_BYTES`, so both halves invert.
     let budget = payload_budget(&RenderCaps::DEFAULT);
     assert!(
-        budget.uncapped.contains(&"slots[].name"),
-        "a slot name has no byte cap on either side, so the total is a lower bound and must say \
-         so: {:?}",
+        budget.uncapped.is_empty(),
+        "every request term is now capped, so nothing belongs in `uncapped` and `total()` is the \
+         worst case rather than a lower bound on it. Still uncounted: {:?}",
         budget.uncapped
     );
 
-    // And the claim is true: a very long slot name is accepted, bounded only by the payload cap.
-    let long_name = "n".repeat(4096);
+    // The name term is actually in the arithmetic, not merely declared to be.
+    //
+    // An earlier version of this assertion read `budget.slot_list > names_term` and was vacuous:
+    // the options term alone is 1_575_936 bytes against a 49_152-byte names term, so deleting the
+    // names term from `payload_budget` left it passing. Mutation testing caught that. The check
+    // below is per-slot and additive, so dropping either term fails it.
+    assert_eq!(
+        budget.slot_list % MAX_SLOTS,
+        0,
+        "the slot-list term is {MAX_SLOTS} identical worst-case slots; slot_list = {}",
+        budget.slot_list
+    );
+    let per_slot = budget.slot_list / MAX_SLOTS;
+    let name_bytes = MAX_SLOT_NAME_BYTES * JSON_ESCAPE_WORST_CASE_GROWTH;
+    let option_bytes =
+        MAX_OPTIONS * RenderCaps::DEFAULT.max_option_bytes * JSON_ESCAPE_WORST_CASE_GROWTH;
+    assert!(
+        per_slot >= name_bytes + option_bytes,
+        "a worst-case slot weighs at least its name ({name_bytes}) plus its options \
+         ({option_bytes}) = {}, but the budget allows {per_slot} per slot. A term is missing from \
+         `payload_budget`.",
+        name_bytes + option_bytes
+    );
+}
+
+#[test]
+fn a_slot_name_is_capped_in_bytes_and_the_boundary_is_exact() {
+    // At the cap, accepted. One byte over, refused. An off-by-one here is the difference between
+    // a cap and a suggestion.
+    let at_cap = "n".repeat(MAX_SLOT_NAME_BYTES);
     let value = with_slots(json!([
-        {"name": long_name, "type": "choice", "options": ["stub", "clean"]}
+        {"name": at_cap, "type": "choice", "options": ["stub", "clean"]}
     ]));
     assert!(
         parse_line(&serde_json::to_vec(&value).expect("serializes")).is_ok(),
-        "a 4096-byte slot name is accepted today; the budget's `uncapped` entry records that \
-         rather than pretending otherwise"
+        "a slot name of exactly MAX_SLOT_NAME_BYTES ({MAX_SLOT_NAME_BYTES}) is legal; the cap is \
+         an inclusive maximum, not an exclusive one"
+    );
+
+    assert_refused(
+        "a slot name one byte over the cap",
+        with_slots(json!([
+            {"name": "n".repeat(MAX_SLOT_NAME_BYTES + 1), "type": "choice",
+             "options": ["stub", "clean"]}
+        ])),
+        "slot_name_over_cap",
+    );
+
+    // The specific regression `GAP-RT-SLOT-NAME-UNCAPPED` recorded: this parsed cleanly before.
+    assert_refused(
+        "the 4096-byte slot name the gap record measured",
+        with_slots(json!([
+            {"name": "n".repeat(4096), "type": "choice", "options": ["stub", "clean"]}
+        ])),
+        "slot_name_over_cap",
+    );
+
+    // Bytes, not characters. 'é' is two bytes in UTF-8, so 128 of them is 256 bytes — at the cap —
+    // and 129 is 258, over it. A cap measured in `chars()` would accept both and a cap measured in
+    // UTF-16 units would accept both; only a byte count refuses the second, and the byte count is
+    // what `MAX_PAYLOAD_BYTES` is denominated in.
+    let two_byte_char_at_cap = "é".repeat(MAX_SLOT_NAME_BYTES / 2);
+    assert_eq!(two_byte_char_at_cap.len(), MAX_SLOT_NAME_BYTES);
+    assert!(
+        parse_line(
+            &serde_json::to_vec(&with_slots(json!([
+                {"name": two_byte_char_at_cap, "type": "span"}
+            ])))
+            .expect("serializes")
+        )
+        .is_ok(),
+        "128 two-byte characters is exactly 256 bytes and must be accepted"
+    );
+    assert_refused(
+        "129 two-byte characters — 258 bytes, over the cap, though only 129 chars",
+        with_slots(json!([{"name": "é".repeat(MAX_SLOT_NAME_BYTES / 2 + 1), "type": "span"}])),
+        "slot_name_over_cap",
+    );
+}
+
+#[test]
+fn the_over_cap_refusal_names_the_numbers_and_not_the_name() {
+    // An oversized, caller-controlled string must not be echoed into the refusal: a request would
+    // then choose the size of its own error message. The refusal carries counts and an index.
+    let name = "x".repeat(4096);
+    let line = serde_json::to_vec(&with_slots(json!([
+        {"name": name, "type": "span"}
+    ])))
+    .expect("serializes");
+    let refusal = parse_line(&line).expect_err("an over-cap slot name is refused");
+    assert_eq!(refusal.kind(), "slot_name_over_cap");
+
+    let rendered = refusal.to_string();
+    assert!(
+        rendered.contains("4096") && rendered.contains(&MAX_SLOT_NAME_BYTES.to_string()),
+        "the refusal states both the actual size and the cap: {rendered}"
+    );
+    assert!(
+        !rendered.contains(&name),
+        "the refusal must not echo the oversized name back; it was {} bytes and the message is {} \
+         bytes",
+        name.len(),
+        rendered.len()
+    );
+    assert!(
+        rendered.len() < 512,
+        "an over-cap refusal message must be bounded regardless of the input that caused it, got \
+         {} bytes",
+        rendered.len()
     );
 }

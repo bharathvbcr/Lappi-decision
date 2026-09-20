@@ -34,7 +34,7 @@
 //! papered over.
 
 use crate::refusal::Refusal;
-use crate::schema::{DecisionRequest, Route, SlotSpec, NOUL_LABEL};
+use crate::schema::{check_slot_name, DecisionRequest, Route, SlotSpec, NOUL_LABEL};
 
 // -- structural markers -------------------------------------------------------------------------
 // Transcribed from python/qd_data/render.py. Each is of the form <|qd_...|>; see the module docs.
@@ -546,8 +546,8 @@ pub fn render(request: &DecisionRequest, caps: &RenderCaps) -> Result<RenderedPr
     prefix.push('\n');
 
     let mut slots = Vec::with_capacity(request.slots.len());
-    for slot in &request.slots {
-        slots.push(slot_suffix(slot, caps, &[])?);
+    for (index, slot) in request.slots.iter().enumerate() {
+        slots.push(slot_suffix(slot, caps, &[], index)?);
     }
 
     let rendered = RenderedPrompt {
@@ -575,8 +575,9 @@ pub fn permuted_slot_suffix(
     slot: &SlotSpec,
     caps: &RenderCaps,
     permutation: &[usize],
+    slot_index: usize,
 ) -> Result<SlotRender, Refusal> {
-    slot_suffix(slot, caps, permutation)
+    slot_suffix(slot, caps, permutation, slot_index)
 }
 
 fn route_str(route: Route) -> &'static str {
@@ -587,8 +588,15 @@ fn slot_suffix(
     slot: &SlotSpec,
     caps: &RenderCaps,
     permutation: &[usize],
+    slot_index: usize,
 ) -> Result<SlotRender, Refusal> {
     let name = slot.name().to_string();
+    // `wire::parse_slot` is the only constructor of `SlotSpec` in this crate, so on the wire path
+    // this has already passed. It is checked again here because the renderer also serves specs
+    // built in Rust — `qd oneshot`, fixtures, tests — and a name reaching the prompt uncapped is
+    // bounded only by `max_rendered_bytes`, which is a bound on the whole prompt rather than on
+    // this field. One canonical owner, two call sites. `GAP-RT-SLOT-NAME-UNCAPPED`.
+    check_slot_name(&name, slot_index)?;
     let type_name = slot.kind().as_str();
 
     let mut head = String::new();

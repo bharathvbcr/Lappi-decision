@@ -125,6 +125,17 @@ pub enum Refusal {
     EmptySlotName { index: usize },
 
     #[error(
+        "slot at index {index} has a name of {actual} bytes, over the cap of {cap}; a slot name is \
+         an identifier, and it is refused rather than truncated because the answer map is keyed by \
+         it and a truncated key answers a question nobody asked"
+    )]
+    SlotNameOverCap {
+        index: usize,
+        cap: usize,
+        actual: usize,
+    },
+
+    #[error(
         "too many slots: {actual} exceeds the configured cap of {cap}; every fan-out in this \
          runtime is bounded"
     )]
@@ -327,6 +338,7 @@ impl Refusal {
             Refusal::EmptySlots => "empty_slots",
             Refusal::DuplicateSlotName { .. } => "duplicate_slot_name",
             Refusal::EmptySlotName { .. } => "empty_slot_name",
+            Refusal::SlotNameOverCap { .. } => "slot_name_over_cap",
             Refusal::TooManySlots { .. } => "too_many_slots",
             Refusal::BinsOutOfRange { .. } => "bins_out_of_range",
             Refusal::UnknownSchemaVersion { .. } => "unknown_schema_version",

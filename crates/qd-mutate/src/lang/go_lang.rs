@@ -442,10 +442,23 @@ impl Language for Go {
         })
     }
 
+    fn smoke_source(&self) -> &'static str {
+        "package p\n"
+    }
+
     fn line_wrapping_is_safe(&self) -> bool {
         // Go inserts semicolons at line ends, so a wrap in the wrong place changes the program.
         // The operator is restricted here rather than trusted to pick a safe point.
         false
+    }
+
+    fn import_order_is_semantic(&self) -> Option<&'static str> {
+        // Not for the language. The Go spec orders the initialization of an imported package
+        // before its importer, but leaves the order *among* independent imports unspecified, so no
+        // correct program may depend on it. The one shape that is deliberately ordered — a blank
+        // import taken for its side effect — is a per-file fact and `import_block` refuses it by
+        // name.
+        None
     }
 }
 

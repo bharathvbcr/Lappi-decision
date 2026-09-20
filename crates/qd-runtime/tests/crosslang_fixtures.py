@@ -339,10 +339,62 @@ def inventory() -> dict[str, Any]:
         "request_to_wire_emits_expect": "expect" in Request(
             task="t", context=b"x", question="q", slots=ONE_CHOICE
         ).to_wire(),
+        # `GAP-XLANG-LABEL-SET-HASH-TWO-MEANINGS`: `qd_data.schema` used to export a
+        # `label_set_hash(slots)` that hashed the *request's* slot list, while
+        # `expect.label_set_hash` is compared against a property of the loaded *build*. Same name,
+        # different quantity, and a caller doing the obvious thing earned a hash mismatch on every
+        # request. It was renamed to `slot_set_digest`, which is what it computes.
+        #
+        # Reported so the *return* of the collision is caught, not just its departure. This module
+        # imports `slot_set_digest` at the top, so a rename back would already break the probe —
+        # but re-adding `label_set_hash` **alongside** it would not, and that is the shape the gap
+        # actually warns about.
+        "qd_data_exports_label_set_hash": has("qd_data.schema", "label_set_hash"),
+        "qd_data_exports_slot_set_digest": has("qd_data.schema", "slot_set_digest"),
         "max_choice_options": MAX_CHOICE_OPTIONS,
         "min_score_bins": MIN_SCORE_BINS,
         "max_score_bins": MAX_SCORE_BINS,
         "render_caps": render_caps(),
+        "slot_name_cap": slot_name_cap(),
+    }
+
+
+def slot_name_cap() -> dict[str, Any]:
+    """What each Python lane does with a long slot name, measured rather than assumed.
+
+    ``GAP-RT-SLOT-NAME-UNCAPPED`` was left open by two lanes on the stated ground that capping one
+    side would refuse requests the other accepts. The cap now exists in ``crates/qd-runtime`` and
+    in ``qd_wire`` -- the two sides of the *wire* -- from one generated constant.
+
+    ``qd_data`` is a third reader: the training lane's **request builder**, owned by neither lane
+    that settled this, and ``qd_data.schema.Slot._check_name`` still tests only for emptiness. So a
+    one-sided divergence genuinely exists and is reported here instead of being assumed away. What
+    makes it safe rather than merely known is the last key: the longest slot name ``qd_data``
+    actually produces anywhere in this repository. While that stays under the cap, the divergence
+    is theoretical -- no request either lane can build today is refused by the other. The Rust side
+    asserts exactly that, so the day it stops being true a test says so rather than a caller.
+    """
+    from qd_wire.contract import MAX_SLOT_NAME_BYTES
+
+    def qd_data_accepts(name: str) -> bool:
+        try:
+            Request(
+                task="t", context=b"x", question=QUESTION,
+                slots=(ChoiceSlot(name=name, options=("stub", "clean")),),
+            ).to_wire()
+        except QdRefusal:
+            return False
+        return True
+
+    produced = [s["name"] for fixture in fixtures() for s in fixture["slots"]]
+    produced.extend(s.name for s in ALL_THREE)
+    return {
+        "qd_wire_cap": MAX_SLOT_NAME_BYTES,
+        "qd_data_has_a_cap": not qd_data_accepts("n" * (MAX_SLOT_NAME_BYTES + 1)),
+        "qd_data_accepts_at_cap": qd_data_accepts("n" * MAX_SLOT_NAME_BYTES),
+        "longest_slot_name_qd_data_produces": max(
+            (len(n.encode("utf-8")) for n in produced), default=0
+        ),
     }
 
 

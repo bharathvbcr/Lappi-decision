@@ -51,7 +51,8 @@ use std::sync::OnceLock;
 use qd_runtime::context::Context;
 use qd_runtime::render::{RenderCaps, ESCAPE_WORST_CASE_GROWTH};
 use qd_runtime::schema::{
-    HashExpectation, Route, SlotSpec, SpanValue, MAX_BINS, MAX_OPTIONS, MIN_BINS,
+    HashExpectation, Route, SlotSpec, SpanValue, MAX_BINS, MAX_OPTIONS, MAX_SLOT_NAME_BYTES,
+    MIN_BINS,
 };
 use qd_runtime::wire::{parse_line, Incoming};
 use serde_json::Value;
@@ -597,6 +598,28 @@ fn python_has_no_hash_expectation_and_its_label_set_hash_is_a_different_quantity
         assert_eq!(digest.len(), 64, "`{label}`: not a sha256 hex digest");
         assert!(digest.chars().all(|c| c.is_ascii_hexdigit()), "`{label}`");
     }
+
+    // The name collision itself, pinned. `GAP-XLANG-LABEL-SET-HASH-TWO-MEANINGS` was that
+    // `qd_data.schema.label_set_hash` and `expect.label_set_hash` were one name for two
+    // quantities; it was settled by renaming the Python one to `slot_set_digest`. Asserting the
+    // rename *held* is what makes the gap closed rather than merely fixed — the quantities are
+    // still unrelated and nothing converts between them, so the only thing standing between a
+    // caller and a permanent `hash_mismatch` is that the misleading name is gone.
+    assert_eq!(
+        inv.get("qd_data_exports_slot_set_digest"),
+        Some(&Value::Bool(true)),
+        "qd_data.schema lost `slot_set_digest`; the rename that settled \
+         GAP-XLANG-LABEL-SET-HASH-TWO-MEANINGS has been undone"
+    );
+    assert_eq!(
+        inv.get("qd_data_exports_label_set_hash"),
+        Some(&Value::Bool(false)),
+        "qd_data.schema exports `label_set_hash` again. That name means the loaded build's label \
+         set on this side and the request's own slot list on that one, and a caller pinning the \
+         Python value to `expect.label_set_hash` earns a hash_mismatch on every single request \
+         with a message naming two incomparable digests. It was renamed to `slot_set_digest` for \
+         exactly this reason — GAP-XLANG-LABEL-SET-HASH-TWO-MEANINGS."
+    );
 }
 
 // -- 5. the answer side: Rust -> Python ----------------------------------------------------------
@@ -894,5 +917,61 @@ fn the_escape_growth_bound_and_every_byte_cap_are_the_same_numbers_on_both_sides
         "Python refuses max_rendered_bytes = {} and Rust accepts it: Rust would then admit a \
          configuration under which a legal context is refused by arithmetic alone",
         floor - 1
+    );
+}
+
+#[test]
+fn the_slot_name_cap_is_one_number_here_and_in_qd_wire_and_qd_data_produces_nothing_over_it() {
+    // `GAP-RT-SLOT-NAME-UNCAPPED`, and the reason two lanes left it open: a cap on one side
+    // refuses requests the other accepts. This test is what makes adding the cap safe rather than
+    // merely done, and it holds three separate facts apart instead of averaging them.
+    let doc = doc_or_skip!();
+    let cap = doc
+        .get("inventory")
+        .and_then(|i| i.get("slot_name_cap"))
+        .and_then(Value::as_object)
+        .expect("inventory.slot_name_cap");
+
+    // 1. `qd_wire` — the answer-side reader — enforces the same number this crate does. It does
+    //    not transcribe it: `qd_wire.contract.MAX_SLOT_NAME_BYTES` is generated from `schema.rs`.
+    assert_eq!(
+        count(&Value::Object(cap.clone()), "qd_wire_cap"),
+        MAX_SLOT_NAME_BYTES as u64,
+        "the runtime and qd_wire disagree about the slot-name cap, so the two readers of one \
+         answer envelope refuse different keys"
+    );
+
+    // 2. `qd_data` — the training lane's request *builder*, owned by neither lane — still has no
+    //    cap. Asserted as a known, named divergence rather than left to be discovered, in the same
+    //    way `KNOWN_VOCABULARY_DIFFERENCES` is. If `qd_data` grows a cap this fails, and the right
+    //    response is to check the two numbers agree and then delete this assertion.
+    assert_eq!(
+        cap.get("qd_data_has_a_cap"),
+        Some(&Value::Bool(false)),
+        "qd_data.schema now caps slot names. Confirm it caps at {MAX_SLOT_NAME_BYTES} and retire \
+         this assertion — GAP-RT-SLOT-NAME-UNCAPPED"
+    );
+    assert_eq!(
+        cap.get("qd_data_accepts_at_cap"),
+        Some(&Value::Bool(true)),
+        "qd_data refuses a name of exactly {MAX_SLOT_NAME_BYTES} bytes that this runtime accepts; \
+         the divergence now runs in the other direction and the runtime is the lenient side"
+    );
+
+    // 3. The divergence is theoretical, and this is the assertion that keeps it that way. While
+    //    every slot name `qd_data` actually produces is inside the cap, no request either lane can
+    //    build is refused by the other. Measured at 8 bytes against a cap of 256 when this landed.
+    let longest = count(&Value::Object(cap.clone()), "longest_slot_name_qd_data_produces") as usize;
+    assert!(
+        longest > 0,
+        "the probe found no slot names at all, so it is measuring nothing and this test would \
+         pass against an empty fixture set"
+    );
+    assert!(
+        longest <= MAX_SLOT_NAME_BYTES,
+        "qd_data now produces a {longest}-byte slot name and this runtime caps at \
+         {MAX_SLOT_NAME_BYTES}, so the training lane can build a request serving refuses. The \
+         divergence GAP-RT-SLOT-NAME-UNCAPPED recorded has stopped being theoretical: either raise \
+         the cap on both sides in one change, or cap qd_data."
     );
 }

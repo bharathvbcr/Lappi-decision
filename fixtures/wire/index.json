@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "count": 57,
+  "count": 58,
   "by_status": {
     "error": 12,
     "ok": 8,
-    "refused": 37
+    "refused": 38
   },
   "entries": [
     {
@@ -230,6 +230,12 @@
       "status": "refused",
       "kind": "empty_slot_name",
       "note": "Refusal `empty_slot_name`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: slot at index 0 has an empty name"
+    },
+    {
+      "file": "refusal-slot_name_over_cap.json",
+      "status": "refused",
+      "kind": "slot_name_over_cap",
+      "note": "Refusal `slot_name_over_cap`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: slot at index 0 has a name of 257 bytes, over the cap of 256; a slot name is an identifier, and it is refused rather than truncated because the answer map is keyed by it and a truncated key answers a question nobody asked"
     },
     {
       "file": "refusal-too_many_slots.json",

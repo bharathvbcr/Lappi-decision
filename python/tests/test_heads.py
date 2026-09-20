@@ -35,8 +35,10 @@ from qd_train.artifacts import (  # noqa: E402
 from qd_train.fused_ce import fused_linear_cross_entropy  # noqa: E402
 from qd_train.heads import (  # noqa: E402
     RESERVED_NOUL_ROWS,
+    SpanPlan,
     SpanPointerHead,
     plan_span_batch,
+    serving_scores,
     span_head_rows,
 )
 from qd_train.ledger import Environment, Ledger, Protocol, RunRecorder  # noqa: E402
@@ -204,6 +206,134 @@ def test_ragged_candidate_counts_are_padded_and_the_padding_is_unselectable():
     probs = start_scores[1].softmax(-1).detach()
     assert float(probs[2]) == 0.0 and float(probs[3]) == 0.0
     assert float(probs[0] + probs[1]) == pytest.approx(1.0)
+
+
+# --- GAP-RT-POINTER-HEAD-PAD-SHAPE-UNRECORDED: the head pads, the runtime does not -------
+#
+# The Rust lane asked whether the training side pads the pointer head and recorded it
+# UNVERIFIED in both directions, because it may not read python/. It does pad -- to this
+# batch's widest candidate set -- and `qd-runtime`'s `backend::validate_logits` refuses
+# anything but `query.rows` values, all finite. These four tests are the agreement, by
+# assertion rather than by narration.
+
+
+def _ragged_plan(seed: int = 0):
+    """A two-row span batch with counts [3, 1]: genuine padding, and more than one column.
+
+    Counts that differ by exactly one are useless here -- the narrow row's only padded
+    column is the one the abstention is scattered into, so a broken mask is invisible.
+    That vacuity was caught once already; see the test above.
+    """
+    batch = _ft_batch(
+        lengths=[6, 2],
+        kinds=[SLOT_SPAN, SLOT_SPAN],
+        target_index=[1, 0],
+        spans=[(0, 4), (0, 0)],
+        line_starts=[
+            [True, False, True, False, True, False],
+            [True, False, False, False, False, False],
+        ],
+        width=6,
+    )
+    supervision = ft_supervision(batch)
+    assert supervision.span is not None
+    plan = plan_span_batch(supervision.span)
+    torch.manual_seed(seed)
+    head = SpanPointerHead(HIDDEN).double()
+    hidden = torch.randn(2, 6, HIDDEN, dtype=torch.float64)
+    return head, hidden, plan
+
+
+def test_the_plan_states_the_row_count_the_runtime_will_demand():
+    """`runtime_rows` is per row; `max_rows` is the batch's, and they are not the same.
+
+    This is the number `answer.rs` puts in `query.rows` for a span slot. Pinned
+    elementwise to `span_head_rows`, which is itself pinned to the Rust formula above, so
+    the vectorised copy cannot drift from the scalar one that is checked against the source.
+    """
+    _, _, plan = _ragged_plan()
+    assert plan.n_candidates.tolist() == [3, 1]
+    assert plan.runtime_rows.tolist() == [4, 2]
+    assert plan.max_rows == 4
+    # The narrow row's runtime shape is *half* the matrix it is scored in. If these two
+    # were the same number there would be no gap to record.
+    assert int(plan.runtime_rows[1]) != plan.max_rows
+    for k, count in enumerate(plan.n_candidates.tolist()):
+        assert int(plan.runtime_rows[k]) == span_head_rows(count)
+
+
+def test_serving_scores_strips_the_padding_the_runtime_would_refuse():
+    """What leaves for `qd-runtime` is `line_count + 1` finite values, and nothing else.
+
+    `backend::validate_logits` refuses the padded matrix twice over: on length against
+    `query.rows`, and on `is_finite` for the `-inf` fill. Slicing to `runtime_rows[k]`
+    satisfies both, and the last value of each slice is that row's abstention.
+    """
+    head, hidden, plan = _ragged_plan()
+    start_scores, end_scores = head(hidden, plan)
+    assert start_scores.shape == (2, 4), "the training matrix is padded to the batch max"
+
+    for scores in (start_scores, end_scores):
+        served = serving_scores(scores, plan)
+        assert [int(s.numel()) for s in served] == [4, 2]
+        for k, row in enumerate(served):
+            assert int(row.numel()) == span_head_rows(int(plan.n_candidates[k]))
+            assert bool(torch.isfinite(row).all()), "qd-runtime refuses a non-finite logit"
+            # The abstention is last, as `noul_row = plan.rows - RESERVED_NOUL_ROWS` reads it.
+            abstention = scores[k, int(plan.n_candidates[k])]
+            assert float(row[-1].detach()) == float(abstention.detach())
+        # Row 1's slice drops exactly the padding and keeps everything that is not padding.
+        assert torch.equal(served[1], scores[1, :2])
+        assert bool(torch.isinf(scores[1, 2:]).all()), "the dropped columns were the padding"
+
+
+def test_serving_scores_pins_itself_to_what_validate_logits_actually_checks():
+    """Both halves of the Rust check, read from the source rather than remembered."""
+    source = (RUNTIME_SRC / "backend.rs").read_text()
+    assert "logits.values.len() != query.rows" in source, (
+        "qd-runtime no longer refuses a wrong row count, so serving_scores is slicing to a "
+        "number nothing enforces"
+    )
+    assert "if !v.is_finite()" in source, (
+        "qd-runtime no longer refuses a non-finite logit, so the -inf padding would reach a "
+        "softmax at serve time instead of being refused"
+    )
+    # Which number it compares against is pinned by
+    # `test_span_head_rows_matches_the_runtime_formula` above; this test pins that the
+    # comparison happens at all.
+    assert "expected: query.rows," in source
+
+
+def test_the_head_refuses_a_row_whose_selectable_set_is_not_the_runtimes():
+    """A plan whose row count and candidate mask disagree leaves a hole, silently.
+
+    Before the postcondition, `forward` returned a row whose finite columns were `[0, 2]`
+    -- a gap at column 1 -- and trained on it. The runtime would have refused that decode
+    as a `logit_shape_mismatch`, but only at serve time, on a model already trained over a
+    candidate set nobody serves. This is the same failure one layer earlier.
+    """
+    head, hidden, plan = _ragged_plan()
+    lying = SpanPlan(
+        candidate_pos=plan.candidate_pos.clone(),
+        candidate_valid=plan.candidate_valid.clone(),
+        # Row 1 truly has one candidate. Claiming two scatters its abstention into column
+        # 2 and leaves column 1 at -inf: finite columns [0, 2] against an expected [0, 1, 2].
+        n_candidates=torch.tensor([3, 2]),
+        query_index=plan.query_index.clone(),
+        gold_start=plan.gold_start.clone(),
+        gold_end=plan.gold_end.clone(),
+        abstaining=plan.abstaining.clone(),
+    )
+    with pytest.raises(ValueError) as exc:
+        head(hidden, lying)
+    message = str(exc.value)
+    assert "span row 1" in message
+    assert "qd-runtime will demand exactly 3" in message
+    assert "[0, 2]" in message, "the message must show the hole, not just that there is one"
+    # serving_scores refuses it through the same check, so the two cannot drift apart.
+    good_scores, _ = head(hidden, plan)
+    with pytest.raises(ValueError, match="span row 1"):
+        serving_scores(good_scores, lying)
 
 
 # --- the loss --------------------------------------------------------------------------------

@@ -17,6 +17,7 @@ mod common;
 use common::{validated, SAMPLE_CONTEXT};
 use qd_runtime::refusal::Refusal;
 use qd_runtime::render::{escape_block, escape_inline, render, unescape, RenderCaps, MARKERS};
+use qd_runtime::schema::{SlotSpec, MAX_SLOT_NAME_BYTES};
 use serde_json::json;
 
 /// Produced by `python/qd_data/render.py::render`, seed=None.
@@ -314,4 +315,49 @@ fn the_default_caps_are_self_consistent() {
     RenderCaps::DEFAULT
         .validate()
         .expect("the shipped caps must be able to express a legal request");
+}
+
+#[test]
+fn a_hand_built_slot_spec_cannot_carry_an_over_cap_name_into_the_prompt() {
+    // `wire::parse_slot` is the only constructor of `SlotSpec` on the wire path, and it checks the
+    // name. But the renderer also serves specs built in Rust — `qd oneshot`, `fixtures.rs`, tests —
+    // and those bypass `parse_slot` entirely. Without a check in `render::slot_suffix` such a name
+    // reaches the prompt bounded only by `max_rendered_bytes`, which bounds the whole prompt rather
+    // than this field.
+    //
+    // This test exists because it did not: mutating the `check_slot_name` call out of
+    // `slot_suffix` left the entire `-p qd-runtime` suite green, so the branch was shipping
+    // unverified. `GAP-RT-SLOT-NAME-UNCAPPED`.
+    let mut request = validated(&common::request_with_slots(
+        SAMPLE_CONTEXT.as_bytes(),
+        json!([{"name": "verdict", "type": "choice", "options": ["stub", "clean"]}]),
+    ));
+    request.slots = vec![SlotSpec::Choice {
+        name: "n".repeat(MAX_SLOT_NAME_BYTES + 1),
+        options: vec!["stub".to_string(), "clean".to_string()],
+    }];
+
+    match render(&request, &RenderCaps::DEFAULT) {
+        Err(Refusal::SlotNameOverCap { index, cap, actual }) => {
+            assert_eq!(index, 0);
+            assert_eq!(cap, MAX_SLOT_NAME_BYTES);
+            assert_eq!(actual, MAX_SLOT_NAME_BYTES + 1);
+        }
+        other => panic!("expected SlotNameOverCap from the renderer, got {other:?}"),
+    }
+
+    // The index is the slot's real position, not a constant: a second slot must say `1`.
+    request.slots.insert(
+        0,
+        SlotSpec::Span {
+            name: "evidence".to_string(),
+        },
+    );
+    match render(&request, &RenderCaps::DEFAULT) {
+        Err(Refusal::SlotNameOverCap { index, .. }) => assert_eq!(
+            index, 1,
+            "the renderer must report the offending slot's own position"
+        ),
+        other => panic!("expected SlotNameOverCap at index 1, got {other:?}"),
+    }
 }

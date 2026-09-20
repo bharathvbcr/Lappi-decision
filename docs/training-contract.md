@@ -31,7 +31,7 @@ by the writer and the sampler, because two plausible implementations of "which b
 length in" that disagree at a boundary produce a padding-waste figure measured against a
 bucketing nobody trains with.
 
-## The four invariants that matter, and the failure each blocks
+## The invariants that matter, and the failure each blocks
 
 **`packed` is always `False`** — `ShardHeader` raises on `packed=True`. `docs/plan-corrections.md`
 SAFETY-2: a GDN layer carries recurrent state *along* the sequence, so two examples concatenated
@@ -49,6 +49,27 @@ predict exactly that. It shows up as nothing worse than slightly worse loss.
 guards *manifests*. A shard is derived from a manifest and read directly by the trainer, so
 without `assert_shard_trainable` the held-out rule would be satisfied on paper and bypassed by
 indirection. Same check, new door.
+
+**A `SLOT_LM` row never carries a `target_index`.** `Batch` refuses it rather than letting the
+loops decide. Two readings were both defensible — an LM row deliberately mixed into fine-tuning,
+or a mislabelled choice row — and they train *different objectives* while the loss curve looks
+fine under either. What settled it was the contract's own history rather than an argument about
+intent: `span_target` grew the `NO_SPAN` sentinel the moment a row needed to say "not me", and
+`target_index` never grew an equivalent. A field that would have needed a do-not-care value and
+never got one was never meant to express the row.
+
+**A row of length 1 is refused where it is built, not tolerated where it is used.** `shards`
+has refused `ids.size < 2` since S4 landed, for the same reason and at the same number; `Batch`
+was the odd one out, and only on the CPT path. A length-1 row has no next-token pair, so it is
+loaded, padded and paid for while contributing zero gradient — the effective batch is quietly
+smaller than the recipe says. That is training on padding, in the opposite direction.
+
+**The pointer head's row count is checked in both directions.** The head pads to the *batch*
+maximum; the runtime demands exactly `line_count + 1`. Those agree only because serving runs one
+context at a time, which was true but argued rather than enforced. It is now a postcondition on
+both pointers, so a serve-time `logit_shape_mismatch` surfaces as a train-time `ValueError`. The
+check has to be two-directional: the dangerous shape is a finite column *inside* the served
+range, which a one-sided bound does not see.
 
 **An empty measurement is `NotRun`, not a pass.** `padding_waste([])` is `0/0`; reporting it as
 0% waste would let an empty shard set clear the ≤15% gate. This is `all([]) == True` one level

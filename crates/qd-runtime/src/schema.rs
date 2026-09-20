@@ -23,6 +23,85 @@ pub const MIN_OPTIONS: usize = 2;
 pub const MIN_BINS: u32 = 2;
 pub const MAX_BINS: u32 = 16;
 
+/// Bytes a slot name may occupy, UTF-8, measured before escaping.
+///
+/// # Why this exists
+///
+/// Every other caller-supplied string on this wire has a byte cap — context, question, task and
+/// option text all do. A slot name had none: [`crate::wire::parse_slot`] checked it non-empty and
+/// stopped there, so a 4096-byte name parsed cleanly and [`crate::wire::MAX_PAYLOAD_BYTES`] was
+/// the only thing bounding it. That made [`crate::wire::PayloadBudget::total`] a *lower* bound on
+/// the worst-case request rather than the worst case, which is the wrong shape for a number the
+/// payload cap decision rests on. `GAP-RT-SLOT-NAME-UNCAPPED`.
+///
+/// # Why 256, and why it refuses nothing that exists
+///
+/// A slot name is an **identifier** — a key in the answer map and one line of the rendered prompt
+/// — not prose. This repository has already priced an identifier: `RenderCaps::max_task_bytes` is
+/// 256, against 512 for option text and 4096 for the question. Reusing that number is a decision
+/// already made here rather than a new one invented for this field.
+///
+/// Measured before choosing it: the longest slot name anywhere in this repository — every fixture,
+/// test and producer — is **8 bytes** (`severity`, `evidence`). The cap is 32x that, so no request
+/// any lane can build today is refused by it.
+///
+/// # Both sides state this number
+///
+/// The cap is enforced on all four readers of a slot name, so no lane refuses what another
+/// accepts: [`check_slot_name`] guards the request (called by [`crate::wire::parse_slot`], the sole
+/// constructor of [`SlotSpec`]) and the prompt (called by `render::slot_suffix`), and the answer
+/// map's keys are checked by [`AnswerEnvelope`]'s `Deserialize` here and by
+/// `qd_wire.answer.parse_answer_envelope` on the Python side. Python does not transcribe the
+/// number: `qd_wire.contract.MAX_SLOT_NAME_BYTES` is generated from this line by
+/// `qd_wire.rust_source`, and `python/tests/test_wire_contract_matches_rust.py` re-derives and
+/// compares it on every run, the way `ESCAPE_WORST_CASE_GROWTH` and `HEX_ESCAPED` are pinned.
+pub const MAX_SLOT_NAME_BYTES: usize = 256;
+
+/// What is wrong with a slot name, independent of where it was found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlotNameFault {
+    /// Empty, or nothing but whitespace.
+    Empty,
+    /// Longer than [`MAX_SLOT_NAME_BYTES`].
+    OverCap { cap: usize, actual: usize },
+}
+
+/// The slot-name rule itself, with no locus: `None` when the name is acceptable.
+///
+/// A slot name is read in two different places — as `slots[i].name` on a request, and as a key of
+/// the `slots` map on an answer — and those two want different error text. The *rule* must still be
+/// one thing, because two copies of a threshold is how `GAP-SCHEMA-LABEL-SET-HASH-TWO-MEANINGS` and
+/// `GAP-RT-WIRE-CONTEXT-ENCODING` each came to exist. So the predicate lives here alone and each
+/// locus formats its own message from the fault it returns.
+pub fn slot_name_fault(name: &str) -> Option<SlotNameFault> {
+    if name.trim().is_empty() {
+        return Some(SlotNameFault::Empty);
+    }
+    if name.len() > MAX_SLOT_NAME_BYTES {
+        return Some(SlotNameFault::OverCap {
+            cap: MAX_SLOT_NAME_BYTES,
+            actual: name.len(),
+        });
+    }
+    None
+}
+
+/// [`slot_name_fault`] at the request locus: the refusal a caller gets for `slots[index].name`.
+///
+/// The over-cap refusal carries the slot's **index and byte counts, never the name**. The name is
+/// by definition oversized and caller-controlled, and echoing it back into a refusal message would
+/// let a request choose the size of its own error — a small amplification, but the kind that is
+/// only ever free until it is not.
+pub fn check_slot_name(name: &str, index: usize) -> Result<(), Refusal> {
+    match slot_name_fault(name) {
+        None => Ok(()),
+        Some(SlotNameFault::Empty) => Err(Refusal::EmptySlotName { index }),
+        Some(SlotNameFault::OverCap { cap, actual }) => {
+            Err(Refusal::SlotNameOverCap { index, cap, actual })
+        }
+    }
+}
+
 /// The reserved abstain label. `docs/schema-api.md`: "a reserved letter present in **every** option
 /// set". It occupies one head row beyond the named options, so a `choice` slot at the maximum
 /// `MAX_OPTIONS` reads `MAX_OPTIONS + 1` rows. See `RESERVED_NOUL_ROWS`.
@@ -193,11 +272,82 @@ impl DecisionRequest {
 
 /// A line span in the context, 1-based and inclusive, matching the example in
 /// `docs/schema-api.md`.
+///
+/// # `1 <= start_line <= end_line` is a term of the format
+///
+/// It was not, and the difference mattered. The *producer* refused a backwards span —
+/// [`crate::answer`] abstains when the end pointer decodes below the start one, on the stated
+/// ground that a span running backwards "is not a low-confidence span, it is not a span". But the
+/// invariant lived only in that one function: this struct derived `Deserialize` with no ordering
+/// check, so both *readers* accepted `{"start_line": 47, "end_line": 41}` without complaint, and
+/// the type carried no such guarantee for anything downstream to rely on.
+///
+/// That is the "one fact, two spellings" shape this crate has now met four times, in its quietest
+/// form: a rule that is true of everything the system emits and enforced nowhere it is read. Any
+/// consumer computing span overlap or slicing context lines was trusting a producer-side check,
+/// and a second producer — a registered head, a different backend, a hand-written fixture — would
+/// satisfy the format while breaking that consumer. `GAP-XLANG-SPAN-BOUNDS-UNPINNED`.
+///
+/// So the invariant now belongs to the type. Both bounds are enforced, on both sides, because both
+/// are already true of every span this repository produces and the second is only the first one
+/// written down: `start_line: 0` contradicts the "1-based" the doc comment above has always
+/// claimed. Measured before tightening: every span in `fixtures/wire/` and in every test is inside
+/// both bounds, minimum `start_line` 1, so nothing legal today is refused.
+///
+/// `qd_wire.answer.SpanValue` refuses the same two shapes, and
+/// `python/tests/test_wire_answer_parser.py` pins it from that side.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, try_from = "SpanValueWire")]
 pub struct SpanValue {
     pub start_line: usize,
     pub end_line: usize,
+}
+
+/// The on-the-wire shape of [`SpanValue`], before its bounds are checked.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SpanValueWire {
+    start_line: usize,
+    end_line: usize,
+}
+
+/// Why a `{start_line, end_line}` pair is not a span.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum SpanBoundsError {
+    #[error(
+        "span runs backwards: start_line {start_line} is after end_line {end_line}. A backwards \
+         span is not a low-confidence span, it is not a span; it is refused rather than silently \
+         reordered into a plausible-looking answer"
+    )]
+    Backwards { start_line: usize, end_line: usize },
+    #[error(
+        "span starts at line 0, but a span is 1-based and inclusive, so line 0 does not exist"
+    )]
+    NotOneBased,
+}
+
+impl TryFrom<SpanValueWire> for SpanValue {
+    type Error = SpanBoundsError;
+
+    fn try_from(wire: SpanValueWire) -> Result<Self, Self::Error> {
+        let SpanValueWire {
+            start_line,
+            end_line,
+        } = wire;
+        if start_line == 0 {
+            return Err(SpanBoundsError::NotOneBased);
+        }
+        if start_line > end_line {
+            return Err(SpanBoundsError::Backwards {
+                start_line,
+                end_line,
+            });
+        }
+        Ok(SpanValue {
+            start_line,
+            end_line,
+        })
+    }
 }
 
 /// What a slot answered with. Never present when the slot abstained.
@@ -363,7 +513,47 @@ pub struct AnswerEnvelope {
     pub backend: String,
     /// True if any slot is degraded — a rebuilt-after-poison runtime, or a reference backend.
     pub degraded: bool,
+    #[serde(deserialize_with = "deserialize_slot_map")]
     pub slots: BTreeMap<String, SlotAnswer>,
+}
+
+/// Read the answer's `slots` map, holding its keys to the same rule the request side holds
+/// `slots[i].name` to.
+///
+/// Without this the two readers of one format disagree: `qd_wire.answer.parse_answer_envelope`
+/// refuses an over-cap key, and a derived `BTreeMap<String, _>` here would accept it. A cap that
+/// one side enforces and the other does not is not a cap, it is a disagreement — the precise defect
+/// `GAP-RT-SLOT-NAME-UNCAPPED` was left open to avoid creating in one direction, so it must not be
+/// created in the other.
+///
+/// The key is named in the error only when it is short enough to be worth naming; an over-cap key
+/// is reported by its byte count, for the reason given on [`check_slot_name`].
+fn deserialize_slot_map<'de, D>(de: D) -> Result<BTreeMap<String, SlotAnswer>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error as _;
+
+    let map = BTreeMap::<String, SlotAnswer>::deserialize(de)?;
+    for name in map.keys() {
+        match slot_name_fault(name) {
+            None => {}
+            Some(SlotNameFault::Empty) => {
+                return Err(D::Error::custom(
+                    "the answer's `slots` map has an empty key; a slot answer that cannot be keyed \
+                     cannot be matched to the slot that was asked",
+                ))
+            }
+            Some(SlotNameFault::OverCap { cap, actual }) => {
+                return Err(D::Error::custom(format!(
+                    "a key of the answer's `slots` map is {actual} bytes, over the slot-name cap \
+                     of {cap}; no request carrying such a name can be accepted, so no answer may \
+                     carry one back"
+                )))
+            }
+        }
+    }
+    Ok(map)
 }
 
 /// The refusal envelope. Deliberately shares no field name with [`AnswerEnvelope`] beyond

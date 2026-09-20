@@ -50,7 +50,7 @@ not a rounding choice.
 | `prev_row_hash` | string \| null | SHA-256 of the previous line's bytes; `null` on the first row |
 | `protocol_hash` | string | SHA-256 over the five components below, canonically serialized |
 | `protocol` | object | `{data_snapshot_hash, tokenizer_hash, backbone_commit, recipe_hash, seed}` |
-| `run_kind` | enum | `teacher` \| `lr_probe` \| `cpt` \| `prune_heal` \| `ft` \| `ablation` \| `eval` \| `calibration` \| `smoke` \| `throughput` \| `resume` \| `scale` |
+| `run_kind` | enum | `teacher` \| `lr_probe` \| `cpt` \| `prune_heal` \| `ft` \| `ablation` \| `eval` \| `calibration` \| `smoke` \| `throughput` \| `resume` \| `scale` \| `build` (see below) |
 | `status` | enum | `completed` \| `killed` \| `failed`. A killed run still writes a row |
 | `quick` | bool | true if <3 seeds, truncated schedule, or subsampled. **A `quick` row cannot promote anything** |
 | `quick_reason` | string \| null | Required non-empty when `quick` is true |
@@ -89,6 +89,49 @@ comparable to one recorded with `true`, and the comparison code refuses to pair 
 confirmed fallback; `not_run` = the dry run did not execute, e.g. on the Mac where there is no CUDA).
 An unchecked environment must not read as a clean one.
 
+## `run_kind: "build"` — the row a build-and-test lane writes
+
+Every other `run_kind` names a training or evaluation run, and their required protocol components —
+`data_snapshot_hash`, `tokenizer_hash`, `backbone_commit` — have no meaning for a lane that compiles
+the workspace and runs a test suite. Repo rule 5 says *a number in a report cites a ledger row or is
+not in the report*, so before this kind existed a build lane had no honest way to comply: three lanes
+in a row printed command output instead and flagged it (`GAP-MUTATE-NO-LEDGER-ROW-KIND`). Inventing a
+value for the missing components would have been worse than the gap — a fabricated entry in the
+decision record — so the kind carries a marker instead.
+
+**Protocol.** `Protocol.for_build(commands=…, toolchain=…)` builds it:
+
+| Component | Value |
+| --- | --- |
+| `data_snapshot_hash` | `"n/a:build"` |
+| `tokenizer_hash` | `"n/a:build"` |
+| `backbone_commit` | `"n/a:build"` |
+| `recipe_hash` | **real**: SHA-256 over the canonical `{commands, toolchain}` — two build rows are comparable exactly when they ran the same commands on the same toolchain |
+| `seed` | `0` unless the lane has a reason |
+
+`"n/a:build"` is not a hash and not empty, so a reader, a diff and a test can all tell it from a real
+value. The marker is checked **in both directions**: a `build` row missing it is refused, and a
+non-`build` row carrying it is refused. A training row with an unidentified protocol component makes
+every comparison against it meaningless, and a build row claiming a snapshot it never had looks
+comparable to training rows it has nothing to do with.
+
+**Metrics.** Suite results go in `metrics` under `suite.<name>`, as ordinary tri-states — there is no
+second mechanism:
+
+```json
+{ "suite.cargo_test_workspace": { "state": "ran", "passed": true, "value": 344, "n": 344, "n_total": 344 },
+  "suite.gpu_throughput":       { "state": "not_run", "reason": "no CUDA on this host: MPS only" } }
+```
+
+`value` is the passing count, `n`/`n_total` the coverage pair — tests that ran over tests that were
+collected, so a suite whose collection silently shrank is visible. A suite the environment cannot run
+is `not_run` with the reason, never absent and never a zero.
+
+**`wall_clock_s` is measured** as for any other row. `cost_usd` is `0.0` for a local build; it is a
+measured quantity, and zero is the measurement, not a placeholder.
+
+**A `build` row never promotes.** See below.
+
 ## Promotion
 
 A result may promote a decision only if **all** hold:
@@ -98,8 +141,17 @@ A result may promote a decision only if **all** hold:
 3. Three rows exist sharing a `protocol_hash` that differs only in `seed`
 4. Every gate in `gates` is `state: "ran"` — a `not_run` gate blocks promotion, it does not pass it
 5. Every control in `controls` is `ran` and `passed`
+6. `run_kind` is not in `NON_PROMOTING_RUN_KINDS` — currently `{build}`
 
 Rule 4 is the one that is easy to get wrong and the reason the tri-state exists.
+
+Rule 6 is stated on the run kind rather than left to rule 4 to catch. A build lane's gates are
+*vacuous*, not satisfied: it has nothing to say about `paired_margin_vs_linear`, and the only reason
+rule 4 would currently block it is that `RunRecorder._fill_unreported` marks unreported gates
+`not_run`. That is a safety net, not an invariant — a build lane that set a gate for an unrelated
+reason would promote. Measured: with rule 6 removed, three completed non-quick `build` rows with
+every gate and control `ran`/`passed` return `promoted=True`
+(`python/tests/test_ledger.py::test_a_build_row_cannot_promote_anything`).
 
 ## Chain integrity
 

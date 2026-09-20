@@ -1,5 +1,20 @@
 # Build order after the prior-art check — 2026-09-19
 
+> **Update, same day.** Two things changed after this was first written.
+>
+> A fourth peer turned up: `Mapika/decider-2b` is **Qwen3.5-2B-Base, Apache-2.0**, uses the same
+> option-letter `lm_head` slice this repo's rung 3 plans, and its slot types are **`noul`**, choice
+> and score — our own term, which points at a shared spec ancestor rather than coincidence. Rung 3 is
+> therefore a reimplementation of an existing Apache-2.0 model. Its abstention is still a catch-all
+> option, it has no span slot, and its **ECE goes 0.037 in-task to 0.084 held-out** — so the
+> differentiators in `docs/lappi.md` survive, and `decider-2b` becomes a baseline to measure against
+> rather than a thing to rebuild.
+>
+> And a **rung 0** was added below the LoRA control and built: a byte-level model trained from
+> scratch, 606,336 parameters, needing no Hugging Face terms at all. It dissolves the BPE
+> line-mapping gap family rather than solving it. See `docs/lappi.md` and
+> `docs/schedule-2026-09-28.md`.
+
 Two systems with this thesis went public on 2026-09-18/19 (see
 `AUDIT/prior-art-jev-nimble-2026-09-19.md`). Bespoke Nimble reached 90.12% raw agreement with
 LoRA r=16 for one epoch on 2,676 examples, built in two days on a 9B. That changes the build
@@ -97,13 +112,18 @@ On that last row: Nimble reports raw agreement and we report κ. On skewed label
 flatters heavily, so 90.12% and a κ are not the same quantity. Any public comparison must say so or
 it reads as a loss that is not one.
 
-## Blocked on a human
+## Blocked on a human — revised
 
-1. **Hugging Face terms.** Blocks Qwen3.5-2B-Base weights *and* the commitpackft pool. This is the
-   critical path for the control — everything else is ready.
-2. **300 hand labels**, now best spent as 150 contrastive pairs. Cannot start: no pool exists yet,
-   which is the same blocker as (1).
-3. **GitPulse trust** for this repo — still `REPOSITORY_TRUST_REQUIRED`; the repo has never been
-   added to GitPulse's workbench (4 repositories listed, this is not one).
+1. **Hugging Face terms.** Blocks Qwen3.5-2B-Base weights and the commitpackft pool, so it blocks
+   **rung 3 only**. It is no longer on rung 0's critical path: `crates/qd-mutate/src/pool.rs` accepts
+   a record with no hunks — *"a whole file with no diff attached; every site in it is fair game"* —
+   so the mutation corpus can be built from local source files today. Such examples are stamped
+   `hunk_constrained: false` and counted separately in the manifest, and must be reported as the
+   unconstrained sample they are.
+2. **300 hand labels**, best spent as 150 contrastive pairs. No longer blocked by (1) for the same
+   reason, but still human work.
+3. ~~GitPulse trust~~ — **resolved.** The repository is trusted; `gitpulse_insights` now returns the
+   branch, worktree scan and a recording ledger.
 
-**Lambda is still not needed.** Nothing has launched, and the control does not require it.
+**Lambda is still not needed.** Nothing has launched. Rung 0 trains on the Mac at $0, and rule 4's
+approval requirement applies only to the 8xH100 block that rung 3 would need.

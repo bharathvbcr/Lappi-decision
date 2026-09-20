@@ -24,6 +24,7 @@ import sys
 import time
 import types
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -38,16 +39,42 @@ __all__ = [
     "RunRecorder",
     "PromotionVerdict",
     "LedgerChainError",
+    "NOT_APPLICABLE",
+    "NON_PROMOTING_RUN_KINDS",
 ]
 
 RunKind = Literal[
     "teacher", "lr_probe", "cpt", "prune_heal", "ft", "ablation",
     "eval", "calibration", "smoke", "throughput", "resume", "scale",
+    "build",
 ]
 Status = Literal["completed", "killed", "failed"]
 
 _RUN_KINDS: frozenset[str] = frozenset(RunKind.__args__)  # type: ignore[attr-defined]
 _STATUSES: frozenset[str] = frozenset(Status.__args__)  # type: ignore[attr-defined]
+
+# Run kinds that may never promote a decision, whatever their gates say.
+#
+# `build` is here because its gates are *vacuous*, not satisfied: a lane that
+# compiles the workspace and runs a test suite has nothing to say about
+# `paired_margin_vs_linear`. Relying on `_fill_unreported` to leave them
+# `not_run` would work today and would break the first time a build lane set a
+# gate for an unrelated reason, so the refusal is stated on the run kind.
+NON_PROMOTING_RUN_KINDS: frozenset[str] = frozenset({"build"})
+
+# The marker a `build` row carries in the three protocol components that do not
+# exist for it. Not a hash and not empty: a reader, a diff and a test can all
+# tell it from a real value at a glance, which a plausible-looking filler could
+# not. See `Protocol.for_build`.
+NOT_APPLICABLE = "n/a:build"
+
+# Protocol components a build run has no value for. `recipe_hash` and `seed`
+# are deliberately absent from this list: those a build run *does* have.
+_BUILD_NOT_APPLICABLE_FIELDS: tuple[str, ...] = (
+    "data_snapshot_hash",
+    "tokenizer_hash",
+    "backbone_commit",
+)
 
 # The gates named in the plan's shipping decision. Every one must be present in a
 # row and must be `ran` for that row to promote anything. A gate that is merely
@@ -118,6 +145,57 @@ class Protocol:
         body = self.to_json()
         body.pop("seed")
         return hashlib.sha256(_canonical(body).encode("utf-8")).hexdigest()
+
+    @classmethod
+    def for_build(
+        cls,
+        *,
+        commands: Sequence[str],
+        toolchain: str,
+        seed: int = 0,
+    ) -> Self:
+        """The protocol of a `build` run: what it actually has, and nothing else.
+
+        A lane that compiles the workspace and runs a test suite has no data
+        snapshot, no tokenizer and no backbone. Those three components carry
+        :data:`NOT_APPLICABLE`. Inventing a hash for them would put a fabricated
+        value in the decision record and make the row look comparable to
+        training rows it has nothing to do with.
+
+        What a build run *does* have is a command set and a toolchain, and those
+        identify it well enough to be worth hashing: two build rows are
+        comparable exactly when they ran the same commands on the same
+        toolchain. That hash goes in ``recipe_hash``, which is therefore a real
+        value and not a marker.
+
+        ``seed`` exists because the row schema has the field. It does not make
+        three build rows a promotable family — :data:`NON_PROMOTING_RUN_KINDS`
+        forecloses that regardless.
+        """
+        commands = tuple(commands)
+        if not commands or any(not c.strip() for c in commands):
+            raise ValueError(
+                "a build protocol needs the commands it ran, each non-empty: they are the only "
+                "thing identifying one build row from another."
+            )
+        if not toolchain.strip():
+            raise ValueError("a build protocol needs its toolchain; two toolchains are two runs")
+        recipe = _canonical({"commands": list(commands), "toolchain": toolchain})
+        return cls(
+            data_snapshot_hash=NOT_APPLICABLE,
+            tokenizer_hash=NOT_APPLICABLE,
+            backbone_commit=NOT_APPLICABLE,
+            recipe_hash=hashlib.sha256(recipe.encode("utf-8")).hexdigest(),
+            seed=seed,
+        )
+
+    def not_applicable_fields(self) -> tuple[str, ...]:
+        """Which components carry :data:`NOT_APPLICABLE`, in declaration order."""
+        return tuple(
+            name
+            for name in ("data_snapshot_hash", "tokenizer_hash", "backbone_commit", "recipe_hash")
+            if getattr(self, name) == NOT_APPLICABLE
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +277,34 @@ class LedgerRow:
             raise ValueError("quick_reason set on a run not marked quick: state one or neither")
         if self.wall_clock_s < 0 or self.cost_usd < 0:
             raise ValueError("wall_clock_s and cost_usd are measured, non-negative quantities")
+        self._check_build_marker()
+
+    def _check_build_marker(self) -> None:
+        """`NOT_APPLICABLE` belongs to `build` rows, and to all of them.
+
+        Checked in both directions on purpose. A training row carrying the
+        marker has a protocol that identifies nothing, so every comparison
+        against it is unfalsifiable. A build row *not* carrying it claims a data
+        snapshot, a tokenizer and a backbone it never had, which makes it look
+        comparable to training rows it has nothing to do with. Either way the
+        row is a decision record that says something untrue, which the schema
+        can refuse rather than leave to a reader to notice.
+        """
+        marked = set(self.protocol.not_applicable_fields())
+        if self.run_kind == "build":
+            missing = [f for f in _BUILD_NOT_APPLICABLE_FIELDS if f not in marked]
+            if missing:
+                raise ValueError(
+                    f"run_kind 'build' must carry {NOT_APPLICABLE!r} in {missing}: a build run has "
+                    "no data snapshot, tokenizer or backbone, and a row that names one is "
+                    "claiming to be comparable to training rows it has nothing to do with."
+                )
+        elif marked:
+            raise ValueError(
+                f"run_kind {self.run_kind!r} carries the build marker {NOT_APPLICABLE!r} in "
+                f"{sorted(marked)}. Only a 'build' row may: a training row with an unidentified "
+                "protocol component makes every comparison against it meaningless."
+            )
 
     @property
     def protocol_hash(self) -> str:
@@ -380,6 +486,14 @@ class Ledger:
                 reasons.append(f"{r.row_id}: status is {r.status!r}, not 'completed'")
             if r.quick:
                 reasons.append(f"{r.row_id}: marked quick ({r.quick_reason}); quick runs cannot promote")
+            if r.run_kind in NON_PROMOTING_RUN_KINDS:
+                # Stated on the run kind, not inferred from empty gates. A build
+                # row's gates are vacuous rather than failed, and a conjunction
+                # over vacuous inputs is the shape that quietly comes out true.
+                reasons.append(
+                    f"{r.row_id}: run_kind {r.run_kind!r} never promotes a decision; its gates "
+                    "are vacuous, not satisfied"
+                )
 
         seeds = {r.protocol.seed for r in candidates}
         if len(seeds) < 3:

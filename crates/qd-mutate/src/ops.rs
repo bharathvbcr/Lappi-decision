@@ -16,7 +16,7 @@
 //!   not installed — the operator produces nothing and the caller records a refusal. It never
 //!   guesses, because a guessed mutation carries a confident label that is wrong.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 use tree_sitter::Tree;
@@ -163,16 +163,19 @@ impl OpId {
 
     /// True where the operator cannot run at all without a resolvable formatter.
     ///
-    /// This is the spec's shrink, stated as data: *"where no formatter is available the operator
-    /// set shrinks to `edit_comment` and, where provably safe, `rename_local`."* Everything this
-    /// answers `true` for is refused with [`Refusal::NoFormatter`] and counted per language, so a
-    /// machine without `prettier` produces a visibly thinner TypeScript mixture rather than a
-    /// silently unverified one.
+    /// This is the spec's shrink, stated as data. Everything this answers `true` for is refused
+    /// with [`Refusal::NoFormatter`] and counted per language, so a machine without `prettier`
+    /// produces a visibly thinner TypeScript mixture rather than a silently unverified one.
+    ///
+    /// **`cosmetic.reorder_imports` is deliberately not in this set.** Its proof is the language's
+    /// import semantics — [`crate::lang::ImportBlock::reorderable`] — and a formatter neither
+    /// establishes nor refutes it: [`OpId::verified_by_canonical_form`] excludes the operator
+    /// precisely because a reorder *changes* the canonical form. Gating it on a resolvable
+    /// formatter deleted provably safe Rust and Swift candidates on a machine missing a tool, and
+    /// on a machine that had the tool it waved through a TypeScript swap whose safety nothing had
+    /// checked. The formatter was the wrong axis in both directions; the axis is the language.
     pub fn requires_formatter(self) -> bool {
-        matches!(
-            self,
-            OpId::CosmeticReformat | OpId::CosmeticWrapLine | OpId::CosmeticReorderImports
-        )
+        matches!(self, OpId::CosmeticReformat | OpId::CosmeticWrapLine)
     }
 
     /// True where behaviour preservation is proven by **running the formatter on both sides** and
@@ -375,33 +378,79 @@ impl<'t> OpCtx<'t> {
     }
 }
 
+/// A candidate site the operator examined and then turned down **without refusing**.
+///
+/// Distinct from [`Refusal`], which says the operator produced nothing anywhere for this body. A
+/// decline is per site: the operator ran, found work, and rejected this piece of it. The two must
+/// not be merged — an operator that refused is one a reader can go and look at, and an operator
+/// that quietly dropped eleven of twelve candidates looks, in `sites_found`, exactly like one whose
+/// construct was not present.
+pub mod decline {
+    /// A `cosmetic.reformat` hunk whose non-whitespace content changed, so it cannot be applied on
+    /// its own. See `reformat`.
+    pub const NOT_LAYOUT_ONLY: &str = "not_layout_only";
+    /// Candidates past [`super::MAX_CANDIDATES_PER_OP`]. A capped sample is never reported as the
+    /// whole of it.
+    pub const OVER_CANDIDATE_CAP: &str = "over_candidate_cap";
+}
+
+/// What one operator offered for one body: the candidates, and what it turned down getting there.
+#[derive(Debug, Clone, Default)]
+pub struct Offered {
+    pub candidates: Vec<Candidate>,
+    /// Sites examined and declined, keyed by one of [`decline`]'s reasons.
+    pub declined: BTreeMap<&'static str, u64>,
+}
+
+impl Offered {
+    fn plain(candidates: Vec<Candidate>) -> Self {
+        Offered {
+            candidates,
+            declined: BTreeMap::new(),
+        }
+    }
+
+    fn decline(&mut self, reason: &'static str, count: u64) {
+        if count > 0 {
+            *self.declined.entry(reason).or_insert(0) += count;
+        }
+    }
+}
+
 /// Enumerate every candidate `op` offers for `body`, in a deterministic order.
 ///
-/// `Err` is a **recorded** refusal — a reason this operator produced nothing here. `Ok(vec![])`
-/// means the construct simply is not present, which is the "a language whose facade returns an
-/// empty list yields no mutations of that kind" case and is counted separately in the manifest so a
-/// silent zero never reads as "the operator ran".
-pub fn candidates(op: OpId, ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Result<Vec<Candidate>, Refusal> {
-    let out = match op {
-        OpId::StubPanic => stub_panic(ctx, body)?,
-        OpId::StubDefaultReturn => stub_default_return(ctx, body)?,
-        OpId::StubHardcoded => stub_hardcoded(ctx, body)?,
-        OpId::StubEarlyReturn => stub_early_return(ctx, body)?,
-        OpId::LogicNegateCondition => negate_condition(ctx, body),
-        OpId::LogicOffByOne => off_by_one(ctx, body),
-        OpId::LogicSwapArgs => swap_args(ctx, body),
-        OpId::LogicDropElse => drop_else(ctx, body),
-        OpId::LogicWidenComparison => widen_comparison(ctx, body),
-        OpId::LogicSwallowError => swallow_error(ctx, body),
-        OpId::LogicDropAwaitOrLock => drop_await_or_lock(ctx, body),
-        OpId::LogicChangeConstant => change_constant(ctx, body),
-        OpId::CosmeticRenameLocal => rename_local(ctx, body),
+/// `Err` is a **recorded** refusal — a reason this operator produced nothing here. An empty
+/// [`Offered::candidates`] with an empty [`Offered::declined`] means the construct simply is not
+/// present, which is the "a language whose facade returns an empty list yields no mutations of that
+/// kind" case and is counted separately in the manifest so a silent zero never reads as "the
+/// operator ran". An empty candidate list with a *non-empty* `declined` is the third case, and the
+/// one that used to be invisible: the operator ran, had work, and turned all of it down.
+pub fn candidates(op: OpId, ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Result<Offered, Refusal> {
+    let mut out = match op {
+        OpId::StubPanic => Offered::plain(stub_panic(ctx, body)?),
+        OpId::StubDefaultReturn => Offered::plain(stub_default_return(ctx, body)?),
+        OpId::StubHardcoded => Offered::plain(stub_hardcoded(ctx, body)?),
+        OpId::StubEarlyReturn => Offered::plain(stub_early_return(ctx, body)?),
+        OpId::LogicNegateCondition => Offered::plain(negate_condition(ctx, body)),
+        OpId::LogicOffByOne => Offered::plain(off_by_one(ctx, body)),
+        OpId::LogicSwapArgs => Offered::plain(swap_args(ctx, body)),
+        OpId::LogicDropElse => Offered::plain(drop_else(ctx, body)),
+        OpId::LogicWidenComparison => Offered::plain(widen_comparison(ctx, body)),
+        OpId::LogicSwallowError => Offered::plain(swallow_error(ctx, body)),
+        OpId::LogicDropAwaitOrLock => Offered::plain(drop_await_or_lock(ctx, body)),
+        OpId::LogicChangeConstant => Offered::plain(change_constant(ctx, body)),
+        OpId::CosmeticRenameLocal => Offered::plain(rename_local(ctx, body)),
         OpId::CosmeticReformat => reformat(ctx, body)?,
-        OpId::CosmeticReorderImports => reorder_imports(ctx, body)?,
-        OpId::CosmeticEditComment => edit_comment(ctx, body),
-        OpId::CosmeticWrapLine => wrap_line(ctx, body)?,
+        OpId::CosmeticReorderImports => Offered::plain(reorder_imports(ctx, body)?),
+        OpId::CosmeticEditComment => Offered::plain(edit_comment(ctx, body)),
+        OpId::CosmeticWrapLine => Offered::plain(wrap_line(ctx, body)?),
     };
-    Ok(out.into_iter().take(MAX_CANDIDATES_PER_OP).collect())
+    // The cap is a decline like any other. Truncating in silence would hand a reader a count of 64
+    // and no way to know whether that was all of them.
+    let over = out.candidates.len().saturating_sub(MAX_CANDIDATES_PER_OP);
+    out.candidates.truncate(MAX_CANDIDATES_PER_OP);
+    out.decline(decline::OVER_CANDIDATE_CAP, over as u64);
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -969,7 +1018,7 @@ fn rename_local(ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Vec<Candidate> {
     out
 }
 
-fn reformat(ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Result<Vec<Candidate>, Refusal> {
+fn reformat(ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Result<Offered, Refusal> {
     let Some(resolved) = ctx.formatter else {
         return Err(Refusal::NoFormatter {
             language: ctx.language.id().to_string(),
@@ -984,8 +1033,9 @@ fn reformat(ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Result<Vec<Candidate>, 
         })?
         .to_string();
     if canonical == ctx.src {
-        // Already canonical. Not a refusal: there is genuinely nothing to reformat.
-        return Ok(Vec::new());
+        // Already canonical. Not a refusal, and not a decline either: there is genuinely nothing
+        // to reformat. This is the one empty result that means "no opportunities".
+        return Ok(Offered::default());
     }
 
     let before_lines: Vec<&str> = ctx.src.split('\n').collect();
@@ -1004,7 +1054,7 @@ fn reformat(ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Result<Vec<Candidate>, 
     let body_start_line = crate::span::line_of(ctx.src, body.body.start_byte()) as usize;
     let body_end_line = crate::span::line_of(ctx.src, body.body.end_byte()) as usize;
 
-    let mut out = Vec::new();
+    let mut out = Offered::default();
     for hunk in line_hunks(&before_lines, &after_lines) {
         // One hunk only, and only one inside this body: the mutation must be one mutation, and it
         // must land where the model is being taught to look.
@@ -1034,36 +1084,40 @@ fn reformat(ctx: &OpCtx<'_>, body: &FunctionBody<'_>) -> Result<Vec<Candidate>, 
         // self-contained by construction: no token crosses its boundary, so no partner hunk is
         // needed for it to be valid. It is also exactly what `reformat` claims to be — a change of
         // layout — so a hunk that fails this is one the operator should not have offered anyway.
+        //
+        // The decline is **counted**. This filter is the whole difference between what the name
+        // `cosmetic.reformat` promises and what the operator delivers, and a bare `continue` made
+        // that difference unmeasurable: a body where the formatter had twelve hunks and every one
+        // was rejected recorded `sites_found: 0`, which is what a body with no formatter work at
+        // all records. One of those is a finding about the operator's yield and the other is not.
         if !same_ignoring_whitespace(original, &replacement) {
+            out.decline(decline::NOT_LAYOUT_ONLY, 1);
             continue;
         }
         if let Some(c) = one(
             OpId::CosmeticReformat,
+            // "reformatted" over-claimed: what is applied here is one hunk whose non-whitespace
+            // content is identical. The detail says so, because it is read by a human looking at
+            // why an example was dropped.
             format!(
-                "lines {}..={} reformatted by {}",
+                "lines {}..={} relaid out (layout-only hunk of the {} pass)",
                 hunk.before_start + 1,
                 hunk.before_end,
                 resolved.path
             ),
             vec![Edit::replace(start, end, replacement)],
         ) {
-            out.push(c);
+            out.candidates.push(c);
         }
     }
     Ok(out)
 }
 
 fn reorder_imports(ctx: &OpCtx<'_>, _body: &FunctionBody<'_>) -> Result<Vec<Candidate>, Refusal> {
-    // `docs/mutation-operators.md` shrinks the no-formatter set to `edit_comment` and a provably
-    // safe `rename_local`. `docs/hardening.md` §1 words the same shrink as "comment text, import
-    // order within a group". They disagree about this operator; the specification document wins and
-    // the restriction is recorded rather than resolved silently in our favour.
-    let Some(_resolved) = ctx.formatter else {
-        return Err(Refusal::NoFormatter {
-            language: ctx.language.id().to_string(),
-            operator: OpId::CosmeticReorderImports.as_str().to_string(),
-        });
-    };
+    // No formatter check. This operator's whole safety argument is `block.reorderable`, which is a
+    // statement about the *language*, and a formatter cannot make a semantic import order safe nor
+    // an order-free one unsafe. See `OpId::requires_formatter` for why the gate that used to be
+    // here was removed, and `docs/mutation-operators.md` for the spec sentence it came from.
     let Some(block) = ctx.language.import_block(ctx.tree, ctx.src) else {
         return Ok(Vec::new());
     };
@@ -1419,6 +1473,20 @@ mod tests {
         symbol: &str,
         op: OpId,
     ) -> Result<Vec<Candidate>, Refusal> {
+        candidates_for_with_formatter(id, src, symbol, op, None).map(|o| o.candidates)
+    }
+
+    /// As [`candidates_for`], with an explicit formatter state.
+    ///
+    /// The formatter-present case has to be reachable in a test or the only thing the suite can
+    /// pin is the behaviour of a machine that happens to be missing a tool.
+    fn candidates_for_with_formatter(
+        id: LangId,
+        src: &str,
+        symbol: &str,
+        op: OpId,
+        formatter: Option<&Resolved>,
+    ) -> Result<Offered, Refusal> {
         let language = for_id(id);
         let parsed = parse_bounded(&language.grammar(), src).expect("the fixture parses");
         let bodies = language.function_bodies(&parsed.tree, src);
@@ -1426,8 +1494,203 @@ mod tests {
             .iter()
             .find(|b| b.name == symbol)
             .unwrap_or_else(|| panic!("no body named {symbol} in the fixture"));
-        let ctx = OpCtx::new(language, &parsed.tree, src, None);
+        let ctx = OpCtx::new(language, &parsed.tree, src, formatter);
         candidates(op, &ctx, body)
+    }
+
+    /// A formatter that resolves and echoes its input back: enough to make `ctx.formatter` `Some`
+    /// without depending on any tool being installed on the machine running the test.
+    fn echo_formatter() -> Resolved {
+        Resolved {
+            path: "/bin/cat".to_string(),
+            args: Vec::new(),
+            availability: crate::fmt::Availability::Found {
+                program: "cat".to_string(),
+                path: "/bin/cat".to_string(),
+            },
+        }
+    }
+
+    /// A "formatter" that rewrites one identifier: a whole-file pass whose single hunk changes
+    /// non-whitespace content, which is exactly the shape `reformat`'s filter exists to decline.
+    ///
+    /// `sed` rather than a real formatter so the test measures the filter and not whether this
+    /// machine has `rustfmt`. The real case it stands in for is `rustfmt` wrapping a long argument
+    /// list, which adds a trailing comma along with the newline.
+    fn renaming_formatter() -> Resolved {
+        Resolved {
+            path: "/usr/bin/sed".to_string(),
+            args: vec!["s/alpha/beta/".to_string()],
+            availability: crate::fmt::Availability::Found {
+                program: "sed".to_string(),
+                path: "/usr/bin/sed".to_string(),
+            },
+        }
+    }
+
+    #[test]
+    fn a_reformat_hunk_that_is_not_layout_only_is_counted_not_dropped_in_silence() {
+        // Before this was counted, the three cases below were indistinguishable in the manifest,
+        // because all three produced `sites_found: 0` and nothing else:
+        //
+        //   1. the file is already canonical            -> nothing to do
+        //   2. every hunk fell outside this body        -> nothing to do here
+        //   3. hunks landed in this body and every one  -> the operator ran and rejected its work
+        //      was rejected as not layout-only
+        //
+        // Only the third is a finding, and it is the one that says how much narrower
+        // `cosmetic.reformat` is than its name. `ops::candidates`' own contract — "a silent zero
+        // never reads as 'the operator ran'" — was not being met for it.
+        let src = "\
+pub fn f(n: usize) -> usize {
+    let alpha = n + 1;
+    alpha * 2
+}
+";
+        let resolved = renaming_formatter();
+        let offered = candidates_for_with_formatter(
+            LangId::Rust,
+            src,
+            "f",
+            OpId::CosmeticReformat,
+            Some(&resolved),
+        )
+        .expect("the formatter runs, so this is not a refusal");
+
+        assert!(
+            offered.candidates.is_empty(),
+            "an identifier rename is not a layout change and must not become a cosmetic candidate"
+        );
+        assert_eq!(
+            offered.declined.get(decline::NOT_LAYOUT_ONLY).copied(),
+            Some(1),
+            "the declined hunk must be counted, or `sites_found: 0` means three different things; \
+             got {:?}",
+            offered.declined
+        );
+    }
+
+    #[test]
+    fn a_layout_only_reformat_hunk_is_offered_and_counts_no_decline() {
+        // The other side of the same filter: a hunk whose non-whitespace content is unchanged is
+        // self-contained, is offered, and records no decline. Without this, the test above would
+        // still pass against a `reformat` that declined every hunk it ever saw.
+        let src = "\
+pub fn f(n: usize) -> usize {
+    let alpha    =    n + 1;
+    alpha * 2
+}
+";
+        // Squeeze runs of spaces: a layout-only whole-file pass.
+        let resolved = Resolved {
+            path: "/usr/bin/sed".to_string(),
+            args: vec!["s/   */ /g".to_string()],
+            availability: crate::fmt::Availability::Found {
+                program: "sed".to_string(),
+                path: "/usr/bin/sed".to_string(),
+            },
+        };
+        let offered = candidates_for_with_formatter(
+            LangId::Rust,
+            src,
+            "f",
+            OpId::CosmeticReformat,
+            Some(&resolved),
+        )
+        .expect("the formatter runs");
+        assert_eq!(
+            offered.candidates.len(),
+            1,
+            "a whitespace-only hunk inside the body is a valid candidate"
+        );
+        assert!(
+            offered.declined.is_empty(),
+            "nothing was declined here; got {:?}",
+            offered.declined
+        );
+        assert!(
+            offered.candidates[0].detail.contains("layout-only"),
+            "the detail must not claim a reformat it did not perform, got {:?}",
+            offered.candidates[0].detail
+        );
+    }
+
+    #[test]
+    fn reordering_typescript_imports_is_refused_for_the_reason_that_is_actually_true() {
+        // Two ordinary clause imports: neither is the clause-less `import "./polyfill"` shape, so
+        // the old side-effect check waves them through. It should not. An ES module is *evaluated*
+        // when it is imported, in the importer's source order, so swapping these two swaps the
+        // order in which `./a` and `./b` run their module bodies. Nothing in this file can prove
+        // those bodies do not interact.
+        //
+        // Before the fix this refused with `NoFormatter` on a machine without prettier — the right
+        // answer for the wrong reason — and emitted the swap on a machine *with* prettier, which is
+        // a `cosmetic` label on a diff that can change behaviour.
+        let src = "\
+import { a } from './a';
+import { b } from './b';
+
+export function f(n: number): number {
+  return a(n) + b(n);
+}
+";
+        let resolved = echo_formatter();
+        let got = candidates_for_with_formatter(
+            LangId::TypeScript,
+            src,
+            "f",
+            OpId::CosmeticReorderImports,
+            Some(&resolved),
+        );
+        match got {
+            Err(Refusal::CosmeticNotPreserving { operator, detail }) => {
+                assert_eq!(operator, "cosmetic.reorder_imports");
+                assert!(
+                    detail.contains("evaluated"),
+                    "the refusal must name module evaluation order, got {detail:?}"
+                );
+            }
+            other => panic!(
+                "a TypeScript import swap is not provably behaviour-preserving and must be \
+                 refused as such, got {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn reordering_rust_imports_needs_no_formatter() {
+        // `use` binds a name and runs nothing, so a swap inside one contiguous group is
+        // behaviour-preserving by the language, not by a tool. The formatter is never consulted
+        // for this operator — `verified_by_canonical_form` excludes it by design, because a
+        // reorder that left the canonical form identical would not have reordered anything — so
+        // gating it on a resolvable formatter deleted provably safe candidates to no end.
+        let src = "\
+use std::collections::BTreeMap;
+use std::fmt::Display;
+
+pub fn f(n: usize) -> usize {
+    let mut m: BTreeMap<usize, usize> = BTreeMap::new();
+    m.insert(n, n);
+    let _: &dyn Display = &n;
+    m.len()
+}
+";
+        let found = candidates_for(LangId::Rust, src, "f", OpId::CosmeticReorderImports)
+            .expect("no formatter is resolved here and the operator must still run");
+        assert!(
+            !found.is_empty(),
+            "a two-item `use` group with no glob is reorderable with no tool installed"
+        );
+        let applied = found[0].edits.apply(src).expect("applies");
+        let language = for_id(LangId::Rust);
+        parse_bounded(&language.grammar(), &applied.text).expect("the swap must still be Rust");
+        assert!(
+            applied.text.contains("use std::collections::BTreeMap;")
+                && applied.text.contains("use std::fmt::Display;"),
+            "a swap is a permutation; it may not drop or invent an import:\n{}",
+            applied.text
+        );
+        assert_ne!(applied.text, src, "the swap must actually change the text");
     }
 
     #[test]
@@ -1517,9 +1780,18 @@ export function f(a: number): number {
 ";
         // `OpCtx` is built with `formatter: None` by `candidates_for`, which is exactly the state a
         // machine without `prettier` is in.
-        for op in [OpId::CosmeticReformat, OpId::CosmeticReorderImports] {
+        //
+        // The list is `reformat` and `wrap_line` — the two whose proof *is* the formatter.
+        // `reorder_imports` is not here: it is refused for TypeScript on every machine, formatter
+        // or not, and by the reason that is true. Asserting `NoFormatter` for it would pin the
+        // right outcome to the wrong cause, and the assertion would go on passing on a host that
+        // installed prettier and started emitting unverified swaps.
+        for op in [OpId::CosmeticReformat, OpId::CosmeticWrapLine] {
             match candidates_for(LangId::TypeScript, src, "f", op) {
                 Err(Refusal::NoFormatter { .. }) => {}
+                // `wrap_line` is refused for the language before the formatter is consulted; both
+                // are refusals, and which one arrives first is not what this test is about.
+                Err(Refusal::CosmeticNotPreserving { .. }) if op == OpId::CosmeticWrapLine => {}
                 other => panic!("{op} must refuse without a formatter, got {other:?}"),
             }
         }

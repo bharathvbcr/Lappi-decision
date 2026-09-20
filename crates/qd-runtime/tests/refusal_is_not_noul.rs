@@ -52,6 +52,7 @@ fn kind_of(refusal: &Refusal) -> &'static str {
         Refusal::EmptySlots => "empty_slots",
         Refusal::DuplicateSlotName { .. } => "duplicate_slot_name",
         Refusal::EmptySlotName { .. } => "empty_slot_name",
+        Refusal::SlotNameOverCap { .. } => "slot_name_over_cap",
         Refusal::TooManySlots { .. } => "too_many_slots",
         Refusal::BinsOutOfRange { .. } => "bins_out_of_range",
         Refusal::UnknownSchemaVersion { .. } => "unknown_schema_version",
@@ -118,7 +119,10 @@ fn every_variant_is_covered_and_names_its_own_check() {
     // Every distinct `kind()` the enums can produce is represented above.
     let refusal_kinds: std::collections::BTreeSet<_> =
         all_refusals().iter().map(|r| r.kind()).collect();
-    assert_eq!(refusal_kinds.len(), 36, "a refusal kind lost its fixture");
+    // 36 until `slot_name_over_cap` landed with `MAX_SLOT_NAME_BYTES`
+    // (`GAP-RT-SLOT-NAME-UNCAPPED`). The literal is deliberate: a kind that loses its fixture must
+    // fail here rather than quietly shrink the set this file claims to cover.
+    assert_eq!(refusal_kinds.len(), 37, "a refusal kind lost its fixture");
     let error_kinds: std::collections::BTreeSet<_> =
         all_backend_errors().iter().map(|e| e.kind()).collect();
     assert_eq!(error_kinds.len(), 12, "a backend-error kind lost its fixture");

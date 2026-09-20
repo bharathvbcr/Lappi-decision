@@ -404,11 +404,25 @@ class ShardHeader:
 
 
 #: Supervision kinds. `SLOT_LM` is CPT — next-token over the whole sequence, no slot.
+#:
+#: It is a *known* kind, so a batch carrying it earns a named refusal rather than the
+#: generic "unknown slot kind" one, but it may **not** appear in `Batch.slot_kind`: a batch
+#: carrying the slot channel is an FT batch, and an LM row inside one has no gold letter for
+#: its `target_index` to name. `Batch._check_supervision` refuses it and says why;
+#: `GAP-TRAINER-FT-SLOT-LM-ROW-UNDEFINED`.
 SLOT_LM: Final[int] = 0
 SLOT_CHOICE: Final[int] = 1
 SLOT_SCORE: Final[int] = 2
 SLOT_SPAN: Final[int] = 3
 _SLOT_KINDS: Final[frozenset[int]] = frozenset({SLOT_LM, SLOT_CHOICE, SLOT_SCORE, SLOT_SPAN})
+
+#: Real tokens a `Batch` row must carry. Two, not one: every objective in this contract
+#: supervises a position by its **next** token, so a one-token row has no supervised
+#: position at all. See `Batch`'s docstring and
+#: `GAP-TRAINER-CPT-REFUSES-LENGTH-ONE-ROWS`. Written as a name rather than a literal `2`
+#: because `qd_train.shards._tokenize_checked` states the same floor at write time and the
+#: two are one decision.
+_MIN_ROW_TOKENS: Final[int] = 2
 
 #: `span_target` for a row that is not a span slot. Not a position.
 NO_SPAN: Final[int] = -1
@@ -459,9 +473,43 @@ class Batch:
     * **FT**: `slot_kind` and `target_index` required. `span_target` required exactly when some
       row is `SLOT_SPAN`, and `NO_SPAN` on every row that is not.
 
+    There is no third case, and the two settlements below both follow from that.
+
     `target_index[i]` is the position whose **next** token is the gold letter, so it is
     strictly less than `lengths[i] - 1`. For a span row it identifies the query position the
     pointer head reads from; the gold positions are in `span_target[i]`.
+
+    # Two rows this type used to permit and the trainer then refused
+
+    A constructor that accepts what its only consumer rejects is a contract with two
+    readings, and this type exists precisely so there is one. Both of these were opened as
+    gaps by the trainer lane against *this* file, and both are settled here rather than in a
+    comment on the loop:
+
+    **`SLOT_LM` cannot appear in `slot_kind`** — `GAP-TRAINER-FT-SLOT-LM-ROW-UNDEFINED`.
+    `SLOT_LM` is the CPT kind, *"next-token over the whole sequence, no slot"*, and the CPT
+    case above is all three fields `None`. So a batch carrying `slot_kind` is an FT batch by
+    the taxonomy's own terms, and an LM row inside one has no gold letter — its
+    `target_index`, defined as *"the position whose next token is the gold letter"*, names
+    nothing. Two readings were available (an LM row deliberately mixed into fine-tuning,
+    versus a mislabelled choice/score row) and **both leave the loss curve looking fine**.
+    The deciding evidence is that this contract has no don't-care sentinel for
+    `target_index`: `span_target` got `NO_SPAN` the moment a row needed to say "not me", and
+    the absence of the equivalent here is what says an LM row was never meant to be
+    expressible. `qd_train.shards.slot_kind_of` agrees by construction — it returns
+    `SLOT_CHOICE`, `SLOT_SCORE` or `SLOT_SPAN` and raises on anything else, so nothing in
+    the repo ever writes one.
+
+    **A row must carry at least two real tokens** —
+    `GAP-TRAINER-CPT-REFUSES-LENGTH-ONE-ROWS`. Under CPT, position `p` is supervised only
+    when `p < lengths - 1`; under FT, `target_index` must lie in `[0, lengths - 1)`, an empty
+    range at `lengths == 1`. So a one-token row supervises nothing under *either* objective
+    while still being loaded, padded and paid for — the same shape of error as training on
+    padding, in the opposite direction. FT already refused it as a side effect of the
+    `target_index` range check, and `qd_train.shards._tokenize_checked` refuses it at write
+    time (`ids.size < 2`), where the message can name the source row; only this constructor
+    permitted it, and only for CPT. Stating it once here makes the constructor and both
+    consumers agree.
     """
 
     tokens: np.ndarray
@@ -489,6 +537,17 @@ class Batch:
             raise ShardContractViolation("an empty batch is not a batch")
         if int(self.lengths.min()) <= 0:
             raise ShardContractViolation("every row must carry at least one real token")
+        if int(self.lengths.min()) < _MIN_ROW_TOKENS:
+            short = np.flatnonzero(self.lengths < _MIN_ROW_TOKENS)
+            raise ShardContractViolation(
+                f"row(s) {short.tolist()[:16]} carry "
+                f"{self.lengths[short].tolist()[:16]} real token(s); every row needs at least "
+                f"{_MIN_ROW_TOKENS}. CPT supervises position p only when p < lengths-1, and "
+                "FT's target_index must lie in [0, lengths-1) -- an empty range here -- so a "
+                "one-token row supervises nothing under either objective while still being "
+                "loaded, padded and paid for. qd_train.shards._tokenize_checked refuses these "
+                "at write time, where the message can name the source row"
+            )
         if int(self.lengths.max()) > self.tokens.shape[1]:
             raise ShardContractViolation(
                 f"length {int(self.lengths.max())} exceeds the padded width "
@@ -524,6 +583,19 @@ class Batch:
         unknown = sorted({int(k) for k in kinds.tolist()} - _SLOT_KINDS)
         if unknown:
             raise ShardContractViolation(f"unknown slot kind(s) {unknown}; expected {sorted(_SLOT_KINDS)}")
+        lm_rows = np.flatnonzero(kinds == SLOT_LM)
+        if lm_rows.size:
+            raise ShardContractViolation(
+                f"row(s) {lm_rows.tolist()[:16]} carry SLOT_LM in a batch that also carries the "
+                "slot channel. SLOT_LM is the CPT kind -- next-token over the whole sequence, "
+                "no slot -- and the contract's CPT case is all three supervision fields None, "
+                "so a batch with slot_kind is an FT batch. Such a row has no gold letter, so "
+                "its target_index names nothing: it is either an LM row meant to be mixed into "
+                "fine-tuning, for which this contract has no target_index don't-care sentinel, "
+                "or a mislabelled choice/score row. The two train different objectives and both "
+                "leave the loss curve looking fine, so the writer says which rather than the "
+                "trainer guessing. GAP-TRAINER-FT-SLOT-LM-ROW-UNDEFINED"
+            )
         # The supervised position's NEXT token is the gold letter, so it cannot be the last one.
         if int(idx.min()) < 0 or bool(np.any(idx >= self.lengths - 1)):
             bad = int(np.flatnonzero((idx < 0) | (idx >= self.lengths - 1))[0])

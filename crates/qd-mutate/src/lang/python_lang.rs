@@ -324,11 +324,13 @@ impl Language for Python {
         }
         // Import order in Python is execution order: a module can rely on a prior import having
         // run (the circular-import workaround), and no static check here can rule that out. The
-        // operator is refused for the whole language and the restriction is recorded.
+        // operator is refused for the whole language, and the reason is stated once, in
+        // `import_order_is_semantic`, so the manifest's up-front restriction and this per-file
+        // refusal cannot drift apart into two different explanations of the same rule.
         Some(ImportBlock {
             items,
             reorderable: false,
-            why_not: Some("Python imports execute in order; a circular-import workaround depends on it"),
+            why_not: self.import_order_is_semantic(),
         })
     }
 
@@ -398,9 +400,17 @@ impl Language for Python {
         })
     }
 
+    fn smoke_source(&self) -> &'static str {
+        "x = 1\n"
+    }
+
     fn line_wrapping_is_safe(&self) -> bool {
         // Whitespace-sensitive. The spec refuses `cosmetic.wrap_line` here by name.
         false
+    }
+
+    fn import_order_is_semantic(&self) -> Option<&'static str> {
+        Some("Python imports execute in order; a circular-import workaround depends on it")
     }
 }
 

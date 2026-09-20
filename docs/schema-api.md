@@ -155,7 +155,7 @@ against the **loaded build**, and a disagreement is a typed refusal naming both 
 
 ```json
 "expect": {
-  "tokenizer_hash": "…", "weights_hash": "…", "head_hash": "…",
+  "tokenizer_hash": "…", "weight_hash": "…", "head_hash": "…",
   "label_set_hash": "…", "calibration_hash": "…"
 }
 ```
@@ -370,6 +370,18 @@ kernel (K2) and training lanes must build the one written here.
 - An end before its start **abstains**. A backwards span is not a low-confidence span, it is not a
   span, and silently reordering it would turn a broken answer into a plausible-looking one.
 - Either end landing on the abstain row abstains.
+- **`1 <= start_line <= end_line` is a term of the format, not only a property of the producer.**
+  Both bounds were true of every span this runtime emits and enforced in exactly one place — the
+  decode path above — while `SpanValue` derived its `Deserialize` with no check, so both *readers*
+  accepted `{"start_line": 47, "end_line": 41}` and the type carried no guarantee anything
+  downstream could rely on. A consumer computing span overlap or slicing context lines was trusting
+  a producer-side check, and a second producer — a registered head, a different backend, a
+  hand-written fixture — would satisfy the format while breaking it. The invariant now belongs to
+  the type, on both sides: `schema::SpanValue`'s `TryFrom<SpanValueWire>` and
+  `qd_wire.answer.parse_slot_value`. `GAP-XLANG-SPAN-BOUNDS-UNPINNED`.
+  Note the two failure modes stay distinct: a *decode* that points backwards abstains (it is a model
+  output, and `noul` is the honest answer); a *wire value* that runs backwards is refused (it is a
+  malformed envelope, and there is no model to abstain for).
 
 ### The reserved abstain row is **last**, for every slot kind
 
@@ -446,12 +458,35 @@ The number is **left alone on purpose**. Raising it is a joint decision with the
 `RenderCaps`; shrinking it would refuse payloads that are legal today. What has changed is that the
 shortfall is now a failing assertion away from anyone who edits either side.
 
-**A slot name has no byte cap** on either side — not in `wire::parse_slot`, not in
-`render::slot_suffix`. `MAX_PAYLOAD_BYTES` is the only thing bounding it, which makes
-`payload_budget().total()` a *lower bound* on the worst case rather than the worst case. The budget
-carries an `uncapped` field naming the field it could not count, so the shortfall is never presented
-as complete coverage. Adding a cap would refuse requests the Python lane accepts today, so it is
-named here rather than introduced unilaterally.
+**A slot name is capped at `schema::MAX_SLOT_NAME_BYTES` = 256 bytes**, UTF-8, measured before
+escaping, and refused rather than truncated (`slot_name_over_cap`). Until 2026-09-19 it had no cap
+anywhere: `wire::parse_slot` checked it non-empty and stopped, `render::slot_suffix` did not check
+at all, and `MAX_PAYLOAD_BYTES` was the only bound — which made `payload_budget().total()` a *lower
+bound* on the worst case rather than the worst case. `GAP-RT-SLOT-NAME-UNCAPPED`.
+
+Two lanes each declined to add the cap alone, correctly: a cap on one side refuses requests the
+other accepts, which is this repository's recurring defect rather than a fix for it. So it landed on
+every side that reads a slot name at once — the request (`wire::parse_slot`, the sole constructor of
+`SlotSpec`), the prompt (`render::slot_suffix`, which also serves specs built in Rust), and both
+readers of the answer map (`schema::deserialize_slot_map` and `qd_wire.answer.check_slot_name`).
+Python does not transcribe the number: `qd_wire.contract.MAX_SLOT_NAME_BYTES` is generated from
+`schema.rs` and re-derived and compared on every test run.
+
+Why 256: a slot name is an **identifier**, and this document already prices an identifier at 256
+(`max_task_bytes`), against 512 for option text and 4096 for the question. The longest slot name
+anywhere in this repository is 8 bytes, so the cap refuses nothing that exists.
+
+One reader remains uncapped and it is **not** on the wire: `qd_data.schema`, the training lane's
+request *builder*, still checks only for emptiness. That divergence is measured rather than assumed
+— the longest name `qd_data` actually produces is 8 bytes, so nothing it can build is refused today
+— and `wire_context_crosslang.rs::the_slot_name_cap_is_one_number_here_and_in_qd_wire_and_qd_data_produces_nothing_over_it`
+fails on the day that stops being true.
+
+`payload_budget().uncapped` is now empty, so `total()` is the worst case rather than a lower bound
+on it. The field stays so the next uncapped term lands in it instead of silently not being counted.
+Counting the names **widened** the shortfall against `MAX_PAYLOAD_BYTES`, by 32 × 256 × 6 = 49,152
+bytes. `MAX_PAYLOAD_BYTES` is unchanged: that number is a human decision, and this lane may report
+the arithmetic but not move the gate.
 
 ## What this document still does not specify
 
@@ -460,7 +495,8 @@ remains is either owned by another lane or is a decision two lanes must take tog
 
 - **The refusal vocabularies still differ** across six identifiers. `GAP-XLANG-REFUSAL-VOCABULARIES`.
 - **`MAX_PAYLOAD_BYTES` is not re-derived from the slot list** — see above. The joint decision with
-  the Python lane's `RenderCaps` is outstanding, and so is a byte cap for slot names.
+  the Python lane's `RenderCaps` is outstanding. The slot-name cap that was also outstanding here
+  has landed; capping it widened the shortfall rather than closing it.
 - **The byte caps still live in code, in two copies**, one per language — a pin, not a single
   owner. The pin is real as of 2026-09-19:
   `wire_context_crosslang.rs::the_escape_growth_bound_and_every_byte_cap_are_the_same_numbers_on_both_sides`
