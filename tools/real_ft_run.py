@@ -171,6 +171,22 @@ STANDIN_LR: Final[float] = 3e-3
 #: its floor by 714.50 against a bar of 0.05; at this rate it reached 5.07e-05.
 REAL_BACKBONE_LR: Final[float] = 1e-5
 
+#: The optimizer recipes this tool can run, by the name `--optimizer` takes.
+#:
+#: `bf16` is what torch.optim.AdamW builds for a bf16 tower: 8 B/param all-in, and an
+#: `exp_avg_sq` that stops moving after 383 steps because a 1e-3 relative increment is below
+#: bfloat16's 2^-8 spacing (tools/moment_precision.py measures it settling at 0.5 against a
+#: true 1.0, and reaching 32.0 when the truth is 100.0). `master` keeps an fp32 master and
+#: fp32 moments -- 20 B/param, measured on a GH200 -- and tracks the EMA exactly.
+#:
+#: Neither is the default by accident: `bf16` stays the default because it is what every
+#: row in the ledger so far used, and changing that silently would make new rows
+#: incomparable to old ones without anything saying so.
+OPTIMIZER_RECIPES: Final[dict[str, str]] = {
+    "bf16": "torch.optim.AdamW over the bf16 parameters (8 B/param)",
+    "master": "fp32 master weights and fp32 moments (20 B/param)",
+}
+
 #: The recipe keys that say which backbone a run used. One list, because the ft recipe, the
 #: run's return value and the verdict recipe all need the same answer and all three feed a
 #: protocol hash -- three hand-maintained copies is how they come to disagree.
@@ -180,6 +196,7 @@ BACKBONE_KEYS: Final[tuple[str, ...]] = (
     "backbone_snapshot",
     "backbone_params",
     "backbone_vocab",
+    "optimizer_recipe",
 )
 KIND_NAMES: dict[int, str] = {SLOT_CHOICE: "choice", SLOT_SCORE: "score", SLOT_SPAN: "span"}
 
@@ -1034,7 +1051,7 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
 def _train(
     *, reader: ShardReader, plan: list[Batch], passes: int, device: str, seed: int,
     hidden: int, heads: int, lr: float, ledger: Ledger, tag: str, quick_reason: str,
-    backbone: Path | None = None,
+    backbone: Path | None = None, optimizer_recipe: str = "bf16",
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -1076,15 +1093,22 @@ def _train(
             load_text_tower,
             remap_text_tower,
         )
-        from qd_train.memory import ADAMW_BF16
+        from qd_train.memory import ADAMW_BF16, OptimizerSpec
 
+        # ADAMW_BF16 is not ADAMW_FP32: torch.optim.AdamW keeps exp_avg and exp_avg_sq in
+        # the parameter dtype, so a bf16 tower gets 2-byte states, and load_text_tower
+        # refuses the mismatch rather than budgeting a layout nothing builds. The master
+        # spec is the other real recipe -- fp32 master, fp32 moments -- and
+        # QwenDecisionStep builds whichever the tower names.
+        spec = (
+            OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
+            if optimizer_recipe == "master"
+            else ADAMW_BF16
+        )
         tower = load_text_tower(
             backbone,
             gradient_checkpointing=True,
-            # ADAMW_BF16, not ADAMW_FP32: torch.optim.AdamW keeps exp_avg and exp_avg_sq
-            # in the parameter dtype, so a bf16 tower gets 2-byte states. load_text_tower
-            # refuses the mismatch rather than budgeting a layout nothing builds.
-            optimizer=ADAMW_BF16,
+            optimizer=spec,
             device=device,
             dtype="bf16",
             rows=max(int(b.tokens.shape[0]) for b in plan),
@@ -1106,11 +1130,13 @@ def _train(
         # /home/ubuntu/... on the rented box and /Users/bharath/... here. Since this feeds
         # recipe_hash, the path would give the same run two protocol hashes on two machines
         # -- the exact failure --hidden is refused a few lines up to prevent.
+        backbone_keys["optimizer_recipe"] = optimizer_recipe
         backbone_keys["backbone_snapshot"] = tower.snapshot.name
         backbone_keys["backbone_params"] = tower.footprint.trainable_params
         backbone_keys["backbone_vocab"] = tower.vocab_size
         recipe["gradient_checkpointing"] = tower.gradient_checkpointing
         what_ran = (
+            f"Optimizer recipe {optimizer_recipe!r}: {OPTIMIZER_RECIPES[optimizer_recipe]}. "
             f"Backbone is the REAL text tower from {backbone.name}: "
             f"{tower.n_tensors_loaded} tensors, {tower.footprint.trainable_params:,} "
             f"trainable parameters after the remap to {tower.vocab_size} rows, "
@@ -1624,6 +1650,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--epoch", action="store_true", help="also run arm 1, the real epoch")
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER_PATH)
     parser.add_argument(
+        "--optimizer",
+        choices=sorted(OPTIMIZER_RECIPES),
+        default="bf16",
+        help=(
+            "optimizer recipe under --real-backbone. 'bf16' (default) is what "
+            "torch.optim.AdamW builds and what every existing ledger row used; its "
+            "exp_avg_sq stops moving after 383 steps. 'master' keeps fp32 master weights "
+            "and fp32 moments at 20 B/param against 8. Recorded in the recipe, so two runs "
+            "differing in it are not comparable."
+        ),
+    )
+    parser.add_argument(
         "--real-backbone",
         type=Path,
         help=(
@@ -1665,6 +1703,14 @@ def main(argv: list[str] | None = None) -> int:
             )
         args.lr = REAL_BACKBONE_LR if args.lr is None else args.lr
     else:
+        if args.optimizer != "bf16":
+            raise SystemExit(
+                f"--optimizer {args.optimizer} cannot apply without --real-backbone: the "
+                "stand-in is a randomly-initialised 128-wide block trained for a few "
+                "hundred steps, so the recipe it uses determines nothing about any model. "
+                "Accepting it would put a value in the ledger recipe that did not affect "
+                "the run, and recipe feeds recipe_hash."
+            )
         args.hidden = STANDIN_HIDDEN if args.hidden is None else args.hidden
         args.heads = STANDIN_HEADS if args.heads is None else args.heads
         args.lr = STANDIN_LR if args.lr is None else args.lr
@@ -1859,6 +1905,7 @@ def main(argv: list[str] | None = None) -> int:
             run = _train(
                 reader=reader, plan=plan_small, passes=args.passes, device=device, seed=seed,
                 hidden=args.hidden, heads=args.heads, lr=args.lr, ledger=ledger,
+                optimizer_recipe=args.optimizer,
                 backbone=args.real_backbone,
                 tag="memorise", quick_reason=quick_small,
             )
@@ -1928,6 +1975,7 @@ def main(argv: list[str] | None = None) -> int:
                 run = _train(
                     reader=reader, plan=plan_all, passes=1, device=device, seed=seed,
                     hidden=args.hidden, heads=args.heads, lr=args.lr, ledger=ledger,
+                optimizer_recipe=args.optimizer,
                     backbone=args.real_backbone,
                     tag="epoch", quick_reason=quick_epoch,
                 )
