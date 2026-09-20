@@ -24,9 +24,18 @@ step that was still allocating; every step after it is the steady state. Both ar
 ``ADAMW_FP32`` -- two 4-byte states per parameter -- while loading a **bf16** tower, and
 measured 14.02 GiB against the 28.04 GiB it had predicted. Plain ``torch.optim.AdamW`` keeps
 ``exp_avg`` and ``exp_avg_sq`` in the *parameter's* dtype and holds no fp32 master copy, so a
-bf16 tower gets 2-byte states: 8 B/param, not 16. ``load_text_tower`` now refuses that
-mismatch outright, because a footprint that does not describe the run cannot be used to decide
-whether the next run fits, and deciding that is the only reason it exists.
+bf16 tower gets 2-byte states: **4 B/param of optimizer state**, and 8 B/param once the bf16
+weights and bf16 grads are counted with them -- against ADAMW_FP32's 16 B/param total.
+``load_text_tower`` now refuses that mismatch outright, because a footprint that does not
+describe the run cannot be used to decide whether the next run fits, and deciding that is the
+only reason it exists.
+
+Both figures are stated because an earlier draft of this sentence carried only the 8 and
+attached it to the *states*, which is the total. Measured on the GH200 over the real tower:
+optimizer state alone is 7.01 GiB = 4.00 B/param, and 2 + 2 + 4 = 8 B/param is the 14.02 GiB
+above. An isolated probe confirms the composition -- exactly two state tensors, ``exp_avg``
+and ``exp_avg_sq``, both ``torch.bfloat16`` at 2 bytes, plus a scalar ``step``, and no fp32
+master. One name, two quantities, in a file whose subject is keeping them apart.
 
 That is not the same as choosing bf16 moments. ``exp_avg_sq`` accumulates across a whole run
 and bf16 has 8 bits of mantissa; the fp32-moment recipe needs ``keeps_fp32_master=True``,

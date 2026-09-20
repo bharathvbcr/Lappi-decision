@@ -1,0 +1,70 @@
+{
+  "device": "NVIDIA GH200 480GB",
+  "results": [
+    {
+      "width": 2048,
+      "rows": 1,
+      "measured_bytes": 18893875712,
+      "first_step_bytes": 18893875712,
+      "predicted_backbone_bytes": 15441525248,
+      "ratio_predicted_over_measured": 0.8172767452996782,
+      "excluded_from_prediction": {
+        "loss_head_bytes": 2168455168,
+        "score_matrix_bytes": 0,
+        "safety_bytes": 135423590
+      }
+    },
+    {
+      "width": 4096,
+      "rows": 1,
+      "measured_bytes": 18902280704,
+      "first_step_bytes": 18902280704,
+      "predicted_backbone_bytes": 15827401216,
+      "ratio_predicted_over_measured": 0.8373275936300475,
+      "excluded_from_prediction": {
+        "loss_head_bytes": 2168455168,
+        "score_matrix_bytes": 0,
+        "safety_bytes": 270480179
+      }
+    },
+    {
+      "width": 8192,
+      "rows": 1,
+      "measured_bytes": 18919090688,
+      "first_step_bytes": 18919090688,
+      "predicted_backbone_bytes": 16599153152,
+      "ratio_predicted_over_measured": 0.8773758435720439,
+      "excluded_from_prediction": {
+        "loss_head_bytes": 2168455168,
+        "score_matrix_bytes": 0,
+        "safety_bytes": 540593356
+      }
+    },
+    {
+      "width": 14759,
+      "rows": 1,
+      "measured_bytes": 18947047424,
+      "first_step_bytes": 18946614272,
+      "predicted_backbone_bytes": 17836481024,
+      "ratio_predicted_over_measured": 0.9413857803198794,
+      "excluded_from_prediction": {
+        "loss_head_bytes": 2168455168,
+        "score_matrix_bytes": 0,
+        "safety_bytes": 973658111
+      }
+    },
+    {
+      "width": 34522,
+      "rows": 1,
+      "measured_bytes": 21201158144,
+      "first_step_bytes": 21201448960,
+      "predicted_backbone_bytes": 21560146432,
+      "ratio_predicted_over_measured": 1.0169324847992607,
+      "excluded_from_prediction": {
+        "loss_head_bytes": 2168455168,
+        "score_matrix_bytes": 0,
+        "safety_bytes": 2276941004
+      }
+    }
+  ]
+}
