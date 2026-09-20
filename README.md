@@ -19,16 +19,29 @@ Slot types: `choice` (k <= 16 named options), `score` (ordinal bins), `span` (st
 context), and `noul` (abstain, present in every option set).
 
 - **Generic route** — options are written into the prompt with letter labels and decoded over a
-  16-row slice of `lm_head`. Any app, any new task, no training.
+  **17-row** slice of `lm_head`: 16 option letters plus one reserved `noul` row, which is **last**
+  (`schema.rs` sizes a slot at `options.len() + RESERVED_NOUL_ROWS`; `answer.rs` reads the
+  abstention back at `plan.rows - RESERVED_NOUL_ROWS`). Any app, any new task, no training.
 - **Registered route** — an app registers a task once; a small head reads pooled features directly.
-  Same prefill, same calibration table, same abstain rule. A speed-up, never a different model.
+  Same prefill and the same calibration table — but **not the same abstain rule**, and it is not a
+  drop-in for every slot. `answer::abstain_rule` is the one place that says so: a generic `choice`
+  abstains on margin *and* a permuted second pass, a registered `choice` on margin only, and a
+  registered `span` is refused outright. Faster, and narrower.
 
 ## Status — 2026-09-19
 
-Code is substantial; **no model has been trained.** `ledger/runs.jsonl` does not exist, there is no
-training data on disk, and no base-model weights are cached. Every test number below is about code.
+Code is substantial; **no model has been trained.** There is no training data on disk (`data/` does
+not exist), and the base model this repo is named for — `Qwen/Qwen3.5-2B-Base` — is not cached. The
+Hugging Face cache on this host is not empty, but nothing in it belongs to this project. Every test
+number below is about code.
 
-Suites: **981 Python tests, 0 failed, 5 skipped** (4 torch-gated modules, 1 network); 317 Rust passed.
+Suites, measured rather than remembered — **re-run them instead of quoting this line**, because it
+went stale inside a day the last time it was written:
+
+```
+cargo test --workspace                                  # 347 passed, 0 failed
+.venv/bin/python -m pytest python/tests -o 'addopts='   # 1104 passed, 7 skipped, 0 failed
+```
 
 On 2026-09-18/19 four public System-1 decision models appeared, one of them on this exact base model.
 That did not change the destination, but it changed the order of the work — Lappi is now built as a

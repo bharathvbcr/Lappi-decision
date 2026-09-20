@@ -26,6 +26,7 @@ from qd_train.mutate_adapter import (
     parse_example,
     parse_line_span,
     read_examples,
+    span_end_offset,
     span_start_offset,
     to_decision,
 )
@@ -315,3 +316,57 @@ def test_mutation_classes_still_match_ops_rs():
         f"ops.rs declares {variants}, this module mirrors {MUTATION_CLASSES}"
     )
     assert 'rename_all = "lowercase"' in src, "the lowercase serde spelling is what we mirror"
+
+
+# ---------------------------------------------------------------------------
+# The end pointer resolves through the same checks as the start
+# ---------------------------------------------------------------------------
+
+
+def test_span_end_offset_resolves_the_last_line_not_the_first():
+    """`SpanPointerHead` has two pointers; the end one needs its own offset."""
+    after = b"aa\nbb\ncc\n"
+    span = LineSpan(start_line=1, end_line=3)
+    assert span_start_offset(after, span) == 0
+    assert span_end_offset(after, span) == 6
+
+
+def test_a_single_line_span_puts_both_pointers_on_one_offset():
+    after = b"aa\nbb\ncc\n"
+    span = LineSpan(start_line=2, end_line=2)
+    assert span_start_offset(after, span) == span_end_offset(after, span) == 3
+
+
+def test_an_end_line_on_the_phantom_is_refused_even_when_the_start_is_real():
+    """The case the shared `_span_offset` exists for.
+
+    A check that only ever guarded `start_line` would let the end pointer address the
+    phantom final line -- a position byte space cannot represent -- while the start
+    resolved cleanly, so the refusal would never fire.
+    """
+    after = b"aa\nbb\n"  # qd-mutate counts 3 lines; only 2 hold bytes
+    assert mutate_total_lines(after) == 3
+    assert len(line_starts(after)) == 2
+
+    span = LineSpan(start_line=2, end_line=3)
+    assert span_start_offset(after, span) == 3, "the start is a real line"
+    with pytest.raises(PhantomFinalLine, match="end_line 3 is qd-mutate's phantom"):
+        span_end_offset(after, span)
+
+
+def test_the_refusal_names_which_pointer_hit_the_phantom():
+    """`start_line 3` and `end_line 3` are different faults; one message for both hides it."""
+    after = b"aa\nbb\n"
+    with pytest.raises(PhantomFinalLine, match="start_line 3"):
+        span_start_offset(after, LineSpan(start_line=3, end_line=3))
+    with pytest.raises(PhantomFinalLine, match="end_line 3"):
+        span_end_offset(after, LineSpan(start_line=2, end_line=3))
+
+
+def test_to_decision_refuses_an_example_whose_end_lands_on_the_phantom():
+    """End to end: the decision never carries a fabricated end line."""
+    with pytest.raises(PhantomFinalLine):
+        to_decision(
+            parse_example(row(after="aa\nbb\n", span={"start_line": 2, "end_line": 3})),
+            max_context_bytes=4096,
+        )

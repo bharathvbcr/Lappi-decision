@@ -24,6 +24,7 @@ none of this needs torch or transformers -- neither is in the repo venv.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,11 +33,13 @@ import pytest
 from data_fixtures import small_corpus
 from qd_data.config import DataConfig
 from qd_data.dedupe import dedupe
-from qd_data.errors import HeldOutViolation
+from qd_data.errors import EmptyContextRefusal, HeldOutViolation
 from qd_data.manifest import Manifest, build_manifests
+from qd_data.mixture import _line_span as mixture_line_span
 from qd_data.mixture import build_mixture
 from qd_data.render import render
 from qd_data.rows import DataRow
+from qd_data.schema import Request, SpanSlot
 from qd_data.split import HELD_OUT, split
 from qd_train import shards as shards_module
 from qd_train.artifacts import (
@@ -52,8 +55,10 @@ from qd_train.artifacts import (
     ShardHeader,
     TokenNotInRemap,
     assign_buckets,
+    line_start_indices,
     padding_waste,
 )
+from qd_train.byte_context import line_starts as byte_line_starts
 from qd_train.shards import (
     COVERAGE_NAME,
     HEADER_NAME,
@@ -61,6 +66,7 @@ from qd_train.shards import (
     PAD_ID,
     SUPERVISION_NAME,
     TOKENS_NAME,
+    SequenceSpec,
     ShardReader,
     UnencodableGold,
     choose_buckets,
@@ -95,6 +101,20 @@ def byte_offsets(text: str) -> list[tuple[int, int]]:
     for ci, ch in enumerate(text):
         out.extend((ci, ci + 1) for _ in ch.encode("utf-8"))
     return out
+
+
+def byte_decode(ids: Sequence[int]) -> str:
+    """``tokenizer.decode`` for ``byte_tokenize``: ids back to the text they stand for.
+
+    Exact, and *therefore* unable to fail for the reason the decode check exists -- in byte
+    space a line start is a byte offset and no token straddles a line boundary. It is here
+    so the check has a happy path to run on. The check's teeth are shown by the three
+    tests that wrap it in a *dishonest* decode:
+    :func:`test_a_token_that_does_not_decode_to_its_claimed_characters_is_refused`,
+    :func:`test_a_recorded_line_start_that_is_not_one_in_the_decoded_text_is_refused` and
+    :func:`test_ids_that_do_not_round_trip_to_their_text_are_refused`.
+    """
+    return bytes(int(i) for i in ids).decode("utf-8", errors="strict")
 
 
 def _collapsing_tokenize(text: str) -> list[int]:
@@ -786,38 +806,338 @@ def test_carriage_return_is_content_not_a_line_terminator() -> None:
     assert len(line_starts("a\r\nb")) == 2
 
 
+def test_an_empty_context_has_no_lines_not_one_empty_line() -> None:
+    """The vector the Rust suite's own table does not carry, and the one that diverged.
+
+    ``crates/qd-runtime/src/context.rs:167`` ``Context::line_count`` special-cases the
+    empty context to **0**, and ``::an_empty_context_is_a_legal_value_not_an_error``
+    (context.rs:322) asserts it. The pointer head is sized at
+    ``line_count + RESERVED_NOUL_ROWS``, so an empty context serves the abstain row
+    *alone*. Reporting one line here hands the writer a candidate the runtime will never
+    offer -- a train/serve mismatch of exactly the shape ``docs/hardening.md`` section 1
+    calls invisible in loss.
+
+    The five vectors in ``test_line_starts_matches_the_rust_definition`` are copied from
+    the Rust suite and not one of them is empty, which is precisely why the two Python
+    implementations could disagree here with both suites green.
+    """
+    assert line_starts("") == []
+
+
+def test_the_two_python_line_rules_agree_vector_for_vector() -> None:
+    """``qd_train.byte_context.line_starts`` is the *other* Python implementation.
+
+    Same name, same package, same question -- "which positions start a line" -- and rung
+    0's byte path reaches it through :mod:`qd_train.mutate_adapter` while S4 reaches its
+    own through :func:`qd_train.shards.line_starts`. Two functions of one name in one
+    package is the shape that has bitten this repo five times (``GAP-RT-WIRE-CONTEXT-
+    ENCODING``, ``GAP-SCHEMA-LABEL-SET-HASH-TWO-MEANINGS``, the ``value``/``noul`` pair,
+    the hand-transcribed ``HEX_ESCAPED``, the ``label_set_hash`` rename), every time with
+    both sides' suites green.
+
+    They cannot be merged into one function: S4 needs **character** offsets, because a
+    tokenizer's offset mapping is expressed in characters, and rung 0 needs **byte**
+    offsets, because its model's positions *are* bytes. So they are pinned instead, and
+    the pin is over the rule rather than over the unit: on ASCII the two agree offset for
+    offset, and on non-ASCII they must still report the same *number* of lines, since a
+    ``\\n`` is one character and one byte.
+
+    ``GAP-S4-LINE-STARTS-SECOND-IMPLEMENTATION``.
+    """
+    ascii_vectors = [
+        "",
+        "a",
+        "a\n",
+        "a\nb",
+        "a\nb\n",
+        "a\n\nb",
+        "a\r\nb",
+        "a\rb",
+        "\n",
+        "\n\n",
+        "no newline at all",
+        "a\nb\nc",
+        "a\nb\nc\n",
+    ]
+    for text in ascii_vectors:
+        assert line_starts(text) == list(byte_line_starts(text.encode("utf-8"))), text
+
+    # Non-ASCII: the units legitimately differ, the line grid may not.
+    for text in ["é\nb", "你好\n世界\n", "\U0001f600\n\U0001f600"]:
+        assert len(line_starts(text)) == len(byte_line_starts(text.encode("utf-8"))), text
+
+
+def test_a_span_over_a_context_with_no_lines_is_refused_not_pointed_at_offset_zero() -> None:
+    """What the converged line rule exposes, one layer down, as a typed refusal.
+
+    With a line rule that reports one line for an empty context, this row is written with
+    one candidate -- in range, plausible, and a position ``qd-runtime`` will never offer,
+    because ``Context::line_count`` is 0 there and the pointer head is
+    ``line_count + RESERVED_NOUL_ROWS``. With the converged rule the candidate set is
+    empty, and an empty candidate set must be a named refusal rather than the
+    ``ValueError`` that ``max(())`` would raise several lines later.
+
+    ``render`` refuses an empty context before ``training_texts`` can reach here
+    (``EmptyContextRefusal``, asserted by the test below), so this is the second of two
+    guards rather than the live path. It is the one that stands if the first is ever
+    relaxed, and it is checked at its own boundary rather than assumed.
+    """
+    text = "prompt with no context lines"
+    spec = SequenceSpec(
+        slot_name="evidence",
+        text=text,
+        slot_kind=SLOT_SPAN,
+        span_char_starts=None,
+        span_abstains=True,
+        line_char_starts=(),
+    )
+    # A *consistent* offset mapping: four tokens, four offsets, reaching the end of the
+    # text -- so every other check in `_span_token_positions` is satisfied and the empty
+    # candidate set is the only thing left to object to. Without the guard this reaches
+    # `max(candidates)` on an empty tuple and dies as a bare `ValueError`, which names
+    # neither the row nor the reason.
+    offsets = [(0, 7), (7, 12), (12, 20), (20, len(text))]
+    with pytest.raises(UnencodableGold) as excinfo:
+        shards_module._span_token_positions(
+            spec,
+            [1, 2, 3, 4],
+            token_offsets=lambda _t: offsets,
+            where="row r1 slot evidence",
+        )
+    assert "no lines" in str(excinfo.value)
+    assert "answer.rs:64" in str(excinfo.value)
+
+
+def test_render_refuses_an_empty_context_before_the_writer_ever_sees_one() -> None:
+    """The upstream half of the pair above, asserted rather than assumed.
+
+    A guard whose only justification is "something upstream prevents this" is worth
+    exactly as much as that claim is checked.
+    """
+    def request_over(context: bytes) -> Request:
+        return Request(
+            task="qa",
+            context=context,
+            question="Which line is the evidence on?",
+            slots=(SpanSlot(name="evidence"),),
+            example_id="empty-ctx",
+        )
+
+    with pytest.raises(EmptyContextRefusal):
+        render(request_over(b""), seed=7)
+    # Whitespace only is the same refusal: a context of newlines has a line grid and
+    # nothing on it, which would let the head point confidently at a blank.
+    with pytest.raises(EmptyContextRefusal):
+        render(request_over(b"\n\n"), seed=7)
+    # The control. Without it this test would still pass if `render` refused everything.
+    assert render(request_over(b"alpha\nbeta\n"), seed=7).context_region()
+
+
 def test_a_span_row_carries_gold_token_positions(snapshot: Snapshot) -> None:
-    """The line -> token mapping, end to end, against an exactly-known tokenization."""
-    row = next(
+    """The line -> token mapping, end to end, against an exactly-known tokenization.
+
+    Over **every** pointing span row in the split, not the first one. This is the only
+    check in the suite that can catch a line->token mapping which is consistently wrong:
+    ``GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT`` measured that the
+    gold-lands-on-a-candidate invariant cannot, because the gold and the candidates are
+    drawn from one list of offsets and a whole-line shift moves the gold onto a different
+    but equally valid candidate. The baseline here is independent -- the region's own line
+    split -- so it is the one that bites, and running it on one row of nineteen was a
+    sample reported as coverage.
+    """
+    pointing = [
         r
         for r in snapshot.rows["train"]
         if r.family_id == "qa.answer_span" and not r.gold[0].is_noul
-    )
-    spec = training_texts(row, seed=snapshot.config.seed)[0]
-    assert spec.slot_kind == SLOT_SPAN
-    assert spec.span_char_starts is not None
+    ]
+    assert len(pointing) == 19, "the fixture's pointing span rows"
 
-    start_char, end_char = spec.span_char_starts
-    # Each gold offset really is the first character of a line of the rendered prompt.
-    assert start_char == 0 or spec.text[start_char - 1] == "\n"
-    assert end_char == 0 or spec.text[end_char - 1] == "\n"
+    for row in pointing:
+        spec = training_texts(row, seed=snapshot.config.seed)[0]
+        assert spec.slot_kind == SLOT_SPAN
+        assert spec.span_char_starts is not None
 
-    # The expectation is derived from the context independently -- split the region into
-    # lines and take the gold's 1-based inclusive slice -- rather than from the offsets
-    # under test. An earlier version of this test computed its baseline *from* start_char,
-    # which made it self-consistent: shifting every gold line by one still passed it, and
-    # that shift is docs/hardening.md section 1's systematic off-by-one, the one that is
-    # invisible in accuracy. A test that cannot fail that way is not testing the mapping.
-    region = render(row.request, seed=snapshot.config.seed).context_region()
-    gold_start, gold_end = (int(v) for v in row.gold[0].value)  # type: ignore[union-attr]
-    region_lines = region.split("\n")
-    evidence = "\n".join(region_lines[gold_start - 1 : gold_end])
-    assert spec.text[start_char : start_char + len(evidence)] == evidence
-    last_line = region_lines[gold_end - 1]
-    assert spec.text[end_char : end_char + len(last_line)] == last_line
-    # And the evidence really is where the answer lives, so a shift cannot pass by luck.
-    assert evidence.strip(), "the gold lines must not be blank"
-    assert evidence in region
+        start_char, end_char = spec.span_char_starts
+        # Each gold offset really is the first character of a line of the rendered prompt.
+        assert start_char == 0 or spec.text[start_char - 1] == "\n", row.row_id
+        assert end_char == 0 or spec.text[end_char - 1] == "\n", row.row_id
+
+        # The expectation is derived from the context independently -- split the region
+        # into lines and take the gold's 1-based inclusive slice -- rather than from the
+        # offsets under test. An earlier version of this test computed its baseline *from*
+        # start_char, which made it self-consistent: shifting every gold line by one still
+        # passed it, and that shift is docs/hardening.md section 1's systematic
+        # off-by-one, the one that is invisible in accuracy. A test that cannot fail that
+        # way is not testing the mapping.
+        region = render(row.request, seed=snapshot.config.seed).context_region()
+        gold_start, gold_end = (int(v) for v in row.gold[0].value)  # type: ignore[union-attr]
+        region_lines = region.split("\n")
+        evidence = "\n".join(region_lines[gold_start - 1 : gold_end])
+        assert spec.text[start_char : start_char + len(evidence)] == evidence, row.row_id
+        last_line = region_lines[gold_end - 1]
+        assert spec.text[end_char : end_char + len(last_line)] == last_line, row.row_id
+        # And the evidence really is where the answer lives, so a shift cannot pass by luck.
+        assert evidence.strip(), f"{row.row_id}: the gold lines must not be blank"
+        assert evidence in region, row.row_id
+
+
+def test_the_gold_producers_line_numbers_index_this_line_grid(snapshot: Snapshot) -> None:
+    """The third statement of the line rule, pinned to the one that owns it.
+
+    ``qd_data.mixture._line_span`` is where a span gold's line *numbers* come from, and it
+    states the rule a third way -- ``text.count("\\n", 0, offset) + 1`` -- rather than by
+    asking for a line grid. It lives in another lane's module, so it cannot be converged
+    into :func:`qd_train.artifacts.line_start_indices`; it is read here and pinned
+    instead, which is the standing check ``GAP-S4-LINE-STARTS-SECOND-IMPLEMENTATION``
+    asks for when two implementations must stay apart.
+
+    The pin is the only thing that matters between them: **a line number it returns must
+    name the line of the canonical grid that the offset actually falls on.** A passage
+    with a trailing newline is the vector where a counting rule and a grid rule come
+    apart, so one is included deliberately.
+    """
+    vectors = [
+        ("alpha\nbeta\ngamma", 0, 5),
+        ("alpha\nbeta\ngamma", 6, 4),
+        ("alpha\nbeta\ngamma", 11, 5),
+        ("alpha\nbeta\ngamma\n", 11, 5),
+        ("alpha\nbeta\ngamma\n", 0, 17),
+        ("one line only", 4, 4),
+        ("a\n\nb", 3, 1),
+        ("crlf\r\nis\r\none\r\nbreak", 6, 2),
+    ]
+    def line_of(grid: tuple[int, ...], pos: int) -> int:
+        """1-based index of the canonical grid line containing ``pos``."""
+        return max(i for i, s in enumerate(grid, 1) if s <= pos)
+
+    def agrees(span: tuple[int, int], text: str, offset: int, length: int) -> bool:
+        start_line, end_line = span
+        grid = line_start_indices(text)
+        return (
+            1 <= start_line <= end_line <= len(grid)
+            and start_line == line_of(grid, offset)
+            and end_line == line_of(grid, offset + length - 1)
+        )
+
+    for text, offset, length in vectors:
+        assert agrees(mixture_line_span(text, offset, length), text, offset, length), (
+            text,
+            offset,
+            length,
+        )
+
+    # The negative control. `agrees` is the whole content of this pin, so a version of it
+    # that cannot fail would make the loop above decorative -- and a systematic one-line
+    # shift is exactly the drift the pin exists for, the same class
+    # GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT records the candidate invariant
+    # being blind to. Every vector must reject it.
+    for text, offset, length in vectors:
+        shifted = mixture_line_span(text, offset, length)
+        assert not agrees((shifted[0] + 1, shifted[1] + 1), text, offset, length), (
+            f"a whole-line shift passed on {text!r} at {offset}: the pin is vacuous"
+        )
+
+    # And the same relation on the fixture's real rows, over the passage the gold was
+    # measured against, so the pin is not only over hand-written vectors.
+    checked = 0
+    for row in snapshot.rows["train"]:
+        if row.family_id != "qa.answer_span" or row.gold[0].is_noul:
+            continue
+        context = row.request.context.decode("utf-8")
+        gold_start, gold_end = (int(v) for v in row.gold[0].value)  # type: ignore[union-attr]
+        grid = line_start_indices(context)
+        assert 1 <= gold_start <= gold_end <= len(grid), row.row_id
+        checked += 1
+    assert checked == 19
+
+
+# -- the decoded-text check: the one that does not consult the offsets it checks --------
+
+
+def test_the_whole_train_split_passes_the_decode_check(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """The happy path, and no more than that.
+
+    This says the check is wired into ``write_shards`` and does not fire on a correct
+    mapping. It does **not** verify the mapping: with a byte-level stand-in a line start
+    *is* a byte offset, so there is nothing here for the check to catch.
+    ``GAP-S4-SPAN-OFFSETS-UNVERIFIED-ON-REAL-TOKENIZER`` stays open until a real tokenizer
+    runs it; what the next test establishes is that it would bite when one does.
+    """
+    header = _write(snapshot, "train", tmp_path / "decoded", decode=byte_decode)
+    assert header.n_sequences == 106
+
+
+def test_a_token_that_does_not_decode_to_its_claimed_characters_is_refused(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """Statement (1): the offsets describe a different string than the ids do.
+
+    A tokenizer fed a normalised copy of the text returns offsets of the right length that
+    reach the right end and describe the wrong content. ``write_shards`` already refuses
+    the crude version by checking reach; only a decode catches the version that keeps the
+    reach and moves the characters.
+    """
+
+    def swapped_decode(ids: Sequence[int]) -> str:
+        return byte_decode(ids).swapcase()
+
+    with pytest.raises(ShardContractViolation) as excinfo:
+        _write(snapshot, "train", tmp_path / "normalised", decode=swapped_decode)
+    assert "decodes to" in str(excinfo.value)
+    assert "offsets claim" in str(excinfo.value)
+
+
+def test_a_recorded_line_start_that_is_not_one_in_the_decoded_text_is_refused(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """Statement (3), and the one ``GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED`` asks for.
+
+    The stand-in models a real HuggingFace behaviour rather than a contrived one:
+    ``decode`` applies ``clean_up_tokenization_spaces`` over a **sequence**, so a tokenizer
+    can be perfectly honest token by token -- statement (1) passes on every one -- and
+    still not reproduce the whitespace of the text the offsets were measured against. When
+    that whitespace is a newline, every recorded line start after it is no longer the start
+    of a line in what the model will actually see, and nothing that consults the candidate
+    set can tell, because the candidate set was projected from the same offsets.
+
+    The control below is the point: the identical corpus, written without ``decode``,
+    succeeds. This check is the only thing in the path that sees it.
+    """
+
+    def cleaning_decode(ids: Sequence[int]) -> str:
+        text = byte_decode(ids)
+        # Honest for a single token; "cleans up" newlines only over a sequence.
+        return text if len(list(ids)) == 1 else text.replace("\n", " ")
+
+    with pytest.raises(ShardContractViolation) as excinfo:
+        _write(snapshot, "train", tmp_path / "cleaned", decode=cleaning_decode)
+    message = str(excinfo.value)
+    assert "not line starts of the text these ids decode to" in message
+    assert "GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED" in message
+
+    # The control. Same corpus, same tokenizer, no decode -- and it writes cleanly.
+    assert _write(snapshot, "train", tmp_path / "unchecked").n_sequences == 106
+
+
+def test_ids_that_do_not_round_trip_to_their_text_are_refused(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """Statement (2), reached only when (1) and (3) are both satisfied.
+
+    Appending to the decoded sequence leaves every token honest and every recorded line
+    start a genuine line start, and still means the ids are not the text the spans were
+    measured against.
+    """
+
+    def trailing_decode(ids: Sequence[int]) -> str:
+        text = byte_decode(ids)
+        return text if len(list(ids)) == 1 else text + " tail"
+
+    with pytest.raises(ShardContractViolation) as excinfo:
+        _write(snapshot, "train", tmp_path / "trailing", decode=trailing_decode)
+    assert "do not decode to the text the spans were measured against" in str(excinfo.value)
 
 
 def test_a_span_row_without_token_offsets_is_refused_not_guessed(

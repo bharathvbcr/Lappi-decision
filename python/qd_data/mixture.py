@@ -67,6 +67,8 @@ class RowRefused(QdRefusal):
     """This row cannot become an example. Counted by ``reason_code``, never silent."""
 
     check = "row_usable"
+    #: No runtime counterpart: usability is a corpus question, not a wire one.
+    rust_kinds = ()
 
     def __init__(self, *, reason_code: str, expected: object, actual: object,
                  detail: str = "") -> None:

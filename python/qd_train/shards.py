@@ -95,6 +95,7 @@ from .artifacts import (
     assert_shard_trainable,
     assign_buckets,
     bucket_for,
+    line_start_indices,
     padding_waste,
 )
 from .data_access import open_training_data
@@ -110,6 +111,7 @@ __all__ = [
     "PAD_ID",
     "SUPERVISION_NAME",
     "TOKENS_NAME",
+    "Decode",
     "SequenceSpec",
     "ShardReader",
     "TokenOffsets",
@@ -132,6 +134,11 @@ SUPERVISION_NAME: Final[str] = "supervision.npz"
 #: the shape a HuggingFace fast tokenizer returns for ``return_offsets_mapping=True``.
 #: Required only when a span row is present; see :func:`write_shards`.
 TokenOffsets = Callable[[str], list[tuple[int, int]]]
+
+#: One token id back to the text it stands for -- ``tokenizer.decode([id])``. Optional, and
+#: the only thing that can check a span against what the tokenizer *says* rather than
+#: against arithmetic over what it claims. See :func:`_assert_spans_decode_to_their_text`.
+Decode = Callable[[Sequence[int]], str]
 
 #: Padding filler. Arbitrary in principle -- ``Batch.lengths`` is what the trainer masks
 #: loss with, so no padded position contributes -- but it must still be a *valid* embedding
@@ -180,32 +187,33 @@ class UnencodableGold(Exception):
 def line_starts(text: str) -> list[int]:
     """Character offsets of every line start: 0-based offsets, for 1-based line numbers.
 
-    A Python restatement of ``crates/qd-runtime/src/context.rs::Context::line_starts``,
-    which is the definition of "line" for the whole system -- a span slot's pointer head
-    ranges over exactly these positions. The rules it encodes, verbatim from there:
-    ``\\n`` terminates a line; **a trailing ``\\n`` does not open an empty final line**; and
-    ``\\r`` is an ordinary content byte, never a second terminator, because
-    ``docs/hardening.md`` section 1 records CRLF as where byte offsets and line numbers
-    diverge.
+    **The rule is not stated here.** It is :func:`qd_train.artifacts.line_start_indices`,
+    beside ``bucket_for``, and this is the writer's spelling of it -- a ``list`` of
+    character offsets, which is what ``_context_line_chars`` and the tests already read.
 
-    This being a second implementation of a shared decision is exactly the shape of this
-    repo's ``GAP-XLANG-*`` failures, and it is unavoidable here only because the canonical
-    one is in Rust and the writer is in Python. It is pinned against the Rust suite's own
-    vectors -- those of ``answering_procedure.rs``'s
-    ``the_pointer_head_ranges_over_the_contexts_line_starts_plus_the_abstain_row`` -- in
-    ``test_shards.py::test_line_starts_matches_the_rust_definition``, so the two cannot
-    drift silently. Recorded as ``GAP-S4-LINE-STARTS-SECOND-IMPLEMENTATION``.
+    It used to be a second implementation, which is what
+    ``GAP-S4-LINE-STARTS-SECOND-IMPLEMENTATION`` was opened for, and the gap was not
+    hypothetical: this function reported **one** line for the empty string while
+    ``qd_train.byte_context.line_starts`` -- the *other* function of this name in this
+    package, rung 0's, over bytes -- reported **none**, and both were green, because the
+    five vectors each was pinned to come from the Rust suite and not one of them is empty.
+    ``Context::line_count`` (context.rs:167) says none, so the byte path was right and
+    this was wrong. The consequence was not an exception: an empty context yielded one
+    candidate the runtime would never offer, against a pointer head sized at
+    ``line_count + RESERVED_NOUL_ROWS`` = the abstain row alone.
+
+    ``artifacts`` is now the single owner, and the two are held together vector for vector
+    by ``test_shards.py::test_the_two_python_line_rules_agree_vector_for_vector``. The
+    Rust remains the definition for the whole system and is pinned separately, against
+    ``answering_procedure.rs``'s own table, in
+    ``test_shards.py::test_line_starts_matches_the_rust_definition``.
 
     The Rust counts bytes and this counts characters. For line *numbering* the two agree:
     ``\\n`` is one byte and one character, so the same newlines are found at the same
     ordinals. Characters are what is wanted here because a tokenizer's offset mapping is
     in characters.
     """
-    starts = [0]
-    for i, ch in enumerate(text):
-        if ch == "\n" and i + 1 < len(text):
-            starts.append(i + 1)
-    return starts
+    return list(line_start_indices(text))
 
 
 def _token_index_for_char(offsets: Sequence[tuple[int, int]], char_pos: int, *, where: str) -> int:
@@ -503,11 +511,105 @@ def _tokenize_checked(
     return ids
 
 
+def _assert_spans_decode_to_their_text(
+    spec: SequenceSpec,
+    ids: Sequence[int],
+    offsets: Sequence[tuple[int, int]],
+    positions: Sequence[int],
+    *,
+    decode: Decode,
+    where: str,
+) -> None:
+    """Check the line->token mapping against **decoded text**, not against itself.
+
+    This is the check ``GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED`` names as the one that
+    would settle it, and ``GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT`` records why
+    nothing else in this path can. Every other span invariant here compares the gold to
+    the candidate set, and the two are projected from one list of offsets: a mapping that
+    is consistently wrong moves both together, so the gold still lands on a candidate and
+    every suite stays green while the head learns to cite the line next door.
+
+    Asking the tokenizer to *decode* breaks that circle, because the answer comes from the
+    tokenizer's vocabulary rather than from the offsets under test. Three statements:
+
+    1. **Each checked token decodes to exactly the characters its offsets claim.** A
+       tokenizer whose ``return_offsets_mapping`` describes a normalised copy of the text
+       satisfies every length and reach check in this module and fails here.
+    2. **The ids round-trip to the text they were produced from.** Not implied by (1):
+       HuggingFace's ``decode`` applies ``clean_up_tokenization_spaces`` over a *sequence*,
+       so a tokenizer can be honest token by token and still not reproduce the text.
+    3. **Every character offset recorded as a line start is a line start of the decoded
+       text**, under :func:`~qd_train.artifacts.line_start_indices` -- the same rule the
+       runtime serves. This is the statement the gap asks for: the positions the pointer
+       head will range over are line starts of the text the tokenizer actually produces,
+       established against decoded text rather than against the candidate set.
+
+    **What this does not establish.** It does not verify the gold's *line number* -- that
+    leg (gold line -> character offset in the region) is character-space arithmetic that
+    needs no tokenizer, and it is checked against an independent baseline by
+    ``test_shards.py::test_a_span_row_carries_gold_token_positions``, which splits the
+    rendered region itself rather than reusing the offsets. Nor does it make a real BPE
+    tokenizer *have* a token that starts line N; a merge across the newline is
+    ``GAP-S4-LINE-STARTS-COLLAPSE-UNDER-BPE``'s refusal, not this one's. In the repo venv
+    it runs only against a byte-level stand-in, where (1)-(3) cannot fail for the reason
+    they exist. They are not green for the real tokenizer until one runs them.
+    """
+    text = spec.text
+    for pos in positions:
+        if not 0 <= pos < len(ids):
+            raise ShardContractViolation(
+                f"{where}: position {pos} is outside the {len(ids)} token(s) to decode"
+            )
+        first, last = offsets[pos]
+        claimed = text[first:last]
+        piece = decode([int(ids[pos])])
+        if not isinstance(piece, str):
+            raise ShardContractViolation(
+                f"{where}: decode returned {type(piece).__name__}, not str"
+            )
+        if piece != claimed:
+            raise ShardContractViolation(
+                f"{where}: token {pos} decodes to {piece[:40]!r} but its offsets claim "
+                f"characters [{first}, {last}) of the text, which are {claimed[:40]!r}. "
+                "The tokenizer's offsets describe a different string than the one it "
+                "tokenized, so every line start resolves to a plausible wrong token."
+            )
+
+    decoded = decode([int(i) for i in ids])
+    if not isinstance(decoded, str):
+        raise ShardContractViolation(
+            f"{where}: decode returned {type(decoded).__name__}, not str"
+        )
+    grid = set(line_start_indices(decoded))
+    astray = sorted(c for c in (spec.line_char_starts or ()) if c not in grid)
+    if astray:
+        raise ShardContractViolation(
+            f"{where}: character offset(s) {astray[:5]} are recorded as the start of a "
+            "context line, but they are not line starts of the text these ids decode to. "
+            "The pointer head would range over positions that do not begin a line in what "
+            "the tokenizer actually produced -- checked against decoded text rather than "
+            "against the candidate set, which is projected from the same offsets and so "
+            "could never show it (GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED)."
+        )
+    if decoded != text:
+        at = next(
+            (i for i, (a, b) in enumerate(zip(decoded, text, strict=False)) if a != b),
+            min(len(decoded), len(text)),
+        )
+        raise ShardContractViolation(
+            f"{where}: these ids do not decode to the text the spans were measured "
+            f"against. They first differ at character {at}: decoded {decoded[at : at + 20]!r} "
+            f"against {text[at : at + 20]!r}. Every offset into that text is then measured "
+            "against a string the model will not see."
+        )
+
+
 def _span_token_positions(
     spec: SequenceSpec,
-    n_tokens: int,
+    ids: Sequence[int],
     *,
     token_offsets: TokenOffsets | None,
+    decode: Decode | None = None,
     where: str,
 ) -> tuple[tuple[int, int], tuple[int, ...]] | None:
     """``((start, end), candidates)`` in token positions, or ``None`` for a non-span row.
@@ -526,9 +628,26 @@ def _span_token_positions(
     model is taught to cite: no offsets supplied; offsets that do not line up with the ids;
     a character in no token's span; two different gold lines collapsing onto one token; and
     a candidate set smaller than the context's line count.
+
+    ``decode`` is optional and additive: when the tokenizer can turn an id back into text,
+    :func:`_assert_spans_decode_to_their_text` checks every candidate and every gold
+    position against what it says, which is the one check here that does not consult the
+    offsets it is checking.
     """
     if spec.line_char_starts is None:
         return None
+    n_tokens = len(ids)
+    if not spec.line_char_starts:
+        raise UnencodableGold(
+            f"{where}: this is a span row whose context has no lines, so the pointer head "
+            "has nothing to range over. qd-runtime sizes it at line_count + "
+            "RESERVED_NOUL_ROWS (answer.rs:64) and Context::line_count is 0 for an empty "
+            "context (context.rs:167), so what is served here is the abstain row alone, "
+            "and Batch refuses a SLOT_SPAN row with an empty candidate set. Refused rather "
+            "than given one candidate at offset 0 -- which is what this writer produced "
+            "until the line rule converged on artifacts.line_start_indices, and it is a "
+            "train/serve mismatch no loss curve shows."
+        )
     if token_offsets is None:
         raise UnencodableGold(
             f"{where}: this is a span row, and mapping its context lines to token positions "
@@ -574,6 +693,10 @@ def _span_token_positions(
         )
 
     if spec.span_abstains or spec.span_char_starts is None:
+        if decode is not None:
+            _assert_spans_decode_to_their_text(
+                spec, ids, offsets, candidates, decode=decode, where=where
+            )
         return ((SPAN_ABSTAIN, SPAN_ABSTAIN), candidates)
 
     start_char, end_char = spec.span_char_starts
@@ -603,6 +726,15 @@ def _span_token_positions(
             f"{where}: gold position(s) {missing} are not line-start candidates. The gold "
             "and the candidate set are built from one list of line offsets, so this means "
             "the offset mapping is not monotonic in the text."
+        )
+    if decode is not None:
+        # The gold positions first, so that when a whole-corpus mapping is shifted the
+        # message names the gold rather than an arbitrary candidate.
+        _assert_spans_decode_to_their_text(
+            spec, ids, offsets, (start_tok, end_tok), decode=decode, where=where
+        )
+        _assert_spans_decode_to_their_text(
+            spec, ids, offsets, candidates, decode=decode, where=where
         )
     return ((start_tok, end_tok), candidates)
 
@@ -658,6 +790,7 @@ def write_shards(
     config: DataConfig,
     repo_root: Path,
     token_offsets: TokenOffsets | None = None,
+    decode: Decode | None = None,
     buckets: Sequence[int] | None = None,
     seed: int | None = None,
     caps: RenderCaps = DEFAULT_CAPS,
@@ -685,6 +818,16 @@ def write_shards(
     straddle a line boundary, so this is not something to approximate -- a span pointing at
     the wrong token teaches the model to cite the wrong evidence and nothing downstream
     could tell. Absent it, a span row is refused rather than guessed at.
+
+    ``decode`` is optional and is the check that ``GAP-SPAN-HEAD-LINE-MAPPING-BPE-
+    UNVERIFIED`` asks for before any span number is reported: given ``tokenizer.decode``,
+    every gold position and every candidate is checked against the text the tokenizer says
+    that id stands for, rather than against arithmetic over the offsets being checked. It
+    is the only check here that can catch a mapping which is *consistently* wrong, because
+    every other one compares the gold to a candidate set projected from the same offsets
+    (``GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT``). It is optional rather than
+    required because the repo venv has no tokenizer to decode with; **a real-tokenizer run
+    passes it**, and a run that omits it has not had its span mapping verified.
 
     ``buckets`` defaults to :func:`choose_buckets` over the measured lengths. ``seed``
     defaults to ``config.seed`` and drives the per-example option shuffle.
@@ -758,7 +901,11 @@ def write_shards(
                         f"as {TOKEN_DTYPE}"
                     )
                 projected = _span_token_positions(
-                    spec, ids.size, token_offsets=token_offsets, where=where
+                    spec,
+                    ids,
+                    token_offsets=token_offsets,
+                    decode=decode,
+                    where=where,
                 )
                 if projected is None:
                     if spec.slot_kind == SLOT_SPAN:

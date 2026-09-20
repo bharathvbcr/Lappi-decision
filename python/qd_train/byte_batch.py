@@ -30,16 +30,23 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .artifacts import SPAN_ABSTAIN
+from .artifacts import MAX_PADDING_WASTE, SPAN_ABSTAIN
 from .mutate_adapter import ByteDecision
 from .schema_mirror import RESERVED_NOUL_ROWS
 from .trainer import SpanSupervision
 
-__all__ = ["BatchPlan", "padding_waste", "plan_batch", "span_supervision"]
+__all__ = [
+    "MAX_PADDING_WASTE",
+    "BatchPlan",
+    "padding_waste",
+    "plan_batch",
+    "span_supervision",
+]
 
-#: Same bar as ``qd_train.artifacts.MAX_PADDING_WASTE``. A batch that wastes more than this
-#: is a bucketing problem, not a training problem.
-MAX_PADDING_WASTE: float = 0.15
+# `MAX_PADDING_WASTE` is imported from `qd_train.artifacts`, which owns it and gates S4's
+# shards on it. A second copy here would be a second bar: the same name meaning "the S4
+# gate" in one module and "a number rung 0 happens to use" in the other, free to drift the
+# first time one of them is tuned.
 
 
 @dataclass(frozen=True, slots=True)

@@ -552,13 +552,17 @@ fn hash_expectation_carries_five_optional_fields_and_refuses_the_rest() {
 }
 
 #[test]
-fn python_has_no_hash_expectation_and_its_label_set_hash_is_a_different_quantity() {
+fn python_now_has_a_hash_expectation_and_its_label_set_hash_is_still_a_different_quantity() {
     // Two asymmetries, both asserted rather than described:
     //
-    // 1. `qd_data` has no `HashExpectation` type and `Request.to_wire()` emits no `expect`, so
-    //    nothing in the training lane can pin a hash. That is consistent — `expect` is optional
-    //    and absent means "pinned nothing" — but it means the five fields have no Python
-    //    producer. `GAP-XLANG-NO-PY-HASH-EXPECTATION`.
+    // 1. CLOSED, and the pin inverted rather than deleted. `qd_data` had no `HashExpectation`
+    //    type, so nothing in the training lane could pin a hash. It has one now, and this asserts
+    //    its PRESENCE for the same reason the absence was asserted: the property is that the two
+    //    lanes agree about whether a producer exists, and that fails on a change in either
+    //    direction. Field-level agreement is not checked here — this probe reports a presence
+    //    map, and the five field names are compared against the generated
+    //    `qd_wire.contract.STRUCT_FIELDS["HashExpectation"]` on the Python side, which is where
+    //    the Rust struct is the source. `GAP-XLANG-NO-PY-HASH-EXPECTATION`.
     //
     // 2. `qd_data.schema.label_set_hash(slots)` hashes the *request's slot list*, while
     //    `HashExpectation.label_set_hash` is compared against the **backend identity's**
@@ -570,8 +574,9 @@ fn python_has_no_hash_expectation_and_its_label_set_hash_is_a_different_quantity
     assert_eq!(
         inv.get("answer_side_types")
             .and_then(|a| a.get("HashExpectation")),
-        Some(&Value::Bool(false)),
-        "Python grew a HashExpectation: cross-assert it instead of skipping it"
+        Some(&Value::Bool(true)),
+        "Python lost its HashExpectation: the training lane can no longer pin a hash, so every \
+         one of the five fields is back to having no producer"
     );
     assert_eq!(
         inv.get("request_to_wire_emits_expect"),
@@ -798,15 +803,21 @@ fn both_lanes_refuse_the_same_payloads_and_name_the_context_checks_identically()
         "the known-differences table and what the lanes actually do have drifted apart: {mapped:?}"
     );
 
-    // Python accepting what Rust refuses is a real asymmetry, not a blank. Rust refuses unknown
-    // top-level fields; `qd_data.schema.Request.from_wire` reads through `dict.get` and ignores
-    // them, so a caller that misspells a field is told by one lane and not the other.
-    // `GAP-XLANG-UNKNOWN-FIELD-LENIENCY`.
-    assert_eq!(
-        python_accepted,
-        vec!["unknown top-level field"],
-        "the set of payloads Python accepts and Rust refuses changed; it is pinned because each \
-         entry is a way for a caller to satisfy one lane and not the other"
+    // This list was `["unknown top-level field"]` until the XLANG-DATA lane closed that
+    // asymmetry: `qd_data.schema.Request.from_wire` read through `dict.get` and ignored unknown
+    // keys, so a caller who misspelled a field was told by one lane and not the other. Python now
+    // refuses them under the identifier Rust already uses, `malformed_request`, so closing the
+    // leniency gap did not widen the vocabulary one.
+    //
+    // The list stays asserted rather than deleted, and asserted EMPTY rather than removed: the
+    // property worth holding is not "this one payload is symmetric" but "there is no payload one
+    // lane accepts and the other refuses". An empty pin fails the day a new asymmetry appears,
+    // which a deleted pin would not.
+    assert!(
+        python_accepted.is_empty(),
+        "Python accepts payloads Rust refuses: {python_accepted:?}. Each entry is a way for a \
+         caller to satisfy one lane and be refused by the other, which is how a request that \
+         passes the training lane earns a refusal at serve time"
     );
 }
 

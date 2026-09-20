@@ -248,3 +248,25 @@ def test_the_extension_map_still_matches_pool_rs():
 def test_skip_dirs_holds_the_obvious_generated_trees():
     for name in ("node_modules", "target", ".git", "__pycache__", ".venv"):
         assert name in SKIP_DIRS
+
+
+def test_the_summary_renders_both_numbers_and_the_status(tmp_path: Path):
+    """`summary()` is the human-readable face of "selected/seen, never one".
+
+    It is the only place a person reads the report without unpacking it, so a summary that
+    printed the selected count alone would undo the discipline the dataclass enforces.
+    """
+    tree(tmp_path, {"a.py": "def f():\n    return 1\n", "b.md": "x\n"})
+    report = build_pool(tmp_path, repo="r", licence=MIT)
+    text = report.summary()
+
+    assert "1/2" in text, "the pair, not just the selected count"
+    assert "mit" in text
+    assert "not a supported language: 1" in text, "every skip reason is carried"
+    assert str(report.status) in text
+
+
+def test_the_summary_of_a_capped_build_shows_it_did_not_complete(tmp_path: Path):
+    tree(tmp_path, {f"f{i}.py": "def f():\n    return 1\n" for i in range(5)})
+    report = build_pool(tmp_path, repo="r", licence=MIT, max_files=2)
+    assert "capped sample" in report.summary()

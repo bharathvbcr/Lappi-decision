@@ -25,38 +25,53 @@ this is expressible.
 * The cap, the LR schedule, the checkpoint cadence, the cost and the approval gate are
   :class:`qd_train.run_control.RunControl`'s. This module reads them and never re-decides
   them -- rule 2: gates are read-only.
+* The four rules of gradient accumulation are
+  :class:`qd_train.run_control.AccumulationGroup`'s, shared with ``qd_train.trainer``.
 * The ordinal-to-offset conversion is :func:`qd_train.byte_batch.span_supervision`'s.
 
-## Why this loop is not ``trainer._train``
+## Why this loop is not ``trainer._train``, and what it shares anyway
 
-``qd_train.trainer`` runs the same shape of loop -- accumulate, step, cap, checkpoint -- but
-its batch type is the token-LM ``Batch`` from S4 and its supervision is letter-channel
-shaped. Rung 0's batch is a :class:`~qd_train.byte_batch.BatchPlan`: byte ids, an option
-grid and a line-start candidate set. Making one loop serve both means generalising
-``trainer._train`` over its batch type, which is a change to a module the whole S2-S4 lane
-rests on. That is a judgement call rather than a drive-by, so it is recorded as
-``GAP-RUNG0-LOOP-DUPLICATES-TRAINER-MECHANICS`` and the policy objects above are shared in
-the meantime, which is where the drift would actually hurt.
+``qd_train.trainer`` runs the same *shape* of loop, but its batch type is the token-LM
+``Batch`` from S4 and its supervision is letter-channel shaped. Rung 0's batch is a
+:class:`~qd_train.byte_batch.BatchPlan`: byte ids, an option grid and a line-start candidate
+set. One loop serving both would need four injection points -- index, supervise, accumulate,
+padding accounting -- which is a framework, not a simplification.
+
+What the two genuinely share is **policy**, and that has one owner:
+:class:`qd_train.run_control.AccumulationGroup` holds the four rules of gradient
+accumulation and both loops drive it. That split is not a preference: the first version of
+this module re-implemented those rules and got three of the four wrong. See
+``GAP-RUNG0-LOOP-DUPLICATES-TRAINER-MECHANICS`` for which, and for the tests that now pin
+each one.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Final
 
 import torch
 from torch import nn
 
-from .byte_batch import BatchPlan, span_supervision
-from .byte_context import ID_PAD
+from .byte_batch import MAX_PADDING_WASTE, BatchPlan, span_supervision
 from .byte_decider import ByteDecider, ByteDeciderConfig
 from .heads import SpanPointerHead, plan_span_batch
-from .run_control import Checkpoint, LossLog, LossPoint, Position, RunControl, TerminationReason
+from .run_control import (
+    AccumulationGroup,
+    Checkpoint,
+    LossLog,
+    LossPoint,
+    Position,
+    RunControl,
+    TerminationReason,
+)
+from .tristate import NotRun, Ran, TriState
 
 __all__ = [
     "MAX_BATCHES_PER_CALL",
     "BatchTensors",
+    "Rung0ContractViolation",
     "Rung0Losses",
     "Rung0Model",
     "Rung0Result",
@@ -81,10 +96,6 @@ class BatchTensors:
     option_mask: torch.Tensor
     n_live_options: torch.Tensor
     choice_target: torch.Tensor
-
-    @property
-    def batch_size(self) -> int:
-        return int(self.context_ids.shape[0])
 
 
 def plan_to_tensors(plan: BatchPlan, *, device: torch.device | str = "cpu") -> BatchTensors:
@@ -120,6 +131,15 @@ class Rung0Losses:
     choice: float
     span: float
     total: float
+
+
+class Rung0ContractViolation(Exception):
+    """A plan, a loss or a source violated what this loop requires to be true.
+
+    Rung 0's counterpart to :class:`qd_train.trainer.TrainerContractViolation`. The two
+    loops share the rules -- :class:`qd_train.run_control.AccumulationGroup` owns them and
+    writes the messages -- and each raises in its own vocabulary.
+    """
 
 
 class Rung0Model(nn.Module):
@@ -246,37 +266,10 @@ class Rung0Result:
     checkpoint: Checkpoint
     wall_clock_s: float
     cost_usd: float
-    padding_waste: float = 0.0
-
-
-@dataclass
-class _Accumulator:
-    """One optimizer step's worth of micro-batches."""
-
-    grad_accum: int
-    choice: float = 0.0
-    span: float = 0.0
-    total: float = 0.0
-    n: int = 0
-    waste_num: float = 0.0
-    waste_den: int = 0
-    seen: list[int] = field(default_factory=list)
-
-    def add(self, losses: Rung0Losses) -> None:
-        self.choice += losses.choice
-        self.span += losses.span
-        self.total += losses.total
-        self.n += 1
-
-    @property
-    def ready(self) -> bool:
-        return self.n >= self.grad_accum
-
-    def drain(self) -> tuple[float, float, float]:
-        means = (self.choice / self.n, self.span / self.n, self.total / self.n)
-        self.choice = self.span = self.total = 0.0
-        self.n = 0
-        return means
+    #: The padding gate, against :data:`qd_train.byte_batch.MAX_PADDING_WASTE`. A tri-state
+    #: rather than a float: a run that consumed no batches has no waste to report, and 0.0
+    #: would read as perfect bucketing.
+    padding: TriState
 
 
 def train_rung0(
@@ -304,7 +297,7 @@ def train_rung0(
         raise ValueError(f"max_batches must be in [1, {MAX_BATCHES_PER_CALL}], got {max_batches}")
 
     control.start()
-    accumulator = _Accumulator(grad_accum=control.grad_accum)
+    group = AccumulationGroup(control, violation=Rung0ContractViolation)
     loss_log = LossLog()
     choice_log: list[float] = []
     span_log: list[float] = []
@@ -318,38 +311,50 @@ def train_rung0(
     termination: TerminationReason = "data_exhausted"
 
     while True:
-        if control.expired():
-            termination = "wall_clock_cap"
-            break
         if optimizer_steps >= control.total_steps:
             termination = "steps_exhausted"
             break
-        if micro_batches >= max_batches:
-            termination = "steps_exhausted"
+        # Rule 2: only at a group boundary, so no half-accumulated gradient is discarded.
+        if group.should_stop_for_cap():
+            termination = "wall_clock_cap"
             break
+        if micro_batches >= max_batches:
+            # Not a termination reason. A run that consumed its batch ceiling without
+            # completing the schedule did not finish; reporting "steps_exhausted" would
+            # make a truncated run indistinguishable from a complete one.
+            raise Rung0ContractViolation(
+                f"consumed {micro_batches} batches without completing the schedule's "
+                f"{control.total_steps} steps; the source is not the one this run planned for"
+            )
 
-        try:
-            plan = next(source)
-        except StopIteration:
+        plan = next(source, None)
+        if plan is None:
+            # Rule 1: a group left open when the source ends is a contract violation.
+            group.refuse_partial(where=f"epoch {epoch}, batch {micro_batches}")
             termination = "data_exhausted"
             break
 
         if not isinstance(plan, BatchPlan):
             raise TypeError(f"expected a BatchPlan, got {type(plan).__name__}")
 
-        accumulator.add(step.accumulate(plan))
+        losses = step.accumulate(plan)
+        # Rule 3: a non-finite loss stops the run here rather than training on NaN.
+        group.add(
+            losses.total,
+            where=f"epoch {epoch}, batch {micro_batches}",
+            choice=losses.choice,
+            span=losses.span,
+        )
         micro_batches += 1
         rows += plan.batch_size
-        width = plan.context_width
-        waste_den += plan.batch_size * width
-        waste_num += sum(
-            1 for row in plan.context_mask for live in row if not live
-        )
+        waste_den += plan.batch_size * plan.context_width
+        waste_num += sum(1 for row in plan.context_mask for live in row if not live)
 
-        if not accumulator.ready:
+        if not group.ready:
             continue
 
-        mean_choice, mean_span, mean_total = accumulator.drain()
+        mean_total, means = group.drain()
+        mean_choice, mean_span = means["choice"], means["span"]
         # Logged at the step's own 0-based index, then taken. `Checkpoint` reads
         # `optimizer_step` as the *next* step -- the same "start here" convention
         # `Position.index` uses -- so the increment has to land after the log or a resume
@@ -372,9 +377,6 @@ def train_rung0(
                 _checkpoint(step, control, optimizer_steps, micro_batches, epoch, seed, loss_log)
             )
 
-    # A partial accumulation is deliberately NOT applied: a step taken on fewer micro-batches
-    # than `grad_accum` is a different effective batch size, and the loss log would carry it
-    # as though it were the same. It is dropped, and `micro_batches` still counts it.
     checkpoint = _checkpoint(
         step, control, optimizer_steps, micro_batches, epoch, seed, loss_log
     )
@@ -389,7 +391,32 @@ def train_rung0(
         checkpoint=checkpoint,
         wall_clock_s=control.elapsed_s(),
         cost_usd=control.cost_so_far(),
-        padding_waste=(waste_num / waste_den) if waste_den else 0.0,
+        padding=_padding_gate(waste_num, waste_den),
+    )
+
+
+def _padding_gate(dead: float, total: int) -> TriState:
+    """The fraction of context positions that were padding, against the S4 bar.
+
+    ``NotRun`` on an empty run rather than 0.0: no batches means no waste figure, and a 0%
+    reading would clear the gate on a run that padded nothing because it trained on nothing.
+    """
+    if total == 0:
+        return NotRun(
+            reason="no micro-batches were consumed, so there is no padding to measure; "
+            "0.0 would read as perfect bucketing on a run that trained on nothing"
+        )
+    waste = dead / total
+    return Ran(
+        passed=waste <= MAX_PADDING_WASTE,
+        value=waste,
+        n=total - int(dead),
+        n_total=total,
+        detail=(
+            f"{waste:.1%} of context positions were padding across {total} of them; "
+            f"gate is <= {MAX_PADDING_WASTE:.0%}. Rung 0 pads to the batch maximum, so this "
+            "measures the batch's raggedness, not a bucket plan."
+        ),
     )
 
 
@@ -410,8 +437,3 @@ def _checkpoint(
         loss_log=loss_log.snapshot(),
         model_state=step.state(),
     )
-
-
-# `ID_PAD` is re-exported so a caller building plans for this module takes the pad id from
-# the same place the embedding's padding row was sized from.
-PAD_ID: Final[int] = ID_PAD

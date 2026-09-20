@@ -801,9 +801,25 @@ and a filename that names the operator rule (repo rule 9): e.g. `gdn_published_h
 
 ---
 
-## D. Existence check of every kernel the plan names
+## D. Existence check of the tessl kernels the plan references
 
-All six exist. Signatures re-read from source today. **[verified]**
+> **This is not the K1–K7 roster, and the original title invited reading it as one.** The rows
+> below are *existing* tessl kernels the plan refers to. They are not the seven items the kernel
+> lane is to build. Two different lists, both of length seven, and a later lane spent several
+> reads here looking for K3's specification before realising this section answers a different
+> question. For what the K-items actually are, see `GAP-TESSL-K3-IDENTITY-NOT-SPECIFIED`: K5, K6
+> and K7 are identified in-repo, K1 only partially, K2 and K3 by cross-reference alone, and **K4
+> is named nowhere at all** — it appears in this repository only inside the records reporting that
+> it is missing, never in a specification. So three of the seven K-items have no specification on
+> this host, not one.
+
+All seven exist. Signatures re-read from source today. **[verified]**
+
+> Corrected 2026-09-19: this line read "All six exist" over a seven-row table, under a
+> **[verified]** stamp. The uncounted row is `a gate_up_gelu entry point` — the one row that names
+> an entry point rather than a file, and the same row that turned out to be three entry points
+> rather than one. A miscount of its own table is a small error; carrying a verified stamp while
+> a reader takes the table for a different list is not.
 
 | Plan reference | Exists? | File | Entry point(s) | Line |
 | --- | --- | --- | --- | --- |

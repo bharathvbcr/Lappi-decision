@@ -61,6 +61,7 @@ __all__ = [
     "MAX_CAP_S",
     "MAX_GRAD_ACCUM",
     "MAX_LOSS_POINTS",
+    "AccumulationGroup",
     "Checkpoint",
     "CostEstimate",
     "LRSchedule",
@@ -612,3 +613,113 @@ class RunControl:
         if completed_steps <= 0 or self.checkpoint_every == 0:
             return False
         return completed_steps % self.checkpoint_every == 0
+
+
+class AccumulationGroup:
+    """One optimizer step's worth of micro-batches, and the four rules for closing it.
+
+    Gradient accumulation looks like bookkeeping and is actually policy. Four rules decide
+    whether a run's loss curve means anything, and every one of them fails *quietly* when
+    it is got wrong:
+
+    1. **A partial group is never applied.** A step taken on fewer micro-batches than
+       ``grad_accum`` is a step at a different effective batch size, and the loss log records
+       it as though it were the same. The source ending mid-group is a contract violation,
+       not a rounding error.
+    2. **The cap is checked at a group boundary only.** Checking mid-group discards a
+       half-accumulated gradient -- work done and thrown away, with nothing saying so.
+       Overshoot is bounded by one optimizer step, which is the cheaper error.
+    3. **A non-finite loss stops the run.** Continuing trains on NaN gradients and produces
+       a loss curve that simply stops meaning anything, while still printing numbers.
+    4. **The group's loss is its mean**, over exactly the micro-batches in it.
+
+    This class exists because two loops need these four rules and they are not the kind of
+    thing that survives being written twice: ``qd_train.byte_train`` re-implemented them and
+    got 1, 2 and 3 wrong. It owns the *rules and the messages*; the caller supplies the
+    exception **type** it raises for a contract violation, because "what my loop calls a
+    broken contract" is domain vocabulary and ``TrainerContractViolation`` is already pinned
+    by ``test_trainer.py``.
+
+    ``extras`` ride along under the same discipline: a rung-0 batch carries a choice loss
+    and a span loss alongside the total that is actually differentiated, and averaging those
+    outside the group would put them on a different denominator than the number beside them.
+    """
+
+    __slots__ = ("_control", "_extras", "_losses", "_violation")
+
+    def __init__(self, control: RunControl, *, violation: type[Exception] = ValueError) -> None:
+        if not isinstance(control, RunControl):
+            raise TypeError(f"control must be a RunControl, got {type(control).__name__}")
+        if not (isinstance(violation, type) and issubclass(violation, Exception)):
+            raise TypeError("violation must be an exception class")
+        self._control = control
+        self._violation = violation
+        self._losses: list[float] = []
+        self._extras: dict[str, list[float]] = {}
+
+    @property
+    def grad_accum(self) -> int:
+        return self._control.grad_accum
+
+    @property
+    def size(self) -> int:
+        """Micro-batches accumulated so far in the open group."""
+        return len(self._losses)
+
+    @property
+    def open(self) -> bool:
+        """True when a partial group is in progress. Rule 1 and rule 2 both turn on this."""
+        return bool(self._losses)
+
+    @property
+    def ready(self) -> bool:
+        return len(self._losses) >= self._control.grad_accum
+
+    def add(self, loss: float, *, where: str, **extras: float) -> None:
+        """Record one micro-batch's loss. Rule 3: a non-finite loss stops the run here."""
+        value = float(loss)
+        if not math.isfinite(value):
+            raise self._violation(
+                f"step returned a non-finite loss {value!r} at {where}. A run that keeps "
+                "going after this trains on NaN gradients and reports a loss curve that "
+                "simply stops meaning anything."
+            )
+        for name, extra in extras.items():
+            extra_value = float(extra)
+            if not math.isfinite(extra_value):
+                raise self._violation(
+                    f"step returned a non-finite {name} loss {extra_value!r} at {where}"
+                )
+            self._extras.setdefault(name, []).append(extra_value)
+        self._losses.append(value)
+
+    def should_stop_for_cap(self) -> bool:
+        """Rule 2: the cap may only stop the loop when no group is half-accumulated."""
+        return not self.open and self._control.expired()
+
+    def refuse_partial(self, *, where: str) -> None:
+        """Rule 1: call this when the source ends. Raises if a group was left open."""
+        if not self.open:
+            return
+        raise self._violation(
+            f"the source ended {self.size} micro-batch(es) into an accumulation group of "
+            f"{self._control.grad_accum} at {where}. Applying a partial group would take a "
+            "step at a different effective batch size than every other step in this run."
+        )
+
+    def drain(self) -> tuple[float, dict[str, float]]:
+        """Rule 4: the group's mean loss and its extras' means, then reset.
+
+        Refuses an empty group rather than returning 0.0, which would enter the loss log as
+        a real measurement of a step that never happened.
+        """
+        if not self._losses:
+            raise self._violation(
+                "cannot close an empty accumulation group; a 0.0 mean would enter the loss "
+                "log as a measurement of a step that was never taken"
+            )
+        mean = sum(self._losses) / len(self._losses)
+        extras = {name: sum(vs) / len(vs) for name, vs in self._extras.items()}
+        self._losses.clear()
+        self._extras.clear()
+        return mean, extras

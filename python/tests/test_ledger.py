@@ -13,6 +13,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -447,3 +448,509 @@ def test_a_build_row_must_carry_the_marker_it_claims(tmp_path: Path):
             wall_clock_s=1.0,
             cost_usd=0.0,
         )
+
+
+# ---------------------------------------------------------------------------
+# The recording path: how a lane actually gets a row id to cite.
+#
+# `run_kind: "build"` made an honest row *possible*; it did not make one easy.
+# Between the kind and a written row sat: construct a Protocol, construct an
+# Environment, open a Ledger, wrap the commands in a RunRecorder, run them,
+# parse two different harnesses' output into coverage pairs, and decide what a
+# suite that never launched should look like. Measured: with the kind available
+# and documented, `ledger/` stayed empty and four lanes printed command output
+# instead. A rule harder to obey than to skip is a rule that gets skipped, so
+# the path below is one command.
+# ---------------------------------------------------------------------------
+
+
+def _run_cli(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(REPO / "python")
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    return subprocess.run(
+        [sys.executable, "-m", "qd_train.ledger", *args],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        cwd=str(cwd or REPO),
+        env=env,
+    )
+
+
+# -- the output parsers -----------------------------------------------------
+
+
+CARGO_SAMPLE = """\
+running 107 tests
+test result: ok. 107 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.73s
+
+running 24 tests
+test result: FAILED. 24 passed; 1 failed; 2 ignored; 0 measured; 3 filtered out; finished in 7.09s
+
+   Doc-tests qd_mutate
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+"""
+
+PYTEST_SAMPLE = """\
+........................................................................ [ 19%]
+..........................                                               [100%]
+1104 passed, 7 skipped in 29.02s
+"""
+
+
+def test_cargo_counts_are_summed_over_every_test_binary():
+    """One `cargo test --workspace` prints one summary per binary, not one total.
+
+    A parser that reads only the last line reports the doc-tests' `0 passed` as
+    the workspace result. That is wrong in the direction that looks harmless,
+    which is the direction nobody checks.
+    """
+    from qd_train.ledger import parse_cargo_test_output
+
+    counts = parse_cargo_test_output(CARGO_SAMPLE)
+    assert counts is not None
+    assert counts.ran_ok == 131  # 107 + 24 + 0
+    assert counts.ran_failed == 1
+    # `ignored` and `filtered out` were collected and did not run, so they belong
+    # in n_total and nowhere else: a filter that silently shrank the run is then
+    # visible as n < n_total rather than as a smaller, cleaner-looking pass count.
+    assert counts.not_run == 5  # 2 ignored + 3 filtered out
+    assert counts.n == 132
+    assert counts.n_total == 137
+
+
+def test_pytest_skips_are_visible_in_the_coverage_pair():
+    from qd_train.ledger import parse_pytest_output
+
+    counts = parse_pytest_output(PYTEST_SAMPLE)
+    assert counts is not None
+    assert counts.ran_ok == 1104
+    assert counts.ran_failed == 0
+    assert counts.not_run == 7
+    assert counts.n == 1104
+    assert counts.n_total == 1111
+    assert counts.as_tristate(exit_code=0).is_complete_coverage is False
+
+
+def test_a_parser_that_recognises_nothing_says_so_rather_than_counting_zero():
+    """`None`, not zero-of-everything.
+
+    Zero passed, zero failed, zero skipped is a real and possible measurement --
+    an empty suite. A parser returning it because it did not understand the
+    output has manufactured that measurement, and the caller cannot tell the two
+    apart.
+    """
+    from qd_train.ledger import parse_cargo_test_output, parse_pytest_output
+
+    assert parse_cargo_test_output("error: could not compile `qd_mutate`") is None
+    assert parse_pytest_output("ERROR: file or directory not found: nope/") is None
+
+
+# -- what a suite result may and may not become -----------------------------
+
+
+def test_a_command_that_cannot_be_launched_is_not_run_never_a_zero(tmp_path: Path):
+    """The failure the tri-state exists for, at the point a build lane meets it."""
+    from qd_train.ledger import run_suite
+
+    out = run_suite("missing_tool", ("qd-no-such-binary-exists", "--version"), cwd=tmp_path)
+    assert isinstance(out.result, NotRun)
+    assert out.exit_code is None
+    assert "could not be launched" in out.result.reason
+
+
+def test_a_timeout_is_not_run_rather_than_a_failure(tmp_path: Path):
+    """A suite that was cut off produced no result; it did not produce a bad one."""
+    from qd_train.ledger import run_suite
+
+    out = run_suite(
+        "sleeper", (sys.executable, "-c", "import time; time.sleep(30)"),
+        cwd=tmp_path, timeout_s=1.0,
+    )
+    assert isinstance(out.result, NotRun)
+    assert "timed out" in out.result.reason
+
+
+def test_a_green_command_with_no_parsable_summary_is_not_recorded_as_a_pass(tmp_path: Path):
+    """Exit 0 with no counts is the shape of a suite that collected nothing.
+
+    pytest exits 0 on "no tests ran" under some configurations -- which is why
+    this repo's addopts carry `--strict-config`. Recording that as
+    `Ran(passed=True)` with coverage unstated would put a green suite with no
+    tests into the decision record, so it is `not_run` with the reason instead.
+    """
+    from qd_train.ledger import run_suite
+
+    out = run_suite(
+        "silent_success", (sys.executable, "-c", "print('nothing to report')"),
+        cwd=tmp_path, parser="pytest",
+    )
+    assert isinstance(out.result, NotRun), out.result
+    assert out.exit_code == 0
+    assert "no parsable" in out.result.reason
+
+
+def test_a_failing_command_with_no_summary_is_recorded_as_a_failure(tmp_path: Path):
+    """The other direction. A compile error is a command that ran and failed.
+
+    Calling that `not_run` would let a broken build sit in the ledger as "nothing
+    was measured here", which reads far better than it deserves.
+    """
+    from qd_train.ledger import run_suite
+
+    out = run_suite(
+        "broken_build",
+        (sys.executable, "-c", "import sys; sys.stderr.write('E0001\\n'); sys.exit(101)"),
+        cwd=tmp_path, parser="cargo",
+    )
+    assert isinstance(out.result, Ran)
+    assert out.result.passed is False
+    assert out.exit_code == 101
+    # Coverage is unstated, not complete: nothing was counted.
+    assert out.result.is_complete_coverage is False
+    assert out.result.n is None
+
+
+def test_a_shell_pipeline_is_refused_rather_than_run_as_arguments():
+    """`cargo test | tail` loses the exit code -- this repo's harness says so in
+    as many words. Splitting it into argv would hand `|` to cargo as a test-name
+    filter, and cargo would exit 0 having run nothing."""
+    from qd_train.ledger import parse_command
+
+    with pytest.raises(ValueError, match=r"pipeline|redirect"):
+        parse_command("cargo test --workspace | tail -5")
+    with pytest.raises(ValueError, match=r"pipeline|redirect"):
+        parse_command("cargo test --workspace > out.txt")
+    assert parse_command("cargo test --workspace") == ("cargo", "test", "--workspace")
+
+
+# -- the one command a lane runs --------------------------------------------
+
+
+def test_a_lane_records_a_build_run_and_gets_a_row_id(tmp_path: Path):
+    from qd_train.ledger import record_build_run
+
+    led = Ledger(tmp_path / "runs.jsonl")
+    row = record_build_run(
+        ledger=led,
+        repo=REPO,
+        suites=(("unit", (sys.executable, "-c", "print('3 passed, 1 skipped in 0.10s')")),),
+        toolchain="python 3.14.7",
+        cwd=tmp_path,
+        env=_env(),
+    )
+    assert row.run_kind == "build"
+    assert row.status == "completed"
+    suite = row.metrics["suite.unit"]
+    assert isinstance(suite, Ran) and suite.passed is True
+    assert (suite.value, suite.n, suite.n_total) == (3, 3, 4)
+    # And it is on disk, readable by row id, with the chain intact.
+    led.verify_chain()
+    assert [r.row_id for r in led.rows()] == [row.row_id]
+
+
+def test_a_failing_suite_makes_the_row_say_failed(tmp_path: Path):
+    """`status` is not cosmetic: promotion condition 1 reads it."""
+    from qd_train.ledger import record_build_run
+
+    led = Ledger(tmp_path / "runs.jsonl")
+    row = record_build_run(
+        ledger=led,
+        repo=REPO,
+        suites=(
+            (
+                "unit",
+                (sys.executable, "-c", "print('2 failed, 1 passed in 0.1s'); raise SystemExit(1)"),
+            ),
+        ),
+        toolchain="python 3.14.7",
+        cwd=tmp_path,
+        env=_env(),
+    )
+    assert row.status == "failed"
+    suite = row.metrics["suite.unit"]
+    assert isinstance(suite, Ran) and suite.passed is False
+    assert (suite.n, suite.n_total) == (3, 3)
+
+
+def test_the_cli_prints_the_row_id_a_lane_must_cite(tmp_path: Path):
+    """The point of the path: one command, one id, pasteable into a handoff."""
+    ledger_path = tmp_path / "runs.jsonl"
+    proc = _run_cli(
+        "record",
+        "--ledger", str(ledger_path),
+        "--toolchain", "python 3.14.7",
+        "--suite", f"unit={sys.executable} -c \"print('5 passed in 0.1s')\"",
+    )
+    assert proc.returncode == 0, proc.stderr
+    row_id = proc.stdout.strip().splitlines()[-1].strip()
+    rows = Ledger(ledger_path).rows()
+    assert len(rows) == 1
+    assert rows[0].row_id == row_id, f"CLI printed {row_id!r}, ledger holds {rows[0].row_id!r}"
+
+
+def test_the_cli_exits_non_zero_when_a_suite_fails(tmp_path: Path):
+    """A recorder that always exits 0 turns a red suite into a green lane."""
+    ledger_path = tmp_path / "runs.jsonl"
+    proc = _run_cli(
+        "record",
+        "--ledger", str(ledger_path),
+        "--toolchain", "python 3.14.7",
+        "--suite", f"unit={sys.executable} -c \"raise SystemExit(1)\"",
+    )
+    assert proc.returncode != 0
+    # The row is still written. A failed run that leaves no row is the one
+    # failure this module exists to prevent.
+    assert len(Ledger(ledger_path).rows()) == 1
+
+
+def test_the_cli_verifies_the_chain_and_reports_a_break(tmp_path: Path):
+    """docs/ledger-schema.md has claimed a verify command since S6."""
+    ledger_path = tmp_path / "runs.jsonl"
+    led = Ledger(ledger_path)
+    for seed in (1, 2, 3):
+        with RunRecorder(led, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env()):
+            pass
+    ok = _run_cli("verify", "--ledger", str(ledger_path))
+    assert ok.returncode == 0, ok.stderr
+
+    lines = [ln for ln in ledger_path.read_bytes().split(b"\n") if ln.strip()]
+    ledger_path.write_bytes(b"\n".join([lines[0], lines[2]]) + b"\n")
+    broken = _run_cli("verify", "--ledger", str(ledger_path))
+    assert broken.returncode != 0
+    assert "prev_row_hash" in (broken.stdout + broken.stderr)
+
+
+def test_the_recorded_build_row_still_cannot_promote(tmp_path: Path):
+    """End to end, through the real path rather than a hand-built row."""
+    from qd_train.ledger import record_build_run
+
+    led = Ledger(tmp_path / "runs.jsonl")
+    row = record_build_run(
+        ledger=led,
+        repo=REPO,
+        suites=(("unit", (sys.executable, "-c", "print('1 passed in 0.1s')")),),
+        toolchain="python 3.14.7",
+        cwd=tmp_path,
+        env=_env(),
+    )
+    verdict = led.promotion_verdict(row.protocol.hash_without_seed())
+    assert not verdict.promoted
+    assert any("never promotes" in r for r in verdict.reasons), verdict.reasons
+
+
+# -- the append-only chain, under the conditions it is actually written in ---
+
+
+def test_concurrent_appends_do_not_break_the_chain(tmp_path: Path):
+    """Several sessions write this repo at once; the ledger has to survive that.
+
+    `append` reads `last_line_hash()` and then opens the file. Between those two
+    steps another process can append, and both writers then claim the same
+    predecessor -- a chain `verify_chain` refuses forever after, on a log whose
+    whole premise is that you cannot go back and fix it. O_APPEND prevents a torn
+    line; it does nothing for the read-then-write window.
+    """
+    ledger_path = tmp_path / "runs.jsonl"
+    start_at = time.time() + 2.0
+    script = f"""
+import sys, time
+sys.path.insert(0, {str(REPO / "python")!r})
+from qd_train.ledger import Ledger, LedgerRow, Protocol, Environment
+from qd_train.tristate import NotRun
+led = Ledger({str(ledger_path)!r})
+env = Environment(torch='x', transformers_sha='y', device='cpu', host='t',
+                  fla_present=NotRun(reason='n/a'), causal_conv1d_present=NotRun(reason='n/a'))
+while time.time() < {start_at!r}:
+    pass
+for i in range(5):
+    led.append(LedgerRow(
+        row_id=f"{{sys.argv[1]}}-{{i}}", written_at='2026-09-19T00:00:00+00:00',
+        prev_row_hash=None, protocol=Protocol('d'*64, 't'*64, 'b'*40, 'r'*64, 1),
+        run_kind='eval', status='completed', quick=False, quick_reason=None,
+        code_commit='c', env=env, metrics={{}}, noul_rate=NotRun(reason='n/a'),
+        controls={{}}, gates={{}}, wall_clock_s=0.0, cost_usd=0.0,
+    ))
+"""
+    procs = [
+        subprocess.Popen(
+            [sys.executable, "-c", script, f"w{w}"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        for w in range(6)
+    ]
+    failures = []
+    for p in procs:
+        _, err = p.communicate(timeout=180)
+        if p.returncode != 0:
+            failures.append(err.strip().splitlines()[-1] if err.strip() else "no stderr")
+
+    led = Ledger(ledger_path)
+    assert not failures, "a writer crashed instead of waiting its turn:\n  " + "\n  ".join(failures)
+    assert len(led.raw_lines()) == 30, f"lost rows: {len(led.raw_lines())} of 30"
+    led.verify_chain()  # the assertion: 30 concurrent appends, one unbroken chain
+
+
+def test_green_counts_with_a_red_exit_code_are_not_a_pass(tmp_path: Path):
+    """The counts are not the only witness, and they are not the last word.
+
+    A harness can report zero failures and still exit non-zero: a collection
+    error, a plugin that raised in teardown, a link step that failed after the
+    tests themselves were fine. Reading only the summary line records that as
+    green. Both signals have to agree.
+    """
+    from qd_train.ledger import run_suite
+
+    out = run_suite(
+        "green_counts_red_exit",
+        (sys.executable, "-c", "print('5 passed in 0.10s'); raise SystemExit(1)"),
+        cwd=tmp_path,
+    )
+    assert isinstance(out.result, Ran)
+    assert out.result.value == 5, "the counts are still recorded"
+    assert out.result.passed is False, "exit 1 with a clean summary is not a pass"
+
+
+def test_two_suites_cannot_share_a_name(tmp_path: Path):
+    """One metric key per suite, or the second result silently replaces the first
+    and the row reports half of what was run as though it were all of it."""
+    from qd_train.ledger import record_build_run
+
+    with pytest.raises(ValueError, match="duplicate suite name"):
+        record_build_run(
+            ledger=Ledger(tmp_path / "runs.jsonl"),
+            repo=REPO,
+            suites=(("unit", ("true",)), ("unit", ("false",))),
+            toolchain="python 3.14.7",
+        )
+
+
+def test_a_suite_that_could_not_run_does_not_exit_zero(tmp_path: Path):
+    """`$?` is a trace like any other, and it gets the tri-state's rule.
+
+    Exit 0 for "the GPU suite was not run here" is how a lane's CI, or a lane's
+    own eyes, read an unexamined suite as an examined one. It exits 3: not 0,
+    and not the same as a suite that ran and failed.
+    """
+    from qd_train.ledger import EXIT_SUITE_NOT_RUN
+
+    ledger_path = tmp_path / "runs.jsonl"
+    proc = _run_cli(
+        "record",
+        "--ledger", str(ledger_path),
+        "--toolchain", "python 3.14.7",
+        "--suite", "gpu=qd-no-such-binary-exists --version",
+    )
+    assert proc.returncode == EXIT_SUITE_NOT_RUN, (proc.returncode, proc.stderr)
+    rows = Ledger(ledger_path).rows()
+    assert len(rows) == 1
+    assert isinstance(rows[0].metrics["suite.gpu"], NotRun)
+    assert rows[0].status == "completed", "not-run is not a failure; the run itself completed"
+
+
+def test_the_cli_reports_the_promotion_verdict_for_a_row(tmp_path: Path):
+    """The refusal a lane can read without writing Python."""
+    from qd_train.ledger import record_build_run
+
+    ledger_path = tmp_path / "runs.jsonl"
+    led = Ledger(ledger_path)
+    row = record_build_run(
+        ledger=led,
+        repo=REPO,
+        suites=(("unit", (sys.executable, "-c", "print('1 passed in 0.1s')")),),
+        toolchain="python 3.14.7",
+        cwd=tmp_path,
+        env=_env(),
+    )
+    proc = _run_cli("verdict", "--ledger", str(ledger_path), "--row-id", row.row_id)
+    assert proc.returncode == 1, proc.stderr
+    assert "REFUSED" in proc.stdout
+    assert "never promotes" in proc.stdout
+
+
+# ---------------------------------------------------------------------------
+# Found by the first real row, not by reasoning about it.
+#
+# Row 06d15c1b-e643-4fae-a478-32b7581ef632 recorded
+# `suite.cargo_test_workspace: FAILED value=299 coverage=301/301` — a complete
+# coverage pair. The baseline an hour earlier was 347 passed. cargo had not lost
+# 46 tests: it had *aborted* after the first failing test binary and never built
+# or ran the rest. The recorder asked cargo what it did, cargo answered for the
+# binaries it reached, and the pair came out n == n_total.
+#
+# That is the exact shape this repo forbids — a run that was cut short reading
+# as one with full coverage — reproduced inside the tool written to prevent it.
+# The counts a harness reports are only ever about the part it reached, so the
+# tri-state's own rule applies to the denominator: unstated, not complete.
+# ---------------------------------------------------------------------------
+
+
+CARGO_ABORTED_SAMPLE = """\
+running 107 tests
+test result: ok. 107 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.73s
+
+running 16 tests
+test result: FAILED. 14 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+failures:
+    both_lanes_refuse_the_same_payloads_and_name_the_context_checks_identically
+
+error: test failed, to rerun pass `-p qd-runtime --test wire_context_crosslang`
+"""
+
+PYTEST_ABORTED_SAMPLE = """\
+python/tests/test_wire_gap_pins.py .F
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 1 passed in 0.31s
+"""
+
+
+def test_a_cargo_run_that_aborted_early_does_not_claim_complete_coverage():
+    """cargo's default is fail-fast: the binaries after the failing one never run.
+
+    Their tests are not `ignored` and not `filtered out` — cargo never mentions
+    them at all, so summing what it printed produces n == n_total for a run that
+    covered a fraction of the workspace.
+    """
+    from qd_train.ledger import parse_cargo_test_output
+
+    counts = parse_cargo_test_output(CARGO_ABORTED_SAMPLE)
+    assert counts is not None
+    assert counts.ran_ok == 121 and counts.ran_failed == 2
+    assert counts.collection_complete is False, "cargo said it stopped; believe it"
+
+    result = counts.as_tristate(exit_code=101)
+    assert result.passed is False
+    assert result.value == 121, "the counts it did report are still recorded"
+    assert (result.n, result.n_total) == (None, None), "a denominator nobody measured"
+    assert result.is_complete_coverage is False
+    assert result.coverage_str() == "coverage unstated"
+    assert "aborted" in result.detail
+
+
+def test_a_pytest_run_stopped_by_exitfirst_does_not_claim_complete_coverage():
+    """Same hole, other harness: `-x` leaves the rest of the suite unmentioned."""
+    from qd_train.ledger import parse_pytest_output
+
+    counts = parse_pytest_output(PYTEST_ABORTED_SAMPLE)
+    assert counts is not None
+    assert counts.collection_complete is False
+    result = counts.as_tristate(exit_code=1)
+    assert result.is_complete_coverage is False
+    assert (result.n, result.n_total) == (None, None)
+
+
+def test_a_complete_run_still_carries_its_coverage_pair():
+    """The fix must not answer "unstated" to everything, which would be the same
+    failure pointed the other way: a coverage pair that is never populated tells
+    a reader nothing and cannot show a shrinking collection."""
+    from qd_train.ledger import parse_cargo_test_output, parse_pytest_output
+
+    cargo = parse_cargo_test_output(CARGO_SAMPLE)
+    assert cargo is not None and cargo.collection_complete is True
+    assert cargo.as_tristate(exit_code=0).coverage_str() == "132/137"
+
+    pyt = parse_pytest_output(PYTEST_SAMPLE)
+    assert pyt is not None and pyt.collection_complete is True
+    assert pyt.as_tristate(exit_code=0).coverage_str() == "1104/1111"

@@ -74,12 +74,16 @@ class SourceUnavailableRefusal(QdRefusal):
     """
 
     check = "source_reachable"
+    #: No runtime counterpart: qd-runtime loads no dataset.
+    rust_kinds = ()
 
 
 class MalformedRowRefusal(QdRefusal):
     """An upstream row did not have the shape its schema promises."""
 
     check = "row_schema"
+    #: No runtime counterpart: an upstream row is not a wire request.
+    rust_kinds = ()
 
 
 def _req_str(raw: dict[str, Any], key: str, *, where: str) -> str:

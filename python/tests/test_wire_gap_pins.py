@@ -47,6 +47,8 @@ import re
 from pathlib import Path
 
 import pytest
+from test_gaps_ledger import ID_RE_TEXT as _GAP_TOKEN_RE
+from test_gaps_ledger import citation_resolves
 
 REPO = Path(__file__).resolve().parents[2]
 CROSSLANG_FIXTURES = REPO / "crates" / "qd-runtime" / "tests" / "crosslang_fixtures.py"
@@ -59,10 +61,15 @@ ANSWER_SIDE_TYPES = ("SlotAnswer", "AnswerEnvelope", "RefusalEnvelope", "ErrorEn
 #: Where a ``GAP-`` id may be cited from and still be checked by the test below.
 CITING_PATHS = ("python/qd_wire", "python/tests")
 
-#: A ``GAP-`` token, including a trailing glob so ``GAP-XLANG-*`` is recognised as the
-#: family pattern it is and discarded whole, rather than being clipped to a shorter
-#: id that no record carries.
-_GAP_TOKEN = r"GAP-[A-Z0-9*]+(?:-[A-Z0-9*]+)*"
+#: The pattern and the resolution rule both come from ``test_gaps_ledger``, which owns
+#: them repo-wide. This module used to carry its own token pattern, and the two
+#: disagreed: that pattern could not end in a hyphen, so a citation wrapped across a line
+#: break in ``test_shards.py`` was clipped at the break and reported as dangling while the
+#: full record it names sat in the ledger. The clipped form is not quoted here on purpose —
+#: writing it would trip the guard this module is.
+#: A family glob such as ``GAP-XLANG-*`` still resolves: the shared pattern stops at the
+#: ``*``, leaving a trailing hyphen, which is exactly the shape ``citation_resolves``
+#: accepts as a stem. Imported at the top of this module with the other imports.
 
 
 # ==========================================================================================
@@ -108,22 +115,18 @@ def test_every_gap_id_this_lane_cites_exists_in_the_ledger():
     cited: dict[str, set[str]] = {}
     for root in CITING_PATHS:
         for path in sorted((REPO / root).rglob("*.py")):
-            for match in re.finditer(_GAP_TOKEN, path.read_text("utf-8")):
-                token = match.group(0)
-                # A trailing `*` makes the token a glob over a family in prose, not a
-                # citation of one record. The `*` is matched as part of the token and
-                # dropped here rather than excluded by a negative lookahead: a lookahead
-                # makes the pattern backtrack and match a truncated prefix of the id,
-                # which then dangles for a different and more confusing reason.
-                if "*" in token:
-                    continue
-                cited.setdefault(token, set()).add(str(path.relative_to(REPO)))
+            for match in _GAP_TOKEN_RE.finditer(path.read_text("utf-8")):
+                cited.setdefault(match.group(0), set()).add(str(path.relative_to(REPO)))
 
     assert cited, (
         f"no GAP- id is cited anywhere under {CITING_PATHS}, so this test is checking "
         "an empty set. Either the citations were removed or the scan stopped working."
     )
-    dangling = {gid: sorted(where) for gid, where in cited.items() if gid not in known}
+    dangling = {
+        gid: sorted(where)
+        for gid, where in cited.items()
+        if not citation_resolves(gid, known)
+    }
     assert not dangling, (
         "these GAP- ids are cited in code but are not in gaps.jsonl: "
         + json.dumps(dangling, indent=2, sort_keys=True)

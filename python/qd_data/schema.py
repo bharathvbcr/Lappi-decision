@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import dataclasses
 import hashlib
 import json
 from dataclasses import dataclass, field
@@ -36,6 +37,7 @@ from .errors import (
     DuplicateSlotNameRefusal,
     EmptyOptionRefusal,
     EmptySlotsRefusal,
+    MalformedRequestRefusal,
     ReservedOptionNameRefusal,
     TooManyOptionsRefusal,
     UnknownSchemaVersionRefusal,
@@ -51,10 +53,12 @@ __all__ = [
     "MIN_SCORE_BINS",
     "MAX_SCORE_BINS",
     "MAX_SLOTS",
+    "WIRE_REQUEST_KEYS",
     "Slot",
     "ChoiceSlot",
     "ScoreSlot",
     "SpanSlot",
+    "HashExpectation",
     "Request",
     "Route",
     "slot_set_digest",
@@ -89,6 +93,40 @@ MAX_SCORE_BINS: Final[int] = 16
 #: Bounded fan-out: a request with an unbounded number of slots is an unbounded
 #: number of decode passes over one prefill.
 MAX_SLOTS: Final[int] = 32
+
+#: Every top-level key a request may carry, and the whole of it.
+#:
+#: The mirror of ``REQUEST_KEYS`` in ``crates/qd-runtime/src/wire.rs``, which
+#: ``known_keys`` enforces there. Until 2026-09-19 this lane had no such list and
+#: :meth:`Request.from_wire` read through ``dict.get``, so an unknown field was a hard
+#: refusal in serving and a silently defaulted field in training -- the same typo
+#: diagnosed by one lane and not the other. ``GAP-XLANG-UNKNOWN-FIELD-LENIENCY``.
+#:
+#: It is **not** verified by having been typed carefully:
+#: ``python/tests/test_qd_data_wire_agreement.py`` parses the Rust declaration out of
+#: ``wire.rs`` on every run and fails naming the field that drifted. Two of this
+#: session's defects were a transcribed constant, which is why the comparison is a test
+#: rather than a comment. The extractor raises rather than returning a short list, so a
+#: parse failure cannot read as agreement.
+#:
+#: ``context`` is deliberately absent: it is the retired wire form, and both lanes name
+#: it before this check so a caller still sending it is told what replaced it.
+WIRE_REQUEST_KEYS: Final[frozenset[str]] = frozenset(
+    {
+        "schema_version",
+        "task",
+        "context_b64",
+        "context_len",
+        "question",
+        "slots",
+        "route",
+        "expect",
+        # Accepted and ignored by the runtime; emitted by this lane to steer the
+        # *training* option shuffle only.
+        "example_id",
+        "metadata",
+    }
+)
 
 Route = Literal["generic", "registered"]
 _ROUTES: Final[frozenset[str]] = frozenset({"generic", "registered"})
@@ -351,6 +389,101 @@ def _slot_from_wire(raw: object, index: int) -> Slot:
 
 
 @dataclass(frozen=True, slots=True)
+class HashExpectation:
+    """What build the caller believes it is talking to. All five pins optional.
+
+    The Python producer for the ``expect`` block in ``docs/schema-api.md``. Mirrors
+    ``crates/qd-runtime/src/schema.rs::HashExpectation`` field for field; the runtime
+    compares each present pin against the loaded backend's identity and refuses with
+    ``hash_mismatch`` rather than answering from a build the caller did not mean.
+
+    Until 2026-09-19 this lane could not pin anything: ``Request.to_wire()`` emitted no
+    ``expect`` at all, so an eval run that silently used a different tokenizer was
+    caught by nothing on this side. ``GAP-XLANG-NO-PY-HASH-EXPECTATION``.
+
+    Three details are load-bearing, and each is asserted rather than described in
+    ``python/tests/test_qd_data_wire_agreement.py``:
+
+    * **The names are the Rust struct's.** They are compared against the *generated*
+      ``qd_wire.contract`` table, itself re-derived from ``schema.rs`` on every run. The
+      second pin is ``weight_hash``, not ``weights_hash`` -- that single missing letter
+      is ``GAP-XLANG-EXPECT-FIELD-NAME-DOC-DRIFT``, and the struct is
+      ``deny_unknown_fields``, so the misspelling earned an unknown-field refusal rather
+      than a hash mismatch.
+    * **Empty emits nothing.** An expectation with no pins is absent from the wire
+      object, not five nulls: ``HashExpectation::default()`` is what the runtime
+      substitutes for an absent ``expect``, so emitting nulls would be a second spelling
+      of one state -- the defect shape this repo has shipped three times.
+    * **A pin is a string or it is refused.** Rust types the five as
+      ``Option<String>``; a number there is a serde type error, so coercing one here
+      would make the two lanes accept different payloads.
+
+    ``label_set_hash`` is a property of the *loaded build*. It is **not**
+    :func:`slot_set_digest`, which is a property of the request's slot list; a caller
+    that pinned the latter would earn ``hash_mismatch`` on every request.
+    ``GAP-XLANG-LABEL-SET-HASH-TWO-MEANINGS``.
+    """
+
+    tokenizer_hash: str | None = None
+    weight_hash: str | None = None
+    head_hash: str | None = None
+    label_set_hash: str | None = None
+    calibration_hash: str | None = None
+
+    def __post_init__(self) -> None:
+        for name in _HASH_PINS:
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, str):
+                raise MalformedRequestRefusal(
+                    expected=f"`expect.{name}` as a string or absent",
+                    actual=type(value).__name__,
+                    detail=(
+                        "the runtime types the five pins as Option<String>; a non-string "
+                        "is a deserialization error there, so it is refused here rather "
+                        "than coerced into one"
+                    ),
+                )
+
+    def is_empty(self) -> bool:
+        """True when nothing is pinned, which is what an absent ``expect`` means."""
+        return all(getattr(self, name) is None for name in _HASH_PINS)
+
+    def to_wire(self) -> dict[str, Any]:
+        """Only the pins that are set. An unset pin is absent, never ``null``."""
+        return {
+            name: value
+            for name in _HASH_PINS
+            if (value := getattr(self, name)) is not None
+        }
+
+    @classmethod
+    def from_wire(cls, raw: object) -> Self:
+        """Parse an ``expect`` block, refusing an unknown pin the way the struct does."""
+        if not isinstance(raw, dict):
+            raise MalformedRequestRefusal(
+                expected="`expect` as an object", actual=type(raw).__name__,
+                detail="the runtime deserializes `expect` into HashExpectation",
+            )
+        unknown = sorted(set(raw) - set(_HASH_PINS))
+        if unknown:
+            raise MalformedRequestRefusal(
+                expected=f"pins drawn from {sorted(_HASH_PINS)}", actual=unknown,
+                detail=(
+                    "HashExpectation is deny_unknown_fields in crates/qd-runtime/src/"
+                    "schema.rs; an ignored pin is a pin the caller believes is checked"
+                ),
+            )
+        return cls(**{name: raw[name] for name in _HASH_PINS if name in raw})
+
+
+#: The five pin names, in the order ``docs/schema-api.md`` lists them. Derived from the
+#: dataclass so the tuple and the fields cannot disagree.
+_HASH_PINS: Final[tuple[str, ...]] = tuple(
+    f.name for f in dataclasses.fields(HashExpectation)
+)
+
+
+@dataclass(frozen=True, slots=True)
 class Request:
     """A typed request. Structurally valid by construction.
 
@@ -369,6 +502,9 @@ class Request:
     #: Optional caller-supplied identity, used to seed per-example option shuffling.
     example_id: str = ""
     metadata: dict[str, str] = field(default_factory=dict)
+    #: What build the caller believes it is talking to. Empty by default, which is what
+    #: an absent ``expect`` means on the wire and what the runtime substitutes.
+    expect: HashExpectation = field(default_factory=HashExpectation)
 
     def __post_init__(self) -> None:
         if self.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
@@ -422,8 +558,12 @@ class Request:
         though base64 makes it derivable, because a disagreement between the two is
         the signature of a truncated payload that still decodes cleanly -- the one
         failure a length field is for.
+
+        ``expect`` appears only when something is pinned. Absent means "pinned
+        nothing", which is exactly ``HashExpectation::default()`` on the other side;
+        emitting an empty object or five nulls would be a second spelling of it.
         """
-        return {
+        wire: dict[str, Any] = {
             "schema_version": self.schema_version,
             "task": self.task,
             "context_b64": encode_context(bytes(self.context)),
@@ -434,6 +574,9 @@ class Request:
             "example_id": self.example_id,
             "metadata": dict(self.metadata),
         }
+        if not self.expect.is_empty():
+            wire["expect"] = self.expect.to_wire()
+        return wire
 
     @classmethod
     def from_wire(cls, raw: object) -> Self:
@@ -448,6 +591,14 @@ class Request:
         spelling is now a typed refusal naming the field that replaced it, because a
         lenient read is exactly how two encodings coexist and "which one wins"
         becomes undefined.
+
+        **An unknown top-level field is refused, not ignored.** The same posture as
+        ``wire.rs::known_keys``, and in the same order: ``context`` is named first so a
+        caller still sending the retired form is told what replaced it rather than that
+        a field it has always sent is unknown. Reading through ``dict.get`` meant a
+        caller who wrote ``contextlen`` was told ``context_len is required`` with the
+        field visibly present in its own payload -- by the runtime only, while this lane
+        defaulted it and trained on the result. ``GAP-XLANG-UNKNOWN-FIELD-LENIENCY``.
         """
         if not isinstance(raw, dict):
             raise UnknownSlotTypeRefusal(
@@ -467,6 +618,16 @@ class Request:
                     "the retired wire form. The context crosses as context_b64 plus "
                     "context_len and there is no second accepted form; reading 'context' "
                     "leniently is what let the two lanes diverge"
+                ),
+            )
+        unknown = sorted(set(raw) - WIRE_REQUEST_KEYS)
+        if unknown:
+            raise MalformedRequestRefusal(
+                expected=f"fields drawn from {sorted(WIRE_REQUEST_KEYS)}", actual=unknown,
+                detail=(
+                    f"unknown field {unknown[0]!r}; this build reads "
+                    f"{sorted(WIRE_REQUEST_KEYS)}. A misspelling read leniently is a "
+                    "field the caller believes was carried"
                 ),
             )
         ctx = decode_context(raw.get("context_b64"), raw.get("context_len"))
@@ -497,6 +658,8 @@ class Request:
             schema_version=version,
             example_id=str(raw.get("example_id", "")),
             metadata=meta,
+            expect=HashExpectation.from_wire(raw["expect"]) if "expect" in raw
+            else HashExpectation(),
         )
 
 

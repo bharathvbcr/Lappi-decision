@@ -14,11 +14,12 @@ import pytest
 torch = pytest.importorskip("torch", reason="torch is an optional 'mac' extra, not in .venv")
 
 from data_fixtures import mutate_row as row  # noqa: E402
-from qd_train.byte_batch import plan_batch  # noqa: E402
+from qd_train.byte_batch import MAX_PADDING_WASTE, plan_batch  # noqa: E402
 from qd_train.byte_context import ID_PAD  # noqa: E402
 from qd_train.byte_decider import ByteDeciderConfig  # noqa: E402
 from qd_train.byte_train import (  # noqa: E402
     MAX_BATCHES_PER_CALL,
+    Rung0ContractViolation,
     Rung0Model,
     Rung0Step,
     plan_to_tensors,
@@ -31,6 +32,7 @@ from qd_train.run_control import (  # noqa: E402
     RunControl,
     WallClockCap,
 )
+from qd_train.tristate import NotRun, Ran  # noqa: E402
 
 WIDE = dict(pad_id=ID_PAD, max_context_bytes=512, max_option_bytes=96)
 TINY = ByteDeciderConfig(width=32, n_layers=1, n_heads=2, max_context_bytes=512)
@@ -259,14 +261,54 @@ def test_gradient_accumulation_takes_one_step_per_group():
     assert result.optimizer_steps == 2
 
 
-def test_a_partial_accumulation_is_not_applied_as_a_full_step():
-    """A step on fewer micro-batches is a different effective batch size."""
+def test_a_source_that_ends_mid_group_is_refused_not_silently_truncated():
+    """Rule 1, via the shared AccumulationGroup. Dropping the tail loses work silently."""
     _, step = model_and_step()
     plans = [batch() for _ in range(4)]
-    result = train_rung0(plans, step=step, control=control(total_steps=10, grad_accum=3))
-    assert result.micro_batches == 4
-    assert result.optimizer_steps == 1, "the leftover micro-batch must not become a step"
-    assert len(result.loss_log) == 1
+    with pytest.raises(Rung0ContractViolation, match="effective batch size"):
+        train_rung0(plans, step=step, control=control(total_steps=10, grad_accum=3))
+
+
+def test_exhausting_max_batches_is_refused_rather_than_called_steps_exhausted():
+    """A truncated run must not be indistinguishable from a complete one."""
+    _, step = model_and_step()
+    plans = [batch() for _ in range(10)]
+    with pytest.raises(Rung0ContractViolation, match="not the one this run planned for"):
+        train_rung0(plans, step=step, control=control(total_steps=10), max_batches=2)
+
+
+def test_a_non_finite_loss_stops_the_run():
+    """Rule 3. Continuing trains on NaN and still prints numbers."""
+
+    class NanStep(Rung0Step):
+        def accumulate(self, plan):
+            real = super().accumulate(plan)
+            return type(real)(choice=real.choice, span=real.span, total=float("nan"))
+
+    model = Rung0Model(TINY)
+    with pytest.raises(Rung0ContractViolation, match="non-finite loss"):
+        train_rung0([batch()], step=NanStep(model), control=control(total_steps=5))
+
+
+def test_the_cap_does_not_discard_a_half_accumulated_gradient():
+    """Rule 2: the cap is read at a group boundary, so overshoot is at most one step."""
+    ticks = iter([0.0, 0.0, 0.0] + [1000.0] * 40)
+    last = [0.0]
+
+    def clock():
+        last[0] = next(ticks, last[0])
+        return last[0]
+
+    _, step = model_and_step()
+    plans = [batch() for _ in range(9)]
+    result = train_rung0(
+        plans, step=step, control=control(total_steps=10, cap_s=1.0, grad_accum=3, clock=clock)
+    )
+    assert result.termination == "wall_clock_cap"
+    assert result.micro_batches % 3 == 0, (
+        f"stopped {result.micro_batches} micro-batches in, which is mid-group: a "
+        "half-accumulated gradient was computed and thrown away"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +344,35 @@ def test_checkpoints_fire_on_the_cadence_run_control_names():
     assert [c.optimizer_step for c in seen] == [2, 4]
 
 
-def test_padding_waste_is_reported_so_bucketing_can_be_judged():
+def test_padding_is_a_gate_not_a_number_nobody_reads():
     _, step = model_and_step()
     result = train_rung0([batch()], step=step, control=control(total_steps=5))
-    assert 0.0 <= result.padding_waste < 1.0
+    assert isinstance(result.padding, Ran)
+    assert 0.0 <= float(result.padding.value) < 1.0
+    assert result.padding.passed == (float(result.padding.value) <= MAX_PADDING_WASTE)
+    assert result.padding.n_total > 0
+
+
+def test_a_run_that_consumed_nothing_reports_padding_as_not_run():
+    """0.0 would read as perfect bucketing on a run that trained on nothing."""
+    ticks = iter([0.0] + [1000.0] * 20)
+    last = [0.0]
+
+    def clock():
+        last[0] = next(ticks, last[0])
+        return last[0]
+
+    _, step = model_and_step()
+    result = train_rung0(
+        [batch()], step=step, control=control(total_steps=5, cap_s=1.0, clock=clock)
+    )
+    assert result.micro_batches == 0
+    assert isinstance(result.padding, NotRun)
+    assert not hasattr(result.padding, "passed")
+
+
+def test_the_result_reports_how_many_rows_it_trained_on():
+    _, step = model_and_step()
+    plans = [batch(), batch()]
+    result = train_rung0(plans, step=step, control=control(total_steps=5))
+    assert result.rows == sum(p.batch_size for p in plans)

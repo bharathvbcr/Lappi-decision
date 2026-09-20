@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from collections.abc import Collection
 from pathlib import Path
 
 import pytest
@@ -35,9 +36,41 @@ LEDGER = REPO / "gaps.jsonl"
 
 REQUIRED_KEYS = {"id", "question", "status"}
 
-# Deliberately permissive on the tail so a line-wrapped citation is *caught* as a
-# fragment here and resolved by the prefix rule below, rather than silently skipped.
-ID_RE = re.compile(rb"GAP-[A-Z0-9][A-Z0-9-]{3,}")
+# Deliberately permissive on the tail: the hyphen is INSIDE the class, so a citation
+# wrapped across a line break is captured *with* its trailing hyphen instead of being
+# clipped. That hyphen is the signal `citation_resolves` keys on, so a pattern that
+# drops it cannot tell a wrap from a truncation.
+_ID_PATTERN = r"GAP-[A-Z0-9][A-Z0-9-]{3,}"
+ID_RE = re.compile(_ID_PATTERN.encode())
+ID_RE_TEXT = re.compile(_ID_PATTERN)
+
+
+def citation_resolves(token: str, known: Collection[str]) -> bool:
+    """Does a ``GAP-`` token found in prose resolve to a record? The single owner of that
+    rule; import it rather than writing a second one.
+
+    Exact match resolves. A token ending in a hyphen may also resolve as a prefix of at
+    least one record, because a trailing hyphen marks the two harmless shapes: an id
+    wrapped across a line break, and a family glob naming records by their stem. A token
+    *without* a trailing hyphen is a complete citation and must resolve exactly —
+    otherwise prefix tolerance also absorbs a truncated or mistyped id, which is the
+    dangling citation the guard exists to catch.
+
+    This exists because two checkers disagreed on the same text. ``test_wire_gap_pins.py``
+    carried its own pattern that could not end in a hyphen, so a citation wrapped across a
+    line break in ``test_shards.py`` was clipped at the break and reported as dangling,
+    while the full record it names sat in the ledger. Two implementations of one check,
+    giving opposite verdicts on valid prose, is the defect this repository keeps finding
+    in its own subject matter.
+
+    Note what is deliberately absent above: the clipped form itself. Writing it would make
+    this docstring fail the very guard it serves, because a scanner cannot tell a quoted
+    broken token from a citation — which is the same reason the ledger's own prose is
+    excluded from the scan.
+    """
+    if token in known:
+        return True
+    return token.endswith("-") and any(k.startswith(token) for k in known)
 
 
 def _lines() -> list[tuple[int, dict]]:
@@ -159,7 +192,13 @@ def test_every_gap_id_cited_in_a_tracked_file_exists_in_the_ledger() -> None:
     dangling: dict[str, set[str]] = {}
     seen_any = False
     for path in _scanned_files():
-        if path.name == "gaps.jsonl" or not path.is_file():
+        # The ledger's own prose is excluded, and that exclusion is LOAD-BEARING -- see
+        # test_the_ledger_is_excluded_from_the_citation_scan_for_a_reason below before
+        # removing it. A record documenting a rename, a family of records, or someone
+        # else's typo has to be able to write down a string that is *not* an id, and
+        # "this is not an id" cannot be said without saying it. No checker can tell that
+        # from a dangling reference, because the distinction lives in the prose around it.
+        if path.name == LEDGER.name or not path.is_file():
             continue
         try:
             blob = path.read_bytes()
@@ -168,9 +207,7 @@ def test_every_gap_id_cited_in_a_tracked_file_exists_in_the_ledger() -> None:
         for m in ID_RE.finditer(blob):
             gid = m.group().decode()
             seen_any = True
-            if gid in known:
-                continue
-            if gid.endswith("-") and any(k.startswith(gid) for k in known):
+            if citation_resolves(gid, known):
                 continue
             dangling.setdefault(gid, set()).add(str(path.relative_to(REPO)))
 
@@ -191,3 +228,36 @@ def test_every_gap_id_cited_in_a_tracked_file_exists_in_the_ledger() -> None:
             "gaps.jsonl. A document claiming a record was written, when it never was, "
             "hides the finding from anyone reading the ledger:\n  " + detail
         )
+
+
+def test_the_ledger_is_excluded_from_the_citation_scan_for_a_reason() -> None:
+    """A self-retiring pin on the `gaps.jsonl` skip above.
+
+    An unexplained skip in a checker invites someone to tighten it. This measures what
+    scanning the ledger's own prose *would* report, so the justification is live data
+    rather than an assertion in a comment.
+
+    Every such hit is a record being precise about id history -- a spelling that was
+    renamed before the code landed, a family named by its stem, a typo made elsewhere.
+    Saying "this string is not an id" requires writing the string, and no scanner can
+    distinguish that from a citation, because the distinction is in the surrounding prose.
+
+    Tightening the trailing-hyphen rule made this MORE necessary, not less: a stem like
+    the qd-mutate family prefix is a prefix of many real records but carries no trailing
+    hyphen, so it now reports as dangling where it used to be absorbed.
+
+    If this ever legitimately reaches zero, the skip has no more work to do -- delete the
+    skip and this test together, in that order.
+    """
+    known = {r["id"] for _, r in _lines()}
+    would_report = set()
+    for m in ID_RE.finditer(LEDGER.read_bytes()):
+        gid = m.group().decode()
+        if not citation_resolves(gid, known):
+            would_report.add(gid)
+
+    assert would_report, (
+        "scanning gaps.jsonl now yields no would-be dangling id, so the skip in "
+        "test_every_gap_id_cited_in_a_tracked_file_exists_in_the_ledger protects nothing. "
+        "Remove the skip, then remove this test."
+    )

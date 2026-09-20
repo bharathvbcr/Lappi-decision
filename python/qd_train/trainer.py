@@ -96,6 +96,7 @@ import numpy as np
 from .artifacts import NO_SPAN, SLOT_LM, SLOT_SPAN, SPAN_ABSTAIN, Batch
 from .ledger import RunRecorder
 from .run_control import (
+    AccumulationGroup,
     Checkpoint,
     LossLog,
     LossPoint,
@@ -602,9 +603,10 @@ def _train(
     span_rows = 0
     padded_positions = 0
     total_positions = 0
-    group_losses: list[float] = []
     last_index = start_index - 1
     termination: TerminationReason = "data_exhausted"
+
+    group = AccumulationGroup(control, violation=TrainerContractViolation)
 
     control.start()
     with recorder:
@@ -627,9 +629,10 @@ def _train(
             if optimizer_step >= control.total_steps:
                 termination = "steps_exhausted"
                 break
-            # The cap is checked here -- at a group boundary -- so no half-accumulated
-            # gradient is ever discarded. Overshoot is bounded by one optimizer step.
-            if not group_losses and control.expired():
+            # The cap is checked at a group boundary -- rule 2 of `AccumulationGroup` --
+            # so no half-accumulated gradient is ever discarded. Overshoot is bounded by
+            # one optimizer step.
+            if group.should_stop_for_cap():
                 termination = "wall_clock_cap"
                 break
             if micro_batches >= max_batches:
@@ -643,13 +646,7 @@ def _train(
             else:
                 batch = next(source, None)
             if batch is None:
-                if group_losses:
-                    raise TrainerContractViolation(
-                        f"the source ended {len(group_losses)} micro-batch(es) into an "
-                        f"accumulation group of {control.grad_accum}. Applying a partial group "
-                        "would take a step at a different effective batch size than every other "
-                        "step in this run."
-                    )
+                group.refuse_partial(where=f"epoch {epoch}, after batch index {last_index}")
                 termination = "data_exhausted"
                 break
 
@@ -675,24 +672,20 @@ def _train(
                         "to abstain always -- GAP-S4-SPAN-GOLD-HAS-NO-BATCH-CHANNEL."
                     )
                 loss = step.accumulate_span(batch, supervision)
-            loss = float(loss)
-            if not np.isfinite(loss):
-                raise TrainerContractViolation(
-                    f"step returned a non-finite loss {loss!r} at epoch {epoch}, batch "
-                    f"{batch.index}. A run that keeps going after this trains on NaN gradients "
-                    "and reports a loss curve that simply stops meaning anything."
-                )
+            # Rules 3 and 4 live in `AccumulationGroup`: a non-finite loss stops the run
+            # here, and the group's recorded loss is the mean over exactly its own
+            # micro-batches.
+            group.add(float(loss), where=f"epoch {epoch}, batch {batch.index}")
 
             micro_batches += 1
             supervised_tokens += supervision.n_supervised
             span_rows += supervision.span.n_spans if supervision.span is not None else 0
             total_positions += int(batch.tokens.size)
             padded_positions += int(batch.tokens.size) - int(batch.lengths.sum())
-            group_losses.append(loss)
-
-            if len(group_losses) < control.grad_accum:
+            if not group.ready:
                 continue
 
+            group_loss, _ = group.drain()
             lr = control.lr_at(optimizer_step)
             step.apply(lr=lr)
             log.append(
@@ -700,10 +693,9 @@ def _train(
                     optimizer_step=optimizer_step,
                     epoch=epoch,
                     batch_index=batch.index,
-                    loss=sum(group_losses) / len(group_losses),
+                    loss=group_loss,
                 )
             )
-            group_losses.clear()
             optimizer_step += 1
 
             if on_checkpoint is not None and control.should_checkpoint(optimizer_step - first_step):

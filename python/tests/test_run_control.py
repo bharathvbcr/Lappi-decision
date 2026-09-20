@@ -338,3 +338,125 @@ def test_the_schedule_carried_by_a_checkpoint_recomputes_the_same_rates():
     ckpt = _checkpoint()
     assert ckpt.schedule.lr_at(ckpt.optimizer_step) == _schedule().lr_at(4)
     assert math.isfinite(ckpt.schedule.lr_at(ckpt.optimizer_step))
+
+
+# ---------------------------------------------------------------------------
+# AccumulationGroup: the four rules, one owner
+# ---------------------------------------------------------------------------
+
+
+def _group(*, grad_accum: int = 3, cap_s: float = 600.0, clock=None):
+    from qd_train.run_control import AccumulationGroup
+
+    cap = WallClockCap(cap_s=cap_s)
+    kwargs = dict(
+        schedule=LRSchedule(peak_lr=1e-3, total_steps=10),
+        cap=cap,
+        cost=CostEstimate(usd_per_hour=0.0, cap=cap, n_gpus=1, instance="test"),
+        grad_accum=grad_accum,
+    )
+    if clock is not None:
+        kwargs["clock"] = clock
+    control = RunControl(**kwargs)
+    control.start()
+    return AccumulationGroup(control, violation=ValueError), control
+
+
+class _Boom(Exception):
+    pass
+
+
+def test_a_group_is_not_ready_until_grad_accum_micro_batches():
+    group, _ = _group(grad_accum=3)
+    for i in range(2):
+        group.add(1.0, where=f"b{i}")
+        assert not group.ready
+        assert group.open
+    group.add(1.0, where="b2")
+    assert group.ready
+
+
+def test_rule_1_a_partial_group_is_refused_when_the_source_ends():
+    """A step on fewer micro-batches is a different effective batch size."""
+    group, _ = _group(grad_accum=3)
+    group.add(1.0, where="b0")
+    with pytest.raises(ValueError, match="effective batch size"):
+        group.refuse_partial(where="end of epoch")
+
+
+def test_rule_1_a_closed_group_is_not_refused():
+    group, _ = _group(grad_accum=1)
+    group.add(1.0, where="b0")
+    group.drain()
+    group.refuse_partial(where="end of epoch")  # must not raise
+
+
+def test_rule_2_the_cap_cannot_stop_the_loop_mid_group():
+    """Stopping mid-group discards a half-accumulated gradient with nothing saying so."""
+    ticks = iter([0.0] + [1000.0] * 20)
+    last = [0.0]
+
+    def clock():
+        last[0] = next(ticks, last[0])
+        return last[0]
+
+    group, _ = _group(grad_accum=3, cap_s=1.0, clock=clock)
+    assert group.should_stop_for_cap(), "an empty group is a boundary; the cap applies"
+    group.add(1.0, where="b0")
+    assert not group.should_stop_for_cap(), "the cap must wait for the group to close"
+    group.add(1.0, where="b1")
+    group.add(1.0, where="b2")
+    group.drain()
+    assert group.should_stop_for_cap()
+
+
+def test_rule_3_a_non_finite_loss_stops_the_run():
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        group, _ = _group()
+        with pytest.raises(ValueError, match="non-finite loss"):
+            group.add(bad, where="b0")
+
+
+def test_rule_3_covers_the_extras_too():
+    group, _ = _group()
+    with pytest.raises(ValueError, match="non-finite span loss"):
+        group.add(1.0, where="b0", span=float("nan"))
+
+
+def test_rule_4_the_group_loss_is_the_mean_over_its_own_micro_batches():
+    group, _ = _group(grad_accum=4)
+    for value in (1.0, 2.0, 3.0, 4.0):
+        group.add(value, where="b", half=value / 2)
+    mean, extras = group.drain()
+    assert mean == pytest.approx(2.5)
+    assert extras["half"] == pytest.approx(1.25)
+    assert not group.open, "drain resets the group"
+
+
+def test_rule_4_an_empty_group_cannot_be_drained():
+    """0.0 would enter the loss log as a measurement of a step never taken."""
+    group, _ = _group()
+    with pytest.raises(ValueError, match="never taken"):
+        group.drain()
+
+
+def test_the_caller_supplies_the_exception_type_it_raises():
+    """`TrainerContractViolation` is pinned by test_trainer.py; the rules are still shared."""
+    from qd_train.run_control import AccumulationGroup
+
+    cap = WallClockCap(cap_s=60.0)
+    control = RunControl(
+        schedule=LRSchedule(peak_lr=1e-3, total_steps=10),
+        cap=cap,
+        cost=CostEstimate(usd_per_hour=0.0, cap=cap, n_gpus=1, instance="test"),
+    )
+    group = AccumulationGroup(control, violation=_Boom)
+    with pytest.raises(_Boom):
+        group.add(float("nan"), where="b0")
+
+
+def test_a_group_refuses_something_that_is_not_a_run_control():
+    from qd_train.run_control import AccumulationGroup
+
+    with pytest.raises(TypeError, match="must be a RunControl"):
+        AccumulationGroup(object())  # type: ignore[arg-type]

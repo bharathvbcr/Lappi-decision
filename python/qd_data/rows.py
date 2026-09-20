@@ -30,11 +30,99 @@ from typing import Any, Final
 
 from .schema import Request, canonical_json
 
-__all__ = ["DataRow", "GoldAnswer", "row_content_hash"]
+__all__ = [
+    "DataRow",
+    "GoldAnswer",
+    "gold_span_to_wire",
+    "row_content_hash",
+    "wire_span_to_gold",
+]
 
 #: Bounded: a row's dedupe text is hashed and shingled, and both are linear in its
 #: length. The mixture refuses a row over this before it is ever constructed.
 MAX_DEDUPE_TEXT_BYTES: Final[int] = 262_144
+
+
+# -- the two spellings of a line span, and the one function between them ------
+#
+# ``GAP-XLANG-SPAN-THREE-SPELLINGS``. A line span is written two ways in this repo and
+# they stay two, deliberately: ``GoldAnswer.value`` is a two-element array because it is
+# a *training label* in a JSONL row, and ``SlotValue::Span`` is ``{start_line, end_line}``
+# because it is a *runtime answer* on the wire. Forcing one shape on both would be
+# over-unification -- they answer different questions and never travel together.
+#
+# What was wrong was not the two shapes; it was that only one of them had a rule.
+# ``GAP-XLANG-SPAN-BOUNDS-UNPINNED`` made ``1 <= start_line <= end_line`` a term of the
+# wire format, enforced in ``crates/qd-runtime/src/schema.rs::SpanValue``'s
+# ``TryFrom<SpanValueWire>`` and in ``qd_wire.answer.parse_slot_value``. The gold
+# spelling enforced nothing, so ``GoldAnswer(value=(47, 41))`` was constructible and
+# failed only at whatever later tried to use it -- and the gap's own action_required
+# says the conversion "must therefore carry the bounds, not only reshape the fields".
+#
+# So: one rule, checked in both spellings, and one named pair of functions between them
+# rather than an inline ``{"start_line": v[0], ...}`` at each future call site. The
+# agreement is asserted by execution, not by a second copy of the expression --
+# ``test_qd_data_wire_agreement.py`` drives this module's output into
+# ``qd_wire.answer.parse_slot_value`` and checks that what one refuses the other does.
+
+
+def _checked_span(value: object, *, what: str) -> tuple[int, int]:
+    """The one implementation of the span rule on this side.
+
+    ``bool`` is excluded explicitly: it is an ``int`` subclass in Python, so
+    ``(True, 5)`` would otherwise pass as the span ``(1, 5)``.
+    """
+    if not isinstance(value, (tuple, list)) or len(value) != 2:
+        raise ValueError(
+            f"{what}: a line span is exactly two values, got {value!r}. "
+            "The runtime spelling is {start_line, end_line} and has no other arity."
+        )
+    start, end = value
+    for label, v in (("start_line", start), ("end_line", end)):
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError(f"{what}: {label} must be an int, got {v!r}")
+    if start < 1:
+        raise ValueError(
+            f"{what}: span starts at line {start}, but a span is 1-based and inclusive, "
+            "so line 0 does not exist"
+        )
+    if start > end:
+        raise ValueError(
+            f"{what}: span runs backwards: start_line {start} is after end_line {end}. "
+            "A backwards span is not a low-confidence span, it is not a span; it is "
+            "refused rather than silently reordered into a plausible-looking answer"
+        )
+    return int(start), int(end)
+
+
+def gold_span_to_wire(value: tuple[int, int]) -> dict[str, int]:
+    """A gold span as the runtime spells one: ``[41, 47]`` -> ``{start_line, end_line}``.
+
+    The single named conversion ``GAP-XLANG-SPAN-THREE-SPELLINGS`` asks for. An eval
+    that scores model spans against gold answers converts here and nowhere else; an
+    inline reshape at the call site would be the third spelling the gap warns about,
+    and would carry no bounds.
+    """
+    start, end = _checked_span(value, what="gold span")
+    return {"start_line": start, "end_line": end}
+
+
+def wire_span_to_gold(value: dict[str, int]) -> tuple[int, int]:
+    """The inverse: ``{start_line, end_line}`` -> ``(41, 47)``.
+
+    Refuses an unknown key for the same reason ``SpanValue`` is ``deny_unknown_fields``:
+    a field nobody reads is a field the producer believes was carried.
+    """
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"a wire span is an object, got {type(value).__name__}. The gold spelling is "
+            "the two-element array; use it directly rather than converting from it."
+        )
+    if set(value) != {"start_line", "end_line"}:
+        raise ValueError(
+            f"a wire span is exactly {{start_line, end_line}}, got {sorted(value)}"
+        )
+    return _checked_span((value["start_line"], value["end_line"]), what="wire span")
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +136,11 @@ class GoldAnswer:
     """
 
     slot_name: str
+    #: A span is the two-element array ``(start_line, end_line)``, 1-based and
+    #: inclusive -- the same numeric convention as the runtime spelling, and since
+    #: 2026-09-19 the same *rule*: it is checked in ``__post_init__`` by the same
+    #: predicate :func:`gold_span_to_wire` uses, so a label that could not become a
+    #: ``SlotValue::Span`` cannot be written to a shard either.
     value: str | int | tuple[int, int] | None
     #: True when the gold answer is *abstain*. This is a value the model may produce,
     #: never an error -- see ``qd_data.errors``. CLINC150's out-of-scope class and
@@ -57,6 +150,12 @@ class GoldAnswer:
     def __post_init__(self) -> None:
         if not self.slot_name.strip():
             raise ValueError("GoldAnswer.slot_name must be non-empty")
+        if isinstance(self.value, (tuple, list)):
+            # A span label. Checked here rather than at whatever later reads it: an
+            # unchecked backwards span used to survive construction, dedupe, splitting
+            # and the shard writer, and surfaced only where something tried to make a
+            # runtime span of it. `GAP-XLANG-SPAN-THREE-SPELLINGS`.
+            _checked_span(self.value, what=f"slot {self.slot_name!r}")
         if self.is_noul and self.value is not None:
             raise ValueError(
                 f"slot {self.slot_name!r}: an abstention carries no value, but got "

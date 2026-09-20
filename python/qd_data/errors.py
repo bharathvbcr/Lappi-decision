@@ -28,6 +28,7 @@ from typing import Any, Final
 __all__ = [
     "NOUL",
     "QdRefusal",
+    "MalformedRequestRefusal",
     "UnknownSchemaVersionRefusal",
     "EmptySlotsRefusal",
     "DuplicateSlotNameRefusal",
@@ -65,6 +66,31 @@ class QdRefusal(Exception):
 
     #: Stable identifier for the check, used in tests and in the ledger.
     check: str = "unspecified"
+
+    #: The ``Refusal::kind()`` identifiers in ``crates/qd-runtime/src/refusal.rs`` that
+    #: this class stands for, closest first — the runtime's name for the same condition.
+    #:
+    #: ``GAP-XLANG-REFUSAL-VOCABULARIES`` is the divergence this makes checkable. It was
+    #: recorded as six pairs of differently-spelled names, in a flat table repeated in
+    #: three files, which does not say *why* they differ and so cannot say whether a
+    #: rename would fix it. Declared per class, it does: four of the six Python classes
+    #: stand for **several** runtime kinds, so renaming ``options_len`` to
+    #: ``too_many_options`` would put a failure's name on a class that also fires for
+    #: ``too_few_options``. Only ``schema_version`` and ``slot_names_unique`` are
+    #: one-to-one and renameable as they stand.
+    #:
+    #: An empty tuple means "the runtime has no such check", which is true of the
+    #: data-lane refusals (licensing, held-out paths, upstream row shape). It is not a
+    #: default anyone may fall into: ``test_qd_data_wire_agreement.py`` fails when a
+    #: subclass inherits this rather than declaring it, and fails again when the set of
+    #: classes declaring ``()`` is not exactly the recorded one. That is the executable
+    #: form of the gap's *"do not add a refusal to one lane without checking whether the
+    #: other already names the same condition differently"*.
+    #:
+    #: Every name here is checked against the **generated** ``qd_wire.contract``
+    #: refusal-kind table, itself re-derived from ``refusal.rs`` on every run, so a kind
+    #: renamed on the Rust side fails a Python test that points at the stale class.
+    rust_kinds: tuple[str, ...] = ()
 
     def __init__(self, *, expected: object, actual: object, detail: str = "") -> None:
         self.expected = expected
@@ -104,72 +130,143 @@ def _jsonable(v: object) -> Any:
 # -- the refusals named in docs/schema-api.md and docs/hardening.md section 3 --
 
 
+class MalformedRequestRefusal(QdRefusal):
+    """The envelope itself is not a request this build reads.
+
+    An unknown top-level field, an ``expect`` block that is not an object, or a pin
+    that is not a string. Named and spelled exactly as ``Refusal::MalformedRequest``
+    in ``crates/qd-runtime/src/refusal.rs``, because a refusal added to one lane under
+    a new name is how ``GAP-XLANG-REFUSAL-VOCABULARIES`` widens.
+
+    Unknown fields are refused rather than ignored for the reason
+    ``wire.rs::known_keys`` gives: a caller who misspells ``context_len`` would
+    otherwise be told ``context_len is required`` with the field visibly present in
+    its own payload. Until 2026-09-19 this lane read straight past them, so the same
+    typo was a hard refusal in serving and a silently defaulted field in training --
+    which is the drift this contract exists to prevent.
+    ``GAP-XLANG-UNKNOWN-FIELD-LENIENCY``.
+    """
+
+    check = "malformed_request"
+    rust_kinds = ("malformed_request",)
+
+
 class UnknownSchemaVersionRefusal(QdRefusal):
     """Forward-compat guessing is how a field changes meaning silently."""
 
     check = "schema_version"
+    rust_kinds = ("unknown_schema_version",)
 
 
 class EmptySlotsRefusal(QdRefusal):
-    """An answer map with no slots is not an answer."""
+    """An answer map with no slots is not an answer.
+
+    Also raised for a slot list over ``MAX_SLOTS`` and for a ``slots`` field that is
+    not a list at all, which the runtime names ``too_many_slots`` and
+    ``malformed_request``. One class, three runtime kinds.
+    """
 
     check = "slots_non_empty"
+    rust_kinds = ("empty_slots", "too_many_slots", "malformed_request")
 
 
 class DuplicateSlotNameRefusal(QdRefusal):
     """Two slots with one name make the answer map ambiguous."""
 
     check = "slot_names_unique"
+    rust_kinds = ("duplicate_slot_name",)
 
 
 class UnknownSlotTypeRefusal(QdRefusal):
-    """A slot type outside the four in the contract."""
+    """A slot type outside the four in the contract.
+
+    The broadest class here: it also carries an unnamed slot, an unknown route, a
+    choice slot with no ``options`` field, a non-object request and a non-string
+    ``task``/``question``/``route``. The runtime names those five conditions
+    separately, so the single ``slot_type_known`` identifier a caller sees from this
+    lane covers five of its kinds.
+    """
 
     check = "slot_type_known"
+    rust_kinds = (
+        "unknown_slot_type",
+        "unknown_route",
+        "empty_slot_name",
+        "slot_field_missing",
+        "malformed_request",
+    )
 
 
 class TooManyOptionsRefusal(QdRefusal):
     """The lm_head letter slice cannot express another option; dropping one
-    changes the question."""
+    changes the question.
+
+    Raised for **no** options as well as too many; the runtime splits those into
+    ``too_few_options`` and ``too_many_options``.
+    """
 
     check = "options_len"
+    rust_kinds = ("too_many_options", "too_few_options")
 
 
 class DuplicateOptionRefusal(QdRefusal):
     """Two identical options make the question malformed: two letters, one answer."""
 
     check = "options_unique"
+    rust_kinds = ("duplicate_option",)
 
 
 class EmptyOptionRefusal(QdRefusal):
     """An empty or whitespace-only option is an unlabelled letter."""
 
     check = "option_non_empty"
+    rust_kinds = ("empty_option",)
 
 
 class ReservedOptionNameRefusal(QdRefusal):
     """``noul`` is in every option set already; listing it is a duplicate."""
 
     check = "option_not_reserved"
+    rust_kinds = ("reserved_option_name",)
 
 
 class OptionTooLongRefusal(QdRefusal):
     """Refusal, not truncation -- a truncated option is a different option."""
 
     check = "option_len"
+    rust_kinds = ("option_text_over_cap",)
 
 
 class BinsOutOfRangeRefusal(QdRefusal):
-    """A 1-bin ordinal is not a question; over the letter cap it is not decodable."""
+    """A 1-bin ordinal is not a question; over the letter cap it is not decodable.
+
+    Also raised for a score slot with no ``bins`` field and for ``bins`` of the wrong
+    type, which the runtime names ``slot_field_missing`` and ``malformed_request``.
+    """
 
     check = "bins_range"
+    rust_kinds = ("bins_out_of_range", "slot_field_missing", "malformed_request")
 
 
 class ContextTooLargeRefusal(QdRefusal):
     """Truncating moves the answer out of the window without saying so, and line
-    spans would then point at the wrong lines."""
+    spans would then point at the wrong lines.
+
+    **The seventh divergence, and the one the pinned table never listed.** This class
+    is also raised for context bytes that are not UTF-8, for an over-cap question and
+    for an over-cap task -- four runtime kinds under one identifier. It is absent from
+    ``KNOWN_VOCABULARY_DIFFERENCES`` on both sides because the cross-language negative
+    set sends no over-cap payload, so the pin that was meant to make the divergence
+    visible could not observe this one at all. ``GAP-XLANG-REFUSAL-VOCABULARIES``.
+    """
 
     check = "context_bytes"
+    rust_kinds = (
+        "context_over_cap",
+        "context_not_utf8",
+        "question_over_cap",
+        "task_over_cap",
+    )
 
 
 class ContextNotBytesRefusal(QdRefusal):
@@ -185,6 +282,7 @@ class ContextNotBytesRefusal(QdRefusal):
     """
 
     check = "context_not_bytes"
+    rust_kinds = ("context_not_bytes",)
 
 
 class ContextNotBase64Refusal(QdRefusal):
@@ -198,6 +296,7 @@ class ContextNotBase64Refusal(QdRefusal):
     """
 
     check = "context_not_base64"
+    rust_kinds = ("context_not_base64",)
 
 
 class ContextLenMissingRefusal(QdRefusal):
@@ -208,6 +307,7 @@ class ContextLenMissingRefusal(QdRefusal):
     """
 
     check = "context_len_missing"
+    rust_kinds = ("context_len_missing",)
 
 
 class ContextLengthMismatchRefusal(QdRefusal):
@@ -218,12 +318,14 @@ class ContextLengthMismatchRefusal(QdRefusal):
     """
 
     check = "context_length_mismatch"
+    rust_kinds = ("context_length_mismatch",)
 
 
 class EmptyContextRefusal(QdRefusal):
     """All-whitespace or empty context: refuse, never a confident letter."""
 
     check = "context_non_empty"
+    rust_kinds = ("context_empty",)
 
 
 class RenderedPromptTooLargeRefusal(QdRefusal):
@@ -231,6 +333,7 @@ class RenderedPromptTooLargeRefusal(QdRefusal):
     bytes the model actually sees, not only on the bytes that arrived."""
 
     check = "rendered_bytes"
+    rust_kinds = ("rendered_prompt_over_cap",)
 
 
 class HashMismatchRefusal(QdRefusal):
@@ -238,6 +341,7 @@ class HashMismatchRefusal(QdRefusal):
     would be confidently wrong."""
 
     check = "hash_match"
+    rust_kinds = ("hash_mismatch",)
 
 
 class LicenceRefused(QdRefusal):
@@ -249,6 +353,8 @@ class LicenceRefused(QdRefusal):
     """
 
     check = "licence_allowlist"
+    #: No runtime counterpart: qd-runtime never sees a licence.
+    rust_kinds = ()
 
 
 class HeldOutViolation(QdRefusal):
@@ -259,6 +365,8 @@ class HeldOutViolation(QdRefusal):
     """
 
     check = "held_out_path"
+    #: No runtime counterpart: qd-runtime never reads a dataset path.
+    rust_kinds = ()
 
 
 def is_refusal_payload(payload: object) -> bool:

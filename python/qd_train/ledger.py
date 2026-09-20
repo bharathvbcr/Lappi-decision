@@ -14,17 +14,23 @@ one failure this module is built to make impossible.
 
 from __future__ import annotations
 
+import argparse
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
+import re
+import shlex
 import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import types
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,9 +45,25 @@ __all__ = [
     "RunRecorder",
     "PromotionVerdict",
     "LedgerChainError",
+    "SuiteFailure",
+    "SuiteCounts",
+    "SuiteOutcome",
     "NOT_APPLICABLE",
     "NON_PROMOTING_RUN_KINDS",
+    "DEFAULT_LEDGER_PATH",
+    "parse_cargo_test_output",
+    "parse_pytest_output",
+    "parse_command",
+    "run_suite",
+    "record_build_run",
+    "main",
 ]
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Where a lane's rows go unless it says otherwise. Named here rather than in each
+# caller so two lanes cannot end up with two ledgers.
+DEFAULT_LEDGER_PATH = REPO_ROOT / "ledger" / "runs.jsonl"
 
 RunKind = Literal[
     "teacher", "lr_probe", "cpt", "prune_heal", "ft", "ablation",
@@ -450,18 +472,58 @@ class Ledger:
 
     # -- writing ---------------------------------------------------------
 
-    def append(self, row: LedgerRow) -> LedgerRow:
-        if any(r.row_id == row.row_id for r in self.rows()):
-            raise ValueError(f"row_id {row.row_id} already present: the ledger is append-only")
-        row.prev_row_hash = self.last_line_hash()
-        line = _canonical(row.to_json()).encode("utf-8")
+    def _take_write_lock(self, fd: int, timeout_s: float) -> None:
+        """Block until this process owns the append, or refuse.
+
+        O_APPEND makes each ``write`` atomic, so two writers cannot tear a line.
+        It says nothing about the *chain*: ``prev_row_hash`` is read before the
+        write, and a second writer that reads the same last line produces two
+        rows claiming one predecessor. ``verify_chain`` then refuses the file
+        from that point on, for good, on a log whose entire premise is that you
+        do not go back and fix it. Measured on this repo before the lock:
+        6 processes x 5 rows produced `line 2 (row w2-0): prev_row_hash is None
+        but the previous line hashes to efbdd1ff...`
+        (``test_concurrent_appends_do_not_break_the_chain``).
+
+        The lock is advisory and process-wide via ``flock``; it binds writers
+        that go through this method and nothing else. A hand-edited file is
+        still caught, but by the chain, not by the lock.
+        """
+        deadline = time.monotonic() + timeout_s
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise LedgerChainError(
+                        f"could not take the write lock on {self.path} within {timeout_s:g}s; "
+                        "another writer holds it. Refusing to append rather than racing it: "
+                        "two writers that read the same last row produce a chain that never "
+                        "verifies again."
+                    ) from None
+                time.sleep(0.005)
+
+    def append(self, row: LedgerRow, *, lock_timeout_s: float = 60.0) -> LedgerRow:
+        if lock_timeout_s <= 0:
+            raise ValueError(f"lock_timeout_s must be positive, got {lock_timeout_s!r}")
         # O_APPEND so concurrent writers cannot interleave a partial line, and
-        # fsync so a row survives the crash that a killed run is recording.
+        # fsync so a row survives the crash that a killed run is recording. The
+        # flock covers read-predecessor-then-write, which O_APPEND does not.
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
         try:
+            self._take_write_lock(fd, lock_timeout_s)
+            if any(r.row_id == row.row_id for r in self.rows()):
+                raise ValueError(f"row_id {row.row_id} already present: the ledger is append-only")
+            row.prev_row_hash = self.last_line_hash()
+            line = _canonical(row.to_json()).encode("utf-8")
             os.write(fd, line + b"\n")
             os.fsync(fd)
         finally:
+            # If the lock was never taken, unlocking fails harmlessly; closing
+            # the descriptor releases it either way.
+            with contextlib.suppress(OSError):
+                fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
         return row
 
@@ -666,3 +728,660 @@ class RunRecorder:
                 notes=note,
             )
         )
+
+
+# ---------------------------------------------------------------------------
+# The recording path.
+#
+# `run_kind: "build"` made an honest row possible. It did not make one easy, and
+# the measured result was that nobody wrote one: `ledger/` stayed empty while
+# four lanes printed command output into their handoffs and flagged that repo
+# rule 5 was unsatisfied. Between the run kind and a written row sat a Protocol,
+# an Environment, a Ledger, a RunRecorder, two harnesses' output formats, and a
+# judgement call about what a suite that never launched should look like. Every
+# one of those is a place to get it wrong, and all of them together are more
+# work than pasting a terminal line.
+#
+# So the path below is one command. Everything here exists to make the honest
+# row the cheap one.
+# ---------------------------------------------------------------------------
+
+
+class SuiteFailure(RuntimeError):
+    """At least one recorded suite ran and failed. Carried into the row's notes."""
+
+
+# A suite gets this long before it is killed and recorded as not-run. Bounded
+# because an unbounded wait turns "the ledger records every run" into "the lane
+# hangs and records nothing".
+DEFAULT_SUITE_TIMEOUT_S = 1800.0
+
+# Captured output is capped and the *tail* is kept: every harness here prints its
+# summary last. Without a cap a runaway suite's output is an unbounded allocation
+# inside the thing whose job is to survive the run.
+MAX_CAPTURED_OUTPUT_BYTES = 8 * 1024 * 1024
+
+# How much of the output tail a row's `detail` may carry. The row is a record,
+# not a log; the full output belongs to the terminal that produced it.
+MAX_DETAIL_CHARS = 240
+
+
+@dataclass(frozen=True, slots=True)
+class SuiteCounts:
+    """What a harness said it did, in the three buckets a coverage pair needs.
+
+    ``ran_ok`` and ``ran_failed`` executed. ``not_run`` was collected and did
+    not: skipped, ignored, deselected, filtered out. Keeping that third bucket
+    separate is the whole point — it is the difference between ``344/344`` and
+    ``12/344``, and a run whose collection silently shrank shows up as the
+    second rather than as a smaller, cleaner-looking pass count.
+    """
+
+    ran_ok: int
+    ran_failed: int
+    not_run: int
+    # False when the harness said it stopped before reaching the end of the run.
+    # The tests in binaries cargo never built, or in files pytest never reached
+    # after `-x`, are not `ignored` and not `skipped` — the harness does not
+    # mention them at all. Summing what it printed then yields n == n_total for a
+    # run that covered a fraction of the suite. Found on the first real row, not
+    # by reasoning: `coverage=301/301` against a 347-test baseline.
+    collection_complete: bool = True
+
+    def __post_init__(self) -> None:
+        for name in ("ran_ok", "ran_failed", "not_run"):
+            v = getattr(self, name)
+            if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+                raise ValueError(f"SuiteCounts.{name} must be a non-negative int, got {v!r}")
+        if not isinstance(self.collection_complete, bool):
+            raise TypeError("SuiteCounts.collection_complete must be bool")
+
+    @property
+    def n(self) -> int:
+        """Tests that executed."""
+        return self.ran_ok + self.ran_failed
+
+    @property
+    def n_total(self) -> int:
+        """Tests that were collected."""
+        return self.n + self.not_run
+
+    def as_tristate(self, *, exit_code: int, detail: str = "") -> Ran:
+        """A suite that reported counts. ``passed`` needs both signals.
+
+        A harness can exit non-zero having reported zero failures — a collection
+        error, a plugin that blew up during teardown, a linker failure after the
+        tests themselves were fine. Trusting the counts alone would record that
+        as green, so the exit code has a veto.
+
+        When the run was cut short, the counts survive and the **coverage pair
+        does not**. ``n``/``n_total`` is a claim about the whole eligible
+        population, and nobody measured that population: the harness stopped
+        before it knew. ``Ran`` carries the pair together or not at all, so
+        dropping it is exactly right — ``is_complete_coverage`` then answers
+        False and ``coverage_str()`` says "coverage unstated", which is the
+        truth. Keeping ``value`` keeps what *was* measured.
+        """
+        passed = exit_code == 0 and self.ran_failed == 0
+        if self.collection_complete:
+            return Ran(
+                passed=passed,
+                value=self.ran_ok,
+                n=self.n,
+                n_total=self.n_total,
+                detail=detail[:MAX_DETAIL_CHARS],
+            )
+        note = (
+            f"run aborted before the end: {self.n} test(s) reported, total eligible never "
+            f"established, so coverage is unstated rather than {self.n}/{self.n_total}"
+        )
+        return Ran(
+            passed=passed,
+            value=self.ran_ok,
+            detail=f"{note}. {detail}"[:MAX_DETAIL_CHARS],
+        )
+
+
+# `cargo test` prints one of these per test binary, not one per invocation, and
+# the last one is usually the doc-tests' `0 passed`. A parser that reads only the
+# final line reports zero for a green workspace — wrong in the direction that
+# looks harmless, which is the direction nobody re-checks.
+_CARGO_RESULT_RE = re.compile(
+    r"^test result:\s+\S+\.\s+(\d+)\s+passed;\s+(\d+)\s+failed;\s+(\d+)\s+ignored;"
+    r"\s+(\d+)\s+measured;\s+(\d+)\s+filtered out",
+    re.MULTILINE,
+)
+
+# pytest's summary line, with or without the `=` banner: "1104 passed, 7 skipped
+# in 29.02s". Matched by requiring a duration on the same line, so a count that
+# happens to appear in a test's own output is not mistaken for the summary.
+_PYTEST_DURATION_RE = re.compile(r"\bin\s+\d+(?:\.\d+)?s\b")
+_PYTEST_TOKEN_RE = re.compile(
+    r"(\d+)\s+(passed|failed|errors?|skipped|xfailed|xpassed|deselected)\b"
+)
+
+# Each harness's own announcement that it stopped early. Detected rather than
+# inferred: a count that looks small and a run that was cut short are different
+# facts, and only the harness knows which one happened.
+_CARGO_ABORT_RE = re.compile(
+    r"^error: (test failed, to rerun pass|could not compile|build failed)", re.MULTILINE
+)
+_PYTEST_ABORT_RE = re.compile(r"stopping after \d+ failures?|Interrupted:", re.IGNORECASE)
+
+
+def parse_cargo_test_output(text: str) -> SuiteCounts | None:
+    """Sum every `test result:` line, or return ``None`` if there were none.
+
+    ``None`` rather than zeroes: an empty workspace really can report zero of
+    everything, so a parser that returns zeroes when it simply did not recognise
+    the output has manufactured a measurement its caller cannot distinguish from
+    a real one. A compile failure produces no summary at all, and that is the
+    case this distinction exists for.
+    """
+    matches = _CARGO_RESULT_RE.findall(text)
+    if not matches:
+        return None
+    ran_ok = ran_failed = not_run = 0
+    for passed, failed, ignored, _measured, filtered in matches:
+        ran_ok += int(passed)
+        ran_failed += int(failed)
+        # `ignored` and `filtered out` were collected and did not execute.
+        # `measured` is a bench figure, not a test, and is counted nowhere.
+        not_run += int(ignored) + int(filtered)
+    return SuiteCounts(
+        ran_ok=ran_ok,
+        ran_failed=ran_failed,
+        not_run=not_run,
+        # cargo's default is fail-fast: it stops after the first failing test
+        # binary and never builds the rest, so the tests in them appear in no
+        # summary line at all.
+        collection_complete=_CARGO_ABORT_RE.search(text) is None,
+    )
+
+
+def parse_pytest_output(text: str) -> SuiteCounts | None:
+    """The last summary line pytest printed, or ``None``.
+
+    ``xpassed`` and ``xfailed`` executed, so they count as run. ``deselected``
+    and ``skipped`` were collected and did not, so they widen ``n_total`` — a
+    `-k` filter is then visible in the row instead of shrinking the denominator
+    out of sight.
+    """
+    candidate: str | None = None
+    for line in text.splitlines():
+        if _PYTEST_DURATION_RE.search(line) and _PYTEST_TOKEN_RE.search(line):
+            candidate = line
+    if candidate is None:
+        return None
+    ran_ok = ran_failed = not_run = 0
+    for count, word in _PYTEST_TOKEN_RE.findall(candidate):
+        value = int(count)
+        if word in ("passed", "xpassed", "xfailed"):
+            ran_ok += value
+        elif word in ("failed", "error", "errors"):
+            ran_failed += value
+        else:  # skipped, deselected
+            not_run += value
+    return SuiteCounts(
+        ran_ok=ran_ok,
+        ran_failed=ran_failed,
+        not_run=not_run,
+        # `-x` and a collection error both leave the rest of the suite
+        # unmentioned rather than reported as skipped.
+        collection_complete=_PYTEST_ABORT_RE.search(text) is None,
+    )
+
+
+SUITE_PARSERS: dict[str, Callable[[str], SuiteCounts | None]] = {
+    "cargo": parse_cargo_test_output,
+    "pytest": parse_pytest_output,
+}
+
+
+def _parse_counts(text: str, parser: str) -> SuiteCounts | None:
+    if parser == "auto":
+        for fn in SUITE_PARSERS.values():
+            counts = fn(text)
+            if counts is not None:
+                return counts
+        return None
+    try:
+        return SUITE_PARSERS[parser](text)
+    except KeyError:
+        raise ValueError(
+            f"unknown parser {parser!r}; known: {['auto', *sorted(SUITE_PARSERS)]}"
+        ) from None
+
+
+# Shell operators, as shlex tokenizes them when `punctuation_chars` is on.
+_SHELL_OPERATORS = frozenset({"|", "||", "&", "&&", ";", ";;", "<", ">", ">>", "<<", "(", ")"})
+
+
+def parse_command(text: str) -> tuple[str, ...]:
+    """Split a command string into argv, refusing anything that needs a shell.
+
+    Suites are run without a shell, so a pipeline here would not pipe: `cargo
+    test --workspace | tail -5` would hand cargo `|` as a test-name filter and
+    cargo would exit 0 having run nothing. That is a green row for a run that
+    did not happen, which is the precise failure this module exists to prevent —
+    and it is the same trap this repo's own harness notes call out ("never pipe
+    a command whose exit code you need"). Refused loudly instead.
+    """
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        argv = tuple(lexer)
+    except ValueError as exc:  # unbalanced quotes
+        raise ValueError(f"could not split command {text!r}: {exc}") from exc
+    if not argv:
+        raise ValueError("empty command: a suite needs something to run")
+    operators = [tok for tok in argv if tok in _SHELL_OPERATORS]
+    if operators:
+        raise ValueError(
+            f"command {text!r} contains the shell pipeline/redirect operator(s) "
+            f"{operators}, and suites are run without a shell. A pipeline would swallow the "
+            "exit code and a redirect would hide the output this recorder parses; either way "
+            "the row would describe a run that did not happen. Record the bare command."
+        )
+    return argv
+
+
+@dataclass(frozen=True, slots=True)
+class SuiteOutcome:
+    """One suite, as run. ``result`` is what goes into the row."""
+
+    name: str
+    command: tuple[str, ...]
+    exit_code: int | None
+    duration_s: float
+    result: TriState
+    output_tail: str
+
+
+def run_suite(
+    name: str,
+    command: Sequence[str],
+    *,
+    cwd: str | os.PathLike[str],
+    timeout_s: float = DEFAULT_SUITE_TIMEOUT_S,
+    parser: str = "auto",
+    max_output_bytes: int = MAX_CAPTURED_OUTPUT_BYTES,
+) -> SuiteOutcome:
+    """Run one suite and classify what came back. Four outcomes, deliberately.
+
+    * **could not be launched** -> ``NotRun``. No binary, no result. Recording a
+      zero here is how a missing toolchain becomes a clean sweep.
+    * **timed out** -> ``NotRun``. A suite that was cut off produced no result;
+      it did not produce a bad one.
+    * **counts parsed** -> ``Ran``, with the coverage pair and the exit code's
+      veto (see :meth:`SuiteCounts.as_tristate`).
+    * **no counts** -> it depends on the exit code, and the asymmetry is the
+      point. Non-zero with no summary is a command that ran and failed — a
+      compile error is a real failure and calling it "not run" would let a
+      broken build sit in the record as "nothing was measured here". Zero with
+      no summary is the dangerous shape: pytest exits 0 on "no tests ran" under
+      some configurations, so a pass with no counts cannot be told from a suite
+      that collected nothing, and it is recorded as ``NotRun``.
+    """
+    command = tuple(command)
+    if not command:
+        raise ValueError(f"suite {name!r} has no command")
+    if timeout_s <= 0:
+        raise ValueError(f"suite {name!r}: timeout_s must be positive, got {timeout_s!r}")
+    if max_output_bytes <= 0:
+        raise ValueError(f"suite {name!r}: max_output_bytes must be positive")
+    if parser != "auto" and parser not in SUITE_PARSERS:
+        raise ValueError(f"unknown parser {parser!r}; known: {['auto', *sorted(SUITE_PARSERS)]}")
+
+    t0 = time.monotonic()
+    try:
+        # argv, never a shell: see parse_command for why that is load-bearing.
+        proc = subprocess.Popen(
+            command,
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+    except OSError as exc:
+        return SuiteOutcome(
+            name=name,
+            command=command,
+            exit_code=None,
+            duration_s=time.monotonic() - t0,
+            result=NotRun(
+                reason=f"suite {name!r} could not be launched ({command[0]!r}): "
+                f"{type(exc).__name__}: {exc}"
+            ),
+            output_tail="",
+        )
+
+    chunks: list[bytes] = []
+
+    def _drain() -> None:
+        assert proc.stdout is not None
+        while True:
+            chunk = proc.stdout.read(65536)
+            if not chunk:
+                return
+            chunks.append(chunk)
+            if sum(len(c) for c in chunks) > max_output_bytes:
+                tail = b"".join(chunks)[-max_output_bytes:]
+                chunks.clear()
+                chunks.append(tail)
+
+    reader = threading.Thread(target=_drain, name=f"suite-{name}-reader", daemon=True)
+    reader.start()
+
+    timed_out = False
+    try:
+        proc.wait(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        proc.kill()
+        # A process that ignores SIGKILL is the kernel's problem, not the
+        # ledger's; the row already says the suite did not finish.
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=30)
+    reader.join(timeout=30)
+    if proc.stdout is not None:
+        proc.stdout.close()
+
+    duration = time.monotonic() - t0
+    text = b"".join(chunks).decode("utf-8", errors="replace")
+    tail = text[-MAX_DETAIL_CHARS:]
+
+    if timed_out:
+        return SuiteOutcome(
+            name=name,
+            command=command,
+            exit_code=proc.returncode,
+            duration_s=duration,
+            result=NotRun(
+                reason=f"suite {name!r} timed out after {timeout_s:g}s and was killed; "
+                "a suite that was cut off has no result"
+            ),
+            output_tail=tail,
+        )
+
+    exit_code = proc.returncode
+    counts = _parse_counts(text, parser)
+    if counts is not None:
+        result: TriState = counts.as_tristate(
+            exit_code=exit_code, detail=f"exit {exit_code}; {' '.join(command)}"
+        )
+    elif exit_code == 0:
+        result = NotRun(
+            reason=f"suite {name!r} exited 0 but its output held no parsable test summary "
+            f"(parser {parser!r}); a pass with no counts cannot be told from a suite that "
+            "collected nothing"
+        )
+    else:
+        result = Ran(
+            passed=False,
+            detail=f"exit {exit_code}; no parsable test summary (parser {parser!r}) — "
+            f"tail: {tail}"[:MAX_DETAIL_CHARS],
+        )
+    return SuiteOutcome(
+        name=name,
+        command=command,
+        exit_code=exit_code,
+        duration_s=duration,
+        result=result,
+        output_tail=tail,
+    )
+
+
+def record_build_run(
+    *,
+    ledger: Ledger,
+    repo: str | os.PathLike[str],
+    suites: Sequence[tuple[str, Sequence[str]]],
+    toolchain: str,
+    cwd: str | os.PathLike[str] | None = None,
+    env: Environment | None = None,
+    timeout_s: float = DEFAULT_SUITE_TIMEOUT_S,
+    parser: str = "auto",
+    quick: bool = False,
+    quick_reason: str | None = None,
+    notes: str = "",
+) -> LedgerRow:
+    """Run the suites, write one `build` row, and hand back the row to cite.
+
+    The row is written on every exit path, including a suite that fails: a
+    failed verification that leaves no row is indistinguishable from one that
+    was never attempted, and this module exists to make that impossible. A
+    failing suite therefore produces ``status='failed'`` and a returned row, not
+    an exception — the caller decides what to do about the exit code, and the
+    CLI below exits non-zero.
+    """
+    resolved = tuple((name, tuple(command)) for name, command in suites)
+    if not resolved:
+        raise ValueError("a build row records at least one suite; a row with none records nothing")
+    names = [name for name, _ in resolved]
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        raise ValueError(
+            f"duplicate suite name(s) {duplicates}: one metric key per suite, or the second "
+            "result silently replaces the first"
+        )
+    for name, command in resolved:
+        if not name.strip():
+            raise ValueError("every suite needs a name; it becomes the metric key")
+        if not command:
+            raise ValueError(f"suite {name!r} has no command")
+
+    protocol = Protocol.for_build(
+        commands=[shlex.join(command) for _, command in resolved], toolchain=toolchain
+    )
+    recorder = RunRecorder(
+        ledger,
+        protocol=protocol,
+        run_kind="build",
+        repo=repo,
+        env=env,
+        quick=quick,
+        quick_reason=quick_reason,
+        notes=notes,
+    )
+    outcomes: list[SuiteOutcome] = []
+    try:
+        with recorder as rec:
+            for name, command in resolved:
+                outcome = run_suite(
+                    name,
+                    command,
+                    cwd=cwd if cwd is not None else repo,
+                    timeout_s=timeout_s,
+                    parser=parser,
+                )
+                outcomes.append(outcome)
+                rec.metric(f"suite.{name}", outcome.result)
+            failed = [
+                o.name for o in outcomes if isinstance(o.result, Ran) and not o.result.passed
+            ]
+            if failed:
+                raise SuiteFailure(f"suite(s) ran and failed: {', '.join(failed)}")
+    except SuiteFailure:
+        # Swallowed on purpose: the failure is now *in the row*, which is the
+        # record that matters. Re-raising would make the caller choose between
+        # handling it and losing the row id it needs to cite.
+        pass
+    row = recorder.row
+    if row is None:  # pragma: no cover - RunRecorder guarantees a row on every path
+        raise LedgerChainError("RunRecorder exited without writing a row")
+    return row
+
+
+# ---------------------------------------------------------------------------
+# CLI: the one command a lane runs.
+# ---------------------------------------------------------------------------
+
+# Exit codes are three, not two, for the same reason the tri-state is three: a
+# suite that could not run must not leave the same trace as one that ran and
+# passed, and `$?` is a trace.
+EXIT_OK = 0
+EXIT_SUITE_FAILED = 1
+EXIT_SUITE_NOT_RUN = 3
+
+
+def _split_suite_argument(raw: str) -> tuple[str, tuple[str, ...]]:
+    name, sep, command = raw.partition("=")
+    if not sep or not name.strip() or not command.strip():
+        raise ValueError(f"--suite expects NAME=COMMAND, got {raw!r}")
+    return name.strip(), parse_command(command)
+
+
+def _cmd_record(args: argparse.Namespace) -> int:
+    suites = [_split_suite_argument(raw) for raw in args.suite]
+    ledger = Ledger(args.ledger)
+    row = record_build_run(
+        ledger=ledger,
+        repo=args.repo,
+        suites=suites,
+        toolchain=args.toolchain,
+        cwd=args.cwd or args.repo,
+        timeout_s=args.timeout,
+        parser=args.parser,
+        quick=args.quick,
+        quick_reason=args.quick_reason,
+        notes=args.notes,
+    )
+
+    print(f"run_kind=build status={row.status} code_commit={row.code_commit}", file=sys.stderr)
+    print(f"protocol_hash={row.protocol_hash}", file=sys.stderr)
+    print(f"wall_clock_s={row.wall_clock_s:.2f} ledger={ledger.path}", file=sys.stderr)
+    exit_code = EXIT_OK
+    for name, _ in suites:
+        result = row.metrics[f"suite.{name}"]
+        if isinstance(result, NotRun):
+            print(f"  suite.{name}: NOT RUN — {result.reason}", file=sys.stderr)
+            exit_code = max(exit_code, EXIT_SUITE_NOT_RUN)
+        else:
+            verdict = "passed" if result.passed else "FAILED"
+            print(
+                f"  suite.{name}: {verdict} value={result.value} "
+                f"coverage={result.coverage_str()}",
+                file=sys.stderr,
+            )
+            if not result.passed:
+                exit_code = EXIT_SUITE_FAILED
+    # The row id, alone, on stdout: `ID=$(... record ...)` has to work.
+    print(row.row_id)
+    return exit_code
+
+
+def _cmd_verify(args: argparse.Namespace) -> int:
+    ledger = Ledger(args.ledger)
+    count = len(ledger.raw_lines())
+    try:
+        ledger.verify_chain()
+    except LedgerChainError as exc:
+        print(f"CHAIN BROKEN in {ledger.path} ({count} line(s)): {exc}", file=sys.stderr)
+        return 1
+    print(f"chain verifies: {count} row(s) in {ledger.path}")
+    return 0
+
+
+def _cmd_show(args: argparse.Namespace) -> int:
+    ledger = Ledger(args.ledger)
+    for row in ledger.rows():
+        if row.row_id == args.row_id:
+            print(json.dumps(row.to_json(), indent=2, sort_keys=True))
+            return 0
+    print(f"no row {args.row_id!r} in {ledger.path}", file=sys.stderr)
+    return 1
+
+
+def _cmd_verdict(args: argparse.Namespace) -> int:
+    ledger = Ledger(args.ledger)
+    family = args.seed_family
+    if family is None:
+        match = [r for r in ledger.rows() if r.row_id == args.row_id]
+        if not match:
+            print(f"no row {args.row_id!r} in {ledger.path}", file=sys.stderr)
+            return 1
+        family = match[0].protocol.hash_without_seed()
+    verdict = ledger.promotion_verdict(family)
+    print(str(verdict))
+    return 0 if verdict.promoted else 1
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m qd_train.ledger",
+        description=(
+            "The decision record. `record` runs a build-and-test verification and writes the "
+            "row its numbers cite (repo rule 5)."
+        ),
+    )
+    # `--ledger` hangs off every subcommand rather than off the top level, so
+    # `record --ledger X` works. An option that is only legal before the verb is
+    # an option people get wrong, and argparse rejects it with a usage dump that
+    # reads like the command itself was wrong.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--ledger", type=Path, default=DEFAULT_LEDGER_PATH, help="JSONL path (default: %(default)s)"
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    rec = sub.add_parser("record", parents=[common], help="run suites and write one `build` row")
+    rec.add_argument(
+        "--suite",
+        action="append",
+        required=True,
+        metavar="NAME=COMMAND",
+        help="a suite to run; repeatable. COMMAND is argv, not a shell line: no pipes, no "
+        "redirects. NAME becomes the metric key `suite.NAME`.",
+    )
+    rec.add_argument(
+        "--toolchain",
+        required=True,
+        help="what ran the suites, e.g. 'cargo 1.98.0 / python 3.14.7'. Hashed with the "
+        "commands into recipe_hash: two build rows are comparable exactly when both match.",
+    )
+    rec.add_argument("--repo", type=Path, default=REPO_ROOT, help="repo whose HEAD the row records")
+    rec.add_argument("--cwd", type=Path, default=None, help="where to run the suites")
+    rec.add_argument(
+        "--timeout", type=float, default=DEFAULT_SUITE_TIMEOUT_S, help="per-suite seconds"
+    )
+    rec.add_argument("--parser", choices=["auto", *sorted(SUITE_PARSERS)], default="auto")
+    rec.add_argument(
+        "--quick",
+        action="store_true",
+        help="this run was truncated or subsampled; requires --quick-reason",
+    )
+    rec.add_argument("--quick-reason", default=None)
+    rec.add_argument("--notes", default="")
+    rec.set_defaults(func=_cmd_record)
+
+    ver = sub.add_parser(
+        "verify", parents=[common], help="recompute the hash chain and report the first break"
+    )
+    ver.set_defaults(func=_cmd_verify)
+
+    show = sub.add_parser("show", parents=[common], help="print one row by id")
+    show.add_argument("--row-id", required=True)
+    show.set_defaults(func=_cmd_show)
+
+    verdict = sub.add_parser(
+        "verdict", parents=[common], help="may a seed family promote a decision?"
+    )
+    group = verdict.add_mutually_exclusive_group(required=True)
+    group.add_argument("--seed-family", default=None, help="protocol hash without seed")
+    group.add_argument("--row-id", default=None, help="use this row's seed family")
+    verdict.set_defaults(func=_cmd_verdict)
+
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _build_arg_parser().parse_args(list(argv) if argv is not None else None)
+    try:
+        return int(args.func(args))
+    except (ValueError, LedgerChainError) as exc:
+        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

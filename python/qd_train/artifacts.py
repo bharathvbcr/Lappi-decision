@@ -38,6 +38,18 @@ at the new boundary, and a header without `data_snapshot_hash` cannot be built.
 **One bucketing function.** [`bucket_for`] is used by the writer *and* the sampler. Two
 implementations of "which bucket is this length in" that disagree at a boundary produce a
 padding-waste figure measured against a bucketing nobody trains with.
+
+**One line rule.** [`line_start_indices`] answers "where does a line begin", and a span
+slot's pointer head ranges over exactly those positions — so two implementations that
+disagree relabel every span by a constant, which `docs/hardening.md` §1 records as
+systematic and invisible in accuracy. There were two, both in this package and both called
+`line_starts`: S4's over characters and rung 0's over bytes
+(`qd_train.byte_context.line_starts`). They disagreed on the empty context — one line
+against none — and both suites were green, because the five vectors each was pinned to are
+the Rust suite's own and not one of them is empty. The rule now lives here; the byte path
+keeps its own offsets because its model's positions *are* bytes, and
+`test_artifacts.py::test_the_byte_path_line_rule_is_this_one` holds the two together.
+`GAP-S4-LINE-STARTS-SECOND-IMPLEMENTATION`.
 """
 
 from __future__ import annotations
@@ -74,6 +86,7 @@ __all__ = [
     "ShardContractViolation",
     "bucket_for",
     "assign_buckets",
+    "line_start_indices",
     "padding_waste",
     "assert_remap_covers",
     "assert_shard_trainable",
@@ -761,6 +774,52 @@ def bucket_for(length: int, buckets: Sequence[int]) -> int:
 def assign_buckets(lengths: Sequence[int], buckets: Sequence[int]) -> list[int]:
     """`bucket_for` over many lengths."""
     return [bucket_for(int(n), buckets) for n in lengths]
+
+
+def line_start_indices(text: str | bytes) -> tuple[int, ...]:
+    """Indices at which each line begins: 0-based indices, for 1-based line numbers.
+
+    **The one statement of "where does a line begin" on the Python side**, for the same
+    reason [`bucket_for`] is the one statement of "which bucket is this length in". A span
+    slot's pointer head ranges over exactly these positions, so a second implementation
+    that disagrees does not fail — it relabels every span by a constant, and
+    `docs/hardening.md` §1 records that as systematic and invisible in accuracy.
+
+    The rule is `crates/qd-runtime/src/context.rs`'s, which owns it for the whole system:
+
+    * `\\n` terminates a line;
+    * a trailing `\\n` does **not** open an empty final line;
+    * `\\r` is ordinary content, never a second terminator (CRLF is where byte offsets and
+      line numbers diverge, so a bare CR is not allowed to silently become one);
+    * and an **empty input has no lines at all** — `Context::line_count` (context.rs:167)
+      special-cases it to `0`, and `answer.rs:64` sizes the pointer head at
+      `line_count + RESERVED_NOUL_ROWS`, so an empty context serves the abstain row alone.
+
+    That last rule is the one the two Python implementations disagreed on. `\\n` is one
+    byte and one character, so the *grid* is the same whichever unit is counted: this
+    returns character indices for a `str` and byte indices for `bytes`, and the number of
+    lines is the same either way. S4 wants characters, because a tokenizer's offset
+    mapping is expressed in them; rung 0's `qd_train.byte_context` wants bytes, because
+    its model's positions *are* bytes.
+    """
+    if isinstance(text, str):
+        newline: str | int = "\n"
+    elif isinstance(text, bytes | bytearray):
+        newline = 0x0A
+    else:
+        raise TypeError(
+            f"line_start_indices takes str or bytes, got {type(text).__name__}. A "
+            "sequence of anything else has no line rule, and coercing one here is how a "
+            "caller comes to count lines in something that is not text."
+        )
+    if not text:
+        return ()
+    last = len(text) - 1
+    out = [0]
+    for i, ch in enumerate(text):
+        if ch == newline and i != last:
+            out.append(i + 1)
+    return tuple(out)
 
 
 def padding_waste(lengths: Sequence[int], buckets: Sequence[int]) -> TriState:

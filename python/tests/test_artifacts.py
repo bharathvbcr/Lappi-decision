@@ -36,8 +36,10 @@ from qd_train.artifacts import (  # noqa: E402
     assert_remap_covers,
     assert_shard_trainable,
     bucket_for,
+    line_start_indices,
     padding_waste,
 )
+from qd_train.byte_context import line_starts as byte_line_starts
 from qd_train.tristate import NotRun, Ran  # noqa: E402
 
 V_OLD = 64
@@ -279,6 +281,78 @@ def test_the_waste_gate_is_the_same_bucketing_the_sampler_uses():
     # 128 in a 128-bucket is zero waste; if the metric used a different rule it would not be.
     result = padding_waste([128], buckets)
     assert isinstance(result, Ran) and result.value == 0.0
+
+
+# --- the one line rule ------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # The five vectors from the Rust suite that owns the definition --
+        # answering_procedure.rs::the_pointer_head_ranges_over_the_contexts_line_starts
+        # _plus_the_abstain_row -- stated as offsets rather than as a count.
+        ("a\n", (0,)),
+        ("a\nb\n", (0, 2)),
+        ("a\nb\nc", (0, 2, 4)),
+        ("a\nb\nc\n", (0, 2, 4)),
+        ("no newline at all", (0,)),
+        # And the sixth, which that table does not carry and which is where the two Python
+        # implementations diverged: context.rs:167 Context::line_count is 0 for an empty
+        # context, asserted by context.rs::an_empty_context_is_a_legal_value_not_an_error.
+        ("", ()),
+        # CR is content, never a second terminator: docs/hardening.md section 1.
+        ("a\rb", (0,)),
+        ("a\r\nb", (0, 3)),
+        # A blank line is a line.
+        ("a\n\nb", (0, 2, 3)),
+        ("\n\n", (0, 1)),
+    ],
+)
+def test_line_start_indices_states_the_rust_line_rule(text: str, expected: tuple[int, ...]):
+    """Offsets, not just a count: a count cannot tell a right grid from a shifted one."""
+    assert line_start_indices(text) == expected
+    # Same rule, same grid, whichever unit is counted -- `\n` is one char and one byte.
+    assert line_start_indices(text.encode("utf-8")) == expected
+
+
+def test_the_byte_path_line_rule_is_this_one():
+    """The pin the module docstring promises, against the *other* implementation.
+
+    ``qd_train.byte_context.line_starts`` is rung 0's, over bytes, and it cannot be
+    deleted in favour of this one: its offsets *are* its model's positions, while S4 needs
+    character offsets because that is what a tokenizer's offset mapping speaks. So the two
+    stay separate and are held together here, which is the standing test
+    ``GAP-S4-LINE-STARTS-SECOND-IMPLEMENTATION`` asked for.
+
+    Over bytes the agreement is exact, offset for offset -- including the empty input,
+    which is the vector they actually disagreed on while both suites were green.
+    """
+    for text in [
+        "",
+        "a",
+        "a\n",
+        "a\nb",
+        "a\nb\n",
+        "a\n\nb",
+        "a\r\nb",
+        "a\rb",
+        "\n",
+        "\n\n",
+        "no newline at all",
+        "a\nb\nc",
+        "a\nb\nc\n",
+        "é\nb",
+        "\U0001f600\n\U0001f600\n",
+    ]:
+        raw = text.encode("utf-8")
+        assert line_start_indices(raw) == byte_line_starts(raw), text
+
+
+def test_a_line_rule_asked_of_something_that_is_not_text_is_refused():
+    """A list of ints would silently count nothing and report one line."""
+    with pytest.raises(TypeError, match="str or bytes"):
+        line_start_indices([0x0A, 0x61])  # type: ignore[arg-type]
 
 
 # --- the S2 <-> S4 cross-lane check ----------------------------------------------------------
