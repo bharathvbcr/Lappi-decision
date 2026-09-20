@@ -600,6 +600,34 @@ def max_positions_that_fit(
 
     The parameters are spelled out rather than forwarded as ``**kwargs`` so that a typo in
     a caller's keyword is a ``TypeError`` here instead of a silently different budget.
+
+    **``device_bytes`` is what the allocator can USE, not what the device reports.** Passing
+    ``torch.cuda.get_device_properties(0).total_memory`` makes this optimistic, and
+    optimistic here means a job is launched at a row count that OOMs. Measured on a GH200
+    reporting 94.50 GiB (``tools/gh200_rows.py``), walking rows upward until the device
+    refused:
+
+    ======  =========  ========  =====================================
+    width   predicted  measured  last peak / next allocation that OOMed
+    ======  =========  ========  =====================================
+    34,522  9          **8**     83.05 GiB / 3.56 GiB
+    8,192   40         **36**    87.95 GiB / 3.47 GiB
+    ======  =========  ========  =====================================
+
+    The arithmetic itself is close: ``StepFootprint.total_bytes`` at the largest row count
+    that fit was 81.47 GiB against a measured 83.05, and 85.95 against 87.95 -- within 2.3%
+    both times, and *under* in both, which is the unsafe direction but a small one. What is
+    not close is the device budget. ``mem_get_info()[0]`` reported 91.42 GiB free, and the
+    real ceiling for this workload sits between 87.95 GiB (the largest peak that completed)
+    and 89.96 GiB (where the next row would have landed). Free bytes are therefore **also**
+    optimistic: the allocator cannot hand out every free byte to a fragmented workload.
+
+    So there is no value of ``device_bytes`` that makes this exact, and this function does
+    not pretend otherwise. **Its answer is an upper bound, to be confirmed by a real step.**
+    ``tools/gh200_rows.py`` is that confirmation: it walks rows upward until the device
+    refuses, and an OOM there is the measurement, not a failure. Nothing in this repository
+    should launch a long run at this function's answer without having run that sweep for the
+    same shape.
     """
     if not isinstance(device_bytes, int) or isinstance(device_bytes, bool):
         raise TypeError(f"device_bytes must be int, got {type(device_bytes).__name__}")

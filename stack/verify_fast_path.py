@@ -32,10 +32,11 @@ import json
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1] / "python"))
 
+from qd_train.ledger import TRITON_HOPPER_BAD_RANGE, version_tuple
 from qd_train.tristate import NotRun, Ran, TriState
 
 # Substrings identifying the two paths inside the Qwen3.5 modeling module.
@@ -126,21 +127,13 @@ def instrument(module: Any, fast: list[str], slow: list[str]) -> tuple[Probe, Ca
     return probe, undo
 
 
-#: `flash-linear-attention` computes `chunk_bwd_dqkwg` incorrectly on Hopper for Triton in
-#: this half-open range and raises rather than returning wrong gradients. Measured against
-#: `triton==3.6.0`, which `stack/train.lock` pins because `torch==2.10.0+cu128` requires that
-#: exact version.
-TRITON_HOPPER_BAD_RANGE: Final[tuple[tuple[int, ...], tuple[int, ...]]] = ((3, 4, 0), (3, 7, 1))
-
-
-def _version_tuple(v: str) -> tuple[int, ...]:
-    """Leading numeric components of a version string; `()` when there are none."""
-    out: list[int] = []
-    for part in v.split("+")[0].split("."):
-        if not part.isdigit():
-            break
-        out.append(int(part))
-    return tuple(out)
+# The Hopper/Triton range and the version parser are IMPORTED, not restated. This file held
+# an identical constant and an identical `_version_tuple`, which `devmap_clones` reported as
+# an Exact clone of `qd_train.ledger`'s pair. They describe one measured fact -- which triton
+# releases make fla refuse the GDN backward on sm_90 -- and two copies of one fact drift the
+# first time it is re-measured. `qd_train.ledger` owns it because `Environment.detect` is
+# what puts it in a ledger row; this gate and that row must never disagree about whether a
+# run could have used the fast kernel.
 
 
 def triton_refuses_the_backward() -> str | None:
@@ -167,7 +160,7 @@ def triton_refuses_the_backward() -> str | None:
         return None
 
     version = getattr(triton, "__version__", "")
-    tv = _version_tuple(version)
+    tv = version_tuple(version)
     lo, hi = TRITON_HOPPER_BAD_RANGE
     if not tv or not (lo <= tv < hi):
         return None

@@ -208,3 +208,39 @@ def test_a_nonsense_tensor_parallel_width_is_refused_not_defaulted(teacher):
     with pytest.raises(SystemExit) as exc:
         teacher.main(["--tensor-parallel", "0"])
     assert exc.value.code != 0
+
+
+# --- one owner for the Hopper/Triton fact ----------------------------------------------
+
+
+def test_the_gate_and_the_ledger_share_one_triton_range(fast_path):
+    """`devmap_clones` found these as an Exact clone and they are now one object.
+
+    Identity, not equality: two separately-defined tuples would compare equal today and
+    diverge the moment one is re-measured. The gate decides whether a run may train on the
+    fast kernel and `Environment.detect` writes into the ledger row what that run actually
+    used -- if they ever disagree about which triton releases fla refuses, a row would claim
+    a kernel the gate had already ruled out, and nothing would say which was right.
+    """
+    from qd_train.ledger import TRITON_HOPPER_BAD_RANGE, version_tuple
+
+    assert fast_path.TRITON_HOPPER_BAD_RANGE is TRITON_HOPPER_BAD_RANGE
+    assert fast_path.version_tuple is version_tuple
+
+
+def test_the_shared_version_parser_handles_what_it_is_given(fast_path):
+    """Real triton and torch version strings, including the local-version suffix that
+    `torch==2.10.0+cu128` carries and a release candidate that has no numeric third part."""
+    from qd_train.ledger import version_tuple
+
+    assert version_tuple("3.6.0") == (3, 6, 0)
+    assert version_tuple("2.10.0+cu128") == (2, 10, 0)
+    assert version_tuple("3.7.1") == (3, 7, 1)
+    assert version_tuple("3.8.0rc1") == (3, 8)
+    assert version_tuple("") == ()
+    assert version_tuple("not-a-version") == ()
+
+    lo, hi = fast_path.TRITON_HOPPER_BAD_RANGE
+    assert lo <= version_tuple("3.6.0") < hi, "the pinned triton is inside the bad range"
+    assert not (lo <= version_tuple("3.7.1") < hi), "the override triton is outside it"
+    assert not (lo <= version_tuple("3.3.0") < hi), "older triton is outside it"

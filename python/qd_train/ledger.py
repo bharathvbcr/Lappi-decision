@@ -307,10 +307,16 @@ class Environment:
 #: and `flash-linear-attention` raises rather than returning wrong gradients. Measured on a
 #: GH200 (sm_90) on 2026-09-20 with the pinned `triton==3.6.0`, which `torch==2.10.0+cu128`
 #: requires exactly -- so on that box the two pins cannot both be satisfied.
-_TRITON_HOPPER_BAD_RANGE: Final[tuple[tuple[int, ...], tuple[int, ...]]] = ((3, 4, 0), (3, 7, 1))
+#:
+#: **Public, and the only copy.** `stack/verify_fast_path.py` carried an identical constant
+#: and an identical `_version_tuple` beside it -- found by `devmap_clones` as an Exact
+#: clone. Two copies of one measured fact is how the next measurement updates one of them:
+#: if fla fixes this in 3.8 and only one range moves, the gate and the ledger disagree about
+#: whether a run used the fast kernel, and nothing would say which was right.
+TRITON_HOPPER_BAD_RANGE: Final[tuple[tuple[int, ...], tuple[int, ...]]] = ((3, 4, 0), (3, 7, 1))
 
 
-def _version_tuple(v: str) -> tuple[int, ...]:
+def version_tuple(v: str) -> tuple[int, ...]:
     """Leading numeric components of a version string; `()` when there are none."""
     out: list[int] = []
     for part in v.split("+")[0].split("."):
@@ -351,8 +357,8 @@ def _probe_fla() -> TriState:
             detail=f"fla {version} importable; torch/triton absent so usability unchecked",
         )
 
-    tv = _version_tuple(getattr(_triton, "__version__", ""))
-    lo, hi = _TRITON_HOPPER_BAD_RANGE
+    tv = version_tuple(getattr(_triton, "__version__", ""))
+    lo, hi = TRITON_HOPPER_BAD_RANGE
     hopper = False
     if _torch.cuda.is_available():
         hopper = _torch.cuda.get_device_capability(0)[0] == 9

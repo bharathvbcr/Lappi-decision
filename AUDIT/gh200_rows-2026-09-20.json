@@ -1,0 +1,27 @@
+{
+  "device": "NVIDIA GH200 480GB",
+  "results": [
+    {
+      "width": 34522,
+      "measured_max_rows": 8,
+      "predicted_max_rows": 9,
+      "predicted_positions": 310698
+    },
+    {
+      "width": 8192,
+      "measured_max_rows": 36,
+      "predicted_max_rows": 40,
+      "predicted_positions": 327680
+    },
+    {
+      "width": 34522,
+      "recompute": "none",
+      "rows": 1,
+      "fits": false,
+      "peak_bytes": null,
+      "enumerated_bytes": 108304426291,
+      "enumerated_with_allowance_bytes": 131918114918,
+      "device_bytes": 101468602368
+    }
+  ]
+}

@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from qd_train.memory import (
+    ADAMW_BF16,
     ADAMW_FP32,
     BYTES_PER_ELEMENT,
     MAX_SAFETY_FRACTION,
@@ -451,4 +452,90 @@ def test_the_master_recipes_enumerated_total_matches_what_the_gh200_measured():
     assert shortfall < fp.safety_fraction, (
         f"the measurement is {shortfall:.1%} above the enumerated total, past the "
         f"{fp.safety_fraction:.0%} safety allowance"
+    )
+
+
+def test_the_footprint_tracks_the_gh200_peak_it_was_measured_against():
+    """The arithmetic, against real ``torch.cuda.max_memory_allocated`` readings.
+
+    ``tools/gh200_rows.py`` walked rows upward on a GH200 until the device refused, with
+    ``ADAMW_BF16``, bf16, gradient checkpointing on, over the full 248,320-row vocabulary::
+
+        width 34,522: 8 rows fit, peak 83.05 GiB; 9 OOMed asking for 3.56 GiB
+        width  8,192: 36 rows fit, peak 87.95 GiB; 37 OOMed asking for 3.47 GiB
+
+    ``total_bytes`` predicts 81.47 and 85.95 for those two shapes -- within 2.3%, and UNDER
+    in both cases. Under is the unsafe direction, so the tolerance is asserted in both
+    directions: a change that makes the model wildly conservative is also a regression,
+    because an over-stated budget refuses runs that would have fitted.
+    """
+    gib = 1024 ** 3
+    cases = ((34_522, 8, 83.05), (8_192, 36, 87.95))
+    for width, rows, measured_gib in cases:
+        fp = estimate_step(
+            M, rows=rows, width=width, optimizer=ADAMW_BF16,
+            param_dtype="bf16", grad_dtype="bf16", activation_dtype="bf16",
+        )
+        predicted_gib = fp.total_bytes / gib
+        error = (predicted_gib - measured_gib) / measured_gib
+        assert abs(error) < 0.05, (
+            f"width {width} x {rows} rows: predicted {predicted_gib:.2f} GiB against a "
+            f"measured {measured_gib:.2f} GiB ({error:+.1%}); the model has drifted from "
+            "the only measurement there is"
+        )
+
+
+def test_the_capacity_answer_is_an_upper_bound_not_a_launch_target():
+    """Characterisation, and a deliberate one.
+
+    Fed the 91.42 GiB that ``mem_get_info`` reported free, the predictor admits 9 rows at
+    width 34,522 where 8 fit, and 38 at width 8,192 where 36 fit. One row over at the wide
+    bucket and **two** at the narrow one -- the overshoot is not a constant, which is the
+    substance of the finding: it grows with the number of allocations, exactly as
+    fragmentation does.
+
+    The cause is not the arithmetic -- the test above holds that to 2.3% -- it is that no
+    ``device_bytes`` is knowable in advance: the allocator could not hand out its own
+    reported free memory to a fragmented workload. The pairs are written out rather than
+    derived from a formula, because a formula here would be a guess dressed as a rule.
+    """
+    gib = 1024 ** 3
+    usable_bytes = int(91.42 * gib)  # what mem_get_info reported free on the measured box
+    # (width, rows the device fitted, rows this function admits at that free figure)
+    measured = ((34_522, 8, 9), (8_192, 36, 38))
+    for width, fitted, admitted in measured:
+        positions = max_positions_that_fit(
+            M, device_bytes=usable_bytes, width=width, optimizer=ADAMW_BF16,
+            param_dtype="bf16", grad_dtype="bf16", activation_dtype="bf16",
+        )
+        predicted_rows = positions // width
+        assert predicted_rows == admitted, (
+            f"width {width}: the predictor admits {predicted_rows} row(s), and the "
+            f"measurement recorded {admitted} against a device that fitted {fitted}. "
+            "If this changed, re-run tools/gh200_rows.py and update the measurement rather "
+            "than this number"
+        )
+        assert predicted_rows > fitted, (
+            f"width {width}: the predictor no longer overshoots. That would be good news, "
+            "but it has to be measured on a device rather than asserted here"
+        )
+
+
+def test_recompute_none_at_the_widest_bucket_does_not_fit_and_the_budget_says_so():
+    """The one verdict that sat inside the safety band, now measured.
+
+    The budget said 34,522 at ``recompute='none'`` would not fit a 96 GB device, and the
+    device agreed: ``tools/gh200_rows.py`` OOMed on 1 row. The budget and the measurement
+    are on the same side, so this pins the budget's side of it -- if a change ever made
+    this configuration look admissible, the device has already said otherwise.
+    """
+    fp = estimate_step(
+        M, rows=1, width=34_522, optimizer=ADAMW_BF16,
+        param_dtype="bf16", grad_dtype="bf16", activation_dtype="bf16",
+        activations=ActivationModel(recompute="none"),
+    )
+    gh200_bytes = int(94.50 * 1024 ** 3)
+    assert not fp.fits(device_bytes=gh200_bytes), (
+        f"the budget admits {fp.total_bytes / 1024 ** 3:.2f} GiB on a 94.50 GiB device at "
+        "recompute='none'; the GH200 OOMed on one row of this shape"
     )
