@@ -406,3 +406,46 @@ Loading problems (will fail at runtime, not licence-related):
 | `nuprl/AgentPack` exact row count | README (1.3M) and paper (1.8M) disagree and the schema is unreadable. The repo's `-202509`/`-202510` shards show the README is stale, so 1.8M is the better figure — but it is **inferred**, not counted. | Compared README YAML, README prose, arXiv v2 abstract, and the `tree` API shard listing. |
 | `bigcode/commitpackft` byte size from the official endpoint | The HF size endpoint returned **HTTP 500 `"server is busier than usual"`** on both attempts. The 702,062 rows / 1,545.02 MB figures came from the repo's own README split table and `line_count.txt` files instead — two in-repo sources that agree. | `datasets-server…/size?dataset=bigcode%2Fcommitpackft` ×2 → 500. |
 | Original Devign release licence (`sites.google.com/view/devign`) | The landing page returns HTTP 200 but **no licence statement was located on it**. Only the `google/code_x_glue_cc_defect_detection` rehost's `c-uda` licence is verified. | Fetched the Devign landing page. |
+
+
+## Re-verified against the weights on disk — 2026-09-20
+
+Every tensor figure in section 1 was read from the Hugging Face API, before any weights
+existed on this host. That is a claim *about* a file. `Qwen/Qwen3.5-2B-Base` turned out not
+to be gated at all — `gated: false`, Apache-2.0, fetchable with no credentials — so the
+checkpoint is now local (4.3 GB, snapshot `b1485b2f`), and the file itself can answer.
+
+`tools/verify_checkpoint_inventory.py` reads the safetensors header directly. It needs
+neither torch nor transformers, because a safetensors file opens with a u64 header length
+followed by JSON describing every tensor's dtype and shape — so it runs in the repo venv,
+unlike `tools/bpe_line_start_collapse.py`.
+
+| Section 1 claim | Local checkpoint | Verdict |
+| --- | --- | --- |
+| 632 tensors total | 632 | **VERIFIED** |
+| 297 `model.visual.*` | 297 | **VERIFIED** |
+| 15 `mtp.*` | 15 | **VERIFIED** |
+| `metadata.total_size` 4,548,144,832 | 4,548,144,832 | **VERIFIED** |
+| no `lm_head` key (weights tied) | absent | **VERIFIED** |
+
+**What the remote index could not give, and the file does.** An index carries byte sizes;
+the header carries shapes, so the checkpoint can be split into what ships and what is
+actually trained:
+
+| | parameters | share |
+| --- | ---: | ---: |
+| whole checkpoint | 2,274,069,824 | 100% |
+| ↳ vision tower | 331,416,576 | 14.6% |
+| ↳ MTP block | 60,828,160 | 2.7% |
+| ↳ **text model (trained)** | **1,881,825,088** | **82.8%** |
+| ↳ ↳ tied embedding | 508,559,360 | **27.0% of the text model** |
+
+This sharpens one plan number. Section 1 records the embedding as "≈ 22% of the shipped
+checkpoint, not of a 2.0B text-only model", and was right to insist on the distinction —
+but the figure a trainable-parameter budget needs is **27.0%**, because
+`Qwen3_5ForCausalLM` drops the vision tower and the MTP block on load and neither is ever
+trained. The text model is **1.88B**, not 2B, and the embedding is more than a quarter of
+it. The 2.27B total also confirms section 1's arithmetic estimate from `total_size`.
+
+Nothing in section 1 was contradicted. This is the remote-claim half of that section
+becoming a local measurement.
