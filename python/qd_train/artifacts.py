@@ -66,6 +66,7 @@ import numpy as np
 
 from qd_data.config import SPLITS, DataConfig
 
+from .data_access import assert_path_not_held_out
 from .tristate import NotRun, Ran, TriState
 
 __all__ = [
@@ -867,14 +868,30 @@ def assert_remap_covers(token_ids: np.ndarray, remap: RemapTable) -> None:
 
 
 def assert_shard_trainable(
-    header: ShardHeader, *, config: DataConfig, path: Path
+    header: ShardHeader, *, config: DataConfig, path: Path, repo_root: Path
 ) -> dict[str, TriState]:
     """Rule 3 at the shard boundary. Refuses a held-out split, loudly.
 
     `open_training_data` guards manifests, but the trainer reads *shards*. Without this the
     held-out check is satisfied on paper and bypassed by indirection: nothing stops a shard set
     built from the held-out manifest being opened by a training process.
+
+    **Two questions, and this used to ask only one.** The split check below reads
+    `header.split` — what the shard set *says about itself*. It does not read where the shard
+    set *is*. Measured before `repo_root` was threaded here: a shard set at
+    `data/heldout/shards-train` whose header honestly declares `split="train"` was refused by
+    [`qd_train.data_access.assert_path_not_held_out`] and **admitted** here, `passed=True`. The
+    two doors disagreed, and the trainer goes through this one.
+
+    `ShardReader` had taken a `repo_root` since it was written and passed it nowhere — the
+    parameter for the check existed, and the check did not. Both questions are asked now, the
+    path one first, and the location is the one a header cannot lie about.
+
+    `repo_root` is required rather than optional on purpose. An optional root would let a
+    caller omit it and get a pass that skipped the path check, which is the shape
+    `assert_path_not_held_out` refuses an empty `held_out_roots` for, one level up.
     """
+    assert_path_not_held_out(path, config=config, repo_root=repo_root)
     if header.split == "heldout":
         raise ShardContractViolation(
             f"{path}: this shard set's split is 'heldout'. Rule 3 — held-out data is never read "
@@ -886,6 +903,10 @@ def assert_shard_trainable(
             f"{path}: split {header.split!r} is not a trainable split"
         )
     return {
+        # Recorded, not merely performed: a check whose only trace is the absence of an
+        # exception is indistinguishable from a check that was never wired in. That is how
+        # this one came to be missing for as long as it was.
+        "shard_path_not_held_out": Ran(passed=True, value=str(path)),
         "shard_split_trainable": Ran(passed=True, value=header.split),
         "shard_provenance_pinned": Ran(
             passed=True,

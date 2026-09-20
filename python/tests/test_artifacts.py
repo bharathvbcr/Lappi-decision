@@ -17,6 +17,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from qd_data.config import DataConfig
+from qd_data.errors import HeldOutViolation
 from qd_train.artifacts import (
     _MIN_ROW_TOKENS,
     _SLOT_KINDS,
@@ -220,19 +221,100 @@ def test_a_header_round_trips_and_a_tampered_one_is_refused():
 def test_a_heldout_shard_set_is_refused_by_the_trainer_boundary(tmp_path: Path):
     """`open_training_data` guards manifests; the trainer reads shards. Same check, new door."""
     with pytest.raises(ShardContractViolation, match="Rule 3"):
-        assert_shard_trainable(_header(split="heldout"), config=DataConfig(), path=tmp_path)
+        assert_shard_trainable(
+            _header(split="heldout"), config=DataConfig(), path=tmp_path, repo_root=tmp_path
+        )
 
 
 def test_a_trainable_shard_set_reports_its_checks(tmp_path: Path):
-    checks = assert_shard_trainable(_header(split="train"), config=DataConfig(), path=tmp_path)
+    checks = assert_shard_trainable(
+        _header(split="train"), config=DataConfig(), path=tmp_path, repo_root=tmp_path
+    )
     assert all(isinstance(c, Ran) and c.passed for c in checks.values())
     assert set(checks) == {
+        # The path check is listed because it is *recorded*, not merely performed. It was
+        # missing entirely until 2026-09-20: this function asked what the header says about
+        # itself and never where the shard set is, so a set at `data/heldout/shards-train`
+        # declaring `split="train"` was admitted here while `assert_path_not_held_out`
+        # refused the same path.
+        "shard_path_not_held_out",
         "shard_split_trainable",
         "shard_provenance_pinned",
         "shard_not_packed",
         "held_out_families_configured",
     }
 
+
+def test_a_shard_set_inside_a_held_out_root_is_refused_however_its_header_is_labelled(
+    tmp_path: Path,
+):
+    """The location is the one question a header cannot lie about.
+
+    This function used to ask only what the shard set says about *itself*. Measured against
+    the pre-fix code: for a set at ``data/heldout/shards-train`` whose header honestly
+    declares ``split="train"``, ``qd_train.data_access.assert_path_not_held_out`` REFUSED
+    the path while ``assert_shard_trainable`` ADMITTED it and returned ``passed=True`` for
+    every check it reported. Two doors, two different questions, and the trainer goes
+    through this one.
+
+    ``ShardReader`` had accepted a ``repo_root`` since it was written and passed it
+    nowhere -- the parameter the check needs existed, and the check did not. That is the
+    tell: a taken-and-discarded argument is usually a check someone meant to wire.
+
+    Nothing here is malformed. The header is honest and the split is trainable; the shard
+    set is simply somewhere rule 3 forbids a training process from reading.
+    """
+    held_out = tmp_path / "data" / "heldout" / "shards-train"
+    held_out.mkdir(parents=True)
+    with pytest.raises(HeldOutViolation) as exc:
+        assert_shard_trainable(
+            _header(split="train"),
+            config=DataConfig(),
+            path=held_out,
+            repo_root=tmp_path,
+        )
+    assert "rule 3" in str(exc.value).lower()
+
+
+def test_the_shard_door_and_the_manifest_door_agree_on_the_same_path(tmp_path: Path):
+    """One question, one answer, whichever door asks it.
+
+    The defect above was not that either check was wrong on its own -- it was that they
+    disagreed, and which one you met depended on whether you arrived via a manifest or via
+    a shard directory. This pins agreement rather than either verdict, so a future change
+    that relaxes one of them fails here even if its own tests still pass.
+    """
+    from qd_train.data_access import assert_path_not_held_out
+
+    config = DataConfig()
+    for relative, expect_refused in (
+        (Path("data") / "heldout" / "shards-train", True),
+        (Path("data") / "shards" / "train", False),
+    ):
+        path = tmp_path / relative
+        path.mkdir(parents=True)
+
+        manifest_door_refused = False
+        try:
+            assert_path_not_held_out(path, config=config, repo_root=tmp_path)
+        except HeldOutViolation:
+            manifest_door_refused = True
+
+        shard_door_refused = False
+        try:
+            assert_shard_trainable(
+                _header(split="train"), config=config, path=path, repo_root=tmp_path
+            )
+        except HeldOutViolation:
+            shard_door_refused = True
+
+        assert manifest_door_refused == expect_refused, relative
+        assert shard_door_refused == manifest_door_refused, (
+            f"{relative}: the manifest door "
+            f"{'refused' if manifest_door_refused else 'admitted'} this path and the shard "
+            f"door {'refused' if shard_door_refused else 'admitted'} it. Rule 3 cannot "
+            "depend on which door a training process happens to arrive through."
+        )
 
 # --- bucketing and padding waste -------------------------------------------------------------
 

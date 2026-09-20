@@ -1173,7 +1173,7 @@ class ShardReader:
         # from_json recomputes shard_hash and refuses a header edited after it was written.
         self.header: ShardHeader = ShardHeader.from_json(raw)
         self.checks: dict[str, TriState] = assert_shard_trainable(
-            self.header, config=config, path=self.root
+            self.header, config=config, path=self.root, repo_root=self._repo_root
         )
 
         self._offsets: np.ndarray = np.load(self.root / OFFSETS_NAME)
