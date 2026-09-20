@@ -70,20 +70,34 @@ __all__ = [
 SCHEMA_VERSION: Final[int] = 1
 SUPPORTED_SCHEMA_VERSIONS: Final[frozenset[int]] = frozenset({1})
 
-#: The 16 letters the generic route decodes over. ``docs/schema-api.md``: one
-#: token over "the 16 letter-token slice of ``lm_head``".
+#: The 16 letters the generic route decodes over -- the option letters themselves,
+#: which is not the width of the slice they decode through. ``docs/schema-api.md``
+#: gives the slice as **17** rows: 16 option letters plus one reserved ``noul`` row.
+#: The phrase "the 16 letter-token slice of ``lm_head``" appears there only inside
+#: the list of three plan constraints that section exists to reject, so this comment
+#: used to cite the document for the reading the document rules out.
 OPTION_LETTERS: Final[str] = "ABCDEFGHIJKLMNOP"
 
 #: ``noul`` is "a reserved letter present in **every** option set". It is given a
-#: letter *outside* the contiguous A-P block so that the 16-row option slice stays
-#: exactly 16 rows even when a request uses all 16 named options.
+#: letter *outside* the contiguous A-P block so that the option rows stay exactly 16
+#: even when a request uses all 16 named options.
 #:
-#: NOTE (spec ambiguity, recorded as GAP-SCHEMA-NOUL-LETTER-BUDGET): the contract
-#: says both "options.len() > 16 refuses" and "noul is a reserved letter in every
-#: option set". Those two cannot both hold inside a 16-row slice -- 16 named
-#: options plus noul needs 17 rows. This module reads it as 16 option rows plus one
-#: reserved noul row. If the runtime lane instead slices 16 rows *total*, the fix is
-#: to set ``MAX_CHOICE_OPTIONS = 15`` here, one line, and every test follows.
+#: GAP-SCHEMA-NOUL-LETTER-BUDGET is SETTLED, the way this module already read it:
+#: 16 named option rows plus one reserved ``noul`` row, so a maximal choice slot is
+#: 17 rows. The runtime lane answered on the doc comment of ``NOUL_LETTER`` in
+#: ``crates/qd-runtime/src/render.rs``; ``docs/schema-api.md`` carries the resolution
+#: under "The letter budget"; and ``crates/qd-runtime/tests/wire_context_crosslang.rs
+#: ::the_option_and_bin_bounds_are_the_same_number_on_both_sides`` pins the constant
+#: below to ``schema.rs::MAX_OPTIONS`` by importing this module at test time.
+#:
+#: This note used to prescribe the losing branch -- "set ``MAX_CHOICE_OPTIONS = 15``
+#: here, one line, and every test follows" -- and both halves were wrong. The
+#: direction is settled against it, and the cost is not one line: measured
+#: 2026-09-19, 15 here stops pytest during collection with 12 errors (the
+#: ``MAX_SCORE_BINS <= MAX_CHOICE_OPTIONS`` assert below is the first to go) and
+#: fails 8 cross-language tests. Nothing follows the change; the repository refuses
+#: it. A maintainer who needs to move this number moves ``schema.rs::MAX_OPTIONS``
+#: first, because that constant is the owner and these are its mirrors.
 NOUL_LETTER: Final[str] = "Z"
 
 MAX_CHOICE_OPTIONS: Final[int] = 16

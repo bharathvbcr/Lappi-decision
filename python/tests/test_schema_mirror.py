@@ -192,8 +192,47 @@ def test_heads_and_calibration_fit_re_export_the_same_object():
     assert calibration_fit.CHOICE is schema_mirror.CHOICE
 
 
+def test_the_data_lanes_option_cap_is_the_same_number_under_its_other_name():
+    """``qd_data.schema.MAX_CHOICE_OPTIONS`` is this module's ``MAX_OPTIONS`` renamed.
+
+    One quantity under two names is this repository's recurring defect, so the equality
+    is stated rather than left to be inferred. It is NOT unguarded today, and a lane
+    that reported it as such had searched ``python/tests`` and ``python/qd_train`` --
+    not ``crates/`` -- where the pin actually lives:
+    ``crates/qd-runtime/tests/wire_context_crosslang.rs::
+    the_option_and_bin_bounds_are_the_same_number_on_both_sides`` imports the real
+    ``qd_data.schema`` at test time and compares it to ``schema.rs::MAX_OPTIONS``, and
+    three module-scope asserts in ``qd_data/schema.py`` tie the cap to
+    ``OPTION_LETTERS`` and ``MAX_SCORE_BINS``. Both were measured on 2026-09-19 by
+    mutation: 17 there fails 8 cross-language tests and errors 12 Python modules at
+    collection; 15 there errors 12 Python modules at collection.
+
+    What this adds is independence from a skip. The cross-language pin is guarded by
+    ``doc_or_skip!``, which returns early when ``.venv/bin/python`` is absent -- and
+    when it skips, nothing left running compares the two Python names to each other.
+    This assertion holds in every environment that can run the Python suite at all,
+    which is the environment this file is for.
+    """
+    from qd_data.schema import MAX_CHOICE_OPTIONS
+
+    assert MAX_CHOICE_OPTIONS == MAX_OPTIONS, (
+        "qd_data.schema.MAX_CHOICE_OPTIONS and qd_train.schema_mirror.MAX_OPTIONS are "
+        f"one quantity under two names, and they now read {MAX_CHOICE_OPTIONS} and "
+        f"{MAX_OPTIONS}. Both mirror crates/qd-runtime/src/schema.rs::MAX_OPTIONS; move "
+        "that one first."
+    )
+
+
 def test_there_is_exactly_one_definition_of_each_constant_in_python():
-    """A second assignment anywhere is the shape this whole change removes."""
+    """A second assignment anywhere is the shape this whole change removes.
+
+    Keyed on the NAME, and so blind to a rename by construction:
+    ``qd_data.schema.MAX_CHOICE_OPTIONS`` is a second assignment of ``MAX_OPTIONS``'s
+    quantity that this loop cannot see. That one is held by value in
+    ``test_the_data_lanes_option_cap_is_the_same_number_under_its_other_name``. Widening
+    the loop to catch renames in general would mean matching on the literal ``16``,
+    which every unrelated 16 in the tree would trip.
+    """
     for name in ("RESERVED_NOUL_ROWS", "MAX_OPTIONS", "MIN_OPTIONS"):
         definitions = []
         for package in ("qd_train", "qd_data", "qd_wire"):
