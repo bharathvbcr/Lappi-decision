@@ -1,0 +1,8 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "empty_slots"
+  },
+  "message": "`slots` is empty: there is nothing to answer, so the answer map would be ambiguous"
+}

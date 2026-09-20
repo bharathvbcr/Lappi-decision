@@ -88,7 +88,19 @@ Net effect: **1-2 days of Mac work and a 15 GB local model removed; +$3-6 on Ses
 measurement becomes valid.** Session 0 goes from $10 to ~$14-16; the program estimate is unchanged at
 the dollar level that matters.
 
-## 6. The decision left to you
+## 6. The decision — **settled 2026-09-19: 300**
+
+> **Decided: label 300 for the agreement set.** The threshold was not moved (rule 2); the sample size
+> was raised instead, which is the response that makes the existing 0.6 gate mean something rather
+> than the one that makes it easier to pass.
+>
+> **The disjointness condition below is now enforced, not remembered.** It was the single sentence in
+> this section that nothing in the code checked, and at 300+300 it is 600 items labelled across two
+> invocations days apart, where an overlap is silent and invalidates *both* uses at once — discovered
+> only after the labelling time is spent. `LabelSession` now takes `disjoint_from` and refuses,
+> naming the colliding ids; `python -m qd_label` grows a repeatable `--disjoint-from PATH` that reads
+> either a pool or a part-finished store. Tracked as `GAP-LABEL-DISJOINTNESS-UNENFORCED`, and
+> mutation-checked: neutering the overlap comparison fails 2 tests.
 
 The n=50 power problem in §3 is real whichever route the inference takes. Three honest responses:
 
@@ -100,8 +112,9 @@ The n=50 power problem in §3 is real whichever route the inference takes. Three
 - **Keep 50 and require the CI lower bound to clear 0.6** — much stricter than the plan intends
   (it needs a point estimate near 0.78), and would likely fail a serviceable rubric.
 
-I have not chosen for you, and `kappa_gate()` implements none of them as a silent default: it reports
-the point estimate, the interval, and whether the interval settles the question.
+`kappa_gate()` implements none of them as a silent default: it reports the point estimate, the
+interval, and whether the interval settles the question. That stays true under the 300 decision —
+raising *n* narrows the interval, it does not license reading a straddling interval as a pass.
 
 ## 7. The existing fallback still stands
 

@@ -1,0 +1,8 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "empty_task"
+  },
+  "message": "`task` is empty or all whitespace; the task identifier is what selects a registered head and what a ledger row attributes an answer to, so there is no default for it"
+}

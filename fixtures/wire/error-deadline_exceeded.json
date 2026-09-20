@@ -1,0 +1,9 @@
+{
+  "status": "error",
+  "schema_version": 1,
+  "error": {
+    "kind": "deadline_exceeded",
+    "limit_ms": 30000
+  },
+  "message": "request exceeded the 30000 ms deadline"
+}

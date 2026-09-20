@@ -1,0 +1,11 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "reserved_option_name",
+    "slot": "verdict",
+    "option_index": 1,
+    "reserved": "noul"
+  },
+  "message": "slot `verdict`: option 1 is the reserved abstain label `noul`; `noul` is a reserved row in every option set and may not also be a named option"
+}

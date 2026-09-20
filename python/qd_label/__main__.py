@@ -18,6 +18,7 @@ import argparse
 import json
 import sys
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 from .session import VALID_LABELS, LabelItem, LabelSession
@@ -58,6 +59,30 @@ def load_pool(path: Path) -> list[LabelItem]:
     ]
 
 
+def load_disjoint_ids(paths: Sequence[str]) -> set[str]:
+    """Item ids this session's pool must not contain.
+
+    Accepts either a **pool** file or a **store** file — the append-only decisions JSONL —
+    because at the moment the second set is opened the first may exist as either: a pool
+    that has been drawn but not yet labelled, or a store part-way through. Both carry
+    `item_id`, and reading whichever exists is what makes the check usable in practice
+    rather than only in the order the plan imagined.
+    """
+    ids: set[str] = set()
+    for raw_path in paths:
+        path = Path(raw_path)
+        text = path.read_text(encoding="utf-8")
+        if path.suffix == ".jsonl":
+            rows = [json.loads(line) for line in text.splitlines() if line.strip()]
+        else:
+            doc = json.loads(text)
+            rows = doc["items"] if isinstance(doc, dict) else doc
+        for r in rows:
+            if "item_id" in r:
+                ids.add(str(r["item_id"]))
+    return ids
+
+
 def render_diff(diff: str, *, max_lines: int = 120) -> str:
     out: list[str] = []
     lines = diff.splitlines()
@@ -81,7 +106,8 @@ def render_diff(diff: str, *, max_lines: int = 120) -> str:
 def cmd_label(args: argparse.Namespace) -> int:
     pool = load_pool(Path(args.pool))
     session = LabelSession(
-        pool, args.store, purpose=args.purpose, repeat_fraction=args.repeat_fraction, seed=args.seed
+        pool, args.store, purpose=args.purpose, repeat_fraction=args.repeat_fraction, seed=args.seed,
+        disjoint_from=load_disjoint_ids(args.disjoint_from)
     )
     pending = len(session.pending())
     if pending == 0:
@@ -132,7 +158,10 @@ def cmd_label(args: argparse.Namespace) -> int:
 
 
 def cmd_stats(args: argparse.Namespace) -> int:
-    session = LabelSession(load_pool(Path(args.pool)), args.store, purpose=args.purpose)
+    session = LabelSession(
+        load_pool(Path(args.pool)), args.store, purpose=args.purpose,
+        disjoint_from=load_disjoint_ids(args.disjoint_from),
+    )
     print(session.stats())
     return 0
 
@@ -147,7 +176,10 @@ def cmd_ceiling(args: argparse.Namespace) -> int:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from qd_train.agreement import kappa_with_ci
 
-    session = LabelSession(load_pool(Path(args.pool)), args.store, purpose=args.purpose)
+    session = LabelSession(
+        load_pool(Path(args.pool)), args.store, purpose=args.purpose,
+        disjoint_from=load_disjoint_ids(args.disjoint_from),
+    )
     first, second = session.intra_rater_pairs()
     if len(first) < 2:
         print(
@@ -187,7 +219,10 @@ def cmd_ceiling(args: argparse.Namespace) -> int:
 
 
 def cmd_export(args: argparse.Namespace) -> int:
-    session = LabelSession(load_pool(Path(args.pool)), args.store, purpose=args.purpose)
+    session = LabelSession(
+        load_pool(Path(args.pool)), args.store, purpose=args.purpose,
+        disjoint_from=load_disjoint_ids(args.disjoint_from),
+    )
     manifest = session.export_manifest(args.out)
     print(
         f"wrote {args.out}: {manifest['n_labelled']} labelled, "
@@ -202,6 +237,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--store", required=True, help="append-only JSONL of decisions")
     p.add_argument("--purpose", choices=("heldout", "agreement"), default="heldout")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument(
+        "--disjoint-from",
+        dest="disjoint_from",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="a pool or store this pool must not overlap. Repeatable. The held-out set and "
+        "the agreement set measure different things and cannot share items; without this "
+        "the constraint is maintained by memory across two invocations and 600 items, and "
+        "an overlap is silent until after the labelling time is spent.",
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
 
     lab = sub.add_parser("label", help="label unlabelled items")

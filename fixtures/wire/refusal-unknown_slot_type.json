@@ -1,0 +1,13 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "unknown_slot_type",
+    "slot": "verdict",
+    "supported": [
+      "choice"
+    ],
+    "actual": "vibe"
+  },
+  "message": "unknown slot type `vibe` on slot `verdict`; this build supports [\"choice\"]"
+}

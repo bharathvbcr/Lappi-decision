@@ -1,0 +1,12 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "unknown_op",
+    "supported": [
+      "status"
+    ],
+    "actual": "restart"
+  },
+  "message": "unknown control op `restart`; this build supports [\"status\"]"
+}

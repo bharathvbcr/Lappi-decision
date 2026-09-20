@@ -1,0 +1,42 @@
+# The TRAINING environment: CPT, fine-tune, eval. No vLLM.
+#
+# Split from the teacher deliberately. See stack/README.md section 3: a single lockfile
+# holding both pulled TWO CUDA wheel families at once (nvidia-cuda-runtime==13.4.92
+# alongside nvidia-cuda-runtime-cu12==12.8.90) and installed torch 2.14.0+cu130 while
+# claiming to pin 2.11.0+cu128, because vLLM drags in torchaudio/torchvision/torchcodec
+# each carrying its own torch constraint.
+
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+# torch 2.10, NOT the plan's 2.11, and the reason is causal-conv1d.
+#
+# causal-conv1d ships prebuilt wheels on its GitHub releases, one per
+# (cuda x torch x cxx11abi) combination. At torch 2.11 its setup.py looks for
+# `causal_conv1d-1.7.0+cu12torch2.11cxx11abiTRUE-cp312-cp312-linux_x86_64.whl`, which
+# **does not exist** in the v1.7.0 release: the published cu12 wheels stop at torch2.10.
+# It then falls back to compiling from source with nvcc.
+#
+# That source build is the single most fragile step in the image. It needs a -devel
+# base, it is memory-hungry enough to invite the OOM killer, it compiles for six GPU
+# architectures, and it cannot be built under x86 emulation at all -- qemu segfaults
+# running nvcc. Pinning one minor version back turns the most fragile step into a wheel
+# download.
+#
+# This is a better engineering choice than the plan's, independent of this Mac: it takes
+# a from-source CUDA compile off the critical path of a $1,085 block, where a build
+# failure costs $32/hour to debug.
+torch==2.10.0
+
+transformers==5.17.0
+accelerate
+safetensors
+datasets
+numpy
+sentencepiece
+einops
+
+# The GDN fast path. CUDA-only; never install these in the Mac environment, because the
+# Qwen3.5 modeling file dispatches through a bare importlib.import_module("fla") rather
+# than the CUDA-gated helper, and Triton has no Metal backend.
+flash-linear-attention
+causal-conv1d

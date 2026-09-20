@@ -1,0 +1,13 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "registered_head_slot_missing",
+    "task": "devtype.route",
+    "slot": "verdict",
+    "available": [
+      "severity"
+    ]
+  },
+  "message": "route `registered`: the head for task `devtype.route` has no rows for slot `verdict`; it carries rows for [\"severity\"]. Answering the slot on the generic route instead would make `route` advisory and would silently compare the generic route with itself"
+}

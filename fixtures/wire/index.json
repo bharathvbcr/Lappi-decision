@@ -1,0 +1,475 @@
+{
+  "schema_version": 1,
+  "count": 57,
+  "by_status": {
+    "error": 12,
+    "ok": 8,
+    "refused": 37
+  },
+  "entries": [
+    {
+      "file": "answer-example-three-slots.json",
+      "status": "ok",
+      "note": "The contract's own example request, answered: one slot of every kind in one envelope. Note the five envelope keys — status, schema_version, backend, degraded, slots — where docs/schema-api.md's example showed only two.",
+      "request": {
+        "context_b64": "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgewogICAgdG9kbyEoKQp9Cg==",
+        "context_len": 46,
+        "question": "Does this diff implement what the commit message claims?",
+        "route": "generic",
+        "schema_version": 1,
+        "slots": [
+          {
+            "name": "verdict",
+            "options": [
+              "stub",
+              "logic",
+              "cosmetic",
+              "clean"
+            ],
+            "type": "choice"
+          },
+          {
+            "bins": 5,
+            "name": "severity",
+            "type": "score"
+          },
+          {
+            "name": "evidence",
+            "type": "span"
+          }
+        ],
+        "task": "devcouncil.verdict"
+      }
+    },
+    {
+      "file": "answer-choice-only.json",
+      "status": "ok",
+      "note": "A single `choice` slot. Its value is one of the request's option strings, never a letter and never the string `noul`; abstention is the `noul` flag.",
+      "request": {
+        "context_b64": "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgewogICAgdG9kbyEoKQp9Cg==",
+        "context_len": 46,
+        "question": "Does this diff implement what the commit message claims?",
+        "route": "generic",
+        "schema_version": 1,
+        "slots": [
+          {
+            "name": "verdict",
+            "options": [
+              "stub",
+              "logic",
+              "cosmetic",
+              "clean"
+            ],
+            "type": "choice"
+          }
+        ],
+        "task": "devcouncil.verdict"
+      }
+    },
+    {
+      "file": "answer-score-only.json",
+      "status": "ok",
+      "note": "A single `score` slot. Its value is a 1-based ordinal bin as a JSON number, and its conformal set is a list of bins.",
+      "request": {
+        "context_b64": "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgewogICAgdG9kbyEoKQp9Cg==",
+        "context_len": 46,
+        "question": "Does this diff implement what the commit message claims?",
+        "route": "generic",
+        "schema_version": 1,
+        "slots": [
+          {
+            "bins": 5,
+            "name": "severity",
+            "type": "score"
+          }
+        ],
+        "task": "devcouncil.verdict"
+      }
+    },
+    {
+      "file": "answer-span-only.json",
+      "status": "ok",
+      "note": "A single `span` slot over a four-line context. Its value is {start_line, end_line}, 1-based and inclusive, and its conformal_set is null — a span has no conformal set.",
+      "request": {
+        "context_b64": "YWxwaGEKYmV0YQpnYW1tYQpkZWx0YQo=",
+        "context_len": 23,
+        "question": "Does this diff implement what the commit message claims?",
+        "route": "generic",
+        "schema_version": 1,
+        "slots": [
+          {
+            "name": "evidence",
+            "type": "span"
+          }
+        ],
+        "task": "devcouncil.verdict"
+      }
+    },
+    {
+      "file": "answer-max-options.json",
+      "status": "ok",
+      "note": "A `choice` slot at the documented maximum of 16 named options, which reads a 17-row head slice: 16 option rows plus the reserved noul row last.",
+      "request": {
+        "context_b64": "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgewogICAgdG9kbyEoKQp9Cg==",
+        "context_len": 46,
+        "question": "Does this diff implement what the commit message claims?",
+        "route": "generic",
+        "schema_version": 1,
+        "slots": [
+          {
+            "name": "verdict",
+            "options": [
+              "o01",
+              "o02",
+              "o03",
+              "o04",
+              "o05",
+              "o06",
+              "o07",
+              "o08",
+              "o09",
+              "o10",
+              "o11",
+              "o12",
+              "o13",
+              "o14",
+              "o15",
+              "o16"
+            ],
+            "type": "choice"
+          }
+        ],
+        "task": "devcouncil.verdict"
+      }
+    },
+    {
+      "file": "answer-registered-route.json",
+      "status": "ok",
+      "note": "The registered route: one GEMV on pooled features, no option text in the prompt and no permuted second pass. The envelope shape is identical to the generic route's — `route` does not appear in an answer.",
+      "request": {
+        "context_b64": "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgewogICAgdG9kbyEoKQp9Cg==",
+        "context_len": 46,
+        "question": "Does this diff implement what the commit message claims?",
+        "route": "registered",
+        "schema_version": 1,
+        "slots": [
+          {
+            "name": "verdict",
+            "options": [
+              "stub",
+              "logic",
+              "cosmetic",
+              "clean"
+            ],
+            "type": "choice"
+          }
+        ],
+        "task": "devcouncil.verdict"
+      }
+    },
+    {
+      "file": "answer-all-slots-abstained.json",
+      "status": "ok",
+      "note": "Every slot abstained. This is `status: ok` with `noul: true` everywhere — it is NOT a refusal and NOT an error. A caller that treats it as a failure has collapsed model humility into machine failure, which is the confusion docs/schema-api.md exists to prevent. `value` is null in every slot, because value is absent if and only if noul."
+    },
+    {
+      "file": "answer-not-degraded.json",
+      "status": "ok",
+      "note": "`degraded: false` everywhere — the shape a real model backend produces. No backend in this build can emit it: the reference backend declares `is_model: false`, so every answer it produces is degraded. The values are those of the example in docs/schema-api.md, so the document and the corpus can be read against each other."
+    },
+    {
+      "file": "refusal-hash_mismatch-tokenizer.json",
+      "status": "refused",
+      "kind": "hash_mismatch",
+      "note": "Refusal `hash_mismatch`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: tokenizer hash does not match the build: build has aaaa, request/backend has bbbb"
+    },
+    {
+      "file": "refusal-hash_mismatch-head_backbone_binding.json",
+      "status": "refused",
+      "kind": "hash_mismatch",
+      "note": "Refusal `hash_mismatch`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: head_backbone_binding hash does not match the build: build has aaaa, request/backend has bbbb"
+    },
+    {
+      "file": "refusal-too_many_options.json",
+      "status": "refused",
+      "kind": "too_many_options",
+      "note": "Refusal `too_many_options`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: slot `verdict`: 17 options exceeds the limit of 16; the letter-token head slice cannot express the extra option and dropping one would change the question"
+    },
+    {
+      "file": "refusal-too_few_options.json",
+      "status": "refused",
+      "kind": "too_few_options",
+      "note": "Refusal `too_few_options`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: slot `verdict`: 1 option(s) is below the minimum of 2; a single-option choice is not a question"
+    },
+    {
+      "file": "refusal-duplicate_option.json",
+      "status": "refused",
+      "kind": "duplicate_option",
+      "note": "Refusal `duplicate_option`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: slot `verdict`: option 2 duplicates option 0 (`stub`); the question is malformed"
+    },
+    {
+      "file": "refusal-reserved_option_name.json",
+      "status": "refused",
+      "kind": "reserved_option_name",
+      "note": "Refusal `reserved_option_name`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: slot `verdict`: option 1 is the reserved abstain label `noul`; `noul` is a reserved row in every option set and may not also be a named option"
+    },
+    {
+      "file": "refusal-empty_slots.json",
+      "status": "refused",
+      "kind": "empty_slots",
+      "note": "Refusal `empty_slots`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: `slots` is empty: there is nothing to answer, so the answer map would be ambiguous"
+    },
+    {
+      "file": "refusal-duplicate_slot_name.json",
+      "status": "refused",
+      "kind": "duplicate_slot_name",
+      "note": "Refusal `duplicate_slot_name`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: slot name `verdict` is used at index 1 and index 0; the answer map would be ambiguous"
+    },
+    {
+      "file": "refusal-empty_slot_name.json",
+      "status": "refused",
+      "kind": "empty_slot_name",
+      "note": "Refusal `empty_slot_name`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: slot at index 0 has an empty name"
+    },
+    {
+      "file": "refusal-too_many_slots.json",
+      "status": "refused",
+      "kind": "too_many_slots",
+      "note": "Refusal `too_many_slots`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: too many slots: 33 exceeds the configured cap of 32; every fan-out in this runtime is bounded"
+    },
+    {
+      "file": "refusal-bins_out_of_range.json",
+      "status": "refused",
+      "kind": "bins_out_of_range",
+      "note": "Refusal `bins_out_of_range`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: slot `severity`: bins = 1 is outside the allowed range [2, 16]"
+    },
+    {
+      "file": "refusal-unknown_schema_version.json",
+      "status": "refused",
+      "kind": "unknown_schema_version",
+      "note": "Refusal `unknown_schema_version`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: unknown schema_version 2; this build supports [1]. Forward-compat guessing is how a field changes meaning silently"
+    },
+    {
+      "file": "refusal-context_over_cap.json",
+      "status": "refused",
+      "kind": "context_over_cap",
+      "note": "Refusal `context_over_cap`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: context is 200000 bytes, over the cap of 131072; truncating would move the answer out of the window and line spans would point at the wrong lines"
+    },
+    {
+      "file": "refusal-context_length_mismatch.json",
+      "status": "refused",
+      "kind": "context_length_mismatch",
+      "note": "Refusal `context_length_mismatch`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: declared context_len 10 does not match the 11 bytes `context_b64` decoded to; context crosses the boundary as bytes *and* a length, and a disagreement between the two is the signature of a truncated payload that still base64-decodes"
+    },
+    {
+      "file": "refusal-context_len_missing.json",
+      "status": "refused",
+      "kind": "context_len_missing",
+      "note": "Refusal `context_len_missing`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: `context_len` must be a non-negative integer alongside `context_b64`, but it is absent. The context crosses the boundary as bytes *and* a length, and a payload whose length nobody declared is a payload whose truncation nobody would notice. There is no default"
+    },
+    {
+      "file": "refusal-context_not_bytes.json",
+      "status": "refused",
+      "kind": "context_not_bytes",
+      "note": "Refusal `context_not_bytes`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: `context_b64` is a JSON a `context` field, not a base64 string; the context crosses the wire as `context_b64` plus `context_len` and there is no second accepted form — in particular a JSON array of byte values is no longer read"
+    },
+    {
+      "file": "refusal-context_not_base64.json",
+      "status": "refused",
+      "kind": "context_not_base64",
+      "note": "Refusal `context_not_base64`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: `context_b64` is not canonical base64: at offset 4, expected a character from the standard base64 alphabet, found `*`. A context is refused rather than best-effort decoded, because a decoder that guesses turns a truncated payload into a shorter context nobody notices"
+    },
+    {
+      "file": "refusal-context_empty.json",
+      "status": "refused",
+      "kind": "context_empty",
+      "note": "Refusal `context_empty`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: context has 0 non-whitespace characters in 4 bytes; an empty or all-whitespace context has no answer to point at, and would yield a confident letter from nothing"
+    },
+    {
+      "file": "refusal-context_not_utf8.json",
+      "status": "refused",
+      "kind": "context_not_utf8",
+      "note": "Refusal `context_not_utf8`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: context is not valid UTF-8: the first invalid sequence is at byte offset 2 and is 1 byte(s) long. The renderer refuses rather than substituting U+FFFD, because a replacement character is exactly the silent rewrite that carrying `context` as bytes exists to prevent"
+    },
+    {
+      "file": "refusal-rendered_prompt_over_cap.json",
+      "status": "refused",
+      "kind": "rendered_prompt_over_cap",
+      "note": "Refusal `rendered_prompt_over_cap`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: the rendered prompt is 900000 bytes, over the cap of 802816; the bound is on the bytes the model sees, not only on those that arrived"
+    },
+    {
+      "file": "refusal-empty_option.json",
+      "status": "refused",
+      "kind": "empty_option",
+      "note": "Refusal `empty_option`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: slot `verdict`: option 1 is empty or all whitespace; an empty option is an unlabelled letter"
+    },
+    {
+      "file": "refusal-option_text_over_cap.json",
+      "status": "refused",
+      "kind": "option_text_over_cap",
+      "note": "Refusal `option_text_over_cap`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: slot `verdict`: option 0 is 513 bytes, over the cap of 512; options are refused, never truncated"
+    },
+    {
+      "file": "refusal-question_over_cap.json",
+      "status": "refused",
+      "kind": "question_over_cap",
+      "note": "Refusal `question_over_cap`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: question is 5000 bytes, over the cap of 4096"
+    },
+    {
+      "file": "refusal-task_over_cap.json",
+      "status": "refused",
+      "kind": "task_over_cap",
+      "note": "Refusal `task_over_cap`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: task identifier is 300 bytes, over the cap of 256"
+    },
+    {
+      "file": "refusal-empty_task.json",
+      "status": "refused",
+      "kind": "empty_task",
+      "note": "Refusal `empty_task`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: `task` is empty or all whitespace; the task identifier is what selects a registered head and what a ledger row attributes an answer to, so there is no default for it"
+    },
+    {
+      "file": "refusal-unknown_route.json",
+      "status": "refused",
+      "kind": "unknown_route",
+      "note": "Refusal `unknown_route`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: unknown route `turbo`; this build supports [\"generic\", \"registered\"]"
+    },
+    {
+      "file": "refusal-unknown_slot_type.json",
+      "status": "refused",
+      "kind": "unknown_slot_type",
+      "note": "Refusal `unknown_slot_type`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: unknown slot type `vibe` on slot `verdict`; this build supports [\"choice\"]"
+    },
+    {
+      "file": "refusal-slot_field_not_allowed.json",
+      "status": "refused",
+      "kind": "slot_field_not_allowed",
+      "note": "Refusal `slot_field_not_allowed`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: slot `evidence` is a `span` slot but carries `bins`"
+    },
+    {
+      "file": "refusal-slot_field_missing.json",
+      "status": "refused",
+      "kind": "slot_field_missing",
+      "note": "Refusal `slot_field_missing`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: slot `severity` is a `score` slot and requires `bins`"
+    },
+    {
+      "file": "refusal-registered_head_missing.json",
+      "status": "refused",
+      "kind": "registered_head_missing",
+      "note": "Refusal `registered_head_missing`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: route `registered` requires a head registered for task `devtype.route`; this build has heads for []"
+    },
+    {
+      "file": "refusal-registered_head_slot_missing.json",
+      "status": "refused",
+      "kind": "registered_head_slot_missing",
+      "note": "Refusal `registered_head_slot_missing`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: route `registered`: the head for task `devtype.route` has no rows for slot `verdict`; it carries rows for [\"severity\"]. Answering the slot on the generic route instead would make `route` advisory and would silently compare the generic route with itself"
+    },
+    {
+      "file": "refusal-registered_route_span_unsupported.json",
+      "status": "refused",
+      "kind": "registered_route_span_unsupported",
+      "note": "Refusal `registered_route_span_unsupported`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: route `registered`: slot `evidence` is a `span` slot, whose pointer head ranges over the 4 line starts of *this* context; a head file has a fixed row count and cannot express a shape that changes per request. Ask for this slot on route `generic`"
+    },
+    {
+      "file": "refusal-calibration_entry_missing.json",
+      "status": "refused",
+      "kind": "calibration_entry_missing",
+      "note": "Refusal `calibration_entry_missing`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: no calibration entry for a `choice` slot with 5 rows (slot `verdict`); an uncalibrated answer would carry a `score` and a `conformal_set` that were never fitted"
+    },
+    {
+      "file": "refusal-payload_over_cap.json",
+      "status": "refused",
+      "kind": "payload_over_cap",
+      "note": "Refusal `payload_over_cap`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: request payload is 2000000 bytes, over the cap of 1572864"
+    },
+    {
+      "file": "refusal-malformed_request.json",
+      "status": "refused",
+      "kind": "malformed_request",
+      "note": "Refusal `malformed_request`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: request is not valid JSON: expected value at line 1"
+    },
+    {
+      "file": "refusal-ambiguous_envelope.json",
+      "status": "refused",
+      "kind": "ambiguous_envelope",
+      "note": "Refusal `ambiguous_envelope`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: request carries both `op` and `schema_version`; a line is either a control op or a decision request, never ambiguously both"
+    },
+    {
+      "file": "refusal-unknown_op.json",
+      "status": "refused",
+      "kind": "unknown_op",
+      "note": "Refusal `unknown_op`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: unknown control op `restart`; this build supports [\"status\"]"
+    },
+    {
+      "file": "error-reference_backend_not_enabled.json",
+      "status": "error",
+      "kind": "reference_backend_not_enabled",
+      "note": "Backend error `reference_backend_not_enabled`: the backend could not serve, so the model was never asked. Distinct from a refusal (a bug in the request) and from an abstention (the model declined). Message: no model backend is configured; `reference-deterministic-v1` is a deterministic reference, not a model, and will not serve unless explicitly enabled"
+    },
+    {
+      "file": "error-unavailable.json",
+      "status": "error",
+      "kind": "unavailable",
+      "note": "Backend error `unavailable`: the backend could not serve, so the model was never asked. Distinct from a refusal (a bug in the request) and from an abstention (the model declined). Message: no model backend is available: no model backend"
+    },
+    {
+      "file": "error-poisoned.json",
+      "status": "error",
+      "kind": "poisoned",
+      "note": "Backend error `poisoned`: the backend could not serve, so the model was never asked. Distinct from a refusal (a bug in the request) and from an abstention (the model declined). Message: backend is poisoned: command buffer error"
+    },
+    {
+      "file": "error-rebuild_failed.json",
+      "status": "error",
+      "kind": "rebuild_failed",
+      "note": "Backend error `rebuild_failed`: the backend could not serve, so the model was never asked. Distinct from a refusal (a bug in the request) and from an abstention (the model declined). Message: backend rebuild failed after poison: device lost"
+    },
+    {
+      "file": "error-readonly_violated.json",
+      "status": "error",
+      "kind": "readonly_violated",
+      "note": "Backend error `readonly_violated`: the backend could not serve, so the model was never asked. Distinct from a refusal (a bug in the request) and from an abstention (the model declined). Message: slot-isolation violated: the state buffer hash changed across a readonly decode (aa -> bb); slot 1's answer would depend on the previous slot's"
+    },
+    {
+      "file": "error-logit_shape_mismatch.json",
+      "status": "error",
+      "kind": "logit_shape_mismatch",
+      "note": "Backend error `logit_shape_mismatch`: the backend could not serve, so the model was never asked. Distinct from a refusal (a bug in the request) and from an abstention (the model declined). Message: backend returned 4 logit rows for slot `verdict`, expected 5"
+    },
+    {
+      "file": "error-non_finite_logit.json",
+      "status": "error",
+      "kind": "non_finite_logit",
+      "note": "Backend error `non_finite_logit`: the backend could not serve, so the model was never asked. Distinct from a refusal (a bug in the request) and from an abstention (the model declined). Message: backend returned a non-finite logit at row 0 for slot `verdict`"
+    },
+    {
+      "file": "error-logit_kind_mismatch.json",
+      "status": "error",
+      "kind": "logit_kind_mismatch",
+      "note": "Backend error `logit_kind_mismatch`: the backend could not serve, so the model was never asked. Distinct from a refusal (a bug in the request) and from an abstention (the model declined). Message: backend returned the wrong logit kind for slot `evidence`: expected pointer_start"
+    },
+    {
+      "file": "error-prefill_failed.json",
+      "status": "error",
+      "kind": "prefill_failed",
+      "note": "Backend error `prefill_failed`: the backend could not serve, so the model was never asked. Distinct from a refusal (a bug in the request) and from an abstention (the model declined). Message: prefill failed: oom"
+    },
+    {
+      "file": "error-decode_failed.json",
+      "status": "error",
+      "kind": "decode_failed",
+      "note": "Backend error `decode_failed`: the backend could not serve, so the model was never asked. Distinct from a refusal (a bug in the request) and from an abstention (the model declined). Message: decode failed: oom"
+    },
+    {
+      "file": "error-deadline_exceeded.json",
+      "status": "error",
+      "kind": "deadline_exceeded",
+      "note": "Backend error `deadline_exceeded`: the backend could not serve, so the model was never asked. Distinct from a refusal (a bug in the request) and from an abstention (the model declined). Message: request exceeded the 30000 ms deadline"
+    },
+    {
+      "file": "error-overloaded.json",
+      "status": "error",
+      "kind": "overloaded",
+      "note": "Backend error `overloaded`: the backend could not serve, so the model was never asked. Distinct from a refusal (a bug in the request) and from an abstention (the model declined). Message: the runtime is at its concurrency limit of 8 in-flight requests"
+    }
+  ]
+}

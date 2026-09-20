@@ -1,0 +1,9 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "context_not_bytes",
+    "got": "a `context` field"
+  },
+  "message": "`context_b64` is a JSON a `context` field, not a base64 string; the context crosses the wire as `context_b64` plus `context_len` and there is no second accepted form — in particular a JSON array of byte values is no longer read"
+}

@@ -1,0 +1,10 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "context_not_utf8",
+    "offset": 2,
+    "invalid_len": 1
+  },
+  "message": "context is not valid UTF-8: the first invalid sequence is at byte offset 2 and is 1 byte(s) long. The renderer refuses rather than substituting U+FFFD, because a replacement character is exactly the silent rewrite that carrying `context` as bytes exists to prevent"
+}

@@ -1,0 +1,19 @@
+# The TEACHER environment: vLLM labelling ~80K diffs with Qwen3.8-27B, TP=8.
+#
+# Separate from the training environment on evidence, not taste. Holding both in one
+# lockfile produced a resolution that pinned torch 2.11.0+cu128 while simultaneously
+# pulling the CUDA 13 wheel family, and installed torch 2.14.0+cu130 -- after which
+# causal-conv1d refused to compile against a CUDA 12.8 base. vLLM drags in
+# torchaudio, torchvision and torchcodec, each with its own torch constraint.
+#
+# Splitting them costs nothing the plan cares about: the teacher runs once for ~40
+# minutes at the head of the block, the trainer runs for ~30 hours after it. They never
+# need to be resident at the same time, and the plan's own session ordering already
+# separates them.
+#
+# torch is deliberately UNPINNED here: vLLM's own constraint decides, and pinning it to
+# a value vLLM disagrees with is exactly what broke the combined lockfile. The resolved
+# version is recorded in teacher.lock and in the ledger's env block.
+
+vllm
+transformers==5.17.0

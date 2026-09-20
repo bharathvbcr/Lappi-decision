@@ -1,0 +1,12 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "option_text_over_cap",
+    "slot": "verdict",
+    "option_index": 0,
+    "cap": 512,
+    "actual": 513
+  },
+  "message": "slot `verdict`: option 0 is 513 bytes, over the cap of 512; options are refused, never truncated"
+}

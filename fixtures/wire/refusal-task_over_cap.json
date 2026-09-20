@@ -1,0 +1,10 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "task_over_cap",
+    "cap": 256,
+    "actual": 300
+  },
+  "message": "task identifier is 300 bytes, over the cap of 256"
+}

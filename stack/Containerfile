@@ -1,7 +1,14 @@
 # The pinned Lambda training environment (S1). Built with podman, not docker —
 # docker is not installed on the build host. See stack/README.md.
 #
-#   podman build --platform linux/amd64 -t qd-train:s1 -f stack/Containerfile stack/
+#   podman build --platform linux/amd64 -t qd-train:s1 -f stack/Containerfile .
+#
+# The context is the REPO ROOT, not stack/. It has to be: the gate imports
+# `qd_train.tristate`, so `python/` must be in the image, and a stack/ context cannot reach
+# it. The first build that tagged clean had a gate that died with
+# `ModuleNotFoundError: No module named 'qd_train'` the moment it was run — the image built,
+# tagged and verified as an image, and the one thing in it that exists to be run could not
+# start. See `.containerignore` for what the wider context excludes.
 #
 # Base is -devel, not -runtime, because causal-conv1d is sdist-only (no wheels) and
 # compiles against nvcc. A -runtime base fails at pip-install time with a confusing
@@ -13,10 +20,20 @@ FROM docker.io/nvidia/cuda:12.8.1-devel-ubuntu24.04
 # Fail on any pipeline error, not just the last command's.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+# UV_NO_CACHE, not PIP_NO_CACHE_DIR. Every install in this file goes through `uv pip`, and
+# uv does not read PIP_NO_CACHE_DIR at all -- it keeps its own cache under /root/.cache/uv
+# behind its own switch (`uv --help`: `-n, --no-cache ... [env: UV_NO_CACHE=]`). The
+# variable that stood here was therefore inert, and the eighth build failure was `no space
+# left on device` writing /root/.cache/uv/archive-v0/.../nvidia/nccl/lib/libnccl.so.2.
+#
+# A cache the image never reads again is paid for twice: once as bytes in the committed
+# layer, and again in the tar buildah writes to commit that layer. Note the shape -- a
+# guard that was never engaged, reading identically to one that was. Same class as the fla
+# log-grep and the `| tail` exit status.
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    UV_NO_CACHE=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.12 python3.12-dev python3.12-venv git ca-certificates build-essential ninja-build \
@@ -35,22 +52,69 @@ RUN uv venv --python 3.12 /opt/venv
 
 WORKDIR /opt/qd
 
-# The lockfile is the environment. It is resolved on the build host against
+# The lockfile is the environment. Resolved on the build host against
 # x86_64-manylinux_2_28 / py3.12 and committed, so this layer is reproducible and the
 # image cannot silently drift from what was tested.
 #
-# `--index-strategy unsafe-best-match` is REQUIRED and is a deliberate, recorded
-# choice: vllm exists on the pytorch cu128 index only at 0.9.0.1 (which pins
-# torch==2.7.0), so default index precedence makes torch 2.11 + vllm unsatisfiable.
-# The strategy lets uv consider all versions across both indexes. The dependency-
-# confusion caveat is real; it is accepted here because both indexes are first-party
-# and well-known, and because the resolution is pinned in requirements.lock rather
-# than re-resolved at build time.
-COPY requirements.lock /opt/qd/requirements.lock
-RUN uv pip install --python /opt/venv/bin/python \
-        --index-strategy unsafe-best-match -r /opt/qd/requirements.lock
+# TRAINING ONLY -- no vLLM. That split is forced by evidence, not preference. A single
+# lockfile holding both resolved to torch 2.11.0+cu128 on paper while pulling BOTH CUDA
+# wheel families (nvidia-cuda-runtime==13.4.92 beside nvidia-cuda-runtime-cu12==12.8.90)
+# and installing torch 2.14.0+cu130, at which point causal-conv1d's source build
+# refused: "The detected CUDA version (12.8) mismatches the version that was used to
+# compile PyTorch (13.0)". vLLM drags in torchaudio/torchvision/torchcodec, each with
+# its own torch constraint.
+#
+# Dropping vLLM takes the resolution from 206 packages to 72, from two CUDA families to
+# one (15 cu12 wheels, zero cu13), and removes the need for
+# `--index-strategy unsafe-best-match` entirely -- so the dependency-confusion caveat
+# that flag carried is gone rather than merely accepted. The teacher gets its own image
+# from teacher.lock; see stack/README.md section 6.
+COPY stack/train.lock /opt/qd/train.lock
 
-COPY verify_fast_path.py /opt/qd/verify_fast_path.py
+# MAX_JOBS bounds causal-conv1d's parallel nvcc/cc1plus processes. Without it the build
+# fans out to one job per core and the fifth real build failure here was
+# `c++: fatal error: Killed signal terminated program cc1plus` -- the OOM killer, on a
+# 9-core builder. Each CUDA translation unit can take a couple of GB, so peak memory is
+# MAX_JOBS-shaped, not total-RAM-shaped: raising the builder's RAM alone only moves the
+# core count at which it dies.
+#
+# This is the portable half of the fix and belongs in the image rather than in the
+# builder's configuration, so the same Containerfile builds on a small CI box.
+ENV MAX_JOBS=4
+
+# TWO steps, and the order is the whole point.
+#
+# causal-conv1d is an sdist whose setup.py reads the *installed* torch version to pick
+# which prebuilt wheel to download. Under PEP 517 build isolation it gets an ephemeral
+# build environment with its own unpinned torch -- so with torch pinned to 2.10 in the
+# lockfile it still guessed:
+#
+#   Guessing wheel URL: ...causal_conv1d-1.7.0+cu12torch2.11cxx11abiTRUE-...whl
+#   Precompiled wheel not found. Building from source...
+#
+# and the source build then died under qemu. **Build isolation silently defeats a
+# lockfile pin for any sdist that introspects its installed dependencies**, which is
+# not a property a lockfile advertises.
+#
+# So: install everything else first, then install causal-conv1d with
+# --no-build-isolation so its setup.py sees the torch that is actually there, guesses
+# cu12torch2.10, and downloads a wheel instead of invoking nvcc at all.
+RUN grep -v '^causal-conv1d==' /opt/qd/train.lock > /opt/qd/train-nocc.lock \
+    && uv pip install --python /opt/venv/bin/python -r /opt/qd/train-nocc.lock
+
+RUN uv pip install --python /opt/venv/bin/python --no-build-isolation \
+        "causal-conv1d==1.7.0"
+
+# The image mirrors the repo layout — `stack/` beside `python/` under /opt/qd — rather than
+# flattening both into one directory. That is not tidiness: `verify_fast_path.py` locates the
+# package with `Path(__file__).resolve().parents[1] / "python"`, which is correct in a
+# checkout and resolved to the non-existent `/opt/python` when the script sat at /opt/qd.
+# Reproducing the layout makes the same line right in both places, so there is no
+# container-only branch in the script to drift.
+COPY python/qd_train /opt/qd/python/qd_train
+COPY python/qd_data /opt/qd/python/qd_data
+COPY python/qd_label /opt/qd/python/qd_label
+COPY stack/verify_fast_path.py /opt/qd/stack/verify_fast_path.py
 
 # NOTE ON THE S1 GATE.
 #
@@ -66,4 +130,4 @@ COPY verify_fast_path.py /opt/qd/verify_fast_path.py
 #
 # It is NOT run at build time: it needs a GPU, and the build host has none. It runs as
 # the first step of Session 0 and again at the head of the 8xH100 block.
-CMD ["python", "/opt/qd/verify_fast_path.py", "--require-fast", "--json"]
+CMD ["python", "/opt/qd/stack/verify_fast_path.py", "--require-fast", "--json"]

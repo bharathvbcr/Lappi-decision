@@ -1,0 +1,9 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "context_len_missing",
+    "found": "absent"
+  },
+  "message": "`context_len` must be a non-negative integer alongside `context_b64`, but it is absent. The context crosses the boundary as bytes *and* a length, and a payload whose length nobody declared is a payload whose truncation nobody would notice. There is no default"
+}

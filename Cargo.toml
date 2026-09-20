@@ -30,6 +30,20 @@ rand_chacha = "0.9"
 sha2 = "0.10"
 thiserror = "2"
 
+# Added 2026-09-19 at the user's explicit request, replacing the hand-written codec in
+# `qd-runtime/src/b64.rs` (`GAP-XLANG-BASE64-HANDROLLED`). Pinned to 0.23 because the
+# strictness this wire format depends on is a property of the engine config, and the config
+# is what a major bump is free to re-tune:
+#
+#   GeneralPurposeConfig::new() -> decode_allow_trailing_bits: false,
+#                                  decode_padding_mode: RequireCanonical
+#   STANDARD = GeneralPurpose::new(&alphabet::STANDARD, PAD)   // PAD == new()
+#
+# Read out of the vendored source rather than recalled. Those two defaults are the whole
+# reason the crate is usable here; `b64.rs` asserts the behaviour they produce, so a bump
+# that changed them fails a test rather than silently widening what the runtime accepts.
+base64 = "0.23"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

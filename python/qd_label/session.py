@@ -1,4 +1,4 @@
-"""The hand-labelling harness: the 300 held-out labels, and the 50-item agreement set.
+"""The hand-labelling harness: the 300 held-out labels, and the 300-item agreement set.
 
 This is the program's long pole, because it is the one job only a human can do. The
 design goals are therefore: lose nothing, resume anywhere, and measure the thing
@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import os
 import random
-from collections.abc import Iterator, Sequence
+from collections.abc import Collection, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -120,6 +120,7 @@ class LabelSession:
         purpose: Purpose = "heldout",
         repeat_fraction: float = 0.1,
         seed: int = 0,
+        disjoint_from: Collection[str] = (),
     ) -> None:
         if not pool:
             raise ValueError("cannot open a labelling session over an empty pool")
@@ -127,6 +128,24 @@ class LabelSession:
         if len(set(ids)) != len(ids):
             dupes = sorted({i for i in ids if ids.count(i) > 1})
             raise ValueError(f"pool contains duplicate item_ids: {dupes[:5]}")
+
+        # The held-out set and the agreement set must not share items. `docs/teacher-plan.md`
+        # §6 states it as a condition on using the same labelling effort for both, and until
+        # 2026-09-19 nothing enforced it: the check above catches a duplicate *within* one
+        # pool, and `purpose` was recorded without doing any work.
+        #
+        # Human discipline is the wrong mechanism here. The two sets are built by two separate
+        # CLI invocations, days apart, over 600 items — and an overlap is silent, invalidates
+        # both uses at once, and is only discoverable after the labelling time is already
+        # spent. So it refuses, and names what overlapped.
+        overlap = sorted(set(ids) & set(disjoint_from))
+        if overlap:
+            raise ValueError(
+                f"pool overlaps a set it must be disjoint from, on {len(overlap)} item(s): "
+                f"{overlap[:5]}{' ...' if len(overlap) > 5 else ''}. The held-out set and the "
+                "agreement set measure different things and cannot share items — an item the "
+                "teacher is scored against must not also be one it was tuned against."
+            )
         # 1.0 is meaningful: offer a repeat after every item. Only >1 is nonsense.
         if not 0.0 <= repeat_fraction <= 1.0:
             raise ValueError(f"repeat_fraction must be in [0, 1], got {repeat_fraction}")

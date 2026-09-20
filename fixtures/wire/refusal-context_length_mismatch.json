@@ -1,0 +1,10 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "context_length_mismatch",
+    "declared": 10,
+    "actual": 11
+  },
+  "message": "declared context_len 10 does not match the 11 bytes `context_b64` decoded to; context crosses the boundary as bytes *and* a length, and a disagreement between the two is the signature of a truncated payload that still base64-decodes"
+}

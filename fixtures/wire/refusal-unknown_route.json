@@ -1,0 +1,13 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "unknown_route",
+    "supported": [
+      "generic",
+      "registered"
+    ],
+    "actual": "turbo"
+  },
+  "message": "unknown route `turbo`; this build supports [\"generic\", \"registered\"]"
+}

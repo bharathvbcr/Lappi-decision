@@ -1,0 +1,10 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "too_many_slots",
+    "cap": 32,
+    "actual": 33
+  },
+  "message": "too many slots: 33 exceeds the configured cap of 32; every fan-out in this runtime is bounded"
+}

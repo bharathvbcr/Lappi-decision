@@ -1,0 +1,33 @@
+[package]
+name = "qd-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "The universal typed-decision interface: schema, refusal layer, slot-answering procedure, and the qd serve / qd oneshot modes."
+
+[lib]
+name = "qd_runtime"
+path = "src/lib.rs"
+
+[[bin]]
+name = "qd"
+path = "src/main.rs"
+
+# No async runtime, no socket crate, no timer crate: `std::os::unix::net`,
+# `Condvar::wait_timeout` and `set_read_timeout` cover the whole server.
+# Adding one would be a new dependency for capability std already has.
+[dependencies]
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+# Nothing new: the integration tests build wire payloads and read replies back, which needs the
+# same two crates the library already links. No test-only runtime, harness or fixture crate.
+[dev-dependencies]
+serde.workspace = true
+serde_json.workspace = true

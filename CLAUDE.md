@@ -26,7 +26,9 @@ These rules override default behaviour. They are copied into every lane prompt.
 - `cargo` / `rustc` 1.98.0, `uv` 0.11.28, `python3` 3.14.7, `git` 2.54.0.
 - PyTorch env: `/Users/bharath/.venvs/ml` — torch 2.12.1, **MPS available**.
 - **Containers are podman, not docker.** Docker is not installed; `podman` 6.1.2 is, with an
-  `applehv` machine (`podman-machine-default`, 9 CPUs, **2 GiB RAM**, 100 GiB disk). Plan item S1
+  `applehv` machine (`podman-machine-default`, 9 CPUs, **12 GiB RAM**, **160 GiB disk** — both
+  raised from the 2 GiB / 100 GiB defaults during S1, forced by an OOM kill and an ENOSPC
+  respectively; see `stack/README.md`). Plan item S1
   says "buildx for x86" — the podman equivalent is `podman build --platform linux/amd64` plus
   `podman manifest` for the multi-arch manifest. Two things to establish before S1 is called green:
   cross-arch (aarch64 host -> x86_64 image) emulation inside the machine, and whether 2 GiB of VM

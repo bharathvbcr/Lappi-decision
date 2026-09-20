@@ -1,0 +1,10 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "context_empty",
+    "len": 4,
+    "non_whitespace": 0
+  },
+  "message": "context has 0 non-whitespace characters in 4 bytes; an empty or all-whitespace context has no answer to point at, and would yield a confident letter from nothing"
+}

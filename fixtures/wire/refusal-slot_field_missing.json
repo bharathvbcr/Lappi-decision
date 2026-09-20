@@ -1,0 +1,11 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "slot_field_missing",
+    "slot": "severity",
+    "slot_type": "score",
+    "field": "bins"
+  },
+  "message": "slot `severity` is a `score` slot and requires `bins`"
+}

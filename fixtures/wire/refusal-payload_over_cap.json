@@ -1,0 +1,10 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "payload_over_cap",
+    "cap": 1572864,
+    "actual": 2000000
+  },
+  "message": "request payload is 2000000 bytes, over the cap of 1572864"
+}

@@ -1,0 +1,9 @@
+{
+  "status": "error",
+  "schema_version": 1,
+  "error": {
+    "kind": "decode_failed",
+    "detail": "oom"
+  },
+  "message": "decode failed: oom"
+}

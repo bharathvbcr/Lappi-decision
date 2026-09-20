@@ -1,0 +1,11 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "duplicate_slot_name",
+    "name": "verdict",
+    "first_index": 0,
+    "duplicate_index": 1
+  },
+  "message": "slot name `verdict` is used at index 1 and index 0; the answer map would be ambiguous"
+}

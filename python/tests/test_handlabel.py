@@ -171,3 +171,69 @@ def test_stats_report_progress_and_distribution(tmp_path: Path):
     assert sum(st.by_label.values()) == 8
     assert sum(st.by_language.values()) == 8
     assert st.median_seconds == 12.0
+
+
+# -- the held-out / agreement split ---------------------------------------------------
+#
+# `docs/teacher-plan.md` §6 requires these two sets to be disjoint, and the decision to
+# label 300 for each makes that 600 items across two invocations days apart. Until
+# 2026-09-19 nothing enforced it: the duplicate check above catches a repeat *within* one
+# pool, and `purpose` was recorded without doing any work. An overlap is silent, invalidates
+# both uses at once, and surfaces only after the labelling time is spent.
+
+
+def test_an_agreement_pool_overlapping_the_heldout_set_is_refused(tmp_path: Path):
+    heldout = _pool(300)
+    # The agreement draw accidentally reuses three held-out diffs.
+    agreement = [i for i in heldout[:3]] + _pool(5)[3:]
+
+    with pytest.raises(ValueError, match="disjoint"):
+        LabelSession(
+            agreement,
+            tmp_path / "agree.jsonl",
+            purpose="agreement",
+            disjoint_from={i.item_id for i in heldout},
+        )
+
+
+def test_the_refusal_names_what_overlapped(tmp_path: Path):
+    """A refusal that does not say which items collided cannot be acted on."""
+    heldout = _pool(10)
+    with pytest.raises(ValueError) as exc:
+        LabelSession(
+            heldout[:4],
+            tmp_path / "agree.jsonl",
+            purpose="agreement",
+            disjoint_from={"d000", "d002"},
+        )
+    message = str(exc.value)
+    assert "d000" in message and "d002" in message
+    assert "2 item(s)" in message
+
+
+def test_a_genuinely_disjoint_agreement_pool_opens(tmp_path: Path):
+    """The check must not refuse the correct case — 300 and 300 with no shared ids."""
+    heldout = _pool(300)
+    agreement = [
+        LabelItem(
+            item_id=f"a{i:03d}",
+            repo="org/other",
+            path=f"src/other{i}.go",
+            language="go",
+            diff="@@ -1 +1 @@\n-x\n+y\n",
+        )
+        for i in range(300)
+    ]
+    session = LabelSession(
+        agreement,
+        tmp_path / "agree.jsonl",
+        purpose="agreement",
+        disjoint_from={i.item_id for i in heldout},
+    )
+    assert len(session.pending()) == 300
+
+
+def test_disjointness_defaults_to_unenforced_so_a_single_set_still_opens(tmp_path: Path):
+    """Omitting the constraint is allowed: a lone held-out session has nothing to be disjoint from."""
+    session = LabelSession(_pool(5), tmp_path / "h.jsonl")
+    assert len(session.pending()) == 5

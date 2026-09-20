@@ -1,0 +1,10 @@
+{
+  "status": "error",
+  "schema_version": 1,
+  "error": {
+    "kind": "non_finite_logit",
+    "slot": "verdict",
+    "row": 0
+  },
+  "message": "backend returned a non-finite logit at row 0 for slot `verdict`"
+}

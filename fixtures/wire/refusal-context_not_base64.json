@@ -1,0 +1,11 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "context_not_base64",
+    "offset": 4,
+    "expected": "a character from the standard base64 alphabet",
+    "found": "`*`"
+  },
+  "message": "`context_b64` is not canonical base64: at offset 4, expected a character from the standard base64 alphabet, found `*`. A context is refused rather than best-effort decoded, because a decoder that guesses turns a truncated payload into a shorter context nobody notices"
+}

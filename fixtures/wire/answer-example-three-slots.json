@@ -1,0 +1,34 @@
+{
+  "status": "ok",
+  "schema_version": 1,
+  "backend": "reference-deterministic-v1",
+  "degraded": true,
+  "slots": {
+    "evidence": {
+      "value": null,
+      "conformal_set": null,
+      "score": 0.9125933653549204,
+      "noul": true,
+      "degraded": true
+    },
+    "severity": {
+      "value": 2,
+      "conformal_set": [
+        2
+      ],
+      "score": 0.465703800288614,
+      "noul": false,
+      "degraded": true
+    },
+    "verdict": {
+      "value": "clean",
+      "conformal_set": [
+        "stub",
+        "clean"
+      ],
+      "score": 0.7240117515995799,
+      "noul": false,
+      "degraded": true
+    }
+  }
+}

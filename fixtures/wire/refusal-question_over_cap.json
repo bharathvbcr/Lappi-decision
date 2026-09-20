@@ -1,0 +1,10 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "question_over_cap",
+    "cap": 4096,
+    "actual": 5000
+  },
+  "message": "question is 5000 bytes, over the cap of 4096"
+}

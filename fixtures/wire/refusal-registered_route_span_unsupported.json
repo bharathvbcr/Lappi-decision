@@ -1,0 +1,10 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "registered_route_span_unsupported",
+    "slot": "evidence",
+    "rows": 4
+  },
+  "message": "route `registered`: slot `evidence` is a `span` slot, whose pointer head ranges over the 4 line starts of *this* context; a head file has a fixed row count and cannot express a shape that changes per request. Ask for this slot on route `generic`"
+}

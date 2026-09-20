@@ -1,0 +1,11 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "too_few_options",
+    "slot": "verdict",
+    "min": 2,
+    "actual": 1
+  },
+  "message": "slot `verdict`: 1 option(s) is below the minimum of 2; a single-option choice is not a question"
+}

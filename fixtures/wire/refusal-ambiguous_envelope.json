@@ -1,0 +1,8 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "ambiguous_envelope"
+  },
+  "message": "request carries both `op` and `schema_version`; a line is either a control op or a decision request, never ambiguously both"
+}

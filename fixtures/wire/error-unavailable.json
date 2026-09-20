@@ -1,0 +1,9 @@
+{
+  "status": "error",
+  "schema_version": 1,
+  "error": {
+    "kind": "unavailable",
+    "detail": "no model backend"
+  },
+  "message": "no model backend is available: no model backend"
+}

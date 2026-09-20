@@ -1,0 +1,39 @@
+{
+  "status": "ok",
+  "schema_version": 1,
+  "backend": "a-model-backend",
+  "degraded": false,
+  "slots": {
+    "evidence": {
+      "value": {
+        "start_line": 41,
+        "end_line": 47
+      },
+      "conformal_set": null,
+      "score": 0.62,
+      "noul": false,
+      "degraded": false
+    },
+    "severity": {
+      "value": 3,
+      "conformal_set": [
+        2,
+        3,
+        4
+      ],
+      "score": 0.55,
+      "noul": false,
+      "degraded": false
+    },
+    "verdict": {
+      "value": "stub",
+      "conformal_set": [
+        "stub",
+        "logic"
+      ],
+      "score": 0.71,
+      "noul": false,
+      "degraded": false
+    }
+  }
+}

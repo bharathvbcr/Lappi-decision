@@ -1,0 +1,9 @@
+{
+  "status": "error",
+  "schema_version": 1,
+  "error": {
+    "kind": "rebuild_failed",
+    "detail": "device lost"
+  },
+  "message": "backend rebuild failed after poison: device lost"
+}

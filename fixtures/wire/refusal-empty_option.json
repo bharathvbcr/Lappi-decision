@@ -1,0 +1,10 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "empty_option",
+    "slot": "verdict",
+    "option_index": 1
+  },
+  "message": "slot `verdict`: option 1 is empty or all whitespace; an empty option is an unlabelled letter"
+}

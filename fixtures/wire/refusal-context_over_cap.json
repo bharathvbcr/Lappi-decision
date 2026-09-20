@@ -1,0 +1,10 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "context_over_cap",
+    "cap": 131072,
+    "actual": 200000
+  },
+  "message": "context is 200000 bytes, over the cap of 131072; truncating would move the answer out of the window and line spans would point at the wrong lines"
+}

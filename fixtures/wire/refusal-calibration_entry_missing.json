@@ -1,0 +1,11 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "calibration_entry_missing",
+    "slot": "verdict",
+    "slot_type": "choice",
+    "rows": 5
+  },
+  "message": "no calibration entry for a `choice` slot with 5 rows (slot `verdict`); an uncalibrated answer would carry a `score` and a `conformal_set` that were never fitted"
+}

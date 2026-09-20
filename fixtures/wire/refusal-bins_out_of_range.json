@@ -1,0 +1,12 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "bins_out_of_range",
+    "slot": "severity",
+    "min": 2,
+    "max": 16,
+    "actual": 1
+  },
+  "message": "slot `severity`: bins = 1 is outside the allowed range [2, 16]"
+}

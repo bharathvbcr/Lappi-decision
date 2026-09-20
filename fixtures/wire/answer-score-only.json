@@ -1,0 +1,17 @@
+{
+  "status": "ok",
+  "schema_version": 1,
+  "backend": "reference-deterministic-v1",
+  "degraded": true,
+  "slots": {
+    "severity": {
+      "value": 2,
+      "conformal_set": [
+        2
+      ],
+      "score": 0.465703800288614,
+      "noul": false,
+      "degraded": true
+    }
+  }
+}

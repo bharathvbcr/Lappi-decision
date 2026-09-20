@@ -1,0 +1,9 @@
+{
+  "status": "error",
+  "schema_version": 1,
+  "error": {
+    "kind": "prefill_failed",
+    "detail": "oom"
+  },
+  "message": "prefill failed: oom"
+}

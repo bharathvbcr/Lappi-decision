@@ -1,0 +1,15 @@
+{
+  "status": "ok",
+  "schema_version": 1,
+  "backend": "reference-deterministic-v1",
+  "degraded": true,
+  "slots": {
+    "verdict": {
+      "value": null,
+      "conformal_set": null,
+      "score": 0.8429932723124134,
+      "noul": true,
+      "degraded": true
+    }
+  }
+}

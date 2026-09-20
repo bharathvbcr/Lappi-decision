@@ -1,0 +1,10 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "registered_head_missing",
+    "task": "devtype.route",
+    "available": []
+  },
+  "message": "route `registered` requires a head registered for task `devtype.route`; this build has heads for []"
+}

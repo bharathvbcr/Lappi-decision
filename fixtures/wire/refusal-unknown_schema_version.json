@@ -1,0 +1,12 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "unknown_schema_version",
+    "supported": [
+      1
+    ],
+    "actual": 2
+  },
+  "message": "unknown schema_version 2; this build supports [1]. Forward-compat guessing is how a field changes meaning silently"
+}

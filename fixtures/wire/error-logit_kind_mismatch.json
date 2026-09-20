@@ -1,0 +1,10 @@
+{
+  "status": "error",
+  "schema_version": 1,
+  "error": {
+    "kind": "logit_kind_mismatch",
+    "slot": "evidence",
+    "expected": "pointer_start"
+  },
+  "message": "backend returned the wrong logit kind for slot `evidence`: expected pointer_start"
+}

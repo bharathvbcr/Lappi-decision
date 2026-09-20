@@ -1,0 +1,11 @@
+{
+  "status": "error",
+  "schema_version": 1,
+  "error": {
+    "kind": "logit_shape_mismatch",
+    "slot": "verdict",
+    "expected": 5,
+    "actual": 4
+  },
+  "message": "backend returned 4 logit rows for slot `verdict`, expected 5"
+}

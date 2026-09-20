@@ -26,7 +26,21 @@ __pycache__/
 *-service-account*.json
 
 # Container build logs. The lockfile and Containerfile are tracked; their output is not.
+# AUDIT/ holds the *analysis* — the .md files and clones.json are the evidence record, and
+# they quote the specific log lines any claim rests on. The raw logs themselves are not
+# tracked, for the same reason stack/.build.log is not.
 stack/.build.log
+AUDIT/*.log
+
+# The DevMap code-intelligence index: generated, binary, 15 MB, and rebuilt in 186 ms by
+# `devmap build .`. It is derived state, not provenance.
+.devmap/
+
+# DevCouncil's local ledger: 4.7 MB of SQLite plus a live -wal, rewritten continuously by
+# whichever sessions are attached. Same reasoning as .devmap/ above — derived state, and a
+# binary that would conflict on every parallel run. The decision record this repo keeps is
+# ledger/ (JSONL, append-only, tracked) and gaps.jsonl, not this.
+.devcouncil/
 
 # macOS
 .DS_Store

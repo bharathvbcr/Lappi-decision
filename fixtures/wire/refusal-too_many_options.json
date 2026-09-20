@@ -1,0 +1,11 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "too_many_options",
+    "slot": "verdict",
+    "limit": 16,
+    "actual": 17
+  },
+  "message": "slot `verdict`: 17 options exceeds the limit of 16; the letter-token head slice cannot express the extra option and dropping one would change the question"
+}

@@ -1,0 +1,9 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "empty_slot_name",
+    "index": 0
+  },
+  "message": "slot at index 0 has an empty name"
+}

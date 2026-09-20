@@ -187,11 +187,31 @@ def paired_margin_test(
 def split_conformal_threshold(
     cal_probs: np.ndarray, cal_labels: np.ndarray, *, alpha: float = 0.1
 ) -> float:
-    """Split-conformal threshold on the *margin*, not on entropy.
+    """Split-conformal threshold, returned on the **nonconformity** scale.
 
-    The audits attribute "entropy as confidence" to the Laya spec as a defect.
-    The nonconformity score here is 1 - p(true class): a direct statement about the
-    true label's calibrated probability, which is what a coverage guarantee needs.
+    The audits attribute "entropy as confidence" to the Laya spec as a defect, and no
+    entropy is computed here. The nonconformity score is ``1 - p(true class)``: a direct
+    statement about the true label's calibrated probability, which is what a coverage
+    guarantee needs.
+
+    **Read the scale before using the return value.** This is ``q̂`` on the nonconformity
+    scale, so it is *large* for a weak model. Three different numbers in this repo get
+    called a threshold:
+
+    * this ``q̂``, on the nonconformity scale;
+    * ``CalibrationEntry.conformal_quantile`` in ``crates/qd-runtime/src/calibration.rs``,
+      which is a **probability** cutoff (``p >= conformal_quantile``) and equals ``1 - q̂``;
+    * the **margin** ``p_top - p_second``, which is the reported ``score`` and the basis for
+      ``noul_margin`` — and is neither of the above.
+
+    :func:`conformal_sets` takes this value directly and converts internally. Anything
+    crossing to the Rust table must go through
+    :func:`qd_train.calibration_fit.probability_cutoff_from_nonconformity`; passing ``q̂``
+    straight into ``conformal_quantile`` silently breaks coverage, and which direction it
+    breaks depends on the model's accuracy.
+
+    This docstring previously opened "threshold on the *margin*", which described the third
+    quantity while the body computed the first.
     """
     if cal_probs.ndim != 2 or len(cal_probs) == 0:
         raise ValueError(f"calibration probs must be 2-D non-empty, got {cal_probs.shape}")

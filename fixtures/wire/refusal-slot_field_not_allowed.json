@@ -1,0 +1,11 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "slot_field_not_allowed",
+    "slot": "evidence",
+    "slot_type": "span",
+    "field": "bins"
+  },
+  "message": "slot `evidence` is a `span` slot but carries `bins`"
+}

@@ -158,6 +158,71 @@ natural out-of-scope class, which the plan correctly identifies as a free `noul`
 the load-bearing ones. **The two held-out task families must be chosen from what actually survives** —
 holding out a family that was never going to load is not a holdout.
 
+## STACK-1 — "One lockfile, one image" does not resolve. The teacher needs its own.
+
+**Plan (S1):** *"One lockfile (uv) and a container image: `transformers` at one main-branch SHA with
+`Qwen3_5`, `flash-linear-attention`, `causal-conv1d`, torch 2.11 cu128, vLLM for the teacher."*
+
+**Evidence (four real build failures on this host, not analysis):** a single lockfile holding both the
+trainer and vLLM pinned `torch==2.11.0+cu128` on paper while pulling **both CUDA wheel families** —
+`nvidia-cuda-runtime==13.4.92` beside `nvidia-cuda-runtime-cu12==12.8.90` — and installed
+`torch 2.14.0+cu130`. `causal-conv1d`'s source build then stopped the image:
+
+```
+RuntimeError: The detected CUDA version (12.8) mismatches the version
+that was used to compile PyTorch (13.0)
+```
+
+vLLM drags in `torchaudio`, `torchvision` and `torchcodec`, each with its own torch constraint, and
+`--index-strategy unsafe-best-match` — itself only needed *because* of vLLM — lets them mix across
+indexes.
+
+**Measured by splitting them:**
+
+| | Combined | Training only | Teacher only |
+| --- | --- | --- | --- |
+| Packages | 206 | **72** | 196 |
+| torch | claims `2.11.0+cu128`, installs `2.14.0+cu130` | `2.11.0+cu128` | `2.13.0` |
+| CUDA 13 wheels | 12 | **0** | 12 |
+| `unsafe-best-match` | required | **not needed** | **not needed** |
+
+The two environments want **different CUDA majors**, so they want different base images. That is a
+property of the dependency graph, not a preference.
+
+**Change:** two lockfiles and two images — `train.lock` (CUDA 12, `-devel` base because causal-conv1d
+compiles) and `teacher.lock` (CUDA 13, prebuilt wheels only). This costs nothing the plan values: the
+teacher runs once for ~40 minutes at the head of the block and the trainer for ~30 hours after it, so
+they are never resident together — the plan's own session ordering already separates them in time.
+It also **removes** the dependency-confusion caveat that `unsafe-best-match` carried, rather than
+accepting it.
+
+**Follow-on: torch is pinned to 2.10, not the plan's 2.11.** `causal-conv1d` ships prebuilt wheels per
+`(cuda x torch x cxx11abi)`, and its `setup.py` downloads the matching one rather than compiling —
+when one exists. The v1.7.0 release's cu12 wheels **stop at `torch2.10`**, so at 2.11 it falls back to
+a from-source `nvcc` build. Pinning one minor version back turns the single most fragile step in the
+image into a wheel download, which is the better engineering choice independent of any host: it takes
+a from-source CUDA compile off the critical path of a $1,085 block, along with the `-devel` base, the
+six `-gencode` targets and the OOM exposure.
+
+Five further S1 findings, each a real failure rather than a predicted one:
+
+1. `uv pip install --system` dies on Ubuntu 24.04 (PEP 668, externally-managed). The image installs
+   into a venv at `/opt/venv`.
+2. `uv pip compile` **strips the `--extra-index-url`** from its output unless `--emit-index-url` is
+   passed, so the lockfile stopped describing its own resolution and the build could not find
+   `torch+cu128` at all.
+3. A build launched as `podman build ... | tail -40` reported **exit 0** — `tail`'s status, not the
+   build's. A failed build looked like a passing one. This is the same shape as SAFETY-1: a success
+   signal not attached to the thing being checked.
+4. `causal-conv1d`'s CUDA compile fans out one job per core and the OOM killer took `cc1plus` on a
+   1.89 GiB builder. The message names the *compiler*, so it reads as a toolchain problem rather than
+   a resource one. `MAX_JOBS=4` now lives in the Containerfile: peak memory is `MAX_JOBS`-shaped, not
+   total-RAM-shaped, so raising the builder's RAM alone only moves the core count at which it dies.
+5. **qemu cannot run `nvcc`** — `uncaught target signal 11 (Segmentation fault)`. Ordinary
+   compilation emulates fine at ~1.4x, measured on `gcc`; generalising that to "cross-arch works
+   here" was an inference, and it is false for the one compiler this image needs. This is what makes
+   finding 4's fix insufficient on its own and the torch 2.10 pin necessary.
+
 ## DESIGN-4 — The 40-hour cap costs more than the whole budget estimate
 
 **Plan:** block cost $1,085 at ~34 h, wall-clock cap 40 h, program total "about $1,250".

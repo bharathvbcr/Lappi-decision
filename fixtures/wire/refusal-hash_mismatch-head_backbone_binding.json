@@ -1,0 +1,11 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "hash_mismatch",
+    "which": "head_backbone_binding",
+    "expected": "aaaa",
+    "actual": "bbbb"
+  },
+  "message": "head_backbone_binding hash does not match the build: build has aaaa, request/backend has bbbb"
+}

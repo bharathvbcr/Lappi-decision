@@ -1,0 +1,9 @@
+{
+  "status": "error",
+  "schema_version": 1,
+  "error": {
+    "kind": "reference_backend_not_enabled",
+    "name": "reference-deterministic-v1"
+  },
+  "message": "no model backend is configured; `reference-deterministic-v1` is a deterministic reference, not a model, and will not serve unless explicitly enabled"
+}

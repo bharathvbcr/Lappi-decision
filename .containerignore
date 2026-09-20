@@ -1,0 +1,43 @@
+# The build context is the repo root (see stack/Containerfile), because the image gate
+# imports `qd_train.tristate` and a stack/-only context cannot reach `python/`.
+#
+# A root context would otherwise ship 1.5 GB of Rust build output to the daemon on every
+# build, so the exclusions below are what keep that context small. Measured before this
+# file existed: target/ 1.5 GB, .venv/ 120 MB, against python/ at 1.7 MB.
+
+# Rust build output — by far the largest thing in the tree, and never needed in the image.
+target/
+
+# The Mac-local Python environment. The image builds its own venv from the lockfile; copying
+# this one in would put aarch64/macOS wheels inside a linux/amd64 image.
+.venv/
+
+# Repo state and tooling caches.
+.git/
+.gitignore
+.pytest_cache/
+.devmap/
+.DS_Store
+
+# Evidence and records. These are the audit trail, not build inputs — and AUDIT/ holds build
+# logs, so including it would make each build's context depend on the previous build's output.
+AUDIT/
+HANDOFF/
+ledger/
+gaps.jsonl
+
+# Documentation.
+docs/
+README.md
+LICENSE
+
+# Rust sources. Kernel work lands in ~/Code/research/tessl and the runtime crates are built
+# on the host, not in this image.
+crates/
+Cargo.toml
+Cargo.lock
+
+# Test fixtures and dev tooling.
+fixtures/
+tools/
+python/tests/

@@ -1,0 +1,29 @@
+{
+  "status": "ok",
+  "schema_version": 1,
+  "backend": "reference-deterministic-v1",
+  "degraded": true,
+  "slots": {
+    "evidence": {
+      "value": null,
+      "conformal_set": null,
+      "score": 0.0,
+      "noul": true,
+      "degraded": true
+    },
+    "severity": {
+      "value": null,
+      "conformal_set": null,
+      "score": 0.011,
+      "noul": true,
+      "degraded": true
+    },
+    "verdict": {
+      "value": null,
+      "conformal_set": null,
+      "score": 0.004,
+      "noul": true,
+      "degraded": true
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "status": "error",
+  "schema_version": 1,
+  "error": {
+    "kind": "poisoned",
+    "reason": "command buffer error"
+  },
+  "message": "backend is poisoned: command buffer error"
+}

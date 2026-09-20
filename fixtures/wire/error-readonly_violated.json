@@ -1,0 +1,11 @@
+{
+  "status": "error",
+  "schema_version": 1,
+  "error": {
+    "kind": "readonly_violated",
+    "slot_index": 1,
+    "before": "aa",
+    "after": "bb"
+  },
+  "message": "slot-isolation violated: the state buffer hash changed across a readonly decode (aa -> bb); slot 1's answer would depend on the previous slot's"
+}

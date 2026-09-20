@@ -1,0 +1,10 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "rendered_prompt_over_cap",
+    "cap": 802816,
+    "actual": 900000
+  },
+  "message": "the rendered prompt is 900000 bytes, over the cap of 802816; the bound is on the bytes the model sees, not only on those that arrived"
+}
