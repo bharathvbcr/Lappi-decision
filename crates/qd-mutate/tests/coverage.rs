@@ -219,10 +219,6 @@ fn expected_silent(id: LangId) -> Vec<(OpId, &'static str)> {
                 "automatic semicolon insertion makes a wrap unsafe; refused for the language",
             ),
             (
-                OpId::CosmeticReformat,
-                "prettier does not resolve on this machine, so the operator is restricted",
-            ),
-            (
                 OpId::CosmeticReorderImports,
                 "an ES module is evaluated when it is imported, in source order; refused for the \
                  language, not for the missing formatter",
@@ -289,7 +285,17 @@ fn every_operator_either_finds_sites_or_is_an_explicitly_listed_exception() {
                 .map(|r| r.sites_found)
                 .unwrap_or(0);
             let listed = exceptions.contains(&op);
-            if sites == 0 && !listed {
+            // `cosmetic.reformat` is the operator that *runs* the formatter, so with no usable
+            // one there is nothing for it to find. That is a fact about this machine, not about
+            // the language, and `expected_silent` says of itself that every entry there is a
+            // language-level fact — so it is derived from the measured availability instead of
+            // listed. It used to be listed, for TypeScript, with the reason "prettier does not
+            // resolve on this machine"; that entry broke the table's own contract and went
+            // stale in both directions, since installing prettier would have tripped the
+            // `sites > 0 && listed` arm below. Python reached the same state today when black
+            // was found to be announcing that its equivalence check does not run here.
+            let formatter_silent = op == OpId::CosmeticReformat && !report.formatter.is_usable();
+            if sites == 0 && !listed && !formatter_silent {
                 failures.push(format!(
                     "{id}: {op} found no sites and is not a listed exception — the facade has \
                      stopped seeing its construct, or the fixture no longer contains one"

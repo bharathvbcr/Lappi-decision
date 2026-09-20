@@ -179,8 +179,23 @@ pub fn resolve_spec(spec: &Formatter, smoke: &str) -> Result<Resolved, Availabil
     };
     // Bounded by `FORMAT_BUDGET` like any other invocation: a formatter that hangs on a two-line
     // file must not hang the probe that was asking whether it works.
-    match format_with(&candidate, smoke) {
-        Ok(out) if !out.trim().is_empty() => Ok(candidate),
+    match run_formatter(&candidate, smoke) {
+        // Checked BEFORE the non-empty test, because this formatter's output is perfectly
+        // good — it is the equivalence proof behind it that is missing, and an output-shaped
+        // check can never see that.
+        Ok(out) if announced_unverified(&out.stderr) => Err(Availability::Unusable {
+            program: spec.program.to_string(),
+            path: candidate.path,
+            detail: format!(
+                "ran on the smoke input, exited zero and formatted it correctly, but \
+                 announced that its own equivalence check did not run: {}. `cosmetic` \
+                 claims a formatter verified the rewrite preserves behaviour, and this one \
+                 says it did not verify anything, so it is not a formatter this run can \
+                 make that claim with",
+                out.stderr.lines().next().unwrap_or("").trim()
+            ),
+        }),
+        Ok(out) if !out.stdout.trim().is_empty() => Ok(candidate),
         Ok(_) => Err(Availability::Unusable {
             program: spec.program.to_string(),
             path: candidate.path,
@@ -254,18 +269,26 @@ fn xcrun_find(program: &str) -> Result<String, String> {
 
 /// Format `source` with `resolved`. Returns the formatter's stdout.
 pub fn format_with(resolved: &Resolved, source: &str) -> Result<String, FormatError> {
+    Ok(run_formatter(resolved, source)?.stdout)
+}
+
+/// [`format_with`] keeping the child's stderr, for the one caller that must read it.
+///
+/// Bounded identically, because there is one invocation path and the probe must exercise the
+/// same one a real input takes — a probe with its own weaker limits would be proving something
+/// about a command the run never issues.
+fn run_formatter(resolved: &Resolved, source: &str) -> Result<Output, FormatError> {
     if source.len() > MAX_FORMAT_BYTES {
         return Err(FormatError::TooLarge {
             bytes: source.len(),
         });
     }
-    let out = run_bounded(
+    run_bounded(
         &resolved.path,
         &resolved.args,
         source.as_bytes(),
         FORMAT_BUDGET,
-    )?;
-    Ok(out.stdout)
+    )
 }
 
 /// The canonical form of `source` under `language`'s formatter.
@@ -280,6 +303,34 @@ pub fn canonical(resolved: &Resolved, source: &str) -> Result<String, FormatErro
 #[derive(Debug)]
 struct Output {
     stdout: String,
+    /// Kept on the **success** path, which is the whole point.
+    ///
+    /// A formatter that exits zero has not necessarily done what it claims: `black` exits 0,
+    /// writes correctly formatted output, and announces on stderr that its AST equivalence
+    /// check did not run. Discarding stderr unless the exit code is non-zero makes that
+    /// indistinguishable from a run that verified its own output — the exact conflation
+    /// `Availability` was written to prevent, one layer further in.
+    stderr: String,
+}
+
+/// Did the formatter announce that it could not verify its own output?
+///
+/// Deliberately narrow, and keyed on the message rather than on the program name. `black`
+/// 26.5.1 under CPython 3.14 prints *"Python 3.14 cannot parse code formatted for Python
+/// 3.15 … Black's safety check verifies equivalence by parsing the AST, which fails when
+/// the running Python is older than the target version"*, then exits 0 with correct output.
+/// The formatting is fine; the **equivalence proof** is what did not happen, and
+/// `cosmetic`'s whole claim is that a formatter verified the rewrite preserves behaviour.
+///
+/// Matching the message rather than the program means a different formatter that degrades
+/// the same way is caught without an entry here. Matching this phrase rather than
+/// "warning" means a chatty formatter is not declared broken for being chatty: the phrase
+/// below is black's specific announcement that the check was skipped, not a general
+/// diagnostic. A formatter asked to skip the check explicitly — `--fast` — prints nothing
+/// and is not caught here, because that is a deliberate choice by whoever passed the flag
+/// and is visible in the args the manifest records.
+fn announced_unverified(stderr: &str) -> bool {
+    stderr.contains("cannot parse code formatted for")
 }
 
 /// Run `program` with `args`, feeding `stdin_bytes`, killed at `budget`.
@@ -383,7 +434,10 @@ fn run_bounded(
         });
     }
     let stdout = String::from_utf8(stdout_bytes).map_err(|_| FormatError::NotUtf8)?;
-    Ok(Output { stdout })
+    Ok(Output {
+        stdout,
+        stderr: String::from_utf8_lossy(&stderr_bytes).to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -533,6 +587,57 @@ mod tests {
         match resolve_spec(&spec, "x = 1\n") {
             Err(Availability::NotFound { .. }) => {}
             other => panic!("expected NotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_formatter_that_says_it_did_not_verify_its_output_is_unusable() {
+        // The shape this machine actually has. `black` 26.5.1 under CPython 3.14 exits 0,
+        // formats correctly, and announces on stderr that its AST equivalence check did not
+        // run. Before this was checked, `resolve_spec` looked only at the exit code and a
+        // non-empty stdout, so it answered `found` — and `cosmetic` went on claiming a
+        // formatter had verified rewrites that nothing had verified.
+        //
+        // Faked rather than run against the real black, so the test states the property
+        // instead of the host: cat the input through, then say what black says.
+        let spec = Formatter {
+            program: "/bin/sh",
+            args: &[
+                "-c",
+                "cat; echo 'Warning: Python 3.14 cannot parse code formatted for \
+                 Python 3.15. Black'\"'\"'s safety check verifies equivalence by parsing \
+                 the AST.' 1>&2",
+            ],
+            via_xcrun: false,
+        };
+        match resolve_spec(&spec, "x = 1\n") {
+            Err(Availability::Unusable { detail, .. }) => {
+                assert!(
+                    detail.contains("equivalence check did not run"),
+                    "the detail must say what was missing, not merely that something was: {detail}"
+                );
+            }
+            other => panic!(
+                "a formatter that announced it verified nothing must not be `found`; got {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn a_formatter_that_is_merely_noisy_on_stderr_is_still_found() {
+        // The other half, and the reason `announced_unverified` matches one specific phrase
+        // rather than "warning". Plenty of tools write progress, deprecation notices and
+        // version chatter to stderr while doing exactly what they promised. Declaring those
+        // broken would trade a silent over-claim for a loud under-claim, and the cosmetic
+        // operator set would shrink for no reason.
+        let spec = Formatter {
+            program: "/bin/sh",
+            args: &["-c", "cat; echo 'note: using cached config; 3 files scanned' 1>&2"],
+            via_xcrun: false,
+        };
+        match resolve_spec(&spec, "x = 1\n") {
+            Ok(resolved) => assert_eq!(resolved.availability.key(), "found"),
+            other => panic!("stderr chatter alone must not make a formatter unusable: {other:?}"),
         }
     }
 
