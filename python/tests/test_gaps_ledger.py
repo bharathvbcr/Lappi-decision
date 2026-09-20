@@ -140,12 +140,20 @@ def _scanned_files() -> list[Path]:
 def test_every_gap_id_cited_in_a_tracked_file_exists_in_the_ledger() -> None:
     """The defect this file was written for.
 
-    A citation resolves if it names a record exactly, or if it is a PREFIX of at least one
-    record. The prefix rule is not laxity: it is what distinguishes the two harmless ways a
-    partial id appears in prose -- a line-wrapped citation in a comment, and a deliberate
-    family glob, as when a handoff names eight records by their shared prefix -- from a
-    citation that names nothing at all. The nine AUDIT ids this test first caught were
-    prefixes of nothing.
+    A citation resolves if it names a record exactly. A citation that ENDS IN A HYPHEN may
+    instead resolve as a prefix of at least one record, because those are the two harmless
+    shapes a partial id takes in prose: an id wrapped across a line break in markdown or a
+    comment, and a deliberate family glob naming several records by their shared stem.
+
+    The hyphen condition is the whole point of the split, and it was missing at first. A
+    peer session reviewing this file noticed that ``ID_RE`` carries the hyphen inside its
+    character class, so prefix tolerance without that condition also absorbs a *complete*
+    citation that is merely truncated or mistyped -- and a mistyped id that happens to be a
+    prefix of a real record is exactly the dangling citation this test exists to catch.
+    They had lost four false positives to the same greedy match using rg. A token with no
+    trailing hyphen is a whole citation and must resolve exactly.
+
+    The nine AUDIT ids this test first caught were prefixes of nothing.
     """
     known = {r["id"] for _, r in _lines()}
     dangling: dict[str, set[str]] = {}
@@ -160,7 +168,9 @@ def test_every_gap_id_cited_in_a_tracked_file_exists_in_the_ledger() -> None:
         for m in ID_RE.finditer(blob):
             gid = m.group().decode()
             seen_any = True
-            if gid in known or any(k.startswith(gid) for k in known):
+            if gid in known:
+                continue
+            if gid.endswith("-") and any(k.startswith(gid) for k in known):
                 continue
             dangling.setdefault(gid, set()).add(str(path.relative_to(REPO)))
 
