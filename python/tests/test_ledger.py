@@ -51,13 +51,20 @@ def _env() -> Environment:
     )
 
 
-def _all_green(rec: RunRecorder) -> None:
+def _all_green(rec: RunRecorder, *, termination: str = "steps_exhausted") -> None:
     from qd_train.ledger import REQUIRED_CONTROLS, REQUIRED_GATES
 
     for g in REQUIRED_GATES:
         rec.gate(g, Ran(passed=True, value=1.0, n=300, n_total=300))
     for c in REQUIRED_CONTROLS:
         rec.control(c, Ran(passed=True, n=300, n_total=300))
+    # What `qd_train.trainer._train` writes on every exit path. A training row that does
+    # not say how it ended cannot be shown to have finished its schedule, so promotion now
+    # refuses it -- which means a fixture standing for a complete run has to say so.
+    rec.metric(
+        "train.termination",
+        Ran(passed=termination != "wall_clock_cap", value=termination),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -231,6 +238,65 @@ def test_a_quick_run_cannot_promote(tmp_path: Path):
     verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
     assert not verdict.promoted
     assert any("quick runs cannot promote" in r for r in verdict.reasons)
+
+
+def test_a_capped_run_cannot_promote_even_when_it_calls_itself_complete(tmp_path: Path):
+    """Rule 8's "truncated schedule", derived from evidence instead of taken on trust.
+
+    Measured against the pre-fix code on 2026-09-20: this exact ledger -- three seeds,
+    every required gate and control passing, one row honestly recording
+    `train.termination == 'wall_clock_cap'`, all three `quick=False` -- returned
+    `promoted=True` with the single reason line *"3 completed rows, seeds [1, 2, 3], every
+    gate and control ran and passed"*. `quick` was the only thing standing between a capped
+    run and a promotion, and `quick` is whatever the caller typed.
+    """
+    led = Ledger(tmp_path / "runs.jsonl")
+    for seed in (1, 2, 3):
+        with RunRecorder(
+            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env()
+        ) as rec:
+            _all_green(
+                rec, termination="wall_clock_cap" if seed == 2 else "steps_exhausted"
+            )
+    assert all(not r.quick for r in led.rows()), "every row calls itself complete"
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert not verdict.promoted, str(verdict)
+    assert any("truncated schedule" in r for r in verdict.reasons), str(verdict)
+
+
+def test_a_training_row_that_never_says_how_it_ended_cannot_promote(tmp_path: Path):
+    """An absent answer is not a passed one -- the same rule the gates follow.
+
+    `_train` writes `train.termination` on every exit path, so a `cpt`/`ft`/`prune_heal`
+    row without it did not come from the trainer, and nothing about it establishes that a
+    schedule was finished.
+    """
+    from qd_train.ledger import REQUIRED_CONTROLS, REQUIRED_GATES
+
+    led = Ledger(tmp_path / "runs.jsonl")
+    for seed in (1, 2, 3):
+        with RunRecorder(
+            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env()
+        ) as rec:
+            for g in REQUIRED_GATES:
+                rec.gate(g, Ran(passed=True, value=1.0, n=300, n_total=300))
+            for c in REQUIRED_CONTROLS:
+                rec.control(c, Ran(passed=True, n=300, n_total=300))
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert not verdict.promoted, str(verdict)
+    assert any("no train.termination" in r for r in verdict.reasons), str(verdict)
+
+    # And a run kind with no training loop is not asked a question it cannot answer.
+    other = Ledger(tmp_path / "eval.jsonl")
+    for seed in (1, 2, 3):
+        with RunRecorder(
+            other, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env()
+        ) as rec:
+            for g in REQUIRED_GATES:
+                rec.gate(g, Ran(passed=True, value=1.0, n=300, n_total=300))
+            for c in REQUIRED_CONTROLS:
+                rec.control(c, Ran(passed=True, n=300, n_total=300))
+    assert other.promotion_verdict(_protocol(1).hash_without_seed()).promoted
 
 
 @pytest.mark.parametrize("missing_gate", ["paired_margin_vs_linear", "ood_abstain",

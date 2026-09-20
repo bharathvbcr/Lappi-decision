@@ -10,7 +10,8 @@ live ``Qwen/Qwen3.5-2B-Base`` tokenizer -- 321 sequences, 2,485,641 tokens, a 13
 remapped vocabulary, lengths from 320 to 34,522 -- read back through the real
 :class:`qd_train.shards.ShardReader` and driven through the real
 :func:`qd_train.trainer.train_ft`. Nothing about the data is synthesised here; what this
-tool supplies is a randomly-initialised backbone small enough to run on a Mac, and the
+tool supplies by default is a randomly-initialised backbone small enough to run on a Mac,
+with ``--real-backbone`` swapping in the real text tower instead, and the
 arithmetic that says what the corpus admits.
 
 Two arms, because the real corpus cannot answer both questions at once.
@@ -88,7 +89,9 @@ import math
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Final
 
 # Inline for the reason tools/bpe_line_start_collapse.py states: ruff's E402 exemption
 # covers `sys.path` modification before the imports, but an ordinary assignment in between
@@ -157,6 +160,27 @@ from qd_train.trainer import SpanScoringStep, ft_supervision, train_ft
 from qd_train.tristate import NotRun, Ran, TriState
 
 REPO = Path(__file__).resolve().parents[1]
+
+#: The stand-in's shape and learning rate. 3e-3 is right for a randomly-initialised 128-wide
+#: block and catastrophic for pretrained weights.
+STANDIN_HIDDEN: Final[int] = 128
+STANDIN_HEADS: Final[int] = 4
+STANDIN_LR: Final[float] = 3e-3
+
+#: The real tower's learning rate. Measured on a GH200: at STANDIN_LR the span channel missed
+#: its floor by 714.50 against a bar of 0.05; at this rate it reached 5.07e-05.
+REAL_BACKBONE_LR: Final[float] = 1e-5
+
+#: The recipe keys that say which backbone a run used. One list, because the ft recipe, the
+#: run's return value and the verdict recipe all need the same answer and all three feed a
+#: protocol hash -- three hand-maintained copies is how they come to disagree.
+BACKBONE_KEYS: Final[tuple[str, ...]] = (
+    "hidden",
+    "heads",
+    "backbone_snapshot",
+    "backbone_params",
+    "backbone_vocab",
+)
 KIND_NAMES: dict[int, str] = {SLOT_CHOICE: "choice", SLOT_SCORE: "score", SLOT_SPAN: "span"}
 
 #: Hard caps. This tool answers "does it train on real shards"; a schedule long enough to be
@@ -588,7 +612,15 @@ class RealFtStep:
             *self.span_head.parameters(),
         ]
 
-    def hidden(self, tokens: np.ndarray) -> torch.Tensor:
+    def hidden(self, batch: Batch) -> torch.Tensor:
+        """``[B, L, H]`` for ``batch``.
+
+        Takes the whole ``Batch`` rather than its token array so that this and
+        ``qd_train.backbone.QwenDecisionStep.hidden`` are one signature. The stand-in needs
+        only the tokens; the real tower needs ``batch.lengths`` for its attention mask, and
+        a caller holding a bare array cannot supply that.
+        """
+        tokens = batch.tokens
         if tokens.shape[1] > self.max_width:
             raise ValueError(
                 f"a batch {tokens.shape[1]} wide reached a step whose position table is "
@@ -609,7 +641,7 @@ class RealFtStep:
         )
 
     def accumulate(self, batch: Batch, supervision) -> float:
-        loss = self._letter_loss(self.hidden(batch.tokens), supervision)
+        loss = self._letter_loss(self.hidden(batch), supervision)
         if loss is None:  # pragma: no cover - `_refuse_unsupervised_rows` refuses this first
             raise RuntimeError("a span-free batch reached accumulate with no supervised token")
         loss.backward()
@@ -621,7 +653,7 @@ class RealFtStep:
         span = supervision.span
         if span is None:  # pragma: no cover - `_train` only routes here when span is not None
             raise RuntimeError("accumulate_span was handed a supervision with no span channel")
-        hidden = self.hidden(batch.tokens)
+        hidden = self.hidden(batch)
         plan = plan_span_batch(span, device=self.device)
         rows = torch.as_tensor(span.rows, device=self.device)
         span_loss = self.span_head.loss(hidden[rows], plan)
@@ -679,7 +711,7 @@ def _decode(
     verdicts: list[dict[str, object]] = []
     with torch.no_grad():
         for b, batch in enumerate(batches):
-            hidden = step.hidden(batch.tokens)
+            hidden = step.hidden(batch)
             logits = step.lm_head(hidden)
             supervision = ft_supervision(batch)
             plan = start_rows = end_rows = None
@@ -924,6 +956,52 @@ def _control(steps: int, *, device: str, lr: float) -> RunControl:
     )
 
 
+def _backbone_commit(recipe: Mapping[str, object]) -> str:
+    """Name the backbone that actually ran, or refuse.
+
+    ``backbone_commit`` is one of the five components of ``Protocol``, whose own docstring
+    says two rows are comparable only if their protocol hashes match. So a format string
+    that assumes the stand-in does not merely mislabel a real-tower run -- it declares that
+    run comparable to a 128x4 single block. Five rows in ``ledger/gh200-2026-09-20.jsonl``
+    carry ``backbone_commit="scratch:128x4:1block"`` over notes reading "Backbone is the
+    REAL text tower ... 1,881,825,088 trainable parameters"; the structured field is the
+    one a query filters on, so it is the worse of the two to have wrong.
+
+    ``qd_train.backbone.load_text_tower`` already states the convention this implements --
+    "the local checkpoint directory -- the one whose hash is ``backbone_commit``" -- and
+    ``tools/real_tokenizer_pipeline.py`` already follows it, reading the same revision out
+    of the HF cache's ``refs/main``. The snapshot directory's name *is* that revision
+    (verified: ``refs/main`` and the sole snapshot dir are both
+    ``b1485b2fa6dfa1287294f269f5fb618e03d52d7c``), which is why the name travels between
+    machines where the absolute path does not.
+
+    Refusing rather than inventing is the pipeline's rule too: "A protocol naming no
+    backbone identifies nothing; refusing to write a row rather than inventing one."
+    """
+    snapshot = recipe.get("backbone_snapshot")
+    if snapshot is not None:
+        text = str(snapshot)
+        if "/" in text or "\\" in text:
+            raise ValueError(
+                f"backbone_snapshot is {text!r}, which is a path rather than a revision. "
+                "This field feeds recipe_hash and backbone_commit, and an absolute path "
+                "differs between machines -- /home/ubuntu/... on a rented box and "
+                "/Users/bharath/... here -- so the same run would get two protocol hashes "
+                "and stop being comparable to itself. Store the snapshot directory's name, "
+                "which is the revision (`tower.snapshot.name`)."
+            )
+        return f"{text}:vocab{recipe['backbone_vocab']}"
+    hidden, heads = recipe.get("hidden"), recipe.get("heads")
+    if hidden is None or heads is None:
+        raise ValueError(
+            "this recipe names no backbone: it carries neither backbone_snapshot (the real "
+            f"tower) nor hidden/heads (the stand-in), only {sorted(recipe)}. A protocol "
+            "naming no backbone identifies nothing, and every comparison against the row it "
+            "would write is meaningless. Refusing to write a row rather than inventing one."
+        )
+    return f"scratch:{hidden}x{heads}:1block"
+
+
 def _protocol(*, reader: ShardReader, seed: int, recipe: dict[str, object]) -> Protocol:
     """The shard set's own hashes, not this tool's. ``data_snapshot_hash`` and
     ``tokenizer_hash`` come out of the header the pipeline wrote, so a ledger row names the
@@ -931,7 +1009,7 @@ def _protocol(*, reader: ShardReader, seed: int, recipe: dict[str, object]) -> P
     return Protocol(
         data_snapshot_hash=reader.header.data_snapshot_hash,
         tokenizer_hash=reader.header.tokenizer_hash,
-        backbone_commit=f"scratch:{recipe['hidden']}x{recipe['heads']}:1block",
+        backbone_commit=_backbone_commit(recipe),
         recipe_hash=hashlib.sha256(
             json.dumps(recipe, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest(),
@@ -956,6 +1034,7 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
 def _train(
     *, reader: ShardReader, plan: list[Batch], passes: int, device: str, seed: int,
     hidden: int, heads: int, lr: float, ledger: Ledger, tag: str, quick_reason: str,
+    backbone: Path | None = None,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -966,27 +1045,90 @@ def _train(
     width = max(int(b.tokens.shape[1]) for b in plan)
     steps = len(plan) * passes
     recipe: dict[str, object] = {
-        "tool": "tools/real_ft_run.py", "tag": tag, "device": device, "hidden": hidden,
-        "heads": heads, "lr": lr, "passes": passes, "batches": len(plan), "width": width,
+        "tool": "tools/real_ft_run.py", "tag": tag, "device": device,
+        "lr": lr, "passes": passes, "batches": len(plan), "width": width,
         "shard_hash": reader.header.shard_hash(),
     }
-    step = RealFtStep(
-        seed=seed, device=device, vocab=int(reader.header.vocab_size), width=width,
-        hidden=hidden, heads=heads, lr=lr,
-    )
+    # Which backbone ran, built once and used three times: here, in this function's return
+    # value, and -- through that -- in the verdict row's recipe. All three feed a protocol
+    # hash, and `_backbone_commit` refuses a recipe that names no backbone at all.
+    backbone_keys: dict[str, object] = {}
+    if backbone is None:
+        step: SpanScoringStep = RealFtStep(
+            seed=seed, device=device, vocab=int(reader.header.vocab_size), width=width,
+            hidden=hidden, heads=heads, lr=lr,
+        )
+        # Only meaningful for the stand-in, so only recorded for it: under --real-backbone
+        # these determine nothing and would still move recipe_hash.
+        backbone_keys["hidden"] = hidden
+        backbone_keys["heads"] = heads
+        what_ran = (
+            f"Backbone is a randomly-initialised {hidden}x{heads} single block; this is a "
+            "statement about the loop and the data, not an evaluation of any model."
+        )
+    else:
+        # Imported here, not at module scope: qd_train.backbone needs transformers and
+        # safetensors, which are the optional `mac` extra. A module-level import would make
+        # this tool unimportable wherever the stand-in path is the only one available --
+        # which is every machine without a checkpoint.
+        from qd_train.backbone import (
+            QwenDecisionStep,
+            load_text_tower,
+            remap_text_tower,
+        )
+        from qd_train.memory import ADAMW_BF16
+
+        tower = load_text_tower(
+            backbone,
+            gradient_checkpointing=True,
+            # ADAMW_BF16, not ADAMW_FP32: torch.optim.AdamW keeps exp_avg and exp_avg_sq
+            # in the parameter dtype, so a bf16 tower gets 2-byte states. load_text_tower
+            # refuses the mismatch rather than budgeting a layout nothing builds.
+            optimizer=ADAMW_BF16,
+            device=device,
+            dtype="bf16",
+            rows=max(int(b.tokens.shape[0]) for b in plan),
+            width=width,
+        )
+        # The shard set's ids are post-remap, so the tied embedding has to be sliced to the
+        # same vocabulary or every id indexes a different row than the one it names. The
+        # reader's own table is used rather than a second one read from disk here.
+        if reader.remap is None:
+            raise ValueError(
+                f"{reader.header.shard_hash()}: this shard set carries no remap table, but "
+                "the real tower's embedding is 248,320 rows and the set's ids are post-remap. "
+                "Training would index the wrong row for every token. Refusing."
+            )
+        tower = remap_text_tower(tower, reader.remap)
+        step = QwenDecisionStep(tower, lr=lr, max_width=width)
+        # `tower.snapshot.name`, not `str(backbone)`: the directory name is the HF revision
+        # (refs/main and the snapshot dir agree), while the absolute path is
+        # /home/ubuntu/... on the rented box and /Users/bharath/... here. Since this feeds
+        # recipe_hash, the path would give the same run two protocol hashes on two machines
+        # -- the exact failure --hidden is refused a few lines up to prevent.
+        backbone_keys["backbone_snapshot"] = tower.snapshot.name
+        backbone_keys["backbone_params"] = tower.footprint.trainable_params
+        backbone_keys["backbone_vocab"] = tower.vocab_size
+        recipe["gradient_checkpointing"] = tower.gradient_checkpointing
+        what_ran = (
+            f"Backbone is the REAL text tower from {backbone.name}: "
+            f"{tower.n_tensors_loaded} tensors, {tower.footprint.trainable_params:,} "
+            f"trainable parameters after the remap to {tower.vocab_size} rows, "
+            f"gradient_checkpointing={tower.gradient_checkpointing}, dtype={tower.dtype}."
+        )
     if not isinstance(step, SpanScoringStep):  # pragma: no cover - the protocol is structural
         raise TypeError(
-            "RealFtStep does not satisfy SpanScoringStep, so train_ft would refuse every "
-            "batch carrying a span row rather than training it"
+            f"{type(step).__name__} does not satisfy SpanScoringStep, so train_ft would "
+            "refuse every batch carrying a span row rather than training it"
         )
+    recipe.update(backbone_keys)
     recorder = _recorder(
         ledger, reader=reader, seed=seed, recipe=recipe, run_kind="ft",
         quick_reason=quick_reason,
         notes=(
             f"tools/real_ft_run.py [{tag}] -- qd_train.trainer.train_ft over a shard set "
             f"written by tools/real_tokenizer_pipeline.py with the live Qwen tokenizer. "
-            f"Backbone is a randomly-initialised {hidden}x{heads} single block; this is a "
-            "statement about the loop and the data, not an evaluation of any model."
+            + what_ran
         ),
     )
 
@@ -1055,7 +1197,9 @@ def _train(
     spans = [x for x in step.span_log if x > 0.0]
     final = _evaluate(step, plan, supervised, letter_floors, span_floors)
     return {
-        "tag": tag, "device": device, "seed": seed, "hidden": hidden, "heads": heads,
+        "tag": tag, "device": device, "seed": seed,
+        # So the verdict row names the same backbone this row does, rather than restating it.
+        **backbone_keys,
         "steps_requested": steps,
         "optimizer_steps": result.optimizer_steps,
         "termination": result.termination,
@@ -1161,7 +1305,7 @@ def _evaluate(
     rows: list[dict[str, float]] = []
     with torch.no_grad():
         for b, (batch, sup) in enumerate(zip(plan, supervised, strict=True)):
-            hidden = step.hidden(batch.tokens)
+            hidden = step.hidden(batch)
             entry: dict[str, float] = {"batch": float(b)}
             if sup.n_supervised:  # type: ignore[attr-defined]
                 loss = float(step._letter_loss(hidden, sup).item())
@@ -1212,7 +1356,10 @@ def _record_verdict(run: dict[str, object], *, ledger: Ledger, reader: ShardRead
     """
     recipe: dict[str, object] = {
         "tool": "tools/real_ft_run.py", "tag": f"{run['tag']}-verdict",
-        "device": run["device"], "hidden": run["hidden"], "heads": run["heads"],
+        "device": run["device"],
+        # Mirrored from the run, not restated: the verdict row has to name the same backbone
+        # the ft row named, and under --real-backbone there is no hidden/heads to name.
+        **{k: run[k] for k in BACKBONE_KEYS if k in run},
         "shard_hash": reader.header.shard_hash(),
     }
     recorder = _recorder(
@@ -1450,9 +1597,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, help="the pipeline's --out directory")
     parser.add_argument("--passes", type=int, default=60)
     parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
-    parser.add_argument("--hidden", type=int, default=128)
-    parser.add_argument("--heads", type=int, default=4)
-    parser.add_argument("--lr", type=float, default=3e-3)
+    # Sentinels, not values: which default is right depends on --real-backbone, and a
+    # default that silently applies to the wrong backbone is fault 1 below.
+    parser.add_argument(
+        "--hidden", type=int, default=None,
+        help=f"stand-in only; default {STANDIN_HIDDEN}",
+    )
+    parser.add_argument(
+        "--heads", type=int, default=None,
+        help=f"stand-in only; default {STANDIN_HEADS}",
+    )
+    parser.add_argument(
+        "--lr", type=float, default=None,
+        help=(
+            f"default {STANDIN_LR:g} for the stand-in, {REAL_BACKBONE_LR:g} for "
+            "--real-backbone. The stand-in's rate on pretrained weights destroys them."
+        ),
+    )
     parser.add_argument(
         "--max-width", type=int, default=5383,
         help="arm 2 trains on every real batch at most this wide. The rule is stated rather "
@@ -1462,8 +1623,51 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rev", default="0632f693d3b765b726499e7b4bf19c67959b75cb")
     parser.add_argument("--epoch", action="store_true", help="also run arm 1, the real epoch")
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER_PATH)
+    parser.add_argument(
+        "--real-backbone",
+        type=Path,
+        help=(
+            "local Qwen3.5-2B-Base snapshot directory. Without it the backbone is the "
+            "randomly-initialised stand-in block, which is a statement about the loop and "
+            "the data rather than about any model."
+        ),
+    )
+    parser.add_argument(
+        "--devices",
+        nargs="+",
+        choices=["cpu", "cuda", "mps"],
+        help=(
+            "run only these devices instead of auto-detecting. The real tower on cpu is "
+            "hours per pass and causal-conv1d's kernel refuses cpu tensors outright, so on "
+            "a CUDA box with --real-backbone this is normally just: --devices cuda"
+        ),
+    )
     parser.add_argument("--probe", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+
+    # Resolve the sentinels against the backbone that was actually chosen. --hidden and
+    # --heads are REFUSED rather than ignored under --real-backbone: the real tower's width
+    # and head count come from its config.json, so accepting them would record a number that
+    # determined nothing -- and `recipe` feeds `recipe_hash`.
+    if args.real_backbone is not None:
+        cannot_apply = [
+            flag
+            for flag, value in (("--hidden", args.hidden), ("--heads", args.heads))
+            if value is not None
+        ]
+        if cannot_apply:
+            raise SystemExit(
+                f"{', '.join(cannot_apply)} cannot apply under --real-backbone: the real "
+                "tower's hidden size and head count come from its own config.json. Accepting "
+                "them would put a number in the ledger recipe that determined nothing, and "
+                "recipe feeds recipe_hash -- two identical runs would get different protocol "
+                "hashes. Drop them, or drop --real-backbone."
+            )
+        args.lr = REAL_BACKBONE_LR if args.lr is None else args.lr
+    else:
+        args.hidden = STANDIN_HIDDEN if args.hidden is None else args.hidden
+        args.heads = STANDIN_HEADS if args.heads is None else args.heads
+        args.lr = STANDIN_LR if args.lr is None else args.lr
 
     if args.probe:
         return _run_probe(args.probe)
@@ -1541,12 +1745,32 @@ def main(argv: list[str] | None = None) -> int:
         f"{batch_info['letter_channel_total_chunks']}"
     )
 
-    devices = ["cpu"] + (["mps"] if torch.backends.mps.is_available() else [])
-    if "mps" not in devices:
-        print("mps: NOT RUN -- torch.backends.mps.is_available() is False on this host")
+    if args.devices:
+        devices = list(args.devices)
+        print(f"devices: {devices} (from --devices; auto-detection skipped)")
+    else:
+        devices = ["cpu"]
+        if torch.cuda.is_available():
+            devices.append("cuda")
+        else:
+            print("cuda: NOT RUN -- torch.cuda.is_available() is False on this host")
+        if torch.backends.mps.is_available():
+            devices.append("mps")
+        else:
+            print("mps: NOT RUN -- torch.backends.mps.is_available() is False on this host")
 
-    # Which device can take which bucket, measured out of process.
+    # Which device can take which bucket, measured out of process. The probe builds the
+    # STAND-IN block, not the real tower, so it answers "can this device take this shape"
+    # and not "does the real model fit" -- stated here because eight green lines under
+    # --real-backbone otherwise read as the second.
+    probe_hidden = STANDIN_HIDDEN if args.hidden is None else args.hidden
+    probe_heads = STANDIN_HEADS if args.heads is None else args.heads
     print("\nfeasibility, one forward+backward per bucket width, in a subprocess:")
+    if args.real_backbone is not None:
+        print(
+            f"  (a {probe_hidden}x{probe_heads} stand-in, NOT the real tower: this establishes "
+            "the device and the shape, not that the real model fits)"
+        )
     widest_per_bucket: dict[int, tuple[int, int]] = {}
     for row in batch_info["rows"]:  # type: ignore[union-attr]
         b = int(row["bucket"])
@@ -1557,7 +1781,7 @@ def main(argv: list[str] | None = None) -> int:
     for device in devices:
         for b in sorted(widest_per_bucket):
             rows_n, width = widest_per_bucket[b]
-            probe = _probe_one(device, rows_n, width, args.hidden, args.heads)
+            probe = _probe_one(device, rows_n, width, probe_hidden, probe_heads)
             probe["bucket"] = b
             probes.append(probe)
             print(
@@ -1584,17 +1808,27 @@ def main(argv: list[str] | None = None) -> int:
     if not plan_small:
         raise SystemExit(f"no real batch is at most {args.max_width} wide")
 
+
     ledger = Ledger(args.ledger)
+    # What the backbone actually was, in the ledger's own words. Branching here and not only
+    # in `notes` is the whole point: a row written for a --real-backbone run used to say it
+    # ran "a randomly-initialised 128x4 single block", interpolating --hidden and --heads,
+    # which that path ignores. The ledger is append-only, so a wrong claim in it is permanent.
+    backbone_said = (
+        f"a randomly-initialised {args.hidden}x{args.heads} single block"
+        if args.real_backbone is None
+        else f"the real text tower from {args.real_backbone.name}"
+    )
     quick_small = (
         f"a subsample on a truncated schedule: {len(plan_small)} of {len(plan_all)} real "
         f"batches ({sum(int(b.tokens.shape[0]) for b in plan_small)} of {len(reader)} "
-        f"sequences) repeated {args.passes}x against a randomly-initialised "
-        f"{args.hidden}x{args.heads} single block. Rule 8: excluded from every decision."
+        f"sequences) repeated {args.passes}x against {backbone_said}. Rule 8: excluded from "
+        "every decision."
     )
     quick_epoch = (
-        f"one epoch over {len(reader)} real sequences against a randomly-initialised "
-        f"{args.hidden}x{args.heads} single block, {len(plan_all)} optimizer steps. Rule 8: "
-        "a truncated schedule is quick and promotes nothing."
+        f"one epoch over {len(reader)} real sequences against {backbone_said}, "
+        f"{len(plan_all)} optimizer steps. Rule 8: a truncated schedule is quick and "
+        "promotes nothing."
     )
 
     report: dict[str, object] = {
@@ -1625,6 +1859,7 @@ def main(argv: list[str] | None = None) -> int:
             run = _train(
                 reader=reader, plan=plan_small, passes=args.passes, device=device, seed=seed,
                 hidden=args.hidden, heads=args.heads, lr=args.lr, ledger=ledger,
+                backbone=args.real_backbone,
                 tag="memorise", quick_reason=quick_small,
             )
             step = run.pop("_step")
@@ -1693,6 +1928,7 @@ def main(argv: list[str] | None = None) -> int:
                 run = _train(
                     reader=reader, plan=plan_all, passes=1, device=device, seed=seed,
                     hidden=args.hidden, heads=args.heads, lr=args.lr, ledger=ledger,
+                    backbone=args.real_backbone,
                     tag="epoch", quick_reason=quick_epoch,
                 )
                 run.pop("_step")

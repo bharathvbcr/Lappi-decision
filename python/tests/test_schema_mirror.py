@@ -42,6 +42,7 @@ PYTHON_ROOT = REPO / "python"
 #: functions that need it, which is the pattern that keeps the rest of the module usable.
 TORCH_GATED: frozenset[str] = frozenset(
     {
+        "qd_train.backbone",
         "qd_train.byte_decider",
         "qd_train.byte_train",
         "qd_train.fused_ce",

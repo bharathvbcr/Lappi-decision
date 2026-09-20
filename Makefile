@@ -55,6 +55,27 @@ PY        := $(VENV)/bin/python
 RUFF      := $(VENV)/bin/ruff
 LEDGER    := $(REPO)/ledger/runs.jsonl
 
+# The torch environment, and the launcher that borrows it without modifying it.
+#
+# `$(PY)` deliberately has no torch: the core gate stays fast and torch-free. The cost
+# of that, measured 2026-09-20, is that **five whole modules never ran in this gate** --
+# test_heads.py, test_fused_ce.py, test_byte_train.py, test_byte_decider.py and
+# test_remap_torch.py, plus part of test_byte_batch.py. They are exactly the model-path
+# modules, and test_heads.py is what pins the abstain-row-last layout against
+# `crates/qd-runtime/src/answer.rs`.
+#
+# **The coverage pair could not see it.** A module-level skip collapses N tests into ONE
+# skipped item, so the row read `1316/1323` -- 99.5% -- while the true denominator was
+# 1407 and real coverage was 93.5%. The denominator was computed in the same environment
+# that caused the shortfall, which is why it looked almost complete.
+#
+# `uv run --no-project` borrows the ml venv and layers pytest on top for the duration of
+# the run: nothing is installed into either venv and no project dependency is added.
+# Overridable so this is not pinned to one machine.
+ML_VENV   ?= /Users/bharath/.venvs/ml
+ML_PY     := $(ML_VENV)/bin/python
+UV        ?= /Users/bharath/.local/bin/uv
+
 # The version uv.lock already resolved `ruff>=0.6` to. The standalone ruff on this host
 # is a different release (0.15.20) and is NOT the gate: the gate is the locked version
 # inside the project venv, so what runs is what the lockfile describes.
@@ -91,6 +112,15 @@ CARGO_TEST_CMD = if ! command -v cargo > /dev/null 2>&1; then printf 'NotRun: ca
 # cannot be told from a suite that collected nothing.
 PYTEST_CMD = if [ ! -x "$(PY)" ]; then printf 'NotRun: pytest - no interpreter at %s; the project venv is missing.\n' "$(PY)"; exit $(NOT_RUN); fi; if ! "$(PY)" -m pytest --version > /dev/null 2>&1; then printf 'NotRun: pytest - pytest is not installed in %s.\n' "$(VENV)"; exit $(NOT_RUN); fi; "$(PY)" -m pytest "$(REPO)/python/tests" -o addopts=
 
+# The same suite again, in an environment that has torch. NOT a substitute for the run
+# above: that one answers "does the torch-free core still work without torch", this one
+# answers "does the model path work at all". Both are real questions and the row carries
+# both.
+#
+# A missing uv or ml venv makes this NotRun, never a pass -- the five modules would go
+# back to being invisible, and invisible is what this suite exists to end.
+TORCH_PYTEST_CMD = if [ ! -x "$(UV)" ]; then printf 'NotRun: torch-pytest - no uv at %s, so the torch suite could not be launched.\n  Override with: make UV=/path/to/uv\n  This is NOT a pass: the model-path modules were not run.\n' "$(UV)"; exit $(NOT_RUN); fi; if [ ! -x "$(ML_PY)" ]; then printf 'NotRun: torch-pytest - no interpreter at %s; the torch environment is missing.\n  Override with: make ML_VENV=/path/to/venv\n  This is NOT a pass: the model-path modules were not run.\n' "$(ML_PY)"; exit $(NOT_RUN); fi; PYTHONDONTWRITEBYTECODE=1 "$(UV)" run --no-project --python "$(ML_PY)" --with pytest --with hypothesis python -m pytest "$(REPO)/python/tests" -o addopts=
+
 # The documented one-command path from docs/ledger-schema.md: runs each suite, writes
 # one `build` row, prints the row id alone on stdout. Its own exit codes are already
 # 0 / 1 / 3 with these same meanings.
@@ -102,11 +132,11 @@ PYTEST_CMD = if [ ! -x "$(PY)" ]; then printf 'NotRun: pytest - no interpreter a
 # third parser, the lint gate is asserted inside the pytest suite itself
 # (python/tests/test_lint_gate.py), where it is counted and reaches the row like any
 # other test.
-LEDGER_RECORD_CMD = if [ ! -x "$(PY)" ]; then printf 'NotRun: ledger-record - no interpreter at %s; no row was written.\n' "$(PY)"; exit $(NOT_RUN); fi; PYTHONPATH="$(REPO)/python" "$(PY)" -m qd_train.ledger record --ledger "$(LEDGER)" --repo "$(REPO)" --toolchain "$(TOOLCHAIN)" --suite cargo_test_workspace="cargo test --manifest-path $(REPO)/Cargo.toml --workspace" --suite pytest_python_tests="$(PY) -m pytest $(REPO)/python/tests -o addopts="
+LEDGER_RECORD_CMD = if [ ! -x "$(PY)" ]; then printf 'NotRun: ledger-record - no interpreter at %s; no row was written.\n' "$(PY)"; exit $(NOT_RUN); fi; PYTHONPATH="$(REPO)/python" "$(PY)" -m qd_train.ledger record --ledger "$(LEDGER)" --repo "$(REPO)" --toolchain "$(TOOLCHAIN)" --suite cargo_test_workspace="cargo test --manifest-path $(REPO)/Cargo.toml --workspace" --suite pytest_python_tests="$(PY) -m pytest $(REPO)/python/tests -o addopts=" --suite pytest_torch_python_tests="$(UV) run --no-project --python $(ML_PY) --with pytest --with hypothesis python -m pytest $(REPO)/python/tests -o addopts="
 
 LEDGER_VERIFY_CMD = if [ ! -x "$(PY)" ]; then printf 'NotRun: ledger-verify - no interpreter at %s; the chain was not checked.\n' "$(PY)"; exit $(NOT_RUN); fi; if [ ! -f "$(LEDGER)" ]; then printf 'NotRun: ledger-verify - no ledger at %s; there is no chain to check.\n  An absent ledger is not a verified one.\n' "$(LEDGER)"; exit $(NOT_RUN); fi; PYTHONPATH="$(REPO)/python" "$(PY)" -m qd_train.ledger verify --ledger "$(LEDGER)"
 
-.PHONY: all gates help lint clippy cargo-test pytest ledger-record ledger-verify
+.PHONY: all gates help lint clippy cargo-test pytest torch-pytest ledger-record ledger-verify
 
 all: gates
 
@@ -119,7 +149,8 @@ help:
 	@echo '  lint           ruff over the whole repo, full configured rule set'
 	@echo '  clippy         cargo clippy --all-targets, warnings denied'
 	@echo '  cargo-test     cargo test --workspace'
-	@echo '  pytest         pytest with counts'
+	@echo '  pytest         pytest with counts (torch-free venv)'
+	@echo '  torch-pytest   the same suite where torch exists; +89 model-path tests'
 	@echo '  ledger-record  run the counted suites, append one `build` row, print its id'
 	@echo '  ledger-verify  recompute the ledger hash chain'
 
@@ -134,6 +165,9 @@ cargo-test:
 
 pytest:
 	@$(PYTEST_CMD)
+
+torch-pytest:
+	@$(TORCH_PYTEST_CMD)
 
 ledger-record:
 	@$(LEDGER_RECORD_CMD)

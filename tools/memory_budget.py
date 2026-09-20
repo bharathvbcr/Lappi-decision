@@ -1,0 +1,314 @@
+"""Will this shard set train on this GPU? Answered here, before anything is rented.
+
+``qd_train.memory`` holds the arithmetic; this is its caller. It reads a **real** shard
+set's header for the bucket widths and a **real** checkpoint's safetensors header for the
+parameter counts, so neither number is typed in by hand, and it prints the budget per
+bucket per device.
+
+It **exits 1** when a bucket in the shard set does not fit the device being budgeted. That
+is the point: a report nobody acts on and a gate that refuses are different things, and the
+failure this replaces -- ``torch.OutOfMemoryError`` partway into a paid run -- is loud
+already. It is merely late.
+
+Rule 5: every number here is **arithmetic**, not a measurement. There is no CUDA device on
+this host, so nothing in this tool has been checked against an allocator. The parameter
+counts are measured (from tensor shapes); the activation term is an enumerated lower bound
+plus a stated allowance. ``StepFootprint.provenance`` says so on every breakdown it prints.
+
+Usage::
+
+    python tools/memory_budget.py --shards /tmp/qd-real/shards/train
+    python tools/memory_budget.py --device-gb 40 --device-gb 80 --recompute none
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import struct
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
+
+from qd_train.memory import (
+    ADAMW_FP32,
+    QWEN3_5_2B_TEXT,
+    ActivationModel,
+    MemoryRefused,
+    ModelSpec,
+    OptimizerSpec,
+    StepFootprint,
+    estimate_step,
+    max_positions_that_fit,
+    refuse_unless_it_fits,
+)
+
+GB = 1000**3
+
+#: The rental menu, as the coordinator posted it on 2026-09-20. Rates are per *instance*.
+#: ``usable_gpus`` is 1 on every row and that is not a typo: nothing in this repository can
+#: drive a second GPU. There is no DDP, no FSDP, no ``torchrun``, no ``init_process_group``
+#: and no ``world_size``; ``train_ft`` takes no device argument at all, because the device
+#: belongs to the caller's ``TrainStep``. A multi-GPU row therefore buys idle silicon.
+MENU: tuple[tuple[str, float, int, float], ...] = (
+    # (name, usd_per_hour, gpus_in_instance, gib_per_gpu)
+    ("1x A10 24GB", 1.29, 1, 24.0),
+    ("1x A100 40GB", 1.99, 1, 40.0),
+    ("4x A6000 48GB", 4.36, 4, 48.0),
+    ("2x H100 80GB", 8.38, 2, 80.0),
+    ("8x A100 40GB", 15.92, 8, 40.0),
+)
+
+#: Recipes worth budgeting, as (label, kwargs for `estimate_step`).
+RECIPES: tuple[tuple[str, dict[str, object]], ...] = (
+    (
+        "fp32 (what this repo's code does today)",
+        {
+            "optimizer": ADAMW_FP32,
+            "param_dtype": "fp32",
+            "grad_dtype": "fp32",
+            "activation_dtype": "fp32",
+        },
+    ),
+    (
+        "bf16 weights+grads, fp32 AdamW states",
+        {
+            "optimizer": ADAMW_FP32,
+            "param_dtype": "bf16",
+            "grad_dtype": "bf16",
+            "activation_dtype": "bf16",
+        },
+    ),
+    (
+        "bf16 + fp32 master + fp32 AdamW (HF bf16 default)",
+        {
+            "optimizer": OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True),
+            "param_dtype": "bf16",
+            "grad_dtype": "bf16",
+            "activation_dtype": "bf16",
+        },
+    ),
+)
+
+
+def safetensors_header(path: Path) -> dict:
+    """The JSON header of a safetensors file, without reading a byte of tensor data."""
+    with path.open("rb") as fh:
+        raw = fh.read(8)
+        if len(raw) != 8:
+            raise SystemExit(f"{path}: too short to carry a safetensors header")
+        return json.loads(fh.read(struct.unpack("<Q", raw)[0]))
+
+
+def spec_from_checkpoint(snapshot: Path) -> ModelSpec:
+    """Rebuild [`ModelSpec`] from a checkpoint on disk rather than trusting the constant.
+
+    The constant in ``qd_train.memory`` was measured once; this re-measures, so a different
+    snapshot is budgeted as itself and a drifted constant is caught rather than inherited.
+    """
+    cfg = json.loads((snapshot / "config.json").read_text(encoding="utf-8"))
+    text = cfg["text_config"]
+    header: dict = {}
+    for shard in sorted(snapshot.glob("*.safetensors")):
+        header.update(safetensors_header(shard))
+    header.pop("__metadata__", None)
+
+    def numel(spec: dict) -> int:
+        n = 1
+        for dim in spec["shape"]:
+            n *= dim
+        return n
+
+    total = sum(
+        numel(v) for k, v in header.items() if not k.startswith(("model.visual.", "mtp."))
+    )
+    embedding = int(text["vocab_size"]) * int(text["hidden_size"])
+    layer_types = text["layer_types"]
+    return ModelSpec(
+        name=f"{snapshot.parent.parent.name} (text tower)",
+        hidden_size=int(text["hidden_size"]),
+        intermediate_size=int(text["intermediate_size"]),
+        n_full_attention_layers=layer_types.count("full_attention"),
+        n_linear_attention_layers=layer_types.count("linear_attention"),
+        q_heads=int(text["num_attention_heads"]),
+        kv_heads=int(text["num_key_value_heads"]),
+        head_dim=int(text["head_dim"]),
+        attn_output_gate=bool(text.get("attn_output_gate", False)),
+        linear_heads=int(text["linear_num_key_heads"]),
+        linear_head_dim=int(text["linear_key_head_dim"]),
+        vocab_size=int(text["vocab_size"]),
+        params_total=total,
+        params_embedding=embedding,
+        tied_embedding=bool(text.get("tie_word_embeddings", False)),
+        recurrent_state_bytes=4 if text.get("mamba_ssm_dtype") == "float32" else 2,
+    )
+
+
+def read_shard_header(shards: Path) -> dict:
+    path = shards / "header.json"
+    if not path.is_file():
+        raise SystemExit(
+            f"{path} does not exist. This tool budgets a real shard set; point --shards at "
+            "one, or pass --width to budget a width without one."
+        )
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _rows_for(model: ModelSpec, *, device_bytes: int, width: int, **kw: object) -> int:
+    positions = max_positions_that_fit(model, device_bytes=device_bytes, width=width, **kw)
+    return positions // width if positions else 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--shards", type=Path, default=None, help="a shard set's train directory")
+    ap.add_argument("--snapshot", type=Path, default=None, help="checkpoint snapshot directory")
+    ap.add_argument(
+        "--device-gb",
+        type=float,
+        action="append",
+        default=None,
+        help="a device budget in GB; repeatable. Default: every distinct size on the menu.",
+    )
+    ap.add_argument("--width", type=int, action="append", default=None, help="extra widths")
+    ap.add_argument("--recompute", choices=("none", "full"), default="full")
+    ap.add_argument("--attention", choices=("flash", "math"), default="flash")
+    ap.add_argument(
+        "--vocab",
+        type=int,
+        default=None,
+        help="trainable vocabulary; default is the shard set's remapped size when --shards "
+        "is given, otherwise the checkpoint's own",
+    )
+    ap.add_argument(
+        "--recipe",
+        type=int,
+        default=1,
+        help="index into RECIPES for the pass/fail verdict (default 1: bf16 + fp32 AdamW)",
+    )
+    ap.add_argument(
+        "--require-fit",
+        type=float,
+        default=None,
+        help="exit 1 unless every bucket fits a device of this many GB",
+    )
+    args = ap.parse_args()
+
+    model = spec_from_checkpoint(args.snapshot) if args.snapshot else QWEN3_5_2B_TEXT
+    acts = ActivationModel(recompute=args.recompute, attention=args.attention)
+
+    widths: list[int] = []
+    vocab = args.vocab
+    if args.shards is not None:
+        header = read_shard_header(args.shards)
+        widths.extend(int(b) for b in header["buckets"])
+        if vocab is None:
+            vocab = int(header["vocab_size"])
+        print(
+            f"shard set {args.shards}: {header['n_sequences']:,} sequences, "
+            f"{header['total_tokens']:,} tokens, vocab {header['vocab_size']:,}, "
+            f"max_seq_len {header['max_seq_len']:,}"
+        )
+    widths.extend(args.width or [])
+    if not widths:
+        widths = [2048, 4096, 8192, 16384, 34522]
+    widths = sorted(set(widths))
+
+    print(f"model: {model.name}")
+    print(f"  measured parameters      {model.params_total:>15,}")
+    print(f"  tied embedding           {model.params_embedding:>15,}  "
+          f"({100 * model.params_embedding / model.params_total:.1f}%)")
+    print(f"  trainable at vocab {vocab or model.vocab_size:>7,}  "
+          f"{model.trainable_params(vocab_size=vocab):>15,}")
+    print(f"  layers: {model.n_linear_attention_layers} linear_attention + "
+          f"{model.n_full_attention_layers} full_attention")
+    print(f"  activation policy: recompute={args.recompute}, attention={args.attention}\n")
+
+    if args.device_gb:
+        devices = [(f"{g:g} GB", g) for g in args.device_gb]
+    else:
+        seen: dict[float, str] = {}
+        for name, _rate, _n, gib in MENU:
+            seen.setdefault(gib, name)
+        devices = [(f"{g:g} GB ({n})", g) for g, n in sorted(seen.items())]
+
+    print("=" * 100)
+    print("STATIC STATE (weights + gradients + optimizer), before a single activation")
+    print("=" * 100)
+    for label, kw in RECIPES:
+        f = estimate_step(model, rows=1, width=1, activations=acts, vocab_size=vocab, **kw)
+        print(f"  {f.static_bytes / GB:7.2f} GB  ({f.static_bytes / 1024**3:7.2f} GiB)  {label}")
+
+    for dev_label, dev_gb in devices:
+        dev_bytes = int(dev_gb * GB)
+        print("\n" + "=" * 100)
+        print(f"{dev_label}  --  ONE card")
+        print("=" * 100)
+        for label, kw in RECIPES:
+            one = estimate_step(
+                model, rows=1, width=1, activations=acts, vocab_size=vocab, **kw
+            )
+            if one.static_bytes >= dev_bytes:
+                over = (one.static_bytes - dev_bytes) / GB
+                print(f"  {label}: STATIC STATE ALONE IS {over:.2f} GB OVER THE CARD "
+                      f"-- not a tuning problem")
+                continue
+            cells = []
+            for w in widths:
+                rows = _rows_for(
+                    model, device_bytes=dev_bytes, width=w, activations=acts,
+                    vocab_size=vocab, **kw,
+                )
+                cells.append(f"{w:,}:{rows}" if rows else f"{w:,}:NONE")
+            print(f"  {label}")
+            print(f"    rows that fit, by width -- {'  '.join(cells)}")
+
+    # -- the verdict ---------------------------------------------------------
+    label, kw = RECIPES[args.recipe]
+    print("\n" + "=" * 100)
+    print(f"VERDICT under {label!r}")
+    print("=" * 100)
+    failures: list[str] = []
+    if args.require_fit is None:
+        print("  --require-fit not given, so no device was checked. Rule 5: this is NOT a "
+              "pass, it is an unchecked budget. Pass --require-fit <GB> to make it a gate.")
+    else:
+        dev_bytes = int(args.require_fit * GB)
+        for w in widths:
+            f: StepFootprint = estimate_step(
+                model, rows=1, width=w, activations=acts, vocab_size=vocab, **kw
+            )
+            try:
+                refuse_unless_it_fits(f, device_bytes=dev_bytes, where=f"bucket width {w:,}")
+            except MemoryRefused as exc:
+                failures.append(str(exc).splitlines()[0])
+            else:
+                rows = _rows_for(
+                    model, device_bytes=dev_bytes, width=w, activations=acts,
+                    vocab_size=vocab, **kw,
+                )
+                print(f"  width {w:>7,}: FITS at {rows} row(s) per batch "
+                      f"({f.total_bytes / GB:.2f} GB for one row)")
+        if failures:
+            print(f"\n  REFUSED: {len(failures)} of {len(widths)} bucket width(s) do not fit "
+                  f"{args.require_fit:g} GB:")
+            for line in failures:
+                print(f"    - {line}")
+        else:
+            print(f"\n  every one of the {len(widths)} bucket width(s) fits "
+                  f"{args.require_fit:g} GB")
+
+    f = estimate_step(
+        model, rows=1, width=max(widths), activations=acts, vocab_size=vocab, **kw
+    )
+    print("\n" + "=" * 100)
+    print(f"BREAKDOWN at the widest bucket, {label!r}")
+    print("=" * 100)
+    print(f.breakdown())
+    print(f"\n{f.provenance}")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

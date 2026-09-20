@@ -119,6 +119,7 @@ __all__ = [
     "DEFAULT_MAX_SEQUENCES",
     "DEFAULT_MAX_TOTAL_TOKENS",
     "HEADER_NAME",
+    "MAX_POSITIONS_PER_BATCH",
     "MAX_ROWS_PER_BATCH",
     "OFFSETS_NAME",
     "PAD_ID",
@@ -180,6 +181,24 @@ PAD_ID: Final[int] = 0
 #: generous ``batch_tokens`` into a batch of tens of thousands of rows, and the first sign
 #: of it is an allocator failure some minutes into a run.
 MAX_ROWS_PER_BATCH: Final[int] = 4096
+
+#: ...and in **positions**, which is the number that costs memory. :data:`MAX_ROWS_PER_BATCH`
+#: bounds rows; a batch's cost is ``rows x width``, and until 2026-09-20 nothing bounded
+#: that. ``_plan`` refused a ``batch_tokens`` *below* the widest bucket -- saying out loud
+#: that "silently emitting an over-budget batch is how an out-of-memory failure gets blamed
+#: on the model" -- and accepted any value above it. Measured on the real shard set:
+#: ``batch_tokens=10_000_000_000`` was accepted and planned a batch of 1,380,880 positions,
+#: roughly 260 GB of activations.
+#:
+#: This is a **backstop, not a gate**. It exists to turn a mis-typed ``batch_tokens`` (a
+#: stray zero) into a refusal instead of an allocator failure; it is not a statement about
+#: what fits. The bound that describes a real device is device-dependent and lives in
+#: :mod:`qd_train.memory` -- ``max_positions_that_fit`` -- which ``tools/memory_budget.py``
+#: prints per bucket. The value here is ~1.9x the largest batch that fits the biggest card
+#: on the 2026-09-20 rental menu (96 GiB, bf16 weights and gradients, fp32 AdamW states,
+#: per-layer gradient checkpointing: about 547,000 positions), so no recipe that fits any
+#: real GPU reaches it.
+MAX_POSITIONS_PER_BATCH: Final[int] = 1 << 20
 
 #: Write-side ceilings. Both are arguments with these as defaults, so a caller may tighten
 #: them; neither may be absent, because an unbounded write is an unbounded memmap.
@@ -1186,8 +1205,22 @@ class ShardReader:
 
     ``batches`` order is a pure function of ``(seed, epoch, batch_tokens)`` and the shard
     set. There is no iterator RNG, no shuffled member state and nothing consumed on a
-    previous call: S5's bit-exact resume reconstructs a position from ``(epoch, index)``
-    alone, which is only sound if asking twice gives the same answer twice.
+    previous call.
+
+    Measured on 2026-09-20, on the corpus ``test_shards.py`` builds: identical batch
+    contents asked twice in one process, asked again after an intervening epoch, asked from
+    a second process, and asked from a third under ``PYTHONHASHSEED=1234`` -- one digest,
+    ``0e5b7bd2864f72d6``, for all four. The property holds, and it is a numpy-and-integers
+    property, so it holds on any device.
+
+    **What it does not say.** S5's resume reconstructs a position from ``(epoch, index)``,
+    and that is sound only if the *order* is already pinned by something else -- because
+    ``batch_tokens`` is one of this function's arguments, not a consequence of the other
+    two. The same corpus at ``batch_tokens=4w`` and ``4w+1`` yields 17 batches either way,
+    numbered 0..16, sharing not one batch: ``011d15855b660101`` against
+    ``0e5b7bd2864f72d6``. An index is a position *inside* an order. Which order was eaten is
+    ``run_control.Checkpoint.consumed_digest``'s question, and before that field existed the
+    trainer accepted the wrong answer to it.
     """
 
     def __init__(self, root: Path, *, config: DataConfig, repo_root: Path) -> None:
@@ -1491,6 +1524,16 @@ class ShardReader:
             raise ValueError(f"seed and epoch must be non-negative, got {seed} and {epoch}")
         if batch_tokens <= 0:
             raise ValueError(f"batch_tokens must be positive, got {batch_tokens}")
+        if batch_tokens > MAX_POSITIONS_PER_BATCH:
+            raise ValueError(
+                f"batch_tokens={batch_tokens} exceeds MAX_POSITIONS_PER_BATCH="
+                f"{MAX_POSITIONS_PER_BATCH}. A batch's memory cost is rows x width, and "
+                f"batch_tokens is the only ceiling on that product -- MAX_ROWS_PER_BATCH="
+                f"{MAX_ROWS_PER_BATCH} bounds the rows, not the positions. This refusal is "
+                "a backstop against a mis-typed value, not a statement about what fits: for "
+                "the bound that describes an actual device, run tools/memory_budget.py, "
+                "which prints qd_train.memory.max_positions_that_fit per bucket."
+            )
 
         buckets = self.header.buckets
         members: dict[int, list[int]] = {}

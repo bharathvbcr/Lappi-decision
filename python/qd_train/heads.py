@@ -346,6 +346,14 @@ class SpanPointerHead(nn.Module):
                 f"hidden has {n_spans} span rows but the plan has {plan.n_spans}"
             )
 
+        # The head is float32 by construction -- see QwenDecisionStep, which builds it that
+        # way so the pointer logsumexp is not computed with 8 bits of mantissa -- while a
+        # real tower emits bf16. Cast HERE rather than relying on each caller:
+        # accumulate_span did cast; real_ft_run._evaluate reaches span_head.loss directly
+        # and did not, which on a GH200 raised "expected mat1 and mat2 to have the same
+        # dtype". A head that owns its dtype contract cannot be got wrong by a new caller.
+        hidden = hidden.to(self.start_proj.weight.dtype)
+
         index = plan.candidate_pos.unsqueeze(-1).expand(-1, -1, hidden_size)
         h_cand = hidden.gather(1, index)  # [K, max_cand, H]
         h_query = hidden.gather(

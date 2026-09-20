@@ -88,6 +88,7 @@ from .schema import (
 )
 
 __all__ = [
+    "DEFAULT_CAPS",
     "ESCAPE_WORST_CASE_GROWTH",
     "HEX_ESCAPED",
     "INVISIBLE_FORMAT_CHARS",

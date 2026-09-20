@@ -504,3 +504,56 @@ def test_the_report_serializes_whole_for_a_ledger_row():
     assert round_tripped["parity"]["gate"]["state"] == "ran"
     assert round_tripped["application"]["tie"]["believed"] == "storage identity (data_ptr)"
     assert round_tripped["parity"]["memory_before"]["n_sequences"] == 2
+
+
+# --- a padded embedding is not a wrong tokenizer -------------------------------------
+#
+# Found on the rented GH200, 2026-09-20: Qwen3.5-2B-Base's embedding is 248,320 rows
+# (1940 x 128, aligned for tensor cores) over a 248,077-token tokenizer -- 248,044 base
+# plus 33 added. `apply_remap_to_model` compared the two with `!=` and refused, reporting
+# "Applying it would renumber every row against the wrong tokenizer" about a checkpoint
+# whose tokenizer was exactly right. The three tests below pin the direction.
+
+
+def test_an_embedding_padded_above_the_tokenizer_vocabulary_is_accepted() -> None:
+    """The real case. Pre-fix this raised ValueError and the GH200 run stopped here."""
+    padded = V_OLD + 32  # the shape of 248,320 over 248,077: aligned, unreachable rows
+    remap = _remap_over([7, 2, 40])
+    model = TinyLM(vocab=padded, tied=True, config_flag=True)
+    original = model.get_input_embeddings().weight.detach().clone()
+
+    apply_remap_to_model(model, remap)
+
+    new_weight = model.get_input_embeddings().weight.detach()
+    assert new_weight.shape == (remap.vocab_size, HIDDEN)
+    # Every kept row is the row it names, taken from the UNPADDED region. The order is
+    # `build_remap`'s, read off the table rather than assumed.
+    for new_id, old_id in enumerate(remap.new_to_old):
+        assert torch.equal(new_weight[new_id], original[int(old_id)]), (
+            f"new row {new_id} should be old row {int(old_id)}; padding must not shift it"
+        )
+    assert model.get_output_embeddings().weight.data_ptr() == new_weight.data_ptr(), (
+        "the tie must survive the slice"
+    )
+
+
+def test_an_embedding_smaller_than_the_remaps_vocabulary_is_still_refused() -> None:
+    """The direction that IS fatal: kept ids would index past the end of the weight."""
+    remap = _remap_over([7, 2, 40])
+    model = TinyLM(vocab=V_OLD - 32, tied=True, config_flag=True)
+    with pytest.raises(ValueError, match="index past the end of the embedding"):
+        apply_remap_to_model(model, remap)
+
+
+def test_a_remap_keeping_an_id_outside_the_embedding_is_refused_by_range_not_by_size() -> None:
+    """The check that the size comparison alone cannot make.
+
+    A remap whose `new_to_old` runs past its own declared `source_vocab_size` passes every
+    size comparison whenever that declared size matches the embedding. Only looking at the
+    ids catches it.
+    """
+    remap = _remap_over([7, 2, 40])
+    remap.new_to_old[-1] = V_OLD + 500  # past the declared source size, size check unmoved
+    model = TinyLM(vocab=V_OLD, tied=True, config_flag=True)
+    with pytest.raises(ValueError, match="outside the model's"):
+        apply_remap_to_model(model, remap)

@@ -81,8 +81,35 @@ The checkpoint records ``(epoch, index)`` of the **next** batch. On resume the c
 rebuilds the source for the same ``(seed, epoch)`` and this loop skips forward until it
 reaches that index, then asserts it landed exactly on it. Anything else -- a source that
 starts past the index, or one whose indices are not strictly increasing -- is refused,
-because S5's guarantee is that the order is a pure function of ``(seed, epoch)`` and a
-source that does not honour that cannot deliver a bit-exact resume.
+because S5's guarantee is that the order is a pure function of ``(seed, epoch,
+batch_tokens)`` and the shard set, and a source that does not honour that cannot deliver a
+bit-exact resume.
+
+**Landing on the index is not the same as landing on the batch.** Until 2026-09-20 that was
+the whole of the check, and it was measured passing on a source that shared the indices and
+none of the content: a reader asked for the same ``(seed, epoch)`` with ``batch_tokens``
+one token larger produced the same number of batches, so the skip found index N, the run
+completed, and ``termination`` read ``steps_exhausted`` on a corpus order the checkpoint had
+never seen. So every consumed batch is folded into a [`ConsumedPrefix`] digest that the
+checkpoint carries, and the skip *rehashes the prefix it walks* and compares.
+
+The cost is one sha256 per batch, measured on this host at 2.7-3.0 GB/s over the batch's
+own bytes: 0.024 ms for 8x2048, 0.75 ms for 64x8192 (524,288 tokens, 2.10 MB). Against an
+optimizer step on an H100 that is well under one percent, and it is paid on the training
+path, not only on the resume path. The alternative was a resumed run whose loss curve looks
+fine.
+
+What this check cannot see: a source that is identical up to the resume point and differs
+after it. That is a real limit and it is narrow -- for a shard set, bucket membership makes
+the prefix depend on the whole set -- but it is a limit, not a proof.
+
+## Device
+
+Nothing in this module names a device; the device belongs to the ``TrainStep``. The
+consequence for "bit-exact" is stated in ``qd_train.run_control``: **cpu** reproduces
+bit-exactly across processes (measured), **mps** does not (measured -- a seed does not pin
+an ``mps`` run), and **cuda** is **not run** on this host. A resume reproduces the
+trajectory only as exactly as the step's device does.
 """
 
 from __future__ import annotations
@@ -98,6 +125,7 @@ from .ledger import RunRecorder
 from .run_control import (
     AccumulationGroup,
     Checkpoint,
+    ConsumedPrefix,
     LossLog,
     LossPoint,
     Position,
@@ -453,11 +481,27 @@ class TrainStep(Protocol):
         ...
 
     def state(self) -> dict[str, Any]:
-        """JSON-serialisable state for a checkpoint. Opaque to this module."""
+        """Checkpoint-serialisable state. Opaque to this module.
+
+        **This contract changed on 2026-09-20 and the old wording was the defect.** It read
+        "JSON-serialisable state for a checkpoint", and ``Checkpoint`` enforced that
+        literally: a tensor had to be rendered as decimal text to be stored at all. Measured
+        on the rung-0 step with its AdamW moments, the same content encoded both ways, 68.86
+        bytes per model parameter as JSON against 12.10 as a JSON+sidecar pair -- about
+        97 GB per checkpoint against 17 GB for this program's 1.4B trainable parameters. A
+        rented box checkpointing periodically fills its disk before the run ends.
+
+        What a step may now return: JSON values, and :class:`qd_train.run_control.TensorRef`
+        for anything of size. A ``TensorRef`` is dtype, shape and raw little-endian bytes;
+        ``Checkpoint.write`` puts the bytes in a safetensors sidecar beside the JSON and
+        keeps each one's digest in the body. Nothing here holds a live tensor, this module
+        still imports no torch, and a checkpoint still names no device -- ``TensorRef``
+        carries bytes off the accelerator, exactly as the list of floats did.
+        """
         ...
 
     def load_state(self, state: Mapping[str, Any]) -> None:
-        """Restore what ``state`` produced."""
+        """Restore what ``state`` produced, including any ``TensorRef`` it returned."""
         ...
 
 
@@ -511,16 +555,50 @@ class TrainResult:
 # --- the loop ------------------------------------------------------------------------------
 
 
+def _fold(prefix: ConsumedPrefix, batch: Batch) -> None:
+    """Record one consumed batch in the running digest.
+
+    Everything that says *what was trained on*: where the batch sat in the epoch, how wide
+    it was, the tokens themselves, and the supervision channels that decide what each row
+    teaches. Two sources that agree on all of these are the same training data under a
+    different name; two that do not are not a resume.
+
+    ``np.ascontiguousarray`` because the buffer of a non-contiguous array is not the array,
+    and a digest over the wrong bytes is worse than no digest.
+    """
+    parts: list[bytes] = [
+        int(batch.index).to_bytes(8, "big"),
+        int(batch.bucket).to_bytes(8, "big"),
+        np.ascontiguousarray(batch.tokens).tobytes(),
+        np.ascontiguousarray(batch.lengths).tobytes(),
+    ]
+    for optional in (
+        batch.slot_kind,
+        batch.target_index,
+        batch.span_target,
+        batch.line_starts,
+    ):
+        parts.append(b"" if optional is None else np.ascontiguousarray(optional).tobytes())
+    prefix.fold(*parts)
+
+
 def _skip_to(
     it: Iterable[Batch], *, start_index: int, budget: int
-) -> tuple[Batch | None, int]:
-    """Advance to the batch whose ``index`` is ``start_index``. Returns it and what was skipped.
+) -> tuple[Batch | None, int, ConsumedPrefix]:
+    """Advance to the batch whose ``index`` is ``start_index``, hashing what it walks past.
+
+    Returns the batch, how many were skipped, and the digest of the skipped prefix. The
+    digest is built here rather than by the caller because this loop is the only thing that
+    sees those batches, and because the resumed run must carry on folding into *this*
+    hasher: a sha256 cannot be restored from its own output.
 
     Refuses a source that runs past the index without hitting it: that means the order this
     source produces is not the order the checkpoint was taken from, and resuming anyway
-    would train on a different sequence of batches while claiming a bit-exact resume.
+    would train on a different sequence of batches while claiming a bit-exact resume. The
+    *content* comparison belongs to the caller, which is the one holding the checkpoint.
     """
     skipped = 0
+    prefix = ConsumedPrefix()
     for batch in it:
         if skipped >= budget:
             raise TrainerContractViolation(
@@ -528,6 +606,7 @@ def _skip_to(
                 "is longer than this run's batch budget"
             )
         if batch.index < start_index:
+            _fold(prefix, batch)
             skipped += 1
             continue
         if batch.index != start_index:
@@ -536,8 +615,8 @@ def _skip_to(
                 f"{batch.index}. S5 requires the batch order to be a pure function of "
                 "(seed, epoch); a source that skips the resume point is not that function."
             )
-        return batch, skipped
-    return None, skipped
+        return batch, skipped, prefix
+    return None, skipped, prefix
 
 
 def _train(
@@ -572,6 +651,7 @@ def _train(
     start_index = 0
     first_step = 0
     log = LossLog()
+    consumed = ConsumedPrefix()
 
     if resume_from is not None:
         if resume_from.seed != seed:
@@ -618,12 +698,28 @@ def _train(
         source = iter(batches)
         pending: Batch | None = None
         if start_index > 0:
-            pending, _ = _skip_to(source, start_index=start_index, budget=max_batches)
+            pending, _, consumed = _skip_to(
+                source, start_index=start_index, budget=max_batches
+            )
             if pending is None:
                 raise TrainerContractViolation(
                     f"resume wanted batch index {start_index} in epoch {epoch} but the source "
                     "ended first; this is not the source the checkpoint was taken from"
                 )
+        if resume_from is not None and consumed.hexdigest() != resume_from.consumed_digest:
+            # Landing on the index is not landing on the batch. Measured on 2026-09-20:
+            # the same (seed, epoch) at a batch_tokens one larger yields the same number of
+            # batches with the same indices and entirely different contents, and everything
+            # above this line accepted it.
+            raise TrainerContractViolation(
+                f"the {start_index} batch(es) before the resume point hash to "
+                f"{consumed.hexdigest()} but the checkpoint recorded "
+                f"{resume_from.consumed_digest}. The source is not the one the checkpoint "
+                "was taken from -- same seed and epoch, different batches. S5's order is a "
+                "pure function of (seed, epoch, batch_tokens) and the shard set; rebuild "
+                "the source with the batch_tokens and the shard set the checkpoint was "
+                "written under."
+            )
 
         while True:
             if optimizer_step >= control.total_steps:
@@ -656,6 +752,9 @@ def _train(
                     "are strictly increasing, because S5's resume is reconstructed from them"
                 )
             last_index = batch.index
+            # Folded where the batch is accepted, so the digest covers exactly the batches
+            # this run consumed -- the same set `Position.index` is one past the end of.
+            _fold(consumed, batch)
 
             supervision = objective.supervise(batch)
             if supervision.span is None:
@@ -706,6 +805,7 @@ def _train(
                         seed=seed,
                         schedule=control.schedule,
                         loss_log=log.snapshot(),
+                        consumed_digest=consumed.hexdigest(),
                         model_state=step.state(),
                     )
                 )
@@ -717,6 +817,7 @@ def _train(
             seed=seed,
             schedule=control.schedule,
             loss_log=log.snapshot(),
+            consumed_digest=consumed.hexdigest(),
             model_state=step.state(),
         )
         last_point = log.last

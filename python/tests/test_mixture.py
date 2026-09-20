@@ -1,6 +1,6 @@
 """The open-task-mixture rewriter: one format, per-row licensing, counted refusals.
 
-The three claims under test:
+The five claims under test:
 
 * every family renders through the **one** ``Request`` shape, so nothing here can
   drift from the serving format;
@@ -8,36 +8,51 @@ The three claims under test:
   with a message naming the licence, and a *row* whose licence is not on it is
   refused even when its dataset is ``mit``;
 * the free ``noul`` supervision is actually produced -- CLINC's out-of-scope class
-  and SQuAD's unanswerable questions -- and is a gold *value*, never an error.
+  and SQuAD's unanswerable questions -- and is a gold *value*, never an error;
+* two rows that render one prompt and demand two golds are refused, and the
+  legitimate unanswerable-beside-answerable pair is not;
+* every decode channel reports how much abstention supply it actually carries.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 from data_fixtures import (
     INTENT_VOCABULARY,
     clinc_row,
+    code_body,
     commitpackft_row,
     small_corpus,
     squad_row,
+    vendored_pair,
 )
 
 from qd_data.config import DataConfig
-from qd_data.errors import LicenceRefused
+from qd_data.dedupe import dedupe
+from qd_data.errors import HeldOutViolation, LicenceRefused
 from qd_data.licences import LicenceConfig
-from qd_data.loaders import ClincRow, CommitPackFtRow, SourceUnavailableRefusal
+from qd_data.loaders import ClincRow, CommitPackFtRow, SourceUnavailableRefusal, SquadRow
+from qd_data.manifest import Manifest, build_manifests
 from qd_data.mixture import (
+    ABSTAINING_FAMILIES,
     CHANGE_SCOPE_BIN_EDGES,
     LANGUAGE_OPTIONS,
+    MAX_NAMED_GOLDS,
+    MAX_NAMED_ROW_IDS,
     RowRefused,
     build_mixture,
+    check_prompt_consistency,
     rewrite_clinc,
     rewrite_commitpackft,
     rewrite_squad,
 )
-from qd_data.render import render, render_for_serving
+from qd_data.render import DEFAULT_CAPS, render, render_for_serving
 from qd_data.rows import DataRow
 from qd_data.schema import MAX_CHOICE_OPTIONS, ChoiceSlot, ScoreSlot, SpanSlot
+from qd_data.split import split
+from qd_train.data_access import open_training_data
 from qd_train.tristate import NotRun, Ran
 
 
@@ -587,3 +602,393 @@ def test_ordinary_non_ascii_text_is_not_swept_up_by_the_invisible_check() -> Non
             fine, family_id="code.language_id", index=0, config=DataConfig(),
         )
         assert body.strip() in built.request.context.decode("utf-8")
+
+
+# -- corpus self-consistency: GAP-DATA-NOTHING-REFUSES-TWO-ROWS-THAT-CONTRADICT
+#
+# Every test above this line is about one row. These are about two, and about the
+# one defect a per-row check cannot see: a corpus of individually valid rows that
+# asks the model the same question twice and demands two different answers.
+#
+# It was not hypothetical. The FT lane's span channel converged on 0.693147 -- ln 2,
+# a fair coin -- because all 78 span rows were 39 prompt-identical pairs with
+# contradictory golds. Dedupe saw them (``dedupe_text`` was byte-identical) and kept
+# them, correctly: its question is leakage, and within one repo there is none. The
+# mixture reported ``Ran(passed=True)``, 608 rows in and 608 out.
+
+
+def _contradictory_squad_pair() -> list[SquadRow]:
+    """Two rows, one question, two golds -- the shape that measured ln 2.
+
+    The qids differ because ``row_id`` is built from them and ``dedupe`` refuses a
+    duplicate id; *nothing else* differs, which is the whole point. This is exactly
+    what ``tools/real_tokenizer_pipeline.py::span_rows`` used to emit per Markdown
+    file, before it was given a different question for the unanswerable row.
+    """
+    passage = (
+        "Rule one is stated on the opening line of the document.\n"
+        "Rule two says the ledger row is written before the claim.\n"
+        "Rule three is unrelated and concerns formatting."
+    )
+    question = "Which line states the rule?"
+    needle = "Rule two says"
+    return [
+        SquadRow(
+            qid="q-answerable", title="Rules", context=passage, question=question,
+            answers=(needle,), answer_starts=(passage.index(needle),), is_impossible=False,
+        ),
+        SquadRow(
+            qid="q-unanswerable", title="Rules", context=passage, question=question,
+            answers=(), answer_starts=(), is_impossible=True,
+        ),
+    ]
+
+
+def test_two_rows_with_one_prompt_and_two_golds_are_refused() -> None:
+    """The test that fails against the pre-fix code, which accepted this corpus.
+
+    Both rows are individually valid, both render, both encode, both pass every
+    per-row check in the lane. The mixture must still refuse: a causal model
+    conditions on the prompt and nothing else, so it cannot answer better than
+    chance on the pair however long it is trained.
+    """
+    mixture = build_mixture(
+        {"rajpurkar/squad_v2": _contradictory_squad_pair()}, config=DataConfig()
+    )
+    assert len(_by_family(mixture.rows, "qa.answer_span")) == 2, (
+        "both rows are individually valid and must still be built -- the defect is "
+        "the pair, and a refusal that dropped a row would hide which two collided"
+    )
+
+    consistency = mixture.prompt_consistency
+    assert isinstance(consistency, Ran)
+    assert not consistency.passed
+    # One raw pair, but two families are built from it, so two rendered prompts each
+    # carry two golds: the span pair that measured ln 2, and the yes/no
+    # answerability pair behind the same words.
+    assert consistency.value == 2
+    assert (consistency.n, consistency.n_total) == (4, 4)
+
+    by_family = {c.family_ids: c for c in mixture.contradictions}
+    assert set(by_family) == {("qa.answer_span",), ("qa.answerability",)}
+
+    span_group = by_family[("qa.answer_span",)]
+    assert set(span_group.row_ids) == {
+        "squad:qa.answer_span:q-answerable",
+        "squad:qa.answer_span:q-unanswerable",
+    }
+    assert span_group.n_rows == 2
+    assert len(span_group.golds) == 2, "the two golds are named, not merely counted"
+    assert any('"is_noul":true' in g for g in span_group.golds)
+
+    status = mixture.status
+    assert isinstance(status, Ran) and not status.passed, (
+        "fail closed: open_training_data refuses ran/passed=false as well as not_run"
+    )
+    assert "not self-consistent" in status.detail
+    assert "squad:qa.answer" in status.detail
+
+
+def test_the_contradictory_corpus_is_refused_at_the_training_door(tmp_path: Path) -> None:
+    """End to end: the verdict has to reach the thing that opens the data.
+
+    A finding that stops at ``MixtureResult`` is a finding nobody reads. The
+    mixture's status aggregates into every split's manifest, and
+    ``open_training_data`` refuses ``ran, passed=false`` with no override -- so the
+    corpus is written, legible and untrainable, which is the combination that was
+    missing.
+    """
+    config = DataConfig()
+    # A corpus rich enough that every *other* stage reports a clean `Ran` -- a
+    # vendored pair for the cross-repo dedupe check, all three sources for the split
+    # -- so the refusal under test is attributable to this check and not to a
+    # snapshot that was `NotRun` for unrelated reasons. Where the bad pair *lands* is
+    # deliberately not asserted: the mixture's verdict is over the whole corpus, so
+    # it reaches the training manifest whichever side of the split the two rows
+    # fall on.
+    corpus = small_corpus(24)
+    corpus["bigcode/commitpackft"] += list(vendored_pair())
+    corpus["rajpurkar/squad_v2"] += _contradictory_squad_pair()
+    mixture = build_mixture(corpus, config=config)
+    report = dedupe(list(mixture.rows), config=config)
+    manifests = build_manifests(
+        config=config, mixture=mixture, dedupe_report=report,
+        split_report=split(report, config=config),
+    )
+    path = tmp_path / "train.json"
+    manifests["train"].write(path)
+
+    with pytest.raises(HeldOutViolation) as excinfo:
+        open_training_data(path, config=config, repo_root=tmp_path)
+    assert "ran, passed=false" in str(excinfo.value.actual)
+    # `aggregate` keeps the failing input's *label* and drops its detail, so the
+    # refusal says which stage failed and the file says why. Both halves are asserted
+    # rather than assumed: GAP-DATA-AGGREGATE-DROPS-THE-FAILING-DETAIL.
+    assert "failing inputs: mixture" in str(excinfo.value)
+
+    # And the escape hatch for "could not be checked" does not open this door.
+    with pytest.raises(HeldOutViolation):
+        open_training_data(
+            path, config=config, repo_root=tmp_path, allow_not_run_snapshot=True
+        )
+
+    # The groups survive the round trip through the file, which is where a reader
+    # who was not present for the run has to find them.
+    written = Manifest.read(path)
+    assert "not self-consistent" in written.mixture_json["status"]["detail"]
+    recorded = written.mixture_json["contradictions"]
+    assert [c["n_rows"] for c in recorded] == [2, 2]
+    assert all(len(c["golds"]) == 2 for c in recorded)
+    assert {tuple(c["family_ids"]) for c in recorded} == {
+        ("qa.answer_span",), ("qa.answerability",)
+    }
+    assert {i for c in recorded for i in c["row_ids"]} == {
+        "squad:qa.answer_span:q-answerable",
+        "squad:qa.answer_span:q-unanswerable",
+        "squad:qa.answerability:q-answerable",
+        "squad:qa.answerability:q-unanswerable",
+    }
+
+
+def test_an_unanswerable_row_beside_an_answerable_one_is_not_refused() -> None:
+    """The legitimate case, which a check that refused it would make worse than none.
+
+    An unanswerable row is *supposed* to exist beside an answerable one -- that is
+    what SQuAD 2.0 is and what the abstention gate is measured on. The shape is not
+    the defect; the identical prompt is. SQuAD's unanswerable question uses different
+    words, so the honest pair renders two prompts and never meets in a group.
+    """
+    passage = (
+        "Rule one is stated on the opening line of the document.\n"
+        "Rule two says the ledger row is written before the claim.\n"
+        "Rule three is unrelated and concerns formatting."
+    )
+    needle = "Rule two says"
+    rows = [
+        SquadRow(
+            qid="q-answerable", title="Rules", context=passage,
+            question="Which line states the rule?", answers=(needle,),
+            answer_starts=(passage.index(needle),), is_impossible=False,
+        ),
+        SquadRow(
+            qid="q-unanswerable", title="Rules", context=passage,
+            question="Which line names the author of the rule?", answers=(),
+            answer_starts=(), is_impossible=True,
+        ),
+    ]
+    mixture = build_mixture({"rajpurkar/squad_v2": rows}, config=DataConfig())
+
+    assert not mixture.contradictions
+    consistency = mixture.prompt_consistency
+    assert isinstance(consistency, Ran) and consistency.passed
+    assert isinstance(mixture.status, Ran) and mixture.status.passed
+
+    spans = _by_family(mixture.rows, "qa.answer_span")
+    assert [g.is_noul for r in spans for g in r.gold].count(True) == 1, (
+        "the abstaining row is still there; it was not refused away to pass the check"
+    )
+
+
+def test_two_identical_rows_with_the_same_gold_are_a_duplicate_not_a_contradiction() -> None:
+    """Dedupe's question stays dedupe's.
+
+    Same prompt *and* same gold teaches one thing twice, which is redundancy, not an
+    unlearnable pair -- and a check that conflated the two would be one helper
+    answering two questions with a flag meaning "do the other thing".
+    """
+    passage = "Only line one matters here.\nThe second line is filler.\nThe third too."
+    needle = "Only line one"
+    rows = [
+        SquadRow(
+            qid=f"q-{i}", title="Dup", context=passage, question="Which line matters?",
+            answers=(needle,), answer_starts=(passage.index(needle),), is_impossible=False,
+        )
+        for i in range(2)
+    ]
+    mixture = build_mixture({"rajpurkar/squad_v2": rows}, config=DataConfig())
+    assert not mixture.contradictions
+    assert isinstance(mixture.status, Ran) and mixture.status.passed
+
+
+def test_a_contradiction_is_found_on_the_letter_channel_too() -> None:
+    """Not a span-only check.
+
+    The measured case was ``qa.answer_span``; the mechanism is the prompt, so two
+    rows carrying one language prompt and two language labels are the same defect
+    and must be caught by the same pass.
+    """
+    shared = code_body("identical", lines=6)
+    a = commitpackft_row(1, repo="org/one", body=shared, path="lib/a.py", lang="Python")
+    b = CommitPackFtRow(
+        commit=f"{2:040x}", repos="org/one", old_file="lib/a.py", new_file="lib/a.py",
+        old_contents=a.old_contents, new_contents=a.new_contents,
+        subject=a.subject, message=a.message, lang="Rust", licence=a.licence,
+    )
+    mixture = build_mixture(
+        {"bigcode/commitpackft": [a, b]}, config=DataConfig(),
+        families=["code.language_id"],
+    )
+    assert len(mixture.rows) == 2
+    consistency = mixture.prompt_consistency
+    assert isinstance(consistency, Ran) and not consistency.passed
+    (group,) = mixture.contradictions
+    assert group.family_ids == ("code.language_id",)
+    assert {'"value":"Python"' in g for g in group.golds} == {True, False}
+
+
+def test_the_consistency_pass_is_bounded_and_says_so_rather_than_grinding() -> None:
+    """Every fan-out in this lane is bounded.
+
+    Over the bound it is ``NotRun`` with the bound in the reason -- never a pass over
+    a subsample, which is this very defect one level up.
+    """
+    mixture = build_mixture(
+        {"rajpurkar/squad_v2": _contradictory_squad_pair()},
+        config=DataConfig(), max_consistency_rows=1,
+    )
+    consistency = mixture.prompt_consistency
+    assert isinstance(consistency, NotRun)
+    assert "bounded at 1" in consistency.reason
+    assert not mixture.contradictions
+    assert isinstance(mixture.status, NotRun), (
+        "an unchecked corpus is not a clean one; the training door refuses not_run"
+    )
+    assert "unchecked for contradictory supervision" in mixture.status.reason
+
+
+def test_a_row_that_cannot_be_rendered_is_counted_not_silently_skipped() -> None:
+    """A context over ``RenderCaps`` cannot be rendered, so it cannot be grouped.
+
+    ``qd_train.shards`` refuses exactly those rows around its own ``render`` call, so
+    such a row reaches no shard and can contradict nothing that does -- which is a
+    reason to carry both numbers, not a reason to call the pass complete.
+    """
+    big = "x" * (DEFAULT_CAPS.max_context_bytes + 1)
+    rows = [commitpackft_row(0), commitpackft_row(1, body=big)]
+    mixture = build_mixture(
+        {"bigcode/commitpackft": rows}, config=DataConfig(), families=["code.language_id"],
+    )
+    assert len(mixture.rows) == 2, "the over-cap row is built; render is what refuses it"
+
+    consistency = mixture.prompt_consistency
+    assert isinstance(consistency, Ran) and consistency.passed
+    assert (consistency.n, consistency.n_total) == (1, 2)
+    assert not consistency.is_complete_coverage, (
+        "one of two rows was grouped; reporting that as full coverage is the defect "
+        "the tri-state exists to prevent"
+    )
+    assert "could not be rendered" in consistency.detail
+
+
+def test_a_consistency_check_over_an_empty_corpus_claims_nothing() -> None:
+    verdict, groups = check_prompt_consistency([])
+    assert isinstance(verdict, Ran) and verdict.passed
+    assert (verdict.n, verdict.n_total) == (0, 0)
+    assert not groups
+
+
+# -- abstention supply: GAP-DATA-NO-LETTER-ROW-EVER-ABSTAINS ------------------
+
+
+def test_the_letter_channels_report_their_abstention_supply() -> None:
+    """A corpus can teach ``noul`` on the span channel and never once on the letter
+    channel. Measured on the real corpus: 0 of 582 letter rows carried a ``noul``
+    gold, while 45 of 90 span rows did."""
+    no_clinc = {
+        "bigcode/commitpackft": [commitpackft_row(i) for i in range(6)],
+        "rajpurkar/squad_v2": [squad_row(i) for i in range(6)],
+    }
+    mixture = build_mixture(no_clinc, config=DataConfig())
+    abstention = mixture.abstention
+    assert set(abstention) == {"choice", "score", "span"}
+
+    span = abstention["span"]
+    assert isinstance(span, Ran) and span.passed and span.n > 0
+
+    for channel in ("choice", "score"):
+        verdict = abstention[channel]
+        assert isinstance(verdict, Ran)
+        assert not verdict.passed
+        assert verdict.n == 0 and verdict.n_total > 0
+        assert "trains this channel against the abstain row" in verdict.detail
+        assert "composition rather than a rewriter dropping them" in verdict.detail
+
+    assert isinstance(mixture.status, Ran) and mixture.status.passed, (
+        "reported, not adopted: whether a corpus with no letter-channel abstention "
+        "may be trained on is a kill criterion, and rule 2 puts adopting one out of "
+        "an agent's reach"
+    )
+
+
+def test_clinc_out_of_scope_is_the_only_letter_family_that_can_abstain() -> None:
+    """The structural half of the finding, checked by execution rather than asserted.
+
+    Four of the five letter families assign a value on every branch, so no corpus of
+    them can ever teach abstention on a letter. Only ``intent.classification`` can,
+    and only from CLINC's out-of-scope rows -- which is why a corpus built without
+    ``clinc/clinc_oos`` has zero abstaining letter rows however large it is.
+    """
+    mixture = build_mixture(small_corpus(18), config=DataConfig())
+    letter_noul = {
+        r.family_id
+        for r in mixture.rows
+        if any(g.is_noul for g in r.gold)
+        and isinstance(r.request.slots[0], (ChoiceSlot, ScoreSlot))
+    }
+    assert letter_noul == {"intent.classification"}
+    assert set(ABSTAINING_FAMILIES) == {"intent.classification", "qa.answer_span"}
+
+    choice = mixture.abstention["choice"]
+    assert isinstance(choice, Ran) and choice.passed
+    assert "intent.classification" in choice.detail
+
+    score = mixture.abstention["score"]
+    assert isinstance(score, Ran) and not score.passed
+    assert "able to abstain at all: none" in score.detail
+
+
+def test_a_named_group_shows_both_sides_of_the_disagreement_and_bounds_its_payload() -> None:
+    """Both halves of "carry both numbers", on the one payload written to every file.
+
+    Naming the lowest row ids outright can show a reader several rows that all carry
+    the *same* answer and call it the pair, so one id per distinct gold is taken
+    first. And the named lists are capped while ``n_rows``/``n_golds`` are not: a
+    pathological corpus of identical prompts with distinct golds would otherwise put
+    megabytes of worked examples into a manifest whose job is to be read.
+    """
+    words = ("Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot")
+    passage = "\n".join(f"{w} is on its own line." for w in words)
+    question = "Which line matters?"
+
+    def answerable(i: int) -> SquadRow:
+        word = words[i % len(words)]
+        return SquadRow(
+            qid=f"q{i:03d}", title="Wide", context=passage, question=question,
+            answers=(word,), answer_starts=(passage.index(word),), is_impossible=False,
+        )
+
+    rows = [
+        SquadRow(
+            qid="q000", title="Wide", context=passage, question=question,
+            answers=(), answer_starts=(), is_impossible=True,
+        ),
+        *(answerable(i) for i in range(1, 12)),
+    ]
+    mixture = build_mixture(
+        {"rajpurkar/squad_v2": rows}, config=DataConfig(), families=["qa.answer_span"],
+    )
+    (group,) = mixture.contradictions
+
+    # Six distinct spans plus the abstention, behind one prompt.
+    assert group.n_rows == len(rows) == 12
+    assert group.n_golds == len(words) + 1 == 7
+    assert len(group.row_ids) == MAX_NAMED_ROW_IDS < group.n_rows
+    assert len(group.golds) == MAX_NAMED_GOLDS < group.n_golds
+
+    # The witness rule: the named rows span the disagreement rather than one side.
+    named = set(group.row_ids)
+    abstaining = {r.row_id for r in mixture.rows if r.gold[0].is_noul}
+    answering = {r.row_id for r in mixture.rows} - abstaining
+    assert named & abstaining, "no abstaining row was named"
+    assert named & answering, "no answering row was named"
+    assert len(named) == len(group.row_ids), "the named ids are distinct"

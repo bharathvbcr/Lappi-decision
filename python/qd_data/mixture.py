@@ -1,6 +1,6 @@
 """The open-task-mixture rewriter: every surviving source into the one prompt format.
 
-Three rules shape this module.
+Four rules shape this module.
 
 **One format.** Every family here produces a :class:`~qd_data.schema.Request` and
 nothing else. There is no per-dataset prompt template, because
@@ -22,6 +22,19 @@ AGPL code into an Apache-2.0 model's pool.
 :func:`build_mixture` histograms the codes into the manifest. A source whose rows
 are 90% refused has a thinner mixture than its headline row count, and that has to
 be visible.
+
+**The corpus must not contradict itself.** Every rule above is about one row. A
+corpus can be built entirely of individually valid rows and still be unlearnable,
+because two of them ask the model the same question and demand different answers.
+``GAP-DATA-NOTHING-REFUSES-TWO-ROWS-THAT-CONTRADICT``: a SQuAD pair differing only
+in ``is_impossible`` used to render byte-identical prompts, one labelled with a line
+span and one with ``noul``. A causal model conditions on the prompt and nothing
+else, so it must split its mass -- the FT lane measured the span channel converging
+on 0.693147, which is ln 2, the entropy of a fair coin, with accuracy capped at 39
+of 78 permanently. Dedupe *saw* the pair (``dedupe_text`` was byte-identical) and
+kept it correctly, because leakage and contradiction are different questions and
+dedupe asks only the first. :func:`check_prompt_consistency` asks the second, over
+the rendered prompt, and :func:`build_mixture` fails closed on it.
 
 The free ``noul`` supervision, which is why these two datasets are load-bearing:
 CLINC150's out-of-scope class becomes an abstention on ``intent.classification``,
@@ -45,18 +58,38 @@ from .config import DataConfig
 from .errors import LicenceRefused, QdRefusal
 from .licences import admit_licence, classify
 from .loaders import ClincRow, CommitPackFtRow, RawRow, SourceUnavailableRefusal, SquadRow
-from .render import DeterministicRng, first_invisible_format_char
+from .render import (
+    DEFAULT_CAPS,
+    DeterministicRng,
+    RenderCaps,
+    first_invisible_format_char,
+    render,
+)
 from .rows import DataRow, GoldAnswer
-from .schema import MAX_CHOICE_OPTIONS, ChoiceSlot, Request, ScoreSlot, SpanSlot
+from .schema import (
+    MAX_CHOICE_OPTIONS,
+    ChoiceSlot,
+    Request,
+    ScoreSlot,
+    SpanSlot,
+    canonical_json,
+)
 from .sources import source_by_id, task_family_by_id
 
 __all__ = [
     "CHANGE_SCOPE_BIN_EDGES",
+    "DEFAULT_MAX_CONSISTENCY_ROWS",
     "LANGUAGE_OPTIONS",
+    "MAX_NAMED_CONTRADICTIONS",
+    "MAX_NAMED_GOLDS",
+    "MAX_NAMED_ROW_IDS",
     "N_INTENT_OPTIONS",
     "MixtureResult",
+    "PromptContradiction",
     "RowRefused",
+    "abstention_supply",
     "build_mixture",
+    "check_prompt_consistency",
     "rewrite_clinc",
     "rewrite_commitpackft",
     "rewrite_squad",
@@ -531,6 +564,341 @@ def rewrite_squad(
     )
 
 
+# -- corpus-level self-consistency -------------------------------------------
+#
+# ``GAP-DATA-NOTHING-REFUSES-TWO-ROWS-THAT-CONTRADICT``. Three design calls, each
+# made here rather than left implicit, because each one has a wrong answer that
+# would look right.
+#
+# **Where.** Here, in the mixture, and nowhere else. Dedupe is the tempting seam --
+# it already groups rows and already sees these pairs -- but its key is
+# ``dedupe_text``, which is *deliberately* not the prompt (``DataRow.dedupe_text``:
+# "for a code row it is the *changed code*, not the rendered prompt"), and its
+# question is leakage. Teaching it a second question with a different key would be
+# one helper answering two, with a flag meaning "actually do the other thing". The
+# manifest writer is the other candidate and is downstream of the split, which is
+# too late in the wrong way: a contradictory pair split across train and val is not
+# unlearnable, it is a guaranteed eval error, and both are defects of the corpus
+# rather than of a split. ``build_mixture`` is where a row becomes an example and
+# where every other "this cannot be an example" verdict already lives.
+#
+# **What "the same prompt" means.** The prompt the model conditions on, as
+# :func:`qd_data.render.render` produces it, at ``seed=None``. Not the source text:
+# two rows can differ in source and render identically once escaped. Not the wire
+# form: ``Request.to_wire`` carries ``metadata`` and ``expect``, which no token of
+# the prompt depends on, so two rows with identical prompts can have different wire
+# forms and hashing that would miss them. ``seed=None`` -- the serving order, no
+# per-example shuffle -- because the alternative is a verdict that depends on which
+# training seed the shard writer happened to use, admitting at one seed a corpus it
+# refuses at another. The known limit is stated in
+# ``GAP-DATA-CONSISTENCY-KEY-IGNORES-OPTION-ORDER``: two rows whose option *sets*
+# agree but whose canonical orders differ are two prompts here, and are not grouped.
+#
+# **Why the legitimate case survives.** An unanswerable row is *supposed* to sit
+# beside an answerable one -- that is what the two task-holdout families are for,
+# and a check that refused the shape would be worse than no check. The shape is not
+# what is refused: byte-identical prompts are. SQuAD 2.0 gives its unanswerable
+# question different words, so the honest pair renders two prompts and never meets
+# in a group. Only a generator that asked the identical question twice is caught,
+# which is exactly the defect that was measured.
+
+#: Bounded fan-out for the consistency pass. Measured on this repository's own
+#: corpus (672 rows, ~26 KB of rendered text per row): 1.88 ms/row, so this bound is
+#: roughly eight minutes of rendering. A corpus over it is ``NotRun`` with the bound
+#: in the reason -- a pass over a subsample would be this very defect one level up.
+DEFAULT_MAX_CONSISTENCY_ROWS: Final[int] = 250_000
+
+#: How many contradictory groups the report names, how many row ids per group, and
+#: how many distinct golds per group. The *counts* are always complete -- the
+#: tri-state's ``value`` and each group's ``n_rows``/``n_golds`` -- and only the
+#: worked examples are capped, so a reader can always tell which of the two they are
+#: holding. Capped rather than complete because this payload is written into every
+#: manifest: a pathological corpus of ten thousand identical prompts with ten
+#: thousand different golds would otherwise put megabytes of examples in a file whose
+#: job is to be read.
+MAX_NAMED_CONTRADICTIONS: Final[int] = 20
+MAX_NAMED_ROW_IDS: Final[int] = 8
+MAX_NAMED_GOLDS: Final[int] = 4
+
+
+@dataclass(frozen=True, slots=True)
+class PromptContradiction:
+    """Rows whose rendered prompts agree and whose gold answers do not."""
+
+    #: Digest of the rendered prompt, so two reports over one corpus name the same
+    #: group. The prompt itself is not carried: it is up to 800 KB.
+    prompt_digest: str
+    #: Row ids in the group, sorted, capped at :data:`MAX_NAMED_ROW_IDS`.
+    row_ids: tuple[str, ...]
+    #: Distinct gold answers behind that one prompt, canonical-JSON, sorted, capped
+    #: at :data:`MAX_NAMED_GOLDS`. Always at least two -- a group with one is not a
+    #: contradiction, it is a duplicate, and that is dedupe's question.
+    golds: tuple[str, ...]
+    #: The whole group, which may exceed ``len(row_ids)``.
+    n_rows: int
+    #: Distinct golds in the whole group, which may exceed ``len(golds)``.
+    n_golds: int
+    family_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if self.n_golds < 2:
+            raise ValueError(
+                f"PromptContradiction {self.prompt_digest}: {self.n_golds} distinct gold "
+                "answers. A group whose golds all agree is a duplicate, which is "
+                "dedupe's question, not this one."
+            )
+        if len(self.golds) > self.n_golds or len(self.row_ids) > self.n_rows:
+            raise ValueError(
+                f"PromptContradiction {self.prompt_digest}: named more than it counted "
+                f"({len(self.row_ids)}/{self.n_rows} rows, {len(self.golds)}/{self.n_golds} "
+                "golds). The capped list is a sample of the count, never larger than it."
+            )
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "prompt_digest": self.prompt_digest,
+            "row_ids": list(self.row_ids),
+            "n_rows": self.n_rows,
+            "golds": list(self.golds),
+            "n_golds": self.n_golds,
+            "family_ids": list(self.family_ids),
+        }
+
+
+def _gold_key(row: DataRow) -> str:
+    """A row's supervision, canonically. Order-independent across slots."""
+    return canonical_json(sorted((g.to_json() for g in row.gold), key=lambda g: g["slot_name"]))
+
+
+def check_prompt_consistency(
+    rows: Sequence[DataRow],
+    *,
+    max_rows: int = DEFAULT_MAX_CONSISTENCY_ROWS,
+    caps: RenderCaps = DEFAULT_CAPS,
+) -> tuple[TriState, tuple[PromptContradiction, ...]]:
+    """Group by rendered prompt; a group whose golds disagree is a contradiction.
+
+    Returns the verdict and the named groups. The verdict carries ``n``/``n_total``
+    as *rows grouped* over *rows examined*: a row whose context is over
+    :class:`~qd_data.render.RenderCaps` cannot be rendered, and therefore cannot be
+    grouped -- ``qd_train.shards`` refuses exactly those rows too (it catches
+    ``QdRefusal`` around its own ``render`` call), so such a row reaches no shard and
+    can contradict nothing that does. That is a reason to *carry both numbers*, not a
+    reason to call the pass complete.
+
+    ``NotRun`` above ``max_rows``: a consistency claim over a subsample is the defect
+    this function exists to catch, one level up.
+    """
+    n_total = len(rows)
+    if n_total > max_rows:
+        return (
+            NotRun(
+                reason=(
+                    f"the corpus has {n_total} rows and the consistency pass is bounded at "
+                    f"{max_rows}; the prompts were not grouped, so this corpus is "
+                    "unchecked for contradictory supervision, not clean of it"
+                )
+            ),
+            (),
+        )
+
+    # digest -> gold key -> row ids. Only the digest is kept, never the prompt: a
+    # rendered prompt runs to `caps.max_rendered_bytes`, and holding one per row is
+    # an unbounded allocation wearing a dict.
+    seen: dict[str, dict[str, list[str]]] = {}
+    families: dict[str, set[str]] = {}
+    n_unrenderable = 0
+    for row in rows:
+        try:
+            rendered = render(row.request, caps=caps, seed=None)
+        except QdRefusal:
+            # Counted, never dropped quietly: the pair (n, n_total) below is what
+            # keeps this from reading as full coverage.
+            n_unrenderable += 1
+            continue
+        hasher = hashlib.blake2b(digest_size=16)
+        for part in (rendered.prefix, *(s.suffix for s in rendered.slots)):
+            blob = part.encode("utf-8")
+            # Length-prefixed framing rather than a separator character. A separator
+            # is only unambiguous while nothing can emit it, which today is true --
+            # U+0000 is in `render.HEX_ESCAPED` and every untrusted field reaches the
+            # prompt through `escape_inline`/`escape_block` -- and that is a property
+            # of another module's alphabet, not of this one. Framing does not depend
+            # on it, and it also avoids materialising the join, which is up to
+            # `caps.max_rendered_bytes` per row.
+            hasher.update(len(blob).to_bytes(8, "big"))
+            hasher.update(blob)
+        digest = hasher.hexdigest()
+        seen.setdefault(digest, {}).setdefault(_gold_key(row), []).append(row.row_id)
+        families.setdefault(digest, set()).add(row.family_id)
+
+    n_grouped = n_total - n_unrenderable
+    conflicting = sorted(d for d, by_gold in seen.items() if len(by_gold) > 1)
+    if not conflicting:
+        return (
+            Ran(
+                passed=True,
+                value=0,
+                n=n_grouped,
+                n_total=n_total,
+                detail=(
+                    f"{n_grouped} of {n_total} rows grouped into {len(seen)} distinct "
+                    "rendered prompts; no prompt carries two different gold answers"
+                    + (
+                        f". {n_unrenderable} row(s) could not be rendered and were not "
+                        "grouped; those rows reach no shard either"
+                        if n_unrenderable
+                        else ""
+                    )
+                ),
+            ),
+            (),
+        )
+
+    named: list[PromptContradiction] = []
+    n_rows_in_conflict = 0
+    for digest in conflicting:
+        by_gold = seen[digest]
+        n_rows_in_conflict += sum(len(group) for group in by_gold.values())
+        if len(named) < MAX_NAMED_CONTRADICTIONS:
+            # One id per distinct gold first, then fill. Taking the lowest ids
+            # outright can name eight rows that all carry the *same* answer, which
+            # shows a reader one side of a disagreement and calls it the pair.
+            witnesses = [sorted(group)[0] for _, group in sorted(by_gold.items())]
+            chosen = set(witnesses)
+            rest = sorted(
+                i for group in by_gold.values() for i in group if i not in chosen
+            )
+            ids = (witnesses + rest)[:MAX_NAMED_ROW_IDS]
+            named.append(
+                PromptContradiction(
+                    prompt_digest=digest,
+                    row_ids=tuple(sorted(ids)),
+                    golds=tuple(sorted(by_gold)[:MAX_NAMED_GOLDS]),
+                    n_rows=sum(len(group) for group in by_gold.values()),
+                    n_golds=len(by_gold),
+                    family_ids=tuple(sorted(families[digest])),
+                )
+            )
+    first = named[0]
+    return (
+        Ran(
+            passed=False,
+            value=len(conflicting),
+            n=n_grouped,
+            n_total=n_total,
+            detail=(
+                f"{len(conflicting)} rendered prompt(s) carry more than one gold answer, "
+                f"over {n_rows_in_conflict} rows in families "
+                f"{sorted({f for d in conflicting for f in families[d]})}. A causal model "
+                "conditions on the prompt and nothing else, so it must split its mass "
+                "between them and can never answer better than chance on the group. "
+                f"First: prompt {first.prompt_digest} over rows {list(first.row_ids)} with "
+                f"golds {list(first.golds)}."
+                + (
+                    f" {len(conflicting) - len(named)} further group(s) are counted here "
+                    "but not named."
+                    if len(conflicting) > len(named)
+                    else ""
+                )
+            ),
+        ),
+        tuple(named),
+    )
+
+
+# -- abstention supply -------------------------------------------------------
+
+
+#: The decode channel a slot answers over. ``choice`` and ``score`` both decode one
+#: letter from the option block, which is why the abstention question is asked per
+#: channel rather than per slot type: a corpus can teach ``noul`` on the span
+#: channel and never once on the letter channel, and did.
+_CHANNEL_BY_SLOT: Final[dict[type, str]] = {
+    ChoiceSlot: "choice",
+    ScoreSlot: "score",
+    SpanSlot: "span",
+}
+
+#: Families whose rewriter can produce ``is_noul=True`` at all. Derived by reading
+#: every branch of the three rewriters above, not by running them: CLINC's
+#: out-of-scope class and SQuAD's unanswerable questions are the only two, and the
+#: module docstring says as much. ``intent.classification`` is the **only** letter
+#: family on the list, so a corpus built without ``clinc/clinc_oos`` teaches
+#: abstention on no letter channel at all, however many rows it has.
+ABSTAINING_FAMILIES: Final[frozenset[str]] = frozenset(
+    {"intent.classification", "qa.answer_span"}
+)
+
+
+def abstention_supply(rows: Sequence[DataRow]) -> dict[str, TriState]:
+    """Per decode channel: how many rows teach ``noul``, out of how many rows.
+
+    ``docs/schema-api.md``: *"``noul`` is a first-class member of every option set,
+    not a dump class."* A channel with zero abstaining rows trains the model
+    *against* the abstain row at every step, on the channel where abstention is the
+    product's whole point -- and it makes abstention decoding unmeasurable, because
+    there is nothing to decode with.
+
+    ``Ran(passed=False)`` on such a channel, **reported and not folded into the
+    mixture's status.** Whether a corpus with no letter-channel abstention may be
+    trained on is a kill criterion, and ``CLAUDE.md`` rule 2 puts adopting one out of
+    an agent's reach: the measurement is this lane's, the threshold is not. The
+    contradiction check above is different and does fail closed, because supervision
+    that a causal model provably cannot fit is not a threshold question.
+
+    A channel with no rows gets no entry: absent from the corpus and measured-empty
+    are different facts, and only the second is a finding.
+    """
+    n_rows: Counter[str] = Counter()
+    n_noul: Counter[str] = Counter()
+    capable: dict[str, set[str]] = {}
+    present: dict[str, set[str]] = {}
+    for row in rows:
+        for slot in row.request.slots:
+            channel = _CHANNEL_BY_SLOT.get(type(slot))
+            if channel is None:  # pragma: no cover - Request refuses other slot types
+                continue
+            n_rows[channel] += 1
+            present.setdefault(channel, set()).add(row.family_id)
+            if row.family_id in ABSTAINING_FAMILIES:
+                capable.setdefault(channel, set()).add(row.family_id)
+            if any(g.is_noul and g.slot_name == slot.name for g in row.gold):
+                n_noul[channel] += 1
+
+    out: dict[str, TriState] = {}
+    for channel in sorted(n_rows):
+        total = n_rows[channel]
+        taught = n_noul[channel]
+        able = sorted(capable.get(channel, set()))
+        if taught:
+            out[channel] = Ran(
+                passed=True, value=taught, n=taught, n_total=total,
+                detail=(
+                    f"{channel}: {taught} of {total} rows carry a noul gold, from "
+                    f"{able}"
+                ),
+            )
+            continue
+        out[channel] = Ran(
+            passed=False, value=0, n=0, n_total=total,
+            detail=(
+                f"{channel}: 0 of {total} rows carry a noul gold, so every step trains "
+                "this channel against the abstain row. Families present: "
+                f"{sorted(present.get(channel, set()))}; of those, able to abstain at "
+                f"all: {able or 'none'}. "
+                + (
+                    "No family on this channel can produce one, so this is the corpus's "
+                    "composition rather than a rewriter dropping them."
+                    if not able
+                    else "A family that can abstain produced none, which is a "
+                    "construction defect rather than a composition choice."
+                )
+            ),
+        )
+    return out
+
+
 # -- the builder -------------------------------------------------------------
 
 
@@ -564,6 +932,18 @@ class MixtureResult:
     #: nothing about it can be checked -- and the training door
     #: (``qd_train.data_access.open_training_data``) branches on ``NotRun``.
     family_coverage: dict[str, TriState]
+    #: Did any two rows ask one question and demand two answers? See
+    #: :func:`check_prompt_consistency`. Folded into :attr:`status`, so a corpus that
+    #: contradicts itself is refused by ``qd_train.data_access.open_training_data``
+    #: like any other unverified snapshot.
+    prompt_consistency: TriState
+    #: The named groups behind a failing ``prompt_consistency``, capped at
+    #: :data:`MAX_NAMED_CONTRADICTIONS`. The full count lives in the tri-state.
+    contradictions: tuple[PromptContradiction, ...]
+    #: ``channel -> TriState``: how much ``noul`` supervision each decode channel
+    #: carries. **Reported, not folded into** :attr:`status` -- see
+    #: :func:`abstention_supply` for why that boundary sits where it does.
+    abstention: dict[str, TriState]
     status: TriState
 
     def to_json(self) -> dict[str, Any]:
@@ -578,6 +958,9 @@ class MixtureResult:
             "family_coverage": {
                 k: v.to_json() for k, v in sorted(self.family_coverage.items())
             },
+            "prompt_consistency": self.prompt_consistency.to_json(),
+            "contradictions": [c.to_json() for c in self.contradictions],
+            "abstention": {k: v.to_json() for k, v in sorted(self.abstention.items())},
             "status": self.status.to_json(),
         }
 
@@ -588,6 +971,7 @@ def build_mixture(
     config: DataConfig,
     families: Sequence[str] | None = None,
     capped_sources: Sequence[str] = (),
+    max_consistency_rows: int = DEFAULT_MAX_CONSISTENCY_ROWS,
 ) -> MixtureResult:
     """Rewrite every admitted source into the one prompt format.
 
@@ -599,6 +983,10 @@ def build_mixture(
     ``capped_sources`` names sources whose read hit a bound. Any entry makes the
     result's status ``NotRun``: a capped sample must never be reported as complete
     coverage.
+
+    ``max_consistency_rows`` bounds the self-consistency pass
+    (:func:`check_prompt_consistency`), which renders every row once. Over the bound
+    the pass is ``NotRun`` and so is the mixture.
     """
     from .sources import TASK_FAMILIES  # local: avoids a cycle at import time
 
@@ -689,6 +1077,11 @@ def build_mixture(
         host_hist[row.host] += 1
         obligations[row.licence_id] = row.obligations
 
+    consistency, contradictions = check_prompt_consistency(
+        rows, max_rows=max_consistency_rows
+    )
+    abstention = abstention_supply(rows)
+
     capped = tuple(sorted(set(capped_sources)))
     uncovered = sorted(f for f, s in family_coverage.items() if isinstance(s, NotRun))
     if capped:
@@ -720,6 +1113,21 @@ def build_mixture(
                 )
             )
         )
+    elif isinstance(consistency, NotRun):
+        # The pass is bounded and the bound bound. An unchecked corpus is not a clean
+        # one, and `open_training_data` refuses a NotRun snapshot by default.
+        status = NotRun(reason=consistency.reason)
+    elif not consistency.passed:
+        # Fail closed: `open_training_data` refuses `Ran(passed=False)` too. The
+        # manifest is still written, because the row ids are the whole point -- the
+        # corpus is legible and untrainable, rather than absent.
+        status = Ran(
+            passed=False,
+            value=consistency.value,
+            n=consistency.n,
+            n_total=consistency.n_total,
+            detail="corpus is not self-consistent -- " + consistency.detail,
+        )
     else:
         total_refused = sum(sum(c.values()) for c in refusals.values())
         status = Ran(
@@ -734,6 +1142,8 @@ def build_mixture(
                     f"{f}={s.coverage_str()}"  # type: ignore[union-attr]
                     for f, s in sorted(family_coverage.items())
                 )
+                + f"; self-consistency: {consistency.coverage_str()} rows grouped, "
+                + "no contradictory prompt"
             ),
         )
 
@@ -746,6 +1156,9 @@ def build_mixture(
         host_histogram=dict(host_hist),
         refused_sources=refused_sources,
         family_coverage=family_coverage,
+        prompt_consistency=consistency,
+        contradictions=contradictions,
+        abstention=abstention,
         status=status,
     )
 

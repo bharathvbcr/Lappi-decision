@@ -799,6 +799,66 @@ def test_a_source_that_skips_the_resume_point_is_refused(tmp_path):
         )
 
 
+def test_a_source_with_the_right_indices_and_the_wrong_batches_is_refused(tmp_path):
+    """Landing on the index is not landing on the batch.
+
+    The dangerous source is not the one that jumps or ends early -- those were already
+    refused. It is the one that agrees about every index and disagrees about every batch,
+    because the resume then runs to completion and reports `steps_exhausted`.
+
+    Measured against the pre-fix code with the real `ShardReader`: the same `(seed, epoch)`
+    asked with `batch_tokens` one token larger produced 17 batches where the original
+    produced 17, the skip found index 4, and the run finished on a different corpus order
+    with no refusal anywhere. `batches_for(8, ...)` is that source in miniature -- same
+    indices, different content -- and `seed` cannot catch it, because `seed` is compared
+    against the recorder's protocol and not against the source.
+    """
+    step = TinyStep(seed=11)
+    first = train_cpt(
+        batches_for(7, 0, n=20), epoch=0, step=step,
+        control=_control(total_steps=10, cap_s=3.0, clock=StepClock(step)),
+        recorder=_recorder(tmp_path / "a"),
+    )
+    impostor = list(batches_for(8, 0, n=20))
+    assert [b.index for b in impostor] == [b.index for b in batches_for(7, 0, n=20)], (
+        "the impostor must share the indices, or this tests the check that already existed"
+    )
+    with pytest.raises(TrainerContractViolation, match="different batches"):
+        train_cpt(
+            iter(impostor), epoch=0, step=TinyStep(), control=_control(total_steps=10),
+            recorder=_recorder(tmp_path / "b"), resume_from=first.checkpoint,
+        )
+
+
+def test_the_consumed_digest_is_the_evidence_and_it_travels_with_the_checkpoint(tmp_path):
+    """The digest covers what was eaten, and a resume continues the same running hash.
+
+    Without the second half, a resumed run's own final checkpoint would record only the
+    batches *it* consumed, and the next resume would compare a suffix against a prefix.
+    """
+    step = TinyStep(seed=11)
+    first = train_cpt(
+        batches_for(7, 0, n=20), epoch=0, step=step,
+        control=_control(total_steps=10, cap_s=3.0, clock=StepClock(step)),
+        recorder=_recorder(tmp_path / "a"),
+    )
+    assert first.checkpoint.position.index == 3
+    resumed = train_cpt(
+        batches_for(7, 0, n=20), epoch=0, step=TinyStep(seed=999),
+        control=_control(total_steps=10), recorder=_recorder(tmp_path / "b"),
+        resume_from=first.checkpoint,
+    )
+    whole = train_cpt(
+        batches_for(7, 0, n=20), epoch=0, step=TinyStep(seed=11),
+        control=_control(total_steps=10), recorder=_recorder(tmp_path / "c"),
+    )
+    assert resumed.checkpoint.position == whole.checkpoint.position
+    assert resumed.checkpoint.consumed_digest == whole.checkpoint.consumed_digest, (
+        "an interrupted run and an uninterrupted one ate the same batches in the same order"
+    )
+    assert first.checkpoint.consumed_digest != whole.checkpoint.consumed_digest
+
+
 def test_a_source_that_ends_before_the_resume_point_is_refused(tmp_path):
     step = TinyStep(seed=11)
     first = train_cpt(

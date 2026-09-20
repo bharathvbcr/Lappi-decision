@@ -544,11 +544,25 @@ def apply_remap_to_model(model: EmbeddingModel, remap: RemapTable) -> RemapAppli
         raise ValueError(f"input embedding weight must be 2-D, got shape {tuple(in_weight.shape)}")
     old_vocab_size, hidden_size = int(in_weight.shape[0]), int(in_weight.shape[1])
 
-    if old_vocab_size != remap.source_vocab_size:
+    # Directional, not equality. An embedding LARGER than the tokenizer's vocabulary is
+    # ordinary alignment padding -- Qwen3.5-2B-Base is 248,320 = 1940 x 128 rows over a
+    # 248,077-token tokenizer -- and `index_select` below never selects those rows. An
+    # embedding SMALLER than the remap's source vocabulary is fatal in the way the old
+    # message described, and still refuses.
+    if old_vocab_size < remap.source_vocab_size:
         raise ValueError(
-            f"the model's input embedding has {old_vocab_size} rows but the remap was built "
-            f"over a {remap.source_vocab_size}-token vocabulary. Applying it would renumber "
-            "every row against the wrong tokenizer."
+            f"the model's input embedding has only {old_vocab_size} rows but the remap was "
+            f"built over a {remap.source_vocab_size}-token vocabulary. Ids this remap keeps "
+            "would index past the end of the embedding: it was built for the wrong "
+            "tokenizer."
+        )
+    highest_kept = int(max(remap.new_to_old)) if len(remap.new_to_old) else -1
+    if highest_kept >= old_vocab_size:
+        raise ValueError(
+            f"the remap keeps old id {highest_kept}, which is outside the model's "
+            f"{old_vocab_size}-row input embedding. Checked directly rather than inferred "
+            f"from source_vocab_size={remap.source_vocab_size}, because a remap whose ids "
+            "exceed its own declared source size passes every size comparison."
         )
 
     out_head = model.get_output_embeddings()

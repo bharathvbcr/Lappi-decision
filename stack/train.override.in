@@ -1,0 +1,38 @@
+# Overrides for `train.in`. Each line replaces what a dependency DECLARES, so each one is a
+# claim that the declaration is wrong for this project, and each needs a measurement.
+#
+# ---------------------------------------------------------------------------------------
+# triton: torch declares `triton==3.6.0`; on Hopper that version cannot train.
+# ---------------------------------------------------------------------------------------
+#
+# `flash-linear-attention` refuses `chunk_bwd_dqkwg` on Hopper for triton in
+# [3.4.0, 3.7.1) because it "produces incorrect results" (fla issue #640). The refusal is on
+# the BACKWARD only: the forward dispatches to the fast kernel and succeeds, which is why
+# `stack/verify_fast_path.py` -- a forward-pass probe -- could watch the fast path being
+# selected and report it live for an environment that cannot train. That gate now checks this
+# version combination directly, because no forward-pass probe can observe a backward refusal.
+#
+# `torch==2.10.0+cu128` requires `triton==3.6.0` as an EQUALITY, not a floor, so the two
+# cannot both be satisfied and `uv pip compile` reports the resolution unsatisfiable. Hence an
+# override rather than a constraint in `train.in`.
+#
+# Measured on a rented GH200 (NVIDIA GH200 480GB, sm_90, CUDA 12.8, aarch64) on 2026-09-20,
+# with `torch==2.10.0+cu128` and `triton==3.7.1` installed together:
+#
+#   * torch is unaffected -- a `[2048, 2048]` bf16 matmul is finite, and the 1.88B text tower
+#     loads (320/320 tensors) and trains. torch reaches triton for inductor / `torch.compile`,
+#     which nothing in this repository uses; fla reaches it directly for its kernels.
+#   * the backward runs instead of raising.
+#   * the fast path is **4.90x** faster at width 2048, **8.95x** at 4096 and **15.02x** at
+#     8192, against the reference PyTorch gated-delta-rule on the same box and widths
+#     (0.30 / 0.29 / 0.34 s per step against 1.45 / 2.60 / 5.14). The fla timings are nearly
+#     flat in width where the reference scales linearly, which is the linear-attention kernel
+#     doing its job.
+#
+# What this override does NOT claim: that `torch.compile` still works. It is untested here,
+# because this project does not use it. Anyone who turns it on owns re-measuring that.
+#
+# 3.8.0 also exists and also publishes an aarch64/cp312 wheel. 3.7.1 is pinned rather than
+# floated because it is the version that was measured, and the fast path is the one thing in
+# this stack where a silently-wrong kernel produces a training run that looks healthy.
+triton==3.7.1

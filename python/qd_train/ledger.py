@@ -34,7 +34,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Self
+from typing import Any, Final, Literal, Self
 
 from .tristate import NotRun, Ran, TriState, parse_tristate
 
@@ -74,6 +74,20 @@ Status = Literal["completed", "killed", "failed"]
 
 _RUN_KINDS: frozenset[str] = frozenset(RunKind.__args__)  # type: ignore[attr-defined]
 _STATUSES: frozenset[str] = frozenset(Status.__args__)  # type: ignore[attr-defined]
+
+# Run kinds whose row must state how their training loop ended, because they have one.
+#
+# Rule 8: *"Fewer than 3 seeds, a truncated schedule or a subsample is marked `quick` in
+# the ledger and excluded from decisions."* `quick` is set by the caller, and until
+# 2026-09-20 nothing checked it against evidence the row already carried. Measured on that
+# date: three rows differing only in seed, every required gate and control passing, one of
+# them honestly recording `train.termination == "wall_clock_cap"` -- a truncated schedule
+# in rule 8's own words -- and all three saying `quick=False`. `promotion_verdict` returned
+# `promoted=True`. The self-report was the whole of the enforcement.
+#
+# `train.termination` is written by `qd_train.trainer._train` and `byte_train.train_rung0`
+# on every exit path, so for these kinds its absence is as much a defect as its value.
+TRAINING_RUN_KINDS: frozenset[str] = frozenset({"cpt", "ft", "prune_heal"})
 
 # Run kinds that may never promote a decision, whatever their gates say.
 #
@@ -284,7 +298,105 @@ class Environment:
             transformers_sha=transformers_sha,
             device=detected,
             host=socket.gethostname(),
+            fla_present=_probe_fla(),
+            causal_conv1d_present=_probe_causal_conv1d(),
         )
+
+
+#: Triton releases in this half-open range compute `chunk_bwd_dqkwg` incorrectly on Hopper,
+#: and `flash-linear-attention` raises rather than returning wrong gradients. Measured on a
+#: GH200 (sm_90) on 2026-09-20 with the pinned `triton==3.6.0`, which `torch==2.10.0+cu128`
+#: requires exactly -- so on that box the two pins cannot both be satisfied.
+_TRITON_HOPPER_BAD_RANGE: Final[tuple[tuple[int, ...], tuple[int, ...]]] = ((3, 4, 0), (3, 7, 1))
+
+
+def _version_tuple(v: str) -> tuple[int, ...]:
+    """Leading numeric components of a version string; `()` when there are none."""
+    out: list[int] = []
+    for part in v.split("+")[0].split("."):
+        if not part.isdigit():
+            break
+        out.append(int(part))
+    return tuple(out)
+
+
+def _probe_fla() -> TriState:
+    """Is `flash-linear-attention` importable, and can this device actually use it?
+
+    `passed` answers the field's name -- presence. Usability goes in the detail, because
+    present and usable are two quantities and this repository has been bitten by giving two
+    quantities one name more than once.
+    """
+    try:
+        import fla
+    except ImportError as exc:
+        return Ran(
+            passed=False,
+            detail=(
+                f"flash-linear-attention is not importable ({exc.__class__.__name__}: {exc}); "
+                "transformers falls back to its reference PyTorch gated-delta-rule, which is "
+                "correct and much slower"
+            ),
+        )
+    except Exception as exc:  # an import that raises anything at all is not usable
+        return Ran(passed=False, detail=f"importing fla raised {type(exc).__name__}: {exc}")
+
+    version = getattr(fla, "__version__", "unknown")
+    try:
+        import torch as _torch
+        import triton as _triton
+    except ImportError:
+        return Ran(
+            passed=True,
+            detail=f"fla {version} importable; torch/triton absent so usability unchecked",
+        )
+
+    tv = _version_tuple(getattr(_triton, "__version__", ""))
+    lo, hi = _TRITON_HOPPER_BAD_RANGE
+    hopper = False
+    if _torch.cuda.is_available():
+        hopper = _torch.cuda.get_device_capability(0)[0] == 9
+    if hopper and tv and lo <= tv < hi:
+        return Ran(
+            passed=True,
+            detail=(
+                f"fla {version} is importable but REFUSES on this device: triton "
+                f"{_triton.__version__} on Hopper computes chunk_bwd_dqkwg incorrectly "
+                f"(fla raises for triton in [{'.'.join(map(str, lo))}, {'.'.join(map(str, hi))})). "
+                "Any run here used the reference PyTorch path, not this kernel."
+            ),
+        )
+    return Ran(passed=True, detail=f"fla {version}, triton {getattr(_triton, '__version__', '?')}")
+
+
+def _probe_causal_conv1d() -> TriState:
+    """Is `causal-conv1d` importable **with** its compiled extension?
+
+    The Python package importing proves nothing: the wheel that matters carries
+    `causal_conv1d_cuda`, and without it `stack/README.md`'s "single most fragile step in
+    the image" -- the from-source build -- is what produced the installed package.
+    """
+    try:
+        import causal_conv1d
+    except ImportError as exc:
+        return Ran(passed=False, detail=f"causal-conv1d is not importable: {exc}")
+    try:
+        import causal_conv1d_cuda  # noqa: F401
+    except ImportError as exc:
+        return Ran(
+            passed=False,
+            detail=(
+                f"causal_conv1d {getattr(causal_conv1d, '__version__', 'unknown')} imports but "
+                f"its compiled extension does not ({exc}); the CUDA kernel is unavailable"
+            ),
+        )
+    return Ran(
+        passed=True,
+        detail=(
+            f"causal_conv1d {getattr(causal_conv1d, '__version__', 'unknown')} with its "
+            "compiled causal_conv1d_cuda extension"
+        ),
+    )
 
 
 @dataclass(slots=True)
@@ -575,6 +687,23 @@ class Ledger:
             if r.quick:
                 reasons.append(
                     f"{r.row_id}: marked quick ({r.quick_reason}); quick runs cannot promote"
+                )
+            # Rule 8's "truncated schedule", derived rather than taken on trust. A run the
+            # cap stopped did not finish its schedule, whatever `quick` says about it.
+            termination = r.metrics.get("train.termination")
+            if termination is not None and termination.value == "wall_clock_cap":
+                reasons.append(
+                    f"{r.row_id}: train.termination is 'wall_clock_cap'; the wall-clock cap "
+                    "stopped this run before its schedule finished, which rule 8 calls a "
+                    "truncated schedule. quick runs cannot promote, and this is one whether "
+                    f"or not the row says so (quick={r.quick})"
+                )
+            elif termination is None and r.run_kind in TRAINING_RUN_KINDS:
+                reasons.append(
+                    f"{r.row_id}: run_kind {r.run_kind!r} trains, but the row carries no "
+                    "train.termination; a run that does not say how it ended cannot be "
+                    "shown to have finished its schedule, and an absent answer is not a "
+                    "passed one"
                 )
             if r.run_kind in NON_PROMOTING_RUN_KINDS:
                 # Stated on the run kind, not inferred from empty gates. A build

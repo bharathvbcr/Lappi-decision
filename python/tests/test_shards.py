@@ -23,7 +23,11 @@ none of this needs torch or transformers -- neither is in the repo venv.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import subprocess
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,6 +67,7 @@ from qd_train.byte_context import line_starts as byte_line_starts
 from qd_train.shards import (
     COVERAGE_NAME,
     HEADER_NAME,
+    MAX_POSITIONS_PER_BATCH,
     MAX_ROWS_PER_BATCH,
     PAD_ID,
     REMAP_NAME,
@@ -81,6 +86,8 @@ from qd_train.tristate import NotRun, Ran
 
 SOURCE_VOCAB = 512
 TOKENIZER_HASH = "tokhash-0123456789abcdef"
+#: `python/`, so a second process imports the same `qd_train` this one does.
+REPO_PYTHON = Path(__file__).resolve().parents[1]
 
 
 # -- the injected tokenizer and a remap over it ----------------------------------------
@@ -855,6 +862,73 @@ def test_a_different_seed_gives_a_different_order(reader: ShardReader) -> None:
     )
 
 
+def test_a_different_batch_budget_gives_a_different_order_at_the_same_indices(
+    reader: ShardReader,
+) -> None:
+    """The third argument, which this section named and did not test.
+
+    It is the one that matters for a resume, because unlike the seed and the epoch it can
+    change the *contents* of an epoch without changing its *shape*: one extra token in the
+    budget here leaves the batch count and every index alone and replaces every batch. A
+    resume that pins the seed and not the budget lands on the right index in the wrong
+    epoch, which is what `run_control.Checkpoint.consumed_digest` exists to catch.
+    """
+    width = reader.header.buckets[-1]
+    same_shape = _order(reader, seed=7, epoch=0, batch_tokens=width * 4)
+    one_more_token = _order(reader, seed=7, epoch=0, batch_tokens=width * 4 + 1)
+    assert len(one_more_token) == len(same_shape), "the shape is unchanged..."
+    assert one_more_token != same_shape, "...and the contents are not"
+    indices = lambda bt: [  # noqa: E731 - a two-use local, not an API
+        b.index for b in reader.batches(batch_tokens=bt, seed=7, epoch=0)
+    ]
+    assert indices(width * 4 + 1) == indices(width * 4), (
+        "the indices agree, which is exactly why an index cannot identify an order"
+    )
+
+
+def test_the_order_is_the_same_in_a_second_process(
+    train_shards: tuple[Snapshot, Path, ShardHeader], reader: ShardReader, tmp_path: Path
+) -> None:
+    """"A pure function" is a claim about processes, not about one interpreter.
+
+    A resume happens in a new process by definition, so a property measured only inside one
+    is not the property S5 needs. Same shard set on disk, a fresh interpreter, and a
+    deliberately different `PYTHONHASHSEED`.
+    """
+    snap, out, _ = train_shards
+    width = int(reader.header.buckets[-1])
+    script = tmp_path / "second_process.py"
+    script.write_text(
+        "import hashlib, sys\n"
+        f"sys.path.insert(0, {str(REPO_PYTHON)!r})\n"
+        "from pathlib import Path\n"
+        "from qd_data.config import DataConfig\n"
+        "from qd_train.shards import ShardReader\n"
+        f"r = ShardReader(Path({str(out)!r}), config=DataConfig(), "
+        f"repo_root=Path({str(snap.root)!r}))\n"
+        "h = hashlib.sha256()\n"
+        f"for b in r.batches(batch_tokens={width * 4}, seed=7, epoch=0):\n"
+        "    h.update(str(b.index).encode()); h.update(b.tokens.tobytes())\n"
+        "print(h.hexdigest())\n",
+        encoding="utf-8",
+    )
+    here = hashlib.sha256()
+    for b in reader.batches(batch_tokens=width * 4, seed=7, epoch=0):
+        here.update(str(b.index).encode())
+        here.update(b.tokens.tobytes())
+    # This interpreter, on a file this test just wrote.
+    proc = subprocess.run(
+        [sys.executable, str(script)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, "PYTHONHASHSEED": "1234", "PYTHONDONTWRITEBYTECODE": "1"},
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == here.hexdigest()
+
+
 def test_a_different_epoch_gives_a_different_order(reader: ShardReader) -> None:
     width = reader.header.buckets[-1]
     assert _order(reader, seed=7, epoch=0, batch_tokens=width * 4) != _order(
@@ -919,13 +993,56 @@ def test_a_batch_budget_below_a_used_bucket_width_is_refused(reader: ShardReader
 def test_rows_per_batch_are_bounded_as_well_as_tokens(
     reader: ShardReader, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A narrow bucket plus a generous token budget must not make an unbounded batch."""
+    """A narrow bucket plus a generous token budget must not make an unbounded batch.
+
+    The budget used to be ``width * 1000``, an arbitrary stand-in for "generous". Since
+    2026-09-20 "generous" has a ceiling -- :data:`MAX_POSITIONS_PER_BATCH` -- so this asks
+    the stronger question instead: *the most generous budget the planner will accept* still
+    yields no more than the row cap. The assertion is unchanged.
+    """
     monkeypatch.setattr(shards_module, "MAX_ROWS_PER_BATCH", 2)
-    width = reader.header.buckets[-1]
-    batches = list(reader.batches(batch_tokens=width * 1000, seed=1, epoch=0))
+    batches = list(
+        reader.batches(batch_tokens=MAX_POSITIONS_PER_BATCH, seed=1, epoch=0)
+    )
     assert batches, "the bound must not empty the epoch"
     assert max(b.tokens.shape[0] for b in batches) <= 2
     assert MAX_ROWS_PER_BATCH == 4096, "the shipped default is still a real bound"
+
+
+def test_a_batch_budget_above_the_position_ceiling_is_refused(reader: ShardReader) -> None:
+    """The hole `MAX_ROWS_PER_BATCH` did not close: rows were bounded, positions were not.
+
+    Measured against the pre-fix code on the real 321-sequence shard set,
+    ``batch_tokens=10_000_000_000`` was **accepted** and planned a batch of 1,380,880
+    positions -- about 260 GB of activations for this model. ``_plan`` refused a budget
+    below the widest bucket and accepted any budget above it, so the only ceiling on
+    ``rows x width`` was the number the caller typed.
+    """
+    with pytest.raises(ValueError, match="exceeds MAX_POSITIONS_PER_BATCH"):
+        list(
+            reader.batches(
+                batch_tokens=MAX_POSITIONS_PER_BATCH + 1, seed=0, epoch=0
+            )
+        )
+
+
+def test_the_position_ceiling_admits_the_widest_bucket_it_could_ever_face(
+    reader: ShardReader,
+) -> None:
+    """A ceiling below a legal sequence would make the two refusals contradict each other.
+
+    ``_plan`` requires ``batch_tokens >= buckets[-1]`` and now also
+    ``batch_tokens <= MAX_POSITIONS_PER_BATCH``. If the ceiling were ever below the widest
+    bucket a shard set could hold, no budget would satisfy both and the corpus would be
+    untrainable for a reason nobody stated. 262,144 is this model's
+    ``max_position_embeddings``, the longest sequence that can exist.
+    """
+    assert MAX_POSITIONS_PER_BATCH >= 262_144
+    assert reader.header.buckets[-1] <= MAX_POSITIONS_PER_BATCH
+    batches = list(
+        reader.batches(batch_tokens=MAX_POSITIONS_PER_BATCH, seed=0, epoch=0)
+    )
+    assert batches, "the widest legal budget must still produce an epoch"
 
 
 def test_a_negative_seed_or_epoch_is_refused(reader: ShardReader) -> None:

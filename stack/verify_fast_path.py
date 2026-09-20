@@ -32,7 +32,7 @@ import json
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1] / "python"))
 
@@ -126,6 +126,65 @@ def instrument(module: Any, fast: list[str], slow: list[str]) -> tuple[Probe, Ca
     return probe, undo
 
 
+#: `flash-linear-attention` computes `chunk_bwd_dqkwg` incorrectly on Hopper for Triton in
+#: this half-open range and raises rather than returning wrong gradients. Measured against
+#: `triton==3.6.0`, which `stack/train.lock` pins because `torch==2.10.0+cu128` requires that
+#: exact version.
+TRITON_HOPPER_BAD_RANGE: Final[tuple[tuple[int, ...], tuple[int, ...]]] = ((3, 4, 0), (3, 7, 1))
+
+
+def _version_tuple(v: str) -> tuple[int, ...]:
+    """Leading numeric components of a version string; `()` when there are none."""
+    out: list[int] = []
+    for part in v.split("+")[0].split("."):
+        if not part.isdigit():
+            break
+        out.append(int(part))
+    return tuple(out)
+
+
+def triton_refuses_the_backward() -> str | None:
+    """Why the fast path cannot train here, or ``None`` when nothing rules it out.
+
+    **This gate probes a forward pass.** fla refuses on the BACKWARD, so a dispatch probe
+    watches the fast path being selected, reports it live, and says nothing about whether a
+    training step can complete. That is not a hole a better probe closes -- a forward cannot
+    observe a backward -- so the version combination is checked directly, before anything is
+    loaded.
+
+    Returning ``None`` means this particular refusal does not apply. It is not a claim that
+    the fast path works; that is what the rest of this module measures.
+    """
+    try:
+        import torch
+        import triton
+    except ImportError:
+        return None  # the caller has already established torch; triton absent is its problem
+
+    if not torch.cuda.is_available():
+        return None
+    if torch.cuda.get_device_capability(0)[0] != 9:  # Hopper
+        return None
+
+    version = getattr(triton, "__version__", "")
+    tv = _version_tuple(version)
+    lo, hi = TRITON_HOPPER_BAD_RANGE
+    if not tv or not (lo <= tv < hi):
+        return None
+
+    lo_s, hi_s = ".".join(map(str, lo)), ".".join(map(str, hi))
+    return (
+        f"triton {version} on {torch.cuda.get_device_name(0)} (Hopper, sm_90): "
+        f"flash-linear-attention computes chunk_bwd_dqkwg incorrectly for triton in "
+        f"[{lo_s}, {hi_s}) and raises on the BACKWARD. A forward pass dispatches to the fast "
+        "kernel and succeeds, so watching the dispatch would report the fast path live for an "
+        f"environment that cannot train. Upgrade to triton >= {hi_s} (measured on a GH200: the "
+        "backward then runs, torch's bf16 matmul is unaffected, and the fast path is 4.9x to "
+        "15.0x faster than the reference PyTorch path over widths 2048 to 8192), or install "
+        "tilelang."
+    )
+
+
 def verify(*, model_id: str, seq_len: int = 128, device: str | None = None) -> TriState:
     """Run one real forward and report which GDN implementation executed."""
     loaded = _load_module()
@@ -158,6 +217,10 @@ def verify(*, model_id: str, seq_len: int = 128, device: str | None = None) -> T
                 "be exercised here. This check is meaningful only on the training box."
             )
         )
+
+    bad = triton_refuses_the_backward()
+    if bad is not None:
+        return Ran(passed=False, detail=bad)
 
     fast, slow = discover(module)
     if not fast or not slow:

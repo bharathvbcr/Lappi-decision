@@ -465,8 +465,17 @@ class Batch:
     `tokens` is `int32[B, L]` already remapped — new ids, not source ids. `lengths` is the
     real token count per row, so the trainer masks loss rather than training on padding.
     `index` is the batch's deterministic position in the epoch, which is what makes S5's
-    bit-exact resume possible: the order is a pure function of `(seed, epoch)`, never of
+    bit-exact resume possible: the order is a pure function of `(seed, epoch, batch_tokens)`
+    and the shard set — `ShardReader._plan` mixes all four into its `SeedSequence` — never of
     hidden iterator state.
+
+    All four, stated because this docstring used to say `(seed, epoch)` and
+    `run_control.Checkpoint` was written from that sentence: it carried the seed and the
+    schedule and neither of the other two. Measured on 2026-09-20, a resume whose
+    `batch_tokens` differed by one token produced the same number of batches with the same
+    indices, so every check passed and the run trained to completion on a different order.
+    An index identifies a position *within* an order; it does not identify the order.
+    `Checkpoint.consumed_digest` is what identifies the order.
 
     # Supervision, and why a letter is not enough
 
