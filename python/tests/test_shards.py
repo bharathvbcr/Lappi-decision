@@ -42,7 +42,7 @@ from qd_data.errors import ContextTooLargeRefusal, EmptyContextRefusal, HeldOutV
 from qd_data.manifest import Manifest, build_manifests
 from qd_data.mixture import _line_span as mixture_line_span
 from qd_data.mixture import build_mixture
-from qd_data.render import ESCAPE_WORST_CASE_GROWTH, RenderCaps, render
+from qd_data.render import DEFAULT_CAPS, ESCAPE_WORST_CASE_GROWTH, RenderCaps, render
 from qd_data.rows import DataRow
 from qd_data.schema import Request, SpanSlot
 from qd_data.split import HELD_OUT, split
@@ -60,11 +60,13 @@ from qd_train.artifacts import (
     ShardHeader,
     TokenNotInRemap,
     assign_buckets,
+    bucket_for,
     line_start_indices,
     padding_waste,
 )
 from qd_train.byte_context import line_starts as byte_line_starts
 from qd_train.shards import (
+    CONTRADICTION_NAME,
     COVERAGE_NAME,
     HEADER_NAME,
     MAX_POSITIONS_PER_BATCH,
@@ -78,6 +80,7 @@ from qd_train.shards import (
     ShardReader,
     UnencodableGold,
     choose_buckets,
+    corpus_contradictions,
     line_starts,
     training_texts,
     write_shards,
@@ -88,6 +91,8 @@ SOURCE_VOCAB = 512
 TOKENIZER_HASH = "tokhash-0123456789abcdef"
 #: `python/`, so a second process imports the same `qd_train` this one does.
 REPO_PYTHON = Path(__file__).resolve().parents[1]
+#: The repository, for the AUDIT artifacts a test measures against.
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 # -- the injected tokenizer and a remap over it ----------------------------------------
@@ -1795,3 +1800,273 @@ def test_to_json_carries_the_checks_the_coverage_and_the_gate(reader: ShardReade
     # so rather than being silent about it.
     assert payload["span_check"]["state"] == "not_run"
     assert "passed" not in payload["span_check"]
+
+
+# -- self-consistency, at the write boundary -------------------------------------------
+#
+# GAP-REALFT-CONTRADICTORY-SPAN-SUPERVISION was found by a training tool and fixed in the
+# corpus generator, and the residual it left was this: nothing refused to *write* a
+# self-contradictory corpus. A causal model conditions on `tokens[:target_index + 1]`, so
+# two sequences that agree there and disagree about the gold cannot both be fitted -- the
+# loss floors at the group's label entropy and an eval reports that floor as accuracy.
+# Before these tests the only thing that would notice was a GPU-hours-long run.
+
+
+def _prompt_collapsing_tokenize(text: str) -> list[int]:
+    """Erase the prompt, keep the answer: every byte but the last becomes a constant.
+
+    The defect at its sharpest, and a tokenizer failure rather than an invented corpus:
+    whatever made two rows different is gone by the time the model sees it, and only the
+    golds still disagree. One token per byte, so ``byte_offsets`` still describes it exactly
+    and the span projection is not what is under test here.
+
+    Note what this does *not* do: it does not collapse rows of different lengths together.
+    Two rows contradict under it only if they were the same length and had different golds,
+    which is why the test asserts it actually produced some.
+    """
+    raw = text.encode("utf-8")
+    return [65] * (len(raw) - 1) + [raw[-1]]
+
+
+def _collapsed_contradiction_count(snap: Snapshot, split_name: str) -> int:
+    """How many rows the collapsing tokenizer actually makes contradict, counted directly.
+
+    The precondition, measured rather than assumed: a fixture corpus that stopped producing
+    same-length rows with different golds would make the refusal tests pass vacuously.
+    """
+    texts = _render_last(snap, split_name)
+    seqs = [np.asarray(_prompt_collapsing_tokenize(t), dtype=np.int32) for t in texts]
+    return int(
+        corpus_contradictions(
+            seqs,
+            target_index=[len(s) - 2 for s in seqs],
+            slot_kinds=[SLOT_CHOICE] * len(seqs),
+            span_targets=[(NO_SPAN, NO_SPAN)] * len(seqs),
+            labels=[str(i) for i in range(len(seqs))],
+        )["contradicting_rows"]
+    )
+
+
+def test_write_shards_refuses_a_corpus_whose_rows_contradict_each_other(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """The write boundary refuses, where previously only the trainer reported."""
+    n = _collapsed_contradiction_count(snapshot, "train")
+    assert n > 0, (
+        "the collapsing tokenizer produced no same-length pair with differing golds, so "
+        "there is no contradiction for the writer to catch and this test proves nothing"
+    )
+
+    with pytest.raises(ShardContractViolation, match="disagree about the gold"):
+        _write(
+            snapshot,
+            "train",
+            tmp_path / "shards" / "contradictory",
+            tokenize=_prompt_collapsing_tokenize,
+        )
+
+
+def test_a_refused_corpus_writes_nothing_at_all(snapshot: Snapshot, tmp_path: Path) -> None:
+    """Refused *before* the first byte, not after.
+
+    A writer that lays down tokens.u32 and then raises leaves a directory that looks like a
+    shard set to anything that opens it by path, and the next run's failure is about a
+    truncated memmap rather than about the corpus.
+    """
+    out = tmp_path / "shards" / "contradictory"
+    with pytest.raises(ShardContractViolation):
+        _write(snapshot, "train", out, tokenize=_prompt_collapsing_tokenize)
+    assert not out.exists() or not any(out.iterdir()), (
+        f"{out} holds {[p.name for p in out.iterdir()]} after a refused write"
+    )
+
+
+def test_a_contradictory_corpus_can_be_written_deliberately_and_says_so(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """The escape hatch carries both numbers, the way ``allow_unencodable`` does.
+
+    Writing one deliberately is a decision about the corpus; the artifact recording that it
+    was taken is not optional, because a set whose check ran and found nothing and a set
+    written over the refusal must not read the same.
+    """
+    out = tmp_path / "shards" / "deliberate"
+    _write(
+        snapshot,
+        "train",
+        out,
+        tokenize=_prompt_collapsing_tokenize,
+        allow_contradictions=True,
+    )
+    report = json.loads((out / CONTRADICTION_NAME).read_text(encoding="utf-8"))
+    assert report["allowed"] is True
+    assert report["contradicting_rows"] > 0
+    assert report["contradicting_groups"] > 0
+
+
+def test_a_clean_corpus_records_a_clean_report_rather_than_no_report(
+    train_shards: tuple[Snapshot, Path, ShardHeader],
+) -> None:
+    """The other half: the real corpus passes, and the passing is written down.
+
+    This is the regression guard for over-refusal. ``train`` is the full corpus with span
+    rows, choice rows and duplicated *prompts that do not contradict*; if the check ever
+    starts counting those, this fails.
+    """
+    _snap, out, header = train_shards
+    report = json.loads((out / CONTRADICTION_NAME).read_text(encoding="utf-8"))
+    assert report["contradicting_rows"] == 0
+    assert report["contradicting_groups"] == 0
+    assert report["allowed"] is False
+    assert report["sequences"] == header.n_sequences
+
+
+def _render_last(snap: Snapshot, split_name: str) -> list[str]:
+    """The rendered text of each row in a split, which is what the tokenizer is handed."""
+    return [
+        spec.text
+        for row in sorted(snap.rows[split_name], key=lambda r: r.row_id)
+        for spec in training_texts(row, seed=snap.config.seed, caps=DEFAULT_CAPS)
+    ]
+
+
+# -- the canonical checker itself ------------------------------------------------------
+
+
+def _arrays(pairs: Sequence[tuple[list[int], int]]) -> dict[str, object]:
+    """``(sequence, slot_kind)`` pairs as the five parallel arrays the checker takes."""
+    seqs = [np.asarray(s, dtype=np.int32) for s, _ in pairs]
+    return {
+        "sequences": seqs,
+        "target_index": [len(s) - 2 for s, _ in pairs],
+        "slot_kinds": [k for _, k in pairs],
+        "span_targets": [(NO_SPAN, NO_SPAN)] * len(pairs),
+        "labels": [f"row{i}" for i in range(len(pairs))],
+    }
+
+
+def test_two_rows_with_one_prefix_and_two_golds_are_contradicting() -> None:
+    args = _arrays([([7, 7, 65], SLOT_CHOICE), ([7, 7, 66], SLOT_CHOICE)])
+    report = corpus_contradictions(args.pop("sequences"), **args)  # type: ignore[arg-type]
+    assert report["contradicting_rows"] == 2
+    assert report["contradicting_groups"] == 1
+    assert report["rows_sharing_a_prefix"] == 2
+    assert report["examples"][0]["prefix_tokens"] == 2  # type: ignore[index]
+
+
+def test_two_rows_with_one_prefix_and_the_same_gold_are_not_contradicting() -> None:
+    """A duplicate is wasted supervision, not an unfittable pair, and only one of those
+    is a reason to refuse a corpus. ``rows_sharing_a_prefix`` still counts it, because
+    the two facts are different and collapsing them loses the one that is merely wasteful.
+    """
+    args = _arrays([([7, 7, 65], SLOT_CHOICE), ([7, 7, 65], SLOT_CHOICE)])
+    report = corpus_contradictions(args.pop("sequences"), **args)  # type: ignore[arg-type]
+    assert report["contradicting_rows"] == 0
+    assert report["rows_sharing_a_prefix"] == 2
+
+
+def test_rows_that_differ_before_the_supervised_position_are_independent() -> None:
+    args = _arrays([([7, 8, 65], SLOT_CHOICE), ([7, 9, 66], SLOT_CHOICE)])
+    report = corpus_contradictions(args.pop("sequences"), **args)  # type: ignore[arg-type]
+    assert report["contradicting_rows"] == 0
+    assert report["rows_sharing_a_prefix"] == 0
+
+
+def test_span_rows_are_compared_by_their_span_gold_not_their_last_token() -> None:
+    """A span row's answer is in ``span_target``; its trailing token is structural. Comparing
+    the wrong one would call every span pair identical and find nothing."""
+    seqs = [np.asarray([7, 7, 65], dtype=np.int32)] * 2
+    report = corpus_contradictions(
+        seqs,
+        target_index=[1, 1],
+        slot_kinds=[SLOT_SPAN, SLOT_SPAN],
+        span_targets=[(3, 4), (9, 10)],
+        labels=["a", "b"],
+    )
+    assert report["contradicting_rows"] == 2
+    assert report["per_kind"] == {str(SLOT_SPAN): {"groups": 1, "rows": 2}}
+
+
+def test_the_same_ids_in_two_dtypes_are_one_prefix_not_two() -> None:
+    """``write_shards`` holds freshly encoded arrays and ``ShardReader`` holds a memmap.
+    Hashing raw bytes without normalising dtype would make the two callers disagree about
+    whether a corpus contradicts itself -- the writer clean, the trainer not."""
+    report = corpus_contradictions(
+        [np.asarray([7, 7, 65], dtype=np.int32), np.asarray([7, 7, 66], dtype=np.int64)],
+        target_index=[1, 1],
+        slot_kinds=[SLOT_CHOICE, SLOT_CHOICE],
+        span_targets=[(NO_SPAN, NO_SPAN)] * 2,
+        labels=["a", "b"],
+    )
+    assert report["contradicting_rows"] == 2
+
+
+# -- the padding gate, on the distribution that failed it -------------------------------
+
+
+def _measured_lengths() -> list[int]:
+    """The real train-set length distribution the GH200 runs read.
+
+    An AUDIT artifact rather than a literal here, and rather than a synthetic stand-in:
+    ``choose_buckets`` is fitted to a distribution, so a regression test for a bucketing
+    failure has to use the distribution that failed. A generated one that happens to fail
+    today would drift away from the defect it was written for.
+    """
+    payload = json.loads(
+        (REPO_ROOT / "AUDIT" / "shard-lengths-2026-09-20.json").read_text(encoding="utf-8")
+    )
+    lengths = [int(n) for n in payload["lengths"]]
+    assert len(lengths) == payload["n_sequences"] == 341
+    return lengths
+
+
+def test_the_default_bucketing_clears_the_padding_gate_on_the_set_that_failed_it() -> None:
+    """The gate is read-only (rule 2); the bucketing is not, and it is what was wrong.
+
+    At the old default of 8 this distribution wastes 25.66% against a 15% bar. That is the
+    number in HANDOFF/gh200-2026-09-20.md, and it is what this asserts is gone.
+    """
+    lengths = _measured_lengths()
+    state = padding_waste(lengths, choose_buckets(lengths))
+    assert isinstance(state, Ran)
+    assert state.passed, (
+        f"the default bucketing wastes {state.value:.2%} of positions on the measured "
+        f"train distribution, against a gate of {MAX_PADDING_WASTE:.0%}"
+    )
+
+
+def test_the_old_default_of_eight_buckets_is_what_failed_and_still_would() -> None:
+    """The contrast, pinned. Without this the test above could be passing because the
+    distribution is easy rather than because the default changed."""
+    lengths = _measured_lengths()
+    old = padding_waste(lengths, choose_buckets(lengths, n_buckets=8))
+    assert isinstance(old, Ran)
+    assert not old.passed
+    assert old.value == pytest.approx(0.2566, abs=5e-5), (
+        f"n_buckets=8 now wastes {old.value:.4%}; the failing GH200 run measured 25.66%, so "
+        "either the distribution artifact or padding_waste has changed underneath this test"
+    )
+
+
+def test_more_buckets_never_orphans_a_sequence() -> None:
+    """The thing a rebucketing could break: ``bucket_for`` refuses a length that fits no
+    bucket, and a boundary set that orphans a row turns a padding problem into a refused
+    write. Measured across the sweep rather than asserted for the chosen value alone."""
+    lengths = _measured_lengths()
+    for n_buckets in (8, 16, 32, 64):
+        buckets = choose_buckets(lengths, n_buckets=n_buckets)
+        for length in lengths:
+            bucket_for(length, buckets)  # raises ValueError if it fits nowhere
+
+
+def test_arrays_of_different_lengths_are_refused_rather_than_zipped_short() -> None:
+    """``zip`` would silently truncate to the shortest, checking a prefix of the corpus and
+    reporting it as the whole -- a capped sample presented as complete coverage."""
+    with pytest.raises(ValueError, match="gold came from a different index"):
+        corpus_contradictions(
+            [np.asarray([7, 65], dtype=np.int32)] * 3,
+            target_index=[0, 0, 0],
+            slot_kinds=[SLOT_CHOICE, SLOT_CHOICE],
+            span_targets=[(NO_SPAN, NO_SPAN)] * 3,
+            labels=["a", "b", "c"],
+        )

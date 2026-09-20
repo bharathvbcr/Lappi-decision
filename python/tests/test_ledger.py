@@ -8,11 +8,13 @@ fails two deliberately broken models (``test_eval_harness.py``).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
 import sys
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -24,9 +26,12 @@ from qd_train.ledger import (
     Environment,
     Ledger,
     LedgerChainError,
+    LedgerForkError,
     LedgerRow,
     Protocol,
     RunRecorder,
+    find_forks,
+    verify_no_fork,
 )
 from qd_train.tristate import NotRun, Ran, aggregate, parse_tristate
 
@@ -1086,3 +1091,126 @@ def test_a_recorded_row_carries_the_device_it_was_given():
         ):
             pass
         assert ledger.rows()[0].env.device == "cpu"
+
+
+# --------------------------------------------------------------------------
+# A chain forked across two files
+#
+# `verify_chain` walks ONE file and catches history that was edited, reordered or
+# truncated. It cannot catch the failure that happens when a ledger is *copied*: rsync
+# makes a second file sharing a prefix, both machines append, and two rows now name the
+# same predecessor. Both files verify. `make gates` is green on both. That silence is the
+# defect -- GAP-LEDGER-NO-STORY-FOR-A-CHAIN-FORKED-ACROSS-TWO-MACHINES -- and these tests
+# are about seeing it, never about repairing it: the rows keep the hashes they were
+# written with.
+# --------------------------------------------------------------------------
+
+
+def _chain(path: Path, row_ids: Sequence[str]) -> Path:
+    """Write a hash-chained JSONL file with these row ids, and return the path.
+
+    Raw lines rather than `RunRecorder`: fork detection is a property of the chain's
+    *shape*, and a fixture that has to build six valid gates and four controls per row to
+    exercise it would be testing the recorder instead.
+    """
+    lines: list[bytes] = []
+    prev: str | None = None
+    for row_id in row_ids:
+        line = json.dumps({"row_id": row_id, "prev_row_hash": prev}, sort_keys=True).encode()
+        lines.append(line)
+        prev = hashlib.sha256(line).hexdigest()
+    path.write_bytes(b"\n".join(lines) + b"\n")
+    return path
+
+
+def test_two_files_that_diverged_after_a_shared_prefix_report_one_fork(tmp_path: Path) -> None:
+    """The rsync case, which is what actually happened between this Mac and the GH200."""
+    a = _chain(tmp_path / "runs.jsonl", ["r1", "r2", "mac-3", "mac-4"])
+    b = _chain(tmp_path / "box.jsonl", ["r1", "r2", "box-3"])
+
+    # That each side verifies on its own -- the half that makes a fork invisible -- is
+    # asserted against the repository's real ledgers, in
+    # `test_the_repositorys_own_ledgers_are_checked_not_assumed`. These rows are chain
+    # shape only and deliberately not valid `LedgerRow`s.
+    forks = find_forks([a, b])
+    assert len(forks) == 1
+    fork = forks[0]
+    assert not fork.is_root
+    assert {branch.row_id for branch in fork.branches} == {"mac-3", "box-3"}
+    assert {branch.line_no for branch in fork.branches} == {3}
+
+
+def test_an_undiverged_copy_is_not_a_fork(tmp_path: Path) -> None:
+    """The guard against crying wolf on every backup.
+
+    An rsync'd ledger that has not been appended to on either side is byte-identical, and
+    calling that a fork would make the check useless the first week it shipped -- a check
+    that fires on the healthy case gets turned off.
+    """
+    a = _chain(tmp_path / "runs.jsonl", ["r1", "r2", "r3"])
+    b = _chain(tmp_path / "copy.jsonl", ["r1", "r2", "r3"])
+    assert a.read_bytes() == b.read_bytes()
+    assert find_forks([a, b]) == []
+
+
+def test_a_file_compared_with_itself_is_not_a_fork(tmp_path: Path) -> None:
+    a = _chain(tmp_path / "runs.jsonl", ["r1", "r2"])
+    assert find_forks([a, a]) == []
+
+
+def test_a_pure_extension_is_not_a_fork(tmp_path: Path) -> None:
+    """One side ahead of the other is the ordinary state of two machines mid-sync: every
+    row of the shorter file is a prefix of the longer, so no predecessor is contested."""
+    a = _chain(tmp_path / "runs.jsonl", ["r1", "r2"])
+    b = _chain(tmp_path / "ahead.jsonl", ["r1", "r2", "r3", "r4"])
+    assert find_forks([a, b]) == []
+
+
+def test_two_unrelated_chains_fork_at_the_root(tmp_path: Path) -> None:
+    """Different from a divergence, and reported as such: these files never shared a
+    history, so there is no common ancestor to reconcile against."""
+    a = _chain(tmp_path / "one.jsonl", ["a1", "a2"])
+    b = _chain(tmp_path / "two.jsonl", ["b1", "b2"])
+    forks = find_forks([a, b])
+    assert len(forks) == 1
+    assert forks[0].is_root
+    assert "from the first line" in forks[0].describe()
+
+
+def test_verify_no_fork_raises_and_names_both_sides(tmp_path: Path) -> None:
+    a = _chain(tmp_path / "runs.jsonl", ["r1", "mac-2"])
+    b = _chain(tmp_path / "box.jsonl", ["r1", "box-2"])
+    with pytest.raises(LedgerForkError) as excinfo:
+        verify_no_fork([a, b])
+    message = str(excinfo.value)
+    assert "mac-2" in message and "box-2" in message
+    assert "not by rewriting the chain" in message
+
+
+def test_verify_no_fork_is_silent_on_a_clean_set(tmp_path: Path) -> None:
+    """A check that passes must be distinguishable from one that was not run: this returns
+    None on a clean set, and the calling tool reports the count it checked."""
+    a = _chain(tmp_path / "runs.jsonl", ["r1", "r2"])
+    assert verify_no_fork([a]) is None
+
+
+def test_the_repositorys_own_ledgers_are_checked_not_assumed() -> None:
+    """The real files, so this test knows about the fork that exists today.
+
+    `ledger/gh200-2026-09-20.jsonl` is the GH200's chain, kept as its own file precisely
+    because it may not be concatenated. It has been forked from `runs.jsonl` since
+    2026-09-20 and both sides verify, so this asserts what is true rather than what would
+    be tidy -- and it will start failing the day someone reconciles them, which is when a
+    test that claimed otherwise would have been in the way.
+    """
+    ledger_dir = REPO / "ledger"
+    paths = sorted(ledger_dir.glob("*.jsonl"))
+    assert len(paths) >= 2, f"expected at least two ledger files in {ledger_dir}, got {paths}"
+    for path in paths:
+        Ledger(path).verify_chain()
+
+    forks = find_forks(paths)
+    assert len(forks) == 1, f"expected exactly the known fork, got: {[f.describe() for f in forks]}"
+    assert not forks[0].is_root, (
+        "the two ledgers share an ancestor; a root fork would mean they do not"
+    )

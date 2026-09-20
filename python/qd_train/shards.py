@@ -79,6 +79,7 @@ for the same reason and on the same terms: injected, not imported.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
@@ -115,6 +116,7 @@ from .data_access import open_training_data
 from .tristate import NotRun, Ran, TriState, parse_tristate
 
 __all__ = [
+    "CONTRADICTION_NAME",
     "COVERAGE_NAME",
     "DEFAULT_MAX_SEQUENCES",
     "DEFAULT_MAX_TOTAL_TOKENS",
@@ -134,6 +136,7 @@ __all__ = [
     "UnencodableGold",
     "answer_letter",
     "choose_buckets",
+    "corpus_contradictions",
     "line_starts",
     "slot_kind_of",
     "training_texts",
@@ -146,6 +149,11 @@ OFFSETS_NAME: Final[str] = "offsets.npy"
 COVERAGE_NAME: Final[str] = "coverage.json"
 SUPERVISION_NAME: Final[str] = "supervision.npz"
 SPAN_CHECK_NAME: Final[str] = "span_check.json"
+#: The self-consistency report :func:`corpus_contradictions` produces, written beside the
+#: shards. It exists as a file so that "the corpus was checked" is a recorded artifact
+#: rather than the absence of an exception: a set written by an older writer has no such
+#: file, and that is a different state from a set whose check ran and found nothing.
+CONTRADICTION_NAME: Final[str] = "contradictions.json"
 
 #: Stem of the remap this set's ids were written under. ``RemapTable.write`` appends
 #: ``.npz`` and ``.json``, so the two files are ``remap.npz`` and ``remap.json``.
@@ -501,7 +509,7 @@ def training_texts(
 # -- bucketing -------------------------------------------------------------------------
 
 
-def choose_buckets(lengths: Sequence[int], *, n_buckets: int = 8) -> tuple[int, ...]:
+def choose_buckets(lengths: Sequence[int], *, n_buckets: int = 32) -> tuple[int, ...]:
     """Bucket boundaries drawn from an observed length distribution.
 
     Equal-count quantiles rather than equal-width bins: padding waste is driven by the
@@ -513,6 +521,33 @@ def choose_buckets(lengths: Sequence[int], *, n_buckets: int = 8) -> tuple[int, 
 
     This picks *boundaries*; it does not touch the gate. ``MAX_PADDING_WASTE`` is read-only
     (rule 2), and lowering waste by bucketing better is the work the gate exists to demand.
+
+    ## Why 32 and not 8
+
+    The default was 8, and on the 341-sequence train set of the GH200 runs it produced
+    **25.66% padding waste against a 15% gate** -- a failing gate whose only legitimate fix
+    is fewer wasted positions. Measured over that set's real length distribution (min 320,
+    median 6971, max 34522; ``AUDIT/shard-lengths-2026-09-20.json``):
+
+    | ``n_buckets`` | waste | batches | rows/batch | ragged rows |
+    | --- | --- | --- | --- | --- |
+    | 8 | 25.66% | 111 | 3.1 | 0% |
+    | 16 | 13.64% | 114 | 3.0 | 0% |
+    | **32** | **6.56%** | **115** | **3.0** | **0%** |
+    | 48 | 4.76% | 125 | 2.7 | 13% |
+    | 64 | 3.43% | 127 | 2.7 | 17% |
+
+    Waste falls monotonically, which is the shape to distrust -- so the cost was measured on
+    the axis that pays for it. ``ShardReader._plan`` chunks a bucket into batches of
+    ``min(batch_tokens // width, MAX_ROWS_PER_BATCH)``, and ``batch_tokens`` is the longest
+    sequence, which does not move with ``n_buckets``. So more boundaries thin each bucket's
+    membership against an unchanged row ceiling, and the bill arrives in each bucket's last
+    chunk. Up to 32 that bill is zero; past it, a sixth of the rows sit in batches under a
+    tenth of their permitted size.
+
+    16 also clears the gate, at 1.36 points of margin. 32 clears it at 8.44 with the same
+    batch count, which is why it is the default: a bar cleared by a rounding error is one
+    corpus revision away from failing again.
     """
     if not lengths:
         raise ValueError(
@@ -838,6 +873,91 @@ def _match_rows_to_manifest(
             )
 
 
+def corpus_contradictions(
+    sequences: Sequence[np.ndarray],
+    *,
+    target_index: Sequence[int],
+    slot_kinds: Sequence[int],
+    span_targets: Sequence[tuple[int, int]],
+    labels: Sequence[str],
+    max_examples: int = 3,
+) -> dict[str, object]:
+    """Sequences with **identical prefixes and different golds**, over a whole corpus.
+
+    A causal model conditions on ``tokens[:target_index + 1]`` and nothing else, so two
+    sequences that agree there and disagree about the answer cannot both be fitted. The
+    optimum over such a group is its empirical label distribution: two rows, two golds,
+    and the loss floors at ``ln 2`` no matter how long it trains. On a rented GPU the only
+    symptom is a curve that plateaus and an eval that reports 50%.
+
+    This is the canonical owner of that question. ``write_shards`` asks it before writing
+    a byte, and ``tools/real_ft_run.py`` asks it again of the set it is about to train on;
+    both get the same answer from the same code, which is the point -- the two used to be
+    one function in the training tool and one absence at the write boundary, so a corpus
+    could be *written* self-contradictory and only a GPU-hours-long run would say so.
+
+    Measured over the **set**, not per batch: a contradiction does not need the two rows
+    to land in one batch to be unfittable.
+
+    ``per_kind`` is keyed by the integer slot kind rather than by a display name. Naming is
+    the caller's boundary, and a mapping that has to be kept total over four constants in
+    two modules is one more thing that can disagree with itself.
+    """
+    n = len(sequences)
+    if not (n == len(target_index) == len(slot_kinds) == len(span_targets) == len(labels)):
+        raise ValueError(
+            f"corpus_contradictions was given {n} sequence(s) but "
+            f"{len(target_index)} target index/indices, {len(slot_kinds)} slot kind(s), "
+            f"{len(span_targets)} span target(s) and {len(labels)} label(s). A row whose "
+            "gold came from a different index is the defect this function exists to find."
+        )
+
+    groups: dict[bytes, list[int]] = {}
+    for i in range(n):
+        at = int(target_index[i])
+        # Cast before hashing: the writer holds freshly encoded arrays and the reader holds
+        # a memmap, and two arrays with the same ids in different dtypes have different
+        # bytes. Without this the two callers would silently disagree about whether a
+        # corpus contradicts itself, which is the failure mode one level up.
+        prefix = np.asarray(sequences[i][: at + 1], dtype=TOKEN_DTYPE).tobytes()
+        groups.setdefault(hashlib.sha256(prefix).digest(), []).append(i)
+
+    colliding = 0
+    contradicting: list[dict[str, object]] = []
+    per_kind: dict[int, dict[str, int]] = {}
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        colliding += len(members)
+        golds: list[str] = []
+        for i in members:
+            if int(slot_kinds[i]) == SLOT_SPAN:
+                golds.append(f"span:{int(span_targets[i][0])},{int(span_targets[i][1])}")
+            else:
+                golds.append(f"letter:{int(sequences[i][-1])}")
+        if len(set(golds)) < 2:
+            continue
+        kinds = {int(slot_kinds[i]) for i in members}
+        for kind in kinds:
+            bucket = per_kind.setdefault(kind, {"groups": 0, "rows": 0})
+            bucket["groups"] += 1
+            bucket["rows"] += sum(1 for i in members if int(slot_kinds[i]) == kind)
+        contradicting.append({
+            "rows": [str(labels[i]) for i in members],
+            "kinds": sorted(kinds),
+            "golds": golds,
+            "prefix_tokens": int(target_index[members[0]]) + 1,
+        })
+    return {
+        "sequences": n,
+        "rows_sharing_a_prefix": colliding,
+        "contradicting_groups": len(contradicting),
+        "contradicting_rows": sum(len(c["rows"]) for c in contradicting),  # type: ignore[arg-type]
+        "per_kind": {str(k): v for k, v in sorted(per_kind.items())},
+        "examples": contradicting[:max_examples],
+    }
+
+
 def write_shards(
     manifest_path: Path,
     rows: Sequence[DataRow],
@@ -854,6 +974,7 @@ def write_shards(
     caps: RenderCaps = DEFAULT_CAPS,
     allow_unencodable: bool = False,
     allow_not_run_snapshot: bool = False,
+    allow_contradictions: bool = False,
     max_sequences: int = DEFAULT_MAX_SEQUENCES,
     max_total_tokens: int = DEFAULT_MAX_TOTAL_TOKENS,
 ) -> ShardHeader:
@@ -1040,6 +1161,32 @@ def write_shards(
                 "answer token off the end of the example, and the row still trains."
             ) from exc
 
+    # Before a byte is written. `target_index` is `lengths - 2` here for the same reason it
+    # is below -- the answer token is last, so the supervised position is the one before it
+    # -- and it is computed from the same expression rather than read back from the file
+    # this function has not written yet.
+    contradictions = corpus_contradictions(
+        sequences,
+        target_index=[n - 2 for n in lengths],
+        slot_kinds=kinds,
+        span_targets=spans,
+        labels=labels,
+    )
+    if int(contradictions["contradicting_rows"]) and not allow_contradictions:  # type: ignore[arg-type]
+        first = contradictions["examples"][0]  # type: ignore[index]
+        raise ShardContractViolation(
+            f"{manifest_path}: {contradictions['contradicting_rows']} sequence(s) in "
+            f"{contradictions['contradicting_groups']} group(s) share a prefix up to their "
+            "supervised position and disagree about the gold. A causal model conditions on "
+            "that prefix and nothing else, so no parameters fit both: the loss floors at "
+            "the group's label entropy and an eval reports the coin flip as if it were "
+            "accuracy. Refused at the write boundary rather than reported by the trainer, "
+            "because the cheapest place to find this is before the GPU is rented. First "
+            f"group: {first['rows']} with golds {first['golds']} over "  # type: ignore[index]
+            f"{first['prefix_tokens']} prefix token(s). Pass allow_contradictions=True to "  # type: ignore[index]
+            "write it anyway, which is a decision about the corpus, not about this check."
+        )
+
     header = ShardHeader(
         split=manifest.split,
         data_snapshot_hash=handle.data_snapshot_hash,
@@ -1098,6 +1245,16 @@ def write_shards(
     (out_dir / SPAN_CHECK_NAME).write_text(
         json.dumps(
             _span_check(n_span_sequences, decode=decode).to_json(), indent=2, sort_keys=True
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    # Written whether or not it found anything, and carrying `allowed` so a set that was
+    # written over the refusal says so in its own artifacts. A clean report and a missing
+    # file are different states, and only one of them means the check ran.
+    (out_dir / CONTRADICTION_NAME).write_text(
+        json.dumps(
+            {**contradictions, "allowed": bool(allow_contradictions)}, indent=2, sort_keys=True
         )
         + "\n",
         encoding="utf-8",

@@ -154,6 +154,7 @@ from qd_train.shards import (
     ShardReader,
     UnencodableGold,
     answer_letter,
+    corpus_contradictions,
     training_texts,
 )
 from qd_train.trainer import SpanScoringStep, ft_supervision, train_ft
@@ -344,48 +345,26 @@ def _contradictions(reader: ShardReader, labels: list[Label]) -> dict[str, objec
     deleting it would thin the mixture for nothing."* That reasoning is about contamination
     and is sound; it is silent about trainability, and the count it does keep (``n_within``)
     is never read by anything downstream as a supervision signal.
-    """
-    groups: dict[bytes, list[int]] = {}
-    for i in range(len(reader)):
-        at = int(reader._target_index[i])
-        prefix = reader.sequence(i)[: at + 1].tobytes()
-        groups.setdefault(hashlib.sha256(prefix).digest(), []).append(i)
 
-    span_target = reader._span_target
-    colliding = 0
-    contradicting: list[dict[str, object]] = []
-    per_kind: dict[str, dict[str, int]] = {}
-    for members in groups.values():
-        if len(members) < 2:
-            continue
-        colliding += len(members)
-        golds: list[object] = []
-        for i in members:
-            if labels[i].slot_kind == SLOT_SPAN:
-                golds.append(("span", int(span_target[i][0]), int(span_target[i][1])))
-            else:
-                golds.append(("letter", int(reader.sequence(i)[-1])))
-        if len({str(g) for g in golds}) < 2:
-            continue
-        kinds = {KIND_NAMES[labels[i].slot_kind] for i in members}
-        for name in kinds:
-            bucket = per_kind.setdefault(name, {"groups": 0, "rows": 0})
-            bucket["groups"] += 1
-            bucket["rows"] += sum(1 for i in members if KIND_NAMES[labels[i].slot_kind] == name)
-        contradicting.append({
-            "rows": [labels[i].row_id for i in members],
-            "kinds": sorted(kinds),
-            "golds": [str(g) for g in golds],
-            "prefix_tokens": int(reader._target_index[members[0]]) + 1,
-        })
-    return {
-        "sequences": len(reader),
-        "rows_sharing_a_prefix": colliding,
-        "contradicting_groups": len(contradicting),
-        "contradicting_rows": sum(len(c["rows"]) for c in contradicting),  # type: ignore[arg-type]
-        "per_kind": per_kind,
-        "examples": contradicting[:3],
-    }
+    The grouping itself lives in :func:`qd_train.shards.corpus_contradictions`, which
+    ``write_shards`` also calls before writing. This function is the reading end of that
+    one owner: it supplies the arrays from a set already on disk and renames the integer
+    slot kinds for the report. Two implementations of "do these two rows contradict" is
+    two answers to a question that must have one.
+    """
+    report = corpus_contradictions(
+        [reader.sequence(i) for i in range(len(reader))],
+        target_index=[int(x) for x in reader._target_index],
+        slot_kinds=[label.slot_kind for label in labels],
+        span_targets=[(int(s[0]), int(s[1])) for s in reader._span_target],
+        labels=[label.row_id for label in labels],
+    )
+    per_kind = {KIND_NAMES[int(k)]: v for k, v in report["per_kind"].items()}  # type: ignore[union-attr]
+    examples = [
+        {**e, "kinds": sorted(KIND_NAMES[int(k)] for k in e["kinds"])}  # type: ignore[index]
+        for e in report["examples"]  # type: ignore[union-attr]
+    ]
+    return {**report, "per_kind": per_kind, "examples": examples}
 
 
 def _inventory(reader: ShardReader, labels: list[Label], excluded: list[str]) -> dict[str, object]:

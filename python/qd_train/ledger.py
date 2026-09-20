@@ -42,8 +42,11 @@ __all__ = [
     "DEFAULT_LEDGER_PATH",
     "NON_PROMOTING_RUN_KINDS",
     "NOT_APPLICABLE",
+    "ForkBranch",
+    "ForkPoint",
     "Ledger",
     "LedgerChainError",
+    "LedgerForkError",
     "LedgerRow",
     "PromotionVerdict",
     "Protocol",
@@ -51,12 +54,14 @@ __all__ = [
     "SuiteCounts",
     "SuiteFailure",
     "SuiteOutcome",
+    "find_forks",
     "main",
     "parse_cargo_test_output",
     "parse_command",
     "parse_pytest_output",
     "record_build_run",
     "run_suite",
+    "verify_no_fork",
 ]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -132,6 +137,106 @@ REQUIRED_CONTROLS: tuple[str, ...] = (
 
 class LedgerChainError(RuntimeError):
     """The append-only chain does not verify."""
+
+
+class LedgerForkError(RuntimeError):
+    """Two ledger files hold rows claiming one predecessor.
+
+    Distinct from :class:`LedgerChainError`, which is about a single file being internally
+    broken. A fork is the case where **every file verifies** and the history is still wrong,
+    so it cannot be found by verifying files one at a time.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class ForkBranch:
+    """One side of a fork: where the row is and what it is."""
+
+    path: Path
+    line_no: int
+    row_id: str
+    line_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class ForkPoint:
+    """A predecessor claimed by more than one distinct row."""
+
+    prev_row_hash: str | None
+    branches: tuple[ForkBranch, ...]
+
+    @property
+    def is_root(self) -> bool:
+        """Whether the two sides disagree from the very first line.
+
+        A root fork means these files are not two versions of one history at all; a
+        non-root fork means they shared a prefix and diverged, which is the rsync case.
+        """
+        return self.prev_row_hash is None
+
+    def describe(self) -> str:
+        where = "; ".join(
+            f"{b.path.name}:{b.line_no} ({b.row_id})" for b in self.branches
+        )
+        after = "from the first line" if self.is_root else f"after {self.prev_row_hash[:16]}…"
+        return f"{len(self.branches)} rows claim one predecessor {after}: {where}"
+
+
+def find_forks(paths: Sequence[Path]) -> list[ForkPoint]:
+    """Fork points across several ledger files, newest common ancestor first.
+
+    ``Ledger.verify_chain`` walks one file and catches a history that was edited, reordered
+    or truncated. It cannot catch the failure that happens when a ledger is *copied*: rsync
+    makes a second file sharing a prefix, both sides append, and now two rows name the same
+    predecessor. Both files verify. ``make gates`` stays green on both machines. Nothing
+    reports anything, which is the whole problem --
+    ``GAP-LEDGER-NO-STORY-FOR-A-CHAIN-FORKED-ACROSS-TWO-MACHINES``.
+
+    This does not repair anything and must not: the rows keep the hashes they were written
+    with, because a ledger whose entire premise is that you do not go back and fix it cannot
+    be fixed by going back and fixing it. It makes the fork **visible**, which is the part
+    that was missing. Reconciling two real branches is a human decision about which runs
+    happened, and it needs to be taken knowing the fork is there.
+
+    A line present identically in both files is the shared prefix, not a fork: branches are
+    keyed by the hash of the line's own bytes, so an identical row on both sides counts once.
+    """
+    claims: dict[str | None, dict[str, ForkBranch]] = {}
+    for path in paths:
+        prev: str | None = None
+        for i, line in enumerate(Ledger(path).raw_lines()):
+            line_hash = hashlib.sha256(line).hexdigest()
+            try:
+                row_id = str(json.loads(line.decode("utf-8")).get("row_id", "?"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                row_id = "<unparseable>"
+            # Keyed by the line's own hash: the same row in two files is one branch, not two.
+            claims.setdefault(prev, {}).setdefault(
+                line_hash, ForkBranch(path=path, line_no=i + 1, row_id=row_id, line_hash=line_hash)
+            )
+            prev = line_hash
+
+    forks = [
+        ForkPoint(prev_row_hash=prev, branches=tuple(branches.values()))
+        for prev, branches in claims.items()
+        if len(branches) > 1
+    ]
+    # Root fork last: it is the least informative ("these are unrelated files"), and a real
+    # divergence deeper in the chain is the thing a reader needs to see first.
+    return sorted(forks, key=lambda f: (f.is_root, f.branches[0].line_no))
+
+
+def verify_no_fork(paths: Sequence[Path]) -> None:
+    """Raise :class:`LedgerForkError` naming every fork point, or return silently."""
+    forks = find_forks(paths)
+    if not forks:
+        return
+    raise LedgerForkError(
+        f"{len(forks)} fork point(s) across {len(paths)} ledger file(s). "
+        + " | ".join(f.describe() for f in forks)
+        + ". These rows keep their hashes: a fork is reconciled by deciding which runs "
+        "happened, not by rewriting the chain."
+    )
 
 
 def _canonical(obj: Any) -> str:
