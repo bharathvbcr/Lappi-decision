@@ -15,6 +15,7 @@ one failure this module is built to make impossible.
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import fcntl
 import hashlib
@@ -444,6 +445,43 @@ class Environment:
         )
 
 
+def _tool_closure(tool_path: Path) -> dict[str, Path]:
+    """The tool, and every module it imports from its own directory, transitively.
+
+    Keyed ``"<dir>/<name>.py"`` so a tool and a package module of the same name cannot
+    collide in the mapping.
+
+    Only siblings: an import of ``qd_train`` is already covered by ``package_dir``, and an
+    import of a third-party library is not this repository's source. Cycles terminate on
+    ``seen`` -- ``tools/`` has none today, and a function that hung on one would be a worse
+    failure than the one it is fixing.
+    """
+    directory = tool_path.resolve().parent
+    seen: dict[str, Path] = {}
+    queue = [tool_path.resolve()]
+    while queue:
+        current = queue.pop()
+        key = f"{current.parent.name}/{current.name}"
+        if key in seen:
+            continue
+        seen[key] = current
+        tree = ast.parse(current.read_text(encoding="utf-8"), filename=str(current))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                # `node.level` non-zero is a relative import, which a tool run as a script
+                # cannot have; `node.module` is None for `from . import x`.
+                roots = [node.module.split(".")[0]] if node.module and not node.level else []
+            elif isinstance(node, ast.Import):
+                roots = [alias.name.split(".")[0] for alias in node.names]
+            else:
+                continue
+            for root in roots:
+                sibling = directory / f"{root}.py"
+                if sibling.is_file():
+                    queue.append(sibling.resolve())
+    return seen
+
+
 def what_ran(package_dir: Path, tool_path: Path) -> dict[str, str]:
     """``{source name: sha256}`` for a package's modules plus the tool that invoked them.
 
@@ -462,12 +500,24 @@ def what_ran(package_dir: Path, tool_path: Path) -> dict[str, str]:
     sets on disk. Recording it here too would make a second owner of one answer, free to
     disagree with the first -- and the disagreement would surface as a shard-contract
     failure on a shard set that is fine. This is not an oversight to be tidied up.
+
+    **What the tool drags in with it.** A runner imports from beside itself, and those
+    modules decide what the row says. ``real_ft_run.py`` takes ``_letter_floor`` and
+    ``_span_floor`` from ``ft_toy_run.py`` -- the floors every FT gate is measured against;
+    both real runners take ``n_gpus_for_device`` from ``run_cost.py``, which decides
+    ``n_gpus`` and therefore whether rule 4's human-yes gate can fire at all. Hashing the
+    invoking file alone left every one of those invisible, which is the defect this function
+    exists to close, in the function itself.
+
+    So the closure is COMPUTED, not listed: the tool's imports of siblings in its own
+    directory, followed transitively. A hand-kept list is the shape this repository spent
+    2026-09-21 finding five times -- a complete enumeration written down once and then not
+    maintained. Unrelated tools stay out, because a digest that moved when any tool in the
+    tree changed would answer "something changed" so often that it answered nothing.
     """
     sources = dict(code_fingerprint(package_dir))
-    tool = tool_path.resolve()
-    sources[f"{tool.parent.name}/{tool.name}"] = hashlib.sha256(
-        tool.read_bytes()
-    ).hexdigest()
+    for name, path in _tool_closure(tool_path).items():
+        sources[name] = hashlib.sha256(path.read_bytes()).hexdigest()
     return dict(sorted(sources.items()))
 
 

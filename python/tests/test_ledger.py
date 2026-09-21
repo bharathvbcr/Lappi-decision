@@ -1339,3 +1339,119 @@ def test_a_package_directory_with_no_sources_is_refused() -> None:
 
     with pytest.raises(RuntimeError, match="refusing to return an empty fingerprint"):
         what_ran(REPO / "ledger", REPO / "tools" / "real_ft_run.py")
+
+
+
+# -- and what the tool drags in with it ----------------------------------------------------
+#
+# The first version of what_ran hashed qd_train plus the invoking file, and nothing else. So
+# the modules a runner imports from beside itself were invisible -- including the two added
+# on the day it was written: run_cost.py, which decides n_gpus and therefore whether rule 4's
+# human-yes gate can fire, and ft_toy_run.py, which owns the floors every FT gate is measured
+# against. The provenance metric had the defect it exists to close.
+
+
+def _fake_tool(directory: Path, name: str, body: str) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / name
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def test_the_closure_covers_the_siblings_a_real_runner_imports() -> None:
+    """Asserted on the real tools, because the synthetic cases below cannot show that THIS
+    repository's runners actually pull these in."""
+    from qd_train.ledger import what_ran
+
+    sources = what_ran(REPO / "python" / "qd_train", REPO / "tools" / "real_ft_run.py")
+    for sibling in ("ft_toy_run.py", "repo_git.py", "run_cost.py"):
+        assert f"tools/{sibling}" in sources, (
+            f"{sibling} decides what a real_ft_run row says and is not fingerprinted"
+        )
+
+    rung0 = what_ran(REPO / "python" / "qd_train", REPO / "tools" / "rung0_real_run.py")
+    assert "tools/run_cost.py" in rung0
+    assert "tools/repo_git.py" in rung0
+    # And it does NOT drag in the FT lane's tool, which it does not import.
+    assert "tools/ft_toy_run.py" not in rung0
+
+
+def test_editing_a_sibling_moves_the_digest(tmp_path) -> None:
+    """The property the whole fix rests on. Before it, editing `run_cost.py` -- which
+    decides the GPU count that decides whether rule 4 can fire -- left the digest
+    identical."""
+    from qd_train.ledger import what_ran_state
+
+    package = tmp_path / "pkg"
+    _fake_tool(package, "only.py", "X = 1\n")
+    tools = tmp_path / "tools"
+    sibling = _fake_tool(tools, "helper.py", "VALUE = 1\n")
+    tool = _fake_tool(tools, "runner.py", "from helper import VALUE\n")
+
+    before = what_ran_state(package, tool)
+    sibling.write_text("VALUE = 2\n", encoding="utf-8")
+    after = what_ran_state(package, tool)
+
+    assert before.value != after.value
+    # The package module, the tool, and the tool's one sibling.
+    assert before.n == after.n == 3
+
+
+def test_the_closure_is_transitive(tmp_path) -> None:
+    """`real_ft_run.py` imports `ft_toy_run.py`, which is where the floor formulas live. A
+    one-level closure would have caught that and missed whatever it imports in turn."""
+    from qd_train.ledger import _tool_closure
+
+    tools = tmp_path / "tools"
+    _fake_tool(tools, "c.py", "Z = 3\n")
+    _fake_tool(tools, "b.py", "from c import Z\n")
+    tool = _fake_tool(tools, "a.py", "from b import Z\n")
+    assert set(_tool_closure(tool)) == {"tools/a.py", "tools/b.py", "tools/c.py"}
+
+
+def test_a_function_level_import_is_followed(tmp_path) -> None:
+    """`real_ft_run.py:2394` imports `real_tokenizer_pipeline` inside a function. A grep
+    anchored at the start of a line misses it; walking the AST does not. That difference is
+    the argument for computing the closure rather than keeping a list -- and it was found
+    by writing the list out by hand and disagreeing with the tool."""
+    from qd_train.ledger import _tool_closure
+
+    tools = tmp_path / "tools"
+    _fake_tool(tools, "late.py", "W = 9\n")
+    tool = _fake_tool(
+        tools, "runner.py", "def go():\n    import late\n    return late.W\n"
+    )
+    assert "tools/late.py" in _tool_closure(tool)
+
+
+def test_an_unrelated_tool_stays_out(tmp_path) -> None:
+    """A digest that moved when any file in `tools/` changed would answer "something
+    changed" so often that it answered nothing. Only what this tool imports."""
+    from qd_train.ledger import _tool_closure
+
+    tools = tmp_path / "tools"
+    _fake_tool(tools, "stranger.py", "NOT_IMPORTED = 1\n")
+    tool = _fake_tool(tools, "runner.py", "X = 1\n")
+    assert set(_tool_closure(tool)) == {"tools/runner.py"}
+
+
+def test_a_cycle_terminates(tmp_path) -> None:
+    """`tools/` has no import cycle today. A function that hung on one would be a worse
+    failure than the one it is fixing, so it is closed over `seen` rather than assumed
+    acyclic."""
+    from qd_train.ledger import _tool_closure
+
+    tools = tmp_path / "tools"
+    _fake_tool(tools, "left.py", "import right\n")
+    tool = _fake_tool(tools, "right.py", "import left\n")
+    assert set(_tool_closure(tool)) == {"tools/left.py", "tools/right.py"}
+
+
+def test_a_third_party_import_is_not_mistaken_for_a_sibling(tmp_path) -> None:
+    """Only files that exist in the tool's own directory. `import json` must not send this
+    looking for `tools/json.py`, and must not fail when it is absent."""
+    from qd_train.ledger import _tool_closure
+
+    tools = tmp_path / "tools"
+    tool = _fake_tool(tools, "runner.py", "import json\nimport numpy as np\n")
+    assert set(_tool_closure(tool)) == {"tools/runner.py"}
