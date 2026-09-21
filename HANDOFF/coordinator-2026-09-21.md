@@ -2325,11 +2325,39 @@ The relaunched arm, first seed, `run_kind=real`, unshuffled:
 | `ece` | **ran** | 0.1879 against a 0.0500 bar, 9 of 15 bins carried mass — **fail** |
 | `paired_margin_vs_linear` | **ran** | **−0.0243**, 95% CI [−0.0660, +0.0174] — **fail** |
 | `shuffled_label` | not_run | correct: this is a real arm, not a permuted one (proved on the 24-seed control) |
-| `ood_abstain`, `needle_hunk_recall`, `privileged_hunk`, `transfer_gate` | not_run | never implemented; each needs a corpus that does not exist |
+| `ood_abstain`, `needle_hunk_recall`, `privileged_hunk`, `transfer_gate` | not_run | see the correction below — they are **not** four of a kind |
 
 So the claim §40 could not make is now made: **four gates and controls reach a row that is a
 measurement**, and the fifth was proved on the control arm. Across the 988 rows before this
 session the count was zero.
+
+### Correction: the remaining four are not four of a kind
+
+§40 grouped them as "named but never built, each needing a corpus that does not exist". That
+is wrong about at least two of them, and the error hid the nearest one.
+
+**`needle_hunk_recall` is built.** `python/qd_train/needle.py` is 354 lines — `build_suite`,
+`score_suite`, `wilson_interval`, `NeedleCase`, `DepthBucket`, `NeedleReport` — with 20 tests
+in a 189-line file. It needs no corpus: `build_suite` **generates** its haystacks from filler
+hunks in five languages, sweeping depth uniformly so every bucket is populated by
+construction. `rg` for importers outside `python/tests/` returns only `gaps.jsonl`,
+`AUDIT/clones.json` and a handoff — documents, not callers. It is the **second** shape,
+built-and-never-called, which is the shape this session already fixed five times.
+
+What blocks it is a type mismatch, not a corpus: `score_suite` takes predicted **hunk
+indices**, and the byte decider emits a choice over options plus a span. Nothing in `docs/`
+maps one to the other, so wiring it means inventing the mapping — a contract decision, and
+not one to make quietly. `GAP-NEEDLE-HUNK-RECALL-IS-BUILT-AND-UNCALLABLE`.
+
+**`privileged_hunk` and `transfer_gate` are specified**, in `docs/hardening.md` §2:
+*"Privileged-hunk control (model sees only the mutated hunk) gives the ceiling the pooled
+model is measured against"* and *"Task-family holdout: two families never enter training. A
+test asserts their identifiers appear in no training shard."* Both are implementable against
+the corpus that now exists.
+
+Only **`ood_abstain`** is genuinely unspecified — one schema line calls `noul_rate` the
+"in-domain abstain rate" and nothing states the gate. So the order is: privileged_hunk and
+transfer_gate first, needle_hunk_recall behind one human decision, ood_abstain last.
 
 ### The finding that outranks all of the above
 
@@ -2433,9 +2461,13 @@ read as more than it is:
 * **No GPU run can produce a promotable row.** Both runners hardcode `quick=True`, because
   the corpus is this repository's own sources rather than the pool the plan names. No flag
   changes this; building the pool does. It is the root blocker and it is data work.
-* **Four gates and controls have no implementation at all** — `ood_abstain`,
-  `needle_hunk_recall`, `privileged_hunk`, `transfer_gate` — and each needs a corpus that
-  does not exist (§40).
+* **Four gates and controls still never reach a row** — `ood_abstain`,
+  `needle_hunk_recall`, `privileged_hunk`, `transfer_gate` — but they are **not** four of a
+  kind, and §40 saying they were is what kept the nearest one unexamined. `needle_hunk_recall`
+  is 354 lines of tested implementation that generates its own corpus and is called by
+  nothing; `privileged_hunk` and `transfer_gate` are specified in `docs/hardening.md` §2 and
+  implementable against the corpus that now exists; only `ood_abstain` is genuinely
+  unspecified (§41, `GAP-NEEDLE-HUNK-RECALL-IS-BUILT-AND-UNCALLABLE`).
 * **The span head is trained on roughly two fifths of natural source**, pending a decision
   that is not an agent's: `GAP-S4-LINE-STARTS-COLLAPSE-UNDER-BPE` measures 92 of 153
   contexts refused, one vocabulary entry causing all 940 losses, and three options with
