@@ -761,3 +761,111 @@ def test_the_toy_runner_this_tool_imports_from_refuses_a_rented_device() -> None
 
     with pytest.raises(ValueError, match="hardware being paid for by the hour"):
         ft_toy_run._control(100, device="cuda")
+
+
+# -- the driver half of the resume-order refusal -------------------------------------------
+#
+# `train_ft` refuses a resume whose corpus order differs from the one the checkpoint was cut
+# from -- it rehashes the skipped prefix and compares. test_backbone.py holds that, through
+# the real step. What it cannot hold is whether THIS tool ever hands the checkpoint over, and
+# a driver that quietly dropped it would run from scratch while reporting a resumed run.
+#
+# That is not hypothetical here. real_ft_run.py:1566 carries the note "The hook nobody
+# passed": `on_checkpoint` existed, was correct, and was never wired, so checkpointing was
+# dead for as long as nobody looked. Same shape, one argument over.
+
+
+def _real_ft_tree():
+    import ast
+
+    return ast.parse((REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8"))
+
+
+def test_the_driver_hands_its_checkpoint_to_the_trainer() -> None:
+    """`_train` must pass `resume_from` into `train_ft`.
+
+    Asserted through the AST rather than on the text, because the argument being present
+    is the claim and its formatting is not: this call has been rewrapped twice today.
+    """
+    import ast
+
+    for node in ast.walk(_real_ft_tree()):
+        if not (isinstance(node, ast.FunctionDef) and node.name == "_train"):
+            continue
+        assert "resume_from" in {a.arg for a in node.args.kwonlyargs} | {
+            a.arg for a in node.args.args
+        }, "_train cannot be told what to resume from"
+        calls = [
+            call
+            for call in ast.walk(node)
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and call.func.id == "train_ft"
+        ]
+        assert calls, "_train no longer calls train_ft; this test is checking nothing"
+        for call in calls:
+            assert "resume_from" in {kw.arg for kw in call.keywords}, (
+                "_train calls train_ft without resume_from, so --resume-from is accepted, "
+                "validated, routed to an arm and then dropped -- the run starts from "
+                "scratch and every check train_ft has passes vacuously, because there is "
+                "no checkpoint for it to compare against"
+            )
+        return
+    raise AssertionError("_train is gone from real_ft_run.py")
+
+
+def test_both_arms_route_the_checkpoint_not_just_the_first() -> None:
+    """Every `_train` call site, because the tool trains two arms.
+
+    An arm that dropped `resume_from` would be the one-of-N shape this repository found
+    four times on 2026-09-21, and it would be invisible: the resumed arm would pass, the
+    other would silently restart, and the row would say both were resumed.
+    """
+    import ast
+
+    sites = [
+        call
+        for call in ast.walk(_real_ft_tree())
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == "_train"
+    ]
+    assert len(sites) >= 2, f"expected both arms to call _train, found {len(sites)}"
+    missing = [
+        site.lineno for site in sites if "resume_from" not in {kw.arg for kw in site.keywords}
+    ]
+    assert not missing, (
+        f"_train call site(s) at line(s) {missing} do not pass resume_from, so that arm "
+        "restarts from scratch while --resume-from reports a resume"
+    )
+
+
+def test_a_checkpoint_reaches_exactly_the_cell_it_was_cut_from() -> None:
+    """The guard that makes the trainer's refusal meaningful rather than constant.
+
+    Handing one checkpoint to every cell of the (tag x seed x device) product resumes the
+    one it belongs to and aborts the rest on a seed or schedule mismatch -- so a tool that
+    passed it everywhere would look correct on the arm that worked and fail the others for
+    a reason that is not a defect. Each site is therefore conditioned on its own cell.
+    """
+    import ast
+
+    for call in ast.walk(_real_ft_tree()):
+        if not (
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and call.func.id == "_train"
+        ):
+            continue
+        keyword = next(kw for kw in call.keywords if kw.arg == "resume_from")
+        assert isinstance(keyword.value, ast.IfExp), (
+            f"the _train call at line {call.lineno} passes resume_from unconditionally; it "
+            "has to be conditioned on the cell the checkpoint was taken from, or every "
+            "other cell aborts on a mismatch that is not a defect"
+        )
+        # And the condition names a cell, rather than something incidental like the device.
+        source = ast.unparse(keyword.value.test)
+        assert "resume_cell" in source, (
+            f"line {call.lineno}: the condition is {source!r}, which does not compare "
+            "against the cell the checkpoint was taken from"
+        )
