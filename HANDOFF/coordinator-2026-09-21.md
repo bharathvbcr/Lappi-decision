@@ -1610,8 +1610,12 @@ GH200 rows' provenance had to be reconstructed by hand with `sha256sum`. Its sco
 
 | tool | why its rows are the ones that need it |
 | --- | --- |
-| `rung0_linear_control.py` | runs on the same rented box, beside the arm it exists to interpret |
+| `rung0_linear_control.py` | its one row is a control arm whose whole purpose is interpreting another run |
 | `real_tokenizer_pipeline.py` | writes the shard sets every FT run downstream trains on |
+
+*(An earlier version of that first cell said this tool "runs on the same rented box, beside
+the arm it exists to interpret." It does not — see §36. The gap was real; the reason was
+invented.)*
 
 Both green throughout. A hardcoded scope is the defect that test catches, one level up from
 the code to the check — the eighth instance today of *a complete list written down and then
@@ -1693,6 +1697,87 @@ partly wrong, and the correction is the point:
    rules a lane had does not make a stale lane re-read them, and re-reading is the actual
    ask. Said precisely rather than dismissed.
 
+## 36. A correction, and the half of §34 that a source test could never have caught
+
+### The claim that was invented
+
+§34 justified giving `rung0_linear_control.py` a closure digest by saying it *"runs on the
+same rented box, beside the arm it exists to interpret."* That was asserted from the shape
+of the tool and never read off a row. The concurrent lane checked it and it is false.
+
+There is **one** linear-control row in this repository: `2988ac80`, written
+`03:35:33Z`, `env.device: cpu`, `env.host: Mac.lan`. It ran here, about thirteen hours
+before the curve, whose first row is `16:14:29Z`. `learning_curve.sh` invokes
+`rung0_real_run.py` and nothing else. Verified in this lane against `ledger/` rather than
+taken from the report.
+
+The gap was real — that row carries no digest — and the reason printed beside it was made
+up. A true finding reached for the wrong reason is still a reason nobody checked, which is
+this repository's own failure mode arriving from the inside. Corrected in the tool's
+comment, in §34's table, and in the gap record. `6efd874`'s commit message keeps the wrong
+claim: amending it would rewrite two commits that cite it, and the correction is better
+placed where it will be read.
+
+### The bigger half: a source test asserts a fact about *this checkout*
+
+The concurrent lane's second point is the one that matters, and it is a limit on the fix
+rather than a flaw in it:
+
+> 65 of 89 `gh200-rung0` rows carry no digest — and they came from `rung0_real_run.py`, a
+> tool that has recorded one since `80cddb8` and was **never missing from that test's
+> scope**. The copy on the box predated the commit.
+
+So there are two halves, and only one is a property of this repository's source:
+
+| half | question | checkable where |
+| --- | --- | --- |
+| **tool** | does the code record provenance? | source — closed by §34 |
+| **deployment** | did the code that *ran* record it? | nowhere in this tree |
+
+§34's test would pass over a repository whose every row was written by sources three
+thousand miles away and six commits stale. It asserts a true fact about six files here.
+
+### Measured, and worse than 65 of 89
+
+| | rows | with a digest |
+| --- | --- | --- |
+| training / smoke | **727** | **28 (3.9%)** |
+| build | 205 | 0 — correct; a build row is identified by its commands and toolchain |
+
+And the part that closes off the obvious alternative: **`code_commit` cannot make this
+distinction, by measurement.** `8b9df39bf816d149efc108e3581ab4ba8192688f-dirty` sits on
+**389 rows without a digest and 24 with one** — the same string, both sides. The box is
+synced by *copying* files into a clone pinned at an old commit, so its commit is the
+clone's and its `-dirty` bit is permanent. A commit string that appears on both sides of a
+distinction cannot be used to make it.
+
+699 of 727 training rows in this repository are pinned by nothing but that string.
+
+### What can still be done about it, and what cannot
+
+The 699 cannot be fixed. The ledger is append-only and those rows say what they were
+written with; rewriting them would be inventing provenance, which is worse than lacking it.
+
+The **700th** can be prevented, and the deployment half is visible here after all — not in
+any source file, but in the *rows*, at the moment they are brought back.
+`python/tests/test_ledger_provenance.py` pins the digest-less inventory per ledger file and
+fails when a training row arrives without one, whoever wrote it and wherever it ran. It
+needs no ssh and trusts nothing the box says about itself: a row either carries a digest or
+it does not.
+
+Injected and confirmed: two digest-less rows appended to a capacity file, as a stale box
+would return them, fail with *"26 without a digest, 24 known"* and the instruction to check
+the deployment before the tool — because that is what happened.
+
+`tools/sync_box.sh`'s digest comparison is the same check pointed the other way: before a
+run rather than after it. Two checks, two moments, neither able to cover the other's.
+
+### Three more numbers that are now printed rather than derivable
+
+`test_the_coverage_is_reported_as_two_numbers` prints `28 of 727 (3.9%)` on every run.
+*"28 rows carry provenance"* reads like progress; *"28 of 727"* reads like what it is. The
+floor is pinned so it cannot quietly fall, and nothing fails for history being what it is.
+
 ## Where this leaves the final train
 
 On the axes this lane owns:
@@ -1707,6 +1792,9 @@ On the axes this lane owns:
   row from an inverse-t this project now owns, instead of one constant true of one case.
 * **Every tool that writes a row records what produced it**, and both scopes that enforce
   that are derived from the tree rather than listed by hand.
+* **A training row cannot arrive without provenance** — pinned in the ledger rather than in
+  the source, so it holds for rows written on a machine this checkout has never seen. What
+  it cannot do is repair the 699 that already have none (§36).
 * **The one open gap cannot go off quietly** — the six recipe-hash spellings are pinned, so
   the tidy-up that would silently rename every future `recipe_hash` fails with the
   consequence spelled out.
@@ -1731,6 +1819,12 @@ tidy-up, and not a thing to do mid-experiment. Guarding it was separable and is 
    `CLAUDE.md` digest on a row would say which rules a lane ran under, exactly as
    `code_that_ran` does for code. Not built, because recording which rules a lane had does
    not make a stale lane re-read them, and re-reading is the ask.
+4. **`GAP-A-SOURCE-TEST-CANNOT-SEE-WHAT-THE-BOX-ACTUALLY-RAN`.** 699 of 727 training rows
+   carry no closure digest, and `code_commit` cannot distinguish the ones that do — the same
+   `-dirty` string sits on 389 without and 24 with. The historical rows are not fixable and
+   the next one is now refused on arrival (§36). What is open is whether the numbers already
+   quoted from those 699 should be re-derived, which is a science call, not an engineering
+   one.
 
 ## First command for the next lane
 

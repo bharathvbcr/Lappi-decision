@@ -214,12 +214,17 @@ def main(argv: list[str] | None = None) -> int:
             "signal ByteDecider does not"
         ),
     ) as recorder:
-        # `code_commit` is "<sha>-dirty" for any uncommitted change at all, and on the
-        # rented box -- which is synced by COPYING files into a clone pinned at an old
-        # commit -- that is its permanent state. This control runs there, beside the arm
-        # it exists to interpret, so the digest of what actually executed is the only
-        # thing pinning its rows. Four runners had this and the two that also write rows
-        # did not.
+        # `code_commit` is "<sha>-dirty" for any uncommitted change at all, so the digest
+        # of what actually executed is what pins a row. Four runners recorded it and the
+        # two that also write rows did not; this was one of them.
+        #
+        # Its one existing row, 2988ac80, ran on this Mac (`device: cpu`, host Mac.lan,
+        # 03:35:33Z) -- NOT on the rented box, and not alongside the learning curve, whose
+        # first row is 16:14:29Z. An earlier version of this comment said otherwise; the
+        # concurrent lane checked `learning_curve.sh`, which invokes `rung0_real_run.py`
+        # and nothing else. The gap was real and the justification was not, which is worth
+        # leaving in place: a true finding reached for the wrong reason is still a reason
+        # nobody checked.
         recorder.metric(
             "code_that_ran", what_ran_state(REPO / "python" / "qd_train", Path(__file__))
         )
