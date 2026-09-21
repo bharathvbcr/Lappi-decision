@@ -1,0 +1,77 @@
+{
+  "measured": "2026-09-20",
+  "what": "How much of a real qd-mutate corpus survives rung 0's byte context window, by width. to_decision keeps the TAIL of the post-mutation file and raises SpanOutsideWindow when the gold span falls in the dropped head, so the window decides how much corpus is usable at all.",
+  "why": "docs/lappi.md calls capacity 'the first thing to raise if rung 0 underperforms'. This is the prior question -- whether there is enough corpus to underperform on. At ByteDeciderConfig's default of 1024, 91% of this corpus is refused, so a run at that width measures its truncation.",
+  "corpus": {
+    "rev": "261c538",
+    "pool_files": 175,
+    "examples": 2156,
+    "example_files": 169,
+    "generator": "crates/qd-mutate generate, seed 0, --limit 6000"
+  },
+  "gold_class_distribution": {
+    "clean": 37,
+    "stub": 1111,
+    "logic": 647,
+    "cosmetic": 361
+  },
+  "majority_class_baseline": 0.5153,
+  "mutation_classes": [
+    "stub",
+    "logic",
+    "cosmetic",
+    "clean"
+  ],
+  "clean_share_note": "clean is 1.7% of EXAMPLES although --clean-permille defaults to 200 (20%). The flag is per POOL RECORD, and a clean record yields one example while a mutated record yields many, so the example-level rate is an order of magnitude below the record-level setting. 'The model must be able to say this change is fine' is being taught on 1.7% of the corpus.",
+  "by_width": {
+    "512": {
+      "kept": 137,
+      "share": 0.0635,
+      "refused": {
+        "SpanOutsideWindow": 2019
+      }
+    },
+    "1024": {
+      "kept": 195,
+      "share": 0.0904,
+      "refused": {
+        "SpanOutsideWindow": 1961
+      }
+    },
+    "2048": {
+      "kept": 335,
+      "share": 0.1554,
+      "refused": {
+        "SpanOutsideWindow": 1821
+      }
+    },
+    "4096": {
+      "kept": 574,
+      "share": 0.2662,
+      "refused": {
+        "SpanOutsideWindow": 1582
+      }
+    },
+    "8192": {
+      "kept": 1066,
+      "share": 0.4944,
+      "refused": {
+        "SpanOutsideWindow": 1090
+      }
+    },
+    "16384": {
+      "kept": 1511,
+      "share": 0.7008,
+      "refused": {
+        "SpanOutsideWindow": 645
+      }
+    },
+    "32768": {
+      "kept": 1862,
+      "share": 0.8636,
+      "refused": {
+        "SpanOutsideWindow": 294
+      }
+    }
+  }
+}

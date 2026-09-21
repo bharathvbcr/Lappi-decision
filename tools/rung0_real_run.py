@@ -301,6 +301,10 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
     model.eval()
     choice_hit = choice_n = 0
     start_hit = end_hit = span_n = 0
+    # Chance for a POINTER is 1/candidates, not 0. A span head choosing uniformly among a
+    # row's line starts scores that, so it is the number a measured span accuracy has to
+    # beat -- and it is accumulated per row because rows have different line counts.
+    span_chance = 0.0
     with torch.no_grad():
         for plan in plans:
             ctx = torch.tensor(plan.context_ids, dtype=torch.long, device=device)
@@ -326,6 +330,9 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
                     gold_end = int(span_plan.gold_end[k])
                     start_hit += 1 if int(start_rows[k].argmax()) == gold_start else 0
                     end_hit += 1 if int(end_rows[k].argmax()) == gold_end else 0
+                    # `serving_scores` returns exactly the rows a runtime would accept, so
+                    # its length is the real number of choices this pointer had.
+                    span_chance += 1.0 / max(1, int(start_rows[k].numel()))
                     span_n += 1
     model.train()
     return {
@@ -334,11 +341,23 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
         "span_start_top1": start_hit / span_n if span_n else 0.0,
         "span_end_top1": end_hit / span_n if span_n else 0.0,
         "span_n": span_n,
+        "span_chance": span_chance / span_n if span_n else 0.0,
     }
 
 
-def _accuracy_gate(measured: float, baseline: float, *, n: int, what: str) -> TriState:
-    """Whether the model beat answering the majority class, carrying both numbers.
+def _accuracy_gate(
+    measured: float, baseline: float, *, n: int, what: str, baseline_name: str
+) -> TriState:
+    """Whether the model beat the trivial answer, carrying both numbers.
+
+    ``baseline`` is passed rather than assumed because the trivial answer is not the same
+    for the two heads, and getting that wrong is how a head that learned nothing reports as
+    passing. For the CHOICE head it is the majority class: ``stub`` is 51.5% of this corpus,
+    so answering one constant scores 51.5%. For the SPAN head it is **chance over the
+    candidate line starts**, 1/candidates -- not 0. An earlier version of this tool passed
+    0.0 for the span baseline and duly recorded ``passed=True`` for a span head scoring
+    0.6%, which is the exact failure CLAUDE.md names: a check that could not distinguish
+    anything reporting like one that ran and passed.
 
     ``NotRun`` on an empty evaluation set rather than 0.0: nothing was measured, and a 0%
     reading would look like a model that failed rather than a measurement that did not
@@ -348,7 +367,7 @@ def _accuracy_gate(measured: float, baseline: float, *, n: int, what: str) -> Tr
         return NotRun(
             reason=(
                 f"no {what} rows were evaluated, so there is no accuracy to compare against "
-                "the majority-class baseline"
+                f"the {baseline_name}"
             )
         )
     return Ran(
@@ -357,8 +376,8 @@ def _accuracy_gate(measured: float, baseline: float, *, n: int, what: str) -> Tr
         n=round(measured * n),
         n_total=n,
         detail=(
-            f"{what} top-1 {measured:.1%} of {n} held-out rows, against a majority-class "
-            f"baseline of {baseline:.1%}. The gap is {measured - baseline:+.1%}; a model at "
+            f"{what} top-1 {measured:.1%} of {n} held-out rows, against a {baseline_name} "
+            f"of {baseline:.1%}. The gap is {measured - baseline:+.1%}; a model at "
             "the baseline has learned the prior and nothing else."
         ),
     )
@@ -567,15 +586,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                     baseline,
                     n=int(after["choice_n"]),  # type: ignore[index]
                     what="choice",
+                    baseline_name="majority-class baseline",
                 ),
             )
             recorder.metric(
-                "val_span_start_top1",
+                "val_span_start_top1_over_chance",
                 _accuracy_gate(
                     float(after["span_start_top1"]),  # type: ignore[index]
-                    0.0,
+                    float(after["span_chance"]),  # type: ignore[index]
                     n=int(after["span_n"]),  # type: ignore[index]
                     what="span start",
+                    baseline_name="uniform-pointer chance over the candidate line starts",
+                ),
+            )
+            recorder.metric(
+                "val_span_end_top1_over_chance",
+                _accuracy_gate(
+                    float(after["span_end_top1"]),  # type: ignore[index]
+                    float(after["span_chance"]),  # type: ignore[index]
+                    n=int(after["span_n"]),  # type: ignore[index]
+                    what="span end",
+                    baseline_name="uniform-pointer chance over the candidate line starts",
                 ),
             )
             recorder.metric(
@@ -601,7 +632,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"(baseline {baseline:.1%}, {int(after['choice_n'])} rows)  "  # type: ignore[index]
             f"span start {float(after['span_start_top1']):.1%} "  # type: ignore[index]
             f"end {float(after['span_end_top1']):.1%} "  # type: ignore[index]
-            f"({int(after['span_n'])} rows)  "  # type: ignore[index]
+            f"(chance {float(after['span_chance']):.1%}, "  # type: ignore[index]
+            f"{int(after['span_n'])} rows)  "  # type: ignore[index]
             f"{run['wall_clock_s']:.1f}s  {run['optimizer_steps']} steps"
         )
 

@@ -105,20 +105,57 @@ def test_the_baseline_is_the_majority_class_share() -> None:
 def test_a_model_at_the_baseline_does_not_pass() -> None:
     """The gate's whole point. On this corpus ``stub`` is 51.5% of the rows, so 51.5%
     accuracy is what answering one constant scores -- evidence of nothing."""
-    at = tool._accuracy_gate(0.515, 0.515, n=160, what="choice")
+    at = tool._accuracy_gate(
+        0.515, 0.515, n=160, what="choice", baseline_name="majority-class baseline"
+    )
     assert isinstance(at, Ran)
     assert not at.passed
 
-    above = tool._accuracy_gate(0.60, 0.515, n=160, what="choice")
+    above = tool._accuracy_gate(
+        0.60, 0.515, n=160, what="choice", baseline_name="majority-class baseline"
+    )
     assert isinstance(above, Ran)
     assert above.passed
     assert "+8.5%" in above.detail
 
 
+def test_a_span_head_at_chance_does_not_pass() -> None:
+    """The defect this tool shipped with for one run, pinned.
+
+    A pointer's trivial answer is 1/candidates, never 0. The first version passed 0.0 as
+    the span baseline and recorded ``passed=True`` for a span head scoring 0.6% over ~100
+    candidate lines -- a head doing nothing, reported as a head that beat its bar. Ledger
+    rows 8b7291cd, 3767e56b and d9005962 carry that verdict and cannot be rewritten.
+    """
+    chance = 1 / 100
+    at_chance = tool._accuracy_gate(
+        chance, chance, n=160, what="span start", baseline_name="uniform-pointer chance"
+    )
+    assert isinstance(at_chance, Ran)
+    assert not at_chance.passed
+
+    # The measured numbers from the 3-seed run, against the chance they have to beat.
+    for measured in (0.025, 0.006, 0.031):
+        state = tool._accuracy_gate(
+            measured, chance, n=160, what="span start", baseline_name="uniform-pointer chance"
+        )
+        assert isinstance(state, Ran)
+        # Not asserting these fail -- 2.5% and 3.1% do exceed 1% chance. What is asserted
+        # is that the comparison happens against chance at all: with the old 0.0 baseline
+        # every one of them passed, including 0.6%, which is BELOW chance.
+        assert state.passed == (measured > chance)
+    below = tool._accuracy_gate(
+        0.006, chance, n=160, what="span start", baseline_name="uniform-pointer chance"
+    )
+    assert not below.passed, "0.6% is below 1% chance and must not report as passing"
+
+
 def test_an_empty_evaluation_set_reads_as_not_run_not_as_zero() -> None:
     """0% and "nothing was measured" are different facts, and only one of them is about
     the model. ``NotRun`` has no ``passed`` field to be misread as a failure either."""
-    state = tool._accuracy_gate(0.0, 0.5, n=0, what="span start")
+    state = tool._accuracy_gate(
+        0.0, 0.5, n=0, what="span start", baseline_name="majority-class baseline"
+    )
     assert isinstance(state, NotRun)
     assert not hasattr(state, "passed")
 
