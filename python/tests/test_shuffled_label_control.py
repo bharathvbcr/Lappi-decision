@@ -259,6 +259,76 @@ def test_the_degenerate_control_is_recorded_on_every_run_not_only_control_runs()
     )
 
 
+# --------------------------------------------------------------------------
+# 2c -- the gate that was built and never called
+# --------------------------------------------------------------------------
+
+
+def _ece_state():
+    pytest.importorskip("torch", reason="rung0_real_run imports torch at module scope")
+    from rung0_real_run import ece_state
+
+    return ece_state
+
+
+def test_a_calibrated_model_clears_the_ece_bar_and_an_overconfident_one_does_not():
+    """`calibration_fit.ece_gate` says it in its own docstring: "the ece gate
+    qd_train.ledger has always listed and nothing ever computed". It was built and never
+    called, which is a third shape again -- not missing, not broken, just unreferenced.
+
+    Thresholds stay at the function's defaults here and at the call site: rule 2 makes a
+    threshold read-only to an agent, and passing one from the caller is retuning it.
+    """
+    ece_state = _ece_state()
+    rng = __import__("random").Random(0)
+
+    # Confidence matches accuracy: 90% confident and right about 90% of the time.
+    calibrated = []
+    labels = []
+    for _ in range(400):
+        right = rng.random() < 0.9
+        calibrated.append([0.9, 0.0334, 0.0333, 0.0333])
+        labels.append(0 if right else 1)
+    ok = ece_state(calibrated, labels)
+    assert isinstance(ok, Ran) and ok.passed, ok.detail
+
+    # Same accuracy, asserted at 99.7%: the gap between confidence and correctness is what
+    # ECE measures, and it is what makes a calibrated abstention rule impossible.
+    overconfident = [[0.997, 0.001, 0.001, 0.001] for _ in range(400)]
+    bad = ece_state(overconfident, labels)
+    assert isinstance(bad, Ran) and not bad.passed, bad.detail
+
+
+def test_ece_refuses_when_the_distributions_and_the_golds_are_not_the_same_examples():
+    """The failure that would score predictions against the wrong answers, silently."""
+    ece_state = _ece_state()
+    verdict = ece_state([[0.25] * 4] * 120, [0] * 119)
+    assert not isinstance(verdict, Ran)
+    assert "same examples in the same order" in verdict.reason, verdict.reason
+
+
+def test_ece_refuses_ragged_and_empty_input():
+    ece_state = _ece_state()
+    ragged = ece_state([[0.25, 0.25, 0.25, 0.25], [0.5, 0.5]], [0, 1])
+    assert not isinstance(ragged, Ran) and "ragged" in ragged.reason, ragged
+
+    empty = ece_state([], [])
+    assert not isinstance(empty, Ran) and "no held-out rows" in empty.reason, empty
+
+
+def test_the_ece_gate_is_recorded_on_every_run():
+    source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
+    assert 'recorder.gate(\n                "ece"' in source, (
+        "rung0_real_run.py never calls recorder.gate('ece'), so the gate stays not_run on "
+        "every row it writes"
+    )
+    marker = source.index('recorder.gate(\n                "ece"')
+    assert "if args.shuffle_train_labels:" not in source[:marker][-300:], (
+        "the ece gate is recorded inside the shuffled-label branch, so ordinary runs would "
+        "keep reporting it as not_run"
+    )
+
+
 def test_a_shuffled_model_at_chance_passes_and_above_the_ceiling_fails():
     """The control's own verdict, on the two cases that matter.
 

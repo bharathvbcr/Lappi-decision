@@ -81,6 +81,7 @@ from qd_train.byte_batch import BatchPlan, plan_batch, span_supervision  # noqa:
 from qd_train.byte_context import ID_PAD, SpanOutsideWindow  # noqa: E402
 from qd_train.byte_decider import ByteDeciderConfig  # noqa: E402
 from qd_train.byte_train import Rung0Model, Rung0Step, train_rung0  # noqa: E402
+from qd_train.calibration_fit import ece_gate  # noqa: E402
 from qd_train.eval_harness import degenerate_head_check, shuffled_label_control  # noqa: E402
 from qd_train.heads import plan_span_batch, serving_scores  # noqa: E402
 from qd_train.ledger import (  # noqa: E402
@@ -497,6 +498,38 @@ def degenerate_head_state(rows: Sequence[Sequence[float]]) -> TriState:
             )
         )
     return degenerate_head_check(np.asarray(rows, dtype=np.float64))
+
+
+def ece_state(rows: Sequence[Sequence[float]], labels: Sequence[int]) -> TriState:
+    """``ece_gate`` over the held-out distributions, refusing the same ragged case.
+
+    Kept beside :func:`degenerate_head_state` and refusing on the same grounds: zero-padding
+    a short row would make the model look MORE confident than it was, and confidence is
+    exactly what a calibration error measures. The length disagreement is checked too --
+    probabilities and golds that have drifted apart would silently score the wrong pairs.
+    """
+    if not rows:
+        return NotRun(reason="the ECE gate had no held-out rows to read")
+    if len(rows) != len(labels):
+        return NotRun(
+            reason=(
+                f"{len(rows)} held-out distribution(s) against {len(labels)} gold label(s); "
+                "these must be the same examples in the same order or the gate scores "
+                "predictions against the wrong answers"
+            )
+        )
+    widths = {len(r) for r in rows}
+    if len(widths) != 1:
+        return NotRun(
+            reason=(
+                f"held-out choice distributions are ragged ({sorted(widths)} columns), and "
+                "padding them would overstate the model's confidence, which is the quantity "
+                "a calibration error is about"
+            )
+        )
+    return ece_gate(
+        np.asarray(rows, dtype=np.float64), np.asarray(labels, dtype=int)
+    )
 
 
 def _accuracy_gate(
@@ -1188,6 +1221,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             recorder.control(
                 "degenerate_head",
                 degenerate_head_state(after["choice_probs"]),  # type: ignore[index,arg-type]
+            )
+            # The `ece` gate, likewise never computed on any row. `calibration_fit.ece_gate`
+            # says so in its own docstring -- "the ece gate qd_train.ledger has always
+            # listed and nothing ever computed" -- so it was built and never called. It
+            # needs the same distributions the control above reads, plus the held-out gold.
+            # Its threshold and bin count are left at the function's defaults: rule 2 makes
+            # a threshold read-only to an agent, and passing one here would be retuning it
+            # from the call site.
+            recorder.gate(
+                "ece",
+                ece_state(
+                    after["choice_probs"],  # type: ignore[index,arg-type]
+                    [d.gold_option for d in val_d],
+                ),
             )
             if args.shuffle_train_labels:
                 recorder.control(
