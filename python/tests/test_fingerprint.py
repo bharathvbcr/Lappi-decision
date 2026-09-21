@@ -106,6 +106,19 @@ def test_the_fingerprint_cannot_be_edited_out_to_make_a_stale_set_look_current()
 
     Without this, the remedy for a refusal is to delete one key from a JSON file.
     """
+    # The mechanism first, because the two `pytest.raises` below key on a message that
+    # predates this field -- "modified after it was written" is `from_json`'s general
+    # tamper text. If some future change made that message fire here for an unrelated
+    # reason, those two would pass while the fingerprint went uncovered. This one cannot
+    # be satisfied by any exception: two headers differing ONLY in their fingerprint must
+    # hash differently, or shard_hash does not cover it.
+    one = _header(code_fingerprint={"render.py": "1" * 64})
+    two = _header(code_fingerprint={"render.py": "2" * 64})
+    assert one.shard_hash() != two.shard_hash(), (
+        "two headers differing only in code_fingerprint hash the same, so the fingerprint "
+        "is not covered by shard_hash and can be edited out of a header on disk"
+    )
+
     raw = _header(code_fingerprint=code_fingerprint()).to_json()
     raw.pop("code_fingerprint")
     with pytest.raises(ShardContractViolation, match="modified after it was written"):

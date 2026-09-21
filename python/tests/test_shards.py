@@ -2121,7 +2121,10 @@ def test_opening_a_set_whose_generating_code_moved_is_refused(
         ShardReader(out, config=snap.config, repo_root=snap.root)
     # Raw, because the dot is a metacharacter and the point of this assertion is that the
     # refusal names the MODULE -- a pattern that would also match "renderXpy" is not that.
-    with pytest.raises(ShardContractViolation, match=r"render\.py"):
+    # Anchored to the drift sentence rather than to the bare filename: "render.py" alone
+    # would be satisfied by any ShardContractViolation that happened to mention the path,
+    # which is the shape of assertion that passes against the absence of the feature.
+    with pytest.raises(ShardContractViolation, match=r"qd_data has changed[^\n]*render\.py"):
         ShardReader(out, config=snap.config, repo_root=snap.root)
 
 
