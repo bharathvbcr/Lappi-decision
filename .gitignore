@@ -1,6 +1,13 @@
 # Rust
 /target
 **/*.rs.bk
+# Cargo.lock IS tracked: qd-preflight is a binary, and this repo pins its Python
+# stack in stack/requirements.lock for the same reason -- a number is only
+# reproducible from the versions that produced it.
+
+# Local code-intelligence index (DevMap). Rebuildable from the tree by
+# `devmap build`, and a multi-megabyte SQLite store that no reader needs.
+/.devmap/
 
 # Python
 __pycache__/

@@ -281,6 +281,20 @@ class PromotionVerdict:
         return f"{head} ({len(self.rows)} row(s))\n{body}" if body else head
 
 
+def _states_partial_coverage(result: Ran) -> bool:
+    """True when a result states its coverage and that coverage is short of the population.
+
+    Unstated coverage (``n is None``) is deliberately **not** treated as partial. Many
+    gates are a single observation with no population to sample from, and refusing
+    those would make promotion unreachable rather than honest.
+
+    ``Ran.is_complete_coverage`` answers False for unstated coverage, which is the
+    right answer to "did this see everything?" and the wrong condition to refuse on —
+    so the two questions are asked separately here.
+    """
+    return result.n is not None and not result.is_complete_coverage
+
+
 def _git_commit(repo: Path) -> str:
     """HEAD, with a -dirty suffix when the tree is not clean.
 
@@ -364,9 +378,15 @@ class Ledger:
     def promotion_verdict(self, seed_family: str) -> PromotionVerdict:
         """May the rows sharing this seed family promote a decision?
 
-        All five conditions from docs/ledger-schema.md, each refusal itemized.
-        Condition 4 is the one that matters: a `not_run` gate BLOCKS promotion.
+        All six conditions from docs/ledger-schema.md, each refusal itemized.
+
+        Condition 4 is the one that matters most: a `not_run` gate BLOCKS promotion.
         It does not pass it, and it does not quietly drop out of the conjunction.
+
+        Condition 6 is coverage. A gate that states `n`/`n_total` and saw fewer than
+        all eligible items has not established itself over the population, so it
+        refuses rather than promoting on a capped sample. Coverage is rendered on
+        every itemized line, per the schema's Coverage rule.
         """
         candidates = [r for r in self.rows() if r.protocol.hash_without_seed() == seed_family]
         ids = tuple(r.row_id for r in candidates)
@@ -389,29 +409,50 @@ class Ledger:
             )
 
         for r in candidates:
-            for gate in REQUIRED_GATES:
-                g = r.gates.get(gate)
-                if g is None:
-                    reasons.append(f"{r.row_id}: gate {gate!r} absent; an absent gate is not a passed gate")
-                elif isinstance(g, NotRun):
-                    reasons.append(f"{r.row_id}: gate {gate!r} did not run ({g.reason}); this blocks promotion")
-                elif not g.passed:
-                    reasons.append(f"{r.row_id}: gate {gate!r} ran and FAILED")
-
-            for ctl in REQUIRED_CONTROLS:
-                c = r.controls.get(ctl)
-                if c is None:
-                    reasons.append(f"{r.row_id}: control {ctl!r} absent")
-                elif isinstance(c, NotRun):
-                    reasons.append(f"{r.row_id}: control {ctl!r} did not run ({c.reason})")
-                elif not c.passed:
-                    reasons.append(f"{r.row_id}: control {ctl!r} ran and FAILED")
+            for kind, required, recorded in (
+                ("gate", REQUIRED_GATES, r.gates),
+                ("control", REQUIRED_CONTROLS, r.controls),
+            ):
+                for name in required:
+                    t = recorded.get(name)
+                    where = f"{r.row_id}: {kind} {name!r}"
+                    if t is None:
+                        reasons.append(f"{where} absent; an absent {kind} is not a passed one")
+                    elif isinstance(t, NotRun):
+                        reasons.append(f"{where} did not run ({t.reason}); this blocks promotion")
+                    elif not t.passed:
+                        reasons.append(f"{where} ran and FAILED [{t.coverage_str()}]")
+                    elif _states_partial_coverage(t):
+                        # Condition 6. Without this a gate measured on 1 of 1000 eligible
+                        # items promoted exactly like one measured on 1000 of 1000: the
+                        # verdict never looked at coverage at all.
+                        reasons.append(
+                            f"{where} passed on only {t.coverage_str()} of the eligible "
+                            "population; a capped sample is not complete coverage "
+                            "and does not promote"
+                        )
 
         if reasons:
             return PromotionVerdict(False, tuple(reasons), ids)
+        # Render the weakest coverage any gate or control actually achieved, so a
+        # PROMOTE is never read as "complete coverage" without saying so.
+        stated = [
+            t
+            for r in candidates
+            for t in (*r.gates.values(), *r.controls.values())
+            if isinstance(t, Ran) and t.n is not None
+        ]
+        coverage = (
+            min(stated, key=lambda t: (t.n or 0) / (t.n_total or 1)).coverage_str()
+            if stated
+            else "coverage unstated"
+        )
         return PromotionVerdict(
             True,
-            (f"{len(candidates)} completed rows, seeds {sorted(seeds)}, every gate and control ran and passed",),
+            (
+                f"{len(candidates)} completed rows, seeds {sorted(seeds)}, every gate and "
+                f"control ran and passed at complete coverage (weakest stated: {coverage})",
+            ),
             ids,
         )
 

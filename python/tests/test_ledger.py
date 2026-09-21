@@ -321,3 +321,81 @@ def test_seed_family_groups_rows_that_differ_only_in_seed():
     assert len(fam) == 1
     other = Protocol("different", "t" * 64, "b" * 40, "r" * 64, 1)
     assert other.hash_without_seed() not in fam
+
+
+# --------------------------------------------------------------------------
+# Promotion condition 6: coverage
+#
+# The schema's Coverage rule -- "presenting a capped sample as complete coverage is a
+# bug, not a rounding choice" -- had a renderer (`Ran.coverage_str`) and a predicate
+# (`Ran.is_complete_coverage`) that nothing called. The verdict never looked at
+# coverage, so a gate measured on one of a thousand eligible items promoted exactly
+# like one measured on all thousand.
+# --------------------------------------------------------------------------
+
+def _seed_rows(led: Ledger, gate_value, control_value=None) -> None:
+    """Three clean seeds whose gates carry `gate_value`."""
+    from qd_train.ledger import REQUIRED_CONTROLS, REQUIRED_GATES
+
+    for seed in (1, 2, 3):
+        proto = _protocol(seed)
+        with RunRecorder(led, protocol=proto, run_kind="ft", repo=REPO, env=_env()) as rec:
+            for g in REQUIRED_GATES:
+                rec.gate(g, gate_value())
+            for c in REQUIRED_CONTROLS:
+                rec.control(c, (control_value or gate_value)())
+
+
+def test_a_capped_sample_does_not_promote(tmp_path: Path):
+    """A gate that saw 1 of 1000 eligible items has not established itself over the population."""
+    led = Ledger(tmp_path / "runs.jsonl")
+    _seed_rows(led, lambda: Ran(passed=True, value=1.0, n=1, n_total=1000))
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert not verdict.promoted, str(verdict)
+    assert any("1/1000" in r and "capped sample" in r for r in verdict.reasons), verdict.reasons
+
+
+def test_unstated_coverage_is_not_treated_as_capped(tmp_path: Path):
+    """`n is None` means "no population to sample", not "a sample of unknown size".
+
+    Refusing here would make promotion unreachable for any gate that is a single
+    observation, which is a different bug in the same family.
+    """
+    led = Ledger(tmp_path / "runs.jsonl")
+    _seed_rows(led, lambda: Ran(passed=True, value=1.0))
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert verdict.promoted, str(verdict)
+    assert any("coverage unstated" in r for r in verdict.reasons), verdict.reasons
+
+
+def test_a_promote_states_the_coverage_it_promoted_on(tmp_path: Path):
+    """A PROMOTE that does not say what it saw is the capped-sample bug wearing a hat."""
+    led = Ledger(tmp_path / "runs.jsonl")
+    _seed_rows(led, lambda: Ran(passed=True, value=1.0, n=300, n_total=300))
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert verdict.promoted, str(verdict)
+    assert any("300/300" in r for r in verdict.reasons), verdict.reasons
+
+
+def test_every_itemized_refusal_carries_its_coverage(tmp_path: Path):
+    """The schema's Coverage rule: a report renders n/n_total. This is the report."""
+    led = Ledger(tmp_path / "runs.jsonl")
+    _seed_rows(led, lambda: Ran(passed=False, value=0.1, n=50, n_total=300))
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert not verdict.promoted
+    failed = [r for r in verdict.reasons if "FAILED" in r]
+    assert failed, verdict.reasons
+    assert all("50/300" in r for r in failed), failed
+
+
+def test_partial_coverage_blocks_a_control_too(tmp_path: Path):
+    """Controls are held to the same coverage rule as gates."""
+    led = Ledger(tmp_path / "runs.jsonl")
+    _seed_rows(
+        led,
+        lambda: Ran(passed=True, value=1.0, n=300, n_total=300),
+        control_value=lambda: Ran(passed=True, n=2, n_total=300),
+    )
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert not verdict.promoted, str(verdict)
+    assert any("control" in r and "2/300" in r for r in verdict.reasons), verdict.reasons

@@ -98,11 +98,44 @@ A result may promote a decision only if **all** hold:
 3. Three rows exist sharing a `protocol_hash` that differs only in `seed`
 4. Every gate in `gates` is `state: "ran"` — a `not_run` gate blocks promotion, it does not pass it
 5. Every control in `controls` is `ran` and `passed`
+6. No gate or control that **states** its coverage saw fewer than all eligible items —
+   a `ran/passed` result carrying `n < n_total` refuses, it does not promote
 
 Rule 4 is the one that is easy to get wrong and the reason the tri-state exists.
+
+Rule 6 is the Coverage rule made enforceable. It was specified above and then not
+checked: `promotion_verdict` never looked at `n`/`n_total`, so a gate measured on 1 of
+1000 eligible items promoted exactly like one measured on 1000 of 1000. Coverage is
+now rendered on every itemized line of a verdict, and a stated-but-partial coverage is
+itself a refusal reason.
+
+Coverage that is **unstated** (`n` absent) is deliberately not treated as partial: many
+gates are a single observation with no population to sample, and refusing those would
+make promotion unreachable rather than honest. A `PROMOTE` states the weakest coverage
+it promoted on, so "complete coverage" is never implied by silence.
 
 ## Chain integrity
 
 `prev_row_hash` chains rows. `qd-ledger verify` recomputes the chain and reports the first break.
 An edited or reordered history is detectable; it is not cryptographically prevented (a local
 append-only research log, not a tamper-proof audit log — stated here so nobody claims more).
+
+## Reading the ledger
+
+`python -m qd_train --ledger ledger/runs.jsonl <command>`:
+
+| Command | Answers |
+| --- | --- |
+| `verify` | Is the chain intact? Names the first break if not |
+| `families` | Which seed families are present, and with which seeds |
+| `promotion --seed-family <hash>` | May this family promote? Every refusal itemized |
+| `show [--row-id <id>]` | Each row, every tri-state rendered with its `n/n_total` |
+
+It **renders; it does not judge**. Output uses the schema's own vocabulary
+(`ran passed=true`, `not_run`) rather than a word like PASS of the tool's invention,
+and the only verdict it prints is the one `promotion_verdict` computes from the
+recorded rows. It adds no condition and cannot discharge a gate.
+
+Exit codes: `0` yes/intact, `1` no/broken, `2` the question could not be asked (ledger
+missing or unreadable). `1` and `2` are deliberately distinct — a caller that conflates
+them turns an unreadable record into a settled answer.

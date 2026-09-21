@@ -1,6 +1,12 @@
 [workspace]
 resolver = "3"
-members = ["crates/qd-mutate", "crates/qd-preflight", "crates/qd-runtime"]
+# Only crates that exist on disk. `qd-mutate` and `qd-runtime` are planned (README
+# "Layout") but unwritten, and a workspace member whose manifest is missing makes
+# *every* cargo invocation fail to load the workspace -- including
+# `cargo test -p qd-preflight`. That is how the preflight gate reached main in
+# 1149dc8 without ever being compiled. Add each crate here in the commit that
+# creates it, not before.
+members = ["crates/qd-preflight"]
 
 [workspace.package]
 version = "0.1.0"
