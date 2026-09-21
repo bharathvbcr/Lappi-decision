@@ -993,3 +993,96 @@ rg -n 'prior-sd|sweep_can_resolve' /Users/bharath/Code/research/qwen-decision/to
 Both sweep runners can now state what they could have seen, and neither has been asked to.
 The flags are the cheapest thing on this list and the one that decides whether the next
 null means anything.
+
+# Part 8 — running the thing instead of asserting it
+
+## 23. The pre-registration flags, exercised rather than described
+
+Part 7 §19 added `--prior-sd` and `--target-difference` to both sweep runners and checked
+them with **source-level** tests. That is not the same as knowing the metric reaches a row.
+It is the gap `real_ft_run.py:1566` sat in — *"the hook nobody passed"*, where
+`on_checkpoint` existed, was correct, was never wired, and nothing noticed.
+
+`61130da` closes it with two real rung-0 runs on this Mac: cpu, 2 seeds, 266 train and 89
+val decisions from this repository at HEAD, in
+`ledger/mac-rung0-prereg-2026-09-21.jsonl`. Both tri-state branches exist as rows:
+
+| flags | recorded |
+| --- | --- |
+| omitted | `state: not_run` — *"no prior sd and target difference supplied, so what this sweep could resolve at n=2 is unknown"* |
+| supplied | `state: ran`, `passed: false`, `value: 0.0874`, `n = n_total = 2`, **UNDERPOWERED** |
+
+2 seeds at sd 0.0441 resolve 8.74pp against a 5pp target. Correct, and the kind of thing a
+row should have been saying all along.
+
+**The prior sd could not come from the run itself**, and the reason is the caveat written
+into `--prior-sd`'s help an hour earlier: both of that run's seeds collapsed to a constant
+predictor, so its own spread is 0.0% and would have claimed *infinite* resolution. The
+warning demonstrated itself on its first use. The 0.0441 used instead is from the 4096 e30
+128×2 arm, which fit.
+
+`cost_usd` is 0.0 on those rows and that is honest — `for_device` prices cpu at zero because
+this machine is already bought. `find_forks` reports 1 root group and 1 known divergence
+with the new ledger file present: independent chains group under one root, so a new file
+joins it rather than adding a second.
+
+## 24. Five for five — every instance was found by the other lane
+
+Worth recording as its own observation, because it is no longer anecdote. The shape named in
+Part 6 — *a complete list written down, then one member of it fixed* — occurred five times
+on 2026-09-21:
+
+| # | defect | shipped by | found by |
+| --- | --- | --- | --- |
+| 1 | the zero-price literal: `for_device` fixed 1 of 4 tools, its own docstring saying "four" | coordinator | coordinator, next day's read |
+| 2 | `_what_ran` as two private functions in 1 of 4 runners | coordinator | concurrent lane |
+| 3 | the call-site check's scope read as a complete list | — (latent) | coordinator, via the other lane's red gate |
+| 4 | `power.py` wired into 1 of 2 sweep runners | coordinator | concurrent lane |
+| 5 | an external corpus-thinning script rebuilt while `--train-subsample` already existed | concurrent lane | concurrent lane, on going back to the rule |
+
+**Not one was caught by the lane that shipped it, in the moment of shipping it.** #4 was
+committed minutes after the commit message describing the shape, by the author of that
+message. #5 was written by the lane that had been quoting the check-for-the-tool-first rule
+all afternoon.
+
+That is an argument for the two-lane arrangement rather than for either lane being more
+careful. Care is what both lanes were exercising at the time. What actually worked was a
+second reader with different context and no stake in the change — and, in #3 and #5, going
+back to a written rule *after* the work rather than before it.
+
+The corollary is uncomfortable and should be stated: a single-lane version of today would
+have shipped all five, each under a commit message explaining why it was thorough.
+
+## State at the end of Part 8
+
+| Gate | Result |
+| --- | --- |
+| `make gates` | **PASS** at `61130da` |
+| cargo | 362 / 362 |
+| pytest, torch venv | 1758 passed, 2 skipped |
+| pytest, repo venv | 1493 passed, 20 skipped |
+| `ledger/runs.jsonl` | chain verifies, 194 rows |
+| forks across `ledger/` | 1 root group, 1 known divergence |
+
+## Open
+
+1. **A nonzero-floor FT run at 512 steps**, with `--deterministic`. Unchanged, needs the box.
+2. **The 8192 run at `--train-subsample 0.5`**, validation untouched, with the linear control
+   on the same thinned training set. Held by the concurrent lane, pre-registered. One number
+   to check before it runs: `--prior-sd 0.0200` must come from an arm that **fit**. The e10
+   4096 sds (0.0212, 0.0111, 0.0067) are collapse fingerprints, and at 0.0200 vs 0.0441 vs
+   0.0558 the same sweep reads adequate, marginal, or blind to its own target.
+3. **Whether `code_commit` should refuse `-dirty` for a run that will cost money.** Human's
+   call.
+4. **Whether lanes should re-read CLAUDE.md on a schedule rather than on incident.** Human's
+   call; nothing in this repository can detect the divergence, as Part 6 §18 showed.
+
+## First command for the next lane
+
+```bash
+/Users/bharath/.venvs/ml/bin/python -c "import json;[print(json.loads(l)['metrics']['sweep_can_resolve']) for l in open('/Users/bharath/Code/research/qwen-decision/ledger/mac-rung0-prereg-2026-09-21.jsonl')]"
+```
+
+Four rows: two that say what the sweep could have seen, two that say nobody asked. That
+distinction did not exist in this repository twelve hours ago, and it is the one that decides
+whether the final train's nulls mean anything.
