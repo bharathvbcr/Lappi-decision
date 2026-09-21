@@ -444,6 +444,67 @@ def _accuracy_gate(
     )
 
 
+def _fit_gate(measured: float, train_majority: float, *, n: int) -> TriState:
+    """Whether the choice head beat a constant predictor on its OWN training data.
+
+    Deliberately NOT ``_accuracy_gate`` against the training set, though the arithmetic is
+    the same comparison. The two answer different questions and a failure means opposite
+    things, so they carry opposite verdicts:
+
+    * ``_accuracy_gate`` asks **did it generalise**. At the baseline, the model fitted
+      something that did not transfer, and the corpus is the suspect.
+    * this asks **did it fit at all**. At the training majority share the head is a
+      constant predictor -- it has not learned one conditional thing about a single row it
+      was optimised on -- and no held-out number from that run is evidence about
+      generalisation, because there was nothing to generalise.
+
+    Collapsing them would report the second as the first, which is what happened here for
+    four experiments. Rung 0's held-out accuracy sat exactly at the baseline and was read
+    as "fits but does not transfer" on the strength of a total loss that fell 90%. Train
+    accuracy was not being measured; when it was, it equalled the training majority share
+    to the row, on every seed. ``span_weight`` is why -- at 1.0 the span channel outweighs
+    the choice channel 6.2:1 in an unweighted sum, and at >= 0.5 this gate fails on every
+    seed while below 0.2 it passes. See ``AUDIT/rung0-span-weight-2026-09-20.json``.
+
+    The margin is exact equality, not a tolerance. A head that emits one class scores the
+    majority share to the row, and any real fit clears it by whole percentage points; a
+    tolerance here would only blur the one signal the gate exists to give.
+    """
+    if n == 0:
+        return NotRun(
+            reason=(
+                "no training rows were evaluated, so whether the choice head fitted them "
+                "is unmeasured -- which is not the same as its having failed to"
+            )
+        )
+    return Ran(
+        passed=measured > train_majority,
+        value=measured,
+        n=round(measured * n),
+        n_total=n,
+        detail=(
+            f"choice top-1 {measured:.1%} of {n} rows the model TRAINED on, against a "
+            f"training-set majority share of {train_majority:.1%}. The gap is "
+            f"{measured - train_majority:+.1%}. At or below it the head is a constant "
+            "predictor and the run's held-out number says nothing about generalisation."
+        ),
+    )
+
+
+def _channel_ratio(run: dict[str, object]) -> str:
+    """The span:choice loss ratio at the first step, as a phrase for the summary.
+
+    Guarded rather than divided, because a choice loss of exactly 0.0 at step one is not
+    impossible and a ZeroDivisionError raised while explaining a failed run would replace
+    the explanation with a traceback.
+    """
+    span = float(run["span_first"])  # type: ignore[arg-type]
+    choice = float(run["choice_first"])  # type: ignore[arg-type]
+    if choice <= 0.0:
+        return f"span {span:.3f} against a choice loss of {choice:.3f}, which has no ratio"
+    return f"span {span:.3f} against choice {choice:.3f}, a {span / choice:.1f}:1 ratio"
+
+
 # -- the run -----------------------------------------------------------------------------
 
 
@@ -454,6 +515,7 @@ def train_once(
     baseline: float,
     choice_floor: float,
     train_decisions: int,
+    span_weight: float,
     device: str,
     seed: int,
     epochs: int,
@@ -463,7 +525,12 @@ def train_once(
     torch.manual_seed(seed)
     steps = epochs * len(train_plans)
     model = Rung0Model(config).to(device)
-    step = Rung0Step(model)
+    # `Rung0Step` has always taken a span_weight and this tool has always left it at 1.0,
+    # which is an unweighted sum of two channels whose scales differ by 6.2:1 at
+    # initialisation (span 12.520, choice 2.026). Under that sum the optimiser serves the
+    # pointer, and `GAP-RUNG0-TOTAL-LOSS-IS-THE-SPAN-CHANNELS-LOSS` is the same fact seen
+    # from the reporting side. Exposed so the ratio is a measurement rather than a default.
+    step = Rung0Step(model, span_weight=span_weight)
     cap = WallClockCap(cap_s=3600.0)
     control = RunControl(
         schedule=LRSchedule(peak_lr=3e-3, warmup_steps=max(1, steps // 10), total_steps=steps),
@@ -547,6 +614,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             "is never subsampled, so every point is scored on the same rows"
         ),
     )
+    parser.add_argument(
+        "--span-weight",
+        type=float,
+        default=1.0,
+        help=(
+            "multiplier on the span loss in the summed objective. Must be positive -- "
+            "Rung0Step refuses zero, because that trains the span head on nothing while its "
+            "loss still appears in the log"
+        ),
+    )
     parser.add_argument("--width", type=int, default=ByteDeciderConfig().width)
     parser.add_argument("--layers", type=int, default=ByteDeciderConfig().n_layers)
     parser.add_argument("--heads", type=int, default=ByteDeciderConfig().n_heads)
@@ -581,6 +658,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not 1 <= args.context_bytes <= MAX_CONTEXT_BYTES:
         raise SystemExit(
             f"--context-bytes must be in [1, {MAX_CONTEXT_BYTES}], got {args.context_bytes}"
+        )
+    # Checked here rather than left to `Rung0Step`, which is constructed inside the seed
+    # loop: by then the corpus has been generated and split, and on the GH200 that is
+    # minutes of work thrown away to reach a refusal that was decidable from argv.
+    if not args.span_weight > 0.0:
+        raise SystemExit(
+            f"--span-weight must be positive, got {args.span_weight}; zero would train the "
+            "span head on nothing while its loss still appeared in the log"
         )
     # Both or neither. A corpus without its manifest has no data_snapshot_hash, and a run
     # that invented one would put a fabricated value in the protocol every later comparison
@@ -671,6 +756,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # After any subsample, because the floor is a property of what is actually trained on.
     choice_floor = label_entropy(train_d)
+    # The same reasoning for the train-side majority share, and it is a DIFFERENT number
+    # from the validation baseline above -- the split is by file, so the two sides carry
+    # different class mixes (48.0% against 52.1% on this corpus). Comparing the train
+    # accuracy to the val baseline would be the repo's "one name, two quantities" defect
+    # again, and it would have hidden the collapse: 48.0% read against 52.1% looks like a
+    # model doing slightly worse than the prior rather than one sitting exactly on it.
+    train_majority, train_majority_class = majority_baseline(train_d)
+    print(
+        f"  majority-class share on train: {train_majority:.1%} ({train_majority_class}) "
+        "-- what a constant predictor scores on the rows it is optimised on"
+    )
     print(
         f"  choice-loss floor (label-distribution entropy of the training set): "
         f"{choice_floor:.4f} nats -- a head that reaches this has learned the prior"
@@ -698,6 +794,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             baseline=baseline,
             choice_floor=choice_floor,
             train_decisions=len(train_d),
+            span_weight=args.span_weight,
             device=args.device,
             seed=seed,
             epochs=args.epochs,
@@ -720,6 +817,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "batch_size": args.batch_size,
                         "val_share": args.val_share,
                         "lr": 3e-3,
+                        # The objective is part of the recipe. Without this the five points
+                        # of the span-weight sweep hash identically, and two runs that
+                        # optimised different things become one protocol in the ledger --
+                        # which is exactly the comparison the sweep exists to make.
+                        "span_weight": args.span_weight,
                         "rev": args.rev,
                     },
                     sort_keys=True,
@@ -771,6 +873,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                     n=int(after["span_n"]),  # type: ignore[index]
                     what="span end",
                     baseline_name="uniform-pointer chance over the candidate line starts",
+                ),
+            )
+            recorder.metric(
+                "train_choice_top1_over_train_majority",
+                _fit_gate(
+                    float(run["train_after"]["choice_top1"]),  # type: ignore[index]
+                    train_majority,
+                    n=int(run["train_after"]["choice_n"]),  # type: ignore[index]
                 ),
             )
             recorder.metric(
@@ -829,12 +939,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         "Every row is quick=True and promotes nothing (rule 8). What this establishes is a "
         "floor rung 3 has to beat to justify its cost, measured rather than assumed."
     )
-    if mean <= 0:
+    # Two failures wear the same held-out number and call for opposite fixes, so the
+    # summary names which one happened rather than printing one sentence for both. An
+    # earlier version printed only the second and sent four experiments after capacity,
+    # context and corpus size while the objective was the constraint.
+    collapsed = [
+        r for r in runs
+        if float(r["train_after"]["choice_top1"]) <= train_majority  # type: ignore[index]
+    ]
+    if collapsed:
         print(
-            "\nRung 0 did NOT beat the majority class on held-out files. That is a real "
-            "answer and the ladder's cheapest one: it says raise capacity or context before "
-            "spending another GPU hour on rung 3, and ByteDeciderConfig names capacity as "
-            "the first thing to raise."
+            f"\nThe choice head COLLAPSED TO A CONSTANT PREDICTOR on {len(collapsed)} of "
+            f"{len(runs)} seed(s): train accuracy at or below the training-set majority "
+            f"share of {train_majority:.1%}, on rows it was optimised on. The held-out "
+            "number from those seeds is not evidence about generalisation -- there was no "
+            "fit to generalise. Look at the objective before capacity or corpus: at "
+            f"--span-weight {args.span_weight} the two channels open at "
+            f"{_channel_ratio(runs[0])}, and AUDIT/rung0-span-weight-2026-09-20.json "
+            "measures this gate failing on every seed at >= 0.5 and passing below 0.2."
+        )
+    elif mean <= 0:
+        print(
+            "\nRung 0 fitted its training files and did NOT beat the majority class on "
+            "held-out ones. Unlike a collapse this is a genuine generalisation result, and "
+            "it points at the corpus and the split rather than at the objective."
         )
     return 0
 

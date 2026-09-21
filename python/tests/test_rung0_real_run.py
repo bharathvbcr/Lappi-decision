@@ -334,3 +334,117 @@ def test_the_default_context_is_wider_than_the_config_default() -> None:
     corpus is 91% refused is measuring its truncation, not its model."""
     assert tool.ByteDeciderConfig().max_context_bytes < tool.DEFAULT_CONTEXT_BYTES
     assert tool.DEFAULT_CONTEXT_BYTES <= tool.MAX_CONTEXT_BYTES
+
+
+# -- the objective -----------------------------------------------------------------------
+
+
+def test_the_tool_exposes_the_steps_span_weight() -> None:
+    """The bug this closes, which cost four experiments.
+
+    ``Rung0Step`` has always taken a ``span_weight`` and this tool never passed one, so
+    every rung 0 run before 2026-09-20 trained at the library default of 1.0 -- an
+    unweighted sum of two channels whose losses open at 12.520 and 2.026. A default that
+    is never named in a run's own recipe is not a choice anyone made.
+    """
+    import inspect
+
+    assert "span_weight" in inspect.signature(tool.train_once).parameters
+
+
+def test_a_non_positive_span_weight_is_refused_from_argv(tmp_path) -> None:
+    """Refused at parse time, not inside the seed loop.
+
+    ``Rung0Step`` does refuse it, but it is constructed after the corpus is generated,
+    split and batched; on the GH200 that is minutes of work spent to reach a verdict that
+    was decidable from argv. Fail closed, and fail early.
+    """
+    for bad in ("0", "-0.5"):
+        # Matched on the REFUSAL, not on the flag name. "span-weight" alone also matches
+        # argparse's "unrecognized arguments: --span-weight", so a tool that had never
+        # heard of the flag would have passed this test.
+        with pytest.raises(SystemExit, match="span-weight must be positive"):
+            tool.main(["--out", str(tmp_path), "--rev", "HEAD", "--span-weight", bad])
+
+
+def test_the_span_weight_changes_the_recipe_hash() -> None:
+    """Two runs that optimised different objectives must not share a protocol.
+
+    Without this the five points of the span-weight sweep hash identically and the ledger
+    records one recipe for runs whose train accuracy differs by 29 points -- collapsing
+    the exact comparison the sweep exists to make.
+    """
+    import hashlib
+    import json
+
+    def recipe(span_weight: float) -> str:
+        return hashlib.sha256(
+            json.dumps(
+                {
+                    "epochs": 10,
+                    "batch_size": 16,
+                    "val_share": 0.25,
+                    "lr": 3e-3,
+                    "span_weight": span_weight,
+                    "rev": "HEAD",
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+
+    assert recipe(0.05) != recipe(1.0)
+    source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
+    assert '"span_weight": args.span_weight,' in source
+
+
+# -- fit against generalisation ----------------------------------------------------------
+
+
+def test_a_constant_predictor_does_not_pass_the_fit_gate() -> None:
+    """The measured signature of the collapse. At ``span_weight`` >= 0.5 every seed scored
+    exactly the training-set majority share of 48.0% on its OWN training rows, which is
+    what a head emitting one class scores. That must not read as a model that fitted."""
+    state = tool._fit_gate(0.480, 0.480, n=763)
+    assert isinstance(state, Ran)
+    assert not state.passed
+    assert "constant predictor" in state.detail
+
+
+def test_the_fit_gate_passes_only_above_the_training_majority() -> None:
+    """At ``span_weight`` 0.05 the same corpus reached 73.4% on training rows. The gate has
+    to separate that from 48.0%, or the two regimes are one number in the ledger."""
+    state = tool._fit_gate(0.734, 0.480, n=763)
+    assert isinstance(state, Ran)
+    assert state.passed
+    assert "+25.4%" in state.detail
+
+
+def test_an_unmeasured_training_set_is_not_a_failed_one() -> None:
+    """``NotRun``, not ``passed=False``. Zero rows means the question was never asked, and
+    recording that as a failed fit is how a check that could not run comes to look like a
+    check that ran."""
+    state = tool._fit_gate(0.0, 0.5, n=0)
+    assert isinstance(state, NotRun)
+    assert not hasattr(state, "passed")
+
+
+def test_the_fit_gate_is_not_the_generalisation_gate() -> None:
+    """Same arithmetic, opposite verdicts, so the prose must differ. ``_accuracy_gate`` at
+    the baseline means "fitted something that did not transfer -- suspect the corpus";
+    ``_fit_gate`` at the majority share means "fitted nothing -- the held-out number is not
+    evidence at all". A single helper would report the second as the first."""
+    generalisation = tool._accuracy_gate(
+        0.521, 0.521, n=303, what="choice", baseline_name="majority-class baseline"
+    )
+    fit = tool._fit_gate(0.480, 0.480, n=763)
+    assert isinstance(generalisation, Ran) and isinstance(fit, Ran)
+    assert "held-out rows" in generalisation.detail
+    assert "TRAINED on" in fit.detail
+    assert "says nothing about generalisation" in fit.detail
+
+
+def test_a_zero_choice_loss_does_not_crash_the_failure_summary() -> None:
+    """The ratio is printed only when a run has already failed. A ZeroDivisionError raised
+    while explaining the failure would replace the explanation with a traceback."""
+    assert "no ratio" in tool._channel_ratio({"span_first": 12.52, "choice_first": 0.0})
+    assert "6.2:1" in tool._channel_ratio({"span_first": 12.520, "choice_first": 2.026})

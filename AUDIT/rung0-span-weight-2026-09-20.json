@@ -1,0 +1,57 @@
+{
+  "measured": "2026-09-20",
+  "what": "Rung 0's held-out choice accuracy as a function of span_weight -- the multiplier on the span loss in Rung0Step's summed objective. 5 seeds per point, 8192-byte context, 128x2, 10 epochs, the same file-disjoint split throughout.",
+  "why": "A linear control beats rung 0 on the same split (+5.3% against +0.0%), so the class signal is present and ByteDecider was not extracting it. The first candidate was the objective: the span channel starts at 12.52 against the choice channel's 2.03, a 6.2:1 ratio, and Rung0Step sums them unweighted. rung0_real_run.py had never passed span_weight, so it had always been 1.0.",
+  "host": "192.222.58.240, NVIDIA GH200 480GB, torch 2.10.0+cu128; 111s per seed",
+  "baseline": 0.5215,
+  "baseline_class": "stub",
+  "linear_control_for_comparison": 0.574,
+  "points": [
+    {
+      "span_weight": 0.05,
+      "val_accuracies": [0.587, 0.545, 0.571, 0.617, 0.538],
+      "val_mean": 0.5716,
+      "mean_over_baseline": 0.050,
+      "spread": 0.079,
+      "seeds_above_baseline": "5 of 5",
+      "train_accuracies": [0.734, 0.680, 0.588, 0.543, 0.582]
+    },
+    {
+      "span_weight": 0.1,
+      "val_accuracies": [0.525, 0.535, 0.551, 0.568, 0.488],
+      "mean_over_baseline": 0.012,
+      "spread": 0.079,
+      "seeds_above_baseline": "4 of 5",
+      "train_accuracies": [0.773, 0.684, 0.562, 0.548, 0.600]
+    },
+    {
+      "span_weight": 0.2,
+      "val_accuracies": [0.574, 0.498, 0.488, 0.521, 0.521],
+      "mean_over_baseline": -0.001,
+      "spread": 0.086,
+      "seeds_above_baseline": "1 of 5",
+      "train_accuracies": [0.578, 0.595, 0.654, 0.518, 0.486]
+    },
+    {
+      "span_weight": 0.5,
+      "val_accuracies": [0.521, 0.521, 0.521, 0.518, 0.521],
+      "mean_over_baseline": -0.001,
+      "spread": 0.003,
+      "seeds_above_baseline": "0 of 5",
+      "train_accuracies": [0.480, 0.480, 0.480, 0.478, 0.480]
+    },
+    {
+      "span_weight": 1.0,
+      "note": "the default, and what every rung 0 run before this one used",
+      "mean_over_baseline": 0.0,
+      "spread": 0.0,
+      "train_accuracies": [0.480, 0.480, 0.480],
+      "seeds_above_baseline": "0 of 3"
+    }
+  ],
+  "finding": "The train-accuracy column is the unambiguous signal. At span_weight >= 0.5 it is pinned at 48.0% -- the training set's own majority share -- on every seed, so the choice head never emits a non-majority argmax on data it has seen. Below 0.2 it breaks free and reaches 54-77%. The collapse threshold sits between 0.2 and 0.5, and the shipped default of 1.0 is well inside the collapsed regime.",
+  "held_out_result": "At span_weight=0.05 all five seeds beat the baseline -- 53.8% at worst, 61.7% at best, mean 57.2% against 52.1%. That is +5.0%, which matches the linear control's +5.3% rather than exceeding it, so the objective fix recovers the signal the control proved was there and does not yet go beyond it.",
+  "honest_caveat": "Seed variance is high: 7.9 points between the best and worst seed at the winning setting. The MEAN result is supported by all five seeds sitting above the baseline, but no single seed's number should be quoted. Nothing here is promotable in any case -- rule 8 marks every row quick, because the corpus is this repository rather than the pool the plan names.",
+  "what_this_establishes": "A causal chain, each link measured rather than argued: the two channels differ 6.2:1 in scale at initialisation -> summed unweighted, the optimiser serves the pointer -> the choice head never emits a non-majority argmax even on training data -> held-out accuracy equals the majority class exactly -> and the total loss falls 90% throughout, so nothing in the headline number shows it.",
+  "what_remains": "Two candidates from GAP-RUNG0-A-LINEAR-CONTROL-BEATS-THE-MODEL are still untested: mean-pooling an 8192-byte context into 128 dimensions, and lr=3e-3 chosen for a memorisable toy batch. Also untested: whether a lower span_weight costs span accuracy, which stayed at 0.7-2.0% against 0.5% chance throughout and was never working to begin with."
+}
