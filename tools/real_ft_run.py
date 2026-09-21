@@ -1330,7 +1330,15 @@ def _train(
         # moment is refused before the tower is trained rather than discovered in a loss
         # curve that shows nothing.
         step = QwenDecisionStep(
-            tower, lr=lr, total_steps=steps, span_weight=span_weight, max_width=width,
+            # The same `seed` this run records in its protocol and names its checkpoint
+            # with. Until QwenDecisionStep took one, that seed governed the batch order and
+            # not the span head's initialisation, so two runs at one seed were two runs.
+            tower,
+            seed=seed,
+            lr=lr,
+            total_steps=steps,
+            span_weight=span_weight,
+            max_width=width,
         )
         # `tower.snapshot.name`, not `str(backbone)`: the directory name is the HF revision
         # (refs/main and the snapshot dir agree), while the absolute path is

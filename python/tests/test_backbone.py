@@ -532,7 +532,7 @@ def test_the_step_satisfies_both_trainer_protocols(tmp_path):
     why this step implements the former.
     """
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64)
     assert isinstance(step, TrainStep)
     assert isinstance(step, SpanScoringStep), (
         "without accumulate_span the loop refuses every SLOT_SPAN batch"
@@ -549,7 +549,7 @@ def test_a_real_backbone_trains_through_train_ft_and_the_loss_falls(tmp_path):
     parameters -- which is the claim, and the only one twelve steps can support.
     """
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, total_steps=12, max_width=64)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=12, max_width=64)
     ledger = Ledger(tmp_path / "ledger.jsonl")
     result = train_ft(
         (_ft_batch(i) for i in range(12)),
@@ -574,7 +574,7 @@ def test_a_real_backbone_trains_through_train_ft_and_the_loss_falls(tmp_path):
 
 def test_a_batch_wider_than_the_bound_is_refused_rather_than_clipped(tmp_path):
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=4)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=4)
     with pytest.raises(ValueError, match="would move every row's target_index"):
         step.hidden(_ft_batch(0, width=6))
 
@@ -595,7 +595,7 @@ def test_the_state_is_tensor_refs_and_not_a_private_sidecar(tmp_path):
     from qd_train.run_control import TensorRef
 
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64)
     state = step.state()
 
     assert state["vocab_size"] == TINY_VOCAB
@@ -613,7 +613,7 @@ def test_the_state_is_tensor_refs_and_not_a_private_sidecar(tmp_path):
 def test_the_state_round_trips_the_weights_bit_exactly(tmp_path):
     """A resume that restores almost the right weights is the worst kind."""
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64)
     state = step.state()
 
     original = tower.model.get_input_embeddings().weight.detach().clone()
@@ -628,7 +628,7 @@ def test_the_state_round_trips_the_weights_bit_exactly(tmp_path):
 def test_a_checkpoint_from_a_different_vocabulary_is_refused(tmp_path):
     """A different remap renumbers every row, so the weights mean something else."""
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64)
     state = dict(step.state())
     state["vocab_size"] = TINY_VOCAB + 1
     with pytest.raises(BackboneContractViolation, match="renumbers every row"):
@@ -648,7 +648,7 @@ def test_the_state_survives_a_real_checkpoint_write_and_read(tmp_path):
     from qd_train.run_control import Checkpoint, LossLog, Position
 
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64)
     checkpoint = Checkpoint(
         position=Position(epoch=0, index=1),
         optimizer_step=1,
@@ -679,7 +679,7 @@ def test_the_state_survives_a_real_checkpoint_write_and_read(tmp_path):
 def test_a_state_that_lost_its_tensors_is_refused(tmp_path):
     """A body that came back without its sidecar is not a body with fewer tensors."""
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64)
     state = dict(step.state())
     state["tower"] = {name: None for name in state["tower"]}
     with pytest.raises(BackboneContractViolation, match="not a TensorRef"):
@@ -702,14 +702,14 @@ def test_the_step_builds_the_optimizer_its_towers_spec_names(tmp_path):
 
     master_spec = OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
     tower, _ = _tiny_tower(tmp_path, dtype="bf16", optimizer=master_spec)
-    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64)
     assert isinstance(step.optimizer, MasterWeightAdamW), (
         f"the tower's spec asked for an fp32 master and the step built "
         f"{type(step.optimizer).__name__}"
     )
 
     plain, _ = _tiny_tower(tmp_path / "plain", dtype="bf16", optimizer=ADAMW_BF16)
-    plain_step = QwenDecisionStep(plain, lr=1e-3, total_steps=1, max_width=64)
+    plain_step = QwenDecisionStep(plain, seed=0, lr=1e-3, total_steps=1, max_width=64)
     assert isinstance(plain_step.optimizer, torch.optim.AdamW)
     assert not isinstance(plain_step.optimizer, MasterWeightAdamW)
 
@@ -722,7 +722,7 @@ def test_a_bf16_tower_under_the_master_recipe_trains_and_stays_bf16(tmp_path):
 
     master_spec = OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
     tower, _ = _tiny_tower(tmp_path, dtype="bf16", optimizer=master_spec)
-    step = QwenDecisionStep(tower, lr=1e-2, total_steps=5, max_width=64)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-2, total_steps=5, max_width=64)
     before = tower.model.get_input_embeddings().weight.detach().clone()
 
     batch = _ft_batch(0)
@@ -758,7 +758,7 @@ def _twelve_step_losses(tmp_path: Path, *, legs: tuple[int, ...]) -> list[float]
     losses: list[float] = []
     for leg, n in enumerate(legs):
         tower, _ = _tiny_tower(tmp_path)
-        step = QwenDecisionStep(tower, lr=1e-3, total_steps=12, max_width=64)
+        step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=12, max_width=64)
         result = train_ft(
             (_ft_batch(i) for i in range(consumed + n)),
             epoch=0,
@@ -805,7 +805,7 @@ def test_the_checkpoint_carries_the_optimizer_and_not_only_the_weights(tmp_path)
     the schedule can produce, applied to the most trained weights in the run.
     """
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, total_steps=4, max_width=64)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=4, max_width=64)
     train_ft(
         (_ft_batch(i) for i in range(4)),
         epoch=0,
@@ -841,7 +841,7 @@ def test_the_master_recipe_resumes_too_including_its_fp32_masters(tmp_path):
 
     def leg(where: Path, n: int, resume_from):
         tower, _ = _tiny_tower(where, dtype="bf16", optimizer=master_spec)
-        step = QwenDecisionStep(tower, lr=1e-3, total_steps=8, max_width=64)
+        step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=8, max_width=64)
         assert isinstance(step.optimizer, MasterWeightAdamW)
         return step, train_ft(
             (_ft_batch(i) for i in range(n)),
@@ -875,7 +875,7 @@ def test_a_checkpoint_without_its_optimizer_is_refused_rather_than_half_loaded(t
     looks like a working resume and is not one. That is the failure this whole pair of
     tests exists for, so it is refused by name."""
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, total_steps=2, max_width=64)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=2, max_width=64)
     weights_only = {k: v for k, v in step.state().items() if k != "optimizer"}
     with pytest.raises(BackboneContractViolation, match="optimizer"):
         step.load_state(weights_only)
@@ -887,7 +887,7 @@ def test_the_optimizers_integer_keys_survive_the_json_body(tmp_path):
     the way out. Restoring them as strings would hand torch a state whose parameters it
     cannot match, and it does not complain about that."""
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, total_steps=2, max_width=64)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=2, max_width=64)
     train_ft(
         (_ft_batch(i) for i in range(2)),
         epoch=0,
@@ -903,4 +903,109 @@ def test_the_optimizers_integer_keys_survive_the_json_body(tmp_path):
     assert all(isinstance(k, int) for k in revived["state"]), (
         "the parameter indices came back as strings; torch would not match them to "
         "parameters and would not say so"
+    )
+
+
+# -- the seed has to determine what the run starts from -----------------------------------
+#
+# GAP-REAL-STEP-INITIALISES-ITS-SPAN-HEAD-FROM-AN-UNSEEDED-RNG. `RealFtStep.__init__`, the
+# STAND-IN branch of tools/real_ft_run.py, calls `torch.manual_seed(seed)` on its first
+# line. This class -- the REAL branch, and the one every GH200 measurement ran on -- called
+# nothing, so `seed` in the protocol, in the checkpoint name and in every ledger row
+# governed the batch order and not the parameters. Six runs of one configuration on the
+# GH200 opened at total losses of 253, 279, 298, 335, 383 and 490.
+
+
+def test_two_steps_at_one_seed_start_from_the_same_parameters(tmp_path):
+    """The claim `seed` makes in every ledger row this step writes.
+
+    Built one after the other in ONE process, which is how a sweep runs them: the second
+    construction draws from a global RNG the first one already advanced, so without seeding
+    here it cannot land on the same head twice however the caller was written.
+    """
+    import torch
+
+    tower_a, _ = _tiny_tower(tmp_path / "a")
+    tower_b, _ = _tiny_tower(tmp_path / "b")
+    a = QwenDecisionStep(tower_a, seed=7, lr=1e-3, total_steps=1, max_width=64)
+    b = QwenDecisionStep(tower_b, seed=7, lr=1e-3, total_steps=1, max_width=64)
+
+    for (name, pa), (_, pb) in zip(
+        a.span_head.named_parameters(), b.span_head.named_parameters(), strict=True
+    ):
+        assert torch.equal(pa, pb), (
+            f"span head parameter {name!r} differs between two steps at seed 7: the seed "
+            "names the batch order and not the model the run starts from"
+        )
+
+
+def test_a_different_seed_starts_from_different_parameters(tmp_path):
+    """The other half. A seed that changed nothing would satisfy the test above trivially
+    -- a constant initialiser passes 'same seed, same parameters' and makes the seed a
+    decoration."""
+    import torch
+
+    tower_a, _ = _tiny_tower(tmp_path / "a")
+    tower_b, _ = _tiny_tower(tmp_path / "b")
+    a = QwenDecisionStep(tower_a, seed=7, lr=1e-3, total_steps=1, max_width=64)
+    b = QwenDecisionStep(tower_b, seed=8, lr=1e-3, total_steps=1, max_width=64)
+
+    assert any(
+        not torch.equal(pa, pb)
+        for pa, pb in zip(
+            a.span_head.parameters(), b.span_head.parameters(), strict=True
+        )
+    ), "seeds 7 and 8 produced the same span head, so the seed selects nothing"
+
+
+def test_the_seed_survives_an_arbitrarily_advanced_global_rng(tmp_path):
+    """The case that makes this a constructor's job rather than a driver's.
+
+    A driver could seed before each construction and get the same guarantee -- until the
+    next caller forgets, or until something between the seeding and the construction draws
+    a number. Here the ambient stream is advanced by a different amount before each build,
+    which is what a real process does (a probe, a shuffled plan, a dropout mask), and the
+    two steps must still agree.
+    """
+    import torch
+
+    tower_a, _ = _tiny_tower(tmp_path / "a")
+    tower_b, _ = _tiny_tower(tmp_path / "b")
+
+    torch.manual_seed(1234)
+    torch.randn(17)
+    a = QwenDecisionStep(tower_a, seed=3, lr=1e-3, total_steps=1, max_width=64)
+
+    torch.manual_seed(999)
+    torch.randn(1_003)
+    b = QwenDecisionStep(tower_b, seed=3, lr=1e-3, total_steps=1, max_width=64)
+
+    for (name, pa), (_, pb) in zip(
+        a.span_head.named_parameters(), b.span_head.named_parameters(), strict=True
+    ):
+        assert torch.equal(pa, pb), f"span head parameter {name!r} followed the ambient RNG"
+
+
+def test_the_step_records_the_seed_it_was_built_with(tmp_path):
+    """So a step can be asked, rather than the caller being trusted to have passed what it
+    wrote into the ledger row beside it."""
+    tower, _ = _tiny_tower(tmp_path)
+    assert QwenDecisionStep(tower, seed=11, lr=1e-3, total_steps=1, max_width=64).seed == 11
+
+
+def test_the_real_step_seeds_the_same_way_the_stand_in_does(tmp_path):
+    """One behaviour, one spelling, checked across the two branches of the same tool.
+
+    The defect was not that seeding is hard; it is that the tool has two backbone branches
+    and only one of them did it. A test that reads both sources is what stops the next
+    branch from being added without it.
+    """
+    source = (REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8")
+    assert "torch.manual_seed(seed)" in source, "the stand-in branch stopped seeding"
+    backbone_source = (
+        REPO / "python" / "qd_train" / "backbone.py"
+    ).read_text(encoding="utf-8")
+    assert "torch.manual_seed(seed)" in backbone_source, (
+        "the real branch does not seed, so every run on it is a fresh draw regardless of "
+        "the seed its ledger row records"
     )
