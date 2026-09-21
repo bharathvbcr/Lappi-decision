@@ -695,8 +695,15 @@ def _protocol(*, seed: int, device: str, steps: int, rows: list[_Row], tag: str)
 
 def _recorder(
     ledger: Ledger, *, seed: int, device: str, steps: int, rows: list[_Row], tag: str,
-    run_kind: str, notes: str,
+    run_kind: str, notes: str, wall_clock_s: float | None,
 ) -> RunRecorder:
+    """Both row kinds go through here and they need different answers.
+
+    ``None`` from the ``ft`` path, whose ``with`` block contains ``train_ft``. A measured
+    decode elapsed from :func:`_record_verdict`, which describes work that finished before
+    its recorder existed. 72 of this tool's 156 rows recorded the time taken to write the
+    row, and all 72 were verdict rows.
+    """
     return RunRecorder(
         ledger,
         protocol=_protocol(seed=seed, device=device, steps=steps, rows=rows, tag=tag),
@@ -704,6 +711,7 @@ def _recorder(
         repo=REPO,
         # The device this run chose, not the best one this host offers.
         env=Environment.detect(device=device),
+        wall_clock_s=wall_clock_s,
         quick=True,
         quick_reason=(
             f"toy FT run: {steps} optimizer steps over {len(rows)} synthetic rows on {device}, "
@@ -727,6 +735,8 @@ def _train_once(*, device: str, seed: int, steps: int, rows: list[_Row], ledger:
         )
     recorder = _recorder(
         ledger, seed=seed, device=device, steps=steps, rows=rows, tag=tag, run_kind="ft",
+        # None: the block below contains train_ft, so the recorder's lifetime IS the run.
+        wall_clock_s=None,
         notes=(
             f"tools/ft_toy_run.py [{tag}] -- does qd_train.trainer.train_ft execute, and does "
             "its loss reach the floor this corpus admits. Not an evaluation of any model."
@@ -863,7 +873,7 @@ def _rule3_door() -> dict[str, object]:
 def _record_verdict(
     run: dict[str, object], *, ledger: Ledger, shipped: dict[str, object],
     defect: dict[str, object], floor_check: dict[str, object], door: dict[str, object],
-    rows: list[_Row], steps: int,
+    rows: list[_Row], steps: int, decode_s: float,
 ) -> str:
     """One row per run for what happened **after** the last optimizer step.
 
@@ -874,6 +884,9 @@ def _record_verdict(
     recorder = _recorder(
         ledger, seed=int(run["seed"]), device=str(run["device"]), steps=steps, rows=rows,
         tag="verdict", run_kind="smoke",
+        # The decode this row reports on, not the parent run's duration: an ft row and a
+        # verdict row each claiming the same seconds would double-count the time spent.
+        wall_clock_s=decode_s,
         notes=(
             f"tools/ft_toy_run.py verdict for ft row {run['ft_row_id']} "
             f"({run['device']} seed={run['seed']}): where the abstention decoded, read the way "
@@ -1041,11 +1054,13 @@ def main(argv: list[str] | None = None) -> int:
             run = _train_once(device=device, seed=seed, steps=args.steps, rows=rows,
                               ledger=ledger, tag="main")
             step, batch = run.pop("_step"), run.pop("_batch")
+            decode_at = time.monotonic()
             shipped = _decode(step, batch, rows, order, noul_first=False)
             defect = _decode(step, batch, rows, order, noul_first=True)
+            decode_s = time.monotonic() - decode_at
             run["verdict_row_id"] = _record_verdict(
                 run, ledger=ledger, shipped=shipped, defect=defect, floor_check=floor_check,
-                door=door, rows=rows, steps=args.steps,
+                door=door, rows=rows, steps=args.steps, decode_s=decode_s,
             )
             run["decoded_noul_last"] = shipped["by_kind"]
             run["abstaining_decoded_noul_last"] = shipped["abstaining_decoded_as_abstain"]

@@ -1246,13 +1246,22 @@ def _protocol(*, reader: ShardReader, seed: int, recipe: dict[str, object]) -> P
 
 
 def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[str, object],
-              run_kind: str, quick_reason: str, notes: str) -> RunRecorder:
+              run_kind: str, quick_reason: str, notes: str,
+              wall_clock_s: float | None) -> RunRecorder:
+    """Both of this tool's row kinds go through here, and they need different answers.
+
+    ``None`` from :func:`_train`, whose ``with`` block contains ``train_ft``. A measured
+    elapsed from :func:`_record_verdict`, which describes a decode that finished before its
+    recorder existed -- 162 of this tool's rows recorded the time taken to write the row
+    because that distinction had no way to be stated.
+    """
     return RunRecorder(
         ledger,
         protocol=_protocol(reader=reader, seed=seed, recipe=recipe),
         run_kind=run_kind,  # type: ignore[arg-type]
         repo=REPO,
         env=Environment.detect(device=str(recipe["device"])),
+        wall_clock_s=wall_clock_s,
         quick=True,
         quick_reason=quick_reason,
         notes=notes,
@@ -1392,6 +1401,8 @@ def _train(
     recipe.update(backbone_keys)
     recorder = _recorder(
         ledger, reader=reader, seed=seed, recipe=recipe, run_kind="ft",
+        # None: the block below contains train_ft, so the recorder's own lifetime IS the run.
+        wall_clock_s=None,
         quick_reason=quick_reason,
         notes=(
             f"tools/real_ft_run.py [{tag}] -- qd_train.trainer.train_ft over a shard set "
@@ -1696,7 +1707,7 @@ def _evaluate(
 def _record_verdict(run: dict[str, object], *, ledger: Ledger, reader: ShardReader,
                     shipped: dict[str, object], defect: dict[str, object],
                     inventory: dict[str, object], batch_chunks: dict[str, int],
-                    quick_reason: str) -> str:
+                    quick_reason: str, decode_s: float) -> str:
     """One row per run for what happened **after** the last optimizer step.
 
     Separate from the ``ft`` row because ``train_ft`` owns its recorder's context manager and
@@ -1713,6 +1724,10 @@ def _record_verdict(run: dict[str, object], *, ledger: Ledger, reader: ShardRead
     recorder = _recorder(
         ledger, reader=reader, seed=int(run["seed"]), recipe=recipe, run_kind="smoke",
         quick_reason=quick_reason,
+        # The decode this row reports on, which ran before this function was called -- NOT
+        # the parent run's duration. 186 ft rows and 162 verdict rows each claiming the same
+        # seconds would sum to twice the GPU time actually spent.
+        wall_clock_s=decode_s,
         notes=(
             f"tools/real_ft_run.py verdict for ft row {run['ft_row_id']} "
             f"({run['device']} seed={run['seed']}): where the abstention decoded on a real "
@@ -2429,11 +2444,13 @@ def main(argv: list[str] | None = None) -> int:
                 tag="memorise", quick_reason=quick_small,
             )
             step = run.pop("_step")
+            decode_at = time.monotonic()
             shipped = _decode(step, plan_small, labels_small, letter_id, noul_first=False)
             defect = _decode(step, plan_small, labels_small, letter_id, noul_first=True)
+            decode_s = time.monotonic() - decode_at
             run["verdict_row_id"] = _record_verdict(
                 run, ledger=ledger, reader=reader, shipped=shipped, defect=defect,
-                inventory=inventory, quick_reason=quick_small,
+                inventory=inventory, quick_reason=quick_small, decode_s=decode_s,
                 batch_chunks={
                     "live": int(batch_info["letter_channel_live_chunks"]),  # type: ignore[arg-type]
                     "total": int(batch_info["letter_channel_total_chunks"]),  # type: ignore[arg-type]

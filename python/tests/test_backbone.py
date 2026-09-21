@@ -58,6 +58,7 @@ from qd_train.run_control import (  # noqa: E402
 )
 from qd_train.trainer import (  # noqa: E402
     SpanScoringStep,
+    TrainerContractViolation,
     TrainStep,
     ft_supervision,
     train_ft,
@@ -488,6 +489,9 @@ def _recorder(tmp_path: Path) -> RunRecorder:
         ),
         run_kind="ft",
         repo=REPO,
+        # None: every caller of this helper hands the recorder to train_ft, whose block
+        # contains the run.
+        wall_clock_s=None,
         env=Environment(
             torch=torch.__version__,
             transformers_sha="none",
@@ -523,8 +527,21 @@ def _ft_batch(index: int, *, width: int = 6) -> Batch:
         slot_kind=np.array([SLOT_SPAN, SLOT_CHOICE], dtype=np.uint8),
         target_index=np.array([3, 2], dtype=np.int32),
         span_target=np.array([(0, 2), (NO_SPAN, NO_SPAN)], dtype=np.int32),
+        # Width-aware. Until 2026-09-21 the first row was six hardcoded columns against a
+        # second of `width`, so this parameter raised on every value except its default --
+        # a knob that only works where it changes nothing.
+        #
+        # `i < lengths[0]` is not decoration: `Batch` refuses a candidate at or past the
+        # row's real length, because the pointer head would otherwise be free to answer
+        # with a padded position. A bare alternating pattern marks position 6 at width=7
+        # and is rejected there. At width=6 this is the same six booleans as before, so no
+        # existing caller moves.
         line_starts=np.array(
-            [[True, False, True, False, True, False], [False] * width], dtype=bool
+            [
+                [i % 2 == 0 and i < lengths[0] for i in range(width)],
+                [False] * width,
+            ],
+            dtype=bool,
         ),
     )
 
@@ -1095,3 +1112,110 @@ def test_a_caller_that_knows_a_sha_still_overrides_the_detected_version() -> Non
     against a transformers built from source has a commit and not a release number."""
     env = Environment.detect(transformers_sha="deadbee", device="cpu")
     assert env.transformers_sha == "deadbee"
+
+
+# -- resuming onto a different corpus order, through the REAL step -------------------------
+#
+# `HANDOFF/resume-2026-09-20.md` and every handoff since have carried this as open: the
+# trainer rehashes the consumed prefix and `test_trainer.py` covers the refusal -- with
+# `TinyStep`, a test double, only. The end-to-end GH200 proof covered the happy path. So the
+# refusal that protects a full train from resuming onto the wrong batches had never been
+# exercised against a step that loads real weights and a real optimizer.
+#
+# Not the driver: `tools/real_ft_run.py` reconstructs its labels from git history and needs
+# a shard set, so driving it here would be a minutes-long test of the pipeline. This closes
+# the half that was actually untested -- the real step -- and the handoff says which half
+# remains.
+
+
+def _resumable_checkpoint(tmp_path: Path, *, n: int = 6):
+    """Six real FT steps, checkpointed through a file. The same shape `_twelve_step_losses`
+    uses for its first leg, kept separate so a change to the trajectory test cannot silently
+    change what this one resumes from."""
+    from qd_train.run_control import Checkpoint
+
+    tower, _ = _tiny_tower(tmp_path)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=12, max_width=64)
+    result = train_ft(
+        (_ft_batch(i) for i in range(n)),
+        epoch=0,
+        step=step,
+        control=_control(12),
+        recorder=_recorder(tmp_path / "first"),
+    )
+    return Checkpoint.read(result.checkpoint.write(tmp_path / "ckpt" / "run.json"))
+
+
+def test_the_real_step_refuses_a_resume_onto_a_different_corpus_order(tmp_path):
+    """Landing on the index is not landing on the batch.
+
+    The checkpoint records how many batches were consumed AND their hash. A source that
+    yields the same COUNT of batches with different contents satisfies every positional
+    check -- same seed, same epoch, same index -- and is a different corpus. Here the second
+    leg's batches are one token wider, which is what a changed `batch_tokens` or a
+    regenerated shard set does to them.
+    """
+    resume_from = _resumable_checkpoint(tmp_path)
+
+    tower, _ = _tiny_tower(tmp_path / "second")
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=12, max_width=64)
+    with pytest.raises(TrainerContractViolation, match="not the one the checkpoint was taken from"):
+        train_ft(
+            (_ft_batch(i, width=7) for i in range(12)),
+            epoch=0,
+            step=step,
+            control=_control(12),
+            recorder=_recorder(tmp_path / "second-run"),
+            resume_from=resume_from,
+        )
+
+
+def test_the_refusal_names_both_digests_rather_than_saying_mismatch(tmp_path):
+    """A refusal that says only "mismatch" leaves the operator to guess whether the
+    checkpoint or the source is the wrong one, at hour three of a rented box. Both hashes in
+    the message are what makes it actionable."""
+    resume_from = _resumable_checkpoint(tmp_path)
+
+    tower, _ = _tiny_tower(tmp_path / "second")
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=12, max_width=64)
+    with pytest.raises(TrainerContractViolation) as excinfo:
+        train_ft(
+            (_ft_batch(i, width=7) for i in range(12)),
+            epoch=0,
+            step=step,
+            control=_control(12),
+            recorder=_recorder(tmp_path / "second-run"),
+            resume_from=resume_from,
+        )
+    message = str(excinfo.value)
+    assert resume_from.consumed_digest in message, "the refusal does not name what was expected"
+    assert message.count("hash to") == 1 and "batch_tokens" in message, (
+        "the refusal should name the hash it computed and the knob that changes it"
+    )
+
+
+def test_the_same_order_still_resumes_so_the_refusal_is_the_order(tmp_path):
+    """The control. Without it, a refusal on every resume would pass the two tests above --
+    and a trainer that refused all resumes would be worse than one that accepted the wrong
+    ones, because it would be found immediately and reverted."""
+    resume_from = _resumable_checkpoint(tmp_path)
+
+    tower, _ = _tiny_tower(tmp_path / "second")
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=12, max_width=64)
+    result = train_ft(
+        (_ft_batch(i) for i in range(12)),
+        epoch=0,
+        step=step,
+        control=_control(12),
+        recorder=_recorder(tmp_path / "second-run"),
+        resume_from=resume_from,
+    )
+    # 12, not 6: the loss log carries the whole trajectory across a resume, which is what
+    # `test_the_real_step_resumes_the_trajectory_it_was_cut_from` compares against the
+    # uninterrupted reference. What this control asserts is that the same order does NOT
+    # raise -- deliberately overlapping that test, because a trainer that refused every
+    # resume would satisfy the two refusal tests above, and would be worse than one that
+    # accepted the wrong ones.
+    assert len(result.loss_log.losses()) == 12, (
+        "a resume onto the order it was cut from should complete the schedule"
+    )

@@ -144,7 +144,8 @@ def test_any_not_run_input_blocks_the_aggregate(n_not_run: int):
 
 def test_completed_run_writes_a_row(tmp_path: Path):
     led = Ledger(tmp_path / "runs.jsonl")
-    with RunRecorder(led, protocol=_protocol(1), run_kind="ft", repo=REPO, env=_env()) as rec:
+    with RunRecorder(led, protocol=_protocol(1), run_kind="ft", repo=REPO, env=_env(),
+        wall_clock_s=None) as rec:
         rec.metric("accuracy.k4", Ran(passed=True, value=0.83, n=300, n_total=300))
     rows = led.rows()
     assert len(rows) == 1 and rows[0].status == "completed"
@@ -154,7 +155,8 @@ def test_failed_run_writes_a_row_saying_so(tmp_path: Path):
     led = Ledger(tmp_path / "runs.jsonl")
     with (
         pytest.raises(RuntimeError),
-        RunRecorder(led, protocol=_protocol(1), run_kind="cpt", repo=REPO, env=_env()),
+        RunRecorder(led, protocol=_protocol(1), run_kind="cpt", repo=REPO, env=_env(),
+            wall_clock_s=None),
     ):
         raise RuntimeError("deliberate explosion")
     rows = led.rows()
@@ -178,7 +180,7 @@ led = Ledger({str(ledger_path)!r})
 p = Protocol('d'*64, 't'*64, 'b'*40, 'r'*64, 1)
 env = Environment(torch='x', transformers_sha='y', device='cpu', host='t',
                   fla_present=NotRun(reason='n/a'), causal_conv1d_present=NotRun(reason='n/a'))
-with RunRecorder(led, protocol=p, run_kind='cpt', repo={str(REPO)!r}, env=env):
+with RunRecorder(led, protocol=p, run_kind='cpt', repo={str(REPO)!r}, env=env, wall_clock_s=None):
     os.kill(os.getpid(), signal.SIGTERM)
     time.sleep(5)
 """
@@ -195,7 +197,8 @@ with RunRecorder(led, protocol=p, run_kind='cpt', repo={str(REPO)!r}, env=env):
 def test_unreported_gates_become_not_run_not_absent(tmp_path: Path):
     """A gate the run forgot must refuse promotion, not silently drop out of it."""
     led = Ledger(tmp_path / "runs.jsonl")
-    with RunRecorder(led, protocol=_protocol(1), run_kind="ft", repo=REPO, env=_env()) as rec:
+    with RunRecorder(led, protocol=_protocol(1), run_kind="ft", repo=REPO, env=_env(),
+        wall_clock_s=None) as rec:
         rec.gate("ece", Ran(passed=True, value=0.02))
     row = led.rows()[0]
     from qd_train.ledger import REQUIRED_GATES
@@ -212,7 +215,7 @@ def test_three_clean_seeds_promote(tmp_path: Path):
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2, 3):
         with RunRecorder(
-            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env()
+            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env(), wall_clock_s=None
         ) as rec:
             _all_green(rec)
     verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
@@ -223,7 +226,7 @@ def test_two_seeds_do_not_promote(tmp_path: Path):
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2):
         with RunRecorder(
-            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env()
+            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env(), wall_clock_s=None
         ) as rec:
             _all_green(rec)
     verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
@@ -236,7 +239,7 @@ def test_a_quick_run_cannot_promote(tmp_path: Path):
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2, 3):
         with RunRecorder(
-            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env(),
+            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env(), wall_clock_s=None,
             quick=(seed == 2), quick_reason="truncated schedule" if seed == 2 else None,
         ) as rec:
             _all_green(rec)
@@ -258,7 +261,7 @@ def test_a_capped_run_cannot_promote_even_when_it_calls_itself_complete(tmp_path
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2, 3):
         with RunRecorder(
-            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env()
+            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env(), wall_clock_s=None
         ) as rec:
             _all_green(
                 rec, termination="wall_clock_cap" if seed == 2 else "steps_exhausted"
@@ -281,7 +284,7 @@ def test_a_training_row_that_never_says_how_it_ended_cannot_promote(tmp_path: Pa
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2, 3):
         with RunRecorder(
-            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env()
+            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env(), wall_clock_s=None
         ) as rec:
             for g in REQUIRED_GATES:
                 rec.gate(g, Ran(passed=True, value=1.0, n=300, n_total=300))
@@ -295,7 +298,8 @@ def test_a_training_row_that_never_says_how_it_ended_cannot_promote(tmp_path: Pa
     other = Ledger(tmp_path / "eval.jsonl")
     for seed in (1, 2, 3):
         with RunRecorder(
-            other, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env()
+            other, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env(),
+                wall_clock_s=None
         ) as rec:
             for g in REQUIRED_GATES:
                 rec.gate(g, Ran(passed=True, value=1.0, n=300, n_total=300))
@@ -313,7 +317,7 @@ def test_a_single_not_run_gate_blocks_promotion(tmp_path: Path, missing_gate: st
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2, 3):
         with RunRecorder(
-            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env()
+            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env(), wall_clock_s=None
         ) as rec:
             for g in REQUIRED_GATES:
                 if g != missing_gate:
@@ -342,7 +346,8 @@ def test_quick_without_reason_is_refused():
 def test_chain_verifies_on_an_honest_ledger(tmp_path: Path):
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2, 3):
-        with RunRecorder(led, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env()):
+        with RunRecorder(led, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env(),
+            wall_clock_s=None):
             pass
     led.verify_chain()
 
@@ -351,7 +356,7 @@ def test_editing_a_row_breaks_the_chain(tmp_path: Path):
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2, 3):
         with RunRecorder(
-            led, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env()
+            led, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env(), wall_clock_s=None
         ) as rec:
             rec.gate("ece", Ran(passed=False, value=0.9))
     # Flip a failing gate to passing, exactly the tamper the chain exists to catch.
@@ -367,7 +372,8 @@ def test_editing_a_row_breaks_the_chain(tmp_path: Path):
 def test_deleting_a_row_breaks_the_chain(tmp_path: Path):
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2, 3):
-        with RunRecorder(led, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env()):
+        with RunRecorder(led, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env(),
+            wall_clock_s=None):
             pass
     lines = [ln for ln in led.path.read_bytes().split(b"\n") if ln.strip()]
     led.path.write_bytes(b"\n".join([lines[0], lines[2]]) + b"\n")
@@ -391,7 +397,8 @@ def test_duplicate_row_id_is_refused(tmp_path: Path):
 def test_protocol_hash_mismatch_is_detected(tmp_path: Path):
     """Rewriting a protocol component without recomputing its hash is caught."""
     led = Ledger(tmp_path / "runs.jsonl")
-    with RunRecorder(led, protocol=_protocol(1), run_kind="eval", repo=REPO, env=_env()):
+    with RunRecorder(led, protocol=_protocol(1), run_kind="eval", repo=REPO, env=_env(),
+        wall_clock_s=None):
         pass
     obj = json.loads(led.path.read_bytes().strip())
     obj["protocol"]["seed"] = 99
@@ -427,7 +434,7 @@ def _build_protocol(*, commands: tuple[str, ...] = ("cargo test --workspace",)) 
 def test_a_build_lane_has_a_run_kind_to_write(tmp_path: Path):
     led = Ledger(tmp_path / "runs.jsonl")
     with RunRecorder(
-        led, protocol=_build_protocol(), run_kind="build", repo=REPO, env=_env()
+        led, protocol=_build_protocol(), run_kind="build", repo=REPO, env=_env(), wall_clock_s=None
     ) as rec:
         rec.metric("suite.cargo_test_workspace", Ran(passed=True, value=344, n=344, n_total=344))
     rows = led.rows()
@@ -469,7 +476,8 @@ def test_a_build_row_cannot_promote_anything(tmp_path: Path):
         proto = Protocol.for_build(
             commands=("cargo test --workspace",), toolchain="cargo 1.98.0", seed=seed
         )
-        with RunRecorder(led, protocol=proto, run_kind="build", repo=REPO, env=_env()) as rec:
+        with RunRecorder(led, protocol=proto, run_kind="build", repo=REPO, env=_env(),
+            wall_clock_s=None) as rec:
             _all_green(rec)
     verdict = led.promotion_verdict(_build_protocol().hash_without_seed())
     assert not verdict.promoted
@@ -792,7 +800,8 @@ def test_the_cli_verifies_the_chain_and_reports_a_break(tmp_path: Path):
     ledger_path = tmp_path / "runs.jsonl"
     led = Ledger(ledger_path)
     for seed in (1, 2, 3):
-        with RunRecorder(led, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env()):
+        with RunRecorder(led, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env(),
+            wall_clock_s=None):
             pass
     ok = _run_cli("verify", "--ledger", str(ledger_path))
     assert ok.returncode == 0, ok.stderr
@@ -1086,6 +1095,7 @@ def test_a_recorded_row_carries_the_device_it_was_given():
             run_kind="smoke",
             repo=Path(raw),
             env=Environment.detect(device="cpu"),
+            wall_clock_s=None,
             quick=True,
             quick_reason="device-provenance test",
         ):
