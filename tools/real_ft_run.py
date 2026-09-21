@@ -89,7 +89,7 @@ import math
 import subprocess
 import sys
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Final
 
@@ -983,6 +983,31 @@ def _channel_balance(run: Mapping[str, object]) -> TriState:
     )
 
 
+def _first_joint_batch(
+    letter_log: Sequence[float], span_log: Sequence[float]
+) -> tuple[float, float] | None:
+    """The first micro-batch in which BOTH channels were live, or ``None``.
+
+    Both steps append to both logs on every micro-batch -- ``accumulate`` logs a span of 0.0
+    and ``accumulate_span`` logs both -- so the two are parallel by construction and the
+    batches where both are positive are exactly the span batches.
+
+    **Mismatched lengths return ``None`` rather than raising**, and that is the whole reason
+    this is a function. The obvious spelling is ``zip(..., strict=True)``, which is correct
+    about the invariant and wrong about the consequence: it would raise *after* ``train_ft``
+    has returned, so a broken pair of logs would destroy the verdict row -- the evaluation,
+    the floor gates, the decodes -- for a number that is one line of a detail string. A
+    measurement that could not be made is ``NotRun``, which is what ``None`` becomes here,
+    and the rest of the row still gets written. Fail closed on the CLAIM, not on the run.
+    """
+    if len(letter_log) != len(span_log):
+        return None
+    for lt, sp in zip(letter_log, span_log, strict=True):
+        if lt > 0.0 and sp > 0.0:
+            return (lt, sp)
+    return None
+
+
 def _span_floor_cause(over_the_plan: float, mean_per_batch: float) -> str:
     """Why the span floor is where it is, decided from the number rather than asserted.
 
@@ -1325,14 +1350,7 @@ def _train(
     # pair for a RATIO, which is a statement about one gradient. `accumulate_span` is the
     # only path that computes both, so the batches where both logs are live are exactly the
     # span batches, and the first of those is the one the ratio is about.
-    both = next(
-        (
-            (lt, sp)
-            for lt, sp in zip(step.letter_log, step.span_log, strict=True)
-            if lt > 0.0 and sp > 0.0
-        ),
-        None,
-    )
+    both = _first_joint_batch(step.letter_log, step.span_log)
     final = _evaluate(step, plan, supervised, letter_floors, span_floors)
     return {
         "tag": tag, "device": device, "seed": seed,

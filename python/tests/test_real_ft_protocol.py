@@ -340,3 +340,41 @@ def test_a_plan_whose_batches_never_carry_both_channels_has_no_ratio() -> None:
     })
     assert isinstance(state, NotRun)
     assert "carried both channels at once" in state.reason
+
+
+def test_the_first_joint_batch_is_the_first_span_batch() -> None:
+    """Both steps append to both logs on every micro-batch -- ``accumulate`` logs a span of
+    0.0, ``accumulate_span`` logs both -- so the batches where both are positive are exactly
+    the span batches, and the ratio is about the first of them."""
+    from real_ft_run import _first_joint_batch
+
+    # two span-free batches, then one carrying both, then another
+    letters = [2.1, 2.0, 1.9, 1.8]
+    spans = [0.0, 0.0, 537.4, 300.0]
+    assert _first_joint_batch(letters, spans) == (1.9, 537.4)
+
+
+def test_a_plan_with_no_span_batch_has_no_joint_batch() -> None:
+    from real_ft_run import _first_joint_batch
+
+    assert _first_joint_batch([2.1, 2.0], [0.0, 0.0]) is None
+
+
+def test_mismatched_logs_do_not_destroy_a_finished_run() -> None:
+    """The obvious spelling is ``zip(..., strict=True)``, which is right about the invariant
+    and wrong about the consequence: it raises AFTER ``train_ft`` has returned, so a broken
+    pair of logs would take the verdict row with it -- the evaluation, both floor gates, the
+    decodes -- for a number that is one line of a detail string.
+
+    ``None`` here becomes nan in the run dict and ``NotRun`` in the ledger, which is what a
+    measurement that could not be made is. Fail closed on the claim, not on the run.
+    """
+    from real_ft_run import _channel_balance, _first_joint_batch
+
+    assert _first_joint_batch([2.1, 2.0, 1.9], [0.0, 537.4]) is None
+    downstream = _channel_balance({
+        "letter_at_first_joint_batch": float("nan"),
+        "span_at_first_joint_batch": float("nan"),
+        "span_weight": 1.0,
+    })
+    assert isinstance(downstream, NotRun)
