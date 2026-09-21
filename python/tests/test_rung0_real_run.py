@@ -204,6 +204,36 @@ def test_a_batch_size_below_one_is_refused() -> None:
 # -- the context window ------------------------------------------------------------------
 
 
+def test_examples_without_a_manifest_is_refused(tmp_path) -> None:
+    """A corpus and its identity travel together.
+
+    ``--examples`` without ``--manifest-in`` would train on a corpus whose
+    ``data_snapshot_hash`` had to be invented, putting a fabricated value in the protocol
+    every later comparison is made against; the reverse identifies a corpus it did not
+    train on. Both are worse than refusing.
+    """
+    corpus = tmp_path / "examples.jsonl"
+    corpus.write_text("", encoding="utf-8")
+    with pytest.raises(SystemExit, match="go together"):
+        tool.main(["--out", str(tmp_path), "--rev", "HEAD", "--examples", str(corpus)])
+    with pytest.raises(SystemExit, match="go together"):
+        tool.main(["--out", str(tmp_path), "--rev", "HEAD", "--manifest-in", str(corpus)])
+
+
+def test_an_empty_pre_generated_corpus_is_refused(tmp_path) -> None:
+    """Fail closed. An empty file would otherwise reach the split, produce two empty sides
+    and stop with a message about the split rather than about the corpus."""
+    corpus = tmp_path / "examples.jsonl"
+    corpus.write_text("", encoding="utf-8")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    with pytest.raises(SystemExit, match="nothing to train on"):
+        tool.main([
+            "--out", str(tmp_path), "--rev", "HEAD",
+            "--examples", str(corpus), "--manifest-in", str(manifest),
+        ])
+
+
 def test_the_default_context_is_wider_than_the_config_default() -> None:
     """Measured, not preferred: at ``ByteDeciderConfig``'s 1024 only 9.0% of a real
     qd-mutate corpus survives ``SpanOutsideWindow``, against 26.6% at 4096. A tool whose

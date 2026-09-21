@@ -460,28 +460,65 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=REPO / "target" / "release" / "qd-mutate",
         help="the qd-mutate binary",
     )
+    parser.add_argument(
+        "--examples",
+        type=Path,
+        help=(
+            "a qd-mutate examples.jsonl generated elsewhere. Requires --manifest-in. "
+            "Generating a corpus needs the Rust binary and training needs a GPU, and those "
+            "are not always the same machine"
+        ),
+    )
+    parser.add_argument(
+        "--manifest-in",
+        type=Path,
+        help="the manifest.json beside --examples; it is what data_snapshot_hash is taken from",
+    )
     args = parser.parse_args(argv)
 
     if not 1 <= args.epochs <= MAX_EPOCHS:
         raise SystemExit(f"--epochs must be in [1, {MAX_EPOCHS}], got {args.epochs}")
     if not 1 <= args.limit <= MAX_EXAMPLES:
         raise SystemExit(f"--limit must be in [1, {MAX_EXAMPLES}], got {args.limit}")
-    if not args.binary.exists():
-        raise SystemExit(f"{args.binary} does not exist; cargo build --release -p qd-mutate")
     if not 1 <= args.context_bytes <= MAX_CONTEXT_BYTES:
         raise SystemExit(
             f"--context-bytes must be in [1, {MAX_CONTEXT_BYTES}], got {args.context_bytes}"
         )
+    # Both or neither. A corpus without its manifest has no data_snapshot_hash, and a run
+    # that invented one would put a fabricated value in the protocol every later comparison
+    # is made against.
+    if bool(args.examples) != bool(args.manifest_in):
+        raise SystemExit(
+            "--examples and --manifest-in go together: the examples are what is trained on "
+            "and the manifest is what the protocol's data_snapshot_hash is taken from. One "
+            "without the other either trains on an unidentified corpus or identifies a "
+            "corpus it did not train on."
+        )
     config = ByteDeciderConfig(max_context_bytes=args.context_bytes)
 
-    print(f"corpus: reading tracked sources at {args.rev}")
-    pool, capped = build_pool(rev=args.rev, max_files=args.max_files)
-    print(f"  pool: {len(pool)} file(s){' (CAPPED)' if capped else ''}")
-
-    examples, manifest = generate_examples(
-        pool, out_dir=args.out, seed=0, limit=args.limit, binary=args.binary
-    )
-    print(f"  qd-mutate emitted {len(examples)} example(s)")
+    if args.examples:
+        print(f"corpus: reading a pre-generated set from {args.examples}")
+        examples = [
+            json.loads(line)
+            for line in args.examples.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        manifest = json.loads(args.manifest_in.read_text(encoding="utf-8"))
+        if not examples:
+            raise SystemExit(f"{args.examples} holds no examples; there is nothing to train on")
+    else:
+        if not args.binary.exists():
+            raise SystemExit(
+                f"{args.binary} does not exist; cargo build --release -p qd-mutate, or pass "
+                "--examples/--manifest-in to use a set generated on another machine"
+            )
+        print(f"corpus: reading tracked sources at {args.rev}")
+        pool, capped = build_pool(rev=args.rev, max_files=args.max_files)
+        print(f"  pool: {len(pool)} file(s){' (CAPPED)' if capped else ''}")
+        examples, manifest = generate_examples(
+            pool, out_dir=args.out, seed=0, limit=args.limit, binary=args.binary
+        )
+    print(f"  {len(examples)} example(s)")
 
     train_raw, val_raw = split_by_file(examples, val_share=args.val_share)
     train_paths = {e.get("function", {}).get("path") for e in train_raw}  # type: ignore[union-attr]
