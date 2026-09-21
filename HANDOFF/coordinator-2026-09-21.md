@@ -1595,9 +1595,12 @@ than 32%. Still clears.
 | a sync guard matching its own `pgrep` | positive control | refusing |
 | a `usd_per_hour` check argparse spells with hyphens | injection | passing |
 | a correction constant true of one case | a peer refusing to cite it | printed |
+| a suite command spelled twice | provisioning one of the two | agreeing (§38) |
 
-None of the three would have been found by re-reading. Re-reading confirms the check exists,
-which was never in doubt.
+None of the four would have been found by re-reading. Re-reading confirms the check exists,
+which was never in doubt. The fourth is the sharpest case: the duplicate spellings had a
+comment directly above them asserting they were one, so re-reading did not merely fail to
+find it — it actively answered the question wrongly.
 
 ## 34. `6efd874` — the eighth instance, found inside a test written to catch it
 
@@ -1862,6 +1865,135 @@ Reading a rule is not the same as it binding. That is the fourth time today a ch
 wrong in a way only running it revealed, and the first where the warning was already written
 down.
 
+## 38. `5f34243` — the row and the command a person runs were two different commands
+
+### A skip that was worth 29
+
+The suite reported `2 skipped` in every gate row today. One of them was
+`test_minhash.py:36`, a module-level `pytest.importorskip("datasketch")`. `datasketch` is
+declared in `[project.dependencies]`, is present in the repo `.venv`, and is **absent from
+the ml venv**, so in the torch suite the whole module went behind that one marker.
+
+Pytest counts a module-level skip as **ONE**. Twenty-nine tests sat behind it. The row's
+coverage pair read `1850/1852` and understated the un-run tests by 28 — this repository's
+own *"never present a capped sample as complete coverage"*, occurring inside the instrument
+built to prevent exactly that.
+
+The tests lose nothing by it: all 29 run in the torch-free suite, which has the package. No
+production module imports `datasketch` (checked). **The defect was in the reporting, and
+reporting is the entire job of the coverage pair.** A number that says "2 did not run" when
+the answer is 30 is worse than no number, because it invites the reader to stop looking.
+
+`python/tests/test_declared_dependencies.py` names the class rather than the case: any
+declared runtime dependency that cannot be imported *by this interpreter*, failing with the
+name and with `sys.executable`, because the answer differs between the two gate environments
+and "datasketch is missing" without saying *where* sent one reader to the wrong virtualenv.
+It fails rather than skips, deliberately — a skip here would be the shape the file exists to
+catch.
+
+### Provisioning it turned up the defect underneath
+
+Adding `--with datasketch` to `TORCH_PYTEST_CMD` should have ended it. The next `make gates`
+went red:
+
+    suite.pytest_torch_python_tests: FAILED value=1855 coverage=1856/1858
+
+Running the same suite by hand gave `1885 passed, 1 skipped`. Two runs of "the same" suite,
+28 tests apart.
+
+They were not the same suite. Each counted suite is spelled **twice** in the `Makefile`:
+once in the `*_CMD` its own target runs, and once as a `--suite NAME=COMMAND` argument to
+the recorder. And `make gates` does not invoke `cargo-test`, `pytest` or `torch-pytest` at
+all — it runs `lint`, `clippy`, `ledger-record`, `ledger-verify`, and `ledger-record`
+re-runs each suite itself in order to parse its counts. So:
+
+| entry point | what actually executes | writes the row |
+| --- | --- | --- |
+| `make torch-pytest` | `$(TORCH_PYTEST_CMD)` | no |
+| `make gates` | `$(LEDGER_RECORD_CMD)`'s `--suite` string | **yes** |
+
+I had fixed the one a person reads and left the one that writes the record. Neither count
+was wrong about its own run. **The row was wrong about which run it was** — its `detail`
+field named a command nobody had executed — and that is the worse failure, because the row
+is the only durable account and `detail` is the only thing in it that says where the numbers
+came from.
+
+### The failing test was the right one failing
+
+The single failure in that red gate was
+`test_declared_dependencies.py::test_every_declared_runtime_dependency_can_be_imported_here`.
+It was correct. In the recorder's un-provisioned environment `datasketch` genuinely was
+missing, and the test said so, naming the interpreter. A test written ten minutes earlier to
+catch a class caught its first instance, and the instance was mine.
+
+Row `7531f410-23a6-48a5-a3e9-e1f51896ac76` is committed rather than dropped. It is the
+evidence, and rule 5 does not have an exception for a red row that embarrasses the lane that
+produced it.
+
+### One spelling, and a check that compares what runs
+
+Each suite is now a single `*_RUN` variable — `CARGO_TEST_RUN`, `PYTEST_RUN`,
+`TORCH_PYTEST_RUN` — and both entry points are built from it. The payloads carry no quotes
+and no env prefix: `qd_train.ledger.parse_command` splits the recorded string with shlex and
+runs it as argv **with no shell**, so an env assignment would become `argv[0]` and a path
+with a space could not survive the recorder's side however the target were written. Leaving
+both sides identical means they fail together rather than one silently differing.
+
+`test_lint_gate.py` §5 pins it. For each suite, the command recorded in `--suite` must be an
+**unbroken run of argv** inside what `make -n <target>` expands to:
+
+* **argv, not text**, so quoting and the `PYTHONDONTWRITEBYTECODE=1` prefix are not
+  differences — matching what the recorder itself does — while a flag present in one
+  spelling and not the other breaks the run and is caught;
+* **make's own `-n` expansion**, not a re-parse of the `Makefile`, because a hand-written
+  expander is a second implementation of make's substitution and would agree with a
+  `Makefile` that is wrong in precisely the way a hand-written expander is wrong;
+* **`SUITE_TARGETS` has its own scope test**, since a fourth suite added to the recorder and
+  not to the map would not fail anything — it would simply not be checked, which is the
+  shape this section is about.
+
+Against the pre-fix tree it fails on `pytest_torch_python_tests` and **passes on the other
+two**, which were also spelled twice but spelled identically. That asymmetry is what makes
+it a test rather than an assertion that the file was edited.
+
+### The comment that asserted the property while it was false
+
+Above the gate commands stood:
+
+> Each is a single-line shell command defined once and used twice: by its own target, and by
+> `gates`, which needs the true 0/1/3 status that recursive make would destroy.
+
+True of `LINT_CMD` and `CLIPPY_CMD`. False of all three counted suites, which `gates` never
+invokes. The comment is now accurate about which commands have one entry point and which
+have two, and says why. A comment asserting the property is a large part of why its absence
+survived: anyone auditing for duplication read that line and stopped.
+
+### Measured
+
+Gate row `dfccb278-7c2d-45e4-8d31-fda0ef851957` at `5f34243`, clean tree:
+
+    suite.cargo_test_workspace        passed   362/362
+    suite.pytest_python_tests         passed  1589/1610
+    suite.pytest_torch_python_tests   passed  1889/1890
+
+lint, clippy, ledger-record and ledger-verify all PASS. The row's `detail` and its
+`recipe.commands` now name `--with datasketch`, so the row describes the run it came from.
+
+The torch suite's denominator moved 1852 → 1890, and for the first time today **that pair is
+exact**: there are no `allow_module_level` skips anywhere in the suite, the only module-level
+`importorskip`s name torch/transformers/safetensors/datasketch — all four present in the ml
+venv — and the one remaining skip is test-level (`test_loaders.py` runs 17 passed, 1 skipped
+in that environment, against a HuggingFace endpoint returning HTTP 500, which it reports as
+NOT RUN and never as passed). `1889/1890` means one *test* did not run, not one module.
+
+The torch-free pair, `1589/1610`, remains a lower bound by design: the torch modules skip at
+module level there and 21 markers stand in for more than 21 tests. That is the documented
+reason both suites exist and both are carried in the row. **The torch row is the one to read
+for coverage**, and until today that was not true either.
+
+The build-row `recipe_hash` changed with the recipe, as it should; it is pinned in no test,
+doc or handoff, and build rows have already carried eight distinct values.
+
 ## Where this leaves the final train
 
 On the axes this lane owns:
@@ -1885,6 +2017,13 @@ On the axes this lane owns:
 * **The one open gap cannot go off quietly** — the six recipe-hash spellings are pinned, so
   the tidy-up that would silently rename every future `recipe_hash` fails with the
   consequence spelled out.
+* **A gate row describes the run it came from.** The command recorded for each suite is
+  asserted to be the command its make target runs, compared as argv through make's own
+  expansion — so `make gates` and a person at a terminal cannot silently execute two
+  different suites again (§38).
+* **The torch suite's coverage pair is exact.** No module-level skip stands in for more
+  than itself in that environment, so `1889/1890` counts tests rather than markers. The
+  torch-free pair stays a lower bound by design, and the row carries both (§38).
 
 What is not this lane's: *unifying* the six spellings, which renames every future
 `recipe_hash` and is a comparability break somebody has to declare in a handoff — not a
@@ -1936,3 +2075,14 @@ sed -n '1,30p' /Users/bharath/Code/research/qwen-decision/python/qd_train/gaps.p
 `append_gap` rather than a hand-rolled `O_APPEND`. Two lanes wrote malformed records on
 2026-09-21 with the schema in their heads, and one of them had to break the append-only rule
 to undo it.
+
+And, before editing any gate command in the `Makefile`:
+
+```bash
+grep -n "SUITE_TARGETS" /Users/bharath/Code/research/qwen-decision/python/tests/test_lint_gate.py
+```
+
+Three suites, each with two entry points that both really execute it, only one of which
+writes the row. They drifted on 2026-09-21 and the row spent a day describing a command
+nobody had run. `SUITE_TARGETS` is itself a hand-maintained map, which is why it has a scope
+test rather than only a parametrisation.
