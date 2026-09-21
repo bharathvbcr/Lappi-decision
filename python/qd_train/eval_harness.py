@@ -177,6 +177,22 @@ def paired_margin_test(
     hi = float(np.quantile(boots, 1 - alpha / 2))
 
     passed = lo > 0.0
+    # Three outcomes, not two. `passed` is a bool and the gate is right to be, but the
+    # DETAIL is read by people, and "not a win" covers two very different findings: an
+    # interval straddling zero says the comparison could not separate them, and an interval
+    # entirely below zero says the control won and by how much. Appending the straddling
+    # sentence to both was a false statement in an append-only ledger, and it stayed
+    # invisible until 2026-09-21 because the gate had never once been evaluated -- the
+    # first decisive loss it ever scored was also the first time the sentence was wrong.
+    if passed:
+        verdict = ""
+    elif hi < 0.0:
+        verdict = (
+            f" -- the whole interval is below zero, so this is not an inconclusive result: "
+            f"the baseline beats the model by {-point:.4f} and the comparison separates them"
+        )
+    else:
+        verdict = " -- CI includes zero, so this is not a win"
     return Ran(
         passed=passed,
         value=point,
@@ -184,8 +200,7 @@ def paired_margin_test(
         n_total=len(diff),
         detail=(
             f"paired margin {point:+.4f}, {int((1 - alpha) * 100)}% CI [{lo:+.4f}, {hi:+.4f}] "
-            f"over {n_boot} bootstrap resamples"
-            + ("" if passed else " -- CI includes zero, so this is not a win")
+            f"over {n_boot} bootstrap resamples" + verdict
         ),
     )
 
