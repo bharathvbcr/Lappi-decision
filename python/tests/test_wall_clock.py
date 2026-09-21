@@ -253,3 +253,129 @@ def test_the_refusal_happens_before_the_run_not_after_it(tmp_path: Path):
     with pytest.raises(ValueError, match="measured"):
         _recorder(led, wall_clock_s=math.nan)
     assert led.rows() == []
+
+
+# --------------------------------------------------------------------------
+# Stating the duration from inside the block.
+#
+# The argument above forces a choice between two things a caller may want, and
+# `tools/rung0_real_run.py` wanted both: it MEASURES the training loop, and it needs the
+# recorder to WRAP that loop so a run killed part-way through still writes a row. Passing
+# the measured figure to the constructor requires having it, which requires the training to
+# be over, which puts the training outside the block -- and the guarantee in RunRecorder's
+# docstring is a property of the block.
+#
+# `measured()` separates the two. The recorder is entered before the work, with None; the
+# duration is stated when it is known. `_finish` reads `self.wall_clock_s` at exit rather
+# than at construction, so a figure stated in between is indistinguishable from one passed
+# in -- which is the point, because those rows have to stay comparable with the 53 written
+# before this existed.
+# --------------------------------------------------------------------------
+
+def test_a_duration_stated_inside_the_block_is_recorded_as_the_callers(tmp_path: Path):
+    """Both halves, because a fix that moved only the first would still pass one of them.
+
+    The mutation this kills is `measured()` storing the figure somewhere `_finish` does not
+    read: the row then silently carries the block's lifetime, and `wall_clock_source` still
+    says "recorder", which is true and useless.
+    """
+    led = Ledger(tmp_path / "runs.jsonl")
+    with _recorder(led, wall_clock_s=None) as rec:
+        time.sleep(0.05)  # "training"
+        rec.measured(239.0)
+        time.sleep(0.05)  # reporting, inside the block and not part of the run
+    row = led.rows()[0]
+    assert row.wall_clock_s == 239.0
+    assert row.wall_clock_source == "caller"
+
+
+def test_a_duration_stated_inside_the_block_prices_the_run(tmp_path: Path):
+    """`wall` and `cost_usd` are computed on adjacent lines in `_finish` from the same
+    attribute, and a change that reached one and not the other would pass the test above
+    while billing a GPU hour at the cost of writing a row.
+
+    One hour at $2.20/h is $2.20. The recorder's own lifetime here is milliseconds.
+    """
+    led = Ledger(tmp_path / "runs.jsonl")
+    with _recorder(led, wall_clock_s=None, cost=_rate(2.20)) as rec:
+        rec.measured(3600.0)
+    assert led.rows()[0].cost_usd == pytest.approx(2.20)
+
+
+def test_a_duration_stated_before_a_crash_survives_it(tmp_path: Path):
+    """A run that trained for an hour and then raised in its reporting still cost an hour.
+
+    This is why `measured()` is called the moment training returns rather than at the end
+    of the block: everything after that point is reporting, and a failure in it must not
+    take the row's measured duration down with it.
+    """
+    led = Ledger(tmp_path / "runs.jsonl")
+    with pytest.raises(RuntimeError), _recorder(
+        led, wall_clock_s=None, cost=_rate(2.20)
+    ) as rec:
+        rec.measured(3600.0)
+        raise RuntimeError("evaluation OOM")
+    row = led.rows()[0]
+    assert row.status == "failed"
+    assert row.wall_clock_s == 3600.0
+    assert row.wall_clock_source == "caller"
+    assert row.cost_usd == pytest.approx(2.20)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), -1.0])
+def test_a_stated_duration_that_is_not_a_measurement_is_refused(tmp_path: Path, bad: float):
+    """The same refusal the constructor makes, at the other door.
+
+    A refused statement is not a statement: the block goes on to exit normally, and the row
+    it writes falls back and says "recorder" rather than carrying a NaN as though somebody
+    had measured one.
+    """
+    led = Ledger(tmp_path / "runs.jsonl")
+    with _recorder(led, wall_clock_s=None) as rec, pytest.raises(
+        ValueError, match="measured duration"
+    ):
+        rec.measured(bad)
+    row = led.rows()[0]
+    assert row.wall_clock_source == "recorder"
+    assert math.isfinite(row.wall_clock_s)
+
+
+def test_a_second_statement_is_refused(tmp_path: Path):
+    """Keeping the last figure is the wrong default and the failure is invisible.
+
+    `rung0_real_run.py` opens one recorder per seed inside a loop. A refactor that hoisted
+    the recorder out of the loop would call this once per seed against one recorder, and
+    "keep the last" would record the final seed's minutes as the sweep's -- a row that is
+    wrong by a factor of `--seeds` and looks exactly like a correct one.
+    """
+    led = Ledger(tmp_path / "runs.jsonl")
+    with _recorder(led, wall_clock_s=None) as rec:
+        rec.measured(120.0)
+        with pytest.raises(ValueError, match="already stated"):
+            rec.measured(240.0)
+    assert led.rows()[0].wall_clock_s == 120.0
+
+
+def test_a_statement_that_contradicts_the_constructor_is_refused(tmp_path: Path):
+    """A caller that passed a measured figure in is a caller that did the work outside the
+    block. Calling `measured()` as well means one of the two is about a different run.
+    """
+    led = Ledger(tmp_path / "runs.jsonl")
+    with _recorder(led, wall_clock_s=239.0) as rec, pytest.raises(
+        ValueError, match="already stated"
+    ):
+        rec.measured(12.0)
+    assert led.rows()[0].wall_clock_s == 239.0
+
+
+def test_a_statement_after_the_row_is_written_is_refused(tmp_path: Path):
+    """By then it changes nothing, and a caller that believes otherwise has a bug that a
+    silent no-op would hide -- a row priced at the recorder's lifetime, with the code that
+    was supposed to fix that sitting two lines below it.
+    """
+    led = Ledger(tmp_path / "runs.jsonl")
+    with _recorder(led, wall_clock_s=None) as rec:
+        pass
+    with pytest.raises(ValueError, match="after the row is written"):
+        rec.measured(239.0)
+    assert led.rows()[0].wall_clock_source == "recorder"

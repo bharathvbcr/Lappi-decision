@@ -30,9 +30,12 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import re
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -223,3 +226,178 @@ def test_a_priced_run_records_the_rate_against_its_own_clock(tmp_path: Path) -> 
     assert row.cost_usd == pytest.approx(
         TEST_RATE_USD_PER_HOUR * row.wall_clock_s / 3600.0, rel=1e-9
     ), "the row's cost is not the stated rate applied to the row's own duration"
+
+
+# -- a run that is killed before its training finishes -------------------------------------
+#
+# GAP-A-KILLED-RUNG0-RUN-LEAVES-NO-ROW-AND-NO-COST. `RunRecorder` guarantees "a row on
+# every exit path" -- a guarantee about its BLOCK -- and `rung0_real_run.py` entered the
+# block after `train_once` had already returned. Every second of training happened outside
+# the thing keeping the promise, which is why a killed seed left the ledger silent.
+#
+# Rule 5 makes a killed seed a rerun, so the missing row costs no science. The missing COST
+# is the reason this is not bookkeeping: spend summed from the ledger was short by exactly
+# the runs that were killed, which are the ones that ran longest.
+
+
+def _real_argv(
+    tmp_path: Path, *, epochs: int, seeds: int, ledger: Path, n_files: int = 8
+) -> list[str]:
+    """`tools/rung0_real_run.py` at the same size the priced test above uses."""
+    examples, manifest = _corpus(tmp_path, n_files=n_files)
+    out = tmp_path / "scratch"
+    out.mkdir(exist_ok=True)
+    return [
+        "--out", str(out),
+        "--rev", "HEAD",
+        "--examples", str(examples),
+        "--manifest-in", str(manifest),
+        "--device", "cpu",
+        "--instance", "rung0-killed-mid-run",
+        "--usd-per-hour", str(TEST_RATE_USD_PER_HOUR),
+        "--seeds", str(seeds),
+        "--epochs", str(epochs),
+        "--width", "16",
+        "--layers", "1",
+        "--heads", "1",
+        "--context-bytes", "512",
+        "--batch-size", "2",
+        "--ledger", str(ledger),
+    ]
+
+
+def test_a_run_killed_before_training_finishes_still_writes_a_priced_row(
+    tmp_path: Path,
+) -> None:
+    """The gap. Against the pre-fix tool this leaves an empty ledger.
+
+    A subprocess, because the signal has to be real: the recorder installs SIGTERM and
+    SIGINT handlers in `__enter__` and the whole question is whether the process is inside
+    that block when the signal lands.
+
+    The signal is sent once the tool has printed its batch counts, which it does
+    immediately before the seed loop, and then 1.5s later. The window it has to land in is
+    the one seed's work -- model construction, the "before" evaluation and the training
+    loop -- all of which is inside the block after this fix and outside it before, since
+    the recorder used to be entered only once `train_once` had returned. The sizing is
+    measured rather than assumed: `--epochs 40` on the default eight-file corpus trains for
+    0.85s, so this corpus (three times the files) at `--epochs 200` (the tool's ceiling)
+    trains for about twelve seconds. 1.5s is an eighth of the way in.
+
+    `cost_usd > 0` is asserted and is not decoration. A killed row carrying
+    `wall_clock_source="recorder"` and a cost of $0.00 satisfies every other assertion here
+    while recording nothing about the money, which is the whole of what the gap costs.
+    """
+    ledger_path = tmp_path / "killed-ledger.jsonl"
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            str(REPO / "tools" / "rung0_real_run.py"),
+            *_real_argv(tmp_path, epochs=200, seeds=1, ledger=ledger_path, n_files=24),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        # Not optional, and the reason is the test rather than the tool. Python
+        # block-buffers a pipe, so without this the batches line does not leave the child
+        # until it exits: the wait below returns at t+14.4s on a run that takes 14.4s, the
+        # signal goes to a corpse, and the test passes against the pre-fix tool by reading
+        # the row a completed run wrote. Measured both ways before this line was added.
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+    )
+    try:
+        seen = _read_until(proc, "  batches:", timeout=300.0)
+        time.sleep(1.5)
+        proc.send_signal(signal.SIGTERM)
+        out = seen + (proc.communicate(timeout=300)[0] or "")
+    finally:
+        if proc.poll() is None:  # pragma: no cover - only if the child ignores SIGTERM
+            proc.kill()
+            proc.wait(timeout=60)
+
+    assert proc.returncode == -signal.SIGTERM, (
+        f"the tool exited {proc.returncode} rather than dying of the signal: it finished "
+        f"before the kill landed, so this run does not test what it says it does.\n"
+        f"{out[-2000:]}"
+    )
+    rows = Ledger(ledger_path).rows()
+    assert rows, (
+        "a run killed before its training finished wrote no ledger row at all: the "
+        f"recorder is not wrapping the training.\n{out[-2000:]}"
+    )
+    row = rows[-1]
+    assert row.status == "killed", f"row {row.row_id} says {row.status!r}"
+    assert row.wall_clock_source == "recorder", (
+        "the killed row claims a caller-measured duration, but the caller never reached "
+        "the line that states one"
+    )
+    assert row.wall_clock_s > 0.0
+    assert row.cost_usd > 0.0, (
+        "the killed row records no cost. Its spend is real whether or not its science is, "
+        "and a ledger summed for spend would be short by exactly the longest runs"
+    )
+    assert row.cost_usd == pytest.approx(
+        TEST_RATE_USD_PER_HOUR * row.wall_clock_s / 3600.0, rel=1e-9
+    )
+
+
+def _read_until(proc: subprocess.Popen[str], prefix: str, *, timeout: float) -> str:
+    """Block until the child prints a line starting with `prefix`, and return all of it.
+
+    Sleeping a fixed interval instead would race on a loaded machine and land the signal
+    before the recorder was entered -- a test that passes for the wrong reason, and passes
+    against the pre-fix tool too.
+    """
+    assert proc.stdout is not None
+    deadline = time.monotonic() + timeout
+    seen: list[str] = []
+    while time.monotonic() < deadline:
+        line = proc.stdout.readline()
+        if not line:
+            break
+        seen.append(line)
+        if line.startswith(prefix):
+            return "".join(seen)
+    raise AssertionError(f"{prefix!r} never printed within {timeout}s:\n{''.join(seen)}")
+
+
+def test_the_row_carries_the_training_loop_and_not_the_block(tmp_path: Path, capsys) -> None:
+    """Characterisation: the fix must not change what a successful row means.
+
+    Passes before and after, and that is its job -- 53 rows were written by this tool
+    against the old arrangement, and they stay comparable only if the number keeps meaning
+    the training loop. `wall_clock_source == "caller"` is already asserted above and is not
+    enough on its own: it only shows `measured()` was reached, not that it was handed the
+    right quantity. The block now spans model construction, three evaluations and the
+    metric recording as well as the loop, so "the loop" and "the block" are different
+    numbers and the row has to carry the smaller one.
+
+    `train_once` times lines 613-617 only and the tool prints that figure per seed, so the
+    printed value IS the loop by construction. The tolerance is the width of its `.1f`
+    rounding.
+    """
+    ledger_path = tmp_path / "loop-ledger.jsonl"
+    argv = _real_argv(tmp_path, epochs=40, seeds=1, ledger=ledger_path)
+    t0 = time.monotonic()
+    # The gates decide whether rung 0 learned anything; on eight synthetic files it plainly
+    # did not, and `main` says so with a non-zero exit after the row is already written.
+    with contextlib.suppress(SystemExit):
+        real_run.main(argv)
+    block_and_more = time.monotonic() - t0
+
+    rows = Ledger(ledger_path).rows()
+    assert rows, "the tool wrote no ledger row"
+    row = rows[0]
+    assert row.wall_clock_source == "caller"
+
+    printed = re.search(r"\s(\d+\.\d+)s\s+\d+ steps", capsys.readouterr().out)
+    assert printed is not None, "the tool printed no per-seed training duration"
+    loop_s = float(printed.group(1))
+    assert abs(row.wall_clock_s - loop_s) <= 0.0501, (
+        f"row wall_clock_s={row.wall_clock_s:.4f} against a printed training duration of "
+        f"{loop_s:.1f}s: the row is not carrying the loop"
+    )
+    assert row.wall_clock_s < block_and_more, (
+        "the row's duration is not shorter than the call that contains it, so it cannot be "
+        "the training loop alone"
+    )

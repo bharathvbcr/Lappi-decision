@@ -1025,6 +1025,17 @@ class Ledger:
         )
 
 
+def _is_measured_duration(wall_clock_s: float) -> bool:
+    """Whether a number is a duration somebody measured.
+
+    Asked in two places -- at construction, and by ``measured()`` -- and stated once
+    because the subtlety is not the bound. ``nan < 0`` is False, so a bare bound check
+    admits NaN, and a NaN duration carries into ``cost_usd`` as a NaN price that passes
+    every finiteness check downstream because it was never finite to begin with.
+    """
+    return math.isfinite(wall_clock_s) and wall_clock_s >= 0
+
+
 class RunRecorder:
     """Context manager guaranteeing a row on every exit path.
 
@@ -1066,9 +1077,7 @@ class RunRecorder:
     ) -> None:
         if run_kind not in _RUN_KINDS:
             raise ValueError(f"run_kind {run_kind!r} not one of {sorted(_RUN_KINDS)}")
-        if wall_clock_s is not None and (
-            not math.isfinite(wall_clock_s) or wall_clock_s < 0
-        ):
+        if wall_clock_s is not None and not _is_measured_duration(wall_clock_s):
             # Refused here rather than in `_finish`, which runs only once the GPU time has
             # already been spent -- and which would take the row down with it.
             raise ValueError(
@@ -1122,6 +1131,45 @@ class RunRecorder:
 
     def gate(self, name: str, value: TriState) -> None:
         self.gates[name] = value
+
+    def measured(self, wall_clock_s: float) -> None:
+        """State the duration this run measured, from **inside** the block.
+
+        ``wall_clock_s`` is a constructor argument because most callers know the duration
+        before the recorder exists -- they time the work, then open a recorder to report it.
+        A recorder that WRAPS its work cannot do that, and wrapping is the only arrangement
+        in which a killed run still writes a row: the guarantee in this class's docstring is
+        a property of the block, so work done outside it is work whose death goes
+        unrecorded.
+
+        The two paths then differ exactly as they should. A run that reaches this line
+        reports the duration it measured, under ``wall_clock_source="caller"`` -- the same
+        quantity it would have passed to the constructor, so rows do not change meaning. A
+        run that dies first falls back to the recorder's own lifetime under ``"recorder"``,
+        which is what it was billed for, and the two are distinguishable in the row by that
+        field alone.
+
+        Refused after the row is written, where it changes nothing; refused a second time,
+        because a recorder told twice keeps only the last, which is how a per-seed duration
+        silently becomes one seed's.
+        """
+        if self.row is not None:
+            raise ValueError(
+                "measured() after the row is written changes nothing: the duration is read "
+                "at _finish, which has already run"
+            )
+        if not _is_measured_duration(wall_clock_s):
+            raise ValueError(
+                f"wall_clock_s={wall_clock_s!r} is not a measured duration: pass a finite, "
+                "non-negative number of seconds"
+            )
+        if self.wall_clock_s is not None:
+            raise ValueError(
+                f"this run's duration was already stated as {self.wall_clock_s!r}s. A "
+                "recorder that is told twice records only the last figure, which is how a "
+                "loop's total becomes its final iteration's"
+            )
+        self.wall_clock_s = float(wall_clock_s)
 
     def _fill_unreported(self) -> None:
         """Anything the run never reported is `not_run`, explicitly.

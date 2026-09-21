@@ -949,25 +949,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     ).hexdigest()
     runs: list[dict[str, object]] = []
     for seed in range(args.seeds):
-        run = train_once(
-            train_plans=train_plans,
-            val_plans=val_plans,
-            baseline=baseline,
-            choice_floor=choice_floor,
-            train_decisions=len(train_d),
-            span_weight=args.span_weight,
-            device=args.device,
-            seed=seed,
-            epochs=args.epochs,
-            config=config,
-            instance=args.instance,
-            usd_per_hour=args.usd_per_hour,
-            usd_per_gpu_hour=args.usd_per_gpu_hour,
-            approved_by=args.approved_by,
-        )
-        runs.append(run)
-        after = run["val_after"]  # type: ignore[index]
-        before = run["val_before"]  # type: ignore[index]
         protocol = Protocol(
             data_snapshot_hash=corpus_hash,
             tokenizer_hash="bytes-utf8-256",
@@ -1013,10 +994,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_kind="ft",
             repo=REPO,
             env=Environment.detect(device=args.device),
-            # train_once() returned before this block was entered, so the recorder's own
-            # lifetime is the time to write metrics -- microseconds against a run that
-            # takes minutes. The measured figure is the one the log already prints.
-            wall_clock_s=float(run["wall_clock_s"]),  # type: ignore[arg-type]
+            # None here, and stated by `recorder.measured()` the moment training returns.
+            # The block WRAPS the training now, so a run killed before training finishes
+            # still writes a row -- and the ordinary path carries the same training
+            # duration it always did, under wall_clock_source="caller". A killed run falls
+            # back to the recorder's lifetime under "recorder", which is what it was
+            # billed for.
+            wall_clock_s=None,
             # Same factory the RunControl above was built from, so the row and the gate
             # cannot price the run differently. Rebuilt rather than carried in `run`,
             # which holds JSON-serialisable facts only.
@@ -1035,6 +1019,26 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "measured on files it never saw, split by path"
             ),
         ) as recorder:
+            run = train_once(
+                train_plans=train_plans,
+                val_plans=val_plans,
+                baseline=baseline,
+                choice_floor=choice_floor,
+                train_decisions=len(train_d),
+                span_weight=args.span_weight,
+                device=args.device,
+                seed=seed,
+                epochs=args.epochs,
+                config=config,
+                instance=args.instance,
+                usd_per_hour=args.usd_per_hour,
+                usd_per_gpu_hour=args.usd_per_gpu_hour,
+                approved_by=args.approved_by,
+            )
+            recorder.measured(float(run["wall_clock_s"]))  # type: ignore[arg-type]
+            runs.append(run)
+            after = run["val_after"]  # type: ignore[index]
+            before = run["val_before"]  # type: ignore[index]
             # Against the majority-class baseline, which is a property of the split
             # rather than a quantity with seed noise -- so one variance, not two. The
             # two-arm form would claim 1.41x more sensitivity than this comparison has.
