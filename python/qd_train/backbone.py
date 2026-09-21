@@ -689,9 +689,11 @@ class QwenDecisionStep:
         tower: TextTower,
         *,
         lr: float,
+        total_steps: int,
         span_weight: float = 1.0,
         max_grad_norm: float = 1.0,
         max_width: int = 34_522,
+        allow_frozen_moments: bool = False,
     ) -> None:
         import torch
         from torch import nn
@@ -730,7 +732,17 @@ class QwenDecisionStep:
         # keeps_fp32_master=True, have it accepted, and train with bf16 moments anyway. A
         # spec that is checked and then discarded is worse than no spec: it reads as a
         # guarantee.
-        self.optimizer = build_optimizer(list(self.parameters()), spec=tower.optimizer, lr=lr)
+        # `total_steps` travels with the spec because the spec alone cannot answer whether
+        # this optimizer is fit for this run: a bf16 second moment is correct for 383 steps
+        # and broken for 384, and the step that knows the dtype has never been the one that
+        # knows the schedule. Passing it here is what closes that gap.
+        self.optimizer = build_optimizer(
+            list(self.parameters()),
+            spec=tower.optimizer,
+            lr=lr,
+            total_steps=total_steps,
+            allow_frozen_moments=allow_frozen_moments,
+        )
         #: Component losses per micro-batch. ``TrainResult.loss_log`` carries the combined
         #: number only, and a falling total with a flat span term is a model that learned
         #: the letter and nothing about *where*.

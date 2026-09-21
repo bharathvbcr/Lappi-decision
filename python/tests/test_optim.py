@@ -331,9 +331,19 @@ def test_the_lr_written_into_param_groups_is_the_lr_that_is_used() -> None:
 
 def test_the_builder_returns_what_the_spec_describes() -> None:
     bf16 = [_bf16_param()]
-    assert isinstance(build_optimizer(bf16, spec=ADAMW_BF16, lr=1e-4), torch.optim.AdamW)
+    # total_steps below the bf16 settling step, so this test is about the SPEC and not
+    # about the schedule guard; the guard has its own tests below.
     assert isinstance(
-        build_optimizer([_bf16_param()], spec=MASTER_SPEC, lr=1e-4), MasterWeightAdamW
+        build_optimizer(bf16, spec=ADAMW_BF16, lr=1e-4, total_steps=10),
+        torch.optim.AdamW,
+    )
+    # A master-weight spec is admitted at ANY length -- fp32 moments settle on the right
+    # value -- so this one deliberately asks for a schedule no bf16 run could have.
+    assert isinstance(
+        build_optimizer(
+            [_bf16_param()], spec=MASTER_SPEC, lr=1e-4, total_steps=1_000_000
+        ),
+        MasterWeightAdamW,
     )
 
 
@@ -341,13 +351,13 @@ def test_the_builder_refuses_a_spec_that_does_not_describe_the_parameters() -> N
     """ADAMW_FP32 over a bf16 tower budgets 4-byte states against the 2-byte states torch
     builds. Over-budgeting never crashes, which is why it survived once already."""
     with pytest.raises(ValueError, match="layout nothing builds"):
-        build_optimizer([_bf16_param()], spec=ADAMW_FP32, lr=1e-4)
+        build_optimizer([_bf16_param()], spec=ADAMW_FP32, lr=1e-4, total_steps=10)
 
 
 def test_the_builder_refuses_a_spec_with_the_wrong_state_count() -> None:
     sgd_like = OptimizerSpec("SGD+momentum", 1, 2)
     with pytest.raises(ValueError, match="exactly two"):
-        build_optimizer([_bf16_param()], spec=sgd_like, lr=1e-4)
+        build_optimizer([_bf16_param()], spec=sgd_like, lr=1e-4, total_steps=10)
 
 
 def test_the_master_spec_budgets_what_the_optimizer_allocates() -> None:
@@ -372,3 +382,135 @@ def test_the_master_spec_budgets_what_the_optimizer_allocates() -> None:
     n = p.numel()
     assert master_bytes / n == 4.0, f"master is {master_bytes / n} B/param, expected 4"
     assert state_bytes / n == 8.0, f"moments are {state_bytes / n} B/param, expected 8"
+
+
+# -- the schedule guard -------------------------------------------------------------------
+#
+# This module could measure that a bf16 second moment stops moving at step 384 and settles
+# 50% low, say so at length in its own docstring, and still hand back the optimizer that
+# does it -- because nothing here knew how long the run would be. These are what changed.
+
+
+def test_bf16_settles_half_low_and_fp32_settles_on_the_answer() -> None:
+    """The measurement the guard is built on, reproduced against torch's own rounding.
+
+    ``tools/moment_precision.py`` is the authority and drives ``torch.optim.AdamW`` itself;
+    this is the scalar EMA, so a guard can ask without allocating an optimizer. They agree
+    on the value and differ by one on the step -- that tool reports the last update that
+    MOVED the value, this the first that did not.
+    """
+    from qd_train.optim import moment_settling
+
+    bf16 = moment_settling(dtype=torch.bfloat16)
+    assert bf16.settled_at_step == 384
+    assert bf16.settled_value == pytest.approx(0.5, abs=1e-9)
+    assert not bf16.is_faithful
+
+    fp32 = moment_settling(dtype=torch.float32)
+    assert fp32.settled_value == pytest.approx(1.0, abs=1e-4)
+    assert fp32.is_faithful
+
+
+def test_stopping_is_not_the_defect_stopping_wrong_is() -> None:
+    """fp32 stops moving too, at step 10,301 -- on the right answer. A guard keyed on "does
+    the moment freeze" would refuse the correct optimizer along with the broken one, which
+    is why ``MomentSettling`` carries the VALUE and not just the step."""
+    from qd_train.optim import moment_settling
+
+    fp32 = moment_settling(dtype=torch.float32)
+    assert fp32.settled_at_step is not None
+    assert fp32.settled_at_step < 20_000
+    # Stops, and survives a schedule far longer than where it stopped.
+    assert fp32.survives(fp32.settled_at_step * 10)
+
+
+def test_fp16_looks_survivable_and_is_not() -> None:
+    """The case neither the docstrings nor the tools had measured. fp16 lasts three times
+    longer than bf16 before it freezes, which makes it look like the safe half-precision
+    choice, and it still settles 27% low."""
+    from qd_train.optim import moment_settling
+
+    fp16 = moment_settling(dtype=torch.float16)
+    assert fp16.settled_at_step > moment_settling(dtype=torch.bfloat16).settled_at_step
+    assert not fp16.is_faithful
+    assert fp16.relative_error > 0.2
+
+
+def test_a_schedule_that_outlives_its_second_moment_is_refused() -> None:
+    """The hardening, stated as a test. 1,000 steps of bf16 moments is a run whose last 616
+    steps are all mis-scaled by 1.41x, invisibly."""
+    from qd_train.optim import build_optimizer
+
+    with pytest.raises(ValueError, match="does not survive it"):
+        build_optimizer([_bf16_param()], spec=ADAMW_BF16, lr=1e-4, total_steps=1_000)
+
+
+def test_a_schedule_that_ends_before_the_freeze_is_admitted() -> None:
+    """The bound is not a ban on bf16 moments. A run that finishes before step 384 has a
+    second moment that tracked the whole way, and refusing it would be the same kind of
+    error in the other direction."""
+    from qd_train.optim import build_optimizer
+
+    assert build_optimizer(
+        [_bf16_param()], spec=ADAMW_BF16, lr=1e-4, total_steps=383
+    ) is not None
+
+
+def test_the_exception_has_to_be_said_out_loud() -> None:
+    """There is a real case for accepting degraded moments -- a device where 16 B/param does
+    not fit -- and it must be spelled, land in the recipe, and never be reachable by
+    forgetting to pass something. Named after ``write_shards(allow_contradictions=...)``."""
+    from qd_train.optim import build_optimizer
+
+    assert build_optimizer(
+        [_bf16_param()],
+        spec=ADAMW_BF16,
+        lr=1e-4,
+        total_steps=100_000,
+        allow_frozen_moments=True,
+    ) is not None
+
+
+def test_total_steps_is_required_rather_than_defaulted() -> None:
+    """A default would make the guard opt-in, and an opt-in guard against an invisible
+    failure is a guard that is off. Every caller already computes this number before it
+    builds a step."""
+    import inspect
+
+    from qd_train.optim import build_optimizer
+
+    param = inspect.signature(build_optimizer).parameters["total_steps"]
+    assert param.default is inspect.Parameter.empty
+    assert param.kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_a_schedule_of_no_steps_is_refused() -> None:
+    from qd_train.optim import build_optimizer
+
+    with pytest.raises(ValueError, match="total_steps must be at least 1"):
+        build_optimizer([_bf16_param()], spec=ADAMW_BF16, lr=1e-4, total_steps=0)
+
+
+def test_an_impossible_beta2_is_refused_rather_than_looped_over() -> None:
+    """``beta2 >= 1`` never converges and ``beta2 <= 0`` is not an EMA; either would spin to
+    ``MAX_SETTLING_STEPS`` and report ``None``, which reads as "still tracking"."""
+    from qd_train.optim import moment_settling
+
+    for bad in (0.0, 1.0, -0.5, 1.5):
+        with pytest.raises(ValueError, match="beta2 must be in"):
+            moment_settling(dtype=torch.float32, beta2=bad)
+
+
+def test_the_step_refuses_a_schedule_its_moments_cannot_serve() -> None:
+    """The guard reaches the real FT step, not just the builder. ``QwenDecisionStep`` is
+    where a full train's optimizer is actually constructed."""
+    from qd_train.backbone import QwenDecisionStep
+
+    assert "total_steps" in inspect_signature_params(QwenDecisionStep.__init__)
+    assert "allow_frozen_moments" in inspect_signature_params(QwenDecisionStep.__init__)
+
+
+def inspect_signature_params(fn) -> set[str]:
+    import inspect
+
+    return set(inspect.signature(fn).parameters)

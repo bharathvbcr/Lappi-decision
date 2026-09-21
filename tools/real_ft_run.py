@@ -1247,7 +1247,13 @@ def _train(
                 "Training would index the wrong row for every token. Refusing."
             )
         tower = remap_text_tower(tower, reader.remap)
-        step = QwenDecisionStep(tower, lr=lr, span_weight=span_weight, max_width=width)
+        # `steps` is computed at the top of this function and was always available here;
+        # it now travels into the step, so a schedule that would outlive its own second
+        # moment is refused before the tower is trained rather than discovered in a loss
+        # curve that shows nothing.
+        step = QwenDecisionStep(
+            tower, lr=lr, total_steps=steps, span_weight=span_weight, max_width=width,
+        )
         # `tower.snapshot.name`, not `str(backbone)`: the directory name is the HF revision
         # (refs/main and the snapshot dir agree), while the absolute path is
         # /home/ubuntu/... on the rented box and /Users/bharath/... here. Since this feeds

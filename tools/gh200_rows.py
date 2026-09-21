@@ -97,7 +97,11 @@ def main() -> int:
         SNAPSHOT, gradient_checkpointing=True, optimizer=ADAMW_BF16,
         device="cuda", dtype="bf16", rows=1, width=CASES[0][0],
     )
-    opt = build_optimizer(list(tower.model.parameters()), spec=ADAMW_BF16, lr=1e-5)
+    # total_steps=1 -- a row-count feasibility probe takes one step per case, so the
+    # bf16 moment is nowhere near the step at which it stops tracking.
+    opt = build_optimizer(
+        list(tower.model.parameters()), spec=ADAMW_BF16, lr=1e-5, total_steps=1
+    )
     print(f"tower : {tower.n_tensors_loaded} tensors, vocab {tower.vocab_size}, "
           f"grad_ckpt {tower.gradient_checkpointing}\n")
 
@@ -149,7 +153,9 @@ def main() -> int:
         SNAPSHOT, gradient_checkpointing=False, optimizer=ADAMW_BF16,
         device="cuda", dtype="bf16", rows=1, width=CASES[0][0],
     )
-    no_opt = build_optimizer(list(no_ckpt.model.parameters()), spec=ADAMW_BF16, lr=1e-5)
+    no_opt = build_optimizer(
+        list(no_ckpt.model.parameters()), spec=ADAMW_BF16, lr=1e-5, total_steps=1
+    )
     ok, peak, detail = attempt(no_ckpt, no_opt, 1, CASES[0][0])
     if ok:
         print(f"  MEASURED: 1 row FITS at {peak / GiB:.2f} GiB -- the budget said it would "

@@ -146,7 +146,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"trainable: {trainable:,} parameters")
 
     print(f"recipe   : {args.optimizer} -- {spec}")
-    opt = build_optimizer(list(tower.model.parameters()), spec=spec, lr=1e-5)
+    # total_steps=1: this is a FOOTPRINT probe, one step per shape to see what the
+    # allocator does. It is not a training run, so the second moment never gets near the
+    # step at which its dtype would stop tracking -- and saying 1 is how that is stated
+    # rather than assumed.
+    opt = build_optimizer(
+        list(tower.model.parameters()), spec=spec, lr=1e-5, total_steps=1
+    )
     vocab = tower.vocab_size
     rows = 1
     results = []

@@ -532,7 +532,7 @@ def test_the_step_satisfies_both_trainer_protocols(tmp_path):
     why this step implements the former.
     """
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, max_width=64)
+    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
     assert isinstance(step, TrainStep)
     assert isinstance(step, SpanScoringStep), (
         "without accumulate_span the loop refuses every SLOT_SPAN batch"
@@ -549,7 +549,7 @@ def test_a_real_backbone_trains_through_train_ft_and_the_loss_falls(tmp_path):
     parameters -- which is the claim, and the only one twelve steps can support.
     """
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, max_width=64)
+    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
     ledger = Ledger(tmp_path / "ledger.jsonl")
     result = train_ft(
         (_ft_batch(i) for i in range(12)),
@@ -574,7 +574,7 @@ def test_a_real_backbone_trains_through_train_ft_and_the_loss_falls(tmp_path):
 
 def test_a_batch_wider_than_the_bound_is_refused_rather_than_clipped(tmp_path):
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, max_width=4)
+    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=4)
     with pytest.raises(ValueError, match="would move every row's target_index"):
         step.hidden(_ft_batch(0, width=6))
 
@@ -595,7 +595,7 @@ def test_the_state_is_tensor_refs_and_not_a_private_sidecar(tmp_path):
     from qd_train.run_control import TensorRef
 
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, max_width=64)
+    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
     state = step.state()
 
     assert state["vocab_size"] == TINY_VOCAB
@@ -613,7 +613,7 @@ def test_the_state_is_tensor_refs_and_not_a_private_sidecar(tmp_path):
 def test_the_state_round_trips_the_weights_bit_exactly(tmp_path):
     """A resume that restores almost the right weights is the worst kind."""
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, max_width=64)
+    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
     state = step.state()
 
     original = tower.model.get_input_embeddings().weight.detach().clone()
@@ -628,7 +628,7 @@ def test_the_state_round_trips_the_weights_bit_exactly(tmp_path):
 def test_a_checkpoint_from_a_different_vocabulary_is_refused(tmp_path):
     """A different remap renumbers every row, so the weights mean something else."""
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, max_width=64)
+    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
     state = dict(step.state())
     state["vocab_size"] = TINY_VOCAB + 1
     with pytest.raises(BackboneContractViolation, match="renumbers every row"):
@@ -648,7 +648,7 @@ def test_the_state_survives_a_real_checkpoint_write_and_read(tmp_path):
     from qd_train.run_control import Checkpoint, LossLog, Position
 
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, max_width=64)
+    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
     checkpoint = Checkpoint(
         position=Position(epoch=0, index=1),
         optimizer_step=1,
@@ -679,7 +679,7 @@ def test_the_state_survives_a_real_checkpoint_write_and_read(tmp_path):
 def test_a_state_that_lost_its_tensors_is_refused(tmp_path):
     """A body that came back without its sidecar is not a body with fewer tensors."""
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, max_width=64)
+    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
     state = dict(step.state())
     state["tower"] = {name: None for name in state["tower"]}
     with pytest.raises(BackboneContractViolation, match="not a TensorRef"):
@@ -702,14 +702,14 @@ def test_the_step_builds_the_optimizer_its_towers_spec_names(tmp_path):
 
     master_spec = OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
     tower, _ = _tiny_tower(tmp_path, dtype="bf16", optimizer=master_spec)
-    step = QwenDecisionStep(tower, lr=1e-3, max_width=64)
+    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
     assert isinstance(step.optimizer, MasterWeightAdamW), (
         f"the tower's spec asked for an fp32 master and the step built "
         f"{type(step.optimizer).__name__}"
     )
 
     plain, _ = _tiny_tower(tmp_path / "plain", dtype="bf16", optimizer=ADAMW_BF16)
-    plain_step = QwenDecisionStep(plain, lr=1e-3, max_width=64)
+    plain_step = QwenDecisionStep(plain, lr=1e-3, total_steps=1, max_width=64)
     assert isinstance(plain_step.optimizer, torch.optim.AdamW)
     assert not isinstance(plain_step.optimizer, MasterWeightAdamW)
 
@@ -722,7 +722,7 @@ def test_a_bf16_tower_under_the_master_recipe_trains_and_stays_bf16(tmp_path):
 
     master_spec = OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
     tower, _ = _tiny_tower(tmp_path, dtype="bf16", optimizer=master_spec)
-    step = QwenDecisionStep(tower, lr=1e-2, max_width=64)
+    step = QwenDecisionStep(tower, lr=1e-2, total_steps=1, max_width=64)
     before = tower.model.get_input_embeddings().weight.detach().clone()
 
     batch = _ft_batch(0)
