@@ -17,6 +17,7 @@ module parses stays pinned to the row shape the runners actually write.
 
 from __future__ import annotations
 
+import statistics
 import sys
 from pathlib import Path
 
@@ -192,15 +193,80 @@ def test_the_arm_vs_arm_floor_is_the_wider_one() -> None:
     left = [_row(backbone="aaa", val=v) for v in (0.30, 0.34, 0.32, 0.36)]
     right = [_row(backbone="bbb", val=v) for v in (0.40, 0.44, 0.42, 0.46)]
     text = "\n".join(ledger_arms.render_pairwise(ledger_arms.arms_of(left + right)))
-    pairwise = float(text.split("floor at n=4 ", 1)[1].split("pp", 1)[0])
-
+    # The known-sd column of both lines, so this compares like with like: the sqrt(2) is a
+    # property of the comparison, and the t penalty is a separate factor that differs
+    # between the two cases (df = n-1 against df = 2(n-1)) and would otherwise be folded in.
+    pairwise = float(
+        text.split("known-sd / estimated-sd ", 1)[1].split(" / ", 1)[0]
+    )
     one_arm = "\n".join(ledger_arms.render(ledger_arms.arms_of(left)))
-    fixed = float(one_arm.split("difference at this n: ", 1)[1].split("pp", 1)[0])
+    fixed = float(
+        one_arm.split("known-sd / estimated-sd: ", 1)[1].split(" / ", 1)[0]
+    )
     # Both numbers are read back off a line rounded to two decimals, so the tolerance is
     # the printing precision and not the arithmetic's. It is still an order of magnitude
     # tighter than the gap being tested: against the one-sample floor this reads 3.62
     # against an expected 5.12, which no rounding accounts for.
     assert pairwise == pytest.approx(fixed * 2**0.5, abs=0.02)
+
+
+def test_both_floors_are_printed_and_the_honest_one_is_the_wider() -> None:
+    """The known-sd bound and the estimated-sd bound, as two numbers on the line.
+
+    ``resolvable_difference`` assumes ``sd`` is known; it is estimated from these runs, so
+    the honest quantile is Student's t. A reader given one number and a percentage has to
+    pick the case themselves, and on 2026-09-21 an AUDIT file picked the wrong one -- it
+    applied this module's two-sample n=5 figure of 14% to a one-sample n=8 comparison whose
+    true penalty is 16.4%, erring on the flattering side.
+    """
+    rows = [_row(backbone="b", val=v) for v in (0.50, 0.52, 0.54, 0.51, 0.53)]
+    line = next(
+        ln for ln in ledger_arms.render(ledger_arms.arms_of(rows)) if "known-sd" in ln
+    )
+    fixed = line.split("known-sd / estimated-sd: ", 1)[1]
+    known, honest = (float(x) for x in fixed.split("pp", 1)[0].split(" / "))
+    assert honest > known, f"the estimated-sd bound must be the wider one:\n{line}"
+    assert honest == pytest.approx(
+        known * ledger_arms.estimated_sd_penalty(n_per_arm=5, against_known_reference=True),
+        abs=0.01,
+    ), "the penalty is not the one qd_train.power computes for this case"
+
+
+def _arm_at(backbone: str, *, mean: float, sd: float, n: int = 5) -> list[dict]:
+    """``n`` seeds with exactly this mean and sample sd, so a fixture can be aimed."""
+    step = sd / statistics.stdev([i - (n - 1) / 2 for i in range(n)])
+    return [_row(backbone=backbone, val=mean + step * (i - (n - 1) / 2)) for i in range(n)]
+
+
+def test_a_difference_between_the_two_bounds_is_not_called_visible() -> None:
+    """The band where a null gets read as a finding.
+
+    A difference that clears the known-sd floor but not the honest one has not been shown
+    to be visible, and calling it VISIBLE is the flattering read. It is the exact error the
+    curve's audit made before the correction: +3.78pp reported as clearing 2.86pp, when the
+    bound that applies is 3.33pp.
+
+    The fixture is AIMED at the band rather than hoped into it. At n=5 per arm the floor is
+    ``2.80159 * s * sqrt(2/5)`` and the honest one is 14.0% wider, so a pooled sd of 1.00pp
+    puts the band at roughly [1.77, 2.02]pp and a 1.90pp difference lands inside it. If the
+    arithmetic ever moves, this fails rather than skipping -- a test that skips is a test
+    that did not run, which is the thing this repository refuses.
+    """
+    left = _arm_at("aaa", mean=0.3000, sd=0.0100)
+    right = _arm_at("bbb", mean=0.3190, sd=0.0100)
+    text = "\n".join(ledger_arms.render_pairwise(ledger_arms.arms_of(left + right)))
+
+    known, honest = (
+        float(x)
+        for x in text.split("known-sd / estimated-sd ", 1)[1].split("pp", 1)[0].split(" / ")
+    )
+    diff = abs(statistics.mean([r["metrics"][ledger_arms.VAL]["value"] for r in right])
+               - statistics.mean([r["metrics"][ledger_arms.VAL]["value"] for r in left])) * 100
+    assert known < diff <= honest, (
+        f"the fixture no longer lands in the band: {diff:.2f}pp against [{known}, {honest}]"
+    )
+    assert "clears the known-sd bound only" in text, text
+    assert "VISIBLE" not in text.replace("clears the known-sd bound only", ""), text
 
 
 def test_a_ledger_that_is_not_there_is_refused_rather_than_reported_over_the_rest() -> None:

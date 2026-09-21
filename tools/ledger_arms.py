@@ -34,14 +34,28 @@ prior would claim roughly three times the sensitivity the design has. Both sampl
 printed, neither stands in for the other, and an arm with fewer than two fitted seeds says
 so rather than reporting a spread over one.
 
+**Every floor is printed twice, known-sd and estimated-sd.** ``resolvable_difference``
+assumes ``sd`` is known; here it is estimated from the same handful of runs, so the honest
+quantile is Student's t and the bound is wider -- by 7.5% to 32.7% over the seed counts
+these sweeps use. Both numbers appear, and an arm-vs-arm difference is judged against the
+honest one, with ``(clears the known-sd bound only)`` said explicitly when it falls between
+them. That band is exactly where a null gets read as a finding.
+
+Printed as numbers rather than as a percentage for the reader to apply. On 2026-09-21 an
+AUDIT file quoted ``power.py``'s own 14% figure against a comparison whose true penalty was
+16.4%, because the 14% belongs to the two-sample n=5 case and the comparison was one-sample
+at n=8 -- and it erred on the flattering side. One more step is one more place to pick the
+wrong case.
+
 ## What this does not compute
 
-The resolution floor. ``qd_train.power.resolvable_difference`` owns it, derives the
-constant from ``NormalDist`` rather than hard-coding ~2.80, and makes
-``against_known_reference`` a required argument because the two answers differ by 1.41x and
-the wrong one is always the flattering one. A first draft of this file carried its own
-``Z = 2.801585``; that is a second owner of one number, and it was deleted rather than kept
-in agreement by hand.
+Either floor. ``qd_train.power`` owns both: ``resolvable_difference`` for the known-sd
+bound, deriving its constant from ``NormalDist`` rather than hard-coding ~2.80, and
+``estimated_sd_penalty`` for the multiplier, which picks ``df`` itself -- ``n-1`` against a
+fixed reference, ``2(n-1)`` against another arm. Both make ``against_known_reference`` a
+required argument, because the two answers differ by 1.41x and the wrong one is always the
+flattering one. A first draft of this file carried its own ``Z = 2.801585``; that is a
+second owner of one number, and it was deleted rather than kept in agreement by hand.
 
 Usage::
 
@@ -60,7 +74,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 
-from qd_train.power import resolvable_difference
+from qd_train.power import estimated_sd_penalty, resolvable_difference
 
 #: The held-out result, and the gate that says whether the arm fit at all. Both are written
 #: by ``tools/rung0_real_run.py``; an arm missing either is reported unmeasured, never
@@ -184,17 +198,40 @@ def read_rows(paths: list[Path]) -> list[dict]:
     return rows
 
 
+def _floors(sd: float, n: int, *, against_known_reference: bool) -> tuple[float, float]:
+    """The known-sd bound and the honest one, as two numbers rather than one and a caveat.
+
+    ``resolvable_difference`` assumes ``sd`` is known; here it is estimated from the same
+    handful of runs, so the honest quantile is Student's t and the bound is wider.
+    ``estimated_sd_penalty`` owns the multiplier and picks ``df`` for the one- and
+    two-sample cases -- n-1 against a fixed reference, 2(n-1) against another arm.
+
+    Printed as a number, not as a percentage for the reader to apply. On 2026-09-21 an audit
+    quoted this module's own 14% figure against a comparison whose true penalty was 16.4%,
+    because the 14% belongs to the two-sample n=5 case and the comparison was one-sample at
+    n=8. One more step is one more place to pick the wrong case.
+    """
+    known = resolvable_difference(
+        sd=sd, n_per_arm=n, against_known_reference=against_known_reference
+    )
+    penalty = estimated_sd_penalty(
+        n_per_arm=n, against_known_reference=against_known_reference
+    )
+    return known, known * penalty
+
+
 def _spread(label: str, sample: list[float], baseline: float | None) -> list[str]:
     if len(sample) < 2:
         return [f"    {label}: n={len(sample)} -- no spread to report"]
     mean, sd = statistics.mean(sample), statistics.stdev(sample)
-    against_ref = resolvable_difference(sd=sd, n_per_arm=len(sample), against_known_reference=True)
-    against_arm = resolvable_difference(sd=sd, n_per_arm=len(sample), against_known_reference=False)
+    ref_known, ref_honest = _floors(sd, len(sample), against_known_reference=True)
+    arm_known, arm_honest = _floors(sd, len(sample), against_known_reference=False)
     delta = "" if baseline is None else f"  ({(mean - baseline) * 100:+.2f}pp vs baseline)"
     return [
         f"    {label}: n={len(sample)} mean {mean * 100:.2f}% sd {sd * 100:.2f}pp{delta}",
-        f"        smallest visible difference at this n: {against_ref * 100:.2f}pp against a "
-        f"fixed reference, {against_arm * 100:.2f}pp against another arm",
+        f"        smallest visible difference at this n, known-sd / estimated-sd: "
+        f"{ref_known * 100:.2f} / {ref_honest * 100:.2f}pp against a fixed reference, "
+        f"{arm_known * 100:.2f} / {arm_honest * 100:.2f}pp against another arm",
     ]
 
 
@@ -234,13 +271,18 @@ def render_pairwise(arms: dict[tuple[str, str], Arm]) -> list[str]:
         sl, sr = statistics.stdev(left.fitted), statistics.stdev(right.fitted)
         pooled = math.sqrt((sl**2 + sr**2) / 2.0)
         n = min(len(left.fitted), len(right.fitted))
-        floor = resolvable_difference(sd=pooled, n_per_arm=n, against_known_reference=False)
+        known, honest = _floors(pooled, n, against_known_reference=False)
         diff = statistics.mean(right.fitted) - statistics.mean(left.fitted)
-        verdict = "VISIBLE" if abs(diff) > floor else "inside the floor -- NOT a difference"
+        # Judged against the HONEST floor. A difference between the two bounds is one this
+        # design has not been shown to see, and calling it visible is the flattering read.
+        verdict = "VISIBLE" if abs(diff) > honest else "inside the floor -- NOT a difference"
+        if known < abs(diff) <= honest:
+            verdict += " (clears the known-sd bound only)"
         lines.append(
             f"    {right.label}\n        minus {left.label}\n        "
             f"{diff * 100:+.2f}pp   pooled sd {pooled * 100:.2f}pp   "
-            f"floor at n={n} {floor * 100:.2f}pp   {verdict}"
+            f"floor at n={n} known-sd / estimated-sd {known * 100:.2f} / {honest * 100:.2f}pp"
+            f"   {verdict}"
         )
     if not pairs:
         lines.append("    no pair of arms has two fitted seeds each; nothing to compare")
