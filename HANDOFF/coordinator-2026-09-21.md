@@ -1247,12 +1247,47 @@ Anyone reviving this should say which. They are a hard corpus and a broken one.
 Part 9 closed with *"the engineering is ready, the science is two runs short."* One of those
 two was not a run. The position is now:
 
-* **Engineering:** ready, on the audited terms of Part 9 §1–5.
+* **Engineering:** ready on the audited terms of Part 9 §1–5, **with one gap found after
+  that audit and not covered by it** — see the correction below.
 * **Science:** **one** run short — the 8192 curve at `--train-subsample`, held and
   pre-registered by the concurrent lane, which attributes the 4096-vs-8192 swing between
   context window and training-set size.
 
 That is a smaller gap than this morning's, and it closed by reading rather than by running.
+
+## 26. Correction to Part 9: the audit missed where the recorder is entered
+
+Raised by the concurrent lane after Part 9 landed, and it is in this lane's file.
+
+`ledger.py`'s docstring promises *"a run that dies without a row is the one failure this
+module is built to make impossible."* That is a property of the recorder's **block**, and
+`rung0_real_run.py` enters the block after training is over — `for seed` at :951,
+`train_once(...)` at :952, `with RunRecorder(` at :1010, all at one indent. Verified
+structurally here; the concurrent lane measured the consequence, a real SIGTERM 8s into
+training giving returncode -15 and zero rows.
+
+The second-order cost is the one that matters: spend summed from the ledger is short by
+exactly the runs that were killed, which are the ones that ran longest. **A cost ledger
+whose error is correlated with the quantity rule 4 exists to control.** Bounded for rung 0 —
+the loop is per seed and finished seeds have already written — so a kill costs the seed in
+flight, not the sweep.
+
+**And the fix does not cost comparability**, which is what the other lane deferred it for.
+`ledger.py:1189` and `:1215` both read `self.wall_clock_s` at `_finish` time, not at
+construction. So entering the block before training with `wall_clock_s=None` and assigning
+the measured training duration on success gives a successful row that is identical in
+meaning to today's — `source="caller"`, the training loop alone — while a killed run
+writes a row carrying the recorder's lifetime under `source="recorder"`. The field added
+this morning is what keeps those two distinguishable.
+
+Not landed: the file is about to be run by the other lane's curve, and changing it an hour
+beforehand is its own risk whatever the semantics say. Theirs to time.
+
+**What this says about Part 9.** The audit named its exclusions — the experiments, the GPU
+suites, three packages, five process rules — and recorder placement was not among them. So
+it is the one-of-N shape a seventh time, in the artifact written to guard against it: an
+enumeration of what was not checked, which was itself incomplete. An audit's exclusion list
+is a claim like any other.
 
 ## Open
 
