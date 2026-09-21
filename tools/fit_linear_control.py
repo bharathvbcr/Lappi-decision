@@ -38,6 +38,9 @@ sys.path.insert(0, str(REPO / "tools"))
 
 from rung0_linear_control import context_texts  # noqa: E402
 from rung0_real_run import (  # noqa: E402
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_CONTEXT_BYTES,
+    DEFAULT_VAL_SHARE,
     LINEAR_CONTROL_MAX_ITER,
     bucketed_chunks,
     decisions_of,
@@ -54,12 +57,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--examples", type=Path, required=True)
     parser.add_argument("--control-cache", type=Path, required=True)
-    parser.add_argument("--val-share", type=float, default=0.2)
-    parser.add_argument("--context-bytes", type=int, default=8192)
-    parser.add_argument("--width", type=int, default=128)
-    parser.add_argument("--layers", type=int, default=2)
-    parser.add_argument("--heads", type=int, default=4)
-    parser.add_argument("--batch-size", type=int, default=16)
+    # Every default below is IMPORTED, never restated. The cache key covers the documents,
+    # and the documents are decided by the split and the context width -- so a default that
+    # disagrees with the run's produces a different key, a guaranteed miss, and an hour of
+    # CPU spent on a verdict nothing can read. Restating them diverged them within a day:
+    # val-share was 0.20 here against the runner's 0.25.
+    parser.add_argument("--val-share", type=float, default=DEFAULT_VAL_SHARE)
+    parser.add_argument("--context-bytes", type=int, default=DEFAULT_CONTEXT_BYTES)
+    parser.add_argument("--width", type=int, default=ByteDeciderConfig().width)
+    parser.add_argument("--layers", type=int, default=ByteDeciderConfig().n_layers)
+    parser.add_argument("--heads", type=int, default=ByteDeciderConfig().n_heads)
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-iter", type=int, default=LINEAR_CONTROL_MAX_ITER)
     parser.add_argument(

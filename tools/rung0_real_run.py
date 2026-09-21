@@ -140,6 +140,15 @@ MAX_EPOCHS: Final[int] = 200
 #: underperform on.
 DEFAULT_CONTEXT_BYTES: Final[int] = 4096
 
+#: Named rather than written inline into the parser, because `tools/fit_linear_control.py`
+#: has to split the corpus EXACTLY as this tool does or the cache key it computes is not
+#: the key this tool looks up. Restating the values there diverged them immediately: the
+#: fit defaulted to 0.20 while this parser defaulted to 0.25, which would have produced two
+#: different splits, a guaranteed cache miss, and an hour of CPU spent on a verdict nothing
+#: could read. One owner per default; the other tool imports these.
+DEFAULT_VAL_SHARE: Final[float] = 0.25
+DEFAULT_BATCH_SIZE: Final[int] = 16
+
 #: Attention is quadratic in the context, so this is a real ceiling and not a typo guard.
 MAX_CONTEXT_BYTES: Final[int] = 32_768
 
@@ -1183,7 +1192,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--epochs", type=int, default=12)
     parser.add_argument("--max-files", type=int, default=400)
     parser.add_argument("--limit", type=int, default=4000, help="examples qd-mutate may emit")
-    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument(
         "--context-bytes",
         type=int,
@@ -1268,7 +1277,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "thing it varied."
         ),
     )
-    parser.add_argument("--val-share", type=float, default=0.25)
+    parser.add_argument("--val-share", type=float, default=DEFAULT_VAL_SHARE)
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER_PATH)
     parser.add_argument(
         "--binary",
