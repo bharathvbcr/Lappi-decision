@@ -2123,3 +2123,125 @@ def test_opening_a_set_whose_generating_code_moved_is_refused(
     # refusal names the MODULE -- a pattern that would also match "renderXpy" is not that.
     with pytest.raises(ShardContractViolation, match=r"render\.py"):
         ShardReader(out, config=snap.config, repo_root=snap.root)
+
+
+# -- the revision the corpus was read at, pinned beside the code that read it -----------
+#
+# GAP-SHARD-HEADER-DOES-NOT-RECORD-THE-REV-ITS-CORPUS-WAS-READ-AT. The third pin, and the
+# one neither of the other two can stand in for: `data_snapshot_hash` hashes the rows that
+# came out and `code_fingerprint` hashes the code that turned them into rows, so a set
+# built at the WRONG REVISION is self-consistent in both and passes everything. Recovering
+# the rev from a ledger row's free-text notes, which is what 2026-09-21 required, is not a
+# pin. These are the reader-side half; `test_artifacts.py` holds the header-side half.
+
+
+def test_a_written_shard_set_records_the_revision_its_corpus_was_read_at(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """On disk, not merely on the object -- the reader gets the file."""
+    out = tmp_path / "shards" / "at-a-rev"
+    header = _write(snapshot, "train", out, corpus_rev="0632f69")
+    raw = json.loads((out / HEADER_NAME).read_text(encoding="utf-8"))
+
+    assert raw["corpus_rev"] == "0632f69"
+    assert raw["corpus_rev"] == header.corpus_rev
+
+
+def test_a_set_written_without_a_revision_stays_readable_and_reads_not_run(
+    train_shards: tuple[Snapshot, Path, ShardHeader],
+) -> None:
+    """Every shard set that exists today predates the field, ``~/shardset-v2`` included.
+
+    Adding a pin must not brick them: they open, their ledger rows keep their evidence, and
+    the check reports ``NotRun`` -- which is the honest answer and is emphatically not a
+    pass. A field that refused old sets would be reverted on the first full train, and a
+    field that passed them would be a check reporting on a comparison it could not make.
+    """
+    snap, out, _ = train_shards
+    reader = ShardReader(
+        out, config=snap.config, repo_root=snap.root, expect_rev="0632f69"
+    )
+    state = reader.checks["shard_rev_matches"]
+    assert isinstance(state, NotRun)
+    assert "carries no corpus_rev" in state.reason
+
+
+def test_opening_a_set_built_at_another_revision_is_refused(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """The case no hash in this header can see.
+
+    Every byte of the set is the one that was written and every other check still passes.
+    It matters because ``tools/real_ft_run.py`` does not read labels out of the shard set:
+    it RECONSTRUCTS them from the repository at ``--rev`` and pairs them with these
+    sequences. The 2026-09-21 mismatch was caught only because it moved the row COUNT, 321
+    against 341; a revision that changes which rows exist without changing how many lands
+    every label on the wrong sequence with no other symptom.
+    """
+    out = tmp_path / "shards" / "built-at-0632f69"
+    _write(snapshot, "train", out, corpus_rev="0632f69")
+    # Fine at its own revision, so the refusal below is the mismatch and not the fixture.
+    ShardReader(out, config=snapshot.config, repo_root=snapshot.root, expect_rev="0632f69")
+
+    with pytest.raises(ShardContractViolation) as excinfo:
+        ShardReader(
+            out, config=snapshot.config, repo_root=snapshot.root, expect_rev="deadbee"
+        )
+    message = str(excinfo.value)
+    assert "0632f69" in message and "deadbee" in message, (
+        "a refusal that names neither revision leaves the reader to guess which of the two "
+        "is the wrong one"
+    )
+
+
+def test_a_reader_that_names_no_revision_has_not_checked_anything(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """The other half of the middle answer, and the one that is easy to get wrong.
+
+    A header that pins its rev, opened by a caller that never said what it expected, is a
+    set describing itself -- not a set that was verified. ``passed=True`` there would be a
+    check reporting on a comparison it skipped, which is exactly how "approved" comes to
+    mean "unexamined".
+    """
+    out = tmp_path / "shards" / "pinned"
+    _write(snapshot, "train", out, corpus_rev="0632f69")
+
+    silent = ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
+    state = silent.checks["shard_rev_matches"]
+    assert isinstance(state, NotRun)
+    assert "named no revision" in state.reason
+
+    asked = ShardReader(
+        out, config=snapshot.config, repo_root=snapshot.root, expect_rev="0632f69"
+    )
+    matched = asked.checks["shard_rev_matches"]
+    assert isinstance(matched, Ran) and matched.passed
+    assert matched.value == "0632f69"
+
+
+def test_a_deliberate_cross_revision_read_is_recorded_as_a_failure_not_a_pass(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """``allow_rev_mismatch`` buys admission, not a clean record.
+
+    Same contract as ``allow_stale_code`` and ``write_shards(allow_contradictions=...)``:
+    the escape hatch stops the raise and leaves ``Ran(passed=False)`` in the checks, so a
+    ledger row written from a deliberate cross-revision read still says so. An escape hatch
+    that also launders the check is how a knowingly-wrong run comes to look like a clean
+    one three weeks later.
+    """
+    out = tmp_path / "shards" / "read-across"
+    _write(snapshot, "train", out, corpus_rev="0632f69")
+
+    reader = ShardReader(
+        out,
+        config=snapshot.config,
+        repo_root=snapshot.root,
+        expect_rev="deadbee",
+        allow_rev_mismatch=True,
+    )
+    state = reader.checks["shard_rev_matches"]
+    assert isinstance(state, Ran) and not state.passed
+    assert state.value == "0632f69"
+    assert len(reader) > 0, "admitted, and the set is actually usable"

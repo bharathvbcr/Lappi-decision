@@ -20,7 +20,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
 
-from repo_git import git_bytes, git_text, tracked_paths  # noqa: E402
+from repo_git import git_bytes, git_text, resolve_rev, tracked_paths  # noqa: E402
 
 
 def test_tracked_paths_is_sorted_and_filtered() -> None:
@@ -88,4 +88,72 @@ def test_only_one_module_implements_the_git_subprocess_call() -> None:
         "these tools call git directly instead of going through tools/repo_git.py: "
         f"{offenders}. One owner per behaviour; a thin adapter that delegates is fine, a "
         "second implementation is not."
+    )
+
+
+# -- resolving a revision, because a name is not a revision ----------------------------
+#
+# Added with `ShardHeader.corpus_rev`. The header pins which revision a corpus was read at,
+# and `--rev` defaults to "HEAD" in `real_tokenizer_pipeline.py` -- so without this, the
+# pin would record a pointer. Two sets built a day apart would both say "HEAD" and compare
+# equal, which is worse than an absent pin: absent reads NotRun, "HEAD" reads as verified.
+
+
+def test_resolve_rev_returns_a_full_sha_for_a_symbolic_name() -> None:
+    head = resolve_rev(REPO, "HEAD")
+    assert len(head) == 40
+    assert head == git_text(REPO, "rev-parse", "HEAD").strip()
+
+
+def test_resolve_rev_is_idempotent_on_a_sha_it_already_returned() -> None:
+    """The property the shard check relies on. `real_ft_run.py` resolves whatever ``--rev``
+    it was given and compares the result to a header written from a resolved rev; if
+    resolving an already-resolved sha moved it, a set would refuse against itself."""
+    head = resolve_rev(REPO, "HEAD")
+    assert resolve_rev(REPO, head) == head
+
+
+def test_an_abbreviated_sha_resolves_to_the_full_one() -> None:
+    head = resolve_rev(REPO, "HEAD")
+    assert resolve_rev(REPO, head[:7]) == head
+
+
+def test_a_missing_revision_raises_rather_than_echoing_the_name_back() -> None:
+    """Plain ``git rev-parse no-such-thing`` prints the string and errors; without
+    ``--verify`` a caller that ignored the exit status would put an unresolvable name in a
+    shard header, where it would be compared for equality against another one."""
+    with pytest.raises(subprocess.CalledProcessError):
+        resolve_rev(REPO, "no-such-revision-0000")
+
+
+def test_the_pipeline_pins_the_resolved_revision_and_not_the_argument() -> None:
+    """The defect this function exists to make impossible, checked against the source.
+
+    ``real_tokenizer_pipeline.run`` takes ``rev`` and resolves it into ``resolved``; every
+    corpus read below that line uses ``resolved``. A ``write_shards(corpus_rev=rev)`` there
+    would pin the string the caller typed -- "HEAD" by default -- beside rows that were read
+    from a commit. One name, two quantities, and the header would claim the wrong one.
+    """
+    source = (REPO / "tools" / "real_tokenizer_pipeline.py").read_text(encoding="utf-8")
+    assert "corpus_rev=resolved," in source
+    assert "corpus_rev=rev," not in source, (
+        "real_tokenizer_pipeline pins the unresolved --rev, which defaults to HEAD: two "
+        "shard sets built from different corpora would both record 'HEAD' and compare equal"
+    )
+
+
+def test_real_ft_run_checks_the_shard_set_against_the_rev_it_reconstructs_labels_at() -> None:
+    """Both halves come from one resolved string.
+
+    The tool does not read labels out of the shard set -- it rebuilds them from the repo at
+    ``--rev`` and pairs them with the set's sequences. If the reader were given the raw
+    argument while the reconstruction used a resolved one (or the reverse), the check would
+    compare a name against a sha and refuse a set that was in fact correct.
+    """
+    source = (REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8")
+    assert "rev = resolve_rev(REPO, args.rev)" in source
+    assert "expect_rev=rev)" in source or "expect_rev=rev," in source
+    assert "rev=args.rev" not in source, (
+        "a label reconstruction at the unresolved --rev, checked against a header written "
+        "from a resolved one, would refuse a set that matches"
     )

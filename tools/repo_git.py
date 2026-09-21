@@ -31,7 +31,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-__all__ = ["git_bytes", "git_text", "tracked_paths"]
+__all__ = ["git_bytes", "git_text", "resolve_rev", "tracked_paths"]
 
 
 def git_text(repo: Path, *args: str) -> str:
@@ -53,6 +53,35 @@ def git_bytes(repo: Path, *args: str) -> bytes:
     decode chosen for it.
     """
     return subprocess.run(["git", *args], cwd=repo, capture_output=True, check=True).stdout
+
+
+def resolve_rev(repo: Path, rev: str) -> str:
+    """The concrete commit ``rev`` names, as a full 40-character sha.
+
+    Callers record *which revision* a corpus was read at, and a symbolic name is not that.
+    ``HEAD`` is a different commit tomorrow, and several lanes commit to this worktree while
+    a run is in progress -- which is the same reason this module refuses to default ``rev``
+    at all.
+
+    The asymmetry that makes this a function rather than a caller's ``strip()``: storing an
+    unresolved name in a shard header would be **worse than storing nothing**. An absent
+    ``corpus_rev`` reads ``NotRun`` and says so; "HEAD" compares equal to "HEAD" and reads
+    as *verified*, so two sets built a day apart from different corpora would both pass the
+    check that exists to tell them apart.
+
+    Peeled with ``^{commit}`` so an annotated tag resolves to the commit it points at rather
+    than to the tag object, which is not something ``git show`` reads a file from. A bad
+    revision raises ``CalledProcessError`` rather than returning the string back, which is
+    what plain ``rev-parse`` does and what would put an unresolvable name in a header.
+    """
+    resolved = git_text(repo, "rev-parse", "--verify", f"{rev}^{{commit}}").strip()
+    if len(resolved) != 40 or not all(c in "0123456789abcdef" for c in resolved):
+        raise ValueError(
+            f"git rev-parse resolved {rev!r} to {resolved!r}, which is not a commit sha. "
+            "Refusing rather than recording it: a header pinned to a string that names no "
+            "commit cannot be checked against anything, and reads as a pin."
+        )
+    return resolved
 
 
 def tracked_paths(repo: Path, *, rev: str, suffixes: frozenset[str]) -> list[str]:

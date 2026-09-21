@@ -59,7 +59,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
-from repo_git import git_bytes, git_text, tracked_paths
+from repo_git import git_bytes, git_text, resolve_rev, tracked_paths
 
 from qd_data.config import DataConfig
 from qd_data.dedupe import dedupe
@@ -644,7 +644,7 @@ class Measured:
 
 def run(*, out: Path, max_pairs: int, blank_line_runs: bool, rev: str) -> Measured:
     config = DataConfig()
-    resolved = _git("rev-parse", rev).strip()
+    resolved = resolve_rev(REPO, rev)
     tok = RealTokenizer.load()
     print(
         f"tokenizer {type(tok.tok).__name__} for {MODEL}: vocab_size={tok.tok.vocab_size} "
@@ -769,6 +769,12 @@ def run(*, out: Path, max_pairs: int, blank_line_runs: bool, rev: str) -> Measur
         repo_root=out,
         allow_unencodable=True,
         allow_not_run_snapshot=not_run_snapshot,
+        # The revision the corpus above was read at. Nothing else in the header covers it:
+        # data_snapshot_hash hashes the rows that came out and code_fingerprint hashes the
+        # code that made them, so a set built from the wrong rev is self-consistent in both.
+        # `resolved`, never `rev`: --rev defaults to "HEAD", and "HEAD" in a header compares
+        # equal to "HEAD" tomorrow, so it would read as verified while naming no commit.
+        corpus_rev=resolved,
     )
     print(f"  header: n_sequences={header.n_sequences} total_tokens={header.total_tokens} "
           f"max_seq_len={header.max_seq_len} vocab_size={header.vocab_size}")
@@ -803,6 +809,12 @@ def run(*, out: Path, max_pairs: int, blank_line_runs: bool, rev: str) -> Measur
         repo_root=out,
         allow_unencodable=True,
         allow_not_run_snapshot=not_run_snapshot,
+        # The revision the corpus above was read at. Nothing else in the header covers it:
+        # data_snapshot_hash hashes the rows that came out and code_fingerprint hashes the
+        # code that made them, so a set built from the wrong rev is self-consistent in both.
+        # `resolved`, never `rev`: --rev defaults to "HEAD", and "HEAD" in a header compares
+        # equal to "HEAD" tomorrow, so it would read as verified while naming no commit.
+        corpus_rev=resolved,
     )
     checked = _artifact_digest(shard_dir)
     unchecked = _artifact_digest(undecoded_dir)

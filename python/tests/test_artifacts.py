@@ -229,16 +229,19 @@ def test_a_heldout_shard_set_is_refused_by_the_trainer_boundary(tmp_path: Path):
 
 def test_a_trainable_shard_set_reports_its_checks(tmp_path: Path):
     """A set as `write_shards` produces one -- which since 2026-09-21 means with a
-    `code_fingerprint`. A header without one cannot answer whether `qd_data` has moved
-    since it was written, and `shard_code_current` reports that as `NotRun` rather than as
-    a pass; `test_fingerprint.py` asserts that case, so this one keeps its original claim
-    that a good set passes everything.
+    `code_fingerprint` AND a `corpus_rev`. A header without them cannot answer whether
+    `qd_data` has moved since it was written, or which revision of the corpus it was read
+    at, and both checks report that as `NotRun` rather than as a pass;
+    `test_fingerprint.py` and the rev tests below assert those cases, so this one keeps its
+    original claim that a good set passes everything. Passing the rev check takes BOTH
+    halves: a header that names its rev and a caller that says which one it expected.
     """
     checks = assert_shard_trainable(
-        _header(split="train", code_fingerprint=code_fingerprint()),
+        _header(split="train", code_fingerprint=code_fingerprint(), corpus_rev="0632f69"),
         config=DataConfig(),
         path=tmp_path,
         repo_root=tmp_path,
+        expect_rev="0632f69",
     )
     assert all(isinstance(c, Ran) and c.passed for c in checks.values())
     assert set(checks) == {
@@ -257,6 +260,12 @@ def test_a_trainable_shard_set_reports_its_checks(tmp_path: Path):
         # set with three matching hashes was found to reproduce 321 rows where it stored
         # 341. See GAP-SHARD-SET-GOES-STALE-AGAINST-THE-CORPUS-CODE-THAT-REPRODUCES-ITS-LABELS.
         "shard_code_current",
+        # And the third pin, added the same day for the same shape of reason: neither of
+        # the two above covers WHICH REVISION the corpus was read at, so a set built from
+        # the wrong one is self-consistent in both. This fixture names a rev AND checks
+        # against it -- the header alone leaves the check NotRun, which is the honest
+        # reading of "the set says what it is, and nobody said what it should be".
+        "shard_rev_matches",
     }
 
 
@@ -774,3 +783,100 @@ def test_an_abstaining_span_needs_no_gold_on_a_line_start():
 def test_span_positions_without_any_span_row_are_refused():
     with pytest.raises(ShardContractViolation, match="no row is SLOT_SPAN"):
         _ft(span_target=np.array([[0, 1], [NO_SPAN, NO_SPAN]], dtype=np.int32))
+
+
+# --- the third pin: which revision the corpus was read at --------------------------------
+#
+# `data_snapshot_hash` hashes the rows that came OUT. `code_fingerprint` hashes the code
+# that turned them into rows. Neither covers WHICH REVISION was read, so a set built from
+# the wrong one is self-consistent in both and every check passes.
+
+
+def _rev_header(**kw):
+    from qd_train.artifacts import ShardHeader
+
+    base = dict(
+        split="train",
+        data_snapshot_hash="d" * 64,
+        tokenizer_hash="t" * 64,
+        remap_hash="r" * 64,
+        vocab_size=16,
+        n_sequences=2,
+        total_tokens=8,
+        max_seq_len=4,
+        buckets=(4,),
+    )
+    base.update(kw)
+    return ShardHeader(**base)
+
+
+def test_a_header_written_before_the_field_reads_not_run_rather_than_passing() -> None:
+    """The same discipline `code_fingerprint` uses, and for the same reason: "this set was
+    built at the right rev" and "nobody recorded which rev" must not be one string in a
+    ledger row. Every shard set on disk today is in this case."""
+    from qd_train.artifacts import _shard_rev_check
+    from qd_train.tristate import NotRun
+
+    state = _shard_rev_check(_rev_header(), path=Path("/s"), expect_rev="abc123")
+    assert isinstance(state, NotRun)
+    assert "carries no corpus_rev" in state.reason
+
+
+def test_a_caller_that_names_no_revision_has_not_checked_anything() -> None:
+    """The other half of the middle answer. A header that pins its rev, read by a caller
+    that never said what it expected, is a set describing itself -- not a set that was
+    verified. `passed=True` there would be a check reporting on a comparison it skipped."""
+    from qd_train.artifacts import _shard_rev_check
+    from qd_train.tristate import NotRun
+
+    state = _shard_rev_check(
+        _rev_header(corpus_rev="0632f69"), path=Path("/s"), expect_rev=None
+    )
+    assert isinstance(state, NotRun)
+    assert "named no revision" in state.reason
+
+
+def test_a_matching_revision_passes_and_a_mismatch_does_not() -> None:
+    from qd_train.artifacts import _shard_rev_check
+    from qd_train.tristate import Ran
+
+    same = _shard_rev_check(
+        _rev_header(corpus_rev="0632f69"), path=Path("/s"), expect_rev="0632f69"
+    )
+    assert isinstance(same, Ran) and same.passed
+
+    other = _shard_rev_check(
+        _rev_header(corpus_rev="0632f69"), path=Path("/s"), expect_rev="deadbee"
+    )
+    assert isinstance(other, Ran) and not other.passed
+    assert "0632f69" in str(other.detail) and "deadbee" in str(other.detail)
+
+
+def test_an_absent_rev_hashes_to_what_it_hashed_to_before_the_field_existed() -> None:
+    """Every header written before `corpus_rev` keeps verifying against the `shard_hash` it
+    was stored with, so adding the pin does not invalidate the sets on disk. The same
+    contract `code_fingerprint` established -- contribute nothing when empty."""
+    without = _rev_header()
+    assert without.shard_hash() == _rev_header().shard_hash()
+    with_rev = _rev_header(corpus_rev="0632f69")
+    assert with_rev.shard_hash() != without.shard_hash(), (
+        "a rev that does not change the hash could be edited out of a header to make a set "
+        "built at the wrong revision look right"
+    )
+
+
+def test_the_rev_survives_the_json_round_trip_and_cannot_be_edited_out() -> None:
+    from qd_train.artifacts import ShardContractViolation, ShardHeader
+
+    raw = _rev_header(corpus_rev="0632f69").to_json()
+    assert raw["corpus_rev"] == "0632f69"
+    assert ShardHeader.from_json(raw).corpus_rev == "0632f69"
+
+    # Stripping it leaves a shard_hash that no longer matches what the body describes.
+    tampered = dict(raw, corpus_rev="")
+    with pytest.raises(ShardContractViolation):
+        ShardHeader.from_json(tampered)
+
+    swapped = dict(raw, corpus_rev="deadbee")
+    with pytest.raises(ShardContractViolation):
+        ShardHeader.from_json(swapped)

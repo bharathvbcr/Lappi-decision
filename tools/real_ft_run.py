@@ -121,6 +121,11 @@ from ft_toy_run import (
     _letter_floor,
     _span_floor,
 )
+
+# Resolving --rev to a commit is repo_git's job, not a second rev-parse here: this tool and
+# real_tokenizer_pipeline.py must agree on the string that goes in and comes out of a shard
+# header, and two copies of "peel it to a commit" is exactly how they would stop agreeing.
+from repo_git import resolve_rev
 from torch import nn
 
 from qd_data.config import DataConfig
@@ -2104,12 +2109,23 @@ def main(argv: list[str] | None = None) -> int:
 
     config = DataConfig()
     shard_dir = args.out / "shards" / "train"
-    reader = ShardReader(shard_dir, config=config, repo_root=args.out)
+    # Resolved once, and the same string is used for both halves below. --rev is what this
+    # tool RECONSTRUCTS its labels at, so it is exactly the revision the shard set has to
+    # have been built from -- and the two would silently disagree if one of them peeled a
+    # symbolic name and the other did not.
+    rev = resolve_rev(REPO, args.rev)
+    if rev != args.rev:
+        print(f"corpus revision: {args.rev} -> {rev}")
+    # Passing it turns a silent mismatch into a refusal: the 321-against-341 drift was
+    # caught only because it moved the row count, and a revision that changes which rows
+    # exist without changing how many would have paired every label with the wrong
+    # sequence and said nothing.
+    reader = ShardReader(shard_dir, config=config, repo_root=args.out, expect_rev=rev)
 
     import real_tokenizer_pipeline as pipeline
 
-    commits, _ = pipeline.commit_rows(max_pairs=args.max_pairs, rev=args.rev)
-    spans, _ = pipeline.span_rows(max_rows=args.max_pairs, blank_line_runs=False, rev=args.rev)
+    commits, _ = pipeline.commit_rows(max_pairs=args.max_pairs, rev=rev)
+    spans, _ = pipeline.span_rows(max_rows=args.max_pairs, blank_line_runs=False, rev=rev)
     from qd_data.dedupe import dedupe
     from qd_data.mixture import build_mixture
     from qd_data.split import split

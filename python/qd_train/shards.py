@@ -998,6 +998,7 @@ def write_shards(
     allow_unencodable: bool = False,
     allow_not_run_snapshot: bool = False,
     allow_contradictions: bool = False,
+    corpus_rev: str = "",
     max_sequences: int = DEFAULT_MAX_SEQUENCES,
     max_total_tokens: int = DEFAULT_MAX_TOTAL_TOKENS,
 ) -> ShardHeader:
@@ -1228,6 +1229,10 @@ def write_shards(
         # are LOADED in the process doing the writing, which is the only thing that
         # actually shaped `sequences`.
         code_fingerprint=code_fingerprint(),
+        # Pins WHICH REVISION the corpus was read at. Empty is honest: a caller that does
+        # not know its rev must not put a guess here, because a wrong rev in the header is
+        # worse than an absent one -- absent reads NotRun, wrong reads passed=True.
+        corpus_rev=corpus_rev,
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1410,7 +1415,15 @@ class ShardReader:
     trainer accepted the wrong answer to it.
     """
 
-    def __init__(self, root: Path, *, config: DataConfig, repo_root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        config: DataConfig,
+        repo_root: Path,
+        expect_rev: str | None = None,
+        allow_rev_mismatch: bool = False,
+    ) -> None:
         self.root = Path(root)
         self._config = config
         self._repo_root = Path(repo_root)
@@ -1419,7 +1432,12 @@ class ShardReader:
         # from_json recomputes shard_hash and refuses a header edited after it was written.
         self.header: ShardHeader = ShardHeader.from_json(raw)
         self.checks: dict[str, TriState] = assert_shard_trainable(
-            self.header, config=config, path=self.root, repo_root=self._repo_root
+            self.header,
+            config=config,
+            path=self.root,
+            repo_root=self._repo_root,
+            expect_rev=expect_rev,
+            allow_rev_mismatch=allow_rev_mismatch,
         )
 
         self._offsets: np.ndarray = np.load(self.root / OFFSETS_NAME)

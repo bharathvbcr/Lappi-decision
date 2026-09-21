@@ -321,6 +321,15 @@ class ShardHeader:
     #: different answers and a header cannot be allowed to give the passing one by
     #: omission; `assert_shard_trainable` reports the empty case as `NotRun`.
     code_fingerprint: dict[str, str] = field(default_factory=dict)
+    #: The git revision the corpus was READ AT. Neither of the other pins covers it:
+    #: `data_snapshot_hash` hashes the rows that came out, and `code_fingerprint` hashes the
+    #: code that turned them into rows -- so a set built from the wrong revision is
+    #: self-consistent in both, and every check passes. Recovering it from a ledger row's
+    #: free-text notes, which is what today required, is not a pin.
+    #:
+    #: **Empty means "written before this field existed", not "matches"**, exactly as for
+    #: `code_fingerprint`.
+    corpus_rev: str = ""
 
     def __post_init__(self) -> None:
         if self.format != SHARD_FORMAT:
@@ -395,6 +404,10 @@ class ShardHeader:
                 if self.code_fingerprint
                 else ()
             ),
+            # Same contract, same reason: covered so it cannot be edited out, and
+            # contributing nothing when empty so every header written before this field
+            # still verifies against the hash it was written with.
+            *((self.corpus_rev.encode(),) if self.corpus_rev else ()),
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -413,6 +426,7 @@ class ShardHeader:
             "dtype": self.dtype,
             "created_at": self.created_at or datetime.now(UTC).isoformat(),
             "code_fingerprint": dict(sorted(self.code_fingerprint.items())),
+            "corpus_rev": self.corpus_rev,
             "shard_hash": self.shard_hash(),
         }
 
@@ -435,6 +449,7 @@ class ShardHeader:
             code_fingerprint={
                 str(k): str(v) for k, v in (raw.get("code_fingerprint") or {}).items()
             },
+            corpus_rev=str(raw.get("corpus_rev", "")),
         )
         if "shard_hash" in raw and raw["shard_hash"] != header.shard_hash():
             raise ShardContractViolation(
@@ -943,6 +958,68 @@ def _shard_code_check(header: ShardHeader, *, path: Path) -> TriState:
     )
 
 
+def _shard_rev_check(header: ShardHeader, *, path: Path, expect_rev: str | None) -> TriState:
+    """Whether this shard set was built from the revision the caller is about to assume.
+
+    The third pin, and the one neither of the others can stand in for. ``data_snapshot_hash``
+    hashes the rows that came *out*; ``code_fingerprint`` hashes the code that turned them
+    into rows. A set built from the **wrong revision** is self-consistent in both -- the
+    rows really are the hash of those rows, and the code really is the code that ran -- so
+    every check passes and the corpus is still not the one the caller means.
+
+    It matters because ``tools/real_ft_run.py`` does not read labels out of the shard set:
+    it RECONSTRUCTS them from the repository at ``--rev`` and pairs them with the set's
+    sequences. Today a mismatch was caught only because it happened to move the row COUNT,
+    321 against 341. A revision that changes which rows exist without changing how many
+    produces no refusal at all, and every label lands on the wrong sequence.
+
+    Three answers, and the middle one is why this is a ``TriState``:
+
+    * the caller named no revision -- nothing was compared, and that is not a pass;
+    * the header carries none -- written before the field existed, so the question cannot
+      be decided from it;
+    * both present -- compared, and a mismatch is a refusal.
+    """
+    if not header.corpus_rev:
+        return NotRun(
+            reason=(
+                f"{path}: this shard set's header carries no corpus_rev, so the revision "
+                "its corpus was read at is not recorded anywhere except, if you are lucky, "
+                "a ledger row's free-text notes. Regenerate the set to pin it."
+            )
+        )
+    if not expect_rev:
+        return NotRun(
+            reason=(
+                f"{path}: the header pins corpus_rev={header.corpus_rev}, and this caller "
+                "named no revision to check it against. The set says what it was built "
+                "from; nobody said what it was supposed to be built from."
+            )
+        )
+    if header.corpus_rev == expect_rev:
+        return Ran(
+            passed=True,
+            value=header.corpus_rev,
+            detail=(
+                f"this shard set was built from {header.corpus_rev}, which is the revision "
+                "this run reads its labels at"
+            ),
+        )
+    return Ran(
+        passed=False,
+        value=header.corpus_rev,
+        detail=(
+            f"{path}: this shard set was built from {header.corpus_rev} and this run reads "
+            f"its labels from {expect_rev}. The corpus, tokenizer, remap and code hashes all "
+            "still match, because none of them covers WHICH REVISION was read: the labels "
+            "would be reconstructed from a different tree than the sequences came from, and "
+            "a revision that changes which rows exist without changing how many produces no "
+            "other symptom. Regenerate the set at this revision, or read it deliberately "
+            "with allow_rev_mismatch=True."
+        ),
+    )
+
+
 def assert_shard_trainable(
     header: ShardHeader,
     *,
@@ -950,6 +1027,8 @@ def assert_shard_trainable(
     path: Path,
     repo_root: Path,
     allow_stale_code: bool = False,
+    expect_rev: str | None = None,
+    allow_rev_mismatch: bool = False,
 ) -> dict[str, TriState]:
     """Rule 3 at the shard boundary. Refuses a held-out split, loudly.
 
@@ -988,6 +1067,9 @@ def assert_shard_trainable(
     code_check = _shard_code_check(header, path=path)
     if isinstance(code_check, Ran) and not code_check.passed and not allow_stale_code:
         raise ShardContractViolation(str(code_check.detail))
+    rev_check = _shard_rev_check(header, path=path, expect_rev=expect_rev)
+    if isinstance(rev_check, Ran) and not rev_check.passed and not allow_rev_mismatch:
+        raise ShardContractViolation(str(rev_check.detail))
 
     assert_path_not_held_out(path, config=config, repo_root=repo_root)
     if header.split == "heldout":
@@ -1004,6 +1086,7 @@ def assert_shard_trainable(
         # Recorded, not merely performed: a check whose only trace is the absence of an
         # exception is indistinguishable from a check that was never wired in. That is how
         # this one came to be missing for as long as it was.
+        "shard_rev_matches": rev_check,
         "shard_path_not_held_out": Ran(passed=True, value=str(path)),
         "shard_split_trainable": Ran(passed=True, value=header.split),
         "shard_provenance_pinned": Ran(
