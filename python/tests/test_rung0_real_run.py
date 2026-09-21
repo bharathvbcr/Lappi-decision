@@ -448,3 +448,89 @@ def test_a_zero_choice_loss_does_not_crash_the_failure_summary() -> None:
     while explaining the failure would replace the explanation with a traceback."""
     assert "no ratio" in tool._channel_ratio({"span_first": 12.52, "choice_first": 0.0})
     assert "6.2:1" in tool._channel_ratio({"span_first": 12.520, "choice_first": 2.026})
+
+
+# --- determinism ----------------------------------------------------------------------
+#
+# MEASURED on a GH200 2026-09-21, two runs at seed 0 with every other input identical:
+# choice val 50.3% and 53.1%, final choice loss 0.680 and 0.762, span end top-1 1.0% and
+# 1.7%. 2.8 percentage points apart at a FIXED seed, against a corpus whose entire
+# demonstrated signal is 5.3 points. Every per-seed rung 0 number predating this flag is a
+# draw from that spread and no row says so.
+
+
+def test_the_cublas_workspace_is_configured_before_torch_is_imported() -> None:
+    """cuBLAS reads this when it initialises, which is the first matmul, and argparse has
+    not run by then. Configured after the import it is decoration -- a setting that looks
+    applied and is not."""
+    source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
+    assert 'if "--deterministic" in sys.argv:' in source
+    assert 'os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")' in source
+
+    argv_at = source.index('if "--deterministic" in sys.argv:')
+    torch_at = source.index("import torch  # noqa: E402")
+    assert argv_at < torch_at, (
+        "the workspace is configured after torch is imported, so a CUDA context may "
+        "already exist by then and the setting does nothing"
+    )
+
+
+def test_an_ordinary_rung0_run_does_not_get_the_workspace_set_for_it() -> None:
+    """A 32 MB cuBLAS workspace on a run that never asked for determinism is a cost paid
+    for nothing, and a global that changes under runs that did not mention it is how two
+    runs come to differ for a reason neither recorded."""
+    import os
+    import subprocess
+    import sys as _sys
+
+    tools = str(REPO / "tools")
+    probe = (
+        "import os, sys;"
+        "sys.argv=['rung0_real_run.py','--out','/nowhere'];"
+        f"sys.path.insert(0, {tools!r});"
+        "import rung0_real_run;"
+        "print(os.environ.get('CUBLAS_WORKSPACE_CONFIG', 'UNSET'))"
+    )
+    env = {k: v for k, v in os.environ.items() if k != "CUBLAS_WORKSPACE_CONFIG"}
+    out = subprocess.run(
+        [_sys.executable, "-c", probe], capture_output=True, text=True, env=env, check=True
+    )
+    assert out.stdout.strip() == "UNSET", out.stdout
+
+
+def test_the_flag_exists_and_defaults_to_off() -> None:
+    """Off by default, because it costs wall clock and an ordinary probe should not pay it.
+    Present, because the alternative is every rung 0 number being a draw."""
+    import rung0_real_run
+
+    parser = rung0_real_run._parser() if hasattr(rung0_real_run, "_parser") else None
+    if parser is None:
+        # The parser is built inside main(); assert on the source instead of restructuring
+        # another lane's tool to make it importable.
+        source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
+        assert '"--deterministic",' in source
+        assert 'action="store_true"' in source[source.index('"--deterministic",'):][:400]
+
+
+def test_the_recipe_separates_a_deterministic_rung0_run_from_an_ordinary_one() -> None:
+    """Two runs that used different kernels for the same matmul are not one protocol.
+
+    The measured spread between them, 2.8 points, is larger than most of the effects this
+    tool is used to look for, so hashing them alike would put two populations in one
+    ``recipe_hash`` and make them comparable rows in the ledger.
+
+    Asserted by POSITION, not by presence: the key has to fall inside the
+    ``recipe_hash=hashlib.sha256(`` argument, because adding it to the row while leaving it
+    out of the hash is the failure this is about.
+    """
+    source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
+    start = source.index("recipe_hash=hashlib.sha256(")
+    end = source.index(").hexdigest(),", start)
+    recipe = source[start:end]
+    assert '"deterministic": args.deterministic,' in recipe, (
+        "the recipe hash does not cover --deterministic, so a deterministic run and an "
+        "ordinary one hash to the same protocol"
+    )
+    # And the two levers this tool's sweeps vary are in there with it.
+    assert '"span_weight": args.span_weight,' in recipe
+    assert '"epochs": args.epochs,' in recipe

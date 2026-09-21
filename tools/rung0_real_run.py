@@ -46,6 +46,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import subprocess
 import sys
 import time
@@ -56,6 +57,18 @@ from typing import Final
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
 sys.path.insert(0, str(REPO / "tools"))
+
+# Read from argv rather than from parsed arguments, and deliberately: cuBLAS reads this when
+# it initialises, which is the first matmul, and `argparse` has not run by then. With
+# deterministic algorithms in force and this unset, torch raises at the first addmm rather
+# than silently using a nondeterministic one -- so the failure mode of getting this wrong is
+# loud, and the failure mode of parsing argv here instead is a 32 MB cuBLAS workspace on a
+# run that did not ask for one. Only set when asked, so an ordinary run is untouched.
+#
+# The same shape as tools/real_ft_run.py, and copied rather than re-derived: two spellings
+# of this would be two ways to get it subtly wrong.
+if "--deterministic" in sys.argv:
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import torch  # noqa: E402
 from repo_git import git_bytes, tracked_paths  # noqa: E402
@@ -627,6 +640,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--width", type=int, default=ByteDeciderConfig().width)
     parser.add_argument("--layers", type=int, default=ByteDeciderConfig().n_layers)
     parser.add_argument("--heads", type=int, default=ByteDeciderConfig().n_heads)
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help=(
+            "run under torch.use_deterministic_algorithms(True). MEASURED on a GH200 "
+            "2026-09-21: without it, two runs at seed 0 with every other input identical "
+            "scored 50.3%% and 53.1%% on the same held-out rows -- 2.8 points apart at a "
+            "FIXED seed, which is half the size of the whole signal this corpus contains. "
+            "A per-seed number from a run without this is a draw, not a measurement, and a "
+            "sweep comparing points cannot attribute a difference of a few points to the "
+            "thing it varied."
+        ),
+    )
     parser.add_argument("--val-share", type=float, default=0.25)
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER_PATH)
     parser.add_argument(
@@ -650,6 +676,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="the manifest.json beside --examples; it is what data_snapshot_hash is taken from",
     )
     args = parser.parse_args(argv)
+
+    if args.deterministic:
+        # Before the corpus is built and long before any model runs, so nothing has touched
+        # a nondeterministic kernel by the time this takes effect. torch RAISES rather than
+        # falling back, which is the property that makes a completed run evidence: every op
+        # this model uses had a deterministic implementation, rather than "we asked and
+        # something quietly said no".
+        torch.use_deterministic_algorithms(True)
 
     if not 1 <= args.epochs <= MAX_EPOCHS:
         raise SystemExit(f"--epochs must be in [1, {MAX_EPOCHS}], got {args.epochs}")
@@ -822,6 +856,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                         # optimised different things become one protocol in the ledger --
                         # which is exactly the comparison the sweep exists to make.
                         "span_weight": args.span_weight,
+                        # Deterministic and nondeterministic runs are different protocols,
+                        # not the same protocol measured twice. Without this they hash
+                        # identically and the ledger treats a reproducible number and a
+                        # draw from a 2.8-point spread as comparable rows.
+                        "deterministic": args.deterministic,
                         "rev": args.rev,
                     },
                     sort_keys=True,
