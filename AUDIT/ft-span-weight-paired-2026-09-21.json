@@ -1,0 +1,41 @@
+{
+  "measured": "2026-09-21",
+  "what": "A paired comparison on the REAL 1.4B tower: the same plan, the same seed, the same 128 optimizer steps, at span_weight 1.0 and 0.05. The question is whether the FT path's unweighted sum costs the letter channel anything measurable.",
+  "why": "AUDIT/ft-channel-balance-2026-09-21.json measured the objective's opening balance on this path and found it far past where rung 0 collapsed, but a ratio is not a failure. This is the experiment that asks what the ratio actually does.",
+  "host": "192.222.58.240, NVIDIA GH200 480GB, torch 2.10.0+cu128; 109s per arm",
+  "backbone": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c remapped to the corpus vocabulary; 1.4B trainable",
+  "corpus": "/home/ubuntu/shardset-v2, 321 sequences, 78 span rows; BOTH channel floors measured at 0.0, so both channels are fully fittable in principle",
+  "arms": [
+    {
+      "span_weight": 1.0,
+      "objective_channel_balance_at_open": 260.44,
+      "ft_row": "e1ec8f57-1451-4435-94b5-473d239aa2f6",
+      "verdict_row": "115f24b4-1ef8-470d-81aa-38931fdb777d",
+      "letter_gap_over_the_plan": 0.09974475,
+      "letter_reached_its_floor": false,
+      "span_gap_over_the_plan": 0.05144875,
+      "span_reached_its_floor": false
+    },
+    {
+      "span_weight": 0.05,
+      "objective_channel_balance_at_open": 7.71,
+      "ft_row": "d7241bfa-1614-4675-adf2-f3798e2fc786",
+      "verdict_row": "4fe1aee7-8376-4020-b940-5bdac124dea1",
+      "letter_gap_over_the_plan": 0.00550993,
+      "letter_reached_its_floor": true,
+      "span_gap_over_the_plan": 0.13521037,
+      "span_reached_its_floor": false
+    }
+  ],
+  "bar": "floor + 0.05, the tool's FLOOR_SLACK, unchanged",
+  "finding": "The imbalance costs the letter channel something measurable, and lowering span_weight buys it back. At 1.0 the letter channel ends 0.0997 above a floor of 0.0 and FAILS its gate; at 0.05 it ends 0.0055 above and PASSES -- an 18x smaller gap on an identical plan, seed and step budget. The span channel moves the other way, 0.0514 to 0.1352, which is the trade being made rather than a surprise: the same total gradient budget is being spent differently.",
+  "what_this_does_NOT_say": "It is not rung 0's collapse. Rung 0's choice head sat at its training set's majority share and had learned nothing conditional about a single row; here the letter channel falls from ~2.07 to within 0.0997 of zero at span_weight 1.0, which is a 95% reduction and a model that plainly learned. The FT path degrades under the imbalance where rung 0 stopped. That difference is most likely capacity -- 1.4B parameters over 128 steps against 1.5M -- but this experiment does not isolate the cause.",
+  "caveats_that_matter": [
+    "ONE seed per arm. The rung-0 sweep needed five seeds to separate signal from a 7.9-point spread, and this has none of that. The direction is consistent with the mechanism and the size of the effect is not established.",
+    "BOTH floors are 0.0, so this is still the easy regime. A corpus with contradictory rows -- which the 2026-09-20 shard set had and this one does not -- gives a nonzero floor and less headroom, and that case is still untested.",
+    "128 optimizer steps over a 16-batch plan repeated 8x. A longer schedule may close the 1.0 arm's gap on its own; this says nothing about the limit.",
+    "Both rows carry objective_channel_balance_at_open from the PRE-FIX reading, which took each channel's first NONZERO log entry independently rather than one micro-batch carrying both. That is why 260.44 and 7.71 are not exactly a 20x pair -- the two arms' span openings were 537.4454 and 334.0747. The ratio's direction and magnitude are right; the exact figures are superseded by the joint-batch reading for later rows."
+  ],
+  "consequence_for_the_default": "Still unchanged at 1.0, and this experiment does not justify moving it. One seed on a zero-floor memorisation task is not the evidence a default deserves, and the span channel's own gate got worse at 0.05 -- there is a real cost on the other side, so the right weight is a measurement nobody has taken rather than a smaller number.",
+  "quick": "Every row is quick=True and promotes nothing under rule 8."
+}

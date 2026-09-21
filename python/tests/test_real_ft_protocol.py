@@ -159,8 +159,14 @@ def test_the_effective_ratio_is_what_is_recorded_not_the_raw_losses() -> None:
     runs the same."""
     from real_ft_run import _channel_balance
 
-    heavy = _channel_balance({"letter_first": 2.0, "span_first": 12.0, "span_weight": 1.0})
-    light = _channel_balance({"letter_first": 2.0, "span_first": 12.0, "span_weight": 0.05})
+    heavy = _channel_balance(
+        {"letter_at_first_joint_batch": 2.0, "span_at_first_joint_batch": 12.0,
+         "span_weight": 1.0}
+    )
+    light = _channel_balance(
+        {"letter_at_first_joint_batch": 2.0, "span_at_first_joint_batch": 12.0,
+         "span_weight": 0.05}
+    )
     assert isinstance(heavy, Ran) and isinstance(light, Ran)
     assert heavy.value == pytest.approx(6.0)
     assert light.value == pytest.approx(0.3)
@@ -174,7 +180,8 @@ def test_a_plan_with_only_one_channel_has_no_ratio() -> None:
     from real_ft_run import _channel_balance
 
     state = _channel_balance(
-        {"letter_first": float("nan"), "span_first": 12.0, "span_weight": 1.0}
+        {"letter_at_first_joint_batch": float("nan"),
+         "span_at_first_joint_batch": 12.0, "span_weight": 1.0}
     )
     assert isinstance(state, NotRun)
     assert not hasattr(state, "passed")
@@ -186,7 +193,10 @@ def test_a_zero_letter_channel_is_unmeasured_not_infinite() -> None:
     measured domination rather than an absent measurement -- besides not being JSON."""
     from real_ft_run import _channel_balance
 
-    state = _channel_balance({"letter_first": 0.0, "span_first": 12.0, "span_weight": 1.0})
+    state = _channel_balance(
+        {"letter_at_first_joint_batch": 0.0, "span_at_first_joint_batch": 12.0,
+         "span_weight": 1.0}
+    )
     assert isinstance(state, NotRun)
     assert "not defined" in state.reason
 
@@ -198,7 +208,8 @@ def test_the_balance_is_recorded_and_not_gated() -> None:
     from real_ft_run import _channel_balance
 
     catastrophic = _channel_balance(
-        {"letter_first": 2.2, "span_first": 434.0, "span_weight": 1.0}
+        {"letter_at_first_joint_batch": 2.2,
+         "span_at_first_joint_batch": 434.0, "span_weight": 1.0}
     )
     assert isinstance(catastrophic, Ran)
     assert catastrophic.passed
@@ -286,3 +297,46 @@ def test_a_floor_that_lives_inside_batches_says_so() -> None:
     said = _span_floor_cause(0.30, 0.29)
     assert "within batches" in said
     assert "twin" not in said
+
+
+def test_the_ratio_comes_from_one_micro_batch_not_two_separate_firsts() -> None:
+    """The imprecision this closes, caught by two runs disagreeing.
+
+    ``letter_first`` and ``span_first`` are each the opening value of their OWN log, and a
+    span-free batch logs a letter loss beside a span of 0.0 -- so the two can be a step
+    apart. A ratio is a statement about one gradient, and a ratio of two numbers from two
+    different batches is not that. Measured: on the same shard set and seed the two
+    readings gave 39.73:1 and 260.4:1, which is not a difference a rounding can explain.
+    """
+    from real_ft_run import _channel_balance
+
+    run = {
+        # What the independent-firsts reading would have used: the letter channel's own
+        # opening value, from a batch with no span row at all.
+        "letter_first": 6.9002,
+        "span_first": 274.1343,
+        # What one micro-batch actually carried.
+        "letter_at_first_joint_batch": 2.0636,
+        "span_at_first_joint_batch": 537.4454,
+        "span_weight": 1.0,
+    }
+    state = _channel_balance(run)
+    assert isinstance(state, Ran)
+    assert state.value == pytest.approx(537.4454 / 2.0636, rel=1e-6)
+    assert state.value != pytest.approx(274.1343 / 6.9002, rel=1e-3)
+    assert "FIRST MICRO-BATCH that carried both" in state.detail
+
+
+def test_a_plan_whose_batches_never_carry_both_channels_has_no_ratio() -> None:
+    """``_train`` puts nan in both fields when no micro-batch had a live letter AND a live
+    span. That is a plan of span-free batches, or of span-only ones -- neither has a ratio,
+    and neither is evidence that the span channel did not dominate."""
+    from real_ft_run import _channel_balance
+
+    state = _channel_balance({
+        "letter_at_first_joint_batch": float("nan"),
+        "span_at_first_joint_batch": float("nan"),
+        "span_weight": 1.0,
+    })
+    assert isinstance(state, NotRun)
+    assert "carried both channels at once" in state.reason

@@ -940,18 +940,27 @@ def _channel_balance(run: Mapping[str, object]) -> TriState:
     What the ledger gets is the quantity, so the question can be asked of real rows later
     instead of re-derived from a run that is gone.
 
-    ``NotRun`` when either channel is absent or non-finite: a plan with no letter row has no
-    ratio, and 0.0 or nan would both read as a balance that was measured and found benign.
+    The two losses come from ONE micro-batch -- the first in which both channels are live,
+    which is the first span batch, since ``accumulate_span`` is the only path that computes
+    both. ``letter_first`` and ``span_first`` are the wrong pair for this and were what this
+    function read at first: each is the opening value of its own log, and a span-free batch
+    logs a letter loss beside a span of 0.0, so the two can be a step apart. That is the
+    right pair for "where did each channel start" and the wrong one for a ratio, which is a
+    statement about a single gradient.
+
+    ``NotRun`` when either channel is absent or non-finite: a plan whose batches never carry
+    both channels at once has no ratio, and 0.0 or nan would both read as a balance that was
+    measured and found benign.
     """
-    letter = float(run["letter_first"])  # type: ignore[arg-type]
-    span = float(run["span_first"])  # type: ignore[arg-type]
+    letter = float(run["letter_at_first_joint_batch"])  # type: ignore[arg-type]
+    span = float(run["span_at_first_joint_batch"])  # type: ignore[arg-type]
     weight = float(run["span_weight"])  # type: ignore[arg-type]
     if not (math.isfinite(letter) and math.isfinite(span)):
         return NotRun(
             reason=(
-                f"this plan did not open with both channels (letter {letter}, span {span}), "
-                "so there is no ratio between them. A substituted 0.0 would claim a balanced "
-                "objective that was never measured."
+                f"no micro-batch in this plan carried both channels at once (letter "
+                f"{letter}, span {span}), so there is no ratio between them. A substituted "
+                "0.0 would claim a balanced objective that was never measured."
             )
         )
     if letter <= 0.0:
@@ -965,8 +974,9 @@ def _channel_balance(run: Mapping[str, object]) -> TriState:
         passed=True,
         value=weight * span / letter,
         detail=(
-            f"span {span:.4f} x span_weight {weight} against letter {letter:.4f} at the "
-            f"first micro-batch carrying both: an effective {weight * span / letter:.2f}:1. "
+            f"span {span:.4f} x span_weight {weight} against letter {letter:.4f}, both from "
+            f"the FIRST MICRO-BATCH that carried both: an effective "
+            f"{weight * span / letter:.2f}:1. "
             "Recorded, not gated -- rung 0 collapsed above roughly 1.2:1 on a 1.5M-parameter "
             "byte model, and that bar has not been shown to transfer to this backbone."
         ),
@@ -1309,6 +1319,20 @@ def _train(
     losses = result.loss_log.losses()
     letter = [x for x in step.letter_log if x > 0.0]
     spans = [x for x in step.span_log if x > 0.0]
+    # The two channels' first values are taken from each log independently above, so they
+    # can come from DIFFERENT micro-batches: a span-free batch logs a letter loss and a
+    # span of 0.0. That is the right pair for "where did each channel start" and the wrong
+    # pair for a RATIO, which is a statement about one gradient. `accumulate_span` is the
+    # only path that computes both, so the batches where both logs are live are exactly the
+    # span batches, and the first of those is the one the ratio is about.
+    both = next(
+        (
+            (lt, sp)
+            for lt, sp in zip(step.letter_log, step.span_log, strict=True)
+            if lt > 0.0 and sp > 0.0
+        ),
+        None,
+    )
     final = _evaluate(step, plan, supervised, letter_floors, span_floors)
     return {
         "tag": tag, "device": device, "seed": seed,
@@ -1329,6 +1353,8 @@ def _train(
         "span_last": spans[-1] if spans else float("nan"),
         "span_floor": span_floor,
         "span_weight": span_weight,
+        "letter_at_first_joint_batch": both[0] if both else float("nan"),
+        "span_at_first_joint_batch": both[1] if both else float("nan"),
         "total_first": losses[0],
         "total_last": losses[-1],
         "wall_clock_s": round(wall, 3),
