@@ -2524,6 +2524,17 @@ sed -n '1,30p' /Users/bharath/Code/research/qwen-decision/python/qd_train/gaps.p
 2026-09-21 with the schema in their heads, and one of them had to break the append-only rule
 to undo it.
 
+And before reading any accuracy from this project again, read the gate block beside it —
+`ledger_arms.py` now prints one, and it is the thing that was missing:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 /Users/bharath/.local/bin/uv run --no-project --python /Users/bharath/.venvs/ml/bin/python --with pytest python /Users/bharath/Code/research/qwen-decision/tools/ledger_arms.py /Users/bharath/Code/research/qwen-decision/ledger/gh200-rung0-curve-n24-2026-09-22.jsonl
+```
+
+`paired_margin_vs_linear` ran for the first time in this project's history on those rows,
+and **the model lost to its control**. Every accuracy in every earlier part of this handoff
+was read without that number existing. Do not quote one without it.
+
 And, before editing any gate command in the `Makefile`:
 
 ```bash
