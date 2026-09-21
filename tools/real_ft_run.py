@@ -170,6 +170,7 @@ from qd_train.ledger import (
     RunRecorder,
     what_ran_state,
 )
+from qd_train.power import resolution_state
 from qd_train.run_control import CostEstimate, LRSchedule, RunControl, WallClockCap
 from qd_train.shards import (
     ShardReader,
@@ -1781,7 +1782,7 @@ def _evaluate(
 def _record_verdict(run: dict[str, object], *, ledger: Ledger, reader: ShardReader,
                     shipped: dict[str, object], defect: dict[str, object],
                     inventory: dict[str, object], batch_chunks: dict[str, int],
-                    quick_reason: str, decode_s: float) -> str:
+                    quick_reason: str, decode_s: float, resolution: TriState) -> str:
     """One row per run for what happened **after** the last optimizer step.
 
     Separate from the ``ft`` row because ``train_ft`` owns its recorder's context manager and
@@ -1813,6 +1814,11 @@ def _record_verdict(run: dict[str, object], *, ledger: Ledger, reader: ShardRead
     )
     by_kind = shipped["by_kind"]  # type: ignore[index]
     with recorder:
+        # Pre-registered, and on the VERDICT row because that is the row carrying the
+        # comparisons. Against a fixed reference: this tool scores a channel's loss against
+        # a floor computed from the corpus, which is a property of the data rather than a
+        # quantity with seed noise -- so one variance, not two.
+        recorder.metric("sweep_can_resolve", resolution)
         recorder.metric(
             "code_that_ran", what_ran_state(REPO / "python" / "qd_train", Path(__file__))
         )
@@ -2060,6 +2066,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, help="the pipeline's --out directory")
     parser.add_argument("--passes", type=int, default=60)
     parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
+    # Pre-registration, beside the seed count it is about. Without these two the row records
+    # NotRun rather than nothing, because a sweep that never said what it was looking for
+    # must not be indistinguishable from one that looked and found nothing.
+    parser.add_argument(
+        "--prior-sd",
+        type=float,
+        help=(
+            "seed sd from a PREVIOUS measurement of this configuration, used to state what "
+            "--seeds can resolve. Not from this sweep, and not from an arm that collapsed: "
+            "the spread of a model that never fit is not the spread of one that did"
+        ),
+    )
+    parser.add_argument(
+        "--target-difference",
+        type=float,
+        help=(
+            "the smallest effect worth detecting, in the units of the channel loss it is "
+            "compared against. Stated up front so the verdict row can say whether this "
+            "sweep could have seen it"
+        ),
+    )
     # Sentinels, not values: which default is right depends on --real-backbone, and a
     # default that silently applies to the wrong backbone is fault 1 below.
     parser.add_argument(
@@ -2581,6 +2608,12 @@ def main(argv: list[str] | None = None) -> int:
             run["verdict_row_id"] = _record_verdict(
                 run, ledger=ledger, reader=reader, shipped=shipped, defect=defect,
                 inventory=inventory, quick_reason=quick_small, decode_s=decode_s,
+                resolution=resolution_state(
+                    sd=args.prior_sd,
+                    n_per_arm=len(args.seeds),
+                    target=args.target_difference,
+                    against_known_reference=True,
+                ),
                 batch_chunks={
                     "live": int(batch_info["letter_channel_live_chunks"]),  # type: ignore[arg-type]
                     "total": int(batch_info["letter_channel_total_chunks"]),  # type: ignore[arg-type]

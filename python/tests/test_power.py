@@ -215,26 +215,54 @@ def test_a_non_positive_target_is_refused() -> None:
 # -- the sweep runner records it ------------------------------------------------------------
 
 
-def test_the_sweep_runner_pre_registers_what_it_can_resolve() -> None:
+def test_every_sweep_runner_pre_registers_what_it_can_resolve() -> None:
     """The open item this closes: "pre-register the resolvable difference in every sweep
     runner's header, beside the seed count". Asserted on the source because reaching the
     metric needs a corpus and a GPU.
 
-    The comparison kind is asserted by POSITION, inside the `resolution_state(` call: rung 0
-    scores against the majority-class baseline, and passing the two-arm form there would
-    claim 1.41x the sensitivity this comparison has.
-    """
-    source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
-    assert '"--prior-sd"' in source
-    assert '"--target-difference"' in source
-    assert '"sweep_can_resolve"' in source
+    **Every**, plural, and deliberately. Four times on 2026-09-21 a fix was applied to one
+    member of a list that had already been written down -- the price literal, the provenance
+    fingerprint, the call-site scope, and this. Writing the test for one runner and calling
+    the item closed is the same move a fifth time.
 
-    start = source.index("resolution_state(")
-    call = source[start : source.index("),", start)]
-    assert "n_per_arm=args.seeds" in call, (
-        "the resolution must be computed from the seed count the run actually used"
-    )
-    assert "against_known_reference=True" in call, (
-        "rung 0 compares against the majority-class baseline, which is a property of the "
-        "split rather than a quantity with seed noise"
-    )
+    The comparison kind is asserted by POSITION, inside each `resolution_state(` call. Both
+    tools score against a fixed reference -- rung 0 against the majority-class baseline, the
+    FT lane against a floor computed from the corpus -- and neither is a quantity with seed
+    noise. Passing the two-arm form would claim 1.41x the sensitivity these comparisons have.
+    """
+    def call_text(source: str, opener: str) -> str:
+        """The whole call, by balancing parentheses.
+
+        Slicing to the first ``),`` cuts ``n_per_arm=len(args.seeds)`` in half and reports
+        the argument as absent -- a test failing on its own parsing rather than on the
+        thing it checks.
+        """
+        start = source.index(opener)
+        depth = 0
+        for i in range(start + len(opener) - 1, len(source)):
+            if source[i] == "(":
+                depth += 1
+            elif source[i] == ")":
+                depth -= 1
+                if depth == 0:
+                    return source[start : i + 1]
+        raise AssertionError(f"unbalanced parentheses after {opener}")
+
+    runners = {
+        "rung0_real_run.py": "n_per_arm=args.seeds",
+        "real_ft_run.py": "n_per_arm=len(args.seeds)",
+    }
+    for name, seed_expression in runners.items():
+        source = (REPO / "tools" / name).read_text(encoding="utf-8")
+        assert '"--prior-sd"' in source, name
+        assert '"--target-difference"' in source, name
+        assert '"sweep_can_resolve"' in source, name
+
+        call = call_text(source, "resolution_state(")
+        assert seed_expression in call, (
+            f"{name}: the resolution must be computed from the seed count the run actually "
+            "used, and --seeds is a scalar in one tool and a list in the other"
+        )
+        assert "against_known_reference=True" in call, (
+            f"{name}: this tool compares against a fixed reference, not another arm"
+        )
