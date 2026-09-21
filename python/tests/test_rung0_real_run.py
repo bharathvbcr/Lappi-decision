@@ -234,6 +234,100 @@ def test_an_empty_pre_generated_corpus_is_refused(tmp_path) -> None:
         ])
 
 
+def test_decisions_and_their_paths_stay_aligned_through_refusals() -> None:
+    """The alignment bug this return value exists to prevent.
+
+    ``decisions_of`` DROPS refused examples -- 1,599 raw became 763 at 8192 bytes -- so
+    recovering a decision's source file by zipping against the input pairs each decision
+    with the wrong file, and every per-file operation downstream is quietly wrong while
+    looking fine. The paths are built where the dropped row is still in hand.
+    """
+    config = tool.ByteDeciderConfig(max_context_bytes=1024)
+    good = {
+        "id": "ex-1", "pool_id": "p", "repo": "r", "path": "src/keep.py", "language": "Python",
+        "class": "stub", "op": "stub_body", "before": "def f():\n    return 1\n",
+        "after": "def f():\n    pass\n", "span": {"start_line": 2, "end_line": 2},
+        "function": {"repo": "r", "path": "src/keep.py", "symbol": "f", "arity": 0},
+        "hunk_constrained": False,
+    }
+    malformed = {"id": "ex-2", "function": {}}  # missing required fields -> MalformedExample
+    decisions, refused, paths = tool.decisions_of([malformed, good, malformed], config=config)
+    assert refused, "the malformed rows must be counted, not silently dropped"
+    assert len(decisions) == len(paths), "a decision without its path is the alignment bug"
+    if decisions:
+        assert paths[0] == "src/keep.py", (
+            f"the surviving decision came from src/keep.py but its path reads {paths[0]!r}; "
+            "the refused rows shifted the pairing"
+        )
+
+
+def test_a_smaller_subsample_is_a_subset_of_a_larger_one() -> None:
+    """Why the file order is hashed rather than shuffled or taken as-is.
+
+    A learning curve whose 25% and 50% points are drawn from unrelated samples measures
+    sampling noise alongside size, and the curve is unreadable. Hashing makes each point a
+    strict subset of the next.
+    """
+    import hashlib as _h
+
+    names = [f"src/mod{i}.py" for i in range(40)]
+    ordered = sorted(names, key=lambda n: _h.sha256(n.encode("utf-8")).hexdigest())
+    quarter = set(ordered[: max(1, round(0.25 * len(names)))])
+    half = set(ordered[: max(1, round(0.50 * len(names)))])
+    whole = set(ordered[: max(1, round(1.00 * len(names)))])
+    assert quarter < half < whole
+    assert whole == set(names)
+
+
+def test_the_choice_floor_is_the_label_distribution_entropy() -> None:
+    """A uniform four-class set floors at ln 4; a one-class set floors at 0.
+
+    This is the instrument that made the real finding legible: the choice loss converged to
+    1.128 nats against a measured floor of 1.130, so the head had learned the class prior
+    exactly. The TOTAL loss fell 14.5 -> 1.4 over the same run and looked like training.
+    """
+    import math as _m
+
+    four_ways = [_Decision(i % 4) for i in range(400)]
+    assert tool.label_entropy(four_ways) == pytest.approx(_m.log(4), abs=1e-9)
+
+    one_class = [_Decision(0) for _ in range(50)]
+    assert tool.label_entropy(one_class) == pytest.approx(0.0, abs=1e-12)
+
+    skewed = [_Decision(0)] * 80 + [_Decision(1)] * 65 + [_Decision(2)] * 31 + [_Decision(3)] * 5
+    assert tool.label_entropy(skewed) == pytest.approx(1.1300, abs=5e-4)
+
+
+def test_an_empty_training_set_has_no_floor_rather_than_a_zero_one() -> None:
+    """0.0 is the entropy of a one-class corpus, which is a real and very different state
+    from having no corpus. Returning it for both would make a head that learned nothing
+    from nothing look like one that learned a deterministic rule."""
+    with pytest.raises(ValueError, match="zero decisions"):
+        tool.label_entropy([])
+
+
+def test_a_choice_head_at_the_prior_does_not_pass() -> None:
+    """The gate that would have caught this run without anyone reading a loss column."""
+    at_floor = tool._prior_gate(1.128, 1.130, n=181)
+    assert isinstance(at_floor, Ran)
+    assert not at_floor.passed
+    assert "learned the class prior" in at_floor.detail
+
+    learned = tool._prior_gate(0.60, 1.130, n=181)
+    assert isinstance(learned, Ran)
+    assert learned.passed
+
+    # Just inside the margin is still the floor: 1% of a nat is the precision at which
+    # these two are the same number.
+    assert not tool._prior_gate(1.125, 1.130, n=181).passed
+
+
+def test_no_training_decisions_reads_as_not_run(  ) -> None:
+    state = tool._prior_gate(1.0, 1.0, n=0)
+    assert isinstance(state, NotRun)
+    assert not hasattr(state, "passed")
+
+
 def test_the_default_context_is_wider_than_the_config_default() -> None:
     """Measured, not preferred: at ``ByteDeciderConfig``'s 1024 only 9.0% of a real
     qd-mutate corpus survives ``SpanOutsideWindow``, against 26.6% at 4096. A tool whose

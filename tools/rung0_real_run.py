@@ -45,6 +45,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import subprocess
 import sys
 import time
@@ -212,17 +213,32 @@ def split_by_file(
 
 def decisions_of(
     examples: Sequence[dict[str, object]], *, config: ByteDeciderConfig
-) -> tuple[list, dict[str, int]]:
-    """Parse and convert, counting every refusal by kind rather than dropping quietly."""
+) -> tuple[list, dict[str, int], list[str]]:
+    """Parse and convert, counting every refusal by kind rather than dropping quietly.
+
+    Returns the decisions, the refusals by kind, and **the source path of each decision**.
+
+    The paths are returned rather than recovered by zipping against the input, because this
+    function DROPS refused examples: 1,599 raw examples become 763 decisions at 8192 bytes,
+    so ``zip(examples, decisions)`` pairs each decision with the wrong file and every
+    per-file operation downstream is quietly wrong. The parallel list is built here, where
+    the row being dropped is still in hand.
+    """
     out = []
+    paths: list[str] = []
     refused: dict[str, int] = {}
     for obj in examples:
         try:
-            out.append(to_decision(parse_example(obj), max_context_bytes=config.max_context_bytes))
+            decision = to_decision(
+                parse_example(obj), max_context_bytes=config.max_context_bytes
+            )
         except (MalformedExample, PhantomFinalLine, SpanOutsideWindow) as exc:
             name = type(exc).__name__
             refused[name] = refused.get(name, 0) + 1
-    return out, refused
+            continue
+        out.append(decision)
+        paths.append(str(obj.get("function", {}).get("path", "")))  # type: ignore[union-attr]
+    return out, refused, paths
 
 
 # -- batching ----------------------------------------------------------------------------
@@ -267,6 +283,61 @@ def cycle(plans: Sequence[BatchPlan], *, n: int) -> Iterator[BatchPlan]:
 
 
 # -- measurement -------------------------------------------------------------------------
+
+
+def label_entropy(decisions: Sequence) -> float:
+    """The choice loss of a model that has learned the class prior and nothing else.
+
+    ``tools/rung0_toy_run.py`` computes the same floor per context group and says why:
+    "Computing it turns 'the loss fell' into 'the loss reached the floor', which is the
+    difference between a curve that moved and a head that is wired to the right rows." On a
+    real corpus no two rows share a context, so the conditional floor collapses to the
+    marginal one -- the entropy of the label distribution.
+
+    This is the instrument the real run was missing. The TOTAL loss falls from ~14.5 to
+    ~1.4 and looks like healthy training, because the span channel outweighs the choice
+    channel about 6:1 at initialisation. Against this number the choice channel's ~1.13 is
+    legible as what it is: the prior, exactly, and nothing conditional on the context.
+    """
+    counts: dict[int, int] = {}
+    for d in decisions:
+        counts[d.gold_option] = counts.get(d.gold_option, 0) + 1
+    n = sum(counts.values())
+    if n == 0:
+        raise ValueError("cannot compute a label entropy over zero decisions")
+    return -sum((c / n) * math.log(c / n) for c in counts.values())
+
+
+def _prior_gate(measured: float, floor: float, *, n: int) -> TriState:
+    """Whether the choice head learned anything the class prior does not already give.
+
+    ``passed`` requires the loss to sit meaningfully BELOW the prior's entropy. A head at
+    the floor has converged to answering the marginal distribution, which is the same fact
+    the majority-class accuracy reports and is worth stating twice: an accuracy can land on
+    the baseline by luck on 303 rows, a loss landing on the floor to three decimals cannot.
+    """
+    if n == 0:
+        return NotRun(
+            reason=(
+                "no training decisions, so there is no label distribution and no floor to "
+                "compare the choice loss against"
+            )
+        )
+    # One percent of a nat: below that the two are the same number at this precision.
+    margin = 0.01
+    return Ran(
+        passed=measured < floor - margin,
+        value=measured,
+        n=n,
+        n_total=n,
+        detail=(
+            f"choice loss converged to {measured:.4f} nats against a label-distribution "
+            f"entropy of {floor:.4f} over {n} training decisions -- a gap of "
+            f"{measured - floor:+.4f}. At the floor the head has learned the class prior "
+            "and nothing conditional on the context, and the TOTAL loss does not show it "
+            "because the span channel outweighs this one about 6:1 at initialisation."
+        ),
+    )
 
 
 def majority_baseline(decisions: Sequence) -> tuple[float, str]:
@@ -381,6 +452,8 @@ def train_once(
     train_plans: Sequence[BatchPlan],
     val_plans: Sequence[BatchPlan],
     baseline: float,
+    choice_floor: float,
+    train_decisions: int,
     device: str,
     seed: int,
     epochs: int,
@@ -407,6 +480,13 @@ def train_once(
     )
     wall = time.monotonic() - t0
     after = evaluate(model, val_plans, device=device)
+    # The same measurement on the TRAINING batches. A held-out number at the baseline has
+    # two possible causes and they call for opposite fixes: a model that also scores the
+    # baseline on its own training data has not fitted anything and needs capacity or a
+    # longer schedule, while one that scores far above it on training and at it on held-out
+    # has fitted and cannot transfer, which is a corpus problem. The loss curve alone does
+    # not separate these, because a falling loss is consistent with both.
+    on_train = evaluate(model, train_plans, device=device)
 
     waste_num = sum(
         sum(1 for row in p.context_mask for live in row if not live) for p in train_plans
@@ -430,7 +510,10 @@ def train_once(
         "span_last": result.span_log[-1],
         "val_before": before,
         "val_after": after,
+        "train_after": on_train,
         "baseline": baseline,
+        "choice_floor": choice_floor,
+        "train_decisions": train_decisions,
         "train_padding_waste": waste_num / waste_den if waste_den else 0.0,
         "wall_clock_s": wall,
     }
@@ -455,6 +538,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Capacity, as flags rather than constants, because the 8192 run settled that context is
     # NOT the binding constraint: it nearly doubled the usable corpus and moved the held-out
     # number by 0.0%. Width and depth are what remains untested.
+    parser.add_argument(
+        "--train-subsample",
+        type=float,
+        default=1.0,
+        help=(
+            "fraction of TRAINING FILES to keep, for a learning curve. The validation side "
+            "is never subsampled, so every point is scored on the same rows"
+        ),
+    )
     parser.add_argument("--width", type=int, default=ByteDeciderConfig().width)
     parser.add_argument("--layers", type=int, default=ByteDeciderConfig().n_layers)
     parser.add_argument("--heads", type=int, default=ByteDeciderConfig().n_heads)
@@ -545,8 +637,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"{len(val_raw)} val from {len(val_paths)} file(s), 0 files on both sides"
     )
 
-    train_d, train_refused = decisions_of(train_raw, config=config)
-    val_d, val_refused = decisions_of(val_raw, config=config)
+    train_d, train_refused, train_paths_of = decisions_of(train_raw, config=config)
+    val_d, val_refused, _ = decisions_of(val_raw, config=config)
     print(f"  decisions: {len(train_d)} train (refused {train_refused or 'none'}), "
           f"{len(val_d)} val (refused {val_refused or 'none'})")
     if not train_d or not val_d:
@@ -554,6 +646,35 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     baseline, majority = majority_baseline(val_d)
     print(f"  majority-class baseline on val: {baseline:.1%} ({majority})")
+
+    if args.train_subsample < 1.0:
+        # Subsampled by FILE, not by row, and the validation side is never touched. Taking
+        # a fraction of the rows would leave every training file represented and measure
+        # density rather than coverage; a learning curve over files answers the question
+        # actually being asked, which is whether MORE REPOSITORIES would help.
+        by_file: dict[str, list] = {}
+        for path, decision in zip(train_paths_of, train_d, strict=True):
+            by_file.setdefault(path, []).append(decision)
+        names = sorted(by_file)
+        keep = max(1, round(args.train_subsample * len(names)))
+        # Hashed, so the 25% set is a subset of the 50% set: a learning curve whose points
+        # are drawn from unrelated samples measures sampling noise as well as size.
+        ordered = sorted(names, key=lambda n: hashlib.sha256(n.encode("utf-8")).hexdigest())
+        kept = set(ordered[:keep])
+        train_d = [d for name in names if name in kept for d in by_file[name]]
+        print(
+            f"  train subsample {args.train_subsample:.0%}: {keep} of {len(names)} file(s), "
+            f"{len(train_d)} decision(s); validation untouched"
+        )
+        if not train_d:
+            raise SystemExit("the subsample kept no training decisions")
+
+    # After any subsample, because the floor is a property of what is actually trained on.
+    choice_floor = label_entropy(train_d)
+    print(
+        f"  choice-loss floor (label-distribution entropy of the training set): "
+        f"{choice_floor:.4f} nats -- a head that reaches this has learned the prior"
+    )
 
     train_plans = bucketed_batches(train_d, batch_size=args.batch_size, config=config)
     val_plans = bucketed_batches(val_d, batch_size=args.batch_size, config=config)
@@ -575,6 +696,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             train_plans=train_plans,
             val_plans=val_plans,
             baseline=baseline,
+            choice_floor=choice_floor,
+            train_decisions=len(train_d),
             device=args.device,
             seed=seed,
             epochs=args.epochs,
@@ -651,6 +774,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
             )
             recorder.metric(
+                "choice_loss_below_the_class_prior",
+                _prior_gate(
+                    float(run["choice_last"]),  # type: ignore[arg-type]
+                    float(run["choice_floor"]),  # type: ignore[arg-type]
+                    n=int(run["train_decisions"]),  # type: ignore[arg-type]
+                ),
+            )
+            recorder.metric(
                 "train.termination",
                 Ran(passed=run["termination"] != "wall_clock_cap", value=run["termination"]),
             )
@@ -668,9 +799,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(
             f"{args.device} seed={seed}: total {run['total_first']:.4f} -> "
             f"{run['total_last']:.4f}  "
+            # The two channels separately, because the total hides their ratio and the
+            # ratio is what decides which head the optimizer actually serves.
+            f"[choice {run['choice_first']:.3f}->{run['choice_last']:.3f} "
+            f"(floor {choice_floor:.3f}) "
+            f"span {run['span_first']:.3f}->{run['span_last']:.3f}]  "
             f"choice val {float(before['choice_top1']):.1%} -> "  # type: ignore[index]
             f"{float(after['choice_top1']):.1%} "  # type: ignore[index]
             f"(baseline {baseline:.1%}, {int(after['choice_n'])} rows)  "  # type: ignore[index]
+            f"[train {float(run['train_after']['choice_top1']):.1%}]  "  # type: ignore[index]
             f"span start {float(after['span_start_top1']):.1%} "  # type: ignore[index]
             f"end {float(after['span_end_top1']):.1%} "  # type: ignore[index]
             f"(chance {float(after['span_chance']):.1%}, "  # type: ignore[index]

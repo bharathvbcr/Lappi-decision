@@ -1,0 +1,73 @@
+{
+  "measured": "2026-09-20",
+  "what": "A rung 0 learning curve over TRAINING FILES, with accuracy measured on the training set as well as the held-out set, and the choice loss measured against the entropy of the training label distribution.",
+  "why": "Three configurations had landed exactly on the majority-class baseline on held-out files. Two readings of that are possible and they call for opposite fixes: a model that fits its training data and cannot transfer needs more or better data, while a model that does not fit its training data either has not learned at all. The held-out number cannot tell them apart, and neither can a falling total-loss curve.",
+  "host": "192.222.58.240, NVIDIA GH200 480GB, torch 2.10.0+cu128",
+  "config": {
+    "context_bytes": 8192,
+    "width": 128,
+    "layers": 2,
+    "heads": 4,
+    "params": 1523840,
+    "epochs": 10,
+    "batch_size": 8,
+    "seeds": 3,
+    "note": "subsample is by FILE and the validation side is never touched, so every point is scored on the same 303 rows; file order is hashed so the 25% set is a strict subset of the 50% set"
+  },
+  "points": [
+    {
+      "train_subsample": 0.25,
+      "train_files": 31,
+      "train_files_total": 125,
+      "train_decisions": 181,
+      "train_majority_share": 0.442,
+      "measured_train_accuracy": 0.442,
+      "val_accuracy": 0.5215,
+      "val_baseline": 0.5215,
+      "mean_over_baseline": 0.0,
+      "spread": 0.0,
+      "seconds_per_seed": 25.3
+    },
+    {
+      "train_subsample": 0.5,
+      "train_files": 62,
+      "train_files_total": 125,
+      "train_decisions": 361,
+      "measured_train_accuracy": 0.400,
+      "val_accuracy": 0.5215,
+      "val_baseline": 0.5215,
+      "mean_over_baseline": 0.0,
+      "spread": 0.0,
+      "seconds_per_seed": 52.2
+    },
+    {
+      "train_subsample": 1.0,
+      "train_files": 125,
+      "train_files_total": 125,
+      "train_decisions": 763,
+      "train_majority_share": 0.480,
+      "measured_train_accuracy": 0.480,
+      "val_accuracy": 0.5215,
+      "val_baseline": 0.5215,
+      "mean_over_baseline": 0.0,
+      "spread": 0.0,
+      "seconds_per_seed": 111.1
+    }
+  ],
+  "finding": "The model answers the majority class on EVERY row it is ever shown, training rows included. Measured train accuracy equals the training set's own majority share to three decimals at both ends of the curve: 44.2% against a 44.2% stub share at the 25% point, 48.0% against a 48.0% stub share at 100%. It is not overfitting. It is not fitting at all.",
+  "mechanism": {
+    "choice_loss_first": 2.026,
+    "choice_loss_last": 1.128,
+    "label_distribution_entropy": 1.1300,
+    "gap_to_floor": -0.002,
+    "span_loss_first": 12.520,
+    "span_loss_last": 0.310,
+    "total_loss_first": 14.546,
+    "total_loss_last": 1.438,
+    "explanation": "The choice channel converges to the entropy of the label distribution -- the loss of a head that has learned the class prior and nothing conditional on the context. The TOTAL loss falls 14.5 -> 1.4 over the same run and reads as healthy training, because the span channel starts 6.2x larger than the choice channel and supplies 86% of the initial total. One number, two quantities: the headline curve is the span channel's curve."
+  },
+  "what_the_learning_curve_says": "Flat. 4x the training files (181 -> 763 decisions) changes the held-out number by 0.0% and the train number not at all. A corpus lever cannot move a model that is not fitting the corpus it already has, so 'more data' is not the next step and this measurement is what rules it out.",
+  "instrument_added": "tools/rung0_real_run.py now computes label_entropy over the training decisions and records choice_loss_below_the_class_prior, which requires the loss to sit at least 0.01 nats BELOW the floor. On this run it reports passed=false with the gap spelled out. tools/rung0_toy_run.py already computed the same floor per context group and said why; the real run was missing it.",
+  "correction": "An earlier report in this session stated that rung 0 'fits the training files and does not transfer'. That was wrong, and it was inferred from the falling total loss rather than measured. Train accuracy was not being measured at all until this run added it.",
+  "rule_8": "Every row is quick=True and promotes nothing."
+}
