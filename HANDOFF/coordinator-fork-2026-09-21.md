@@ -17,6 +17,18 @@ Six arms on the 4096 window, 8 seeds each, all 48 rows in
 `ledger/gh200-rung0-capacity-4096-{e10,e30}-2026-09-21.jsonl` (chains verified, committed at
 `7f191bd` — they existed only on a rented box until then).
 
+**These rows are weaker evidence than §2's, and the difference is worth knowing before
+quoting them.** All 48 were written before the box was synced at 16:11Z, so every one carries
+`wall_clock_source: null`, `cost_usd: 0.0`, no `code_that_ran` digest, and `code_commit`
+`8b9df39-dirty`. **The accuracies are real; the provenance is a `-dirty` marker that is
+permanent on that box.** Only §2's 24 curve rows carry a digest, a true duration and a price —
+65 of the 89 rung-0 GH200 rows in this repository do not.
+
+That is a *deployment* failure, not a *tool* failure, and the two look identical in a row.
+`rung0_real_run.py` has recorded the digest since `80cddb8`; these rows lack it because the
+copy on the box predated that commit. A test that a tool records the metric — which exists —
+cannot catch it.
+
 **At 30 epochs every seed fit and every arm generalised worse than a constant predictor.**
 
 | backbone | n | val mean | vs baseline | sd | collapsed |
@@ -157,9 +169,11 @@ were not rewritten; the corrected floors live here and in the AUDIT file.
 **24 rows, 1420.2 GPU-seconds, $0.5878** on `lambda-1xGH200` at $1.49/h — summed from the
 rows themselves. Single GPU, far under the $20 that needs a human yes under rule 4.
 
-Every rung 0 row written before today reads `wall_clock_s ≈ 1e-4` and `cost_usd 0.0`: the
-recorder timing its own lifetime, on a machine recorded as a local Mac. All 24 of these
-carry `wall_clock_source="caller"`, a real duration and a real price.
+Every other rung 0 row reads `wall_clock_s ≈ 1e-4` and `cost_usd 0.0`: the recorder timing
+its own lifetime, on a machine recorded as a local Mac. **That includes §1's own 48 rows,
+written today** — the cutoff is the 16:11Z sync, not the date. 65 of this repository's 89
+rung-0 GH200 rows are on the wrong side of it. All 24 of these carry
+`wall_clock_source="caller"`, a real duration and a real price.
 
 They also carry **one** `code_that_ran` digest: `173fa35737ed…`, 29 sources. It was verified
 equal on this Mac and on the box before launch, and re-checked equal on the box afterwards.
