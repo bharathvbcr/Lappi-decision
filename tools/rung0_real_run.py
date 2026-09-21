@@ -43,10 +43,12 @@ never names ``data/heldout``; the door is still the thing that enforces it.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import json
 import math
 import os
+import random
 import subprocess
 import sys
 import time
@@ -78,6 +80,7 @@ from qd_train.byte_batch import BatchPlan, plan_batch, span_supervision  # noqa:
 from qd_train.byte_context import ID_PAD, SpanOutsideWindow  # noqa: E402
 from qd_train.byte_decider import ByteDeciderConfig  # noqa: E402
 from qd_train.byte_train import Rung0Model, Rung0Step, train_rung0  # noqa: E402
+from qd_train.eval_harness import shuffled_label_control  # noqa: E402
 from qd_train.heads import plan_span_batch, serving_scores  # noqa: E402
 from qd_train.ledger import (  # noqa: E402
     DEFAULT_LEDGER_PATH,
@@ -360,6 +363,41 @@ def _prior_gate(measured: float, floor: float, *, n: int) -> TriState:
             "because the span channel outweighs this one about 6:1 at initialisation."
         ),
     )
+
+
+def shuffle_train_labels(decisions: Sequence, *, seed: int) -> list:
+    """Permute the gold labels among the training decisions, destroying the signal.
+
+    The control this feeds asks whether a model trained on destroyed labels still beats
+    chance on the held-out set. If it does, the split leaks -- through file paths, repo
+    names or near-duplicates -- and every accuracy measured on that split is worthless.
+    Across 988 ledger rows this control has never once been evaluated, because
+    ``eval_harness.shuffled_label_control`` needs the accuracy of a shuffled-label model
+    and nothing in this repository ever trained one.
+
+    A PERMUTATION rather than random labels, because the control compares against the
+    majority-class rate: permuting preserves the label distribution exactly, so the bar it
+    is measured against remains the bar that applies. Drawing fresh random labels would
+    shift the marginal and move the ceiling with it.
+
+    Permuted **within groups that share an option count**. ``ByteDecision`` is frozen and
+    its ``__post_init__`` refuses a ``gold_option`` outside ``options``, so a global
+    permutation across decisions offering different numbers of options would raise partway
+    through -- and would do so only on a corpus where the counts differ, which is not this
+    one today and is not a property to rely on silently.
+    """
+    rng = random.Random(seed)
+    by_arity: dict[int, list[int]] = {}
+    for index, decision in enumerate(decisions):
+        by_arity.setdefault(len(decision.options), []).append(index)
+
+    shuffled = list(decisions)
+    for indices in by_arity.values():
+        labels = [decisions[i].gold_option for i in indices]
+        rng.shuffle(labels)
+        for i, label in zip(indices, labels, strict=True):
+            shuffled[i] = dataclasses.replace(decisions[i], gold_option=label)
+    return shuffled
 
 
 def majority_baseline(decisions: Sequence) -> tuple[float, str]:
@@ -751,6 +789,32 @@ def main(argv: Sequence[str] | None = None) -> int:
             "loss still appears in the log"
         ),
     )
+    # The control that has never run. `eval_harness.shuffled_label_control` has existed all
+    # along and every one of 988 ledger rows records `shuffled_label` as not_run, because
+    # the harness needs the accuracy of a model trained on destroyed labels and nothing
+    # trained one. These two flags are that model.
+    parser.add_argument(
+        "--shuffle-train-labels",
+        action="store_true",
+        help=(
+            "permute the gold labels among the TRAINING decisions and evaluate on the "
+            "untouched validation split, recording the `shuffled_label` control on the "
+            "row. A run with this flag is the control, not a measurement of the model: "
+            "its accuracy is expected at or below the held-out majority rate, and an "
+            "accuracy ABOVE that ceiling means the split leaks and every other number "
+            "measured on it is worthless"
+        ),
+    )
+    parser.add_argument(
+        "--shuffle-seed",
+        type=int,
+        default=0,
+        help=(
+            "seed for the label permutation, separate from --seeds so a sweep can vary "
+            "model init while holding the destroyed labelling fixed, which is what makes "
+            "the seed spread attributable to init rather than to a different shuffle"
+        ),
+    )
     parser.add_argument("--width", type=int, default=ByteDeciderConfig().width)
     parser.add_argument("--layers", type=int, default=ByteDeciderConfig().n_layers)
     parser.add_argument("--heads", type=int, default=ByteDeciderConfig().n_heads)
@@ -915,6 +979,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not train_d:
             raise SystemExit("the subsample kept no training decisions")
 
+    # After any subsample, so the control measures the arm it is a control FOR, and before
+    # the floors below, which are properties of what is actually trained on -- under a
+    # permutation the entropy is unchanged but the majority share is not guaranteed to be,
+    # and both must describe the labels the model really saw.
+    if args.shuffle_train_labels:
+        train_d = shuffle_train_labels(train_d, seed=args.shuffle_seed)
+        print(
+            f"  SHUFFLED-LABEL CONTROL: training labels permuted at seed "
+            f"{args.shuffle_seed}; validation untouched. A model that still beats the "
+            "held-out majority rate here means the SPLIT LEAKS and every accuracy "
+            "measured on it is worthless."
+        )
+
     # After any subsample, because the floor is a property of what is actually trained on.
     choice_floor = label_entropy(train_d)
     # The same reasoning for the train-side majority share, and it is a DIFFERENT number
@@ -968,6 +1045,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         # protocol measured twice. Without this they hash identically and the ledger treats
         # a reproducible number and a draw from a 2.8-point spread as comparable rows.
         "deterministic": args.deterministic,
+        # The control and the arm it controls for MUST NOT hash alike. Everything else
+        # about them is identical by design -- same corpus, same schedule, same capacity --
+        # so without these two fields a control run and a real run share a recipe_hash, and
+        # a reader pooling by protocol would average a model trained on destroyed labels
+        # into the measurement it exists to validate.
+        "shuffle_train_labels": args.shuffle_train_labels,
+        "shuffle_seed": args.shuffle_seed if args.shuffle_train_labels else None,
         # How much of the training set was used. A learning curve's whole content is that
         # its points differ in this and nothing else, and `data_snapshot_hash` cannot see
         # it: it comes from the manifest, which a subsampled run does not change. Without
@@ -1027,6 +1111,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             notes=(
                 "tools/rung0_real_run.py -- rung 0 trained on a real qd-mutate corpus and "
                 "measured on files it never saw, split by path"
+                + (
+                    " -- SHUFFLED-LABEL CONTROL: the training labels were permuted, so "
+                    "this row is not a measurement of the model. Its held-out accuracy is "
+                    "the control's value and belongs at or below the majority rate."
+                    if args.shuffle_train_labels
+                    else ""
+                )
             ),
         ) as recorder:
             run = train_once(
@@ -1049,6 +1140,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             runs.append(run)
             after = run["val_after"]  # type: ignore[index]
             before = run["val_before"]  # type: ignore[index]
+            # The control, recorded on the row of the run that IS the control. Chance is
+            # the held-out majority rate, computed by the harness from the validation gold
+            # -- which the shuffle never touched, so it is the same bar the real arms are
+            # measured against. Set only under --shuffle-train-labels: a run trained on
+            # true labels has not evaluated this control and must keep saying so, which is
+            # what RunRecorder's NotRun default does.
+            if args.shuffle_train_labels:
+                recorder.control(
+                    "shuffled_label",
+                    shuffled_label_control(
+                        float(after["choice_top1"]),  # type: ignore[index]
+                        [d.gold_option for d in val_d],
+                        n_eval=int(after["choice_n"]),  # type: ignore[index]
+                    ),
+                )
             # Against the majority-class baseline, which is a property of the split
             # rather than a quantity with seed noise -- so one variance, not two. The
             # two-arm form would claim 1.41x more sensitivity than this comparison has.

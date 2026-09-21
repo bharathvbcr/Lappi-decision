@@ -639,13 +639,22 @@ def test_a_row_can_name_its_own_arm_without_the_launch_command() -> None:
     ``train_subsample`` values against seven fields pinned at the launch command's -- which
     is recovering the label from the log by a longer route, not from the row.
 
-    The eight keys are asserted as a SET, so a field silently dropped from the recipe fails
-    here even though it would leave every other test green: it would still hash, still
-    identify, and quietly stop separating the arm it was added to separate.
+    The keys are asserted as a SET, so a field silently dropped from the recipe fails here
+    even though it would leave every other test green: it would still hash, still identify,
+    and quietly stop separating the arm it was added to separate. A field ADDED fails here
+    too, which is the half that fired on 2026-09-21 when the shuffled-label control landed
+    -- correctly, because widening what a `recipe_hash` separates is exactly the change
+    that must be deliberate rather than noticed later.
+
+    `shuffle_train_labels` and `shuffle_seed` are the newest two. A control run and the arm
+    it controls for are identical in every other field by design, so without them the two
+    share a hash and anything pooling by protocol averages a model trained on destroyed
+    labels into the measurement it exists to validate.
     """
     assert set(_recipe_of_a_row()) == {
         "epochs", "batch_size", "val_share", "lr",
         "span_weight", "deterministic", "train_subsample", "rev",
+        "shuffle_train_labels", "shuffle_seed",
     }
 
 
