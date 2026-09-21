@@ -1202,6 +1202,18 @@ def test_the_repositorys_own_ledgers_are_checked_not_assumed() -> None:
     2026-09-20 and both sides verify, so this asserts what is true rather than what would
     be tidy -- and it will start failing the day someone reconciles them, which is when a
     test that claimed otherwise would have been in the way.
+
+    **Divergences are counted; root forks are not**, and the distinction is the one
+    `find_forks` already draws. A divergence is two rows claiming one *shared* predecessor:
+    a copied ledger that both sides appended to, which is what the detector exists for. A
+    root fork is the detector saying "these files are unrelated" -- which is what a ledger
+    opened for one run IS, and is the direction
+    GAP-LEDGER-NO-STORY-FOR-A-CHAIN-FORKED-ACROSS-TWO-MACHINES names as the fix ("whether
+    the GH200 should write to a per-host ledger by construction rather than by rsync
+    accident"). Counting both made the recommended fix register as the disease: the
+    overnight run wrote its own ledger by construction and the count went to two.
+
+    The teeth are unchanged. A new divergence is non-root, so it still takes this past one.
     """
     ledger_dir = REPO / "ledger"
     paths = sorted(ledger_dir.glob("*.jsonl"))
@@ -1210,7 +1222,13 @@ def test_the_repositorys_own_ledgers_are_checked_not_assumed() -> None:
         Ledger(path).verify_chain()
 
     forks = find_forks(paths)
-    assert len(forks) == 1, f"expected exactly the known fork, got: {[f.describe() for f in forks]}"
-    assert not forks[0].is_root, (
-        "the two ledgers share an ancestor; a root fork would mean they do not"
+    diverged = [f for f in forks if not f.is_root]
+    assert len(diverged) == 1, (
+        "expected exactly the known row-157 divergence, got: "
+        f"{[f.describe() for f in diverged]}"
+    )
+    roots = [f for f in forks if f.is_root]
+    assert len(roots) <= 1, (
+        "find_forks groups every independent chain's first line under one root fork, so "
+        f"more than one root point is a bug in the grouping: {[f.describe() for f in roots]}"
     )

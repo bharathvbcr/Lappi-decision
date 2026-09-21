@@ -535,3 +535,91 @@ def test_a_checkpoint_is_refused_when_this_run_has_no_cell_for_it(tmp_path) -> N
             "--out", str(tmp_path), "--real-backbone", str(tmp_path),
             "--resume-from", str(epoch_ckpt), "--devices", "cpu", "--seeds", "1",
         ])
+
+
+# -- whether a run's numbers can be got back ---------------------------------------------
+#
+# GAP-FT-RUNS-ARE-NOT-REPRODUCIBLE-AT-A-FIXED-SEED. Once fee0f9a made the seed determine the
+# starting point, eight repeats of ONE configuration at ONE seed opened at an identical
+# 518.5886 and still finished with final span losses of 0.000000 .. 1.505752, three of them
+# over the 0.05 bar -- the whole range the span-weight sweep had attributed to its arms,
+# produced by a single arm. The letter channel's spread over the same eight runs was
+# 1.0e-5 .. 1.3e-4, ~380x below its own bar.
+#
+# The same night's phase 4 then bounded how much of that is the kernels: at 512 steps under
+# the master recipe the span channel lands in [0.00000, 0.00012] on 5 of 5 seeds. So most of
+# the spread above is a 128-step budget that had not converged, and what a ledger row still
+# cannot say is which part was which -- which is what this metric is for.
+
+
+def test_the_cublas_workspace_is_set_from_argv_because_argparse_is_too_late() -> None:
+    """cuBLAS reads ``CUBLAS_WORKSPACE_CONFIG`` when it initialises, which is the first
+    matmul -- long before ``main`` parses anything. Setting it from parsed arguments would
+    be a setting that looks applied and is not, and with deterministic algorithms in force
+    torch raises at the first addmm instead."""
+    source = (REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8")
+    assert 'if "--deterministic" in sys.argv:' in source
+    assert 'os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")' in source
+
+    argv_at = source.index('if "--deterministic" in sys.argv:')
+    torch_at = source.index("    import torch")
+    assert argv_at < torch_at, (
+        "the workspace is configured after torch is imported, so a CUDA context may "
+        "already exist by then and the setting is decoration"
+    )
+
+
+def test_an_ordinary_run_does_not_get_the_workspace_set_for_it() -> None:
+    """The other half: a 32 MB cuBLAS workspace on a run that did not ask for determinism
+    is a cost paid for nothing, and a global that changes under runs that never mentioned it
+    is how two runs come to differ for a reason neither recorded."""
+    import os
+    import subprocess
+    import sys as _sys
+
+    tools = str(REPO / "tools")
+    probe = (
+        "import os, sys;"
+        "sys.argv=['real_ft_run.py','--out','/nowhere'];"
+        f"sys.path.insert(0, {tools!r});"
+        "import real_ft_run;"
+        "print(os.environ.get('CUBLAS_WORKSPACE_CONFIG', 'UNSET'))"
+    )
+    env = {k: v for k, v in os.environ.items() if k != "CUBLAS_WORKSPACE_CONFIG"}
+    out = subprocess.run(
+        [_sys.executable, "-c", probe], capture_output=True, text=True, env=env, check=True
+    )
+    assert out.stdout.strip() == "UNSET", out.stdout
+
+
+def test_the_recipe_separates_a_deterministic_run_from_an_ordinary_one() -> None:
+    """Two runs that used different kernels for the same matmul are not one protocol. The
+    measured spread between them is larger than several of the effects this tool is used to
+    look for, so collapsing them into one ``recipe_hash`` would put two populations in one
+    row."""
+    source = (REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8")
+    assert '"deterministic": deterministic,' in source
+    assert "deterministic=args.deterministic," in source
+
+
+def test_a_run_that_did_not_ask_for_determinism_reports_not_run_rather_than_passing() -> None:
+    """The discipline this repository is built on, at the one place it had not reached.
+
+    "This run's numbers are reproducible" and "nobody checked" must not be one string in a
+    ledger row -- and until this metric existed, a row said nothing at all, which reads as
+    the former.
+    """
+    source = (REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8")
+    assert 'recorder.metric(\n        "deterministic_kernels",' in source
+    marker = '        "deterministic_kernels",'
+    block = source[source.index(marker) : source.index(marker) + 2000]
+    assert "if deterministic" in block and "else NotRun(" in block, (
+        "the metric must be tri-state: a run that did not request deterministic kernels "
+        "established nothing about reproducing its numbers"
+    )
+    assert "1.505752" in block and "0.00012" in block, (
+        "the NotRun reason should carry BOTH measured numbers. The 128-step spread alone "
+        "reads as a case for this flag; the 512-step collapse is what says most of that "
+        "spread was a budget that had not converged, and a reason that omits it argues for "
+        "determinism on a premise the same night measured to be mostly wrong"
+    )

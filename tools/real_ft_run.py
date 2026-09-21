@@ -86,6 +86,7 @@ import dataclasses
 import hashlib
 import json
 import math
+import os
 import subprocess
 import sys
 import time
@@ -98,6 +99,15 @@ from typing import Any, Final
 # is not one.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# Read from argv rather than from parsed arguments, and deliberately: cuBLAS reads this when
+# it initialises, which is the first matmul, and `argparse` has not run by then. With
+# deterministic algorithms in force and this unset, torch raises at the first addmm rather
+# than silently using a nondeterministic one -- so the failure mode of getting this wrong is
+# loud, and the failure mode of parsing argv here instead is a 32 MB cuBLAS workspace on a
+# run that did not ask for one. Only set when asked, so an ordinary run is untouched.
+if "--deterministic" in sys.argv:
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 try:
     import torch
@@ -1247,7 +1257,7 @@ def _train(
     hidden: int, heads: int, lr: float, span_weight: float, ledger: Ledger, tag: str,
     quick_reason: str, backbone: Path | None = None, optimizer_recipe: str = "bf16",
     checkpoint_dir: Path | None = None, checkpoint_every: int = 0,
-    resume_from: object | None = None,
+    resume_from: object | None = None, deterministic: bool = False,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -1265,6 +1275,10 @@ def _train(
         # they hash identically -- which is how a sweep over the objective becomes a single
         # row in the ledger that contradicts itself.
         "span_weight": span_weight,
+        # In the recipe for the same reason `span_weight` is: two runs that used different
+        # kernels for the same matmul are not one protocol, and the measured spread between
+        # them is larger than several of the effects this tool is used to look for.
+        "deterministic": deterministic,
         "shard_hash": reader.header.shard_hash(),
     }
     # Which backbone ran, built once and used three times: here, in this function's return
@@ -1411,6 +1425,38 @@ def _train(
                 )
             ),
         )
+    # Whether this run's numbers can be got back. NOT a claim that two runs agreed -- that
+    # is a different measurement and one row cannot make it. What a COMPLETED deterministic
+    # run does establish is narrower and checkable: torch raises where an op has no
+    # deterministic implementation, so reaching the end means every op this model used had
+    # one. Off, the honest answer is that nothing was established, which is what NotRun is
+    # for -- and the measured consequence is on the record rather than left to be assumed.
+    recorder.metric(
+        "deterministic_kernels",
+        Ran(
+            passed=True,
+            value="torch.use_deterministic_algorithms(True)",
+            detail=(
+                "in force for the whole run, set before the tower loaded. torch raises "
+                "rather than falling back, so completing the run means no op silently used "
+                "a nondeterministic kernel"
+            ),
+        )
+        if deterministic
+        else NotRun(
+            reason=(
+                "this run used torch's default kernels, so whether its numbers can be "
+                "reproduced was not established. Measured on a GH200 at a FIXED seed, with "
+                "the opening loss identical to four decimals across eight repeats of one "
+                "configuration at 128 steps: the final span loss ranged 0.000000 to "
+                "1.505752 and 3 of 8 runs crossed the 0.05 bar, while the final letter "
+                "loss stayed inside 1.0e-5..1.3e-4. At 512 steps under the master recipe "
+                "the same channel lands in [0.00000, 0.00012] on 5 of 5 seeds, so most of "
+                "that spread is an unconverged budget and not the kernels -- but this row "
+                "cannot say which part was which, and that is what was not established."
+            )
+        ),
+    )
     for name, value, detail in (
         ("corpus.plan_batches", len(plan), f"real batches repeated {passes}x"),
         ("corpus.plan_rows", sum(int(b.tokens.shape[0]) for b in plan), "rows in the plan"),
@@ -1997,6 +2043,21 @@ def main(argv: list[str] | None = None) -> int:
             "a CUDA box with --real-backbone this is normally just: --devices cuda"
         ),
     )
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help=(
+            "run under torch.use_deterministic_algorithms(True). Measured on a GH200 at a "
+            "FIXED seed, opening loss identical to four decimals across eight repeats of "
+            "one configuration: the final span loss still ranged 0.000000 to 1.505752 and "
+            "3 of 8 runs crossed the 0.05 bar. Read that with the other half -- at 512 "
+            "steps the same channel lands in [0.00000, 0.00012] on 5 of 5 seeds, so most "
+            "of the spread is a budget that had not converged rather than the kernels. Not "
+            "the default, twice over: torch RAISES where an op has no deterministic "
+            "implementation, and the measured case for paying that price is weaker than "
+            "the 128-step number alone suggests"
+        ),
+    )
     parser.add_argument("--probe", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
@@ -2114,6 +2175,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"--passes must be in [1, {MAX_PASSES}]")
     if not 1 <= len(args.seeds) <= MAX_SEEDS:
         parser.error(f"--seeds must name between 1 and {MAX_SEEDS} seeds")
+
+    if args.deterministic:
+        # Before the tower loads, so nothing has run on a nondeterministic kernel by the
+        # time this takes effect. torch raises rather than falling back, which is the
+        # property that makes a completed run evidence: every op this model uses had a
+        # deterministic implementation, rather than "we asked and something quietly said
+        # no".
+        torch.use_deterministic_algorithms(True)
 
     config = DataConfig()
     shard_dir = args.out / "shards" / "train"
@@ -2332,6 +2401,7 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 optimizer_recipe=args.optimizer,
                 backbone=args.real_backbone,
+                deterministic=args.deterministic,
                 tag="memorise", quick_reason=quick_small,
             )
             step = run.pop("_step")
@@ -2410,6 +2480,7 @@ def main(argv: list[str] | None = None) -> int:
                     ),
                     optimizer_recipe=args.optimizer,
                     backbone=args.real_backbone,
+                    deterministic=args.deterministic,
                     tag="epoch", quick_reason=quick_epoch,
                 )
                 run.pop("_step")
