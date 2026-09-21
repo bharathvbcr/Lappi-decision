@@ -152,6 +152,9 @@ def _tiny_tower(tmp_path: Path, *, gradient_checkpointing: bool = True, **kwargs
     # unaffected.
     kwargs.setdefault("optimizer", ADAMW_FP32)
     kwargs.setdefault("dtype", "fp32")
+    # Same reason as the two above: every existing caller passes none and is unaffected,
+    # and a test that wants to compare two kernels can ask for one.
+    kwargs.setdefault("attn_implementation", "sdpa")
     reference = _write_tiny_snapshot(tmp_path / "snapshot")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", GradientCheckpointingDisabled)
@@ -275,6 +278,7 @@ def test_a_snapshot_whose_text_keys_differ_is_refused_rather_than_partly_loaded(
             snapshot,
             gradient_checkpointing=True,
             optimizer=ADAMW_FP32,
+            attn_implementation="sdpa",
             dtype="fp32",
             width=64,
             spec=_tiny_spec(),
@@ -291,6 +295,7 @@ def test_a_memory_spec_for_another_model_is_refused(tmp_path):
             snapshot,
             gradient_checkpointing=True,
             optimizer=ADAMW_FP32,
+            attn_implementation="sdpa",
             dtype="fp32",
             width=64,
         )  # spec defaults to QWEN3_5_2B_TEXT, which is not this tower
@@ -339,6 +344,7 @@ def test_turning_gradient_checkpointing_off_is_loud(tmp_path):
             snapshot,
             gradient_checkpointing=False,
             optimizer=ADAMW_FP32,
+            attn_implementation="sdpa",
             dtype="fp32",
             width=64,
             spec=_tiny_spec(),
@@ -1009,3 +1015,83 @@ def test_the_real_step_seeds_the_same_way_the_stand_in_does(tmp_path):
         "the real branch does not seed, so every run on it is a fresh draw regardless of "
         "the seed its ledger row records"
     )
+
+
+# -- the kernel and the library version, both of which decide a number ---------------------
+#
+# GAP-ATTENTION-IMPLEMENTATION-AND-TRANSFORMERS-VERSION-ARE-NOT-RECORDED. Two quantities
+# that change a result, chosen by the library rather than by this project, and recorded
+# nowhere: `Qwen3_5TextModel(text_config)` took whatever `config._attn_implementation`
+# resolved to, and `Environment.detect` auto-detected torch's version while leaving
+# transformers' as a parameter defaulting to "unknown". This project's two hosts run
+# transformers 5.12.1 (Mac) and 5.17.0 (GH200); every ft row from either says "unknown".
+
+
+def test_the_tower_reports_the_attention_kernel_it_resolved(tmp_path):
+    """Not the string it was handed -- the one the model ended up with. They agree today,
+    and asking the model is what keeps the row true on the day they stop."""
+    tower, _ = _tiny_tower(tmp_path, attn_implementation="eager")
+    assert tower.attn_implementation == "eager"
+    assert str(tower.model.config._attn_implementation) == "eager"
+
+
+def test_two_kernels_are_two_towers(tmp_path):
+    """A field that reported the same value whichever kernel ran would satisfy the test
+    above and record nothing."""
+    eager, _ = _tiny_tower(tmp_path / "e", attn_implementation="eager")
+    sdpa, _ = _tiny_tower(tmp_path / "s", attn_implementation="sdpa")
+    assert eager.attn_implementation != sdpa.attn_implementation
+
+
+def test_an_unimplemented_kernel_is_refused_rather_than_quietly_ignored(tmp_path):
+    """Set on the config, so transformers validates it. A name this build does not
+    implement has to raise: silently falling back would put a kernel in the recipe that did
+    not run, which is worse than the unrecorded default it replaced."""
+    # `is not supported` and not just the argument name: a loader that had never heard of
+    # the argument raises TypeError naming it too, so the looser pattern passes against the
+    # code this test exists to reject -- the same trap that let a --span-weight test pass
+    # against a tool with no such flag.
+    with pytest.raises(ValueError, match="is not supported"):
+        _tiny_tower(tmp_path, attn_implementation="no_such_kernel")
+
+
+def test_the_loader_requires_a_kernel_rather_than_choosing_one(tmp_path):
+    """The third required argument on this function, after `gradient_checkpointing` and
+    `optimizer`, and for the reason both of those carry: an opt-in record of an invisible
+    choice is a record that is off."""
+    import inspect
+
+    parameter = inspect.signature(load_text_tower).parameters["attn_implementation"]
+    assert parameter.default is inspect.Parameter.empty, (
+        "a default here is this module deciding the arithmetic and not recording that it did"
+    )
+
+
+def test_the_remap_carries_the_kernel_through(tmp_path):
+    """`remap_text_tower` rebuilds the TextTower around a sliced embedding. A field dropped
+    there would read as the loader's default on exactly the towers that get trained, since
+    the real path always remaps."""
+    tower, _ = _tiny_tower(tmp_path, attn_implementation="eager")
+    kept = list(range(0, TINY_VOCAB, 2))
+    remapped = remap_text_tower(tower, _tiny_remap(kept, []))
+    assert remapped.attn_implementation == "eager"
+
+
+def test_the_environment_detects_transformers_rather_than_saying_unknown() -> None:
+    """The asymmetry that was doing the damage: torch's version was detected and always
+    right, transformers' was a parameter defaulting to "unknown" and was right only when a
+    caller remembered. Only the tokenizer pipeline did, so every training row says
+    "unknown" -- about a library whose version changes results, across two hosts that run
+    different ones."""
+    import transformers
+
+    env = Environment.detect(device="cpu")
+    assert env.transformers_sha != "unknown"
+    assert transformers.__version__ in env.transformers_sha
+
+
+def test_a_caller_that_knows_a_sha_still_overrides_the_detected_version() -> None:
+    """Detection is for the caller that does not know, not a refusal to be told. A run
+    against a transformers built from source has a commit and not a release number."""
+    env = Environment.detect(transformers_sha="deadbee", device="cpu")
+    assert env.transformers_sha == "deadbee"

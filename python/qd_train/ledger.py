@@ -363,7 +363,7 @@ class Environment:
         }
 
     @classmethod
-    def detect(cls, *, transformers_sha: str = "unknown", device: str | None = None) -> Self:
+    def detect(cls, *, transformers_sha: str | None = None, device: str | None = None) -> Self:
         """The environment a row was produced in.
 
         ``device`` is the device the run **used**, and a caller that chose one must say so.
@@ -378,8 +378,17 @@ class Environment:
         chooses -- ``record_build_run`` compiles and runs a test suite, and "what this host
         is" is exactly what its row should carry.
 
+        ``transformers_sha`` is **detected** when the caller does not pass one, for the
+        same reason ``torch`` always was. The asymmetry was doing real damage: one of the two
+        libraries whose version changes a result was auto-detected and always right, the
+        other was a parameter defaulting to ``"unknown"`` and was right only when a caller
+        remembered -- and only ``tools/real_tokenizer_pipeline.py`` did. Every ft row from
+        ``tools/real_ft_run.py``, which is every training number this project has, says
+        ``"unknown"`` while the Mac runs 5.12.1 and the GH200 runs 5.17.0.
+
         Args:
-            transformers_sha: the transformers commit this run used, if known.
+            transformers_sha: the transformers commit this run used, when the caller knows a
+                sha rather than a version. Omitted, the installed version is detected.
             device: the device the run actually used, verbatim. ``None`` auto-detects the
                 host's best device.
         """
@@ -398,6 +407,16 @@ class Environment:
         except ImportError:
             torch_v = "not-installed"
             detected = device if device is not None else "cpu"
+        if transformers_sha is None:
+            try:
+                import transformers as _transformers
+
+                transformers_sha = f"transformers=={_transformers.__version__}"
+            except ImportError:
+                # Not "unknown": the question was asked and answered. A row that cannot tell
+                # "absent" from "nobody looked" is the defect this change exists to fix, and
+                # reproducing it one level down would be funny rather than acceptable.
+                transformers_sha = "not-installed"
         return cls(
             torch=torch_v,
             transformers_sha=transformers_sha,

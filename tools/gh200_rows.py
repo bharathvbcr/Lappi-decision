@@ -93,8 +93,11 @@ def main() -> int:
           f"{device_bytes / GiB:.2f} GiB free to the allocator")
     print(f"torch : {torch.__version__}\n")
 
+    # Named rather than inherited: attention is where the activation memory is, so a
+    # footprint taken on another kernel is a measurement of something else.
     tower = load_text_tower(
         SNAPSHOT, gradient_checkpointing=True, optimizer=ADAMW_BF16,
+        attn_implementation="sdpa",
         device="cuda", dtype="bf16", rows=1, width=CASES[0][0],
     )
     # total_steps=1 -- a row-count feasibility probe takes one step per case, so the
@@ -151,6 +154,7 @@ def main() -> int:
           f"against {device_bytes / GiB:.2f} GiB free")
     no_ckpt = load_text_tower(
         SNAPSHOT, gradient_checkpointing=False, optimizer=ADAMW_BF16,
+        attn_implementation="sdpa",
         device="cuda", dtype="bf16", rows=1, width=CASES[0][0],
     )
     no_opt = build_optimizer(

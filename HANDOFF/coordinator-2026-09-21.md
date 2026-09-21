@@ -375,3 +375,133 @@ Read phase 1 before reading anything else. Eight runs of one configuration at on
 spread between them is the error bar every later arm has to be read against, and if it is
 not small then phase 2's per-seed numbers are still a mixture — of the arm and of whatever
 CUDA does with atomics — and must be reported as one.
+
+---
+
+# Part 4 — what the night measured
+
+Part 3 said "read phase 1 before reading anything else". Phase 1 said the span channel was
+not measurable. Phase 4 said why, and the answer retires the question rather than answering
+it.
+
+## 10. Two days of span-weight work were measuring an unconverged budget
+
+88 runs, 15 arms, on shardset-v4 under the seeded step. Every row `quick=True`,
+`ledger/gh200-overnight-2026-09-21.jsonl`, chain verifying at 176 rows.
+`AUDIT/ft-overnight-2026-09-21.json` carries every run.
+
+**Phase 1 — the residual.** Eight repeats of one configuration at one seed. All eight
+opened at an identical **518.5886**, so the seed now fixes the start. The final span loss
+still ranged **0.000000 … 1.505752**, 3 of 8 over the bar — the whole range the 3×3 had
+attributed to its three arms, from one arm at one seed. The letter channel stayed inside
+1.0e-5 … 1.3e-4, ~380× below its bar.
+
+**Phase 2 — the sweep, 12 seeds per arm.** Neither of the 3×3's headlines survives.
+
+| `span_weight` | 0.05 | 0.1 | 0.2 | 0.5 | 1.0 |
+| --- | --- | --- | --- | --- | --- |
+| mean letter gap | 0.00036 | 0.00050 | 0.00010 | **0.01360** | 0.00045 |
+| letter gate | 12/12 | 12/12 | 12/12 | **11/12** | 12/12 |
+| span gate | 10/12 | 11/12 | 10/12 | 10/12 | 9/12 |
+
+No trend. The shipped default fails nothing; the only arm that fails at all is 0.5. "Improves
+monotonically on every seed" and "one seed in three fails the letter floor gate at the
+default" were three draws each.
+
+**Phases 3 and 4 — the schedule, isolated from the recipe.**
+
+| | letter gate | span gate | mean letter gap | max span gap |
+| --- | --- | --- | --- | --- |
+| bf16 @ 128, sw 1.0 | 12/12 | 9/12 | 0.00045 | 2.93503 |
+| master @ 128, sw 1.0 | **2/5** | 4/5 | 0.38609 | 0.68058 |
+| master @ 512, sw 1.0 | **5/5** | **5/5** | **0.0000004** | **0.00012** |
+| master @ 512, sw 0.05 | **5/5** | **5/5** | 0.00001 | 0.00000 |
+
+Phase 3 is what makes phase 4 attributable: at equal length the master recipe is *worse*, so
+the length is what closes the gap, not the recipe. At 512 steps both arms reach both floors
+on every seed and the span channel's spread collapses four orders of magnitude.
+
+There is no bf16 arm at 512 — `build_optimizer` refuses one past step 384. That is the guard
+working, not a hole.
+
+**The conclusion.** `span_weight` **stays at 1.0**, now for a positive reason rather than for
+absence of evidence: at a converged budget it reaches both floors on every seed, and at an
+unconverged one the arms are not separable from the residual. **Any claim in this repository
+resting on a 128-step FT number is measuring an unconverged budget.**
+
+Not settled: both floors are 0.0 on this corpus. The regime where an objective's weighting
+could still matter — a nonzero floor — remains untested, and is now the single most
+informative experiment left.
+
+## 11. `--deterministic`, and a rationale its own night corrected
+
+`tools/real_ft_run.py` gained the flag. `CUBLAS_WORKSPACE_CONFIG` is set from `sys.argv`
+**before torch is imported** — cuBLAS reads it at its first matmul, so setting it from parsed
+arguments would be a setting that looks applied and is not. Only when asked: a 32 MB
+workspace on a run that did not ask for one is a cost paid for nothing.
+
+Every row now carries a `deterministic_kernels` TriState. A *completed* deterministic run is
+a checkable claim, because torch **raises** where an op has no deterministic implementation.
+A run without it established nothing and now says so, rather than being silent — which reads
+as the former.
+
+**The flag's help and the NotRun reason were written from phase 1 while phase 4 was still
+running, and phase 4 contradicted them.** Both now carry both numbers and a test requires it.
+Arguing for determinism on the 128-step spread alone argues from a premise the same night
+measured to be mostly wrong. The flag is still worth having; the case for paying its price is
+weaker than it looked at 03:00.
+
+## 12. A root fork is not a divergence
+
+Pulling the night's ledger in took `find_forks` from 1 to 2. The new one is a **root** fork —
+the detector saying "these files are unrelated", which is what a ledger opened for one run
+*is*, and is the direction `GAP-LEDGER-NO-STORY-FOR-A-CHAIN-FORKED-ACROSS-TWO-MACHINES`
+names as the fix. Counting it beside the row-157 **divergence** made the recommended fix
+register as the disease.
+
+`test_the_repositorys_own_ledgers_are_checked_not_assumed` now counts divergences and allows
+at most one root group. Teeth unchanged: a new divergence is non-root and still takes it past
+one. `verify_no_fork` is **not** changed — whether it should ignore root forks is part of
+that gap's open human decision.
+
+A concurrent lane recorded this failure in `fad5315` as *"transient … did not reproduce"*. It
+was neither; it was this file existing. They have been told.
+
+## State at the end of Part 4
+
+| Gate | Result |
+| --- | --- |
+| `make gates` | **PASS** — lint, clippy, ledger-record, ledger-verify |
+| cargo | 362 / 362 |
+| pytest, torch venv | 1669 passed, 2 skipped |
+| pytest, repo venv | 1435 passed, 20 skipped |
+| `ledger/runs.jsonl` | 178 rows |
+| `ledger/gh200-overnight-2026-09-21.jsonl` | 176 rows, 88 runs |
+| `find_forks` | 1 divergence (row 157, user-owned) + 1 root group |
+
+Commits: `33e20a1`, `fee0f9a`, `ad2c219`, and the overnight commit. A concurrent lane landed
+`fad5315` between them, which **edits `CLAUDE.md`** — flagged to the user rather than
+reverted.
+
+## Open, revised again
+
+1. **A nonzero-floor FT run at 512 steps.** Now the most informative experiment left: it is
+   the only regime in which `span_weight` could still matter, and everything else about the
+   objective is settled at a converged budget.
+2. **How much of the 128-step spread is kernels.** `--deterministic` exists to ask and has
+   not been run. Lower value than it looked before phase 4.
+3. **A driver-level test that a resume onto a different corpus order is refused.** Unchanged.
+4. **Two rung-0 candidates** from `GAP-RUNG0-A-LINEAR-CONTROL-BEATS-THE-MODEL`. Unchanged.
+
+**User-owned, unchanged:** the ledger divergence at row 157; `clean` at 1.7% against
+`--clean-permille 200`.
+
+## First command for the next lane
+
+```bash
+ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240 '/home/ubuntu/qd-venv/bin/python -c "import json; d=json.load(open(\"/home/ubuntu/overnight/summary.json\")); [print(a[\"arm\"], a[\"n\"], a[\"letter_gate_passed\"], a[\"span_gate_passed\"], round(a[\"span_gap_max\"],5)) for a in d[\"arms\"]]"'
+```
+
+Then build a corpus with a nonzero span floor and run phase 4's two arms against it. Every FT
+number in this repository before today was taken at 128 steps, and 128 steps is not where
+this model's answer lives.

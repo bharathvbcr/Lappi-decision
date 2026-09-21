@@ -216,6 +216,13 @@ BACKBONE_KEYS: Final[tuple[str, ...]] = (
 )
 KIND_NAMES: dict[int, str] = {SLOT_CHOICE: "choice", SLOT_SCORE: "score", SLOT_SPAN: "span"}
 
+#: The attention kernel, named rather than inherited. `sdpa` is what transformers resolves
+#: to unaided on both of this project's hosts today -- so this is the value every existing
+#: row was taken at, and recording it changes no number while making the next change visible.
+#: It is a DEFAULT here and REQUIRED on `load_text_tower`: a library is entitled to pick for
+#: a caller that has an opinion, and this tool has one.
+DEFAULT_ATTN_IMPLEMENTATION: Final[str] = "sdpa"
+
 #: Hard caps. This tool answers "does it train on real shards"; a schedule long enough to be
 #: interesting is long enough to hide a wiring bug behind a plausible curve.
 MAX_PASSES = 2_000
@@ -1258,6 +1265,7 @@ def _train(
     quick_reason: str, backbone: Path | None = None, optimizer_recipe: str = "bf16",
     checkpoint_dir: Path | None = None, checkpoint_every: int = 0,
     resume_from: object | None = None, deterministic: bool = False,
+    attn_implementation: str = DEFAULT_ATTN_IMPLEMENTATION,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -1324,6 +1332,7 @@ def _train(
             backbone,
             gradient_checkpointing=True,
             optimizer=spec,
+            attn_implementation=attn_implementation,
             device=device,
             dtype="bf16",
             rows=max(int(b.tokens.shape[0]) for b in plan),
@@ -1359,6 +1368,10 @@ def _train(
         # /home/ubuntu/... on the rented box and /Users/bharath/... here. Since this feeds
         # recipe_hash, the path would give the same run two protocol hashes on two machines
         # -- the exact failure --hidden is refused a few lines up to prevent.
+        # In the recipe, so a library upgrade that moves the kernel moves recipe_hash
+        # rather than moving the numbers quietly. Read off the tower, which reports what the
+        # model RESOLVED rather than what was asked for.
+        backbone_keys["attn_implementation"] = tower.attn_implementation
         backbone_keys["optimizer_recipe"] = optimizer_recipe
         backbone_keys["backbone_snapshot"] = tower.snapshot.name
         backbone_keys["backbone_params"] = tower.footprint.trainable_params
@@ -2044,6 +2057,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--attn-implementation",
+        default=DEFAULT_ATTN_IMPLEMENTATION,
+        help=(
+            f"attention kernel for the real tower; default {DEFAULT_ATTN_IMPLEMENTATION!r}. "
+            "transformers validates the name and refuses one it does not implement. It is "
+            "in the recipe, so two runs on different kernels are two protocols rather than "
+            "one row that contradicts itself"
+        ),
+    )
+    parser.add_argument(
         "--deterministic",
         action="store_true",
         help=(
@@ -2402,6 +2425,7 @@ def main(argv: list[str] | None = None) -> int:
                 optimizer_recipe=args.optimizer,
                 backbone=args.real_backbone,
                 deterministic=args.deterministic,
+                attn_implementation=args.attn_implementation,
                 tag="memorise", quick_reason=quick_small,
             )
             step = run.pop("_step")
@@ -2481,6 +2505,7 @@ def main(argv: list[str] | None = None) -> int:
                     optimizer_recipe=args.optimizer,
                     backbone=args.real_backbone,
                     deterministic=args.deterministic,
+                    attn_implementation=args.attn_implementation,
                     tag="epoch", quick_reason=quick_epoch,
                 )
                 run.pop("_step")

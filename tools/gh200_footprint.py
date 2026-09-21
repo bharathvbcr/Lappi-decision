@@ -131,10 +131,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"torch    : {torch.__version__}")
     print()
 
+    # Named rather than inherited: attention is where the activation memory is, so a
+    # footprint taken on another kernel is a measurement of something else.
     tower = load_text_tower(
         SNAPSHOT,
         gradient_checkpointing=True,
         optimizer=spec,
+        attn_implementation="sdpa",
         device="cuda",
         dtype="bf16",
         rows=1,

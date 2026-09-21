@@ -246,6 +246,11 @@ class TextTower:
     gradient_checkpointing: bool
     dtype: str
     device: str
+    #: Which attention kernel ran, resolved rather than assumed. Until it was passed, this
+    #: was whatever ``transformers`` picked: `sdpa` on both hosts today, but the two hosts
+    #: are on different versions (5.12.1 here, 5.17.0 on the GH200) and a library upgrade or
+    #: an installed `flash_attn` moves it without moving anything a ledger row records.
+    attn_implementation: str
     optimizer: OptimizerSpec
     footprint: StepFootprint
     remap: RemapApplication | None = None
@@ -352,6 +357,7 @@ def load_text_tower(
     *,
     gradient_checkpointing: bool,
     optimizer: OptimizerSpec,
+    attn_implementation: str,
     device: str = "cpu",
     dtype: str = "bf16",
     rows: int = 1,
@@ -370,6 +376,13 @@ def load_text_tower(
         optimizer: **required**, and deliberately without a default: the fp32-master choice
             is unmade (see ``memory.py``), and defaulting it here would pick one of the four
             cells and report it as the answer.
+        attn_implementation: **required**, for the third time on this function and the same
+            reason. Without it the kernel is whatever ``transformers`` resolves
+            ``config._attn_implementation`` to, which depends on the library version and on
+            what happens to be installed -- ``sdpa`` on both of this project's hosts today,
+            which run 5.12.1 and 5.17.0. A default here would be this module deciding the
+            arithmetic and not recording that it had. Passed through to the config, so an
+            unsupported name is refused by transformers rather than silently ignored.
         device: where the weights land. ``"cpu"`` by default, because the machine that can
             load this checkpoint is not necessarily the machine that can train on it.
         dtype: element type for the loaded weights, named as ``memory.BYTES_PER_ELEMENT``
@@ -448,6 +461,10 @@ def load_text_tower(
         )
     for key, value in (config_overrides or {}).items():
         setattr(text_config, key, value)
+    # Before either construction below, so the skeleton whose state_dict is compared against
+    # the checkpoint is built the same way as the model that gets the weights. transformers
+    # validates the name here and raises on one it does not implement.
+    text_config._attn_implementation = attn_implementation
 
     index = text_tensor_index(snapshot)
     with torch.device("meta"):
@@ -533,6 +550,9 @@ def load_text_tower(
         hidden_size=int(embedding.shape[1]),
         gradient_checkpointing=gradient_checkpointing,
         dtype=dtype,
+        # What the model resolved, not what was asked for. They agree today; asking the
+        # model is what keeps the row true on the day they stop agreeing.
+        attn_implementation=str(model.config._attn_implementation),
         device=str(device),
         optimizer=optimizer,
         footprint=footprint,
@@ -622,6 +642,10 @@ def remap_text_tower(tower: TextTower, remap: RemapTable) -> TextTower:
         gradient_checkpointing=tower.gradient_checkpointing,
         dtype=tower.dtype,
         device=tower.device,
+        # Carried, not re-derived: the remap slices the tied embedding and touches nothing
+        # about attention, and asking the config again here would re-read a value this
+        # function cannot have changed.
+        attn_implementation=tower.attn_implementation,
         optimizer=tower.optimizer,
         footprint=footprint,
         remap=application,

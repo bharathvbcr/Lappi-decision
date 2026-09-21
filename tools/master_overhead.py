@@ -58,8 +58,11 @@ def run(foreach: bool) -> dict:
     torch.cuda.reset_peak_memory_stats()
     print(f"\n=== foreach={foreach} ===")
 
+    # Named rather than inherited: attention is where the activation memory is, so a
+    # footprint taken on another kernel is a measurement of something else.
     tower = load_text_tower(
         SNAPSHOT, gradient_checkpointing=True, optimizer=MASTER,
+        attn_implementation="sdpa",
         device="cuda", dtype="bf16", rows=1, width=WIDTH,
     )
     n = sum(p.numel() for p in tower.model.parameters() if p.requires_grad)
