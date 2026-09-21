@@ -147,12 +147,12 @@ to build a second one beside it.
 
 | Gate | Result |
 | --- | --- |
-| `make gates` | **PASS** — every gate ran and passed |
+| `make gates` | **PASS** — every gate ran and passed, on the tree merged with the peer's `d13cfae` |
 | ruff | clean over `python/` and `tools/` |
-| pytest, torch venv | 1626 passed, 2 skipped |
-| pytest, repo venv | 1401 passed, 20 skipped |
+| pytest, torch venv | 1640 passed, 2 skipped |
+| pytest, repo venv | 1415 passed, 20 skipped |
 | cargo, workspace | **362 passed, 0 failed** across 23 binaries |
-| ledger chains | 3 files, each verifying: 171 / 249 / 172 rows |
+| ledger chains | 3 files, each verifying: 171 / 253 / 174 rows |
 | ledger forks | **1**, the known pre-existing divergence at row 157 |
 
 Every row written today is `quick=True` and promotes nothing (rule 8).
@@ -194,6 +194,24 @@ the code that turns the corpus into rows.
 
 **User-owned, unchanged:** the ledger fork at row 157; `clean` at 1.7% of examples against
 `--clean-permille 200`.
+
+## A precondition for the full train, from the peer's landed work
+
+`d13cfae` gives `ShardHeader` a `code_fingerprint` — a `{module: sha256}` map over every
+`.py` in `qd_data`, checked by `assert_shard_trainable` in `ShardReader.__init__`, so the
+answer arrives at `open()` rather than at the first optimizer step.
+
+**Every shard set that exists today predates the field and therefore reports `NotRun`,
+including `~/shardset-v2` on the box.** It does not raise — they stay readable and the
+ledger rows naming them keep their evidence — but `shard_code_current` will read NotRun in
+every row until the set is regenerated. **Regenerate `shardset-v2` before the full train,
+not after**, or the run's own row records "nobody could tell" on exactly the question the
+field exists to answer.
+
+Second consequence: the fingerprint is over source *bytes*, so a docstring-only edit to any
+`qd_data` module invalidates every shard set written before it. That is the safe direction
+to be wrong in, and it couples `qd_data` edits to regeneration — if either is touched during
+run prep, regenerate.
 
 ## First command for the next lane
 
