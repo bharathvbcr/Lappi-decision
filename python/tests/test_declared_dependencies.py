@@ -200,8 +200,10 @@ def test_the_torch_bridge_provisions_every_declared_dependency_the_ml_venv_lacks
     `uv run --with X` layers X on for the duration of the run. The bridge must name every
     declared runtime dependency that the torch interpreter does not already have, because
     each one it misses is a module-level `importorskip` waiting to collapse N tests into a
-    single skip marker -- the failure that made a coverage pair of 1850/1852 out of a real
-    1850/1880, in the instrument built to prevent exactly that.
+    single skip marker. Measured, on the commit where this was found: the same suite
+    collected 1858 without `--with datasketch` and 1886 with it -- 29 real tests standing
+    behind one marker, in the instrument built so that a capped sample is never reported as
+    complete coverage.
 
     Both halves are asked of the system rather than assumed: the interpreter comes from
     make's own expansion of the bridge, and what it lacks is asked of that interpreter.

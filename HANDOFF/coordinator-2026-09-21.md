@@ -1994,6 +1994,107 @@ for coverage**, and until today that was not true either.
 The build-row `recipe_hash` changed with the recipe, as it should; it is pinned in no test,
 doc or handoff, and build rows have already carried eight distinct values.
 
+## 39. `b44bda7` — a record that was right, and read by nobody
+
+### The other lane hit §38's test from the other side
+
+`test_every_declared_runtime_dependency_can_be_imported_here` failed for the peer lane in a
+hand-run environment and passed under `make gates`. That is the test working. Their bridge
+command had been `--with pytest --with hypothesis` all day and never `--with datasketch`, so
+every suite count that lane quoted was measured in an interpreter missing a declared
+dependency. Both gate rows it published understate their own denominator by exactly 28:
+
+| row | commit | published | actual |
+| --- | --- | --- | --- |
+| `97943d46` | `7dd9394` | torch 1768/1770 | 1768/1798 |
+| `9574a7ec` | `31af46e` | torch 1794/1796 | 1794/1824 |
+
+Corrected at `406822f` by gap record, not by rewriting the rows. That is right: a row that
+was wrong about its coverage is still a true record of what that run reported, and this file
+is append-only for the reason §37 documents.
+
+Worth keeping from their method: their first measurement compared two different commits and
+produced **36**, a number they could have published. They re-measured both ways at one
+commit and got exactly 28. The difference between a number that fits and a number that was
+measured is the whole of today.
+
+### The shape, which is not the one this lane kept finding
+
+Every other finding today was a **check that was wrong** — a pattern that could not match, a
+scope that had stopped being complete, a constant true of one case, a comment asserting a
+property that was false. This one is different and is worse in a specific way:
+
+> The `suite.pytest_torch_python_tests` `detail` on both rows ends `--with pytest --with
+> hypothesis` and names no datasketch. The field was accurate. It was written by their own
+> gate run. It was in the row they were quoting. It had never been read — the pair was taken
+> from the summary line the gate printed to the terminal.
+
+Nothing was broken. The record told the truth, to nobody. Everything this repository has
+built is machinery for producing records that do not lie; this is the first case on file of
+a record that did not lie and did not matter, because the reader preferred the console
+output above it. **A field nobody reads is not provenance, it is storage.**
+
+### The remedy in a string is a claim
+
+The peer's other point was narrower and immediately actionable: the test's result now depends
+on how pytest was launched. Under `make gates` and `make torch-pytest` it passes; by hand
+against the ml venv it fails. That is intended — in *that* interpreter a declared dependency
+really is absent — but the message said only *"provision it the way the Makefile's torch
+bridge does"*, which names no way to do it.
+
+It now names `make torch-pytest`, states that a red there is about the launcher rather than
+the tree, warns that any count quoted from such a run understates its own coverage pair, and
+says not to convert it into a skip. The docstring records why the red is the feature, citing
+the two rows above.
+
+Two guards, because advice in an assertion message is exactly as checkable as a comment:
+
+* **`test_the_remedy_named_in_the_failure_message_is_a_real_target`** expands the target
+  rather than grepping for its name. A target named in a comment and deleted from the file
+  still matches a grep of that file — which is how §38's wrong comment survived.
+* **`test_the_torch_bridge_provisions_every_declared_dependency_the_ml_venv_lacks`** is the
+  general form of the datasketch bug rather than datasketch. Both halves are asked of the
+  system: the interpreter from make's own expansion of the bridge, and what it lacks from
+  that interpreter. Hardcoding either would let it agree with a `Makefile` that had been
+  repointed. Verified against the pre-fix bridge — remove `--with datasketch` from
+  `TORCH_PYTEST_RUN` and it reports `['datasketch']` with the interpreter that lacks it;
+  the `Makefile` was restored byte-exact afterwards.
+
+### One thing deliberately not built
+
+A test scanning `ledger/runs.jsonl` for rows whose torch `detail` lacks the provisioning
+would flag the two rows above, and every historical row, permanently — clearable only by
+rewriting an append-only file. That is §37's trap exactly: a malformed line reddening the
+gate forever with only the forbidden operation available to clear it. The gap record is the
+correction for what already happened; the single `*_RUN` spelling and these two guards are
+what stop the next one. Named here so the next lane does not build it and discover why.
+
+The peer lane put the reason better than this section first did, and it generalises past
+this one test:
+
+> It would be a gate whose only green state requires rewriting an append-only file, so the
+> first person to hit it learns that the way to clear a gate is to edit history. That is a
+> worse lesson than the one the test teaches. Guard the **producer** — the `Makefile`
+> unification, the two new tests — and let the **record** carry its own correction. A gate
+> on historical rows is a gate on the past, and the past does not have a fix.
+
+That is the rule to apply the next time a defect is found in rows already written: the fix
+goes where the rows are *made*, and `gaps.jsonl` carries what the existing ones got wrong.
+
+### Measured
+
+Gate row `53ad52a6-9832-4837-bc28-aed7ed4e8e35` at `b44bda7`, clean tree:
+
+    suite.cargo_test_workspace        passed   362/362
+    suite.pytest_python_tests         passed  1591/1612
+    suite.pytest_torch_python_tests   passed  1891/1892
+
+lint, clippy, ledger-record and ledger-verify all PASS; the chain verifies over 210 rows.
+The peer independently ran the gates at `f2b2197` and got `8c4b4f3a-24d3-49ce-9ad6-e68bf6bb3893`
+with 362/362, 1589/1610, 1889/1890 — matching this lane's `bd74f64c` at `b3c3600` exactly, the
+two commits differing only by a ledger row. Two sessions, two runs, one coverage pair: the
+first cross-lane agreement on one either lane has been able to claim.
+
 ## Where this leaves the final train
 
 On the axes this lane owns:
@@ -2024,6 +2125,10 @@ On the axes this lane owns:
 * **The torch suite's coverage pair is exact.** No module-level skip stands in for more
   than itself in that environment, so `1889/1890` counts tests rather than markers. The
   torch-free pair stays a lower bound by design, and the row carries both (§38).
+* **The torch bridge provisions what the torch environment lacks**, asserted against both
+  the declared dependencies and the interpreter itself rather than against a list — so the
+  next declared-and-absent package fails by name instead of collapsing a module into one
+  skip marker (§39).
 
 What is not this lane's: *unifying* the six spellings, which renames every future
 `recipe_hash` and is a comparability break somebody has to declare in a handoff — not a
