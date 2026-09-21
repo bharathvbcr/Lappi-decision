@@ -94,6 +94,7 @@ from qd_train.mutate_adapter import (  # noqa: E402
     parse_example,
     to_decision,
 )
+from qd_train.power import resolution_state  # noqa: E402
 from qd_train.run_control import CostEstimate, LRSchedule, RunControl, WallClockCap  # noqa: E402
 from qd_train.tristate import NotRun, Ran, TriState  # noqa: E402
 
@@ -615,6 +616,9 @@ def train_once(
         "train_decisions": train_decisions,
         "train_padding_waste": waste_num / waste_den if waste_den else 0.0,
         "wall_clock_s": wall,
+        # The estimate that gated this run, carried out so the row prices itself from the
+        # same object rather than from a second spelling of the same rate built beside it.
+        "cost": control.cost,
     }
 
 
@@ -657,6 +661,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--seeds", type=int, default=3)
+    # Pre-registration. A sweep that reports "no effect" without these two numbers has not
+    # said whether it could have seen one, and the 4096 capacity arms are what that costs:
+    # 256x4 came in at -0.39pp against a floor of 1.09pp, which is not a null, it is a
+    # measurement that never had the resolution to be one.
+    parser.add_argument(
+        "--prior-sd",
+        type=float,
+        help=(
+            "seed sd from a PREVIOUS measurement at this configuration, used to state what "
+            "--seeds can resolve. From somewhere other than this sweep: a run that "
+            "estimates its own sensitivity from the numbers it is about to interpret has "
+            "graded its own exam. And not from an arm that COLLAPSED -- the 4096 256x4 and "
+            "512x6 arms sat at or below the training majority on 6 and 7 of 8 seeds, and "
+            "the spread of a model that never fit is not the spread of one that did"
+        ),
+    )
+    parser.add_argument(
+        "--target-difference",
+        type=float,
+        help=(
+            "the smallest effect worth detecting, in the same units as the accuracy it is "
+            "compared against. Stated up front so the row can say whether this sweep could "
+            "see it; without it the resolution metric records NotRun rather than nothing"
+        ),
+    )
     parser.add_argument("--epochs", type=int, default=12)
     parser.add_argument("--max-files", type=int, default=400)
     parser.add_argument("--limit", type=int, default=4000, help="examples qd-mutate may emit")
@@ -947,6 +976,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             # lifetime is the time to write metrics -- microseconds against a run that
             # takes minutes. The measured figure is the one the log already prints.
             wall_clock_s=float(run["wall_clock_s"]),  # type: ignore[arg-type]
+            cost=run["cost"],  # type: ignore[arg-type]
             quick=True,
             quick_reason=(
                 "the corpus is this repository's own sources rather than the pool the plan "
@@ -957,6 +987,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "measured on files it never saw, split by path"
             ),
         ) as recorder:
+            # Against the majority-class baseline, which is a property of the split
+            # rather than a quantity with seed noise -- so one variance, not two. The
+            # two-arm form would claim 1.41x more sensitivity than this comparison has.
+            recorder.metric(
+                "sweep_can_resolve",
+                resolution_state(
+                    sd=args.prior_sd,
+                    n_per_arm=args.seeds,
+                    target=args.target_difference,
+                    against_known_reference=True,
+                ),
+            )
             recorder.metric(
                 "code_that_ran",
                 what_ran_state(REPO / "python" / "qd_train", Path(__file__)),
