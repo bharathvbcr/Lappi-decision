@@ -289,8 +289,6 @@ def _train_once(*, device: str, seed: int, steps: int, rows: int) -> dict:
 
     accuracy = _accuracy(model, plan, device)
     return {
-        # Carried out so the row prices itself from the estimate that gated the run.
-        "cost": control.cost,
         "device": device,
         "seed": seed,
         "steps_requested": steps,
@@ -460,7 +458,11 @@ def _record(run: dict, *, ledger: Ledger, wiring: dict, steps: int, rows: int) -
         # The run finished before `_record` was called; the recorder would otherwise time
         # its own metric writes.
         wall_clock_s=float(run["wall_clock_s"]),
-        cost=run["cost"],
+        # Through `_control`, the one place that decides what a run on this device costs,
+        # so the row and the gate cannot disagree. NOT carried in `run`: that dict is
+        # printed as a JSON report, and a CostEstimate in it is a TypeError -- which is
+        # exactly how this was found, on the first end-to-end run after the cost wiring.
+        cost=_control(steps, device=str(run["device"])).cost,
         quick=True,
         quick_reason=(
             f"toy run: {steps} optimizer steps over {rows} synthetic rows on "

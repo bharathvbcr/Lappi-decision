@@ -132,6 +132,12 @@ DEFAULT_CONTEXT_BYTES: Final[int] = 4096
 #: Attention is quadratic in the context, so this is a real ceiling and not a typo guard.
 MAX_CONTEXT_BYTES: Final[int] = 32_768
 
+#: The wall-clock cap every rung 0 seed runs under, and the cap its cost is priced
+#: against. Named rather than repeated: `CostEstimate` computes `projected_usd` from
+#: the cap, so a row priced against a different cap answers a different question about
+#: the same run than the control that gated it does.
+RUN_CAP_S: Final[float] = 3600.0
+
 
 # -- the corpus --------------------------------------------------------------------------
 
@@ -524,6 +530,40 @@ def _channel_ratio(run: dict[str, object]) -> str:
 # -- the run -----------------------------------------------------------------------------
 
 
+def run_cost_estimate(
+    *,
+    cap: WallClockCap,
+    device: str,
+    instance: str | None,
+    usd_per_hour: float | None,
+    usd_per_gpu_hour: float | None,
+) -> CostEstimate:
+    """What this run costs, in one place.
+
+    Two things need the answer and must not be able to disagree: the ``RunControl`` that
+    gates the launch under rule 4, and the ledger row that records what was spent. The row
+    used to read a separate rate that defaulted to zero, which is how 13 GH200 rows came to
+    price a real GPU hour at $0.00.
+
+    It is a function rather than a value carried in the run dict because that dict is a
+    record of JSON-serialisable facts -- ``tools/rung0_toy_run.py`` prints its equivalent as
+    a report -- and a ``CostEstimate`` in it is a TypeError waiting for whoever adds the
+    next ``json.dumps``. It was one here: this function exists because that serialisation
+    broke on the first end-to-end run after the cost wiring landed.
+
+    ``for_device`` prices cpu and mps at zero -- a Mac already bought costs nothing per hour
+    -- and refuses to invent a rate for anything else.
+    """
+    return CostEstimate.for_device(
+        cap=cap,
+        device=device,
+        n_gpus=n_gpus_for_device(device),
+        usd_per_hour=usd_per_hour,
+        usd_per_gpu_hour=usd_per_gpu_hour,
+        instance=instance,
+    )
+
+
 def train_once(
     *,
     train_plans: Sequence[BatchPlan],
@@ -551,7 +591,7 @@ def train_once(
     # pointer, and `GAP-RUNG0-TOTAL-LOSS-IS-THE-SPAN-CHANNELS-LOSS` is the same fact seen
     # from the reporting side. Exposed so the ratio is a measurement rather than a default.
     step = Rung0Step(model, span_weight=span_weight)
-    cap = WallClockCap(cap_s=3600.0)
+    cap = WallClockCap(cap_s=RUN_CAP_S)
     control = RunControl(
         schedule=LRSchedule(peak_lr=3e-3, warmup_steps=max(1, steps // 10), total_steps=steps),
         cap=cap,
@@ -561,13 +601,9 @@ def train_once(
         # is a free string: every run this tool made on the rented GH200 recorded
         # `instance="local-cuda"` on `n_gpus=0` at `usd_per_hour=0.0`. Not an under-report
         # of a cost -- an assertion that the machine was a local one with no GPUs in it.
-        cost=CostEstimate.for_device(
-            cap=cap,
-            device=device,
-            n_gpus=n_gpus_for_device(device),
-            usd_per_hour=usd_per_hour,
-            usd_per_gpu_hour=usd_per_gpu_hour,
-            instance=instance,
+        cost=run_cost_estimate(
+            cap=cap, device=device, instance=instance,
+            usd_per_hour=usd_per_hour, usd_per_gpu_hour=usd_per_gpu_hour,
         ),
         approved_by=approved_by,
         grad_accum=1,
@@ -616,9 +652,6 @@ def train_once(
         "train_decisions": train_decisions,
         "train_padding_waste": waste_num / waste_den if waste_den else 0.0,
         "wall_clock_s": wall,
-        # The estimate that gated this run, carried out so the row prices itself from the
-        # same object rather than from a second spelling of the same rate built beside it.
-        "cost": control.cost,
     }
 
 
@@ -984,7 +1017,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             # lifetime is the time to write metrics -- microseconds against a run that
             # takes minutes. The measured figure is the one the log already prints.
             wall_clock_s=float(run["wall_clock_s"]),  # type: ignore[arg-type]
-            cost=run["cost"],  # type: ignore[arg-type]
+            # Same factory the RunControl above was built from, so the row and the gate
+            # cannot price the run differently. Rebuilt rather than carried in `run`,
+            # which holds JSON-serialisable facts only.
+            cost=run_cost_estimate(
+                cap=WallClockCap(cap_s=RUN_CAP_S), device=args.device,
+                instance=args.instance, usd_per_hour=args.usd_per_hour,
+                usd_per_gpu_hour=args.usd_per_gpu_hour,
+            ),
             quick=True,
             quick_reason=(
                 "the corpus is this repository's own sources rather than the pool the plan "
