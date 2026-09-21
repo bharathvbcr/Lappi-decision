@@ -17,6 +17,7 @@ The recorder cannot detect which shape its caller has -- only the caller knows w
 
 from __future__ import annotations
 
+import json
 import math
 import sys
 import time
@@ -26,7 +27,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from qd_train.ledger import Environment, Ledger, Protocol, RunRecorder
+from qd_train.ledger import (
+    Environment,
+    Ledger,
+    LedgerRow,
+    Protocol,
+    RunRecorder,
+    verify_no_fork,
+)
 from qd_train.tristate import NotRun
 
 REPO = Path(__file__).resolve().parents[2]
@@ -138,6 +146,87 @@ def test_a_wall_clock_that_is_not_a_measurement_is_refused(tmp_path: Path, bad: 
     led = Ledger(tmp_path / "runs.jsonl")
     with pytest.raises(ValueError, match="measured"), _recorder(led, wall_clock_s=bad):
         pass
+
+
+# --------------------------------------------------------------------------
+# Which of the two numbers a row is carrying.
+#
+# `wall_clock_s` now holds the right duration, but a reader of a row still cannot tell a
+# caller's measurement from a wrapped block without opening the tool that wrote it. The
+# field below says. It CAN carry a default where `wall_clock_s` could not, and the
+# difference is the point: "unrecorded" is true of a row that never stated a source, where
+# a defaulted duration was a number nobody measured presented as one somebody did.
+# --------------------------------------------------------------------------
+
+def test_a_caller_measured_row_says_so(tmp_path: Path):
+    led = Ledger(tmp_path / "runs.jsonl")
+    with _recorder(led, wall_clock_s=239.0):
+        pass
+    assert led.rows()[0].wall_clock_source == "caller"
+
+
+def test_a_wrapped_row_says_so(tmp_path: Path):
+    led = Ledger(tmp_path / "runs.jsonl")
+    with _recorder(led, wall_clock_s=None):
+        pass
+    assert led.rows()[0].wall_clock_source == "recorder"
+
+
+def test_a_row_written_before_this_field_existed_reads_back_unrecorded(tmp_path: Path):
+    """The mutation this kills: defaulting old rows to "recorder".
+
+    It would be true of every row written before a409895, and it would still be a claim
+    the file does not make. 799 rows already exist; a reader must be able to tell "this row
+    says it was recorder-timed" from "this row says nothing", or the field launders an
+    inference into a record.
+    """
+    path = tmp_path / "runs.jsonl"
+    led = Ledger(path)
+    with _recorder(led, wall_clock_s=12.5):
+        pass
+    raw = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    assert raw["wall_clock_source"] == "caller"
+    del raw["wall_clock_source"]
+    path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+
+    back = Ledger(path).rows()[0]
+    assert back.wall_clock_source == "unrecorded"
+    assert back.wall_clock_s == 12.5  # the duration is still whatever it was
+
+
+def test_the_new_field_does_not_break_a_chain_written_without_it(tmp_path: Path):
+    """Chain verification hashes each raw LINE (`sha256(line)`), not a re-serialisation of
+    the parsed row, so a row gaining a field does not invalidate a file written before it
+    existed. This asserts that rather than assuming it -- it is the reason the field was
+    safe to add to an append-only ledger at all.
+    """
+    path = tmp_path / "runs.jsonl"
+    led = Ledger(path)
+    with _recorder(led, wall_clock_s=1.0):
+        pass
+    lines = path.read_text(encoding="utf-8").splitlines()
+    first = json.loads(lines[0])
+    del first["wall_clock_source"]
+    path.write_text(json.dumps(first) + "\n", encoding="utf-8")
+
+    # A second row appended now carries the field and chains onto the old-format line.
+    with _recorder(Ledger(path), wall_clock_s=2.0):
+        pass
+    rows = Ledger(path).rows()
+    assert [r.wall_clock_source for r in rows] == ["unrecorded", "caller"]
+    verify_no_fork([path])  # raises if the chain is broken
+
+
+@pytest.mark.parametrize("bad", ["measured", "", "CALLER", "wall"])
+def test_an_unknown_wall_clock_source_is_refused(bad: str):
+    with pytest.raises(ValueError, match="wall_clock_source"):
+        LedgerRow(
+            row_id="r", written_at="w", prev_row_hash=None, protocol=_protocol(),
+            run_kind="ft", status="completed", quick=False, quick_reason=None,
+            code_commit="c", env=_env(), metrics={}, noul_rate=NotRun(reason="x"),
+            controls={}, gates={}, wall_clock_s=1.0, cost_usd=0.0,
+            wall_clock_source=bad,
+        )
 
 
 def test_the_refusal_happens_before_the_run_not_after_it(tmp_path: Path):

@@ -77,9 +77,15 @@ RunKind = Literal[
     "build",
 ]
 Status = Literal["completed", "killed", "failed"]
+#: Who measured `LedgerRow.wall_clock_s`. "unrecorded" is for rows written before the field
+#: existed and is never chosen by a run: a row either states a source or predates the idea.
+WallClockSource = Literal["caller", "recorder", "unrecorded"]
 
 _RUN_KINDS: frozenset[str] = frozenset(RunKind.__args__)  # type: ignore[attr-defined]
 _STATUSES: frozenset[str] = frozenset(Status.__args__)  # type: ignore[attr-defined]
+_WALL_CLOCK_SOURCES: frozenset[str] = frozenset(
+    WallClockSource.__args__  # type: ignore[attr-defined]
+)
 
 # Run kinds whose row must state how their training loop ended, because they have one.
 #
@@ -549,6 +555,13 @@ class LedgerRow:
     wall_clock_s: float
     cost_usd: float
     notes: str = ""
+    #: Where `wall_clock_s` came from: ``"caller"`` if the run measured itself and handed
+    #: the number over, ``"recorder"`` if the recorder's own block was the run and timed
+    #: it, ``"unrecorded"`` for a row written before this field existed. Unlike
+    #: `wall_clock_s`, this one carries a default, because the default is TRUE of such a
+    #: row: it says nothing, and says so. Defaulting it to ``"recorder"`` instead would be
+    #: an inference about 799 existing rows dressed up as a record of them.
+    wall_clock_source: str = "unrecorded"
 
     def __post_init__(self) -> None:
         if self.run_kind not in _RUN_KINDS:
@@ -562,6 +575,11 @@ class LedgerRow:
             )
         if not self.quick and self.quick_reason:
             raise ValueError("quick_reason set on a run not marked quick: state one or neither")
+        if self.wall_clock_source not in _WALL_CLOCK_SOURCES:
+            raise ValueError(
+                f"wall_clock_source {self.wall_clock_source!r} not one of "
+                f"{sorted(_WALL_CLOCK_SOURCES)}"
+            )
         if not math.isfinite(self.wall_clock_s) or not math.isfinite(self.cost_usd):
             # `nan < 0` is False, so the comparison below waves NaN through. A duration
             # that is not a number is not a measurement, and a NaN here propagates into
@@ -620,6 +638,7 @@ class LedgerRow:
             "controls": {k: v.to_json() for k, v in sorted(self.controls.items())},
             "gates": {k: v.to_json() for k, v in sorted(self.gates.items())},
             "wall_clock_s": self.wall_clock_s,
+            "wall_clock_source": self.wall_clock_source,
             "cost_usd": self.cost_usd,
             "notes": self.notes,
         }
@@ -663,6 +682,10 @@ class LedgerRow:
             },
             gates={k: parse_tristate(v, field=f"gates.{k}") for k, v in raw["gates"].items()},
             wall_clock_s=raw["wall_clock_s"],
+            # `.get` rather than `[...]`: rows written before this field existed are valid
+            # rows, and they read back as "unrecorded" rather than being assigned a source
+            # nobody wrote down.
+            wall_clock_source=raw.get("wall_clock_source", "unrecorded"),
             cost_usd=raw["cost_usd"],
             notes=raw.get("notes", ""),
         )
@@ -1065,6 +1088,7 @@ class RunRecorder:
                 controls=self.controls,
                 gates=self.gates,
                 wall_clock_s=wall,
+                wall_clock_source="recorder" if self.wall_clock_s is None else "caller",
                 cost_usd=self.cost_usd_per_hour * wall / 3600.0,
                 notes=note,
             )
