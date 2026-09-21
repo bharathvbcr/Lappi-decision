@@ -72,6 +72,7 @@ sys.path.insert(0, str(REPO / "tools"))
 if "--deterministic" in sys.argv:
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
+import numpy as np  # noqa: E402
 import torch  # noqa: E402
 from repo_git import git_bytes, tracked_paths  # noqa: E402
 from run_cost import n_gpus_for_device  # noqa: E402
@@ -80,7 +81,7 @@ from qd_train.byte_batch import BatchPlan, plan_batch, span_supervision  # noqa:
 from qd_train.byte_context import ID_PAD, SpanOutsideWindow  # noqa: E402
 from qd_train.byte_decider import ByteDeciderConfig  # noqa: E402
 from qd_train.byte_train import Rung0Model, Rung0Step, train_rung0  # noqa: E402
-from qd_train.eval_harness import shuffled_label_control  # noqa: E402
+from qd_train.eval_harness import degenerate_head_check, shuffled_label_control  # noqa: E402
 from qd_train.heads import plan_span_batch, serving_scores  # noqa: E402
 from qd_train.ledger import (  # noqa: E402
     DEFAULT_LEDGER_PATH,
@@ -422,6 +423,13 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
     model.eval()
     choice_hit = choice_n = 0
     start_hit = end_hit = span_n = 0
+    # The per-row choice distribution, kept so `degenerate_head_check` can be evaluated.
+    # It needs nothing but these numbers, which this loop already computes -- which is why
+    # `degenerate_head` sat at not_run on 988 rows for want of four lines rather than for
+    # want of a measurement. Softmax over the live options, in float32 because a bf16
+    # softmax rounds small probabilities to zero and would understate the entropy the
+    # check thresholds on.
+    choice_probs: list[list[float]] = []
     # Chance for a POINTER is 1/candidates, not 0. A span head choosing uniformly among a
     # row's line starts scores that, so it is the number a measured span accuracy has to
     # beat -- and it is accumulated per row because rows have different line counts.
@@ -438,6 +446,7 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
                 torch.tensor(plan.option_mask, dtype=torch.bool, device=device),
                 torch.tensor(plan.n_live_options, dtype=torch.long, device=device),
             )
+            choice_probs.extend(torch.softmax(logits.float(), dim=1).tolist())
             for i, top in enumerate(logits.argmax(dim=1).tolist()):
                 choice_hit += 1 if top == plan.choice_target[i] else 0
                 choice_n += 1
@@ -463,7 +472,31 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
         "span_end_top1": end_hit / span_n if span_n else 0.0,
         "span_n": span_n,
         "span_chance": span_chance / span_n if span_n else 0.0,
+        "choice_probs": choice_probs,
     }
+
+
+def degenerate_head_state(rows: Sequence[Sequence[float]]) -> TriState:
+    """``degenerate_head_check`` over the held-out choice distributions.
+
+    Ragged input is refused rather than padded. Bucketed batching can in principle hand
+    back rows of different widths, and padding them to a common width with zeros would
+    invent probability mass the model never emitted -- lowering the measured entropy and
+    making a healthy head look degenerate. A check that reports the wrong verdict is worse
+    than one that reports NotRun, so the ragged case says so and names the widths.
+    """
+    if not rows:
+        return NotRun(reason="the degenerate-head check had no held-out rows to read")
+    widths = {len(r) for r in rows}
+    if len(widths) != 1:
+        return NotRun(
+            reason=(
+                f"held-out choice distributions are ragged ({sorted(widths)} columns), and "
+                "padding them to a common width would invent probability mass the model "
+                "never emitted, understating the entropy this check thresholds on"
+            )
+        )
+    return degenerate_head_check(np.asarray(rows, dtype=np.float64))
 
 
 def _accuracy_gate(
@@ -1146,6 +1179,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             # measured against. Set only under --shuffle-train-labels: a run trained on
             # true labels has not evaluated this control and must keep saying so, which is
             # what RunRecorder's NotRun default does.
+            # On EVERY run, control or not. It reads the held-out choice distribution this
+            # evaluation already produced, so it costs no GPU time and there is no reason
+            # for a row to omit it. It is also the check that catches what `_fit_gate`
+            # cannot: _fit_gate reads TRAIN accuracy against the train majority, so a head
+            # that fits the training set and then answers one class on everything held out
+            # clears it while being exactly the degenerate case.
+            recorder.control(
+                "degenerate_head",
+                degenerate_head_state(after["choice_probs"]),  # type: ignore[index,arg-type]
+            )
             if args.shuffle_train_labels:
                 recorder.control(
                     "shuffled_label",

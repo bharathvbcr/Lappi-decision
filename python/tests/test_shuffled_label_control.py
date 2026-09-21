@@ -185,6 +185,80 @@ def test_the_control_and_the_arm_it_controls_for_cannot_share_a_recipe_hash():
 # --------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------
+# 2b -- the other control that never ran, and needed no GPU time at all
+# --------------------------------------------------------------------------
+
+
+def _degenerate_state():
+    pytest.importorskip("torch", reason="rung0_real_run imports torch at module scope")
+    from rung0_real_run import degenerate_head_state
+
+    return degenerate_head_state
+
+
+def test_a_constant_head_is_caught_and_a_discriminating_one_is_not():
+    """`degenerate_head` sat at not_run on 988 rows for want of an array, not a measurement.
+
+    It reads the held-out choice distribution, which every evaluation already computes. The
+    two cases it exists to separate: a head answering one class on everything, and a head
+    spreading its mass across classes.
+    """
+    degenerate_head_state = _degenerate_state()
+
+    collapsed = [[0.97, 0.01, 0.01, 0.01] for _ in range(200)]
+    verdict = degenerate_head_state(collapsed)
+    assert isinstance(verdict, Ran) and not verdict.passed, verdict
+    assert "DEGENERATE" in verdict.detail, verdict.detail
+
+    healthy = [
+        [0.55, 0.20, 0.15, 0.10] if i % 3 == 0
+        else [0.15, 0.55, 0.20, 0.10] if i % 3 == 1
+        else [0.10, 0.20, 0.15, 0.55]
+        for i in range(200)
+    ]
+    ok = degenerate_head_state(healthy)
+    assert isinstance(ok, Ran) and ok.passed, ok.detail
+
+
+def test_ragged_distributions_report_not_run_rather_than_a_verdict():
+    """Padding them would invent probability mass and understate the entropy.
+
+    A check that returns the WRONG verdict is worse than one that returns NotRun, and a
+    zero-padded row looks exactly like a confident head to an entropy threshold.
+    """
+    degenerate_head_state = _degenerate_state()
+    ragged = [[0.25, 0.25, 0.25, 0.25], [0.5, 0.5]]
+    verdict = degenerate_head_state(ragged)
+    assert not isinstance(verdict, Ran), verdict
+    assert "ragged" in verdict.reason and "[2, 4]" in verdict.reason, verdict.reason
+
+
+def test_no_held_out_rows_reports_not_run():
+    degenerate_head_state = _degenerate_state()
+    verdict = degenerate_head_state([])
+    assert not isinstance(verdict, Ran)
+    assert "no held-out rows" in verdict.reason, verdict.reason
+
+
+def test_the_degenerate_control_is_recorded_on_every_run_not_only_control_runs():
+    """The distinction from `shuffled_label`, and the reason it is worth stating.
+
+    `shuffled_label` needs a model trained on destroyed labels, so only a control run can
+    evaluate it. `degenerate_head` needs the distribution every run already produces, so a
+    row that omitted it would be omitting a free check -- and `_fit_gate` does not cover it:
+    that reads TRAIN accuracy against the train majority, so a head which fits training and
+    then answers one class on everything held out clears it while being the degenerate case.
+    """
+    source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
+    marker = source.index('recorder.control(\n                "degenerate_head"')
+    preceding = source[:marker]
+    assert "if args.shuffle_train_labels:" not in preceding[-300:], (
+        "degenerate_head is recorded inside the shuffled-label branch, so ordinary runs "
+        "would keep reporting it as not_run"
+    )
+
+
 def test_a_shuffled_model_at_chance_passes_and_above_the_ceiling_fails():
     """The control's own verdict, on the two cases that matter.
 
