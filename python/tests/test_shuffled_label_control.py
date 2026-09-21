@@ -397,6 +397,91 @@ def test_the_gate_and_control_take_their_gold_from_the_scored_rows():
     )
 
 
+# --------------------------------------------------------------------------
+# 2e -- paired_margin_vs_linear, the gate whose opponent was never scored
+# --------------------------------------------------------------------------
+
+
+def test_the_linear_control_iteration_budget_cannot_drift_from_its_source():
+    """`rung0_real_run` restates the budget because importing it would be a cycle.
+
+    A restated constant is a copy, and a copy drifts. This is the assertion the comment
+    beside it promises: at the library default of 500 the control does not converge on this
+    corpus and is correctly refused, so the budget is what makes the gate reachable at all
+    -- and two different budgets in two files would mean the gate's opponent is not the
+    control anyone measured.
+    """
+    pytest.importorskip("torch", reason="rung0_real_run imports torch at module scope")
+    import rung0_linear_control
+    import rung0_real_run
+
+    assert rung0_real_run.LINEAR_CONTROL_MAX_ITER == rung0_linear_control.DEFAULT_MAX_ITER
+
+
+def test_bucketed_chunks_is_the_only_place_the_scored_order_is_decided():
+    """`bucketed_batches` must be built FROM `bucketed_chunks`, not beside it.
+
+    Two implementations of "sorted by kept bytes, chunked, short chunk dropped" would let
+    the batcher and the pairing disagree, and the failure that produces -- predictions
+    scored against another example's answer -- is invisible to a count and to a spot check.
+    """
+    source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in source.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert code.count("sorted(decisions, key=lambda d: d.context.n_bytes_kept)") == 1, (
+        "the length-sort appears more than once, so the batcher and whatever pairs results "
+        "back to decisions can disagree about the order"
+    )
+    assert "for chunk in bucketed_chunks(decisions, batch_size=batch_size)" in code, (
+        "bucketed_batches no longer derives its chunks from bucketed_chunks"
+    )
+
+
+def test_an_unconverged_linear_control_reports_not_run_rather_than_a_win():
+    """The control's own rule, enforced at the gate.
+
+    An unconverged fit is a weak opponent and therefore a flattering margin. Scoring it
+    would manufacture exactly the result the gate exists to make hard to get.
+    """
+    pytest.importorskip("torch", reason="rung0_real_run imports torch at module scope")
+    from rung0_real_run import linear_baseline_correctness
+
+    # max_iter=1 cannot converge: the library default of 500 already does not on this
+    # corpus, which is why the real budget is 6000.
+    from qd_train.mutate_adapter import MUTATION_CLASSES
+
+    class _Ctx:
+        def __init__(self, text: str) -> None:
+            self.ids = list(text.encode("utf-8"))
+            self.n_bytes_kept = len(self.ids)
+
+    @dataclass(frozen=True, slots=True)
+    class _D:
+        context: object
+        gold_option: int
+
+    train = [
+        _D(_Ctx(f"def f{i}(): return {i}\n" * 3), i % len(MUTATION_CLASSES))
+        for i in range(40)
+    ]
+    correct, not_run = linear_baseline_correctness(train, train[:20], seed=0, max_iter=1)
+    assert correct is None, "a control that could not converge was scored anyway"
+    assert not_run is not None and "manufactures a win" in not_run.reason, not_run
+
+
+def test_the_paired_margin_gate_is_recorded_and_fails_closed():
+    source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
+    assert 'recorder.gate("paired_margin_vs_linear", baseline_not_run)' in source, (
+        "when the linear control does not converge the gate must report its NotRun, not "
+        "be left to RunRecorder's generic 'never evaluated' default, which would lose the "
+        "reason"
+    )
+    assert 'recorder.gate(\n                    "paired_margin_vs_linear"' in source, (
+        "the gate is never recorded with a real verdict, so it stays not_run on every row"
+    )
+
+
 def test_a_shuffled_model_at_chance_passes_and_above_the_ceiling_fails():
     """The control's own verdict, on the two cases that matter.
 

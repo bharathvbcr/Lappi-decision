@@ -77,12 +77,17 @@ import torch  # noqa: E402
 from repo_git import git_bytes, tracked_paths  # noqa: E402
 from run_cost import n_gpus_for_device  # noqa: E402
 
+from qd_train.baseline import LinearBaseline  # noqa: E402
 from qd_train.byte_batch import BatchPlan, plan_batch, span_supervision  # noqa: E402
 from qd_train.byte_context import ID_PAD, SpanOutsideWindow  # noqa: E402
 from qd_train.byte_decider import ByteDeciderConfig  # noqa: E402
 from qd_train.byte_train import Rung0Model, Rung0Step, train_rung0  # noqa: E402
 from qd_train.calibration_fit import ece_gate  # noqa: E402
-from qd_train.eval_harness import degenerate_head_check, shuffled_label_control  # noqa: E402
+from qd_train.eval_harness import (  # noqa: E402
+    degenerate_head_check,
+    paired_margin_test,
+    shuffled_label_control,
+)
 from qd_train.heads import plan_span_batch, serving_scores  # noqa: E402
 from qd_train.ledger import (  # noqa: E402
     DEFAULT_LEDGER_PATH,
@@ -280,10 +285,30 @@ def bucketed_batches(
     the batch's membership matters: one long row drags the whole batch's width up and every
     short row in it pays for the difference in padding.
     """
+    return [
+        plan_batch(
+            chunk,
+            pad_id=ID_PAD,
+            max_context_bytes=config.max_context_bytes,
+            max_option_bytes=96,
+        )
+        for chunk in bucketed_chunks(decisions, batch_size=batch_size)
+    ]
+
+
+def bucketed_chunks(decisions: Sequence, *, batch_size: int) -> list[list]:
+    """The chunks :func:`bucketed_batches` will plan, in the order it will plan them.
+
+    Factored out because two things need this ordering and they must not disagree: the
+    batcher, and anything pairing a per-row result back to the decision that produced it.
+    A second implementation of "sorted by kept bytes, chunked, short chunk dropped" is a
+    copy that drifts, and the failure it produces -- predictions scored against another
+    example's answer -- is invisible to a count and to a spot check.
+    """
     if batch_size < 1:
         raise ValueError(f"batch_size must be at least 1, got {batch_size}")
     ordered = sorted(decisions, key=lambda d: d.context.n_bytes_kept)
-    plans: list[BatchPlan] = []
+    chunks = []
     for start in range(0, len(ordered), batch_size):
         chunk = ordered[start : start + batch_size]
         if len(chunk) < 2:
@@ -292,15 +317,8 @@ def bucketed_batches(
             # (len(plans) * batch_size against len(decisions)), never padded out with a
             # duplicate row, which would be supervision this corpus does not contain.
             continue
-        plans.append(
-            plan_batch(
-                chunk,
-                pad_id=ID_PAD,
-                max_context_bytes=config.max_context_bytes,
-                max_option_bytes=96,
-            )
-        )
-    return plans
+        chunks.append(chunk)
+    return chunks
 
 
 def cycle(plans: Sequence[BatchPlan], *, n: int) -> Iterator[BatchPlan]:
@@ -508,6 +526,67 @@ def degenerate_head_state(rows: Sequence[Sequence[float]]) -> TriState:
             )
         )
     return degenerate_head_check(np.asarray(rows, dtype=np.float64))
+
+
+#: The linear control's iteration budget, which must match `rung0_linear_control`'s.
+#: Restated rather than imported only because that module imports this one; the value is
+#: asserted equal to its source in `test_shuffled_label_control.py`, so the two cannot
+#: drift. Above the library default of 500, which does NOT converge on this corpus -- and
+#: an unconverged control is refused, so the budget is what makes the gate reachable at
+#: all. The ITERATION BUDGET moves, never the tolerance: the tolerance is what makes the
+#: control worth beating.
+LINEAR_CONTROL_MAX_ITER: Final[int] = 6_000
+
+
+def linear_baseline_correctness(
+    train_d: Sequence, scored_val: Sequence, *, seed: int, max_iter: int
+) -> tuple[np.ndarray | None, TriState | None]:
+    """Fit the linear control and return which of the scored rows it got right.
+
+    Returns ``(correct, None)`` on success and ``(None, NotRun)`` when the control did not
+    converge -- which is the control's own rule, from ``rung0_linear_control``: *"A model
+    cannot beat a baseline that never finished training, and scoring it as though it had is
+    how a weak control manufactures a win."* An unconverged fit produces a weak opponent
+    and therefore a flattering margin, so the gate reports NotRun rather than a win.
+
+    Fitted ONCE per sweep rather than once per seed: the baseline is a property of the
+    split, not of the model's initialisation, and refitting it 24 times would cost real
+    minutes to recompute an identical array.
+
+    ``context_texts`` is imported here rather than at module scope because
+    ``rung0_linear_control`` imports *this* module, so a top-level import is a cycle. It is
+    imported rather than copied for a reason that outranks the awkwardness: the paired
+    margin is only meaningful if both arms saw the same bytes, and a second rendering here
+    would be free to drift into scoring a different task. The dependency direction is worth
+    straightening eventually -- both tools want one renderer and neither owns it -- and
+    that is `GAP-CONTEXT-TEXTS-HAS-NO-OWNER`.
+    """
+    from rung0_linear_control import context_texts
+
+    train_docs, train_labels = context_texts(train_d)
+    val_docs, val_labels = context_texts(scored_val)
+
+    model = LinearBaseline(seed=seed, max_iter=max_iter)
+    model.fit(train_docs, train_labels)
+    convergence = model.convergence()
+    if not (isinstance(convergence, Ran) and convergence.passed):
+        reason = (
+            convergence.reason
+            if isinstance(convergence, NotRun)
+            else f"the linear control did not converge ({convergence.detail})"
+        )
+        return None, NotRun(
+            reason=(
+                f"the paired margin has no opponent: {reason}. A model cannot beat a "
+                "baseline that never finished training, and scoring it as though it had "
+                "is how a weak control manufactures a win."
+            )
+        )
+
+    predicted = model.predict(val_docs)
+    return np.asarray(
+        [p == gold for p, gold in zip(predicted, val_labels, strict=True)], dtype=bool
+    ), None
 
 
 def ece_state(rows: Sequence[Sequence[float]], labels: Sequence[int]) -> TriState:
@@ -1096,6 +1175,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"  batches: {len(train_plans)} train, {len(val_plans)} val; "
           f"train padding waste {waste:.2%}\n")
 
+    # The opponent for `paired_margin_vs_linear`, the gate `qd_train.ledger` has listed
+    # since S6 and nothing has ever evaluated. `paired_margin_test` existed; what was
+    # missing was a baseline scored on THE SAME examples in THE SAME order, which is what
+    # `bucketed_chunks` now makes available. Fitted once here, outside the seed loop.
+    scored_val = [d for chunk in bucketed_chunks(val_d, batch_size=args.batch_size)
+                  for d in chunk]
+    print(
+        f"  linear control: fitting on {len(train_d)} train doc(s), scoring the "
+        f"{len(scored_val)} validation row(s) the model is scored on"
+    )
+    baseline_correct, baseline_not_run = linear_baseline_correctness(
+        train_d, scored_val, seed=0, max_iter=LINEAR_CONTROL_MAX_ITER
+    )
+    if baseline_correct is None:
+        print(f"  linear control NOT RUN: {baseline_not_run.reason}")  # type: ignore[union-attr]
+    else:
+        print(
+            f"  linear control accuracy on those rows: "
+            f"{float(baseline_correct.mean()):.1%}"
+        )
+
     ledger = Ledger(args.ledger)
     corpus_hash = hashlib.sha256(
         json.dumps(manifest, sort_keys=True).encode("utf-8")
@@ -1239,6 +1339,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Its threshold and bin count are left at the function's defaults: rule 2 makes
             # a threshold read-only to an agent, and passing one here would be retuning it
             # from the call site.
+            # `paired_margin_vs_linear`. Paired over the same examples in the same order,
+            # which is the whole point of the test: example difficulty cancels, so it
+            # measures the difference rather than the variance of the set. The model's
+            # correctness comes from the argmax of the same distributions everything else
+            # here reads, against the same `choice_gold`.
+            if baseline_correct is None:
+                recorder.gate("paired_margin_vs_linear", baseline_not_run)  # type: ignore[arg-type]
+            else:
+                model_correct = np.argmax(
+                    np.asarray(after["choice_probs"], dtype=np.float64), axis=1  # type: ignore[index,arg-type]
+                ) == np.asarray(after["choice_gold"], dtype=int)  # type: ignore[index,arg-type]
+                recorder.gate(
+                    "paired_margin_vs_linear",
+                    paired_margin_test(model_correct, baseline_correct, seed=seed),
+                )
             recorder.gate(
                 "ece",
                 ece_state(
