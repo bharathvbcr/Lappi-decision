@@ -1186,3 +1186,90 @@ run, and the 8192 curve at `--train-subsample`. Until those land, the capacity q
 confounded and the 4096 arms cannot carry a conclusion.
 
 Those are different claims and should not be reported as one.
+
+# Part 10 — the oldest open item was asking to reproduce a fixed bug
+
+## 25. "A nonzero-floor FT run at 512 steps", withdrawn
+
+It has been item 1 on every open list since 2026-09-20, described as *"the most informative
+experiment left, and the only regime where `span_weight` could still matter"*, and carried
+all of today as blocked on GPU time. Both halves of that were wrong.
+
+**It was never GPU-blocked.** Floors are conditional entropy over labels — CPU arithmetic.
+Read on the box under `CUDA_VISIBLE_DEVICES=""` and `nice -19`, taking nothing from the
+other lane's run:
+
+| shard set | batches | letter floor | span floor | `corpus_rev` |
+| --- | --- | --- | --- | --- |
+| `shardset` | 111 | 0.000000 (109) | 0.000000 (4) | none |
+| `shardset-v2` | 108 | 0.000000 (101) | 0.000000 (8) | none |
+| `shardset-v3` | 108 | 0.000000 (101) | 0.000000 (8) | none |
+| `shardset-v4` | 108 | 0.000000 (101) | 0.000000 (8) | `0632f693` |
+| `shards-rerun` | 111 | 0.000000 (109) | 0.000000 (4) | none |
+
+There was nothing on that box to run it against. Freeing the GPU would not have unblocked
+it — and the failure that prevents is specific: `shardset-v4` is the newest and the only one
+carrying a `corpus_rev`, so it is what anyone would have reached for. Both floors come back
+0.0, the gates pass, the row looks exactly like the experiment having been run.
+
+**And the regime it names was a defect.** `tools/real_tokenizer_pipeline.py:271` documents
+it in place:
+
+> Until 2026-09-20 both rows of this pair asked `f"Which line of {name} states the rule?"`
+> over the same passage, so the prompt was byte-identical and only the gold differed — one a
+> real line span, the other `noul`. That is a corpus no model can score above chance on, and
+> the REALFT lane measured exactly that: the span loss floor came out at 0.693147 = ln 2,
+> the entropy of a fair coin, and span accuracy was capped at 39 of 78 permanently.
+
+Already recorded twice — `GAP-REALFT-CONTRADICTORY-SPAN-SUPERVISION` and
+`GAP-DATA-NOTHING-REFUSES-TWO-ROWS-THAT-CONTRADICT` — and guarded by `test_mixture.py:613`
+and `test_pipeline_corpus.py:10`. The two questions were made to differ. **The floor is
+0.0 now because the bug is gone.**
+
+So the item asks to test a regime whose only known instance was 39 prompt-identical pairs,
+removed deliberately and now fenced by tests. Running it as written means re-introducing
+them, and the result would be the fair-coin floor again — box time spent measuring a bug
+this repository already understands.
+
+Withdrawn as specified. What survives of the intent needs naming, because the two things it
+could mean are not the same:
+
+* **genuine ambiguity** — a hard task where the gold is uncertain given the context. Nothing
+  in the plan calls for one, and `real_ft_run`'s own docstring scopes the lane to *whether
+  `train_ft` executes on a real shard set*, not to evaluating a model.
+* **contradictory supervision** — two rows that disagree about the same question. That is
+  the defect.
+
+Anyone reviving this should say which. They are a hard corpus and a broken one.
+
+## What this does to the readiness position
+
+Part 9 closed with *"the engineering is ready, the science is two runs short."* One of those
+two was not a run. The position is now:
+
+* **Engineering:** ready, on the audited terms of Part 9 §1–5.
+* **Science:** **one** run short — the 8192 curve at `--train-subsample`, held and
+  pre-registered by the concurrent lane, which attributes the 4096-vs-8192 swing between
+  context window and training-set size.
+
+That is a smaller gap than this morning's, and it closed by reading rather than by running.
+
+## Open
+
+1. **The 8192 curve at `--train-subsample`**, validation untouched, with the linear control
+   on the same thinned training set. Concurrent lane, pre-registered at `--prior-sd 0.0197`
+   from an arm that fit, with a written sensitivity table and a pre-committed rule that any
+   point realising sd above 0.0505 reports as unable to see its own target.
+2. **Whether `code_commit` should refuse `-dirty` for a run that will cost money.** Human's.
+3. **Whether lanes should re-read CLAUDE.md on a schedule rather than on incident.** Human's;
+   nothing here can detect the divergence.
+
+## First command for the next lane
+
+```bash
+sed -n '268,286p' /Users/bharath/Code/research/qwen-decision/tools/real_tokenizer_pipeline.py
+```
+
+The comment that closed the oldest item on the list. It had been sitting in the source since
+2026-09-20, naming the exact floor value the experiment was chasing, while the experiment
+stayed on the open list for two days.
