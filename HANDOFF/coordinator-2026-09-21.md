@@ -1040,7 +1040,17 @@ on 2026-09-21:
 | 4 | `power.py` wired into 1 of 2 sweep runners | coordinator | concurrent lane |
 | 5 | an external corpus-thinning script rebuilt while `--train-subsample` already existed | concurrent lane | concurrent lane, on going back to the rule |
 
-**Not one was caught by the lane that shipped it, in the moment of shipping it.** #4 was
+**Not one was caught by the lane that shipped it, in the moment of shipping it.**
+
+> **Corrected, same day.** A sixth instance turned up after this table was written, and it
+> *was* caught by the lane that shipped it: `code_that_ran` hashed `qd_train` plus the
+> invoking tool and not the modules that tool imports — missing `run_cost.py`, which
+> decides whether rule 4 can fire, and `ft_toy_run.py`, which owns the floors every FT gate
+> is scored against. Both were added the same day the metric was. So the claim above is too
+> strong. The refinement that survives: it was not caught by care during the work — care is
+> what both lanes were exercising throughout — but by a deliberate second pass hunting for
+> this specific shape by name, *after* five instances had been written down. The shape is
+> self-catchable, and only on purpose. #4 was
 committed minutes after the commit message describing the shape, by the author of that
 message. #5 was written by the lane that had been quoting the check-for-the-tool-first rule
 all afternoon.
