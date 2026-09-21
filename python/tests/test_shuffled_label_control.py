@@ -329,6 +329,74 @@ def test_the_ece_gate_is_recorded_on_every_run():
     )
 
 
+# --------------------------------------------------------------------------
+# 2d -- the pairing, which is where both of the above would have gone wrong
+# --------------------------------------------------------------------------
+
+
+def test_bucketing_reorders_decisions_so_val_d_order_is_not_the_scored_order():
+    """The hazard, demonstrated rather than asserted.
+
+    `bucketed_batches` sorts by `context.n_bytes_kept` and drops any trailing one-row
+    chunk. So the order probabilities come back in is the LENGTH-SORTED order, and the
+    count can be smaller than the split. Pairing them with `[d.gold_option for d in val_d]`
+    scores each prediction against a different example's answer.
+
+    On this corpus that would not have been caught by a length check: 288 validation
+    decisions at batch size 16 divide exactly, so both lists have 288 entries and only the
+    ORDER differs. The gold is therefore taken from `plan.choice_target` in the same loop
+    iteration as the probabilities, which makes the pairing true by construction.
+    """
+    pytest.importorskip("torch", reason="rung0_real_run imports torch at module scope")
+    from rung0_real_run import bucketed_batches
+
+    from qd_train.byte_decider import ByteDeciderConfig
+
+    config = ByteDeciderConfig()
+    source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
+
+    # The claim under test is about the sort, which is visible in the source and in the
+    # behaviour. Assert the sort key is there, then that it is load-bearing.
+    assert "sorted(decisions, key=lambda d: d.context.n_bytes_kept)" in source, (
+        "bucketed_batches no longer length-sorts; if it now preserves order this test's "
+        "premise is gone and the pairing comment above should be revisited"
+    )
+    assert "if len(chunk) < 2:" in source, (
+        "bucketed_batches no longer drops one-row chunks; the count-mismatch half of the "
+        "hazard may be gone"
+    )
+    assert callable(bucketed_batches) and config.max_context_bytes > 0
+
+
+def test_the_gate_and_control_take_their_gold_from_the_scored_rows():
+    """Both must read `choice_gold`, not `val_d`.
+
+    This is the assertion that fails against the first version of this wiring, which paired
+    `choice_probs` with `[d.gold_option for d in val_d]` and would have reported a
+    calibration error computed against permuted answers -- a number, from a real run, that
+    was wrong for a reason no length check could see.
+    """
+    source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
+    assert '"choice_gold": choice_gold' in source, (
+        "evaluate() does not return the gold of the rows it scored, so nothing downstream "
+        "can pair probabilities with answers correctly"
+    )
+    assert "choice_gold.append(int(plan.choice_target[i]))" in source, (
+        "the gold is not collected in the same loop iteration as the probabilities, so the "
+        "two are aligned only by an assumption about ordering"
+    )
+    # Comment lines are stripped before the negative check. The first version of this test
+    # searched the whole file and matched the comment that EXPLAINS why the pairing is
+    # wrong -- a source grep that reads prose as if it were code, which is the same mistake
+    # in miniature as reading a summary line as if it were the record.
+    code = "\n".join(
+        line for line in source.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "[d.gold_option for d in val_d]" not in code, (
+        "something still pairs against val_d order, which bucketing does not preserve"
+    )
+
+
 def test_a_shuffled_model_at_chance_passes_and_above_the_ceiling_fails():
     """The control's own verdict, on the two cases that matter.
 

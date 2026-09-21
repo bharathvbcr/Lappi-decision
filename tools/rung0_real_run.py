@@ -431,6 +431,14 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
     # softmax rounds small probabilities to zero and would understate the entropy the
     # check thresholds on.
     choice_probs: list[list[float]] = []
+    # The gold for each row of `choice_probs`, taken from the SAME loop iteration.
+    #
+    # Not `[d.gold_option for d in val_d]`, which is the trap: `bucketed_batches` sorts by
+    # `context.n_bytes_kept` and drops any trailing one-row chunk, so the decisions arrive
+    # here length-sorted and possibly fewer. On this corpus 288 val decisions at batch 16
+    # divide exactly, so the two lists would be the same LENGTH and a length check would
+    # pass while every probability was scored against another example's answer.
+    choice_gold: list[int] = []
     # Chance for a POINTER is 1/candidates, not 0. A span head choosing uniformly among a
     # row's line starts scores that, so it is the number a measured span accuracy has to
     # beat -- and it is accumulated per row because rows have different line counts.
@@ -450,6 +458,7 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
             choice_probs.extend(torch.softmax(logits.float(), dim=1).tolist())
             for i, top in enumerate(logits.argmax(dim=1).tolist()):
                 choice_hit += 1 if top == plan.choice_target[i] else 0
+                choice_gold.append(int(plan.choice_target[i]))
                 choice_n += 1
             span_plan = plan_span_batch(span_supervision(plan), device=device)
             if span_plan.n_spans:
@@ -474,6 +483,7 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
         "span_n": span_n,
         "span_chance": span_chance / span_n if span_n else 0.0,
         "choice_probs": choice_probs,
+        "choice_gold": choice_gold,
     }
 
 
@@ -1233,7 +1243,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "ece",
                 ece_state(
                     after["choice_probs"],  # type: ignore[index,arg-type]
-                    [d.gold_option for d in val_d],
+                    after["choice_gold"],  # type: ignore[index,arg-type]
                 ),
             )
             if args.shuffle_train_labels:
@@ -1241,7 +1251,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "shuffled_label",
                     shuffled_label_control(
                         float(after["choice_top1"]),  # type: ignore[index]
-                        [d.gold_option for d in val_d],
+                        # The gold of the rows actually SCORED, for the same reason the
+                        # gate above uses it: bucketing drops any trailing one-row chunk,
+                        # so val_d can contain examples this accuracy never covered, and
+                        # the majority share of a different set is a different ceiling.
+                        after["choice_gold"],  # type: ignore[index,arg-type]
                         n_eval=int(after["choice_n"]),  # type: ignore[index]
                     ),
                 )
