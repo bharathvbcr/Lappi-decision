@@ -293,3 +293,106 @@ def test_the_committed_capacity_ledger_reads_as_three_arms_of_eight() -> None:
         assert arm.unmeasured == 0
         assert arm.collapsed == 0, f"{arm.backbone_commit} collapsed on {arm.collapsed}"
         assert arm.baseline == pytest.approx(0.484, abs=5e-4)
+
+
+# -- render_gates: a gate nobody evaluated and a gate that passed must not look alike ----
+
+
+def _gate_row(gates: dict, controls: dict) -> dict:
+    """A row carrying only the blocks `render_gates` reads."""
+    return {
+        "protocol": {"recipe_hash": "r" * 64, "backbone_commit": "b"},
+        "metrics": {},
+        "gates": gates,
+        "controls": controls,
+    }
+
+
+def test_a_gate_that_never_ran_is_counted_not_omitted():
+    """The 988 rows before 2026-09-21 carried nine of these, every one `not_run`.
+
+    A summary that printed only the gates that ran would have shown an empty section and
+    said nothing was wrong, which is how the condition survived for months.
+    """
+    rows = [_gate_row({"ece": {"state": "not_run", "reason": "never evaluated"}}, {})]
+    out = "\n".join(ledger_arms.render_gates(rows))
+    assert "ece" in out
+    assert "not_run 1" in out
+
+
+def test_pass_and_fail_and_not_run_are_three_distinct_counts():
+    rows = [
+        _gate_row({"ece": {"state": "ran", "passed": True, "value": 0.01}}, {}),
+        _gate_row({"ece": {"state": "ran", "passed": False, "value": 0.19}}, {}),
+        _gate_row({"ece": {"state": "not_run", "reason": "never evaluated"}}, {}),
+    ]
+    out = "\n".join(ledger_arms.render_gates(rows))
+    assert "FAIL 1" in out
+    assert "pass 1" in out
+    assert "not_run 1" in out
+
+
+def test_a_failing_gate_is_not_softened_into_a_pass():
+    """`passed: False` on a row that ran is a FAIL, never folded in with not_run.
+
+    paired_margin_vs_linear went negative on the first real row of 2026-09-21. A summary
+    that reported it as anything other than a failure would be reporting a win.
+    """
+    rows = [
+        _gate_row(
+            {"paired_margin_vs_linear": {
+                "state": "ran", "passed": False, "value": -0.0243,
+                "detail": "paired margin -0.0243, CI includes zero, so this is not a win",
+            }},
+            {},
+        )
+    ]
+    out = "\n".join(ledger_arms.render_gates(rows))
+    assert "FAIL 1" in out
+    assert "pass" not in out.split("paired_margin_vs_linear")[1].split("\n")[0]
+    assert "not a win" in out
+
+
+def test_values_are_averaged_only_over_the_rows_that_ran():
+    """A not_run row contributes no value; counting it as zero would move the mean."""
+    rows = [
+        _gate_row({"g": {"state": "ran", "passed": True, "value": 1.0}}, {}),
+        _gate_row({"g": {"state": "ran", "passed": True, "value": 3.0}}, {}),
+        _gate_row({"g": {"state": "not_run", "reason": "no"}}, {}),
+    ]
+    out = "\n".join(ledger_arms.render_gates(rows))
+    assert "value mean +2.0000" in out
+
+
+def test_controls_are_reported_beside_gates_not_instead_of_them():
+    rows = [
+        _gate_row(
+            {"ece": {"state": "ran", "passed": False, "value": 0.19}},
+            {"degenerate_head": {"state": "ran", "passed": True, "value": 0.89}},
+        )
+    ]
+    out = "\n".join(ledger_arms.render_gates(rows))
+    assert "gates:" in out
+    assert "controls:" in out
+    assert "degenerate_head" in out
+    assert "ece" in out
+
+
+def test_the_committed_rows_still_report_every_gate_as_never_run():
+    """Pins the finding to the rows themselves: the capacity sweep evaluated nothing.
+
+    If a later change made these rows carry a verdict, this test fails and the claim in the
+    handoff has to be rewritten rather than quietly becoming false.
+    """
+    path = (
+        REPO / "ledger" / "gh200-rung0-capacity-4096-e30-2026-09-21.jsonl"
+    )
+    rows = ledger_arms.read_rows([path])
+    assert len(rows) == 24
+    out = "\n".join(ledger_arms.render_gates(rows))
+    for name in (
+        "ece", "needle_hunk_recall", "ood_abstain", "paired_margin_vs_linear",
+        "permutation_consistency", "degenerate_head", "privileged_hunk",
+        "shuffled_label", "transfer_gate",
+    ):
+        assert f"{name:28} not_run 24" in out, name

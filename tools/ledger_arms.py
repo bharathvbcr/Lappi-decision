@@ -64,6 +64,7 @@ Usage::
 
 from __future__ import annotations
 
+import collections
 import itertools
 import json
 import math
@@ -289,6 +290,48 @@ def render_pairwise(arms: dict[tuple[str, str], Arm]) -> list[str]:
     return lines
 
 
+def render_gates(rows: list[dict]) -> list[str]:
+    """Which gates and controls actually reached these rows, and what they said.
+
+    Across the 988 rows that preceded 2026-09-21 the answer was: none of them, for three
+    different reasons -- built and unreachable, built and never called, named and never
+    built. A summary that showed only accuracies made that invisible for months, because a
+    gate nobody evaluates and a gate that passes look identical in a mean.
+
+    So `not_run` is counted and printed beside `pass` and `fail` rather than omitted. A
+    check that could not run must never report the same result as one that ran and passed.
+    """
+    lines = ["", "=== gates and controls, over every row read ==="]
+    for block in ("gates", "controls"):
+        names = sorted({name for row in rows for name in (row.get(block) or {})})
+        if not names:
+            continue
+        lines.append(f"  {block}:")
+        for name in names:
+            states = collections.Counter()
+            values: list[float] = []
+            detail = ""
+            for row in rows:
+                entry = (row.get(block) or {}).get(name) or {}
+                if entry.get("state") != "ran":
+                    states["not_run"] += 1
+                    continue
+                states["pass" if entry.get("passed") else "FAIL"] += 1
+                if isinstance(entry.get("value"), int | float):
+                    values.append(float(entry["value"]))
+                detail = detail or str(entry.get("detail") or "")
+            summary = "  ".join(f"{k} {v}" for k, v in sorted(states.items()))
+            line = f"    {name:28} {summary}"
+            if values:
+                line += f"   value mean {statistics.mean(values):+.4f}"
+                if len(values) > 1:
+                    line += f" sd {statistics.stdev(values):.4f}"
+            lines.append(line)
+            if detail:
+                lines.append(f"        {detail[:150]}")
+    return lines
+
+
 def main(argv: list[str]) -> int:
     if not argv:
         print(__doc__, file=sys.stderr)
@@ -296,7 +339,7 @@ def main(argv: list[str]) -> int:
     rows = read_rows([Path(p) for p in argv])
     arms = arms_of(rows)
     print(f"{len(rows)} row(s) over {len(arms)} arm(s)\n")
-    for line in render(arms) + render_pairwise(arms):
+    for line in render(arms) + render_pairwise(arms) + render_gates(rows):
         print(line)
     return 0
 
