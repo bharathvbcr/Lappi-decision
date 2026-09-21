@@ -167,12 +167,25 @@ measured quantity, and zero is the measurement, not a placeholder.
 PYTHONPATH=python .venv/bin/python -m qd_train.ledger record \
   --toolchain "cargo 1.98.0 / CPython 3.14.7 (.venv)" \
   --suite cargo_test_workspace="cargo test --workspace" \
-  --suite pytest_python_tests=".venv/bin/python -m pytest python/tests -o addopts="
+  --suite pytest_python_tests=".venv/bin/python -m pytest python/tests -o addopts=" \
+  --suite pytest_torch_python_tests="uv run --no-project --python ~/.venvs/ml/bin/python \
+      --with pytest --with hypothesis --with datasketch python -m pytest python/tests -o addopts="
 ```
 
 It runs each suite, writes one `build` row, and prints **the row id alone on stdout** — everything
 else goes to stderr, so `ROW=$(… record …)` works. Cite that id. `--ledger` defaults to
 `ledger/runs.jsonl`, `--repo` to the repo root.
+
+**Run `make ledger-record`, not this, unless you are learning the interface.** The shape above is
+the CLI's contract and is what the flags mean; the *commands* this repo gates on live in the
+`Makefile`, in one `*_RUN` variable per suite that both `make <target>` and the `--suite` argument
+are built from. That is not tidiness. Until 2026-09-21 this example named two suites while the gate
+ran three, so a lane following it literally wrote a row with no model-path coverage at all — the
+precise hole the third suite was added to close — and on the same day the Makefile's own two
+spellings of the torch command drifted by one flag, leaving a row whose `detail` named a command
+nobody had run. `python/tests/test_lint_gate.py` now asserts the recorded command is the command
+its target runs; nothing can assert that about a code block in a document, which is why the
+document should not be the source.
 
 ### Which reading of rule 5 this implements
 
