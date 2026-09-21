@@ -1418,35 +1418,148 @@ hour. All 22 are `quick=True` and `completed`. They predate `a409895`, and the r
 came from is the one `f93b22c` just fixed. They are preserved, not believed: the rows say
 what they were written with, and what they were written with priced a GPU hour at zero.
 
-## What this does to the readiness position
+# Part 12 — fixing the shape rather than the site
 
-Part 10 closed with engineering ready *minus one open gap*, and science one run short. The
-gap is closed. The run is running.
+## 30. `71bdd2f` — the other eight places §28's defect could live
 
-* **Engineering:** ready on the audited terms of Part 9 §1–5, with §26's gap now resolved
-  rather than deferred.
-* **Science:** the 8192 `--train-subsample` curve is in flight in the concurrent lane, first
-  row at 16:14:46Z, pre-registered at `--prior-sd 0.0197`.
+§28 fixed `tools/rung0_real_run.py`. That is one instance of a shape **nine call sites can
+take**, and this repository has found "a complete list was written down and then one member
+of it was fixed" seven times in a day. So the inventory is pinned rather than the site.
+
+Eleven `wall_clock_s` arguments reach a recorder — two forwarding inside `_recorder`
+helpers, nine deciding. Both numbers are asserted, because a helper that stops forwarding
+and a decision that disappears are different failures. Every deciding site that hands over a
+duration measured *before* the block is now named with the reason its work is safe outside
+one, and a new one fails until somebody writes that reason down.
+
+**The exposure, measured from rows rather than reasoned about.** After §28 the only
+*billed* work still outside a block is `real_ft_run.py`'s verdict decode:
+
+| | seconds | rows |
+| --- | --- | --- |
+| ft rows (block wraps `train_ft`) | 40919.1 | 194 |
+| verdict rows (decode outside) | **0.1** | 170 |
+
+0.0003% of the wrapped time, and a killed process loses only the addendum — the parent ft
+row is already written by then. The other four non-wrapping sites are structurally
+unbillable: two pass `cost=None`, which `RunRecorder` accepts *only* on a local device, and
+`rung0_toy_run.py` prices through `CostEstimate.for_device` with no rate, which refuses
+anything but cpu and mps. A second test checks those claims against the source, so a tool
+that gains a rate has to re-argue its entry instead of inheriting it.
+
+Both injections verified: reverting `rung0_real_run.py` fails the first test with that file
+named; giving `rung0_linear_control.py` a `--usd-per-hour` fails the second.
+
+**And the second injection found a hole in the test's own first draft.**
+`add_argument("--usd-per-hour")` produces `args.usd_per_hour` and puts neither underscore
+spelling in the file, so a check for the identifier alone never fires on the way a rate
+actually arrives — it passed against the injected flag. That is a check that could not run
+reporting the same result as one that ran and passed, written by the lane that spent the day
+saying so. Both spellings are checked now, and the fact that only the injection caught it is
+the argument for injecting.
+
+## 31. `45291c3` — a row can now name its own arm
+
+`GAP-A-ROW-CANNOT-SAY-WHICH-CURVE-POINT-IT-IS`, raised by the concurrent lane while
+labelling a learning curve, and left for this one because it is this lane's file and a
+schema question.
+
+`recipe_hash` makes two runs of different settings incomparable, which is its job, and it
+makes neither of them readable. Every field a runner varies went into the hash's input and
+was stored nowhere. Labelling three curve points took re-hashing four candidate
+`train_subsample` values against the other seven pinned at the launch command's values:
+correct, and it recovers the label **from the log**, by a longer route, rather than from the
+row.
+
+`LedgerRow` gains `recipe`, `RunRecorder` gains `recipe=`, and every runner builds its
+recipe once, names it, and hands that one object to both the hash and the row. Seven sites,
+not one — `rung0_real_run.py`, `real_ft_run.py`, `rung0_toy_run.py`, `ft_toy_run.py`,
+`rung0_linear_control.py`, `real_tokenizer_pipeline.py` and `record_build` — five of them
+with the dict written inline *inside* the `hashlib.sha256(...)` call, where nothing else
+could reach it. The two toy runners get a `_recipe()` function rather than a second literal:
+a recipe built twice can drift, and a row whose stored recipe does not hash to its own
+`recipe_hash` is worse than a row with none, because it reads as an answer.
+
+**The identity does not move, and that was measured.** The tool ran before and after on the
+same corpus and flags; `recipe_hash`, `backbone_commit`, `data_snapshot_hash` and
+`protocol_hash` all came back identical, and the new row's stored recipe re-hashes to its
+own `recipe_hash`. This mattered: the canonical `separators=(",", ":")` spelling **would**
+have moved it — `b5e6c489…` against `705dc18f…` on the same dict — and the 61 capacity rows
+and the curve running on the box at the time were written with the other one.
+
+Which is the next gap, opened rather than closed: **`GAP-SIX-SPELLINGS-OF-ONE-RECIPE-HASH`**.
+Six independent implementations of "hash a recipe", two of which disagree on identical
+dicts. `_canonical` at `ledger.py:260` is the owner that already exists, and five of the six
+do not call it. Nothing is currently wrong — each tool is internally consistent, and
+cross-tool comparisons are foreclosed by `backbone_commit` anyway. The damage would come
+from a future refactor tidying one spelling toward another: every row afterwards
+incomparable with every row before, both files verifying, nothing saying so. Unifying it is
+a **declared break**, not a tidy-up, and it is not this lane's to declare mid-experiment.
+
+Three tests, all failing against the pre-change tree. Two are rewrites — they read the text
+between `recipe_hash=hashlib.sha256(` and `).hexdigest(),` and broke when the recipe was
+given a name, a refactor that changed nothing about what is hashed. They now read the recipe
+off a row the tool actually wrote and re-hash it, which asserts the same thing and survives
+the next such move. The third pins the eight keys as a **set**, so a field silently dropped
+from the recipe fails even though every other test stays green: it would still hash, still
+identify, and quietly stop separating the arm it was added to separate. Both failure modes
+injected — no recipe on the row, and a recipe drifted from its hash.
+
+`recipe` enters no hash. `null` means unrecorded; `{}` is refused, because a run with a
+`recipe_hash` always had settings. `docs/ledger-schema.md` gains the field, the rules, and
+the `wall_clock_source` row it had been missing since `a409895`.
+
+## 32. The first row that says what it ran
+
+`b3878ad`, row `4f192818-694f-413b-b557-f6c85b37537c` at `8ffc0cc`, clean tree:
+
+```
+commands:  cargo test --workspace
+           .venv/bin/python -m pytest python/tests -o addopts=
+           uv run --with pytest --with hypothesis python -m pytest python/tests
+toolchain: cargo 1.98.0 / CPython 3.13.14 (.venv) / ruff 0.16.8
+```
+
+`Protocol.for_build` has always hashed exactly those two things, so *"did the gates run the
+suite I think they did"* was answerable only by re-hashing candidates. Gates: cargo 362/362,
+pytest 1523/1544, pytest-torch **1794**/1796 — up 14 from 1780 at `90de7ff`. Chain verifies
+over 200 rows.
+
+**1 of 200 rows carries a recipe**, which is the right number and worth printing: the field
+was added today and enters no hash, so the other 199 read back as `null` — not recording
+their settings, rather than having run without any.
+
+## Where this leaves the final train
+
+On the axes this lane owns:
+
+* **A killed run always writes a row, and a priced killed run records its price.** Measured
+  both ways; the one remaining unwrapped billed path is 0.0003% of wrapped time.
+* **A row names its own arm** without the launch command, and cannot claim a recipe that is
+  not the one identifying it.
+* **The shape is pinned, not just the sites** — a tenth recorder or a seventh runner fails
+  the inventory until its author states the reason.
+
+What is not this lane's and is not done: `GAP-SIX-SPELLINGS-OF-ONE-RECIPE-HASH` is open by
+choice, and unifying it mid-experiment is a comparability break somebody has to declare.
 
 ## Open
 
-1. **The 8192 curve at `--train-subsample`**, validation untouched, with the linear control
-   on the same thinned training set. Concurrent lane, running; each point to be reported with
-   its realised sd beside its result and `rows_written` beside `rows_expected`.
-2. **The 15 learning-curve rows on the box**, to be brought back by that lane when the run
-   finishes. Until then they are the only copy.
-3. **Whether `code_commit` should refuse `-dirty` for a run that will cost money.** Human's.
-   Sharpened by §28: this lane recorded a gate row at `7f191bd-dirty` covering code that is
-   now `f93b22c`, and had to say so in a commit message because the field could not.
-4. **Whether lanes should re-read CLAUDE.md on a schedule rather than on incident.** Human's;
+1. **`GAP-SIX-SPELLINGS-OF-ONE-RECIPE-HASH`.** Six ways to hash a recipe, two disagreeing on
+   identical dicts. Fixing it renames every future `recipe_hash`; it needs declaring in a
+   handoff, not doing quietly.
+2. **Whether `code_commit` should refuse `-dirty` for a run that will cost money.** Human's.
+   Sharpened twice today: a gate row was recorded at `7f191bd-dirty` covering code that is
+   now `f93b22c`, and the box reports `8b9df39 85 file(s) dirty` on every row it writes.
+3. **Whether lanes should re-read CLAUDE.md on a schedule rather than on incident.** Human's;
    nothing here can detect the divergence.
 
 ## First command for the next lane
 
 ```bash
-grep -n "def measured" -A 24 /Users/bharath/Code/research/qwen-decision/python/qd_train/ledger.py
+grep -n "NOT_WRAPPING" -A 40 /Users/bharath/Code/research/qwen-decision/python/tests/test_tool_call_sites.py
 ```
 
-The method that closed §26, and the docstring stating why `wall_clock_s` stayed a
-constructor argument as well: most callers time the work and then open a recorder to report
-it, and only a caller that *wraps* its work can be the kind of caller a killed run needs.
+The inventory of every place a recorder can be handed a duration it did not time. Five
+entries, each with the reason its work is safe outside a block. Adding a sixth is how the
+next author is made to think about it.
