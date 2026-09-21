@@ -1529,6 +1529,76 @@ over 200 rows.
 was added today and enters no hash, so the other 199 read back as `null` — not recording
 their settings, rather than having run without any.
 
+## 33. `081889d` — the correction a row quoted was true of one case and printed on all of them
+
+`resolution_state` — added by this lane earlier today — printed **"~14% at n=5"** on every
+row it wrote, regardless of `n` and regardless of whether the comparison was against a fixed
+reference or another arm. It reached an audit that way.
+
+**How it was found, which is the part worth keeping.** The concurrent lane read the figure
+off a one-sample row at n=8, tried to reproduce it, could not, and declined to put any number
+derived from it into an `AUDIT/` file. This lane had offered them *"roughly 9% at n=8"* off
+the top of its head; they declined that too, and said why: *"putting it in an AUDIT file on
+your word would be me laundering inferred into verified, on the one number the whole
+resolved result rests on."* They were right on both counts. The 9% was not a case at all.
+
+**All three numbers, reproduced from both ends before anything was changed.** The convention
+is the ordinary central t on **both** terms — not a noncentral t, which was the reasonable
+guess:
+
+| case | df | constant | vs normal 2.8016 |
+| --- | --- | --- | --- |
+| two-sample, n=5/arm — *what the module quoted* | 8 | 3.1949 | **14.0%** |
+| one-sample, n=8 — *the row it was printed on* | 7 | 3.2607 | **16.4%** |
+| one-sample, n=5 | 4 | 3.7174 | **32.7%** |
+| two-sample, n=8/arm | 14 | 3.0128 | **7.5%** |
+
+The correction on the row that was read is **larger** than the row claimed, on the side that
+says a margin is smaller than it looks. One sentence covered a spread of 7.5% to 32.7%, and
+the number printed was the smallest of them.
+
+**It was not a SciPy question.** Both lanes concluded it was one for the human under the
+no-new-dependency rule. It is not: the regularised incomplete beta by Lentz's continued
+fraction is forty lines of `math`. `t_quantile` is pinned against the standard two-sided 95%
+table at sixteen degrees of freedom from 1 to 120 — worst deviation **0.00045** against a
+table printed to three decimals — and against `NormalDist` in the limit, because a continued
+fraction that is subtly wrong returns plausible numbers and every figure the module now puts
+on a row comes out of it. It raises rather than returning its last iterate: a quantile that
+did not converge is not a quantile.
+
+Before and after, on the row that was actually read:
+
+```
+before: ... The bound is optimistic on top of that, because it assumes sd is known
+        rather than estimated from these runs
+after:  ... It is worse than it looks: sd is ESTIMATED from these 8 runs, not known, so
+        the honest quantile is Student's t on 7 degrees of freedom and this bound is
+        16.4% too small: 0.0333, not 0.0286
+```
+
+The corrected bound is a **number**, not a percentage for the reader to apply themselves —
+one more step is one more place to get the case wrong, which is exactly what happened.
+
+Twelve tests. Beyond the arithmetic they pin that the correction falls with `n`, falls again
+with a second sample, never reaches 1.0 at finite `n`, and is **refused at n=1**, where there
+are no degrees of freedom to estimate a spread from and any number would be invented for a
+row whose sd came from nowhere.
+
+**It does not change the concurrent lane's conclusion.** Their resolved point is +3.78pp
+against a 2.86pp known-sd bound; corrected, the floor is 3.33pp, so it clears by 14% rather
+than 32%. Still clears.
+
+### The shape all three of today's best findings share
+
+| found | by | what it had only ever been seen doing |
+| --- | --- | --- |
+| a sync guard matching its own `pgrep` | positive control | refusing |
+| a `usd_per_hour` check argparse spells with hyphens | injection | passing |
+| a correction constant true of one case | a peer refusing to cite it | printed |
+
+None of the three would have been found by re-reading. Re-reading confirms the check exists,
+which was never in doubt.
+
 ## Where this leaves the final train
 
 On the axes this lane owns:
@@ -1539,6 +1609,8 @@ On the axes this lane owns:
   not the one identifying it.
 * **The shape is pinned, not just the sites** — a tenth recorder or a seventh runner fails
   the inventory until its author states the reason.
+* **A sweep's own resolution warning states its own case** — the correction is computed per
+  row from an inverse-t this project now owns, instead of one constant true of one case.
 
 What is not this lane's and is not done: `GAP-SIX-SPELLINGS-OF-ONE-RECIPE-HASH` is open by
 choice, and unifying it mid-experiment is a comparability break somebody has to declare.
