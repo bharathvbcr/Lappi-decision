@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from pathlib import Path
 
 import pytest
@@ -35,6 +35,50 @@ REPO = Path(__file__).resolve().parents[2]
 LEDGER = REPO / "gaps.jsonl"
 
 REQUIRED_KEYS = {"id", "question", "status"}
+
+#: The only statuses a record may carry, and which of them mean the question is answered.
+#:
+#: Pinned 2026-09-21 to the five already in use rather than to a tidier pair, because
+#: rewriting 255 records' statuses is a different change from stopping a sixth appearing --
+#: and this file is append-only, so the rewrite is not available anyway.
+#:
+#: `resolved-with-residual` and `closed-no-defect` are the two that cost real time: they
+#: mean CLOSED, and a reader that treats only {resolved, closed} as closed counted 111 open
+#: records where the answer was 78. That is the repository's own "one name, two quantities"
+#: defect, in the file that records that defect.
+OPEN_STATUSES: frozenset[str] = frozenset({"open"})
+CLOSED_STATUSES: frozenset[str] = frozenset(
+    {"resolved", "closed", "resolved-with-residual", "closed-no-defect"}
+)
+KNOWN_STATUSES: frozenset[str] = OPEN_STATUSES | CLOSED_STATUSES
+
+
+def statuses_outside_vocabulary(records: Mapping[str, dict]) -> dict[str, str]:
+    """``{id: status}`` for every record whose status nobody declared.
+
+    A function over records rather than a loop inside a test, so the guard can be shown to
+    catch a bad value on synthetic input -- a check that has only ever been run against
+    data that satisfies it has not been shown to do anything.
+    """
+    return {
+        gid: str(rec.get("status"))
+        for gid, rec in records.items()
+        if str(rec.get("status")) not in KNOWN_STATUSES
+    }
+
+
+def open_records() -> dict[str, dict]:
+    """The records whose question is still unanswered -- the single owner of that rule.
+
+    Import this rather than writing ``status == "open"`` or ``status not in {...}`` again;
+    two conventions disagreeing by 33 records is what it exists to prevent.
+    """
+    return {
+        gid: rec
+        for gid, rec in current_records().items()
+        if str(rec.get("status")) in OPEN_STATUSES
+    }
+
 
 # Deliberately permissive on the tail: the hyphen is INSIDE the class, so a citation
 # wrapped across a line break is captured *with* its trailing hyphen instead of being
@@ -261,3 +305,71 @@ def test_the_ledger_is_excluded_from_the_citation_scan_for_a_reason() -> None:
         "test_every_gap_id_cited_in_a_tracked_file_exists_in_the_ledger protects nothing. "
         "Remove the skip, then remove this test."
     )
+
+
+# --- the status vocabulary ------------------------------------------------------------
+#
+# GAP-GAPS-STATUS-VOCABULARY-MAKES-THE-OPEN-COUNT-WRONG. `status` was required from the
+# first version of this file and its VALUE was never checked, so five conventions grew in
+# one ledger and "how many gaps are open" had two defensible answers 33 records apart.
+
+
+def test_an_undeclared_status_is_caught() -> None:
+    """The guard, shown to fire.
+
+    On synthetic records, because gaps.jsonl is append-only and valid today: a check that
+    has only ever run against data satisfying it has not been shown to do anything.
+    """
+    # These ids are deliberately too SHORT to match ID_RE above, which needs five or more
+    # characters after the prefix. A readable name like the obvious one for a bad record is
+    # a syntactically valid citation, and test_every_gap_id_cited_in_a_tracked_file_exists
+    # scans this file like any other -- it caught exactly that while this test was written.
+    good = {"GAP-A": {"status": "open"}, "GAP-B": {"status": "resolved-with-residual"}}
+    assert statuses_outside_vocabulary(good) == {}
+
+    for bad in ("resovled", "Open", "open ", "in-progress", "", None):
+        records = {**good, "GAP-D": {"status": bad}}
+        caught = statuses_outside_vocabulary(records)
+        assert "GAP-D" in caught, f"{bad!r} was accepted as a status"
+        assert set(caught) == {"GAP-D"}, "a good record was swept up with the bad one"
+
+    assert statuses_outside_vocabulary({"GAP-C": {}}) == {"GAP-C": "None"}
+
+
+def test_every_status_in_the_ledger_is_one_of_the_pinned_vocabulary() -> None:
+    """And the same guard over the real file."""
+    unknown = statuses_outside_vocabulary(current_records())
+    assert not unknown, (
+        "gap records carry a status outside the pinned vocabulary "
+        f"{sorted(KNOWN_STATUSES)}:\n  "
+        + "\n  ".join(f"{gid}: {status!r}" for gid, status in sorted(unknown.items()))
+        + "\nAdd the value to OPEN_STATUSES or CLOSED_STATUSES deliberately, or fix the "
+        "record. A status nobody declared is a record that counts as neither."
+    )
+
+
+def test_open_and_closed_partition_the_ledger_with_nothing_left_over() -> None:
+    """Adding a value to one set and forgetting the other would create a third category
+    that is neither counted nor reported."""
+    assert not (OPEN_STATUSES & CLOSED_STATUSES), "a status cannot mean both"
+    current = current_records()
+    counted = len(open_records()) + sum(
+        1 for rec in current.values() if str(rec.get("status")) in CLOSED_STATUSES
+    )
+    assert counted == len(current), (
+        f"{len(current)} records but {counted} were classified; the vocabulary does not "
+        "partition the ledger"
+    )
+
+
+def test_the_two_statuses_that_read_as_open_are_counted_as_closed() -> None:
+    """The specific pair that cost this session an hour, asserted by name.
+
+    Pinning the set is not enough: someone tidying this later could move
+    `resolved-with-residual` into OPEN_STATUSES on the reasonable-sounding grounds that a
+    residual is unfinished work. It is not -- the residual is recorded as its own gap, and
+    counting the parent as open double-counts it.
+    """
+    assert "resolved-with-residual" in CLOSED_STATUSES
+    assert "closed-no-defect" in CLOSED_STATUSES
+    assert open_records().keys() <= current_records().keys()

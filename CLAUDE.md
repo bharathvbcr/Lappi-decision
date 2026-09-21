@@ -14,12 +14,23 @@ These rules override default behaviour. They are copied into every lane prompt.
    `devmap_clones` before adding a near-copy. Pass the absolute `repo_path` on every call and check
    `repository.root` in the envelope. Read `truncated` and `walk_incomplete` before treating an empty
    list as "does not exist".
-2. **GitPulse Insights before changing.** `gitpulse_insights` names the other worktrees, live agent
-   sessions, uncommitted work and contended files. Its facets fail independently — check each `ok`,
-   because a facet that could not scan is **not** a facet that came back clean.
+2. **GitPulse Insights before changing.** `gitpulse_insights` names the other **worktrees**,
+   their uncommitted work and the files contended **between worktrees**. Its facets fail
+   independently — check each `ok`, because a facet that could not scan is **not** a facet that
+   came back clean.
    Note: `/Users/bharath/Code` is not a git repository; pass a real repo path.
-3. When either tool cannot answer, record the gap in `gaps.jsonl` with a `GAP-` id and say so.
-   **Never report a grep result as graph-confirmed.**
+3. **`ListAgents` before changing, too — GitPulse does not cover this half.** The collisions
+   facet compares worktrees, so two agents editing one file in the **same** worktree read as
+   `overlapping_files=0`: a clean scan that is wrong about the risk. Nine gap records said this
+   and it happened on 2026-09-21 — two sessions in this worktree, one of them about to patch
+   `tools/real_ft_run.py` while the other was rewriting it. What found the other session was
+   `ListAgents`; what prevented the clobber was `SendMessage` to agree who owned which files.
+   So: `ListAgents` before touching a file, and if a peer is live here, message it and split the
+   tree by file before either of you writes. Treat a peer's claim on a file as binding, and
+   never `git stash` or `git add -A` in a shared worktree — both move the other lane's work.
+4. When either tool cannot answer, record the gap in `gaps.jsonl` with a `GAP-` id and say so.
+   **Never report a grep result as graph-confirmed.** Append with `O_APPEND` + `fsync` and a
+   single line — never read-modify-write, which silently drops a concurrent lane's record.
 
 ## Environment facts (verified 2026-09-19, re-verify before relying on them)
 
