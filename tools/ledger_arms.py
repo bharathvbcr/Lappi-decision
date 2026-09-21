@@ -91,6 +91,24 @@ class Arm:
     def n_rows(self) -> int:
         return len(self.values) + self.unmeasured
 
+    @property
+    def label(self) -> str:
+        """Both halves of the key, because either one alone names two different arms.
+
+        A capacity sweep's arms share a recipe and differ in the backbone; a learning
+        curve's points share a backbone and differ in the recipe, through
+        ``train_subsample``. Labelling an arm by its backbone alone is fine for the first
+        and prints "X minus X" for the second -- which is what the first version of this
+        file did on the curve's own rows, found by running it on them before the numbers
+        mattered.
+        """
+        return f"{self.backbone_commit} recipe {self.recipe_hash[:10]}"
+
+    @property
+    def key(self) -> tuple[str, str]:
+        """Sort order. On the full key, so the report is deterministic when one half ties."""
+        return (self.backbone_commit, self.recipe_hash)
+
 
 def _metric(row: dict, key: str) -> dict | None:
     got = row.get("metrics", {}).get(key)
@@ -182,8 +200,8 @@ def _spread(label: str, sample: list[float], baseline: float | None) -> list[str
 
 def render(arms: dict[tuple[str, str], Arm]) -> list[str]:
     lines: list[str] = []
-    for arm in sorted(arms.values(), key=lambda a: a.backbone_commit):
-        lines.append(f"=== {arm.backbone_commit}  recipe {arm.recipe_hash[:10]} ===")
+    for arm in sorted(arms.values(), key=lambda a: a.key):
+        lines.append(f"=== {arm.label} ===")
         lines.append(
             f"    rows {arm.n_rows}   measured {len(arm.values)}   "
             f"unmeasured {arm.unmeasured}"
@@ -208,7 +226,7 @@ def render_pairwise(arms: dict[tuple[str, str], Arm]) -> list[str]:
     """Arm-vs-arm differences, at the two-arm floor rather than the one-sample one."""
     lines = ["=== arm vs arm (fitted seeds; pooled sd; the sqrt(2) floor) ==="]
     pairs = 0
-    ordered = sorted(arms.values(), key=lambda a: a.backbone_commit)
+    ordered = sorted(arms.values(), key=lambda a: a.key)
     for left, right in itertools.combinations(ordered, 2):
         if len(left.fitted) < 2 or len(right.fitted) < 2:
             continue
@@ -220,8 +238,9 @@ def render_pairwise(arms: dict[tuple[str, str], Arm]) -> list[str]:
         diff = statistics.mean(right.fitted) - statistics.mean(left.fitted)
         verdict = "VISIBLE" if abs(diff) > floor else "inside the floor -- NOT a difference"
         lines.append(
-            f"    {right.backbone_commit} minus {left.backbone_commit}: {diff * 100:+.2f}pp   "
-            f"pooled sd {pooled * 100:.2f}pp   floor at n={n} {floor * 100:.2f}pp   {verdict}"
+            f"    {right.label}\n        minus {left.label}\n        "
+            f"{diff * 100:+.2f}pp   pooled sd {pooled * 100:.2f}pp   "
+            f"floor at n={n} {floor * 100:.2f}pp   {verdict}"
         )
     if not pairs:
         lines.append("    no pair of arms has two fitted seeds each; nothing to compare")

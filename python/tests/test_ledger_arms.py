@@ -160,6 +160,28 @@ def _row_no_base() -> dict:
     return row
 
 
+def test_a_pairwise_line_names_both_arms_distinguishably() -> None:
+    """A learning curve's points share a backbone, so the backbone cannot be the label.
+
+    Against the first version of this file the line reads
+    ``rung0-scratch:128x4:2layer:ctx8192 minus rung0-scratch:128x4:2layer:ctx8192`` -- two
+    different arms with the same name, on the report that compares them. Found by running
+    the tool on the curve's own partial rows before its numbers mattered, which is the only
+    reason it is fixed rather than shipped.
+    """
+    backbone = "rung0-scratch:128x4:2layer:ctx8192"
+    quarter = [_row(backbone=backbone, val=v, recipe="1" * 64) for v in (0.49, 0.50, 0.48)]
+    whole = [_row(backbone=backbone, val=v, recipe="2" * 64) for v in (0.52, 0.53, 0.51)]
+    line = next(
+        ln for ln in ledger_arms.render_pairwise(ledger_arms.arms_of(quarter + whole))
+        if "minus" in ln
+    )
+    left, right = line.split("minus", 1)
+    assert "1111111111" in right and "2222222222" in left, (
+        f"the two sides of the comparison are not distinguishable:\n{line}"
+    )
+
+
 def test_the_arm_vs_arm_floor_is_the_wider_one() -> None:
     """The sqrt(2). Two noisy arms, not an arm against a fixed number.
 
