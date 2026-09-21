@@ -34,6 +34,10 @@ sys.path.insert(0, str(REPO / "tools"))
 
 from real_ft_run import BACKBONE_KEYS, _backbone_commit  # noqa: E402
 
+sys.path.insert(0, str(REPO / "python"))
+
+from qd_train.tristate import NotRun, Ran  # noqa: E402
+
 #: A stand-in recipe, as ``_train`` builds it when ``--real-backbone`` is absent.
 STANDIN: dict[str, object] = {
     "tool": "tools/real_ft_run.py", "tag": "memorise", "device": "cpu",
@@ -138,3 +142,106 @@ def test_the_keys_the_verdict_mirrors_are_enough_to_name_the_backbone() -> None:
     for recipe in (STANDIN, REAL):
         mirrored = {k: recipe[k] for k in BACKBONE_KEYS if k in recipe}
         assert _backbone_commit(mirrored) == _backbone_commit(recipe)
+
+
+# -- the objective's two channels --------------------------------------------------------
+#
+# Rung 0 reached its majority-class baseline four times while its total loss fell 90%,
+# because the span channel opened 6.2x above the choice channel and the two were summed
+# unweighted. `AUDIT/rung0-span-weight-2026-09-20.json` has the sweep. This path sums the
+# same way, and what follows is what stops the same failure being invisible here.
+
+
+def test_the_effective_ratio_is_what_is_recorded_not_the_raw_losses() -> None:
+    """``span_weight`` is half the quantity. The gradient sees ``weight * span`` against
+    ``letter``, so a run at weight 0.05 with a 6:1 raw ratio is a 0.3:1 objective and is
+    not in the regime that collapsed rung 0. Recording the raw ratio would call those two
+    runs the same."""
+    from real_ft_run import _channel_balance
+
+    heavy = _channel_balance({"letter_first": 2.0, "span_first": 12.0, "span_weight": 1.0})
+    light = _channel_balance({"letter_first": 2.0, "span_first": 12.0, "span_weight": 0.05})
+    assert isinstance(heavy, Ran) and isinstance(light, Ran)
+    assert heavy.value == pytest.approx(6.0)
+    assert light.value == pytest.approx(0.3)
+
+
+def test_a_plan_with_only_one_channel_has_no_ratio() -> None:
+    """``--max-width 479`` selects only bucket-0 batches and no letter row in this corpus is
+    shorter than 1,359 tokens, so that plan's letter channel is empty and ``letter_first`` is
+    nan. ``NotRun``: a substituted 0.0 would claim a balanced objective that was never
+    measured, which is the failure ``_floor_state`` already exists to prevent."""
+    from real_ft_run import _channel_balance
+
+    state = _channel_balance(
+        {"letter_first": float("nan"), "span_first": 12.0, "span_weight": 1.0}
+    )
+    assert isinstance(state, NotRun)
+    assert not hasattr(state, "passed")
+
+
+def test_a_zero_letter_channel_is_unmeasured_not_infinite() -> None:
+    """Not a ZeroDivisionError and not ``inf``. A letter loss of exactly 0.0 at the first
+    micro-batch says the ratio is undefined, and ``inf`` in a ledger row would read as a
+    measured domination rather than an absent measurement -- besides not being JSON."""
+    from real_ft_run import _channel_balance
+
+    state = _channel_balance({"letter_first": 0.0, "span_first": 12.0, "span_weight": 1.0})
+    assert isinstance(state, NotRun)
+    assert "not defined" in state.reason
+
+
+def test_the_balance_is_recorded_and_not_gated() -> None:
+    """Rung 0's collapse threshold was measured on a 1.5M-parameter byte model. This path
+    trains a 1.4B backbone, and carrying that bar across is an inference wearing a gate's
+    clothes. The metric passes at any finite ratio; the number is the point."""
+    from real_ft_run import _channel_balance
+
+    catastrophic = _channel_balance(
+        {"letter_first": 2.2, "span_first": 434.0, "span_weight": 1.0}
+    )
+    assert isinstance(catastrophic, Ran)
+    assert catastrophic.passed
+    assert catastrophic.value == pytest.approx(434.0 / 2.2)
+    assert "not gated" in catastrophic.detail
+
+
+def test_the_stand_in_and_the_real_step_weight_the_span_channel_the_same_way() -> None:
+    """The drift the backbone handoff warned about, closed.
+
+    ``QwenDecisionStep`` carried a ``span_weight`` that no caller in this repository ever
+    passed, and ``RealFtStep`` carried none at all -- so the tool's two branches summed
+    their channels by two different rules while claiming to exercise one contract. A
+    stand-in that cannot reproduce the real step's objective cannot rehearse it.
+    """
+    import inspect
+
+    from real_ft_run import RealFtStep
+
+    from qd_train.backbone import QwenDecisionStep
+
+    for step in (RealFtStep, QwenDecisionStep):
+        assert "span_weight" in inspect.signature(step.__init__).parameters
+    source = inspect.getsource(RealFtStep.accumulate_span)
+    assert "self.span_weight * span_loss" in source
+
+
+def test_the_stand_in_refuses_a_non_positive_span_weight() -> None:
+    """The same refusal ``QwenDecisionStep`` makes, in the same words: zero would train the
+    span head on nothing while its loss still appeared in the log."""
+    from real_ft_run import RealFtStep
+
+    with pytest.raises(ValueError, match="span_weight must be positive"):
+        RealFtStep(
+            seed=0, device="cpu", vocab=32, width=16, hidden=8, heads=2, lr=1e-3,
+            span_weight=0.0,
+        )
+
+
+def test_the_span_weight_is_part_of_the_recipe() -> None:
+    """Two runs that summed their channels by different rules are not one protocol. Without
+    this key a sweep over the objective hashes to a single row that contradicts itself --
+    the same defect fixed in ``tools/rung0_real_run.py`` the same day."""
+    source = (REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8")
+    assert '"span_weight": span_weight,' in source
+    assert "span_weight=args.span_weight" in source

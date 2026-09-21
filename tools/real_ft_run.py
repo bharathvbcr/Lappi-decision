@@ -581,9 +581,20 @@ class RealFtStep:
     """
 
     def __init__(self, *, seed: int, device: str, vocab: int, width: int, hidden: int,
-                 heads: int, lr: float) -> None:
+                 heads: int, lr: float, span_weight: float) -> None:
         torch.manual_seed(seed)
+        if not span_weight > 0.0:
+            raise ValueError(
+                f"span_weight must be positive, got {span_weight}; zero would train the span "
+                "head on nothing while its loss still appeared in the log"
+            )
         self.device = device
+        # Required, with no default, and the same refusal `QwenDecisionStep` makes. The two
+        # had drifted in the direction the backbone handoff warned about: `QwenDecisionStep`
+        # carried a `span_weight` that no caller in this repository ever passed, and this
+        # stand-in carried none at all, so the tool's two branches summed their channels by
+        # two different rules while claiming to exercise one contract.
+        self.span_weight = float(span_weight)
         self.max_width = int(width)
         self.embed = nn.Embedding(vocab, hidden).to(device)
         self.position = nn.Parameter(torch.zeros(self.max_width, hidden, device=device))
@@ -654,7 +665,8 @@ class RealFtStep:
         rows = torch.as_tensor(span.rows, device=self.device)
         span_loss = self.span_head.loss(hidden[rows], plan)
         letter = self._letter_loss(hidden, supervision)
-        total = span_loss if letter is None else span_loss + letter
+        weighted = self.span_weight * span_loss
+        total = weighted if letter is None else weighted + letter
         total.backward()
         self.letter_log.append(0.0 if letter is None else float(letter.item()))
         self.span_log.append(float(span_loss.item()))
@@ -909,6 +921,58 @@ def _floor_state(gap: object, rows: object, *, detail: str) -> TriState:
     return Ran(passed=value <= FLOOR_SLACK, value=round(value, 8), n=n, n_total=n, detail=detail)
 
 
+def _channel_balance(run: Mapping[str, object]) -> TriState:
+    """What the optimizer was actually asked to minimise, at the first step that had both.
+
+    ``train.final_loss`` is a sum, and a sum does not say which of its terms moved. Rung 0
+    reached its held-out majority-class baseline four times while its total loss fell 90%,
+    and the cause was this quantity: the span channel opened 6.2x above the choice channel,
+    they were summed unweighted, and the optimizer served the pointer. Measured there, the
+    choice head sat at the training set's own majority share -- a constant predictor -- on
+    every seed at ``span_weight >= 0.5`` and broke free below 0.2. See
+    ``AUDIT/rung0-span-weight-2026-09-20.json``.
+
+    The number recorded here is ``span_weight * span_first / letter_first``: the effective
+    ratio, which is what the gradient sees, rather than the raw losses. It is recorded and
+    **not gated**, deliberately. Rung 0's threshold was measured on a 1.5M-parameter byte
+    model and this path trains a 1.4B backbone; carrying a bar across that gap would be an
+    inference wearing a gate's clothes, which is the failure this repository keeps finding.
+    What the ledger gets is the quantity, so the question can be asked of real rows later
+    instead of re-derived from a run that is gone.
+
+    ``NotRun`` when either channel is absent or non-finite: a plan with no letter row has no
+    ratio, and 0.0 or nan would both read as a balance that was measured and found benign.
+    """
+    letter = float(run["letter_first"])  # type: ignore[arg-type]
+    span = float(run["span_first"])  # type: ignore[arg-type]
+    weight = float(run["span_weight"])  # type: ignore[arg-type]
+    if not (math.isfinite(letter) and math.isfinite(span)):
+        return NotRun(
+            reason=(
+                f"this plan did not open with both channels (letter {letter}, span {span}), "
+                "so there is no ratio between them. A substituted 0.0 would claim a balanced "
+                "objective that was never measured."
+            )
+        )
+    if letter <= 0.0:
+        return NotRun(
+            reason=(
+                f"the letter channel opened at {letter}, so the ratio against it is not "
+                "defined. It is not evidence that the span channel did not dominate."
+            )
+        )
+    return Ran(
+        passed=True,
+        value=weight * span / letter,
+        detail=(
+            f"span {span:.4f} x span_weight {weight} against letter {letter:.4f} at the "
+            f"first micro-batch carrying both: an effective {weight * span / letter:.2f}:1. "
+            "Recorded, not gated -- rung 0 collapsed above roughly 1.2:1 on a 1.5M-parameter "
+            "byte model, and that bar has not been shown to transfer to this backbone."
+        ),
+    )
+
+
 def _counterfactual_holds(shipped: dict[str, object], defect: dict[str, object]) -> bool:
     """Did reading one trained model under the noul-first row order leave the pointers alone?
 
@@ -1029,8 +1093,8 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
 
 def _train(
     *, reader: ShardReader, plan: list[Batch], passes: int, device: str, seed: int,
-    hidden: int, heads: int, lr: float, ledger: Ledger, tag: str, quick_reason: str,
-    backbone: Path | None = None, optimizer_recipe: str = "bf16",
+    hidden: int, heads: int, lr: float, span_weight: float, ledger: Ledger, tag: str,
+    quick_reason: str, backbone: Path | None = None, optimizer_recipe: str = "bf16",
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -1043,6 +1107,11 @@ def _train(
     recipe: dict[str, object] = {
         "tool": "tools/real_ft_run.py", "tag": tag, "device": device,
         "lr": lr, "passes": passes, "batches": len(plan), "width": width,
+        # The objective is part of the recipe, the same way `lr` is. Two runs that summed
+        # their two channels by different rules are not one protocol, and without this key
+        # they hash identically -- which is how a sweep over the objective becomes a single
+        # row in the ledger that contradicts itself.
+        "span_weight": span_weight,
         "shard_hash": reader.header.shard_hash(),
     }
     # Which backbone ran, built once and used three times: here, in this function's return
@@ -1052,7 +1121,7 @@ def _train(
     if backbone is None:
         step: SpanScoringStep = RealFtStep(
             seed=seed, device=device, vocab=int(reader.header.vocab_size), width=width,
-            hidden=hidden, heads=heads, lr=lr,
+            hidden=hidden, heads=heads, lr=lr, span_weight=span_weight,
         )
         # Only meaningful for the stand-in, so only recorded for it: under --real-backbone
         # these determine nothing and would still move recipe_hash.
@@ -1103,7 +1172,7 @@ def _train(
                 "Training would index the wrong row for every token. Refusing."
             )
         tower = remap_text_tower(tower, reader.remap)
-        step = QwenDecisionStep(tower, lr=lr, max_width=width)
+        step = QwenDecisionStep(tower, lr=lr, span_weight=span_weight, max_width=width)
         # `tower.snapshot.name`, not `str(backbone)`: the directory name is the HF revision
         # (refs/main and the snapshot dir agree), while the absolute path is
         # /home/ubuntu/... on the rented box and /Users/bharath/... here. Since this feeds
@@ -1219,6 +1288,7 @@ def _train(
         "span_first": spans[0] if spans else float("nan"),
         "span_last": spans[-1] if spans else float("nan"),
         "span_floor": span_floor,
+        "span_weight": span_weight,
         "total_first": losses[0],
         "total_last": losses[-1],
         "wall_clock_s": round(wall, 3),
@@ -1382,6 +1452,26 @@ def _record_verdict(run: dict[str, object], *, ledger: Ledger, reader: ShardRead
             "ft_run_row_id",
             Ran(passed=True, value=run["ft_row_id"], detail="the train_ft row this is of"),
         )
+        recorder.metric("objective_channel_balance_at_open", _channel_balance(run))
+        for name, key, what in (
+            ("letter_channel_first", "letter_first", "letter loss at the first micro-batch"),
+            ("letter_channel_last", "letter_last", "letter loss at the last"),
+            ("span_channel_first", "span_first", "span loss at the first micro-batch"),
+            ("span_channel_last", "span_last", "span loss at the last"),
+        ):
+            value = float(run[key])  # type: ignore[arg-type]
+            recorder.metric(
+                name,
+                Ran(passed=True, value=value, detail=what)
+                if math.isfinite(value)
+                else NotRun(
+                    reason=(
+                        f"no micro-batch in this plan carried this channel, so {what} is "
+                        "nan. The ledger records that rather than a 0.0 which would read "
+                        "as a channel that was measured and found at zero."
+                    )
+                ),
+            )
         final = run["final"]
         recorder.metric(
             "letter_loss_reached_its_floor",
@@ -1605,6 +1695,16 @@ def main(argv: list[str] | None = None) -> int:
     # Sentinels, not values: which default is right depends on --real-backbone, and a
     # default that silently applies to the wrong backbone is fault 1 below.
     parser.add_argument(
+        "--span-weight", type=float, default=1.0,
+        help=(
+            "multiplier on the span loss in the summed objective, for BOTH the stand-in and "
+            "the real backbone. Default 1.0, which is what every run before 2026-09-20 used "
+            "-- deliberately unchanged: rung 0 collapsed at this setting, but that was a "
+            "1.5M-parameter byte model and moving this default on the strength of it would "
+            "be transferring a threshold that has not been measured here"
+        ),
+    )
+    parser.add_argument(
         "--hidden", type=int, default=None,
         help=f"stand-in only; default {STANDIN_HIDDEN}",
     )
@@ -1693,6 +1793,15 @@ def main(argv: list[str] | None = None) -> int:
         args.hidden = STANDIN_HIDDEN if args.hidden is None else args.hidden
         args.heads = STANDIN_HEADS if args.heads is None else args.heads
         args.lr = STANDIN_LR if args.lr is None else args.lr
+
+    # Refused here rather than inside the step, which is constructed after the shard set has
+    # been read, inventoried and batched -- and on the real backbone, after a 24-second
+    # tower load. The verdict was decidable from argv.
+    if not args.span_weight > 0.0:
+        raise SystemExit(
+            f"--span-weight must be positive, got {args.span_weight}; zero would train the "
+            "span head on nothing while its loss still appeared in the log"
+        )
 
     if args.probe:
         return _run_probe(args.probe)
@@ -1883,7 +1992,8 @@ def main(argv: list[str] | None = None) -> int:
         for seed in args.seeds:
             run = _train(
                 reader=reader, plan=plan_small, passes=args.passes, device=device, seed=seed,
-                hidden=args.hidden, heads=args.heads, lr=args.lr, ledger=ledger,
+                hidden=args.hidden, heads=args.heads, lr=args.lr,
+                span_weight=args.span_weight, ledger=ledger,
                 optimizer_recipe=args.optimizer,
                 backbone=args.real_backbone,
                 tag="memorise", quick_reason=quick_small,
@@ -1953,7 +2063,8 @@ def main(argv: list[str] | None = None) -> int:
             for seed in args.seeds:
                 run = _train(
                     reader=reader, plan=plan_all, passes=1, device=device, seed=seed,
-                    hidden=args.hidden, heads=args.heads, lr=args.lr, ledger=ledger,
+                    hidden=args.hidden, heads=args.heads, lr=args.lr,
+                span_weight=args.span_weight, ledger=ledger,
                 optimizer_recipe=args.optimizer,
                     backbone=args.real_backbone,
                     tag="epoch", quick_reason=quick_epoch,
