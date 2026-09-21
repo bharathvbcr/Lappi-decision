@@ -136,6 +136,11 @@ from ft_toy_run import (
 # real_tokenizer_pipeline.py must agree on the string that goes in and comes out of a shard
 # header, and two copies of "peel it to a commit" is exactly how they would stop agreeing.
 from repo_git import resolve_rev
+
+# Counting GPUs needs torch and `run_control` is torch-free by contract, so the count lives
+# in tools. Its own module rather than this one because `rung0_real_run.py` needs the same
+# answer, and importing this file to get it would load a text tower to count a GPU.
+from run_cost import n_gpus_for_device
 from torch import nn
 
 from qd_data.config import DataConfig
@@ -1200,18 +1205,6 @@ def _what_ran_state() -> Ran:
         n_total=len(sources),
         detail=" ".join(f"{name}={digest[:7]}" for name, digest in sources.items()),
     )
-
-
-def _n_gpus(device: str) -> int | None:
-    """How many GPUs this run is being billed for, counted rather than assumed.
-
-    ``None`` for a local device, where :meth:`CostEstimate.for_device` prices at zero. On
-    cuda it is the visible device count -- which is what a price list charges for, and what
-    gates both the per-GPU column check and the multi-GPU half of rule 4.
-    """
-    if device in CostEstimate.LOCAL_DEVICES:
-        return None
-    return torch.cuda.device_count() if device == "cuda" else None
 
 
 def _control(
@@ -2577,7 +2570,7 @@ def main(argv: list[str] | None = None) -> int:
                 backbone=args.real_backbone,
                 deterministic=args.deterministic,
                 attn_implementation=args.attn_implementation,
-                n_gpus=_n_gpus(device), usd_per_hour=args.usd_per_hour,
+                n_gpus=n_gpus_for_device(device), usd_per_hour=args.usd_per_hour,
                 usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
                 approved_by=args.approved_by,
                 tag="memorise", quick_reason=quick_small,
@@ -2662,7 +2655,7 @@ def main(argv: list[str] | None = None) -> int:
                     backbone=args.real_backbone,
                     deterministic=args.deterministic,
                     attn_implementation=args.attn_implementation,
-                    n_gpus=_n_gpus(device), usd_per_hour=args.usd_per_hour,
+                    n_gpus=n_gpus_for_device(device), usd_per_hour=args.usd_per_hour,
                     usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
                     approved_by=args.approved_by,
                     tag="epoch", quick_reason=quick_epoch,

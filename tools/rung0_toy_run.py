@@ -204,16 +204,18 @@ def _plan(n: int):
 def _control(steps: int, *, device: str) -> RunControl:
     """The cap, the schedule and the price of a local run.
 
-    ``usd_per_hour=0.0`` is a measured fact about this host, not a way around rule 4: a Mac
-    that is already bought costs nothing per hour, ``requires_human_approval`` is therefore
-    False, and no GPU is rented. A run on a rented machine sets a real rate here and
-    ``RunControl`` refuses to start without ``approved_by``.
+    Zero is a measured fact about this host, not a way around rule 4: a Mac that is already
+    bought costs nothing per hour, ``requires_human_approval`` is therefore False, and no
+    GPU is rented. This used to say *"a run on a rented machine sets a real rate here"* and
+    nothing made it -- ``device`` is a parameter, and the literal priced whatever arrived
+    as a Mac. :meth:`CostEstimate.for_device` is what makes it true: cpu and mps are priced
+    exactly as before, and anything else is refused until a caller states the rate.
     """
     cap = WallClockCap(cap_s=900.0)
     return RunControl(
         schedule=LRSchedule(peak_lr=3e-3, warmup_steps=max(1, steps // 10), total_steps=steps),
         cap=cap,
-        cost=CostEstimate(cap=cap, usd_per_hour=0.0, n_gpus=0, instance=f"local-{device}"),
+        cost=CostEstimate.for_device(cap=cap, device=device),
         grad_accum=1,
     )
 

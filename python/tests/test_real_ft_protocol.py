@@ -785,3 +785,23 @@ def test_a_directory_with_no_sources_is_refused_rather_than_returning_empty(tmp_
 
     with pytest.raises(RuntimeError, match="refusing to return an empty fingerprint"):
         code_fingerprint(tmp_path)
+
+
+def test_the_toy_runner_this_tool_imports_from_refuses_a_rented_device() -> None:
+    """The fourth of the four. ``real_ft_run`` reuses ``ft_toy_run``'s floor formulas by
+    import, and the two files also shared the zero-price literal -- so fixing the importer
+    and leaving the imported one is the accumulate-instead-of-replace failure in miniature.
+
+    cpu is asserted to be unchanged rather than merely un-refused: ``for_device`` has to
+    leave the honest case byte-for-byte as it was, or every local run's rows move for a
+    change that was about rented hardware.
+    """
+    import ft_toy_run
+
+    local = ft_toy_run._control(100, device="cpu")
+    assert local.cost.usd_per_hour == 0.0
+    assert local.cost.n_gpus == 0
+    assert local.cost.instance == "local-cpu"
+
+    with pytest.raises(ValueError, match="hardware being paid for by the hour"):
+        ft_toy_run._control(100, device="cuda")

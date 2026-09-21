@@ -153,3 +153,57 @@ def test_every_tool_call_into_this_repository_binds_against_its_callee() -> None
         + "\n  ".join(unchecked[:20])
     )
     print(f"tools/: {checked} call site(s) bound, {len(unchecked)} unchecked")
+
+
+# -- the price every tool puts on the machine it ran on -----------------------------------
+
+
+def test_no_tool_prices_a_rented_machine_at_zero() -> None:
+    """The class, not the case.
+
+    Four tools reached ``CostEstimate`` through one literal --
+    ``usd_per_hour=0.0, n_gpus=0, instance=f"local-{device}"`` -- and the commit that landed
+    ``CostEstimate.for_device`` fixed one of them while its own docstring said there
+    were four. That is what this asserts against, and it is not "a literal got written": a
+    complete list was written down and then not used. The same shape twice in one day.
+
+    Source-level for two reasons. The defect is a literal that reads as deliberate, so it
+    survives review rather than a type check; and three of the four tools import torch,
+    which the repo venv carries none of by design, so importing them here would turn this
+    into a test that does not run.
+
+    **Both numbers.** Every tool is read, the ones that mention ``CostEstimate`` are
+    counted, and an empty set of them fails rather than passing vacuously -- a rename that
+    made this match nothing would otherwise read exactly like a clean repository.
+    """
+    runners = ("real_ft_run.py", "rung0_real_run.py", "rung0_toy_run.py", "ft_toy_run.py")
+
+    mentions: list[str] = []
+    offenders: list[str] = []
+    for path in sorted(TOOLS.glob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        if "CostEstimate" not in source:
+            continue
+        mentions.append(path.name)
+        if "usd_per_hour=0.0, n_gpus=0" in source:
+            offenders.append(path.name)
+
+    assert mentions, (
+        "no tool in tools/ mentions CostEstimate. Either they stopped pricing their runs "
+        "or this test has been renamed out of checking anything"
+    )
+    assert not offenders, (
+        f"{offenders} price a rented box at zero on zero GPUs. Those two values make "
+        "requires_human_approval False for ANY cap -- an 8xH100 job included -- and skip "
+        "the per-GPU column check, and they record the machine as a local one"
+    )
+
+    missing = [
+        name
+        for name in runners
+        if "CostEstimate.for_device(" not in (TOOLS / name).read_text(encoding="utf-8")
+    ]
+    assert not missing, (
+        f"{missing} build a cost estimate without going through for_device, which is the "
+        "one place that refuses to invent a rate for hardware rented by the hour"
+    )

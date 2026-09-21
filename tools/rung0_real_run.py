@@ -72,6 +72,7 @@ if "--deterministic" in sys.argv:
 
 import torch  # noqa: E402
 from repo_git import git_bytes, tracked_paths  # noqa: E402
+from run_cost import n_gpus_for_device  # noqa: E402
 
 from qd_train.byte_batch import BatchPlan, plan_batch, span_supervision  # noqa: E402
 from qd_train.byte_context import ID_PAD, SpanOutsideWindow  # noqa: E402
@@ -533,6 +534,10 @@ def train_once(
     seed: int,
     epochs: int,
     config: ByteDeciderConfig,
+    instance: str | None,
+    usd_per_hour: float | None,
+    usd_per_gpu_hour: float | None,
+    approved_by: str,
 ) -> dict[str, object]:
     """One seed end to end: train on the train files, measure on the validation files."""
     torch.manual_seed(seed)
@@ -548,8 +553,21 @@ def train_once(
     control = RunControl(
         schedule=LRSchedule(peak_lr=3e-3, warmup_steps=max(1, steps // 10), total_steps=steps),
         cap=cap,
-        # A Mac that is already bought costs nothing per hour. Rule 4 is about rented GPUs.
-        cost=CostEstimate(cap=cap, usd_per_hour=0.0, n_gpus=0, instance=f"local-{device}"),
+        # `for_device` prices cpu and mps at zero -- a Mac that is already bought costs
+        # nothing per hour -- and refuses to invent a rate for anything else. The literal
+        # this replaces applied the Mac's price to whatever `--device` named, and `--device`
+        # is a free string: every run this tool made on the rented GH200 recorded
+        # `instance="local-cuda"` on `n_gpus=0` at `usd_per_hour=0.0`. Not an under-report
+        # of a cost -- an assertion that the machine was a local one with no GPUs in it.
+        cost=CostEstimate.for_device(
+            cap=cap,
+            device=device,
+            n_gpus=n_gpus_for_device(device),
+            usd_per_hour=usd_per_hour,
+            usd_per_gpu_hour=usd_per_gpu_hour,
+            instance=instance,
+        ),
+        approved_by=approved_by,
         grad_accum=1,
     )
 
@@ -604,6 +622,39 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True, help="scratch directory for the corpus")
     parser.add_argument("--rev", required=True, help="the revision the corpus is read at")
     parser.add_argument("--device", default="mps")
+    # The price of the device above. `--device` is a free string and this tool priced
+    # whatever it named at a Mac's rate, so these are required with cuda and refused at
+    # argv time without them.
+    parser.add_argument(
+        "--instance",
+        help=(
+            "what machine this is, as a price list names it -- e.g. 'lambda-1xGH200'. "
+            "REQUIRED with --device cuda: a cuda device is rented by the hour, and the "
+            "zero-rate default it used to get made requires_human_approval False for any cap"
+        ),
+    )
+    parser.add_argument(
+        "--usd-per-hour",
+        type=float,
+        help="the WHOLE instance's rate. Required with --device cuda",
+    )
+    parser.add_argument(
+        "--usd-per-gpu-hour",
+        type=float,
+        help=(
+            "the per-GPU column of the same price list. Required by CostEstimate above one "
+            "GPU, where the two columns differ by exactly n_gpus and reading the wrong one "
+            "under-reports the run by that factor -- DESIGN-4's own error"
+        ),
+    )
+    parser.add_argument(
+        "--approved-by",
+        default="",
+        help=(
+            "who said yes. RunControl refuses to start a run whose capped cost needs a "
+            "human and has none: rule 4, multi-GPU always and single-GPU at $20"
+        ),
+    )
     parser.add_argument("--seeds", type=int, default=3)
     parser.add_argument("--epochs", type=int, default=12)
     parser.add_argument("--max-files", type=int, default=400)
@@ -676,6 +727,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="the manifest.json beside --examples; it is what data_snapshot_hash is taken from",
     )
     args = parser.parse_args(argv)
+
+    # Decided from argv, before the corpus is built and before any GPU time is spent.
+    # `CostEstimate.for_device` refuses the same case, but it is reached per-seed inside
+    # `train_once`, which is after the work has started on a rented box.
+    if args.device == "cuda" and (args.instance is None or args.usd_per_hour is None):
+        raise SystemExit(
+            "--device cuda needs --instance and --usd-per-hour. A cuda device is hardware "
+            "rented by the hour; the zero-rate, zero-GPU default that stood in for a price "
+            "makes requires_human_approval False for ANY cap and skips the per-GPU column "
+            "check, so the two values that look like harmless defaults are the two that "
+            "turn rule 4 off. It also recorded the box as instance='local-cuda', a machine "
+            "that does not exist. Example: --instance lambda-1xGH200 --usd-per-hour 1.49"
+        )
 
     if args.deterministic:
         # Before the corpus is built and long before any model runs, so nothing has touched
@@ -833,6 +897,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             seed=seed,
             epochs=args.epochs,
             config=config,
+            instance=args.instance,
+            usd_per_hour=args.usd_per_hour,
+            usd_per_gpu_hour=args.usd_per_gpu_hour,
+            approved_by=args.approved_by,
         )
         runs.append(run)
         after = run["val_after"]  # type: ignore[index]

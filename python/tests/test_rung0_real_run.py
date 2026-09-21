@@ -534,3 +534,91 @@ def test_the_recipe_separates_a_deterministic_rung0_run_from_an_ordinary_one() -
     # And the two levers this tool's sweeps vary are in there with it.
     assert '"span_weight": args.span_weight,' in recipe
     assert '"epochs": args.epochs,' in recipe
+
+
+# -- the price of the machine ------------------------------------------------------------
+#
+# GAP-EVERY-RUN-PRICED-ITSELF-AT-ZERO-ON-ZERO-GPUS, the half that was left. This tool kept
+# `usd_per_hour=0.0, n_gpus=0, instance=f"local-{device}"` under a comment reading "A Mac
+# that is already bought costs nothing per hour" -- while `--device` is a free string and
+# every GH200 run it made passed `--device cuda` straight through it.
+
+
+def test_train_once_takes_the_price_of_the_machine_it_runs_on() -> None:
+    """The same shape as ``span_weight`` above, and the same defect underneath: a quantity
+    that decides what a run means, chosen by something other than this tool, recorded
+    nowhere."""
+    import inspect
+
+    parameters = inspect.signature(tool.train_once).parameters
+    for name in ("instance", "usd_per_hour", "usd_per_gpu_hour", "approved_by"):
+        assert name in parameters, f"train_once cannot state {name}, so it cannot record it"
+
+
+def test_a_cuda_run_without_a_price_is_refused_before_the_corpus_is_built(tmp_path) -> None:
+    """Refused from argv, ahead of every other argv check, so nothing can mask it.
+
+    ``--epochs 0`` is the instrument rather than the subject. It is refused a few lines
+    further down, so a tool that reaches THAT refusal first is a tool that had not yet
+    decided anything about the price -- which is what the pre-fix code does, in
+    milliseconds, instead of spending minutes generating a corpus on a rented box before
+    reaching a verdict that was decidable from argv.
+    """
+    argv = ["--out", str(tmp_path), "--rev", "HEAD", "--device", "cuda", "--epochs", "0"]
+    # Matched on the REFUSAL, never on the flag name: "--instance" alone also matches
+    # argparse's "unrecognized arguments: --instance", so a tool that had never heard of
+    # the flag would pass. test_a_non_positive_span_weight_is_refused_from_argv found that
+    # trap first; this is the same trap.
+    with pytest.raises(SystemExit, match="needs --instance and --usd-per-hour"):
+        tool.main(argv)
+    with pytest.raises(SystemExit, match="needs --instance and --usd-per-hour"):
+        tool.main([*argv, "--instance", "lambda-1xGH200"])
+
+
+def test_the_refusal_says_what_the_two_defaults_actually_did(tmp_path) -> None:
+    """"You forgot an argument" gets the argument added and the number guessed.
+
+    The consequence has to be in the message, and here it is not merely an under-reported
+    cost: at ``n_gpus=0, usd_per_hour=0.0`` both disjuncts of ``requires_human_approval``
+    are False for any cap, and the row asserted ``instance="local-cuda"`` -- a local
+    machine with no GPUs in it, for every run this tool made on a rented GH200.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        tool.main([
+            "--out", str(tmp_path), "--rev", "HEAD", "--device", "cuda", "--epochs", "0",
+        ])
+    message = str(excinfo.value)
+    assert "requires_human_approval" in message and "ANY cap" in message
+    assert "local-cuda" in message, (
+        "the message describes an under-priced run but not the machine that did not exist"
+    )
+    assert "--usd-per-hour 1.49" in message, (
+        "an operator on a rented box should be able to copy a working invocation out of "
+        "the refusal rather than go and read the source"
+    )
+
+
+def test_a_local_run_needs_no_price_and_is_not_refused(tmp_path) -> None:
+    """The control. A refusal that fired on mps too would be found within the hour and
+    routed around by whoever hit it on a Mac -- and an already-bought machine is the case
+    the zero is honest for. ``--epochs 0`` is the marker again: reaching its refusal is
+    what proves the price check let an mps run past."""
+    with pytest.raises(SystemExit, match=r"--epochs must be in"):
+        tool.main([
+            "--out", str(tmp_path), "--rev", "HEAD", "--device", "mps", "--epochs", "0",
+        ])
+
+
+def test_the_toy_runner_beside_it_refuses_the_same_case() -> None:
+    """``rung0_toy_run`` carried the identical literal, under a docstring promising that "a
+    run on a rented machine sets a real rate here". Nothing made that true: ``device`` is a
+    parameter, and the literal priced whatever arrived as a Mac."""
+    import rung0_toy_run
+
+    local = rung0_toy_run._control(100, device="mps")
+    assert local.cost.usd_per_hour == 0.0
+    assert local.cost.n_gpus == 0
+    assert local.cost.instance == "local-mps"
+
+    with pytest.raises(ValueError, match="hardware being paid for by the hour"):
+        rung0_toy_run._control(100, device="cuda")
