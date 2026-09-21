@@ -959,6 +959,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                         # identically and the ledger treats a reproducible number and a
                         # draw from a 2.8-point spread as comparable rows.
                         "deterministic": args.deterministic,
+                        # How much of the training set was used. A learning curve's whole
+                        # content is that its points differ in this and nothing else, and
+                        # `data_snapshot_hash` cannot see it: it comes from the manifest,
+                        # which a subsampled run does not change. Without this a half-data
+                        # arm and a full-data one agree on every protocol field there is,
+                        # and the ledger reads two populations as one protocol measured
+                        # twice -- which is the comparison the flag exists to make.
+                        "train_subsample": args.train_subsample,
                         "rev": args.rev,
                     },
                     sort_keys=True,

@@ -536,6 +536,33 @@ def test_the_recipe_separates_a_deterministic_rung0_run_from_an_ordinary_one() -
     assert '"epochs": args.epochs,' in recipe
 
 
+def test_the_recipe_separates_a_subsampled_training_set_from_a_whole_one() -> None:
+    """``--train-subsample`` changes how much data was trained on and nothing else.
+
+    It is a learning curve: the point of it is that several runs differ ONLY in training-set
+    size, and are compared. That is the same shape as ``--span-weight`` and
+    ``--deterministic``, both of which are in the recipe with a comment saying why, and it
+    is the shape the ledger cannot see through -- ``data_snapshot_hash`` is derived from the
+    manifest, which a subsampled run does not change, so a 50% run and a whole one agree on
+    every protocol field there is.
+
+    Two runs whose entire experimental difference is invisible to ``recipe_hash`` are one
+    protocol measured twice, and pooling a half-data arm with a full-data one is exactly the
+    comparison the flag exists to make.
+
+    Asserted by position, like its neighbour: present in the row but absent from the hash is
+    the failure, not absence altogether.
+    """
+    source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
+    start = source.index("recipe_hash=hashlib.sha256(")
+    end = source.index(").hexdigest(),", start)
+    recipe = source[start:end]
+    assert '"train_subsample": args.train_subsample,' in recipe, (
+        "the recipe hash does not cover --train-subsample, so a run on half the training "
+        "files and a run on all of them hash to the same protocol"
+    )
+
+
 # -- the price of the machine ------------------------------------------------------------
 #
 # GAP-EVERY-RUN-PRICED-ITSELF-AT-ZERO-ON-ZERO-GPUS, the half that was left. This tool kept
