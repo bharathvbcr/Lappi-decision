@@ -184,6 +184,51 @@ source *count* is 29 on both; only the digest distinguishes them. `code_commit` 
 
 ---
 
+### 3a. A record that told the truth to nobody
+
+Everything else in this repository is built so records do not lie. This is the other failure,
+and this lane produced the clearest instance of it.
+
+Two `make gates` rows written here report the torch suite as **1768/1770** and **1794/1796**.
+Both understate the un-run tests by **28**. `python/tests/test_minhash.py:36` is a
+*module-level* `pytest.importorskip("datasketch")`, and pytest counts a module-level skip as
+**one** however many tests are behind it — here 29. The suite ran in `~/.venvs/ml`, where
+datasketch is absent. True pairs: 1768/**1798** and 1794/**1824**.
+
+Nothing was untested — those 29 run in the torch-free suite, where the repo `.venv` has
+datasketch, and no production module imports it. The defect is entirely in the reporting,
+inside the `n/n_total` instrument this repository built so a capped sample is never reported
+as complete coverage.
+
+**The rows said so.** Both carry, in `suite.pytest_torch_python_tests.detail`:
+
+```
+--with pytest --with hypothesis python -m pytest …
+```
+
+No datasketch. The field was accurate, it was written by my own gate run, and it sat in the
+row I was quoting. I cited the pair from the summary line the gate printed to the terminal
+rather than the record underneath it.
+
+So the failure was not a check that was wrong, a number that was stale, or a claim nobody had
+tested. It was **a correct record, present, unread** — preferring the summary to the thing the
+summary was a summary of. Every other lesson today is about making records that do not lie;
+this one is about a record that told the truth to nobody.
+
+Measured both ways at **one** commit, because the first attempt compared two different
+commits and produced 36 — a number that fits and was not measured. At `f2b2197`: 1859+2=1862
+without datasketch, 1889+1=1890 with. Exactly 28.
+
+Corrected at `406822f`, row `8c4b4f3a` superseding both in practice at an exact 1889/1890.
+The two rows are **not** rewritten: a row that was wrong about its own coverage is still a
+true record of what that run reported, and the ledger is append-only.
+`GAP-TWO-GATE-ROWS-I-PUBLISHED-UNDERSTATE-THEIR-OWN-DENOMINATOR` is the correction.
+
+**For whoever runs the suite by hand:** `--with pytest --with hypothesis` is not enough. Use
+`make torch-pytest`, which builds from the single `TORCH_PYTEST_RUN` spelling that also writes
+the ledger row. Every suite count this lane quoted before `406822f` came from a command
+missing a declared dependency.
+
 ## 4. What changed (commits by this lane)
 
 | commit | what |
@@ -195,6 +240,11 @@ source *count* is 29 on both; only the digest distinguishes them. `code_commit` 
 | `77aaf2b` | `tools/ledger_arms.py` — read a sweep back from its rows |
 | `bc3901e` | name both arms on a line that compares two arms; + the curve-legibility gap |
 | `afa7c1f` | the curve: ledger + `AUDIT/rung0-learning-curve-2026-09-21.json` |
+| `9e2b358` | correct the curve's floors — the t case I quoted was the smallest in play |
+| `735eff4` | say §1's rows are weaker evidence than §2's, which this file had implied they were not |
+| `2e2166f` | answer the science question on the 699: re-pinnable only by redoing |
+| `7435c1a` | print both floors from `ledger_arms.py`, known-sd and estimated-sd |
+| `406822f` | correct two gate rows that understated their own denominator by 28 (§3a) |
 
 `tools/ledger_arms.py` is the durable piece. Nothing in `tools/` read rows back before it;
 every runner writes them and the reading was done by parsing stdout. It groups on
