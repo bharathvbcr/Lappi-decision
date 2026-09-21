@@ -549,7 +549,7 @@ def test_a_real_backbone_trains_through_train_ft_and_the_loss_falls(tmp_path):
     parameters -- which is the claim, and the only one twelve steps can support.
     """
     tower, _ = _tiny_tower(tmp_path)
-    step = QwenDecisionStep(tower, lr=1e-3, total_steps=1, max_width=64)
+    step = QwenDecisionStep(tower, lr=1e-3, total_steps=12, max_width=64)
     ledger = Ledger(tmp_path / "ledger.jsonl")
     result = train_ft(
         (_ft_batch(i) for i in range(12)),
@@ -722,7 +722,7 @@ def test_a_bf16_tower_under_the_master_recipe_trains_and_stays_bf16(tmp_path):
 
     master_spec = OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
     tower, _ = _tiny_tower(tmp_path, dtype="bf16", optimizer=master_spec)
-    step = QwenDecisionStep(tower, lr=1e-2, total_steps=1, max_width=64)
+    step = QwenDecisionStep(tower, lr=1e-2, total_steps=5, max_width=64)
     before = tower.model.get_input_embeddings().weight.detach().clone()
 
     batch = _ft_batch(0)
@@ -734,3 +734,173 @@ def test_a_bf16_tower_under_the_master_recipe_trains_and_stays_bf16(tmp_path):
     assert after.dtype == torch.bfloat16, f"the live weights became {after.dtype}"
     assert not torch.equal(after, before), "the tower did not train"
     assert torch.isfinite(after).all(), "the tower has non-finite weights after 5 steps"
+
+
+# --- resume, through the REAL step -------------------------------------------------------
+#
+# `trainer.py` promises a bit-exact resume and `test_trainer.py` proves it -- for `TinyStep`,
+# a test double. Every resume test in this repository uses one. These drive the same
+# property through `QwenDecisionStep`, which is the step a full train actually runs.
+
+
+def _twelve_step_losses(tmp_path: Path, *, legs: tuple[int, ...]) -> list[float]:
+    """Run 12 FT steps as ``legs`` consecutive runs, resuming across each boundary.
+
+    ``legs=(12,)`` is the uninterrupted reference. ``legs=(6, 6)`` is the same schedule
+    across one kill. Every leg builds a FRESH step from the same deterministic snapshot, so
+    anything the checkpoint fails to carry shows up as a divergence rather than being
+    quietly supplied by the object that survived in memory.
+    """
+    from qd_train.run_control import Checkpoint
+
+    resume_from = None
+    consumed = 0
+    losses: list[float] = []
+    for leg, n in enumerate(legs):
+        tower, _ = _tiny_tower(tmp_path)
+        step = QwenDecisionStep(tower, lr=1e-3, total_steps=12, max_width=64)
+        result = train_ft(
+            (_ft_batch(i) for i in range(consumed + n)),
+            epoch=0,
+            step=step,
+            control=_control(12),
+            recorder=_recorder(tmp_path / f"leg{leg}"),
+            resume_from=resume_from,
+        )
+        losses = result.loss_log.losses()
+        consumed += n
+        if leg + 1 < len(legs):
+            # Through a real file, not the live object: a checkpoint that only works while
+            # the process that wrote it is still alive is not a checkpoint.
+            path = result.checkpoint.write(tmp_path / f"ckpt{leg}" / "run.json")
+            resume_from = Checkpoint.read(path)
+    return losses
+
+
+def test_the_real_step_resumes_the_trajectory_it_was_cut_from(tmp_path):
+    """The property a full train rests on, driven through the real step for the first time.
+
+    A rented box interrupted at hour three has to come back to the run it was having, not to
+    a model with the right weights and an optimizer that forgot everything. The difference
+    is invisible in the weights -- they restore exactly -- and shows up only in what the
+    next step does with them.
+    """
+    reference = _twelve_step_losses(tmp_path / "whole", legs=(12,))
+    across_a_kill = _twelve_step_losses(tmp_path / "split", legs=(6, 6))
+    assert len(reference) == 12
+    assert across_a_kill == pytest.approx(reference, rel=1e-6, abs=1e-8), (
+        "a run resumed at the half-way point did not reproduce the uninterrupted "
+        "trajectory: the checkpoint did not carry everything the next step reads"
+    )
+
+
+def test_the_checkpoint_carries_the_optimizer_and_not_only_the_weights(tmp_path):
+    """Stated directly, because the trajectory test above says only that something is
+    missing and not what.
+
+    ``torch.optim.AdamW`` keeps ``exp_avg`` and ``exp_avg_sq`` per parameter and a step
+    count that drives bias correction. A resume that restores weights and leaves those at
+    zero re-enters warm-up on a model that is no longer warming up: the first step after
+    every resume boundary is taken with an empty second moment, which is the largest step
+    the schedule can produce, applied to the most trained weights in the run.
+    """
+    tower, _ = _tiny_tower(tmp_path)
+    step = QwenDecisionStep(tower, lr=1e-3, total_steps=4, max_width=64)
+    train_ft(
+        (_ft_batch(i) for i in range(4)),
+        epoch=0,
+        step=step,
+        control=_control(4),
+        recorder=_recorder(tmp_path / "run"),
+    )
+    state = step.state()
+    assert "optimizer" in state, (
+        "QwenDecisionStep.state() carries the tower and the span head and not the "
+        "optimizer, so every resume silently restarts AdamW's moments from zero"
+    )
+
+
+def test_the_master_recipe_resumes_too_including_its_fp32_masters(tmp_path):
+    """The recipe a LONG run has to use, which is a different state shape.
+
+    ``build_optimizer`` refuses a schedule past step 384 on bf16 moments, so any full train
+    takes the ``keeps_fp32_master=True`` branch -- and ``MasterWeightAdamW.state_dict``
+    returns ``{"inner": ..., "masters": ...}`` where ``torch.optim.AdamW`` returns
+    ``{"state": ..., "param_groups": ...}``. A serialiser that handled only the second
+    shape would work on every short test here and fail on the first real checkpoint.
+
+    The masters specifically matter: ``MasterWeightAdamW.load_state_dict`` refuses a state
+    without them, because rebuilding masters from the bf16 parameters throws away exactly
+    the precision the class exists to keep, and does it silently.
+    """
+    from qd_train.memory import OptimizerSpec
+    from qd_train.optim import MasterWeightAdamW
+    from qd_train.run_control import Checkpoint, TensorRef
+
+    master_spec = OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
+
+    def leg(where: Path, n: int, resume_from):
+        tower, _ = _tiny_tower(where, dtype="bf16", optimizer=master_spec)
+        step = QwenDecisionStep(tower, lr=1e-3, total_steps=8, max_width=64)
+        assert isinstance(step.optimizer, MasterWeightAdamW)
+        return step, train_ft(
+            (_ft_batch(i) for i in range(n)),
+            epoch=0,
+            step=step,
+            control=_control(8),
+            recorder=_recorder(where / "rec"),
+            resume_from=resume_from,
+        )
+
+    _, whole = leg(tmp_path / "whole", 8, None)
+    first_step, first = leg(tmp_path / "split", 4, None)
+
+    # The masters are fp32 while the live parameters are bf16, and that is the whole point:
+    # a checkpoint that carried only the live weights would come back rounded.
+    body = first_step.state()["optimizer"]
+    masters = body["masters"]
+    assert masters, "the master copies did not reach the checkpoint body"
+    assert all(isinstance(m, TensorRef) for m in masters)
+    assert {m.dtype for m in masters} == {"float32"}
+
+    path = first.checkpoint.write(tmp_path / "ckpt" / "run.json")
+    _, resumed = leg(tmp_path / "split", 8, Checkpoint.read(path))
+    assert resumed.loss_log.losses() == pytest.approx(
+        whole.loss_log.losses(), rel=1e-6, abs=1e-8
+    )
+
+
+def test_a_checkpoint_without_its_optimizer_is_refused_rather_than_half_loaded(tmp_path):
+    """A weights-only state loads cleanly and resumes a run whose moments are zero, which
+    looks like a working resume and is not one. That is the failure this whole pair of
+    tests exists for, so it is refused by name."""
+    tower, _ = _tiny_tower(tmp_path)
+    step = QwenDecisionStep(tower, lr=1e-3, total_steps=2, max_width=64)
+    weights_only = {k: v for k, v in step.state().items() if k != "optimizer"}
+    with pytest.raises(BackboneContractViolation, match="optimizer"):
+        step.load_state(weights_only)
+
+
+def test_the_optimizers_integer_keys_survive_the_json_body(tmp_path):
+    """``torch.optim.Optimizer.state_dict()`` keys its ``state`` by parameter INDEX, and the
+    checkpoint body refuses a non-string key outright -- so the indices are stringified on
+    the way out. Restoring them as strings would hand torch a state whose parameters it
+    cannot match, and it does not complain about that."""
+    tower, _ = _tiny_tower(tmp_path)
+    step = QwenDecisionStep(tower, lr=1e-3, total_steps=2, max_width=64)
+    train_ft(
+        (_ft_batch(i) for i in range(2)),
+        epoch=0,
+        step=step,
+        control=_control(2),
+        recorder=_recorder(tmp_path / "rec"),
+    )
+    body = step.state()["optimizer"]
+    assert body["state"], "the optimizer had taken steps but carried no per-parameter state"
+    assert all(isinstance(k, str) for k in body["state"])
+    revived = step._revive_optimizer(body)
+    assert revived["state"], "the revived state lost its entries"
+    assert all(isinstance(k, int) for k in revived["state"]), (
+        "the parameter indices came back as strings; torch would not match them to "
+        "parameters and would not say so"
+    )

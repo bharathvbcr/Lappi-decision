@@ -910,10 +910,82 @@ class QwenDecisionStep:
         return {
             "tower": refs(self.tower.model),
             "span_head": refs(self.span_head),
+            # The optimizer, because a checkpoint without it is not one. This module's own
+            # `run_control` says so in its header -- "a resume from weights alone restarts
+            # Adam's moments from zero and does not reproduce the trajectory, which is the
+            # property S5 rests on" -- and `MAX_SIDECAR_BYTES` was derived from "weights and
+            # optimizer state in fp32". Everything was sized for this and nothing put it
+            # here, so every resume silently re-entered warm-up on a trained model.
+            # Measured on a tiny tower: 12 steps taken as 6+6 across a written checkpoint
+            # diverged from the uninterrupted 12 at 5 of 12 losses.
+            "optimizer": self._optimizer_refs(),
             "micro_batches": len(self.letter_log),
             "span_weight": self.span_weight,
             "vocab_size": self.tower.vocab_size,
         }
+
+    #: Where ``torch.optim.Optimizer.state_dict()`` keys a dict by parameter INDEX rather
+    #: than by name. Everything else in an optimizer state is string-keyed, and the
+    #: checkpoint body refuses a non-string key outright, so exactly this sub-tree is
+    #: stringified on the way out and restored on the way back.
+    _INT_KEYED: Final[str] = "state"
+
+    def _optimizer_refs(self) -> dict[str, Any]:
+        """The optimizer's ``state_dict`` as JSON values and [`TensorRef`].
+
+        Shape-agnostic on purpose: ``torch.optim.AdamW`` returns ``{"state": ...,
+        "param_groups": ...}`` and [`qd_train.optim.MasterWeightAdamW`] returns ``{"inner":
+        ..., "masters": ...}``, and a walker that recurses handles both without either
+        being named here. The one structural fact it does encode is [`_INT_KEYED`].
+        """
+        torch = self._torch
+
+        from .run_control import TensorRef
+
+        def convert(value: Any, *, numeric_keys: bool) -> Any:
+            if isinstance(value, torch.Tensor):
+                host = value.detach().to("cpu").contiguous()
+                return TensorRef(
+                    dtype=str(host.dtype).removeprefix("torch."),
+                    shape=tuple(host.shape),
+                    data=host.reshape(-1).view(torch.uint8).numpy().tobytes(),
+                )
+            if isinstance(value, dict):
+                return {
+                    str(key): convert(item, numeric_keys=key == self._INT_KEYED)
+                    for key, item in value.items()
+                }
+            if isinstance(value, (list, tuple)):
+                return [convert(item, numeric_keys=numeric_keys) for item in value]
+            return value
+
+        return convert(self.optimizer.state_dict(), numeric_keys=False)
+
+    def _revive_optimizer(self, body: Any) -> Any:
+        """The inverse of [`_optimizer_refs`], including the integer keys."""
+        import torch
+
+        from .run_control import TensorRef
+
+        def convert(value: Any, *, numeric_keys: bool) -> Any:
+            if isinstance(value, TensorRef):
+                dtype = getattr(torch, value.dtype)
+                return (
+                    torch.frombuffer(bytearray(value.data), dtype=dtype)
+                    .reshape(value.shape)
+                    .clone()
+                )
+            if isinstance(value, dict):
+                return {
+                    (int(key) if numeric_keys and key.lstrip("-").isdigit() else key):
+                    convert(item, numeric_keys=key == self._INT_KEYED)
+                    for key, item in value.items()
+                }
+            if isinstance(value, list):
+                return [convert(item, numeric_keys=numeric_keys) for item in value]
+            return value
+
+        return convert(body, numeric_keys=False)
 
     def load_state(self, state: Mapping[str, Any]) -> None:
         """Revive what [`state`] produced. The digests were already checked by ``Checkpoint``."""
@@ -921,11 +993,16 @@ class QwenDecisionStep:
 
         from .run_control import TensorRef
 
-        missing = {"tower", "span_head", "span_weight", "vocab_size"} - set(state)
+        missing = {"tower", "span_head", "span_weight", "vocab_size", "optimizer"} - set(
+            state
+        )
         if missing:
             raise BackboneContractViolation(
                 f"this checkpoint state is missing {sorted(missing)}; it was not written by "
-                "QwenDecisionStep.state and restoring from it would guess at the rest."
+                "QwenDecisionStep.state and restoring from it would guess at the rest. "
+                "'optimizer' is in that set deliberately: a state carrying only weights "
+                "loads without complaint and resumes a run whose moments are zero, which "
+                "looks like a working resume and is not one."
             )
         if int(state["vocab_size"]) != self.tower.vocab_size:
             raise BackboneContractViolation(
@@ -956,4 +1033,10 @@ class QwenDecisionStep:
         self.span_head.load_state_dict(
             revive(state["span_head"], where="span_head"), strict=True
         )
+        # After the parameters, never before: `torch.optim.Optimizer.load_state_dict` casts
+        # each restored state tensor to the dtype and device of the parameter it belongs to,
+        # so loading it against parameters that are about to be replaced would cast against
+        # the wrong ones. The two halves are also restored together or not at all --
+        # `MasterWeightAdamW.load_state_dict` refuses a partial state for the same reason.
+        self.optimizer.load_state_dict(self._revive_optimizer(state["optimizer"]))
         self.span_weight = float(state["span_weight"])
