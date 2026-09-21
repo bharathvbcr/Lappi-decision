@@ -439,9 +439,20 @@ def _protocol(*, seed: int, device: str, steps: int, rows: int) -> Protocol:
         data_snapshot_hash=digest(_rows(rows)),
         tokenizer_hash=f"bytes:{digest({'pad': ID_PAD, 'codec': 'qd_train.byte_context'})}",
         backbone_commit=f"scratch:{digest(TOY.__dict__ if hasattr(TOY, '__dict__') else str(TOY))}",
-        recipe_hash=digest({"steps": steps, "rows": rows, "device": device, "tool": "rung0_toy"}),
+        recipe_hash=digest(_recipe(steps=steps, rows=rows, device=device)),
         seed=seed,
     )
+
+
+def _recipe(*, steps: int, rows: int, device: str) -> dict[str, object]:
+    """The settings that identify one toy run from another, in one place.
+
+    One owner because two callers need it: the hash above, which makes two recipes
+    incomparable, and the row below, which says what they were. Built twice they could
+    drift, and a row whose stored recipe does not hash to its own `recipe_hash` is worse
+    than a row with no recipe at all.
+    """
+    return {"steps": steps, "rows": rows, "device": device, "tool": "rung0_toy"}
 
 
 def _record(run: dict, *, ledger: Ledger, wiring: dict, steps: int, rows: int) -> str:
@@ -463,6 +474,7 @@ def _record(run: dict, *, ledger: Ledger, wiring: dict, steps: int, rows: int) -
         # printed as a JSON report, and a CostEstimate in it is a TypeError -- which is
         # exactly how this was found, on the first end-to-end run after the cost wiring.
         cost=_control(steps, device=str(run["device"])).cost,
+        recipe=_recipe(steps=steps, rows=rows, device=str(run["device"])),
         quick=True,
         quick_reason=(
             f"toy run: {steps} optimizer steps over {rows} synthetic rows on "

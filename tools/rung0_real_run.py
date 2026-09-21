@@ -947,6 +947,42 @@ def main(argv: Sequence[str] | None = None) -> int:
     corpus_hash = hashlib.sha256(
         json.dumps(manifest, sort_keys=True).encode("utf-8")
     ).hexdigest()
+    # Named rather than written inline into the hash. Every field below went into
+    # `recipe_hash` and was stored nowhere readable, so a row could say two arms differ and
+    # not say how: the concurrent lane recovered a learning curve's point labels on
+    # 2026-09-21 by re-hashing four candidate `train_subsample` values with the other seven
+    # fields pinned at the launch command's -- which works, and needs the launch command.
+    # One object now reaches both the hash that makes the arms incomparable and the row
+    # that says what they were, so the two cannot drift.
+    recipe = {
+        "epochs": args.epochs,
+        "batch_size": args.batch_size,
+        "val_share": args.val_share,
+        "lr": 3e-3,
+        # The objective is part of the recipe. Without this the five points of the
+        # span-weight sweep hash identically, and two runs that optimised different things
+        # become one protocol in the ledger -- which is exactly the comparison the sweep
+        # exists to make.
+        "span_weight": args.span_weight,
+        # Deterministic and nondeterministic runs are different protocols, not the same
+        # protocol measured twice. Without this they hash identically and the ledger treats
+        # a reproducible number and a draw from a 2.8-point spread as comparable rows.
+        "deterministic": args.deterministic,
+        # How much of the training set was used. A learning curve's whole content is that
+        # its points differ in this and nothing else, and `data_snapshot_hash` cannot see
+        # it: it comes from the manifest, which a subsampled run does not change. Without
+        # this a half-data arm and a full-data one agree on every protocol field there is,
+        # and the ledger reads two populations as one protocol measured twice.
+        "train_subsample": args.train_subsample,
+        "rev": args.rev,
+    }
+    # `sort_keys=True` and no `separators`, unchanged: this is the hash the 61 capacity
+    # rows and the learning curve running on the box were written with, and changing the
+    # bytes it hashes would make every row written after today incomparable with them.
+    recipe_hash = hashlib.sha256(
+        json.dumps(recipe, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
     runs: list[dict[str, object]] = []
     for seed in range(args.seeds):
         protocol = Protocol(
@@ -956,36 +992,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"rung0-scratch:{config.width}x{config.n_heads}:{config.n_layers}layer:"
                 f"ctx{config.max_context_bytes}"
             ),
-            recipe_hash=hashlib.sha256(
-                json.dumps(
-                    {
-                        "epochs": args.epochs,
-                        "batch_size": args.batch_size,
-                        "val_share": args.val_share,
-                        "lr": 3e-3,
-                        # The objective is part of the recipe. Without this the five points
-                        # of the span-weight sweep hash identically, and two runs that
-                        # optimised different things become one protocol in the ledger --
-                        # which is exactly the comparison the sweep exists to make.
-                        "span_weight": args.span_weight,
-                        # Deterministic and nondeterministic runs are different protocols,
-                        # not the same protocol measured twice. Without this they hash
-                        # identically and the ledger treats a reproducible number and a
-                        # draw from a 2.8-point spread as comparable rows.
-                        "deterministic": args.deterministic,
-                        # How much of the training set was used. A learning curve's whole
-                        # content is that its points differ in this and nothing else, and
-                        # `data_snapshot_hash` cannot see it: it comes from the manifest,
-                        # which a subsampled run does not change. Without this a half-data
-                        # arm and a full-data one agree on every protocol field there is,
-                        # and the ledger reads two populations as one protocol measured
-                        # twice -- which is the comparison the flag exists to make.
-                        "train_subsample": args.train_subsample,
-                        "rev": args.rev,
-                    },
-                    sort_keys=True,
-                ).encode("utf-8")
-            ).hexdigest(),
+            recipe_hash=recipe_hash,
             seed=seed,
         )
         with RunRecorder(
@@ -1010,6 +1017,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 usd_per_gpu_hour=args.usd_per_gpu_hour,
             ),
             quick=True,
+            # The same object `recipe_hash` was computed from, so the row says what the
+            # hash only distinguishes.
+            recipe=recipe,
             quick_reason=(
                 "the corpus is this repository's own sources rather than the pool the plan "
                 "names, which rule 8 counts as a subsample"

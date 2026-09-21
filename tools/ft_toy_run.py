@@ -697,9 +697,20 @@ def _protocol(*, seed: int, device: str, steps: int, rows: list[_Row], tag: str)
         data_snapshot_hash=digest([dataclasses.asdict(r) for r in rows]),
         tokenizer_hash=f"toy:{digest({'letters': LETTER_ID, 'pad': ID_PAD, 'vocab': VOCAB})}",
         backbone_commit=f"scratch:{digest({'h': HIDDEN, 'heads': N_HEADS, 'width': WIDTH})}",
-        recipe_hash=digest({"steps": steps, "device": device, "tool": "ft_toy", "tag": tag}),
+        recipe_hash=digest(_recipe(steps=steps, device=device, tag=tag)),
         seed=seed,
     )
+
+
+def _recipe(*, steps: int, device: str, tag: str) -> dict[str, object]:
+    """The settings that identify one toy ft run from another, in one place.
+
+    One owner because two callers need it: the hash above, which makes two recipes
+    incomparable, and the row below, which says what they were. Built twice they could
+    drift, and a row whose stored recipe does not hash to its own `recipe_hash` is worse
+    than a row with no recipe at all.
+    """
+    return {"steps": steps, "device": device, "tool": "ft_toy", "tag": tag}
 
 
 def _recorder(
@@ -725,6 +736,7 @@ def _recorder(
         # one spelling of what a run on this device costs and the row cannot disagree with
         # the estimate that gated it. Construction is pure; nothing is armed until start().
         cost=_control(steps, device=device).cost,
+        recipe=_recipe(steps=steps, device=device, tag=tag),
         quick=True,
         quick_reason=(
             f"toy FT run: {steps} optimizer steps over {len(rows)} synthetic rows on {device}, "

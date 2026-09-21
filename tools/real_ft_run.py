@@ -1313,6 +1313,10 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
         env=Environment.detect(device=str(recipe["device"])),
         wall_clock_s=wall_clock_s,
         cost=cost,
+        # The same dict `_protocol` hashed into `recipe_hash`, stored as well as hashed.
+        # The hash makes two recipes incomparable and says nothing about how they differ;
+        # a sweep's rows could not name their own arm without the launch command.
+        recipe=recipe,
         quick=True,
         quick_reason=quick_reason,
         notes=notes,

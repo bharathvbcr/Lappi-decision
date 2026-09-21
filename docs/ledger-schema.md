@@ -61,8 +61,37 @@ not a rounding choice.
 | `controls` | object | `{shuffled_label, privileged_hunk, degenerate_head, transfer_gate}` — all tri-states |
 | `gates` | object | `{paired_margin_vs_linear, ood_abstain, needle_hunk_recall, permutation_consistency, ece}` — all tri-states |
 | `wall_clock_s` | number | measured, not estimated |
+| `wall_clock_source` | enum | `caller` \| `recorder` \| `unrecorded` — where the duration above came from. Added 2026-09-21 (`a409895`); rows written before it read back as `unrecorded`, which is what they say, rather than being assigned a source nobody wrote down |
 | `cost_usd` | number | measured from instance rate x wall clock |
 | `notes` | string | free text; never parsed by a gate |
+| `recipe` | object \| null | the settings `protocol.recipe_hash` was taken of, stored as well as hashed. `null` on a row that does not record them, which is every row written before 2026-09-21 — never `{}`, which would claim the run had no settings |
+
+### `recipe`
+
+`recipe_hash` makes two runs of different settings incomparable, which is its job, and it
+makes neither of them readable. Until 2026-09-21 every field a runner varied —
+`train_subsample`, `epochs`, `batch_size`, `val_share`, `lr`, `span_weight`, `deterministic`
+— went into the hash's input and was stored nowhere, so a row could say that two arms of a
+sweep were not comparable and not say how they differed. Labelling the three points of a
+learning curve that day took re-hashing four candidate `train_subsample` values against the
+other seven fields pinned at the launch command's: correct, and it recovers the label from
+the log by a longer route rather than from the row.
+
+Rules:
+
+* **It is the same object the hash was taken of.** Every runner builds the recipe once,
+  names it, and passes that name to both. A stored recipe that does not reproduce the row's
+  own `recipe_hash` is worse than no recipe, because it reads as an answer.
+* **`null` means unrecorded, not empty.** `{}` would claim the run had no settings; a run
+  with a `recipe_hash` always had some. `LedgerRow` refuses an empty mapping.
+* **It does not enter any hash.** `protocol_hash` and `recipe_hash` are unchanged by its
+  presence, so rows written before it stay comparable with rows written after — which
+  matters: the capacity sweep and the learning curve of 2026-09-21 were written without it.
+* **Each tool keeps its own spelling of the hash.** `tools/real_ft_run.py` uses
+  `separators=(",", ":")` and `tools/rung0_real_run.py` does not, so the two produce
+  different hashes for identical dicts. Unifying them would move every future
+  `recipe_hash` and break comparability with every row already written, which is why it has
+  not been done; see `GAP-SIX-SPELLINGS-OF-ONE-RECIPE-HASH`.
 
 ### `metrics` keys
 

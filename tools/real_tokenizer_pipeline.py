@@ -960,24 +960,21 @@ def main(argv: list[str] | None = None) -> int:
             "cannot be stated. A protocol naming no backbone identifies nothing; refusing "
             "to write a row rather than inventing one."
         )
+    # Named so the row can carry it as well as be identified by it.
+    recipe = {
+        "tool": "tools/real_tokenizer_pipeline.py",
+        "model": MODEL,
+        "max_pairs": args.max_pairs,
+        "blank_line_runs": bool(args.blank_line_runs),
+        "rev": args.rev,
+    }
     protocol = Protocol(
         # Filled after the run, which is why this is a placeholder only until then: a
         # Protocol is frozen, so the real one is built from what the run measured.
         data_snapshot_hash="pending",
         tokenizer_hash="pending",
         backbone_commit=MODEL_REF.read_text(encoding="utf-8").strip(),
-        recipe_hash=hashlib.sha256(
-            json.dumps(
-                {
-                    "tool": "tools/real_tokenizer_pipeline.py",
-                    "model": MODEL,
-                    "max_pairs": args.max_pairs,
-                    "blank_line_runs": bool(args.blank_line_runs),
-                    "rev": args.rev,
-                },
-                sort_keys=True,
-            ).encode()
-        ).hexdigest(),
+        recipe_hash=hashlib.sha256(json.dumps(recipe, sort_keys=True).encode()).hexdigest(),
         seed=DataConfig().seed,
     )
     # `run()` is the work this row describes, and it finishes before the recorder is built
@@ -1008,6 +1005,8 @@ def main(argv: list[str] | None = None) -> int:
         # outside CostEstimate.LOCAL_DEVICES the recorder refuses this rather than writing
         # an unstated zero that reads like a measured one.
         cost=None,
+        # The same object the `recipe_hash` above was taken of.
+        recipe=recipe,
         quick=True,
         quick_reason=(
             "one seed, and a corpus drawn from this repository alone rather than from the "

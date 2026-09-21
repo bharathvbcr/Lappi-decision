@@ -32,7 +32,7 @@ import threading
 import time
 import types
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -671,6 +671,21 @@ class LedgerRow:
     #: row: it says nothing, and says so. Defaulting it to ``"recorder"`` instead would be
     #: an inference about 799 existing rows dressed up as a record of them.
     wall_clock_source: str = "unrecorded"
+    #: The settings that produced `protocol.recipe_hash`, stored rather than only hashed.
+    #:
+    #: The hash makes two runs of different recipes incomparable, which is its job, and it
+    #: makes neither of them readable. Every field a runner varies -- `train_subsample`,
+    #: `epochs`, `batch_size`, `val_share`, `lr`, `span_weight`, `deterministic` -- went
+    #: into the hash's input and was stored nowhere, so a row could not say which arm of a
+    #: sweep it was. The concurrent lane recovered a three-point learning curve's labels on
+    #: 2026-09-21 by re-hashing four candidate values against seven fields held at the
+    #: launch command's values: correct, and it needs the launch command, which means the
+    #: row was identified from the log rather than from itself.
+    #:
+    #: `None` for a row written before this field existed, and read back as `None` rather
+    #: than `{}`: a row that says nothing about its recipe is not a row that ran without
+    #: settings.
+    recipe: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.run_kind not in _RUN_KINDS:
@@ -696,7 +711,44 @@ class LedgerRow:
             raise ValueError("wall_clock_s and cost_usd are measured, finite quantities")
         if self.wall_clock_s < 0 or self.cost_usd < 0:
             raise ValueError("wall_clock_s and cost_usd are measured, non-negative quantities")
+        self._validate_recipe(self.recipe)
         self._check_build_marker()
+
+    @staticmethod
+    def _validate_recipe(recipe: Mapping[str, Any] | None) -> None:
+        """A recorded recipe has to be one, and has to survive the trip to JSON.
+
+        A static method with one owner because `RunRecorder.__init__` asks the same
+        question hours earlier than the row does, and asking it there is the point: a
+        recipe that cannot be serialised would otherwise be discovered at `json.dumps`
+        time, after the run, with the row as the casualty -- the failure mode `cost` and
+        `wall_clock_s` are both validated at construction to avoid.
+
+        An empty one is refused for a different reason. `{}` recorded as *the recipe* says
+        the run had no settings, which is never true of a run that has a `recipe_hash`;
+        `None` is how a row says it does not record them.
+        """
+        if recipe is None:
+            return
+        if not isinstance(recipe, Mapping) or not recipe:
+            raise ValueError(
+                f"recipe={recipe!r} is not a non-empty mapping. A row whose recipe is "
+                "empty claims the run had no settings, and a run with a recipe_hash always "
+                "had some; pass None to say this row does not record them"
+            )
+        bad_keys = sorted(repr(k) for k in recipe if not isinstance(k, str))
+        if bad_keys:
+            raise ValueError(
+                f"recipe keys must be strings; got {bad_keys}. JSON has no other kind, so "
+                "a non-string key would be silently rewritten on the way into the row"
+            )
+        try:
+            _canonical(dict(recipe))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"recipe is not JSON-serialisable ({exc}). It is written into the row, so "
+                "a value that cannot be serialised loses the row, not just the recipe"
+            ) from exc
 
     def _check_build_marker(self) -> None:
         """`NOT_APPLICABLE` belongs to `build` rows, and to all of them.
@@ -750,6 +802,7 @@ class LedgerRow:
             "wall_clock_source": self.wall_clock_source,
             "cost_usd": self.cost_usd,
             "notes": self.notes,
+            "recipe": dict(self.recipe) if self.recipe is not None else None,
         }
 
     @classmethod
@@ -797,6 +850,10 @@ class LedgerRow:
             wall_clock_source=raw.get("wall_clock_source", "unrecorded"),
             cost_usd=raw["cost_usd"],
             notes=raw.get("notes", ""),
+            # Absent and null both mean the same thing and both read back as None: this row
+            # does not record its recipe. Every row written before 2026-09-21 is in that
+            # position, and none of them should read as having run with no settings.
+            recipe=raw.get("recipe"),
         )
 
 
@@ -1074,6 +1131,7 @@ class RunRecorder:
         quick: bool = False,
         quick_reason: str | None = None,
         notes: str = "",
+        recipe: Mapping[str, Any] | None = None,
     ) -> None:
         if run_kind not in _RUN_KINDS:
             raise ValueError(f"run_kind {run_kind!r} not one of {sorted(_RUN_KINDS)}")
@@ -1095,6 +1153,11 @@ class RunRecorder:
         self.cost = cost
         self.wall_clock_s = wall_clock_s
         self.notes = notes
+        # Validated here rather than at `_finish`, for the same reason `cost` and
+        # `wall_clock_s` are: a recipe that cannot be serialised would otherwise be found
+        # once the run was over, and would take the row with it.
+        LedgerRow._validate_recipe(recipe)
+        self.recipe = recipe
         if cost is None and self.env.device not in CostEstimate.LOCAL_DEVICES:
             # The GH200 case, made impossible rather than discouraged: 13 rung 0 rows
             # recorded cost_usd 0.0 for real GPU hours because nothing required a rate.
@@ -1266,6 +1329,7 @@ class RunRecorder:
                 # rather than the row, so the correct number existed and was discarded.
                 cost_usd=0.0 if self.cost is None else self.cost.cost_for(wall),
                 notes=note,
+                recipe=self.recipe,
             )
         )
 
@@ -1710,9 +1774,8 @@ def record_build_run(
         if not command:
             raise ValueError(f"suite {name!r} has no command")
 
-    protocol = Protocol.for_build(
-        commands=[shlex.join(command) for _, command in resolved], toolchain=toolchain
-    )
+    commands = [shlex.join(command) for _, command in resolved]
+    protocol = Protocol.for_build(commands=commands, toolchain=toolchain)
     recorder = RunRecorder(
         ledger,
         protocol=protocol,
@@ -1726,6 +1789,11 @@ def record_build_run(
         # returns zero for cpu and refuses to invent a rate for anything else, so if this
         # ever runs somewhere rented it fails loudly instead of recording $0.00.
         cost=CostEstimate.for_device(cap=WallClockCap(cap_s=BUILD_CAP_S), device="cpu"),
+        # The same two things `Protocol.for_build` hashed. A build row's whole identity is
+        # which commands ran on which toolchain, and until now the row carried the hash of
+        # that and not the commands -- so "did the gates run the suite I think they did"
+        # could only be answered by re-hashing candidates.
+        recipe={"commands": commands, "toolchain": toolchain},
         quick=quick,
         quick_reason=quick_reason,
         notes=notes,

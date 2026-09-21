@@ -16,7 +16,12 @@ tests.
 
 from __future__ import annotations
 
+import contextlib
+import functools
+import hashlib
+import json
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -35,6 +40,67 @@ from qd_train.tristate import NotRun, Ran  # noqa: E402
 def _example(path: str, cls: str = "stub") -> dict[str, object]:
     """The two fields the split and the baseline actually read."""
     return {"function": {"path": path}, "class": cls}
+
+
+@functools.cache
+def _recipe_of_a_row() -> dict[str, object]:
+    """The recipe off a row this tool actually wrote, checked against that row's own hash.
+
+    Cached: one real run serves every test that asks, and the run is sized to seconds.
+
+    The check is the point. Reading the recipe alone would pass for a tool that stored a
+    dict unrelated to the one it hashed -- which is a worse row than one storing nothing,
+    because it reads as an answer. Re-hashing the stored recipe with the tool's own
+    spelling (``sort_keys=True``, no ``separators``) has to reproduce ``recipe_hash``.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    examples = tmp / "examples.jsonl"
+    body = "".join(f"line {i} of the body\n" for i in range(12))
+    rows = [
+        {
+            "id": f"f{f}-{k}",
+            "function": {"repo": "qwen-decision", "path": f"src/m{f}.py",
+                         "symbol": f"fn_{k}", "arity": 1},
+            "language": "python",
+            "class": ("stub", "logic", "cosmetic", "clean")[(f + k) % 4],
+            "after": body,
+            "span": None if (f + k) % 4 == 3 else {"start_line": 2, "end_line": 3},
+            "silent": False, "hunk_constrained": False, "seed": f * 10 + k,
+        }
+        for f in range(8) for k in range(3)
+    ]
+    examples.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    manifest = tmp / "manifest.json"
+    manifest.write_text(json.dumps({"corpus_sha256": "0" * 64, "n_examples": len(rows)}),
+                        encoding="utf-8")
+    out = tmp / "scratch"
+    out.mkdir()
+    ledger = tmp / "l.jsonl"
+    # The gates decide whether rung 0 learned anything; on eight synthetic files it plainly
+    # did not, and `main` says so with a non-zero exit after the row is already written.
+    with contextlib.suppress(SystemExit):
+        tool.main([
+            "--out", str(out), "--rev", "HEAD", "--examples", str(examples),
+            "--manifest-in", str(manifest), "--device", "cpu", "--seeds", "1",
+            "--epochs", "1", "--width", "16", "--layers", "1", "--heads", "1",
+            "--context-bytes", "512", "--batch-size", "2", "--val-share", "0.25",
+            "--ledger", str(ledger),
+        ])
+    assert ledger.is_file(), "the tool wrote no ledger row to read a recipe from"
+    row = json.loads(ledger.read_text(encoding="utf-8").splitlines()[0])
+    recipe = row.get("recipe")
+    assert isinstance(recipe, dict) and recipe, (
+        "the row records no recipe, so it can only say THAT two arms differ and never how"
+    )
+    restated = hashlib.sha256(
+        json.dumps(recipe, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    assert restated == row["protocol"]["recipe_hash"], (
+        f"the row's stored recipe hashes to {restated[:16]}… but the row claims "
+        f"{row['protocol']['recipe_hash'][:16]}…: the recipe recorded is not the recipe "
+        "that identifies this run, which reads as an answer and is not one"
+    )
+    return recipe
 
 
 # -- the split ---------------------------------------------------------------------------
@@ -519,21 +585,24 @@ def test_the_recipe_separates_a_deterministic_rung0_run_from_an_ordinary_one() -
     tool is used to look for, so hashing them alike would put two populations in one
     ``recipe_hash`` and make them comparable rows in the ledger.
 
-    Asserted by POSITION, not by presence: the key has to fall inside the
-    ``recipe_hash=hashlib.sha256(`` argument, because adding it to the row while leaving it
-    out of the hash is the failure this is about.
+    Asserted on the HASH, not on the source. It used to read the text between
+    ``recipe_hash=hashlib.sha256(`` and ``).hexdigest(),``, which stopped existing when the
+    recipe was given a name so the row could carry it -- a refactor that changed nothing
+    about what is hashed and broke the test anyway. Reading the recipe off a row and
+    re-hashing it asserts the same thing and survives the next such move.
+
+    ``recipe`` in the row is exactly the object ``recipe_hash`` was taken of, which is
+    checked here rather than assumed: a row whose stored recipe does not reproduce its own
+    hash is worse than a row with no recipe at all.
     """
-    source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
-    start = source.index("recipe_hash=hashlib.sha256(")
-    end = source.index(").hexdigest(),", start)
-    recipe = source[start:end]
-    assert '"deterministic": args.deterministic,' in recipe, (
+    recipe = _recipe_of_a_row()
+    assert "deterministic" in recipe, (
         "the recipe hash does not cover --deterministic, so a deterministic run and an "
         "ordinary one hash to the same protocol"
     )
     # And the two levers this tool's sweeps vary are in there with it.
-    assert '"span_weight": args.span_weight,' in recipe
-    assert '"epochs": args.epochs,' in recipe
+    assert "span_weight" in recipe
+    assert "epochs" in recipe
 
 
 def test_the_recipe_separates_a_subsampled_training_set_from_a_whole_one() -> None:
@@ -550,17 +619,34 @@ def test_the_recipe_separates_a_subsampled_training_set_from_a_whole_one() -> No
     protocol measured twice, and pooling a half-data arm with a full-data one is exactly the
     comparison the flag exists to make.
 
-    Asserted by position, like its neighbour: present in the row but absent from the hash is
-    the failure, not absence altogether.
+    Asserted off a row and its hash, like its neighbour: present in the recipe but absent
+    from the hash is the failure, not absence altogether, and re-hashing the stored recipe
+    is what rules that out.
     """
-    source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
-    start = source.index("recipe_hash=hashlib.sha256(")
-    end = source.index(").hexdigest(),", start)
-    recipe = source[start:end]
-    assert '"train_subsample": args.train_subsample,' in recipe, (
+    recipe = _recipe_of_a_row()
+    assert "train_subsample" in recipe, (
         "the recipe hash does not cover --train-subsample, so a run on half the training "
         "files and a run on all of them hash to the same protocol"
     )
+
+
+def test_a_row_can_name_its_own_arm_without_the_launch_command() -> None:
+    """GAP-A-ROW-CANNOT-SAY-WHICH-CURVE-POINT-IT-IS, raised by the concurrent lane.
+
+    Every field this tool varies went into ``recipe_hash``'s input and was stored nowhere,
+    so a row could say two arms are not comparable and not say how they differ. Labelling
+    the three points of a learning curve on 2026-09-21 took re-hashing four candidate
+    ``train_subsample`` values against seven fields pinned at the launch command's -- which
+    is recovering the label from the log by a longer route, not from the row.
+
+    The eight keys are asserted as a SET, so a field silently dropped from the recipe fails
+    here even though it would leave every other test green: it would still hash, still
+    identify, and quietly stop separating the arm it was added to separate.
+    """
+    assert set(_recipe_of_a_row()) == {
+        "epochs", "batch_size", "val_share", "lr",
+        "span_weight", "deterministic", "train_subsample", "rev",
+    }
 
 
 # -- the price of the machine ------------------------------------------------------------

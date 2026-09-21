@@ -176,6 +176,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"predicted classes on val: {Counter(model.predict(val_docs)).most_common()}")
 
     ledger = Ledger(args.ledger)
+    # Named so the row can carry it. A `recipe_hash` tells a reader that two control rows
+    # are not comparable and nothing about why; these two fields are the whole of why.
+    recipe = {"max_iter": args.max_iter, "val_share": args.val_share}
     protocol = Protocol(
         data_snapshot_hash=hashlib.sha256(
             json.dumps(manifest, sort_keys=True).encode("utf-8")
@@ -183,9 +186,7 @@ def main(argv: list[str] | None = None) -> int:
         tokenizer_hash="chargram-hashed",
         backbone_commit=f"linear-control:ctx{args.context_bytes}",
         recipe_hash=hashlib.sha256(
-            json.dumps(
-                {"max_iter": args.max_iter, "val_share": args.val_share}, sort_keys=True
-            ).encode("utf-8")
+            json.dumps(recipe, sort_keys=True).encode("utf-8")
         ).hexdigest(),
         seed=args.seed,
     )
@@ -200,6 +201,8 @@ def main(argv: list[str] | None = None) -> int:
         # nothing is billed by the hour. `None` says that; on any non-local device
         # RunRecorder refuses it rather than recording an unstated zero as a measured one.
         cost=None,
+        # The same object the hash above was taken of.
+        recipe=recipe,
         quick=True,
         quick_reason=(
             "a control arm on a corpus drawn from this repository rather than the pool the "
