@@ -452,6 +452,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=DEFAULT_CONTEXT_BYTES,
         help="the byte window; see DEFAULT_CONTEXT_BYTES for what each width keeps",
     )
+    # Capacity, as flags rather than constants, because the 8192 run settled that context is
+    # NOT the binding constraint: it nearly doubled the usable corpus and moved the held-out
+    # number by 0.0%. Width and depth are what remains untested.
+    parser.add_argument("--width", type=int, default=ByteDeciderConfig().width)
+    parser.add_argument("--layers", type=int, default=ByteDeciderConfig().n_layers)
+    parser.add_argument("--heads", type=int, default=ByteDeciderConfig().n_heads)
     parser.add_argument("--val-share", type=float, default=0.25)
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER_PATH)
     parser.add_argument(
@@ -494,7 +500,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             "without the other either trains on an unidentified corpus or identifies a "
             "corpus it did not train on."
         )
-    config = ByteDeciderConfig(max_context_bytes=args.context_bytes)
+    # ByteDeciderConfig.__post_init__ refuses a width that does not divide by n_heads and
+    # any non-positive dimension, so a bad sweep point fails here rather than producing a
+    # model with a silently dropped head's worth of capacity.
+    config = ByteDeciderConfig(
+        max_context_bytes=args.context_bytes,
+        width=args.width,
+        n_layers=args.layers,
+        n_heads=args.heads,
+    )
 
     if args.examples:
         print(f"corpus: reading a pre-generated set from {args.examples}")
