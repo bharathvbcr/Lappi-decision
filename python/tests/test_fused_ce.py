@@ -484,6 +484,7 @@ def test_the_fused_loss_drives_the_real_cpt_loop_and_the_loss_falls(tmp_path):
         ),
         run_kind="cpt",
         repo=REPO,
+        wall_clock_s=None,  # the caller's `with` block contains the run under test
         env=Environment(
             torch=torch.__version__, transformers_sha="none", device="cpu", host="test",
             fla_present=NotRun(reason="no CUDA on this host"),

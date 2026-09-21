@@ -40,6 +40,7 @@ import argparse
 import hashlib
 import json
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Final
@@ -149,6 +150,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"val majority-class baseline: {baseline:.1%} ({majority})")
     print(f"train labels: {Counter(train_labels).most_common()}")
 
+    # The recorder is entered further down, after the control has already been fitted and
+    # scored, so its own lifetime is the time to write metrics. What the row is about is
+    # the work between here and there.
+    work_t0 = time.monotonic()
     model = LinearBaseline(seed=args.seed, max_iter=args.max_iter)
     model.fit(train_docs, train_labels)
     convergence = model.convergence()
@@ -190,6 +195,7 @@ def main(argv: list[str] | None = None) -> int:
         run_kind="smoke",
         repo=REPO,
         env=Environment.detect(device="cpu"),
+        wall_clock_s=time.monotonic() - work_t0,
         quick=True,
         quick_reason=(
             "a control arm on a corpus drawn from this repository rather than the pool the "

@@ -19,6 +19,7 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import shlex
@@ -561,6 +562,11 @@ class LedgerRow:
             )
         if not self.quick and self.quick_reason:
             raise ValueError("quick_reason set on a run not marked quick: state one or neither")
+        if not math.isfinite(self.wall_clock_s) or not math.isfinite(self.cost_usd):
+            # `nan < 0` is False, so the comparison below waves NaN through. A duration
+            # that is not a number is not a measurement, and a NaN here propagates into
+            # every mean anyone computes over the ledger.
+            raise ValueError("wall_clock_s and cost_usd are measured, finite quantities")
         if self.wall_clock_s < 0 or self.cost_usd < 0:
             raise ValueError("wall_clock_s and cost_usd are measured, non-negative quantities")
         self._check_build_marker()
@@ -895,6 +901,21 @@ class RunRecorder:
     There is no path out of the ``with`` block that leaves the ledger silent —
     which is the point: "a run whose row is missing is rerun, not remembered",
     and an unwritten row is indistinguishable from a run that never happened.
+
+    ``wall_clock_s`` is required and has no default, because no default is right.
+    ``None`` means "this ``with`` block contains the run, time it yourself"; a number
+    means "I measured the run, record this". The recorder cannot tell the two apart from
+    the inside — a recorder entered after the work times the reporting, and reports
+    microseconds for a run that took minutes. 346 of the first 799 rows written to this
+    ledger carried a ``wall_clock_s`` under 0.1s for exactly that reason, and ``cost_usd``
+    is derived from the same number, so those rows priced GPU time at zero.
+
+    One tool can need both answers and a third. ``tools/real_ft_run.py`` passes ``None``
+    from ``_train``, whose block contains ``train_ft``; and a measured decode elapsed from
+    ``_record_verdict``, which describes work that finished before the recorder existed.
+    Its verdict row must NOT repeat the parent's duration: 186 ft rows and 162 verdict rows
+    each claiming the same seconds would sum to twice the GPU time actually spent, which is
+    a worse defect than the one this argument fixes.
     """
 
     def __init__(
@@ -905,6 +926,7 @@ class RunRecorder:
         run_kind: RunKind,
         repo: str | os.PathLike[str],
         env: Environment | None = None,
+        wall_clock_s: float | None,
         quick: bool = False,
         quick_reason: str | None = None,
         cost_usd_per_hour: float = 0.0,
@@ -912,6 +934,16 @@ class RunRecorder:
     ) -> None:
         if run_kind not in _RUN_KINDS:
             raise ValueError(f"run_kind {run_kind!r} not one of {sorted(_RUN_KINDS)}")
+        if wall_clock_s is not None and (
+            not math.isfinite(wall_clock_s) or wall_clock_s < 0
+        ):
+            # Refused here rather than in `_finish`, which runs only once the GPU time has
+            # already been spent -- and which would take the row down with it.
+            raise ValueError(
+                f"wall_clock_s={wall_clock_s!r} is not a measured duration: pass a finite, "
+                "non-negative number of seconds, or None if this recorder's block contains "
+                "the run and should be timed itself"
+            )
         self.ledger = ledger
         self.protocol = protocol
         self.run_kind = run_kind
@@ -920,6 +952,7 @@ class RunRecorder:
         self.quick = quick
         self.quick_reason = quick_reason
         self.cost_usd_per_hour = cost_usd_per_hour
+        self.wall_clock_s = wall_clock_s
         self.notes = notes
 
         self.metrics: dict[str, TriState] = {}
@@ -1006,7 +1039,14 @@ class RunRecorder:
         if self.row is not None:
             return
         self._fill_unreported()
-        wall = max(0.0, time.monotonic() - self._t0)
+        # `self.wall_clock_s` is the caller saying it measured the run itself. Only the
+        # caller can know: a recorder entered after the work times the reporting, not the
+        # run, and cannot tell the difference from the inside.
+        wall = (
+            self.wall_clock_s
+            if self.wall_clock_s is not None
+            else max(0.0, time.monotonic() - self._t0)
+        )
         note = self.notes if not detail else (f"{self.notes} | {detail}" if self.notes else detail)
         self.row = self.ledger.append(
             LedgerRow(
@@ -1480,6 +1520,8 @@ def record_build_run(
         run_kind="build",
         repo=repo,
         env=env,
+        # This recorder's block contains the suites, so its own lifetime IS the run's.
+        wall_clock_s=None,
         quick=quick,
         quick_reason=quick_reason,
         notes=notes,

@@ -446,6 +446,9 @@ def _record(run: dict, *, ledger: Ledger, wiring: dict, steps: int, rows: int) -
         # here said "mps", including the three that ran on the CPU -- and the whole point of
         # running both is a comparison the ledger can be read back for.
         env=Environment.detect(device=run["device"]),
+        # The run finished before `_record` was called; the recorder would otherwise time
+        # its own metric writes.
+        wall_clock_s=float(run["wall_clock_s"]),
         quick=True,
         quick_reason=(
             f"toy run: {steps} optimizer steps over {rows} synthetic rows on "

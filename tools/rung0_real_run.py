@@ -874,6 +874,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_kind="ft",
             repo=REPO,
             env=Environment.detect(device=args.device),
+            # train_once() returned before this block was entered, so the recorder's own
+            # lifetime is the time to write metrics -- microseconds against a run that
+            # takes minutes. The measured figure is the one the log already prints.
+            wall_clock_s=float(run["wall_clock_s"]),  # type: ignore[arg-type]
             quick=True,
             quick_reason=(
                 "the corpus is this repository's own sources rather than the pool the plan "

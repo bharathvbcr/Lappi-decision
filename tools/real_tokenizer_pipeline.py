@@ -47,6 +47,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -979,10 +980,14 @@ def main(argv: list[str] | None = None) -> int:
         ).hexdigest(),
         seed=DataConfig().seed,
     )
+    # `run()` is the work this row describes, and it finishes before the recorder is built
+    # below, so the recorder would otherwise time its own metric writes.
+    work_t0 = time.monotonic()
     measured = run(
         out=args.out, max_pairs=args.max_pairs,
         blank_line_runs=args.blank_line_runs, rev=args.rev,
     )
+    work_s = time.monotonic() - work_t0
     protocol = Protocol(
         data_snapshot_hash=measured.data_snapshot_hash,
         tokenizer_hash=measured.tokenizer_hash,
@@ -996,6 +1001,7 @@ def main(argv: list[str] | None = None) -> int:
         run_kind="smoke",
         repo=REPO,
         env=Environment.detect(transformers_sha=_transformers_version()),
+        wall_clock_s=work_s,
         quick=True,
         quick_reason=(
             "one seed, and a corpus drawn from this repository alone rather than from the "
