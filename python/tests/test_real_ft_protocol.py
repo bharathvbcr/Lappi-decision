@@ -33,6 +33,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
 
 from real_ft_run import BACKBONE_KEYS, _backbone_commit  # noqa: E402
+from real_ft_run import main as real_ft_main  # noqa: E402
 
 sys.path.insert(0, str(REPO / "python"))
 
@@ -378,3 +379,159 @@ def test_mismatched_logs_do_not_destroy_a_finished_run() -> None:
         "span_weight": 1.0,
     })
     assert isinstance(downstream, NotRun)
+
+
+# -- checkpointing, the hook nobody passed ------------------------------------------------
+#
+# `HANDOFF/resume-2026-09-20.md`: "`Checkpoint.write` and `Checkpoint.read` are called in
+# exactly two files, both of them test files. No driver in `tools/` writes a checkpoint, so
+# nothing on disk survives a kill ... which is still nobody's job." These make it this
+# tool's job, and refuse the three ways of believing it is done when it is not.
+
+
+def test_the_stand_in_may_not_write_a_checkpoint_it_could_never_restore(tmp_path) -> None:
+    """Not a limitation being worked around -- the point.
+
+    ``RealFtStep.load_state`` raises by design: "a checkpoint it cannot restore would be a
+    silent lie". A stand-in run that wrote one would leave a file on disk that looks like a
+    resume point and is not, which is the exact failure that raise exists to prevent.
+    """
+    for flags in (
+        ["--checkpoint-every", "10"],
+        ["--checkpoint-dir", str(tmp_path)],
+        ["--checkpoint-every", "10", "--checkpoint-dir", str(tmp_path)],
+    ):
+        with pytest.raises(SystemExit, match="need --real-backbone"):
+            real_ft_main(["--out", str(tmp_path), *flags])
+
+
+def test_an_interval_without_a_destination_is_refused(tmp_path) -> None:
+    """A run that believes it is checkpointing and is not is worse than one that knows it
+    is not: the first only finds out when it is killed."""
+    with pytest.raises(SystemExit, match="nowhere to write"):
+        real_ft_main([
+            "--out", str(tmp_path), "--real-backbone", str(tmp_path),
+            "--checkpoint-every", "10",
+        ])
+
+
+def test_a_destination_without_an_interval_is_refused(tmp_path) -> None:
+    """The mirror image: the loop never calls ``on_checkpoint`` and the directory stays
+    empty, which looks like a run that had nothing worth saving."""
+    with pytest.raises(SystemExit, match="would never"):
+        real_ft_main([
+            "--out", str(tmp_path), "--real-backbone", str(tmp_path),
+            "--checkpoint-dir", str(tmp_path / "ck"),
+        ])
+
+
+def test_resume_needs_a_step_that_can_restore_and_a_file_that_exists(tmp_path) -> None:
+    with pytest.raises(SystemExit, match="--resume-from needs --real-backbone"):
+        real_ft_main([
+            "--out", str(tmp_path), "--resume-from", str(tmp_path / "nope.json"),
+        ])
+    with pytest.raises(SystemExit, match="does not exist"):
+        real_ft_main([
+            "--out", str(tmp_path), "--real-backbone", str(tmp_path),
+            "--resume-from", str(tmp_path / "nope.json"),
+        ])
+
+
+def test_the_control_carries_the_interval_into_the_loop(tmp_path) -> None:
+    """``RunControl.checkpoint_every`` is what makes ``train_ft`` call the hook at all. It
+    defaulted to 0 and the tool never set it, so passing ``on_checkpoint`` alone would have
+    changed nothing."""
+    from real_ft_run import _control
+
+    assert _control(100, device="cpu", lr=1e-5).checkpoint_every == 0
+    assert _control(
+        100, device="cpu", lr=1e-5, checkpoint_every=25
+    ).checkpoint_every == 25
+
+
+# --- which run a checkpoint belongs to ------------------------------------------------
+#
+# `train_ft` refuses a resume whose seed, epoch or schedule differs from the run it is
+# handed to, and rehashes the skipped prefix on top. That covers everything the LOOP can
+# know. It does not cover which of this tool's arms the file came from, because `Checkpoint`
+# does not carry a tag or a device -- correctly, those are this tool's concepts. So the
+# driver owns that routing, and these are what hold it to it.
+
+
+def test_two_devices_at_one_seed_do_not_share_a_checkpoint_path() -> None:
+    """The collision the trainer cannot catch.
+
+    A resume is refused across seeds and across schedules. ``cpu`` and ``mps`` at one seed
+    on one arm differ in NEITHER: same seed, same schedule, same batch order. A filename
+    without the device therefore lets one device's checkpoint overwrite the other's and
+    hands the trainer a file that passes every check it has, taken on other hardware.
+    """
+    from real_ft_run import ARM_DEVICES, ARM_TAGS, _checkpoint_name
+
+    names = [
+        _checkpoint_name(tag, seed, device)
+        for tag in ARM_TAGS
+        for seed in (1, 2, 3)
+        for device in ARM_DEVICES
+    ]
+    assert len(names) == len(set(names)), (
+        "two cells of the (tag x seed x device) product write to one path: "
+        f"{sorted(n for n in names if names.count(n) > 1)}"
+    )
+    assert _checkpoint_name("memorise", 1, "cpu") != _checkpoint_name("memorise", 1, "mps")
+
+
+def test_the_name_a_checkpoint_is_written_under_is_the_name_that_is_parsed_back() -> None:
+    """``_checkpoint_name`` and ``_resume_arm`` are inverses, or the routing is guesswork."""
+    from pathlib import Path as _Path
+
+    from real_ft_run import ARM_DEVICES, ARM_TAGS, _checkpoint_name, _resume_arm
+
+    for tag in ARM_TAGS:
+        for seed in (0, 7, 41):
+            for device in ARM_DEVICES:
+                name = _checkpoint_name(tag, seed, device)
+                assert _resume_arm(_Path("/anywhere") / name) == (tag, seed, device)
+
+
+def test_a_file_this_tool_did_not_write_is_refused_rather_than_guessed_at() -> None:
+    from pathlib import Path as _Path
+
+    from real_ft_run import _resume_arm
+
+    for bad in (
+        "latest.json",              # the obvious hand-written name
+        "memorise-seed1.json",      # the spelling before the device was in it
+        "memorise-seed1-tpu.json",  # a device this tool does not run
+        "cpt-seed1-cpu.json",       # an arm this tool does not have
+        "memorise-seedX-cpu.json",  # not a number
+        "memorise-seed1-cpu.txt",   # not a checkpoint
+    ):
+        with pytest.raises(ValueError):
+            _resume_arm(_Path(bad))
+
+
+def test_a_checkpoint_is_refused_when_this_run_has_no_cell_for_it(tmp_path) -> None:
+    """Refused against the PLAN, at argv time.
+
+    Handing one checkpoint to every cell of the product and letting the trainer sort it out
+    resumes one cell and aborts the sweep at the next -- after a 24-second tower load, with
+    a traceback rather than an answer. These three are decidable from argv.
+    """
+    ckpt = tmp_path / "memorise-seed3-cuda.json"
+    ckpt.write_text("{}", encoding="utf-8")
+    common = ["--out", str(tmp_path), "--real-backbone", str(tmp_path),
+              "--resume-from", str(ckpt)]
+
+    with pytest.raises(SystemExit, match="checkpoint from cuda"):
+        real_ft_main([*common, "--devices", "cpu", "--seeds", "3"])
+    with pytest.raises(SystemExit, match="at seed 3"):
+        real_ft_main([*common, "--devices", "cuda", "--seeds", "1", "2"])
+
+    epoch_ckpt = tmp_path / "epoch-seed1-cpu.json"
+    epoch_ckpt.write_text("{}", encoding="utf-8")
+    with pytest.raises(SystemExit, match="--epoch was not passed"):
+        real_ft_main([
+            "--out", str(tmp_path), "--real-backbone", str(tmp_path),
+            "--resume-from", str(epoch_ckpt), "--devices", "cpu", "--seeds", "1",
+        ])

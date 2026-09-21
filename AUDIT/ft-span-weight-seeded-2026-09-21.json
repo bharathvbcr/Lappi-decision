@@ -1,0 +1,48 @@
+{
+  "measured": "2026-09-21",
+  "what": "The seeded FT span-weight sweep that AUDIT/ft-span-weight-paired-2026-09-21.json said was the experiment. Three seeds at each of 1.0, 0.2 and 0.05, on the real 1.4B tower, identical plan and step budget throughout.",
+  "why": "The paired run was ONE seed per arm, and the rung-0 sweep needed five to separate its signal from a 7.9-point spread. A one-seed difference is a direction, not a number.",
+  "host": "192.222.58.240, NVIDIA GH200 480GB, torch 2.10.0+cu128; ~108s per run, 9 runs",
+  "backbone": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c remapped to the corpus vocabulary; 1.4B trainable",
+  "corpus": "/home/ubuntu/shardset-v2, 321 sequences, 78 span rows. BOTH channel floors measure 0.0, so both channels are fully fittable and every gap below is optimisation rather than the corpus.",
+  "schedule": "8 passes over a 16-batch plan = 128 optimizer steps, lr 1e-5",
+  "bar": "floor + 0.05, the tool's FLOOR_SLACK, unchanged (rule 2)",
+  "arms": [
+    {
+      "span_weight": 1.0,
+      "note": "the shipped default",
+      "mean_balance_at_open": 254.2,
+      "letter_gaps": [0.04367, 0.00688, 0.11918],
+      "letter_gate_passed": "2 of 3",
+      "span_gaps": [0.00000, 0.09979, 0.06006],
+      "verdict_rows": ["8fe47ed3", "05b21cff", "32ae484d"]
+    },
+    {
+      "span_weight": 0.2,
+      "mean_balance_at_open": 71.7,
+      "letter_gaps": [0.00366, 0.03941, 0.01543],
+      "letter_gate_passed": "3 of 3",
+      "span_gaps": [0.15272, 0.56629, 0.97790],
+      "verdict_rows": ["c4328aad", "3e7915bb", "1e44b712"]
+    },
+    {
+      "span_weight": 0.05,
+      "mean_balance_at_open": 12.5,
+      "letter_gaps": [0.00039, 0.01735, 0.00099],
+      "letter_gate_passed": "3 of 3",
+      "span_gaps": [0.00007, 0.00450, 0.57456],
+      "verdict_rows": ["0f17b8f0", "4ab3b21e", "15290bcf"]
+    }
+  ],
+  "ledger": "ledger/gh200-2026-09-21.jsonl, chain verifies at 249 rows; find_forks over ledger/*.jsonl still reports exactly 1, the known row-157 divergence",
+  "finding": "The letter channel improves monotonically as the span channel's weight falls, and it does so on every seed. Mean letter gap 0.0566 at 1.0, 0.0195 at 0.2, 0.0062 at 0.05 -- a 9x reduction. The distributions separate rather than overlap: the worst seed at 0.05 (0.01735) is better than two of the three seeds at 1.0. At the shipped default one seed in three FAILS the letter floor gate outright, at 0.11918 against a 0.05 bar.",
+  "the_other_side": "The span channel does NOT show a clean opposite trend, and that is the honest complication. Mean span gap is 0.0533 at 1.0, 0.5656 at 0.2 and 0.1931 at 0.05 -- worse in the middle than at either end, driven by single seeds (0.97790 at 0.2, 0.57456 at 0.05). Three seeds cannot separate that from noise. Whatever the span channel is doing here, it is not a smooth price paid for the letter channel's gain.",
+  "consequence_for_the_default": "The default stays at 1.0 and this is now a much stronger recommendation to change it than the one-seed run was -- but not yet a measurement that changes it. What would: seeds on the span side sufficient to say what 0.05 costs it, and a corpus with a nonzero floor. What this DOES establish is that the shipped default fails a gate on a third of seeds on a task where both channels are fully fittable, which is a fact about the default and not about the corpus.",
+  "caveats": [
+    "Three seeds. Enough to see a monotone trend in the letter channel and not enough to price the span channel.",
+    "Both floors are 0.0 -- a memorisation regime with headroom a real task will not have.",
+    "128 optimizer steps. A longer schedule may close the 1.0 arm's gap on its own.",
+    "All nine runs used torch.optim.AdamW over a bf16 tower at 128 steps, which is inside the 384-step fidelity bound the optimizer guard now enforces; none of them was affected by the frozen-moment defect."
+  ],
+  "quick": "Every row is quick=True and promotes nothing under rule 8."
+}

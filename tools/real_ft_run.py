@@ -91,7 +91,7 @@ import sys
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 # Inline for the reason tools/bpe_line_start_collapse.py states: ruff's E402 exemption
 # covers `sys.path` modification before the imports, but an ordinary assignment in between
@@ -921,6 +921,70 @@ def _floor_state(gap: object, rows: object, *, detail: str) -> TriState:
     return Ran(passed=value <= FLOOR_SLACK, value=round(value, 8), n=n, n_total=n, detail=detail)
 
 
+#: The arms this tool runs. A checkpoint belongs to one of them and `Checkpoint` cannot say
+#: which: it carries a seed, a schedule and a position, all of which two arms can share.
+ARM_TAGS: Final[tuple[str, ...]] = ("memorise", "epoch")
+
+#: The devices it runs them on. In the filename for the same reason the tag is: `cpu` and
+#: `mps` at one seed on one arm differ in NEITHER seed nor schedule nor batch order, so the
+#: trainer's resume checks all pass on a checkpoint taken on the other one.
+ARM_DEVICES: Final[tuple[str, ...]] = ("cpu", "mps", "cuda")
+
+
+def _checkpoint_name(tag: str, seed: int, device: str) -> str:
+    """The one place a checkpoint's filename is spelled.
+
+    The (tag x seed x device) product is what this tool actually runs, and every cell of it
+    needs its own file. An earlier spelling here was ``f"{tag}-seed{seed}.json"``, which
+    collides across devices -- and a collision is worse than an overwrite, because the
+    survivor passes every check ``train_ft`` has. A resume is refused across seeds and
+    across schedules; ``cpu`` and ``mps`` at one seed on one arm differ in neither.
+    """
+    if tag not in ARM_TAGS:
+        raise ValueError(f"tag must be one of {ARM_TAGS}, got {tag!r}")
+    if device not in ARM_DEVICES:
+        raise ValueError(f"device must be one of {ARM_DEVICES}, got {device!r}")
+    if seed < 0:
+        raise ValueError(f"seed must not be negative, got {seed}")
+    return f"{tag}-seed{seed}-{device}.json"
+
+
+def _resume_arm(path: Path) -> tuple[str, int, str]:
+    """Which cell a checkpoint belongs to. The inverse of [`_checkpoint_name`].
+
+    Refuses anything this tool did not write rather than guessing. A hand-written
+    ``latest.json``, a file from an arm this tool does not have, or the spelling from
+    before the device was in the name are all things that would otherwise be routed
+    somewhere by accident -- and the destination would accept them, because the trainer
+    checks the seed and the schedule and cannot check the hardware.
+    """
+    if path.suffix != ".json":
+        raise ValueError(
+            f"{path.name}: a checkpoint written by this tool ends in .json, and its sidecar "
+            "is found from that name"
+        )
+    parts = path.stem.rsplit("-", 2)
+    if len(parts) != 3:
+        raise ValueError(
+            f"{path.name}: not a name this tool writes. Expected "
+            f"<tag>-seed<N>-<device>.json with tag in {ARM_TAGS} and device in "
+            f"{ARM_DEVICES}."
+        )
+    tag, seed_part, device = parts
+    if tag not in ARM_TAGS:
+        raise ValueError(f"{path.name}: {tag!r} is not one of this tool's arms {ARM_TAGS}")
+    if device not in ARM_DEVICES:
+        raise ValueError(
+            f"{path.name}: {device!r} is not a device this tool runs {ARM_DEVICES}"
+        )
+    if not seed_part.startswith("seed") or not seed_part[4:].isdigit():
+        raise ValueError(
+            f"{path.name}: {seed_part!r} is not 'seed' followed by a number, so which seed "
+            "this checkpoint was taken at cannot be read off it"
+        )
+    return tag, int(seed_part[4:]), device
+
+
 def _channel_balance(run: Mapping[str, object]) -> TriState:
     """What the optimizer was actually asked to minimise, at the first step that had both.
 
@@ -1073,12 +1137,18 @@ def _counterfactual_holds(shipped: dict[str, object], defect: dict[str, object])
     )
 
 
-def _control(steps: int, *, device: str, lr: float) -> RunControl:
+def _control(
+    steps: int, *, device: str, lr: float, checkpoint_every: int = 0
+) -> RunControl:
     """The cap, the schedule and the price of a local run.
 
     ``usd_per_hour=0.0`` with ``n_gpus=0`` is a measured fact about a Mac that is already
     bought, not a way around rule 4: a rented machine sets a real rate here and
     ``RunControl`` refuses to start without ``approved_by``.
+
+    ``checkpoint_every=0`` -- the default, and what every run before 2026-09-21 used --
+    means the loop never calls ``on_checkpoint`` and nothing reaches a disk. That was
+    survivable while this tool ran for two minutes and is not survivable for a full train.
     """
     cap = WallClockCap(cap_s=WALL_CLOCK_CAP_S)
     return RunControl(
@@ -1088,6 +1158,7 @@ def _control(steps: int, *, device: str, lr: float) -> RunControl:
         cap=cap,
         cost=CostEstimate(cap=cap, usd_per_hour=0.0, n_gpus=0, instance=f"local-{device}"),
         grad_accum=1,
+        checkpoint_every=checkpoint_every,
     )
 
 
@@ -1170,6 +1241,8 @@ def _train(
     *, reader: ShardReader, plan: list[Batch], passes: int, device: str, seed: int,
     hidden: int, heads: int, lr: float, span_weight: float, ledger: Ledger, tag: str,
     quick_reason: str, backbone: Path | None = None, optimizer_recipe: str = "bf16",
+    checkpoint_dir: Path | None = None, checkpoint_every: int = 0,
+    resume_from: object | None = None,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -1342,9 +1415,47 @@ def _train(
                 index += 1
 
     started = time.monotonic()
+    # The hook nobody passed. `HANDOFF/resume-2026-09-20.md` recorded that `on_checkpoint`
+    # was referenced in trainer.py, byte_train.py and the tests and nowhere else, so
+    # nothing on disk survived a kill -- "which is still nobody's job". One path, rewritten
+    # in place: `Checkpoint.write` is atomic (temp file in the target's directory, fsync,
+    # rename, fsync the directory), so the previous checkpoint is readable right up to the
+    # instant the new one replaces it. Keeping a series would be a retention policy, and
+    # this is a resume point rather than a history.
+    on_checkpoint = None
+    if checkpoint_every and checkpoint_dir is not None:
+        target = checkpoint_dir / _checkpoint_name(tag, seed, device)
+
+        def on_checkpoint(ckpt: Any, _target: Path = target) -> None:
+            # Timed and sized, because the interval is a cost decision and nothing here
+            # could price it. This model's checkpoint is ~8.5 GB -- weights plus both AdamW
+            # moments -- and at ~1.5 s/step a 20-step interval spends more wall clock
+            # writing than training. The number belongs on screen next to the step it was
+            # taken at, not in a handoff someone has to remember.
+            t0 = time.monotonic()
+            written = ckpt.write(_target)
+            took = time.monotonic() - t0
+            payload = sum(
+                p.stat().st_size
+                for p in written.parent.glob(f"{written.stem}*")
+                if p.is_file()
+            )
+            print(
+                f"  checkpoint: step {ckpt.optimizer_step} -> {written} "
+                f"({payload / (1 << 30):.2f} GiB in {took:.1f}s)",
+                flush=True,
+            )
+
     result = train_ft(
-        source(), epoch=0, step=step, control=_control(steps, device=device, lr=lr),
+        source(),
+        epoch=0,
+        step=step,
+        control=_control(
+            steps, device=device, lr=lr, checkpoint_every=checkpoint_every
+        ),
         recorder=recorder,
+        on_checkpoint=on_checkpoint,
+        resume_from=resume_from,
     )
     wall = time.monotonic() - started
     losses = result.loss_log.losses()
@@ -1795,6 +1906,30 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--checkpoint-dir", type=Path, default=None,
+        help=(
+            "where to write a resume point. One file per (tag, seed), rewritten in place; "
+            "Checkpoint.write is atomic, so the previous one is readable until the instant "
+            "the new one replaces it"
+        ),
+    )
+    parser.add_argument(
+        "--checkpoint-every", type=int, default=0,
+        help=(
+            "optimizer steps between checkpoints. 0, the default, means the loop never "
+            "calls on_checkpoint and nothing survives a kill -- which is what every run "
+            "before 2026-09-21 did"
+        ),
+    )
+    parser.add_argument(
+        "--resume-from", type=Path, default=None,
+        help=(
+            "a checkpoint written by --checkpoint-dir. The schedule, seed and epoch must "
+            "match the run it was taken from; train_ft refuses otherwise rather than "
+            "resuming into a different run"
+        ),
+    )
+    parser.add_argument(
         "--hidden", type=int, default=None,
         help=f"stand-in only; default {STANDIN_HIDDEN}",
     )
@@ -1884,6 +2019,71 @@ def main(argv: list[str] | None = None) -> int:
         args.heads = STANDIN_HEADS if args.heads is None else args.heads
         args.lr = STANDIN_LR if args.lr is None else args.lr
 
+    # Checkpointing is refused on the STAND-IN branch, and that is not a limitation being
+    # worked around -- it is the whole point. `RealFtStep.load_state` raises by design
+    # ("a checkpoint it cannot restore would be a silent lie"), so a stand-in run that
+    # wrote one would produce a file that looks like a resume point and is not. Only
+    # `QwenDecisionStep` carries the optimizer state a resume needs.
+    if (args.checkpoint_every or args.checkpoint_dir) and args.real_backbone is None:
+        raise SystemExit(
+            "--checkpoint-every/--checkpoint-dir need --real-backbone: the stand-in step "
+            "does not implement load_state, so a checkpoint written from it could never be "
+            "resumed. Writing one anyway would put a file on disk that looks like a resume "
+            "point and is not, which is the failure RealFtStep.load_state raises to prevent."
+        )
+    if args.checkpoint_every and args.checkpoint_dir is None:
+        raise SystemExit(
+            f"--checkpoint-every {args.checkpoint_every} was given without "
+            "--checkpoint-dir, so there is nowhere to write. A run that believes it is "
+            "checkpointing and is not is worse than one that knows it is not."
+        )
+    if args.checkpoint_dir is not None and not args.checkpoint_every:
+        raise SystemExit(
+            "--checkpoint-dir was given without --checkpoint-every, so the loop would never "
+            "call on_checkpoint and the directory would stay empty. Pass both, or neither."
+        )
+    if args.checkpoint_every < 0:
+        raise SystemExit(
+            f"--checkpoint-every must not be negative, got {args.checkpoint_every}"
+        )
+    resume_cell: tuple[str, int, str] | None = None
+    if args.resume_from is not None:
+        if args.real_backbone is None:
+            raise SystemExit(
+                "--resume-from needs --real-backbone: the stand-in step cannot restore a "
+                "checkpoint, and pretending to would report a resumed run that started "
+                "from scratch."
+            )
+        if not args.resume_from.is_file():
+            raise SystemExit(f"--resume-from {args.resume_from} does not exist")
+        # Routed against the PLAN, at argv time. Handing one checkpoint to every cell of
+        # the (tag x seed x device) product and letting the trainer sort it out resumes one
+        # cell and aborts the sweep at the next -- after a 24-second tower load, with a
+        # traceback instead of an answer. All three of these are decidable from argv.
+        try:
+            resume_tag, resume_seed, resume_device = _resume_arm(args.resume_from)
+        except ValueError as exc:
+            raise SystemExit(f"--resume-from {exc}") from exc
+        planned_devices = list(args.devices) if args.devices else list(ARM_DEVICES)
+        if resume_device not in planned_devices:
+            raise SystemExit(
+                f"--resume-from is a checkpoint from {resume_device} and this run's "
+                f"--devices is {planned_devices}. A resume onto other hardware passes every "
+                "check train_ft has -- same seed, same schedule, same batch order -- and "
+                "reproduces nothing."
+            )
+        if resume_seed not in list(args.seeds):
+            raise SystemExit(
+                f"--resume-from was taken at seed {resume_seed} and this run's --seeds is "
+                f"{list(args.seeds)}. train_ft refuses a seed mismatch, so every cell would "
+                "abort; refusing here costs no tower load."
+            )
+        if resume_tag == "epoch" and not args.epoch:
+            raise SystemExit(
+                "--resume-from is an 'epoch' checkpoint but --epoch was not passed, so this "
+                "run has no arm to resume it into."
+            )
+        resume_cell = (resume_tag, resume_seed, resume_device)
     # Refused here rather than inside the step, which is constructed after the shard set has
     # been read, inventoried and batched -- and on the real backbone, after a 24-second
     # tower load. The verdict was decidable from argv.
@@ -2034,6 +2234,19 @@ def main(argv: list[str] | None = None) -> int:
 
 
     ledger = Ledger(args.ledger)
+    # Read once, before any arm runs. `train_ft` checks it against the schedule, the seed
+    # and the epoch and refuses a mismatch, so a checkpoint from a different run fails at
+    # the first arm rather than after the tower has loaded for the second.
+    resume_checkpoint = None
+    if args.resume_from is not None:
+        from qd_train.run_control import Checkpoint
+
+        resume_checkpoint = Checkpoint.read(args.resume_from)
+        print(
+            f"resume: {args.resume_from} at optimizer step "
+            f"{resume_checkpoint.optimizer_step}, batch index "
+            f"{resume_checkpoint.position.index}, seed {resume_checkpoint.seed}"
+        )
     # What the backbone actually was, in the ledger's own words. Branching here and not only
     # in `notes` is the whole point: a row written for a --real-backbone run used to say it
     # ran "a randomly-initialised 128x4 single block", interpolating --hidden and --heads,
@@ -2084,6 +2297,15 @@ def main(argv: list[str] | None = None) -> int:
                 reader=reader, plan=plan_small, passes=args.passes, device=device, seed=seed,
                 hidden=args.hidden, heads=args.heads, lr=args.lr,
                 span_weight=args.span_weight, ledger=ledger,
+                checkpoint_dir=args.checkpoint_dir,
+                checkpoint_every=args.checkpoint_every,
+                # Only the cell it was taken from. One checkpoint handed to every cell
+                # resumes one and aborts the rest on a seed or schedule mismatch.
+                resume_from=(
+                    resume_checkpoint
+                    if resume_cell == ("memorise", seed, device)
+                    else None
+                ),
                 optimizer_recipe=args.optimizer,
                 backbone=args.real_backbone,
                 tag="memorise", quick_reason=quick_small,
@@ -2154,8 +2376,15 @@ def main(argv: list[str] | None = None) -> int:
                 run = _train(
                     reader=reader, plan=plan_all, passes=1, device=device, seed=seed,
                     hidden=args.hidden, heads=args.heads, lr=args.lr,
-                span_weight=args.span_weight, ledger=ledger,
-                optimizer_recipe=args.optimizer,
+                    span_weight=args.span_weight, ledger=ledger,
+                    checkpoint_dir=args.checkpoint_dir,
+                    checkpoint_every=args.checkpoint_every,
+                    resume_from=(
+                        resume_checkpoint
+                        if resume_cell == ("epoch", seed, device)
+                        else None
+                    ),
+                    optimizer_recipe=args.optimizer,
                     backbone=args.real_backbone,
                     tag="epoch", quick_reason=quick_epoch,
                 )
