@@ -27,7 +27,14 @@ import numpy as np
 
 from .tristate import NotRun, Ran, TriState
 
-__all__ = ["CSR", "BaselineFit", "CharNGramHasher", "LinearBaseline"]
+__all__ = [
+    "CSR",
+    "DENSE_OPERAND_BUDGET_BYTES",
+    "BaselineFit",
+    "CharNGramHasher",
+    "DenseOperand",
+    "LinearBaseline",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +88,70 @@ class CSR:
             rows=np.repeat(np.arange(len(idx)), lengths),
             shape=(len(idx), self.shape[1]),
         )
+
+    def as_operand(self) -> CSR | DenseOperand:
+        """`self`, or a dense equivalent when one fits inside the budget.
+
+        Both matmuls above are gather-then-scatter: each allocates an `(nnz, k)`
+        temporary and runs `k` bincounts over it. That is correct and it is what makes
+        the full-scale set fittable at all, but it moves memory in a random-access
+        pattern that no BLAS can help with. Measured on the rung-0 corpus -- 774 docs,
+        `nnz` 6,325,171, `d` 65,536, so 12.5% dense, which is not sparse in the sense
+        the CSR was built for -- it costs 0.379s per iteration. Across the 4-value L2
+        grid plus the refit at `max_iter=6000` that is 30,000 iterations and 3.2 hours,
+        which is how a run launched under a 9000s cap spent ten minutes in this function
+        and wrote zero ledger rows.
+
+        Dense does ~8x more arithmetic and is still far quicker, because a GEMM streams
+        and threads where a gather does neither.
+
+        The sparse path is not replaced. `CSR`'s docstring is right that at ~400K
+        examples a dense encoding is ~26 GB and could not be fitted at all, and a
+        control arm that cannot see the whole training set is a weak control. So the
+        choice is made once, by an explicit byte budget, and above it nothing changes.
+        """
+        n, d = self.shape
+        if n * d * self.data.dtype.itemsize > DENSE_OPERAND_BUDGET_BYTES:
+            return self
+        # Densifying by assignment is only equal to the sparse path when each
+        # (row, column) appears once; a duplicate would be overwritten rather than
+        # summed, and the two paths would silently disagree. `transform` accumulates
+        # into a per-row dict and sorts, and `select` preserves that, so duplicates
+        # are adjacent if they exist at all -- which makes the check O(nnz).
+        if self.indices.size > 1 and np.any(
+            (np.diff(self.rows) == 0) & (np.diff(self.indices) == 0)
+        ):
+            raise ValueError(
+                "CSR holds a duplicate (row, column) entry, so it cannot be "
+                "densified by assignment without changing the value it represents"
+            )
+        dense = np.zeros(self.shape, dtype=self.data.dtype)
+        dense[self.rows, self.indices] = self.data
+        return DenseOperand(dense=dense, shape=self.shape)
+
+
+#: Above this, `CSR.as_operand` keeps the sparse path. 512 MB admits the rung-0 corpus
+#: (774 x 65,536 float64 = 406 MB) and refuses the full-scale set by two orders of
+#: magnitude, which is the intent: make the affordable case fast without pretending the
+#: unaffordable one has become affordable.
+DENSE_OPERAND_BUDGET_BYTES = 512 * 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class DenseOperand:
+    """A `CSR` materialised dense, exposing the same two matmuls so the training loop
+    does not branch. One loop, two representations -- not two loops that can drift."""
+
+    dense: np.ndarray
+    shape: tuple[int, int]
+
+    def matmul(self, W: np.ndarray) -> np.ndarray:
+        """X @ W -> (n, k)."""
+        return self.dense @ W
+
+    def rmatmul(self, D: np.ndarray) -> np.ndarray:
+        """X.T @ D -> (d, k)."""
+        return self.dense.T @ D
 
 
 class CharNGramHasher:
@@ -189,6 +260,9 @@ class LinearBaseline:
     ) -> tuple[np.ndarray, np.ndarray, bool, int, float, list[float]]:
         rng = np.random.default_rng(self.seed)
         d = X.shape[1]
+        # Chosen once, outside the loop: the loop below is written against the two
+        # matmuls and never learns which representation answered them.
+        ops = X.as_operand()
         W = rng.normal(0.0, 0.01, size=(d, n_classes)).astype(np.float64)
         b = np.zeros(n_classes, dtype=np.float64)
         Y = np.zeros((len(y), n_classes), dtype=np.float64)
@@ -203,12 +277,12 @@ class LinearBaseline:
         converged, grad_norm, it = False, float("inf"), 0
 
         for it in range(1, self.max_iter + 1):
-            P = self._softmax(X.matmul(W) + b)
+            P = self._softmax(ops.matmul(W) + b)
             loss = float(-np.sum(Y * np.log(np.clip(P, 1e-12, None))) / len(y) + l2 * np.sum(W * W))
             history.append(loss)
 
             diff = (P - Y) / len(y)
-            gW = X.rmatmul(diff) + 2.0 * l2 * W
+            gW = ops.rmatmul(diff) + 2.0 * l2 * W
             gb = diff.sum(axis=0)
             grad_norm = float(np.sqrt(np.sum(gW * gW) + np.sum(gb * gb)))
             if grad_norm < self.tol:
