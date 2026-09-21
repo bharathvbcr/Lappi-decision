@@ -222,3 +222,156 @@ PYTHONDONTWRITEBYTECODE=1 /Users/bharath/.local/bin/uv run --no-project --python
 Those are the tests that prove the real step resumes. Read them before touching
 `QwenDecisionStep.state()`: the optimizer half is what makes a resume a resume, and it is
 invisible in the weights.
+
+---
+
+# Part 3 — the night of the 21st
+
+Written after Parts 1 and 2, and it revises Part 1.
+
+## 7. The third provenance pin: which revision the corpus was read at
+
+`data_snapshot_hash` hashes the rows that came out. `code_fingerprint` hashes the code that
+turned them into rows. Neither covers **which revision was read**, so a set built from the
+wrong one is self-consistent in both and passes everything — the rev for the 2026-09-21
+incident had to be recovered from the free-text NOTES of ledger row `46e63ff3`.
+
+`ShardHeader.corpus_rev` records it and `shard_hash` covers it. `_shard_rev_check` is
+tri-state and the middle answer is the point:
+
+| state | when |
+| --- | --- |
+| `NotRun` | the header carries no rev — every set written before today |
+| `NotRun` | the **caller** named no rev. A set describing itself is not a set that was verified |
+| `Ran(passed=False)` + refusal | the two disagree |
+
+An absent rev contributes nothing to `shard_hash`, so no set on disk was invalidated.
+
+It matters because `tools/real_ft_run.py` does not read labels out of the shard set: it
+**reconstructs** them from the repo at `--rev` and pairs them with the set's sequences. The
+321-against-341 refusal fired only because the drift moved the row *count*. A revision that
+changes which rows exist without changing how many lands every label on the wrong sequence
+with no other symptom.
+
+**Wiring it exposed a second defect.** `real_tokenizer_pipeline.py` takes `--rev`
+**defaulting to `HEAD`** and resolves it internally into `resolved`, which is what every
+corpus read uses. Pinning the argument would have written `"HEAD"` into the header — worse
+than writing nothing, because an absent rev reads `NotRun` and `"HEAD"` compares equal to
+`"HEAD"` tomorrow and reads as *verified*. `tools/repo_git.py` gained `resolve_rev`; both
+tools go through it, and two tests read the tools' source so the next caller cannot quietly
+pin an unresolved name.
+
+`~/shardset-v4` on the box is the first set whose `shard_rev_matches` reads
+`Ran(passed=True)`. Identical `data_snapshot_hash` to v3 (`101168a90055`), 321 sequences —
+the rows did not move, only the pin was added.
+
+## 8. The seed named the batch order and not the model
+
+**This revises §2 of Part 1.**
+
+A single-seed smoke against v4 did not reproduce §2's seed-0 numbers. Four runs at
+`--seeds 0 0 1 1` found two runs at *one* seed differing **at step one**:
+
+    opening total loss, six runs of ONE configuration
+    253.48   279.09   298.44   334.62   382.58   489.91
+
+`QwenDecisionStep` builds a randomly-initialised `SpanPointerHead`, and `backbone.py`
+contained no `torch.manual_seed`, no `torch.Generator` and no seed argument at all.
+`tools/real_ft_run.py`'s **other** branch — the stand-in `RealFtStep` — calls
+`torch.manual_seed(seed)` on the first line of `__init__`.
+
+So the tool was reproducible on the backbone nobody measures and not on the one every GH200
+row used. One name, two behaviours, split across the two branches of one tool, and the
+branch that got it right is the one whose numbers do not matter.
+
+**What it cost.** The letter head is pretrained and the span head is random, so the draw
+landed almost entirely on one channel:
+
+| across those six runs | range |
+| --- | --- |
+| final letter loss | 1.07e-4 … 8.81e-4 |
+| final span loss | 0.000000 … 1.823686 |
+
+That is exactly the shape §2 reported as *"the span channel does not show a clean opposite
+trend … three seeds cannot separate that from noise."* The spread was not seed noise. The
+seeds were not controlling the quantity that moved, and more seeds of the same kind would
+not have resolved it.
+
+**What survives §2:** the letter column. Monotone across the three arms — 0.0566, 0.0195,
+0.0062 — on a head that was never the random one. **What does not:** the span column, every
+per-seed reading of it, and the `2 of 3` gate counts (a repeat of seed 0 at `span_weight`
+1.0 passed the gate the first run failed). `AUDIT/ft-span-weight-{seeded,paired}` and
+`AUDIT/ft-channel-balance` each carry a `correction` key saying so; their numbers are not
+rewritten, because they were measured.
+
+**Rung 0 is unaffected** — `tools/rung0_real_run.py:525` seeds. Part 1 §1 stands.
+
+`seed` is now a **required** keyword on `QwenDecisionStep`, like `total_steps` before it.
+The fix is in the class, not the driver: a driver that seeds before each construction gives
+the same guarantee only until the next caller forgets, or until anything between the
+seeding and the construction draws a number.
+`test_the_seed_survives_an_arbitrarily_advanced_global_rng` advances the ambient stream by a
+different amount before each build and requires the two steps to agree.
+
+**Confirmed on the box:** two runs at seed 3 now both open at exactly `369.5100`.
+
+## 9. The overnight run, and why it is not the sweep it was going to be
+
+The plan was a 20-seed `span_weight` sweep — §2's open question. Running 100 arms first
+would have measured the same mistake more precisely, so phase 1 is now the residual.
+
+| phase | what | arms |
+| --- | --- | --- |
+| 1 | the residual once the seed is honoured | one config, **8 repeats at seed 0** |
+| 2 | the sweep, seeds that now control the init | 5 × `span_weight` × **12 seeds** |
+| 3 | optimizer control: `master` at the **same** 128 steps | 2 × 5 seeds |
+| 4 | the long schedule: **512 steps** under `master` | 2 × 5 seeds |
+
+Phase 3 exists so phase 4's difference is attributable to the schedule rather than to the
+optimizer that makes the schedule legal — 512 steps is past the 384-step bf16 second-moment
+bound, so `build_optimizer` refuses bf16 there and `master` is the recipe that makes the
+length meaningful rather than the flag that silences the guard.
+
+Driver `/home/ubuntu/overnight.sh`, 9-hour cap checked **between** arms (killing a run
+mid-flight leaves a ledger row claiming a schedule it did not finish). Logs in
+`/home/ubuntu/overnight/`, ledger `ledger/gh200-overnight-2026-09-21.jsonl`, shard set
+`~/shardset-v4`. Every row is `quick=True` and promotes nothing (rule 8).
+
+**`MAX_SEEDS` is 8**, which the first launch discovered by being refused; phase 2's 12 seeds
+are two invocations of 6 rather than a sweep shrunk to fit a per-invocation bound.
+
+## State at the end of Part 3
+
+| Gate | Result |
+| --- | --- |
+| `make gates` | **PASS** — lint, clippy, ledger-record, ledger-verify |
+| cargo | 362 / 362 |
+| pytest, torch venv | 1661 passed, 2 skipped |
+| pytest, repo venv | 1431 passed, 20 skipped |
+| ledger chain, `runs.jsonl` | 177 rows |
+
+Commits: `33e20a1` (the rev pin, 16 tests), `fee0f9a` (the seeding, 5 tests). Every new test
+verified to fail against the pre-fix tree by reverting the sources and re-running.
+
+## Open, revised
+
+1. **Phases 1–4 above** are the current measurements. Phase 1 decides how the rest are read.
+2. **Whether `span_weight`'s default moves** now depends on phase 2, not on §2.
+3. **A nonzero-floor FT run.** Unchanged and still untested; every FT measurement so far has
+   both floors at 0.0.
+4. **A driver-level test that a resume onto a different corpus order is refused.** Unchanged.
+5. **Two rung-0 candidates** from `GAP-RUNG0-A-LINEAR-CONTROL-BEATS-THE-MODEL`. Unchanged.
+
+**Carried forward, unchanged:** the ledger fork at row 157 and `clean` at 1.7% against
+`--clean-permille 200` are user-owned.
+
+## First command for the next lane
+
+```bash
+ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240 'cat /home/ubuntu/overnight/driver.log; grep -h "^cuda seed=" /home/ubuntu/overnight/p1-residual-seed0-x8.log'
+```
+
+Read phase 1 before reading anything else. Eight runs of one configuration at one seed: the
+spread between them is the error bar every later arm has to be read against, and if it is
+not small then phase 2's per-seed numbers are still a mixture — of the arm and of whatever
+CUDA does with atomics — and must be reported as one.

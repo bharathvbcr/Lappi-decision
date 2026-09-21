@@ -1,27 +1,34 @@
 {
-  "measured": "2026-09-21",
-  "what": "The opening balance between the two channels of the FT objective, on the REAL Qwen3.5-2B-derived tower, recorded as a ledger metric rather than left in a run's stdout.",
-  "why": "Rung 0 sat at its majority-class baseline through four experiments because its span channel opened 6.2x above its choice channel and the two were summed unweighted; see AUDIT/rung0-span-weight-2026-09-20.json. QwenDecisionStep -- the step train_ft drives -- sums the same way and defaults span_weight to 1.0, and no caller in this repository had ever passed one. The question is what that ratio actually is on the path final training uses.",
-  "host": "192.222.58.240, NVIDIA GH200 480GB, torch 2.10.0+cu128",
-  "backbone": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c, remapped to the corpus vocabulary; 1.4B trainable",
-  "rows": {
-    "ft": "f5d50f16-6727-450a-98c0-9cc5f844141f",
-    "verdict": "419ed2ce-3b81-40f2-8102-73daf1bb0094",
-    "shard_set_pipeline": "46e63ff3-1b1f-4bbb-9fb5-0b08c83e03c6",
-    "ledger": "ledger/gh200-2026-09-21.jsonl, chain verifies at 227 rows"
-  },
-  "measurement": {
-    "letter_channel_first": 6.900224208831787,
-    "span_channel_first": 274.13427734375,
-    "span_weight": 1.0,
-    "objective_channel_balance_at_open": 39.73,
-    "letter_channel_last": 1.1064103841781616,
-    "span_channel_last": 86.68010711669922
-  },
-  "finding": "39.7:1. The span channel opens forty times above the letter channel and they are summed unweighted, so what the optimiser minimises is very nearly the pointer loss alone. For comparison the same quantity on rung 0 was 6.2:1, and rung 0's choice head was pinned at its training set's majority share on every seed at an EFFECTIVE ratio of roughly 1.2:1 or above. The FT path sits thirty times past the point where the cheap model stopped learning anything conditional.",
-  "what_this_does_NOT_establish": "That the FT path collapses. It has not been shown to, and two facts argue the other way. First, the only converged real-tower runs on this path -- ledger rows 4541d72e / 5ebebda7 / 6374e188 -- drove BOTH channels to their floors (letter 3.36e-06, span 0.000000 on verdict row 835d9931); a memorisation task whose floors are both 0.0 has headroom a real task will not. Second, this path already carries per-channel floor gates through the single owner _floor_state, so a starved letter channel fails a gate here rather than passing silently the way rung 0's did. What is unmeasured is a non-memorisation FT run at a nonzero floor, which is where the ratio would bite.",
-  "why_the_default_was_not_moved": "Rung 0's collapse threshold was measured on a 1.5M-parameter byte-level model. Carrying that bar onto a 1.4B backbone would be an inference wearing a gate's clothes, which is the failure this repository keeps finding in its own work. --span-weight now exists on tools/real_ft_run.py and defaults to 1.0, unchanged. The metric is recorded and explicitly NOT gated.",
-  "this_run_did_not_converge_and_says_so": "2 passes over 10 batches is 20 optimizer steps, and both floor gates correctly FAILED: letter gap 1.157 and span gap 67.578 against a 0.05 bar. That is the expected reading of a 20-step run and is not evidence of collapse. The opening ratio is measured at the first micro-batch and is unaffected by how long the run went, which is why this run is enough to establish it and not enough to establish anything else.",
-  "a_stale_shard_set_was_found_on_the_way": "The first attempt refused: 'the reconstructed row order disagrees with supervision.npz: 321 labels against 341 sequences'. real_ft_run reconstructs labels from the repository through the WORKING TREE's qd_data, so a change there invalidates an existing shard set while its header still looks current. Regenerating at the identical --rev and --max-pairs gave 321 sequences and 78 span rows against the old set's 341 and 86. Recorded as GAP-SHARD-SET-GOES-STALE-AGAINST-THE-CORPUS-CODE-THAT-REPRODUCES-ITS-LABELS.",
-  "quick": "Every row is quick=True and promotes nothing under rule 8."
+ "measured": "2026-09-21",
+ "what": "The opening balance between the two channels of the FT objective, on the REAL Qwen3.5-2B-derived tower, recorded as a ledger metric rather than left in a run's stdout.",
+ "why": "Rung 0 sat at its majority-class baseline through four experiments because its span channel opened 6.2x above its choice channel and the two were summed unweighted; see AUDIT/rung0-span-weight-2026-09-20.json. QwenDecisionStep -- the step train_ft drives -- sums the same way and defaults span_weight to 1.0, and no caller in this repository had ever passed one. The question is what that ratio actually is on the path final training uses.",
+ "host": "192.222.58.240, NVIDIA GH200 480GB, torch 2.10.0+cu128",
+ "backbone": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c, remapped to the corpus vocabulary; 1.4B trainable",
+ "rows": {
+  "ft": "f5d50f16-6727-450a-98c0-9cc5f844141f",
+  "verdict": "419ed2ce-3b81-40f2-8102-73daf1bb0094",
+  "shard_set_pipeline": "46e63ff3-1b1f-4bbb-9fb5-0b08c83e03c6",
+  "ledger": "ledger/gh200-2026-09-21.jsonl, chain verifies at 227 rows"
+ },
+ "measurement": {
+  "letter_channel_first": 6.900224208831787,
+  "span_channel_first": 274.13427734375,
+  "span_weight": 1.0,
+  "objective_channel_balance_at_open": 39.73,
+  "letter_channel_last": 1.1064103841781616,
+  "span_channel_last": 86.68010711669922
+ },
+ "finding": "39.7:1. The span channel opens forty times above the letter channel and they are summed unweighted, so what the optimiser minimises is very nearly the pointer loss alone. For comparison the same quantity on rung 0 was 6.2:1, and rung 0's choice head was pinned at its training set's majority share on every seed at an EFFECTIVE ratio of roughly 1.2:1 or above. The FT path sits thirty times past the point where the cheap model stopped learning anything conditional.",
+ "what_this_does_NOT_establish": "That the FT path collapses. It has not been shown to, and two facts argue the other way. First, the only converged real-tower runs on this path -- ledger rows 4541d72e / 5ebebda7 / 6374e188 -- drove BOTH channels to their floors (letter 3.36e-06, span 0.000000 on verdict row 835d9931); a memorisation task whose floors are both 0.0 has headroom a real task will not. Second, this path already carries per-channel floor gates through the single owner _floor_state, so a starved letter channel fails a gate here rather than passing silently the way rung 0's did. What is unmeasured is a non-memorisation FT run at a nonzero floor, which is where the ratio would bite.",
+ "why_the_default_was_not_moved": "Rung 0's collapse threshold was measured on a 1.5M-parameter byte-level model. Carrying that bar onto a 1.4B backbone would be an inference wearing a gate's clothes, which is the failure this repository keeps finding in its own work. --span-weight now exists on tools/real_ft_run.py and defaults to 1.0, unchanged. The metric is recorded and explicitly NOT gated.",
+ "this_run_did_not_converge_and_says_so": "2 passes over 10 batches is 20 optimizer steps, and both floor gates correctly FAILED: letter gap 1.157 and span gap 67.578 against a 0.05 bar. That is the expected reading of a 20-step run and is not evidence of collapse. The opening ratio is measured at the first micro-batch and is unaffected by how long the run went, which is why this run is enough to establish it and not enough to establish anything else.",
+ "a_stale_shard_set_was_found_on_the_way": "The first attempt refused: 'the reconstructed row order disagrees with supervision.npz: 321 labels against 341 sequences'. real_ft_run reconstructs labels from the repository through the WORKING TREE's qd_data, so a change there invalidates an existing shard set while its header still looks current. Regenerating at the identical --rev and --max-pairs gave 321 sequences and 78 span rows against the old set's 341 and 86. Recorded as GAP-SHARD-SET-GOES-STALE-AGAINST-THE-CORPUS-CODE-THAT-REPRODUCES-ITS-LABELS.",
+ "quick": "Every row is quick=True and promotes nothing under rule 8.",
+ "correction": {
+  "corrected": "2026-09-21",
+  "gap": "GAP-REAL-STEP-INITIALISES-ITS-SPAN-HEAD-FROM-AN-UNSEEDED-RNG",
+  "what_is_wrong": "Every run behind this file was driven by QwenDecisionStep, which did not seed anything: it builds a randomly-initialised SpanPointerHead, and until fee0f9a python/qd_train/backbone.py contained no torch.manual_seed, no torch.Generator and no seed argument. Six runs of one configuration opened at total losses of 253.48, 279.09, 298.44, 334.62, 382.58 and 489.91; after fee0f9a two runs at seed 3 both open at exactly 369.5100.",
+  "what_it_means_here": "This file's quantity is the ratio between the two channels' losses AT OPEN, and the opening span loss is a forward pass through the randomly-initialised span head -- which is precisely the tensor that was not seeded. So the ratios here (254:1, 72:1, 12:1) are single draws, and their ORDER across span_weight is arithmetic rather than measurement: the span term is multiplied by span_weight by construction. What the file establishes -- that the two channels open orders of magnitude apart, so an unweighted sum starves the smaller one -- does not depend on the draw and stands.",
+  "superseded_by": "ledger/gh200-overnight-2026-09-21.jsonl, where the opening balance is recorded again under a seed that determines the head it is measured through."
+ }
 }
