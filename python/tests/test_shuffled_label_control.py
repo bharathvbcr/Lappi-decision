@@ -482,6 +482,195 @@ def test_the_paired_margin_gate_is_recorded_and_fails_closed():
     )
 
 
+# --------------------------------------------------------------------------
+# 2f -- permutation_consistency, and the one character that decides what it measures
+# --------------------------------------------------------------------------
+
+
+def test_the_permutation_is_a_derangement_and_not_a_shuffle():
+    """`docs/schema-api.md` is explicit that the distinction IS the gate.
+
+    "A uniform shuffle (Fisher-Yates) leaves fixed points, and when the winning row happens
+    to be one, a purely position-biased model agrees with itself across both passes and the
+    abstention never fires. The check then passes precisely on the cases it exists to
+    catch."
+
+    Sattolo and Fisher-Yates differ by `randrange(i)` versus `randrange(i + 1)`. A gate
+    built on the wrong one still returns a number, and the number is highest exactly for
+    the models the gate exists to fail.
+    """
+    pytest.importorskip("torch", reason="rung0_real_run imports torch at module scope")
+    from rung0_real_run import sattolo_permutation
+
+    fixed = 0
+    for i in range(3000):
+        perm = sattolo_permutation(4, seed_text=f"example-{i}")
+        assert sorted(perm) == [0, 1, 2, 3], perm
+        fixed += sum(1 for position, old in enumerate(perm) if position == old)
+    assert fixed == 0, (
+        f"{fixed} fixed point(s) in 3000 permutations; this is Fisher-Yates, not Sattolo, "
+        "and a position-biased model will agree with itself on every fixed point"
+    )
+
+    # (n-1)! cyclic permutations of 4 items, and no more: a cycle, not an arbitrary
+    # derangement. 4!/4 = 6.
+    seen = {tuple(sattolo_permutation(4, seed_text=f"e{i}")) for i in range(600)}
+    assert len(seen) == 6, sorted(seen)
+
+
+def test_the_permutation_is_reproducible_from_the_row_alone():
+    """The training-gate analogue of the runtime seeding from DecisionRequest::digest()."""
+    pytest.importorskip("torch", reason="rung0_real_run imports torch at module scope")
+    from rung0_real_run import sattolo_permutation
+
+    assert sattolo_permutation(4, seed_text="row-a") == sattolo_permutation(4, seed_text="row-a")
+
+    # NOT `perm("row-a") != perm("row-b")`. There are only (4-1)! = 6 cyclic permutations
+    # of four options, so two seeds collide one time in six and that assertion fails on a
+    # schedule -- a flaky test dressed as a property. The property is that the permutation
+    # DEPENDS on the seed, which is a statement about the family, not about a pair.
+    family = {tuple(sattolo_permutation(4, seed_text=f"row-{i}")) for i in range(60)}
+    assert len(family) > 1, "every seed produced the same permutation"
+
+    with pytest.raises(ValueError, match="at least 2"):
+        sattolo_permutation(1, seed_text="row-a")
+
+
+def test_a_position_biased_model_fails_the_gate_and_a_content_reader_passes():
+    """The gate, end to end, on the two models it exists to separate.
+
+    This is the assertion that the mapping back through the permutation is right. A model
+    that always answers column 0 picks a DIFFERENT option on the second pass -- that is what
+    a derangement guarantees -- so it must score 0%. A model that reads the option content
+    picks the same option in both orders and must score 100%. Getting the inverse mapping
+    backwards would swap these two results, and both look plausible in isolation.
+    """
+    torch = pytest.importorskip("torch", reason="the gate runs a forward pass")
+    from rung0_real_run import permutation_consistency
+
+    from qd_train.byte_batch import BatchPlan
+
+    n_rows, n_opts, opt_w, ctx_w = 8, 4, 2, 3
+
+    plan = BatchPlan(
+        example_ids=tuple(f"ex{i}" for i in range(n_rows)),
+        context_ids=tuple(tuple(1 for _ in range(ctx_w)) for _ in range(n_rows)),
+        context_mask=tuple(tuple(True for _ in range(ctx_w)) for _ in range(n_rows)),
+        # Option j of every row carries the distinct byte (j + 10), so "content" is
+        # readable and position is not the only signal.
+        option_ids=tuple(
+            tuple(tuple(j + 10 for _ in range(opt_w)) for j in range(n_opts))
+            for _ in range(n_rows)
+        ),
+        option_mask=tuple(
+            tuple(tuple(True for _ in range(opt_w)) for _ in range(n_opts))
+            for _ in range(n_rows)
+        ),
+        n_live_options=tuple(n_opts for _ in range(n_rows)),
+        choice_target=tuple(0 for _ in range(n_rows)),
+        line_starts=tuple((0,) for _ in range(n_rows)),
+        span_target=tuple(0 for _ in range(n_rows)),
+        span_end_target=tuple(0 for _ in range(n_rows)),
+        span_is_noul=tuple(False for _ in range(n_rows)),
+    )
+
+    class _Decider:
+        def __init__(self, by_position: bool) -> None:
+            self.by_position = by_position
+
+        def encode_context(self, ctx, mask):
+            return torch.zeros(ctx.shape[0], 4)
+
+        def score_from_hidden(self, hidden, mask, option_ids, option_mask, n_live):
+            if self.by_position:
+                # Always column 0, whatever is in it.
+                scores = torch.zeros(option_ids.shape[0], option_ids.shape[1])
+                scores[:, 0] = 1.0
+                return scores
+            # Read the option's content: prefer the largest first byte.
+            return option_ids[:, :, 0].float()
+
+    class _Model:
+        def __init__(self, by_position: bool) -> None:
+            self.decider = _Decider(by_position)
+
+        def eval(self):
+            return self
+
+        def train(self):
+            return self
+
+    biased = permutation_consistency(_Model(True), [plan], device="cpu")
+    assert isinstance(biased, Ran), biased
+    assert biased.value == 0.0 and not biased.passed, biased.detail
+
+    content = permutation_consistency(_Model(False), [plan], device="cpu")
+    assert isinstance(content, Ran), content
+    assert content.value == 1.0 and content.passed, content.detail
+
+
+def test_rows_without_a_derangement_are_excluded_not_counted_as_agreeing():
+    """A single-option row cannot disagree, so counting it inflates the rate.
+
+    This is the "never present a capped sample as complete coverage" rule applied to a
+    gate: the excluded rows leave through the denominator, where a shrinking corpus shows
+    up, rather than through the numerator, where it would look like improvement.
+    """
+    torch = pytest.importorskip("torch", reason="the gate runs a forward pass")
+    from rung0_real_run import permutation_consistency
+
+    from qd_train.byte_batch import BatchPlan
+
+    plan = BatchPlan(
+        example_ids=("a", "b"),
+        context_ids=((1,), (1,)),
+        context_mask=((True,), (True,)),
+        option_ids=(((10,), (11,)), ((10,), (11,))),
+        option_mask=(((True,), (True,)), ((True,), (False,))),
+        n_live_options=(2, 1),  # the second row has one live option
+        choice_target=(0, 0),
+        line_starts=((0,), (0,)),
+        span_target=(0, 0),
+        span_end_target=(0, 0),
+        span_is_noul=(False, False),
+    )
+
+    class _Model:
+        class decider:
+            @staticmethod
+            def encode_context(ctx, mask):
+                return torch.zeros(ctx.shape[0], 4)
+
+            @staticmethod
+            def score_from_hidden(hidden, mask, option_ids, option_mask, n_live):
+                return option_ids[:, :, 0].float()
+
+        def eval(self):
+            return self
+
+        def train(self):
+            return self
+
+    verdict = permutation_consistency(_Model(), [plan], device="cpu")
+    assert isinstance(verdict, Ran), verdict
+    assert verdict.n_total == 1, (
+        f"the single-option row was counted; denominator {verdict.n_total} should be 1"
+    )
+    assert "excluded rather than counted as agreeing" in verdict.detail
+
+
+def test_the_permutation_floor_is_the_plan_number():
+    """95%, from docs/schema-api.md. A threshold is read-only to an agent (rule 2)."""
+    pytest.importorskip("torch", reason="rung0_real_run imports torch at module scope")
+    from rung0_real_run import PERMUTATION_CONSISTENCY_FLOOR
+
+    assert PERMUTATION_CONSISTENCY_FLOOR == 0.95
+    spec = (REPO / "docs" / "schema-api.md").read_text(encoding="utf-8")
+    assert "permutation consistency (>= 95%) is a training gate" in spec, (
+        "the plan no longer states the 95% floor where this gate takes it from"
+    )
+
+
 def test_a_shuffled_model_at_chance_passes_and_above_the_ceiling_fails():
     """The control's own verdict, on the two cases that matter.
 

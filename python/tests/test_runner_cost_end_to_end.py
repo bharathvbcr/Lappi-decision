@@ -276,7 +276,19 @@ def test_a_run_killed_before_training_finishes_still_writes_a_priced_row(
     that block when the signal lands.
 
     The signal is sent once the tool has printed its batch counts, which it does
-    immediately before the seed loop, and then 1.5s later. The window it has to land in is
+    immediately before the seed loop, and then 1.5s later.
+
+    **That adjacency is load-bearing, and it is a property of the tool this test pins.**
+    Anything inserted between the `batches:` line and the seed loop is unrecorded setup
+    that the signal will land in instead, and the run then dies without a row -- which is
+    what this test reports, correctly, as "the recorder is not wrapping the training". It
+    fired on 2026-09-21 when the linear control's fit was added on the wrong side of that
+    line; the fit measures 109.6s on 727 documents, so the window it opened was wider than
+    the one seed of work the signal is aimed at. The fit now runs before the line. If you
+    are here because this test failed after you added setup, that is the reason: put it
+    before the `batches:` print, or give the seed loop its own trigger.
+
+    The window it has to land in is
     the one seed's work -- model construction, the "before" evaluation and the training
     loop -- all of which is inside the block after this fix and outside it before, since
     the recorder used to be entered only once `train_once` had returned. The sizing is

@@ -528,6 +528,45 @@ def degenerate_head_state(rows: Sequence[Sequence[float]]) -> TriState:
     return degenerate_head_check(np.asarray(rows, dtype=np.float64))
 
 
+def sattolo_permutation(n: int, *, seed_text: str) -> list[int]:
+    """A uniformly random CYCLIC permutation of ``range(n)`` -- Sattolo's algorithm.
+
+    ``result[new_position] = old_index``.
+
+    Sattolo rather than Fisher-Yates, and the difference is the whole gate.
+    ``docs/schema-api.md`` states it: *"The permutation must be a derangement -- no option
+    may keep its position. A uniform shuffle (Fisher-Yates) leaves fixed points, and when
+    the winning row happens to be one, a purely position-biased model agrees with itself
+    across both passes and the abstention never fires. The check then passes precisely on
+    the cases it exists to catch."* And, for this gate specifically: *"a
+    permutation-consistency figure measured over uniform shuffles is measuring something
+    weaker than the runtime enforces, so the >= 95% gate must be computed over derangements
+    or it is not the same quantity."*
+
+    The single difference in code is ``randrange(i)`` rather than ``randrange(i + 1)``,
+    which is why it is worth a docstring this long: the two algorithms differ by one
+    character and produce gates that measure different things.
+
+    Seeded per example rather than from a sweep-wide RNG, so the permutation a row got is
+    reproducible from the row alone -- the training-gate analogue of the runtime seeding
+    its permutation from ``DecisionRequest::digest()``.
+    """
+    if n < 2:
+        raise ValueError(f"a derangement needs at least 2 items, got {n}")
+    rng = random.Random(hashlib.sha256(seed_text.encode("utf-8")).digest())
+    items = list(range(n))
+    for i in range(n - 1, 0, -1):
+        j = rng.randrange(i)  # NOT randrange(i + 1): that is Fisher-Yates and has fixed points
+        items[i], items[j] = items[j], items[i]
+    return items
+
+
+#: The gate from `docs/schema-api.md`: "permutation consistency (>= 95%) is a training gate
+#: and not only a runtime check: a model that fails it makes the second pass fire constantly
+#: and the abstain rate blows the cap." A threshold from the plan, read-only to an agent.
+PERMUTATION_CONSISTENCY_FLOOR: Final[float] = 0.95
+
+
 #: The linear control's iteration budget, which must match `rung0_linear_control`'s.
 #: Restated rather than imported only because that module imports this one; the value is
 #: asserted equal to its source in `test_shuffled_label_control.py`, so the two cannot
@@ -536,6 +575,100 @@ def degenerate_head_state(rows: Sequence[Sequence[float]]) -> TriState:
 #: all. The ITERATION BUDGET moves, never the tolerance: the tolerance is what makes the
 #: control worth beating.
 LINEAR_CONTROL_MAX_ITER: Final[int] = 6_000
+
+
+def permutation_consistency(
+    model: Rung0Model, plans: Sequence[BatchPlan], *, device: str
+) -> TriState:
+    """Does the choice head give the same answer when the options are deranged?
+
+    Two passes over the same rows, the second with each row's live options cyclically
+    permuted, the answer mapped back to the original option index and compared. This is the
+    training-gate half of what the runtime does per request, where disagreement becomes
+    ``noul``; a model that fails it makes the second pass fire constantly and the abstain
+    rate blows its cap.
+
+    Rows with fewer than two live options are EXCLUDED rather than counted as agreeing.
+    They have no derangement, so they cannot disagree, and scoring them as agreements would
+    inflate the rate with rows that were never asked the question. They are carried in the
+    coverage pair instead, so a corpus that quietly became mostly single-option rows shows
+    up as a shrinking denominator rather than as a rising score.
+    """
+    model.eval()
+    agree = 0
+    asked = 0
+    total = 0
+    with torch.no_grad():
+        for plan in plans:
+            ctx = torch.tensor(plan.context_ids, dtype=torch.long, device=device)
+            mask = torch.tensor(plan.context_mask, dtype=torch.bool, device=device)
+            hidden = model.decider.encode_context(ctx, mask)
+
+            option_ids = [list(row) for row in plan.option_ids]
+            option_mask = [list(row) for row in plan.option_mask]
+            n_live = list(plan.n_live_options)
+            total += len(n_live)
+
+            perms: list[list[int] | None] = []
+            permuted_ids = []
+            permuted_mask = []
+            for i, live in enumerate(n_live):
+                if live < 2:
+                    perms.append(None)
+                    permuted_ids.append(option_ids[i])
+                    permuted_mask.append(option_mask[i])
+                    continue
+                perm = sattolo_permutation(live, seed_text=plan.example_ids[i])
+                perms.append(perm)
+                # Only the live prefix moves; padded columns stay where they are, because
+                # they are not options and the model is told so by `n_live_options`.
+                ids = [option_ids[i][perm[j]] for j in range(live)] + option_ids[i][live:]
+                msk = [option_mask[i][perm[j]] for j in range(live)] + option_mask[i][live:]
+                permuted_ids.append(ids)
+                permuted_mask.append(msk)
+
+            first = model.decider.score_from_hidden(
+                hidden, mask,
+                torch.tensor(plan.option_ids, dtype=torch.long, device=device),
+                torch.tensor(plan.option_mask, dtype=torch.bool, device=device),
+                torch.tensor(n_live, dtype=torch.long, device=device),
+            ).argmax(dim=1).tolist()
+            second = model.decider.score_from_hidden(
+                hidden, mask,
+                torch.tensor(permuted_ids, dtype=torch.long, device=device),
+                torch.tensor(permuted_mask, dtype=torch.bool, device=device),
+                torch.tensor(n_live, dtype=torch.long, device=device),
+            ).argmax(dim=1).tolist()
+
+            for i, perm in enumerate(perms):
+                if perm is None:
+                    continue
+                asked += 1
+                # `second[i]` is a position in the PERMUTED order; perm maps it back.
+                if second[i] < len(perm) and perm[second[i]] == first[i]:
+                    agree += 1
+    model.train()
+
+    if asked == 0:
+        return NotRun(
+            reason=(
+                f"no row of {total} had two or more live options, so no derangement exists "
+                "and permutation consistency was not measured on anything"
+            )
+        )
+    rate = agree / asked
+    return Ran(
+        passed=rate >= PERMUTATION_CONSISTENCY_FLOOR,
+        value=rate,
+        n=agree,
+        n_total=asked,
+        detail=(
+            f"the choice head agreed with itself across a derangement on {agree} of "
+            f"{asked} rows ({rate:.1%}) against a {PERMUTATION_CONSISTENCY_FLOOR:.0%} "
+            f"floor; {total - asked} row(s) had fewer than two live options and were "
+            "excluded rather than counted as agreeing"
+        ),
+    )
 
 
 def linear_baseline_correctness(
@@ -816,6 +949,9 @@ def train_once(
     # has fitted and cannot transfer, which is a corpus problem. The loss curve alone does
     # not separate these, because a falling loss is consistent with both.
     on_train = evaluate(model, train_plans, device=device)
+    # The second pass, on the held-out rows only. Computed here because it needs the model
+    # and the model does not leave this function.
+    permutation = permutation_consistency(model, val_plans, device=device)
 
     waste_num = sum(
         sum(1 for row in p.context_mask for live in row if not live) for p in train_plans
@@ -840,6 +976,7 @@ def train_once(
         "val_before": before,
         "val_after": after,
         "train_after": on_train,
+        "permutation_consistency": permutation,
         "baseline": baseline,
         "choice_floor": choice_floor,
         "train_decisions": train_decisions,
@@ -1165,6 +1302,40 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"{choice_floor:.4f} nats -- a head that reaches this has learned the prior"
     )
 
+    # The opponent for `paired_margin_vs_linear`, the gate `qd_train.ledger` has listed
+    # since S6 and nothing has ever evaluated. `paired_margin_test` existed; what was
+    # missing was a baseline scored on THE SAME examples in THE SAME order, which is what
+    # `bucketed_chunks` makes available. Fitted once per sweep, not once per seed.
+    #
+    # Placed HERE, before the batch summary, deliberately. It is unrecorded setup -- no
+    # RunRecorder is open yet -- and it is not cheap: measured at 109.6s on 727 documents
+    # at this iteration budget, about as long as a full training seed. Putting it after the
+    # `batches:` line would widen the window between that line and the seed loop, and
+    # `test_a_run_killed_before_training_finishes_still_writes_a_priced_row` uses that line
+    # as the point after which a kill must produce a row. It caught this when the fit sat
+    # on the wrong side of it. Its duration is printed so the setup cost is visible rather
+    # than merely absent from the ledger.
+    scored_val = [d for chunk in bucketed_chunks(val_d, batch_size=args.batch_size)
+                  for d in chunk]
+    print(
+        f"  linear control: fitting on {len(train_d)} train doc(s), to score the "
+        f"{len(scored_val)} validation row(s) the model is scored on"
+    )
+    _fit_t0 = time.monotonic()
+    baseline_correct, baseline_not_run = linear_baseline_correctness(
+        train_d, scored_val, seed=0, max_iter=LINEAR_CONTROL_MAX_ITER
+    )
+    _fit_s = time.monotonic() - _fit_t0
+    if baseline_correct is None:
+        print(f"  linear control NOT RUN after {_fit_s:.1f}s: "
+              f"{baseline_not_run.reason}")  # type: ignore[union-attr]
+    else:
+        print(
+            f"  linear control accuracy on those rows: "
+            f"{float(baseline_correct.mean()):.1%} (fitted in {_fit_s:.1f}s, unrecorded "
+            "setup: no row covers this time)"
+        )
+
     train_plans = bucketed_batches(train_d, batch_size=args.batch_size, config=config)
     val_plans = bucketed_batches(val_d, batch_size=args.batch_size, config=config)
     if not train_plans or not val_plans:
@@ -1174,27 +1345,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     ) / sum(p.batch_size * p.context_width for p in train_plans)
     print(f"  batches: {len(train_plans)} train, {len(val_plans)} val; "
           f"train padding waste {waste:.2%}\n")
-
-    # The opponent for `paired_margin_vs_linear`, the gate `qd_train.ledger` has listed
-    # since S6 and nothing has ever evaluated. `paired_margin_test` existed; what was
-    # missing was a baseline scored on THE SAME examples in THE SAME order, which is what
-    # `bucketed_chunks` now makes available. Fitted once here, outside the seed loop.
-    scored_val = [d for chunk in bucketed_chunks(val_d, batch_size=args.batch_size)
-                  for d in chunk]
-    print(
-        f"  linear control: fitting on {len(train_d)} train doc(s), scoring the "
-        f"{len(scored_val)} validation row(s) the model is scored on"
-    )
-    baseline_correct, baseline_not_run = linear_baseline_correctness(
-        train_d, scored_val, seed=0, max_iter=LINEAR_CONTROL_MAX_ITER
-    )
-    if baseline_correct is None:
-        print(f"  linear control NOT RUN: {baseline_not_run.reason}")  # type: ignore[union-attr]
-    else:
-        print(
-            f"  linear control accuracy on those rows: "
-            f"{float(baseline_correct.mean()):.1%}"
-        )
 
     ledger = Ledger(args.ledger)
     corpus_hash = hashlib.sha256(
@@ -1354,6 +1504,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "paired_margin_vs_linear",
                     paired_margin_test(model_correct, baseline_correct, seed=seed),
                 )
+            recorder.gate(
+                "permutation_consistency",
+                run["permutation_consistency"],  # type: ignore[index,arg-type]
+            )
             recorder.gate(
                 "ece",
                 ece_state(
