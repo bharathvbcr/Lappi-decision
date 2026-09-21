@@ -39,6 +39,7 @@ from data_fixtures import small_corpus
 from qd_data.config import DataConfig
 from qd_data.dedupe import dedupe
 from qd_data.errors import ContextTooLargeRefusal, EmptyContextRefusal, HeldOutViolation
+from qd_data.fingerprint import code_fingerprint
 from qd_data.manifest import Manifest, build_manifests
 from qd_data.mixture import _line_span as mixture_line_span
 from qd_data.mixture import build_mixture
@@ -46,6 +47,7 @@ from qd_data.render import DEFAULT_CAPS, ESCAPE_WORST_CASE_GROWTH, RenderCaps, r
 from qd_data.rows import DataRow
 from qd_data.schema import Request, SpanSlot
 from qd_data.split import HELD_OUT, split
+from qd_train import artifacts
 from qd_train import shards as shards_module
 from qd_train.artifacts import (
     MAX_PADDING_WASTE,
@@ -2070,3 +2072,54 @@ def test_arrays_of_different_lengths_are_refused_rather_than_zipped_short() -> N
             span_targets=[(NO_SPAN, NO_SPAN)] * 3,
             labels=["a", "b", "c"],
         )
+
+
+# -- the code that made the rows, pinned beside the corpus they came from ---------------
+#
+# GAP-SHARD-SET-GOES-STALE-AGAINST-THE-CORPUS-CODE-THAT-REPRODUCES-ITS-LABELS. The header
+# pinned the corpus, the tokenizer and the remap; between the corpus and the rows sits
+# `qd_data`, and nothing pinned that. A set with all three hashes matching was found to
+# reproduce 321 rows where it stored 341.
+
+
+def test_a_written_shard_set_records_the_code_that_produced_its_rows(
+    train_shards: tuple[Snapshot, Path, ShardHeader],
+) -> None:
+    """On disk, not merely on the object: the reader gets the file, not the return value."""
+    _, out, header = train_shards
+    raw = json.loads((out / HEADER_NAME).read_text(encoding="utf-8"))
+
+    assert raw["code_fingerprint"], "header.json carries no code_fingerprint"
+    assert raw["code_fingerprint"] == header.code_fingerprint
+    assert raw["code_fingerprint"] == code_fingerprint()
+    # The two modules whose drift caused the recorded incident are both covered.
+    assert "mixture.py" in raw["code_fingerprint"]
+    assert "render.py" in raw["code_fingerprint"]
+
+
+def test_opening_a_set_whose_generating_code_moved_is_refused(
+    train_shards: tuple[Snapshot, Path, ShardHeader], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The case no count check can see.
+
+    Every hash in this header still matches and every byte of the shard set is the one that
+    was written. Only `qd_data` moved -- which is the incident exactly, minus the accident
+    that made that one visible: there the drift ALSO changed the row count, and
+    `tools/real_ft_run.py` compares the reconstructed order against supervision.npz entry
+    for entry. A change that moves which label attaches to which row without moving how
+    many rows there are produces no count mismatch anywhere.
+    """
+    snap, out, _ = train_shards
+    # Fine before the drift, so the refusal below is the drift and not the fixture.
+    ShardReader(out, config=snap.config, repo_root=snap.root)
+
+    drifted = dict(code_fingerprint())
+    drifted["render.py"] = "0" * 64
+    monkeypatch.setattr(artifacts, "code_fingerprint", lambda: drifted)
+
+    with pytest.raises(ShardContractViolation, match="qd_data has changed"):
+        ShardReader(out, config=snap.config, repo_root=snap.root)
+    # Raw, because the dot is a metacharacter and the point of this assertion is that the
+    # refusal names the MODULE -- a pattern that would also match "renderXpy" is not that.
+    with pytest.raises(ShardContractViolation, match=r"render\.py"):
+        ShardReader(out, config=snap.config, repo_root=snap.root)

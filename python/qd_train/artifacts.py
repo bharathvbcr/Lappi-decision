@@ -57,7 +57,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final, Self
@@ -65,6 +65,7 @@ from typing import Any, Final, Self
 import numpy as np
 
 from qd_data.config import SPLITS, DataConfig
+from qd_data.fingerprint import code_fingerprint, describe_drift
 
 from .data_access import assert_path_not_held_out
 from .tristate import NotRun, Ran, TriState
@@ -312,6 +313,14 @@ class ShardHeader:
     dtype: str = TOKEN_DTYPE
     format: str = SHARD_FORMAT
     created_at: str = ""
+    #: ``{module name: sha256}`` over ``qd_data``'s sources -- the code that turned the
+    #: corpus into rows, which the other three hashes do not cover. See
+    #: [`qd_data.fingerprint`] for why it is the whole package and why it is source bytes.
+    #:
+    #: **Empty means "written before this field existed", not "matches".** Those are
+    #: different answers and a header cannot be allowed to give the passing one by
+    #: omission; `assert_shard_trainable` reports the empty case as `NotRun`.
+    code_fingerprint: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.format != SHARD_FORMAT:
@@ -373,6 +382,19 @@ class ShardHeader:
                 },
                 sort_keys=True,
             ).encode(),
+            # Covered, so the fingerprint cannot be edited out of a header to make a stale
+            # shard set look current -- `from_json` recomputes this and refuses a mismatch.
+            #
+            # Contributes NOTHING when empty, which is what keeps every header written
+            # before this field verifying: their `shard_hash` was computed without it, and
+            # an absent fingerprint must hash to what it hashed to then. A new set always
+            # has a non-empty fingerprint (`code_fingerprint()` refuses to return an empty
+            # map), so this branch cannot be reached by anything written from here on.
+            *(
+                (json.dumps(self.code_fingerprint, sort_keys=True).encode(),)
+                if self.code_fingerprint
+                else ()
+            ),
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -390,6 +412,7 @@ class ShardHeader:
             "packed": self.packed,
             "dtype": self.dtype,
             "created_at": self.created_at or datetime.now(UTC).isoformat(),
+            "code_fingerprint": dict(sorted(self.code_fingerprint.items())),
             "shard_hash": self.shard_hash(),
         }
 
@@ -409,6 +432,9 @@ class ShardHeader:
             dtype=raw.get("dtype", TOKEN_DTYPE),
             format=raw.get("format", SHARD_FORMAT),
             created_at=raw.get("created_at", ""),
+            code_fingerprint={
+                str(k): str(v) for k, v in (raw.get("code_fingerprint") or {}).items()
+            },
         )
         if "shard_hash" in raw and raw["shard_hash"] != header.shard_hash():
             raise ShardContractViolation(
@@ -876,8 +902,54 @@ def assert_remap_covers(token_ids: np.ndarray, remap: RemapTable) -> None:
     remap.encode(np.asarray(token_ids).reshape(-1))
 
 
+def _shard_code_check(header: ShardHeader, *, path: Path) -> TriState:
+    """Whether the ``qd_data`` that is loaded now is the ``qd_data`` that wrote this set.
+
+    Tri-state rather than a boolean because there are three answers and the middle one is
+    the reason this function exists in a repository with rule 5. A header written before
+    `code_fingerprint` existed cannot answer the question, and reporting that as a pass
+    would make "this set is current" and "nobody looked" the same string in a ledger row.
+    """
+    if not header.code_fingerprint:
+        return NotRun(
+            reason=(
+                f"{path}: this shard set's header carries no code_fingerprint, so it was "
+                "written before the generating code was pinned. Whether qd_data has "
+                "changed since cannot be decided from it -- regenerate the set to find "
+                "out, or read it knowing the question is open."
+            )
+        )
+    current = code_fingerprint()
+    drift = describe_drift(header.code_fingerprint, current)
+    if not drift:
+        return Ran(
+            passed=True,
+            value=len(current),
+            detail=(
+                f"{len(current)} qd_data module(s) hash as they did when this shard set "
+                "was written"
+            ),
+        )
+    return Ran(
+        passed=False,
+        value=len(current),
+        detail=(
+            f"{path}: qd_data has changed since this shard set was written -- {drift}. "
+            "The corpus, tokenizer and remap hashes all still match, because none of them "
+            "covers the code that turns the corpus into rows: this set's labels were "
+            "produced by code that is no longer what would run. Regenerate the shard set, "
+            "or pass allow_stale_code=True to read it deliberately."
+        ),
+    )
+
+
 def assert_shard_trainable(
-    header: ShardHeader, *, config: DataConfig, path: Path, repo_root: Path
+    header: ShardHeader,
+    *,
+    config: DataConfig,
+    path: Path,
+    repo_root: Path,
+    allow_stale_code: bool = False,
 ) -> dict[str, TriState]:
     """Rule 3 at the shard boundary. Refuses a held-out split, loudly.
 
@@ -899,7 +971,24 @@ def assert_shard_trainable(
     `repo_root` is required rather than optional on purpose. An optional root would let a
     caller omit it and get a pass that skipped the path check, which is the shape
     `assert_path_not_held_out` refuses an empty `held_out_roots` for, one level up.
+
+    **The third question: is this shard set's code still the loaded code?** The three
+    hashes above pin the corpus, the tokenizer and the remap, and between the corpus and
+    the rows sits `qd_data`, which nothing pinned. A shard set therefore stayed "current"
+    through any edit to the module that decides which label attaches to which row. See
+    [`qd_data.fingerprint`] for the measured incident.
+
+    `allow_stale_code` is the deliberate exception, named after
+    `write_shards(allow_contradictions=...)` and `build_optimizer(allow_frozen_moments=...)`
+    and for their reason: reading a stale set on purpose is a real thing to want -- to
+    inventory it, to compare it against its successor, to reproduce an old row -- and it
+    must be said out loud rather than reachable by forgetting. It does not silence the
+    check, which is reported either way; it only declines to raise on it.
     """
+    code_check = _shard_code_check(header, path=path)
+    if isinstance(code_check, Ran) and not code_check.passed and not allow_stale_code:
+        raise ShardContractViolation(str(code_check.detail))
+
     assert_path_not_held_out(path, config=config, repo_root=repo_root)
     if header.split == "heldout":
         raise ShardContractViolation(
@@ -936,4 +1025,5 @@ def assert_shard_trainable(
             passed=True, value=len(config.held_out_families),
             detail=f"{sorted(config.held_out_families)}",
         ),
+        "shard_code_current": code_check,
     }

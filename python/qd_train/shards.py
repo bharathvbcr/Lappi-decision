@@ -91,6 +91,7 @@ import numpy as np
 
 from qd_data.config import DataConfig
 from qd_data.errors import QdRefusal
+from qd_data.fingerprint import code_fingerprint
 from qd_data.render import DEFAULT_CAPS, M_CTX_END, RenderCaps, render
 from qd_data.rows import DataRow, row_content_hash
 from qd_data.schema import NOUL_LETTER, ChoiceSlot, ScoreSlot, Slot, SpanSlot
@@ -1220,6 +1221,13 @@ def write_shards(
         max_seq_len=max(lengths),
         buckets=chosen,
         created_at=datetime.now(UTC).isoformat(),
+        # The code that turned the corpus into these rows, pinned beside the corpus it was
+        # turned from. `data_snapshot_hash` above covers the corpus and `remap_hash` the
+        # vocabulary; between them sits `qd_data`, and until this line nothing covered it.
+        # Taken here rather than passed in: the fingerprint must describe the modules that
+        # are LOADED in the process doing the writing, which is the only thing that
+        # actually shaped `sequences`.
+        code_fingerprint=code_fingerprint(),
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)

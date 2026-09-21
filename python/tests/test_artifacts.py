@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from qd_data.config import DataConfig
 from qd_data.errors import HeldOutViolation
+from qd_data.fingerprint import code_fingerprint
 from qd_train.artifacts import (
     _MIN_ROW_TOKENS,
     _SLOT_KINDS,
@@ -227,8 +228,17 @@ def test_a_heldout_shard_set_is_refused_by_the_trainer_boundary(tmp_path: Path):
 
 
 def test_a_trainable_shard_set_reports_its_checks(tmp_path: Path):
+    """A set as `write_shards` produces one -- which since 2026-09-21 means with a
+    `code_fingerprint`. A header without one cannot answer whether `qd_data` has moved
+    since it was written, and `shard_code_current` reports that as `NotRun` rather than as
+    a pass; `test_fingerprint.py` asserts that case, so this one keeps its original claim
+    that a good set passes everything.
+    """
     checks = assert_shard_trainable(
-        _header(split="train"), config=DataConfig(), path=tmp_path, repo_root=tmp_path
+        _header(split="train", code_fingerprint=code_fingerprint()),
+        config=DataConfig(),
+        path=tmp_path,
+        repo_root=tmp_path,
     )
     assert all(isinstance(c, Ran) and c.passed for c in checks.values())
     assert set(checks) == {
@@ -242,6 +252,11 @@ def test_a_trainable_shard_set_reports_its_checks(tmp_path: Path):
         "shard_provenance_pinned",
         "shard_not_packed",
         "held_out_families_configured",
+        # `data_snapshot_hash` pins the corpus and `remap_hash` the vocabulary; between
+        # them sits the code that turns one into rows, and nothing pinned it until a shard
+        # set with three matching hashes was found to reproduce 321 rows where it stored
+        # 341. See GAP-SHARD-SET-GOES-STALE-AGAINST-THE-CORPUS-CODE-THAT-REPRODUCES-ITS-LABELS.
+        "shard_code_current",
     }
 
 
