@@ -2492,15 +2492,30 @@ The fit takes ~40 cores of OpenBLAS and the arm's loader is single-threaded Pyth
 is throttled. `renice -n 19` on the fit did not recover it — this is memory-bandwidth
 contention, not scheduling priority.
 
-It is still the better trade, and the arithmetic is worth writing down rather than asserting:
+The arithmetic I ran at the time said concurrent was cheaper — 101 min of idle at ~$2.51
+against a throttled arm — and **the arithmetic was built on a number that was 15x
+pessimistic.** The fit did not take 101 minutes. It took **407.5 seconds**:
 
-* **sequential** — 101 min at 0% GPU (~$2.51, bought nothing) then 79 min at full speed
-  (~$1.96). Total GPU spend ~$4.47.
-* **concurrent** — no idle, the arm throttled to roughly a third, finishing in ~150 min
-  (~$3.73), with the fit landing in the same window.
+```
+fitted in 407.5s: L2 0.0001, 355 iteration(s), final grad norm 9.918e-05
+control accuracy on the 12,770 scored row(s): 57.8%
+```
 
-Cheaper, and both results arrive sooner. What it is *not* is free, and a later lane that wants
-a clean throughput number for this corpus must run the arm alone.
+`projected_fit_seconds` assumes `max_iter`, because a guard that assumed early convergence
+would admit fits that then do not converge early — bounding high is the safe direction and
+the docstring says so. But it is a **worst case, not an estimate**, and I spent it like an
+estimate: I split two jobs, throttled the GPU arm, and reniced a process, to avoid an idle
+window that was going to be seven minutes.
+
+The split did no real harm — the contention lasted those seven minutes rather than 101 — and
+the cache is warm either way. The lesson is about the number, not the outcome: **a
+conservative bound is not a forecast, and acting on it as one buys complexity for nothing.**
+A lane that wants to know how long a fit will actually take should run it, or record the
+convergence iteration from a smaller one (754 docs converged at 402, 37,335 at 355 — the
+iteration count barely moved with 50x the data, which is the thing worth knowing).
+
+What remains true regardless: the two jobs do contend, `renice` does not fix it, and a later
+lane wanting a clean throughput number for this corpus must run the arm alone.
 
 ### The corpus, as the trainer actually sees it
 
