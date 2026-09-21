@@ -707,64 +707,20 @@ def test_the_tool_no_longer_prices_every_device_at_zero() -> None:
 # state rather than an exception.
 
 
-def test_what_ran_covers_every_qd_train_module_and_this_tool() -> None:
-    """`qd_data` is deliberately absent: the shard header already fingerprints it and
-    `ShardReader` checks that fingerprint at open(). Recording it again here would be a
-    second owner of one answer, free to disagree with the first."""
-    from real_ft_run import _what_ran
+def test_both_row_kinds_record_what_ran() -> None:
+    """An ft row and its verdict row are written at different moments by one process. A row
+    that cannot rule out an edit between them is the hole being closed, and recording it on
+    only one of the two would leave exactly that hole open.
 
-    sources = _what_ran()
-    train_dir = REPO / "python" / "qd_train"
-    expected = {p.name for p in train_dir.glob("*.py")}
-    assert expected <= set(sources), sorted(expected - set(sources))
-    assert "tools/real_ft_run.py" in sources
-    assert not any(name.startswith("qd_data") for name in sources)
-    assert all(len(digest) == 64 for digest in sources.values())
+    Asserted against the source because there is no cheap way to run both paths here, and
+    because the failure being guarded is a call site quietly disappearing in a refactor --
+    which is how this tool came to be the only one of four that recorded it at all.
+    """
+    import re
 
-
-def test_editing_a_trainer_module_moves_the_digest(tmp_path) -> None:
-    """The property the whole record rests on. A digest that did not move would be a
-    provenance field with the same defect as `code_commit`: present, and constant across
-    the changes it exists to distinguish."""
-    import hashlib
-
-    from real_ft_run import _what_ran
-
-    before = _what_ran()
-    # Recomputed from the same bytes with one module perturbed, rather than by editing a
-    # real file: the point is that the mapping is a function of the source bytes.
-    after = dict(before)
-    after["trainer.py"] = hashlib.sha256(b"different").hexdigest()
-
-    joined_before = "\\n".join(f"{k}:{v}" for k, v in sorted(before.items()))
-    joined_after = "\\n".join(f"{k}:{v}" for k, v in sorted(after.items()))
-    assert joined_before != joined_after
-    assert (
-        hashlib.sha256(joined_before.encode()).hexdigest()
-        != hashlib.sha256(joined_after.encode()).hexdigest()
-    )
-
-
-def test_the_recorded_state_carries_both_counts_and_names_the_sources() -> None:
-    """`n` without `n_total` reads as full coverage, and here full coverage is the claim --
-    so it is stated rather than implied. The detail names every source because "something
-    changed" and "trainer.py changed" are different answers, and only the second ends an
-    investigation."""
-    from real_ft_run import _what_ran, _what_ran_state
-
-    state = _what_ran_state()
-    assert isinstance(state, Ran) and state.passed
-    assert state.n == state.n_total == len(_what_ran())
-    assert len(str(state.value)) == 64
-    assert "backbone.py=" in state.detail and "tools/real_ft_run.py=" in state.detail
-
-
-def test_both_row_kinds_record_it() -> None:
-    """An ft row and its verdict row are written at different moments by the same process.
-    A row that cannot rule out an edit between them is the thing being fixed, and recording
-    it on only one of the two would leave exactly that hole."""
     source = (REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8")
-    assert source.count('recorder.metric("code_that_ran", _what_ran_state())') == 2
+    found = re.findall(r'"code_that_ran",\s*what_ran_state\(', source)
+    assert len(found) == 2, f"expected both row kinds to record it, found {len(found)}"
 
 
 def test_code_fingerprint_still_defaults_to_qd_data() -> None:

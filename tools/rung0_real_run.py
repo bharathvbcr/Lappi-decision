@@ -85,6 +85,7 @@ from qd_train.ledger import (  # noqa: E402
     Ledger,
     Protocol,
     RunRecorder,
+    what_ran_state,
 )
 from qd_train.mutate_adapter import (  # noqa: E402
     MUTATION_CLASSES,
@@ -956,6 +957,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "measured on files it never saw, split by path"
             ),
         ) as recorder:
+            recorder.metric(
+                "code_that_ran",
+                what_ran_state(REPO / "python" / "qd_train", Path(__file__)),
+            )
             recorder.metric(
                 "val_choice_top1_over_baseline",
                 _accuracy_gate(

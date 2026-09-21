@@ -37,6 +37,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final, Literal, Self
 
+from qd_data.fingerprint import code_fingerprint
+
 from .tristate import NotRun, Ran, TriState, parse_tristate
 
 __all__ = [
@@ -432,6 +434,55 @@ class Environment:
             fla_present=_probe_fla(),
             causal_conv1d_present=_probe_causal_conv1d(),
         )
+
+
+def what_ran(package_dir: Path, tool_path: Path) -> dict[str, str]:
+    """``{source name: sha256}`` for a package's modules plus the tool that invoked them.
+
+    A row's ``code_commit`` is ``"<sha>-dirty"`` for any uncommitted change at all. On the
+    GH200 that one bit stood for 6894 insertions across 72 paths, on the rows that carry
+    every training number this project has -- and because that box is synced by COPYING
+    files into a clone pinned at an old commit, ``-dirty`` is its normal state rather than
+    an exception. The suffix is present on every row and distinguishes nothing.
+
+    Both arguments are required and neither has a default. A package with no tool records
+    less than what ran, since the tool builds the plan, the supervision and the recipe; a
+    default package would quietly answer for the wrong one when a fifth runner appears.
+
+    **What to leave out.** Callers pass ``qd_train`` and not ``qd_data``: a shard header
+    already carries ``qd_data``'s fingerprint and :meth:`ShardReader.open` checks it against
+    sets on disk. Recording it here too would make a second owner of one answer, free to
+    disagree with the first -- and the disagreement would surface as a shard-contract
+    failure on a shard set that is fine. This is not an oversight to be tidied up.
+    """
+    sources = dict(code_fingerprint(package_dir))
+    tool = tool_path.resolve()
+    sources[f"{tool.parent.name}/{tool.name}"] = hashlib.sha256(
+        tool.read_bytes()
+    ).hexdigest()
+    return dict(sorted(sources.items()))
+
+
+def what_ran_state(package_dir: Path, tool_path: Path) -> Ran:
+    """:func:`what_ran` as one recordable fact: a digest to compare, and the names to read.
+
+    The digest is the value, because that is what answers "is this the same code". The
+    detail names every source and its first seven hex digits, because "something changed"
+    and "``trainer.py`` changed" are different answers and only the second ends an
+    investigation.
+    """
+    sources = what_ran(package_dir, tool_path)
+    joined = "\n".join(f"{name}:{digest}" for name, digest in sources.items())
+    return Ran(
+        passed=True,
+        value=hashlib.sha256(joined.encode()).hexdigest(),
+        # Both counts, because this IS the population: every module in the package plus the
+        # tool, not a sample of them. A sample size without a population reads as full
+        # coverage, which is exactly the claim here and so is stated rather than implied.
+        n=len(sources),
+        n_total=len(sources),
+        detail=" ".join(f"{name}={digest[:7]}" for name, digest in sources.items()),
+    )
 
 
 #: Triton releases in this half-open range compute `chunk_bwd_dqkwg` incorrectly on Hopper,

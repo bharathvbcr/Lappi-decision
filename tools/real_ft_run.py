@@ -145,7 +145,6 @@ from torch import nn
 
 from qd_data.config import DataConfig
 from qd_data.errors import QdRefusal
-from qd_data.fingerprint import code_fingerprint
 from qd_data.render import DEFAULT_CAPS, render
 from qd_data.rows import DataRow
 from qd_data.schema import NOUL_LETTER
@@ -169,6 +168,7 @@ from qd_train.ledger import (
     Ledger,
     Protocol,
     RunRecorder,
+    what_ran_state,
 )
 from qd_train.run_control import CostEstimate, LRSchedule, RunControl, WallClockCap
 from qd_train.shards import (
@@ -1165,48 +1165,6 @@ def _counterfactual_holds(shipped: dict[str, object], defect: dict[str, object])
     )
 
 
-def _what_ran() -> dict[str, str]:
-    """``{source name: sha256}`` for every ``qd_train`` module and this tool.
-
-    A ledger row's ``code_commit`` is ``"<sha>-dirty"`` whenever the tree has any
-    uncommitted change, which on the GH200 stood for 6894 insertions across 72 paths --
-    one bit for an unbounded amount of divergence, on the rows that carry every training
-    number this project has. The box is synced by copying files into a clone pinned at an
-    old commit, so ``-dirty`` is its normal state rather than an exception.
-
-    ``qd_train`` because that is the code that trains, and this file because a tool that
-    builds the plan, the supervision and the recipe is part of what produced the row.
-    ``qd_data`` is deliberately absent: the shard header already fingerprints it, and
-    ``ShardReader`` checks that fingerprint at ``open()``.
-    """
-    sources = dict(code_fingerprint(REPO / "python" / "qd_train"))
-    here = Path(__file__).resolve()
-    sources[f"tools/{here.name}"] = hashlib.sha256(here.read_bytes()).hexdigest()
-    return dict(sorted(sources.items()))
-
-
-def _what_ran_state() -> Ran:
-    """The fingerprint as one recordable fact: a digest to compare, and the names to read.
-
-    The digest is the value because that is what answers "is this the same code"; the
-    detail names every source and its first seven hex digits, because "something changed"
-    and "``trainer.py`` changed" are different answers and the second is the one that ends
-    an investigation.
-    """
-    sources = _what_ran()
-    joined = "\n".join(f"{name}:{digest}" for name, digest in sources.items())
-    return Ran(
-        passed=True,
-        value=hashlib.sha256(joined.encode()).hexdigest(),
-        # Both, because this IS the population: every qd_train module plus this tool, not a
-        # sample of them. A sample size without a population reads as full coverage, which
-        # is exactly the claim being made here and so has to be made explicitly.
-        n=len(sources),
-        n_total=len(sources),
-        detail=" ".join(f"{name}={digest[:7]}" for name, digest in sources.items()),
-    )
-
-
 def _control(
     steps: int, *, device: str, lr: float, checkpoint_every: int = 0,
     n_gpus: int | None = None, usd_per_hour: float | None = None,
@@ -1532,7 +1490,9 @@ def _train(
     # deterministic implementation, so reaching the end means every op this model used had
     # one. Off, the honest answer is that nothing was established, which is what NotRun is
     # for -- and the measured consequence is on the record rather than left to be assumed.
-    recorder.metric("code_that_ran", _what_ran_state())
+    recorder.metric(
+        "code_that_ran", what_ran_state(REPO / "python" / "qd_train", Path(__file__))
+    )
     recorder.metric(
         "deterministic_kernels",
         Ran(
@@ -1817,7 +1777,9 @@ def _record_verdict(run: dict[str, object], *, ledger: Ledger, reader: ShardRead
     )
     by_kind = shipped["by_kind"]  # type: ignore[index]
     with recorder:
-        recorder.metric("code_that_ran", _what_ran_state())
+        recorder.metric(
+            "code_that_ran", what_ran_state(REPO / "python" / "qd_train", Path(__file__))
+        )
         recorder.metric(
             "ft_run_row_id",
             Ran(passed=True, value=run["ft_row_id"], detail="the train_ft row this is of"),

@@ -33,6 +33,7 @@ from __future__ import annotations
 import ast
 import importlib
 import inspect
+import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -206,4 +207,30 @@ def test_no_tool_prices_a_rented_machine_at_zero() -> None:
     assert not missing, (
         f"{missing} build a cost estimate without going through for_device, which is the "
         "one place that refuses to invent a rate for hardware rented by the hour"
+    )
+
+
+def test_every_runner_records_which_sources_produced_its_row() -> None:
+    """The same class as the price above, and found the same way -- by the other lane
+    noticing that a fix had been applied to one member of a list that was already written
+    down.
+
+    `tools/real_ft_run.py` had this as two private functions and was the only runner with
+    it, while `tools/rung0_real_run.py` -- the tool that wrote the GH200 rows whose
+    provenance had to be reconstructed by hand with sha256sum -- had none.
+    """
+    runners = ("real_ft_run.py", "rung0_real_run.py", "rung0_toy_run.py", "ft_toy_run.py")
+    # Whitespace-tolerant: the same call wraps across three lines where the indentation is
+    # deeper. A pattern that failed on line breaks would be satisfied again by a reformat,
+    # which is a worse failure than the one it guards against.
+    call = re.compile(r'"code_that_ran",\s*what_ran_state\(')
+    missing = [
+        name
+        for name in runners
+        if not call.search((TOOLS / name).read_text(encoding="utf-8"))
+    ]
+    assert not missing, (
+        f"{missing} write ledger rows without recording which sources produced them, so "
+        "those rows are pinned only by code_commit -- which reads '<sha>-dirty' for any "
+        "uncommitted change and is permanently dirty on the box that runs them"
     )

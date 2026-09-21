@@ -1242,3 +1242,91 @@ def test_the_repositorys_own_ledgers_are_checked_not_assumed() -> None:
         "find_forks groups every independent chain's first line under one root fork, so "
         f"more than one root point is a bug in the grouping: {[f.describe() for f in roots]}"
     )
+
+
+# -- what code actually ran, beside a code_commit that cannot say -------------------------
+#
+# GAP-CODE-COMMIT-DIRTY-DOES-NOT-PIN-WHAT-RAN. A row's code_commit is "<sha>-dirty" for any
+# uncommitted change at all; on the GH200 that one bit stood for 6894 insertions across 72
+# paths, on the rows that carry every training number this project has. That box is synced
+# by COPYING files into a clone pinned at an old commit, so -dirty is its normal state and
+# the suffix distinguishes nothing.
+#
+# This lived as two private functions in tools/real_ft_run.py, answering a repo-wide
+# question for one of four runners -- while rung0_real_run.py, the tool that actually wrote
+# the GH200 rows, had no fingerprint at all.
+
+
+def test_what_ran_covers_every_module_in_the_package_and_the_tool() -> None:
+    """`qd_data` is deliberately absent, and this is not an oversight to be tidied up: a
+    shard header already carries its fingerprint and `ShardReader.open()` checks that
+    against sets on disk. A second recorder of one answer is free to disagree with the
+    first, and the disagreement would surface as a shard-contract failure on a shard set
+    that is fine."""
+    from qd_train.ledger import what_ran
+
+    sources = what_ran(REPO / "python" / "qd_train", REPO / "tools" / "real_ft_run.py")
+    expected = {p.name for p in (REPO / "python" / "qd_train").glob("*.py")}
+    assert expected <= set(sources), sorted(expected - set(sources))
+    assert "tools/real_ft_run.py" in sources
+    assert not any(name.startswith("qd_data") for name in sources)
+    assert all(len(digest) == 64 for digest in sources.values())
+
+
+def test_the_tool_is_named_so_two_tools_do_not_collide() -> None:
+    """Four runners call this with the same package and different tools. If the tool were
+    unnamed, or named only by its package, two runners would produce the same fingerprint
+    from different code -- which is the exact failure `code_commit` already has."""
+    from qd_train.ledger import what_ran
+
+    package = REPO / "python" / "qd_train"
+    one = what_ran(package, REPO / "tools" / "real_ft_run.py")
+    two = what_ran(package, REPO / "tools" / "rung0_real_run.py")
+    assert "tools/real_ft_run.py" in one and "tools/real_ft_run.py" not in two
+    assert "tools/rung0_real_run.py" in two
+    assert one != two
+
+
+def test_editing_a_module_moves_the_digest() -> None:
+    """The property the whole record rests on. A digest that did not move would be a
+    provenance field with `code_commit`'s defect: present, and constant across exactly the
+    changes it exists to distinguish."""
+    from qd_train.ledger import what_ran
+
+    before = what_ran(REPO / "python" / "qd_train", REPO / "tools" / "real_ft_run.py")
+    # Perturbed in the mapping rather than by editing a real file: the claim is that the
+    # digest is a function of the source bytes, not that a particular file is on disk.
+    after = dict(before)
+    after["trainer.py"] = hashlib.sha256(b"different").hexdigest()
+
+    def digest(mapping: dict[str, str]) -> str:
+        joined = "\n".join(f"{k}:{v}" for k, v in sorted(mapping.items()))
+        return hashlib.sha256(joined.encode()).hexdigest()
+
+    assert digest(before) != digest(after)
+
+
+def test_the_state_carries_both_counts_and_names_every_source() -> None:
+    """`n` without `n_total` reads as full coverage, and here full coverage IS the claim --
+    so it is stated rather than implied. The detail names every source because "something
+    changed" and "trainer.py changed" are different answers, and only the second one ends
+    an investigation."""
+    from qd_train.ledger import what_ran, what_ran_state
+
+    package, tool = REPO / "python" / "qd_train", REPO / "tools" / "real_ft_run.py"
+    state = what_ran_state(package, tool)
+    assert isinstance(state, Ran) and state.passed
+    assert state.n == state.n_total == len(what_ran(package, tool))
+    assert len(str(state.value)) == 64
+    assert "backbone.py=" in state.detail
+    assert "tools/real_ft_run.py=" in state.detail
+
+
+def test_a_package_directory_with_no_sources_is_refused() -> None:
+    """An empty mapping from a path holding no sources is indistinguishable from a package
+    that has none, and both would record "nothing changed" forever. `code_fingerprint`
+    refuses it; this pins that the refusal survives being reached through here."""
+    from qd_train.ledger import what_ran
+
+    with pytest.raises(RuntimeError, match="refusing to return an empty fingerprint"):
+        what_ran(REPO / "ledger", REPO / "tools" / "real_ft_run.py")

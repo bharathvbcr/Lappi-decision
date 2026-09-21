@@ -134,7 +134,14 @@ from qd_train.artifacts import (
 )
 from qd_train.fused_ce import fused_linear_cross_entropy
 from qd_train.heads import RESERVED_NOUL_ROWS, SpanPointerHead, plan_span_batch, serving_scores
-from qd_train.ledger import DEFAULT_LEDGER_PATH, Environment, Ledger, Protocol, RunRecorder
+from qd_train.ledger import (
+    DEFAULT_LEDGER_PATH,
+    Environment,
+    Ledger,
+    Protocol,
+    RunRecorder,
+    what_ran_state,
+)
 from qd_train.run_control import CostEstimate, LRSchedule, RunControl, WallClockCap
 from qd_train.trainer import SpanScoringStep, ft_supervision, train_ft
 from qd_train.tristate import NotRun, Ran
@@ -744,6 +751,9 @@ def _train_once(*, device: str, seed: int, steps: int, rows: list[_Row], ledger:
             "its loss reach the floor this corpus admits. Not an evaluation of any model."
         ),
     )
+    recorder.metric(
+        "code_that_ran", what_ran_state(REPO / "python" / "qd_train", Path(__file__))
+    )
     letter_floor, span_floor = _letter_floor(batch), _span_floor(batch)
     for name, value, detail in (
         ("corpus.letter_floor", letter_floor, "conditional entropy of the gold letter"),
@@ -896,6 +906,9 @@ def _record_verdict(
         ),
     )
     with recorder:
+        recorder.metric(
+            "code_that_ran", what_ran_state(REPO / "python" / "qd_train", Path(__file__))
+        )
         recorder.metric(
             "ft_run_row_id",
             Ran(passed=True, value=run["ft_row_id"], detail="the train_ft row this verdict is of"),
