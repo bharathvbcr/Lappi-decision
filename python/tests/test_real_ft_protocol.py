@@ -627,3 +627,71 @@ def test_a_run_that_did_not_ask_for_determinism_reports_not_run_rather_than_pass
         "the second reads as though the kernels were not the cause -- which is the error "
         "this string was corrected for."
     )
+
+
+# -- the price of the machine, decided at argv time ----------------------------------------
+#
+# GAP-EVERY-RUN-PRICED-ITSELF-AT-ZERO-ON-ZERO-GPUS. This tool passed
+# `usd_per_hour=0.0, n_gpus=0, instance=f"local-{device}"` on every device, so every GH200
+# run recorded itself as a local run on zero GPUs at zero dollars an hour -- and at those
+# two values `requires_human_approval` is False for any cap.
+
+
+def test_a_cuda_run_without_a_price_is_refused_before_the_tower_loads(tmp_path) -> None:
+    """At argv time, not at the first optimizer step.
+
+    ``CostEstimate.for_device`` refuses the same case, but it is reached per-arm inside
+    ``_train`` -- after a 24-second tower load, on a box being billed by the second. The
+    argv check costs nothing and fires before any of that.
+    """
+    with pytest.raises(SystemExit, match="needs --instance and --usd-per-hour"):
+        real_ft_main([
+            "--out", str(tmp_path), "--real-backbone", str(tmp_path),
+            "--devices", "cuda",
+        ])
+    with pytest.raises(SystemExit, match="needs --instance and --usd-per-hour"):
+        real_ft_main([
+            "--out", str(tmp_path), "--real-backbone", str(tmp_path),
+            "--devices", "cuda", "--instance", "lambda-1xGH200",
+        ])
+
+
+def test_the_refusal_says_why_the_default_was_not_harmless(tmp_path) -> None:
+    """"You forgot an argument" would get the argument added and the number guessed. The
+    message has to carry the consequence: these are the two values that switch rule 4 off."""
+    with pytest.raises(SystemExit) as excinfo:
+        real_ft_main([
+            "--out", str(tmp_path), "--real-backbone", str(tmp_path), "--devices", "cuda",
+        ])
+    message = str(excinfo.value)
+    assert "requires_human_approval" in message and "ANY cap" in message
+    assert "--usd-per-hour 1.49" in message, (
+        "an operator on a rented box should be able to copy a working invocation out of "
+        "the refusal rather than go and read the source"
+    )
+
+
+def test_a_local_run_needs_no_price_and_is_not_refused(tmp_path) -> None:
+    """The control. A refusal that fired on cpu too would be found immediately and routed
+    around by whoever hit it on a Mac -- and pricing an already-bought machine is the case
+    the zero is honest for."""
+    with pytest.raises(SystemExit) as excinfo:
+        real_ft_main(["--out", str(tmp_path), "--devices", "cpu", "--checkpoint-every", "10"])
+    # Refused for the checkpoint reason, which proves argv parsing got past the price check.
+    assert "need --real-backbone" in str(excinfo.value)
+
+
+def test_the_tool_no_longer_prices_every_device_at_zero() -> None:
+    """Checked against the source, because the defect was a literal that read as deliberate.
+    `_control` carried `usd_per_hour=0.0, n_gpus=0` for every device, under a docstring
+    saying a rented machine sets a real rate here."""
+    source = (REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8")
+    assert 'usd_per_hour=0.0, n_gpus=0' not in source, (
+        "the zero-rate zero-GPU literal is back; it prices a rented box at nothing and "
+        "makes requires_human_approval False for any cap"
+    )
+    assert "CostEstimate.for_device(" in source
+    assert "approved_by=approved_by," in source, (
+        "RunControl refuses a run that needs a human and has no approved_by; if the tool "
+        "never passes one, that refusal can be satisfied only by not needing approval"
+    )

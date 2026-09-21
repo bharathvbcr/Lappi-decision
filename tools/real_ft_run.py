@@ -1159,14 +1159,36 @@ def _counterfactual_holds(shipped: dict[str, object], defect: dict[str, object])
     )
 
 
+def _n_gpus(device: str) -> int | None:
+    """How many GPUs this run is being billed for, counted rather than assumed.
+
+    ``None`` for a local device, where :meth:`CostEstimate.for_device` prices at zero. On
+    cuda it is the visible device count -- which is what a price list charges for, and what
+    gates both the per-GPU column check and the multi-GPU half of rule 4.
+    """
+    if device in CostEstimate.LOCAL_DEVICES:
+        return None
+    return torch.cuda.device_count() if device == "cuda" else None
+
+
 def _control(
-    steps: int, *, device: str, lr: float, checkpoint_every: int = 0
+    steps: int, *, device: str, lr: float, checkpoint_every: int = 0,
+    n_gpus: int | None = None, usd_per_hour: float | None = None,
+    usd_per_gpu_hour: float | None = None, instance: str | None = None,
+    approved_by: str = "",
 ) -> RunControl:
     """The cap, the schedule and the price of a local run.
 
     ``usd_per_hour=0.0`` with ``n_gpus=0`` is a measured fact about a Mac that is already
     bought, not a way around rule 4: a rented machine sets a real rate here and
     ``RunControl`` refuses to start without ``approved_by``.
+
+    That paragraph described a contract nothing enforced. This function passed those two
+    zeros on **every** device, so every GH200 run recorded itself as ``local-cuda`` on zero
+    GPUs at zero dollars an hour -- and at ``(0, 0.0)`` ``requires_human_approval`` is False
+    for any cap, so the human-yes gate could not fire and the per-GPU column check was
+    skipped. :meth:`CostEstimate.for_device` is the enforcement: it prices ``cpu`` and
+    ``mps`` at zero and refuses to invent a rate for anything else.
 
     ``checkpoint_every=0`` -- the default, and what every run before 2026-09-21 used --
     means the loop never calls ``on_checkpoint`` and nothing reaches a disk. That was
@@ -1178,9 +1200,20 @@ def _control(
             peak_lr=lr, total_steps=steps, warmup_steps=max(1, steps // 20), min_lr=lr / 10
         ),
         cap=cap,
-        cost=CostEstimate(cap=cap, usd_per_hour=0.0, n_gpus=0, instance=f"local-{device}"),
+        cost=CostEstimate.for_device(
+            cap=cap,
+            device=device,
+            n_gpus=n_gpus,
+            usd_per_hour=usd_per_hour,
+            usd_per_gpu_hour=usd_per_gpu_hour,
+            instance=instance,
+        ),
         grad_accum=1,
         checkpoint_every=checkpoint_every,
+        # Threaded through so the refusal RunControl already makes is reachable. It fires on
+        # `cost.requires_human_approval and not approved_by.strip()` -- which, while the
+        # rate was 0.0 and n_gpus 0, could not fire at all.
+        approved_by=approved_by,
     )
 
 
@@ -1247,7 +1280,7 @@ def _protocol(*, reader: ShardReader, seed: int, recipe: dict[str, object]) -> P
 
 def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[str, object],
               run_kind: str, quick_reason: str, notes: str,
-              wall_clock_s: float | None) -> RunRecorder:
+              wall_clock_s: float | None, cost_usd_per_hour: float = 0.0) -> RunRecorder:
     """Both of this tool's row kinds go through here, and they need different answers.
 
     ``None`` from :func:`_train`, whose ``with`` block contains ``train_ft``. A measured
@@ -1262,6 +1295,7 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
         repo=REPO,
         env=Environment.detect(device=str(recipe["device"])),
         wall_clock_s=wall_clock_s,
+        cost_usd_per_hour=cost_usd_per_hour,
         quick=True,
         quick_reason=quick_reason,
         notes=notes,
@@ -1275,6 +1309,9 @@ def _train(
     checkpoint_dir: Path | None = None, checkpoint_every: int = 0,
     resume_from: object | None = None, deterministic: bool = False,
     attn_implementation: str = DEFAULT_ATTN_IMPLEMENTATION,
+    n_gpus: int | None = None, usd_per_hour: float | None = None,
+    usd_per_gpu_hour: float | None = None, instance: str | None = None,
+    approved_by: str = "",
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -1403,6 +1440,10 @@ def _train(
         ledger, reader=reader, seed=seed, recipe=recipe, run_kind="ft",
         # None: the block below contains train_ft, so the recorder's own lifetime IS the run.
         wall_clock_s=None,
+        # The rate the run is actually being billed at, so `cost_usd` is the duration above
+        # times a real number. It was 0.0 on all 799 rows this project had written, because
+        # this defaulted and nothing passed it.
+        cost_usd_per_hour=0.0 if usd_per_hour is None else usd_per_hour,
         quick_reason=quick_reason,
         notes=(
             f"tools/real_ft_run.py [{tag}] -- qd_train.trainer.train_ft over a shard set "
@@ -1534,7 +1575,10 @@ def _train(
         epoch=0,
         step=step,
         control=_control(
-            steps, device=device, lr=lr, checkpoint_every=checkpoint_every
+            steps, device=device, lr=lr, checkpoint_every=checkpoint_every,
+            n_gpus=n_gpus, usd_per_hour=usd_per_hour,
+            usd_per_gpu_hour=usd_per_gpu_hour, instance=instance,
+            approved_by=approved_by,
         ),
         recorder=recorder,
         on_checkpoint=on_checkpoint,
@@ -2072,6 +2116,37 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--instance",
+        help=(
+            "what machine this is, as a price list names it -- e.g. 'lambda-1xGH200'. "
+            "REQUIRED with --devices cuda and refused at argv time without it: a cuda "
+            "device is rented by the hour, and the zero-rate default it used to get made "
+            "requires_human_approval False for any cap"
+        ),
+    )
+    parser.add_argument(
+        "--usd-per-hour",
+        type=float,
+        help="the WHOLE instance's rate. Required with --devices cuda",
+    )
+    parser.add_argument(
+        "--usd-per-gpu-hour",
+        type=float,
+        help=(
+            "the per-GPU column of the same price list. Required by CostEstimate above one "
+            "GPU, where the two columns differ by exactly n_gpus and reading the wrong one "
+            "under-reports the run by that factor -- DESIGN-4's own error"
+        ),
+    )
+    parser.add_argument(
+        "--approved-by",
+        default="",
+        help=(
+            "who said yes. RunControl refuses to start a run whose capped cost needs a "
+            "human and has none: rule 4, multi-GPU always and single-GPU at $20"
+        ),
+    )
+    parser.add_argument(
         "--attn-implementation",
         default=DEFAULT_ATTN_IMPLEMENTATION,
         help=(
@@ -2213,6 +2288,22 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"--passes must be in [1, {MAX_PASSES}]")
     if not 1 <= len(args.seeds) <= MAX_SEEDS:
         parser.error(f"--seeds must name between 1 and {MAX_SEEDS} seeds")
+    # Decided from argv, before a 24-second tower load and before any GPU time is spent.
+    # `CostEstimate.for_device` refuses the same case, but it is reached per-arm inside
+    # `_train`, which is after the work has started on a rented box.
+    if "cuda" in (args.devices or []) and (
+        args.instance is None or args.usd_per_hour is None
+    ):
+        # SystemExit rather than parser.error: the latter exits 2 with the message on
+        # stderr only, so the reason is not in the exception and a caller driving main()
+        # gets a bare 2. Every other refusal in this tool raises with its reason attached.
+        raise SystemExit(
+            "--devices cuda needs --instance and --usd-per-hour. A cuda device is hardware "
+            "rented by the hour; the zero-rate, zero-GPU default that stood in for a price "
+            "makes requires_human_approval False for ANY cap and skips the per-GPU column "
+            "check, so the two values that look like harmless defaults are the two that "
+            "turn rule 4 off. Example: --instance lambda-1xGH200 --usd-per-hour 1.49"
+        )
 
     if args.deterministic:
         # Before the tower loads, so nothing has run on a nondeterministic kernel by the
@@ -2441,6 +2532,9 @@ def main(argv: list[str] | None = None) -> int:
                 backbone=args.real_backbone,
                 deterministic=args.deterministic,
                 attn_implementation=args.attn_implementation,
+                n_gpus=_n_gpus(device), usd_per_hour=args.usd_per_hour,
+                usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
+                approved_by=args.approved_by,
                 tag="memorise", quick_reason=quick_small,
             )
             step = run.pop("_step")
@@ -2523,6 +2617,9 @@ def main(argv: list[str] | None = None) -> int:
                     backbone=args.real_backbone,
                     deterministic=args.deterministic,
                     attn_implementation=args.attn_implementation,
+                    n_gpus=_n_gpus(device), usd_per_hour=args.usd_per_hour,
+                    usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
+                    approved_by=args.approved_by,
                     tag="epoch", quick_reason=quick_epoch,
                 )
                 run.pop("_step")

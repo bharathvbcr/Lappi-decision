@@ -118,7 +118,7 @@ import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Final, Literal, Self
+from typing import Any, ClassVar, Final, Literal, Self
 
 __all__ = [
     "APPROVAL_FREE_USD",
@@ -519,6 +519,79 @@ class CostEstimate:
                     f"{self.instance}: usd_per_hour {rate!r} and usd_per_gpu_hour {per_gpu!r} "
                     f"disagree at n_gpus={self.n_gpus}"
                 )
+
+    #: Devices this repository runs on that cost nothing marginal: they are the machine the
+    #: work is already being done on. Anything else is hardware that is being paid for by
+    #: the hour, and :meth:`for_device` will not price it at zero on a caller's behalf.
+    LOCAL_DEVICES: ClassVar[frozenset[str]] = frozenset({"cpu", "mps"})
+
+    @classmethod
+    def for_device(
+        cls,
+        *,
+        cap: WallClockCap,
+        device: str,
+        n_gpus: int | None = None,
+        usd_per_hour: float | None = None,
+        usd_per_gpu_hour: float | None = None,
+        instance: str | None = None,
+    ) -> CostEstimate:
+        """The price of a run on ``device``, refusing to invent one for rented hardware.
+
+        Four tools reached this class through the same literal --
+        ``usd_per_hour=0.0, n_gpus=0, instance=f"local-{device}"`` -- and ``_control``'s own
+        docstring said what was supposed to happen instead: *"a rented machine sets a real
+        rate here"*. Nothing made it. Every GH200 run this project has made recorded itself
+        as a local run on zero GPUs at zero dollars an hour.
+
+        **Those two zeros disable both halves of rule 4 at once**, which is why this is a
+        refusal and not a warning:
+
+        * :attr:`requires_human_approval` is ``n_gpus > 1 or projected_usd >= 20``. At
+          ``(0, 0.0)`` both disjuncts are False **for any cap**, so the human-yes gate
+          cannot fire -- on an 8xH100 job either.
+        * the per-GPU/per-instance column check is gated on ``if self.n_gpus > 1``, so
+          DESIGN-4's own error, a rate read off the wrong column, is unguarded.
+
+        ``cpu`` and ``mps`` are priced at zero because that is a measured fact about a Mac
+        that is already bought, not a way around the rule. ``cuda`` is not local by
+        definition: it is a rented box, and the caller states its rate, its instance and its
+        GPU count or gets a refusal naming all three.
+        """
+        if device in cls.LOCAL_DEVICES:
+            return cls(
+                cap=cap,
+                usd_per_hour=0.0 if usd_per_hour is None else usd_per_hour,
+                n_gpus=0 if n_gpus is None else n_gpus,
+                instance=instance or f"local-{device}",
+                usd_per_gpu_hour=usd_per_gpu_hour,
+            )
+        missing = [
+            name
+            for name, value in (
+                ("instance", instance),
+                ("usd_per_hour", usd_per_hour),
+                ("n_gpus", n_gpus),
+            )
+            if value is None
+        ]
+        if missing:
+            raise ValueError(
+                f"device {device!r} is not one of {sorted(cls.LOCAL_DEVICES)}, so it is "
+                f"hardware being paid for by the hour, and {', '.join(missing)} cannot be "
+                "defaulted here. Rule 4 needs a cost estimate before an 8xH100 job launches, "
+                "and the zero-rate/zero-GPU default that used to stand in for one makes "
+                "requires_human_approval False for ANY cap and skips the per-GPU column "
+                "check entirely -- so the two defaults that look harmless are exactly the "
+                "two that turn the rule off. State what the machine is and what it costs."
+            )
+        return cls(
+            cap=cap,
+            usd_per_hour=usd_per_hour,
+            n_gpus=n_gpus,
+            instance=instance,
+            usd_per_gpu_hour=usd_per_gpu_hour,
+        )
 
     @property
     def projected_usd(self) -> float:

@@ -1613,3 +1613,104 @@ def test_a_group_refuses_something_that_is_not_a_run_control():
 
     with pytest.raises(TypeError, match="must be a RunControl"):
         AccumulationGroup(object())  # type: ignore[arg-type]
+
+
+# -- pricing the machine the run is actually on ------------------------------------------
+#
+# GAP-EVERY-RUN-PRICED-ITSELF-AT-ZERO-ON-ZERO-GPUS. Four tools reached CostEstimate through
+# the same literal -- `usd_per_hour=0.0, n_gpus=0, instance=f"local-{device}"` -- on every
+# device including a rented GH200. `_control`'s own docstring said what should happen
+# instead ("a rented machine sets a real rate here") and nothing enforced it.
+
+
+def test_the_zero_defaults_turn_rule_4_off_for_any_cap() -> None:
+    """The arithmetic, pinned, because it is the whole finding.
+
+    ``requires_human_approval`` is ``n_gpus > 1 or projected_usd >= APPROVAL_FREE_USD``.
+    At ``(0, 0.0)`` the first disjunct is False and the second is ``0.0 * cap >= 20``, which
+    is False at **every** cap this program admits -- including MAX_CAP_S, the 40-hour ceiling
+    an 8xH100 block run would use. So the human-yes gate could not fire on any run, and the
+    per-GPU column check, gated on ``if self.n_gpus > 1``, could not run either.
+    """
+    for cap_s in (1.0, 3600.0, MAX_CAP_S):
+        zeroed = CostEstimate(
+            cap=WallClockCap(cap_s=cap_s), usd_per_hour=0.0, n_gpus=0, instance="local-cuda"
+        )
+        assert zeroed.projected_usd == 0.0
+        assert not zeroed.requires_human_approval, (
+            f"at cap {cap_s}s the zero defaults still ask for approval, so this test is "
+            "no longer describing the defect it was written for"
+        )
+
+
+def test_a_cuda_device_is_not_priced_at_zero_on_the_callers_behalf() -> None:
+    """A cuda device is hardware rented by the hour. The refusal names all three missing
+    values at once rather than one per attempt -- an operator on a rented box should learn
+    the whole requirement from one message."""
+    with pytest.raises(ValueError) as excinfo:
+        CostEstimate.for_device(cap=WallClockCap(cap_s=600.0), device="cuda")
+    message = str(excinfo.value)
+    for name in ("instance", "usd_per_hour", "n_gpus"):
+        assert name in message, f"the refusal does not name {name}"
+    assert "requires_human_approval" in message, (
+        "the refusal should say WHY the default is not harmless, not merely that it is "
+        "missing: the two values that look like defaults are the two that turn rule 4 off"
+    )
+
+
+def test_a_local_device_is_priced_at_zero_because_that_is_true() -> None:
+    """Not a loophole. A Mac that is already bought costs nothing marginal, and refusing to
+    price it would push every local run into inventing a rate -- which is how a fabricated
+    number gets into a ledger that is append-only."""
+    local = CostEstimate.for_device(cap=WallClockCap(cap_s=600.0), device="mps")
+    assert local.usd_per_hour == 0.0
+    assert local.n_gpus == 0
+    assert local.instance == "local-mps"
+    assert not local.requires_human_approval
+
+
+def test_a_priced_multi_gpu_run_finally_reaches_the_approval_gate() -> None:
+    """The gate rule 4 exists for, reachable for the first time. Eight GPUs is
+    ``n_gpus > 1``, so approval is required whatever the cap and whatever the rate."""
+    cost = CostEstimate.for_device(
+        cap=WallClockCap(cap_s=MAX_CAP_S),
+        device="cuda",
+        n_gpus=8,
+        usd_per_hour=23.92,
+        usd_per_gpu_hour=2.99,
+        instance="lambda-8xH100",
+    )
+    assert cost.requires_human_approval
+    assert cost.projected_usd == pytest.approx(23.92 * 40.0)
+    assert "NEEDS A HUMAN YES" in cost.approval_line()
+
+
+def test_the_per_gpu_column_check_runs_once_a_real_gpu_count_is_given() -> None:
+    """DESIGN-4's own error -- a rate read off the per-GPU column instead of the per-node
+    one -- is caught only above one GPU. At ``n_gpus=0`` it was unreachable, so the check
+    that exists for an 8xH100 launch had never applied to one."""
+    with pytest.raises(ValueError, match="came off the wrong column"):
+        CostEstimate.for_device(
+            cap=WallClockCap(cap_s=3600.0),
+            device="cuda",
+            n_gpus=8,
+            usd_per_hour=2.99,  # the per-GPU figure in the per-instance slot
+            usd_per_gpu_hour=2.99,
+            instance="lambda-8xH100",
+        )
+
+
+def test_a_single_gpu_run_under_the_threshold_still_needs_no_approval() -> None:
+    """Rule 4's other half, unchanged: "Single-GPU jobs under $20 do not." Pricing the
+    machine honestly must not turn every rented single-GPU probe into an approval request,
+    or the requirement gets routed around."""
+    cost = CostEstimate.for_device(
+        cap=WallClockCap(cap_s=3600.0),
+        device="cuda",
+        n_gpus=1,
+        usd_per_hour=1.49,
+        instance="lambda-1xGH200",
+    )
+    assert cost.projected_usd == pytest.approx(1.49)
+    assert cost.projected_usd < APPROVAL_FREE_USD
+    assert not cost.requires_human_approval
