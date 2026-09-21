@@ -1458,15 +1458,15 @@ def _train(
         if deterministic
         else NotRun(
             reason=(
-                "this run used torch's default kernels, so whether its numbers can be "
-                "reproduced was not established. Measured on a GH200 at a FIXED seed, with "
-                "the opening loss identical to four decimals across eight repeats of one "
-                "configuration at 128 steps: the final span loss ranged 0.000000 to "
-                "1.505752 and 3 of 8 runs crossed the 0.05 bar, while the final letter "
-                "loss stayed inside 1.0e-5..1.3e-4. At 512 steps under the master recipe "
-                "the same channel lands in [0.00000, 0.00012] on 5 of 5 seeds, so most of "
-                "that spread is an unconverged budget and not the kernels -- but this row "
-                "cannot say which part was which, and that is what was not established."
+                "this run used torch's default kernels, so its numbers cannot be got "
+                "back exactly. Measured on a GH200 at a FIXED seed, eight repeats of one "
+                "configuration at 128 steps: without deterministic kernels the final span "
+                "loss ranged 0.000000 to 1.505752 with 3 of 8 over the 0.05 bar, and with "
+                "them all eight were bit-identical. The kernels are the source. A longer "
+                "schedule hides it rather than fixing it -- at 512 steps the same channel "
+                "lands in [0.00000, 0.00012] on 5 of 5 seeds without determinism, because "
+                "a converged run stops amplifying the perturbation. Read this row's span "
+                "number as one draw unless its budget converged."
             )
         ),
     )
@@ -2070,15 +2070,15 @@ def main(argv: list[str] | None = None) -> int:
         "--deterministic",
         action="store_true",
         help=(
-            "run under torch.use_deterministic_algorithms(True). Measured on a GH200 at a "
-            "FIXED seed, opening loss identical to four decimals across eight repeats of "
-            "one configuration: the final span loss still ranged 0.000000 to 1.505752 and "
-            "3 of 8 runs crossed the 0.05 bar. Read that with the other half -- at 512 "
-            "steps the same channel lands in [0.00000, 0.00012] on 5 of 5 seeds, so most "
-            "of the spread is a budget that had not converged rather than the kernels. Not "
-            "the default, twice over: torch RAISES where an op has no deterministic "
-            "implementation, and the measured case for paying that price is weaker than "
-            "the 128-step number alone suggests"
+            "run under torch.use_deterministic_algorithms(True). MEASURED on a GH200, "
+            "eight repeats of one configuration at one seed, 128 steps: without it the "
+            "final span loss ranged 0.000000 to 1.505752 with 3 of 8 over the bar; with "
+            "it all eight came back bit-identical, 0.000078 letter and 0.000000 span to "
+            # argparse %%-formats help strings, so a literal percent has to be doubled.
+            "every digit. The price is 131.3s against 111.4s, 18%% wall clock. Not the "
+            "default only because torch RAISES where an op has no deterministic "
+            "implementation, which would make this tool unrunnable on a model that has "
+            "one -- every op in THIS model has one, so a full train should pass it"
         ),
     )
     parser.add_argument("--probe", help=argparse.SUPPRESS)

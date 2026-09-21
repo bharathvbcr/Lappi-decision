@@ -546,10 +546,12 @@ def test_a_checkpoint_is_refused_when_this_run_has_no_cell_for_it(tmp_path) -> N
 # produced by a single arm. The letter channel's spread over the same eight runs was
 # 1.0e-5 .. 1.3e-4, ~380x below its own bar.
 #
-# The same night's phase 4 then bounded how much of that is the kernels: at 512 steps under
-# the master recipe the span channel lands in [0.00000, 0.00012] on 5 of 5 seeds. So most of
-# the spread above is a 128-step budget that had not converged, and what a ledger row still
-# cannot say is which part was which -- which is what this metric is for.
+# Then measured directly, which reversed the reading taken from phase 4 alone. Eight repeats
+# of that same configuration WITH --deterministic came back bit-identical: 0.000078 letter
+# and 0.000000 span to every digit, at a cost of 131.3s against 111.4s. So the kernels are
+# the SOURCE. Phase 4 -- span gap [0.00000, 0.00012] at 512 steps without determinism -- says
+# non-convergence is the AMPLIFIER: removing either removes the symptom, which is why
+# inferring the cause from phase 4 alone was wrong.
 
 
 def test_the_cublas_workspace_is_set_from_argv_because_argparse_is_too_late() -> None:
@@ -618,8 +620,10 @@ def test_a_run_that_did_not_ask_for_determinism_reports_not_run_rather_than_pass
         "established nothing about reproducing its numbers"
     )
     assert "1.505752" in block and "0.00012" in block, (
-        "the NotRun reason should carry BOTH measured numbers. The 128-step spread alone "
-        "reads as a case for this flag; the 512-step collapse is what says most of that "
-        "spread was a budget that had not converged, and a reason that omits it argues for "
-        "determinism on a premise the same night measured to be mostly wrong"
+        "the NotRun reason should carry BOTH measured numbers, because either one alone is "
+        "misleading. The 128-step spread without determinism is what the kernels cost; the "
+        "512-step collapse WITHOUT determinism is why a long run does not show it. A reason "
+        "carrying only the first overstates how often this matters, and one carrying only "
+        "the second reads as though the kernels were not the cause -- which is the error "
+        "this string was corrected for."
     )

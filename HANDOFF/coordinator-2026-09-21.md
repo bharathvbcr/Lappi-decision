@@ -505,3 +505,127 @@ ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240 '/home/ubuntu/qd-
 Then build a corpus with a nonzero span floor and run phase 4's two arms against it. Every FT
 number in this repository before today was taken at 128 steps, and 128 steps is not where
 this model's answer lives.
+
+---
+
+# Part 5 — the correction, and two findings that are not mine
+
+## 13. The 128-step spread was the kernels, and Part 4 said otherwise
+
+Part 4 read phase 4 as saying *"most of phase 1's residual is an unconverged budget rather
+than the kernels."* That was an inference from "removing the amplifier removes the symptom",
+and it is wrong. Measured directly:
+
+**Eight repeats of phase 1's exact configuration with `--deterministic` came back
+bit-identical.**
+
+    total 518.5886 -> 0.000078   letter 1.9029 -> 0.000078   span 518.5886 -> 0.000000
+
+Every run, every digit. Without the flag the same eight gave final span losses of
+0.000000 … 1.505752 with 3 over the bar.
+
+The reading that needs both measurements:
+
+* **kernel nondeterminism is the SOURCE** — remove it and the spread is gone at 128 steps;
+* **non-convergence is the AMPLIFIER** — at 512 steps the spread collapses to
+  [0.00000, 0.00012] *without* determinism, because a converged run stops amplifying the
+  perturbation.
+
+Remove either and the symptom goes, which is precisely why the cause could not be inferred
+from phase 4 alone. **A long schedule hides this rather than fixing it.**
+
+The run also *completed* rather than raising, which establishes something narrower and
+useful: every op this model uses has a deterministic implementation.
+
+**Price: 131.3 s per run against 111.4 s — 18% wall clock.** Cheap enough that a full train
+should pay it. That is the opposite of what the flag's own help string said when it was
+written from phase 1, and the string, the ledger metric's `NotRun` reason, the audit and the
+gap record all carried the reversed claim and have all been corrected.
+
+**Part 4's span_weight conclusions are unaffected** and stand: at 512 steps both arms reach
+both floors on 5/5 seeds, at 128 the arms are not separable from the residual, and the
+default stays at 1.0. Only the attribution of the residual changed — and with it the
+recommendation.
+
+`ledger/gh200-det-2026-09-21.jsonl`. Its rows are also the first in this project to say
+which transformers produced them: `transformers==5.17.0`.
+
+## 14. Two library-chosen quantities that decide a number
+
+Raised by the concurrent lane while closing `MEMORY-GRADIENT-CHECKPOINTING-IS-NOT-WIRED`,
+verified here rather than taken on their word — and checking it found a second hole beside
+it.
+
+`load_text_tower` built `Qwen3_5TextModel(text_config)` and the attention kernel was
+whatever transformers resolved. `Environment.detect` auto-detected torch's version while
+taking transformers' as a parameter **defaulting to `"unknown"`** — only
+`real_tokenizer_pipeline.py` ever passed one, so every ft row, which is every training
+number this project has, said `"unknown"`.
+
+    this Mac    transformers 5.12.1   flash_attn absent   -> sdpa
+    the GH200   transformers 5.17.0   flash_attn absent   -> sdpa
+
+They agree today, are five minor versions apart, and nothing in any row said so. Attention is
+where the activation memory and most of the arithmetic is: an upgrade on one host moves the
+kernel without moving `protocol_hash`, `recipe_hash`, `data_snapshot_hash` or `corpus_rev`.
+
+`attn_implementation` is now required with no default on `load_text_tower`, the third
+argument there to be so after `gradient_checkpointing` and `optimizer`. `TextTower` reports
+what the model **resolved**; `remap_text_tower` carries it through, because the real path
+always remaps. It is in `backbone_keys`, so it enters `recipe_hash`. Default `sdpa`, so no
+existing number moves.
+
+## 15. Two things the concurrent lane found that change what this repository believes
+
+Both verified here before being written down.
+
+**Every rung-0 sweep before 2026-09-20 23:50 ran inside the collapsed regime.**
+`--span-weight` did not exist until `391fba2` (23:50:32), so the context sweep (19:33) and
+the capacity sweep (21:22) both ran at the unweighted default — where, by
+`AUDIT/rung0-span-weight-2026-09-20.json`'s own words, train accuracy is *"pinned at 48.0%,
+the training set's own majority share, on every seed."* A constant predictor's accuracy
+cannot respond to capacity or context. So `GAP-RUNG0-CONTEXT-IS-NOT-THE-BINDING-CONSTRAINT`
+and `GAP-RUNG0-CAPACITY-IS-NOT-THE-BINDING-CONSTRAINT-EITHER` are **unestablished, not
+established**, and the corpus conclusion they feed is premature.
+
+**Rule 8's three-seed floor is admissibility, not sufficiency.** From the five seeds of my
+own span-weight sweep at 0.05, sd = 0.0322, so n=3 resolves ~7.4 pp, n=5 ~5.7 pp, n=8
+~4.5 pp — against a demonstrated extractable signal of **5.3 pp**, the linear control over
+baseline. The capacity sweep's −1.4 / 0.0 / −1.2 / −0.3 pp were all inside its own noise
+floor. A null from three seeds means *"no effect larger than about 7 pp"* and was written
+down as *"no effect"* — the same defect as presenting a capped sample as complete coverage,
+moved from sampling to statistical power.
+
+**This applies to my own Part 4 table.** Phase 2 ran 12 seeds and I reported per-arm means
+without stating what 12 resolves. It happens not to bite — the FT letter channel's spread is
+~380× below its bar — but I checked that *after* publishing the table, not before. The fix
+is to pre-register the resolvable difference with the seed count.
+
+## State at the end of Part 5
+
+| Gate | Result |
+| --- | --- |
+| `make gates` | **PASS** at the commit before this part; re-run below |
+| cargo | 362 / 362 |
+| pytest, torch venv | 1676 passed, 2 skipped |
+| pytest, repo venv | 1435 passed, 20 skipped |
+| `ledger/gh200-det-2026-09-21.jsonl` | 18 rows |
+
+## Open, revised
+
+1. **A nonzero-floor FT run at 512 steps**, with `--deterministic`. Still the most
+   informative experiment left, and the only regime where `span_weight` could still matter.
+2. **The rung-0 capacity sweep at a working `span_weight`** — held by the concurrent lane,
+   5 seeds, pre-registered floor, the linear control at 57.4% as the bar.
+3. **A driver-level test that a resume onto a different corpus order is refused.** Unchanged.
+4. **Pre-register the resolvable difference** in every sweep runner's header, beside the
+   seed count. Not done anywhere yet.
+
+## First command for the next lane
+
+```bash
+ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240 'grep -h "^cuda seed=" /home/ubuntu/det-residual.log'
+```
+
+Eight lines, identical to the digit. That is what a reproducible run looks like on this
+model, it costs 18%, and nothing before today in this repository had it.

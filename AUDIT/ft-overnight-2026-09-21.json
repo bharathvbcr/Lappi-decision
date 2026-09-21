@@ -25,7 +25,7 @@
  "phase_4_the_long_schedule": {
   "arms": "master at 512 steps, span_weight 1.0 and 0.05, 5 seeds each",
   "finding": "BOTH arms reach BOTH floors on 5 of 5 seeds. At span_weight 1.0 the mean letter gap is 0.0000004 with a maximum of 0.00001, and the mean span gap 0.00003 with a maximum of 0.00012. At 0.05, 0.00001 and 0.00000. The span channel's spread collapses by four orders of magnitude against every 128-step arm.",
-  "consequence": "The caveat the 3x3 left -- 'a longer schedule may close the 1.0 arm's gap on its own' -- is answered yes, and it closes BOTH channels. Most of phase 1's residual is an unconverged budget rather than nondeterministic kernels."
+  "consequence": "The caveat the 3x3 left -- 'a longer schedule may close the 1.0 arm's gap on its own' -- is answered yes, and it closes BOTH channels. What this does NOT establish, and what this file first claimed it did, is that the 128-step spread was caused by the budget: see `correction_the_residual_is_the_kernels` below."
  },
  "what_this_settles": "span_weight's default STAYS AT 1.0, now for a positive reason rather than for absence of evidence: at a budget that converges, it reaches both floors on every seed, and at a budget that does not, the arms are not separable from the run-to-run residual. Two days of span_weight investigation were measuring how fast an unconverged run gets somewhere, per seed, with a spread larger than the effect.",
  "what_this_does_NOT_settle": [
@@ -1453,5 +1453,13 @@
    "span_floor": 0.0
   }
  ],
- "quick": true
+ "quick": true,
+ "correction_the_residual_is_the_kernels": {
+  "corrected": "2026-09-21",
+  "what_was_wrong": "This file and the commit that landed it read phase 4 as saying 'most of phase 1's residual is an unconverged budget rather than the kernels'. That inference does not follow, and a direct measurement reverses it.",
+  "the_measurement": "Eight repeats of phase 1's exact configuration -- span_weight 1.0, bf16, 128 steps, seed 0, shardset-v4 -- with --deterministic. All eight came back BIT-IDENTICAL: total 518.5886 -> 0.000078, letter 1.9029 -> 0.000078, span 518.5886 -> 0.000000, to every digit printed. Without it, the same eight gave final span losses of 0.000000 .. 1.505752 with 3 over the bar.",
+  "the_corrected_reading": "Kernel nondeterminism is the SOURCE: removing it removes the spread entirely at 128 steps. Non-convergence is the AMPLIFIER: at 512 steps the spread collapses to [0.00000, 0.00012] without determinism, because a converged run stops amplifying the perturbation. Removing either removes the symptom, which is exactly why inferring the cause from phase 4 alone was wrong.",
+  "the_price": "131.3 s per run against 111.4 s, 18% wall clock, measured over the same eight repeats. Cheap enough that a full train should pay it -- the opposite of what the flag's own help string said when it was written from phase 1.",
+  "evidence": "ledger/gh200-det-2026-09-21.jsonl: ft rows 7da24558, 7ea977cd, 67f4dc76, d5a04578, b15c3b63, 3c5fc10f, 9a39f9b7, 281e854b with their verdict rows. Each carries deterministic_kernels = Ran(passed=True) and env.transformers_sha = 'transformers==5.17.0', which is also the first row in this project to say which transformers produced it."
+ }
 }
