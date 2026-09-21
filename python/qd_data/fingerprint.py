@@ -78,14 +78,21 @@ def _package_dir() -> Path:
     return directory
 
 
-def code_fingerprint() -> dict[str, str]:
-    """``{module name: sha256 of its source bytes}`` for every module in ``qd_data``.
+def code_fingerprint(directory: Path | None = None) -> dict[str, str]:
+    """``{module name: sha256 of its source bytes}`` for every module in a package.
 
     Sorted, so the mapping is a value and not an iteration order. Module names carry no
-    directory part -- the package has no subpackages, and a name like ``render.py`` is what
-    a refusal should print.
+    directory part -- the packages this is used on have no subpackages, and a name like
+    ``render.py`` is what a refusal should print.
+
+    ``directory`` defaults to ``qd_data``, which is what every shard header records and
+    what this function was written for; passing none is byte-for-byte what it always did.
+    It is a parameter because the same question -- *which source produced this* -- is now
+    asked about ``qd_train`` by ``tools/real_ft_run.py``. A ledger row's ``code_commit``
+    answers it with ``"<sha>-dirty"``, which on the GH200 stood for 6894 insertions across
+    72 paths: one bit for an unbounded amount of divergence.
     """
-    directory = _package_dir()
+    directory = _package_dir() if directory is None else Path(directory)
     fingerprint: dict[str, str] = {}
     for path in sorted(directory.glob(f"*{FINGERPRINT_SUFFIX}")):
         if not path.is_file():
@@ -93,9 +100,10 @@ def code_fingerprint() -> dict[str, str]:
         fingerprint[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
     if not fingerprint:  # pragma: no cover - the package always contains this file
         raise RuntimeError(
-            f"no {FINGERPRINT_SUFFIX} sources found in {directory}; refusing to write an "
+            f"no {FINGERPRINT_SUFFIX} sources found in {directory}; refusing to return an "
             "empty fingerprint, which would be indistinguishable from a shard set created "
-            "before fingerprints existed."
+            "before fingerprints existed -- and, for a caller naming its own directory, "
+            "from a path that does not hold the sources it thinks it does."
         )
     return fingerprint
 
