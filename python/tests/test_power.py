@@ -15,8 +15,10 @@ import pytest
 from qd_train.power import (
     CONVENTIONAL_ALPHA,
     CONVENTIONAL_POWER,
+    estimated_sd_penalty,
     resolution_state,
     resolvable_difference,
+    t_quantile,
 )
 from qd_train.tristate import NotRun, Ran
 
@@ -266,3 +268,161 @@ def test_every_sweep_runner_pre_registers_what_it_can_resolve() -> None:
         assert "against_known_reference=True" in call, (
             f"{name}: this tool compares against a fixed reference, not another arm"
         )
+
+
+# --------------------------------------------------------------------------
+# The correction this module used to quote as a constant.
+#
+# `resolution_state` printed "~14% at n=5" on every row it wrote, regardless of n and
+# regardless of whether the comparison was against a fixed reference or another arm. It
+# reached a real audit that way: a concurrent lane read it off a one-sample row at n=8,
+# tried to reproduce it, could not, and declined to put any figure derived from it into an
+# AUDIT file. Which was the right call, and is what found this.
+#
+# The figure is correct for exactly one case. Everything below is about making the row
+# state ITS case.
+# --------------------------------------------------------------------------
+
+#: t[0.975, df], the standard two-sided 95% table. Written down rather than computed,
+#: because the point is to check the computation against something it did not produce.
+TWO_SIDED_95 = {
+    1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8: 2.306,
+    9: 2.262, 10: 2.228, 12: 2.179, 15: 2.131, 20: 2.086, 30: 2.042, 60: 2.000, 120: 1.980,
+}
+
+
+@pytest.mark.parametrize("df", sorted(TWO_SIDED_95))
+def test_the_inverse_t_reproduces_the_standard_table(df: int) -> None:
+    """Sixteen degrees of freedom from 1 to 120, against the table every textbook prints.
+
+    This is the load-bearing check of the whole section: an incomplete-beta continued
+    fraction that is subtly wrong still returns plausible numbers, and every figure this
+    module now puts on a row comes out of it. The table's own precision is three decimals,
+    so that is the tolerance.
+    """
+    assert t_quantile(0.975, df) == pytest.approx(TWO_SIDED_95[df], abs=5e-4)
+
+
+def test_the_t_quantile_agrees_with_the_normal_in_the_limit() -> None:
+    """At large df, Student's t IS the normal, and a continued fraction that drifts there
+    is one that is wrong everywhere and only visible here."""
+    from statistics import NormalDist
+
+    for p in (0.80, 0.95, 0.975, 0.995):
+        assert t_quantile(p, 100_000) == pytest.approx(NormalDist().inv_cdf(p), abs=1e-3)
+
+
+def test_a_quantile_outside_the_supported_range_is_refused() -> None:
+    """Refused rather than extrapolated. The bisection brackets upward from zero, so p
+    below 0.5 would return 0.0 -- a plausible-looking number that is not a quantile."""
+    for bad_p in (0.0, 0.25, 0.4999, 1.0, 1.5):
+        with pytest.raises(ValueError, match="t_quantile is for p"):
+            t_quantile(bad_p, 8)
+    for bad_df in (0, -1, -0.5):
+        with pytest.raises(ValueError, match="degrees of freedom"):
+            t_quantile(0.975, bad_df)
+
+
+def test_the_penalty_reproduces_the_figure_this_module_used_to_hardcode() -> None:
+    """Where "~14% at n=5" came from, established rather than assumed.
+
+    It is the TWO-sample case at 5 per arm: df = 2(n-1) = 8, and t on both terms,
+    ``t[0.975,8] + t[0.80,8]`` = 3.1949 against the normal 2.8016. That identifies the
+    convention the old constant was computed under, which is what makes replacing it a
+    correction of scope rather than a change of definition.
+    """
+    assert estimated_sd_penalty(
+        n_per_arm=5, against_known_reference=False
+    ) == pytest.approx(3.1949 / 2.8016, rel=2e-4)
+
+
+def test_the_penalty_is_larger_for_the_case_the_constant_was_printed_on() -> None:
+    """The defect, as a number.
+
+    A one-sample comparison at n=8 -- a rung-0 arm against the majority-class baseline,
+    which is most of what this repository measures -- carries a 16.4% correction, not 14%.
+    The row said 14%. Under-stating the correction on the side that says "your margin is
+    smaller than you think" is the direction that matters.
+    """
+    one_sample_n8 = estimated_sd_penalty(n_per_arm=8, against_known_reference=True)
+    old_constant = estimated_sd_penalty(n_per_arm=5, against_known_reference=False)
+    assert one_sample_n8 == pytest.approx(1.164, abs=1e-3)
+    assert one_sample_n8 > old_constant
+
+
+def test_the_penalty_falls_with_n_and_with_the_second_sample() -> None:
+    """Both directions, because a correction that moved the wrong way would still look
+    like a correction. More runs estimate sd better; a two-sample comparison has twice the
+    degrees of freedom at the same n, so it pays less for the same ignorance."""
+    for known in (True, False):
+        penalties = [
+            estimated_sd_penalty(n_per_arm=n, against_known_reference=known)
+            for n in (3, 5, 8, 20)
+        ]
+        assert penalties == sorted(penalties, reverse=True), penalties
+        assert penalties[-1] > 1.0, "the correction never reaches zero at finite n"
+    for n in (3, 5, 8, 20):
+        assert estimated_sd_penalty(n_per_arm=n, against_known_reference=True) > \
+            estimated_sd_penalty(n_per_arm=n, against_known_reference=False)
+
+
+def test_a_single_run_cannot_estimate_the_spread_it_is_being_corrected_for() -> None:
+    """n=1 leaves zero degrees of freedom. Returning a correction there would put a number
+    on a row whose sd came from nowhere."""
+    with pytest.raises(ValueError, match="no degrees of freedom"):
+        estimated_sd_penalty(n_per_arm=1, against_known_reference=True)
+
+
+def test_the_row_states_its_own_correction_not_a_constant() -> None:
+    """The fix, end to end, on the shape that reached the audit.
+
+    Two states differing only in ``n_per_arm`` must not carry the same percentage, and
+    neither may carry the old hardcoded one. Asserted on the detail string because that is
+    what a reader reads -- the number being right in a function nobody prints is not the
+    property that failed.
+    """
+    detail_n8 = resolution_state(
+        sd=0.0289, n_per_arm=8, target=0.05, against_known_reference=True
+    ).detail
+    detail_n5 = resolution_state(
+        sd=0.0289, n_per_arm=5, target=0.05, against_known_reference=True
+    ).detail
+
+    assert "16.4% too small" in detail_n8, detail_n8
+    assert "32.7% too small" in detail_n5, detail_n5
+    assert "7 degrees of freedom" in detail_n8
+    assert "4 degrees of freedom" in detail_n5
+    for detail in (detail_n8, detail_n5):
+        assert "~14% at" not in detail, (
+            "the row still quotes the constant that is true of one case and was printed on "
+            "all of them"
+        )
+
+
+def test_both_verdicts_carry_the_correction() -> None:
+    """Adequate and underpowered are different sentences and the correction belongs in
+    both. A bound that is 16% too small matters most to the row that just cleared it."""
+    adequate = resolution_state(
+        sd=0.01, n_per_arm=8, target=0.05, against_known_reference=True
+    )
+    underpowered = resolution_state(
+        sd=0.05, n_per_arm=8, target=0.01, against_known_reference=True
+    )
+    assert adequate.passed and not underpowered.passed
+    for state in (adequate, underpowered):
+        assert "ESTIMATED from these 8 runs" in state.detail
+        assert "16.4% too small" in state.detail
+
+
+def test_the_corrected_bound_is_stated_as_a_number_not_only_a_percentage() -> None:
+    """A reader comparing a measured margin against a floor needs the floor, not a
+    percentage to apply to it themselves -- which is one more step at which the case can
+    be got wrong."""
+    state = resolution_state(
+        sd=0.0289, n_per_arm=8, target=0.05, against_known_reference=True
+    )
+    assert isinstance(state, Ran) and state.value is not None
+    honest = state.value * estimated_sd_penalty(
+        n_per_arm=8, against_known_reference=True
+    )
+    assert f"{honest:.4f}, not {state.value:.4f}" in state.detail
