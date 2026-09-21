@@ -658,3 +658,179 @@ ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240 'grep -h "^cuda s
 
 Eight lines, identical to the digit. That is what a reproducible run looks like on this
 model, it costs 18%, and nothing before today in this repository had it.
+
+# Part 6 — one defect shape, found three times in one afternoon
+
+Part 5 named two "library-chosen quantities that decide a number". This part is about what
+happened when the same shape was looked for deliberately, and about the one time the search
+itself caused the damage.
+
+The shape, stated once: **a complete list is written down, and then one member of it is
+fixed.** Not enumeration failing. Enumeration succeeding, and the result not being used.
+
+## 16. Four tools, one literal, one of them fixed
+
+`6b18a52` landed `CostEstimate.for_device` and wired `tools/real_ft_run.py`. Its docstring
+opens: *"Four tools reached this class through the same literal."* Three of them still had
+it four hours later.
+
+```python
+cost=CostEstimate(cap=cap, usd_per_hour=0.0, n_gpus=0, instance=f"local-{device}")
+```
+
+with a comment reading *"A Mac that is already bought costs nothing per hour."* `--device`
+is a free string defaulting to `mps`. Nothing enforced that comment's premise, and
+`tools/rung0_real_run.py` is the tool that ran on the rented GH200 with `--device cuda`.
+
+So those rows do not under-report a cost. They assert `instance = "local-cuda"` on
+`n_gpus=0` at `$0.00/h` — a local machine, with no GPUs in it, that does not exist. And at
+those two values **both** disjuncts of `requires_human_approval` are False for any cap, an
+8×H100 job included, while the per-GPU column check is gated on `n_gpus > 1` and never runs.
+
+`c74f4ba` routes all four through `for_device`; `rg 'usd_per_hour=0.0, n_gpus=0' tools/`
+returns nothing. `rung0_real_run.py` gained `--instance`, `--usd-per-hour`,
+`--usd-per-gpu-hour`, `--approved-by`, and an argv-time refusal reached before every other
+argv check.
+
+`n_gpus` is **counted**, not passed: the rate is a fact about a contract and the caller
+states it; the count is a fact about the machine and the machine states it. Counting needs
+torch and `run_control.py` is torch-free by contract, so it could not sit beside
+`LOCAL_DEVICES` — hence `tools/run_cost.py`, on `repo_git.py`'s precedent.
+
+Seven tests, six verified failing pre-fix. The seventh is the control that a **local** run
+is unchanged, which passes both ways by design and is the point: `for_device` had to leave
+the honest case byte-for-byte alone.
+
+One test-design note worth carrying: `--epochs 0` is the instrument in the argv tests, not
+the subject. It is refused a few lines further down, so a tool that reaches *that* refusal
+first had not yet decided anything about the price. It makes the pre-fix failure immediate
+instead of a corpus build on a rented box.
+
+## 17. The same shape, one layer over — and the concurrent lane found it
+
+`d39f60b` added `_what_ran` / `_what_ran_state` to `real_ft_run.py`, closing
+`GAP-CODE-COMMIT-DIRTY-DOES-NOT-PIN-WHAT-RAN` — a row's `code_commit` reads `"<sha>-dirty"`
+for any uncommitted change, and on the GH200 that one bit stood for 6894 insertions across
+72 paths.
+
+The concurrent lane's criticism was exact: two private functions in one tool, answering a
+question every runner's rows raise, for one of four runners — while `rung0_real_run.py`, the
+tool that wrote the GH200 rows, had **no** fingerprint at all and its provenance had to be
+reconstructed by hand with `sha256sum`.
+
+`b185dcb` lifts it to `qd_train/ledger.py` as public `what_ran` / `what_ran_state`. All four
+runners record a `code_that_ran` metric — two row kinds each for `real_ft_run` and
+`ft_toy_run`. `real_ft_run`'s private copy is deleted in the same change; a lift landing
+beside the original is the accumulate-instead-of-replace failure that produced this.
+
+Both arguments required, no defaults. A default package answers for the wrong one when a
+fifth runner appears; an unnamed tool lets two runners produce identical fingerprints from
+different code, which is exactly `code_commit`'s defect. `qd_data` stays excluded and the
+reasoning moved with the function: the shard header already carries it and
+`ShardReader.open()` checks it, so a second recorder would be free to disagree — and the
+disagreement would surface as a shard-contract failure on a shard set that is fine.
+
+Seven tests, **all seven** verified failing pre-lift.
+
+## 18. The search caused the damage: a stash, and a rule that never arrived
+
+Mid-afternoon the concurrent lane reported two of its gap records missing from
+`gaps.jsonl` — present on disk after an `O_APPEND` + `fsync` write it had verified by
+re-reading, and gone later. It wrote `GAP-GAPS-JSONL-APPENDS-LOST-WHILE-TWO-LANES-WROTE-IT`,
+restored both records by hand, and changed its workflow.
+
+Nothing was lost. Both records were in `stash@{0}`, which **this lane created**, running
+`git stash push -- gaps.jsonl` three times to get a clean tree for a gate run. `stash push
+-- <path>` reverts that path to HEAD, which is why the other lane found the file *clean at
+440 lines* rather than dirty — the one detail it correctly said a lost concurrent write
+cannot produce. It had diagnosed the mechanism ("a checkout/stash/restore of a path whose
+second writer was not known about") and attributed it to an unknown actor, because it could
+not see another session's stash.
+
+Recovery took only this lane's own line and left both of theirs as rewritten, then dropped
+the stash — popping would have duplicated records for an id that already supersedes itself.
+`f9c3ca1` retracts the loss record as `closed-no-defect`.
+
+**Then the more useful finding.** The other lane wrote that CLAUDE.md already forbade this
+and that both lanes had read the rule too narrowly. Checked rather than accepted: that rule
+was never in this session's context at all.
+
+`git log -S` puts it in `fad5315`, 07:02:34 — about 2.5 hours before the stash. The current
+file's item 3 (*"`ListAgents` before changing, too"*) ends *"never `git stash` or `git add
+-A` in a shared worktree — both move the other lane's work"*, and item 4 gained *"Append
+with `O_APPEND` + `fsync` … never read-modify-write"*. This session's in-context copy has
+none of the three; what it calls item 3 is the current item 4.
+
+The first record blamed compaction. The other lane then checked its own copy and killed
+that: **it was compacted too, and its copy is current** — it had received a harness notice
+that instruction files were re-read. Two sessions, one repository, both compacted on the
+same day, on different versions of the rules.
+
+So there is no signal a lane can read off its own history. *"I was compacted, so I may be
+stale"* is unusable when the other compacted lane is fine; *"I was refreshed once, so I am
+current"* is unusable because that notice is a past event and the file can move after it.
+Reading the file on disk is the only thing that establishes currency, it is cheap, and
+neither lane did it until an incident forced it.
+
+`1f04153` records it; `e1191d7` supersedes it with the corrected premise.
+
+Two consequences that outlive the incident:
+
+* **A rule that does not reach a lane is not a weak rule — it is not a rule for that lane.**
+  Any "I followed CLAUDE.md" covers the rules that lane was given, not the rules that exist.
+* **Quote a rule, do not refer to it.** This surfaced only because a quoted rule sounded
+  unfamiliar and was checked against the file in one command. A vaguer message would have
+  been agreed with, and the stale-context defect would still be live.
+
+The asymmetry is worth stating: either lane can read the repository and see what the other
+*has*, and neither can see the other's *context*. When a peer looks careless, "does that
+lane actually have this rule" is the cheap first question.
+
+## State at the end of Part 6
+
+| Gate | Result |
+| --- | --- |
+| `make gates` | **PASS** at `b185dcb` |
+| cargo | 362 / 362 |
+| pytest, torch venv | 1727 passed, 2 skipped |
+| pytest, repo venv | 1466 passed, 20 skipped |
+| `ledger/runs.jsonl` | chain verifies, 188 rows |
+
+Pre-fix verification from Part 6 onward is done by **copying files, not `git stash`** —
+restoring in a `finally` and asserting the restore byte-for-byte. The worktree has a live
+second writer.
+
+## Open, revised
+
+1. **A nonzero-floor FT run at 512 steps**, with `--deterministic`. Unchanged, and still the
+   most informative experiment left — the only regime where `span_weight` could matter.
+2. **The row-level half of the cost fix.** `for_device` makes the *estimate* honest; the
+   *row* is still zero. `ledger.py` defaults `cost_usd_per_hour` to 0.0 and nothing but
+   `real_ft_run.py` passes it, while `trainer.py:870` already computes
+   `control.cost.cost_for(wall)` into `TrainResult` and never into the row. Held by the
+   concurrent lane, which raised it.
+3. **The 4096 capacity arms are confounded** and should not be read as a capacity result.
+   They move context *and* training-set size together — 382 train decisions against 727 —
+   while the linear control finds +6.3pp on the same split and the models sit below the
+   prior (128×2: −2.97pp, 0/8 seeds above; 256×4: −0.39pp, 0/8). An 8192 run subsampled to
+   ~382 train decisions, **val untouched**, is the ~7 minutes that turns a confounded null
+   into an attributable one. Agreed with the concurrent lane; not yet run.
+4. **A driver-level test that a resume onto a different corpus order is refused.** Unchanged.
+5. **Pre-register the resolvable difference** in every sweep runner's header, beside the
+   seed count. Still not done anywhere.
+6. **Whether `code_commit` should refuse `-dirty` for a run that will cost money.** A
+   human's call: it changes what a ledger row means and belongs with whoever owns the launch
+   procedure.
+7. **Whether lanes should re-read CLAUDE.md on a schedule rather than on incident.** Also a
+   human's call — nothing in this repository can detect the divergence, because it is a
+   property of the harness.
+
+## First command for the next lane
+
+```bash
+rg -n 'usd_per_hour=0\.0, n_gpus=0|"code_that_ran"' /Users/bharath/Code/research/qwen-decision/tools
+```
+
+Four `code_that_ran` sites across four runners and no zero-price literal anywhere. Both
+halves of this afternoon in one screen — and both were one-of-four fixes that read as
+complete until somebody counted.
