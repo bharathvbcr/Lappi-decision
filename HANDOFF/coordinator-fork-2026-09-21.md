@@ -35,6 +35,12 @@ between arms is:**
 | 512 − 128 | +2.20pp | 4.16pp | 5.82pp | inside |
 | 512 − 256 | +4.48pp | 4.81pp | 6.74pp | inside |
 
+Those floors are the known-sd bound. Correcting them as §2b does widens each arm-vs-arm floor
+by 7.5% (two-sample, df=14) and each arm-vs-baseline floor by 16.4% (one-sample, df=7) — so
+7.05 → 7.58pp, 5.82 → 6.26pp, 6.74 → 7.25pp, and 4.37 → 5.09pp, 5.53 → 6.44pp, 3.85 → 4.48pp.
+**No verdict in this section changes**: every arm still clears its own distance from the
+baseline, and every arm-vs-arm difference is still inside.
+
 At 10 epochs the picture is different for a different reason: `256x4` collapsed on 6 of 8
 seeds and `512x6` on 7 of 8. **A collapsed arm's held-out mean sits *at* the baseline,
 because a constant predictor scores the baseline**, and its sd is tight (1.11pp, 0.67pp
@@ -55,19 +61,22 @@ decisions from 32 files** against the same **49.0%** majority-class baseline, wh
 each point's comparison one against a *fixed reference* rather than against another noisy
 arm. Training files are ordered by hash, so the 25% set is a strict subset of the 50% set.
 
-| `train_subsample` | recipe | n | val mean | vs baseline | realised sd | floor | resolved? |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 0.25 | `918c73733b` | 8 | 49.48% | +0.48pp | 0.96pp | 0.96pp | no — **3 of 8 collapsed** |
-| 0.25 *fitted* | | 5 | 49.79% | +0.79pp | 1.14pp | 1.43pp | no |
-| 0.5 | `64b61aea47` | 8 | 50.56% | +1.56pp | 2.39pp | 2.37pp | no |
-| 1.0 | `2b8564f63c` | 8 | 52.78% | **+3.78pp** | 2.89pp | 2.86pp | **yes** |
+Two floors are quoted throughout: the **known-sd** bound `qd_train.power` returns, and that
+bound **corrected** for `sd` being estimated from these runs rather than known (§2b).
 
-**What is not established.** No *adjacent* pair is separated — 0.5 − 0.25 is +0.77pp against
-a 3.32pp floor, 1.0 − 0.5 is +2.21pp against 3.71pp, 1.0 − 0.25 is +2.99pp against 3.89pp,
-all with pooled sd and the √2 two-arm floor. The **shape** is monotone in the direction
-more-data-helps and **no single step of it is individually resolved at n=8**. No trend test
-was pre-registered and none is applied; reaching for one after reading three ordered points
-is how a shape becomes a finding it has not earned.
+| `train_subsample` | recipe | n | val mean | vs baseline | realised sd | floor known / corrected | resolved? |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.25 | `918c73733b` | 8 | 49.48% | +0.48pp | 0.96pp | 0.95 / 1.11pp | no — **3 of 8 collapsed** |
+| 0.25 *fitted* | | 5 | 49.79% | +0.79pp | 1.14pp | 1.43 / 1.90pp | no |
+| 0.5 | `64b61aea47` | 8 | 50.56% | +1.56pp | 2.39pp | 2.37 / 2.76pp | no |
+| 1.0 | `2b8564f63c` | 8 | 52.78% | **+3.78pp** | 2.89pp | 2.86 / **3.33pp** | **yes, by 13.5%** |
+
+**What is not established.** No *adjacent* pair is separated, on either bound — 0.5 − 0.25 is
++0.77pp against 3.32/3.78pp, 1.0 − 0.5 is +2.21pp against 3.71/3.99pp, 1.0 − 0.25 is +2.99pp
+against 3.89/4.44pp, all with pooled sd and the √2 two-arm floor. The **shape** is monotone
+in the direction more-data-helps and **no single step of it is individually resolved at
+n=8**. No trend test was pre-registered and none is applied; reaching for one after reading
+three ordered points is how a shape becomes a finding it has not earned.
 
 **Collapse is itself a size effect, with a confound.** Three of eight seeds at 25% never
 cleared the training majority, against zero at both larger sizes. But that quarter also has
@@ -110,12 +119,36 @@ Pre-committed rule: **any point whose realised sd exceeded 0.0505 is reported as
 see its own target rather than as a null.** Realised: 0.0096, 0.0239, 0.0289. None triggered
 it. Nothing moved, and both numbers are carried.
 
-**Every floor in this document is a lower bound.** `qd_train.power.resolvable_difference`
-assumes `sd` is *known*; it is estimated from 8 runs, and that module's own docstring says
-the honest quantile is Student's t — about 3.20 against 2.80 at n=5 — reported rather than
-corrected because an inverse-t needs SciPy and SciPy is not a dependency here. The one
-resolved result clears its bound by 32% and the correction at n=8 is smaller than the ~14%
-quoted at n=5, so it plausibly survives. **It was not computed.**
+**The floors are corrected, and an earlier version of this file got the correction wrong.**
+`resolvable_difference` assumes `sd` is *known*; it is estimated from 8 runs, so the honest
+quantile is Student's t. This document first said *"the correction at n=8 is smaller than the
+~14% quoted at n=5, so it plausibly survives — it was not computed."* **Wrong, and wrong in
+the flattering direction.** That ~14% is the *two-sample n=5* case, whose degrees of freedom
+are 2(n−1)=8; the point-vs-baseline comparisons here are *one-sample* at df=n−1. The df
+belongs to a different comparison and a different n than the sentence was applied to, and the
+case quoted happened to be the smallest in play.
+
+It also did not need SciPy, which the same sentence claimed. `qd_train.power.t_quantile`
+(081889d) is the regularised incomplete beta by Lentz's continued fraction in about forty
+lines of `math`, no dependency added. Before using it I checked it against printed two-sided
+95% tables at df 1, 4, 7, 8 and 120 — agreement within 5e-4 on both t[0.975] and t[0.80] —
+and against `NormalDist` in the limit.
+
+Inflation of `t[0.975,df] + t[0.80,df]` over the normal 2.80159, by case:
+
+| case | df | inflation |
+| --- | --- | --- |
+| one-sample n=8 — **every point-vs-baseline row here** | 7 | **16.4%** |
+| one-sample n=5 — the 0.25 fitted point | 4 | 32.7% |
+| two-sample n=8 — 1.0 vs 0.5 | 14 | 7.5% |
+| two-sample n=5 — *the module's docstring figure* | 8 | 14.0% |
+
+**The conclusion holds with less than half the margin.** +3.78pp against a corrected 3.33pp
+rather than the known-sd 2.86pp: it clears by 13.5%, not 32%.
+
+All 24 rows predate 081889d and carry the old sentence in their `sweep_can_resolve` detail,
+naming the ~14% case regardless of the row's own n and comparison. Rows are append-only and
+were not rewritten; the corrected floors live here and in the AUDIT file.
 
 ---
 
@@ -182,19 +215,20 @@ floors (§2b); any 8×H100 work.
 
 ## 6. The exact first command for the next lane
 
-**Nine seeds would have resolved the full span of the curve. This ran eight.**
+**Ten seeds would have resolved the full span of the curve. This ran eight.**
 
-Inverting `resolvable_difference` against the observed differences and pooled sds:
+Inverting `resolvable_difference` against the observed differences and pooled sds, on both
+bounds — the corrected column carries the t inflation for that comparison's own df:
 
-| comparison | observed | pooled sd | seeds/point needed |
-| --- | --- | --- | --- |
-| 1.0 vs 0.25 | +2.99pp | 2.20pp | **9** |
-| 1.0 vs 0.5 | +2.21pp | 2.65pp | **23** |
-| 0.5 vs 0.25 | +0.77pp | 1.87pp | 93 |
+| comparison | observed | pooled sd | seeds/point, known-sd | corrected |
+| --- | --- | --- | --- | --- |
+| 1.0 vs 0.25 | +2.99pp | 2.20pp | 9 | **10** |
+| 1.0 vs 0.5 | +2.21pp | 2.65pp | 23 | **24** |
+| 0.5 vs 0.25 | +0.77pp | 1.87pp | 93 | out of reach |
 
-These are sized from the *observed* effects, so they are optimistic twice over — the known-sd
-bound again, and an observed difference is itself noisy and biased upward when it is the one
-you chose to power against. Treat 9 as "8 was one short" and not as a design.
+These are sized from the *observed* effects, so they remain optimistic on one count even
+after the t correction: an observed difference is itself noisy and biased upward when it is
+the one you chose to power against. Treat 10 as "8 was two short" and not as a design.
 
 At $0.5878 for 24 seeds, **24 seeds per point costs about $1.80** and resolves both of the top
 two comparisons with margin. Sync first — the box is a clone pinned at `8b9df39` with files

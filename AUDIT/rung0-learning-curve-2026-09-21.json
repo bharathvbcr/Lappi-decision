@@ -31,7 +31,11 @@
     "target_difference": 0.05,
     "target_rationale": "the whole of the full-data effect over the baseline, so the design must be able to see the thing it is asking about losing",
     "pre_committed_reporting_rule": "the REALISED sd of every point is reported beside its result, and any point whose realised sd exceeds 0.0505 is reported as unable to see its own target rather than as a null",
-    "realised_sds": [0.0096, 0.0239, 0.0289],
+    "realised_sds": [
+      0.0096,
+      0.0239,
+      0.0289
+    ],
     "pre_committed_rule_outcome": "No point exceeded 0.0505. All three could see their own target, so no point is reported as underpowered against it."
   },
   "points": [
@@ -42,21 +46,49 @@
       "train_majority_share": 0.514,
       "seeds": 8,
       "collapsed_seeds": 3,
-      "all_seeds": {"n": 8, "val_mean": 0.4948, "over_baseline": 0.0048, "sd": 0.0096, "floor_vs_fixed_reference": 0.0096},
-      "fitted_seeds": {"n": 5, "val_mean": 0.4979, "over_baseline": 0.0079, "sd": 0.0114, "floor_vs_fixed_reference": 0.0143},
+      "all_seeds": {
+        "n": 8,
+        "val_mean": 0.4948,
+        "over_baseline": 0.0048,
+        "sd": 0.0096,
+        "floor_vs_fixed_reference": 0.0096,
+        "floor_corrected_for_estimated_sd": 0.0111
+      },
+      "fitted_seeds": {
+        "n": 5,
+        "val_mean": 0.4979,
+        "over_baseline": 0.0079,
+        "sd": 0.0114,
+        "floor_vs_fixed_reference": 0.0143,
+        "floor_corrected_for_estimated_sd": 0.019
+      },
       "resolved_above_baseline": false,
       "seconds_per_seed": 24.2,
-      "cost_usd": 0.0800
+      "cost_usd": 0.08
     },
     {
       "train_subsample": 0.5,
       "recipe_hash": "64b61aea47",
       "train_batches": 23,
-      "train_majority_share": 0.430,
+      "train_majority_share": 0.43,
       "seeds": 8,
       "collapsed_seeds": 0,
-      "all_seeds": {"n": 8, "val_mean": 0.5056, "over_baseline": 0.0156, "sd": 0.0239, "floor_vs_fixed_reference": 0.0237},
-      "fitted_seeds": {"n": 8, "val_mean": 0.5056, "over_baseline": 0.0156, "sd": 0.0239, "floor_vs_fixed_reference": 0.0237},
+      "all_seeds": {
+        "n": 8,
+        "val_mean": 0.5056,
+        "over_baseline": 0.0156,
+        "sd": 0.0239,
+        "floor_vs_fixed_reference": 0.0237,
+        "floor_corrected_for_estimated_sd": 0.0276
+      },
+      "fitted_seeds": {
+        "n": 8,
+        "val_mean": 0.5056,
+        "over_baseline": 0.0156,
+        "sd": 0.0239,
+        "floor_vs_fixed_reference": 0.0237,
+        "floor_corrected_for_estimated_sd": 0.0276
+      },
       "resolved_above_baseline": false,
       "seconds_per_seed": 50.5,
       "cost_usd": 0.1673
@@ -68,21 +100,47 @@
       "train_majority_share": 0.469,
       "seeds": 8,
       "collapsed_seeds": 0,
-      "all_seeds": {"n": 8, "val_mean": 0.5278, "over_baseline": 0.0378, "sd": 0.0289, "floor_vs_fixed_reference": 0.0286},
-      "fitted_seeds": {"n": 8, "val_mean": 0.5278, "over_baseline": 0.0378, "sd": 0.0289, "floor_vs_fixed_reference": 0.0286},
+      "all_seeds": {
+        "n": 8,
+        "val_mean": 0.5278,
+        "over_baseline": 0.0378,
+        "sd": 0.0289,
+        "floor_vs_fixed_reference": 0.0286,
+        "floor_corrected_for_estimated_sd": 0.0333
+      },
+      "fitted_seeds": {
+        "n": 8,
+        "val_mean": 0.5278,
+        "over_baseline": 0.0378,
+        "sd": 0.0289,
+        "floor_vs_fixed_reference": 0.0286,
+        "floor_corrected_for_estimated_sd": 0.0333
+      },
       "resolved_above_baseline": true,
       "seconds_per_seed": 102.8,
       "cost_usd": 0.3405
     }
   ],
-  "val_baseline": 0.490,
+  "val_baseline": 0.49,
   "val_baseline_class": "stub",
   "val_decisions": 288,
-  "finding": "The curve RISES and it is not flat: +0.48pp, +1.56pp, +3.78pp over the same baseline on the same 288 held-out rows. Only the full-data point clears its own resolution floor against that baseline (+3.78pp against 2.86pp). The quarter- and half-data points do not (+0.48pp against 0.96pp, +1.56pp against 2.37pp), so at those sizes the model is not shown to beat a constant predictor at all.",
-  "what_is_not_established": "No ADJACENT pair of points is separated. Arm against arm, with the pooled sd and the sqrt(2) floor that two noisy arms require: 0.5 minus 0.25 is +0.77pp against a 3.32pp floor, 1.0 minus 0.5 is +2.21pp against 3.71pp, 1.0 minus 0.25 is +2.99pp against 3.89pp. All three inside the floor. So the SHAPE is monotone in the direction more-data-helps, and no single step of it is individually resolved at n=8. No trend test was pre-registered and none is applied here; inventing one after reading the points is how a shape becomes a finding it has not earned.",
+  "finding": "The curve RISES and it is not flat: +0.48pp, +1.56pp, +3.78pp over the same baseline on the same 288 held-out rows. Only the full-data point clears its own resolution floor against that baseline: +3.78pp against 2.86pp on the known-sd bound, and against 3.33pp once corrected for sd being estimated from 8 runs -- it clears by 13.5%. The quarter- and half-data points clear neither bound (+0.48pp against 0.95/1.11pp, +1.56pp against 2.37/2.76pp), so at those sizes the model is not shown to beat a constant predictor at all.",
+  "what_is_not_established": "No ADJACENT pair of points is separated, on either bound. Arm against arm, with the pooled sd and the sqrt(2) floor two noisy arms require, known-sd then corrected: 0.5 minus 0.25 is +0.77pp against 3.32/3.78pp, 1.0 minus 0.5 is +2.21pp against 3.71/3.99pp, 1.0 minus 0.25 is +2.99pp against 3.89/4.44pp. All three inside. So the SHAPE is monotone in the direction more-data-helps, and no single step of it is individually resolved at n=8. No trend test was pre-registered and none is applied here; inventing one after reading the points is how a shape becomes a finding it has not earned.",
   "collapse_is_itself_a_data_size_effect": "Three of eight seeds at the 25% point never cleared the training majority, against zero at both larger sizes. Stated with its confound: the 25% subset also has the most skewed training label distribution of the three (51.4% stub against 43.0% and 46.9%), so its collapse bar is the highest and a constant predictor is the most attractive there. The subsets are nested and hashed, so this is a property of that particular quarter rather than something the design chose.",
   "against_the_prior_arm": "The full-data point reproduces the earlier arm at a lower value: +3.78pp (sd 0.0289, n=8) against that arm's +4.99pp (sd 0.0197, n=8). Pooled sd 0.0247, two-arm floor 3.46pp at n=8; the 1.21pp difference is inside it, so the two are not distinguishable. The recipe hashes differ (2b8564f63c against 97d0f8e2b6) at least because 0e897b3 put train_subsample into the hash, so this is a reproduction of a configuration rather than of a protocol id.",
-  "the_floors_are_lower_bounds": "Every floor quoted here comes from qd_train.power.resolvable_difference, which assumes sd is KNOWN. It is estimated from 8 runs, and that module says so in its own docstring: the honest quantile is Student's t, about 3.20 against 2.80 at n=5 per arm, so the true floor is wider. It is reported rather than corrected because an inverse-t needs SciPy and SciPy is not a dependency of this project. The consequence for the one resolved result: +3.78pp clears a 2.86pp bound by 32%, and the correction at n=8 is smaller than the ~14% quoted at n=5, so it plausibly survives -- but it was not computed, and a point clearing this bound by a little has not been shown to clear the real one.",
+  "the_floors_are_corrected_now": {
+    "what_this_replaces": "An earlier version of this file said: 'the correction at n=8 is smaller than the ~14% quoted at n=5, so it plausibly survives -- but it was not computed'. That was WRONG, and wrong in the flattering direction. The module's ~14% is the TWO-sample n=5 case, whose degrees of freedom are 2(n-1)=8; the curve's point-vs-baseline comparisons are ONE-sample at df=n-1. The df belongs to a different comparison and a different n than the sentence was applied to, and the case that was quoted happened to be the smallest of the ones in play.",
+    "and_it_did_not_need_scipy": "The same earlier version said correcting this needed SciPy and was therefore a question for the human under the no-new-dependency rule. Also wrong: the regularised incomplete beta by Lentz's continued fraction is about forty lines of `math`, and qd_train.power.t_quantile is it, added at 081889d with no dependency. Checked against printed two-sided 95% tables at df 1, 4, 7, 8 and 120 -- agreement within 5e-4 on both t[0.975] and t[0.80] -- and against NormalDist in the limit, before any number below was taken from it.",
+    "constant": "Student's t on BOTH terms: t[0.975,df] + t[0.80,df], against the normal 2.80159.",
+    "inflation_by_case": {
+      "one_sample_n8_df7": "16.4%",
+      "one_sample_n5_df4": "32.7%",
+      "two_sample_n8_df14": "7.5%",
+      "two_sample_n5_df8": "14.0% -- the figure the module's docstring quotes"
+    },
+    "consequence_for_the_resolved_result": "+3.78pp against a corrected floor of 3.33pp rather than the known-sd 2.86pp. It still clears, by 13.5% rather than by 32%. The conclusion does not move; the margin is less than half what the first version of this file implied.",
+    "the_rows_predate_this": "All 24 rows of this curve were written before 081889d and carry the old sentence in their sweep_can_resolve detail, which names the ~14% case regardless of the row's own n and comparison type. The rows are append-only and are not rewritten. The corrected floors are here."
+  },
   "cost": {
     "total_usd": 0.5878,
     "total_gpu_seconds": 1420.2,
