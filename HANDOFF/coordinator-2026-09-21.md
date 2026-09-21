@@ -2095,6 +2095,138 @@ with 362/362, 1589/1610, 1889/1890 — matching this lane's `bd74f64c` at `b3c36
 two commits differing only by a ledger row. Two sessions, two runs, one coverage pair: the
 first cross-lane agreement on one either lane has been able to claim.
 
+## 40. Nine gates and controls, zero ever evaluated — and the three different reasons
+
+### The audit
+
+`qd_train.ledger` has listed five `REQUIRED_GATES` and four `REQUIRED_CONTROLS` since S6.
+Across **988 rows** — every chain file, every lane, CPU, MPS and GH200 — the evaluation
+count for each of the nine was **zero**. Only `padding_waste` had ever run, 24 times, and it
+is a diagnostic rather than a plan gate.
+
+That is this project's founding defect standing inside the machinery built to detect it: a
+check that cannot be reached leaves the same trace, in every row it appears in, as a check
+that was reached and passed. Until one of them runs, a real result and a leaking split are
+the same number.
+
+They were not all absent for the same reason, and the three reasons want different work:
+
+| shape | which | what was missing |
+| --- | --- | --- |
+| **built, and unreachable** | `shuffled_label` | needs the accuracy of a model trained on destroyed labels; nothing ever trained one |
+| **built, and never called** | `ece`, `degenerate_head`, `paired_margin_vs_linear` | the implementation existed and no runner referenced it |
+| **named, and never built** | `ood_abstain`, `needle_hunk_recall`, `privileged_hunk`, `transfer_gate` | appear ONLY in `ledger.py`; no implementation anywhere |
+
+`calibration_fit.ece_gate` carries the indictment in its own docstring — *"the ece gate
+`qd_train.ledger` has always listed and nothing ever computed"* — written by whoever built
+it, and still true when this lane found it.
+
+### Five of the nine now reach a row
+
+* **`degenerate_head`** — needs only the held-out choice distribution, which every
+  evaluation already computed and discarded. Four lines. Recorded on every run, because it
+  costs no GPU time. It catches what `_fit_gate` cannot: `_fit_gate` reads TRAIN accuracy
+  against the train majority, so a head that fits training and then answers one class on
+  everything held out clears it while being exactly the degenerate case.
+* **`ece`** — the built-and-never-called one. Threshold and bin count left at the function's
+  defaults at the call site as well as in the function: rule 2 makes a threshold read-only,
+  and passing one from the caller is retuning it from a place nobody looks.
+* **`shuffled_label`** — `--shuffle-train-labels` permutes the gold among the TRAINING
+  decisions and leaves validation untouched. A permutation rather than fresh random labels,
+  because the control compares against the majority rate and fresh labels would move the
+  marginal and the ceiling with it. Permuted within groups sharing an option count, because
+  `ByteDecision` is frozen and refuses a `gold_option` outside its own `options`.
+* **`paired_margin_vs_linear`** — `paired_margin_test` existed; the opponent had never been
+  scored on the same examples in the same order. That ordering was not something a caller
+  could ask for, because `bucketed_batches` decided it inline; `bucketed_chunks` now owns it
+  and the batcher is built from it.
+* **`permutation_consistency`** — fully specified in `docs/schema-api.md` and never built.
+  A second pass with the options deranged, >= 95% agreement.
+
+The remaining four need corpora that do not exist: an out-of-distribution set, 8K needle
+contexts, a hunk-only rendering of the corpus, and a second task family. `hunk_constrained`
+on `ByteDecision` looks like it might make `privileged_hunk` cheap and does not — it is a
+corpus flag, not a rendering.
+
+### Sattolo, and one character
+
+`docs/schema-api.md` is explicit that the derangement *is* the gate:
+
+> A uniform shuffle (Fisher-Yates) leaves fixed points, and when the winning row happens to
+> be one, a purely position-biased model *agrees with itself* across both passes and the
+> abstention never fires. The check then passes precisely on the cases it exists to catch.
+
+Sattolo and Fisher-Yates differ by `randrange(i)` against `randrange(i + 1)`. A gate built
+on the wrong one still returns a number, and the number is highest exactly for the models
+the gate exists to fail. Verified: 0 fixed points in 3000 permutations, and exactly
+(4−1)! = 6 distinct cycles.
+
+The test that matters runs the gate end to end on the two models it separates — a
+position-biased stub scores **0.0**, a content-reading stub scores **1.0**. Getting the
+inverse mapping backwards swaps those two results and both look plausible alone.
+
+### What the wiring cost, and what it caught
+
+Two real defects, both found by running rather than reading.
+
+**The gold was paired against the wrong rows.** The `ece` gate and the shuffled-label
+control both paired `choice_probs` with `[d.gold_option for d in val_d]`. `bucketed_batches`
+sorts by `context.n_bytes_kept` and drops any trailing one-row chunk, so what comes back is
+length-sorted and possibly shorter. **The length check I had written would not have caught
+it**: 288 validation decisions at batch size 16 divide exactly into 18 batches, so both
+lists carry 288 entries and only the order differs. It would have produced a calibration
+error from a real run, on real rows, wrong for a reason no guard in the file could see.
+`evaluate` now returns `choice_gold`, appended in the same loop iteration as the probability
+it belongs to.
+
+**109.6 seconds of unrecorded billed setup.** The linear control's fit landed between the
+`batches:` line and the seed loop — and that line is where
+`test_a_run_killed_before_training_finishes_still_writes_a_priced_row` aims its signal. It
+failed with *"the recorder is not wrapping the training"*, which was exactly true. The fit
+measures 109.6s on 727 documents, about a full training seed, outside any recorder. Moved
+before the line, and its duration is now printed saying so, rather than being merely absent
+from the ledger. The test's docstring states the adjacency, so the next person to add setup
+there gets a reason instead of a mystery.
+
+### The control's verdict
+
+Gate row set `gh200-rung0-curve-n24-2026-09-22.jsonl`, 96 rows, chain verifies:
+
+| arm | n | held-out | sd |
+| --- | --- | --- | --- |
+| labels destroyed | 24 | **48.93%** | 0.14pp |
+| chance (majority) | — | 48.96% | — |
+| quarter data | 24 | 49.41% | 0.90pp |
+| half data | 24 | ~50.1% | — |
+| full data | 24 | **53.94%** | 2.40pp |
+
+**24 of 24 seeds pass.** A model trained on permuted labels scored exactly the majority
+rate, far under the z=3 ceiling of 57.80%. The +5.0 points the real arm holds over the
+baseline belong to the labels, not to the split — which is the first time this project has
+been able to say so.
+
+The near-zero spread is the confirmation rather than a curiosity: sd 0.14pp against the real
+arm's 2.40pp, because with nothing to learn the head collapses to a constant predictor.
+`degenerate_head` reports exactly that on all 24 control rows, independently and from a
+different quantity. A control that had quietly failed to destroy the signal would look like
+the real arm, not like this.
+
+The curve, with its middle point now at n=24 rather than n=8:
+
+    full minus half      -3.83pp  floor 2.12pp at n=24   VISIBLE
+    full minus quarter   -4.08pp  floor 2.14pp at n=12   VISIBLE
+    full minus control   -5.15pp  floor 3.40pp at n=4    VISIBLE
+    half minus quarter   -0.25pp  floor 2.46pp at n=12   inside the floor, NOT a difference
+
+The signal is in the last half of the training files and nowhere after: halving the corpus
+costs nearly all of it, quartering costs almost nothing more. Three of four pairwise
+comparisons clear their floor, where at n=8 this morning **none** of them did.
+
+Every row remains `quick=True` and promotes nothing. Rule 8: the corpus is this repository's
+own sources rather than the pool the plan names, and `rung0_real_run.py` hardcodes the flag
+for that reason. No flag on either GPU runner can produce a promotable row today, and that
+is the honest headline of this section.
+
 ## Where this leaves the final train
 
 On the axes this lane owns:
@@ -2129,6 +2261,26 @@ On the axes this lane owns:
   the declared dependencies and the interpreter itself rather than against a list — so the
   next declared-and-absent package fails by name instead of collapsing a module into one
   skip marker (§39).
+* **Five of the nine gates and controls now reach a row**, where across 988 prior rows the
+  count was zero. `degenerate_head`, `ece` and `paired_margin_vs_linear` on every run;
+  `shuffled_label` on a control run; `permutation_consistency` on every run (§40).
+* **The split does not leak, and that is measured rather than assumed.** A model trained on
+  permuted labels scores the held-out majority rate on 24 of 24 seeds. The +5.0 points the
+  real arm holds over its baseline belong to the labels (§40).
+
+What readiness still does NOT include, stated plainly because the list above is easy to
+read as more than it is:
+
+* **No GPU run can produce a promotable row.** Both runners hardcode `quick=True`, because
+  the corpus is this repository's own sources rather than the pool the plan names. No flag
+  changes this; building the pool does. It is the root blocker and it is data work.
+* **Four gates and controls have no implementation at all** — `ood_abstain`,
+  `needle_hunk_recall`, `privileged_hunk`, `transfer_gate` — and each needs a corpus that
+  does not exist (§40).
+* **The span head is trained on roughly two fifths of natural source**, pending a decision
+  that is not an agent's: `GAP-S4-LINE-STARTS-COLLAPSE-UNDER-BPE` measures 92 of 153
+  contexts refused, one vocabulary entry causing all 940 losses, and three options with
+  their costs. Excluding empty line starts refuses 0 of 153.
 
 What is not this lane's: *unifying* the six spellings, which renames every future
 `recipe_hash` and is a comparability break somebody has to declare in a handoff — not a
