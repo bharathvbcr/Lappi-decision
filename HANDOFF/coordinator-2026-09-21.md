@@ -537,8 +537,14 @@ from phase 4 alone. **A long schedule hides this rather than fixing it.**
 The run also *completed* rather than raising, which establishes something narrower and
 useful: every op this model uses has a deterministic implementation.
 
-**Price: 131.3 s per run against 111.4 s — 18% wall clock.** Cheap enough that a full train
-should pay it. That is the opposite of what the flag's own help string said when it was
+**Price on the FT path: 131.3 s per run against 111.4 s — 18% wall clock.** Cheap enough
+that a full train should pay it.
+
+**Do not carry that 18% to another path.** The concurrent lane measured the same flag on
+`tools/rung0_real_run.py`, same box: **239.0 s against 103.0 s, 132%**. Different kernels, a
+much smaller model, 460 steps of a byte transformer rather than 128 of a 1.4B tower. On rung
+0 determinism is a budget decision rather than a free win, and the reason for the 7×
+difference in the ratio is not established. That is the opposite of what the flag's own help string said when it was
 written from phase 1, and the string, the ledger metric's `NotRun` reason, the audit and the
 gap record all carried the reversed claim and have all been corrected.
 
@@ -589,12 +595,35 @@ and `GAP-RUNG0-CAPACITY-IS-NOT-THE-BINDING-CONSTRAINT-EITHER` are **unestablishe
 established**, and the corpus conclusion they feed is premature.
 
 **Rule 8's three-seed floor is admissibility, not sufficiency.** From the five seeds of my
-own span-weight sweep at 0.05, sd = 0.0322, so n=3 resolves ~7.4 pp, n=5 ~5.7 pp, n=8
-~4.5 pp — against a demonstrated extractable signal of **5.3 pp**, the linear control over
-baseline. The capacity sweep's −1.4 / 0.0 / −1.2 / −0.3 pp were all inside its own noise
-floor. A null from three seeds means *"no effect larger than about 7 pp"* and was written
-down as *"no effect"* — the same defect as presenting a capped sample as complete coverage,
-moved from sampling to statistical power.
+own span-weight sweep at 0.05 — 0.587, 0.545, 0.571, 0.617, 0.538 — sd = 0.0322, so n=3
+resolves ~7.4 pp, n=5 ~5.7 pp, n=8 ~4.5 pp, n=12 ~3.7 pp, against a demonstrated extractable
+signal of **5.3 pp**, the linear control over baseline. The capacity sweep's −1.4 / 0.0 /
+−1.2 / −0.3 pp were all inside its own noise floor. A null from three seeds means *"no effect
+larger than about 7 pp"* and was written down as *"no effect"* — the same defect as
+presenting a capped sample as complete coverage, moved from sampling to statistical power.
+
+**That sd is not seed variation, and the figures above describe a NONDETERMINISTIC design.**
+Rung 0 turned out not to be reproducible at a fixed seed either: two runs at seed 0, same
+corpus by sha256, same 727/288 decisions, gave 50.3% and 53.1% — 2.8 pp apart, on a corpus
+whose entire demonstrated signal is 5.3 pp. So 0.0322 mixes seed with kernel and is an
+**upper bound** on the seed-only sd.
+
+Which way that cuts depends on the design, and both directions matter:
+
+* for a sweep run **as all of them were** — nondeterministic — 0.0322 *is* the right
+  statistic and ~7.4 pp at n=3 is the correct floor. The criticism of those sweeps stands
+  exactly as written.
+* for a **deterministic** sweep the relevant sd is seed-only and smaller, so the floor
+  improves — but by how much is unmeasured. A crude estimate from that single pair puts
+  sd_seed somewhere in 0.020–0.029, and one pair is a poor variance estimator whichever
+  correction factor is used.
+
+**Determinism therefore buys power as well as reproducibility — but not for free.** At rung
+0's 2.3× cost, spending the same GPU-hours on more nondeterministic seeds is roughly
+break-even on resolution, and which side of break-even it lands on depends on exactly the
+sd the single pair cannot pin down. The concurrent lane's phase 0 — five deterministic seeds
+at the cheap control point — measures it directly, and is the right thing to size a
+four-hour sweep from.
 
 **This applies to my own Part 4 table.** Phase 2 ran 12 seeds and I reported per-arm means
 without stating what 12 resolves. It happens not to bite — the FT letter channel's spread is
