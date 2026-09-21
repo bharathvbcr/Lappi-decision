@@ -2227,6 +2227,165 @@ own sources rather than the pool the plan names, and `rung0_real_run.py` hardcod
 for that reason. No flag on either GPU runner can produce a promotable row today, and that
 is the honest headline of this section.
 
+## 41. `5fd0ea8` — the control could not finish inside the cap, and the model lost to it anyway
+
+§40 wired five of the nine gates and controls and said the one thing no source test could
+prove was still outstanding: that they reach a row that is a **measurement** rather than a
+control. The arm launched to prove it, at 21:43:34Z under a 9000s cap, sat at **100% CPU and
+0% GPU for ten minutes and wrote zero ledger rows.**
+
+### How it was diagnosed, because the first three readings were all wrong
+
+The log held 81 bytes — the banner — and nothing else. That is indistinguishable from a
+hang, and three cheap explanations each fit the evidence:
+
+| reading | what would have followed | why it was wrong |
+| --- | --- | --- |
+| the process died | nothing to do but relaunch | `ps` showed it alive at 100% CPU, 1.2 GB RSS |
+| it is hung on I/O | kill it | `/proc/PID/wchan` was 0 and `read_bytes` was 0; it was compute-bound, not blocked |
+| it is training slowly | wait | `nvidia-smi` read **2 MiB** — no CUDA context existed at all |
+
+What settled it was `py-spy dump`, which needs `sudo` for ptrace on this box:
+
+```
+rmatmul (qd_train/baseline.py:65)
+_train_once (qd_train/baseline.py:211)
+fit (qd_train/baseline.py:262)
+linear_baseline_correctness (rung0_real_run.py:703)
+```
+
+Not hung. Inside the linear control's fit, where it would have stayed.
+
+### The arithmetic nobody had done
+
+Measured on the box against the real corpus rather than estimated:
+
+```
+n=774  d=65,536  k=4  nnz=6,325,171  density=12.5%
+sparse: 0.3647s per iteration
+```
+
+`LinearBaseline.fit` runs the 4-value L2 grid plus a refit on all the training data. At the
+`max_iter=6000` that §39 set, that is **30,000 iterations = 3.04 hours**, under a **2.5 hour**
+cap. The arm was never going to finish. `paired_margin_vs_linear` would have reported
+`NotRun` after consuming the entire budget with the GPU idle — the most expensive way
+available to learn nothing.
+
+The estimate in the launch script said *"roughly 110s of unrecorded setup"*. That figure came
+from a Mac, with synthetic 2000-character documents. The real contexts are 8192 bytes. It was
+wrong by two orders of magnitude, and it was wrong in the direction that made the run look
+reasonable to launch.
+
+### The fix: the corpus is not sparse in the sense the CSR was built for
+
+12.5% dense is not sparse. `CSR.matmul`/`rmatmul` allocate an `(nnz, k)` temporary — 202 MB
+here — and run `k` bincounts over it, twice per iteration, in a random-access pattern no BLAS
+can help. `CSR.as_operand` now materialises a dense equivalent when one fits inside an
+explicit **512 MB** budget, and both matmuls become GEMMs:
+
+```
+sparse: 0.3647s per iteration
+dense : 0.0042s per iteration      86.4x
+3.04 hours  ->  2.1 minutes projected
+```
+
+In production the fit measured **38.0s**, printed by the tool on the row's own log line.
+
+Two things this deliberately did **not** do:
+
+* **It did not lower `max_iter`.** That was the cheap fix and it is the wrong one: a baseline
+  that stops early is a weaker opponent, and `baseline.py`'s own docstring is right that
+  *"a weak baseline ... manufactures a win for the model and corrupts the one gate that
+  decides the program."* Making the fit affordable preserves the control's strength.
+* **It did not replace the sparse path.** `CSR`'s reason for existing is that ~400K examples
+  dense is ~26 GB and could not be fitted at all. Above the budget nothing changes, and
+  `test_the_sparse_path_is_still_reachable` fails if that stops being true — otherwise the
+  equivalence test would be comparing the dense path against itself.
+
+The two paths agree to **3.3e-16** on the real corpus. That matters more than the speedup:
+a control whose score moved because it got faster would not be a control.
+
+### The observability defect, which was the actual reason this cost ten minutes
+
+The runner was launched without `-u`, so Python block-buffered stdout into the log. Every
+diagnostic line the tool prints — the corpus size, the split, the baseline, the fit's own
+duration — was sitting in an 8 KB buffer the whole time. The banner was visible only because
+the *shell* echoed it. **A run that cannot be observed cannot be managed**, and it took a
+`sudo py-spy` to recover what one flag would have printed. The relaunch carries `-u` and the
+log is now live.
+
+### What landed on a real measurement row
+
+The relaunched arm, first seed, `run_kind=real`, unshuffled:
+
+| | state | value |
+| --- | --- | --- |
+| `degenerate_head` | **ran** | entropy 0.8904, top class 76.0% — **pass** |
+| `permutation_consistency` | **ran** | 288 of 288 (100.0%) against a 95% floor — **pass** |
+| `ece` | **ran** | 0.1879 against a 0.0500 bar, 9 of 15 bins carried mass — **fail** |
+| `paired_margin_vs_linear` | **ran** | **−0.0243**, 95% CI [−0.0660, +0.0174] — **fail** |
+| `shuffled_label` | not_run | correct: this is a real arm, not a permuted one (proved on the 24-seed control) |
+| `ood_abstain`, `needle_hunk_recall`, `privileged_hunk`, `transfer_gate` | not_run | never implemented; each needs a corpus that does not exist |
+
+So the claim §40 could not make is now made: **four gates and controls reach a row that is a
+measurement**, and the fifth was proved on the control arm. Across the 988 rows before this
+session the count was zero.
+
+### The finding that outranks all of the above
+
+`paired_margin_vs_linear` ran, and **the model lost**:
+
+```
+linear control accuracy on the 288 held-out rows : 57.3%
+byte decider, seed 0, same rows                  : 54.9%
+paired margin: -0.0243, 95% CI [-0.0660, +0.0174] over 10,000 bootstrap resamples
+```
+
+The margin is negative and the interval includes zero. A char-n-gram logistic regression —
+no pretraining, no transformer, 38 seconds of CPU — scores **above** the byte decider on the
+rows the decider is scored on. `baseline.py` states the stake plainly: *"The 2B ships only if
+it beats this by a paired margin on three seeds on the natural held-out set."*
+
+This does not decide the program on one seed, and the 24-seed arm is running. But the
+direction is the opposite of the one the plan assumes, and it was invisible for 988 rows
+because the opponent was never scored.
+
+### The pool the plan names now exists
+
+`docs/build-order-2026-09-19.md:117` names commitpackft as the pool; `qd_data.sources` has
+registered it since S3; `parse_commitpackft` has existed as long; `pool.rs` defines the record.
+Nothing ever joined them. `tools/build_commitpackft_pool.py` does:
+
+```
+61,193 PoolRecord(s)   go 4,502  python 48,722  rust 2,694  typescript 5,275
+mean hunk lines 13.3
+dropped 8,700 — 4,829 agpl-3.0, 1,926 no changed line span, 905 lgpl-2.1, 846 mpl-2.0, ...
+```
+
+Licences are filtered **per row**, not per dataset: the dataset is `mit` and 6,774 of 69,893
+rows are not. The hunks come from diffing `old_contents` against `new_contents`, which is the
+thing the local-source builder structurally cannot do — it stamps `hunk_constrained: false`
+because a file on disk has no diff attached.
+
+Verified end to end rather than by inspection: `qd-mutate generate` over 3,000 of these
+records produced 2,108 examples with
+
+```
+examples_without_hunk_constraint: 0
+outside_hunk: 2662
+```
+
+Every example hunk-constrained, and the constraint refusing 2,662 sites — so the hunks are
+real and they bite. That is what `pool.rs` says the point is: *"the model learns to read hunks
+and not file headers."*
+
+**This does not by itself make a run promotable.** `quick=True` is still hardcoded at
+`rung0_real_run.py:1429` with the reason *"the corpus is this repository's own sources rather
+than the pool the plan names"* — a reason that is now false but a flag no agent should flip
+to make a gate pass. Deriving it from the corpus's measured provenance is the next change,
+and it is a change whose consequence is promotion, so it is named here rather than made
+quietly.
+
 ## Where this leaves the final train
 
 On the axes this lane owns:

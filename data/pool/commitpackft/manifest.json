@@ -1,0 +1,82 @@
+{
+  "source_id": "bigcode/commitpackft",
+  "languages": {
+    "python": {
+      "bytes": 135858935,
+      "sha256": "d167da37e1058371c48e057cd8815d03700c867dd8bcf58e61420d4dcd288d73",
+      "rows": 56025,
+      "licences": {
+        "mit": 26394,
+        "bsd-3-clause": 9827,
+        "apache-2.0": 9819,
+        "agpl-3.0": 4380,
+        "bsd-2-clause": 2975,
+        "lgpl-2.1": 821,
+        "isc": 543,
+        "mpl-2.0": 528,
+        "unlicense": 389,
+        "cc0-1.0": 205,
+        "artistic-2.0": 85,
+        "epl-1.0": 31,
+        "unknown": 28
+      }
+    },
+    "rust": {
+      "bytes": 7411711,
+      "sha256": "5611f3701026acf3c43ba64da50f4f65a078e84fba56e2bf313e8f2996b0cc68",
+      "rows": 2996,
+      "licences": {
+        "apache-2.0": 1295,
+        "mit": 1225,
+        "bsd-3-clause": 130,
+        "bsd-2-clause": 100,
+        "mpl-2.0": 87,
+        "lgpl-2.1": 50,
+        "agpl-3.0": 43,
+        "unlicense": 31,
+        "isc": 15,
+        "cc0-1.0": 13,
+        "unknown": 7
+      }
+    },
+    "go": {
+      "bytes": 12417842,
+      "sha256": "05a65e973fcc6894a234fb382987cc25e26f053d60b032ea83540a5b36a528b8",
+      "rows": 5004,
+      "licences": {
+        "mit": 2656,
+        "apache-2.0": 1378,
+        "bsd-3-clause": 344,
+        "bsd-2-clause": 186,
+        "mpl-2.0": 172,
+        "agpl-3.0": 131,
+        "isc": 50,
+        "unlicense": 49,
+        "unknown": 15,
+        "cc0-1.0": 10,
+        "artistic-2.0": 5,
+        "epl-1.0": 4,
+        "lgpl-2.1": 4
+      }
+    },
+    "typescript": {
+      "bytes": 14620423,
+      "sha256": "43d32596844c62aa23b0e5a8811648f6f20fa07d9ab80499d66507136b844a76",
+      "rows": 5868,
+      "licences": {
+        "mit": 4308,
+        "apache-2.0": 834,
+        "agpl-3.0": 275,
+        "bsd-3-clause": 232,
+        "mpl-2.0": 59,
+        "unlicense": 47,
+        "isc": 32,
+        "lgpl-2.1": 30,
+        "bsd-2-clause": 30,
+        "unknown": 10,
+        "epl-1.0": 9,
+        "cc0-1.0": 2
+      }
+    }
+  }
+}

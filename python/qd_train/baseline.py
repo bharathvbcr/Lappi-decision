@@ -89,7 +89,7 @@ class CSR:
             shape=(len(idx), self.shape[1]),
         )
 
-    def as_operand(self) -> CSR | DenseOperand:
+    def as_operand(self, *, budget_bytes: int | None = None) -> CSR | DenseOperand:
         """`self`, or a dense equivalent when one fits inside the budget.
 
         Both matmuls above are gather-then-scatter: each allocates an `(nnz, k)`
@@ -109,9 +109,19 @@ class CSR:
         examples a dense encoding is ~26 GB and could not be fitted at all, and a
         control arm that cannot see the whole training set is a weak control. So the
         choice is made once, by an explicit byte budget, and above it nothing changes.
+
+        `budget_bytes` is a parameter because the right answer depends on who is asking.
+        Inside a training run the default is deliberately small: that process owns a GPU,
+        and a multi-gigabyte allocation there buys nothing a cache would not. A dedicated
+        fit that owns the machine passes a real one -- the commitpackft corpus is 20.9 GB
+        dense on a box with 406 GB free, which is the difference between the control being
+        fittable on the corpus the plan names and not.
         """
         n, d = self.shape
-        if n * d * self.data.dtype.itemsize > DENSE_OPERAND_BUDGET_BYTES:
+        # Resolved here rather than as a default argument so the module-level budget stays
+        # patchable; a default is bound once at definition and would ignore it.
+        limit = DENSE_OPERAND_BUDGET_BYTES if budget_bytes is None else budget_bytes
+        if n * d * self.data.dtype.itemsize > limit:
             return self
         # Densifying by assignment is only equal to the sparse path when each
         # (row, column) appears once; a duplicate would be overwritten rather than
@@ -135,6 +145,16 @@ class CSR:
 #: magnitude, which is the intent: make the affordable case fast without pretending the
 #: unaffordable one has become affordable.
 DENSE_OPERAND_BUDGET_BYTES = 512 * 1024 * 1024
+
+#: Per-iteration cost, calibrated on the GH200 box on 2026-09-21 against the rung-0 corpus
+#: (n=774, d=65,536, k=4, nnz=6,325,171): the sparse path measured 0.3647s and the dense
+#: path 0.0042s per iteration. Both paths are memory-bound and scale with the quantity
+#: named, so one measured point fixes each constant. They exist to let
+#: `projected_fit_seconds` answer "how long would this take" WITHOUT running it -- a
+#: control that silently takes 150 hours and a control that reports it cannot be fitted are
+#: very different records, and only the second one is honest.
+SPARSE_SECONDS_PER_NONZERO_CLASS = 0.3647 / (6_325_171 * 4)
+DENSE_SECONDS_PER_CELL_CLASS = 0.0042 / (774 * 65_536 * 4)
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,6 +258,7 @@ class LinearBaseline:
         tol: float = 1e-4,
         lr: float = 0.05,
         seed: int = 0,
+        dense_budget_bytes: int | None = None,
     ) -> None:
         self.hasher = hasher or CharNGramHasher()
         self.l2_grid = l2_grid
@@ -245,6 +266,7 @@ class LinearBaseline:
         self.tol = tol
         self.lr = lr
         self.seed = seed
+        self.dense_budget_bytes = dense_budget_bytes
         self.fit_: BaselineFit | None = None
 
     # -- internals -------------------------------------------------------
@@ -262,7 +284,7 @@ class LinearBaseline:
         d = X.shape[1]
         # Chosen once, outside the loop: the loop below is written against the two
         # matmuls and never learns which representation answered them.
-        ops = X.as_operand()
+        ops = X.as_operand(budget_bytes=self.dense_budget_bytes)
         W = rng.normal(0.0, 0.01, size=(d, n_classes)).astype(np.float64)
         b = np.zeros(n_classes, dtype=np.float64)
         Y = np.zeros((len(y), n_classes), dtype=np.float64)
@@ -301,6 +323,39 @@ class LinearBaseline:
         return W, b, converged, it, grad_norm, history
 
     # -- API -------------------------------------------------------------
+
+    def projected_fit_seconds(self, docs: list[str], *, n_classes: int) -> float:
+        """What `fit` would cost on these documents, without hashing or fitting them.
+
+        The rung-0 corpus is 774 documents and fits in 38s. The commitpackft corpus the
+        plan names is 39,946 training documents: `n * d * 8` is 20.9 GB, so `as_operand`
+        keeps the sparse path, and the sparse path scales with `nnz` -- about 320M here
+        against 6.3M -- which projects to roughly 18s per iteration and 150 hours for the
+        grid plus refit. Launching into that is indistinguishable from a hang, and the run
+        of 2026-09-21 has already established what that costs to diagnose.
+
+        So the caller asks first. `nnz` is an upper bound rather than the true count: a
+        document contributes at most one column per n-gram and at most `dim` columns
+        overall, and duplicates only reduce it. Bounding it high is the safe direction for
+        a guard -- it can refuse a fit that would have been affordable, which is visible
+        and fixable, but it will not admit one that is not, which is the failure that
+        burns a run.
+        """
+        orders = self.hasher.n_max - self.hasher.n_min + 1
+        d = self.hasher.dim
+        n = len(docs)
+        nnz = sum(min(orders * len(doc), d) for doc in docs)
+        limit = (
+            DENSE_OPERAND_BUDGET_BYTES
+            if self.dense_budget_bytes is None
+            else self.dense_budget_bytes
+        )
+        if n * d * 8 <= limit:
+            per_iteration = DENSE_SECONDS_PER_CELL_CLASS * n * d * n_classes
+        else:
+            per_iteration = SPARSE_SECONDS_PER_NONZERO_CLASS * nnz * n_classes
+        # The L2 grid is one fit per value, plus the refit on all the training data.
+        return per_iteration * self.max_iter * (len(self.l2_grid) + 1)
 
     def fit(self, docs: list[str], labels: list[str], *, val_frac: float = 0.2) -> BaselineFit:
         """Fit, selecting L2 on a held-out slice of the training data.

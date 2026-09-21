@@ -162,6 +162,56 @@ def test_the_fit_is_unchanged_by_densification(monkeypatch):
     np.testing.assert_allclose(dense_fit.bias, sparse_fit.bias, rtol=1e-9, atol=1e-11)
 
 
+def test_the_projection_admits_the_corpus_that_actually_fits():
+    """The rung-0 corpus measured 38s in production; the projection must not refuse it."""
+    baseline = LinearBaseline(seed=0, max_iter=6000)
+    docs = ["x" * 7715] * 774  # the measured shape: 774 docs, mean 7,715 chars
+    assert baseline.projected_fit_seconds(docs, n_classes=4) < 900.0
+
+
+def test_the_projection_refuses_the_corpus_the_plan_names():
+    """39,946 documents is over the dense budget, so the sparse path's cost governs.
+
+    This is the case the guard exists for: it is not slightly too slow, it is hundreds of
+    hours, and without the guard a run would enter it and be killed by its own cap having
+    written nothing.
+    """
+    baseline = LinearBaseline(seed=0, max_iter=6000)
+    docs = ["x" * 3557] * 39_946  # the commitpackft corpus: p50 row is 3,557 bytes
+    projected = baseline.projected_fit_seconds(docs, n_classes=4)
+    assert projected > 900.0
+    assert projected / 3600 > 100, f"expected hundreds of hours, got {projected / 3600:.1f}"
+
+
+def test_the_projection_costs_nothing_to_ask():
+    """It must not hash or fit -- asking the question cannot be as expensive as the answer.
+
+    Hashing 39,946 documents is minutes of pure-Python n-gram work on its own, so a guard
+    that hashed first would reintroduce a slice of the cost it exists to avoid.
+    """
+    import time
+
+    baseline = LinearBaseline(seed=0, max_iter=6000)
+    docs = ["x" * 3557] * 39_946
+    t0 = time.monotonic()
+    baseline.projected_fit_seconds(docs, n_classes=4)
+    assert time.monotonic() - t0 < 1.0
+
+
+def test_the_projection_grows_with_every_term_it_claims_to_model():
+    """Each factor in the cost model moves the answer, so none of them is decorative."""
+    base = LinearBaseline(seed=0, max_iter=100)
+    docs = ["x" * 4000] * 20_000  # over the dense budget, so the sparse term governs
+    reference = base.projected_fit_seconds(docs, n_classes=4)
+
+    assert base.projected_fit_seconds(docs * 2, n_classes=4) > reference  # more documents
+    assert base.projected_fit_seconds(docs, n_classes=8) > reference  # more classes
+    assert (
+        LinearBaseline(seed=0, max_iter=200).projected_fit_seconds(docs, n_classes=4)
+        > reference
+    )  # more iterations
+
+
 def test_the_sparse_path_is_still_reachable(monkeypatch):
     """Guards the guard: if the budget stopped selecting sparse, the test above would be
     comparing the dense path against itself and would pass no matter what changed."""

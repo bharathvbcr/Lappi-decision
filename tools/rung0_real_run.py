@@ -83,6 +83,7 @@ from qd_train.byte_context import ID_PAD, SpanOutsideWindow  # noqa: E402
 from qd_train.byte_decider import ByteDeciderConfig  # noqa: E402
 from qd_train.byte_train import Rung0Model, Rung0Step, train_rung0  # noqa: E402
 from qd_train.calibration_fit import ece_gate  # noqa: E402
+from qd_train.control_cache import control_key, load_control, store_control  # noqa: E402
 from qd_train.eval_harness import (  # noqa: E402
     degenerate_head_check,
     paired_margin_test,
@@ -576,6 +577,14 @@ PERMUTATION_CONSISTENCY_FLOOR: Final[float] = 0.95
 #: control worth beating.
 LINEAR_CONTROL_MAX_ITER: Final[int] = 6_000
 
+#: The linear control is fitted once per sweep, on CPU, with the GPU doing nothing. On the
+#: rung-0 corpus that is 38s and unremarkable. On the commitpackft corpus it projects to
+#: ~150 hours, and an arm that entered it would be terminated by its own wall-clock cap
+#: having written no rows -- which is precisely the 2026-09-21 failure, whose whole cost
+#: was that a slow fit and a hang are indistinguishable from outside. 15 minutes is well
+#: above the measured 38s and far below anything that could hide.
+LINEAR_CONTROL_TIME_BUDGET_S: Final[float] = 900.0
+
 
 def permutation_consistency(
     model: Rung0Model, plans: Sequence[BatchPlan], *, device: str
@@ -672,7 +681,12 @@ def permutation_consistency(
 
 
 def linear_baseline_correctness(
-    train_d: Sequence, scored_val: Sequence, *, seed: int, max_iter: int
+    train_d: Sequence,
+    scored_val: Sequence,
+    *,
+    seed: int,
+    max_iter: int,
+    cache_dir: Path | None = None,
 ) -> tuple[np.ndarray | None, TriState | None]:
     """Fit the linear control and return which of the scored rows it got right.
 
@@ -700,7 +714,48 @@ def linear_baseline_correctness(
     val_docs, val_labels = context_texts(scored_val)
 
     model = LinearBaseline(seed=seed, max_iter=max_iter)
+    key = control_key(
+        train_docs=train_docs,
+        train_labels=train_labels,
+        val_docs=val_docs,
+        seed=seed,
+        max_iter=max_iter,
+        hasher_params=(model.hasher.n_min, model.hasher.n_max, model.hasher.dim),
+        l2_grid=model.l2_grid,
+        tol=model.tol,
+        lr=model.lr,
+    )
+    if cache_dir is not None:
+        hit = load_control(cache_dir, key, expected_n=len(val_docs))
+        if hit is not None:
+            print(
+                f"  linear control: CACHE HIT {key[:16]} -- fitted in {hit.fitted_s:.1f}s "
+                f"at {hit.fitted_at} on {hit.n_train} doc(s), L2 {hit.l2:g}, "
+                f"{hit.iterations} iteration(s). No GPU time was spent waiting for it."
+            )
+            return hit.correct, None
+
+    projected_s = model.projected_fit_seconds(
+        train_docs, n_classes=len(set(train_labels))
+    )
+    if projected_s > LINEAR_CONTROL_TIME_BUDGET_S:
+        return None, NotRun(
+            reason=(
+                f"the paired margin has no opponent: fitting the linear control on "
+                f"{len(train_docs)} training document(s) projects to {projected_s / 3600:.1f} "
+                f"hours, over the {LINEAR_CONTROL_TIME_BUDGET_S / 60:.0f} minute budget. "
+                "The control is REFUSED rather than attempted: a run that disappears into "
+                "an unbounded CPU fit with the GPU idle looks exactly like a hung one, "
+                "which is what happened on 2026-09-21 and cost a whole arm. This is a "
+                "statement about the control's cost at this corpus size, not about the "
+                "model -- no margin was measured, and none may be inferred. Fit it once "
+                "off the GPU with tools/fit_linear_control.py, which writes the cache this "
+                "run just missed, and the gate reports on the next run."
+            ),
+        )
+    _fit_started = time.monotonic()
     model.fit(train_docs, train_labels)
+    fitted_s = time.monotonic() - _fit_started
     convergence = model.convergence()
     if not (isinstance(convergence, Ran) and convergence.passed):
         reason = (
@@ -717,9 +772,23 @@ def linear_baseline_correctness(
         )
 
     predicted = model.predict(val_docs)
-    return np.asarray(
+    correct = np.asarray(
         [p == gold for p, gold in zip(predicted, val_labels, strict=True)], dtype=bool
-    ), None
+    )
+    if cache_dir is not None:
+        fit = model.fit_
+        assert fit is not None  # convergence() above already refused an unfitted model
+        store_control(
+            cache_dir,
+            key,
+            correct,
+            fitted_s=fitted_s,
+            n_train=len(train_docs),
+            l2=fit.l2,
+            iterations=fit.iterations,
+            final_grad_norm=fit.final_grad_norm,
+        )
+    return correct, None
 
 
 def ece_state(rows: Sequence[Sequence[float]], labels: Sequence[int]) -> TriState:
@@ -1107,6 +1176,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             "the seed spread attributable to init rather than to a different shuffle"
         ),
     )
+    parser.add_argument(
+        "--control-cache",
+        type=Path,
+        default=None,
+        help=(
+            "directory holding fitted linear-control verdicts. The control is a property "
+            "of the corpus and the split, not of the model, so it is identical across "
+            "every seed of a sweep and across sweeps on the same corpus -- and on the "
+            "commitpackft corpus fitting it costs hours of CPU during which the GPU is "
+            "idle. Warm it off the GPU with tools/fit_linear_control.py. Omitted means no "
+            "cache: the control is fitted in-process if it fits the time budget, and "
+            "reported NotRun if it does not"
+        ),
+    )
     parser.add_argument("--width", type=int, default=ByteDeciderConfig().width)
     parser.add_argument("--layers", type=int, default=ByteDeciderConfig().n_layers)
     parser.add_argument("--heads", type=int, default=ByteDeciderConfig().n_heads)
@@ -1323,7 +1406,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     _fit_t0 = time.monotonic()
     baseline_correct, baseline_not_run = linear_baseline_correctness(
-        train_d, scored_val, seed=0, max_iter=LINEAR_CONTROL_MAX_ITER
+        train_d,
+        scored_val,
+        seed=0,
+        max_iter=LINEAR_CONTROL_MAX_ITER,
+        cache_dir=args.control_cache,
     )
     _fit_s = time.monotonic() - _fit_t0
     if baseline_correct is None:

@@ -12,7 +12,15 @@ __pycache__/
 
 # Data pool, shards, checkpoints — large, reproducible from manifests.
 # The manifests themselves ARE tracked: they are the provenance record.
-/data/pool/
+#
+# `/data/pool/` alone did NOT do that. git cannot re-include a file whose parent directory
+# is excluded, so every manifest under it was ignored too and the comment above described
+# an intention with no mechanism. The `/**` form excludes the CONTENTS rather than the
+# directory, which is what makes the negations below reachable.
+/data/pool/**
+!/data/pool/**/
+!/data/pool/**/manifest.json
+!/data/pool/*.manifest.json
 /data/shards/
 /data/checkpoints/
 *.npy.gz

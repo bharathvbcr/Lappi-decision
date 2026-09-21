@@ -1,0 +1,179 @@
+"""Fit the linear control off the GPU, and write the verdict `rung0_real_run.py` reads.
+
+## What this is for
+
+`paired_margin_vs_linear` is the gate the program rests on. Scoring it means fitting a
+char-n-gram logistic regression, which is single-threaded CPU work. On the rung-0 corpus
+that is 38 seconds. On the commitpackft corpus the plan names -- 39,946 training documents
+-- it projects to hours, and `rung0_real_run.py` now REFUSES to start a fit that exceeds
+its time budget rather than disappearing into one with the GPU at 0%.
+
+This is the other half of that refusal. Run it on any machine with CPU and memory -- it
+never touches a GPU -- and the next training run finds the answer waiting.
+
+## It must reproduce the split exactly
+
+The cache key covers the documents, so every step that decides which documents exist, and
+in what order, is replicated here by *calling the same functions* rather than by
+reimplementing them: `split_by_file`, `decisions_of`, `bucketed_chunks`. In particular the
+validation order depends on `--batch-size`, because the run scores the rows in bucketed
+order; a tool that skipped that would compute a different key, miss its own cache, and be
+silently useless.
+
+If the arguments do not match the run's, the key differs and the run simply misses. That is
+the safe failure: a mismatched cache is never served.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "python"))
+sys.path.insert(0, str(REPO / "tools"))
+
+from rung0_linear_control import context_texts  # noqa: E402
+from rung0_real_run import (  # noqa: E402
+    LINEAR_CONTROL_MAX_ITER,
+    bucketed_chunks,
+    decisions_of,
+    split_by_file,
+)
+
+from qd_train.baseline import LinearBaseline  # noqa: E402
+from qd_train.byte_decider import ByteDeciderConfig  # noqa: E402
+from qd_train.control_cache import control_key, load_control, store_control  # noqa: E402
+from qd_train.tristate import NotRun, Ran  # noqa: E402
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--examples", type=Path, required=True)
+    parser.add_argument("--control-cache", type=Path, required=True)
+    parser.add_argument("--val-share", type=float, default=0.2)
+    parser.add_argument("--context-bytes", type=int, default=8192)
+    parser.add_argument("--width", type=int, default=128)
+    parser.add_argument("--layers", type=int, default=2)
+    parser.add_argument("--heads", type=int, default=4)
+    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--max-iter", type=int, default=LINEAR_CONTROL_MAX_ITER)
+    parser.add_argument(
+        "--dense-budget-gb", type=float, default=24.0,
+        help=(
+            "how much memory the fit may use to hold the design matrix densely. This job "
+            "owns the machine, so the default is far above the in-process one: the "
+            "commitpackft corpus is 20.9 GB dense, and dense is ~86x faster than the "
+            "sparse gather it replaces. Below the budget the corpus stays sparse and the "
+            "fit takes days rather than hours"
+        ),
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="refit even on a cache hit. The verdict is deterministic given the key, so "
+             "this is for re-timing, not for changing an answer",
+    )
+    args = parser.parse_args(argv)
+
+    examples = [
+        json.loads(line)
+        for line in args.examples.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    if not examples:
+        raise SystemExit(f"{args.examples} holds no examples")
+    print(f"corpus: {len(examples)} example(s) from {args.examples}")
+
+    config = ByteDeciderConfig(
+        max_context_bytes=args.context_bytes,
+        width=args.width,
+        n_layers=args.layers,
+        n_heads=args.heads,
+    )
+    train_raw, val_raw = split_by_file(examples, val_share=args.val_share)
+    train_d, train_refused, _ = decisions_of(train_raw, config=config)
+    val_d, val_refused, _ = decisions_of(val_raw, config=config)
+    if not train_d or not val_d:
+        raise SystemExit("one side of the split is empty; nothing can be fitted")
+    print(f"  decisions: {len(train_d)} train (refused {train_refused or 'none'}), "
+          f"{len(val_d)} val (refused {val_refused or 'none'})")
+
+    # Bucketed exactly as the run scores them: the key covers this order.
+    scored_val = [d for chunk in bucketed_chunks(val_d, batch_size=args.batch_size)
+                  for d in chunk]
+    train_docs, train_labels = context_texts(train_d)
+    val_docs, val_labels = context_texts(scored_val)
+
+    model = LinearBaseline(
+        seed=args.seed,
+        max_iter=args.max_iter,
+        dense_budget_bytes=int(args.dense_budget_gb * 1024**3),
+    )
+    key = control_key(
+        train_docs=train_docs,
+        train_labels=train_labels,
+        val_docs=val_docs,
+        seed=args.seed,
+        max_iter=args.max_iter,
+        hasher_params=(model.hasher.n_min, model.hasher.n_max, model.hasher.dim),
+        l2_grid=model.l2_grid,
+        tol=model.tol,
+        lr=model.lr,
+    )
+    print(f"  key {key[:32]}  ({len(train_docs)} train doc(s), {len(val_docs)} scored)")
+
+    existing = load_control(args.control_cache, key, expected_n=len(val_docs))
+    if existing is not None and not args.force:
+        print(f"  CACHE HIT already: fitted in {existing.fitted_s:.1f}s at "
+              f"{existing.fitted_at}. Nothing to do; pass --force to refit.")
+        return 0
+
+    projected = model.projected_fit_seconds(train_docs, n_classes=len(set(train_labels)))
+    print(f"  projected fit: {projected / 60:.1f} minute(s). Starting.", flush=True)
+
+    started = time.monotonic()
+    model.fit(train_docs, train_labels)
+    fitted_s = time.monotonic() - started
+
+    convergence = model.convergence()
+    if not (isinstance(convergence, Ran) and convergence.passed):
+        detail = (
+            convergence.reason if isinstance(convergence, NotRun) else convergence.detail
+        )
+        # Nothing is written. A stored verdict from an unconverged fit is a weak opponent
+        # that would flatter the model on every run that read it, forever.
+        raise SystemExit(
+            f"the control did not converge after {fitted_s:.1f}s: {detail}\n"
+            "Nothing was cached: a model cannot beat a baseline that never finished "
+            "training, and storing it as though it had is how a weak control "
+            "manufactures a win."
+        )
+
+    predicted = model.predict(val_docs)
+    correct = [p == gold for p, gold in zip(predicted, val_labels, strict=True)]
+    fit = model.fit_
+    assert fit is not None  # convergence() above already refused an unfitted model
+    path = store_control(
+        args.control_cache,
+        key,
+        correct,
+        fitted_s=fitted_s,
+        n_train=len(train_docs),
+        l2=fit.l2,
+        iterations=fit.iterations,
+        final_grad_norm=fit.final_grad_norm,
+    )
+    accuracy = sum(correct) / len(correct)
+    print(f"  fitted in {fitted_s:.1f}s: L2 {fit.l2:g}, {fit.iterations} iteration(s), "
+          f"final grad norm {fit.final_grad_norm:.3e}")
+    print(f"  control accuracy on the {len(correct)} scored row(s): {accuracy:.1%}")
+    print(f"  wrote {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
