@@ -1,0 +1,94 @@
+{
+  "measured": "2026-09-21",
+  "what": "A rung 0 learning curve over training FILES at span_weight 0.05, 8 seeds per point, with the realised seed spread and the resolution floor reported beside every point.",
+  "why": "AUDIT/rung0-learning-curve-2026-09-20.json ran this experiment and found it flat, concluding that 'a corpus lever cannot move a model that is not fitting the corpus it already has, so more data is not the next step'. That conclusion is correct and narrowly scoped: EVERY point of that curve had collapsed to a constant predictor -- its own numbers show measured train accuracy equal to the training majority share to three decimals at both ends, 0.442 against 0.442 and 0.480 against 0.480 -- because it ran at span_weight 1.0, before the objective was fixed. It did not answer the data question; it established that the question could not be asked yet. This run asks it on a model that fits.",
+  "supersedes": "AUDIT/rung0-learning-curve-2026-09-20.json, on the premise rather than on the arithmetic. Yesterday's flatness was real: a constant predictor is perfectly insensitive to how much data it ignores.",
+  "host": "192.222.58.240, NVIDIA GH200 480GB, torch 2.10.0+cu128",
+  "ledger": "ledger/gh200-rung0-learning-curve-2026-09-21.jsonl, 24 rows, chain verified",
+  "provenance": {
+    "code_that_ran": "173fa35737ed4b21ee01774a2ed48c94191ecdff7adb94e20a00035a1e021187",
+    "code_that_ran_sources": 29,
+    "note": "The digest was verified equal on this Mac and on the box before launch, and re-checked equal on the box after the run. The Mac's digest is now 9cae19bef139... because f93b22c landed mid-run; the box's is unchanged, so these rows pin the code that actually ran rather than the code at HEAD. code_commit reads 8b9df39-dirty with 85 files dirty and distinguishes nothing, which is GAP-CODE-COMMIT-DIRTY-DOES-NOT-PIN-WHAT-RAN.",
+    "corpus_sha256": "06dd9aa63107d0d85cffb4b69fed68d9e8ee3d67ab3e16387ce899c8f973c250",
+    "corpus_examples": 1915
+  },
+  "config": {
+    "context_bytes": 8192,
+    "width": 128,
+    "layers": 2,
+    "heads": 4,
+    "epochs": 10,
+    "batch_size": 16,
+    "span_weight": 0.05,
+    "seeds": 8,
+    "val_share": 0.25,
+    "note": "The subsample is by FILE and the validation side is never touched: every point is scored on the same 288 held-out decisions from 32 files against the same 49.0% majority-class baseline, which makes each point's comparison one against a FIXED reference rather than against another noisy arm. File order is hashed, so the 25% training set is a strict subset of the 50% set."
+  },
+  "pre_registration": {
+    "stated": "before any of these numbers were read, in the launch script",
+    "prior_sd": 0.0197,
+    "prior_sd_source": "the seed spread of the full-data arm at this configuration, computed from its EIGHT LEDGER ROWS rather than from a log: ledger/gh200-rung0-capacity-sw005-nondet-2026-09-21.jsonl, recipe_hash 97d0f8e2b6, n=8, mean 0.5399, sd 0.0197, every seed's train accuracy above the 0.469 training majority so the arm fit and its spread is a spread",
+    "target_difference": 0.05,
+    "target_rationale": "the whole of the full-data effect over the baseline, so the design must be able to see the thing it is asking about losing",
+    "pre_committed_reporting_rule": "the REALISED sd of every point is reported beside its result, and any point whose realised sd exceeds 0.0505 is reported as unable to see its own target rather than as a null",
+    "realised_sds": [0.0096, 0.0239, 0.0289],
+    "pre_committed_rule_outcome": "No point exceeded 0.0505. All three could see their own target, so no point is reported as underpowered against it."
+  },
+  "points": [
+    {
+      "train_subsample": 0.25,
+      "recipe_hash": "918c73733b",
+      "train_batches": 11,
+      "train_majority_share": 0.514,
+      "seeds": 8,
+      "collapsed_seeds": 3,
+      "all_seeds": {"n": 8, "val_mean": 0.4948, "over_baseline": 0.0048, "sd": 0.0096, "floor_vs_fixed_reference": 0.0096},
+      "fitted_seeds": {"n": 5, "val_mean": 0.4979, "over_baseline": 0.0079, "sd": 0.0114, "floor_vs_fixed_reference": 0.0143},
+      "resolved_above_baseline": false,
+      "seconds_per_seed": 24.2,
+      "cost_usd": 0.0800
+    },
+    {
+      "train_subsample": 0.5,
+      "recipe_hash": "64b61aea47",
+      "train_batches": 23,
+      "train_majority_share": 0.430,
+      "seeds": 8,
+      "collapsed_seeds": 0,
+      "all_seeds": {"n": 8, "val_mean": 0.5056, "over_baseline": 0.0156, "sd": 0.0239, "floor_vs_fixed_reference": 0.0237},
+      "fitted_seeds": {"n": 8, "val_mean": 0.5056, "over_baseline": 0.0156, "sd": 0.0239, "floor_vs_fixed_reference": 0.0237},
+      "resolved_above_baseline": false,
+      "seconds_per_seed": 50.5,
+      "cost_usd": 0.1673
+    },
+    {
+      "train_subsample": 1.0,
+      "recipe_hash": "2b8564f63c",
+      "train_batches": 46,
+      "train_majority_share": 0.469,
+      "seeds": 8,
+      "collapsed_seeds": 0,
+      "all_seeds": {"n": 8, "val_mean": 0.5278, "over_baseline": 0.0378, "sd": 0.0289, "floor_vs_fixed_reference": 0.0286},
+      "fitted_seeds": {"n": 8, "val_mean": 0.5278, "over_baseline": 0.0378, "sd": 0.0289, "floor_vs_fixed_reference": 0.0286},
+      "resolved_above_baseline": true,
+      "seconds_per_seed": 102.8,
+      "cost_usd": 0.3405
+    }
+  ],
+  "val_baseline": 0.490,
+  "val_baseline_class": "stub",
+  "val_decisions": 288,
+  "finding": "The curve RISES and it is not flat: +0.48pp, +1.56pp, +3.78pp over the same baseline on the same 288 held-out rows. Only the full-data point clears its own resolution floor against that baseline (+3.78pp against 2.86pp). The quarter- and half-data points do not (+0.48pp against 0.96pp, +1.56pp against 2.37pp), so at those sizes the model is not shown to beat a constant predictor at all.",
+  "what_is_not_established": "No ADJACENT pair of points is separated. Arm against arm, with the pooled sd and the sqrt(2) floor that two noisy arms require: 0.5 minus 0.25 is +0.77pp against a 3.32pp floor, 1.0 minus 0.5 is +2.21pp against 3.71pp, 1.0 minus 0.25 is +2.99pp against 3.89pp. All three inside the floor. So the SHAPE is monotone in the direction more-data-helps, and no single step of it is individually resolved at n=8. No trend test was pre-registered and none is applied here; inventing one after reading the points is how a shape becomes a finding it has not earned.",
+  "collapse_is_itself_a_data_size_effect": "Three of eight seeds at the 25% point never cleared the training majority, against zero at both larger sizes. Stated with its confound: the 25% subset also has the most skewed training label distribution of the three (51.4% stub against 43.0% and 46.9%), so its collapse bar is the highest and a constant predictor is the most attractive there. The subsets are nested and hashed, so this is a property of that particular quarter rather than something the design chose.",
+  "against_the_prior_arm": "The full-data point reproduces the earlier arm at a lower value: +3.78pp (sd 0.0289, n=8) against that arm's +4.99pp (sd 0.0197, n=8). Pooled sd 0.0247, two-arm floor 3.46pp at n=8; the 1.21pp difference is inside it, so the two are not distinguishable. The recipe hashes differ (2b8564f63c against 97d0f8e2b6) at least because 0e897b3 put train_subsample into the hash, so this is a reproduction of a configuration rather than of a protocol id.",
+  "the_floors_are_lower_bounds": "Every floor quoted here comes from qd_train.power.resolvable_difference, which assumes sd is KNOWN. It is estimated from 8 runs, and that module says so in its own docstring: the honest quantile is Student's t, about 3.20 against 2.80 at n=5 per arm, so the true floor is wider. It is reported rather than corrected because an inverse-t needs SciPy and SciPy is not a dependency of this project. The consequence for the one resolved result: +3.78pp clears a 2.86pp bound by 32%, and the correction at n=8 is smaller than the ~14% quoted at n=5, so it plausibly survives -- but it was not computed, and a point clearing this bound by a little has not been shown to clear the real one.",
+  "cost": {
+    "total_usd": 0.5878,
+    "total_gpu_seconds": 1420.2,
+    "instance": "lambda-1xGH200 at $1.49/h",
+    "rule_4": "single GPU, well under the $20 that requires a human yes",
+    "note": "This is the first rung 0 experiment in this project whose total cost can be summed from its own rows. All 24 carry wall_clock_source='caller' and a non-zero cost_usd. Every rung 0 row written before today reads wall_clock_s ~1e-4 and cost_usd 0.0 -- the recorder timing itself on a machine priced as a local Mac."
+  },
+  "rule_8": "Every row is quick=True and promotes nothing."
+}
