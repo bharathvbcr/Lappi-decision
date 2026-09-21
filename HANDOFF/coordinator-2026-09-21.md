@@ -1096,3 +1096,93 @@ have shipped all five, each under a commit message explaining why it was thoroug
 Four rows: two that say what the sweep could have seen, two that say nobody asked. That
 distinction did not exist in this repository twelve hours ago, and it is the one that decides
 whether the final train's nulls mean anything.
+
+# Part 9 — a readiness audit, rule by rule
+
+"Ready for the final train" is not a feeling. This is what was checked, how, and what it
+returned — so the next lane can disagree with the evidence rather than with the conclusion.
+
+Every row below was run on 2026-09-21 against the tree at `33fc3f0`.
+
+## The rules that bind a full train
+
+| Rule | Enforced where | Checked how | Result |
+| --- | --- | --- | --- |
+| **2** — gates and kill criteria are read-only | `run_control.py` refuses a cap above `MAX_CAP_S` | `test_a_cap_above_the_programs_own_cap_is_refused_as_read_only`, `test_the_approval_threshold_is_a_closed_boundary_and_one_cent_either_side_of_it` | pinned, both sides of the boundary |
+| **3** — held-out data is never read by a training process | `data_access.assert_path_not_held_out`, and it **refuses an empty `held_out_roots`** rather than passing vacuously | refusal present at `data_access.py:81`, mirrored at `artifacts.py:1042` for a shard whose header honestly declares `split="train"` | enforced, fails closed |
+| **4** — every 8×H100 job carries a cap, an estimate and a human yes | `CostEstimate.requires_human_approval` + `RunControl`'s refusal | **exercised live at full-train parameters**, below | now enforced; was dead this morning |
+| **5** — nothing is green that was not run | `TriState` throughout; `NotRun` carries a reason | the day's work is the evidence: §23, §19, `_floor_state` | discipline held, and extended |
+| **8** — `quick` runs promote nothing | `ledger.py:955` **raises** on a quick row in a promotion | `f"{r.row_id}: marked quick ({r.quick_reason}); quick runs cannot promote"` | enforced by refusal, not convention |
+
+## Rule 4, at the parameters that matter
+
+Rule 4 exists for one event: the full train. So it was run at that shape rather than at a
+test's shape — 8×H100, 24h cap, priced from a real list:
+
+```
+lambda-8xH100: 8 GPU(s) at $23.92/h per instance ($2.99/GPU/h x 8),
+capped at 24.00 h -> $574.08 at the cap -- NEEDS A HUMAN YES
+```
+
+and `RunControl` **refuses to construct** without `approved_by`:
+
+> rule 4: this run needs a human yes before launch and has none.
+
+The same run, through the literal every tool carried this morning:
+
+```
+local-cuda: 0 GPU(s) at $0.00/h per instance, capped at 24.00 h
+-> $0.00 at the cap -- no approval required
+```
+
+`requires_human_approval` was `False`. **For a $574 8×H100 job, at any cap.** That is what
+Part 6 §16 fixed, stated at the size where it would have mattered.
+
+## What this audit does not cover
+
+Named, because a capped check reported as complete coverage is the failure this repository
+spent the day finding:
+
+* **The experiments.** Engineering readiness is not scientific readiness. The two open runs
+  (Part 8) decide whether the *conclusions* a full train would rest on are attributable;
+  nothing above speaks to that.
+* **The GPU suites.** They cannot run in this lane's environment and are reported as **not
+  run**, not as passing — rule 5, applied to this audit.
+* **`qd_wire`, `qd_label`, `crates/`.** Not on the train path, so not audited here. That is
+  a scope statement, not a clean bill.
+* **Rules 1, 6, 7, 9, 10.** Process rules about navigation, the nested tessl crate, product
+  wiring, parity fixtures and handoffs. Unchanged today and not re-verified.
+
+## State at the end of Part 9
+
+| Gate | Result |
+| --- | --- |
+| `make gates` | **PASS** at `80cddb8`; see the note for the tree right now |
+| cargo | 362 / 362 |
+| pytest, repo venv | 1499 passed, 21 skipped |
+| pytest, torch venv | 1763 passed, 2 skipped, **2 failed** — both the other lane's |
+| `ledger/runs.jsonl` | chain verifies, 196 rows |
+| forks across `ledger/` | 1 root group, 1 known divergence |
+
+Those two failures are named rather than rounded away. Both are repo-**wide** scans —
+`test_the_repository_has_no_ruff_findings` and
+`test_no_docstring_names_a_function_that_does_not_exist` — and both point at one file:
+`python/tests/test_runner_cost_end_to_end.py`, untracked and mid-write in the concurrent
+lane. `--ignore` does not suppress them, correctly: a scan of the tree should see the tree.
+Nothing in this lane's committed work fails, and this lane did not touch that file.
+
+The first line of this table is therefore the weaker claim it looks like: `make gates` last
+returned PASS at `80cddb8`, before that file existed. It is recorded that way rather than
+re-run and reported green by excluding the thing that makes it red.
+
+## The honest summary
+
+The **engineering** is ready for a full train in the sense that the rules which protect it
+now have teeth that were verified rather than assumed, and the rows it writes can say what
+produced them, what they cost, and what they could have seen.
+
+The **science** is not ready, and the gap is two runs long: the 512-step nonzero-floor FT
+run, and the 8192 curve at `--train-subsample`. Until those land, the capacity question is
+confounded and the 4096 arms cannot carry a conclusion.
+
+Those are different claims and should not be reported as one.
