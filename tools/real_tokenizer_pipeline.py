@@ -79,7 +79,14 @@ from qd_train.artifacts import (
     assign_buckets,
     padding_waste,
 )
-from qd_train.ledger import DEFAULT_LEDGER_PATH, Environment, Ledger, Protocol, RunRecorder
+from qd_train.ledger import (
+    DEFAULT_LEDGER_PATH,
+    Environment,
+    Ledger,
+    Protocol,
+    RunRecorder,
+    what_ran_state,
+)
 from qd_train.remap import build_remap, count_corpus_tokens
 from qd_train.shards import (
     COVERAGE_NAME,
@@ -1016,6 +1023,13 @@ def main(argv: list[str] | None = None) -> int:
         notes=measured.notes,
     )
     with recorder:
+        # The shard sets this writes are what every FT run downstream trains on, so "which
+        # code produced this corpus" is a question asked of its rows more than of any
+        # other. `code_commit` cannot answer it: one `-dirty` bit stands for any
+        # uncommitted change at all, and is permanent on a box synced by copying files.
+        recorder.metric(
+            "code_that_ran", what_ran_state(REPO / "python" / "qd_train", Path(__file__))
+        )
         for name, value in measured.metrics.items():
             recorder.metric(name, value)
         for name, value in measured.gates.items():

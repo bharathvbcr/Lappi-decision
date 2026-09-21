@@ -31,10 +31,14 @@ complete coverage is the failure this repository keeps finding.
 from __future__ import annotations
 
 import ast
+import hashlib
 import importlib
 import inspect
+import json
 import re
 from pathlib import Path
+
+import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 TOOLS = REPO / "tools"
@@ -299,8 +303,13 @@ def test_no_tool_prices_a_rented_machine_at_zero() -> None:
     **Both numbers.** Every tool is read, the ones that mention ``CostEstimate`` are
     counted, and an empty set of them fails rather than passing vacuously -- a rename that
     made this match nothing would otherwise read exactly like a clean repository.
+
+    The scope below was four names, hardcoded. It happens to be exactly right -- four tools
+    build a `CostEstimate` and they are those four -- but it is right because it is current,
+    not because anything keeps it so, and its twin in this file was four names that had
+    stopped being all of them. Derived now, from tools that CONSTRUCT an estimate.
     """
-    runners = ("real_ft_run.py", "rung0_real_run.py", "rung0_toy_run.py", "ft_toy_run.py")
+    runners = _pricing_tools()
 
     mentions: list[str] = []
     offenders: list[str] = []
@@ -341,8 +350,18 @@ def test_every_runner_records_which_sources_produced_its_row() -> None:
     `tools/real_ft_run.py` had this as two private functions and was the only runner with
     it, while `tools/rung0_real_run.py` -- the tool that wrote the GH200 rows whose
     provenance had to be reconstructed by hand with sha256sum -- had none.
+
+    **And then it happened to this test.** The list below was four names, written down when
+    four runners were the ones in view. Six tools write ledger rows: the two it omitted --
+    `rung0_linear_control.py`, which runs on the same rented box beside the arm it
+    interprets, and `real_tokenizer_pipeline.py`, which writes the shard sets every FT run
+    trains on -- recorded no digest at all, and this test was green throughout. A hardcoded
+    scope is the defect it was written to catch, one level up.
+
+    So the scope is derived. Any tool that constructs a recorder is in it, and a seventh
+    runner is covered by existing rather than by being remembered.
     """
-    runners = ("real_ft_run.py", "rung0_real_run.py", "rung0_toy_run.py", "ft_toy_run.py")
+    runners = _row_writing_tools()
     # Whitespace-tolerant: the same call wraps across three lines where the indentation is
     # deeper. A pattern that failed on line breaks would be satisfied again by a reformat,
     # which is a worse failure than the one it guards against.
@@ -404,6 +423,71 @@ WRAPPING = {
     ("ft_toy_run.py", "None"),
     ("ledger.py", "None"),
 }
+
+
+def _row_writing_tools() -> tuple[str, ...]:
+    """Every tool in `tools/` that constructs a recorder, hence writes ledger rows.
+
+    Derived rather than listed. Two tests here carried a hardcoded four-name tuple written
+    when four runners were the ones in view; six tools write rows, and the two omitted ones
+    had no closure digest while both tests stayed green.
+    """
+    found: list[str] = []
+    for path in sorted(TOOLS.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(
+                node.func, "id", ""
+            )
+            if name == "RunRecorder" or (name.startswith("_") and "recorder" in name.lower()):
+                found.append(path.name)
+                break
+    assert len(found) >= 6, (
+        f"only {len(found)} row-writing tool(s) found ({found}), fewer than the six that "
+        "existed when this was written -- either runners were removed or this stopped "
+        "matching the way recorders are constructed, and every test scoped by it silently "
+        "shrank"
+    )
+    return tuple(found)
+
+
+def _pricing_tools() -> tuple[str, ...]:
+    """Every tool in `tools/` that builds a `CostEstimate`, hence prices a run.
+
+    A narrower question than :func:`_row_writing_tools` and deliberately kept separate:
+    `real_tokenizer_pipeline.py` and `rung0_linear_control.py` write rows with `cost=None`
+    on a local device, which the recorder accepts and which needs no rate. Requiring
+    `for_device` of them would be requiring a price where there is nothing billed.
+
+    Matched on CONSTRUCTION, not on the name appearing. `real_tokenizer_pipeline.py` and
+    `run_cost.py` both mention `CostEstimate` without building one -- in a comment and in a
+    helper's type, respectively -- so a substring scope would pull in two tools that have
+    no rate to state.
+    """
+    found: list[str] = []
+    for path in sorted(TOOLS.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            builds = (
+                getattr(func, "id", "") in {"CostEstimate", "run_cost_estimate"}
+                or (isinstance(func, ast.Attribute)
+                    and (getattr(func.value, "id", "") == "CostEstimate"
+                         or func.attr == "for_device"))
+            )
+            if builds:
+                found.append(path.name)
+                break
+    assert len(found) >= 4, (
+        f"only {len(found)} tool(s) price a run ({found}), fewer than the four that did "
+        "when this was written -- either pricing moved or this stopped matching it, and "
+        "the check below silently narrowed"
+    )
+    return tuple(found)
 
 
 def _recorder_wall_clock_sites() -> list[tuple[str, int, str]]:
@@ -523,3 +607,181 @@ def test_the_only_billed_work_outside_a_block_is_the_verdict_decode() -> None:
         "be pointable at hardware that is billed by the hour -- and its training happens "
         "before `_record` opens a recorder"
     )
+
+
+# ---------------------------------------------------------------------------------------
+# GAP-SIX-SPELLINGS-OF-ONE-RECIPE-HASH, made safe to leave open.
+#
+# Six tools turn a recipe into the hash that identifies a run, through six independent
+# implementations, and two of them disagree on identical dicts: `sort_keys=True` alone
+# against `sort_keys=True, separators=(",", ":")`. Measured, on the same eight-key recipe:
+# b5e6c489ecb55fca642c against 705dc18f8726e641db80.
+#
+# Nothing is wrong today. Each tool is internally consistent, and cross-tool comparisons
+# are foreclosed by `backbone_commit` anyway. The danger is entirely in the future: a
+# refactor that tidies one spelling toward another renames every `recipe_hash` that tool
+# writes from then on, every row afterwards is incomparable with every row before, both
+# files still verify their chains, and nothing says so.
+#
+# Unifying them is a DECLARED break -- 61 capacity rows and 24 learning-curve rows were
+# written under `sort_keys=True` alone on 2026-09-21 -- and not something to do quietly
+# mid-experiment. What can be done without touching a byte is make the quiet version
+# impossible: pin the digest each spelling produces for a fixed probe, so the tidy-up
+# fails here and has to be argued for rather than merged.
+# ---------------------------------------------------------------------------------------
+
+#: A fixed dict with the shapes a recipe actually contains -- ints, floats, bools, None,
+#: strings, and two keys out of sorted order so `sort_keys` is observable. Its digest under
+#: each spelling is pinned below.
+_PROBE = {
+    "span_weight": 0.05,
+    "epochs": 30,
+    "deterministic": False,
+    "train_subsample": None,
+    "rev": "HEAD",
+    "batch_size": 8,
+}
+
+#: `{tool: json.dumps kwargs}` -- the spelling each tool's existing rows were written
+#: under. Changing an entry is how the break gets declared.
+_SPELLINGS = {
+    "rung0_real_run.py": {"sort_keys": True},
+    "rung0_linear_control.py": {"sort_keys": True},
+    "real_tokenizer_pipeline.py": {"sort_keys": True},
+    "real_ft_run.py": {"sort_keys": True, "separators": (",", ":")},
+    "rung0_toy_run.py": {"sort_keys": True, "separators": (",", ":")},
+    "ft_toy_run.py": {"sort_keys": True, "separators": (",", ":")},
+}
+
+
+def _dumps_kwargs(node: ast.Call) -> dict[str, object] | None:
+    """The `json.dumps` keyword arguments inside a hashing expression, or None."""
+    for inner in ast.walk(node):
+        if not isinstance(inner, ast.Call):
+            continue
+        func = inner.func
+        if isinstance(func, ast.Attribute) and func.attr == "dumps":
+            out: dict[str, object] = {}
+            for kw in inner.keywords:
+                if kw.arg:
+                    out[kw.arg] = ast.literal_eval(kw.value)
+            return out
+    return None
+
+
+def _recipe_hash_spellings() -> dict[str, dict[str, object]]:
+    """`{tool: json.dumps kwargs}` for every tool that hashes a recipe.
+
+    Structural, via the AST, rather than textual: the expression is found by following
+    `recipe_hash=` (or the `digest` helper the toy runners route it through) to the
+    `json.dumps` inside it. Reformatting the call does not move this; changing what it
+    serialises does, which is the only event worth failing on.
+    """
+    out: dict[str, dict[str, object]] = {}
+    for path in sorted(TOOLS.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        helpers = {
+            n.name: n for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef) and n.name in {"digest", "_recipe_hash"}
+        }
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            keywords = {kw.arg: kw.value for kw in node.keywords}
+            expr = keywords.get("recipe_hash")
+            if expr is None:
+                continue
+            if isinstance(expr, ast.Call):
+                found = _dumps_kwargs(expr)
+                if found is not None:
+                    out[path.name] = found
+                    break
+                callee = getattr(expr.func, "id", "")
+                if callee in helpers:
+                    found = _dumps_kwargs(
+                        next(n for n in ast.walk(helpers[callee]) if isinstance(n, ast.Call))
+                    )
+                    if found is not None:
+                        out[path.name] = found
+                        break
+            elif isinstance(expr, ast.Name):
+                # A named variable: find its assignment in the same module.
+                for assign in ast.walk(tree):
+                    if isinstance(assign, ast.Assign) and any(
+                        isinstance(t, ast.Name) and t.id == expr.id for t in assign.targets
+                    ):
+                        found = _dumps_kwargs(assign.value) if isinstance(
+                            assign.value, ast.Call
+                        ) else None
+                        if found is not None:
+                            out[path.name] = found
+                            break
+                if path.name in out:
+                    break
+    return out
+
+
+def test_every_tool_that_hashes_a_recipe_is_found_by_this_check() -> None:
+    """Scope first, and asserted, because everything below is vacuous without it.
+
+    Six tools produce a `recipe_hash`. A seventh that this stopped finding would read
+    exactly like a repository with six.
+    """
+    found = _recipe_hash_spellings()
+    assert set(found) == set(_SPELLINGS), (
+        f"tools hashing a recipe: found {sorted(found)}, pinned {sorted(_SPELLINGS)}. A "
+        "tool that appeared needs a spelling entry; one that vanished needs this list "
+        "shortened deliberately"
+    )
+
+
+@pytest.mark.parametrize("tool", sorted(_SPELLINGS))
+def test_each_tool_keeps_the_spelling_its_existing_rows_were_written_under(
+    tool: str,
+) -> None:
+    """The guard that makes the gap safe to leave open.
+
+    `json.dumps(recipe, sort_keys=True)` and the same call with
+    `separators=(",", ":")` produce DIFFERENT bytes and therefore different hashes for
+    identical dicts. Every row a tool has written is under one of them, so changing which
+    renames that tool's protocol family from then on -- silently, because both the old and
+    the new rows hash correctly and verify.
+
+    Failing here is not "you may not change this". It is "this is the change you are
+    making", which is the sentence that was missing.
+    """
+    expected_kwargs = _SPELLINGS[tool]
+    assert _recipe_hash_spellings()[tool] == expected_kwargs, (
+        f"{tool} now serialises its recipe with different json.dumps arguments. Every "
+        f"recipe_hash it writes from here differs from every one it has written, both "
+        f"verify, and nothing in the ledger says the family changed. If that is intended, "
+        f"update this entry and declare the break in a handoff"
+    )
+
+
+def test_the_two_spellings_really_do_disagree() -> None:
+    """The gap as a number, not as prose.
+
+    If these ever produced the same digest the whole concern would be imaginary and the
+    six implementations could be unified with no cost. They do not, and this is where that
+    is established rather than asserted -- on the same dict, through both spellings.
+    """
+    digests = {
+        name: hashlib.sha256(json.dumps(_PROBE, **kwargs).encode("utf-8")).hexdigest()
+        for name, kwargs in _SPELLINGS.items()
+    }
+    distinct = set(digests.values())
+    assert len(distinct) == 2, (
+        f"expected exactly two distinct recipe digests across the six spellings, got "
+        f"{len(distinct)}: {digests}"
+    )
+    loose = hashlib.sha256(
+        json.dumps(_PROBE, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    tight = hashlib.sha256(
+        json.dumps(_PROBE, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    assert loose != tight
+    assert distinct == {loose, tight}
+    # Three tools on each side, which is the split worth knowing: it is not one outlier.
+    assert sorted(digests.values()).count(loose) == 3, digests

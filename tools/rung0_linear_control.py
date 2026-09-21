@@ -64,6 +64,7 @@ from qd_train.ledger import (  # noqa: E402
     Ledger,
     Protocol,
     RunRecorder,
+    what_ran_state,
 )
 from qd_train.mutate_adapter import MUTATION_CLASSES  # noqa: E402
 from qd_train.tristate import NotRun, Ran, TriState  # noqa: E402
@@ -213,6 +214,15 @@ def main(argv: list[str] | None = None) -> int:
             "signal ByteDecider does not"
         ),
     ) as recorder:
+        # `code_commit` is "<sha>-dirty" for any uncommitted change at all, and on the
+        # rented box -- which is synced by COPYING files into a clone pinned at an old
+        # commit -- that is its permanent state. This control runs there, beside the arm
+        # it exists to interpret, so the digest of what actually executed is the only
+        # thing pinning its rows. Four runners had this and the two that also write rows
+        # did not.
+        recorder.metric(
+            "code_that_ran", what_ran_state(REPO / "python" / "qd_train", Path(__file__))
+        )
         recorder.metric("linear_control_beats_the_prior", _control_gate(
             val_acc, baseline, n=len(val_labels)
         ))
