@@ -25,6 +25,8 @@ lands in the ledger row, without teaching the ledger a third parser.
 
 from __future__ import annotations
 
+import itertools
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -272,6 +274,142 @@ def test_every_makefile_gate_declares_all_three_outcomes():
     text = MAKEFILE.read_text()
     for token in ("exit 0", "exit 1", "exit 3", "NotRun"):
         assert token in text, f"the Makefile never mentions {token!r}"
+
+
+# --------------------------------------------------------------------------
+# 5 -- the row describes the run it came from
+# --------------------------------------------------------------------------
+#
+# Each counted suite is spelled twice in the Makefile: once in the `*_CMD` variable
+# its own target runs, and once as a `--suite NAME=COMMAND` argument to the recorder.
+# `make gates` runs only lint, clippy, ledger-record and ledger-verify, so the second
+# spelling is the one that runs under `make gates` and the one that writes the row --
+# and the first is what a person gets from `make torch-pytest`.
+#
+# They drifted on 2026-09-21. `--with datasketch` was added to TORCH_PYTEST_CMD and not
+# to the `--suite` string, so `make torch-pytest` ran 1886 tests and the row written by
+# `make gates` described 1858 of them, under a `detail` field naming a command that was
+# not the one anybody had run by hand. Neither number was wrong about its own run; the
+# row was wrong about which run it was.
+#
+# The header comment above the gate commands said they were "defined once and used
+# twice: by its own target, and by `gates`". That is true of LINT_CMD and CLIPPY_CMD
+# and false of the three counted suites, which `gates` never invokes -- and a comment
+# asserting the property is what made its absence hard to see.
+
+
+#: Suite name as it appears in the ledger row -> the make target that runs the same
+#: suite by hand. Both must run the same command, because the row is a claim about
+#: what ran, and `make <target>` is how a person checks that claim.
+SUITE_TARGETS = {
+    "cargo_test_workspace": "cargo-test",
+    "pytest_python_tests": "pytest",
+    "pytest_torch_python_tests": "torch-pytest",
+}
+
+
+def _recipe(target: str) -> str:
+    """What make would run for `target`, with every variable expanded by make itself.
+
+    `-n` is a dry run and prints `@`-silenced recipe lines too, so nothing here
+    executes a suite -- `make -n pytest` would otherwise re-enter this file.
+
+    Asking make rather than re-parsing the Makefile is deliberate. A test that
+    expanded `$(TORCH_PYTEST_CMD)` by hand would be a second implementation of make's
+    substitution, and would agree with a Makefile that is wrong in exactly the way a
+    hand-written expander is wrong.
+    """
+    proc = subprocess.run(
+        ["make", "-f", str(MAKEFILE), "--no-print-directory", "-n", target],
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT_S,
+        cwd=str(REPO),
+    )
+    assert proc.returncode == 0, (
+        f"`make -n {target}` exited {proc.returncode}, so its recipe could not be "
+        f"read and nothing below was actually checked.\nstderr: {proc.stderr}"
+    )
+    return proc.stdout
+
+
+def _recorded_suite_commands() -> dict[str, str]:
+    """The `--suite NAME=COMMAND` pairs `make ledger-record` hands the recorder.
+
+    These are the commands that become `metrics["suite.<name>"].detail` and the
+    entries of `recipe.commands` in the row.
+    """
+    argv = shlex.split(_recipe("ledger-record"))
+    return {
+        value.partition("=")[0]: value.partition("=")[2]
+        for flag, value in itertools.pairwise(argv)
+        if flag == "--suite"
+    }
+
+
+def _runs_contiguously(recipe_argv: list[str], command_argv: list[str]) -> bool:
+    """Is `command_argv` an unbroken run of tokens inside `recipe_argv`?
+
+    Compared as argv rather than as text so that quoting and the `VAR=1` env prefix
+    the target carries do not count as differences -- `qd_train.ledger.parse_command`
+    splits the recorded string with shlex and runs it without a shell, so argv is what
+    the recorder actually executes. A flag added to one spelling and not the other
+    breaks the run and is caught; a pair of quotes does not.
+    """
+    width = len(command_argv)
+    return any(
+        recipe_argv[i : i + width] == command_argv
+        for i in range(len(recipe_argv) - width + 1)
+    )
+
+
+def test_every_recorded_suite_is_mapped_to_a_target_and_every_mapped_target_exists():
+    """Scope, first: the parametrised test below is vacuous over a stale map.
+
+    A fourth `--suite` added to the recorder and not to `SUITE_TARGETS` would not fail
+    anything -- it would simply not be checked, which is this repo's recurring shape:
+    a complete list written down, and then one member of it maintained.
+    """
+    recorded = set(_recorded_suite_commands())
+    assert recorded, (
+        "`make ledger-record` passes no --suite at all; the row it writes measures "
+        "nothing and every assertion below would pass by checking nothing"
+    )
+    unmapped = sorted(recorded - set(SUITE_TARGETS))
+    assert not unmapped, (
+        f"the recorder runs suite(s) {unmapped} that SUITE_TARGETS does not map to a "
+        "make target, so nothing checks that the row describes what ran for them"
+    )
+    orphaned = sorted(set(SUITE_TARGETS) - recorded)
+    assert not orphaned, (
+        f"SUITE_TARGETS maps {orphaned}, which the recorder no longer runs; a mapping "
+        "for a suite that is gone checks nothing and misleads the next reader"
+    )
+
+
+@pytest.mark.parametrize(("suite", "target"), sorted(SUITE_TARGETS.items()))
+def test_the_command_recorded_for_a_suite_is_the_command_its_target_runs(
+    suite: str, target: str
+):
+    """One suite, one command, whichever entry point you came in by.
+
+    The row's `detail` is the only account of what produced its numbers. If `make
+    <target>` runs something else, the coverage pair is a true statement about a run
+    that no one can reproduce from the row -- and the divergence shows up as a test
+    count that moves for no reason anybody can point at.
+    """
+    recorded = _recorded_suite_commands()[suite]
+    recipe_argv = shlex.split(_recipe(target))
+    recorded_argv = shlex.split(recorded)
+    assert _runs_contiguously(recipe_argv, recorded_argv), (
+        f"`make {target}` and the {suite!r} command recorded in the ledger row are not "
+        f"the same command.\n\n"
+        f"  recorded and run by `make gates`:\n    {shlex.join(recorded_argv)}\n\n"
+        f"  run by `make {target}`:\n    {' '.join(recipe_argv)}\n\n"
+        "Both run; only the first writes the row, so the row describes a run that "
+        "differs from the one a person reproduces by hand. Build both from one "
+        "variable rather than correcting the copy."
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover - convenience only

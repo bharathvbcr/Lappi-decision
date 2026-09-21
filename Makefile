@@ -91,8 +91,33 @@ export PYTHONDONTWRITEBYTECODE := 1
 # --------------------------------------------------------------------------------
 # Gate commands.
 #
-# Each is a single-line shell command defined once and used twice: by its own target,
-# and by `gates`, which needs the true 0/1/3 status that recursive make would destroy.
+# `LINT_CMD` and the two `LEDGER_*` commands are single-line shell commands defined
+# once and used twice: by their own target, and by `gates`, which needs the true
+# 0/1/3 status that recursive make would destroy.
+#
+# The three *counted* suites are different, and the difference matters. `gates` does
+# not invoke `cargo-test`, `pytest` or `torch-pytest` at all -- it runs them through
+# `ledger-record`, which re-runs each one itself in order to parse its counts. So each
+# counted suite has two entry points that both really execute it:
+#
+#   `make torch-pytest`   -> $(TORCH_PYTEST_CMD), for a person at a terminal
+#   `make gates`          -> $(LEDGER_RECORD_CMD)'s --suite argument, which writes the row
+#
+# They were written out separately, and on 2026-09-21 they drifted: `--with datasketch`
+# was added to the first and not the second, so `make torch-pytest` ran 1886 tests while
+# the row from `make gates` reported 1858 under a `detail` field naming a command nobody
+# had run. Neither count was wrong about its own run. The row was wrong about which run
+# it was, which is worse, because the row is the only durable account.
+#
+# So the command is now spelled once, in a `*_RUN` variable, and both entry points are
+# built from it. `python/tests/test_lint_gate.py` asserts that -- comparing argv, via
+# make's own `-n` expansion -- because the comment above this one asserted the same
+# property while it was false.
+#
+# The `*_RUN` payloads carry no quotes. `qd_train.ledger.parse_command` splits the
+# recorded string with shlex and runs it as argv with no shell, so a path containing a
+# space could not survive the recorder's side however the target were written; leaving
+# both sides unquoted means they fail together rather than one silently differing.
 # --------------------------------------------------------------------------------
 
 # Whole repo, not just python/: stack/ and tools/ are Python too, and a gate scoped so
@@ -104,13 +129,15 @@ LINT_CMD = if [ ! -x "$(RUFF)" ]; then printf 'NotRun: lint - ruff is not instal
 # that cannot fail.
 CLIPPY_CMD = if ! command -v cargo > /dev/null 2>&1; then printf 'NotRun: clippy - cargo is not on PATH, so no Rust was examined.\n'; exit $(NOT_RUN); fi; if ! cargo clippy --version > /dev/null 2>&1; then printf 'NotRun: clippy - cargo is present but the clippy component is not installed.\n  Install it:  rustup component add clippy\n'; exit $(NOT_RUN); fi; cargo clippy --manifest-path "$(REPO)/Cargo.toml" --all-targets -- -D warnings
 
-CARGO_TEST_CMD = if ! command -v cargo > /dev/null 2>&1; then printf 'NotRun: cargo-test - cargo is not on PATH, so no Rust test was executed.\n'; exit $(NOT_RUN); fi; cargo test --manifest-path "$(REPO)/Cargo.toml" --workspace
+CARGO_TEST_RUN = cargo test --manifest-path $(REPO)/Cargo.toml --workspace
+CARGO_TEST_CMD = if ! command -v cargo > /dev/null 2>&1; then printf 'NotRun: cargo-test - cargo is not on PATH, so no Rust test was executed.\n'; exit $(NOT_RUN); fi; $(CARGO_TEST_RUN)
 
 # `-o addopts=` clears the `-q --strict-markers --strict-config` in pyproject. Passing
 # another -q would make it -qq, which prints NO summary line -- and a green run with no
 # counts is recorded by the ledger as NotRun, correctly, because a pass with no counts
 # cannot be told from a suite that collected nothing.
-PYTEST_CMD = if [ ! -x "$(PY)" ]; then printf 'NotRun: pytest - no interpreter at %s; the project venv is missing.\n' "$(PY)"; exit $(NOT_RUN); fi; if ! "$(PY)" -m pytest --version > /dev/null 2>&1; then printf 'NotRun: pytest - pytest is not installed in %s.\n' "$(VENV)"; exit $(NOT_RUN); fi; "$(PY)" -m pytest "$(REPO)/python/tests" -o addopts=
+PYTEST_RUN = $(PY) -m pytest $(REPO)/python/tests -o addopts=
+PYTEST_CMD = if [ ! -x "$(PY)" ]; then printf 'NotRun: pytest - no interpreter at %s; the project venv is missing.\n' "$(PY)"; exit $(NOT_RUN); fi; if ! "$(PY)" -m pytest --version > /dev/null 2>&1; then printf 'NotRun: pytest - pytest is not installed in %s.\n' "$(VENV)"; exit $(NOT_RUN); fi; $(PYTEST_RUN)
 
 # The same suite again, in an environment that has torch. NOT a substitute for the run
 # above: that one answers "does the torch-free core still work without torch", this one
@@ -119,7 +146,24 @@ PYTEST_CMD = if [ ! -x "$(PY)" ]; then printf 'NotRun: pytest - no interpreter a
 #
 # A missing uv or ml venv makes this NotRun, never a pass -- the five modules would go
 # back to being invisible, and invisible is what this suite exists to end.
-TORCH_PYTEST_CMD = if [ ! -x "$(UV)" ]; then printf 'NotRun: torch-pytest - no uv at %s, so the torch suite could not be launched.\n  Override with: make UV=/path/to/uv\n  This is NOT a pass: the model-path modules were not run.\n' "$(UV)"; exit $(NOT_RUN); fi; if [ ! -x "$(ML_PY)" ]; then printf 'NotRun: torch-pytest - no interpreter at %s; the torch environment is missing.\n  Override with: make ML_VENV=/path/to/venv\n  This is NOT a pass: the model-path modules were not run.\n' "$(ML_PY)"; exit $(NOT_RUN); fi; PYTHONDONTWRITEBYTECODE=1 "$(UV)" run --no-project --python "$(ML_PY)" --with pytest --with hypothesis python -m pytest "$(REPO)/python/tests" -o addopts=
+#
+# `--with datasketch` is there for a reason worth stating, because it looks like a stray
+# dependency and is not. `datasketch` is declared in `[project.dependencies]` and is absent
+# from the ml venv, so `test_minhash.py`'s module-level `importorskip` fired and the whole
+# module -- 29 tests -- did not run here. Pytest counts a module-level skip as ONE, so this
+# suite reported `1850 passed, 2 skipped` while 29 tests sat behind one of those two. The
+# coverage pair in the ledger row said 1850/1852 and understated the un-run tests by 28:
+# this repository's own "never present a capped sample as complete coverage", in the
+# instrument built to prevent it.
+#
+# The tests themselves lose nothing by it -- they run in the torch-free suite, which has
+# datasketch -- so this is a reporting fix rather than a coverage one. It is provisioned
+# the same ephemeral way pytest and hypothesis already are; no virtualenv is modified.
+# `python/tests/test_declared_dependencies.py` names the next one rather than letting it
+# become another silent "1 skipped" -- and it is what caught the drift described above,
+# by failing in the recorder's un-provisioned run while passing in the target's.
+TORCH_PYTEST_RUN = $(UV) run --no-project --python $(ML_PY) --with pytest --with hypothesis --with datasketch python -m pytest $(REPO)/python/tests -o addopts=
+TORCH_PYTEST_CMD = if [ ! -x "$(UV)" ]; then printf 'NotRun: torch-pytest - no uv at %s, so the torch suite could not be launched.\n  Override with: make UV=/path/to/uv\n  This is NOT a pass: the model-path modules were not run.\n' "$(UV)"; exit $(NOT_RUN); fi; if [ ! -x "$(ML_PY)" ]; then printf 'NotRun: torch-pytest - no interpreter at %s; the torch environment is missing.\n  Override with: make ML_VENV=/path/to/venv\n  This is NOT a pass: the model-path modules were not run.\n' "$(ML_PY)"; exit $(NOT_RUN); fi; PYTHONDONTWRITEBYTECODE=1 $(TORCH_PYTEST_RUN)
 
 # The documented one-command path from docs/ledger-schema.md: runs each suite, writes
 # one `build` row, prints the row id alone on stdout. Its own exit codes are already
@@ -132,7 +176,7 @@ TORCH_PYTEST_CMD = if [ ! -x "$(UV)" ]; then printf 'NotRun: torch-pytest - no u
 # third parser, the lint gate is asserted inside the pytest suite itself
 # (python/tests/test_lint_gate.py), where it is counted and reaches the row like any
 # other test.
-LEDGER_RECORD_CMD = if [ ! -x "$(PY)" ]; then printf 'NotRun: ledger-record - no interpreter at %s; no row was written.\n' "$(PY)"; exit $(NOT_RUN); fi; PYTHONPATH="$(REPO)/python" "$(PY)" -m qd_train.ledger record --ledger "$(LEDGER)" --repo "$(REPO)" --toolchain "$(TOOLCHAIN)" --suite cargo_test_workspace="cargo test --manifest-path $(REPO)/Cargo.toml --workspace" --suite pytest_python_tests="$(PY) -m pytest $(REPO)/python/tests -o addopts=" --suite pytest_torch_python_tests="$(UV) run --no-project --python $(ML_PY) --with pytest --with hypothesis python -m pytest $(REPO)/python/tests -o addopts="
+LEDGER_RECORD_CMD = if [ ! -x "$(PY)" ]; then printf 'NotRun: ledger-record - no interpreter at %s; no row was written.\n' "$(PY)"; exit $(NOT_RUN); fi; PYTHONPATH="$(REPO)/python" "$(PY)" -m qd_train.ledger record --ledger "$(LEDGER)" --repo "$(REPO)" --toolchain "$(TOOLCHAIN)" --suite "cargo_test_workspace=$(CARGO_TEST_RUN)" --suite "pytest_python_tests=$(PYTEST_RUN)" --suite "pytest_torch_python_tests=$(TORCH_PYTEST_RUN)"
 
 LEDGER_VERIFY_CMD = if [ ! -x "$(PY)" ]; then printf 'NotRun: ledger-verify - no interpreter at %s; the chain was not checked.\n' "$(PY)"; exit $(NOT_RUN); fi; if [ ! -f "$(LEDGER)" ]; then printf 'NotRun: ledger-verify - no ledger at %s; there is no chain to check.\n  An absent ledger is not a verified one.\n' "$(LEDGER)"; exit $(NOT_RUN); fi; PYTHONPATH="$(REPO)/python" "$(PY)" -m qd_train.ledger verify --ledger "$(LEDGER)"
 
