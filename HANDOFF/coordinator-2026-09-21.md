@@ -1599,6 +1599,100 @@ than 32%. Still clears.
 None of the three would have been found by re-reading. Re-reading confirms the check exists,
 which was never in doubt.
 
+## 34. `6efd874` — the eighth instance, found inside a test written to catch it
+
+`test_every_runner_records_which_sources_produced_its_row` opens by naming the defect it
+exists for: `real_ft_run.py` had the closure digest, `rung0_real_run.py` did not, and the
+GH200 rows' provenance had to be reconstructed by hand with `sha256sum`. Its scope was then
+**four hardcoded names**, written when four runners were the ones in view.
+
+**Six tools write ledger rows.** The two it omitted recorded no digest at all:
+
+| tool | why its rows are the ones that need it |
+| --- | --- |
+| `rung0_linear_control.py` | runs on the same rented box, beside the arm it exists to interpret |
+| `real_tokenizer_pipeline.py` | writes the shard sets every FT run downstream trains on |
+
+Both green throughout. A hardcoded scope is the defect that test catches, one level up from
+the code to the check — the eighth instance today of *a complete list written down and then
+one member of it fixed*, and the first found inside a test written for exactly that shape.
+
+**Why it is not bookkeeping.** `code_commit` is `<sha>-dirty` for any uncommitted change at
+all, and on the box — synced by *copying* files into a clone pinned at an old commit — that
+is its permanent state, not an exception. The concurrent lane's log reads `8b9df39 85
+file(s) dirty` on every row it writes. One bit standing for 6894 insertions across 72 paths
+distinguishes nothing; the closure digest is the field that says what ran, and two
+row-writing tools had none.
+
+**Both scopes are derived now.** `_row_writing_tools()` (constructs a recorder) and
+`_pricing_tools()` (constructs a `CostEstimate`) — deliberately two functions, because the
+four pricing tools are a proper subset and the two new ones pass `cost=None` on a local
+device, where requiring `for_device` would be requiring a price for nothing billed. The
+pricing four happen to be exactly the four that were hardcoded, which was measured rather
+than assumed: `real_tokenizer_pipeline.py` and `run_cost.py` mention `CostEstimate` without
+building one, so a substring scope would have pulled in two tools with no rate to state. It
+was right because it was current, not because anything kept it so — and its twin in the same
+file was four names that had stopped being all of them.
+
+Both derivations assert their own size. A rename that made either match nothing would
+otherwise read exactly like a clean repository.
+
+## 35. `GAP-SIX-SPELLINGS-OF-ONE-RECIPE-HASH`: still open, no longer armed
+
+§31 recorded it as open **by choice** — unifying six spellings renames every future
+`recipe_hash` and breaks comparability with the 61 capacity rows and 24 learning-curve rows
+of today, so it is a declared break and not a tidy-up. That reasoning stands. What it left
+behind was a live landmine: the entire danger is a future refactor tidying one spelling
+toward another, after which every row is incomparable with every row before, both files
+still verify their chains, and **nothing says so**.
+
+Leaving a gap open is a decision about *when* to fix it. It is not a decision to leave it
+able to go off quietly. Those are separable, and only the first one was this lane's to make.
+
+So each of the six tools' `json.dumps` keyword arguments is now read through the AST —
+following `recipe_hash=` into the expression, or into the `digest` helper the toy runners
+route it through — and pinned to the spelling its existing rows were written under:
+
+| spelling | tools |
+| --- | --- |
+| `sort_keys=True` | `rung0_real_run`, `rung0_linear_control`, `real_tokenizer_pipeline` |
+| `sort_keys=True, separators=(",", ":")` | `real_ft_run`, `rung0_toy_run`, `ft_toy_run` |
+
+Structural, not textual: reformatting the call does not move it, changing what it serialises
+does. The split is **asserted rather than described** — both spellings are run over one probe
+dict and required to produce exactly two distinct digests, so if they ever agreed the concern
+would be shown imaginary rather than assumed real, and the six could be unified for free.
+
+Injected and confirmed: tidying `rung0_real_run.py` toward the other spelling fails with
+*"Every recipe_hash it writes from here differs from every one it has written, both verify,
+and nothing in the ledger says the family changed. If that is intended, update this entry
+and declare the break in a handoff."*
+
+Failing there is not a prohibition. It is the sentence that was missing.
+
+## The three open items, stated precisely
+
+The previous part listed three and called them all not-this-lane's. Two of those were
+partly wrong, and the correction is the point:
+
+1. **`GAP-SIX-SPELLINGS-OF-ONE-RECIPE-HASH`** — *unifying* it is a declared break and stays
+   the next lane's or the human's. *Guarding* it was never a comparability question and is
+   done (§35). "Open by choice" was the right call about the fix and the wrong place to
+   stop.
+2. **`code_commit` and `-dirty`** — whether to *refuse* a paid run on a dirty tree is a
+   policy call with real cost, and stays the human's. But the reason it is hard is that the
+   field cannot distinguish "the code under test changed" from "someone's prose was open in
+   an editor" — demonstrated on this repo's own gate row at `a8b4986-dirty`, where the dirt
+   was the other lane's audit file. The *substitute* signal is the closure digest, and
+   making sure every row-writing tool carries one was this lane's (§34). The policy question
+   is now the only part left.
+3. **Whether lanes should re-read `CLAUDE.md` on a schedule** — this stays the human's, and
+   the earlier claim that *"nothing here can detect the divergence"* was too strong. A
+   `CLAUDE.md` digest on a row would let a reader tell which rules a lane was operating
+   under, exactly as `code_that_ran` does for code. It is not built, because recording which
+   rules a lane had does not make a stale lane re-read them, and re-reading is the actual
+   ask. Said precisely rather than dismissed.
+
 ## Where this leaves the final train
 
 On the axes this lane owns:
@@ -1611,27 +1705,42 @@ On the axes this lane owns:
   the inventory until its author states the reason.
 * **A sweep's own resolution warning states its own case** — the correction is computed per
   row from an inverse-t this project now owns, instead of one constant true of one case.
+* **Every tool that writes a row records what produced it**, and both scopes that enforce
+  that are derived from the tree rather than listed by hand.
+* **The one open gap cannot go off quietly** — the six recipe-hash spellings are pinned, so
+  the tidy-up that would silently rename every future `recipe_hash` fails with the
+  consequence spelled out.
 
-What is not this lane's and is not done: `GAP-SIX-SPELLINGS-OF-ONE-RECIPE-HASH` is open by
-choice, and unifying it mid-experiment is a comparability break somebody has to declare.
+What is not this lane's: *unifying* the six spellings, which renames every future
+`recipe_hash` and is a comparability break somebody has to declare in a handoff — not a
+tidy-up, and not a thing to do mid-experiment. Guarding it was separable and is done.
 
 ## Open
 
-1. **`GAP-SIX-SPELLINGS-OF-ONE-RECIPE-HASH`.** Six ways to hash a recipe, two disagreeing on
-   identical dicts. Fixing it renames every future `recipe_hash`; it needs declaring in a
-   handoff, not doing quietly.
-2. **Whether `code_commit` should refuse `-dirty` for a run that will cost money.** Human's.
-   Sharpened twice today: a gate row was recorded at `7f191bd-dirty` covering code that is
-   now `f93b22c`, and the box reports `8b9df39 85 file(s) dirty` on every row it writes.
-3. **Whether lanes should re-read CLAUDE.md on a schedule rather than on incident.** Human's;
-   nothing here can detect the divergence.
+1. **`GAP-SIX-SPELLINGS-OF-ONE-RECIPE-HASH` — open, and guarded (§35).** Six ways to hash a
+   recipe, two disagreeing on identical dicts. Unifying them renames every future
+   `recipe_hash`, so it is declared in a handoff rather than merged. The accidental version
+   now fails a test that names the consequence, so what remains is a decision, not a risk.
+2. **Whether `code_commit` should refuse `-dirty` for a run that will cost money.** Human's,
+   and now the *only* part left of that question. The field cannot distinguish "the code
+   under test changed" from "someone's prose was open in an editor" — this repo's own gate
+   row at `a8b4986-dirty` was dirtied by the other lane's audit file. The substitute signal
+   is the closure digest, and every row-writing tool carries one as of §34.
+3. **Whether lanes should re-read CLAUDE.md on a schedule rather than on incident.** Human's.
+   Earlier parts said *"nothing here can detect the divergence"*, which was too strong: a
+   `CLAUDE.md` digest on a row would say which rules a lane ran under, exactly as
+   `code_that_ran` does for code. Not built, because recording which rules a lane had does
+   not make a stale lane re-read them, and re-reading is the ask.
 
 ## First command for the next lane
 
 ```bash
-grep -n "NOT_WRAPPING" -A 40 /Users/bharath/Code/research/qwen-decision/python/tests/test_tool_call_sites.py
+grep -n "_row_writing_tools\|_pricing_tools\|_SPELLINGS\|NOT_WRAPPING" /Users/bharath/Code/research/qwen-decision/python/tests/test_tool_call_sites.py
 ```
 
-The inventory of every place a recorder can be handed a duration it did not time. Five
-entries, each with the reason its work is safe outside a block. Adding a sixth is how the
-next author is made to think about it.
+The four things in this file that decide what the other checks look at: two derived scopes,
+the pinned recipe-hash spellings, and the inventory of every place a recorder can be handed
+a duration it did not time. Three of today's findings were in the scopes rather than in the
+code they checked — a list of four that had stopped being all of them, twice, and a check
+whose pattern could not match the way its flag is actually spelled. Read these before
+trusting anything else here.
