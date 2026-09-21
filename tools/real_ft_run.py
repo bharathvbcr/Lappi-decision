@@ -1165,6 +1165,32 @@ def _counterfactual_holds(shipped: dict[str, object], defect: dict[str, object])
     )
 
 
+def _cost(
+    *, device: str, n_gpus: int | None = None, usd_per_hour: float | None = None,
+    usd_per_gpu_hour: float | None = None, instance: str | None = None,
+) -> CostEstimate:
+    """What this run costs, in one place.
+
+    Two things need the answer and they must not be able to disagree: the ``RunControl``
+    that gates the launch under rule 4, and the ledger row that records what was spent.
+    Before this, the row read a separate ``cost_usd_per_hour`` float that defaulted to zero
+    and that only one of two call sites passed -- so the estimate could be right while the
+    row said a GH200 hour cost nothing.
+
+    The cap is the same ``WALL_CLOCK_CAP_S`` the control uses, because ``projected_usd`` is
+    priced from the cap; a cost built against a different cap would answer a different
+    question about the same run.
+    """
+    return CostEstimate.for_device(
+        cap=WallClockCap(cap_s=WALL_CLOCK_CAP_S),
+        device=device,
+        n_gpus=n_gpus,
+        usd_per_hour=usd_per_hour,
+        usd_per_gpu_hour=usd_per_gpu_hour,
+        instance=instance,
+    )
+
+
 def _control(
     steps: int, *, device: str, lr: float, checkpoint_every: int = 0,
     n_gpus: int | None = None, usd_per_hour: float | None = None,
@@ -1194,13 +1220,9 @@ def _control(
             peak_lr=lr, total_steps=steps, warmup_steps=max(1, steps // 20), min_lr=lr / 10
         ),
         cap=cap,
-        cost=CostEstimate.for_device(
-            cap=cap,
-            device=device,
-            n_gpus=n_gpus,
-            usd_per_hour=usd_per_hour,
-            usd_per_gpu_hour=usd_per_gpu_hour,
-            instance=instance,
+        cost=_cost(
+            device=device, n_gpus=n_gpus, usd_per_hour=usd_per_hour,
+            usd_per_gpu_hour=usd_per_gpu_hour, instance=instance,
         ),
         grad_accum=1,
         checkpoint_every=checkpoint_every,
@@ -1274,7 +1296,7 @@ def _protocol(*, reader: ShardReader, seed: int, recipe: dict[str, object]) -> P
 
 def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[str, object],
               run_kind: str, quick_reason: str, notes: str,
-              wall_clock_s: float | None, cost_usd_per_hour: float = 0.0) -> RunRecorder:
+              wall_clock_s: float | None, cost: CostEstimate | None) -> RunRecorder:
     """Both of this tool's row kinds go through here, and they need different answers.
 
     ``None`` from :func:`_train`, whose ``with`` block contains ``train_ft``. A measured
@@ -1289,7 +1311,7 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
         repo=REPO,
         env=Environment.detect(device=str(recipe["device"])),
         wall_clock_s=wall_clock_s,
-        cost_usd_per_hour=cost_usd_per_hour,
+        cost=cost,
         quick=True,
         quick_reason=quick_reason,
         notes=notes,
@@ -1434,10 +1456,14 @@ def _train(
         ledger, reader=reader, seed=seed, recipe=recipe, run_kind="ft",
         # None: the block below contains train_ft, so the recorder's own lifetime IS the run.
         wall_clock_s=None,
-        # The rate the run is actually being billed at, so `cost_usd` is the duration above
-        # times a real number. It was 0.0 on all 799 rows this project had written, because
-        # this defaulted and nothing passed it.
-        cost_usd_per_hour=0.0 if usd_per_hour is None else usd_per_hour,
+        # The same estimate the control below is gated on, not a bare rate beside it. It was
+        # 0.0 on all 799 rows this project had written, because a float defaulted and nothing
+        # passed it; an estimate cannot default, and on a non-local device the recorder
+        # refuses a row that omits it.
+        cost=_cost(
+            device=device, n_gpus=n_gpus, usd_per_hour=usd_per_hour,
+            usd_per_gpu_hour=usd_per_gpu_hour, instance=instance,
+        ),
         quick_reason=quick_reason,
         notes=(
             f"tools/real_ft_run.py [{tag}] -- qd_train.trainer.train_ft over a shard set "
@@ -1595,6 +1621,13 @@ def _train(
     final = _evaluate(step, plan, supervised, letter_floors, span_floors)
     return {
         "tag": tag, "device": device, "seed": seed,
+        # Carried out for the same reason as the backbone keys: the verdict row is billed on
+        # the same machine at the same rate, and must price itself from this run's estimate
+        # rather than build a second one from arguments it does not have.
+        "cost": _cost(
+            device=device, n_gpus=n_gpus, usd_per_hour=usd_per_hour,
+            usd_per_gpu_hour=usd_per_gpu_hour, instance=instance,
+        ),
         # So the verdict row names the same backbone this row does, rather than restating it.
         **backbone_keys,
         "steps_requested": steps,
@@ -1769,6 +1802,9 @@ def _record_verdict(run: dict[str, object], *, ledger: Ledger, reader: ShardRead
         # the parent run's duration. 186 ft rows and 162 verdict rows each claiming the same
         # seconds would sum to twice the GPU time actually spent.
         wall_clock_s=decode_s,
+        # The decode was billed on the same machine as the run it reports on, so it prices
+        # itself from that run's estimate. The durations differ and must; the rate does not.
+        cost=run["cost"],  # type: ignore[arg-type]
         notes=(
             f"tools/real_ft_run.py verdict for ft row {run['ft_row_id']} "
             f"({run['device']} seed={run['seed']}): where the abstention decoded on a real "

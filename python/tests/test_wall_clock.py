@@ -35,6 +35,7 @@ from qd_train.ledger import (
     RunRecorder,
     verify_no_fork,
 )
+from qd_train.run_control import CostEstimate, WallClockCap
 from qd_train.tristate import NotRun
 
 REPO = Path(__file__).resolve().parents[2]
@@ -58,7 +59,21 @@ def _env() -> Environment:
     )
 
 
+def _rate(usd_per_hour: float) -> CostEstimate:
+    """A billed rate, for the two tests that assert cost follows the measured duration."""
+    return CostEstimate(
+        cap=WallClockCap(cap_s=3600.0),
+        usd_per_hour=usd_per_hour,
+        n_gpus=1,
+        instance="test-1gpu",
+    )
+
+
 def _recorder(led: Ledger, **kw: object) -> RunRecorder:
+    # `cost` is required and has no default, and these tests are about the CLOCK. The env
+    # below is a local device, so `None` is the honest answer and the recorder accepts it;
+    # test_row_cost.py is where the cost argument itself is exercised.
+    kw.setdefault("cost", None)
     return RunRecorder(
         led, protocol=_protocol(), run_kind="ft", repo=REPO, env=_env(), **kw  # type: ignore[arg-type]
     )
@@ -118,7 +133,7 @@ def test_cost_comes_from_the_measured_wall_clock_not_the_recorder_lifetime(tmp_p
     six millionths of a cent.
     """
     led = Ledger(tmp_path / "runs.jsonl")
-    with _recorder(led, wall_clock_s=3600.0, cost_usd_per_hour=2.20):
+    with _recorder(led, wall_clock_s=3600.0, cost=_rate(2.20)):
         pass
     assert led.rows()[0].cost_usd == pytest.approx(2.20)
 
@@ -129,7 +144,7 @@ def test_a_measured_wall_clock_survives_a_failing_run(tmp_path: Path):
     the first leaves a failed GPU run priced at zero.
     """
     led = Ledger(tmp_path / "runs.jsonl")
-    with pytest.raises(RuntimeError), _recorder(led, wall_clock_s=118.5, cost_usd_per_hour=2.20):
+    with pytest.raises(RuntimeError), _recorder(led, wall_clock_s=118.5, cost=_rate(2.20)):
         raise RuntimeError("CUDA OOM")
     row = led.rows()[0]
     assert row.status == "failed"

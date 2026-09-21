@@ -721,6 +721,10 @@ def _recorder(
         # The device this run chose, not the best one this host offers.
         env=Environment.detect(device=device),
         wall_clock_s=wall_clock_s,
+        # Through `_control` rather than a second `for_device` call beside it, so there is
+        # one spelling of what a run on this device costs and the row cannot disagree with
+        # the estimate that gated it. Construction is pure; nothing is armed until start().
+        cost=_control(steps, device=device).cost,
         quick=True,
         quick_reason=(
             f"toy FT run: {steps} optimizer steps over {len(rows)} synthetic rows on {device}, "

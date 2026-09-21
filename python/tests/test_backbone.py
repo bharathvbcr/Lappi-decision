@@ -492,6 +492,7 @@ def _recorder(tmp_path: Path) -> RunRecorder:
         # None: every caller of this helper hands the recorder to train_ft, whose block
         # contains the run.
         wall_clock_s=None,
+        cost=None,
         env=Environment(
             torch=torch.__version__,
             transformers_sha="none",

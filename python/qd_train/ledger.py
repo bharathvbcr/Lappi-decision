@@ -39,6 +39,7 @@ from typing import Any, Final, Literal, Self
 
 from qd_data.fingerprint import code_fingerprint
 
+from .run_control import CostEstimate, WallClockCap
 from .tristate import NotRun, Ran, TriState, parse_tristate
 
 __all__ = [
@@ -85,6 +86,13 @@ WallClockSource = Literal["caller", "recorder", "unrecorded"]
 
 _RUN_KINDS: frozenset[str] = frozenset(RunKind.__args__)  # type: ignore[attr-defined]
 _STATUSES: frozenset[str] = frozenset(Status.__args__)  # type: ignore[attr-defined]
+#: The cap a `build` row's cost is priced against. `CostEstimate` prices `projected_usd`
+#: from the cap, and a build row is a local gate run whose rate is zero, so the number this
+#: multiplies is zero whatever it is. It is stated rather than left implicit because a cap
+#: is what makes the estimate constructible at all, and because a future build row on rented
+#: hardware must inherit a real bound rather than a placeholder nobody chose.
+BUILD_CAP_S: Final[float] = 3600.0
+
 _WALL_CLOCK_SOURCES: frozenset[str] = frozenset(
     WallClockSource.__args__  # type: ignore[attr-defined]
 )
@@ -1001,9 +1009,9 @@ class RunRecorder:
         repo: str | os.PathLike[str],
         env: Environment | None = None,
         wall_clock_s: float | None,
+        cost: CostEstimate | None,
         quick: bool = False,
         quick_reason: str | None = None,
-        cost_usd_per_hour: float = 0.0,
         notes: str = "",
     ) -> None:
         if run_kind not in _RUN_KINDS:
@@ -1025,9 +1033,24 @@ class RunRecorder:
         self.env = env or Environment.detect()
         self.quick = quick
         self.quick_reason = quick_reason
-        self.cost_usd_per_hour = cost_usd_per_hour
+        self.cost = cost
         self.wall_clock_s = wall_clock_s
         self.notes = notes
+        if cost is None and self.env.device not in CostEstimate.LOCAL_DEVICES:
+            # The GH200 case, made impossible rather than discouraged: 13 rung 0 rows
+            # recorded cost_usd 0.0 for real GPU hours because nothing required a rate.
+            # `cost=None` is how a local run says "nothing is billed here"; on hardware paid
+            # for by the hour it is an omission, and an omission that reads as $0.00 is
+            # indistinguishable from a measured zero. Refused at construction, because
+            # refusing in `_finish` would refuse once the hour had already been spent and
+            # would take the row down with it.
+            raise ValueError(
+                f"device {self.env.device!r} is not one of "
+                f"{sorted(CostEstimate.LOCAL_DEVICES)}, so this run is billed by the hour "
+                "and its row cannot omit the cost. Pass the CostEstimate the run was gated "
+                "on (RunControl.cost), or CostEstimate.for_device(...) -- which prices a "
+                "local device at zero and refuses to invent a rate for anything else"
+            )
 
         self.metrics: dict[str, TriState] = {}
         self.controls: dict[str, TriState] = {}
@@ -1140,7 +1163,10 @@ class RunRecorder:
                 gates=self.gates,
                 wall_clock_s=wall,
                 wall_clock_source="recorder" if self.wall_clock_s is None else "caller",
-                cost_usd=self.cost_usd_per_hour * wall / 3600.0,
+                # From the same object that gated the launch, not a duplicate float beside
+                # it. trainer.py already computed exactly this and put it in TrainResult
+                # rather than the row, so the correct number existed and was discarded.
+                cost_usd=0.0 if self.cost is None else self.cost.cost_for(wall),
                 notes=note,
             )
         )
@@ -1597,6 +1623,11 @@ def record_build_run(
         env=env,
         # This recorder's block contains the suites, so its own lifetime IS the run's.
         wall_clock_s=None,
+        # A build row is `make gates` on the machine the work is already being done on, so
+        # the honest answer is a priced zero rather than an omitted one: `for_device`
+        # returns zero for cpu and refuses to invent a rate for anything else, so if this
+        # ever runs somewhere rented it fails loudly instead of recording $0.00.
+        cost=CostEstimate.for_device(cap=WallClockCap(cap_s=BUILD_CAP_S), device="cpu"),
         quick=quick,
         quick_reason=quick_reason,
         notes=notes,

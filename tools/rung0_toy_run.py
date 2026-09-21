@@ -289,6 +289,8 @@ def _train_once(*, device: str, seed: int, steps: int, rows: int) -> dict:
 
     accuracy = _accuracy(model, plan, device)
     return {
+        # Carried out so the row prices itself from the estimate that gated the run.
+        "cost": control.cost,
         "device": device,
         "seed": seed,
         "steps_requested": steps,
@@ -458,6 +460,7 @@ def _record(run: dict, *, ledger: Ledger, wiring: dict, steps: int, rows: int) -
         # The run finished before `_record` was called; the recorder would otherwise time
         # its own metric writes.
         wall_clock_s=float(run["wall_clock_s"]),
+        cost=run["cost"],
         quick=True,
         quick_reason=(
             f"toy run: {steps} optimizer steps over {rows} synthetic rows on "

@@ -1002,6 +1002,12 @@ def main(argv: list[str] | None = None) -> int:
         repo=REPO,
         env=Environment.detect(transformers_sha=_transformers_version()),
         wall_clock_s=work_s,
+        # This pipeline tokenises on whatever machine it is run on, and on a Mac that is
+        # already bought nothing is billed by the hour. `None` states that. It is not a
+        # blanket exemption: `Environment.detect` reports the real device, and on anything
+        # outside CostEstimate.LOCAL_DEVICES the recorder refuses this rather than writing
+        # an unstated zero that reads like a measured one.
+        cost=None,
         quick=True,
         quick_reason=(
             "one seed, and a corpus drawn from this repository alone rather than from the "

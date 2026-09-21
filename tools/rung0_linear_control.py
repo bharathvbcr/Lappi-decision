@@ -196,6 +196,10 @@ def main(argv: list[str] | None = None) -> int:
         repo=REPO,
         env=Environment.detect(device="cpu"),
         wall_clock_s=time.monotonic() - work_t0,
+        # This control fits a linear model on the CPU of a machine already bought, so
+        # nothing is billed by the hour. `None` says that; on any non-local device
+        # RunRecorder refuses it rather than recording an unstated zero as a measured one.
+        cost=None,
         quick=True,
         quick_reason=(
             "a control arm on a corpus drawn from this repository rather than the pool the "

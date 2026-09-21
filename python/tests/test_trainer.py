@@ -86,6 +86,7 @@ def _recorder(tmp_path: Path, *, run_kind: str = "cpt", seed: int = 7) -> RunRec
         repo=REPO,
         env=_env(),
         wall_clock_s=None,  # this block contains the run under test
+        cost=None,  # a local test device is billed by nobody
     )
 
 
@@ -497,7 +498,8 @@ def test_supervision_refuses_a_count_that_disagrees_with_its_mask():
 def test_a_cpt_run_completes_its_schedule_and_writes_one_ledger_row(tmp_path):
     ledger = Ledger(tmp_path / "ledger.jsonl")
     rec = RunRecorder(
-        ledger, protocol=_protocol(), run_kind="cpt", repo=REPO, env=_env(), wall_clock_s=None
+        ledger, protocol=_protocol(), run_kind="cpt", repo=REPO, env=_env(), wall_clock_s=None,
+        cost=None
     )
     result = train_cpt(
         batches_for(7, 0, n=40), epoch=0, step=TinyStep(), control=_control(total_steps=10),
@@ -606,7 +608,8 @@ def test_a_non_finite_loss_stops_the_run_loudly(tmp_path):
 
     ledger = Ledger(tmp_path / "ledger.jsonl")
     rec = RunRecorder(
-        ledger, protocol=_protocol(), run_kind="cpt", repo=REPO, env=_env(), wall_clock_s=None
+        ledger, protocol=_protocol(), run_kind="cpt", repo=REPO, env=_env(), wall_clock_s=None,
+        cost=None
     )
     with pytest.raises(TrainerContractViolation, match="non-finite loss"):
         train_cpt(
@@ -625,7 +628,8 @@ def test_the_wall_clock_cap_terminates_the_run_and_the_row_is_still_written(tmp_
     step = TinyStep()
     ledger = Ledger(tmp_path / "ledger.jsonl")
     rec = RunRecorder(
-        ledger, protocol=_protocol(), run_kind="cpt", repo=REPO, env=_env(), wall_clock_s=None
+        ledger, protocol=_protocol(), run_kind="cpt", repo=REPO, env=_env(), wall_clock_s=None,
+        cost=None
     )
     result = train_cpt(
         batches_for(7, 0, n=100),
