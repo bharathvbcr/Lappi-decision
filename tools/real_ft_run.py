@@ -973,6 +973,46 @@ def _channel_balance(run: Mapping[str, object]) -> TriState:
     )
 
 
+def _span_floor_cause(over_the_plan: float, mean_per_batch: float) -> str:
+    """Why the span floor is where it is, decided from the number rather than asserted.
+
+    **This sentence used to be a constant, and it went stale the first time the corpus was
+    regenerated.** It read "That floor is ln 2 because every span row in this corpus has a
+    prompt-identical twin with a contradictory gold; the mean per-batch floor understates it
+    by 3x because the sampler splits most of the pairs" -- true of the shard set of
+    2026-09-20, and written into the ledger unchanged beside a measured floor of 0.000000
+    on the shard set of 2026-09-21, whose 78 span rows carry no contradictory twin at all.
+    A hardcoded explanation that contradicts its own measured value is a claim wearing a
+    measurement's clothes, and the ledger is the last place it belongs.
+
+    So the cause is read off the two floors. A plan-level floor materially above the
+    per-batch mean is the contradictory-twin signature: rows that cannot both be fitted are
+    unfittable whether or not the sampler put them in one batch, and only the plan-level
+    computation can see the pair once it is split. A plan-level floor of zero says the
+    opposite -- no two rows in this plan share a prefix and disagree.
+    """
+    if over_the_plan <= 0.0:
+        return (
+            "The floor is 0.0: no two rows in this plan share a prefix and carry different "
+            "golds, so nothing here is unfittable and the channel can in principle reach "
+            "zero. A gap is therefore optimisation, not the corpus."
+        )
+    if over_the_plan > mean_per_batch * 1.5:
+        return (
+            f"The plan-level floor {over_the_plan:.6f} sits "
+            f"{over_the_plan / mean_per_batch:.1f}x above the mean per-batch floor "
+            f"{mean_per_batch:.6f}, which is the prompt-identical-twin signature: rows with "
+            "contradictory golds are unfittable whether or not the sampler split them, and "
+            "only the plan-level computation sees the pair. The per-batch mean is not the "
+            "bound."
+        )
+    return (
+        f"The plan-level floor {over_the_plan:.6f} is close to the mean per-batch floor "
+        f"{mean_per_batch:.6f}, so what is unfittable here is unfittable within batches "
+        "rather than across them."
+    )
+
+
 def _counterfactual_holds(shipped: dict[str, object], defect: dict[str, object]) -> bool:
     """Did reading one trained model under the noul-first row order leave the pointers alone?
 
@@ -1495,11 +1535,11 @@ def _record_verdict(run: dict[str, object], *, ledger: Ledger, reader: ShardRead
                 detail=(
                     f"span loss {final['span_loss']:.6f} against the pointer entropy of the "  # type: ignore[index]
                     f"WHOLE plan {final['span_floor_over_the_plan']:.6f} over "  # type: ignore[index]
-                    f"{final['span_rows']} span rows; bar is floor + {FLOOR_SLACK}. That "  # type: ignore[index]
-                    "floor is ln 2 because every span row in this corpus has a "
-                    "prompt-identical twin with a contradictory gold; the mean per-batch "
-                    f"floor {final['span_floor_mean_per_batch']:.6f} understates it by 3x "  # type: ignore[index]
-                    "because the sampler splits most of the pairs"
+                    f"{final['span_rows']} span rows; bar is floor + {FLOOR_SLACK}. "  # type: ignore[index]
+                    + _span_floor_cause(
+                        float(final["span_floor_over_the_plan"]),  # type: ignore[index]
+                        float(final["span_floor_mean_per_batch"]),  # type: ignore[index]
+                    )
                 ),
             ),
         )

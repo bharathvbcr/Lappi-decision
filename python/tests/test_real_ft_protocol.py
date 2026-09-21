@@ -245,3 +245,44 @@ def test_the_span_weight_is_part_of_the_recipe() -> None:
     source = (REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8")
     assert '"span_weight": span_weight,' in source
     assert "span_weight=args.span_weight" in source
+
+
+# -- the floor's explanation, decided rather than asserted --------------------------------
+
+
+def test_a_zero_floor_is_not_explained_as_ln_2() -> None:
+    """The defect this closes, caught in a ledger row.
+
+    The sentence was a constant: "That floor is ln 2 because every span row in this corpus
+    has a prompt-identical twin with a contradictory gold". True of the shard set of
+    2026-09-20. Written unchanged into a row measuring a floor of 0.000000 on the shard set
+    of 2026-09-21, whose 78 span rows carry no contradictory twin at all.
+    """
+    from real_ft_run import _span_floor_cause
+
+    said = _span_floor_cause(0.0, 0.0)
+    assert "ln 2" not in said
+    assert "0.0" in said
+    assert "optimisation, not the corpus" in said
+
+
+def test_the_twin_signature_is_reported_when_the_numbers_show_it() -> None:
+    """The 2026-09-20 shard set really did have it: a plan-level floor of 0.6931 -- ln 2 --
+    against a mean per-batch floor of 0.2237, because the sampler split most of the pairs.
+    The explanation has to survive being made conditional."""
+    from real_ft_run import _span_floor_cause
+
+    said = _span_floor_cause(0.6931, 0.2237)
+    assert "twin" in said
+    assert "3.1x" in said
+    assert "not the bound" in said
+
+
+def test_a_floor_that_lives_inside_batches_says_so() -> None:
+    """The third case, which the constant could not express at all: something unfittable,
+    but visible within a batch rather than only across the plan."""
+    from real_ft_run import _span_floor_cause
+
+    said = _span_floor_cause(0.30, 0.29)
+    assert "within batches" in said
+    assert "twin" not in said
