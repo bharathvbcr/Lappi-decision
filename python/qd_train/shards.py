@@ -548,6 +548,28 @@ def choose_buckets(lengths: Sequence[int], *, n_buckets: int = 32) -> tuple[int,
     16 also clears the gate, at 1.36 points of margin. 32 clears it at 8.44 with the same
     batch count, which is why it is the default: a bar cleared by a rounding error is one
     corpus revision away from failing again.
+
+    ## What 32 does NOT promise
+
+    It is fitted to a distribution, and it is not a universal guarantee. Measured over 2,000
+    synthetic corpora per shape, asking how often the gate still fails:
+
+    | corpus shape | fails at 8 | fails at 32 | worst at 32 |
+    | --- | --- | --- | --- |
+    | lognormal, 200-35k tokens, 100-800 rows | 100% | 41.3% | 26.15% |
+    | lognormal, 1-1M tokens, 100-800 rows | 100% | 97.8% | 88.42% |
+    | lognormal, 200-35k tokens, 2-50 rows | 79.2% | 10.2% | 27.74% |
+
+    So the change is a large improvement on realistic shapes and no help at all against a
+    six-order-of-magnitude spread, where quantile bucketing cannot place a boundary between
+    a 161k-token row and a 1.18M-token one because there is nothing between them. A corpus
+    like that fails the gate by being that corpus, and the fix is the corpus or a larger
+    ``n_buckets`` at the call site, never a lower bar.
+
+    Two properties DO hold universally, and are tested rather than asserted: over 4,000
+    adversarial distributions across six shapes, 32 never wasted more than 8 (0 monotonicity
+    violations) and never orphaned a row (0). Those are the two ways raising the default
+    could have made things worse, and neither happens.
     """
     if not lengths:
         raise ValueError(

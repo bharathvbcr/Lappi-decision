@@ -57,6 +57,9 @@ import numpy as np
 # ruff's E402 exemption covers a `sys.path` modification before the imports, but an
 # ordinary assignment in between is not one.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+
+from repo_git import git_bytes, git_text, tracked_paths
 
 from qd_data.config import DataConfig
 from qd_data.dedupe import dedupe
@@ -122,13 +125,19 @@ MEMO_LIMIT = 8192
 
 
 def _git(*args: str) -> str:
-    return subprocess.run(
-        ["git", *args], cwd=REPO, capture_output=True, check=True, text=True
-    ).stdout
+    """This repository, bound. The implementation is ``repo_git.git_text``.
+
+    A one-line adapter rather than a second copy: ``tools/rung0_real_run.py`` needs the
+    same two calls, and when it had its own pair ``devmap_clones`` reported them as an
+    Exact group. Nine call sites below pass only the git arguments, so binding ``REPO``
+    here is what keeps them unchanged.
+    """
+    return git_text(REPO, *args)
 
 
 def _git_bytes(*args: str) -> bytes:
-    return subprocess.run(["git", *args], cwd=REPO, capture_output=True, check=True).stdout
+    """As :func:`_git`, for a blob. See ``repo_git.git_bytes`` on why it stays undecoded."""
+    return git_bytes(REPO, *args)
 
 
 def _split_unit(name: str) -> str:
@@ -234,9 +243,7 @@ def span_rows(*, max_rows: int, blank_line_runs: bool, rev: str) -> tuple[list[S
     rows: list[SquadRow] = []
     capped = False
     joiner = "\n\n\n" if blank_line_runs else "\n\n"
-    for name in sorted(_git("ls-tree", "-r", "--name-only", rev).splitlines()):
-        if Path(name).suffix != ".md":
-            continue
+    for name in tracked_paths(REPO, rev=rev, suffixes=frozenset({".md"})):
         try:
             # Read at `rev`, not from the working tree: other lanes edit these files while
             # a run is in progress, and a corpus half from the tree and half from history

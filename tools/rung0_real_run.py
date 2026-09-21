@@ -54,8 +54,10 @@ from typing import Final
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
+sys.path.insert(0, str(REPO / "tools"))
 
 import torch  # noqa: E402
+from repo_git import git_bytes, tracked_paths  # noqa: E402
 
 from qd_train.byte_batch import BatchPlan, plan_batch, span_supervision  # noqa: E402
 from qd_train.byte_context import ID_PAD, SpanOutsideWindow  # noqa: E402
@@ -117,16 +119,6 @@ MAX_CONTEXT_BYTES: Final[int] = 32_768
 # -- the corpus --------------------------------------------------------------------------
 
 
-def _git(*args: str) -> str:
-    return subprocess.run(
-        ["git", *args], cwd=REPO, capture_output=True, check=True, text=True
-    ).stdout
-
-
-def _git_bytes(*args: str) -> bytes:
-    return subprocess.run(["git", *args], cwd=REPO, capture_output=True, check=True).stdout
-
-
 def build_pool(*, rev: str, max_files: int) -> tuple[list[dict[str, object]], bool]:
     """Tracked source files at ``rev`` as qd-mutate pool records.
 
@@ -140,12 +132,10 @@ def build_pool(*, rev: str, max_files: int) -> tuple[list[dict[str, object]], bo
     if not 1 <= max_files <= MAX_FILES:
         raise ValueError(f"max_files must be in [1, {MAX_FILES}], got {max_files}")
     records: list[dict[str, object]] = []
-    for name in sorted(_git("ls-tree", "-r", "--name-only", rev).splitlines()):
-        language = POOL_SUFFIXES.get(Path(name).suffix)
-        if language is None:
-            continue
+    for name in tracked_paths(REPO, rev=rev, suffixes=frozenset(POOL_SUFFIXES)):
+        language = POOL_SUFFIXES[Path(name).suffix]
         try:
-            raw = _git_bytes("show", f"{rev}:{name}")
+            raw = git_bytes(REPO, "show", f"{rev}:{name}")
         except subprocess.CalledProcessError:
             continue
         if len(raw) > MAX_POOL_BYTES:
