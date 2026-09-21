@@ -357,3 +357,169 @@ def test_every_runner_records_which_sources_produced_its_row() -> None:
         "those rows are pinned only by code_commit -- which reads '<sha>-dirty' for any "
         "uncommitted change and is permanently dirty on the box that runs them"
     )
+
+
+#: Every place that states a `wall_clock_s` to a recorder, and whether the recorder's block
+#: therefore CONTAINS the work it records. `None` means "time the block yourself", which is
+#: the only arrangement in which a run killed part-way through still writes a row --
+#: `RunRecorder`'s guarantee is a property of the block, so work outside it is work whose
+#: death goes unrecorded. A measured figure means the work finished before the recorder
+#: existed.
+#:
+#: Neither answer is wrong in general, which is why this is an inventory and not a ban: a
+#: verdict row reporting a decode that has already happened must NOT repeat its parent's
+#: duration, and `real_ft_run.py` says so where it does it. What matters is that every site
+#: passing a measured figure has a reason, and that a NEW one cannot appear without
+#: somebody writing the reason down.
+NOT_WRAPPING = {
+    ("real_ft_run.py", "decode_s"): (
+        "the verdict row, an addendum to an ft row whose own block wraps train_ft. Its "
+        "decode is the only billed work left outside a block, and it was sized from rows "
+        "rather than assumed: 170 verdict rows in ledger/ carry 0.1s between them against "
+        "40919.1s on the 194 ft rows they report on"
+    ),
+    ("ft_toy_run.py", "decode_s"): (
+        "the same verdict shape on the toy path, which is local and priced at zero"
+    ),
+    ("rung0_toy_run.py", "float(run['wall_clock_s'])"): (
+        "a toy run that cannot be billed: `_control` prices through "
+        "`CostEstimate.for_device` with no rate arguments, which refuses anything outside "
+        "cpu and mps rather than inventing one"
+    ),
+    ("real_tokenizer_pipeline.py", "work_s"): (
+        "tokenises on whatever machine it is run on with `cost=None`, which the recorder "
+        "accepts only on a local device and refuses on anything billed by the hour"
+    ),
+    ("rung0_linear_control.py", "time.monotonic() - work_t0"): (
+        "fits a linear control on `Environment.detect(device=\"cpu\")` with `cost=None`; "
+        "the device is not a parameter, so nothing here can be rented"
+    ),
+}
+
+#: The sites that wrap. `rung0_real_run.py` joined this list at f93b22c; before that a run
+#: killed during training wrote no row and recorded no cost.
+WRAPPING = {
+    ("rung0_real_run.py", "None"),
+    ("real_ft_run.py", "None"),
+    ("ft_toy_run.py", "None"),
+    ("ledger.py", "None"),
+}
+
+
+def _recorder_wall_clock_sites() -> list[tuple[str, int, str]]:
+    """`(file, line, source of the wall_clock_s argument)` for every recorder call.
+
+    A call counts when it names `RunRecorder` or a helper whose name contains `recorder` --
+    which is what `real_ft_run.py` and `ft_toy_run.py` route through, and where the choice
+    is actually made. `TrainResult(wall_clock_s=...)` and `Rung0Result(wall_clock_s=...)`
+    carry the same keyword and are results, not recorders; they are excluded by the same
+    rule rather than by a filename list.
+    """
+    searched = sorted(TOOLS.glob("*.py")) + sorted((REPO / "python" / "qd_train").glob("*.py"))
+    out: list[tuple[str, int, str]] = []
+    for path in searched:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(
+                node.func, "id", ""
+            )
+            if name != "RunRecorder" and "recorder" not in name.lower():
+                continue
+            for kw in node.keywords:
+                if kw.arg == "wall_clock_s":
+                    out.append((path.name, kw.lineno, ast.unparse(kw.value)))
+    return out
+
+
+def test_every_recorder_that_can_be_billed_wraps_the_work_it_records() -> None:
+    """The class behind GAP-A-KILLED-RUNG0-RUN-LEAVES-NO-ROW-AND-NO-COST.
+
+    `tools/rung0_real_run.py` entered its recorder after `train_once` returned, so a run
+    killed during training wrote nothing: no row, and no record of what the hour cost. It
+    was one instance of a shape that nine call sites can take, and fixing the instance is
+    not the same as fixing the shape -- this repository has found "a complete list was
+    written down and then one member of it was fixed" seven times in one day.
+
+    So this pins the whole inventory. Every site that states a measured duration is named
+    with the reason its work is safe outside a block, and a new one fails here until
+    somebody writes that reason down. Sites that pass through a helper are counted at the
+    helper's CALL, which is where the decision is; `wall_clock_s=wall_clock_s` inside the
+    helper is not a decision and is not counted.
+
+    **Both numbers.** The count of sites found is asserted, not just the classification:
+    a rename that made this match nothing would otherwise read exactly like a clean
+    repository.
+    """
+    sites = _recorder_wall_clock_sites()
+    # Two of the eleven are `wall_clock_s=wall_clock_s` inside `_recorder` helpers, which
+    # forward whatever their caller decided. Both numbers are asserted: a helper that stops
+    # forwarding, and a decision that disappears, are different failures.
+    passthrough = [s for s in sites if s[2] == "wall_clock_s"]
+    decisions = [s for s in sites if s[2] != "wall_clock_s"]
+    assert len(sites) >= 11 and len(passthrough) >= 2 and len(decisions) >= 9, (
+        f"found {len(sites)} recorder wall_clock_s site(s): {len(passthrough)} forwarding "
+        f"and {len(decisions)} deciding, against 11 = 2 + 9 when this was written. Either "
+        "recorders were removed or this stopped matching the way they are constructed"
+    )
+
+    wrapping = {(f, src) for f, _, src in decisions if src == "None"}
+    stated = {(f, src) for f, _, src in decisions if src != "None"}
+
+    unexplained = sorted(s for s in stated if s not in NOT_WRAPPING)
+    assert not unexplained, (
+        f"{unexplained} hand a recorder a duration measured before the block, so the work "
+        "that duration describes happened outside the context manager that would have "
+        "written its row. A run killed there leaves no row and no cost. Either wrap the "
+        "work -- enter the recorder with wall_clock_s=None and call recorder.measured() "
+        "when it returns -- or add an entry to NOT_WRAPPING saying why nothing billed can "
+        "be lost here"
+    )
+
+    lost = sorted(WRAPPING - wrapping)
+    assert not lost, (
+        f"{lost} no longer wrap the work they record. rung0_real_run.py was fixed at "
+        "f93b22c precisely because it did not, and the ledger was short by exactly the "
+        "runs that were killed -- which are the ones that ran longest"
+    )
+
+
+def test_the_only_billed_work_outside_a_block_is_the_verdict_decode() -> None:
+    """The claim the inventory above rests on, checked against the source rather than
+    carried in a comment.
+
+    Three of the five `NOT_WRAPPING` entries claim they cannot be billed. Two of those are
+    checkable here: `real_tokenizer_pipeline.py` and `rung0_linear_control.py` both pass
+    `cost=None`, which `RunRecorder.__init__` accepts only when the device is in
+    `CostEstimate.LOCAL_DEVICES` and refuses otherwise -- so they cannot silently start
+    pricing a rented machine. `rung0_toy_run.py` reaches its rate through
+    `CostEstimate.for_device` with no rate argument, which refuses anything but cpu and
+    mps.
+
+    If one of them gains a `--usd-per-hour`, this fails and the entry in `NOT_WRAPPING`
+    has to be re-argued rather than inherited.
+    """
+    for name in ("real_tokenizer_pipeline.py", "rung0_linear_control.py"):
+        source = (TOOLS / name).read_text(encoding="utf-8")
+        assert "cost=None" in source, (
+            f"{name} no longer passes cost=None, so its NOT_WRAPPING entry -- which says "
+            "nothing billed can be lost there -- is no longer supported by the source"
+        )
+        # Both spellings. `add_argument("--usd-per-hour")` produces `args.usd_per_hour`
+        # and puts neither underscore spelling in the source, so a check for the
+        # identifier alone never fires on the way a rate actually arrives -- which is how
+        # this was found: the injected flag passed the first version of this line.
+        rate = [s for s in ("usd_per_hour", "usd-per-hour", "usd_per_gpu_hour",
+                            "usd-per-gpu-hour") if s in source]
+        assert not rate, (
+            f"{name} now takes a rate ({rate}), so work outside its recorder block is "
+            "billed work and a kill there loses both the row and the spend"
+        )
+
+    toy = (TOOLS / "rung0_toy_run.py").read_text(encoding="utf-8")
+    assert "CostEstimate.for_device(cap=cap, device=device)" in toy, (
+        "rung0_toy_run.py no longer prices through for_device with no rate, so it may now "
+        "be pointable at hardware that is billed by the hour -- and its training happens "
+        "before `_record` opens a recorder"
+    )
