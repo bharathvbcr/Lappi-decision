@@ -222,8 +222,40 @@ values with the other seven recipe fields held at what the launch used — which
 launch command, so it recovers the label from the log by a longer route. Legibility, not
 correctness.
 
-**Not run, and reported as such:** the GPU suites that cannot run on this host; the t-corrected
-floors (§2b); any 8×H100 work.
+### Should §1's unpinned numbers be re-derived? No — and not because they are trustworthy
+
+`GAP-A-SOURCE-TEST-CANNOT-SEE-WHAT-THE-BOX-ACTUALLY-RAN` leaves that to the lane that quoted
+them. Answered in `GAP-THE-699-UNPINNED-ROWS-CANNOT-BE-REPINNED-ONLY-REDONE`:
+
+**A re-run cannot pin them.** A reproduction at n=8 demonstrates agreement only within the
+two-arm floor, 5.4–7.1pp for these arms — wider than any difference anyone would care about.
+It would return "agrees" whether or not the stale box was running different code, at 85 GPU-
+minutes for a second underpowered comparison. One such comparison already exists: the
+full-data configuration ran on the stale box at **+4.99pp** and on the synced box at
+**+3.78pp**, same corpus and split (`data_snapshot_hash 22f39f9d101269e3` on both), 1.21pp
+apart inside a 3.46pp floor. Consistent with identical code, and equally consistent with a
+difference the design cannot see.
+
+Two supporting lines, and the second matters more than the first:
+
+1. No commit in **this checkout** on 2026-09-21 touched code the rung-0 training loop runs.
+   The sole training-module commit is `79d1ee1` in `optim.py` — it adds a settling refusal
+   and changes no step arithmetic, and **rung 0 never calls `build_optimizer`** (no hit in
+   `byte_train.py`, `trainer.py` or `rung0_real_run.py`). `6b18a52` touched `run_control.py`
+   but added only `CostEstimate.for_device`; `LRSchedule.lr_at` and `RunControl.expired` are
+   untouched.
+2. …which is a statement about **this checkout's history, not about the bytes on the box** —
+   exactly the inference that failed when a source test was read as evidence about a
+   deployment. The box's copy was overwritten by the 16:11Z rsync and nothing of it survives.
+
+So the 699 are evidence whose provenance is permanently absent. **Never re-run an experiment
+for provenance alone at a seed count that cannot resolve the difference being looked for** —
+that produces a green result about a question the run was not asking. If a decision ever turns
+on one of those numbers, redo it as a *new* experiment sized to the difference it must
+resolve.
+
+**Not run, and reported as such:** the GPU suites that cannot run on this host; any 8×H100
+work; a reproduction of §1 on a verified box.
 
 ---
 
