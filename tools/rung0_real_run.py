@@ -680,6 +680,68 @@ def permutation_consistency(
     )
 
 
+def quick_reason_for(
+    *,
+    examples_supplied: bool,
+    seeds: int,
+    train_subsample: float,
+    shuffled: bool,
+    pool_records: int | None,
+    corpus_hash: str,
+) -> str:
+    """Why this row is `quick`, from the run's own facts rather than a fixed sentence.
+
+    The sentence this replaces read *"the corpus is this repository's own sources rather
+    than the pool the plan names"*. It was true of every row ever written, because no run
+    had ever been given another corpus. The commitpackft corpus exists now, and a run on it
+    would have recorded that sentence anyway -- a false statement, in an append-only
+    ledger, about the single thing rule 8 turns on.
+
+    The flag itself stays `True` regardless. Rule 2 makes promotion a human's decision and
+    not an agent's, and "the reason no longer applies" is precisely the argument an agent
+    should not be able to make on its own behalf. What changes is that the row now says
+    which conditions actually stand, so the human deciding has the facts rather than a
+    sentence that outlived them.
+
+    One condition is deliberately NOT inferred: whether a supplied corpus is the pool the
+    plan names. This run cannot verify that -- `--examples` accepts any file -- so it
+    records the snapshot hash and the pool's record count and says plainly that it cannot
+    tell. Asserting it from a filename or a record count would be a guess wearing the
+    clothes of a check.
+    """
+    reasons: list[str] = []
+    if not examples_supplied:
+        reasons.append(
+            "the corpus was built from this repository's own tracked sources rather than "
+            "the pool the plan names, which rule 8 counts as a subsample"
+        )
+    if seeds < 3:
+        reasons.append(f"{seeds} seed(s), fewer than the 3 rule 8 requires")
+    if train_subsample < 1.0:
+        reasons.append(
+            f"the training set is subsampled to {train_subsample:.0%} of the split"
+        )
+    if shuffled:
+        reasons.append(
+            "the training labels were permuted, so this row is a control and not a "
+            "measurement of the model"
+        )
+
+    corpus = (
+        f"data_snapshot {corpus_hash[:16]}"
+        + (f", {pool_records} pool record(s)" if pool_records is not None else "")
+    )
+    if reasons:
+        return "; ".join(reasons) + f" ({corpus})"
+    return (
+        "no rule-8 condition this run can determine stands: "
+        f"{seeds} seeds, full schedule, no subsample, real labels, corpus supplied as a "
+        f"pre-generated set ({corpus}). Recorded quick nonetheless -- whether that corpus "
+        "is the pool the plan names is not something this run can verify, and clearing "
+        "the flag is a promotion decision that rule 2 makes a human's, not an agent's."
+    )
+
+
 def linear_baseline_correctness(
     train_d: Sequence,
     scored_val: Sequence,
@@ -1437,6 +1499,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     corpus_hash = hashlib.sha256(
         json.dumps(manifest, sort_keys=True).encode("utf-8")
     ).hexdigest()
+    quick_reason = quick_reason_for(
+        examples_supplied=bool(args.examples),
+        seeds=args.seeds,
+        train_subsample=args.train_subsample,
+        shuffled=args.shuffle_train_labels,
+        pool_records=((manifest.get("pool") or {}).get("records")),
+        corpus_hash=corpus_hash,
+    )
     # Named rather than written inline into the hash. Every field below went into
     # `recipe_hash` and was stored nowhere readable, so a row could say two arms differ and
     # not say how: the concurrent lane recovered a learning curve's point labels on
@@ -1517,10 +1587,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             # The same object `recipe_hash` was computed from, so the row says what the
             # hash only distinguishes.
             recipe=recipe,
-            quick_reason=(
-                "the corpus is this repository's own sources rather than the pool the plan "
-                "names, which rule 8 counts as a subsample"
-            ),
+            quick_reason=quick_reason,
             notes=(
                 "tools/rung0_real_run.py -- rung 0 trained on a real qd-mutate corpus and "
                 "measured on files it never saw, split by path"
