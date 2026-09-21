@@ -156,6 +156,129 @@ def test_every_tool_call_into_this_repository_binds_against_its_callee() -> None
     print(f"tools/: {checked} call site(s) bound, {len(unchecked)} unchecked")
 
 
+def test_the_scope_of_the_check_above_is_stated_rather_than_assumed() -> None:
+    """What that test does NOT look at, said out loud, because someone read its output as a
+    complete call-site list and shipped a change against it.
+
+    On 2026-09-21 a lane made ``RunRecorder``'s ``cost`` required, took the list of call
+    sites from the test above, updated all six, and turned every ``make gates`` run in the
+    repository red -- because the seventh caller is ``record_build_run`` inside
+    ``ledger.py``, which that test does not scan and never claimed to. The tool was right;
+    its scope was narrower than the question, and nothing in its output said so.
+
+    That is the repository's own capped-sample rule, applied to a test instead of to a
+    number: `checked` and `unchecked` were both reported and both were about ``tools/``.
+    """
+    source = (Path(__file__)).read_text(encoding="utf-8")
+    assert 'TOOLS.glob("*.py")' in source, (
+        "the scan above no longer globs tools/, so this description of its scope is stale"
+    )
+    # The in-package half now exists below. If it is ever deleted, this says what goes with
+    # it rather than leaving the pair silently halved.
+    assert "def test_every_in_package_call_binds_against_its_callee" in source, (
+        "the in-package half of this check is gone, so calls between package modules -- "
+        "the ones that broke the gate -- are unchecked again and nothing says so"
+    )
+
+
+def test_every_in_package_call_binds_against_its_callee() -> None:
+    """The half the tools/ scan cannot see: a package module calling its own definitions.
+
+    ``ledger.py`` constructs ``RunRecorder`` from ``record_build_run``. That name is not
+    imported from anywhere -- it is defined in the same file -- so the import-driven scan
+    above cannot reach it even if it were pointed at ``python/``. This resolves names
+    DEFINED at module level and binds calls to them against their real signatures.
+
+    **Conservative on purpose.** A name assigned anywhere in the file, at any depth, is
+    skipped: a local variable shadowing a module-level function inside some other function
+    would otherwise bind against the wrong object and report a failure that is not real. A
+    test that cries wolf here gets muted, and muted is worse than narrow. The skips are
+    counted and reported, so the narrowness is visible rather than implied.
+    """
+    files = sorted(
+        path
+        for package in PACKAGES
+        for path in (REPO / "python" / package).glob("*.py")
+        if path.name != "__init__.py"
+    )
+    assert files, "no package module found; this test would pass vacuously"
+
+    checked = 0
+    unchecked: list[str] = []
+    failures: list[str] = []
+
+    for path in files:
+        module_name = f"{path.parent.name}.{path.stem}"
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        defined = {
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        }
+        # Any rebinding at any depth disqualifies the name -- see the docstring.
+        assigned: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                assigned.update(t.id for t in node.targets if isinstance(t, ast.Name))
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                assigned.add(node.target.id)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                assigned.update(a.arg for a in node.args.args)
+                assigned.update(a.arg for a in node.args.kwonlyargs)
+        candidates = defined - assigned
+        if not candidates:
+            continue
+
+        try:
+            module = importlib.import_module(module_name)
+        except Exception as exc:  # torch-gated modules in the repo venv, and they are named
+            unchecked.append(f"{module_name}: not importable here ({type(exc).__name__})")
+            continue
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            name = node.func.id
+            if name not in candidates:
+                continue
+            target = getattr(module, name, None)
+            if not callable(target):
+                unchecked.append(f"{module_name}:{node.lineno} {name}: not callable")
+                continue
+            shape = _call_shape(node)
+            if shape is None:
+                unchecked.append(f"{module_name}:{node.lineno} {name}: *args/**kwargs")
+                continue
+            n_pos, keywords = shape
+            try:
+                signature = inspect.signature(target)
+            except (TypeError, ValueError) as exc:
+                unchecked.append(f"{module_name}:{node.lineno} {name}: no signature ({exc})")
+                continue
+            try:
+                signature.bind(*[SENTINEL] * n_pos, **dict.fromkeys(keywords, SENTINEL))
+            except TypeError as exc:
+                failures.append(
+                    f"python/{module_name.replace('.', '/')}.py:{node.lineno}: {name}("
+                    + ", ".join(["…"] * n_pos + [f"{k}=…" for k in keywords])
+                    + f") does not bind against {name}{signature}: {exc}"
+                )
+            else:
+                checked += 1
+
+    assert not failures, (
+        f"{len(failures)} in-package call site(s) do not match the signature they call "
+        f"({checked} checked, {len(unchecked)} unchecked). These are invisible to the "
+        f"tools/ scan above, which is how a required argument reached every gate run "
+        f"before anyone noticed:\n  " + "\n  ".join(failures)
+    )
+    assert checked > 0, (
+        "no in-package call site was checkable, so this test proves nothing. Unchecked:\n  "
+        + "\n  ".join(unchecked[:20])
+    )
+    print(f"packages: {checked} call site(s) bound, {len(unchecked)} unchecked")
+
+
 # -- the price every tool puts on the machine it ran on -----------------------------------
 
 
