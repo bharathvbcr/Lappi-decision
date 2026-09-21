@@ -1325,22 +1325,128 @@ true duration, a true price and a source fingerprint. That is worth more than a 
 improvement: it is the first rung-0 evidence that could be re-priced or reproduced from its
 own row.
 
+# Part 11 — the kill-row gap, landed; and what was living on one machine
+
+## 28. `f93b22c` — the training is now inside the recorder that survives it
+
+Held since §26 on one caveat, not on the semantics: the concurrent lane was about to run
+`tools/rung0_real_run.py` on the box, and changing a file beforehand is its own risk whatever
+the argument says. That lane reported the sync done and the curve running at 16:13:51Z, with
+the closure digest matching on both sides, so the box has its own copy and landing here
+cannot reach it. Landed at `f93b22c`.
+
+**The reordering.** `protocol` is built from `args`, `config`, `corpus_hash` and `seed` and
+never from the training result, so it can be computed before the run. It moves above the
+recorder; `train_once` moves inside the block. That is the whole structural change.
+
+**What keeps the rows comparable.** `_finish` reads `self.wall_clock_s` at exit
+(`ledger.py:1189`, `:1215`), not at construction. So the recorder is entered with
+`wall_clock_s=None` and the new `RunRecorder.measured()` states the training duration the
+moment `train_once` returns. A successful row carries the same quantity under the same
+`wall_clock_source="caller"` as the 53 rows written before this. A run that dies first falls
+back to the recorder's lifetime under `"recorder"`.
+
+**Measured both ways**, on the same corpus and the same flags:
+
+| | pre-change | post-change |
+| --- | --- | --- |
+| SIGTERM 2.0s into a ~12s loop | dead of the signal, **ledger file never created** | row exists, `status="killed"` |
+| that row's source | — | `"recorder"` |
+| that row's cost at $18/h | — | `> 0`, and equal to the rate applied to its own duration |
+
+**Eleven failing cases against the pre-change tree, from seven new tests** — both numbers,
+because they are not the same number. Six tests go in `test_wall_clock.py` beside the
+argument they extend, and one of those is parametrised over four non-durations, so six
+tests are ten cases; the seventh is the SIGTERM test in `test_runner_cost_end_to_end.py`.
+(`f93b22c`'s own message says "eleven tests" where it means eleven cases.) An eighth test
+passes before *and* after, on purpose: it pins that a successful row still carries
+the training loop rather than the block, which now also spans model construction and three
+evaluations. `wall_clock_source == "caller"` alone would not have shown that — it says
+`measured()` was reached, not that it was handed the right quantity.
+
+`measured()` also refuses after the row is written, refuses a second statement — a recorder
+told twice keeps only the last, which is how a loop's total becomes its final iteration's —
+and refuses a figure that is not a duration, through `_is_measured_duration`, which the
+constructor now asks too rather than repeating the `nan < 0` reasoning in two places.
+
+**One thing found by measuring that would have made the test pass for the wrong reason.**
+Python block-buffers a pipe. A subprocess test that waits for a progress line before
+signalling does not wait at all: the line does not leave the child until it exits. Measured
+— **14.365s** to see the line on a run that takes 14.4s, against **0.540s** with
+`PYTHONUNBUFFERED=1`. Without that variable the signal goes to a corpse and the test passes
+against the *unfixed* tool by reading the row a completed run wrote. That is not a detail of
+this test; it is the shape of every "wait for the child to get somewhere, then interrupt it"
+test anyone writes here.
+
+Gates PASS at `90de7ff`, row `da36b672-66f1-4762-89a5-f5dab8e4cdd7`: cargo 362/362, pytest
+1510/1531, pytest-torch 1780/1782. Recorded twice on purpose — `1fb10659-…` covers the same
+code at `7f191bd-dirty`, before the change had a commit, and `90de7ff` says so in its message
+rather than leaving a reader to infer what `-dirty` meant.
+
+## 29. 37 rows were living on the rented box and nowhere else
+
+The concurrent lane's `7f191bd` brought back 61 capacity rows that existed only on the GH200,
+and asked whether anything else did. Answered by **row id**, not by filename — a file can
+exist on both sides with different contents, and the box's copy is the one that has been
+appended to. Every row in the box's `ledger/` compared against the union of every row id in
+this repo's:
+
+| | rows |
+| --- | --- |
+| only on the box | **37** |
+| of those, the concurrent lane's live learning curve | 15 |
+| of those, finished and unclaimed | **22** |
+
+The 15 are being appended to right now and are that lane's to bring back. The 22 are here at
+`4db2ef6`: `gh200-determinism` (8), `gh200-seedcheck` (4), `gh200-smoke` (4),
+`gh200-rung0-repro` (2), `gh200-rung0-reprodet` (2), `shardset-v3` (1), `shardset-v4` (1),
+spanning 06:17Z to 12:57Z. Each chain verified with `qd_train.ledger verify` before being
+copied in — each on its own, which is the check that applies: these are seven independent
+chains, not seven copies of one.
+
+**Two things a reader should not have to infer.**
+
+`find_forks` over the whole directory reports a fork, and reported the same one before this
+commit: two fork points, one non-root — `gh200-2026-09-20.jsonl:157` against
+`runs.jsonl:157` after `364b7d12…`. Run with and without the seven new files, both numbers
+are identical; a new independent chain shows up only as another root, which is what
+`ForkPoint.is_root` exists to distinguish. The non-root one is
+`GAP-LEDGER-NO-STORY-FOR-A-CHAIN-FORKED-ACROSS-TWO-MACHINES`, opened 2026-09-20, still open.
+
+And **all 22 carry `wall_clock_source: null` and `cost_usd: 0.0`** on a machine billed by the
+hour. All 22 are `quick=True` and `completed`. They predate `a409895`, and the runner they
+came from is the one `f93b22c` just fixed. They are preserved, not believed: the rows say
+what they were written with, and what they were written with priced a GPU hour at zero.
+
+## What this does to the readiness position
+
+Part 10 closed with engineering ready *minus one open gap*, and science one run short. The
+gap is closed. The run is running.
+
+* **Engineering:** ready on the audited terms of Part 9 §1–5, with §26's gap now resolved
+  rather than deferred.
+* **Science:** the 8192 `--train-subsample` curve is in flight in the concurrent lane, first
+  row at 16:14:46Z, pre-registered at `--prior-sd 0.0197`.
+
 ## Open
 
 1. **The 8192 curve at `--train-subsample`**, validation untouched, with the linear control
-   on the same thinned training set. Concurrent lane, pre-registered at `--prior-sd 0.0197`
-   from an arm that fit, with a written sensitivity table and a pre-committed rule that any
-   point realising sd above 0.0505 reports as unable to see its own target.
-2. **Whether `code_commit` should refuse `-dirty` for a run that will cost money.** Human's.
-3. **Whether lanes should re-read CLAUDE.md on a schedule rather than on incident.** Human's;
+   on the same thinned training set. Concurrent lane, running; each point to be reported with
+   its realised sd beside its result and `rows_written` beside `rows_expected`.
+2. **The 15 learning-curve rows on the box**, to be brought back by that lane when the run
+   finishes. Until then they are the only copy.
+3. **Whether `code_commit` should refuse `-dirty` for a run that will cost money.** Human's.
+   Sharpened by §28: this lane recorded a gate row at `7f191bd-dirty` covering code that is
+   now `f93b22c`, and had to say so in a commit message because the field could not.
+4. **Whether lanes should re-read CLAUDE.md on a schedule rather than on incident.** Human's;
    nothing here can detect the divergence.
 
 ## First command for the next lane
 
 ```bash
-sed -n '268,286p' /Users/bharath/Code/research/qwen-decision/tools/real_tokenizer_pipeline.py
+grep -n "def measured" -A 24 /Users/bharath/Code/research/qwen-decision/python/qd_train/ledger.py
 ```
 
-The comment that closed the oldest item on the list. It had been sitting in the source since
-2026-09-20, naming the exact floor value the experiment was chasing, while the experiment
-stayed on the open list for two days.
+The method that closed §26, and the docstring stating why `wall_clock_s` stayed a
+constructor argument as well: most callers time the work and then open a recorder to report
+it, and only a caller that *wraps* its work can be the kind of caller a killed run needs.
