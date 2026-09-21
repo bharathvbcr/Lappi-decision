@@ -834,3 +834,162 @@ rg -n 'usd_per_hour=0\.0, n_gpus=0|"code_that_ran"' /Users/bharath/Code/research
 Four `code_that_ran` sites across four runners and no zero-price literal anywhere. Both
 halves of this afternoon in one screen — and both were one-of-four fixes that read as
 complete until somebody counted.
+
+# Part 7 — saying what a run could not have seen
+
+Part 6 named a shape: a complete list written down, then one member of it fixed. This part
+closes the open items with that shape in mind, and hits it once more — in my own work,
+minutes after committing the message about it.
+
+## 19. A sweep that could not have seen the effect it reports absent
+
+`python/qd_train/power.py`. `resolvable_difference` returns the smallest difference a sweep
+could detect; `resolution_state` turns it into a `TriState` against a target the sweep
+declares **before** it runs.
+
+`agreement.py` already made this argument for Cohen's kappa at n=50: *"Reporting 0.62 as a
+pass, with no interval, is how an underpowered gate becomes a confident decision."* The same
+sentence is true of a seed sweep, and it is the repository's own rule about a check that
+could not run, moved up one level from a check to a comparison.
+
+Three things in it are load-bearing:
+
+* **The constant is computed, not remembered.** `z[0.975] + z[0.80]` = 2.801585, from
+  `statistics.NormalDist`. So `alpha` and `power` are real parameters rather than a folklore
+  2.8, and the assumption is visible to whoever reads it.
+* **`against_known_reference` is required, with no default.** An arm against the
+  majority-class baseline has one noisy side; against another arm it has two. The answers
+  differ by 1.41×, and the flattering one is always the wrong one. Both cases occur here.
+* **Missing `sd` or `target` gives `NotRun`, not silence.** A sweep that never stated what it
+  was looking for must not be indistinguishable from one that looked and found nothing.
+
+**What it does not claim.** The bound assumes `sd` is *known*. At 3, 5 or 8 seeds it is
+estimated from those same runs, where the honest quantile is Student's t — about 14% wider
+at n=5 (3.195 against 2.802, checked against scipy, which is *not* a dependency and so is
+not imported). Every number it returns is therefore optimistic by construction, and both the
+adequate and underpowered details say so.
+
+It is also only the **second** question a sweep must answer. The concurrent lane found the
+first: an arm that never fit produces no evidence about generalisation, so the resolution
+question does not arise for it at all. That is in the test docstring and in `--prior-sd`'s
+help, because that flag is exactly where someone would reach for a collapsed arm's spread.
+
+**And then I shipped it for one of two runners.** `25fb639` wired `rung0_real_run.py` and
+left `real_ft_run.py` without it — the fourth instance of the Part 6 shape in one afternoon,
+committed minutes after writing that message. `89a03b2` is the correction, and the class
+test now iterates both runners rather than asserting about one.
+
+## 20. The enumeration tool reported a scope as a list
+
+Both lanes adopted `test_every_tool_call_into_this_repository_binds_against_its_callee` as
+the way to enumerate call sites before a signature change, instead of listing them by hand.
+Its first real use turned every `make gates` run red.
+
+The concurrent lane made `RunRecorder`'s `cost` required, took the list, updated all six
+sites in `tools/`, and missed a seventh: `record_build_run`, **inside `ledger.py`**, which
+every gate run goes through. The tool was right. Its scope — by its own docstring, calls in
+`tools/` to names imported from this repository's packages — was narrower than the question,
+and nothing in its output said so. `checked` and `unchecked` were both reported and both
+were about `tools/`.
+
+The non-obvious part, for whoever reaches for the obvious fix: **pointing the existing scan
+at `python/` would not have caught it.** `record_build_run` constructs a class defined in its
+own module, so there is no import for an import-driven scan to follow at any glob width.
+`a1c7d54` adds a definition-resolving scan — a different mechanism, not a wider one. 570
+in-package sites bind today, 199 unchecked and printed.
+
+It is conservative on purpose: a name rebound anywhere in the file at any depth is skipped,
+because a local shadowing a module-level function would report a failure that is not real,
+and a test that cries wolf gets muted. Muted is worse than narrow.
+
+I also nearly shipped a green run as evidence. The new test passed first time — but by then
+the other lane had already fixed `ledger.py`, so the run proved nothing about the mechanism.
+Injecting the defect shape is what turned it into evidence.
+
+## 21. The driver half of the resume refusal
+
+`test_backbone.py` holds `train_ft`'s refusal of a resume onto a different corpus order,
+through the real step. What it could not hold is whether `real_ft_run.py` ever hands the
+checkpoint over. A driver that dropped it would run from scratch while reporting a resume,
+and every check the trainer has would pass **vacuously**, because there would be no
+checkpoint to compare against.
+
+Not hypothetical in this file: `real_ft_run.py:1566` carries the note *"The hook nobody
+passed"* — `on_checkpoint` existed, was correct, and was never wired, so checkpointing was
+dead for as long as nobody looked. Same shape, one argument over.
+
+`31da931` adds three AST tests: `_train` passes `resume_from` to `train_ft`; **both** arms
+pass it rather than just the first; and each site conditions it on the cell the checkpoint
+was cut from, since one checkpoint handed to every cell resumes one and aborts the rest on a
+mismatch that is not a defect. Verified by mutation — dropping it from one arm fails two,
+dropping it from `_train` fails one.
+
+## 22. What the e30 arms settled, and what they did not
+
+Measured from `ledger/gh200-rung0-capacity-4096-e30-2026-09-21.jsonl`, n=8 per arm, against
+the 0.484 majority-class prior:
+
+| arm | train | val | sd | vs prior | floor | verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| `128x4:2layer` | 0.9944 | 0.3836 | 0.0441 | −10.04pp | 4.37pp | resolvable |
+| `256x8:4layer` | 0.9532 | 0.3608 | 0.0558 | −12.32pp | 5.53pp | resolvable |
+| `128x2` vs `256x4` | | | 0.0503 pooled | +2.28pp | **7.04pp** | **inside the floor** |
+
+**Supported:** at e30 both arms fit, and both generalise resolvably *below* the prior. That
+is the first held-out claim from this sweep that survives its own noise floor, and it is a
+negative one. The concurrent lane's reading — memorisation at a converged budget, not
+undertraining — is now measured rather than inferred, and it retires "the lever only helps at
+an unconverged budget" from the other side: the budget converged and the result got worse.
+
+**Not supported:** "the bigger model is worse." 2.28pp against a 7.04pp two-arm floor. It
+fits the mechanism, the ordering is right, and it is inside the noise — which is precisely
+the claim §19 exists to stop. Separating those arms would need roughly 76 seeds each.
+
+Note the two-arm floor is 7.04pp where the against-prior floors are 4–5pp. That is the
+`sqrt(2)` `against_known_reference` exists for, and it is the first live case where using the
+wrong form would have moved a number that a reader acts on.
+
+**Still not attributable:** 4096-vs-8192 moves the context window and the training set
+together, 382 decisions against 727. The e30 arms remove "it needed longer" as an
+explanation; they do not separate context from data. The 8192 run subsampled to ~382
+training decisions with the validation set untouched is still the ~7 minutes that does, and
+it is now more informative than when it was first proposed, because both ends of it are
+regimes we have characterised.
+
+## State at the end of Part 7
+
+| Gate | Result |
+| --- | --- |
+| `make gates` | **PASS** at `31da931` |
+| cargo | 362 / 362 |
+| pytest, torch venv | 1754 passed, 2 skipped |
+| pytest, repo venv | 1493 passed, 20 skipped |
+| `ledger/runs.jsonl` | chain verifies, 193 rows |
+
+Every number in §22 is read from a ledger row on the box, not from a lane's log parse. The
+two lanes' figures agreed to 1e-4; that is reassuring about the parse and irrelevant to
+rule 5, which is what a citation means.
+
+## Open
+
+1. **A nonzero-floor FT run at 512 steps**, with `--deterministic`. Unchanged, and still the
+   most informative experiment left.
+2. **The 8192 run subsampled to ~382 train decisions, validation untouched.** ~7 minutes,
+   agreed with the concurrent lane, the only thing that attributes the 4096-vs-8192 swing.
+3. **Seed the pre-registration flags for the next sweep.** The machinery exists on both
+   runners and nothing has used it yet. `--prior-sd` wants a spread from an arm that FIT:
+   128x2 e30's 0.0441, or an 8192 arm — not from a collapsed one.
+4. **Whether `code_commit` should refuse `-dirty` for a run that will cost money.** A
+   human's call.
+5. **Whether lanes should re-read CLAUDE.md on a schedule rather than on incident.** A
+   human's call; nothing in this repository can detect the divergence.
+
+## First command for the next lane
+
+```bash
+rg -n 'prior-sd|sweep_can_resolve' /Users/bharath/Code/research/qwen-decision/tools
+```
+
+Both sweep runners can now state what they could have seen, and neither has been asked to.
+The flags are the cheapest thing on this list and the one that decides whether the next
+null means anything.
