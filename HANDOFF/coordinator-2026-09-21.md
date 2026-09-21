@@ -2414,6 +2414,106 @@ to make a gate pass. Deriving it from the corpus's measured provenance is the ne
 and it is a change whose consequence is promotion, so it is named here rather than made
 quietly.
 
+## 42. Twenty-four seeds, and the gate the program rests on fails on every one
+
+§41 reported the first real measurement row. The arm finished at 22:50:18Z, exit 0, 24 of 24
+seeds, $1.02. The answer did not soften with n.
+
+```
+paired_margin_vs_linear   FAIL 24 of 24     mean -3.73pp   sd 2.97pp
+                          best seed -0.35pp, worst -13.19pp
+                          POSITIVE on 0 of 24
+ece                       pass  3 of 24     mean 0.1118    (bar 0.05)
+permutation_consistency   pass 24 of 24     100.0% across a derangement
+degenerate_head           pass 24 of 24     on the real arm
+shuffled_label            pass 24 of 24     on the control arm
+```
+
+The model's held-out accuracy is **53.56%** (sd 2.97pp, best seed 56.94%). The linear
+control — hashed char n-grams, 38 seconds of CPU, no pretraining — is at **57.3%**. Not one
+seed of twenty-four reaches it.
+
+`baseline.py` states the stake in its own words: *"The 2B ships only if it beats this by a
+paired margin on three seeds on the natural held-out set."* Across the 988 rows that preceded
+today that number did not exist, because the opponent was never scored. The first time it was
+scored it came back negative, on every seed.
+
+**What this is not.** It is not evidence that the approach fails. 727 training decisions from
+117 files is far too few for a transformer trained from scratch, and hashed n-grams are much
+more sample-efficient at that size — a linear model winning on a corpus this small is the
+expected result, not a surprising one. It is evidence that **rung 0 on this corpus** is below
+its control, and that the corpus was always the binding constraint.
+
+Two things follow, and only the second is a judgement:
+
+* Any earlier claim in this handoff that rung 0 "beats its baseline" means the **majority-class
+  baseline**, which is a property of the split, not an opponent. The control is the opponent
+  and it was not there. **[V]**
+* A larger cluster is not what this needs. The 8xH100 block is rung 3's; rung 0 is 606,336
+  parameters and the build order says it *"trains on the Mac at $0"*. Committing that block
+  now would be scaling a configuration that has not cleared a 38-second CPU baseline. **[I]**
+
+### The cost guard's first real encounter, 0.8 seconds in
+
+The commitpackft arm launched at 22:52:20Z and reached the control:
+
+```
+linear control NOT RUN after 0.8s: ... fitting the linear control on 37335 training
+document(s) projects to 62.5 hours, over the 15 minute budget. The control is REFUSED
+rather than attempted ... Fit it once off the GPU with tools/fit_linear_control.py,
+which writes the cache this run just missed, and the gate reports on the next run.
+```
+
+That is the defect of 2026-09-21 meeting the guard written the same day. The earlier run spent
+ten minutes looking exactly like a hang and would have spent three hours before its cap killed
+it with zero rows. This one declined in under a second, said what it would have cost, and
+named the tool that fixes it. **A check that could not run did not report what a check that ran
+would have.**
+
+The two projections differ and both are right: the runner uses the conservative in-process
+dense budget (512 MB), so the corpus falls to the sparse path — 62.5 hours. The dedicated fit
+passes 24 GB, takes the dense path, and projects 101 minutes. The budget is a parameter
+because the right answer depends on whether the asking process owns a GPU.
+
+### Running the fit and the arm at once, and what it costs
+
+The arm script ran them in sequence, which would have left the GPU at 0% for the fit's 101
+minutes — about $2.50 of rented idle, and precisely what the standing instruction forbids. They
+were split: the fit is CPU and host RAM, the arm is GPU.
+
+They are not free of each other. Measured under concurrency:
+
+| | GPU util | arm CPU | load average |
+| --- | --- | --- | --- |
+| arm alone (earlier) | 87–100% | 103–156% | 1.0 |
+| arm + fit | 14–55% | 73–77% | 58.7 |
+
+The fit takes ~40 cores of OpenBLAS and the arm's loader is single-threaded Python, so the arm
+is throttled. `renice -n 19` on the fit did not recover it — this is memory-bandwidth
+contention, not scheduling priority.
+
+It is still the better trade, and the arithmetic is worth writing down rather than asserting:
+
+* **sequential** — 101 min at 0% GPU (~$2.51, bought nothing) then 79 min at full speed
+  (~$1.96). Total GPU spend ~$4.47.
+* **concurrent** — no idle, the arm throttled to roughly a third, finishing in ~150 min
+  (~$3.73), with the fit landing in the same window.
+
+Cheaper, and both results arrive sooner. What it is *not* is free, and a later lane that wants
+a clean throughput number for this corpus must run the arm alone.
+
+### The corpus, as the trainer actually sees it
+
+```
+50,178 examples -> 37,335 train decisions, 12,770 val   (73 refused, all PhantomFinalLine)
+19,411 train files, 6,660 val files, 0 files on both sides
+majority-class baseline on val 46.0%   choice-loss floor 1.2741 nats
+2,334 train batches, 799 val; padding waste 0.07%
+```
+
+Against 727 train / 288 val from 117 files. **51x the training decisions, 166x the files**, and
+the bucketing wastes 0.07% of padding against 0.74% before.
+
 ## Where this leaves the final train
 
 On the axes this lane owns:
