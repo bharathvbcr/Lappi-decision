@@ -1778,6 +1778,90 @@ run rather than after it. Two checks, two moments, neither able to cover the oth
 *"28 rows carry provenance"* reads like progress; *"28 of 727"* reads like what it is. The
 floor is pinned so it cannot quietly fall, and nothing fails for history being what it is.
 
+## 37. The census reconciled, and a rewrite the rules made necessary
+
+### Two lanes, one number, two populations
+
+Both lanes published a count of rows carrying `8b9df39…-dirty` without a closure digest:
+this one said **389**, the concurrent lane said **466**. Reconciled here rather than left
+as a discrepancy in two documents:
+
+| population on that commit | with a digest | without |
+| --- | --- | --- |
+| all rows | 24 | 463 |
+| training / smoke only | 24 | **389** |
+| build only | 0 | 74 |
+
+The 74 build rows are the entire difference; the remaining 3 are rows that landed between
+the two measurements. **389 is the number that supports the claim** — build rows carry no
+digest by design, so counting them as unpinned overstates the problem. Both figures point
+the same way and only one of them belongs in a report.
+
+### A rewrite of `gaps.jsonl`, and why the rules left no alternative
+
+The concurrent lane removed a line from `gaps.jsonl` rather than appending over it — the
+one operation `CLAUDE.md` item 4 forbids, for the concrete reason that a concurrent lane's
+record can be lost between the read and the write. They measured the risk absent rather
+than assuming it: the line was theirs, two minutes old, uncommitted, with `git diff --stat`
+showing exactly three insertions.
+
+Checked here rather than taken, because "nothing was lost" is a claim like any other:
+**284 gap ids have ever been committed to that file and 284 are present now**, all 6 of this
+lane's among them, 466 records parsing. `2e2166f` shows insertions only — the malformed line
+never reached history.
+
+**But the situation should not have arisen, and that is the finding.** Two rules were in
+conflict:
+
+* `CLAUDE.md`: append only; never read-modify-write.
+* `test_every_supersedes_and_answers_reference_resolves`: every *line* must reference a
+  record that exists.
+
+A malformed line therefore reddened the gate permanently, and the only remedy available was
+the forbidden one. *"A gate nobody can make green is a gate everyone learns to skip."*
+
+### Both halves of that trap are now closed
+
+**The gate was the one that could bend, and it was already wrong.** Its two siblings check
+the *current* record per id, and one states why in its own docstring: *"earlier lines are
+immutable history, so the only way to add a missing field to line 65 is to rewrite the file
+— the very thing the append-only rule forbids."* That argument applies verbatim to
+references. It now asserts on current records and **prints the historical count** on every
+run, so the narrowing is visible rather than silent. It passes either way today; this is a
+conflict resolved, not a threshold moved.
+
+**And the deeper cause: the file had a checker, a rule for writing it, and nothing that
+wrote it.** Every lane hand-rolled `os.open(..., O_APPEND)` and `json.dumps` with the schema
+in its head, while the vocabulary sat in a test module no tool can sensibly import. Two
+malformed records in one afternoon is what that costs — `status: "closed-answered"`, good
+English and not one of the five declared values, then a correction putting prose where a gap
+id belongs.
+
+`python/qd_train/gaps.py` is the join. `append_gap` validates against the same constants the
+tests now import *from it* — exactly what they check, neither more nor less, because a
+writer stricter than its checker refuses valid records and a writer looser than its checker
+is what just happened — then appends one line with `O_APPEND` and `fsync`. It *reads* to
+resolve references, which is safe; it never rewrites, which is what the rule is about.
+
+Twelve tests, every case a real one; the two that happened are the first two. One asserts
+the checker's `KNOWN_STATUSES` and the writer's are the same frozenset **by identity**, so
+they cannot drift into disagreeing about what is valid.
+
+The first use is the demonstration: `GAP-GAPS-JSONL-HAD-A-CHECKER-AND-NO-WRITER` was
+recorded by calling `append_gap`, 465 → 466.
+
+### The trap documented two paragraphs above where I was reading
+
+The first draft of `test_gaps_writer.py` wrote five fixture gap ids out in full and broke
+both citation guards. `test_gaps_ledger.py`'s module docstring says exactly this, and notes
+that *its own* first draft did it with three. Assembling the ids from a prefix keeps the
+literal out of the source while leaving the runtime values exactly what the writer must
+accept or refuse — with the reason recorded where the next author will hit it.
+
+Reading a rule is not the same as it binding. That is the fourth time today a check was
+wrong in a way only running it revealed, and the first where the warning was already written
+down.
+
 ## Where this leaves the final train
 
 On the axes this lane owns:
@@ -1795,6 +1879,9 @@ On the axes this lane owns:
 * **A training row cannot arrive without provenance** — pinned in the ledger rather than in
   the source, so it holds for rows written on a machine this checkout has never seen. What
   it cannot do is repair the 699 that already have none (§36).
+* **`gaps.jsonl` has a writer that agrees with its checker** — one vocabulary, asserted
+  identical by reference, so a record that would land malformed does not land and no lane
+  is driven to rewrite the file to fix one (§37).
 * **The one open gap cannot go off quietly** — the six recipe-hash spellings are pinned, so
   the tidy-up that would silently rename every future `recipe_hash` fails with the
   consequence spelled out.
@@ -1834,7 +1921,18 @@ grep -n "_row_writing_tools\|_pricing_tools\|_SPELLINGS\|NOT_WRAPPING" /Users/bh
 
 The four things in this file that decide what the other checks look at: two derived scopes,
 the pinned recipe-hash spellings, and the inventory of every place a recorder can be handed
-a duration it did not time. Three of today's findings were in the scopes rather than in the
-code they checked — a list of four that had stopped being all of them, twice, and a check
-whose pattern could not match the way its flag is actually spelled. Read these before
+a duration it did not time. Four of today's findings were in checks rather than in the code
+they check — a list of four that had stopped being all of them, twice; a check whose pattern
+could not match the way its flag is actually spelled; a constant true of one case printed on
+every case; and a per-line rule that made its own file unrepairable. Read these before
 trusting anything else here.
+
+Then, before appending anything to `gaps.jsonl`:
+
+```bash
+sed -n '1,30p' /Users/bharath/Code/research/qwen-decision/python/qd_train/gaps.py
+```
+
+`append_gap` rather than a hand-rolled `O_APPEND`. Two lanes wrote malformed records on
+2026-09-21 with the schema in their heads, and one of them had to break the append-only rule
+to undo it.
