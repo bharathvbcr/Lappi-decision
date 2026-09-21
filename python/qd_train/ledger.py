@@ -995,9 +995,13 @@ class Ledger:
     def promotion_verdict(self, seed_family: str) -> PromotionVerdict:
         """May the rows sharing this seed family promote a decision?
 
-        All five conditions from docs/ledger-schema.md, each refusal itemized.
-        Condition 4 is the one that matters: a `not_run` gate BLOCKS promotion.
+        Every condition in docs/ledger-schema.md, each refusal itemized.
+        Condition 4 is the one that matters most: a `not_run` gate BLOCKS promotion.
         It does not pass it, and it does not quietly drop out of the conjunction.
+
+        Condition 7 is coverage. A gate or control that states `n`/`n_total` and saw
+        fewer than all eligible items refuses, rather than promoting on a capped
+        sample. Unstated coverage (`n is None`) is not treated as partial.
         """
         candidates = [r for r in self.rows() if r.protocol.hash_without_seed() == seed_family]
         ids = tuple(r.row_id for r in candidates)
@@ -1059,7 +1063,15 @@ class Ledger:
                         "this blocks promotion"
                     )
                 elif not g.passed:
-                    reasons.append(f"{r.row_id}: gate {gate!r} ran and FAILED")
+                    reasons.append(
+                        f"{r.row_id}: gate {gate!r} ran and FAILED [{g.coverage_str()}]"
+                    )
+                elif _states_partial_coverage(g):
+                    reasons.append(
+                        f"{r.row_id}: gate {gate!r} passed on only {g.coverage_str()} of the "
+                        "eligible population; a capped sample is not complete coverage "
+                        "and does not promote"
+                    )
 
             for ctl in REQUIRED_CONTROLS:
                 c = r.controls.get(ctl)
@@ -1068,18 +1080,50 @@ class Ledger:
                 elif isinstance(c, NotRun):
                     reasons.append(f"{r.row_id}: control {ctl!r} did not run ({c.reason})")
                 elif not c.passed:
-                    reasons.append(f"{r.row_id}: control {ctl!r} ran and FAILED")
+                    reasons.append(
+                        f"{r.row_id}: control {ctl!r} ran and FAILED [{c.coverage_str()}]"
+                    )
+                elif _states_partial_coverage(c):
+                    reasons.append(
+                        f"{r.row_id}: control {ctl!r} passed on only {c.coverage_str()} of the "
+                        "eligible population; a capped sample is not complete coverage "
+                        "and does not promote"
+                    )
 
         if reasons:
             return PromotionVerdict(False, tuple(reasons), ids)
+        stated = [
+            t
+            for r in candidates
+            for t in (*r.gates.values(), *r.controls.values())
+            if isinstance(t, Ran) and t.n is not None
+        ]
+        coverage = (
+            min(stated, key=lambda t: (t.n or 0) / (t.n_total or 1)).coverage_str()
+            if stated
+            else "coverage unstated"
+        )
         return PromotionVerdict(
             True,
             (
                 f"{len(candidates)} completed rows, seeds {sorted(seeds)}, "
-                "every gate and control ran and passed",
+                "every gate and control ran and passed at complete coverage "
+                f"(weakest stated: {coverage})",
             ),
             ids,
         )
+
+
+def _states_partial_coverage(result: Ran) -> bool:
+    """True when a result states its coverage and that coverage is short of the population.
+
+    Unstated coverage (``n is None``) is not partial. Many gates are a single
+    observation with no population to sample, and refusing those would make
+    promotion unreachable. ``Ran.is_complete_coverage`` answers False for unstated
+    coverage, which is the right answer to "did this see everything?" and the wrong
+    condition to refuse on, so the two questions stay separate.
+    """
+    return result.n is not None and not result.is_complete_coverage
 
 
 def _is_measured_duration(wall_clock_s: float) -> bool:

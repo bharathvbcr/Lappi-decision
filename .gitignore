@@ -1,6 +1,9 @@
 # Rust
 /target
 **/*.rs.bk
+# Cargo.lock IS tracked: qd-preflight is a binary, and this repo pins its
+# Python stack under stack/ for the same reason -- a number is only
+# reproducible from the versions that produced it.
 
 # Python
 __pycache__/

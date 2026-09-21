@@ -274,6 +274,17 @@ reason would promote. Measured: with rule 6 removed, three completed non-quick `
 every gate and control `ran`/`passed` return `promoted=True`
 (`python/tests/test_ledger.py::test_a_build_row_cannot_promote_anything`).
 
+7. No gate or control that **states** its coverage saw fewer than all eligible items —
+   a `ran/passed` result carrying `n < n_total` refuses, it does not promote.
+   Coverage that is unstated (`n` absent) is not treated as partial.
+
+Rule 7 is the Coverage rule made enforceable on the verdict. `promotion_verdict` used to
+ignore `n`/`n_total`, so a gate measured on 1 of 1000 eligible items promoted exactly like
+one measured on 1000 of 1000. A `PROMOTE` states the weakest coverage it promoted on, so
+"complete coverage" is never implied by silence. Unstated coverage stays promotable: many
+gates are a single observation with no population, and refusing those would make promotion
+unreachable rather than honest.
+
 ## Chain integrity
 
 `prev_row_hash` chains rows.

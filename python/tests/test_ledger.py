@@ -277,6 +277,83 @@ def test_a_capped_run_cannot_promote_even_when_it_calls_itself_complete(tmp_path
     assert any("truncated schedule" in r for r in verdict.reasons), str(verdict)
 
 
+def _rows_with_coverage(led: Ledger, gate_value, control_value=None) -> None:
+    """Three finished seeds whose gates carry `gate_value` and whose controls carry
+    `control_value` (or the same value, when the control is not the thing under test).
+    """
+    from qd_train.ledger import REQUIRED_CONTROLS, REQUIRED_GATES
+
+    for seed in (1, 2, 3):
+        with RunRecorder(
+            led, protocol=_protocol(seed), run_kind="ft", repo=REPO, env=_env(),
+            wall_clock_s=None, cost=None,
+        ) as rec:
+            for g in REQUIRED_GATES:
+                rec.gate(g, gate_value())
+            for c in REQUIRED_CONTROLS:
+                rec.control(c, (control_value or gate_value)())
+            rec.metric(
+                "train.termination",
+                Ran(passed=True, value="steps_exhausted"),
+            )
+
+
+def test_a_capped_sample_does_not_promote(tmp_path: Path):
+    """A gate that saw 1 of 1000 eligible items has not established itself over the population.
+
+    Measured against the pre-fix verdict: three completed non-quick seeds, every required
+    gate and control `ran/passed`, `train.termination=steps_exhausted`, and `n=1` of
+    `n_total=1000` returned `promoted=True`.
+    """
+    led = Ledger(tmp_path / "runs.jsonl")
+    _rows_with_coverage(led, lambda: Ran(passed=True, value=1.0, n=1, n_total=1000))
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert not verdict.promoted, str(verdict)
+    assert any("1/1000" in r and "capped sample" in r for r in verdict.reasons), verdict.reasons
+
+
+def test_unstated_coverage_is_not_treated_as_capped(tmp_path: Path):
+    """`n is None` means there is no population to sample, so promotion stays reachable."""
+    led = Ledger(tmp_path / "runs.jsonl")
+    _rows_with_coverage(led, lambda: Ran(passed=True, value=1.0))
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert verdict.promoted, str(verdict)
+    assert any("coverage unstated" in r for r in verdict.reasons), verdict.reasons
+
+
+def test_a_promote_states_the_coverage_it_promoted_on(tmp_path: Path):
+    """A PROMOTE names the weakest coverage it accepted."""
+    led = Ledger(tmp_path / "runs.jsonl")
+    _rows_with_coverage(led, lambda: Ran(passed=True, value=1.0, n=300, n_total=300))
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert verdict.promoted, str(verdict)
+    assert any("300/300" in r for r in verdict.reasons), verdict.reasons
+
+
+def test_every_itemized_refusal_carries_its_coverage(tmp_path: Path):
+    """A failed gate's refusal line renders `n/n_total`."""
+    led = Ledger(tmp_path / "runs.jsonl")
+    _rows_with_coverage(led, lambda: Ran(passed=False, value=0.1, n=50, n_total=300))
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert not verdict.promoted
+    failed = [r for r in verdict.reasons if "FAILED" in r]
+    assert failed, verdict.reasons
+    assert all("50/300" in r for r in failed), failed
+
+
+def test_partial_coverage_blocks_a_control_too(tmp_path: Path):
+    """Controls are held to the same coverage rule as gates."""
+    led = Ledger(tmp_path / "runs.jsonl")
+    _rows_with_coverage(
+        led,
+        lambda: Ran(passed=True, value=1.0, n=300, n_total=300),
+        control_value=lambda: Ran(passed=True, n=2, n_total=300),
+    )
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert not verdict.promoted, str(verdict)
+    assert any("control" in r and "2/300" in r for r in verdict.reasons), verdict.reasons
+
+
 def test_a_training_row_that_never_says_how_it_ended_cannot_promote(tmp_path: Path):
     """An absent answer is not a passed one -- the same rule the gates follow.
 
