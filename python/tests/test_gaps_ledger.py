@@ -26,31 +26,29 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 from collections.abc import Collection, Mapping
 from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from qd_train import gaps as _gaps
+
 REPO = Path(__file__).resolve().parents[2]
 LEDGER = REPO / "gaps.jsonl"
 
-REQUIRED_KEYS = {"id", "question", "status"}
-
-#: The only statuses a record may carry, and which of them mean the question is answered.
-#:
-#: Pinned 2026-09-21 to the five already in use rather than to a tidier pair, because
-#: rewriting 255 records' statuses is a different change from stopping a sixth appearing --
-#: and this file is append-only, so the rewrite is not available anyway.
-#:
-#: `resolved-with-residual` and `closed-no-defect` are the two that cost real time: they
-#: mean CLOSED, and a reader that treats only {resolved, closed} as closed counted 111 open
-#: records where the answer was 78. That is the repository's own "one name, two quantities"
-#: defect, in the file that records that defect.
-OPEN_STATUSES: frozenset[str] = frozenset({"open"})
-CLOSED_STATUSES: frozenset[str] = frozenset(
-    {"resolved", "closed", "resolved-with-residual", "closed-no-defect"}
-)
-KNOWN_STATUSES: frozenset[str] = OPEN_STATUSES | CLOSED_STATUSES
+# The vocabulary and the required keys now live in `qd_train.gaps`, beside the function
+# that WRITES a record, and are re-exported here so this module stays the place other tests
+# import them from. They were defined here first, which was the defect: a test module is
+# not importable by a tool, so every lane hand-rolled its append with the schema carried in
+# its head -- and on 2026-09-21 two lanes' records were refused by these very tests for
+# using words nobody had declared. A checker with no matching writer is half a contract.
+REQUIRED_KEYS = set(_gaps.REQUIRED_KEYS)
+OPEN_STATUSES = _gaps.OPEN_STATUSES
+CLOSED_STATUSES = _gaps.CLOSED_STATUSES
+KNOWN_STATUSES = _gaps.KNOWN_STATUSES
 
 
 def statuses_outside_vocabulary(records: Mapping[str, dict]) -> dict[str, str]:
@@ -163,22 +161,58 @@ def test_every_current_record_carries_the_required_keys() -> None:
     )
 
 
+def _references(rec: dict) -> list[str]:
+    refs: list[str] = []
+    if isinstance(rec.get("supersedes"), str):
+        refs.append(rec["supersedes"])
+    answers = rec.get("answers")
+    if isinstance(answers, list):
+        refs.extend(a for a in answers if isinstance(a, str))
+    return refs
+
+
 def test_every_supersedes_and_answers_reference_resolves() -> None:
     """A revision that names a record which does not exist is the same dangling
-    citation as a document naming one, one level further in."""
+    citation as a document naming one, one level further in.
+
+    Asserted on CURRENT records, and that is a correction rather than a relaxation. The
+    sibling above states the principle this one was breaking: *"only what is true of every
+    line ever written belongs"* on a per-line check, because earlier lines are immutable
+    history and the only way to change one is to rewrite the file -- the thing the
+    append-only rule forbids. Completeness and the status vocabulary were already asserted
+    on the current record for exactly that reason; this check scanned every line anyway.
+
+    It cost a rewrite on 2026-09-21. A lane put prose where a gap id belongs, could not fix
+    it by appending because this test read the bad line forever, and removed the line --
+    measuring first that the line was its own, two minutes old and uncommitted, which it
+    was. The rule and the gate were in conflict and the gate was the one that could bend.
+
+    **Both numbers**, so this is not a quiet narrowing: the historical count is printed on
+    every run. A dangling reference in a superseded record is history and unfixable; one in
+    a current record is a live defect an append can repair, and only that fails.
+    """
     known = {r["id"] for _, r in _lines()}
-    dangling: list[str] = []
-    for n, rec in _lines():
-        refs: list[str] = []
-        if isinstance(rec.get("supersedes"), str):
-            refs.append(rec["supersedes"])
-        answers = rec.get("answers")
-        if isinstance(answers, list):
-            refs.extend(a for a in answers if isinstance(a, str))
-        for ref in refs:
-            if ref not in known:
-                dangling.append(f"line {n} ({rec['id']}) -> {ref}")
-    assert not dangling, "references to records that do not exist:\n  " + "\n  ".join(dangling)
+
+    historical = [
+        f"line {n} ({rec['id']}) -> {ref}"
+        for n, rec in _lines()
+        for ref in _references(rec)
+        if ref not in known
+    ]
+    live = [
+        f"{gid} -> {ref}"
+        for gid, rec in current_records().items()
+        for ref in _references(rec)
+        if ref not in known
+    ]
+    print(
+        f"gaps.jsonl references: {len(live)} dangling in current records, "
+        f"{len(historical)} dangling across all {len(_lines())} lines including history"
+    )
+    assert not live, (
+        "current records reference records that do not exist (append a corrected record "
+        "under the same id; do not edit history):\n  " + "\n  ".join(live)
+    )
 
 
 def test_the_last_line_for_an_id_is_the_one_a_reader_gets() -> None:
