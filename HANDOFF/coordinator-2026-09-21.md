@@ -1289,6 +1289,42 @@ it is the one-of-N shape a seventh time, in the artifact written to guard agains
 enumeration of what was not checked, which was itself incomplete. An audit's exclusion list
 is a claim like any other.
 
+## 27. Every capacity number today is on a row with no duration and no price
+
+Raised by the concurrent lane while re-verifying its prior; widened and cause-checked here.
+Read from the box directly — all four rung-0 capacity sweeps, 59 rows:
+
+| sweep | rows | `wall_clock_s` | `cost_usd` | `wall_clock_source` | `code_that_ran` |
+| --- | --- | --- | --- | --- | --- |
+| `4096-e10` | 24 | 7.35e-05 – 1.18e-04 | 0.0 | absent | 0 |
+| `4096-e30` | 22 | 7.48e-05 – 1.26e-04 | 0.0 | absent | 0 |
+| `sw005` | 5 | 7.38e-05 – 1.12e-04 | 0.0 | absent | 0 |
+| `sw005-nondet` | 8 | 7.56e-05 – 8.83e-05 | 0.0 | absent | 0 |
+
+Seventy-three to one hundred and twenty-six **microseconds**, for seeds the logs record in
+minutes. So every capacity number this project produced today — including §22's table and
+the 0.0197 the curve is pre-registered against — sits on a row that says the run took no
+time and cost nothing. **The accuracies are real; the duration, the price and the
+provenance are recorded nowhere.**
+
+**The cause is a stale box, not the current code, and the two must not be conflated.**
+`rung0_real_run.py:1019` passes `wall_clock_s=float(run["wall_clock_s"])` — the measured
+training duration — and has since `a409895` at 08:40 today. The box is a clone pinned at
+`8b9df39` (2026-09-20) with files copied over it, and it was last copied before that
+commit. Its rows therefore fall back to the recorder's own lifetime, which is the time to
+write metrics.
+
+So §26's gap and this are different faults that happen to share a symptom. §26 is a
+present-tense defect in the current source: the recorder is entered after training, so a
+*killed* run writes nothing. This is a stale deployment: an *uninterrupted* run writes a row
+whose duration is the reporting time. Fixing §26 does not fix this, and syncing does not fix
+§26.
+
+After the sync, the curve's rows will be the first rung-0 rows in this project carrying a
+true duration, a true price and a source fingerprint. That is worth more than a bookkeeping
+improvement: it is the first rung-0 evidence that could be re-priced or reproduced from its
+own row.
+
 ## Open
 
 1. **The 8192 curve at `--train-subsample`**, validation untouched, with the linear control
