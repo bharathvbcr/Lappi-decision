@@ -65,7 +65,7 @@ from repo_git import git_bytes, git_text, resolve_rev, tracked_paths
 from qd_data.config import DataConfig
 from qd_data.dedupe import dedupe
 from qd_data.errors import QdRefusal
-from qd_data.loaders import CommitPackFtRow, RawRow, SquadRow
+from qd_data.loaders import CommitPackFtRow, RawRow, SquadRow, parse_commitpackft
 from qd_data.manifest import build_manifests
 from qd_data.mixture import build_mixture
 from qd_data.rows import DataRow
@@ -215,6 +215,55 @@ def commit_rows(*, max_pairs: int, rev: str) -> tuple[list[CommitPackFtRow], boo
                 )
             )
     return rows, capped
+
+
+def pool_manifest_shas(root: Path) -> dict[str, str]:
+    """``{language: sha256}`` as the local commitpackft download's manifest records them."""
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("source_id") != "bigcode/commitpackft":
+        raise SystemExit(
+            f"{root / 'manifest.json'} names source {manifest.get('source_id')!r}, not "
+            "bigcode/commitpackft; refusing to read its rows as commitpackft rows"
+        )
+    return {lang: str(meta["sha256"]) for lang, meta in sorted(manifest["languages"].items())}
+
+
+def commitpackft_pool_rows(
+    root: Path, *, max_pairs: int
+) -> tuple[list[CommitPackFtRow], bool, int]:
+    """Rows from the plan's own code source: a local ``bigcode/commitpackft`` download.
+
+    :func:`commit_rows` renders this repository's history AS commitpackft rows, which
+    measures the tokenizer path on real code but trains on one repository's commits. The
+    plan names commitpackft itself, and it has been on disk under ``data/pool/commitpackft``
+    since 2026-09-21: one JSONL per language, each pinned by a sha256 in ``manifest.json``.
+
+    Every file is checked against its recorded sha256 before a row is read, and a mismatch
+    refuses the run: a file that changed after it was downloaded holds rows nobody can name.
+
+    A cap is a SAMPLE, not a prefix. The files are read in language order, so the first
+    ``max_pairs`` rows would all be Go; instead every row is ordered by a sha256 of its
+    ``(commit, old_file)`` and the first ``max_pairs`` are kept, which is reproducible and
+    keeps the language mix in expectation. Returns the rows, whether the cap bound, and how
+    many rows the download held, so both numbers are reported.
+    """
+    expected = pool_manifest_shas(root)
+    rows: list[CommitPackFtRow] = []
+    for lang, sha in expected.items():
+        path = root / f"{lang}.jsonl"
+        data = path.read_bytes()
+        actual = hashlib.sha256(data).hexdigest()
+        if actual != sha:
+            raise SystemExit(
+                f"{path} hashes to {actual} but {root / 'manifest.json'} records {sha}: the "
+                "file changed after it was downloaded, so which rows it holds cannot be stated"
+            )
+        for index, line in enumerate(data.decode("utf-8").splitlines()):
+            if line.strip():
+                rows.append(parse_commitpackft(json.loads(line), index=index))
+    total = len(rows)
+    rows.sort(key=lambda r: hashlib.sha256(f"{r.commit}\0{r.old_file}".encode()).hexdigest())
+    return rows[:max_pairs], total > max_pairs, total
 
 
 def _paragraphs(text: str, *, min_lines: int) -> list[str]:
@@ -649,7 +698,14 @@ class Measured:
     notes: str
 
 
-def run(*, out: Path, max_pairs: int, blank_line_runs: bool, rev: str) -> Measured:
+def run(
+    *,
+    out: Path,
+    max_pairs: int,
+    blank_line_runs: bool,
+    rev: str,
+    commitpackft: Path | None = None,
+) -> Measured:
     config = DataConfig()
     resolved = resolve_rev(REPO, rev)
     tok = RealTokenizer.load()
@@ -659,7 +715,18 @@ def run(*, out: Path, max_pairs: int, blank_line_runs: bool, rev: str) -> Measur
     )
     print(f"corpus revision: {rev} -> {resolved}")
 
-    commits, commits_capped = commit_rows(max_pairs=max_pairs, rev=resolved)
+    if commitpackft is None:
+        commits, commits_capped = commit_rows(max_pairs=max_pairs, rev=resolved)
+        code_source = f"this repository's own history at {resolved}"
+    else:
+        commits, commits_capped, pool_total = commitpackft_pool_rows(
+            commitpackft, max_pairs=max_pairs
+        )
+        code_source = (
+            f"bigcode/commitpackft from {commitpackft} ({len(commits)} of {pool_total} "
+            "rows, a sha256-ordered sample; files pinned by the download's manifest), "
+            f"with span prose from this repository at {resolved}"
+        )
     spans, spans_capped = span_rows(
         max_rows=max_pairs, blank_line_runs=blank_line_runs, rev=resolved
     )
@@ -903,7 +970,7 @@ def run(*, out: Path, max_pairs: int, blank_line_runs: bool, rev: str) -> Measur
         data_snapshot_hash=header.data_snapshot_hash,
         tokenizer_hash=remap.tokenizer_hash,
         notes=(
-            f"real-tokenizer end-to-end over this repository's own history at {resolved}; "
+            f"real-tokenizer end-to-end over {code_source}; "
             f"blank_line_runs={blank_line_runs}; {len(commits)} commit pairs, "
             f"{len(spans)} prose passages; snapshot status="
             f"{snapshot_status.to_json()['state']}"
@@ -951,12 +1018,24 @@ def main(argv: list[str] | None = None) -> int:
             "they may not appear in a report."
         ),
     )
+    parser.add_argument(
+        "--commitpackft",
+        type=Path,
+        default=None,
+        help=(
+            "a local bigcode/commitpackft download (one <lang>.jsonl per language plus the "
+            "manifest.json pinning their sha256s, e.g. data/pool/commitpackft). The code "
+            "rows then come from the plan's own source instead of this repository's "
+            "history; --max-pairs becomes a sha256-ordered sample of it."
+        ),
+    )
     args = parser.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
     if args.ledger is None:
         run(
             out=args.out, max_pairs=args.max_pairs,
             blank_line_runs=args.blank_line_runs, rev=args.rev,
+            commitpackft=args.commitpackft,
         )
         return 0
 
@@ -974,6 +1053,12 @@ def main(argv: list[str] | None = None) -> int:
         "blank_line_runs": bool(args.blank_line_runs),
         "rev": args.rev,
     }
+    if args.commitpackft is not None:
+        # Only when used: every row written before the flag existed hashed the five keys
+        # above, and adding a sixth to all of them would rename that protocol family.
+        # The sha256s, not the path, identify the corpus; run() refuses a file that no
+        # longer matches them.
+        recipe["commitpackft_sha256"] = pool_manifest_shas(args.commitpackft)
     protocol = Protocol(
         # Filled after the run, which is why this is a placeholder only until then: a
         # Protocol is frozen, so the real one is built from what the run measured.
@@ -989,6 +1074,7 @@ def main(argv: list[str] | None = None) -> int:
     measured = run(
         out=args.out, max_pairs=args.max_pairs,
         blank_line_runs=args.blank_line_runs, rev=args.rev,
+        commitpackft=args.commitpackft,
     )
     work_s = time.monotonic() - work_t0
     protocol = Protocol(
