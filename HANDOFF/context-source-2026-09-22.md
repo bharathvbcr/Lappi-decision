@@ -94,6 +94,21 @@ figure, which are identical in both; the rows are pooled for those and nothing e
 **Across all four arms — two corpora, two representations, 29 completed rows — the model
 wins zero times and no confidence interval touches zero.**
 
+> **Corrected 2026-09-22.** The `after` row pools two runs of one arm, counting 5 seeds
+> twice. `ledger/gh200-fourway-2026-09-22.jsonl` rows 1–5 are seeds 0–4 of a first run
+> (code `065920c4f8635051`, seed 5 killed at row 6); rows 7–14 are all of seeds 0–7 again at
+> `d10f23542617e9f5`. Both runs share one recipe, one backbone and one launch rev, so the 13
+> rows are 8 seeds. `tools/ledger_arms.py` now refuses that arm; `--split-by-code` reads each
+> run on its own. **The complete run alone** (rows 7–14, `63d3cfa6`…`28e29c90`): n = 8, paired
+> margin **−0.0774** (range −0.0880 … −0.0648), **0/8** positive, top-1 **50.10%**. The "+4.1%"
+> above was already this run's figure; the 50.20% beside it was the pooled one. The pooled read
+> printed sd 0.60pp and an honest floor of 0.51pp against a fixed reference; the complete run's
+> own are 0.76pp and 0.87pp, so pooling claimed about 1.7× the resolution the arm has. The
+> two runs are not samples of one thing either: at five of the same seeds the first run's
+> top-1 sd is 0.12pp against the complete run's 0.76pp. The "29" does not match the four
+> arms' 37 margin rows or their 32 distinct seeds. **No conclusion here changes:** every
+> margin is negative whichever count is used.
+
 ### Capacity, re-taken on a task that has signal in it
 
 `b72aa54` found accuracy falling monotonically in width and it was measured on the
@@ -176,6 +191,11 @@ On `commitpackft-mutated`, where every row points, the span head reached 9.5% ag
 chance — the one head in rung 0 that was generalising. On `commitpackft-corpus-v2`, where
 17% of rows abstain, it reaches **1.50%**: *below* chance, on 13 rows. Span loss rises
 during training (2.581 → 3.951) rather than falling.
+
+> **Corrected 2026-09-22.** The 13 rows pool the same two runs as the four-way table above.
+> Over the complete run alone (`gh200-fourway-2026-09-22.jsonl` rows 7–14, 8 seeds), span
+> start is **1.49%** against the same 3.2% uniform-pointer chance. That is still below chance,
+> and below it on every one of the 8 seeds. The finding stands.
 
 Asked to learn both where to point and when not to, at `--span-weight 0.05`, it learns the
 abstention and stops pointing. This was invisible until the pointing decomposition landed:

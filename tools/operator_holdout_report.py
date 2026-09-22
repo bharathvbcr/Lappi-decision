@@ -46,7 +46,8 @@ dominant three, and one report reads both -- which means a re-run of the same ar
 beside the run it repeats or passed in as a second ledger, would be pooled with it: sixteen
 "seeds" where eight exist, a spread understated by counting each twice, and one run's
 `not_run` margins averaged in beside the other's measured ones. That is refused, naming the
-rows, rather than rendered.
+rows, rather than rendered. The rule and the refusal's wording are `ledger_arms.SeedClaims`,
+which that tool applies to its own arms, so the two cannot drift apart on either.
 
 ## What this does not compute
 
@@ -73,10 +74,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from ledger_arms import metric_of, read_rows
-
-# ledger_arms puts python/ on sys.path; the recorder's own name for the digest lives there.
-from qd_train.ledger import CODE_THAT_RAN
+from ledger_arms import RepeatedSeed, SeedClaims, code_of, metric_of, read_rows
 
 #: Accuracy on the named operator's own validation rows, on every arm that named one.
 OPERATOR = "val_choice_top1_on_measured_operator"
@@ -92,9 +90,6 @@ FIT = "train_choice_top1_over_train_majority"
 #: and size-matched arm until ``tools/fit_operator_holdout_controls.sh`` has been run, and
 #: which must be read as NOT MEASURED rather than as a loss.
 MARGIN = "paired_margin_vs_linear"
-#: The sha256 over the code the run imported (``what_ran_state``), comparable across hosts.
-#: Imported from the writer rather than spelled out: see ``CODE_THAT_RAN``'s comment.
-CODE = CODE_THAT_RAN
 
 #: The three conditions, in the order they are read against each other.
 REFERENCE, HOLDOUT, SIZEMATCH = "reference", "holdout", "sizematch"
@@ -160,21 +155,6 @@ class Cell:
         return len(self.operator_acc) + self.unmeasured
 
 
-def code_of(row: dict) -> str:
-    """The code a row ran, as precisely as the row states it, and never an empty string."""
-    ran = metric_of(row, CODE)
-    if ran is not None and ran.get("state") == "ran" and ran.get("value"):
-        return str(ran["value"])[:16]
-    rev = (row.get("recipe") or {}).get("rev")
-    return f"rev {str(rev)[:12]}" if rev else "unrecorded"
-
-
-class RepeatedSeed(ValueError):
-    """Two rows claim the same seed of the same (operator, condition) cell."""
-
-
-#: How many colliding seeds a refusal names before summarising the rest by count.
-_REPEATS_SHOWN = 5
 #: A recorded not_run reason is printed up to this many characters, then marked as cut.
 _REASON_CHARS = 240
 
@@ -186,8 +166,7 @@ def cells_of(rows: list[dict]) -> dict[tuple[str, str], Cell]:
     time" in the module docstring.
     """
     out: dict[tuple[str, str], Cell] = {}
-    first_claim: dict[tuple[str, str, object], str] = {}
-    repeats: list[str] = []
+    claims = SeedClaims()
     for row in rows:
         key = condition_of(row.get("recipe") or {})
         if key is None:
@@ -198,17 +177,7 @@ def cells_of(rows: list[dict]) -> dict[tuple[str, str], Cell]:
         if seed is None:
             cell.unseeded += 1
         else:
-            where = (
-                f"row {row.get('row_id', '?')} "
-                f"(rev {str((row.get('recipe') or {}).get('rev', '?'))[:12]})"
-            )
-            claim = (*key, seed)
-            if claim in first_claim:
-                repeats.append(
-                    f"{key[0]} {key[1]} seed {seed}: {first_claim[claim]} and {where}"
-                )
-            else:
-                first_claim[claim] = where
+            claims.claim(key, seed, row, label=f"{key[0]} {key[1]}")
         op, sib = metric_of(row, OPERATOR), metric_of(row, SIBLINGS)
         fit, overall = metric_of(row, FIT), metric_of(row, OVERALL)
         # Read from gates or metrics: the runner records the margin as a GATE, and reading
@@ -240,18 +209,23 @@ def cells_of(rows: list[dict]) -> dict[tuple[str, str], Cell]:
         else:
             cell.sibling_acc.append(float(sib["value"]))
             cell.n_sibling_rows = max(cell.n_sibling_rows, int(sib.get("n_total") or 0))
-    if repeats:
-        shown = repeats[:_REPEATS_SHOWN]
-        raise RepeatedSeed(
-            f"refusing to pool: {len(repeats)} seed(s) appear more than once in the same "
-            f"(operator, condition) cell -- showing {len(shown)} of {len(repeats)}:\n  "
-            + "\n  ".join(shown)
-            + "\nThese are two runs of the same arms, or one ledger read twice. Pooled, "
+    claims.refuse(
+        within="the same (operator, condition) cell",
+        name=_where,
+        why=(
+            "These are two runs of the same arms, or one ledger read twice. Pooled, "
             "each seed would count twice, the spread would be understated, and one run's "
             "not_run margins would be averaged in beside the other's measured ones. Read "
             "one run at a time: pass each run's ledger to its own report."
-        )
+        ),
+    )
     return out
+
+
+def _where(row: dict) -> str:
+    """A row as a refusal names it: its id and the rev it was launched at."""
+    rev = str((row.get("recipe") or {}).get("rev", "?"))[:12]
+    return f"row {row.get('row_id', '?')} (rev {rev})"
 
 
 def _mean_sd(sample: list[float]) -> str:

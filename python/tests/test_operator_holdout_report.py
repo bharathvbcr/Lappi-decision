@@ -17,6 +17,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
 
+import ledger_arms  # noqa: E402
 import operator_holdout_report as rep  # noqa: E402
 
 
@@ -71,7 +72,7 @@ def _row(
         rep.FIT: {"state": "ran", "passed": fit_passed, "value": 0.7},
     }
     if code:
-        # The ledger's own field name, spelled out rather than read from rep.CODE, so a
+        # The ledger's own field name, spelled out rather than read from the tools, so a
         # constant that drifted away from what the runner writes fails here.
         metrics["code_that_ran"] = {"state": "ran", "passed": True, "value": code, "n": 31}
     return {
@@ -238,6 +239,28 @@ def test_a_rerun_of_the_same_seed_is_refused_rather_than_pooled() -> None:
     msg = str(refused.value)
     assert "stub.panic holdout seed 0" in msg
     assert "row first (rev ecbd370a4d40)" in msg and "row rerun (rev 52c8fe9fc39a)" in msg
+
+
+def test_a_seed_run_three_times_is_one_repeated_seed_with_every_row_named() -> None:
+    """The refusal counts SEEDS. Counting each extra claim read "2 seed(s)" for one seed
+    run three times, which is a count of something nobody asked about."""
+    rows = [
+        _row(held="stub.panic", seed=0, rev=rev, row_id=f"run{i}", margin=None)
+        for i, rev in enumerate(("ecbd370a4d40", "52c8fe9fc39a", "7f23355aaaaa"))
+    ]
+    with pytest.raises(rep.RepeatedSeed) as refused:
+        rep.cells_of(rows)
+    msg = str(refused.value)
+    assert "refusing to pool: 1 seed(s) appear more than once" in msg, msg
+    assert all(f"row run{i} (rev " in msg for i in range(3)), msg
+
+
+def test_the_repeat_rule_has_one_owner_shared_with_ledger_arms() -> None:
+    """Both tools read populations of seeds back from rows, and two copies of "a population
+    holds each seed once" -- or of "which code did this row run" -- drift apart. The report
+    borrows ledger_arms' rather than keeping its own."""
+    assert rep.RepeatedSeed is ledger_arms.RepeatedSeed
+    assert rep.code_of is ledger_arms.code_of
 
 
 def test_a_refusal_says_how_many_it_did_not_show() -> None:

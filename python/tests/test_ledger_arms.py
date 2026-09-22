@@ -9,9 +9,11 @@ implementations is one somebody wrote:
   result, which is how "capacity helps +2.59pp" was reported from the e10 arms on
   2026-09-21;
 * using the one-sample floor on an arm-vs-arm difference claims 1.41x more sensitivity than
-  the comparison has, which flipped a verdict the same day.
+  the comparison has, which flipped a verdict the same day;
+* counting every row of an arm as a new seed pools a re-run with the run it repeats -- the
+  four-way ``after`` arm of 2026-09-22 was reported as n=13 over 8 seeds.
 
-The last test reads the committed GH200 ledger rather than a fixture, so the row shape this
+The tests on committed ledgers read the rows rather than a fixture, so the row shape this
 module parses stays pinned to the row shape the runners actually write.
 """
 
@@ -31,6 +33,11 @@ import ledger_arms  # noqa: E402
 
 #: The sweep whose three arms share one recipe. Committed at 7f191bd, off the rented box.
 CAPACITY_E30 = REPO / "ledger" / "gh200-rung0-capacity-4096-e30-2026-09-21.jsonl"
+#: The four-way `after` arm twice: seeds 0-4 of a first run (5 killed), then all of 0-7 again.
+FOURWAY = REPO / "ledger" / "gh200-fourway-2026-09-22.jsonl"
+#: Seed 0 run twice at one code on purpose, to ask whether the two runs agree.
+REPRO = REPO / "ledger" / "gh200-rung0-repro-2026-09-21.jsonl"
+REPRODET = REPO / "ledger" / "gh200-rung0-reprodet-2026-09-21.jsonl"
 
 
 def _row(
@@ -41,11 +48,27 @@ def _row(
     recipe: str = "r" * 64,
     baseline: float = 0.484,
     metrics: bool = True,
+    seed: int | None = None,
+    code: str = "",
+    row_id: str = "",
 ) -> dict:
-    """One row carrying only the fields ``ledger_arms`` reads."""
-    row: dict = {"protocol": {"recipe_hash": recipe, "backbone_commit": backbone}, "metrics": {}}
+    """One row carrying only the fields ``ledger_arms`` reads.
+
+    ``seed=None`` leaves ``protocol.seed`` out, which every real row carries; the tests that
+    are not about seeds use that, so no two of their rows can collide. ``code`` is the
+    ``code_that_ran`` digest, spelled out rather than read from the tool so a name that
+    drifted away from what the runner writes fails here.
+    """
+    protocol: dict = {"recipe_hash": recipe, "backbone_commit": backbone}
+    if seed is not None:
+        protocol["seed"] = seed
+    row: dict = {"protocol": protocol, "metrics": {}}
+    if row_id:
+        row["row_id"] = row_id
+    if code:
+        row["metrics"]["code_that_ran"] = {"state": "ran", "passed": True, "value": code}
     if metrics:
-        row["metrics"] = {
+        row["metrics"] |= {
             ledger_arms.VAL: {
                 "state": "ran",
                 "passed": val > baseline,
@@ -293,6 +316,188 @@ def test_the_committed_capacity_ledger_reads_as_three_arms_of_eight() -> None:
         assert arm.unmeasured == 0
         assert arm.collapsed == 0, f"{arm.backbone_commit} collapsed on {arm.collapsed}"
         assert arm.baseline == pytest.approx(0.484, abs=5e-4)
+
+
+# -- one run per arm: a seed measured twice is two runs of one seed, not two seeds -------
+
+
+def test_a_seed_measured_twice_in_one_arm_is_refused_naming_both_rows() -> None:
+    """The defect. A re-run shares the recipe and the backbone of the run it repeats, so it
+    lands in the same arm, and every row used to count as a new seed: n overstated, the
+    spread understated, and both floors computed from the two -- the flattering direction.
+
+    Against the version that pooled, this is an arm of n=4 where two seeds exist.
+    """
+    rows = [
+        _row(backbone="b", val=0.50, seed=0, code="aaaa", row_id="first-0"),
+        _row(backbone="b", val=0.52, seed=1, code="aaaa", row_id="first-1"),
+        _row(backbone="b", val=0.49, seed=0, code="bbbb", row_id="rerun-0"),
+        _row(backbone="b", val=0.53, seed=1, code="bbbb", row_id="rerun-1"),
+    ]
+    with pytest.raises(ledger_arms.RepeatedSeed) as refused:
+        ledger_arms.arms_of(rows)
+    msg = str(refused.value)
+    assert "refusing to pool: 2 seed(s) appear more than once" in msg, msg
+    assert "seed 0: row first-0 (code aaaa" in msg and "row rerun-0 (code bbbb" in msg, msg
+    assert "--split-by-code" in msg, "a repeat across code versions has a named way to read it"
+
+
+def test_the_same_seed_in_different_arms_is_not_a_repeat() -> None:
+    """Every arm of a sweep runs seeds 0..n-1, so a seed repeats only inside ONE arm. A
+    check keyed on the seed alone would refuse every sweep ever run."""
+    rows = [
+        _row(backbone="small", val=0.50, seed=0),
+        _row(backbone="large", val=0.52, seed=0),
+        _row(backbone="small", val=0.51, seed=0, recipe="q" * 64),
+    ]
+    assert len(ledger_arms.arms_of(rows)) == 3
+
+
+def test_a_seed_claimed_three_times_is_one_repeated_seed_with_every_row_named() -> None:
+    """The count in a refusal is of SEEDS. Counting each extra claim would say "2 seed(s)"
+    for one seed run three times -- and a list that stopped at two rows would hide the third."""
+    rows = [
+        _row(backbone="b", val=v, seed=0, row_id=f"run{i}") for i, v in enumerate((0.5, 0.6, 0.7))
+    ]
+    with pytest.raises(ledger_arms.RepeatedSeed) as refused:
+        ledger_arms.arms_of(rows)
+    msg = str(refused.value)
+    assert "1 seed(s) appear more than once" in msg, msg
+    assert all(f"row run{i} " in msg for i in range(3)), msg
+
+
+def test_split_by_code_reads_each_code_version_as_its_own_arm() -> None:
+    """The named way out, keyed on the field that separates the committed re-runs: the
+    ``code_that_ran`` digest. Not the rev -- see the four-way test below."""
+    first = [_row(backbone="b", val=v, seed=s, code="aaaa") for s, v in enumerate((0.5, 0.52))]
+    rerun = [_row(backbone="b", val=v, seed=s, code="bbbb") for s, v in enumerate((0.4, 0.42))]
+    arms = ledger_arms.arms_of(first + rerun, split_by_code=True)
+    assert sorted((a.code, len(a.values)) for a in arms.values()) == [("aaaa", 2), ("bbbb", 2)]
+    text = "\n".join(ledger_arms.render(arms) + ledger_arms.render_pairwise(arms))
+    assert "code aaaa" in text and "code bbbb" in text, "the two runs must be told apart by name"
+
+
+@pytest.mark.parametrize("split_by_code", [False, True])
+def test_a_repeat_nothing_in_the_row_separates_is_refused_even_split(split_by_code) -> None:
+    """Two measurements of one seed at one code: a reproducibility check, which is what the
+    two repro ledgers are. No field tells the runs apart, so no flag can make them seeds."""
+    rows = [
+        _row(backbone="b", val=0.503, seed=0, code="aaaa", row_id="x"),
+        _row(backbone="b", val=0.531, seed=0, code="aaaa", row_id="y"),
+    ]
+    with pytest.raises(ledger_arms.RepeatedSeed) as refused:
+        ledger_arms.arms_of(rows, split_by_code=split_by_code)
+    assert "reproducibility check" in str(refused.value), str(refused.value)
+
+
+def test_a_repeat_among_rows_that_measured_nothing_is_counted_rather_than_refused() -> None:
+    """The chain ledgers repeat seeds on rows that measure nothing -- build, smoke and
+    verdict rows, all at seed 0 -- and a killed run leaves one beside its retry. None of
+    them enters a sample, so no floor moves and the tool still reads them; the report says
+    the row count above is not a count of seeds."""
+    rows = [
+        _row(backbone="b", val=0.0, metrics=False, seed=0),
+        _row(backbone="b", val=0.0, metrics=False, seed=0),
+        _row(backbone="b", val=0.51, seed=0),
+        _row(backbone="b", val=0.53, seed=1),
+    ]
+    arms = ledger_arms.arms_of(rows)
+    (arm,) = arms.values()
+    assert arm.values == [0.51, 0.53]
+    assert "2 of these 4 rows repeat a seed" in "\n".join(ledger_arms.render(arms))
+
+
+def test_an_arm_that_ran_two_code_versions_without_a_repeat_is_named() -> None:
+    """Disjoint seeds across a code change pass the repeat check and are still not one run:
+    the spread includes whatever the change did. Named, as the operator-holdout report names
+    it -- not refused, because no seed counts twice and a wider spread flatters nothing."""
+    rows = [
+        _row(backbone="b", val=0.50, seed=0, code="aaaa"),
+        _row(backbone="b", val=0.52, seed=1, code="aaaa"),
+        _row(backbone="b", val=0.41, seed=2, code="bbbb"),
+    ]
+    text = "\n".join(ledger_arms.render(ledger_arms.arms_of(rows)))
+    assert "ARM RAN DIFFERENT CODE: aaaa (2 measured), bbbb (1 measured)" in text, text
+
+
+def test_measured_rows_without_a_seed_say_the_repeat_check_could_not_run() -> None:
+    """A check that could not run must not read like one that ran and found nothing."""
+    text = "\n".join(ledger_arms.render(ledger_arms.arms_of([_row(backbone="b", val=0.5)])))
+    assert "1 measured row(s) carry no protocol.seed" in text, text
+
+
+def test_the_committed_four_way_rerun_is_refused_and_reads_per_code_with_the_flag() -> None:
+    """The ledger this was found on. It holds the four-way ``after`` arm twice -- a first run
+    whose seeds 0-4 completed and seed 5 was killed, then all of 0-7 at later code -- and
+    HANDOFF/context-source-2026-09-22.md reported the two pooled: n=13, top-1 50.20%.
+
+    Both runs carry ONE launch rev, which is why the override splits by the code digest:
+    grouping per rev would have pooled them exactly as before.
+    """
+    rows = ledger_arms.read_rows([FOURWAY])
+    with pytest.raises(ledger_arms.RepeatedSeed, match=r"5 seed\(s\) appear more than once"):
+        ledger_arms.arms_of(rows)
+    after_rows = [r for r in rows if r["protocol"]["recipe_hash"].startswith("1e819e2cad")]
+    assert len({r["recipe"]["rev"] for r in after_rows}) == 1
+
+    arms = ledger_arms.arms_of(rows, split_by_code=True)
+    after = {a.code: a for a in arms.values() if a.recipe_hash.startswith("1e819e2cad")}
+    assert sorted((code, len(a.values), a.unmeasured) for code, a in after.items()) == [
+        ("065920c4f8635051", 5, 1),
+        ("d10f23542617e9f5", 8, 0),
+    ]
+    # The complete run alone: 50.10%, where pooling both runs printed 50.20%.
+    assert statistics.mean(after["d10f23542617e9f5"].values) == pytest.approx(0.50098, abs=1e-5)
+
+
+@pytest.mark.parametrize("ledger", [REPRO, REPRODET], ids=["repro", "reprodet"])
+def test_the_committed_repro_pairs_are_refused_even_split(ledger) -> None:
+    """Seed 0 twice at one code, on purpose: the question was whether the two runs agree
+    (reprodet bit-identical, repro 2.8pp apart). Summarised as an arm of two seeds, their
+    run-to-run difference would be printed as a seed spread, with floors computed from it."""
+    with pytest.raises(ledger_arms.RepeatedSeed, match="reproducibility check"):
+        ledger_arms.arms_of(ledger_arms.read_rows([ledger]), split_by_code=True)
+
+
+def test_main_refuses_with_exit_2_and_names_the_way_to_read_it(capsys) -> None:
+    assert ledger_arms.main([str(FOURWAY)]) == 2
+    captured = capsys.readouterr()
+    assert "refusing to pool" in captured.err and "--split-by-code" in captured.err
+    assert captured.out == "", "a refused report prints no arm, not the arms before the refusal"
+    assert ledger_arms.main([str(FOURWAY), "--split-by-code"]) == 0
+    assert "code d10f23542617e9f5" in capsys.readouterr().out
+
+
+def test_one_ledger_named_twice_is_refused(capsys) -> None:
+    """The likeliest way to double every arm at once."""
+    assert ledger_arms.main([str(CAPACITY_E30)]) == 0
+    capsys.readouterr()
+    assert ledger_arms.main([str(CAPACITY_E30), str(CAPACITY_E30)]) == 2
+    assert "refusing to pool" in capsys.readouterr().err
+
+
+#: Every ledger a HANDOFF or AUDIT file reads with this tool, plus the sweeps its docstring
+#: and its floors were checked on. Each ran one code per arm and repeats no seed.
+DOCUMENTED = [
+    "gh200-rung0-capacity-4096-e10-2026-09-21.jsonl",
+    "gh200-rung0-capacity-4096-e30-2026-09-21.jsonl",
+    "gh200-rung0-capacity-sw005-nondet-2026-09-21.jsonl",
+    "gh200-rung0-learning-curve-2026-09-21.jsonl",
+    "gh200-rung0-curve-n24-2026-09-22.jsonl",
+    "gh200-span-in-diff-2026-09-22.jsonl",
+]
+
+
+@pytest.mark.parametrize("name", DOCUMENTED)
+def test_a_documented_ledger_reads_the_same_split_or_not(name) -> None:
+    """The refusal must not break a command a handoff tells the next lane to run, and on a
+    ledger with one code per arm the override must change nothing it prints about an arm."""
+    rows = ledger_arms.read_rows([REPO / "ledger" / name])
+    pooled = ledger_arms.arms_of(rows)
+    split = ledger_arms.arms_of(rows, split_by_code=True)
+    assert sorted((k[0], k[1], a.values) for k, a in pooled.items()) == sorted(
+        (k[0], k[1], a.values) for k, a in split.items()
+    )
 
 
 # -- render_gates: a gate nobody evaluated and a gate that passed must not look alike ----
