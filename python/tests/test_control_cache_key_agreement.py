@@ -104,3 +104,62 @@ def test_the_shared_flags_really_are_accepted_by_both_tools():
         source = path.read_text(encoding="utf-8")
         for flag in SHARED_SPLIT_FLAGS:
             assert f'"{flag}"' in source, f"{path.name} no longer accepts {flag}"
+
+
+#: The three steps whose ORDER decides which training documents exist, anchored on the
+#: binding each tool actually writes so the pattern cannot match a definition, an import,
+#: or one of the internal uses inside `rung0_real_run` (which is the module that defines
+#: all three). Ordering the whole pipeline by line number does not work there: the later
+#: steps live in helpers that appear earlier in the file than the main flow that calls
+#: them, so line order and call order are different things.
+STAGES = (
+    (r"^\s*train_raw,\s*val_raw\s*=\s*split_by_file\(", "split"),
+    (r"^\s*train_raw,\s*(?:note|_)\s*=\s*filter_train_rows\(", "filter"),
+    (r"^\s*train_d,.*=\s*decisions_of\(", "decisions"),
+)
+
+
+def _stage_lines(path: Path) -> list[int]:
+    """Line of each STAGE in this tool's main flow, in STAGES order."""
+    text = path.read_text(encoding="utf-8")
+    found = []
+    for pattern, name in STAGES:
+        hits = [
+            i for i, ln in enumerate(text.splitlines(), 1) if re.match(pattern, ln)
+        ]
+        assert len(hits) == 1, (
+            f"{path.name}: expected exactly one {name} binding matching {pattern!r}, "
+            f"found {len(hits)}. If the tool was rewritten, re-anchor this test rather "
+            "than loosening it -- a pattern that matches nothing passes by vacuum."
+        )
+        found.append(hits[0])
+    return found
+
+
+def test_both_tools_filter_the_training_set_at_the_same_point_in_the_pipeline():
+    """The operator-holdout margin rests on this and nothing enforced it.
+
+    A holdout arm trains on a reduced set, so its opponent must be fitted on that same
+    reduced set. Both tools call the same `filter_train_rows`, which is necessary and not
+    sufficient: if one filtered BEFORE `split_by_file` and the other after, or one filtered
+    raw rows while the other filtered decisions, the two would build different training
+    documents from identical arguments. The key would differ, the fit would be cached under
+    a key no arm asks for, and every holdout row would report `paired_margin_vs_linear:
+    not_run` -- indistinguishable from never having fitted a control at all.
+
+    Verified by hand on 2026-09-22 -- both walk split -> filter -> decisions -- and held
+    since only by two call sites that happen to agree. This makes the agreement something
+    that breaks a test rather than something that silently costs a GPU run and reports
+    nothing.
+    """
+    for name in ("fit_linear_control.py", "rung0_real_run.py"):
+        order = _stage_lines(REPO / "tools" / name)
+        assert order == sorted(order), (
+            f"{name} runs the split/filter/decisions stages out of order: "
+            + ", ".join(
+                f"{label}@{n}" for (_, label), n in zip(STAGES, order, strict=True)
+            )
+            + ". The filter must narrow the RAW training rows after the split and before "
+            "decisions are built, on both sides, or the two tools key different document "
+            "sets from identical arguments."
+        )
