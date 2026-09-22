@@ -147,12 +147,16 @@ Coordination notes for whoever runs next in this worktree:
   and answer. So the first version of this note ("fails for every session here") was an
   overreach from one session.
 
-  The other long-lived servers on this store, pids 36598 and 83988, hold deleted copies too. Their
-  failure is unchecked. If your `devmap_status` shows a generation below the plugin's, restart
-  your session's devmap server or use the plugin's tools. What deletes the files under live
-  connections is DevMap's to find (DevCouncil `rust/devmap-store`). This lane read
-  `python/qd_train/gaps.py` directly while its server was failing, so nothing it says about that
-  file is graph-confirmed.
+  Five long-lived servers across three stores hold deleted copies: pids 36598 and 83988 here, and
+  the servers on GitPulse's and gusset's stores. On 36598 and 83988, their own sessions report
+  `devmap_status` itself failing ("database disk image is malformed"). The GitPulse and gusset
+  servers are unchecked. So status can read as merely stale, or can fail outright. The quiet case
+  is edge queries: asked for `arms_of`'s callees, this session's stale server returned a clean
+  answer without the `_stem` and `ArmKey` edges c448560 added. If your `devmap_status` shows a generation below the
+  plugin's, use the plugin's tools or restart your session's devmap server by explicit pid. What
+  deletes the files under live connections is DevMap's to find (DevCouncil `rust/devmap-store`).
+  This lane read `python/qd_train/gaps.py` directly while its server was failing, so nothing it
+  says about that file is graph-confirmed.
 * **GitPulse** reported 0 agent sessions while `ListAgents` showed five live local sessions in this
   worktree, the known same-worktree blind spot (CLAUDE.md rule 3). File claims were agreed by
   `SendMessage`. The repeated-seed lane confirmed it holds none of this lane's files. HEAD moved 5
