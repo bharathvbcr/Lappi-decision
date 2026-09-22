@@ -29,6 +29,7 @@ def _row(
     fit_passed: bool = True,
     op_rows: int = 5448,
     sib_rows: int = 427,
+    margin: float | None = -0.08,
 ) -> dict:
     """One ledger row in the shape ``rung0_real_run`` writes.
 
@@ -50,6 +51,9 @@ def _row(
 
     return {
         "recipe": recipe,
+        # The runner records the margin as a GATE, not a metric, which is why the report
+        # reads both containers.
+        "gates": {rep.MARGIN: metric(margin, 12792)},
         "metrics": {
             rep.OPERATOR: metric(op_value, op_rows),
             rep.SIBLINGS: metric(sib_value, sib_rows),
@@ -166,6 +170,29 @@ def test_a_single_seed_says_so_instead_of_reporting_a_spread_of_zero() -> None:
     assert "no spread" in rep._mean_sd([0.9])
     assert rep._mean_sd([]) == "not measured"
     assert "+/-" in rep._mean_sd([0.9, 0.8])
+
+
+def test_an_arm_with_no_fitted_control_reports_no_margin_rather_than_a_loss() -> None:
+    """Every holdout and size-matched arm trains on a reduced set, and until the controls
+    are fitted on those sets there is no opponent at all. A report that showed an absent
+    margin as a zero, or omitted it silently, would turn "the model was not compared" into
+    "the model did not win" -- which is the finding this experiment might overturn.
+    """
+    rows = [_row(held="stub.panic", margin=None), _row(held="stub.panic", margin=None)]
+    cell = rep.cells_of(rows)[("stub.panic", rep.HOLDOUT)]
+    assert cell.margins == [] and cell.margin_not_run == 2
+    text = "\n".join(rep.render(rep.cells_of(rows)))
+    assert "Not measured -- never a loss" in text, text
+    assert "fit_operator_holdout_controls.sh" in text, "and it says how to get one"
+
+
+def test_a_positive_margin_is_counted_because_none_has_ever_been_seen() -> None:
+    """120-plus rows across two corpora, three widths and four rates have produced zero
+    positive margins. If an operator-holdout arm produces one it is the first, so the count
+    is reported beside the mean rather than left to be inferred from a sign."""
+    rows = [_row(operator="stub.panic", margin=0.03), _row(operator="stub.panic", margin=-0.01)]
+    text = "\n".join(rep.render(rep.cells_of(rows)))
+    assert "1 of 2 seed(s) positive" in text, text
 
 
 def test_rows_from_another_experiment_are_skipped_not_miscounted() -> None:

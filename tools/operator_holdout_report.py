@@ -71,6 +71,11 @@ OVERALL = "val_choice_top1_over_baseline"
 #: Whether the seed fit at all. A seed at or below the training majority has no fit to
 #: generalise, and its held-out number is the prior rather than a measurement.
 FIT = "train_choice_top1_over_train_majority"
+#: The model against the char-n-gram control, paired over the same rows in the same order.
+#: ``not_run`` on any arm whose training set has no fitted control -- which is every holdout
+#: and size-matched arm until ``tools/fit_operator_holdout_controls.sh`` has been run, and
+#: which must be read as NOT MEASURED rather than as a loss.
+MARGIN = "paired_margin_vs_linear"
 
 #: The three conditions, in the order they are read against each other.
 REFERENCE, HOLDOUT, SIZEMATCH = "reference", "holdout", "sizematch"
@@ -115,6 +120,10 @@ class Cell:
     #: Rows the measured operator produced, as the run counted them.
     n_operator_rows: int = 0
     n_sibling_rows: int = 0
+    #: Paired margin against the control, for the seeds that had an opponent at all.
+    margins: list[float] = field(default_factory=list)
+    #: Seeds whose margin is not_run because no control was fitted on their training set.
+    margin_not_run: int = 0
 
     @property
     def n_seeds(self) -> int:
@@ -131,6 +140,14 @@ def cells_of(rows: list[dict]) -> dict[tuple[str, str], Cell]:
         cell = out.setdefault(key, Cell(operator=key[0], condition=key[1]))
         op, sib = metric_of(row, OPERATOR), metric_of(row, SIBLINGS)
         fit, overall = metric_of(row, FIT), metric_of(row, OVERALL)
+        # Read from gates or metrics: the runner records the margin as a GATE, and reading
+        # only one of the two containers would report every arm as unmeasured on a ledger
+        # whose shape had moved rather than on a run that had no control.
+        margin = (row.get("gates") or {}).get(MARGIN) or metric_of(row, MARGIN)
+        if isinstance(margin, dict) and margin.get("state") == "ran":
+            cell.margins.append(float(margin["value"]))
+        else:
+            cell.margin_not_run += 1
         if op is None or op.get("state") != "ran":
             cell.unmeasured += 1
             continue
@@ -195,6 +212,19 @@ def render(cells: dict[tuple[str, str], Cell]) -> list[str]:
                 f"other generators): {_mean_sd(cell.sibling_acc)}"
             )
             out.append(f"    overall held-out: {_mean_sd(cell.overall_acc)}")
+            if cell.margins:
+                wins = sum(1 for m in cell.margins if m > 0)
+                out.append(
+                    f"    paired margin vs the control: {_mean_sd(cell.margins)} "
+                    f"({wins} of {len(cell.margins)} seed(s) positive)"
+                )
+            if cell.margin_not_run:
+                out.append(
+                    f"    {cell.margin_not_run} seed(s) have NO margin: no control was "
+                    "fitted on this arm's training set, so the model had no opponent. "
+                    "Not measured -- never a loss. tools/fit_operator_holdout_controls.sh "
+                    "fits them."
+                )
             if cell.collapsed:
                 out.append(
                     f"    {cell.collapsed} of {cell.n_seeds} seed(s) did not clear the "
