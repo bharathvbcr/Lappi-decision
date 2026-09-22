@@ -38,10 +38,20 @@ real and stable; what this session establishes is that it is not about architect
 
 ### Span-in-diff
 
-`ledger/gh200-span-in-diff-2026-09-22.jsonl` — **in flight at handoff time**, 2 arms × 8
-seeds, launched at rev `084b7f1d69c9aeeb8ef2a351dcf8fb9a03f06171`. Driver log
-`/home/ubuntu/spandiff-driver.log` on the box; done marker `SPAN IN DIFF DONE`. Do not cite
-any number from it until the marker is present and the ledger is copied down.
+`ledger/gh200-span-in-diff-2026-09-22.jsonl` — 16 rows, 2 arms × 8 seeds, $0.69, 1,665.0s,
+rev `084b7f1d69c9aeeb8ef2a351dcf8fb9a03f06171`, both arms exited 0. All `quick: true`.
+
+**`--span-in-diff` is free for the choice head and buys nothing.** Choice: `nospan` 80.46%
+± 1.61 vs `span` 79.83% ± 1.11 — `ledger_arms.py` puts the +0.63pp difference *inside* the
+1.94/2.08pp floor at n=8, so no cost is demonstrated. Span: start 63.61% ± 6.72 against an
+**added-line null of 89.91%** over 10,635 pointing rows. The head is 26.3 points worse than
+pointing at a random `+` line without reading any code.
+
+The two span gates read `passed: True` on all 8 seeds, because they score against the
+uniform-over-candidate-lines rate of 8.44% and rule 2 makes a gate's baseline read-only.
+`val_span_pointing_added_line_chance` sits beside them on every row saying to read against
+the larger null. **Quote the 89.91%.** Full writeup:
+[`AUDIT/span-in-diff.md`](../AUDIT/span-in-diff.md).
 
 ## What changed
 
@@ -71,7 +81,16 @@ unrunnable as written and is now fixed.**
 
 ## What is open
 
-### 1. The 48 `not_run` margins — the one result that could still overturn the headline
+### 1. The 48 `not_run` margins — AUTHORISED AND IN FLIGHT
+
+> **Status 2026-09-22 17:23 UTC:** the user approved the spend ("proceed"). The nine control
+> fits are running on the box under `QD_CONTROL_FIT_ACK=1`, driver log
+> `/home/ubuntu/opctl-driver.log`, done marker `OPERATOR HOLDOUT CONTROLS DONE`, ~15h.
+> **They do not finish the job.** When they complete, the nine arms must be re-run to pick
+> the fits up — see the last command in this file. Until that re-run lands, the 72 rows
+> still carry `not_run` and nothing about the margin has changed.
+
+The rest of this item is the reasoning, kept because the re-run depends on it.
 
 Every holdout and size-matched arm carries `paired_margin_vs_linear: not_run`. **That is not
 a loss.** No control was fitted on those reduced training sets, so the model had no opponent.
@@ -126,27 +145,47 @@ a gate wired to a guessed mapping), `privileged_hunk` (near-vacuous on this corp
 
 ## The exact first command for the next lane
 
-Wait for the span arms, then copy the ledger down and read it against the added-line null:
+Two jobs are live on the box as of 2026-09-22 17:27 UTC. Check both before starting anything:
 
 ```bash
-ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240 'grep -c "SPAN IN DIFF DONE" /home/ubuntu/spandiff-driver.log'
+ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240 'tail -3 /home/ubuntu/opctl-driver.log; tail -3 /home/ubuntu/ophold2-driver.log; ps -eo pid,etime,cmd | grep -E "fit_linear[_]control|rung0_real[_]run" | grep -v grep'
 ```
 
-When that prints `1`:
+- **CPU, ~15h**: the nine control fits, marker `OPERATOR HOLDOUT CONTROLS DONE`.
+- **GPU, ~3h**: three *minor*-operator holdout arms (`logic.negate_condition`,
+  `cosmetic.edit_comment`, `stub.default_return`) at rev
+  `728562b3da609a3aa3ad35efaa597c870e7ba1fe`, marker `OPERATOR HOLDOUT MODEL DONE`, driver
+  log `ophold2-driver.log`. They append to the **same** ledger as the first nine, so one
+  report renders all six operators. ~$2.40, single-GPU, under rule 4's line.
+
+They contend: the fits own all 64 cores, so expect arm seeds near 140s rather than 92s.
+
+**When `OPERATOR HOLDOUT MODEL DONE` appears** (the GPU job, first to finish), pull and read:
 
 ```bash
-scp -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240:/home/ubuntu/qwen-decision/ledger/gh200-span-in-diff-2026-09-22.jsonl ledger/
+scp -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240:/home/ubuntu/qwen-decision/ledger/gh200-operator-holdout-model-2026-09-22.jsonl ledger/
 ```
-
-Only if the human accepts the ~15-hour / ~$22 spend in item 1, and **only when no training
-is live on the box**:
 
 ```bash
-ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240 'QD_CONTROL_FIT_ACK=1 nohup bash /home/ubuntu/qwen-decision/tools/fit_operator_holdout_controls.sh > /home/ubuntu/opctl-driver.log 2>&1 &'
+python tools/operator_holdout_report.py ledger/gh200-operator-holdout-model-2026-09-22.jsonl
 ```
 
-and after `OPERATOR HOLDOUT CONTROLS DONE`, re-run the arms to pick the fits up:
+**When `OPERATOR HOLDOUT CONTROLS DONE` appears**, the fits are cached but no row has gained
+a margin yet — `rung0_real_run.py` reads the cache once before its seed loop and never fits
+inline. Sync, then re-run the arms so they pick the fits up. **`sync_box.sh` refuses while
+training is live, and that refusal must not be bypassed**; wait for the GPU job first.
 
 ```bash
-bash tools/launch_operator_holdout_model.sh <40-char-sha-of-the-synced-HEAD>
+bash tools/sync_box.sh
 ```
+
+```bash
+ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240 'setsid nohup bash /home/ubuntu/qwen-decision/tools/launch_operator_holdout_model.sh <40-char-sha-of-the-synced-HEAD> > /home/ubuntu/ophold3-driver.log 2>&1 < /dev/null &'
+```
+
+Only that last run produces `paired_margin_vs_linear` on holdout and sizematch arms. It is
+the first configuration in this project where rung 0 could beat the control.
+
+One footgun: on this box `pgrep -f` / `pkill -f` match the ssh command line that carries the
+pattern, so a kill can hit your own session and leave the target orphaned. Resolve PIDs with
+`ps` and `kill` by number.
