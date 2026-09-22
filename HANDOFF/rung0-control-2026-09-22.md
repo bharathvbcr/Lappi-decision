@@ -36,6 +36,42 @@ The reference arms reproduce the capacity grid's best cell across days and code 
 −7.94%, −7.91%, −8.12% paired margin, **0 of 8 seeds positive in every arm**. The margin is
 real and stable; what this session establishes is that it is not about architecture.
 
+### Operator holdout, minor operators
+
+Rows 73–144 of the same ledger — 72 `ft` rows, 9 arms × 8 seeds, all `completed`, all
+`quick: true`, $2.96, 7,158.1s summed. Launch rev `728562b3da609a3aa3ad35efaa597c870e7ba1fe`,
+`code_that_ran` `7318cbb3…` (rows 1–72 ran `5bad419d…`; the report never mixes arms across
+the two).
+
+| operator | arm | row ids |
+| --- | --- | --- |
+| logic.negate_condition | reference | `271d5ca7 2c5544a0 460fcf95 8a40a0eb 9cb1e66d c43966d6 ed6263d5 ff539384` |
+| logic.negate_condition | holdout | `4b2720e6 5ef0473a 75f6482f 892f41a2 cd91107f ec8498e2 edf9a24a ff730b2e` |
+| logic.negate_condition | sizematch | `035fbd4e 0cc2e16c 2843c911 2e909b2f 4b62c8f9 b633aeea c75c18db d8ff2089` |
+| cosmetic.edit_comment | reference | `0a4c1034 1318f5c2 257708b6 3584d6d9 53898012 58479d98 a1acec18 c7f82e77` |
+| cosmetic.edit_comment | holdout | `048ced6e 06ea1994 454d66eb 48d7b280 72e09628 8d0945d6 bd2080ca d5f27c57` |
+| cosmetic.edit_comment | sizematch | `2fcdcc2f 31d4cace 5e0661d2 6957f6ba 908e8f85 9c113297 c138b145 c5a149a4` |
+| stub.default_return | reference | `2caba155 3ec41c8d 4cabd961 5393dd62 8f647e5e 9b90b51f a085be56 f404f3f1` |
+| stub.default_return | holdout | `20b3723e 52a6ca7b 5704a4aa 7021faa5 767d6da5 9ecbb04e d4395045 fbfd06ef` |
+| stub.default_return | sizematch | `0e7168a5 283e77cf 3551e4e7 384c87b5 51a580d9 aef7e896 c55e1af9 ecb2f1c6` |
+
+**Two of three collapse, one transfers.** Holding out a minor operator barely moves the class
+prior, so these are the sharper test. `logic.negate_condition` 88.91% → 45.56% with siblings
+moving 0.40pp; `cosmetic.edit_comment` 78.56% → **1.00%** with siblings *rising* 4.73pp — an
+operator under 5% of training, and the largest gap of all six. `stub.default_return` is the
+exception: 81.69% → 76.71%, only 2.91pp worse than its siblings (5,448 of which are
+`stub.panic`, still in training), inside the seed spread. Whatever the model learned from
+`stub.panic` transfers to it. That bounds the headline — the shortcut is "whatever the
+training generators share", not "one string per operator" — without rescuing the claim that
+the model reads changes. Tables in the AUDIT.
+
+The two reference arms that ran after the full-corpus control was cached,
+`cosmetic.edit_comment` and `stub.default_return`, report **−7.91% and −8.09%, 0 of 8
+positive** — and are the first end-to-end proof that `fit_linear_control.py` and the arm
+compute the same cache key (both logs: `CACHE HIT 0a1b4a64b890460c`). The third,
+`logic.negate_condition`, started at 17:25:25, four minutes before that fit landed, and has
+no margin.
+
 ### Span-in-diff
 
 `ledger/gh200-span-in-diff-2026-09-22.jsonl` — 16 rows, 2 arms × 8 seeds, $0.69, 1,665.0s,
@@ -57,9 +93,29 @@ the larger null. **Quote the 89.91%.** Full writeup:
 
 15 commits earlier in this session, `a48ba3c`…`084b7f1`, now on `main` (another session
 fast-forwarded `main` to that tip and deleted the build branch; the tree did not change).
-This session's remaining work is on `build/operator-holdout-model-and-control-fit-cap`.
+Everything since is on `main` too: that build branch was folded in and deleted at `728562b`,
+and every later commit landed on `main` directly.
 
-The substantive change of the last stretch: **`tools/fit_operator_holdout_controls.sh` had
+The last stretch, `52c8fe9`…:
+
+- **`52c8fe9`** — the fit script kept a hardcoded operator list after the launcher learned
+  `QD_HOLDOUT_OPERATORS`, so the minor operators could run as arms but could not be given
+  controls. Both now source `tools/operator_holdout_operators.sh`. Executing that file in a
+  test (rather than grepping it) found that `${VAR:-defaults}` sends a set-but-EMPTY override
+  to the defaults, silently running the dominant three; it is `${VAR-defaults}` now. The
+  size-matched fit reads N from its own holdout fit's log, not the arm's, so a control no
+  longer waits for a GPU arm. `LEDGER` takes `QD_HOLDOUT_LEDGER`, so a re-run gets its own
+  ledger. The "never fits inline" claim in both headers is corrected: the arm fits inline
+  when the projection is under the 900s budget, and on this corpus no arm's was.
+- **`692c154`** — `tools/operator_holdout_report.py` refuses to pool a repeated seed in one
+  `(operator, condition)` cell (a re-run beside the run it repeats, or one ledger named
+  twice), naming both rows; it prints each not_run margin's recorded reason instead of
+  assuming one; its docstring no longer says `fit_linear_control.py` "has no holdout flags".
+- **`b8b71f7`** — `GAP-LEDGER-ARMS-POOLS-A-REPEATED-SEED-AS-A-NEW-ONE`, the same defect in
+  `tools/ledger_arms.py`, recorded and not ported (13 committed ledgers repeat seeds, some by
+  design).
+
+Before those, the substantive change was: **`tools/fit_operator_holdout_controls.sh` had
 a `timeout` that could not be reconciled with its own projection, and now refuses instead of
 being killed.**
 
@@ -91,21 +147,35 @@ being killed.**
 
 ## What is open
 
-### 1. The 48 `not_run` margins — FITS DONE, RE-RUN STILL OWED
+### 1. The 104 `not_run` margins — RE-RUN IN FLIGHT (run 3)
 
-> **Status 2026-09-22 18:01 UTC:** the user approved the spend ("proceed") and the fits are
-> **complete** — `OPERATOR HOLDOUT CONTROLS DONE`. Seven fits (not nine; nine is the arm
-> count), 204.2s–351.7s each, **2,190.4s total = 36.5 minutes, ~$0.91**. All converged.
+> **Status 2026-09-22 20:25 UTC:** run 3 launched — all 18 arms, six operators (dominant
+> three first), at `52c8fe9fc39acbd5e3aa2b859c38637d2696a586`, `code_that_ran` `7318cbb3…`
+> (sync verified both sides), writing to its **own** ledger
+> `ledger/gh200-operator-holdout-controlled-2026-09-22.jsonl`. Driver log
+> `/home/ubuntu/ophold3-driver.log`, marker `OPERATOR HOLDOUT MODEL DONE`. ~18 arms × 8 seeds
+> × ~90s ≈ 3.6 GPU-hours, ≈$5.40 at $1.49/h, single-GPU and under rule 4's line; the user
+> approved closing these margins. Run-1/2 logs were copied to `/home/ubuntu/ophold-logs-run1/`
+> first, because the re-run overwrites `ophold-<arm>.log`.
 >
-> The ~15h/$22 figure this file and four other places carried was wrong by 17.6×. It came
-> from `projected_fit_seconds`, which prices `max_iter` iterations; the fits converge at
-> `tol` in ~440. **Never quote that projection as a cost.** The `QD_CONTROL_FIT_ACK` gate
-> built around it has been removed — it was friction guarding a cost that did not exist.
+> Alongside it, on the CPU, the six minor-operator controls:
+> `QD_HOLDOUT_OPERATORS="logic.negate_condition cosmetic.edit_comment stub.default_return"
+> bash tools/fit_operator_holdout_controls.sh` → `/home/ubuntu/opctl2-driver.log`, marker
+> `OPERATOR HOLDOUT CONTROLS DONE`. They must land before run 3 reaches those operators
+> (~9 arms in, ~2h); at ~6 minutes a fit they will, with a wide margin.
 >
-> **The fits do not finish the job.** The 72 rows are final; `rung0_real_run.py` reads the
-> cache once before its seed loop and never fits inline. The nine arms must be **re-run**
-> to pick the fits up — see the last command in this file. Until then nothing about the
-> margin has changed.
+> The first arm, `ref-stub.panic`, logged `CACHE HIT 0a1b4a64b890460c` and a control at
+> 88.5%.
+>
+> Earlier: seven fits (not nine; nine is the arm count), 204.2s–351.7s each, **2,190.4s total
+> = 36.5 minutes, ~$0.91**. All converged. The ~15h/$22 figure this file once carried was
+> wrong by 17.6×; it came from `projected_fit_seconds`, which prices `max_iter` iterations.
+> **Never quote that projection as a cost.**
+>
+> **The fits alone do not finish the job.** Rows 1–144 are final. `rung0_real_run.py` reads
+> the cache once, before its seed loop; on a miss it fits inline only when the fit projects
+> under its 900s budget, and on this corpus every arm projected 14.7–25.7 hours. So the arms
+> must be re-run to pick the fits up, which is what run 3 is.
 >
 > Control accuracies now cached (overall, same 12,792 val rows): full 88.5%; holdout
 > stub.panic **50.0%**, logic.change_constant 80.2%, cosmetic.rename_local 82.9%; all three
@@ -130,15 +200,16 @@ properly, this would be the first configuration in this project where rung 0 win
   `context_texts` into that file. The move was a relocation; the digest cannot see intent,
   sees different bytes, and fails closed. **That is what the digest is for — do not weaken
   it to reclaim the six entries.** The cost of rebuilding is the price of the guarantee.
-- **Warming the cache does not backfill the 72 rows.** `rung0_real_run.py` reads the cache
-  once, before its seed loop, and records `not_run` on a miss; it never fits inline. The 72
-  rows are final. Getting margins means fitting the controls **and then re-running the arms**.
+- **Warming the cache does not backfill written rows.** `rung0_real_run.py` reads the cache
+  once, before its seed loop; on this corpus every miss recorded `not_run` (the inline-fit
+  fallback only runs under a 900s projection). Rows are final. Getting margins means fitting
+  the controls **and then re-running the arms**.
 
-Measured cost, now that it has been paid: **7 fits, 2,190.4s = 36.5 minutes, ~$0.91**, then
-~2.4 GPU-hours (~$3.60) to re-run the 9 arms. Well under the $20 line rule 4 draws, so the
-re-run needs no further yes.
+Measured cost of the first seven fits: **2,190.4s = 36.5 minutes, ~$0.91**. The re-run is
+larger than first priced here (~2.4 GPU-hours for 9 arms) because it now covers all 18 arms:
+~3.6 GPU-hours, ~$5.40. Still under rule 4's line.
 
-### 2. Clearing `quick` on the 72 rows
+### 2. Clearing `quick` on the 144 + 16 rows
 
 Rule 8: they promote nothing as recorded. The recorded reason says no rule-8 condition
 actually stands — 8 seeds, full schedule, no subsample, real labels — and that clearing the
@@ -159,6 +230,9 @@ diagnostic either way; only promotion needs the flag cleared.
   session: the object exists, and `git for-each-ref --contains` returns exactly one ref,
   `refs/tags/provenance/runs-173`. **Do not delete that tag** — it is the only thing
   keeping the object out of `git gc --prune`.
+- `GAP-LEDGER-ARMS-POOLS-A-REPEATED-SEED-AS-A-NEW-ONE` — `tools/ledger_arms.py` counts a
+  repeated seed as a new one; 13 of 27 committed ledgers contain such repeats. Whether any
+  reported number pooled them is open. Fixed for the operator-holdout report only.
 
 ### 4. Human-owned, explicitly not agent work
 
@@ -168,54 +242,57 @@ a gate wired to a guessed mapping), `privileged_hunk` (near-vacuous on this corp
 
 ## The exact first command for the next lane
 
-State as of 2026-09-22 18:05 UTC. Check the box before starting anything:
+State as of 2026-09-22 20:30 UTC. Two jobs are live on the box. Check them before starting
+anything:
 
 ```bash
-ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240 'tail -3 /home/ubuntu/opctl-driver.log; tail -3 /home/ubuntu/ophold2-driver.log; ps -eo pid,etime,cmd | grep -E "fit_linear[_]control|rung0_real[_]run" | grep -v grep'
+ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240 'cat /home/ubuntu/ophold3-driver.log; tail -4 /home/ubuntu/opctl2-driver.log; ps -eo pid,etime,cmd | grep -E "fit_linear[_]control|rung0_real[_]run" | cut -c1-160'
 ```
 
-- **CPU — DONE.** The seven control fits finished in 36.5 minutes; all seven verdicts are
-  cached in `/home/ubuntu/control-cache`.
-- **GPU — live, ~2h left.** Three *minor*-operator holdout arms (`logic.negate_condition`,
-  `cosmetic.edit_comment`, `stub.default_return`) at rev
-  `728562b3da609a3aa3ad35efaa597c870e7ba1fe`, marker `OPERATOR HOLDOUT MODEL DONE`, driver
-  log `ophold2-driver.log`. They append to the **same** ledger as the first nine, so one
-  report renders all six operators. ~$2.40, single-GPU, under rule 4's line.
+- **GPU — run 3, ~3.6h from 20:25 UTC.** 18 arms at `52c8fe9`, marker
+  `OPERATOR HOLDOUT MODEL DONE` in `ophold3-driver.log`, own ledger
+  `gh200-operator-holdout-controlled-2026-09-22.jsonl`.
+- **CPU — six minor-operator control fits**, marker `OPERATOR HOLDOUT CONTROLS DONE` in
+  `opctl2-driver.log`. They slow the GPU arms while they run; that is expected.
 
-Why minor operators: the first three were the dominant operator in each class (42.8%, 14.2%,
-8.9%), which moves the class prior hardest and makes the sibling metric work hardest to rule
-it out. These three each leave their class's dominant operator in training, so the prior
-barely moves and a collapse is harder to explain any way but the generator.
+**Before run 3 reaches `logic.negate_condition`** (its tenth arm), the six fits must be
+cached. If they are not, stop the GPU driver by PID rather than let those arms train
+without an opponent. `sync_box.sh` must not be run while either job is live; it refuses
+anyway.
 
-While the fits were running the two jobs contended — the fits own all 64 cores, and arm
-seeds ran at 215s against 93s uncontended. The fits are done, so the remaining arms run at
-full speed.
-
-**When `OPERATOR HOLDOUT MODEL DONE` appears** (the GPU job, first to finish), pull and read:
+**Every arm of run 3 should log `CACHE HIT`.** A `linear control NOT RUN` from any of them
+means a key disagreement or a fit that was not ready, and every arm after it wastes GPU time:
 
 ```bash
-scp -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240:/home/ubuntu/qwen-decision/ledger/gh200-operator-holdout-model-2026-09-22.jsonl ledger/
+ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240 'grep -H -E "CACHE HIT|linear control NOT RUN" $(find /home/ubuntu -maxdepth 1 -name "ophold-*.log" -newermt "2026-09-22 20:25:00") | cut -c1-120'
 ```
 
-```bash
-python tools/operator_holdout_report.py ledger/gh200-operator-holdout-model-2026-09-22.jsonl
-```
-
-**When `OPERATOR HOLDOUT CONTROLS DONE` appears**, the fits are cached but no row has gained
-a margin yet — `rung0_real_run.py` reads the cache once before its seed loop and never fits
-inline. Sync, then re-run the arms so they pick the fits up. **`sync_box.sh` refuses while
-training is live, and that refusal must not be bypassed**; wait for the GPU job first.
+**When `OPERATOR HOLDOUT MODEL DONE` appears**, pull run 3's ledger (never mid-append) and
+read it **on its own** — the report refuses to pool it with the first ledger, because they
+hold two runs of the same seeds:
 
 ```bash
-bash tools/sync_box.sh
+scp -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240:/home/ubuntu/qwen-decision/ledger/gh200-operator-holdout-controlled-2026-09-22.jsonl ledger/
 ```
 
 ```bash
-ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.58.240 'setsid nohup bash /home/ubuntu/qwen-decision/tools/launch_operator_holdout_model.sh <40-char-sha-of-the-synced-HEAD> > /home/ubuntu/ophold3-driver.log 2>&1 < /dev/null &'
+python tools/operator_holdout_report.py ledger/gh200-operator-holdout-controlled-2026-09-22.jsonl
 ```
 
-Only that last run produces `paired_margin_vs_linear` on holdout and sizematch arms. It is
-the first configuration in this project where rung 0 could beat the control.
+What to read, in order:
+
+1. **Every cell should show `paired margin vs the control` and no `NO margin` line.** Any
+   `NO margin` line carries the reason its run recorded.
+2. **The holdout margins**, above all `stub.panic`: the control is at 50.0% overall there,
+   and the model was at 51.74% in run 1. That is the first place rung 0 could win. Report
+   the paired margin and how many of 8 seeds are positive, whichever way it goes.
+3. **Run 3's model numbers against rows 1–144.** For the minor operators the code is
+   byte-identical (`7318cbb3`), so the differences are run-to-run noise
+   (`recipe.deterministic` is false). For the dominant three the code differs (`5bad419d` →
+   `7318cbb3`), so it is a replicate across a code change; say which.
+
+Then extend `AUDIT/operator-holdout-model.md` ("The comparison that is still missing") and
+this file with the margins and row ids, and commit the ledger.
 
 One footgun: on this box `pgrep -f` / `pkill -f` match the ssh command line that carries the
 pattern, so a kill can hit your own session and leave the target orphaned. Resolve PIDs with

@@ -3,8 +3,9 @@
 Measured 2026-09-22 on `commitpackft-corpus-v2`, `--context-source diff`, width 256 /
 2 layers / 4 heads at `lr 3e-4` — the best cell of the tuned-capacity grid
 (`AUDIT/capacity-and-learning-rate.md`) — 3 epochs, batch 16, span-weight 0.05, 8 seeds per
-arm. 72 `ft` rows in `ledger/gh200-operator-holdout-model-2026-09-22.jsonl`, rendered by
-`tools/operator_holdout_report.py`.
+arm. 144 `ft` rows in `ledger/gh200-operator-holdout-model-2026-09-22.jsonl`, rendered by
+`tools/operator_holdout_report.py`: rows 1–72 hold out the dominant operator of each class,
+rows 73–144 a minor one (see "The minor operators" below).
 
 Reproduce the tables below with:
 
@@ -14,18 +15,23 @@ python tools/operator_holdout_report.py ledger/gh200-operator-holdout-model-2026
 
 ## Provenance
 
-| field | value |
-| --- | --- |
-| launch rev (`recipe.rev`) | `ecbd370a4d40a6ddc3d308b389cc1112a5e3cd30` |
-| `code_commit` | `8b9df39bf816d149efc108e3581ab4ba8192688f-dirty` (see GAP-CODE-COMMIT-DIRTY-DOES-NOT-PIN-WHAT-RAN) |
-| `data_snapshot_hash` | `728eee3743dbed57…` (61,193 pool records) |
-| host / device | `192-222-58-240`, cuda (1×GH200) |
-| torch / transformers | `2.10.0+cu128` / `5.17.0` |
-| fla / causal_conv1d | `0.5.2` (triton 3.7.1) / `1.7.0` |
-| rows / seeds | 72 rows = 9 arms × 8 seeds, all `status: completed` |
-| cost / wall clock | $2.39, 5,781.4s summed across rows |
+| field | rows 1–72 (dominant operators) | rows 73–144 (minor operators) |
+| --- | --- | --- |
+| launch rev (`recipe.rev`) | `ecbd370a4d40a6ddc3d308b389cc1112a5e3cd30` | `728562b3da609a3aa3ad35efaa597c870e7ba1fe` |
+| `code_that_ran` (what_ran_state) | `5bad419d1bb1b7ea…` | `7318cbb3212723c3…` |
+| `code_commit` | `8b9df39bf816d149efc108e3581ab4ba8192688f-dirty` on both (see GAP-CODE-COMMIT-DIRTY-DOES-NOT-PIN-WHAT-RAN) | |
+| `data_snapshot_hash` | `728eee3743dbed57…` (61,193 pool records) | same |
+| host / device | `192-222-58-240`, cuda (1×GH200) | same |
+| torch / transformers | `2.10.0+cu128` / `5.17.0` | same |
+| fla / causal_conv1d | `0.5.2` (triton 3.7.1) / `1.7.0` | same |
+| rows / seeds | 72 = 9 arms × 8 seeds, all `completed` | 72 = 9 arms × 8 seeds, all `completed` |
+| cost / wall clock | $2.39, 5,781.4s summed across rows | $2.96, 7,158.1s (seeds slowed while control fits shared the CPU) |
 
-**Every one of the 72 rows carries `quick: true`.** Under rule 8 they promote nothing, and
+The two runs ran different code (`5bad419d` vs `7318cbb3`), which is why the report never
+compares an arm from one with an arm from the other: every operator's three arms come from
+one run.
+
+**Every one of the 144 rows carries `quick: true`.** Under rule 8 they promote nothing, and
 this document does not ask them to. The flag is not describing a truncated run — the
 recorded reason says so in as many words:
 
@@ -139,21 +145,87 @@ Total effect **+77.11pp**; siblings **−3.72pp**; volume alone **+0.09pp**. The
 confusion — a confused model scores near the class prior. The model systematically assigns
 these rows elsewhere the moment it has not seen the generator that made them.
 
+## The minor operators
+
+The three operators above are each the dominant operator of their class — 42.9%, 14.2% and
+9.0% of the 37,385 training rows — so holding one out moves the class prior as hard as this
+corpus allows, and the sibling metric has to do real work to rule the prior out. Holding out
+a **minor** operator leaves its class's dominant operator in training and barely moves the
+prior: `logic.negate_condition` is 1,995 training rows (5.3%), `cosmetic.edit_comment` 1,837
+(4.9%), `stub.default_return` 670 (1.8%). A collapse there has little else to be.
+
+Rows 73–144, same recipe, same validation rows, launched at `728562b3`.
+
+### logic.negate_condition — 737 validation rows, 2,177 sibling rows
+
+| arm | on its own rows | siblings | overall | paired margin vs control |
+| --- | --- | --- | --- | --- |
+| reference | 88.91% ± 3.79 | 85.38% ± 3.50 | 80.88% ± 1.15 | not measured (8 seeds) |
+| **holdout** | **45.56% ± 5.03** | **84.99% ± 2.55** | 79.66% ± 0.95 | not measured (8 seeds) |
+| sizematch | 88.52% ± 4.05 | 85.42% ± 3.43 | 79.79% ± 2.07 | not measured (8 seeds) |
+
+Total effect **+43.35pp**; siblings **+0.40pp**; volume alone **+0.39pp**. The operator fell
+**42.96pp further than its siblings**. The reference arm has no margin for a reason unrelated
+to the holdout: it started at 17:25:25, four minutes before the full-corpus control landed in
+the cache at 17:29:13, missed it, and recorded the fallback's refusal (a 25.7-hour worst-case
+projection against the 900s inline budget).
+
+### cosmetic.edit_comment — 600 validation rows, 1,246 sibling rows
+
+| arm | on its own rows | siblings | overall | paired margin vs control |
+| --- | --- | --- | --- | --- |
+| reference | 78.56% ± 2.69 | 71.86% ± 1.98 | 80.60% ± 1.88 | −7.91% ± 1.88 (0 of 8 positive) |
+| **holdout** | **1.00% ± 1.04** | **76.59% ± 4.48** | 77.58% ± 1.05 | not measured (8 seeds) |
+| sizematch | 77.77% ± 3.45 | 73.01% ± 2.62 | 80.85% ± 1.93 | not measured (8 seeds) |
+
+Total effect **+77.56pp**; siblings **−4.73pp** (they rose); volume alone **+0.79pp**. The
+operator fell **82.29pp further than its siblings** — the largest gap of the six, from an
+operator that is under 5% of training.
+
+### stub.default_return — 226 validation rows, 5,649 sibling rows
+
+| arm | on its own rows | siblings | overall | paired margin vs control |
+| --- | --- | --- | --- | --- |
+| reference | 81.69% ± 3.52 | 80.33% ± 3.05 | 80.42% ± 1.75 | −8.09% ± 1.75 (0 of 8 positive) |
+| **holdout** | **76.71% ± 3.39** | 78.27% ± 3.28 | 79.58% ± 1.41 | not measured (8 seeds) |
+| sizematch | 80.37% ± 5.36 | 79.74% ± 5.08 | 80.40% ± 2.79 | not measured (8 seeds) |
+
+Total effect **+4.98pp**; siblings **+2.06pp**; volume alone **+1.33pp**. The operator fell
+only **2.91pp further than its siblings**, inside either arm's seed spread. **This is the one
+operator of six the model still recognises without having seen it.** Its siblings are 5,649
+rows of which 5,448 are `stub.panic` (the two sibling counts reconcile: 427 − 226 = 5,649 −
+5,448 = 201 rows from the class's other operators), so the holdout arm still trained on
+`stub.panic`. What these rows cannot say is *why* the stub signal transfers — whether the
+model reads "a body replaced by one line" or whatever textual features the two stub
+generators happen to share. Both readings predict this table.
+
 ## The reading
 
-All three operators say the same thing, and the three controls each rule out the competing
-explanation independently:
+Five of the six operators say the same thing, and the three controls each rule out the
+competing explanation independently:
 
-- **Volume is not it.** The size-matched arm moves the score by at most 1.59pp in either
-  direction, against total effects of 58–77pp. Same number of rows, same languages.
+- **Volume is not it.** Across all six operators the size-matched arm moves the score by at
+  most 1.59pp in either direction, against total effects of 43–78pp on the five that
+  collapse.
 - **The class prior is not it.** Siblings — same class, same shifted prior, seen in
-  training — hold in every case, and in two of three they *rise*. Whatever the holdout did
-  to the prior, the model absorbed it fine on rows whose generator it had seen.
-- **Language is not it.** Measured above, on the arms' own training sets.
+  training — hold in every case: the largest sibling drop is 6.07pp, and in three of the
+  five they *rise*. The minor operators make this sharper still, because holding one out
+  barely shifts the prior to begin with: `logic.negate_condition` collapsed 43.35pp with its
+  siblings moving 0.40pp.
+- **Language is not it — for `stub.panic`.** Measured above, on that operator's arms' own
+  training sets, because it was the operator for which a language confound was plausible.
+  It was not measured for the other five.
 
 What is left is the generator's textual fingerprint. **The model classifies by recognising
 the mutation operator that produced the row, not by reading the change.** It shares the
 char-n-gram control's shortcut.
+
+The bound on that statement is `stub.default_return`: held out, it still scores 76.71%
+against 81.69%, because its class's dominant operator stayed in training and whatever the
+model learned from `stub.panic` transfers to it. So the shortcut is not "one memorised
+string per operator". It is "whatever text the training generators share". That is no
+better news for the claim that the model reads changes: the one transfer found is between
+two generators of the same stub-insertion family.
 
 ### What this does and does not license
 
@@ -170,9 +242,11 @@ by a small set of programmatic operators.
 
 ### The comparison that is still missing
 
-Every holdout and size-matched arm carries `paired_margin_vs_linear: not_run` — 48 of the 72
-rows. That is not a loss and must never be read as one. It means no control was fitted on
-those arms' reduced training sets, so the model had no opponent at all.
+Every holdout and size-matched arm carries `paired_margin_vs_linear: not_run` — 48 of rows
+1–72 and 48 of rows 73–144, plus the 8 `ref-logic.negate_condition` rows that missed the cache
+by four minutes: 104 of 144. That is not a loss and must never be read as one. It means no
+control was cached for those arms' training sets when they started, so the model had no
+opponent at all; each row records the reason, and the report prints it.
 
 This is the one number that could still overturn the headline. Under holdout the control
 collapses on `stub.panic` while the model holds 15.44%. A control fitted on the arm's own
@@ -200,10 +274,21 @@ The `holdout stub.panic` row is the one to watch — 51.74% against 50.0% is the
 the model's number has been the larger one — but it is a difference of means across tools,
 not a measured margin, and it is well inside the seed spread (±2.07).
 
-Getting the real number needs the arms **re-run**, because `rung0_real_run.py` reads the
-cache once before its seed loop and records `not_run` on a miss; it never fits inline. The
-72 rows above are final and can never gain margins retroactively. See
-`HANDOFF/rung0-control-2026-09-22.md` for the exact command.
+Getting the real number needs the arms **re-run**. `rung0_real_run.py` reads the cache once,
+before its seed loop. On a miss it fits inline only when the fit projects under its 900s
+`LINEAR_CONTROL_TIME_BUDGET_S`, and on this corpus every arm projected 14.7 to 25.7 hours, so
+every miss recorded `not_run`. The 144 rows above are final and can never gain margins
+retroactively.
+
+**That re-run is in flight** (run 3): all 18 arms, six operators, launched 2026-09-22T20:25:19Z
+at `52c8fe9fc39acbd5e3aa2b859c38637d2696a586` (`code_that_ran` `7318cbb3…`, the same closure
+as rows 73–144), writing to its **own** ledger,
+`ledger/gh200-operator-holdout-controlled-2026-09-22.jsonl`, so its seeds are never pooled
+with these. The report now refuses to pool them if both ledgers are passed together. The six
+minor-operator controls are being fitted alongside it by
+`QD_HOLDOUT_OPERATORS="logic.negate_condition cosmetic.edit_comment stub.default_return" bash
+tools/fit_operator_holdout_controls.sh`, well before the re-run reaches those arms. See
+`HANDOFF/rung0-control-2026-09-22.md` for how to read it when it lands.
 
 ## Gaps this leaves open
 
@@ -216,4 +301,5 @@ cache once before its seed loop and records `not_run` on a miss; it never fits i
   cost 36.5 minutes, not the ~15 hours first recorded there: that figure came from
   `projected_fit_seconds`, which prices `max_iter` iterations and overshot by 17.6×.
 - `GAP-THE-CONTROL-CLASSIFIES-BY-GENERATOR-NOT-BY-CHANGE` — moved to
-  `resolved-with-residual` by this experiment; the residual is those 48 margins.
+  `resolved-with-residual` by this experiment; the residual is the 104 unmeasured margins,
+  which run 3 exists to measure.
