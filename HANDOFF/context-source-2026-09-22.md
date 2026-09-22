@@ -196,6 +196,65 @@ handoff's one-line status for `transfer_gate` was wrong in both halves:
 | `privileged_hunk` | Implementable, and **measured near-vacuous before being built**: the privileged window is the whole file on 48.0% of examples, so it would have produced an uninformative number. Recorded rather than built. |
 | `transfer_gate` | **Not implementable as specified, and not specified where the last handoff said.** It is *not* in `docs/hardening.md` §2 — that section covers repo-level splits, MinHash dedupe, the shuffled-label and privileged-hunk controls, held-out path refusal and task-family holdout, and never mentions it. It appears in exactly two places, neither a specification: a column in `docs/ledger-schema.md` and one parenthetical in `docs/teacher-plan.md` §7 — *"a model trained on mutations only must beat the char-n-gram baseline on the natural held-out set"*. Blocked on data that does not exist: the only held-out set is `shardset-v*/data/heldout/heldout.json` on the box, 233 entries over the families `code.language_id` and `qa.answerability`, and it carries manifest records rather than content. Nothing anywhere is natural text labelled with rung 0's own classes, and producing it means a human judging real commits as stub/logic/cosmetic. |
 
+## The control classifies by generator, not by change — MEASURED
+
+The section below was written as an inference. It was then tested, and it holds harder than
+expected. Full write-up in `AUDIT/operator-holdout.md`; `tools/operator_holdout.py` holds
+out whole **operators** rather than whole repos, against a size-matched control that drops
+the same *number* of training rows at random:
+
+| operator held out | seen | size-matched | unseen | drop | volume effect |
+| --- | --- | --- | --- | --- | --- |
+| `stub.panic` (43% of train) | 99.32% | 99.10% | **3.08%** | **−96.02** | +0.23 |
+| `logic.change_constant` (14%) | 91.12% | 91.12% | **19.63%** | **−71.50** | 0.00 |
+| `cosmetic.rename_local` (9%) | 58.33% | 58.71% | **0.00%** | **−58.71** | −0.38 |
+
+Dropping 43% of training rows at random costs at most **0.23 points**. Dropping the operator
+costs everything — on `cosmetic.rename_local`, **0 of 264 rows** correct. Other operators of
+the same class stayed in training throughout, so the label was always reachable.
+
+**This reframes the central result.** `paired_margin_vs_linear` measures rung 0 against an
+opponent that has memorised generator fingerprints, so "loses by 8–12 points" means *worse
+at memorising mutation operators* — a much weaker claim than it reads as. And the corpus
+cannot separate "learned what a logic defect is" from "learned seventeen regular
+expressions" for **any** model scored on it, including the 2B.
+
+That separation is exactly what the transfer gate was specified to provide, and it has never
+run because the natural held-out set does not exist. The two gaps are one gap.
+
+**Caveat, stated because it is not small:** this measures the *control*. Whether the model
+shares the shortcut needs the same holdout against a trained rung 0, which needs a GPU and
+has not been run. Unverified in both directions.
+
+## The inference this replaced
+
+A char-n-gram logistic regression reaching **88.5%** on a four-way task should be
+suspicious, and the per-class table says why it is not surprising:
+
+| class | diff-mode control | what the operator leaves in the diff |
+| --- | --- | --- |
+| stub | 98.12% | `panic!()`, `return 0`, `todo!()` — a literal inserted string |
+| logic | 89.47% | `<` → `<=`, `&&` → `\|\|`, a constant changed — a one-token substitution |
+| cosmetic | 69.28% | a rename or a reflow — no fixed lexical signature |
+| clean | 68.45% | a real human commit — no signature at all |
+
+The ordering tracks how textually distinctive the mutation operator's fingerprint is, and
+the two classes with no fingerprint are the two the control does worst on. The inference —
+**inferred, not verified** — is that the control is not understanding the change, it is
+recognising the generator. `qd-mutate` applies one operator per example, so `logic.widen_
+comparison` really does leave `-  x > 0` / `+  x <= 0` in the diff, which hashed char
+n-grams read directly.
+
+If that is right, then "the model loses to the control by 12 points" partly measures that
+**this task is unusually easy for n-grams**, not only that the model is weak. It does not
+change the readiness verdict — a model that cannot match n-grams on an easy task is not
+ready either — but it does change what a fix would have to target, and it is a reason not
+to read the margin as a clean statement about the architecture.
+
+Testing it is cheap and nobody has: hold out whole *operators* rather than whole repos. A
+control that has learned the generator collapses when the operator at evaluation time was
+never in training; a control that has learned the change does not.
+
 ## Is it ready for final train?
 
 No, and the blocker is not one this lane can clear.
