@@ -138,10 +138,37 @@ So **"capacity is monotonic in the wrong direction" is withdrawn**, both `b72aa5
 and the diff-task confirmation above. Comparing widths at one rate compares each width
 against how well 3e-3 happens to suit it, which is not a capacity measurement.
 
-**The answer to "do we need a larger cluster" is therefore not "no". It is "capacity has
-never been evaluated at a tuned rate."** `tools/launch_tuned_capacity.sh` is that
-evaluation: two lower rates at width 512 to find where the rate stops paying, then widths
-128 and 256 at 1e-4 so the three can be compared at a rate that suits the largest of them.
+### The grid, at each width's own rate
+
+Completed: 120 `ft` rows over the full width × rate grid. `AUDIT/capacity-and-learning-rate.md`.
+
+| lr | width 128 | width 256 | width 512 |
+| --- | --- | --- | --- |
+| 3e-3 | 76.33% | 70.89% | 58.98% |
+| 1e-3 | 78.33% | 76.87% | 72.47% |
+| 3e-4 | **78.69%** | **80.97%** | 78.33% |
+| 1e-4 | 70.09% | 78.71% | **80.26%** |
+| 3e-5 | — | — | 74.07% |
+| 1e-5 | — | — | 65.06% |
+
+Every column is an inverted U with one interior peak, and the peak rate falls as the model
+widens — 3e-4 for 128 and 256, 1e-4 for 512. That is the ordinary width/rate interaction,
+and it is exactly what one fixed rate hides.
+
+| width | best lr | top-1 | margin | positive |
+| --- | --- | --- | --- | --- |
+| 128×4 | 3e-4 | 78.69% | −0.0982 | 0/8 |
+| 256×4 | 3e-4 | **80.97%** | **−0.0754** | 0/8 |
+| 512×4 | 1e-4 | 80.26% | −0.0825 | 0/8 |
+
+**So the answer to "do we need a larger cluster" is still no — but it was right by
+accident.** At each width's own rate the ordering is 78.7 / 81.0 / 80.3: 16× the parameters
+moves top-1 by **1.6 points**, the best cell is the *middle* width, and 256 → 512 is −0.7.
+Capacity does not hurt, and it does not buy anything either. The earlier **no** rested on a
+comparison that handicapped the large models; this one does not.
+
+**Nothing in the grid wins.** 120 rows, **0 positive margins**, best cell −0.0754. Tuning
+moved the margin 3.5× at width 512 and did not close it.
 
 ### The span head collapses on the four-class corpus
 
@@ -293,9 +320,10 @@ No, and the blocker is not one this lane can clear.
 * **Reading the diff does not close the gap.** It is worth ~+25 points to the model and
   ~+31 to the control. The task was mis-encoded *and* the model is beaten; fixing the first
   does not touch the second.
-* **Scale has never been fairly evaluated.** The "capacity hurts" finding was an artifact
-  of a hardcoded learning rate and is withdrawn; at 1e-4 the widest model tested is the
-  best thing this programme has produced.
+* **Scale buys ~1.6 points over a 16× parameter range**, and the best cell in a 120-row
+  grid is the middle width. The "capacity hurts" finding was a fixed-learning-rate artifact
+  and is withdrawn; what replaces it is not "capacity helps" but "capacity is roughly
+  flat", measured with every width at a rate that suits it.
 * **The span head — the one head that was generalising — collapses** below chance on any
   corpus it must also abstain on.
 
