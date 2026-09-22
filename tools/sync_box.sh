@@ -29,9 +29,26 @@
 # ## When it refuses
 #
 # While any training process is live. rsync would replace a tool file under a running
-# interpreter: the already-imported code would not change, but `what_ran_state` hashes the
-# file at ROW-WRITE time, so the remaining seeds would record the digest of code they did not
-# run. That is precisely the lie the metric exists to prevent, and it would be self-inflicted.
+# interpreter, and the already-imported code would not change.
+#
+# The refusal is right, and the reason above it used to give was not: it said
+# `what_ran_state` hashes the file at ROW-WRITE time, so the remaining seeds of a live run
+# would record the digest of code they did not run. That WAS true, and stopped being true
+# when `RunRecorder.__enter__` began recording the digest before the handlers install -- the
+# digest is now captured once at run start, so every row of a run in flight carries the
+# code that run actually started with. Verified on 2026-09-22 by doing the forbidden thing:
+# a module was scp'd into the package under nine live arms, the box digest moved
+# 5bad419d -> 5979f67e for thirteen minutes, and all six rows written in that window carry
+# 5bad419d, correctly.
+#
+# What is still true, and is why this refuses: the NEXT run reads the replaced file. A
+# multi-arm driver launches a fresh interpreter per arm, so a sync between arms splits one
+# experiment across two code states, and the rows say so individually while the experiment
+# as a whole silently stops being one experiment. That is quieter than the failure this
+# paragraph used to describe and no less disqualifying.
+#
+# To check code against the box's data, copy the DATA down or point PYTHONPATH at a scratch
+# copy -- never overwrite the package the box trains from.
 #
 # Usage:  bash tools/sync_box.sh
 #         QD_BOX=ubuntu@1.2.3.4 QD_BOX_KEY=~/.ssh/id_ed25519 bash tools/sync_box.sh
