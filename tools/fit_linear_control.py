@@ -59,6 +59,45 @@ from qd_train.mutate_adapter import (  # noqa: E402
 from qd_train.tristate import NotRun, Ran  # noqa: E402
 
 
+def fit_budget_refusal(projected_s: float, max_fit_minutes: float | None) -> str | None:
+    """The refusal to print and exit on, or ``None`` when the fit may start.
+
+    This module already knew how long the fit would take -- ``projected_fit_seconds`` is
+    computed and printed one line before the fit begins -- and did nothing with it. A
+    caller that wrapped the fit in a shorter ``timeout`` therefore got the worst of both:
+    the box saturated for the length of the cap, the process killed before it converged,
+    and nothing written to the cache. The arm that reads the cache then reports
+    ``paired_margin_vs_linear: not_run`` exactly as it would have if the fit had never
+    been launched, so the wasted hour leaves no trace distinguishing it from doing nothing.
+
+    That already happened once in this repository -- 5fd0ea8, *"The linear control could
+    not finish inside the cap it was launched under"* -- and it happened again on
+    2026-09-22 when ``fit_operator_holdout_controls.sh`` wrapped a 101.4-minute projection
+    in ``timeout 3600``. Nine fits were queued that way; every one of them was unrunnable
+    before the first byte was read, and the script's own header claimed the opposite.
+
+    So the projection becomes a precondition rather than a progress message. Refusing
+    costs the caller nothing it would otherwise have had, and it turns a silent hour into
+    an immediate, legible error naming both numbers.
+
+    ``None`` for ``max_fit_minutes`` means the caller accepts any duration, which is the
+    right default for an interactive fit that owns its own terminal.
+    """
+    if max_fit_minutes is None:
+        return None
+    if projected_s <= max_fit_minutes * 60:
+        return None
+    return (
+        f"refusing to start: the fit projects to {projected_s / 60:.1f} minute(s) but "
+        f"--max-fit-minutes is {max_fit_minutes:g}. It would be killed before it "
+        "converged and NOTHING would be cached, which the arm that reads this cache "
+        "cannot tell apart from a fit that was never launched.\n"
+        "Raise the caller's cap above the projection, or fit a smaller training set. "
+        "Do not lower --max-iter to fit inside the cap: that weakens the opponent the "
+        "model is measured against, which is a promotion decision and not this tool's."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--examples", type=Path, required=True)
@@ -104,6 +143,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--drop-random-train", type=int, default=0)
     parser.add_argument("--drop-random-seed", type=int, default=0)
+    parser.add_argument(
+        "--max-fit-minutes", type=float, default=None,
+        help=(
+            "refuse to start if the projected fit exceeds this many minutes. A caller "
+            "that wraps this tool in a `timeout` must pass its own cap here, or it will "
+            "saturate the box for the length of the cap and cache nothing. Default: no "
+            "limit, for an interactive fit that owns its terminal"
+        ),
+    )
     parser.add_argument(
         "--force", action="store_true",
         help="refit even on a cache hit. The verdict is deterministic given the key, so "
@@ -183,6 +231,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     projected = model.projected_fit_seconds(train_docs, n_classes=len(set(train_labels)))
+    refusal = fit_budget_refusal(projected, args.max_fit_minutes)
+    if refusal is not None:
+        raise SystemExit(refusal)
     print(f"  projected fit: {projected / 60:.1f} minute(s). Starting.", flush=True)
 
     started = time.monotonic()
