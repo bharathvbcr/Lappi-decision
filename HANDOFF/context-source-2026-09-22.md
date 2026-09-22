@@ -186,10 +186,15 @@ may separate them by style rather than by defect. That is the known weakness of
 mutation-derived corpora; it was previously hidden behind the length leak and is now the
 load-bearing caveat on any four-way diff number. Nobody has measured it.
 
-**Four gates still never reach a row**: `ood_abstain` (unspecified), `needle_hunk_recall`
-(built, blocked on a span→hunk-index mapping a human must define), `privileged_hunk`
-(measured near-vacuous on this corpus — the window is the whole file on 48.0% of examples),
-`transfer_gate` (specified in `docs/hardening.md` §2, implementable).
+**Four gates still never reach a row.** Checked individually this time, because the previous
+handoff's one-line status for `transfer_gate` was wrong in both halves:
+
+| gate | status, verified 2026-09-22 |
+| --- | --- |
+| `ood_abstain` | **Named, never specified.** Appears in `REQUIRED_GATES` (`ledger.py:143`) and in one row of `docs/ledger-schema.md`. There is no definition of what it measures anywhere in the repo. |
+| `needle_hunk_recall` | Built — `needle.py` is 354 lines with 20 tests and generates its own corpus. Blocked on a span→hunk-index mapping a human must define. |
+| `privileged_hunk` | Implementable, and **measured near-vacuous before being built**: the privileged window is the whole file on 48.0% of examples, so it would have produced an uninformative number. Recorded rather than built. |
+| `transfer_gate` | **Not implementable as specified, and not specified where the last handoff said.** It is *not* in `docs/hardening.md` §2 — that section covers repo-level splits, MinHash dedupe, the shuffled-label and privileged-hunk controls, held-out path refusal and task-family holdout, and never mentions it. It appears in exactly two places, neither a specification: a column in `docs/ledger-schema.md` and one parenthetical in `docs/teacher-plan.md` §7 — *"a model trained on mutations only must beat the char-n-gram baseline on the natural held-out set"*. Blocked on data that does not exist: the only held-out set is `shardset-v*/data/heldout/heldout.json` on the box, 233 entries over the families `code.language_id` and `qa.answerability`, and it carries manifest records rather than content. Nothing anywhere is natural text labelled with rung 0's own classes, and producing it means a human judging real commits as stub/logic/cosmetic. |
 
 ## Is it ready for final train?
 
