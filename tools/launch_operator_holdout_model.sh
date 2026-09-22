@@ -54,15 +54,24 @@
 # the projection overshoots by 17.6x. Never quote that projection as a cost.)
 #
 # What the fits do NOT do is backfill rows already written: rung0_real_run.py reads the
-# cache once before its seed loop and never fits inline. Margins on arms that already ran
-# therefore cost the fits AND a re-run of the arms. See that script's header.
+# cache once, before its seed loop. On a miss it fits inline only when the fit projects under
+# its 900s LINEAR_CONTROL_TIME_BUDGET_S, and on this corpus every arm projected 14.7 to 25.7
+# hours, so every miss recorded not_run. Margins on arms that already ran therefore cost the
+# fits AND a re-run of the arms. See that script's header.
+#
+# A re-run goes to its OWN ledger (QD_HOLDOUT_LEDGER below). operator_holdout_report.py
+# groups rows by (operator, condition), so appending a second run of the same seeds to the
+# first run's ledger would pool them: sixteen "seeds" where eight exist, with the spread
+# understated and not_run margins mixed in beside the measured ones.
 set -uo pipefail
 
 PY=/home/ubuntu/qd-venv/bin/python
 TOOL=/home/ubuntu/qwen-decision/tools/rung0_real_run.py
 CORPUS=/home/ubuntu/commitpackft-corpus-v2
 CACHE=/home/ubuntu/control-cache
-LEDGER=/home/ubuntu/qwen-decision/ledger/gh200-operator-holdout-model-2026-09-22.jsonl
+# Overridable so a re-run does not append to the ledger of the run it repeats; see the
+# header. The default is the ledger the first 144 rows were written to.
+LEDGER="${QD_HOLDOUT_LEDGER:-/home/ubuntu/qwen-decision/ledger/gh200-operator-holdout-model-2026-09-22.jsonl}"
 OUT=/home/ubuntu/ophold-out
 # Passed in, never hardcoded and never read from the box's own git. sync_box.sh rsyncs
 # python/ and tools/ only, so the box HEAD can name a commit older than the files that will
@@ -80,25 +89,12 @@ ARM_CAP=3600
 
 mkdir -p "$OUT"
 
-# The three the control experiment measured, so the model's numbers sit beside them.
-#
-# Overridable, because those three are the DOMINANT operator in each of the three classes
-# -- 42.8%, 14.2% and 8.9% of the corpus -- and holding out the biggest operator in a class
-# is the weakest version of this test: it moves the class prior hardest, which is exactly
-# the confound the sibling metric has to work to rule out. Holding out a MINOR operator
-# instead (logic.negate_condition 5.4%, cosmetic.edit_comment 4.9%, stub.default_return
-# 1.8%) barely moves the prior, so a collapse there is harder to explain any way but the
-# generator. Same ledger by default: the report groups by operator, so one file covers
-# however many are run.
-#
-#   QD_HOLDOUT_OPERATORS="logic.negate_condition cosmetic.edit_comment" \
-#     bash tools/launch_operator_holdout_model.sh <40-char-sha>
-OPERATORS="${QD_HOLDOUT_OPERATORS:-stub.panic logic.change_constant cosmetic.rename_local}"
-if [ -z "${OPERATORS// /}" ]; then
-  echo "refusing to launch: QD_HOLDOUT_OPERATORS is set but empty; that would run no arms" >&2
-  echo "and still print the DONE marker, which a watcher cannot tell from a finished run." >&2
-  exit 2
-fi
+# The three the control experiment measured by default, so the model's numbers sit beside
+# them; QD_HOLDOUT_OPERATORS overrides. The list, its override and its empty-list refusal
+# live in one file that fit_operator_holdout_controls.sh sources too, so the arms and their
+# controls cannot be run over different operators.
+# shellcheck source=operator_holdout_operators.sh
+source "$(dirname "${BASH_SOURCE[0]}")/operator_holdout_operators.sh"
 
 run_arm() {
   local label="$1"; shift

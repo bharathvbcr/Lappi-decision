@@ -62,8 +62,23 @@
 # ## What this does NOT do
 #
 # Warming the cache does not retrofit rows already written. `rung0_real_run.py` reads the
-# cache once, before its seed loop, and records not_run on a miss; it never fits inline. To
-# get margins on arms that already ran, re-run them after this completes.
+# cache once, before its seed loop. On a miss it fits inline only when the fit projects under
+# its 900s LINEAR_CONTROL_TIME_BUDGET_S, and on this corpus every arm projected 14.7 to 25.7
+# hours, so every miss recorded not_run. To get margins on arms that already ran, re-run them
+# after this completes.
+#
+# ## Which operators, and where N comes from
+#
+# The operator list is sourced from operator_holdout_operators.sh, the same file the arm
+# launcher sources, so QD_HOLDOUT_OPERATORS picks the same operators for both. This script
+# used to hardcode the three defaults, so the minor operators could be run as arms but could
+# not be given controls.
+#
+# The size-matched fit drops N rows, where N is what the holdout fit removed. N is read from
+# the HOLDOUT FIT's own log: fit_linear_control.py prints the same "holding out" line as the
+# arm, because both call filter_train_rows. It used to be read from the holdout ARM's log,
+# which meant a control could not be fitted for an operator until a GPU arm had already
+# trained without one -- the ordering that produced every not_run margin this script closes.
 #
 # ## The cap
 #
@@ -111,14 +126,18 @@ fit() {
 # The reference arm's control is the full-corpus fit every diff arm already shares; it is
 # listed so a cache hit is confirmed rather than assumed, and so the three arms of each
 # operator are visibly fitted the same way.
+# shellcheck source=operator_holdout_operators.sh
+source "$(dirname "${BASH_SOURCE[0]}")/operator_holdout_operators.sh"
+
 fit full
 
-for OP in stub.panic logic.change_constant cosmetic.rename_local; do
+for OP in $OPERATORS; do
   fit "holdout-$OP" --hold-out-operator "$OP"
 
-  # N from the ARM's own log, exactly as the launcher took it, so the control's training set
-  # is the arm's training set rather than a number retyped here.
-  HOLD_LOG=/home/ubuntu/ophold-holdout-"$OP".log
+  # N from the holdout FIT's own log -- the line filter_train_rows prints, which is the line
+  # the arm prints too -- so the control's training set is the arm's training set rather
+  # than a number retyped here, and no arm has to run first.
+  HOLD_LOG=/home/ubuntu/opctl-holdout-"$OP".log
   MATCHES=$(grep -cE "^  holding out ${OP}: [0-9]+ of [0-9]+ training row" "$HOLD_LOG")
   if [ "$MATCHES" != "1" ]; then
     echo "!! $OP: no single row-count line in $HOLD_LOG (found $MATCHES); skipping the"
