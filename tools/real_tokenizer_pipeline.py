@@ -50,6 +50,7 @@ import json
 import subprocess
 import sys
 import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -467,6 +468,44 @@ class RealTokenizer:
         vocab = json.dumps(self.tok.get_vocab(), sort_keys=True, ensure_ascii=True)
         return hashlib.sha256(f"{MODEL}\n{vocab}".encode()).hexdigest()
 
+    def byte_token_ids(self) -> frozenset[int]:
+        """Ids of the 256 byte-level symbols, the pieces any text can always be spelled in.
+
+        Refuses rather than returning fewer: a byte-fallback cost measured against a
+        partial alphabet would under-count every token spelled with a missing byte.
+        """
+        from tokenizers.pre_tokenizers import ByteLevel
+
+        symbols = sorted(ByteLevel.alphabet())
+        ids = self.tok.convert_tokens_to_ids(symbols)
+        found = {int(i) for i in ids if i is not None and i != self.tok.unk_token_id}
+        if len(symbols) != 256 or len(found) != 256:
+            raise SystemExit(
+                f"{MODEL}'s vocabulary holds {len(found)} of the {len(symbols)} byte-level "
+                "symbols as single tokens; a byte fallback cannot be priced against it"
+            )
+        return frozenset(found)
+
+    def byte_lengths(self, token_ids: Iterable[int]) -> dict[int, int]:
+        """Single-byte tokens needed to spell each id: its byte-level symbol count.
+
+        Refuses an id whose symbols are not all byte-level -- an added or special token --
+        because its length in bytes is not the length of its symbol string.
+        """
+        from tokenizers.pre_tokenizers import ByteLevel
+
+        alphabet = frozenset(ByteLevel.alphabet())
+        out: dict[int, int] = {}
+        for token_id in token_ids:
+            symbols = self.tok.convert_ids_to_tokens(int(token_id))
+            if not symbols or not set(symbols) <= alphabet:
+                raise SystemExit(
+                    f"token id {token_id} is {symbols!r}, which is not spelled in byte-level "
+                    "symbols; its byte length cannot be read off its string"
+                )
+            out[int(token_id)] = len(symbols)
+        return out
+
 
 # -- classifying what refused ------------------------------------------------------------
 
@@ -645,6 +684,50 @@ def remap_coverage(cen: Census, remap: RemapTable, *, split_name: str) -> TriSta
             f"{sum(missing.values())} of {tokens} tokens, {len(missing)} distinct ids. "
             "RemapTable.encode raises on each of those rows and has no UNK, so under this "
             "remap they cannot be written, scored or served."
+        ),
+    )
+
+
+def byte_fallback_cost(
+    cen: Census,
+    remap: RemapTable,
+    *,
+    byte_ids: frozenset[int],
+    byte_lengths: Callable[[Iterable[int]], dict[int, int]],
+    split_name: str,
+) -> TriState:
+    """What a lossless byte fallback would add to a split the remap cannot encode.
+
+    GAP-REMAP-CANNOT-ENCODE-THE-ROWS-IT-WAS-NOT-BUILT-FROM leaves the choice of fix to a
+    human, and this prices one option on the same rows: keep the 256 byte tokens and spell
+    every dropped token in them. The count is an UPPER bound -- a fallback that re-segments
+    into the longest kept pieces is never longer than one that spells single bytes -- and
+    it says how many of the byte tokens the remap would have to add.
+    """
+    if not cen.ids:
+        return NotRun(
+            reason=f"no row of the {split_name} split tokenized ({cen.rows_in} in)"
+        )
+    tokens = 0
+    dropped: collections.Counter[int] = collections.Counter()
+    for ids in cen.ids:
+        tokens += int(ids.size)
+        dropped.update(int(i) for i in ids[remap.old_to_new[ids] < 0])
+    lengths = byte_lengths(dropped)
+    extra = sum((lengths[i] - 1) * n for i, n in dropped.items())
+    unkept = sum(1 for i in byte_ids if remap.old_to_new[i] < 0)
+    # `value` is the tokens a fallback adds; the pair is the tokens it re-spells, of all.
+    return Ran(
+        passed=True,
+        value=extra,
+        n=sum(dropped.values()),
+        n_total=tokens,
+        detail=(
+            f"spelling the {sum(dropped.values())} dropped token(s) of the {split_name} "
+            f"split in single bytes adds at most {extra} token(s) to its {tokens} "
+            f"({extra / tokens:.2%}); {unkept} of the 256 byte tokens are not in this remap "
+            "and a fallback would add them. An upper bound: re-segmenting into the longest "
+            "kept pieces is never longer."
         ),
     )
 
@@ -934,12 +1017,18 @@ def run(
     # stage 5b sees them, so no training artifact depends on held-out text (rule 3).
     print("\n== stage 5b: the rows the remap was not built from ==")
     unseen: dict[str, TriState] = {}
+    fallback: dict[str, TriState] = {}
+    byte_ids = tok.byte_token_ids()
     for split_name in ("val", HELD_OUT):
         split_rows = list(split_report.rows_by_split.get(split_name, ()))
-        unseen[split_name] = remap_coverage(
-            census(split_rows, tok=tok, config=config), remap, split_name=split_name
+        split_census = census(split_rows, tok=tok, config=config)
+        unseen[split_name] = remap_coverage(split_census, remap, split_name=split_name)
+        fallback[split_name] = byte_fallback_cost(
+            split_census, remap, byte_ids=byte_ids, byte_lengths=tok.byte_lengths,
+            split_name=split_name,
         )
         print(f"  {split_name}: {json.dumps(unseen[split_name].to_json())[:600]}")
+        print(f"  {split_name} byte fallback: {json.dumps(fallback[split_name].to_json())[:600]}")
 
     print("\n== stage 6: write_shards with tokenize + token_offsets + decode ==")
     shard_dir = out / "shards" / "train"
@@ -1063,6 +1152,8 @@ def run(
         ),
         "remap_covers_val_rows": unseen["val"],
         "remap_covers_heldout_rows": unseen[HELD_OUT],
+        "remap_byte_fallback_val_tokens": fallback["val"],
+        "remap_byte_fallback_heldout_tokens": fallback[HELD_OUT],
         "decode_check_leaves_a_trace": Ran(
             passed=not to_json_identical or cen.span_rows_out == 0,
             value=str(not to_json_identical),
