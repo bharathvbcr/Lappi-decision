@@ -516,6 +516,11 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
     model.eval()
     choice_hit = choice_n = 0
     start_hit = end_hit = span_n = 0
+    # Rows whose gold span is a real line, counted apart from rows whose gold is the
+    # abstention. See the loop below: the undecomposed figure is a mixture, and a corpus
+    # where every gold abstains scores 100% on it having pointed at nothing.
+    pointing_n = pointing_start_hit = 0
+    pointing_chance = 0.0
     # The per-row choice distribution, kept so `degenerate_head_check` can be evaluated.
     # It needs nothing but these numbers, which this loop already computes -- which is why
     # `degenerate_head` sat at not_run on 988 rows for want of four lines rather than for
@@ -560,12 +565,25 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
                 for k in range(span_plan.n_spans):
                     gold_start = int(span_plan.gold_start[k])
                     gold_end = int(span_plan.gold_end[k])
-                    start_hit += 1 if int(start_rows[k].argmax()) == gold_start else 0
+                    hit_start = int(start_rows[k].argmax()) == gold_start
+                    start_hit += 1 if hit_start else 0
                     end_hit += 1 if int(end_rows[k].argmax()) == gold_end else 0
                     # `serving_scores` returns exactly the rows a runtime would accept, so
                     # its length is the real number of choices this pointer had.
                     span_chance += 1.0 / max(1, int(start_rows[k].numel()))
                     span_n += 1
+                    # Rows whose gold is a real line, kept apart from rows whose gold is the
+                    # abstention. Mixing them reports "correctly abstained" and "correctly
+                    # pointed" as one number, and the mixture rises when the corpus gets
+                    # EASIER to abstain on. In `--context-source diff` every gold is the
+                    # abstention -- span offsets are into `after` and every byte has moved --
+                    # so the mixture reads 100.0% against a chance rate computed over line
+                    # starts the head was never asked to choose between. A vacuous 100% that
+                    # looks like a triumph is worse than a `not_run`.
+                    if not plan.span_is_noul[k]:
+                        pointing_n += 1
+                        pointing_start_hit += 1 if hit_start else 0
+                        pointing_chance += 1.0 / max(1, int(start_rows[k].numel()))
     model.train()
     return {
         "choice_top1": choice_hit / choice_n if choice_n else 0.0,
@@ -574,6 +592,13 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
         "span_end_top1": end_hit / span_n if span_n else 0.0,
         "span_n": span_n,
         "span_chance": span_chance / span_n if span_n else 0.0,
+        # The same three quantities over POINTING rows only. Added beside the undecomposed
+        # fields rather than replacing them: the 61 capacity rows and the learning curve were
+        # written with the mixture, and silently redefining it would make every new row
+        # incomparable with the rows it extends. The GATE reads these.
+        "span_pointing_n": pointing_n,
+        "span_pointing_start_top1": pointing_start_hit / pointing_n if pointing_n else 0.0,
+        "span_pointing_chance": pointing_chance / pointing_n if pointing_n else 0.0,
         "choice_probs": choice_probs,
         "choice_gold": choice_gold,
     }
@@ -1769,15 +1794,32 @@ def main(argv: Sequence[str] | None = None) -> int:
                     baseline_name="majority-class baseline",
                 ),
             )
+            # Over POINTING rows only, and NotRun when there are none. The undecomposed
+            # figure counts a correctly-withheld pointer as a correctly-placed one, so a
+            # corpus on which every gold is the abstention scores 100% on it -- which is
+            # exactly what `--context-source diff` produces, because span offsets are into
+            # `after` and encoding the diff moves every byte. Reporting that as a pass would
+            # be a check that could not run returning the same answer as one that ran.
+            pointing_n = int(after["span_pointing_n"])  # type: ignore[index]
+            no_pointers = NotRun(
+                reason=(
+                    f"no gold span points at a line: all {int(after['span_n'])} scored "  # type: ignore[index]
+                    "row(s) abstain, so pointer accuracy has nothing to be measured over. "
+                    "A head that abstains on everything scores 100% here and has located "
+                    "nothing."
+                )
+            )
             recorder.metric(
                 "val_span_start_top1_over_chance",
                 _accuracy_gate(
-                    float(after["span_start_top1"]),  # type: ignore[index]
-                    float(after["span_chance"]),  # type: ignore[index]
-                    n=int(after["span_n"]),  # type: ignore[index]
+                    float(after["span_pointing_start_top1"]),  # type: ignore[index]
+                    float(after["span_pointing_chance"]),  # type: ignore[index]
+                    n=pointing_n,
                     what="span start",
                     baseline_name="uniform-pointer chance over the candidate line starts",
-                ),
+                )
+                if pointing_n
+                else no_pointers,
             )
             recorder.metric(
                 "val_span_end_top1_over_chance",
@@ -1787,7 +1829,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     n=int(after["span_n"]),  # type: ignore[index]
                     what="span end",
                     baseline_name="uniform-pointer chance over the candidate line starts",
-                ),
+                )
+                if pointing_n
+                else no_pointers,
             )
             recorder.metric(
                 "train_choice_top1_over_train_majority",
@@ -1832,11 +1876,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{float(after['choice_top1']):.1%} "  # type: ignore[index]
             f"(baseline {baseline:.1%}, {int(after['choice_n'])} rows)  "  # type: ignore[index]
             f"[train {float(run['train_after']['choice_top1']):.1%}]  "  # type: ignore[index]
-            f"span start {float(after['span_start_top1']):.1%} "  # type: ignore[index]
-            f"end {float(after['span_end_top1']):.1%} "  # type: ignore[index]
-            f"(chance {float(after['span_chance']):.1%}, "  # type: ignore[index]
-            f"{int(after['span_n'])} rows)  "  # type: ignore[index]
-            f"{run['wall_clock_s']:.1f}s  {run['optimizer_steps']} steps"
+            # The POINTING figure, and a plain statement when there is nothing to point at.
+            # The undecomposed number reads 100.0% on an all-abstain corpus, which is what
+            # `--context-source diff` produces; printing that beside a chance rate computed
+            # over line starts the head was never asked to choose between is how a vacuous
+            # result gets read as a triumph on the way past.
+            + (
+                f"span start {float(after['span_pointing_start_top1']):.1%} "  # type: ignore[index]
+                f"end {float(after['span_end_top1']):.1%} "  # type: ignore[index]
+                f"(chance {float(after['span_pointing_chance']):.1%}, "  # type: ignore[index]
+                f"{int(after['span_pointing_n'])} pointing rows)  "  # type: ignore[index]
+                if int(after["span_pointing_n"])  # type: ignore[index]
+                else f"span NOT MEASURED (all {int(after['span_n'])} scored rows abstain)  "  # type: ignore[index]
+            )
+            + f"{run['wall_clock_s']:.1f}s  {run['optimizer_steps']} steps"
         )
 
     gaps = [
