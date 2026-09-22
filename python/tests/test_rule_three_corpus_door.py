@@ -129,11 +129,28 @@ def test_a_row_that_is_not_an_object_is_refused(tmp_path: Path) -> None:
         read_example_objects(path, config=DataConfig(), repo_root=tmp_path)
 
 
-@pytest.mark.parametrize(
-    "module_name", ["rung0_real_run", "rung0_linear_control", "fit_linear_control"]
-)
-def test_every_rung0_tool_reads_its_corpus_through_the_door(module_name: str) -> None:
-    """Each tool separately. All three took ``--examples`` and read it with a bare
+#: Every tool that takes a ``--examples`` corpus path. Kept as a list rather than
+#: discovered, so adding a tool that reads a corpus is a decision someone makes here rather
+#: than an omission nobody notices.
+#:
+#: Two of these train nothing. They are on the list anyway: ``filter_corpus`` reads a corpus
+#: and writes another one somewhere else, so without the door it is the one tool that could
+#: launder held-out rows into a path the training door would then admit; and the language
+#: check reads a corpus for the same reason every other tool does.
+CORPUS_READING_TOOLS = [
+    "rung0_real_run",
+    "rung0_linear_control",
+    "fit_linear_control",
+    "after_vs_diff",
+    "operator_holdout",
+    "filter_corpus",
+    "operator_holdout_language_check",
+]
+
+
+@pytest.mark.parametrize("module_name", CORPUS_READING_TOOLS)
+def test_every_corpus_reading_tool_goes_through_the_door(module_name: str) -> None:
+    """Each tool separately. All of them took ``--examples`` and read it with a bare
     ``json.loads`` comprehension; a fix applied to one and forgotten in another is how this
     arose, so the property is asserted per tool rather than once.
 
@@ -145,4 +162,24 @@ def test_every_rung0_tool_reads_its_corpus_through_the_door(module_name: str) ->
     module = __import__(module_name)
     assert getattr(module, "read_example_objects", None) is read_example_objects, (
         f"{module_name} must read its corpus through the rule-3 door, not around it"
+    )
+
+
+def test_no_corpus_reading_tool_is_missing_from_the_list() -> None:
+    """The list above is the enforcement, so a tool that takes ``--examples`` and is not on
+    it is the next instance of this bug. Found by reading the sources, which is the right
+    direction here: the risk is a tool that never imports the door at all, and a check over
+    imported modules cannot see one it was never told about.
+    """
+    tools = REPO / "tools"
+    takes_a_corpus = {
+        path.stem
+        for path in sorted(tools.glob("*.py"))
+        if '"--examples"' in path.read_text(encoding="utf-8")
+    }
+    missing = sorted(takes_a_corpus - set(CORPUS_READING_TOOLS))
+    assert not missing, (
+        f"these tools take --examples and are not on the rule-3 list: {missing}. Add them "
+        "to CORPUS_READING_TOOLS and route them through read_example_objects, or say in "
+        "the list's comment why the door does not apply."
     )

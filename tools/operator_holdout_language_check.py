@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import argparse
 import collections
-import json
 import sys
 from pathlib import Path
 
@@ -44,6 +43,9 @@ from rung0_real_run import (  # noqa: E402
     filter_train_rows,
     split_by_file,
 )
+
+from qd_data.config import DataConfig  # noqa: E402
+from qd_train.mutate_adapter import read_example_objects  # noqa: E402
 
 
 def _langs(rows: list[dict]) -> collections.Counter[str]:
@@ -58,11 +60,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--drop-random-seed", type=int, default=0)
     args = parser.parse_args(argv)
 
-    examples = [
-        json.loads(line)
-        for line in args.examples.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    # Through rule 3's door rather than around it -- see read_example_objects.
+    examples = read_example_objects(args.examples, config=DataConfig(), repo_root=REPO)
     if not examples:
         raise SystemExit(f"{args.examples} holds no examples")
 

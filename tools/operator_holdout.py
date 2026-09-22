@@ -39,7 +39,6 @@ The same experiment against the trained model needs a GPU and is not this tool.
 from __future__ import annotations
 
 import argparse
-import json
 import random
 import sys
 import time
@@ -54,7 +53,9 @@ sys.path.insert(0, str(REPO / "tools"))
 from after_vs_diff import window  # noqa: E402
 from rung0_real_run import DEFAULT_CONTEXT_BYTES, split_by_file  # noqa: E402
 
+from qd_data.config import DataConfig  # noqa: E402
 from qd_train.baseline import LinearBaseline  # noqa: E402
+from qd_train.mutate_adapter import read_example_objects  # noqa: E402
 from qd_train.tristate import Ran  # noqa: E402
 
 DEFAULT_EXAMPLES: Final[Path] = (
@@ -108,11 +109,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--operator", action="append", default=[])
     args = parser.parse_args(argv)
 
-    rows = [
-        json.loads(line)
-        for line in args.examples.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    # Through rule 3's door rather than around it -- see read_example_objects. This tool
+    # fits the control that sets the bar the model is measured against, so reading held-out
+    # data here is the same violation as training on it, wearing a different hat.
+    rows = read_example_objects(args.examples, config=DataConfig(), repo_root=REPO)
     print(f"corpus: {len(rows)} example(s) from {args.examples}")
     operators = tuple(args.operator) or DEFAULT_OPERATORS
 

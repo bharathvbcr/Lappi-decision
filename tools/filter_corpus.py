@@ -35,6 +35,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
 
+from qd_data.config import DataConfig  # noqa: E402
+from qd_train.mutate_adapter import read_example_objects  # noqa: E402
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -56,11 +59,11 @@ def main(argv: list[str] | None = None) -> int:
             "defect pointing the other way."
         )
 
-    rows = [
-        json.loads(line)
-        for line in args.examples.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    # Through rule 3's door rather than around it -- see read_example_objects. This tool
+    # trains nothing, and that is exactly why it needs the check: it READS a corpus and
+    # WRITES a new one somewhere else, so without the door it is the one tool that could
+    # launder held-out rows into a path the training door would then happily admit.
+    rows = read_example_objects(args.examples, config=DataConfig(), repo_root=REPO)
     if not rows:
         raise SystemExit(f"{args.examples} holds no examples")
 
