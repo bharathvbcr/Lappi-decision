@@ -197,6 +197,62 @@ def test_no_docstring_still_calls_the_fit_single_threaded() -> None:
         )
 
 
+def _refused_inline_fit(monkeypatch, cache_dir):
+    """Drive the arm's inline-fit refusal with a budget no projection can clear."""
+    pytest.importorskip("torch", reason="rung0_real_run imports torch at module scope")
+    sys.path.insert(0, str(REPO / "tools"))
+    sys.path.insert(0, str(REPO / "python"))
+    from dataclasses import dataclass
+
+    import rung0_real_run
+
+    from qd_train.mutate_adapter import MUTATION_CLASSES
+
+    class _Ctx:
+        def __init__(self, text: str) -> None:
+            self.ids = list(text.encode("utf-8"))
+            self.n_bytes_kept = len(self.ids)
+
+    @dataclass(frozen=True, slots=True)
+    class _D:
+        context: object
+        gold_option: int
+
+    train = [
+        _D(_Ctx(f"def f{i}(): return {i}\n" * 3), i % len(MUTATION_CLASSES))
+        for i in range(40)
+    ]
+    monkeypatch.setattr(rung0_real_run, "LINEAR_CONTROL_TIME_BUDGET_S", 0.0)
+    correct, not_run = rung0_real_run.linear_baseline_correctness(
+        train, train[:20], seed=0, max_iter=6000, cache_dir=cache_dir
+    )
+    assert correct is None, "a refused control was scored anyway"
+    assert not_run is not None
+    return not_run.reason
+
+
+def test_the_arm_s_refusal_calls_the_projection_a_bound_not_a_cost(monkeypatch) -> None:
+    """This reason is written into every row whose arm missed the cache, and it said the
+    projection was "a statement about the control's cost at this corpus size". Read that
+    way it priced a fit that converges in minutes at 25.7 hours -- which is how 104 rows
+    of this experiment came to read as though their opponent were unaffordable. The
+    projection prices max_iter iterations; the row must say so."""
+    reason = _refused_inline_fit(monkeypatch, None)
+    assert "statement about the control's cost" not in reason
+    assert "6000 max_iter iterations" in reason
+    assert "worst-case bound" in reason and "NOT what the fit would cost" in reason
+    assert "re-run this arm" in reason and "does not backfill" in reason
+    assert "no --control-cache was given" in reason
+
+
+def test_the_arm_s_refusal_names_the_cache_and_key_it_missed(monkeypatch, tmp_path) -> None:
+    """A miss and a missing cache flag are different failures with different fixes, and the
+    key is what lets somebody check the fit tool wrote the entry this arm asked for."""
+    reason = _refused_inline_fit(monkeypatch, tmp_path)
+    assert f"{tmp_path} has no control for this run's training set (key " in reason
+    assert re.search(r"\(key [0-9a-f]{16};", reason), reason
+
+
 def test_the_script_says_that_warming_the_cache_does_not_backfill_written_rows() -> None:
     """`rung0_real_run.py` reads the cache once, before its seed loop, and never fits
     inline. Somebody who ran this expecting the 72 existing rows to gain margins would

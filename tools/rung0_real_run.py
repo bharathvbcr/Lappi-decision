@@ -890,10 +890,17 @@ LINEAR_CONTROL_MAX_ITER: Final[int] = 6_000
 
 #: The linear control is fitted once per sweep, on CPU, with the GPU doing nothing. On the
 #: rung-0 corpus that is 38s and unremarkable. On the commitpackft corpus it projects to
-#: ~150 hours, and an arm that entered it would be terminated by its own wall-clock cap
+#: ~150 hours, and an arm that entered it could be terminated by its own wall-clock cap
 #: having written no rows -- which is precisely the 2026-09-21 failure, whose whole cost
 #: was that a slow fit and a hang are indistinguishable from outside. 15 minutes is well
 #: above the measured 38s and far below anything that could hide.
+#:
+#: The ~150 hours is `projected_fit_seconds`, which prices max_iter iterations per fit; fits
+#: stop when they converge. On commitpackft, tools/fit_linear_control.py's dense-path fits
+#: converged in a few hundred iterations and 204-352s (its docstring has the measurement).
+#: The inline fit here would take the SPARSE path, at the default 512 MB dense budget, and
+#: how long that actually takes has never been measured. So the refusal is a guard against
+#: an unmeasured fit, not a statement that the fit costs 150 hours.
 LINEAR_CONTROL_TIME_BUDGET_S: Final[float] = 900.0
 
 
@@ -1109,18 +1116,27 @@ def linear_baseline_correctness(
         train_docs, n_classes=len(set(train_labels))
     )
     if projected_s > LINEAR_CONTROL_TIME_BUDGET_S:
+        if cache_dir is None:
+            looked = "no --control-cache was given, so no fitted control was looked up"
+        else:
+            looked = (
+                f"{cache_dir} has no control for this run's training set (key "
+                f"{key[:16]}; tools/fit_linear_control.py prints the key it writes)"
+            )
         return None, NotRun(
             reason=(
-                f"the paired margin has no opponent: fitting the linear control on "
-                f"{len(train_docs)} training document(s) projects to {projected_s / 3600:.1f} "
-                f"hours, over the {LINEAR_CONTROL_TIME_BUDGET_S / 60:.0f} minute budget. "
-                "The control is REFUSED rather than attempted: a run that disappears into "
-                "an unbounded CPU fit with the GPU idle looks exactly like a hung one, "
-                "which is what happened on 2026-09-21 and cost a whole arm. This is a "
-                "statement about the control's cost at this corpus size, not about the "
-                "model -- no margin was measured, and none may be inferred. Fit it once "
-                "off the GPU with tools/fit_linear_control.py, which writes the cache this "
-                "run just missed, and the gate reports on the next run."
+                f"the paired margin has no opponent: {looked}, and fitting one inline on "
+                f"{len(train_docs)} training document(s) projects to "
+                f"{projected_s / 3600:.1f} hours, over the "
+                f"{LINEAR_CONTROL_TIME_BUDGET_S / 60:.0f} minute budget. That projection "
+                f"prices every fit as if it ran all {max_iter} max_iter iterations; a fit "
+                "stops when it converges, so it is a worst-case bound on the iteration "
+                "count and NOT what the fit would cost. The control is REFUSED rather than "
+                "attempted: a run that disappears into a long CPU fit with the GPU idle "
+                "looks exactly like a hung one, which is what happened on 2026-09-21 and "
+                "cost a whole arm. No margin was measured, and none may be inferred. Fit it "
+                "once off the GPU with tools/fit_linear_control.py, then re-run this arm: "
+                "a cached control does not backfill a row already written."
             ),
         )
     _fit_started = time.monotonic()
