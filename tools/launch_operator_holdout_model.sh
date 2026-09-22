@@ -39,10 +39,18 @@
 # Cost: 9 arms x 8 seeds, ~90s per seed on the GH200, so roughly 3.5-4 hours at $1.49/h --
 # about $6, a single-GPU job under the $20 line in rule 4, which needs no human yes.
 #
-# The linear control CANNOT be fitted for the holdout and sizematch arms: their training
-# sets differ from every cached fit and fit_linear_control.py has no holdout flags, so
+# The linear control is not fitted for the holdout and sizematch arms by this script, so
 # paired_margin_vs_linear is NotRun on those rows and must be read as not measured rather
 # than as a loss. The reference arm shares the grid's training set, so its margin is real.
+#
+# That used to be a statement about capability -- "fit_linear_control.py has no holdout
+# flags" -- and stopped being true: it takes --hold-out-operator and --drop-random-train,
+# and tools/fit_operator_holdout_controls.sh drives it over all nine training sets. What
+# remains true is the cost. Measured 2026-09-22, one fit projects to 101.4 minutes and
+# saturates all 64 cores, so nine is ~15 hours of the box; and warming the cache does not
+# backfill rows already written, because rung0_real_run.py reads the cache once before its
+# seed loop and never fits inline. Margins on these arms therefore cost the fits AND a
+# re-run of the arms. See that script's header.
 set -uo pipefail
 
 PY=/home/ubuntu/qd-venv/bin/python
@@ -68,7 +76,24 @@ ARM_CAP=3600
 mkdir -p "$OUT"
 
 # The three the control experiment measured, so the model's numbers sit beside them.
-OPERATORS="stub.panic logic.change_constant cosmetic.rename_local"
+#
+# Overridable, because those three are the DOMINANT operator in each of the three classes
+# -- 42.8%, 14.2% and 8.9% of the corpus -- and holding out the biggest operator in a class
+# is the weakest version of this test: it moves the class prior hardest, which is exactly
+# the confound the sibling metric has to work to rule out. Holding out a MINOR operator
+# instead (logic.negate_condition 5.4%, cosmetic.edit_comment 4.9%, stub.default_return
+# 1.8%) barely moves the prior, so a collapse there is harder to explain any way but the
+# generator. Same ledger by default: the report groups by operator, so one file covers
+# however many are run.
+#
+#   QD_HOLDOUT_OPERATORS="logic.negate_condition cosmetic.edit_comment" \
+#     bash tools/launch_operator_holdout_model.sh <40-char-sha>
+OPERATORS="${QD_HOLDOUT_OPERATORS:-stub.panic logic.change_constant cosmetic.rename_local}"
+if [ -z "${OPERATORS// /}" ]; then
+  echo "refusing to launch: QD_HOLDOUT_OPERATORS is set but empty; that would run no arms" >&2
+  echo "and still print the DONE marker, which a watcher cannot tell from a finished run." >&2
+  exit 2
+fi
 
 run_arm() {
   local label="$1"; shift
