@@ -155,6 +155,8 @@ from qd_train.artifacts import (
     SPAN_ABSTAIN,
     Batch,
 )
+from qd_train.calibration_fit import ece_gate, letters_key
+from qd_train.eval_harness import degenerate_head_check
 from qd_train.fused_ce import fused_linear_cross_entropy, resolve_chunk_size
 from qd_train.heads import (
     RESERVED_NOUL_ROWS,
@@ -180,7 +182,7 @@ from qd_train.shards import (
     training_texts,
 )
 from qd_train.trainer import SpanScoringStep, ft_supervision, train_ft
-from qd_train.tristate import NotRun, Ran, TriState
+from qd_train.tristate import NotRun, Ran, TriState, aggregate
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -844,6 +846,13 @@ def _decode(
                             dim=-1,
                         )[noul_row]
                     ),
+                    # The whole distribution the verdict was an argmax of, in decode-row
+                    # order. What `ece` and `degenerate_head` read (letter_distributions),
+                    # and what a calibration fit would: the argmax alone is not enough for
+                    # either. bf16 -> fp32 is exact, so this is the same numbers `top` saw.
+                    "row_logits": logits[
+                        r, at, torch.as_tensor(row_tokens, device=step.device)
+                    ].float().tolist(),
                 })
 
     by_kind: dict[str, dict[str, float]] = {}
@@ -2196,6 +2205,83 @@ def score_states(scored: dict[str, object], labels: list[Label]) -> dict[str, Tr
     return states
 
 
+#: Why ``ece.lang.*`` cannot be computed from these rows, carried INTO the ``ece`` gate. The
+#: plan's calibration gate is per-k and per-language (docs/ledger-schema.md, "an aggregate
+#: hides exactly the failure it is meant to catch"), so a gate aggregated over the per-k half
+#: would pass on a breakdown the plan does not accept. GAP-FT-ECE-HAS-NO-LANGUAGE-TO-SPLIT-BY.
+NO_LANGUAGE_REASON: Final[str] = (
+    "these rows carry no language: qd_data.mixture's code rewriters put it in no DataRow "
+    "metadata key and Label has no field for it, so ece.lang.* cannot be computed and the "
+    "per-language half of the plan's calibration gate is unmeasured"
+)
+
+
+def letter_distributions(
+    verdicts: Sequence[Mapping[str, object]],
+) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Each letter row's softmax over its own decode rows, and its gold row, by slot shape.
+
+    Keyed ``{kind}.k{options}``, one group per entry of the runtime's calibration table
+    (``letters_key``, ``{kind}:{options + noul}`` in calibration.rs): a distribution over 3
+    rows and one over 6 are different quantities, and stacking them needs padding, which
+    ``rung0_real_run.ece_state`` refuses for the same reason. Span rows are not here -- a
+    pointer's row count is its context's line count, not a slot shape.
+    """
+    groups: dict[str, tuple[list[list[float]], list[int]]] = {}
+    for v in verdicts:
+        kind = str(v["kind"])
+        if kind == "span":
+            continue
+        row_logits, gold_row, rows = v.get("row_logits"), v.get("gold_row"), v.get("rows")
+        if not (
+            isinstance(row_logits, list) and isinstance(gold_row, int) and isinstance(rows, int)
+        ):
+            raise TypeError(
+                f"row {v.get('row_id')}: a letter verdict without row_logits, gold_row and "
+                "rows was not produced by _decode"
+            )
+        if len(row_logits) != rows:
+            raise ValueError(
+                f"row {v.get('row_id')}: {len(row_logits)} logits for {rows} decode rows"
+            )
+        letters_key(kind, rows)  # refuses a shape the runtime table could not hold
+        logits, golds = groups.setdefault(f"{kind}.k{rows - RESERVED_NOUL_ROWS}", ([], []))
+        logits.append([float(x) for x in row_logits])
+        golds.append(gold_row)
+    out: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for key, (logits, golds) in sorted(groups.items()):
+        z = np.asarray(logits, dtype=np.float64)
+        z = np.exp(z - z.max(axis=1, keepdims=True))
+        out[key] = (z / z.sum(axis=1, keepdims=True), np.asarray(golds, dtype=int))
+    return out
+
+
+def calibration_states(
+    scored: Mapping[str, object],
+) -> tuple[dict[str, TriState], TriState, TriState]:
+    """Per slot shape: ``ece`` and ``degenerate_head``; then the gate and the control.
+
+    Both read the model's own distributions, uncalibrated, at the functions' default
+    thresholds -- rule 2 makes a threshold read-only, and passing one from here would be
+    retuning it where nobody looks (the rung-0 call site says the same). The gate aggregates
+    every per-k ECE AND :data:`NO_LANGUAGE_REASON`, so it is ``not_run`` until the language
+    half exists; the per-k numbers are recorded as metrics regardless.
+    """
+    verdicts = scored["verdicts"]
+    if not isinstance(verdicts, list):
+        raise TypeError("scored['verdicts'] is not a list")
+    metrics: dict[str, TriState] = {}
+    eces: dict[str, TriState] = {}
+    degenerate: dict[str, TriState] = {}
+    for key, (probs, gold) in letter_distributions(verdicts).items():
+        eces[f"ece.{key}"] = ece_gate(probs, gold)
+        degenerate[f"degenerate_head.{key}"] = degenerate_head_check(probs)
+    metrics.update(eces)
+    metrics.update(degenerate)
+    eces["ece.lang"] = NotRun(reason=NO_LANGUAGE_REASON)
+    return metrics, aggregate(eces, name="ece"), aggregate(degenerate, name="degenerate_head")
+
+
 def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: Ledger,
                   reader: ShardReader, val: ValSet, quick_reason: str, decode_s: float) -> str:
     """One ``eval`` row per epoch run: what its model does on the val set.
@@ -2230,6 +2316,11 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
         )
         for name, state in score_states(scored, val.labels).items():
             recorder.metric(name, state)
+        calibration, ece, degenerate = calibration_states(scored)
+        for name, state in calibration.items():
+            recorder.metric(name, state)
+        recorder.gate("ece", ece)
+        recorder.control("degenerate_head", degenerate)
         decoded_abstain = sum(
             1 for v in scored["verdicts"]  # type: ignore[union-attr]
             if str(v["runtime_verdict"]) == "abstain"
@@ -2943,6 +3034,9 @@ def main(argv: list[str] | None = None) -> int:
                         quick_reason=quick_epoch, decode_s=decode_s,
                     )
                     for name, state in score_states(scored, val_set.labels).items():
+                        print(f"  {device} seed={seed} {name}: {json.dumps(state.to_json())[:300]}")
+                    _, ece, degenerate = calibration_states(scored)
+                    for name, state in (("ece", ece), ("degenerate_head", degenerate)):
                         print(f"  {device} seed={seed} {name}: {json.dumps(state.to_json())[:300]}")
                     print(f"  score row {run['score_row_id']}")
                 report["arm1"].append(run)  # type: ignore[union-attr]

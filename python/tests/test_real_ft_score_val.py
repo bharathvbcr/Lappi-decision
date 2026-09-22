@@ -97,3 +97,79 @@ def test_a_missing_val_set_is_refused_with_the_command_that_builds_one(tmp_path)
 def test_score_val_without_the_epoch_arm_is_refused_before_anything_loads(tmp_path) -> None:
     with pytest.raises(SystemExit, match="--epoch was not passed"):
         rft.main(["--out", str(tmp_path), "--score-val"])
+
+
+# --- ece and degenerate_head, from the distributions _decode now keeps --------------------
+
+
+def _letter(kind: str, logits: list[float], gold: int, n: int) -> dict[str, object]:
+    return {
+        "kind": kind, "row_id": f"r{n}", "rows": len(logits), "row_logits": logits,
+        "gold_row": gold,
+    }
+
+
+def test_letter_rows_group_by_the_runtime_tables_shape_and_softmax_over_their_own_rows() -> None:
+    verdicts = [
+        _letter("choice", [2.0, 0.0, 0.0], 0, 0),
+        _letter("choice", [0.0, 1.0, 0.0, 0.0, 0.0], 1, 1),
+        _letter("score", [0.0] * 6, 3, 2),
+        {"kind": "span", "row_id": "s", "rows": 40},
+    ]
+    groups = rft.letter_distributions(verdicts)
+    assert sorted(groups) == ["choice.k2", "choice.k4", "score.k5"], "noul is not an option"
+    probs, gold = groups["choice.k2"]
+    assert probs.shape == (1, 3) and gold.tolist() == [0]
+    assert probs.sum() == pytest.approx(1.0) and int(probs.argmax()) == 0
+    assert groups["score.k5"][0][0] == pytest.approx([1 / 6] * 6)
+
+
+def test_a_letter_verdict_without_its_distribution_is_refused() -> None:
+    with pytest.raises(TypeError, match="was not produced by _decode"):
+        rft.letter_distributions([{"kind": "choice", "row_id": "r", "rows": 3, "top": 0}])
+
+
+def test_the_ece_gate_does_not_pass_on_the_per_k_half_of_its_breakdown() -> None:
+    """120 rows answered right at probability ~1: ECE 0, and the per-k metric passes. The gate
+    still does not, because nothing measured the per-language half -- and says why."""
+    verdicts = [_letter("choice", [40.0, 0.0, 0.0], 0, i) for i in range(60)] + [
+        _letter("choice", [0.0, 40.0, 0.0], 1, i) for i in range(60, 120)
+    ]
+    metrics, ece, _ = rft.calibration_states({"verdicts": verdicts})
+    per_k = metrics["ece.choice.k2"]
+    assert isinstance(per_k, Ran) and per_k.passed and per_k.n == 120
+    assert isinstance(ece, NotRun), "a per-k pass is not the plan's per-k-and-per-language gate"
+    assert "no language" in ece.reason
+
+
+def test_a_group_under_the_sample_floor_is_not_run_rather_than_a_small_ece() -> None:
+    metrics, _, _ = rft.calibration_states(
+        {"verdicts": [_letter("score", [1.0, 0.0, 0.0, 0.0], 0, i) for i in range(30)]}
+    )
+    assert isinstance(metrics["ece.score.k3"], NotRun)
+
+
+def test_degenerate_head_fires_on_a_head_that_answers_one_row_everywhere() -> None:
+    constant = [_letter("choice", [1.0, 0.0, 0.0], i % 2, i) for i in range(40)]
+    _, _, degenerate = rft.calibration_states({"verdicts": constant})
+    assert isinstance(degenerate, Ran) and degenerate.passed is False
+    varied = [_letter("choice", [0.6, 0.0, 0.0] if i % 2 else [0.0, 0.6, 0.0], 1 - i % 2, i)
+              for i in range(40)]
+    _, _, healthy = rft.calibration_states({"verdicts": varied})
+    assert isinstance(healthy, Ran) and healthy.passed is True
+
+
+def test_with_no_letter_rows_neither_the_gate_nor_the_control_claims_to_have_run() -> None:
+    metrics, ece, degenerate = rft.calibration_states(
+        {"verdicts": [{"kind": "span", "row_id": "s", "rows": 40}]}
+    )
+    assert metrics == {}
+    assert isinstance(ece, NotRun) and isinstance(degenerate, NotRun)
+
+
+def test_decode_keeps_the_distribution_its_verdict_was_an_argmax_of() -> None:
+    """``_decode`` needs a trained step to run; the end-to-end check is the stand-in run in
+    the commit message. This pins that the field the two functions above read is written."""
+    import inspect
+
+    assert '"row_logits": logits[' in inspect.getsource(rft._decode)
