@@ -190,4 +190,8 @@ and the reason the 72 rows above can never gain margins retroactively.
   measured here, being addressed by the span-in-diff arms.
 - `GAP-CODE-COMMIT-DIRTY-DOES-NOT-PIN-WHAT-RAN` — `code_commit` on these rows is a dirty
   sha from an older commit; `recipe.rev` is what pins the launch.
-- The 48 `not_run` margins above.
+- `GAP-CONTROL-CACHE-GOES-COLD-ON-ANY-BASELINE-EDIT` — why the 48 margins above cost ~15
+  hours of CPU plus a re-run of the arms, and why the digest that makes them cost that
+  must not be weakened to make them cheaper.
+- `GAP-THE-CONTROL-CLASSIFIES-BY-GENERATOR-NOT-BY-CHANGE` — moved to
+  `resolved-with-residual` by this experiment; the residual is those 48 margins.
