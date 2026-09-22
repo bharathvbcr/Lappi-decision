@@ -318,7 +318,7 @@ def test_decisions_and_their_paths_stay_aligned_through_refusals() -> None:
         "hunk_constrained": False,
     }
     malformed = {"id": "ex-2", "function": {}}  # missing required fields -> MalformedExample
-    decisions, refused, paths = tool.decisions_of([malformed, good, malformed], config=config)
+    decisions, refused, paths, _ = tool.decisions_of([malformed, good, malformed], config=config)
     assert refused, "the malformed rows must be counted, not silently dropped"
     assert len(decisions) == len(paths), "a decision without its path is the alignment bug"
     if decisions:
@@ -765,6 +765,10 @@ def _args_for(**over) -> argparse.Namespace:
         "rev": "HEAD",
         "context_source": "after",
         "lr": 3e-3,
+        "hold_out_operator": "",
+        "drop_random_train": 0,
+        "drop_random_seed": 0,
+        "measure_operator": "",
     }
     base.update(over)
     return argparse.Namespace(**base)
@@ -798,6 +802,154 @@ def test_an_after_run_hashes_exactly_as_it_did_before_context_source_existed() -
         "rev": "HEAD",
     }
     assert _hash_of(recipe) == _hash_of(before_the_flag)
+
+
+def test_decisions_of_carries_the_operator_beside_the_path() -> None:
+    """Recovered here, where the dropped row is still in hand.
+
+    `MutateExample` deliberately does not store `operator`, and re-parsing in the caller to
+    get it back would reintroduce the index drift the parallel lists exist to prevent --
+    `decisions_of` drops refused rows, so `zip(examples, decisions)` pairs each decision
+    with the wrong row.
+    """
+    from qd_train.byte_decider import ByteDeciderConfig
+
+    body = "".join(f"line {i}\n" for i in range(6))
+    rows = [
+        {
+            "id": "a", "function": {"repo": "r", "path": "a.py", "symbol": "f", "arity": 1},
+            "language": "python", "class": "logic", "operator": "logic.off_by_one",
+            "after": body, "span": {"start_line": 2, "end_line": 2},
+            "silent": False, "hunk_constrained": False, "seed": 1,
+        },
+        {
+            "id": "b", "function": {"repo": "r", "path": "b.py", "symbol": "g", "arity": 1},
+            "language": "python", "class": "clean", "after": body, "span": None,
+            "silent": False, "hunk_constrained": False, "seed": 2,
+        },
+    ]
+    decisions, _, paths, operators = tool.decisions_of(
+        rows, config=ByteDeciderConfig(max_context_bytes=512)
+    )
+    assert len(operators) == len(decisions) == len(paths)
+    assert operators == ["logic.off_by_one", ""], (
+        "a clean row has no operator and must read as empty, never as the previous row's"
+    )
+
+
+def test_the_siblings_of_a_held_out_operator_share_its_class_and_not_its_generator() -> None:
+    """The size-matched control cannot reach the confound these rows exist to settle.
+
+    Every operator in this corpus produces exactly one class, so holding one out also moves
+    the class prior -- `stub.panic` is 42.8% of the rows, and removing it takes `stub` from
+    about 46% of training to about 7%. A model that then under-predicts `stub` scores badly
+    on the held-out rows for a reason that has nothing to do with recognising generators,
+    and `--drop-random-train` does not separate the two: dropping uniformly preserves the
+    prior it would need to disturb. Siblings are the same class from another generator, so
+    the prior is held fixed and only the generator varies.
+    """
+    ops = [
+        "stub.panic", "stub.default_return", "logic.change_constant",
+        "stub.panic", "", "cosmetic.rename_local", "stub.early_return",
+    ]
+    gold = [0, 0, 1, 0, 2, 3, 0]  # stub=0, logic=1, clean=2, cosmetic=3
+    marked, siblings, impure = tool.operator_and_sibling_rows(ops, gold, "stub.panic")
+    assert marked == [0, 3]
+    assert siblings == [1, 6], (
+        "siblings are the same class from a DIFFERENT operator: the held-out operator's "
+        "own rows would make the comparison circular, and a clean row has no generator to "
+        "have been held out"
+    )
+    assert impure == 0
+
+
+def test_an_operator_that_is_the_only_one_of_its_class_has_no_siblings() -> None:
+    """Then the held-out number cannot be separated from prior shift, and the run has to
+    say so rather than report an accuracy over an empty set or over the wrong class."""
+    ops = ["lonely.op", "logic.change_constant", ""]
+    marked, siblings, impure = tool.operator_and_sibling_rows(ops, [0, 1, 2], "lonely.op")
+    assert marked == [0]
+    assert siblings == [], (
+        "an empty sibling set must be returned as empty so the caller can record NotRun; "
+        "falling back to another class would answer a different question in the same field"
+    )
+    assert impure == 0
+
+
+def test_a_class_straddling_operator_is_reported_rather_than_defining_its_class_away() -> None:
+    """Majority, not assumption. An operator whose rows span two classes would otherwise
+    pick whichever class came first and silently compare against the wrong siblings."""
+    ops = ["mixed.op", "mixed.op", "mixed.op", "other.op", "other.op"]
+    gold = [1, 1, 0, 1, 0]
+    marked, siblings, impure = tool.operator_and_sibling_rows(ops, gold, "mixed.op")
+    assert marked == [0, 1, 2]
+    assert impure == 1, "the row of the minority class is counted and surfaced, not dropped"
+    assert siblings == [3], "class 1 is the majority, so only other.op's class-1 row qualifies"
+
+
+def test_the_size_matched_control_arm_can_report_the_operator_the_holdout_arm_reports(
+) -> None:
+    """Otherwise the two arms measure different quantities and neither controls the other.
+
+    The holdout arm answers "how does the model score on stub.panic rows it never trained
+    on". A control that drops the same NUMBER of rows at random answers only "how does it
+    score overall" -- which cannot be subtracted from the first, so the collapse stays
+    explained as well by the smaller training set as by the missing fingerprint, and the
+    control has bought nothing. Both arms must name the same operator over the same
+    validation rows, differing in one thing: whether training saw it.
+    """
+    holdout = _args_for(hold_out_operator="stub.panic")
+    control = _args_for(drop_random_train=3833, measure_operator="stub.panic")
+    assert tool.measure_operator(holdout) == "stub.panic", (
+        "--hold-out-operator must imply measuring what it held out; requiring both flags "
+        "on the holdout arm is a second chance to name two different operators"
+    )
+    assert tool.measure_operator(control) == "stub.panic"
+    assert tool.measure_operator(_args_for()) == "", (
+        "a run that named no operator reports no per-operator number, rather than one "
+        "over an arbitrary operator's rows"
+    )
+
+
+def test_naming_the_measured_operator_two_ways_gives_one_hash() -> None:
+    """`--hold-out-operator X` and `--hold-out-operator X --measure-operator X` are the
+    same run. A recipe that recorded the redundant spelling would give it a second hash,
+    and the ledger would read one protocol as two."""
+    implied = tool.recipe_of(_args_for(hold_out_operator="stub.panic"))
+    spelled = tool.recipe_of(
+        _args_for(hold_out_operator="stub.panic", measure_operator="stub.panic")
+    )
+    assert _hash_of(implied) == _hash_of(spelled)
+    assert "measure_operator" not in implied
+    control = tool.recipe_of(_args_for(drop_random_train=3833, measure_operator="stub.panic"))
+    assert control["measure_operator"] == "stub.panic", (
+        "on the control arm it is the only record of which rows the number describes"
+    )
+
+
+def test_measuring_an_operator_does_not_move_a_recipe_that_never_named_one() -> None:
+    """Same omitted-at-default rule the other flags follow: every row written before this
+    existed must keep its hash, or the arms cannot be compared with the grid they extend.
+
+    A forward guard, not evidence: it asserts an absence that was trivially true before the
+    field existed, so unlike the two tests above it also passes against the pre-fix module.
+    It catches the future edit that starts writing the key unconditionally.
+    """
+    assert "measure_operator" not in tool.recipe_of(_args_for())
+
+
+def test_an_operator_holdout_and_its_size_matched_control_do_not_hash_alike() -> None:
+    """They differ in nothing else by construction, so without this they are the one pair
+    in the experiment guaranteed to collide."""
+    holdout = tool.recipe_of(_args_for(hold_out_operator="stub.panic"))
+    control = tool.recipe_of(_args_for(drop_random_train=3833))
+    plain = tool.recipe_of(_args_for())
+    assert _hash_of(holdout) != _hash_of(control) != _hash_of(plain)
+    assert _hash_of(holdout) != _hash_of(plain)
+    assert "hold_out_operator" not in plain, (
+        "an unset holdout must leave the recipe untouched, or every row written before "
+        "this flag existed becomes incomparable"
+    )
 
 
 def test_the_recipes_lr_is_the_rate_the_schedule_is_built_from() -> None:

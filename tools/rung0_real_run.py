@@ -319,7 +319,65 @@ def recipe_of(args: argparse.Namespace) -> dict[str, object]:
     # `after` run hashes as it always did, and no `diff` run can collide with one.
     if args.context_source != CONTEXT_AFTER:
         recipe["context_source"] = args.context_source
+    # Same rule, same reason: added only when set, so no row written before these existed
+    # moves. A run that trained without an operator and one that trained on everything are
+    # two protocols, and so are the holdout and its size-matched control -- which differ in
+    # nothing else at all, and would otherwise be the one pair in this experiment guaranteed
+    # to hash alike.
+    if getattr(args, "hold_out_operator", ""):
+        recipe["hold_out_operator"] = args.hold_out_operator
+    if getattr(args, "drop_random_train", 0):
+        recipe["drop_random_train"] = args.drop_random_train
+        recipe["drop_random_seed"] = args.drop_random_seed
+    # Only when it is NOT the one `hold_out_operator` already implies. Recording it twice
+    # would give the same run two hashes depending on which flag the caller spelled out,
+    # which is the opposite of what the hash is for. A reader wanting the measured operator
+    # reads it the way `measure_operator` computes it, not from this key alone.
+    if measure_operator(args) and not getattr(args, "hold_out_operator", ""):
+        recipe["measure_operator"] = args.measure_operator
     return recipe
+
+
+def operator_and_sibling_rows(
+    scored_operators: Sequence[str], gold: Sequence[int], measured: str
+) -> tuple[list[int], list[int], int]:
+    """Row indices for `measured`, for its same-class siblings, and the impure count.
+
+    Siblings are the rows that make the held-out number readable. Every operator in this
+    corpus belongs to exactly one class, so removing one moves the class prior -- and a
+    model that then under-predicts that class scores badly on the held-out rows for a
+    reason unrelated to recognising generators. Siblings sit under the identical shifted
+    prior and training saw them, so they hold the prior fixed while the generator varies.
+
+    Returns indices rather than values so the caller pairs them against the same arrays
+    everything else on the row is computed from, instead of a second copy that could drift.
+    """
+    marked = [i for i, op in enumerate(scored_operators) if op == measured]
+    if not marked:
+        return [], [], 0
+    counts: dict[int, int] = {}
+    for i in marked:
+        counts[int(gold[i])] = counts.get(int(gold[i]), 0) + 1
+    # The class the operator produces, by majority rather than by assuming purity: an
+    # operator that straddles classes would otherwise define its own sibling set away.
+    sibling_class = max(counts, key=lambda k: (counts[k], -k))
+    impure = len(marked) - counts[sibling_class]
+    siblings = [
+        i
+        for i, op in enumerate(scored_operators)
+        if op and op != measured and int(gold[i]) == sibling_class
+    ]
+    return marked, siblings, impure
+
+
+def measure_operator(args: argparse.Namespace) -> str:
+    """The operator whose validation rows get their own accuracy, or "".
+
+    One owner, because the rule -- `--hold-out-operator` implies measuring the operator it
+    held out -- is read in three places (the recipe, the pre-flight, the metric) and three
+    copies of it would be three chances to disagree about which rows a number describes.
+    """
+    return getattr(args, "measure_operator", "") or getattr(args, "hold_out_operator", "")
 
 
 def decisions_of(
@@ -327,19 +385,27 @@ def decisions_of(
     *,
     config: ByteDeciderConfig,
     context_source: str = CONTEXT_AFTER,
-) -> tuple[list, dict[str, int], list[str]]:
+) -> tuple[list, dict[str, int], list[str], list[str]]:
     """Parse and convert, counting every refusal by kind rather than dropping quietly.
 
-    Returns the decisions, the refusals by kind, and **the source path of each decision**.
+    Returns the decisions, the refusals by kind, **the source path of each decision**, and
+    **the operator that produced each decision** (``""`` for ``clean``, which had none).
 
-    The paths are returned rather than recovered by zipping against the input, because this
-    function DROPS refused examples: 1,599 raw examples become 763 decisions at 8192 bytes,
-    so ``zip(examples, decisions)`` pairs each decision with the wrong file and every
-    per-file operation downstream is quietly wrong. The parallel list is built here, where
-    the row being dropped is still in hand.
+    Both parallel lists are returned rather than recovered by zipping against the input,
+    because this function DROPS refused examples: 1,599 raw examples become 763 decisions at
+    8192 bytes, so ``zip(examples, decisions)`` pairs each decision with the wrong file and
+    every per-row operation downstream is quietly wrong. They are built here, where the row
+    being dropped is still in hand.
+
+    The operator is carried because ``MutateExample`` deliberately does not: it is one of
+    the "unconsumed fields" that module refuses to store, and that is the right call for the
+    training seam. But the operator-holdout experiment needs to know which validation rows a
+    given operator produced (``AUDIT/operator-holdout.md``), and recovering it by re-parsing
+    in the caller would reintroduce exactly the index drift this function exists to prevent.
     """
     out = []
     paths: list[str] = []
+    operators: list[str] = []
     refused: dict[str, int] = {}
     for obj in examples:
         try:
@@ -354,7 +420,10 @@ def decisions_of(
             continue
         out.append(decision)
         paths.append(str(obj.get("function", {}).get("path", "")))  # type: ignore[union-attr]
-    return out, refused, paths
+        # `clean` rows carry no operator; `""` rather than `None` so the list is uniformly
+        # typed and a caller comparing against an operator name never matches them.
+        operators.append(str(obj.get("operator") or ""))
+    return out, refused, paths, operators
 
 
 # -- batching ----------------------------------------------------------------------------
@@ -1323,6 +1392,41 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--hold-out-operator",
+        default="",
+        help=(
+            "remove every row this mutation operator produced from TRAINING, leaving them "
+            "in validation, and report accuracy on them separately. The linear control "
+            "collapses under this -- stub.panic 99.10%% to 3.08%%, cosmetic.rename_local "
+            "58.71%% to 0.00%% (AUDIT/operator-holdout.md) -- which says it classifies by "
+            "recognising the generator rather than by reading the change. Whether the model "
+            "does the same is the open half of that finding"
+        ),
+    )
+    parser.add_argument(
+        "--drop-random-train",
+        type=int,
+        default=0,
+        help=(
+            "the size-matched control for --hold-out-operator: drop this many training rows "
+            "at random instead of an operator's. Without it a collapse is explained as well "
+            "by the smaller training set as by the missing fingerprint"
+        ),
+    )
+    parser.add_argument("--drop-random-seed", type=int, default=0)
+    parser.add_argument(
+        "--measure-operator",
+        default="",
+        help=(
+            "report accuracy on this operator's validation rows WITHOUT removing it from "
+            "training. --hold-out-operator implies it, so the holdout arm needs only that "
+            "flag; the size-matched control arm needs this one, because otherwise the two "
+            "arms report different quantities and the comparison the holdout exists to "
+            "make cannot be made. Validation is never filtered, so both arms score the "
+            "identical rows and the difference between them is the operator's absence"
+        ),
+    )
+    parser.add_argument(
         "--lr",
         type=float,
         default=DEFAULT_PEAK_LR,
@@ -1539,16 +1643,77 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"{len(val_raw)} val from {len(val_paths)} file(s), 0 files on both sides"
     )
 
-    train_d, train_refused, train_paths_of = decisions_of(
+    # Removed from TRAINING ONLY, and after the split, so the held-out operator's rows stay
+    # in validation. Filtering the corpus instead would take them off both sides and there
+    # would be nothing left to ask the question of. The counterpart control is
+    # `--drop-random-train`, which removes the same NUMBER of rows at random: without it a
+    # collapse is explained as well by "the training set shrank" as by "the fingerprint
+    # went", and on this corpus `stub.panic` alone is 43% of the rows.
+    if args.hold_out_operator:
+        before = len(train_raw)
+        train_raw = [r for r in train_raw if r.get("operator") != args.hold_out_operator]
+        if len(train_raw) == before:
+            raise SystemExit(
+                f"--hold-out-operator {args.hold_out_operator!r} matched no training row. "
+                "A typo would otherwise train on everything and report the unseen condition "
+                "as though the operator had been removed."
+            )
+        print(
+            f"  holding out {args.hold_out_operator}: {before - len(train_raw)} of {before} "
+            f"training row(s) removed ({(before - len(train_raw)) / before:.0%})"
+        )
+    elif args.drop_random_train:
+        before = len(train_raw)
+        if args.drop_random_train >= before:
+            raise SystemExit(
+                f"--drop-random-train {args.drop_random_train} would empty a training set "
+                f"of {before}"
+            )
+        keep = random.Random(args.drop_random_seed).sample(
+            range(before), before - args.drop_random_train
+        )
+        train_raw = [train_raw[i] for i in sorted(keep)]
+        print(
+            f"  size-matched control: {args.drop_random_train} of {before} training row(s) "
+            f"dropped at random (seed {args.drop_random_seed})"
+        )
+
+    train_d, train_refused, train_paths_of, _ = decisions_of(
         train_raw, config=config, context_source=args.context_source
     )
-    val_d, val_refused, _ = decisions_of(
+    val_d, val_refused, _, val_operators = decisions_of(
         val_raw, config=config, context_source=args.context_source
     )
     print(f"  decisions: {len(train_d)} train (refused {train_refused or 'none'}), "
           f"{len(val_d)} val (refused {val_refused or 'none'})")
     if not train_d or not val_d:
         raise SystemExit("one side of the split is empty; nothing can be measured")
+
+    # The operator of each SCORED row, in the order `evaluate` produces its per-row
+    # distributions. Built through `bucketed_chunks` -- the single implementation of that
+    # order -- and paired back by object identity, because a second sort here would be the
+    # copy its docstring warns about and would silently score predictions against another
+    # example's answer.
+    scored_operators: list[str] | None = None
+    measured = measure_operator(args)
+    if measured:
+        operator_of = {id(d): op for d, op in zip(val_d, val_operators, strict=True)}
+        scored_operators = [
+            operator_of[id(d)]
+            for chunk in bucketed_chunks(val_d, batch_size=args.batch_size)
+            for d in chunk
+        ]
+        marked = sum(1 for op in scored_operators if op == measured)
+        if not marked:
+            raise SystemExit(
+                f"{measured!r} produced no SCORED validation row out of "
+                f"{len(scored_operators)}. There is nothing to measure the effect on, and "
+                "an arm that reports no number is not a control for one that does."
+            )
+        print(
+            f"  {marked} scored validation row(s) come from {measured}, which training "
+            + ("never saw" if args.hold_out_operator else "did see")
+        )
 
     baseline, majority = majority_baseline(val_d)
     print(f"  majority-class baseline on val: {baseline:.1%} ({majority})")
@@ -1774,6 +1939,99 @@ def main(argv: Sequence[str] | None = None) -> int:
             # measures the difference rather than the variance of the set. The model's
             # correctness comes from the argmax of the same distributions everything else
             # here reads, against the same `choice_gold`.
+            # Accuracy restricted to the rows the held-out operator produced. The pairing is
+            # by object identity through `bucketed_chunks` -- the one implementation of the
+            # scoring order -- rather than a second sort that could drift from it and score
+            # each prediction against another example's answer.
+            if scored_operators is not None:
+                probs = np.asarray(after["choice_probs"], dtype=np.float64)  # type: ignore[index,arg-type]
+                gold = np.asarray(after["choice_gold"], dtype=int)  # type: ignore[index,arg-type]
+                marked, siblings, impure = operator_and_sibling_rows(
+                    scored_operators, gold, measured
+                )
+                hits = int((np.argmax(probs[marked], axis=1) == gold[marked]).sum())
+                # ONE key across both arms, because the comparison is between them and a
+                # key that changed with the condition could not be joined. So the key may
+                # not assert the condition either: the holdout arm and its size-matched
+                # control both report this, and only one of them held the operator out.
+                held = bool(args.hold_out_operator)
+                recorder.metric(
+                    "val_choice_top1_on_measured_operator",
+                    Ran(
+                        passed=True,
+                        value=hits / len(marked),
+                        n=hits,
+                        n_total=len(marked),
+                        detail=(
+                            f"top-1 on the {len(marked)} validation row(s) produced by "
+                            f"{measured!r}, which training "
+                            + ("never saw" if held else "did see")
+                            + ". The linear control scores 3.08% on stub.panic and 0.00% "
+                            "on cosmetic.rename_local when they are held out, having "
+                            "learned the generator rather than the change; this is the "
+                            "same question asked of the model. The two arms score the "
+                            "identical validation rows, so their difference is the "
+                            "operator's absence from training and nothing else."
+                        ),
+                    ),
+                )
+                # The confound the size-matched control cannot reach. Every operator in
+                # this corpus belongs to exactly one class, so holding one out also moves
+                # the class prior -- stub.panic alone is 42.8% of the rows, and removing it
+                # takes `stub` from 46% of training to about 7%. A model that then
+                # under-predicts `stub` scores badly on the held-out rows for a reason that
+                # has nothing to do with recognising generators, and `--drop-random-train`
+                # does not separate the two: it drops uniformly, so it preserves the prior
+                # it needs to disturb.
+                #
+                # Its siblings do separate them. They are validation rows of the SAME class
+                # from a DIFFERENT operator, so they sit under the identical shifted prior
+                # and training did see them. Sibling accuracy high while the held-out
+                # operator's is low means the prior is intact and the fingerprint was the
+                # signal; both low means the arm moved the prior and the held-out number
+                # says little by itself.
+                if not siblings:
+                    recorder.metric(
+                        "val_choice_top1_on_measured_operator_siblings",
+                        NotRun(
+                            reason=(
+                                f"no scored validation row shares {measured!r}'s class "
+                                "while coming from another operator, so there is nothing "
+                                "under the same shifted prior to compare against. The "
+                                "held-out number cannot be separated from prior shift on "
+                                "this corpus."
+                            )
+                        ),
+                    )
+                else:
+                    sib_hits = int(
+                        (np.argmax(probs[siblings], axis=1) == gold[siblings]).sum()
+                    )
+                    recorder.metric(
+                        "val_choice_top1_on_measured_operator_siblings",
+                        Ran(
+                            passed=True,
+                            value=sib_hits / len(siblings),
+                            n=sib_hits,
+                            n_total=len(siblings),
+                            detail=(
+                                f"top-1 on the {len(siblings)} validation row(s) of "
+                                f"{measured!r}'s own class produced by OTHER operators, "
+                                "which training did see. Same class, same shifted prior, "
+                                "different generator -- so the gap between this and the "
+                                "measured operator's own accuracy is what the generator's "
+                                "absence cost, with the prior held fixed."
+                                + (
+                                    ""
+                                    if not impure
+                                    else f" WARNING: {impure} of {len(marked)} measured "
+                                    "row(s) carry a different class, so this operator is "
+                                    "not class-pure and the sibling set is approximate."
+                                )
+                            ),
+                        ),
+                    )
+
             if baseline_correct is None:
                 recorder.gate("paired_margin_vs_linear", baseline_not_run)  # type: ignore[arg-type]
             else:

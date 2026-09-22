@@ -115,10 +115,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     refuse_leaky_diff_corpus(examples, context_source=args.context_source)
     train_raw, val_raw = split_by_file(examples, val_share=args.val_share)
-    train_d, train_refused, _ = decisions_of(
+    train_d, train_refused, _, _ = decisions_of(
         train_raw, config=config, context_source=args.context_source
     )
-    val_d, val_refused, _ = decisions_of(
+    val_d, val_refused, _, _ = decisions_of(
         val_raw, config=config, context_source=args.context_source
     )
     if not train_d or not val_d:

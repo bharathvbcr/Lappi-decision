@@ -138,8 +138,8 @@ def main(argv: list[str] | None = None) -> int:
 
     config = ByteDeciderConfig(max_context_bytes=args.context_bytes)
     train_raw, val_raw = split_by_file(examples, val_share=args.val_share)
-    train_d, _, _ = decisions_of(train_raw, config=config)
-    val_d, _, _ = decisions_of(val_raw, config=config)
+    train_d, _, _, _ = decisions_of(train_raw, config=config)
+    val_d, _, _, _ = decisions_of(val_raw, config=config)
     if not train_d or not val_d:
         raise SystemExit("one side of the split is empty; nothing can be measured")
 
