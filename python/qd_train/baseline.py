@@ -25,6 +25,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .mutate_adapter import MUTATION_CLASSES
 from .tristate import NotRun, Ran, TriState
 
 __all__ = [
@@ -34,7 +35,35 @@ __all__ = [
     "CharNGramHasher",
     "DenseOperand",
     "LinearBaseline",
+    "context_texts",
 ]
+
+
+def context_texts(decisions) -> tuple[list[str], list[str]]:
+    """Exactly the bytes the model sees, as text, with the gold class name.
+
+    ``EncodedContext.ids`` are byte values and ``ids[i] == raw[i]`` for every kept byte, so
+    this is the model's own input rather than a re-read of the source file -- the same
+    truncation, the same window. Comparing against a control that saw *more* of the file
+    would be comparing two different tasks.
+
+    **Here because the paired margin depends on there being exactly one of it.** It lived
+    in ``tools/rung0_linear_control.py``, which imports ``tools/rung0_real_run.py`` -- so
+    the run could not import it back at module scope without a cycle, and did it inside a
+    function instead. Three tools now render the control's input, and a second copy of this
+    would be free to drift into scoring a different task while still producing a margin
+    that looked measured. It belongs with the control that consumes it, which is this
+    module. ``GAP-CONTEXT-TEXTS-HAS-NO-OWNER``.
+    """
+    docs: list[str] = []
+    labels: list[str] = []
+    for d in decisions:
+        # errors="replace" only where a multi-byte character was split by the window. The
+        # model sees those same split bytes; the replacement affects the control's
+        # tokenisation of one character at the boundary, not what either model was given.
+        docs.append(bytes(d.context.ids).decode("utf-8", errors="replace"))
+        labels.append(MUTATION_CLASSES[d.gold_option])
+    return docs, labels
 
 
 @dataclass(frozen=True, slots=True)

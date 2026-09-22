@@ -56,7 +56,7 @@ from rung0_real_run import (  # noqa: E402
     split_by_file,
 )
 
-from qd_train.baseline import LinearBaseline  # noqa: E402
+from qd_train.baseline import LinearBaseline, context_texts  # noqa: E402
 from qd_train.byte_decider import ByteDeciderConfig  # noqa: E402
 from qd_train.ledger import (  # noqa: E402
     DEFAULT_LEDGER_PATH,
@@ -65,7 +65,6 @@ from qd_train.ledger import (  # noqa: E402
     Protocol,
     RunRecorder,
 )
-from qd_train.mutate_adapter import MUTATION_CLASSES  # noqa: E402
 from qd_train.tristate import NotRun, Ran, TriState  # noqa: E402
 
 #: Above the library default of 500, which does not converge on this corpus. See the
@@ -74,25 +73,6 @@ DEFAULT_MAX_ITER: Final[int] = 6_000
 
 #: A bound, because an unconverged control is refused and an unbounded one never returns.
 MAX_ITER_CEILING: Final[int] = 200_000
-
-
-def context_texts(decisions) -> tuple[list[str], list[str]]:
-    """Exactly the bytes the model sees, as text, with the gold class name.
-
-    ``EncodedContext.ids`` are byte values and ``ids[i] == raw[i]`` for every kept byte, so
-    this is the model's own input rather than a re-read of the source file -- the same
-    truncation, the same window. Comparing against a control that saw *more* of the file
-    would be comparing two different tasks.
-    """
-    docs: list[str] = []
-    labels: list[str] = []
-    for d in decisions:
-        # errors="replace" only where a multi-byte character was split by the window. The
-        # model sees those same split bytes; the replacement affects the control's
-        # tokenisation of one character at the boundary, not what either model was given.
-        docs.append(bytes(d.context.ids).decode("utf-8", errors="replace"))
-        labels.append(MUTATION_CLASSES[d.gold_option])
-    return docs, labels
 
 
 def _control_gate(measured: float, baseline: float, *, n: int) -> TriState:

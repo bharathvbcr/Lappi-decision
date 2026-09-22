@@ -935,6 +935,26 @@ def _rows_for_filter(n: int = 12) -> list[dict]:
     ]
 
 
+def test_all_three_tools_render_the_controls_input_through_one_function() -> None:
+    """The paired margin is only meaningful if both arms saw the same bytes.
+
+    `context_texts` lived in `tools/rung0_linear_control.py`, which imports the runner -- so
+    the runner could not import it back at module scope and did it inside a function body
+    instead. Three tools render the control's input; a second copy would be free to drift
+    into scoring a different task while still producing a margin that looked measured. It
+    now lives with the control that consumes it, and this asserts the three references are
+    one object rather than three that happen to agree. GAP-CONTEXT-TEXTS-HAS-NO-OWNER.
+    """
+    import fit_linear_control
+    import rung0_linear_control
+
+    from qd_train.baseline import context_texts
+
+    assert tool.context_texts is context_texts
+    assert rung0_linear_control.context_texts is context_texts
+    assert fit_linear_control.context_texts is context_texts
+
+
 def test_the_run_and_the_control_fitter_filter_through_the_same_function() -> None:
     """`paired_margin_vs_linear` compares two arms. They are only opponents if the control
     was fitted on the training set the model trained on, and the control cache keys on the

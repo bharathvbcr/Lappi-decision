@@ -36,7 +36,6 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
 sys.path.insert(0, str(REPO / "tools"))
 
-from rung0_linear_control import context_texts  # noqa: E402
 from rung0_real_run import (  # noqa: E402
     DEFAULT_BATCH_SIZE,
     DEFAULT_CONTEXT_BYTES,
@@ -48,7 +47,7 @@ from rung0_real_run import (  # noqa: E402
     split_by_file,
 )
 
-from qd_train.baseline import LinearBaseline  # noqa: E402
+from qd_train.baseline import LinearBaseline, context_texts  # noqa: E402
 from qd_train.byte_decider import ByteDeciderConfig  # noqa: E402
 from qd_train.control_cache import control_key, load_control, store_control  # noqa: E402
 from qd_train.mutate_adapter import (  # noqa: E402

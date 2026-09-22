@@ -77,7 +77,7 @@ import torch  # noqa: E402
 from repo_git import git_bytes, tracked_paths  # noqa: E402
 from run_cost import n_gpus_for_device  # noqa: E402
 
-from qd_train.baseline import LinearBaseline  # noqa: E402
+from qd_train.baseline import LinearBaseline, context_texts  # noqa: E402
 from qd_train.byte_batch import BatchPlan, plan_batch, span_supervision  # noqa: E402
 from qd_train.byte_context import ID_PAD, SpanOutsideWindow  # noqa: E402
 from qd_train.byte_decider import ByteDeciderConfig  # noqa: E402
@@ -1071,16 +1071,13 @@ def linear_baseline_correctness(
     split, not of the model's initialisation, and refitting it 24 times would cost real
     minutes to recompute an identical array.
 
-    ``context_texts`` is imported here rather than at module scope because
-    ``rung0_linear_control`` imports *this* module, so a top-level import is a cycle. It is
-    imported rather than copied for a reason that outranks the awkwardness: the paired
-    margin is only meaningful if both arms saw the same bytes, and a second rendering here
-    would be free to drift into scoring a different task. The dependency direction is worth
-    straightening eventually -- both tools want one renderer and neither owns it -- and
-    that is `GAP-CONTEXT-TEXTS-HAS-NO-OWNER`.
+    ``context_texts`` now lives in ``qd_train.baseline``, with the control that consumes it,
+    and is imported at module scope. It used to live in ``tools/rung0_linear_control.py``,
+    which imports *this* module -- so the top-level import was a cycle and this function
+    imported it from inside its own body. Three tools render the control's input and none
+    of them owned the renderer; a second copy would have been free to drift into scoring a
+    different task while still producing a margin that looked measured.
     """
-    from rung0_linear_control import context_texts
-
     train_docs, train_labels = context_texts(train_d)
     val_docs, val_labels = context_texts(scored_val)
 
