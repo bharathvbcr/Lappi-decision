@@ -764,6 +764,7 @@ def _args_for(**over) -> argparse.Namespace:
         "train_subsample": 1.0,
         "rev": "HEAD",
         "context_source": "after",
+        "lr": 3e-3,
     }
     base.update(over)
     return argparse.Namespace(**base)
@@ -797,6 +798,35 @@ def test_an_after_run_hashes_exactly_as_it_did_before_context_source_existed() -
         "rev": "HEAD",
     }
     assert _hash_of(recipe) == _hash_of(before_the_flag)
+
+
+def test_the_recipes_lr_is_the_rate_the_schedule_is_built_from() -> None:
+    """It was two literals: `"lr": 3e-3` in the recipe and `peak_lr=3e-3` in `train_once`.
+
+    The recipe therefore STATED a rate that nothing obliged the run to use, and changing
+    one would have left every row claiming the other. Only one literal survives, and it is
+    the default of the flag both now read.
+    """
+    source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
+    literals = [
+        line for line in source.splitlines()
+        if "3e-3" in line and not line.lstrip().startswith("#")
+    ]
+    assert len(literals) == 1, (
+        f"expected one owner of the peak LR, found {len(literals)}: {literals}"
+    )
+    assert "DEFAULT_PEAK_LR" in literals[0], literals[0]
+    assert tool.recipe_of(_args_for(lr=7e-4))["lr"] == 7e-4, (
+        "the recipe does not carry the rate the run was given"
+    )
+
+
+def test_two_learning_rates_are_two_protocols() -> None:
+    """An LR sweep whose points hash alike is one protocol measured N times, and a reader
+    pooling by `recipe_hash` would average them."""
+    assert _hash_of(tool.recipe_of(_args_for(lr=3e-3))) != _hash_of(
+        tool.recipe_of(_args_for(lr=7e-4))
+    )
 
 
 def test_a_diff_run_cannot_hash_like_a_post_image_run() -> None:

@@ -188,7 +188,7 @@ def test_the_control_and_the_arm_it_controls_for_cannot_share_a_recipe_hash():
         base = {
             "epochs": 3, "batch_size": 16, "val_share": 0.25, "span_weight": 1.0,
             "deterministic": False, "shuffle_train_labels": False, "shuffle_seed": 11,
-            "train_subsample": 1.0, "rev": "HEAD", "context_source": "after",
+            "train_subsample": 1.0, "rev": "HEAD", "context_source": "after", "lr": 3e-3,
         }
         base.update(over)
         recipe = recipe_of(argparse.Namespace(**base))
@@ -204,7 +204,7 @@ def test_the_control_and_the_arm_it_controls_for_cannot_share_a_recipe_hash():
         argparse.Namespace(
             epochs=3, batch_size=16, val_share=0.25, span_weight=1.0, deterministic=False,
             shuffle_train_labels=False, shuffle_seed=11, train_subsample=1.0, rev="HEAD",
-            context_source="after",
+            context_source="after", lr=3e-3,
         )
     )
 

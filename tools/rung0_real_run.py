@@ -151,6 +151,12 @@ DEFAULT_CONTEXT_BYTES: Final[int] = 4096
 DEFAULT_VAL_SHARE: Final[float] = 0.25
 DEFAULT_BATCH_SIZE: Final[int] = 16
 
+#: Peak of the LR schedule. Unchanged from the literal it replaces, so every row written
+#: before this became a flag hashes exactly as it did -- the recipe already carried an `lr`
+#: key, stating a number nothing obliged the run to use, because the schedule was built from
+#: a SECOND literal in `train_once`. One owner now, reaching both.
+DEFAULT_PEAK_LR: Final[float] = 3e-3
+
 #: Attention is quadratic in the context, so this is a real ceiling and not a typo guard.
 MAX_CONTEXT_BYTES: Final[int] = 32_768
 
@@ -274,7 +280,11 @@ def recipe_of(args: argparse.Namespace) -> dict[str, object]:
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "val_share": args.val_share,
-        "lr": 3e-3,
+        # The peak of the schedule, which was a literal in two places -- here and in
+        # `train_once` -- so the recipe stated a number the run was not obliged to use. It
+        # is now one value reaching both, and `DEFAULT_PEAK_LR` keeps its old value so every
+        # row written before it became a flag hashes exactly as it did.
+        "lr": args.lr,
         # The objective is part of the recipe. Without this the five points of the
         # span-weight sweep hash identically, and two runs that optimised different things
         # become one protocol in the ledger -- which is exactly the comparison the sweep
@@ -1136,6 +1146,7 @@ def train_once(
     choice_floor: float,
     train_decisions: int,
     span_weight: float,
+    peak_lr: float,
     device: str,
     seed: int,
     epochs: int,
@@ -1157,7 +1168,9 @@ def train_once(
     step = Rung0Step(model, span_weight=span_weight)
     cap = WallClockCap(cap_s=RUN_CAP_S)
     control = RunControl(
-        schedule=LRSchedule(peak_lr=3e-3, warmup_steps=max(1, steps // 10), total_steps=steps),
+        schedule=LRSchedule(
+            peak_lr=peak_lr, warmup_steps=max(1, steps // 10), total_steps=steps
+        ),
         cap=cap,
         # `for_device` prices cpu and mps at zero -- a Mac that is already bought costs
         # nothing per hour -- and refuses to invent a rate for anything else. The literal
@@ -1307,6 +1320,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=(
             "fraction of TRAINING FILES to keep, for a learning curve. The validation side "
             "is never subsampled, so every point is scored on the same rows"
+        ),
+    )
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=DEFAULT_PEAK_LR,
+        help=(
+            "peak of the LR schedule. A flag because the capacity sweep on the diff task "
+            "found accuracy falling monotonically in width -- 76.3%% at 128, 70.9%% at 256, "
+            "58.1%% at 512 -- with the seed spread exploding from 5.1 to 29.7 points. That "
+            "is the signature of an optimiser over-stepping, not of a model short of "
+            "capacity, and it could not be told apart while this was a literal. It is in "
+            "the recipe, so two runs at different rates cannot hash alike"
         ),
     )
     parser.add_argument(
@@ -1706,6 +1732,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 choice_floor=choice_floor,
                 train_decisions=len(train_d),
                 span_weight=args.span_weight,
+                peak_lr=args.lr,
                 device=args.device,
                 seed=seed,
                 epochs=args.epochs,
