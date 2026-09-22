@@ -3,7 +3,8 @@
 ## What this is for
 
 `paired_margin_vs_linear` is the gate the program rests on. Scoring it means fitting a
-char-n-gram logistic regression, which is single-threaded CPU work. On the rung-0 corpus
+char-n-gram logistic regression, which is CPU work -- BLAS-parallel, not single-threaded:
+one fit saturated all 64 cores of the GH200 box on 2026-09-22. On the rung-0 corpus
 that is 38 seconds. On the commitpackft corpus the plan names -- 39,946 training documents
 -- it projects to hours, and `rung0_real_run.py` now REFUSES to start a fit that exceeds
 its time budget rather than disappearing into one with the GPU at 0%.

@@ -4,7 +4,15 @@
 
 `paired_margin_vs_linear` is the gate the program rests on: *"The 2B ships only if it beats
 this by a paired margin on three seeds on the natural held-out set."* Scoring it requires
-fitting the control, and the control is single-threaded CPU work while the GPU does nothing.
+fitting the control, which is CPU work done while the GPU does nothing.
+
+It is not single-threaded, which this docstring claimed until 2026-09-22 and which a
+caller acted on: the dense path is a BLAS GEMM, and one fit drove load average to 64.8 on
+a 64-core box. Two consequences follow, and both were got wrong by trusting the old
+sentence. Fits cannot be overlapped to buy wall clock -- nine of them cost nine times one,
+not one -- and they are not off the GPU's back either, because a training arm's host-side
+work contends with them: a span arm's seed went from ~92s to 140.5s while one fit ran
+beside it. Schedule fits when the GPU is idle, not beside it.
 
 On the rung-0 corpus that is 38 seconds and not worth engineering around. On the
 commitpackft corpus the plan names -- 39,946 training documents -- the dense path needs

@@ -125,6 +125,27 @@ def test_the_script_will_not_spend_fifteen_hours_without_being_told_to() -> None
     assert "exit 2" in src[guard : guard + 800], "the unacknowledged path must not fall through"
 
 
+def test_no_docstring_still_calls_the_fit_single_threaded() -> None:
+    """Both docstrings said the control fit was single-threaded CPU work, and a caller
+    believed them: `fit_operator_holdout_controls.sh` was written to run fits beside GPU
+    arms on the theory that they cost nothing the GPU wanted. Measured, one fit drove load
+    average to 64.8 on a 64-core box -- it is a dense BLAS GEMM -- and a span arm's seed
+    went from ~92s to 140.5s while one ran beside it.
+
+    The claim is what made the scheduling wrong, so the claim is what is pinned. When a
+    document and the code disagree the code wins, and then the document gets fixed.
+    """
+    for path in (
+        REPO / "tools" / "fit_linear_control.py",
+        REPO / "python" / "qd_train" / "control_cache.py",
+    ):
+        src = path.read_text()
+        assert "is single-threaded CPU work" not in src, (
+            f"{path.name} still asserts the fit is single-threaded; it is BLAS-parallel "
+            "and saturates every core, which is why nine fits cost nine times one"
+        )
+
+
 def test_the_script_says_that_warming_the_cache_does_not_backfill_written_rows() -> None:
     """`rung0_real_run.py` reads the cache once, before its seed loop, and never fits
     inline. Somebody who ran this expecting the 72 existing rows to gain margins would
