@@ -125,7 +125,15 @@ class Arm:
         return (self.backbone_commit, self.recipe_hash)
 
 
-def _metric(row: dict, key: str) -> dict | None:
+def metric_of(row: dict, key: str) -> dict | None:
+    """One metric off one row, or ``None`` when the row does not carry it.
+
+    Public because ``tools/operator_holdout_report.py`` reads the same rows for a different
+    question and a second copy of "how a metric is read off a row" is a second thing to
+    keep in agreement with the ledger's shape. It returns ``None`` rather than ``{}`` for a
+    missing metric so the caller must decide what an absent measurement means, instead of
+    reading a default and calling it zero.
+    """
     got = row.get("metrics", {}).get(key)
     return got if isinstance(got, dict) else None
 
@@ -154,7 +162,7 @@ def arms_of(rows: list[dict]) -> dict[tuple[str, str], Arm]:
             arm = Arm(recipe_hash=key[0], backbone_commit=key[1])
             out[key] = arm
 
-        val, train = _metric(row, VAL), _metric(row, TRAIN)
+        val, train = metric_of(row, VAL), metric_of(row, TRAIN)
         if val is None or train is None or "passed" not in train:
             out[key] = _bump(arm, unmeasured=1)
             continue
