@@ -110,6 +110,13 @@ diagnostic either way; only promotion needs the flag cleared.
   larger of the two nulls (the added-line null is ~90.8% on v1, 85.6% on the v2 sample).
 - `GAP-CODE-COMMIT-DIRTY-DOES-NOT-PIN-WHAT-RAN` — `code_commit` on these rows is a dirty sha
   from an older commit. `recipe.rev` pins the launch; `what_ran_state` pins the bytes.
+- `GAP-A-LEDGER-ROW-CITED-A-COMMIT-NO-REF-COULD-REACH` — opened by another lane, carried
+  here. Of 1,343 ledger rows with `code_commit`, one cited a commit reachable from no ref:
+  `ledger/runs.jsonl:173` → `4e99e1a`, **`quick: false`**, so a row that can promote. It is
+  an orphan of the deleted `build/s2-s4-trainer-wire-contract` lane. Verified in this
+  session: the object exists, and `git for-each-ref --contains` returns exactly one ref,
+  `refs/tags/provenance/runs-173`. **Do not delete that tag** — it is the only thing
+  keeping the object out of `git gc --prune`.
 
 ### 4. Human-owned, explicitly not agent work
 
