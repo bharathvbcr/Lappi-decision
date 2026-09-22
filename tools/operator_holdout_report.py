@@ -38,12 +38,24 @@ different operator, which training did see and which sit under the identical shi
 * neither collapses -> the model reads the change rather than the generator, which is the
   outcome that would make the margin against the control a real statement about it.
 
+## One run at a time
+
+A cell is a population of SEEDS, so no seed may be in one twice. Grouping is by operator and
+condition and deliberately not by rev -- the minor operators ran at a later commit than the
+dominant three, and one report reads both -- which means a re-run of the same arms, appended
+beside the run it repeats or passed in as a second ledger, would be pooled with it: sixteen
+"seeds" where eight exist, a spread understated by counting each twice, and one run's
+`not_run` margins averaged in beside the other's measured ones. That is refused, naming the
+rows, rather than rendered.
+
 ## What this does not compute
 
 Any threshold. It prints the three arms and their differences; nothing here passes or fails
-anything, and `paired_margin_vs_linear` is `not_run` on the holdout and sizematch rows by
-construction -- their training sets differ from every cached linear fit and
-`tools/fit_linear_control.py` has no holdout flags. A `not_run` margin is reported as not
+anything. `paired_margin_vs_linear` is `not_run` on any arm whose training set had no cached
+control when the arm started -- every holdout and size-matched arm until
+`tools/fit_operator_holdout_controls.sh` has fitted one, and the arm has been re-run after it,
+because a cached control does not backfill a row already written. The report prints the
+reason each run recorded rather than assuming one. A `not_run` margin is reported as not
 measured and never as a loss.
 
 Usage::
@@ -53,6 +65,7 @@ Usage::
 
 from __future__ import annotations
 
+import collections
 import statistics
 import sys
 from dataclasses import dataclass, field
@@ -122,22 +135,60 @@ class Cell:
     n_sibling_rows: int = 0
     #: Paired margin against the control, for the seeds that had an opponent at all.
     margins: list[float] = field(default_factory=list)
-    #: Seeds whose margin is not_run because no control was fitted on their training set.
+    #: Seeds with no margin, and the reason each run recorded for it, counted per reason.
+    #: Read from the row rather than assumed: "no control was cached" is the usual cause,
+    #: but an unconverged control and an over-budget projection are recorded the same way.
     margin_not_run: int = 0
+    margin_not_run_reasons: collections.Counter[str] = field(
+        default_factory=collections.Counter
+    )
+    #: Rows that carry no ``protocol.seed``, among which a repeated seed cannot be ruled out.
+    unseeded: int = 0
 
     @property
     def n_seeds(self) -> int:
         return len(self.operator_acc) + self.unmeasured
 
 
+class RepeatedSeed(ValueError):
+    """Two rows claim the same seed of the same (operator, condition) cell."""
+
+
+#: How many colliding seeds a refusal names before summarising the rest by count.
+_REPEATS_SHOWN = 5
+#: A recorded not_run reason is printed up to this many characters, then marked as cut.
+_REASON_CHARS = 240
+
+
 def cells_of(rows: list[dict]) -> dict[tuple[str, str], Cell]:
-    """Group rows by ``(operator, condition)``, counting what each seed did not measure."""
+    """Group rows by ``(operator, condition)``, counting what each seed did not measure.
+
+    Raises :class:`RepeatedSeed` when any cell would hold one seed twice. See "One run at a
+    time" in the module docstring.
+    """
     out: dict[tuple[str, str], Cell] = {}
+    first_claim: dict[tuple[str, str, object], str] = {}
+    repeats: list[str] = []
     for row in rows:
         key = condition_of(row.get("recipe") or {})
         if key is None:
             continue
         cell = out.setdefault(key, Cell(operator=key[0], condition=key[1]))
+        seed = (row.get("protocol") or {}).get("seed")
+        if seed is None:
+            cell.unseeded += 1
+        else:
+            where = (
+                f"row {row.get('row_id', '?')} "
+                f"(rev {str((row.get('recipe') or {}).get('rev', '?'))[:12]})"
+            )
+            claim = (*key, seed)
+            if claim in first_claim:
+                repeats.append(
+                    f"{key[0]} {key[1]} seed {seed}: {first_claim[claim]} and {where}"
+                )
+            else:
+                first_claim[claim] = where
         op, sib = metric_of(row, OPERATOR), metric_of(row, SIBLINGS)
         fit, overall = metric_of(row, FIT), metric_of(row, OVERALL)
         # Read from gates or metrics: the runner records the margin as a GATE, and reading
@@ -148,6 +199,11 @@ def cells_of(rows: list[dict]) -> dict[tuple[str, str], Cell]:
             cell.margins.append(float(margin["value"]))
         else:
             cell.margin_not_run += 1
+            if not isinstance(margin, dict):
+                why = f"the row carries no {MARGIN} at all"
+            else:
+                why = str(margin.get("reason") or "not_run, with no reason recorded")
+            cell.margin_not_run_reasons[why] += 1
         if op is None or op.get("state") != "ran":
             cell.unmeasured += 1
             continue
@@ -164,6 +220,17 @@ def cells_of(rows: list[dict]) -> dict[tuple[str, str], Cell]:
         else:
             cell.sibling_acc.append(float(sib["value"]))
             cell.n_sibling_rows = max(cell.n_sibling_rows, int(sib.get("n_total") or 0))
+    if repeats:
+        shown = repeats[:_REPEATS_SHOWN]
+        raise RepeatedSeed(
+            f"refusing to pool: {len(repeats)} seed(s) appear more than once in the same "
+            f"(operator, condition) cell -- showing {len(shown)} of {len(repeats)}:\n  "
+            + "\n  ".join(shown)
+            + "\nThese are two runs of the same arms, or one ledger read twice. Pooled, "
+            "each seed would count twice, the spread would be understated, and one run's "
+            "not_run margins would be averaged in beside the other's measured ones. Read "
+            "one run at a time: pass each run's ledger to its own report."
+        )
     return out
 
 
@@ -220,10 +287,21 @@ def render(cells: dict[tuple[str, str], Cell]) -> list[str]:
                 )
             if cell.margin_not_run:
                 out.append(
-                    f"    {cell.margin_not_run} seed(s) have NO margin: no control was "
-                    "fitted on this arm's training set, so the model had no opponent. "
-                    "Not measured -- never a loss. tools/fit_operator_holdout_controls.sh "
-                    "fits them."
+                    f"    {cell.margin_not_run} seed(s) have NO margin: the model had no "
+                    "opponent. Not measured -- never a loss. What the run recorded:"
+                )
+                for why, n in cell.margin_not_run_reasons.most_common():
+                    shown = why if len(why) <= _REASON_CHARS else why[:_REASON_CHARS] + "..."
+                    out.append(f"      [{n} seed(s)] {shown}")
+                out.append(
+                    "    If the arm's training set had no cached control, "
+                    "tools/fit_operator_holdout_controls.sh fits one; the arm must then be "
+                    "re-run, because a cached control does not backfill a written row."
+                )
+            if cell.unseeded:
+                out.append(
+                    f"    {cell.unseeded} row(s) carry no protocol.seed, so a seed counted "
+                    "twice among them cannot be ruled out"
                 )
             if cell.collapsed:
                 out.append(
@@ -327,7 +405,11 @@ def main(argv: list[str]) -> int:
         print(__doc__)
         return 2
     rows = read_rows([Path(p) for p in argv])
-    cells = cells_of(rows)
+    try:
+        cells = cells_of(rows)
+    except RepeatedSeed as refused:
+        print(refused, file=sys.stderr)
+        return 2
     print(f"{len(rows)} ledger row(s) read from {len(argv)} file(s)")
     skipped = len(rows) - sum(c.n_seeds for c in cells.values())
     if skipped:
