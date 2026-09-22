@@ -100,6 +100,17 @@ pub enum Refusal {
     /// is; the disposition is keyed on `(repo, path)` so this cannot happen, and the counter exists
     /// to prove that rather than to assume it.
     SplitConflict { identity: String },
+    /// A `clean` example whose pre-image and post-image are identical after normalization, so
+    /// the agent's own diff is empty and there is no change to judge.
+    ///
+    /// Distinct from `NoTextualChange`, which is an *operator* declining a site. This is the
+    /// pool handing over a record whose commit changed nothing in this file once normalized --
+    /// a BOM added and then stripped, a line-ending flip. Emitting it would put an EMPTY
+    /// context on a `clean` label, and on a corpus where only clean rows are empty that lets a
+    /// model answer from the length of its input (`AUDIT/after-vs-diff-leak.md`). Dropped and
+    /// counted, because "the pool had no pre-image at all" and "the pre-image was identical"
+    /// are different facts and only the second is a record that promised a change.
+    CleanDiffEmpty,
 }
 
 impl Refusal {
@@ -124,6 +135,7 @@ impl Refusal {
             Refusal::NoFormatter { .. } => "no_formatter",
             Refusal::EditFailed { .. } => "edit_failed",
             Refusal::SplitConflict { .. } => "split_conflict",
+            Refusal::CleanDiffEmpty => "clean_diff_empty",
         }
     }
 }

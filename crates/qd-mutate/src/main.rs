@@ -239,6 +239,8 @@ fn one(args: OneArgs) -> Result<()> {
         language: Some(language),
         source,
         hunks: None,
+        // A single file handed to `inspect` has no prior version, exactly as it has no hunks.
+        prior_source: None,
     };
     let generator = Generator::new(Options {
         seed: args.seed,

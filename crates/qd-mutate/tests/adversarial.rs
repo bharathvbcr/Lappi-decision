@@ -39,6 +39,7 @@ fn run_over(source: &str, extension: &str, copies: usize) -> Run {
             language: None,
             source: source.to_string(),
             hunks: None,
+            prior_source: None,
         })
         .collect();
     let run = Generator::new(Options {
@@ -633,6 +634,7 @@ fn run_raw(source: &str, extension: &str) -> Run {
         language: None,
         source: source.to_string(),
         hunks: None,
+            prior_source: None,
     };
     Generator::new(Options {
         seed: 1,
@@ -857,6 +859,7 @@ fn every_language_refuses_a_file_with_error_nodes() {
             language: Some(id),
             source: source.to_string(),
             hunks: None,
+            prior_source: None,
         };
         let run = Generator::new(Options {
             seed: 1,

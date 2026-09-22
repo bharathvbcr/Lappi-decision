@@ -241,6 +241,7 @@ fn run_language(id: LangId) -> Run {
             language: Some(id),
             source: source.to_string(),
             hunks: None,
+            prior_source: None,
         })
         .collect();
     Generator::new(Options {

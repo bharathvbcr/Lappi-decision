@@ -1,0 +1,23 @@
+{
+  "by_language": {
+    "go": 4502,
+    "python": 48722,
+    "rust": 2694,
+    "typescript": 5275
+  },
+  "capped": false,
+  "dropped_by_reason": {
+    "licence agpl-3.0 (NEEDS_HUMAN_CALL)": 4829,
+    "licence artistic-2.0 (NEEDS_HUMAN_CALL)": 90,
+    "licence epl-1.0 (NEEDS_HUMAN_CALL)": 44,
+    "licence lgpl-2.1 (NEEDS_HUMAN_CALL)": 905,
+    "licence mpl-2.0 (NEEDS_HUMAN_CALL)": 846,
+    "licence unknown (NEEDS_HUMAN_CALL)": 60,
+    "no changed line span in new_contents": 1926
+  },
+  "dropped_total": 8700,
+  "mean_hunk_lines": 13.309921069403362,
+  "out": "/Users/bharath/Code/research/qwen-decision/data/pool/commitpackft-pool-v2.jsonl",
+  "records": 61193,
+  "sha256": "2cb31231a586baaddc5ec201637f784e1ff5724962df3f777c4de58fbf4fc5d2"
+}

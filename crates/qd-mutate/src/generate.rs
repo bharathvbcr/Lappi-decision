@@ -273,6 +273,46 @@ impl Generator {
                 // `clean` is the original agent diff, unmodified — one example for the record, not
                 // one per body. It is noisy by construction: some real agent diffs *are* stubs, and
                 // the model must treat `clean` as "nothing found", never as "verified good".
+                //
+                // That is what this has always CLAIMED to be, and with only a post-image in hand it
+                // could not be: `before == after` and an empty diff is the absence of a change, not
+                // an unmodified change. On the commitpackft corpus that made `diff == ""` hold for
+                // exactly the 8,450 clean rows and for no other row, so a model told to read diffs
+                // could answer `clean` from the LENGTH of its context without reading a byte
+                // (AUDIT/after-vs-diff-leak.md). When the pool carries the pre-image, the clean
+                // example becomes the agent's own commit — a real change, which the model must
+                // judge rather than detect.
+                //
+                // When it does not, the old shape is emitted unchanged. A pool walked off local
+                // sources has no prior version, and inventing one would be worse than admitting
+                // there is none: `qd_train.mutate_adapter.refuse_leaky_diff_corpus` refuses such a
+                // corpus in diff mode rather than letting it train.
+                // NORMALIZED, through the same function `source` went through above. Diffing a
+                // raw pre-image against a normalized post-image would put every line of the
+                // file in the diff whenever the post-image needed normalizing -- 469 of 50,178
+                // commitpackft examples carry `crlf: true` and 57 carry `bom: true`, so a
+                // clean example there would have claimed the whole file was rewritten. The
+                // `Normalization` record on the example already says `before` is not
+                // byte-identical to the file on disk; this makes that true of the pre-image
+                // too, rather than true of only one side of a comparison between them.
+                let normalized_prior = record
+                    .prior_source
+                    .as_deref()
+                    .map(|raw| normalize::normalize(raw).0);
+                let prior = normalized_prior.as_deref().unwrap_or(source.as_str());
+                // A pool that HANDED OVER a pre-image and whose two images normalize to the
+                // same text described a commit that changed nothing in this file. There is no
+                // change to judge, and a `clean` label over an empty context is exactly the
+                // leak this whole path exists to close. Dropped and counted.
+                //
+                // The `prior_source.is_some()` guard is what keeps this from swallowing the
+                // local-source case, where every clean example is legitimately empty because
+                // the pool never had a pre-image to offer. That corpus is refused wholesale in
+                // diff mode by `refuse_leaky_diff_corpus`, which is the right level for it.
+                if record.prior_source.is_some() && prior == source.as_str() {
+                    manifest.note_refusal(language_id, &Refusal::CleanDiffEmpty);
+                    continue;
+                }
                 let first = &bodies[0];
                 examples.push(Example {
                     id: format!("{}#clean", record.id),
@@ -288,9 +328,17 @@ impl Generator {
                     function: record.identity(&first.name, first.arity),
                     node_kind: first.node_kind.to_string(),
                     is_nested: first.is_nested,
-                    before: source.clone(),
+                    before: prior.to_string(),
                     after: source.clone(),
-                    diff: String::new(),
+                    // Empty exactly when `prior == source`, which is now only the
+                    // no-pre-image case. `diffspan::unified` is the same function every
+                    // mutated example's diff goes through, so the two are the same shape
+                    // and a model cannot separate them by format.
+                    diff: if prior == source.as_str() {
+                        String::new()
+                    } else {
+                        diffspan::unified(prior, &source, DIFF_CONTEXT)
+                    },
                     normalization,
                     hunks: record.hunks.clone(),
                     hunk_constrained: record.hunks.is_some(),
@@ -626,6 +674,7 @@ mod tests {
             language: None,
             source: source.to_string(),
             hunks,
+            prior_source: None,
         }
     }
 
@@ -651,6 +700,139 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
     Ok(sum)
 }
 ";
+
+    /// A pool record carrying the agent's pre-image, so `clean` has a real diff to be.
+    fn record_with_prior(id: &str, path: &str, prior: &str, source: &str) -> PoolRecord {
+        PoolRecord {
+            prior_source: Some(prior.to_string()),
+            ..record(id, path, source, None)
+        }
+    }
+
+    /// Always clean, so the clean branch is the one under test.
+    fn all_clean() -> Options {
+        Options {
+            clean_permille: 1000,
+            ..Options::default()
+        }
+    }
+
+    #[test]
+    fn a_clean_example_carries_the_agents_own_diff_when_the_pool_has_the_pre_image() {
+        // The load-bearing test. Before this, `clean` was emitted with `before == after` and
+        // `diff: String::new()`, so on a corpus whose clean rows all came out empty a model
+        // reading diffs could answer `clean` from the LENGTH of its context. That is measured,
+        // not supposed: 8,450 of 50,178 commitpackft examples, an exact biconditional with the
+        // class. AUDIT/after-vs-diff-leak.md.
+        let prior = RUST_FILE.replace("a < b", "a <= b");
+        assert_ne!(prior, RUST_FILE, "the fixture must actually differ");
+        let records = vec![record_with_prior("r1", "a.rs", &prior, RUST_FILE)];
+        let out = Generator::new(all_clean()).run(&records, pool_report());
+
+        let clean: Vec<_> = out
+            .examples
+            .iter()
+            .filter(|e| e.class == MutationClass::Clean)
+            .collect();
+        assert!(!clean.is_empty(), "the fixture produced no clean example");
+        for example in clean {
+            assert!(
+                !example.diff.is_empty(),
+                "a clean example carries an empty diff, so its class is readable from its length"
+            );
+            assert_eq!(example.before, prior, "before must be the agent's pre-image");
+            assert_eq!(example.after, RUST_FILE, "after must still be the post-image");
+            // The same renderer every mutated example's diff goes through, so the two kinds
+            // cannot be separated on format alone.
+            assert_eq!(
+                example.diff,
+                diffspan::unified(&prior, RUST_FILE, DIFF_CONTEXT),
+                "the clean diff must be rendered the way every other diff is"
+            );
+        }
+    }
+
+    #[test]
+    fn a_pool_without_a_pre_image_still_emits_the_old_shape() {
+        // A pool walked off local sources has no prior version. Inventing one would be worse
+        // than admitting there is none -- `refuse_leaky_diff_corpus` refuses such a corpus in
+        // diff mode rather than letting it train, and that refusal needs the absence to be
+        // visible rather than papered over.
+        let records = vec![record("r1", "a.rs", RUST_FILE, None)];
+        let out = Generator::new(all_clean()).run(&records, pool_report());
+        let clean: Vec<_> = out
+            .examples
+            .iter()
+            .filter(|e| e.class == MutationClass::Clean)
+            .collect();
+        assert!(!clean.is_empty(), "the fixture produced no clean example");
+        for example in clean {
+            assert!(example.diff.is_empty());
+            assert_eq!(example.before, example.after);
+        }
+    }
+
+    #[test]
+    fn a_pre_image_identical_to_the_post_image_is_dropped_not_emitted_empty() {
+        // A commit that changed nothing in this file once normalized. Emitting it would put an
+        // EMPTY context under a `clean` label, which is the leak. Dropped and counted.
+        let records = vec![record_with_prior("r1", "a.rs", RUST_FILE, RUST_FILE)];
+        let out = Generator::new(all_clean()).run(&records, pool_report());
+        assert!(
+            out.examples
+                .iter()
+                .all(|e| e.class != MutationClass::Clean),
+            "an unchanged pre-image produced a clean example with an empty context"
+        );
+    }
+
+    #[test]
+    fn the_pre_image_is_normalized_before_it_is_diffed() {
+        // `source` is normalized; a raw pre-image diffed against it would put EVERY line of the
+        // file in the diff whenever the post-image needed normalizing. 469 of 50,178
+        // commitpackft examples carry `crlf: true`, so this is the common case, not a corner.
+        // Here the two images differ ONLY in line endings: the real change is none, so after
+        // normalization there is nothing to emit.
+        let crlf_prior = RUST_FILE.replace('\n', "\r\n");
+        let records = vec![record_with_prior("r1", "a.rs", &crlf_prior, RUST_FILE)];
+        let out = Generator::new(all_clean()).run(&records, pool_report());
+        assert!(
+            out.examples
+                .iter()
+                .all(|e| e.class != MutationClass::Clean),
+            "a pre-image differing only in line endings produced a clean example, so its diff \
+             claims a change that normalization removes"
+        );
+    }
+
+    #[test]
+    fn a_crlf_pre_image_with_a_real_change_diffs_only_the_real_change() {
+        // The other half of the same concern, and the one that would have shipped a corrupt
+        // corpus quietly: line endings differ AND one line genuinely changed. The diff must
+        // carry that one line, not the whole file.
+        let crlf_prior = RUST_FILE.replace("a < b", "a <= b").replace('\n', "\r\n");
+        let records = vec![record_with_prior("r1", "a.rs", &crlf_prior, RUST_FILE)];
+        let out = Generator::new(all_clean()).run(&records, pool_report());
+        let clean: Vec<_> = out
+            .examples
+            .iter()
+            .filter(|e| e.class == MutationClass::Clean)
+            .collect();
+        assert!(!clean.is_empty(), "the fixture produced no clean example");
+        for example in clean {
+            let changed = example
+                .diff
+                .lines()
+                .filter(|l| l.starts_with('-') || l.starts_with('+'))
+                .count();
+            assert_eq!(
+                changed, 2,
+                "expected one line removed and one added, got {changed}:\n{}",
+                example.diff
+            );
+            assert!(!example.before.contains('\r'), "before kept its CRLF");
+        }
+    }
 
     #[test]
     fn the_same_seed_over_the_same_pool_is_byte_identical() {

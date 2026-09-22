@@ -130,6 +130,14 @@ def build(source_dir: Path, out_path: Path, *, max_records: int | None) -> dict[
                     "path": row.new_file,
                     "source": row.new_contents,
                     "hunks": [{"start_line": a, "end_line": b} for a, b in spans],
+                    # The pre-image, which this tool has always READ -- `changed_line_spans`
+                    # diffs against it to produce the hunks above -- and used to discard.
+                    # Discarding it is why `clean` examples carried an empty diff: qd-mutate
+                    # calls a clean example "the original agent diff, unmodified" and had no
+                    # before-image to make one from, so it emitted the absence of a change
+                    # instead. On this corpus that made an empty context mean `clean` and
+                    # nothing else. See AUDIT/after-vs-diff-leak.md.
+                    "prior_source": row.old_contents,
                 }
                 sink.write(json.dumps(record, sort_keys=True) + "\n")
                 kept += 1

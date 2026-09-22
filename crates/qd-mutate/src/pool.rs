@@ -64,6 +64,21 @@ pub struct PoolRecord {
     /// every example rather than silently treated as "the whole file is a hunk".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hunks: Option<Vec<Hunk>>,
+    /// The **pre**-image: the file as it stood before the agent's own diff.
+    ///
+    /// `None` for a pool walked off local sources — a file on disk has no prior version attached,
+    /// which is the same reason `hunks` is optional there. Carried rather than defaulted, for the
+    /// same reason as `hunks`: "there was no before-image" and "the before-image was identical"
+    /// are different facts and only one of them is a clean example.
+    ///
+    /// It exists because `clean` needed it. `generate.rs` calls a clean example "the original
+    /// agent diff, unmodified", and could not produce one: with only the post-image it emitted
+    /// `before == after` and an empty diff. On the commitpackft corpus that made `diff == ""`
+    /// hold for exactly the 8,450 clean rows and no others, so a model reading diffs could answer
+    /// `clean` from the LENGTH of its context (`AUDIT/after-vs-diff-leak.md`). The before-image is
+    /// what makes a clean example a real change to read rather than an absence to detect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prior_source: Option<String>,
 }
 
 impl PoolRecord {
@@ -251,6 +266,7 @@ mod tests {
             language: None,
             source: String::new(),
             hunks: None,
+            prior_source: None,
         };
         assert_eq!(record.identity("f", 2), record.identity("f", 2));
         assert_ne!(record.identity("f", 2), record.identity("f", 3));
