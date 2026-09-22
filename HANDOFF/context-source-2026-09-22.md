@@ -107,17 +107,41 @@ the control reaches 88.5% — `ledger/gh200-diff-capacity-2026-09-22.jsonl`:
 | 256×4 | 8 | 70.89% | −0.1761 | −0.2464 | 0/8 | 10.3 pts |
 | 512×4 | 8 | **58.14%** | **−0.3037** | −0.5129 | 0/8 | **29.7 pts** |
 
-**The earlier finding was not an artifact of a degenerate task.** More capacity is worse on
-a task with abundant signal, and the margin degrades 2.5× from 128 to 512. That is the
-measured answer to *"do we need a larger cluster"*: **no**.
+At the time this read as *"more capacity is worse even on a task with signal, so a larger
+cluster buys nothing"*. **That conclusion is withdrawn.** It was confounded, and the
+confound was visible in the table: the seed spread grows with width — 5.1 → 10.3 → 29.7
+points, with width-512 seeds at 37.2% and 66.9% in the same arm. A model too large for its
+data degrades *smoothly*; an optimiser over-stepping degrades *erratically*.
 
-With one confound still open, which is why the LR sweep is running. The seed spread grows
-with width — 5.1 → 10.3 → 29.7 points, with width-512 seeds at 37.2% and 66.9% in the same
-arm. A model too large for its data degrades *smoothly*; an optimiser over-stepping degrades
-*erratically*. The peak LR was a literal in two places (`"lr": 3e-3` in the recipe and
-`peak_lr=3e-3` in `train_once` — so the recipe stated a rate nothing obliged the run to
-use), which is why this could not be told apart before. `--lr` now exists, defaulting to the
-old value so no recorded row moves.
+Every capacity number in this programme ran at `lr 3e-3`, a literal in **two** places —
+`"lr": 3e-3` in the recipe and `peak_lr=3e-3` in `train_once` — so the recipe printed a rate
+the schedule was not obliged to use and the two could disagree silently. `--lr` exists as of
+`0f8f462`, defaulting to the old value so no recorded row moves.
+
+### What the rate was worth: everything
+
+Width 512, four rates, 8 seeds each, everything else pinned
+(`ledger/gh200-lr-sweep-2026-09-22.jsonl`):
+
+| lr | n | top-1 | paired margin | best seed | positive | spread |
+| --- | --- | --- | --- | --- | --- | --- |
+| 3e-3 | 8 | 59.82% | −0.2869 | −0.1872 | 0/8 | 20.5 pts |
+| 1e-3 | 8 | 72.47% | −0.1604 | −0.1209 | 0/8 | 6.5 pts |
+| 3e-4 | 8 | 78.33% | −0.1018 | −0.0822 | 0/8 | 3.5 pts |
+| 1e-4 | 8 | **80.26%** | **−0.0825** | −0.0589 | 0/8 | 6.0 pts |
+
+The margin improves **3.5× on the learning rate alone**. Width 512 at 1e-4 reaches 80.26%,
+which beats width 128 at 3e-3 (76.33%, −0.1218) and is the best configuration measured
+anywhere in this programme. The trend had not turned over at the lowest rate tested.
+
+So **"capacity is monotonic in the wrong direction" is withdrawn**, both `b72aa54`'s version
+and the diff-task confirmation above. Comparing widths at one rate compares each width
+against how well 3e-3 happens to suit it, which is not a capacity measurement.
+
+**The answer to "do we need a larger cluster" is therefore not "no". It is "capacity has
+never been evaluated at a tuned rate."** `tools/launch_tuned_capacity.sh` is that
+evaluation: two lower rates at width 512 to find where the rate stops paying, then widths
+128 and 256 at 1e-4 so the three can be compared at a rate that suits the largest of them.
 
 ### The span head collapses on the four-class corpus
 
@@ -260,12 +284,18 @@ never in training; a control that has learned the change does not.
 No, and the blocker is not one this lane can clear.
 
 * **The model loses to a char-n-gram logistic regression in every configuration measured**:
-  two corpora, two representations, three widths, 53 completed rows, **0 wins**, no
-  confidence interval touching zero.
+  two corpora, two representations, three widths, four learning rates, **0 wins**, no
+  confidence interval touching zero. The best margin reached is −0.0825 (width 512,
+  lr 1e-4), down from −0.2869 at the rate every earlier arm used.
+* **That control has memorised the mutation operators**, so the margin is a weaker
+  statement than it reads as — see above. The corpus cannot currently distinguish
+  understanding from fingerprint-matching for any model, this one included.
 * **Reading the diff does not close the gap.** It is worth ~+25 points to the model and
   ~+31 to the control. The task was mis-encoded *and* the model is beaten; fixing the first
   does not touch the second.
-* **Scale makes it worse**, monotonically, on a task with signal in it.
+* **Scale has never been fairly evaluated.** The "capacity hurts" finding was an artifact
+  of a hardcoded learning rate and is withdrawn; at 1e-4 the widest model tested is the
+  best thing this programme has produced.
 * **The span head — the one head that was generalising — collapses** below chance on any
   corpus it must also abstain on.
 
