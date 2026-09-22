@@ -16,6 +16,7 @@ tests.
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import functools
 import hashlib
@@ -744,3 +745,65 @@ def test_the_toy_runner_beside_it_refuses_the_same_case() -> None:
 
     with pytest.raises(ValueError, match="hardware being paid for by the hour"):
         rung0_toy_run._control(100, device="cuda")
+
+
+# ---------------------------------------------------------------------------
+# The recipe: two runs that read different bytes must not hash alike
+# ---------------------------------------------------------------------------
+
+
+def _args_for(**over) -> argparse.Namespace:
+    base = {
+        "epochs": 3,
+        "batch_size": 16,
+        "val_share": 0.25,
+        "span_weight": 1.0,
+        "deterministic": False,
+        "shuffle_train_labels": False,
+        "shuffle_seed": 0,
+        "train_subsample": 1.0,
+        "rev": "HEAD",
+        "context_source": "after",
+    }
+    base.update(over)
+    return argparse.Namespace(**base)
+
+
+def _hash_of(recipe: dict) -> str:
+    return hashlib.sha256(json.dumps(recipe, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def test_an_after_run_hashes_exactly_as_it_did_before_context_source_existed() -> None:
+    """The 61 capacity rows and the learning curve were written without this field.
+
+    Adding it unconditionally would move their hash, and every new post-image row would
+    be incomparable with the rows it exists to extend -- for a field whose value never
+    varied. The expected dict below is the recipe as it stood before the flag, written
+    out rather than computed, so a future edit to `recipe_of` that changes the default
+    protocol's bytes fails here instead of in the ledger six weeks later.
+    """
+    recipe = tool.recipe_of(_args_for())
+    assert "context_source" not in recipe
+    before_the_flag = {
+        "epochs": 3,
+        "batch_size": 16,
+        "val_share": 0.25,
+        "lr": 3e-3,
+        "span_weight": 1.0,
+        "deterministic": False,
+        "shuffle_train_labels": False,
+        "shuffle_seed": None,
+        "train_subsample": 1.0,
+        "rev": "HEAD",
+    }
+    assert _hash_of(recipe) == _hash_of(before_the_flag)
+
+
+def test_a_diff_run_cannot_hash_like_a_post_image_run() -> None:
+    after = tool.recipe_of(_args_for())
+    diff = tool.recipe_of(_args_for(context_source="diff"))
+    assert diff["context_source"] == "diff"
+    assert _hash_of(after) != _hash_of(diff), (
+        "a post-image run and a diff run are two questions, not one protocol measured "
+        "twice; sharing a recipe_hash would let a reader pool them"
+    )

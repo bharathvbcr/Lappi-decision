@@ -50,6 +50,11 @@ from rung0_real_run import (  # noqa: E402
 from qd_train.baseline import LinearBaseline  # noqa: E402
 from qd_train.byte_decider import ByteDeciderConfig  # noqa: E402
 from qd_train.control_cache import control_key, load_control, store_control  # noqa: E402
+from qd_train.mutate_adapter import (  # noqa: E402
+    CONTEXT_AFTER,
+    CONTEXT_SOURCES,
+    refuse_leaky_diff_corpus,
+)
 from qd_train.tristate import NotRun, Ran  # noqa: E402
 
 
@@ -68,6 +73,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--layers", type=int, default=ByteDeciderConfig().n_layers)
     parser.add_argument("--heads", type=int, default=ByteDeciderConfig().n_heads)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    # The control must read the bytes the arm reads. A control fitted on the post-image
+    # and paired against a model fitted on the diff is not a control at all -- it is two
+    # models on two tasks with one margin between them.
+    parser.add_argument(
+        "--context-source", choices=CONTEXT_SOURCES, default=CONTEXT_AFTER
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-iter", type=int, default=LINEAR_CONTROL_MAX_ITER)
     parser.add_argument(
@@ -102,9 +113,14 @@ def main(argv: list[str] | None = None) -> int:
         n_layers=args.layers,
         n_heads=args.heads,
     )
+    refuse_leaky_diff_corpus(examples, context_source=args.context_source)
     train_raw, val_raw = split_by_file(examples, val_share=args.val_share)
-    train_d, train_refused, _ = decisions_of(train_raw, config=config)
-    val_d, val_refused, _ = decisions_of(val_raw, config=config)
+    train_d, train_refused, _ = decisions_of(
+        train_raw, config=config, context_source=args.context_source
+    )
+    val_d, val_refused, _ = decisions_of(
+        val_raw, config=config, context_source=args.context_source
+    )
     if not train_d or not val_d:
         raise SystemExit("one side of the split is empty; nothing can be fitted")
     print(f"  decisions: {len(train_d)} train (refused {train_refused or 'none'}), "

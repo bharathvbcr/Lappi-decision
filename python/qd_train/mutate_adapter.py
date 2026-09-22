@@ -70,7 +70,7 @@ same reasoning: a check with nothing to refuse is the check disabled, not the ch
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -82,18 +82,24 @@ from .data_access import assert_path_not_held_out
 
 __all__ = [
     "CLEAN",
+    "CONTEXT_AFTER",
+    "CONTEXT_DIFF",
+    "CONTEXT_SOURCES",
     "MUTATION_CLASSES",
     "ByteDecision",
+    "EmptyDiffContext",
     "LineSpan",
     "MalformedExample",
     "MutateExample",
     "PhantomFinalLine",
     "contrastive_pairs",
+    "is_void_diff",
     "mutate_total_lines",
     "pair_key",
     "parse_example",
     "parse_line_span",
     "read_examples",
+    "refuse_leaky_diff_corpus",
     "span_end_offset",
     "span_start_offset",
     "to_decision",
@@ -105,6 +111,15 @@ __all__ = [
 #: either the set or the spelling moves.
 MUTATION_CLASSES: Final[tuple[str, ...]] = ("stub", "logic", "cosmetic", "clean")
 CLEAN: Final[str] = "clean"
+
+#: What the choice slot is allowed to read. after is the post-image and was the only
+#: option until 2026-09-22; diff is the unified diff, which is what the plan says the
+#: model reads -- needle.py quotes it: the model reads a diff to 8K in one prefill. The
+#: choice is part of the RECIPE, because two runs that read different bytes are not one
+#: protocol measured twice and must not hash alike.
+CONTEXT_AFTER: Final[str] = "after"
+CONTEXT_DIFF: Final[str] = "diff"
+CONTEXT_SOURCES: Final[tuple[str, ...]] = (CONTEXT_AFTER, CONTEXT_DIFF)
 
 #: The question put to the choice slot. Bytes, because the model reads bytes.
 DEFAULT_QUESTION: Final[bytes] = b"What kind of change is this?"
@@ -118,6 +133,33 @@ class PhantomFinalLine(ValueError):
     """The span points at qd-mutate's phantom final line, which holds no bytes.
 
     See this module's docstring. Raised rather than clamped to the last real line.
+    """
+
+
+def is_void_diff(diff: bytes | str | None) -> bool:
+    """Whether this diff would encode to a context carrying no evidence.
+
+    One predicate, called by both the per-row refusal in :func:`to_decision` and the
+    corpus pre-flight in :func:`refuse_leaky_diff_corpus`. They asked the same question
+    two ways for one commit -- ``not diff`` against ``not str(diff).strip()`` -- which
+    meant a whitespace-only diff was refused by the boundary check and encoded by the
+    row check, so which answer you got depended on which door you came in.
+    """
+    if diff is None:
+        return True
+    raw = diff if isinstance(diff, bytes) else diff.encode("utf-8", errors="surrogatepass")
+    return not raw.strip()
+
+
+class EmptyDiffContext(ValueError):
+    """Diff mode was asked to encode a row whose diff is absent or empty.
+
+    Its own type rather than a :class:`MalformedExample`, because ``decisions_of``
+    counts refusals by exception name and these two must not share a line. A malformed
+    row is a data error in one row; this is a statement about the whole corpus -- on a
+    corpus where only ``clean`` rows have empty diffs, every one of these refusals is
+    the leak announcing itself, and a count of them merged into "malformed" would read
+    as noise instead of as a protocol that cannot run.
     """
 
 
@@ -166,7 +208,7 @@ def parse_line_span(raw: object, *, where: str) -> LineSpan:
 class MutateExample:
     """One row of qd-mutate's JSONL, with only the fields this lane consumes.
 
-    Unconsumed fields (``diff``, ``node_kind``, ``detail``, ``normalization`` ...) are not
+    Unconsumed fields (``node_kind``, ``detail``, ``normalization`` ...) are not
     carried. That is deliberate: a field this module stores but never reads would invite a
     downstream consumer to read it *through* here and couple to a shape nothing checks.
     """
@@ -183,6 +225,15 @@ class MutateExample:
     silent: bool
     hunk_constrained: bool
     seed: int
+    #: The unified diff qd-mutate computed. Carried since 2026-09-22 and not
+    #: before: the choice slot asks what kind of change this is, and the model was
+    #: shown only the file the change produced. For 54 percent of the commitpackft
+    #: corpus that image holds no evidence a change happened -- a renamed local is
+    #: an ordinary identifier, an edited comment an ordinary comment, a changed
+    #: constant an ordinary constant, and clean is the absence of a change. Same
+    #: control, same rows: post-image 55.8 percent, unified diff 93.8 percent.
+    #: GAP-RUNG0-CHOICE-SEES-THE-POST-IMAGE-NOT-THE-DIFF.
+    diff: bytes | None = None
 
     def __post_init__(self) -> None:
         if self.mutation_class not in MUTATION_CLASSES:
@@ -199,6 +250,50 @@ class MutateExample:
                 f"{self.example_id}: class {self.mutation_class!r} has no span; an unlocated "
                 "mutation cannot supervise the span slot and must not be silently demoted to noul"
             )
+
+
+def refuse_leaky_diff_corpus(
+    objs: Sequence[dict[str, Any]], *, context_source: str
+) -> dict[str, int]:
+    """In diff mode, refuse a corpus in which an empty context names a class.
+
+    ``to_decision`` already refuses such a row one at a time, which is fail-closed but
+    diagnoses one row when the problem is the corpus. This is the boundary check: it runs
+    before a byte of training and reports the SHAPE -- which classes, how many -- so a
+    rented GPU does not spend forty minutes parsing its way to the same refusal.
+
+    Returns the empty-diff count per class, which is empty in ``after`` mode and on a
+    repaired corpus. Raises :class:`EmptyDiffContext` otherwise.
+    """
+    if context_source != CONTEXT_DIFF:
+        return {}
+    census: dict[str, int] = {}
+    seen: dict[str, int] = {}
+    for obj in objs:
+        cls = str(obj.get("class", "?"))
+        seen[cls] = seen.get(cls, 0) + 1
+        raw = obj.get("diff")
+        if is_void_diff(None if raw is None else str(raw)):
+            census[cls] = census.get(cls, 0) + 1
+    if not census:
+        return census
+    # A class every one of whose rows has an empty diff is perfectly separable by the
+    # length of the context alone. Named explicitly, because "some rows are empty" and
+    # "this class IS the empty ones" are different severities and the second is the one
+    # that makes every number downstream meaningless.
+    total = sum(census.values())
+    detail = ", ".join(
+        f"{cls} {n}/{seen[cls]}" + (" (ALL of them)" if n == seen[cls] else "")
+        for cls, n in sorted(census.items())
+    )
+    raise EmptyDiffContext(
+        f"diff mode was asked to read a corpus with {total} empty diff(s): {detail}. "
+        "A class whose every row has an empty context is answerable from the length of "
+        "the input, so a model trained here would be measured on the leak and not on the "
+        "change. qd-mutate writes `diff: String::new()` for every clean row because the "
+        "pool carries no before-image to diff against; repair that and regenerate, or "
+        "run with --context-source after."
+    )
 
 
 def parse_example(obj: dict[str, Any]) -> MutateExample:
@@ -223,6 +318,7 @@ def parse_example(obj: dict[str, Any]) -> MutateExample:
     example_id = str(need("id"))
     span_raw = obj.get("span")
     span = None if span_raw is None else parse_line_span(span_raw, where=example_id)
+    diff_raw = obj.get("diff")
 
     return MutateExample(
         example_id=example_id,
@@ -238,6 +334,10 @@ def parse_example(obj: dict[str, Any]) -> MutateExample:
         silent=bool(need("silent")),
         hunk_constrained=bool(need("hunk_constrained")),
         seed=int(need("seed")),
+        # Optional rather than required: rows written before qd-mutate emitted a
+        # diff still parse, and a caller that asks to encode one gets a refusal
+        # naming the row instead of a silently empty context.
+        diff=None if diff_raw is None else str(diff_raw).encode("utf-8"),
     )
 
 
@@ -403,6 +503,7 @@ def to_decision(
     max_context_bytes: int,
     question: bytes = DEFAULT_QUESTION,
     options: tuple[str, ...] = MUTATION_CLASSES,
+    context_source: str = CONTEXT_AFTER,
 ) -> ByteDecision:
     """Convert one example. Raises rather than returning a degraded decision.
 
@@ -416,13 +517,42 @@ def to_decision(
             f"set {options}; a gold answer outside the options is an unanswerable example"
         )
 
-    context = encode_context(example.after, max_bytes=max_context_bytes)
-    dropped = len(example.after) - context.n_bytes_kept
+    if context_source not in CONTEXT_SOURCES:
+        raise MalformedExample(
+            f"{example.example_id}: context_source {context_source!r} is not one of "
+            f"{CONTEXT_SOURCES}"
+        )
+    # Missing and empty are refused by the SAME branch, because they are the same
+    # failure seen from two directions. qd-mutate writes `diff: String::new()` for
+    # every `clean` row, so on the commitpackft corpus `diff == ""` holds for exactly
+    # the 8,450 clean rows and for no other row -- an exact biconditional, measured
+    # over all 50,178 (AUDIT/after-vs-diff-leak.log). Encoding that is not a degraded
+    # example: it hands the choice head the label, which it can read off the LENGTH of
+    # its input without looking at a byte. Letting it through would make every diff-mode
+    # number a measurement of the leak.
+    if context_source == CONTEXT_DIFF and is_void_diff(example.diff):
+        raise EmptyDiffContext(
+            f"{example.example_id}: asked to encode the diff, but the row carries "
+            f"{'none' if example.diff is None else 'an empty one'}. On this corpus an "
+            "empty diff means `clean` and nothing else, so encoding it would teach the "
+            "choice head to answer from the size of its context. Repair the row's "
+            "representation -- a clean example is the agent's own commit diff, which "
+            "needs the pool to carry the before-image -- rather than encoding a void."
+        )
+
+    source = example.after if context_source == CONTEXT_AFTER else example.diff
+    assert source is not None  # refused above when the diff is missing
+    context = encode_context(source, max_bytes=max_context_bytes)
+    dropped = len(source) - context.n_bytes_kept
 
     gold_span_line: int | None = None
     gold_span_end_line: int | None = None
-    if example.span is not None:
-        full_offset = span_start_offset(example.after, example.span)
+    # Span offsets are into `after`. Encoding the diff moves every byte, so the
+    # span head is given NOTHING rather than a pointer into the wrong text --
+    # a mislabelled span is worse than an absent one, and `clean` rows already
+    # travel this path with no span at all.
+    if example.span is not None and context_source == CONTEXT_AFTER:
+        full_offset = span_start_offset(source, example.span)
         if full_offset < dropped:
             raise SpanOutsideWindow(
                 f"{example.example_id}: the span starts at byte {full_offset}, but truncation "
@@ -432,7 +562,7 @@ def to_decision(
         # The end line is inside the window whenever the start is, because truncation keeps
         # the tail -- but it is resolved rather than assumed, so a future head-keeping
         # truncation fails here instead of mislabelling the end pointer.
-        end_offset = span_end_offset(example.after, example.span)
+        end_offset = span_end_offset(source, example.span)
         if end_offset < dropped:
             raise SpanOutsideWindow(
                 f"{example.example_id}: the span ends at byte {end_offset}, but truncation "

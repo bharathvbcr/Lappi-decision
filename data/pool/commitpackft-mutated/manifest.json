@@ -1,0 +1,38 @@
+{
+  "by_class": {
+    "cosmetic": 7344,
+    "logic": 11310,
+    "stub": 23074
+  },
+  "by_class_before": {
+    "clean": 8450,
+    "cosmetic": 7344,
+    "logic": 11310,
+    "stub": 23074
+  },
+  "derived_from": {
+    "examples": "/Users/bharath/Code/research/qwen-decision/data/pool/commitpackft-corpus/examples.jsonl",
+    "manifest": "/Users/bharath/Code/research/qwen-decision/data/pool/commitpackft-corpus/manifest.json",
+    "manifest_sha256": "9689345b347485f4db744f2ea9deecf0e9c319f730779fa3f5b41c7ec2e6245d"
+  },
+  "examples": 41728,
+  "examples_before": 50178,
+  "filter": {
+    "dropped_classes": [
+      "clean"
+    ]
+  },
+  "pool": {
+    "by_language": {
+      "go": 4502,
+      "python": 48722,
+      "rust": 2694,
+      "typescript": 5145,
+      "unrecognised": 130
+    },
+    "path": "data/pool/commitpackft-pool.jsonl",
+    "records": 61193,
+    "sha256": "25406de13959e27c1cb50863566d0f94d7ae7f83f44e9de12820b8c236830823"
+  },
+  "sha256": "1d8dfac587577e34669f99b52c4e7581f746daa7800c16a0fe6323436f6b0eba"
+}

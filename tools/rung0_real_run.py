@@ -99,10 +99,13 @@ from qd_train.ledger import (  # noqa: E402
     what_ran_state,
 )
 from qd_train.mutate_adapter import (  # noqa: E402
+    CONTEXT_AFTER,
+    CONTEXT_SOURCES,
     MUTATION_CLASSES,
     MalformedExample,
     PhantomFinalLine,
     parse_example,
+    refuse_leaky_diff_corpus,
     to_decision,
 )
 from qd_train.power import resolution_state  # noqa: E402
@@ -253,8 +256,68 @@ def split_by_file(
     return train, val
 
 
+def recipe_of(args: argparse.Namespace) -> dict[str, object]:
+    """Every field that makes two runs different protocols rather than one repeated.
+
+    Named rather than written inline into the hash. Every field here went into
+    ``recipe_hash`` and was stored nowhere readable, so a row could say two arms differ
+    and not say how: the concurrent lane recovered a learning curve's point labels on
+    2026-09-21 by re-hashing four candidate ``train_subsample`` values with the other
+    seven fields pinned at the launch command's -- which works, and needs the launch
+    command. One object reaches both the hash that makes the arms incomparable and the
+    row that says what they were, so the two cannot drift.
+
+    A function rather than an expression inside ``main`` so the two invariants it carries
+    are testable: that an ``after`` run hashes exactly as it did before ``--context-source``
+    existed, and that a ``diff`` run cannot hash like one.
+    """
+    recipe: dict[str, object] = {
+        "epochs": args.epochs,
+        "batch_size": args.batch_size,
+        "val_share": args.val_share,
+        "lr": 3e-3,
+        # The objective is part of the recipe. Without this the five points of the
+        # span-weight sweep hash identically, and two runs that optimised different things
+        # become one protocol in the ledger -- which is exactly the comparison the sweep
+        # exists to make.
+        "span_weight": args.span_weight,
+        # Deterministic and nondeterministic runs are different protocols, not the same
+        # protocol measured twice. Without this they hash identically and the ledger treats
+        # a reproducible number and a draw from a 2.8-point spread as comparable rows.
+        "deterministic": args.deterministic,
+        # The control and the arm it controls for MUST NOT hash alike. Everything else
+        # about them is identical by design -- same corpus, same schedule, same capacity --
+        # so without these two fields a control run and a real run share a recipe_hash, and
+        # a reader pooling by protocol would average a model trained on destroyed labels
+        # into the measurement it exists to validate.
+        "shuffle_train_labels": args.shuffle_train_labels,
+        "shuffle_seed": args.shuffle_seed if args.shuffle_train_labels else None,
+        # How much of the training set was used. A learning curve's whole content is that
+        # its points differ in this and nothing else, and `data_snapshot_hash` cannot see
+        # it: it comes from the manifest, which a subsampled run does not change. Without
+        # this a half-data arm and a full-data one agree on every protocol field there is,
+        # and the ledger reads two populations as one protocol measured twice.
+        "train_subsample": args.train_subsample,
+        "rev": args.rev,
+    }
+    # WHAT the model read is the most load-bearing protocol field there is: a post-image
+    # run and a diff run are not one protocol measured twice, they are two questions. So
+    # it must reach the hash -- but ADDED ONLY WHEN IT IS NOT THE DEFAULT. Writing it
+    # unconditionally would move the hash of every `after` run too, and the 61 capacity
+    # rows and the learning curve already in the ledger were written without it; new
+    # post-image rows would then be incomparable with the rows they exist to extend, for
+    # a field whose value never varied. Omitted-at-default keeps both invariants: every
+    # `after` run hashes as it always did, and no `diff` run can collide with one.
+    if args.context_source != CONTEXT_AFTER:
+        recipe["context_source"] = args.context_source
+    return recipe
+
+
 def decisions_of(
-    examples: Sequence[dict[str, object]], *, config: ByteDeciderConfig
+    examples: Sequence[dict[str, object]],
+    *,
+    config: ByteDeciderConfig,
+    context_source: str = CONTEXT_AFTER,
 ) -> tuple[list, dict[str, int], list[str]]:
     """Parse and convert, counting every refusal by kind rather than dropping quietly.
 
@@ -272,7 +335,9 @@ def decisions_of(
     for obj in examples:
         try:
             decision = to_decision(
-                parse_example(obj), max_context_bytes=config.max_context_bytes
+                parse_example(obj),
+                max_context_bytes=config.max_context_bytes,
+                context_source=context_source,
             )
         except (MalformedExample, PhantomFinalLine, SpanOutsideWindow) as exc:
             name = type(exc).__name__
@@ -1248,6 +1313,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--context-source",
+        choices=CONTEXT_SOURCES,
+        default=CONTEXT_AFTER,
+        help=(
+            "what the model reads. after is the post-image and is what every row "
+            "before 2026-09-22 was measured on; diff is the unified diff, which is "
+            "what the plan says the model reads. The choice head is asked what kind "
+            "of change this is, and for 54 percent of the commitpackft corpus the "
+            "post-image carries no evidence a change happened at all -- measured on "
+            "the same control and the same rows, post-image 55.8 percent against the "
+            "diff 93.8 percent. Encoding the diff gives the span head NO target, "
+            "because span offsets are into after and every byte has moved"
+        ),
+    )
+    parser.add_argument(
         "--control-cache",
         type=Path,
         default=None,
@@ -1382,6 +1462,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     print(f"  {len(examples)} example(s)")
 
+    # Before a byte of training: in diff mode, refuse a corpus in which an empty context
+    # names a class. Raised here rather than discovered row by row inside decisions_of,
+    # because the diagnosis is about the corpus and a rented GPU should not pay for the
+    # parse to reach the same conclusion one example at a time.
+    refuse_leaky_diff_corpus(examples, context_source=args.context_source)
+    print(f"  context source: {args.context_source}")
+
     train_raw, val_raw = split_by_file(examples, val_share=args.val_share)
     train_paths = {e.get("function", {}).get("path") for e in train_raw}  # type: ignore[union-attr]
     val_paths = {e.get("function", {}).get("path") for e in val_raw}  # type: ignore[union-attr]
@@ -1393,8 +1480,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"{len(val_raw)} val from {len(val_paths)} file(s), 0 files on both sides"
     )
 
-    train_d, train_refused, train_paths_of = decisions_of(train_raw, config=config)
-    val_d, val_refused, _ = decisions_of(val_raw, config=config)
+    train_d, train_refused, train_paths_of = decisions_of(
+        train_raw, config=config, context_source=args.context_source
+    )
+    val_d, val_refused, _ = decisions_of(
+        val_raw, config=config, context_source=args.context_source
+    )
     print(f"  decisions: {len(train_d)} train (refused {train_refused or 'none'}), "
           f"{len(val_d)} val (refused {val_refused or 'none'})")
     if not train_d or not val_d:
@@ -1516,42 +1607,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         pool_records=((manifest.get("pool") or {}).get("records")),
         corpus_hash=corpus_hash,
     )
-    # Named rather than written inline into the hash. Every field below went into
-    # `recipe_hash` and was stored nowhere readable, so a row could say two arms differ and
-    # not say how: the concurrent lane recovered a learning curve's point labels on
-    # 2026-09-21 by re-hashing four candidate `train_subsample` values with the other seven
-    # fields pinned at the launch command's -- which works, and needs the launch command.
-    # One object now reaches both the hash that makes the arms incomparable and the row
-    # that says what they were, so the two cannot drift.
-    recipe = {
-        "epochs": args.epochs,
-        "batch_size": args.batch_size,
-        "val_share": args.val_share,
-        "lr": 3e-3,
-        # The objective is part of the recipe. Without this the five points of the
-        # span-weight sweep hash identically, and two runs that optimised different things
-        # become one protocol in the ledger -- which is exactly the comparison the sweep
-        # exists to make.
-        "span_weight": args.span_weight,
-        # Deterministic and nondeterministic runs are different protocols, not the same
-        # protocol measured twice. Without this they hash identically and the ledger treats
-        # a reproducible number and a draw from a 2.8-point spread as comparable rows.
-        "deterministic": args.deterministic,
-        # The control and the arm it controls for MUST NOT hash alike. Everything else
-        # about them is identical by design -- same corpus, same schedule, same capacity --
-        # so without these two fields a control run and a real run share a recipe_hash, and
-        # a reader pooling by protocol would average a model trained on destroyed labels
-        # into the measurement it exists to validate.
-        "shuffle_train_labels": args.shuffle_train_labels,
-        "shuffle_seed": args.shuffle_seed if args.shuffle_train_labels else None,
-        # How much of the training set was used. A learning curve's whole content is that
-        # its points differ in this and nothing else, and `data_snapshot_hash` cannot see
-        # it: it comes from the manifest, which a subsampled run does not change. Without
-        # this a half-data arm and a full-data one agree on every protocol field there is,
-        # and the ledger reads two populations as one protocol measured twice.
-        "train_subsample": args.train_subsample,
-        "rev": args.rev,
-    }
+    recipe = recipe_of(args)
     # `sort_keys=True` and no `separators`, unchanged: this is the hash the 61 capacity
     # rows and the learning curve running on the box were written with, and changing the
     # bytes it hashes would make every row written after today incomparable with them.

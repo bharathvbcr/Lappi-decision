@@ -170,13 +170,42 @@ def test_the_control_and_the_arm_it_controls_for_cannot_share_a_recipe_hash():
 
     Without this a control run and a real run hash alike, and anything pooling by protocol
     averages a model trained on destroyed labels into the measurement it exists to check.
+
+    Asserted against `recipe_of` rather than against the source text of `main`. It used to
+    read the file and look for `    recipe = {`, which stopped meaning anything the moment
+    the recipe moved into a function -- a scrape passes or fails on where the code sits, and
+    this property is about what the code produces. Hashing two recipes that differ only in
+    the shuffle flag tests the claim itself.
     """
-    source = (REPO / "tools" / "rung0_real_run.py").read_text(encoding="utf-8")
-    recipe_start = source.index("    recipe = {")
-    recipe_block = source[recipe_start : recipe_start + 2500]
-    assert '"shuffle_train_labels"' in recipe_block, (
+    pytest.importorskip("torch", reason="rung0_real_run imports torch at module scope")
+    import argparse
+    import hashlib
+    import json
+
+    from rung0_real_run import recipe_of
+
+    def hashed(**over) -> str:
+        base = {
+            "epochs": 3, "batch_size": 16, "val_share": 0.25, "span_weight": 1.0,
+            "deterministic": False, "shuffle_train_labels": False, "shuffle_seed": 11,
+            "train_subsample": 1.0, "rev": "HEAD", "context_source": "after",
+        }
+        base.update(over)
+        recipe = recipe_of(argparse.Namespace(**base))
+        return hashlib.sha256(json.dumps(recipe, sort_keys=True).encode()).hexdigest()
+
+    arm = hashed(shuffle_train_labels=False)
+    control = hashed(shuffle_train_labels=True)
+    assert arm != control, (
         "the recipe does not record whether labels were shuffled, so the control and the "
         "arm it controls for produce the same recipe_hash"
+    )
+    assert "shuffle_train_labels" in recipe_of(
+        argparse.Namespace(
+            epochs=3, batch_size=16, val_share=0.25, span_weight=1.0, deterministic=False,
+            shuffle_train_labels=False, shuffle_seed=11, train_subsample=1.0, rev="HEAD",
+            context_source="after",
+        )
     )
 
 
