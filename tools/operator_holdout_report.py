@@ -89,6 +89,8 @@ FIT = "train_choice_top1_over_train_majority"
 #: and size-matched arm until ``tools/fit_operator_holdout_controls.sh`` has been run, and
 #: which must be read as NOT MEASURED rather than as a loss.
 MARGIN = "paired_margin_vs_linear"
+#: The sha256 over the code the run imported (``what_ran_state``), comparable across hosts.
+CODE = "code_that_ran"
 
 #: The three conditions, in the order they are read against each other.
 REFERENCE, HOLDOUT, SIZEMATCH = "reference", "holdout", "sizematch"
@@ -144,10 +146,23 @@ class Cell:
     )
     #: Rows that carry no ``protocol.seed``, among which a repeated seed cannot be ruled out.
     unseeded: int = 0
+    #: Which code each row ran, counted: ``code_that_ran`` where the row has it, the launch
+    #: rev where it does not. The arms of one operator are only a controlled comparison if
+    #: they ran the same code, and nothing about grouping by condition guarantees that.
+    code: collections.Counter[str] = field(default_factory=collections.Counter)
 
     @property
     def n_seeds(self) -> int:
         return len(self.operator_acc) + self.unmeasured
+
+
+def code_of(row: dict) -> str:
+    """The code a row ran, as precisely as the row states it, and never an empty string."""
+    ran = metric_of(row, CODE)
+    if ran is not None and ran.get("state") == "ran" and ran.get("value"):
+        return str(ran["value"])[:16]
+    rev = (row.get("recipe") or {}).get("rev")
+    return f"rev {str(rev)[:12]}" if rev else "unrecorded"
 
 
 class RepeatedSeed(ValueError):
@@ -174,6 +189,7 @@ def cells_of(rows: list[dict]) -> dict[tuple[str, str], Cell]:
         if key is None:
             continue
         cell = out.setdefault(key, Cell(operator=key[0], condition=key[1]))
+        cell.code[code_of(row)] += 1
         seed = (row.get("protocol") or {}).get("seed")
         if seed is None:
             cell.unseeded += 1
@@ -323,6 +339,19 @@ def render(cells: dict[tuple[str, str], Cell]) -> list[str]:
             out.append(
                 f"  MISSING ARM(S): {', '.join(missing)}. The comparison below is "
                 "incomplete and the differences it can still take are printed as such."
+            )
+        codes = collections.Counter[str]()
+        for cond in present:
+            codes.update(cells[(op, cond)].code)
+        if len(codes) > 1:
+            where = "; ".join(
+                f"{code} ({', '.join(c for c in present if code in cells[(op, c)].code)})"
+                for code, _ in codes.most_common()
+            )
+            out.append(
+                f"  ARMS RAN DIFFERENT CODE: {where}. The differences below cross a code "
+                "change, so they are not a controlled comparison -- read each arm against "
+                "arms from its own run."
             )
 
         ref = cells.get((op, REFERENCE))

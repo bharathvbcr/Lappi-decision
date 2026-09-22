@@ -35,6 +35,7 @@ def _row(
     seed: int | None = None,
     rev: str = "",
     row_id: str = "",
+    code: str = "",
 ) -> dict:
     """One ledger row in the shape ``rung0_real_run`` writes.
 
@@ -63,17 +64,22 @@ def _row(
             return {"state": "not_run", "reason": "nothing to measure it over"}
         return {"state": "ran", "passed": True, "value": value, "n_total": n_total}
 
+    metrics: dict[str, object] = {
+        rep.OPERATOR: metric(op_value, op_rows),
+        rep.SIBLINGS: metric(sib_value, sib_rows),
+        rep.OVERALL: metric(overall, 12792),
+        rep.FIT: {"state": "ran", "passed": fit_passed, "value": 0.7},
+    }
+    if code:
+        # The ledger's own field name, spelled out rather than read from rep.CODE, so a
+        # constant that drifted away from what the runner writes fails here.
+        metrics["code_that_ran"] = {"state": "ran", "passed": True, "value": code, "n": 31}
     return {
         "recipe": recipe,
         # The runner records the margin as a GATE, not a metric, which is why the report
         # reads both containers.
         "gates": {rep.MARGIN: metric(margin, 12792)},
-        "metrics": {
-            rep.OPERATOR: metric(op_value, op_rows),
-            rep.SIBLINGS: metric(sib_value, sib_rows),
-            rep.OVERALL: metric(overall, 12792),
-            rep.FIT: {"state": "ran", "passed": fit_passed, "value": 0.7},
-        },
+        "metrics": metrics,
         **extra,
     }
 
@@ -282,6 +288,45 @@ def test_rows_without_a_seed_say_the_repeat_check_could_not_run() -> None:
     """A check that could not run must not read like one that ran and found nothing."""
     text = "\n".join(rep.render(rep.cells_of([_row(operator="stub.panic")])))
     assert "1 row(s) carry no protocol.seed" in text, text
+
+
+def test_arms_that_ran_different_code_are_named_rather_than_compared_silently() -> None:
+    """Grouping is by operator and condition, so nothing stops one operator's reference
+    arm coming from one run and its holdout from another -- a re-run of a single failed arm
+    would do it. The subtraction still prints. The report must say it crosses a code
+    change, because a difference between two code versions is not the holdout's effect."""
+    rows = [
+        _row(operator="stub.panic", op_value=0.99, sib_value=0.90, code="5bad419d1bb1b7ea"),
+        _row(held="stub.panic", op_value=0.05, sib_value=0.88, code="7318cbb3212723c3"),
+    ]
+    text = "\n".join(rep.render(rep.cells_of(rows)))
+    assert "ARMS RAN DIFFERENT CODE" in text, text
+    assert "5bad419d1bb1b7ea (reference)" in text and "7318cbb3212723c3 (holdout)" in text
+
+
+def test_arms_that_ran_the_same_code_carry_no_warning() -> None:
+    rows = [
+        _row(operator="stub.panic", code="7318cbb3212723c3"),
+        _row(held="stub.panic", code="7318cbb3212723c3"),
+        _row(operator="stub.panic", dropped=16037, code="7318cbb3212723c3"),
+    ]
+    assert "ARMS RAN DIFFERENT CODE" not in "\n".join(rep.render(rep.cells_of(rows)))
+
+
+def test_a_row_without_a_code_digest_falls_back_to_its_rev_and_never_to_nothing() -> None:
+    """Rows older than code_that_ran still name a launch rev. A row that names neither must
+    not look like it matched its neighbours."""
+    assert rep.code_of(_row(operator="x", rev="ecbd370a4d40a6dd")) == "rev ecbd370a4d40"
+    assert rep.code_of(_row(operator="x")) == "unrecorded"
+    assert rep.code_of(_row(operator="x", code="7318cbb3212723c318119a")) == "7318cbb3212723c3"
+
+
+def test_the_real_ledger_has_each_operator_s_arms_on_one_code_version() -> None:
+    """The AUDIT reads rows 1-144 as two runs on two code versions with no operator
+    straddling them. That is a property of the data, so it is checked on the data."""
+    ledger = REPO / "ledger" / "gh200-operator-holdout-model-2026-09-22.jsonl"
+    text = "\n".join(rep.render(rep.cells_of(rep.read_rows([ledger]))))
+    assert "ARMS RAN DIFFERENT CODE" not in text
 
 
 def test_the_docstring_no_longer_says_the_control_cannot_be_fitted() -> None:

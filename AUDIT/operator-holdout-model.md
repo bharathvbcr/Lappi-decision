@@ -27,9 +27,10 @@ python tools/operator_holdout_report.py ledger/gh200-operator-holdout-model-2026
 | rows / seeds | 72 = 9 arms × 8 seeds, all `completed` | 72 = 9 arms × 8 seeds, all `completed` |
 | cost / wall clock | $2.39, 5,781.4s summed across rows | $2.96, 7,158.1s (seeds slowed while control fits shared the CPU) |
 
-The two runs ran different code (`5bad419d` vs `7318cbb3`), which is why the report never
-compares an arm from one with an arm from the other: every operator's three arms come from
-one run.
+The two runs ran different code (`5bad419d` vs `7318cbb3`), and no comparison below crosses
+them: every operator's three arms come from one run. The report checks this rather than
+relying on it — an operator whose arms ran different code gets an `ARMS RAN DIFFERENT CODE`
+line above its differences — and on these 144 rows it prints none.
 
 **Every one of the 144 rows carries `quick: true`.** Under rule 8 they promote nothing, and
 this document does not ask them to. The flag is not describing a truncated run — the
