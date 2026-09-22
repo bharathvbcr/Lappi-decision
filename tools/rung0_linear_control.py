@@ -56,6 +56,7 @@ from rung0_real_run import (  # noqa: E402
     split_by_file,
 )
 
+from qd_data.config import DataConfig  # noqa: E402
 from qd_train.baseline import LinearBaseline, context_texts  # noqa: E402
 from qd_train.byte_decider import ByteDeciderConfig  # noqa: E402
 from qd_train.ledger import (  # noqa: E402
@@ -65,6 +66,7 @@ from qd_train.ledger import (  # noqa: E402
     Protocol,
     RunRecorder,
 )
+from qd_train.mutate_adapter import read_example_objects  # noqa: E402
 from qd_train.tristate import NotRun, Ran, TriState  # noqa: E402
 
 #: Above the library default of 500, which does not converge on this corpus. See the
@@ -107,11 +109,8 @@ def main(argv: list[str] | None = None) -> int:
     if not 1 <= args.max_iter <= MAX_ITER_CEILING:
         raise SystemExit(f"--max-iter must be in [1, {MAX_ITER_CEILING}], got {args.max_iter}")
 
-    examples = [
-        json.loads(line)
-        for line in args.examples.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    # Through rule 3's door rather than around it -- see read_example_objects.
+    examples = read_example_objects(args.examples, config=DataConfig(), repo_root=REPO)
     if not examples:
         raise SystemExit(f"{args.examples} holds no examples")
     manifest = json.loads(args.manifest_in.read_text(encoding="utf-8"))

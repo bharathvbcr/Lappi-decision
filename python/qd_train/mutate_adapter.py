@@ -101,6 +101,7 @@ __all__ = [
     "pair_key",
     "parse_example",
     "parse_line_span",
+    "read_example_objects",
     "read_examples",
     "refuse_leaky_diff_corpus",
     "span_end_offset",
@@ -437,6 +438,50 @@ def parse_example(obj: dict[str, Any]) -> MutateExample:
         # naming the row instead of a silently empty context.
         diff=None if diff_raw is None else str(diff_raw).encode("utf-8"),
     )
+
+
+def read_example_objects(
+    path: Path, *, config: DataConfig, repo_root: Path
+) -> list[dict[str, Any]]:
+    """Every row of a pre-generated corpus as a raw object, through the same door.
+
+    Rung 0's tools do not consume :class:`MutateExample`: ``decisions_of`` needs the raw
+    row, because it reads ``function.path`` and ``operator``, both of which
+    ``MutateExample`` deliberately refuses to carry. So all three of them -- the runner,
+    ``rung0_linear_control`` and ``fit_linear_control`` -- read the JSONL with a bare
+    ``json.loads`` comprehension and never reached :func:`read_examples`.
+
+    That is the failure this module's own docstring names: *"without this the held-out check
+    is satisfied on paper and bypassed by indirection"*. ``tools/rung0_real_run.py`` states
+    in its docstring that ``read_examples`` is rung 0's held-out door, and for the
+    ``--examples`` path -- the path every real run uses -- it was not one. Measured
+    2026-09-22: a corpus under ``data/heldout/`` was read, split and trained on with no
+    refusal at all.
+
+    The door is the first statement of this function for the same reason it is the first
+    statement of :func:`read_examples`: the intent to read is what is checked, so the
+    refusal does not depend on whether the file exists.
+
+    Raises:
+        qd_data.errors.HeldOutViolation: ``path`` is at or under a configured held-out root,
+            or any of its segments is a held-out marker.
+        MalformedExample: a line that is not JSON, named by line number.
+    """
+    assert_path_not_held_out(Path(path), config=config, repo_root=Path(repo_root))
+    rows: list[dict[str, Any]] = []
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError as e:
+            raise MalformedExample(f"{path}:{lineno}: not JSON: {e}") from e
+        if not isinstance(obj, dict):
+            raise MalformedExample(
+                f"{path}:{lineno}: a corpus row is an object, got {type(obj).__name__}"
+            )
+        rows.append(obj)
+    return rows
 
 
 def read_examples(

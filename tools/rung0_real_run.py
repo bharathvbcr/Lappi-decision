@@ -77,6 +77,7 @@ import torch  # noqa: E402
 from repo_git import git_bytes, tracked_paths  # noqa: E402
 from run_cost import n_gpus_for_device  # noqa: E402
 
+from qd_data.config import DataConfig  # noqa: E402
 from qd_train.baseline import LinearBaseline, context_texts  # noqa: E402
 from qd_train.byte_batch import BatchPlan, plan_batch, span_supervision  # noqa: E402
 from qd_train.byte_context import ID_PAD, SpanOutsideWindow  # noqa: E402
@@ -107,6 +108,7 @@ from qd_train.mutate_adapter import (  # noqa: E402
     PhantomFinalLine,
     SpanOutsideDiff,
     parse_example,
+    read_example_objects,
     refuse_leaky_diff_corpus,
     to_decision,
 )
@@ -1740,11 +1742,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.examples:
         print(f"corpus: reading a pre-generated set from {args.examples}")
-        examples = [
-            json.loads(line)
-            for line in args.examples.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
+        # Through the door, not around it. This branch used to build the list with a bare
+        # json.loads comprehension, so rule 3's path check never ran on the path every real
+        # run uses -- a corpus under data/heldout/ was read, split and trained on with no
+        # refusal (measured 2026-09-22). The module docstring above claimed read_examples
+        # enforced it; it does, and nothing called it.
+        examples = read_example_objects(
+            args.examples, config=DataConfig(), repo_root=REPO
+        )
         manifest = json.loads(args.manifest_in.read_text(encoding="utf-8"))
         if not examples:
             raise SystemExit(f"{args.examples} holds no examples; there is nothing to train on")

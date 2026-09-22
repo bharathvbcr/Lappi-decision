@@ -27,7 +27,6 @@ the safe failure: a mismatched cache is never served.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
 from pathlib import Path
@@ -47,12 +46,14 @@ from rung0_real_run import (  # noqa: E402
     split_by_file,
 )
 
+from qd_data.config import DataConfig  # noqa: E402
 from qd_train.baseline import LinearBaseline, context_texts  # noqa: E402
 from qd_train.byte_decider import ByteDeciderConfig  # noqa: E402
 from qd_train.control_cache import control_key, load_control, store_control  # noqa: E402
 from qd_train.mutate_adapter import (  # noqa: E402
     CONTEXT_AFTER,
     CONTEXT_SOURCES,
+    read_example_objects,
     refuse_leaky_diff_corpus,
 )
 from qd_train.tristate import NotRun, Ran  # noqa: E402
@@ -110,11 +111,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    examples = [
-        json.loads(line)
-        for line in args.examples.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    # Through rule 3's door rather than around it -- see read_example_objects. A control
+    # fitted on held-out data would not train a model, but it would set the bar the model
+    # is measured against using data the model may never see, which is the same violation
+    # wearing a different hat.
+    examples = read_example_objects(args.examples, config=DataConfig(), repo_root=REPO)
     if not examples:
         raise SystemExit(f"{args.examples} holds no examples")
     print(f"corpus: {len(examples)} example(s) from {args.examples}")
