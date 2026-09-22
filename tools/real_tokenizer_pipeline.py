@@ -9,13 +9,15 @@ tokenizer. This script runs the rest of it: mixture -> dedupe -> split -> manife
 ``write_shards`` -> ``ShardReader``, with ``tokenize``, ``token_offsets`` **and**
 ``decode`` all supplied by ``Qwen/Qwen3.5-2B-Base``.
 
-The corpus is real. It is this repository's own git history: every ``(commit, path)`` pair
-whose file was modified by that commit, with the true before and after contents and the
-true commit message, rewritten by ``qd_data.mixture`` exactly as a ``bigcode/commitpackft``
-row would be; plus ``qa.answer_span`` rows built over real prose from the tracked Markdown,
-with real answer offsets. Nothing is downloaded: the HF datasets-server was returning
-HTTP 500 when this was written, and a corpus that needs the network makes the measurement
-unrepeatable anyway.
+The corpus is real. By default the code rows are this repository's own git history: every
+``(commit, path)`` pair whose file was modified by that commit, with the true before and
+after contents and the true commit message, rewritten by ``qd_data.mixture`` exactly as a
+``bigcode/commitpackft`` row would be. ``--commitpackft`` takes them from the plan's own
+``bigcode/commitpackft`` download instead, each file pinned by its manifest's sha256. The
+``qa.answer_span`` rows are built over real prose from the tracked Markdown, with real
+answer offsets, under either source. Nothing is fetched at run time: the HF
+datasets-server was returning HTTP 500 when this was written, and a corpus that needs the
+network makes the measurement unrepeatable anyway.
 
 Three things it is careful about:
 
@@ -264,6 +266,45 @@ def commitpackft_pool_rows(
     total = len(rows)
     rows.sort(key=lambda r: hashlib.sha256(f"{r.commit}\0{r.old_file}".encode()).hexdigest())
     return rows[:max_pairs], total > max_pairs, total
+
+
+def quick_reason_for(*, commitpackft_rows: tuple[int, int] | None) -> str:
+    """Why a row this tool writes is ``quick``, stated for the corpus the run actually read.
+
+    ``commitpackft_rows`` is ``(rows read, rows the download held)`` when ``--commitpackft``
+    supplied the code rows, and ``None`` when this repository's history did.
+
+    Until 2026-09-22 this was one literal in :func:`main`, written for the only corpus
+    the tool then had. ``--commitpackft`` was added without touching it, so the first shard
+    set built from the download -- row ``0c3fd775`` -- says its corpus was "drawn from this
+    repository alone" beside a recipe pinning four commitpackft sha256s: the defect
+    ``tools/rung0_real_run.quick_reason_for`` was written to prevent, repeated one tool
+    over. The flag stays ``True`` for both sources: one seed, and the span rows are this
+    repository's Markdown standing in for ``rajpurkar/squad_v2`` whichever source the code
+    rows came from.
+    """
+    if commitpackft_rows is None:
+        return (
+            "one seed, and a corpus drawn from this repository alone rather than from the "
+            "pool the plan names. Repo rule 8: a subsample is marked quick and excluded "
+            "from decisions."
+        )
+    read, held = commitpackft_rows
+    code = (
+        f"all {held} rows of the plan's bigcode/commitpackft download"
+        if read >= held
+        else (
+            f"a {read}-of-{held} sha256-ordered sample of the plan's bigcode/commitpackft "
+            "download (the --max-pairs cap)"
+        )
+    )
+    # Rule 8 is quoted by its conditions rather than as "a subsample is quick": an uncapped
+    # read is not a subsample, and the row is quick for its one seed regardless.
+    return (
+        f"one seed; the code rows are {code}, but the span rows are this repository's own "
+        "Markdown standing in for rajpurkar/squad_v2. Repo rule 8: fewer than 3 seeds, or "
+        "a subsample, is marked quick and excluded from decisions."
+    )
 
 
 def _paragraphs(text: str, *, min_lines: int) -> list[str]:
@@ -696,6 +737,8 @@ class Measured:
     data_snapshot_hash: str
     tokenizer_hash: str
     notes: str
+    #: From :func:`quick_reason_for`, because only the run knows which corpus it read.
+    quick_reason: str
 
 
 def run(
@@ -718,6 +761,7 @@ def run(
     if commitpackft is None:
         commits, commits_capped = commit_rows(max_pairs=max_pairs, rev=resolved)
         code_source = f"this repository's own history at {resolved}"
+        quick_reason = quick_reason_for(commitpackft_rows=None)
     else:
         commits, commits_capped, pool_total = commitpackft_pool_rows(
             commitpackft, max_pairs=max_pairs
@@ -727,6 +771,7 @@ def run(
             "rows, a sha256-ordered sample; files pinned by the download's manifest), "
             f"with span prose from this repository at {resolved}"
         )
+        quick_reason = quick_reason_for(commitpackft_rows=(len(commits), pool_total))
     spans, spans_capped = span_rows(
         max_rows=max_pairs, blank_line_runs=blank_line_runs, rev=resolved
     )
@@ -975,6 +1020,7 @@ def run(
             f"{len(spans)} prose passages; snapshot status="
             f"{snapshot_status.to_json()['state']}"
         ),
+        quick_reason=quick_reason,
     )
 
 
@@ -1101,18 +1147,15 @@ def main(argv: list[str] | None = None) -> int:
         # The same object the `recipe_hash` above was taken of.
         recipe=recipe,
         quick=True,
-        quick_reason=(
-            "one seed, and a corpus drawn from this repository alone rather than from the "
-            "pool the plan names. Repo rule 8: a subsample is marked quick and excluded "
-            "from decisions."
-        ),
+        quick_reason=measured.quick_reason,
         notes=measured.notes,
     )
     with recorder:
         # The shard sets this writes are what every FT run downstream trains on, so "which
         # code produced this corpus" is a question asked of its rows more than of any
         # other. `code_commit` cannot answer it: one `-dirty` bit stands for any
-        # uncommitted change at all, and is permanent on a box synced by copying files        )
+        # uncommitted change at all, and is permanent on a box synced by copying files.
+        # `RunRecorder.__enter__` has already recorded `code_that_ran` from `entry_point`.
         for name, value in measured.metrics.items():
             recorder.metric(name, value)
         for name, value in measured.gates.items():

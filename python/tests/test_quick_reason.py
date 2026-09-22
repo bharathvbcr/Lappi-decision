@@ -8,6 +8,12 @@ append-only ledger, about the exact condition rule 8 turns on.
 
 The flag stays `True` in every case here. That is the point of the tests: the reason becomes
 accurate without the flag becoming an agent's to clear.
+
+The same defect then shipped one tool over. `tools/real_tokenizer_pipeline.py` gained
+`--commitpackft` with its reason still a literal naming this repository's history, and its
+first row from the download (0c3fd775) carries that false sentence. `tools/rung0_linear_control.py`
+had the same literal and had not yet been run on another corpus. Both reasons are now
+computed, and tested here beside the one that was fixed first.
 """
 
 from __future__ import annotations
@@ -23,6 +29,8 @@ sys.path.insert(0, str(REPO / "python"))
 
 pytest.importorskip("torch")
 
+import real_tokenizer_pipeline as pipeline  # noqa: E402
+import rung0_linear_control as control  # noqa: E402
 from rung0_real_run import quick_reason_for  # noqa: E402
 
 CLEAN = {
@@ -97,3 +105,37 @@ def test_a_clean_run_does_not_claim_the_corpus_is_the_plan_s_pool():
     would be a guess wearing the clothes of a check."""
     reason = quick_reason_for(**CLEAN)
     assert "is not something this run can verify" in reason
+
+
+def test_the_shard_pipeline_on_its_own_history_still_says_so():
+    assert "this repository alone" in pipeline.quick_reason_for(commitpackft_rows=None)
+
+
+def test_a_shard_set_from_the_download_does_not_claim_to_be_this_repository():
+    """Row 0c3fd775's defect: the code rows were a 2000-row sample of the download."""
+    reason = pipeline.quick_reason_for(commitpackft_rows=(2000, 69893))
+    assert "this repository alone" not in reason
+    assert "2000-of-69893 sha256-ordered sample" in reason
+    assert "bigcode/commitpackft" in reason
+
+
+def test_a_shard_set_from_the_whole_download_is_not_called_a_sample_yet_stays_quick():
+    """An uncapped read is the whole code source, and the reason says so -- but one seed
+    and the stand-in span prose are still true of it, so it is still a reason."""
+    reason = pipeline.quick_reason_for(commitpackft_rows=(69893, 69893))
+    assert "all 69893 rows" in reason
+    assert "ordered sample" not in reason
+    assert "a subsample is marked quick" not in reason, "rule 8 quoted as if this were one"
+    assert "one seed" in reason
+    assert "fewer than 3 seeds" in reason
+    assert "standing in for rajpurkar/squad_v2" in reason
+
+
+def test_the_linear_control_does_not_claim_where_its_corpus_came_from():
+    """`--examples` accepts any file, so the control names the snapshot and says it cannot
+    tell, rather than asserting the repository's corpus as its one row once truthfully did."""
+    reason = control.quick_reason_for(data_snapshot_hash="9ddbae6d" + "0" * 56, n_examples=40)
+    assert "drawn from this repository" not in reason
+    assert "9ddbae6d00000000" in reason
+    assert "40 example(s)" in reason
+    assert "not checked here" in reason

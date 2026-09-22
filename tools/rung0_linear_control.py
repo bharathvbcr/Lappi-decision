@@ -95,6 +95,25 @@ def _control_gate(measured: float, baseline: float, *, n: int) -> TriState:
     )
 
 
+def quick_reason_for(*, data_snapshot_hash: str, n_examples: int) -> str:
+    """Why a control row is ``quick``, without claiming to know where its corpus came from.
+
+    This was one literal: *"a control arm on a corpus drawn from this repository rather
+    than the pool the plan names"*. True of the one row ever written (``2988ac80``, this
+    repository's corpus), and false the first time ``--examples`` names a commitpackft
+    corpus, which is the corpus the operator-holdout arms now run on. ``--examples`` accepts
+    any file, so the source is not something this tool can know; the row names the
+    snapshot instead and says it cannot tell, as ``tools/rung0_real_run.quick_reason_for``
+    does for the arms.
+    """
+    return (
+        f"a control arm over {n_examples} example(s), data_snapshot "
+        f"{data_snapshot_hash[:16]}; it promotes nothing and exists to interpret another "
+        "run. Whether that corpus is the pool the plan names is not checked here: "
+        "--examples accepts any file."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--examples", type=Path, required=True, help="qd-mutate examples.jsonl")
@@ -184,9 +203,8 @@ def main(argv: list[str] | None = None) -> int:
         # The same object the hash above was taken of.
         recipe=recipe,
         quick=True,
-        quick_reason=(
-            "a control arm on a corpus drawn from this repository rather than the pool the "
-            "plan names; it promotes nothing and exists to interpret another run"
+        quick_reason=quick_reason_for(
+            data_snapshot_hash=protocol.data_snapshot_hash, n_examples=len(examples)
         ),
         notes=(
             "tools/rung0_linear_control.py -- can a linear bag-of-n-grams find the class "
@@ -194,8 +212,8 @@ def main(argv: list[str] | None = None) -> int:
         ),
     ) as recorder:
         # `code_commit` is "<sha>-dirty" for any uncommitted change at all, so the digest
-        # of what actually executed is what pins a row. Four runners recorded it and the
-        # two that also write rows did not; this was one of them.
+        # of what actually executed is what pins a row. `RunRecorder.__enter__` has already
+        # recorded it from `entry_point`; this tool once recorded it by hand, after the fit.
         #
         # Its one existing row, 2988ac80, ran on this Mac (`device: cpu`, host Mac.lan,
         # 03:35:33Z) -- NOT on the rented box, and not alongside the learning curve, whose
@@ -203,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         # concurrent lane checked `learning_curve.sh`, which invokes `rung0_real_run.py`
         # and nothing else. The gap was real and the justification was not, which is worth
         # leaving in place: a true finding reached for the wrong reason is still a reason
-        # nobody checked        )
+        # nobody checked.
         recorder.metric("linear_control_beats_the_prior", _control_gate(
             val_acc, baseline, n=len(val_labels)
         ))

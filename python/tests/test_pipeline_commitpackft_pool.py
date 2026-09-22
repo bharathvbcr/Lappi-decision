@@ -104,6 +104,37 @@ def test_a_manifest_for_another_source_is_refused(tmp_path) -> None:
         pipeline.commitpackft_pool_rows(root, max_pairs=10)
 
 
+def test_the_row_carries_the_reason_the_run_measured(tmp_path, monkeypatch) -> None:
+    """`main` wrote one literal whatever `run` had read, so row 0c3fd775 -- the first shard
+    set built from the download -- says its corpus was "drawn from this repository alone"
+    beside a recipe pinning four commitpackft sha256s. The row now carries the reason `run`
+    returns. `run` is replaced because it loads the real tokenizer; what is under test is
+    that nothing between it and the ledger substitutes a sentence of its own."""
+    root = _download(tmp_path, {"go": 3, "python": 5})
+    ref = tmp_path / "refs-main"
+    ref.write_text("b" * 40, encoding="utf-8")
+    monkeypatch.setattr(pipeline, "MODEL_REF", ref)
+    read, _, held = pipeline.commitpackft_pool_rows(root, max_pairs=4)
+    reason = pipeline.quick_reason_for(commitpackft_rows=(len(read), held))
+
+    def measured(**_: object) -> pipeline.Measured:
+        return pipeline.Measured(
+            metrics={}, gates={}, data_snapshot_hash="d" * 64, tokenizer_hash="e" * 64,
+            notes="run replaced by the test", quick_reason=reason,
+        )
+
+    monkeypatch.setattr(pipeline, "run", measured)
+    ledger = tmp_path / "ledger.jsonl"
+    assert pipeline.main([
+        "--out", str(tmp_path / "out"), "--max-pairs", "4",
+        "--commitpackft", str(root), "--ledger", str(ledger),
+    ]) == 0
+    row = json.loads(ledger.read_text(encoding="utf-8").splitlines()[0])
+    assert row["quick"] is True
+    assert row["quick_reason"] == reason
+    assert "4-of-8 sha256-ordered sample" in row["quick_reason"]
+
+
 def test_the_real_download_matches_its_manifest() -> None:
     """The directory the plan's FT shards would be built from, checked as it is on disk.
     Skipped where it was never downloaded; never skipped where it was and has drifted."""
