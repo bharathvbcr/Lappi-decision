@@ -104,6 +104,39 @@ def test_a_manifest_for_another_source_is_refused(tmp_path) -> None:
         pipeline.commitpackft_pool_rows(root, max_pairs=10)
 
 
+def test_code_rows_reads_the_download_when_given_one(tmp_path) -> None:
+    root = _download(tmp_path, {"go": 3, "python": 5})
+    rows, capped, total = pipeline.code_rows(commitpackft=root, max_pairs=4, rev="HEAD")
+    assert (len(rows), capped, total) == (4, True, 8)
+    assert rows == pipeline.commitpackft_pool_rows(root, max_pairs=4)[0]
+
+
+def test_code_rows_without_a_download_is_this_repositorys_history(monkeypatch) -> None:
+    """``None`` for the population says it was not counted, not that it was zero."""
+    seen: dict[str, object] = {}
+
+    def history(*, max_pairs: int, rev: str) -> tuple[list[str], bool]:
+        seen.update(max_pairs=max_pairs, rev=rev)
+        return ["a row"], False
+
+    monkeypatch.setattr(pipeline, "commit_rows", history)
+    assert pipeline.code_rows(commitpackft=None, max_pairs=7, rev="abc") == (
+        ["a row"], False, None
+    )
+    assert seen == {"max_pairs": 7, "rev": "abc"}
+
+
+def test_the_ft_runner_relabels_through_the_same_function() -> None:
+    """``tools/real_ft_run.py`` rebuilt its labels with ``commit_rows`` whatever shard set
+    it was pointed at, so a set built from the download was refused -- "793 labels against
+    3364 sequences" -- with no way to run it. Pinned at the source because exercising
+    ``main`` needs a shard set on disk and a torch install; the wiring is the claim."""
+    source = (REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8")
+    assert "pipeline.code_rows(" in source
+    assert "commitpackft=args.commitpackft" in source
+    assert "pipeline.commit_rows(" not in source
+
+
 def test_the_row_carries_the_reason_the_run_measured(tmp_path, monkeypatch) -> None:
     """`main` wrote one literal whatever `run` had read, so row 0c3fd775 -- the first shard
     set built from the download -- says its corpus was "drawn from this repository alone"

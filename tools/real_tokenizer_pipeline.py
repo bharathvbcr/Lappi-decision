@@ -269,6 +269,28 @@ def commitpackft_pool_rows(
     return rows[:max_pairs], total > max_pairs, total
 
 
+def code_rows(
+    *, commitpackft: Path | None, max_pairs: int, rev: str
+) -> tuple[list[CommitPackFtRow], bool, int | None]:
+    """The code rows a build with these arguments reads -- for the builder and every reader.
+
+    ``tools/real_ft_run.py`` does not read its labels out of a shard set; it rebuilds them
+    by re-running this corpus and refuses unless the result lines up with
+    ``supervision.npz`` row for row. When ``--commitpackft`` arrived (7f23355) only this
+    tool learned it, so the FT runner kept rebuilding this repository's history over a
+    shard set built from the download. Measured on the first such set: "793 labels
+    against 3364 sequences" -- a correct refusal, and no way to run at all. One function now
+    answers "which rows" for both.
+
+    Returns the rows, whether the cap bound, and how many rows the download held -- ``None``
+    for this repository's history, whose population this function does not count.
+    """
+    if commitpackft is None:
+        rows, capped = commit_rows(max_pairs=max_pairs, rev=rev)
+        return rows, capped, None
+    return commitpackft_pool_rows(commitpackft, max_pairs=max_pairs)
+
+
 def quick_reason_for(*, commitpackft_rows: tuple[int, int] | None) -> str:
     """Why a row this tool writes is ``quick``, stated for the corpus the run actually read.
 
@@ -897,14 +919,13 @@ def run(
     )
     print(f"corpus revision: {rev} -> {resolved}")
 
-    if commitpackft is None:
-        commits, commits_capped = commit_rows(max_pairs=max_pairs, rev=resolved)
+    commits, commits_capped, pool_total = code_rows(
+        commitpackft=commitpackft, max_pairs=max_pairs, rev=resolved
+    )
+    if pool_total is None:
         code_source = f"this repository's own history at {resolved}"
         quick_reason = quick_reason_for(commitpackft_rows=None)
     else:
-        commits, commits_capped, pool_total = commitpackft_pool_rows(
-            commitpackft, max_pairs=max_pairs
-        )
         code_source = (
             f"bigcode/commitpackft from {commitpackft} ({len(commits)} of {pool_total} "
             "rows, a sha256-ordered sample; files pinned by the download's manifest), "

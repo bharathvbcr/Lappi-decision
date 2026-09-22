@@ -2143,6 +2143,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--max-pairs", type=int, default=400)
     parser.add_argument("--rev", default="0632f693d3b765b726499e7b4bf19c67959b75cb")
+    parser.add_argument(
+        "--commitpackft",
+        type=Path,
+        default=None,
+        help=(
+            "the commitpackft download the shard set was built from, exactly as passed to "
+            "tools/real_tokenizer_pipeline.py --commitpackft. The labels are rebuilt by "
+            "re-running that corpus, so without it a set built from the download is "
+            "refused: its rows are not this repository's history"
+        ),
+    )
     parser.add_argument("--epoch", action="store_true", help="also run arm 1, the real epoch")
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER_PATH)
     parser.add_argument(
@@ -2391,7 +2402,11 @@ def main(argv: list[str] | None = None) -> int:
 
     import real_tokenizer_pipeline as pipeline
 
-    commits, _ = pipeline.commit_rows(max_pairs=args.max_pairs, rev=rev)
+    # The same "which rows" the builder answered, from the same function, so a set built
+    # from the download is relabelled from the download.
+    commits, _, _ = pipeline.code_rows(
+        commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=rev
+    )
     spans, _ = pipeline.span_rows(max_rows=args.max_pairs, blank_line_runs=False, rev=rev)
     from qd_data.dedupe import dedupe
     from qd_data.mixture import build_mixture
