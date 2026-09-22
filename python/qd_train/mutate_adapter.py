@@ -70,6 +70,7 @@ same reasoning: a check with nothing to refuse is the check disabled, not the ch
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -92,7 +93,9 @@ __all__ = [
     "MalformedExample",
     "MutateExample",
     "PhantomFinalLine",
+    "SpanOutsideDiff",
     "contrastive_pairs",
+    "diff_offset_of_after_line",
     "is_void_diff",
     "mutate_total_lines",
     "pair_key",
@@ -161,6 +164,101 @@ class EmptyDiffContext(ValueError):
     the leak announcing itself, and a count of them merged into "malformed" would read
     as noise instead of as a protocol that cannot run.
     """
+
+
+class SpanOutsideDiff(ValueError):
+    """The span's line exists in ``after`` but is represented in no hunk of the diff.
+
+    Its own type rather than a :class:`MalformedExample` for the reason
+    :class:`EmptyDiffContext` has one: ``decisions_of`` counts refusals by exception name,
+    and this is not a broken row. It is a row whose change the diff summarises without
+    reproducing the line the span points at -- which happens whenever a span reaches past
+    the unified diff's context window. Counted separately so a corpus where it is common
+    reads as "this corpus cannot supervise spans in diff space" rather than as data rot.
+    """
+
+
+#: A unified-diff hunk header, new-side only. ``diffspan::unified`` emits nothing else:
+#: measured over both corpora -- 41728 and 50177 diffs -- every header matched this, every
+#: line began with one of ``@ +- `` or a space, no diff carried an empty line or a
+#: ``\ No newline at end of file`` marker, and every diff ended in a newline. The parser
+#: below is strict because that is what the data supports; a lenient one would guess.
+_HUNK_HEADER: Final[re.Pattern[bytes]] = re.compile(
+    rb"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@"
+)
+
+
+def diff_offset_of_after_line(diff: bytes, after_line: int) -> int:
+    """Byte offset in ``diff`` of the line representing ``after`` line ``after_line``.
+
+    The span head points at a line of the text the model reads. In ``after`` mode that text
+    IS the post-image, so a span line is a line of it. In diff mode the model reads the
+    unified diff, where the same source line appears as a ``+`` or context line at an
+    unrelated offset -- which is why span supervision was suppressed in diff mode rather
+    than pointed at the wrong text. This is the conversion that was missing.
+
+    Walks the new-side line counter exactly as the format defines it: a hunk header sets
+    it, ``+`` and context lines consume one each, ``-`` lines consume none because they are
+    not in ``after``. Raises :class:`SpanOutsideDiff` when no hunk represents the line, and
+    :class:`MalformedExample` on a line the format does not allow -- never a best guess,
+    because a mis-mapped span trains the pointer on a line that is merely nearby, and a
+    falling loss on a fabricated target looks exactly like learning.
+    """
+    if after_line < 1:
+        raise MalformedExample(f"after_line is 1-based, got {after_line}")
+    if not diff.strip():
+        raise EmptyDiffContext("an empty diff represents no line of the post-image")
+
+    offset = 0
+    new_line: int | None = None
+    for line in diff.split(b"\n"):
+        width = len(line) + 1  # the newline split() removed
+        lead = line[:1]
+        if lead == b"@":
+            header = _HUNK_HEADER.match(line)
+            if header is None:
+                raise MalformedExample(
+                    f"unparseable hunk header {line[:60]!r}: the new-side start is what "
+                    "positions every following line, so a header this cannot read makes "
+                    "every offset after it wrong rather than merely unknown"
+                )
+            new_line = int(header.group(1))
+        elif lead in (b"+", b" "):
+            if new_line is None:
+                raise MalformedExample(
+                    f"diff line {line[:60]!r} precedes any hunk header, so there is no "
+                    "new-side line number it could carry"
+                )
+            if new_line == after_line:
+                return offset
+            new_line += 1
+        elif lead == b"-":
+            if new_line is None:
+                raise MalformedExample(
+                    f"diff line {line[:60]!r} precedes any hunk header"
+                )
+        elif not line:
+            # Only ever the empty string after the final newline: `split` yields one, and
+            # neither corpus contains a blank line inside a diff. Anything else reaching
+            # here would be a dialect this parser has not been measured against.
+            if offset < len(diff):
+                raise MalformedExample(
+                    "a blank line inside a unified diff is ambiguous between a context "
+                    "line and a separator, and neither corpus contains one; refusing "
+                    "rather than picking a reading"
+                )
+        else:
+            raise MalformedExample(
+                f"diff line {line[:60]!r} begins with {lead!r}, which is not one of "
+                "'+', '-', ' ' or '@'. A parser that skipped it would silently shift "
+                "every line number after it"
+            )
+        offset += width
+
+    raise SpanOutsideDiff(
+        f"after line {after_line} is represented in no hunk of this diff, so there is no "
+        "line of the text the model reads for the span head to point at"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -504,12 +602,20 @@ def to_decision(
     question: bytes = DEFAULT_QUESTION,
     options: tuple[str, ...] = MUTATION_CLASSES,
     context_source: str = CONTEXT_AFTER,
+    span_in_diff: bool = False,
 ) -> ByteDecision:
     """Convert one example. Raises rather than returning a degraded decision.
 
     Truncation keeps the tail of ``after``, so a span in the dropped head is a
     :class:`SpanOutsideWindow` refusal: the span head must not be taught to point at whatever
     truncation happened to leave behind.
+
+    ``span_in_diff`` resolves the span through :func:`diff_offset_of_after_line` in diff
+    mode instead of dropping it. It is off by default, and deliberately: with it the span
+    head is supervised and its gradient reaches the trunk, so a diff run with it is a
+    different protocol from the 120-plus diff rows already in the ledger, which trained with
+    the span head given nothing. Defaulting it on would silently make those rows
+    incomparable with every row after it.
     """
     if example.mutation_class not in options:
         raise MalformedExample(
@@ -547,12 +653,21 @@ def to_decision(
 
     gold_span_line: int | None = None
     gold_span_end_line: int | None = None
-    # Span offsets are into `after`. Encoding the diff moves every byte, so the
-    # span head is given NOTHING rather than a pointer into the wrong text --
-    # a mislabelled span is worse than an absent one, and `clean` rows already
-    # travel this path with no span at all.
-    if example.span is not None and context_source == CONTEXT_AFTER:
-        full_offset = span_start_offset(source, example.span)
+    # Span offsets are into `after`. Encoding the diff moves every byte, so without
+    # `span_in_diff` the span head is given NOTHING rather than a pointer into the wrong
+    # text -- a mislabelled span is worse than an absent one, and `clean` rows already
+    # travel this path with no span at all. With it, the two ends are resolved into the
+    # diff's own byte space first and everything downstream is unchanged: the same
+    # truncation check, the same `check_span`, the same two pointers.
+    resolving_span = example.span is not None and (
+        context_source == CONTEXT_AFTER or span_in_diff
+    )
+    if resolving_span:
+        assert example.span is not None  # the condition above
+        if context_source == CONTEXT_DIFF:
+            full_offset = diff_offset_of_after_line(source, example.span.start_line)
+        else:
+            full_offset = span_start_offset(source, example.span)
         if full_offset < dropped:
             raise SpanOutsideWindow(
                 f"{example.example_id}: the span starts at byte {full_offset}, but truncation "
@@ -561,8 +676,14 @@ def to_decision(
         gold_span_line = context.check_span(full_offset - dropped)
         # The end line is inside the window whenever the start is, because truncation keeps
         # the tail -- but it is resolved rather than assumed, so a future head-keeping
-        # truncation fails here instead of mislabelling the end pointer.
-        end_offset = span_end_offset(source, example.span)
+        # truncation fails here instead of mislabelling the end pointer. In diff space it
+        # is not even assumed to be later than the start: a hunk can represent the span's
+        # last line before its first only if the diff is malformed, and resolving it
+        # separately is what would catch that rather than hide it.
+        if context_source == CONTEXT_DIFF:
+            end_offset = diff_offset_of_after_line(source, example.span.end_line)
+        else:
+            end_offset = span_end_offset(source, example.span)
         if end_offset < dropped:
             raise SpanOutsideWindow(
                 f"{example.example_id}: the span ends at byte {end_offset}, but truncation "

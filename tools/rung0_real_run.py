@@ -99,10 +99,13 @@ from qd_train.ledger import (  # noqa: E402
 )
 from qd_train.mutate_adapter import (  # noqa: E402
     CONTEXT_AFTER,
+    CONTEXT_DIFF,
     CONTEXT_SOURCES,
     MUTATION_CLASSES,
+    EmptyDiffContext,
     MalformedExample,
     PhantomFinalLine,
+    SpanOutsideDiff,
     parse_example,
     refuse_leaky_diff_corpus,
     to_decision,
@@ -335,7 +338,56 @@ def recipe_of(args: argparse.Namespace) -> dict[str, object]:
     # reads it the way `measure_operator` computes it, not from this key alone.
     if measure_operator(args) and not getattr(args, "hold_out_operator", ""):
         recipe["measure_operator"] = args.measure_operator
+    # Same omitted-at-default rule, and here it is load-bearing rather than tidy: with this
+    # set the span head has a target, so its gradient reaches the shared trunk and the
+    # choice head's number moves. A diff run with it and one without are two protocols, and
+    # writing the field unconditionally would move the hash of all 120-plus diff rows that
+    # trained with the span head given nothing.
+    if getattr(args, "span_in_diff", False):
+        recipe["span_in_diff"] = True
     return recipe
+
+
+#: The byte a unified diff marks an added line with. Named because `ids` holds byte values
+#: and a bare 43 at the comparison site is a magic number in the one place it matters.
+_PLUS: Final[int] = ord("+")
+
+
+def plus_line_chance(decisions: Sequence[object]) -> tuple[float, int, int]:
+    """What "point at a uniformly random ADDED line" scores, over the same scored rows.
+
+    The honest null for span pointing in diff space, and the reason it is needed: the
+    uniform-over-all-candidate-lines rate that ``span_pointing_chance`` computes is the
+    right null when the model reads a file, where nothing marks the changed line. In a
+    unified diff the changed line is marked with a ``+``, and both corpora average about
+    1.5 added lines per hunk -- so a policy that reads no code at all and points at an
+    added line scores on the order of 65%, against a uniform rate near 9%. Reporting a
+    pointer's accuracy only against the uniform rate would present that marker as a result.
+
+    Returns ``(chance, pointing_rows, rows_whose_gold_is_an_added_line)``. The second and
+    third are carried rather than folded in because they are different facts: a corpus
+    where the gold is often NOT an added line is one where this null is weak and the
+    uniform rate is closer to right, and that has to be visible rather than averaged away.
+    """
+    total = 0.0
+    pointing = 0
+    gold_is_added = 0
+    for d in decisions:
+        line = getattr(d, "gold_span_line", None)
+        if line is None:
+            continue
+        pointing += 1
+        context = d.context  # type: ignore[attr-defined]
+        # `ids` are byte values and `starts` index into them, which is the identity
+        # EncodedContext exists to preserve -- so the first byte of a line is ids[start]
+        # with no second mapping to keep in agreement.
+        ids, starts = context.ids, context.starts
+        added = sum(1 for s in starts if ids[s] == _PLUS)
+        if ids[starts[line]] != _PLUS:
+            continue
+        gold_is_added += 1
+        total += 1.0 / added  # at least 1: the gold line itself is one
+    return (total / pointing if pointing else 0.0), pointing, gold_is_added
 
 
 def operator_and_sibling_rows(
@@ -385,6 +437,7 @@ def decisions_of(
     *,
     config: ByteDeciderConfig,
     context_source: str = CONTEXT_AFTER,
+    span_in_diff: bool = False,
 ) -> tuple[list, dict[str, int], list[str], list[str]]:
     """Parse and convert, counting every refusal by kind rather than dropping quietly.
 
@@ -413,8 +466,22 @@ def decisions_of(
                 parse_example(obj),
                 max_context_bytes=config.max_context_bytes,
                 context_source=context_source,
+                span_in_diff=span_in_diff,
             )
-        except (MalformedExample, PhantomFinalLine, SpanOutsideWindow) as exc:
+        # `EmptyDiffContext` and `SpanOutsideDiff` belong here for the reason
+        # `EmptyDiffContext`'s own docstring gives -- "decisions_of counts refusals by
+        # exception name and these two must not share a line" -- and neither was in this
+        # tuple, so a corpus with SOME void diffs, which the perfectly-separable pre-flight
+        # passes, killed the run with an uncaught exception instead of counting the rows it
+        # could not use. A refusal that crashes is not the same as a refusal that is
+        # counted, and only the second leaves a number in the row.
+        except (
+            EmptyDiffContext,
+            MalformedExample,
+            PhantomFinalLine,
+            SpanOutsideDiff,
+            SpanOutsideWindow,
+        ) as exc:
             name = type(exc).__name__
             refused[name] = refused.get(name, 0) + 1
             continue
@@ -1491,6 +1558,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--span-in-diff",
+        action="store_true",
+        help=(
+            "supervise the span head in --context-source diff by resolving each span into "
+            "the diff's own byte space, instead of giving the head nothing. Span offsets "
+            "are into `after`, and encoding the diff moves every byte, so without this "
+            "there is NO mode in which both heads are supervised: after mode has a choice "
+            "task where 54%% of the corpus shows no evidence a change happened, and diff "
+            "mode has a span head with no target -- which is what 'span NOT MEASURED (all "
+            "N scored rows abstain)' has been reporting. Verified before it was wired: "
+            "over both corpora, 83456 of 83456 span endpoints resolve to the exact source "
+            "line, none mismatched and none outside a hunk. Off by default because the "
+            "span gradient reaches the trunk, so a run with it is a different protocol "
+            "from the diff rows already in the ledger"
+        ),
+    )
+    parser.add_argument(
         "--control-cache",
         type=Path,
         default=None,
@@ -1678,11 +1762,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"dropped at random (seed {args.drop_random_seed})"
         )
 
+    if args.span_in_diff and args.context_source != CONTEXT_DIFF:
+        raise SystemExit(
+            "--span-in-diff has no effect outside --context-source diff: in after mode the "
+            "span already points into the text the model reads. Refusing rather than "
+            "ignoring it, because a recipe would otherwise record a protocol change that "
+            "did not happen and the row would be incomparable with identical runs."
+        )
     train_d, train_refused, train_paths_of, _ = decisions_of(
-        train_raw, config=config, context_source=args.context_source
+        train_raw,
+        config=config,
+        context_source=args.context_source,
+        span_in_diff=args.span_in_diff,
     )
     val_d, val_refused, _, val_operators = decisions_of(
-        val_raw, config=config, context_source=args.context_source
+        val_raw,
+        config=config,
+        context_source=args.context_source,
+        span_in_diff=args.span_in_diff,
     )
     print(f"  decisions: {len(train_d)} train (refused {train_refused or 'none'}), "
           f"{len(val_d)} val (refused {val_refused or 'none'})")
@@ -1694,6 +1791,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     # order -- and paired back by object identity, because a second sort here would be the
     # copy its docstring warns about and would silently score predictions against another
     # example's answer.
+    # The added-line null, over exactly the rows `evaluate` scores: `bucketed_chunks` is
+    # the one implementation of that order, and `bucketed_batches` drops a trailing
+    # one-row chunk -- so computing this over `val_d` would average a null over rows the
+    # model was never scored on and report it as the same quantity.
+    added_chance, added_pointing, added_gold = plus_line_chance(
+        [d for chunk in bucketed_chunks(val_d, batch_size=args.batch_size) for d in chunk]
+    )
+    if added_pointing:
+        print(
+            f"  added-line null: {added_chance:.1%} over {added_pointing} pointing row(s) "
+            f"({added_gold} whose gold is an added line) -- what a pointer that reads no "
+            "code scores by aiming at a '+' line"
+        )
+
     scored_operators: list[str] | None = None
     measured = measure_operator(args)
     if measured:
@@ -2125,6 +2236,34 @@ def main(argv: Sequence[str] | None = None) -> int:
                     baseline_name="uniform-pointer chance over the candidate line starts",
                 )
                 if pointing_n
+                else no_pointers,
+            )
+            # Beside the two gates above and never instead of them, because rule 2 makes
+            # their baseline read-only. But the uniform rate those gates use is the right
+            # null only when nothing marks the changed line, and in a unified diff a `+`
+            # does: both corpora average about 1.5 added lines per hunk, so a policy that
+            # reads no code and points at an added line scores far above uniform. A pointer
+            # reported against the uniform rate alone would present that marker as a result.
+            recorder.metric(
+                "val_span_pointing_added_line_chance",
+                Ran(
+                    passed=True,
+                    value=added_chance,
+                    n=added_gold,
+                    n_total=added_pointing,
+                    detail=(
+                        f"what 'point at a uniformly random ADDED line' scores on the same "
+                        f"{added_pointing} pointing row(s): {added_chance:.2%}, against the "
+                        f"uniform-over-all-candidates rate of "
+                        f"{float(after['span_pointing_chance']):.2%} the gates above use. "  # type: ignore[index]
+                        f"{added_gold} of those rows have a gold that IS an added line; on "
+                        "the rest this null scores zero, so a corpus where the gold is "
+                        "usually not an added line makes this null weak and the uniform "
+                        "rate closer to right. Read the pointer's accuracy against the "
+                        "LARGER of the two."
+                    ),
+                )
+                if added_pointing
                 else no_pointers,
             )
             recorder.metric(

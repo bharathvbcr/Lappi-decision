@@ -769,6 +769,7 @@ def _args_for(**over) -> argparse.Namespace:
         "drop_random_train": 0,
         "drop_random_seed": 0,
         "measure_operator": "",
+        "span_in_diff": False,
     }
     base.update(over)
     return argparse.Namespace(**base)
@@ -925,6 +926,79 @@ def test_naming_the_measured_operator_two_ways_gives_one_hash() -> None:
     assert control["measure_operator"] == "stub.panic", (
         "on the control arm it is the only record of which rows the number describes"
     )
+
+
+def test_a_void_diff_row_is_counted_as_a_refusal_rather_than_killing_the_run() -> None:
+    """`EmptyDiffContext`'s own docstring says `decisions_of` counts refusals by exception
+    name and that it must not share a line with `MalformedExample` -- but it was in no
+    catch tuple, so it propagated.
+
+    The corpus pre-flight only refuses a PERFECTLY SEPARABLE corpus, so a corpus with some
+    void diffs and some clean rows with real ones passes it and then met this. A refusal
+    that crashes is not the same as a refusal that is counted, and only the second leaves
+    the number in the row.
+    """
+    from qd_train.byte_decider import ByteDeciderConfig
+
+    body = "".join(f"line {i}\n" for i in range(6))
+    void = {
+        "id": "void", "function": {"repo": "r", "path": "v.py", "symbol": "f", "arity": 1},
+        "language": "python", "class": "logic", "operator": "logic.off_by_one",
+        "after": body, "diff": "", "span": {"start_line": 2, "end_line": 2},
+        "silent": False, "hunk_constrained": False, "seed": 1,
+    }
+    good = {
+        "id": "good", "function": {"repo": "r", "path": "g.py", "symbol": "g", "arity": 1},
+        "language": "python", "class": "logic", "operator": "logic.off_by_one",
+        "after": body, "diff": "@@ -1,2 +1,2 @@\n-line 1\n+line 1x\n",
+        "span": {"start_line": 2, "end_line": 2},
+        "silent": False, "hunk_constrained": False, "seed": 2,
+    }
+    decisions, refused, _, _ = tool.decisions_of(
+        [void, good], config=ByteDeciderConfig(max_context_bytes=512), context_source="diff"
+    )
+    assert len(decisions) == 1, "the usable row survives"
+    assert refused == {"EmptyDiffContext": 1}, (
+        "counted under its own name, not merged into MalformedExample: one is a statement "
+        "about the corpus and the other about a single row"
+    )
+
+
+def test_a_span_outside_every_hunk_is_counted_rather_than_killing_the_run() -> None:
+    """Same tuple, same reason. With --span-in-diff a span the diff does not reproduce is a
+    row that cannot supervise the pointer; dropping and counting it keeps the run alive and
+    keeps the number visible."""
+    from qd_train.byte_decider import ByteDeciderConfig
+
+    body = "".join(f"line {i}\n" for i in range(9))
+    outside = {
+        "id": "outside", "function": {"repo": "r", "path": "o.py", "symbol": "f", "arity": 1},
+        "language": "python", "class": "logic", "operator": "logic.off_by_one",
+        "after": body, "diff": "@@ -7,2 +7,2 @@\n-line 6\n+line 6x\n",
+        "span": {"start_line": 1, "end_line": 1},
+        "silent": False, "hunk_constrained": False, "seed": 1,
+    }
+    decisions, refused, _, _ = tool.decisions_of(
+        [outside],
+        config=ByteDeciderConfig(max_context_bytes=512),
+        context_source="diff",
+        span_in_diff=True,
+    )
+    assert decisions == []
+    assert refused == {"SpanOutsideDiff": 1}
+
+
+def test_supervising_the_span_in_diff_mode_is_a_different_protocol() -> None:
+    """The span gradient reaches the shared trunk, so the choice head's number moves too.
+    A diff run with it and one without are two protocols and must not hash alike -- and a
+    run that never set it must hash exactly as the 120-plus diff rows already recorded."""
+    plain = tool.recipe_of(_args_for(context_source="diff"))
+    supervised = tool.recipe_of(_args_for(context_source="diff", span_in_diff=True))
+    assert "span_in_diff" not in plain, (
+        "omitted at default, or every diff row written before this existed moves"
+    )
+    assert supervised["span_in_diff"] is True
+    assert _hash_of(plain) != _hash_of(supervised)
 
 
 def test_measuring_an_operator_does_not_move_a_recipe_that_never_named_one() -> None:
