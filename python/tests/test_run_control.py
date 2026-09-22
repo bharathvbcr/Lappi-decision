@@ -11,6 +11,7 @@ import json
 import math
 import os
 import pickle
+import signal
 import struct
 import subprocess
 import sys
@@ -732,6 +733,76 @@ def test_the_default_terminate_action_escalates_and_is_bounded():
     assert "os._exit" in src, "rung 3: for a process that ignores SIGTERM"
     assert src.count("time.sleep(TERMINATE_GRACE_S)") == 2, "every wait between rungs is bounded"
     assert CAP_EXIT_CODE == 124, "the GNU timeout convention, and deliberately not 3 (NotRun)"
+
+
+#: A throwaway process for the two rungs the source-level test above cannot run, because
+#: running them means killing the process under test. It arms the REAL watchdog through
+#: RunControl with the default terminate action and then blocks its main thread inside a C
+#: call -- a read on a pipe nothing ever writes -- which is exactly the state rung 1's
+#: interrupt cannot reach: `interrupt_main` schedules a handler for the next bytecode
+#: boundary and sends no signal, so a thread parked in `read(2)` never sees it. The grace is
+#: shortened from 30s so the test finishes in seconds; the ladder's order and the waits
+#: between rungs are otherwise the shipped ones.
+_LADDER_CHILD = """\
+import os, signal, sys
+import qd_train.run_control as rc
+rc.TERMINATE_GRACE_S = 0.5
+if sys.argv[1] == "ignore-sigterm":
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+cap = rc.WallClockCap(cap_s=0.2)
+ctl = rc.RunControl(
+    schedule=rc.LRSchedule(peak_lr=1e-3, total_steps=10),
+    cap=cap,
+    cost=rc.CostEstimate(usd_per_hour=0.5, cap=cap, n_gpus=1, instance="test-1xA10"),
+    auto_terminate=rc.hard_exit_on_cap,
+)
+ctl.start()
+r, _w = os.pipe()
+print("BLOCKED", flush=True)
+os.read(r, 1)
+print("UNREACHABLE", flush=True)
+"""
+
+
+def _run_ladder_child(tmp_path: Path, mode: str) -> subprocess.CompletedProcess[str]:
+    script = tmp_path / "ladder_child.py"
+    script.write_text(_LADDER_CHILD, encoding="utf-8")
+    # The command is the interpreter running this test, on a temp file it just wrote.
+    return subprocess.run(
+        [sys.executable, str(script), mode],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**os.environ, "PYTHONPATH": str(PYTHON_ROOT), "PYTHONDONTWRITEBYTECODE": "1"},
+        check=False,
+    )
+
+
+def test_rung_two_sigterm_ends_a_main_thread_blocked_in_a_c_call(tmp_path):
+    """Rung 2, run rather than read. HANDOFF/costctl-2026-09-20.md reported rungs 2 and 3
+    NOT RUN and asked for "one deliberate manual exercise against a throwaway process
+    before the rental"; this is that exercise, made repeatable."""
+    proc = _run_ladder_child(tmp_path, "default")
+    assert "BLOCKED" in proc.stdout, f"the child never reached its blocking call: {proc}"
+    assert "UNREACHABLE" not in proc.stdout, "the read returned, so nothing was blocked"
+    assert "still alive after the interrupt; SIGTERM" in proc.stderr, proc.stderr
+    assert proc.returncode == -signal.SIGTERM, (
+        f"expected death by SIGTERM (rung 2), got returncode {proc.returncode}: "
+        f"{proc.stderr}"
+    )
+    assert "exiting 124" not in proc.stderr, "rung 3 ran, so rung 2 did not end it"
+
+
+def test_rung_three_exits_124_when_sigterm_is_ignored(tmp_path):
+    """Rung 3: a process that swallows SIGTERM still stops billing, with the GNU timeout
+    convention's status so a wrapper script reads it without being taught a new number."""
+    proc = _run_ladder_child(tmp_path, "ignore-sigterm")
+    assert "BLOCKED" in proc.stdout, f"the child never reached its blocking call: {proc}"
+    assert "UNREACHABLE" not in proc.stdout
+    assert "still alive after SIGTERM; exiting 124 without unwinding" in proc.stderr, (
+        proc.stderr
+    )
+    assert proc.returncode == CAP_EXIT_CODE == 124, (proc.returncode, proc.stderr)
 
 
 def test_grad_accum_is_bounded():
