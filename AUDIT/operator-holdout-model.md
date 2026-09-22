@@ -175,14 +175,35 @@ rows. That is not a loss and must never be read as one. It means no control was 
 those arms' reduced training sets, so the model had no opponent at all.
 
 This is the one number that could still overturn the headline. Under holdout the control
-collapses to 3.08% on `stub.panic` while the model holds 15.44%. Those two come from
-different tools on different splits and **cannot be subtracted**. A control fitted on the
-arm's own training set and scored on its own validation rows would make the comparison real,
-and it would be the first configuration in this project where rung 0 wins.
+collapses on `stub.panic` while the model holds 15.44%. A control fitted on the arm's own
+training set and scored on its own validation rows is what makes the comparison real, and it
+would be the first configuration in this project where rung 0 wins.
 
-`tools/fit_operator_holdout_controls.sh` exists to fit them. It is not cheap and it does not
-finish the job on its own — see `HANDOFF/rung0-control-2026-09-22.md` for the measured cost
-and the reason the 72 rows above can never gain margins retroactively.
+**The fits are now done.** `tools/fit_operator_holdout_controls.sh` ran on 2026-09-22 —
+seven fits, 204.2s to 351.7s each, 2,190.4s total (36.5 minutes, ~$0.91). Every one
+converged; all seven verdicts are in `/home/ubuntu/control-cache`. Overall control accuracy
+on the same 12,792 validation rows:
+
+| training set | control overall | model overall (from the table above) |
+| --- | --- | --- |
+| full | 88.5% | 80.57% / 80.60% / 80.39% (the three reference arms) |
+| holdout `stub.panic` | 50.0% | 51.74% |
+| sizematch `stub.panic` | 88.6% | 78.92% |
+| holdout `logic.change_constant` | 80.2% | 71.48% |
+| sizematch `logic.change_constant` | 88.5% | 81.36% |
+| holdout `cosmetic.rename_local` | 82.9% | 76.70% |
+| sizematch `cosmetic.rename_local` | 88.6% | 80.64% |
+
+**Do not read the right-hand column as a margin.** Those are two columns from two tools;
+`paired_margin_vs_linear` is a per-seed paired statistic and only the runner computes it.
+The `holdout stub.panic` row is the one to watch — 51.74% against 50.0% is the first time
+the model's number has been the larger one — but it is a difference of means across tools,
+not a measured margin, and it is well inside the seed spread (±2.07).
+
+Getting the real number needs the arms **re-run**, because `rung0_real_run.py` reads the
+cache once before its seed loop and records `not_run` on a miss; it never fits inline. The
+72 rows above are final and can never gain margins retroactively. See
+`HANDOFF/rung0-control-2026-09-22.md` for the exact command.
 
 ## Gaps this leaves open
 
@@ -190,8 +211,9 @@ and the reason the 72 rows above can never gain margins retroactively.
   measured here, being addressed by the span-in-diff arms.
 - `GAP-CODE-COMMIT-DIRTY-DOES-NOT-PIN-WHAT-RAN` — `code_commit` on these rows is a dirty
   sha from an older commit; `recipe.rev` is what pins the launch.
-- `GAP-CONTROL-CACHE-GOES-COLD-ON-ANY-BASELINE-EDIT` — why the 48 margins above cost ~15
-  hours of CPU plus a re-run of the arms, and why the digest that makes them cost that
-  must not be weakened to make them cheaper.
+- `GAP-CONTROL-CACHE-GOES-COLD-ON-ANY-BASELINE-EDIT` — why the cache had to be rebuilt at
+  all, and why the digest that forces it must not be weakened. The rebuild turned out to
+  cost 36.5 minutes, not the ~15 hours first recorded there: that figure came from
+  `projected_fit_seconds`, which prices `max_iter` iterations and overshot by 17.6×.
 - `GAP-THE-CONTROL-CLASSIFIES-BY-GENERATOR-NOT-BY-CHANGE` — moved to
   `resolved-with-residual` by this experiment; the residual is those 48 margins.

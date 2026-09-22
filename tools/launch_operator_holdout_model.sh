@@ -45,12 +45,17 @@
 #
 # That used to be a statement about capability -- "fit_linear_control.py has no holdout
 # flags" -- and stopped being true: it takes --hold-out-operator and --drop-random-train,
-# and tools/fit_operator_holdout_controls.sh drives it over all nine training sets. What
-# remains true is the cost. Measured 2026-09-22, one fit projects to 101.4 minutes and
-# saturates all 64 cores, so nine is ~15 hours of the box; and warming the cache does not
-# backfill rows already written, because rung0_real_run.py reads the cache once before its
-# seed loop and never fits inline. Margins on these arms therefore cost the fits AND a
-# re-run of the arms. See that script's header.
+# and tools/fit_operator_holdout_controls.sh drives it over every training set these arms
+# use.
+#
+# The cost is small, measured 2026-09-22: seven fits, 204.2s to 351.7s each, 2190.4s in
+# total -- 36.5 minutes, about $0.91. (An earlier note here said ~15 hours by quoting
+# `projected_fit_seconds`, which prices max_iter iterations; the fits converge in ~440 and
+# the projection overshoots by 17.6x. Never quote that projection as a cost.)
+#
+# What the fits do NOT do is backfill rows already written: rung0_real_run.py reads the
+# cache once before its seed loop and never fits inline. Margins on arms that already ran
+# therefore cost the fits AND a re-run of the arms. See that script's header.
 set -uo pipefail
 
 PY=/home/ubuntu/qd-venv/bin/python

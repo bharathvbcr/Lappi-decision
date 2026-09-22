@@ -72,14 +72,24 @@ def fit_budget_refusal(projected_s: float, max_fit_minutes: float | None) -> str
     been launched, so the wasted hour leaves no trace distinguishing it from doing nothing.
 
     That already happened once in this repository -- 5fd0ea8, *"The linear control could
-    not finish inside the cap it was launched under"* -- and it happened again on
-    2026-09-22 when ``fit_operator_holdout_controls.sh`` wrapped a 101.4-minute projection
-    in ``timeout 3600``. Nine fits were queued that way; every one of them was unrunnable
-    before the first byte was read, and the script's own header claimed the opposite.
+    not finish inside the cap it was launched under"*.
 
     So the projection becomes a precondition rather than a progress message. Refusing
     costs the caller nothing it would otherwise have had, and it turns a silent hour into
     an immediate, legible error naming both numbers.
+
+    **The projection is a worst-case bound, and the cap must be read against it as one.**
+    ``projected_fit_seconds`` prices ``max_iter`` iterations. The optimiser stops at ``tol``
+    instead, usually far earlier: measured 2026-09-22 on 37,385 training documents, the
+    projection was 101.4 minutes and the fit converged in 443 iterations and **345.7s** --
+    an overshoot of 17.6x. Six sibling fits landed between 204.2s and 351.7s against the
+    same projection.
+
+    Two things follow, and the second is easy to get backwards. A cap must be set above the
+    PROJECTION, not above observed times, or this refuses fits that would have finished
+    comfortably -- a 60-minute cap would reject a six-minute fit. And a projection must
+    never be quoted as a cost: doing that turned a $0.91 job into a documented $22 one and
+    routed it to a human as a spending decision it did not need to be.
 
     ``None`` for ``max_fit_minutes`` means the caller accepts any duration, which is the
     right default for an interactive fit that owns its own terminal.
