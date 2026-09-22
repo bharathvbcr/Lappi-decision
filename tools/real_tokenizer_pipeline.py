@@ -1225,7 +1225,10 @@ def run(
         "remap_vocabulary": Ran(
             passed=True, value=remap.vocab_size, n=remap.vocab_size,
             n_total=remap.source_vocab_size,
-            detail=f"counted over {len(cen.ids)} tokenized sequence(s)",
+            detail=(
+                f"counted over {len(remap_ids)} tokenized sequence(s), "
+                f"{'train and val' if val_shards else 'train only'}"
+            ),
         ),
         "remap_covers_val_rows": unseen["val"],
         "remap_covers_heldout_rows": unseen[HELD_OUT],

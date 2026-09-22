@@ -49,6 +49,10 @@ def test_the_val_split_is_written_under_the_remap_the_train_split_uses(tmp_path)
     assert coverage.passed and coverage.n == coverage.n_total and coverage.n_total > 0
     # Built over val, so a count of val's coverage would measure nothing -- and says so.
     assert isinstance(measured.metrics["remap_covers_val_rows"], NotRun)
+    # And the vocabulary says what it was counted over. Row 74dfe7b1 read "counted over
+    # 3364 tokenized sequence(s)" -- the train count -- for a remap counted over 3548.
+    vocabulary = measured.metrics["remap_vocabulary"]
+    assert isinstance(vocabulary, Ran) and vocabulary.detail.endswith("train and val")
     held_out = measured.metrics["remap_covers_heldout_rows"]
     assert isinstance(held_out, Ran) and "train and val remap kept" in held_out.detail
 
