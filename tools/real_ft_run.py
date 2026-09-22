@@ -172,6 +172,7 @@ from qd_train.ledger import (
 from qd_train.power import resolution_state
 from qd_train.run_control import CostEstimate, LRSchedule, RunControl, WallClockCap
 from qd_train.shards import (
+    HEADER_NAME,
     ShardReader,
     UnencodableGold,
     answer_letter,
@@ -2059,6 +2060,204 @@ def _record_verdict(run: dict[str, object], *, ledger: Ledger, reader: ShardRead
     return recorder.row.row_id
 
 
+# --- scoring on rows the model did not train on ----------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class ValSet:
+    """The val shard set, relabelled and batched, ready for :func:`_decode`.
+
+    GAP-RUNG3-NOTHING-SCORES-A-TRAINED-MODEL-ON-ROWS-IT-DID-NOT-TRAIN-ON: every number this
+    tool wrote was about rows the model trained on. ``real_tokenizer_pipeline.py
+    --val-shards`` writes the val split under the train set's remap; this is what reads it.
+    """
+
+    reader: ShardReader
+    labels: list[Label]
+    plan: list[Batch]
+    labels_for: dict[int, list[Label]]
+    letter_id: dict[str, int]
+
+
+def merge_letter_ids(train: dict[str, int], val: dict[str, int]) -> dict[str, int]:
+    """One ``letter -> id`` map over both sets, or a refusal.
+
+    Each map is read off its own shard set by correspondence, so a letter only ever used
+    as a gold in one set is known only there -- and a val row whose options include it
+    still has to be decoded. Both sets share one remap, so a letter that reads as two ids,
+    or two letters as one id, means the sets disagree about which sequence is which row.
+    """
+    merged = dict(train)
+    for letter, token in val.items():
+        if merged.setdefault(letter, token) != token:
+            raise SystemExit(
+                f"letter {letter!r} is token {merged[letter]} in the train set and {token} "
+                "in the val set, which share one remap. One of the two relabellings is on "
+                "the wrong sequences."
+            )
+    doubled = {t for t, n in collections.Counter(merged.values()).items() if n > 1}
+    if doubled:
+        raise SystemExit(f"two letters share a token id across train and val: {sorted(doubled)}")
+    return merged
+
+
+def open_val_set(
+    out: Path, *, config: DataConfig, rev: str, rows: list[DataRow], train: ShardReader,
+    letter_id: dict[str, int],
+) -> ValSet:
+    """Read, relabel and batch the val shard set, refusing anything that would misscore it.
+
+    Every refusal is decided here, before a tower loads: a val set written under another
+    remap indexes different embedding rows for the same ids, a relabelling that disagrees
+    with ``supervision.npz`` puts every label on the wrong sequence (``_inventory``), and
+    an option letter no set ever used as a gold has no id to decode it with.
+    """
+    val_dir = out / "shards" / "val"
+    if not (val_dir / HEADER_NAME).exists():
+        raise SystemExit(
+            f"--score-val found no val shard set at {val_dir}. Build one with "
+            "tools/real_tokenizer_pipeline.py --val-shards, which also builds the remap over "
+            "the val rows -- a set scored under a remap that dropped their tokens cannot be "
+            "written at all (GAP-REMAP-CANNOT-ENCODE-THE-ROWS-IT-WAS-NOT-BUILT-FROM)."
+        )
+    reader = ShardReader(val_dir, config=config, repo_root=out, expect_rev=rev)
+    if reader.header.remap_hash != train.header.remap_hash:
+        raise SystemExit(
+            f"the val set's remap {reader.header.remap_hash[:16]} is not the train set's "
+            f"{train.header.remap_hash[:16]}: the same id would name a different embedding "
+            "row in the model being scored"
+        )
+    labels, excluded = _labels(rows, config=config)
+    _inventory(reader, labels, excluded)
+    merged = merge_letter_ids(letter_id, _letter_ids(reader, labels))
+    unknown = sorted(
+        {x for label in labels if label.slot_kind != SLOT_SPAN for x in label.letters}
+        - set(merged)
+    )
+    if unknown:
+        raise SystemExit(
+            f"val rows offer letter(s) {unknown} that no train or val row uses as its gold, "
+            "so their token ids cannot be read off either set and those rows cannot be "
+            "decoded the way answer.rs decodes them"
+        )
+    plan = list(
+        reader.batches(batch_tokens=int(max(reader.header.buckets)), seed=config.seed, epoch=0)
+    )
+    return ValSet(
+        reader=reader,
+        labels=labels,
+        plan=plan,
+        labels_for=_labels_by_batch(reader, plan, labels, config=config),
+        letter_id=merged,
+    )
+
+
+def score_states(scored: dict[str, object], labels: list[Label]) -> dict[str, TriState]:
+    """Per slot kind: the decoded top-1 against the best answer that ignores the input.
+
+    ``scored`` is :func:`_decode`'s output over the val plan. For ``choice`` and ``score``
+    the baseline is the val set's most common gold letter; for ``span`` it is abstaining on
+    every row, the only constant a pointer can answer. ``passed`` is the model above that
+    baseline. Val's OWN majority is the stricter reading -- the model never saw these labels,
+    and a constant tuned to them is the best a constant can do.
+    """
+    by_kind = scored["by_kind"]
+    if not isinstance(by_kind, dict):  # pragma: no cover - _decode's own shape
+        raise TypeError("scored['by_kind'] is not a mapping")
+    states: dict[str, TriState] = {}
+    for kind_id, kind in sorted(KIND_NAMES.items()):
+        bucket = by_kind.get(kind)
+        name = f"val_top1.{kind}"
+        if not bucket or not int(bucket["n"]):
+            states[name] = NotRun(reason=f"the val set holds no {kind} row to score")
+            continue
+        n, correct = int(bucket["n"]), int(bucket["correct"])
+        if kind_id == SLOT_SPAN:
+            base_n = int(bucket["abstaining"])
+            base_what = "abstaining on every row"
+        else:
+            golds = collections.Counter(
+                label.gold_letter for label in labels if label.slot_kind == kind_id
+            )
+            letter, base_n = golds.most_common(1)[0]
+            base_what = f"answering {letter!r} on every row, the val set's most common gold"
+        states[name] = Ran(
+            passed=correct > base_n,
+            value=correct / n,
+            n=correct,
+            n_total=n,
+            detail=(
+                f"{correct} of {n} val {kind} rows ({correct / n:.1%}) decoded to the gold "
+                f"the way answer.rs decodes a {'pointer' if kind_id == SLOT_SPAN else 'Letters'}"
+                f" query, on rows this model never trained on; {base_what} scores {base_n} "
+                f"of {n} ({base_n / n:.1%}), a gap of {(correct - base_n) / n:+.1%}"
+            ),
+        )
+    return states
+
+
+def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: Ledger,
+                  reader: ShardReader, val: ValSet, quick_reason: str, decode_s: float) -> str:
+    """One ``eval`` row per epoch run: what its model does on the val set.
+
+    Pinned to the TRAIN set's protocol, like the verdict row, so the rows of one
+    configuration group by seed; the val set is named in the recipe by its shard hash.
+    """
+    recipe: dict[str, object] = {
+        "tool": "tools/real_ft_run.py", "tag": f"{run['tag']}-score-val",
+        "device": run["device"],
+        **{k: run[k] for k in BACKBONE_KEYS if k in run},
+        "shard_hash": reader.header.shard_hash(),
+        "val_shard_hash": val.reader.header.shard_hash(),
+    }
+    recorder = _recorder(
+        ledger, reader=reader, seed=int(run["seed"]), recipe=recipe, run_kind="eval",
+        quick_reason=quick_reason,
+        # The decode, not the training run: see _record_verdict.
+        wall_clock_s=decode_s,
+        cost=run["cost"],  # type: ignore[arg-type]
+        notes=(
+            f"tools/real_ft_run.py --score-val for ft row {run['ft_row_id']} "
+            f"({run['device']} seed={run['seed']}): the epoch model decoded on "
+            f"{len(val.reader)} val sequences it never trained on, the way "
+            "crates/qd-runtime/src/answer.rs decodes them."
+        ),
+    )
+    with recorder:
+        recorder.metric(
+            "ft_run_row_id",
+            Ran(passed=True, value=run["ft_row_id"], detail="the train_ft row whose model this is"),
+        )
+        for name, state in score_states(scored, val.labels).items():
+            recorder.metric(name, state)
+        decoded_abstain = sum(
+            1 for v in scored["verdicts"]  # type: ignore[union-attr]
+            if str(v["runtime_verdict"]) == "abstain"
+        )
+        rows = len(scored["verdicts"])  # type: ignore[arg-type]
+        recorder.metric(
+            "val_decoded_as_abstain",
+            Ran(
+                passed=True, value=decoded_abstain, n=decoded_abstain, n_total=rows,
+                detail=(
+                    "val rows whose runtime verdict was the abstention, over every kind. A "
+                    "count, not the gate: the letter channel supervises no abstention"
+                ),
+            ),
+        )
+        recorder.metric("val_shard_coverage", val.reader.coverage)
+        recorder.noul_rate = NotRun(
+            reason=(
+                "this corpus supervises no letter-channel abstention, so an abstain rate "
+                "over its val rows would describe the corpus, not the model; the decoded "
+                "count is recorded as val_decoded_as_abstain"
+            )
+        )
+    if recorder.row is None:  # pragma: no cover - RunRecorder always writes on exit
+        raise RuntimeError("RunRecorder exited without writing a row")
+    return recorder.row.row_id
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, help="the pipeline's --out directory")
@@ -2155,6 +2354,17 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--epoch", action="store_true", help="also run arm 1, the real epoch")
+    parser.add_argument(
+        "--score-val",
+        action="store_true",
+        help=(
+            "after each seed's epoch arm, score that model on the val shard set the "
+            "pipeline wrote with --val-shards (shards/val), decoding every row the way "
+            "crates/qd-runtime/src/answer.rs does, and write one eval row per seed. Needs "
+            "--epoch: the memorisation arm trains on a subset, and a val number is about "
+            "the model that saw the whole train split once"
+        ),
+    )
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER_PATH)
     parser.add_argument(
         "--optimizer",
@@ -2351,6 +2561,12 @@ def main(argv: list[str] | None = None) -> int:
             f"--span-weight must be positive, got {args.span_weight}; zero would train the "
             "span head on nothing while its loss still appeared in the log"
         )
+    if args.score_val and not args.epoch:
+        raise SystemExit(
+            "--score-val scores the epoch arm's model and --epoch was not passed, so there "
+            "would be nothing to score. The memorisation arm trains on a subset of the "
+            "train split and is not the model a val number is about."
+        )
 
     if args.probe:
         return _run_probe(args.probe)
@@ -2424,6 +2640,19 @@ def main(argv: list[str] | None = None) -> int:
     inventory = _inventory(reader, labels, excluded)
     inventory["contradictions"] = _contradictions(reader, labels)
     letter_id = _letter_ids(reader, labels)
+    # Opened before any tower loads, so every way it could misscore is refused on argv's
+    # time rather than after an epoch has been paid for.
+    val_set: ValSet | None = None
+    if args.score_val:
+        val_set = open_val_set(
+            args.out, config=config, rev=rev,
+            rows=list(split_report.rows_by_split.get("val", ())),
+            train=reader, letter_id=letter_id,
+        )
+        print(
+            f"val set: {len(val_set.reader)} sequences in {len(val_set.plan)} batches, "
+            f"remap {val_set.reader.header.remap_hash[:16]} (the train set's)"
+        )
     batch_tokens = int(max(reader.header.buckets))
     batch_info = _batch_inventory(reader, batch_tokens=batch_tokens, seed=config.seed)
 
@@ -2704,7 +2933,18 @@ def main(argv: list[str] | None = None) -> int:
                     approved_by=args.approved_by,
                     tag="epoch", quick_reason=quick_epoch,
                 )
-                run.pop("_step")
+                step = run.pop("_step")
+                if val_set is not None:
+                    decode_at = time.monotonic()
+                    scored = _decode(step, val_set.plan, val_set.labels_for, val_set.letter_id)
+                    decode_s = time.monotonic() - decode_at
+                    run["score_row_id"] = _record_score(
+                        run, scored, ledger=ledger, reader=reader, val=val_set,
+                        quick_reason=quick_epoch, decode_s=decode_s,
+                    )
+                    for name, state in score_states(scored, val_set.labels).items():
+                        print(f"  {device} seed={seed} {name}: {json.dumps(state.to_json())[:300]}")
+                    print(f"  score row {run['score_row_id']}")
                 report["arm1"].append(run)  # type: ignore[union-attr]
                 print(
                     f"arm1 {device} seed={seed}: {run['micro_batches']} batches, "

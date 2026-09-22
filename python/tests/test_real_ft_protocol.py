@@ -740,9 +740,23 @@ def test_both_row_kinds_record_what_ran() -> None:
         "the shared recorder does not hand over its entry point, so neither row kind "
         "records what produced it"
     )
-    # Both row kinds reach that one site: the ft row and the verdict row.
-    assert len(re.findall(r"=\s*_recorder\(", source)) == 2, (
-        "expected the ft row and the verdict row to both come from _recorder"
+    # Every row kind reaches that one site: the ft row, its verdict row, and the eval row
+    # --score-val writes. Named rather than counted: a count of 2 went stale the moment a
+    # third kind was added through the SAME door, and a count cannot tell a moved site from
+    # a new one.
+    import ast
+
+    writers = {
+        fn.name
+        for fn in ast.walk(ast.parse(source))
+        if isinstance(fn, ast.FunctionDef)
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_recorder"
+    }
+    assert writers == {"_train", "_record_verdict", "_record_score"}, (
+        f"expected the ft, verdict and eval rows to come from _recorder, got {sorted(writers)}"
     )
 
 
