@@ -75,6 +75,22 @@ def test_a_corpus_under_an_ordinary_root_is_read(tmp_path: Path) -> None:
     assert [r["id"] for r in rows] == ["a"]
 
 
+def test_a_corpus_outside_the_repo_root_still_reads(tmp_path: Path) -> None:
+    """The production shape on the GH200: the corpus sits at
+    ``/home/ubuntu/commitpackft-corpus-v2`` while the repo is ``/home/ubuntu/qwen-decision``.
+    ``held_out_roots`` are relative and resolve against the repo root, so a door that
+    refused everything outside the repo would have stopped every real arm the moment it
+    landed -- which is the way a new guard usually breaks production.
+    """
+    repo = tmp_path / "qwen-decision"
+    (repo / "data").mkdir(parents=True)
+    corpus = tmp_path / "commitpackft-corpus-v2"
+    corpus.mkdir()
+    path = corpus / "examples.jsonl"
+    path.write_text(json.dumps(ROW) + "\n", encoding="utf-8")
+    assert read_example_objects(path, config=DataConfig(), repo_root=repo)[0]["id"] == "a"
+
+
 def test_the_check_runs_before_the_file_is_opened(tmp_path: Path) -> None:
     """The INTENT to read is what is checked. A door that only refused paths that exist
     would pass on a typo and fail on the real thing, which is backwards."""
