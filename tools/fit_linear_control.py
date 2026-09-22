@@ -44,6 +44,7 @@ from rung0_real_run import (  # noqa: E402
     LINEAR_CONTROL_MAX_ITER,
     bucketed_chunks,
     decisions_of,
+    filter_train_rows,
     split_by_file,
 )
 
@@ -92,6 +93,18 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--hold-out-operator",
+        default="",
+        help=(
+            "fit on the training set an operator-holdout arm trains on, so the control is "
+            "that arm's opponent rather than a stronger model fitted on data the arm never "
+            "saw. Must match the arm's flag exactly: the cache key covers the training "
+            "documents, so any difference is a miss and the arm's margin stays not_run"
+        ),
+    )
+    parser.add_argument("--drop-random-train", type=int, default=0)
+    parser.add_argument("--drop-random-seed", type=int, default=0)
+    parser.add_argument(
         "--force", action="store_true",
         help="refit even on a cache hit. The verdict is deterministic given the key, so "
              "this is for re-timing, not for changing an answer",
@@ -115,6 +128,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     refuse_leaky_diff_corpus(examples, context_source=args.context_source)
     train_raw, val_raw = split_by_file(examples, val_share=args.val_share)
+    # The SAME filter the run applies, through the same function. An operator-holdout arm
+    # trains on a reduced set, so a control fitted on the full one is not its opponent --
+    # and because the cache key covers the training documents, fitting the full set simply
+    # produces a key the arm never asks for, leaving paired_margin_vs_linear at not_run.
+    # Validation is untouched on both sides, so the two are scored on identical rows.
+    train_raw, note = filter_train_rows(
+        train_raw,
+        hold_out_operator=args.hold_out_operator,
+        drop_random_train=args.drop_random_train,
+        drop_random_seed=args.drop_random_seed,
+    )
+    if note:
+        print(f"  {note}")
     train_d, train_refused, _, _ = decisions_of(
         train_raw, config=config, context_source=args.context_source
     )

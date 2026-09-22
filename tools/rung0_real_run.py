@@ -348,6 +348,62 @@ def recipe_of(args: argparse.Namespace) -> dict[str, object]:
     return recipe
 
 
+def filter_train_rows(
+    train_raw: list[dict[str, object]],
+    *,
+    hold_out_operator: str = "",
+    drop_random_train: int = 0,
+    drop_random_seed: int = 0,
+) -> tuple[list[dict[str, object]], str]:
+    """The training-side filter for the operator-holdout arms, and its one-line note.
+
+    Applied to TRAINING ONLY and after the split, so the held-out operator's rows stay in
+    validation. Filtering the corpus instead would take them off both sides and leave
+    nothing to ask the question of. ``drop_random_train`` is the counterpart control: it
+    removes the same NUMBER of rows at random, because without it a collapse is explained
+    as well by "the training set shrank" as by "the fingerprint went", and ``stub.panic``
+    alone is 43% of this corpus.
+
+    **One owner, called by both tools.** ``tools/fit_linear_control.py`` must fit the linear
+    control on exactly the training set the run trains on, or the two arms of
+    ``paired_margin_vs_linear`` are not opponents. The cache key is computed over the
+    training DOCUMENTS, so a second copy of this that drifted would not produce a wrong
+    margin -- it would produce a cache miss and a ``not_run`` margin, which is safe and
+    useless. Sharing the filter is what makes the margin available at all.
+    """
+    if hold_out_operator:
+        before = len(train_raw)
+        kept = [r for r in train_raw if r.get("operator") != hold_out_operator]
+        if len(kept) == before:
+            raise SystemExit(
+                f"--hold-out-operator {hold_out_operator!r} matched no training row. "
+                "A typo would otherwise train on everything and report the unseen condition "
+                "as though the operator had been removed."
+            )
+        return kept, (
+            f"holding out {hold_out_operator}: {before - len(kept)} of {before} "
+            f"training row(s) removed ({(before - len(kept)) / before:.0%})"
+        )
+    if drop_random_train:
+        before = len(train_raw)
+        if drop_random_train >= before:
+            raise SystemExit(
+                f"--drop-random-train {drop_random_train} would empty a training set "
+                f"of {before}"
+            )
+        # Sorted, so the kept rows stay in corpus order: the control cache keys on the
+        # training documents, and two runs that kept the same rows in different orders
+        # would hash differently and never share a fit.
+        keep = random.Random(drop_random_seed).sample(
+            range(before), before - drop_random_train
+        )
+        return [train_raw[i] for i in sorted(keep)], (
+            f"size-matched control: {drop_random_train} of {before} training row(s) "
+            f"dropped at random (seed {drop_random_seed})"
+        )
+    return train_raw, ""
+
+
 #: The byte a unified diff marks an added line with. Named because `ids` holds byte values
 #: and a bare 43 at the comparison site is a magic number in the one place it matters.
 _PLUS: Final[int] = ord("+")
@@ -1727,40 +1783,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"{len(val_raw)} val from {len(val_paths)} file(s), 0 files on both sides"
     )
 
-    # Removed from TRAINING ONLY, and after the split, so the held-out operator's rows stay
-    # in validation. Filtering the corpus instead would take them off both sides and there
-    # would be nothing left to ask the question of. The counterpart control is
-    # `--drop-random-train`, which removes the same NUMBER of rows at random: without it a
-    # collapse is explained as well by "the training set shrank" as by "the fingerprint
-    # went", and on this corpus `stub.panic` alone is 43% of the rows.
-    if args.hold_out_operator:
-        before = len(train_raw)
-        train_raw = [r for r in train_raw if r.get("operator") != args.hold_out_operator]
-        if len(train_raw) == before:
-            raise SystemExit(
-                f"--hold-out-operator {args.hold_out_operator!r} matched no training row. "
-                "A typo would otherwise train on everything and report the unseen condition "
-                "as though the operator had been removed."
-            )
-        print(
-            f"  holding out {args.hold_out_operator}: {before - len(train_raw)} of {before} "
-            f"training row(s) removed ({(before - len(train_raw)) / before:.0%})"
-        )
-    elif args.drop_random_train:
-        before = len(train_raw)
-        if args.drop_random_train >= before:
-            raise SystemExit(
-                f"--drop-random-train {args.drop_random_train} would empty a training set "
-                f"of {before}"
-            )
-        keep = random.Random(args.drop_random_seed).sample(
-            range(before), before - args.drop_random_train
-        )
-        train_raw = [train_raw[i] for i in sorted(keep)]
-        print(
-            f"  size-matched control: {args.drop_random_train} of {before} training row(s) "
-            f"dropped at random (seed {args.drop_random_seed})"
-        )
+    train_raw, note = filter_train_rows(
+        train_raw,
+        hold_out_operator=args.hold_out_operator,
+        drop_random_train=args.drop_random_train,
+        drop_random_seed=args.drop_random_seed,
+    )
+    if note:
+        print(f"  {note}")
 
     if args.span_in_diff and args.context_source != CONTEXT_DIFF:
         raise SystemExit(

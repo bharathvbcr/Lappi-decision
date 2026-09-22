@@ -928,6 +928,68 @@ def test_naming_the_measured_operator_two_ways_gives_one_hash() -> None:
     )
 
 
+def _rows_for_filter(n: int = 12) -> list[dict]:
+    return [
+        {"id": f"r{i}", "operator": "stub.panic" if i % 3 == 0 else "logic.off_by_one"}
+        for i in range(n)
+    ]
+
+
+def test_the_run_and_the_control_fitter_filter_through_the_same_function() -> None:
+    """`paired_margin_vs_linear` compares two arms. They are only opponents if the control
+    was fitted on the training set the model trained on, and the control cache keys on the
+    training DOCUMENTS -- so a second copy of this filter that drifted would not produce a
+    wrong margin, it would produce a cache miss and a not_run margin. Sharing the filter is
+    what makes the margin available at all, and this asserts they share it rather than
+    merely agreeing today.
+    """
+    import fit_linear_control
+
+    assert fit_linear_control.filter_train_rows is tool.filter_train_rows, (
+        "the control fitter must call the run's filter, not its own copy of it"
+    )
+
+
+def test_holding_out_an_operator_removes_exactly_its_rows_and_says_how_many() -> None:
+    rows = _rows_for_filter()
+    kept, note = tool.filter_train_rows(rows, hold_out_operator="stub.panic")
+    assert [r["id"] for r in kept] == [f"r{i}" for i in range(12) if i % 3], (
+        "every non-matching row survives, in corpus order"
+    )
+    assert "4 of 12" in note and "33%" in note
+
+
+def test_an_operator_that_matches_no_training_row_stops_the_run() -> None:
+    """A typo would otherwise train on everything and report the unseen condition as though
+    the operator had been removed -- a whole arm measuring nothing and saying nothing."""
+    with pytest.raises(SystemExit, match="matched no training row"):
+        tool.filter_train_rows(_rows_for_filter(), hold_out_operator="stub.pannic")
+
+
+def test_the_size_matched_drop_keeps_corpus_order_so_the_control_cache_can_hit() -> None:
+    """Two runs that kept the same rows in a different order hash to different training
+    documents and would never share a fitted control."""
+    rows = _rows_for_filter()
+    kept, note = tool.filter_train_rows(rows, drop_random_train=5, drop_random_seed=0)
+    ids = [r["id"] for r in kept]
+    assert len(ids) == 7
+    assert ids == sorted(ids, key=lambda s: int(s[1:])), "corpus order, not sample order"
+    assert "5 of 12" in note
+    again, _ = tool.filter_train_rows(rows, drop_random_train=5, drop_random_seed=0)
+    assert [r["id"] for r in again] == ids, "same seed, same rows, or the key is not stable"
+
+
+def test_dropping_the_whole_training_set_is_refused() -> None:
+    with pytest.raises(SystemExit, match="would empty a training set"):
+        tool.filter_train_rows(_rows_for_filter(), drop_random_train=12)
+
+
+def test_an_unfiltered_call_returns_the_rows_unchanged_and_says_nothing() -> None:
+    rows = _rows_for_filter()
+    kept, note = tool.filter_train_rows(rows)
+    assert kept is rows and note == ""
+
+
 def test_a_void_diff_row_is_counted_as_a_refusal_rather_than_killing_the_run() -> None:
     """`EmptyDiffContext`'s own docstring says `decisions_of` counts refusals by exception
     name and that it must not share a line with `MalformedExample` -- but it was in no
