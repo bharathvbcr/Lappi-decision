@@ -107,7 +107,7 @@ here.
 | commit | what |
 | --- | --- |
 | `dd59c68` | `ledger_arms` refuses a seed measured twice in one arm, naming both rows, and takes `--split-by-code`. `RepeatedSeed`, `SeedClaims` and `code_of` have one owner there, and `operator_holdout_report` imports them; its output is byte-identical on its committed ledger. Two correction notes in `HANDOFF/context-source-2026-09-22.md`. |
-| this commit | `gaps.jsonl`: the repeated-seed gap is resolved with a residual, plus one new residual gap. This file. |
+| `8cd766b` | `gaps.jsonl`: the repeated-seed gap is resolved with a residual, plus one new residual gap. This file. They landed in a concurrent lane's commit about a download check, because this worktree has one index and they were staged when it committed. The message there does not describe them; the content is this lane's, unchanged. |
 
 Why refuse-plus-flag rather than the alternatives:
 
