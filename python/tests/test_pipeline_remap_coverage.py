@@ -53,7 +53,9 @@ def _census(rows_in: int, sequences: list[tuple[str, list[int]]]) -> pipeline.Ce
 
 def test_rows_using_only_kept_ids_are_all_encodable() -> None:
     cen = _census(2, [("a", [1, 2]), ("a", [3]), ("b", [2, 2])])
-    got = pipeline.remap_coverage(cen, _remap([1, 2, 3]), split_name="val")
+    got = pipeline.remap_coverage(
+        cen, _remap([1, 2, 3]), split_name="val", built_from="train"
+    )
     assert isinstance(got, Ran)
     assert (got.passed, got.value, got.n, got.n_total) == (True, 2, 2, 2)
 
@@ -62,7 +64,9 @@ def test_one_unseen_token_in_one_slot_sinks_the_whole_row() -> None:
     """Row "a" has two sequences and only its second holds the dropped id 9. It is one row
     that cannot be encoded, not one of three sequences."""
     cen = _census(2, [("a", [1, 2]), ("a", [9]), ("b", [2])])
-    got = pipeline.remap_coverage(cen, _remap([1, 2]), split_name="heldout")
+    got = pipeline.remap_coverage(
+        cen, _remap([1, 2]), split_name="heldout", built_from="train"
+    )
     assert isinstance(got, Ran)
     assert (got.passed, got.value, got.n_total) == (False, 1, 2)
     assert "1 hold at least one dropped id" in got.detail
@@ -70,7 +74,7 @@ def test_one_unseen_token_in_one_slot_sinks_the_whole_row() -> None:
 
 def test_the_dropped_tokens_are_counted_both_ways() -> None:
     cen = _census(1, [("a", [7, 7, 8, 1])])
-    got = pipeline.remap_coverage(cen, _remap([1]), split_name="val")
+    got = pipeline.remap_coverage(cen, _remap([1]), split_name="val", built_from="train")
     assert isinstance(got, Ran)
     assert "3 of 4 tokens, 2 distinct ids" in got.detail
 
@@ -79,14 +83,16 @@ def test_rows_that_never_tokenized_are_stated_not_counted() -> None:
     """Five rows came in and two tokenized: the coverage is of two, and the three the writer
     would have refused before the remap is consulted are named, not charged to it."""
     cen = _census(5, [("a", [1]), ("b", [1])])
-    got = pipeline.remap_coverage(cen, _remap([1]), split_name="val")
+    got = pipeline.remap_coverage(cen, _remap([1]), split_name="val", built_from="train")
     assert isinstance(got, Ran)
     assert (got.value, got.n_total) == (2, 2)
     assert "5 row(s) in, 3 never tokenized" in got.detail
 
 
 def test_a_split_where_nothing_tokenized_is_not_run() -> None:
-    got = pipeline.remap_coverage(_census(4, []), _remap([1]), split_name="heldout")
+    got = pipeline.remap_coverage(
+        _census(4, []), _remap([1]), split_name="heldout", built_from="train"
+    )
     assert isinstance(got, NotRun)
     assert "4 in" in got.reason
 

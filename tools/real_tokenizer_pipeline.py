@@ -659,7 +659,9 @@ def census(rows: list[DataRow], *, tok: RealTokenizer, config: DataConfig) -> Ce
     return out
 
 
-def remap_coverage(cen: Census, remap: RemapTable, *, split_name: str) -> TriState:
+def remap_coverage(
+    cen: Census, remap: RemapTable, *, split_name: str, built_from: str
+) -> TriState:
     """How many rows of a split the remap can encode at all, when it was not built from them.
 
     The remap keeps every token the TRAIN rows use and nothing else, and
@@ -701,7 +703,7 @@ def remap_coverage(cen: Census, remap: RemapTable, *, split_name: str) -> TriSta
         n_total=len(tokenized),
         detail=(
             f"{encodable} of {len(tokenized)} tokenized {split_name} row(s) use only ids the "
-            f"train remap kept ({cen.rows_in} row(s) in, {cen.rows_in - len(tokenized)} "
+            f"{built_from} remap kept ({cen.rows_in} row(s) in, {cen.rows_in - len(tokenized)} "
             f"never tokenized). {len(short)} hold at least one dropped id: "
             f"{sum(missing.values())} of {tokens} tokens, {len(missing)} distinct ids. "
             "RemapTable.encode raises on each of those rows and has no UNK, so under this "
@@ -909,6 +911,7 @@ def run(
     blank_line_runs: bool,
     rev: str,
     commitpackft: Path | None = None,
+    val_shards: bool = False,
 ) -> Measured:
     config = DataConfig()
     resolved = resolve_rev(REPO, rev)
@@ -1017,8 +1020,14 @@ def run(
     print(f"  occupancy: {dict(sorted(per_bucket.items()))}")
     print(f"  padding_waste: {waste.to_json()}")
 
+    val_rows = list(split_report.rows_by_split.get("val", ()))
+    val_census = census(val_rows, tok=tok, config=config)
+    # With --val-shards the val rows are part of the written corpus, and the remap policy is
+    # "keep every token the written corpus uses" -- so it is counted over them too. val is
+    # a TRAINING_SPLITS member; the held-out rows never enter the count (rule 3).
+    remap_ids = cen.ids + val_census.ids if val_shards else cen.ids
     counts = count_corpus_tokens(
-        cen.ids, source_vocab_size=len(tok.tok), max_sequences=len(cen.ids) + 1
+        remap_ids, source_vocab_size=len(tok.tok), max_sequences=len(remap_ids) + 1
     )
     remap = build_remap(
         counts=counts,
@@ -1030,20 +1039,39 @@ def run(
     print("\n== stage 5: remap over the real vocabulary ==")
     print(f"  source vocab {remap.source_vocab_size} -> kept {remap.vocab_size} "
           f"({counts.n_distinct} distinct ids used by {counts.n_tokens} tokens)")
-    print(f"  counted over {len(cen.ids)} tokenized sequence(s), of which "
-          f"{len(cen.lengths)} reach the shard set; the difference is rows the writer "
-          "excludes but still demands remap coverage for")
+    print(f"  counted over {len(remap_ids)} tokenized sequence(s) -- "
+          f"{'train and val' if val_shards else 'train only'} -- of which "
+          f"{len(cen.lengths)} train sequences reach the shard set; the difference is rows "
+          "the writer excludes but still demands remap coverage for")
 
-    # The val and held-out rows are tokenized here and counted, never written: nothing below
-    # stage 5b sees them, so no training artifact depends on held-out text (rule 3).
+    # The held-out rows are tokenized here and counted, never written: nothing below stage
+    # 5b sees them, so no training artifact depends on held-out text (rule 3).
     print("\n== stage 5b: the rows the remap was not built from ==")
     unseen: dict[str, TriState] = {}
     fallback: dict[str, TriState] = {}
     byte_ids = tok.byte_token_ids()
     for split_name in ("val", HELD_OUT):
-        split_rows = list(split_report.rows_by_split.get(split_name, ()))
-        split_census = census(split_rows, tok=tok, config=config)
-        unseen[split_name] = remap_coverage(split_census, remap, split_name=split_name)
+        if split_name == "val" and val_shards:
+            by_construction = NotRun(
+                reason=(
+                    "--val-shards built the remap over the val rows, so every one of them "
+                    "encodes by construction and a count here would measure nothing"
+                )
+            )
+            unseen[split_name] = fallback[split_name] = by_construction
+            print(f"  val: {by_construction.reason}")
+            continue
+        split_census = (
+            val_census
+            if split_name == "val"
+            else census(
+                list(split_report.rows_by_split.get(split_name, ())), tok=tok, config=config
+            )
+        )
+        unseen[split_name] = remap_coverage(
+            split_census, remap, split_name=split_name,
+            built_from="train and val" if val_shards else "train",
+        )
         fallback[split_name] = byte_fallback_cost(
             split_census, remap, byte_ids=byte_ids, byte_lengths=tok.byte_lengths,
             split_name=split_name,
@@ -1082,6 +1110,34 @@ def run(
             f"  MISMATCH: the census counted {cen.sequences_out} sequences and the writer "
             f"wrote {header.n_sequences}. One of them is wrong."
         )
+
+    val_coverage: TriState = NotRun(
+        reason="--val-shards was not passed, so no val shard set was written"
+    )
+    if val_shards:
+        # Through the same door and the same writer as train: val is a TRAINING_SPLITS
+        # member, so open_training_data admits its manifest, and scoring a model on it
+        # reads it without a gradient. Its own buckets, from its own lengths.
+        print("\n== stage 6b: the val split, under the same remap ==")
+        val_dir = out / "shards" / "val"
+        val_header = write_shards(
+            paths["val"],
+            val_rows,
+            out_dir=val_dir,
+            remap=remap,
+            tokenize=tok.tokenize,
+            token_offsets=tok.offsets,
+            decode=tok.decode,
+            config=config,
+            repo_root=out,
+            allow_unencodable=True,
+            allow_not_run_snapshot=not_run_snapshot,
+            corpus_rev=resolved,
+        )
+        val_coverage = ShardReader(val_dir, config=config, repo_root=out).coverage
+        print(f"  header: n_sequences={val_header.n_sequences} "
+              f"total_tokens={val_header.total_tokens} vocab_size={val_header.vocab_size}")
+        print(f"  coverage: {json.dumps(val_coverage.to_json())[:400]}")
 
     print("\n== stage 7: read back through ShardReader/Batch ==")
     reader = ShardReader(shard_dir, config=config, repo_root=out)
@@ -1175,6 +1231,7 @@ def run(
         "remap_covers_heldout_rows": unseen[HELD_OUT],
         "remap_byte_fallback_val_tokens": fallback["val"],
         "remap_byte_fallback_heldout_tokens": fallback[HELD_OUT],
+        "val_shard_coverage": val_coverage,
         "decode_check_leaves_a_trace": Ran(
             passed=not to_json_identical or cen.span_rows_out == 0,
             value=str(not to_json_identical),
@@ -1256,13 +1313,23 @@ def main(argv: list[str] | None = None) -> int:
             "history; --max-pairs becomes a sha256-ordered sample of it."
         ),
     )
+    parser.add_argument(
+        "--val-shards",
+        action="store_true",
+        help=(
+            "also write the val split as a shard set (shards/val), for scoring a trained "
+            "model on rows it did not train on. The remap is then built over the train AND "
+            "val rows -- the written corpus -- because RemapTable.encode refuses any token "
+            "it did not keep; the held-out rows still never enter it."
+        ),
+    )
     args = parser.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
     if args.ledger is None:
         run(
             out=args.out, max_pairs=args.max_pairs,
             blank_line_runs=args.blank_line_runs, rev=args.rev,
-            commitpackft=args.commitpackft,
+            commitpackft=args.commitpackft, val_shards=args.val_shards,
         )
         return 0
 
@@ -1286,6 +1353,9 @@ def main(argv: list[str] | None = None) -> int:
         # The sha256s, not the path, identify the corpus; run() refuses a file that no
         # longer matches them.
         recipe["commitpackft_sha256"] = pool_manifest_shas(args.commitpackft)
+    if args.val_shards:
+        # Only when used, for the same reason: it changes the remap, so it is the recipe.
+        recipe["val_shards"] = True
     protocol = Protocol(
         # Filled after the run, which is why this is a placeholder only until then: a
         # Protocol is frozen, so the real one is built from what the run measured.
@@ -1301,7 +1371,7 @@ def main(argv: list[str] | None = None) -> int:
     measured = run(
         out=args.out, max_pairs=args.max_pairs,
         blank_line_runs=args.blank_line_runs, rev=args.rev,
-        commitpackft=args.commitpackft,
+        commitpackft=args.commitpackft, val_shards=args.val_shards,
     )
     work_s = time.monotonic() - work_t0
     protocol = Protocol(
