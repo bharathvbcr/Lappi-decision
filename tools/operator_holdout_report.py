@@ -75,6 +75,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from ledger_arms import metric_of, read_rows
 
+# ledger_arms puts python/ on sys.path; the recorder's own name for the digest lives there.
+from qd_train.ledger import CODE_THAT_RAN
+
 #: Accuracy on the named operator's own validation rows, on every arm that named one.
 OPERATOR = "val_choice_top1_on_measured_operator"
 #: Same class, other generators. What separates a collapse from a moved prior.
@@ -90,7 +93,8 @@ FIT = "train_choice_top1_over_train_majority"
 #: which must be read as NOT MEASURED rather than as a loss.
 MARGIN = "paired_margin_vs_linear"
 #: The sha256 over the code the run imported (``what_ran_state``), comparable across hosts.
-CODE = "code_that_ran"
+#: Imported from the writer rather than spelled out: see ``CODE_THAT_RAN``'s comment.
+CODE = CODE_THAT_RAN
 
 #: The three conditions, in the order they are read against each other.
 REFERENCE, HOLDOUT, SIZEMATCH = "reference", "holdout", "sizematch"

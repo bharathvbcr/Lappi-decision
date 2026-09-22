@@ -521,6 +521,14 @@ def what_ran(package_dir: Path, tool_path: Path) -> dict[str, str]:
     return dict(sorted(sources.items()))
 
 
+#: The metric `RunRecorder.__enter__` records :func:`what_ran_state` under. Named once, here
+#: beside the writer, so a tool that READS the digest off a row imports the name instead of
+#: retyping it -- a tool that spells it out is indistinguishable, to
+#: `test_no_tool_still_records_the_digest_by_hand_after_the_work`, from one still recording
+#: the digest by hand.
+CODE_THAT_RAN: Final[str] = "code_that_ran"
+
+
 def what_ran_state(package_dir: Path, tool_path: Path) -> Ran:
     """:func:`what_ran` as one recordable fact: a digest to compare, and the names to read.
 
@@ -1324,7 +1332,7 @@ class RunRecorder:
             # First, before the handlers are even installed. A digest computed here is on
             # the row whether the block completes, raises, or is killed mid-step.
             self.metric(
-                "code_that_ran",
+                CODE_THAT_RAN,
                 what_ran_state(self.repo / "python" / "qd_train", self.entry_point),
             )
         for sig in (signal.SIGTERM, signal.SIGINT):
