@@ -661,6 +661,9 @@ _SPELLINGS = {
     "rung0_real_run.py": {"sort_keys": True},
     "rung0_linear_control.py": {"sort_keys": True},
     "real_tokenizer_pipeline.py": {"sort_keys": True},
+    # Added 2026-09-22 with the tool's first row, so this is its spelling from the start
+    # rather than a change to one.
+    "remap_parity_real.py": {"sort_keys": True},
     "real_ft_run.py": {"sort_keys": True, "separators": (",", ":")},
     "rung0_toy_run.py": {"sort_keys": True, "separators": (",", ":")},
     "ft_toy_run.py": {"sort_keys": True, "separators": (",", ":")},
@@ -796,5 +799,8 @@ def test_the_two_spellings_really_do_disagree() -> None:
     ).hexdigest()
     assert loose != tight
     assert distinct == {loose, tight}
-    # Three tools on each side, which is the split worth knowing: it is not one outlier.
-    assert sorted(digests.values()).count(loose) == 3, digests
+    # Several tools on each side, which is the split worth knowing: it is not one outlier.
+    # Three and three until remap_parity_real.py joined the loose side on its first row
+    # (2026-09-22); pinned exactly, so a tool moving sides still fails here.
+    assert sorted(digests.values()).count(loose) == 4, digests
+    assert sorted(digests.values()).count(tight) == 3, digests

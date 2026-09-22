@@ -537,6 +537,55 @@ def test_an_embedding_padded_above_the_tokenizer_vocabulary_is_accepted() -> Non
     )
 
 
+def test_the_parity_gate_runs_on_an_embedding_padded_above_the_tokenizer() -> None:
+    """The same padding, one function over. The surgery was fixed to accept it on
+    2026-09-20; the parity report kept `!=` and refused every sequence of a padded model.
+    Found 2026-09-22 by running the gate against the real Qwen3.5-2B tower for the first
+    time: "model_before produced 248320 logits, expected 248077", on 3 of 3 sequences."""
+    remap = _remap_over([3, 5, 9, 17, 40, 55])
+    before = TinyLM(vocab=V_OLD + 32, tied=True, config_flag=True)
+    after = copy.deepcopy(before)
+    apply_remap_to_model(after, remap)
+
+    seqs = _parity_corpus(remap)
+    out = verify_remap_parity(
+        model_before=before, model_after=after, remap=remap, sequences=seqs
+    )
+    assert isinstance(out, Ran)
+    assert out.passed, out.detail
+    assert out.n == len(seqs) and out.n_total == len(seqs)
+    assert out.value is not None and out.value <= LOSS_PARITY_TOL
+
+
+def test_the_full_vocabulary_loss_of_a_padded_head_includes_its_padding_rows() -> None:
+    """The full-vocabulary number is the loss the unremapped model computes, and that
+    softmax runs over every row the head scores. Dropping the padding rows from it would
+    quietly measure a model nobody trains."""
+    remap = _remap_over([3, 5, 9, 17, 40, 55])
+    before = TinyLM(vocab=V_OLD + 32, tied=True, config_flag=True)
+    after = copy.deepcopy(before)
+    apply_remap_to_model(after, remap)
+    seqs = _parity_corpus(remap)
+
+    report = remap_parity_report(
+        model_before=before, model_after=after, remap=remap, sequences=seqs
+    )
+    assert report.mean_full_vocab_loss is not None
+    with torch.no_grad():
+        expected = []
+        for seq in seqs:
+            x = torch.as_tensor(seq.astype(np.int64))[None, :]
+            logits = before(x).float()  # TinyLM returns the logits tensor itself
+            expected.append(
+                float(
+                    torch.nn.functional.cross_entropy(
+                        logits[:, :-1].reshape(-1, V_OLD + 32), x[:, 1:].reshape(-1)
+                    )
+                )
+            )
+    assert report.mean_full_vocab_loss == pytest.approx(float(np.mean(expected)), rel=1e-6)
+
+
 def test_an_embedding_smaller_than_the_remaps_vocabulary_is_still_refused() -> None:
     """The direction that IS fatal: kept ids would index past the end of the weight."""
     remap = _remap_over([7, 2, 40])

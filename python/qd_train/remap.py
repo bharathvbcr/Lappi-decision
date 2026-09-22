@@ -1136,10 +1136,17 @@ def remap_parity_report(
             logits_new = _logits_of(model_after(x_new)).float()
             probe_after.end()
 
-            if logits_full.shape[-1] != remap.source_vocab_size:
+            # Directional, exactly as in `apply_remap_to_model`: a head WIDER than the
+            # tokenizer is alignment padding -- Qwen3.5-2B-Base scores 248,320 rows over a
+            # 248,077-token tokenizer -- whose rows no id reaches. This was `!=` after the
+            # surgery had been fixed to accept padding, so the gate refused every sequence
+            # of the one model it exists for, the first time it was run against it. NARROWER
+            # is the fatal direction: ids the remap keeps would have no logit at all.
+            if logits_full.shape[-1] < remap.source_vocab_size:
                 failures.append(
                     f"sequence {n_offered - 1}: model_before produced "
-                    f"{logits_full.shape[-1]} logits, expected {remap.source_vocab_size}"
+                    f"{logits_full.shape[-1]} logits, fewer than the "
+                    f"{remap.source_vocab_size}-token vocabulary the remap was built over"
                 )
                 continue
             if logits_new.shape[-1] != remap.vocab_size:
@@ -1161,8 +1168,11 @@ def remap_parity_report(
             loss_after = torch.nn.functional.cross_entropy(
                 logits_new[:, :-1].reshape(-1, remap.vocab_size), targets
             )
+            # Over every row the unremapped head scores, padding included: that is the
+            # softmax the model computes without the remap, so it is the loss the remap's
+            # intended effect is measured from.
             loss_full = torch.nn.functional.cross_entropy(
-                logits_full[:, :-1].reshape(-1, remap.source_vocab_size),
+                logits_full[:, :-1].reshape(-1, logits_full.shape[-1]),
                 x_old[:, 1:].reshape(-1).to(torch.int64),
             )
 
