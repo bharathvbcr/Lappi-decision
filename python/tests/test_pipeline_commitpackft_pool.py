@@ -137,10 +137,20 @@ def test_the_row_carries_the_reason_the_run_measured(tmp_path, monkeypatch) -> N
 
 def test_the_real_download_matches_its_manifest() -> None:
     """The directory the plan's FT shards would be built from, checked as it is on disk.
-    Skipped where it was never downloaded; never skipped where it was and has drifted."""
+    Skipped where it was never downloaded; never skipped where it was and has drifted.
+
+    "Never downloaded" is read off the data files, not the manifest: `.gitignore` tracks
+    `data/pool/**/manifest.json` and ignores everything beside it, so every clone has the
+    manifest and none has the files. Keyed on the manifest, this failed on a fresh checkout
+    with FileNotFoundError instead of skipping. A download holding some files but not all is
+    partial, and fails."""
     root = REPO / "data" / "pool" / "commitpackft"
-    if not (root / "manifest.json").exists():
-        pytest.skip("no local commitpackft download on this host")
-    for lang, sha in pipeline.pool_manifest_shas(root).items():
-        actual = hashlib.sha256((root / f"{lang}.jsonl").read_bytes()).hexdigest()
+    expected = pipeline.pool_manifest_shas(root)
+    present = sorted(lang for lang in expected if (root / f"{lang}.jsonl").exists())
+    if not present:
+        pytest.skip("the commitpackft download is not on this host; only its manifest is")
+    for lang, sha in expected.items():
+        path = root / f"{lang}.jsonl"
+        assert path.exists(), f"{lang}.jsonl is missing from a download holding {present}"
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
         assert actual == sha, f"{lang}.jsonl no longer matches its manifest"
