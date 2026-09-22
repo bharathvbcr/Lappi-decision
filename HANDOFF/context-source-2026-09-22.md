@@ -94,6 +94,31 @@ figure, which are identical in both; the rows are pooled for those and nothing e
 **Across all four arms — two corpora, two representations, 29 completed rows — the model
 wins zero times and no confidence interval touches zero.**
 
+### Capacity, re-taken on a task that has signal in it
+
+`b72aa54` found accuracy falling monotonically in width and it was measured on the
+post-image task, which carries almost no evidence a change occurred. More capacity fitting
+more noise says nothing about the architecture. Re-taken on `--context-source diff`, where
+the control reaches 88.5% — `ledger/gh200-diff-capacity-2026-09-22.jsonl`:
+
+| width | n | top-1 | paired margin | worst | positive | seed spread |
+| --- | --- | --- | --- | --- | --- | --- |
+| 128×4 | 8 | 76.33% | −0.1218 | −0.1470 | 0/8 | 5.1 pts |
+| 256×4 | 8 | 70.89% | −0.1761 | −0.2464 | 0/8 | 10.3 pts |
+| 512×4 | 8 | **58.14%** | **−0.3037** | −0.5129 | 0/8 | **29.7 pts** |
+
+**The earlier finding was not an artifact of a degenerate task.** More capacity is worse on
+a task with abundant signal, and the margin degrades 2.5× from 128 to 512. That is the
+measured answer to *"do we need a larger cluster"*: **no**.
+
+With one confound still open, which is why the LR sweep is running. The seed spread grows
+with width — 5.1 → 10.3 → 29.7 points, with width-512 seeds at 37.2% and 66.9% in the same
+arm. A model too large for its data degrades *smoothly*; an optimiser over-stepping degrades
+*erratically*. The peak LR was a literal in two places (`"lr": 3e-3` in the recipe and
+`peak_lr=3e-3` in `train_once` — so the recipe stated a rate nothing obliged the run to
+use), which is why this could not be told apart before. `--lr` now exists, defaulting to the
+old value so no recorded row moves.
+
 ### The span head collapses on the four-class corpus
 
 On `commitpackft-mutated`, where every row points, the span head reached 9.5% against 3.2%
@@ -165,6 +190,28 @@ load-bearing caveat on any four-way diff number. Nobody has measured it.
 (built, blocked on a span→hunk-index mapping a human must define), `privileged_hunk`
 (measured near-vacuous on this corpus — the window is the whole file on 48.0% of examples),
 `transfer_gate` (specified in `docs/hardening.md` §2, implementable).
+
+## Is it ready for final train?
+
+No, and the blocker is not one this lane can clear.
+
+* **The model loses to a char-n-gram logistic regression in every configuration measured**:
+  two corpora, two representations, three widths, 53 completed rows, **0 wins**, no
+  confidence interval touching zero.
+* **Reading the diff does not close the gap.** It is worth ~+25 points to the model and
+  ~+31 to the control. The task was mis-encoded *and* the model is beaten; fixing the first
+  does not touch the second.
+* **Scale makes it worse**, monotonically, on a task with signal in it.
+* **The span head — the one head that was generalising — collapses** below chance on any
+  corpus it must also abstain on.
+
+What this lane did clear: the corpus is now correct, the encoding is selectable and
+recorded, the gates report `not_run` instead of vacuous passes, and every row says what code
+produced it. Those were real defects and they were masking the result rather than causing
+it.
+
+What remains is a design decision about the choice objective or the architecture, which
+`CLAUDE.md` rule 2 makes a human's call and which no further arm of this shape will inform.
 
 ## The exact first command for the next lane
 
