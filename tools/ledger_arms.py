@@ -10,12 +10,20 @@ particular mistake unavailable rather than merely discouraged.
 
 ## Three things this gets right that a log parser did not
 
-**Grouping is on ``(recipe_hash, backbone_commit)``.** A capacity sweep's arms share one
-recipe -- same epochs, batch size, lr, span weight, subsample, rev -- and differ only in the
-model, which lives in ``backbone_commit``. Grouping on ``recipe_hash`` alone merges three
-8-seed arms into one 24-seed population whose spread is mostly the capacity difference. I
-made exactly that mistake reading these rows before finding the second field, and for a
-minute believed the sweep's own arms were indistinguishable in the ledger.
+**Grouping is on the protocol minus its seed.** A capacity sweep's arms share one recipe --
+same epochs, batch size, lr, span weight, subsample, rev -- and differ only in the model,
+which lives in ``backbone_commit``. Grouping on ``recipe_hash`` alone merges three 8-seed
+arms into one 24-seed population whose spread is mostly the capacity difference. I made
+exactly that mistake reading these rows before finding the second field, and for a minute
+believed the sweep's own arms were indistinguishable in the ledger.
+
+The protocol's other two components are in the key for the same reason. Keyed on the recipe
+and the backbone alone, two runs over two data snapshots were one arm. ``mac-rung0-prereg``
+is exactly that, and was caught only because both of its runs used seeds 0 and 1. With
+disjoint seeds it would have been one arm of four, the two corpora's difference printed as
+seed spread. A second tokenizer is the same case. The key is the set
+``Protocol.hash_without_seed`` covers, the seed family three rows must share to promote, and
+a test holds the two equal, so a component added to the writer cannot be left out here.
 
 **Collapse comes from the gate, not from prose.** A seed has no fit to generalise when its
 training accuracy is at or below the training-set majority share, and
@@ -50,20 +58,21 @@ wrong case.
 ## One run per arm
 
 An arm is a population of SEEDS, so no seed may be measured in one twice. The grouping above
-cannot see a re-run -- it shares the recipe and the backbone of the run it repeats -- and
+cannot see a re-run -- a re-run has the protocol of the run it repeats, seed included -- and
 this file used to count every row as a new seed. On 2026-09-22 six committed ledgers
 measured a seed twice inside one arm: three re-runs at later code, two reproducibility pairs
-at one code, and one pair of runs over two data snapshots. The four-way ``after`` arm was
-reported from one of them as n=13 over 8 seeds. Pooled, a repeated seed overstates n and
-understates the spread, and both floors are computed from the two: the flattering direction.
+at one code, and one pair of runs over two data snapshots, which the key has told apart
+since the snapshot joined it. The four-way ``after`` arm was reported from one of them as
+n=13 over 8 seeds. Pooled, a repeated seed overstates n and understates the spread, and both
+floors are computed from the two: the flattering direction.
 
 So a seed measured twice in one arm is refused, naming the rows. ``--split-by-code`` is the
 named way to read a re-run: one arm per code version, keyed on the ``code_that_ran`` digest
 and falling back to the launch rev. Not on the rev alone -- all three re-runs share their
 launch rev with the run they repeat, so grouping per rev would have pooled them as before. A
-repeat that survives the split has nothing in its code to tell the runs apart and stays
-refused: two runs of one seed at one code are a reproducibility check, and summarised as
-seeds they would print run-to-run noise as a seed spread.
+repeat that survives the split has nothing in its protocol or its code to tell the runs
+apart and stays refused: two runs of one seed at one code are a reproducibility check, and
+summarised as seeds they would print run-to-run noise as a seed spread.
 
 Not dedupe-to-one-run either, because that has to choose a run. "Keep the last" is re-running
 until the number suits; "keep the first" would have built the four-way arm from two code
@@ -99,6 +108,7 @@ import sys
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 
@@ -115,19 +125,45 @@ TRAIN = "train_choice_top1_over_train_majority"
 #: The named override. See "One run per arm" in the module docstring.
 SPLIT_BY_CODE = "--split-by-code"
 
-#: An arm's identity: recipe, backbone, and -- only under ``--split-by-code`` -- the code its
-#: rows ran. ``None`` in the third place means arms were not split, not that no code ran.
-ArmKey = tuple[str, str, str | None]
+
+class ArmKey(NamedTuple):
+    """An arm's identity: its rows' protocol minus the seed, and -- only under
+    ``--split-by-code`` -- the code they ran.
+
+    The four protocol fields are ``qd_train.ledger.Protocol``'s own, and a test holds them
+    equal to it: a component added to the protocol and left out here would pool arms that
+    differ in it, which is what the data snapshot did before it joined.
+    """
+
+    recipe_hash: str
+    backbone_commit: str
+    data_snapshot_hash: str
+    tokenizer_hash: str
+    #: ``None`` means arms were not split by code, not that no code ran.
+    code: str | None
+
+
+def _stem(key: ArmKey) -> tuple[str, str, str | None]:
+    """What every label names: backbone, recipe and, when split, code. Arms alike in it are
+    told apart by their data snapshot or tokenizer, which their labels then name."""
+    return key.backbone_commit, key.recipe_hash, key.code
 
 
 @dataclass(frozen=True, slots=True)
 class Arm:
-    """One (recipe, backbone) population, with its two samples kept apart."""
+    """One population of seeds -- the rows sharing a protocol but for the seed -- with its
+    two samples kept apart."""
 
     recipe_hash: str
     backbone_commit: str
+    data_snapshot_hash: str
+    tokenizer_hash: str
     #: The code every row of this arm ran, when arms are split by it; ``None`` when not.
     code: str | None = None
+    #: Whether :attr:`label` names the data snapshot and the tokenizer: each only when an
+    #: arm read beside this one shares its backbone, recipe and code and differs in it.
+    names_data: bool = False
+    names_tokenizer: bool = False
     #: Held-out accuracy for every seed that recorded both metrics.
     values: list[float] = field(default_factory=list)
     #: The subset of ``values`` whose seed cleared the training-set majority.
@@ -153,7 +189,7 @@ class Arm:
 
     @property
     def label(self) -> str:
-        """Both halves of the key, because either one alone names two different arms.
+        """The backbone and the recipe, because either one alone names two different arms.
 
         A capacity sweep's arms share a recipe and differ in the backbone; a learning
         curve's points share a backbone and differ in the recipe, through
@@ -162,14 +198,32 @@ class Arm:
         file did on the curve's own rows, found by running it on them before the numbers
         mattered. Split by code, a run and its re-run share both halves, so the code is the
         third part of the name.
+
+        The data snapshot and the tokenizer are named only where two arms would otherwise
+        print one name. Every committed sweep ledger but the four-row prereg check reads one
+        snapshot and one tokenizer, so naming them always would lengthen every label of
+        every report and tell no two of its arms apart. An arm-vs-arm line between two
+        backbones on two snapshots is not left to its labels: :func:`render_pairwise` says
+        on the line that it crosses them. The tokenizer is named whole, because it is often
+        a name rather than a digest, and two names can share any prefix.
         """
         name = f"{self.backbone_commit} recipe {self.recipe_hash[:10]}"
+        if self.names_data:
+            name += f" data {self.data_snapshot_hash[:10]}"
+        if self.names_tokenizer:
+            name += f" tokenizer {self.tokenizer_hash}"
         return name if self.code is None else f"{name} code {self.code}"
 
     @property
-    def key(self) -> tuple[str, str, str]:
-        """Sort order. On the full key, so the report is deterministic when one half ties."""
-        return (self.backbone_commit, self.recipe_hash, self.code or "")
+    def key(self) -> tuple[str, str, str, str, str]:
+        """Sort order. On the full key, so the report is deterministic when a part ties."""
+        return (
+            self.backbone_commit,
+            self.recipe_hash,
+            self.data_snapshot_hash,
+            self.tokenizer_hash,
+            self.code or "",
+        )
 
 
 class RepeatedSeed(ValueError):
@@ -269,8 +323,9 @@ def _percent_after(metric: dict | None, marker: str) -> float | None:
 
 
 def arms_of(rows: list[dict], *, split_by_code: bool = False) -> dict[ArmKey, Arm]:
-    """Group rows into arms by ``(recipe_hash, backbone_commit)`` -- and by :func:`code_of`
-    as well when ``split_by_code`` -- refusing any arm that would measure one seed twice.
+    """Group rows into arms by their protocol minus its seed -- recipe, backbone, data
+    snapshot and tokenizer -- and by :func:`code_of` as well when ``split_by_code``,
+    refusing any arm that would measure one seed twice.
 
     Raises :class:`RepeatedSeed`, naming the rows. See "One run per arm" in the module
     docstring.
@@ -278,15 +333,24 @@ def arms_of(rows: list[dict], *, split_by_code: bool = False) -> dict[ArmKey, Ar
     members: dict[ArmKey, list[dict]] = {}
     for row in rows:
         protocol = row["protocol"]
-        key = (
-            protocol["recipe_hash"],
-            protocol["backbone_commit"],
-            code_of(row) if split_by_code else None,
+        key = ArmKey(
+            recipe_hash=protocol["recipe_hash"],
+            backbone_commit=protocol["backbone_commit"],
+            data_snapshot_hash=protocol["data_snapshot_hash"],
+            tokenizer_hash=protocol["tokenizer_hash"],
+            code=code_of(row) if split_by_code else None,
         )
         members.setdefault(key, []).append(row)
 
+    namesakes: dict[tuple[str, str, str | None], list[ArmKey]] = {}
+    for key in members:
+        namesakes.setdefault(_stem(key), []).append(key)
+
     claims = SeedClaims()
-    arms = {key: _arm(key, group, claims) for key, group in members.items()}
+    arms = {
+        key: _arm(key, group, claims, namesakes=namesakes[_stem(key)])
+        for key, group in members.items()
+    }
     repeated = claims.repeated()
     if repeated:
         claims.refuse(
@@ -297,8 +361,12 @@ def arms_of(rows: list[dict], *, split_by_code: bool = False) -> dict[ArmKey, Ar
     return arms
 
 
-def _arm(key: ArmKey, rows: list[dict], claims: SeedClaims) -> Arm:
-    """One arm from its rows, with every measured seed claimed so a repeat can be refused."""
+def _arm(key: ArmKey, rows: list[dict], claims: SeedClaims, *, namesakes: list[ArmKey]) -> Arm:
+    """One arm from its rows, with every measured seed claimed so a repeat can be refused.
+
+    ``namesakes`` are the arms sharing this one's :func:`_stem`, itself included. Its label
+    names whichever of the data snapshot and the tokenizer they differ in.
+    """
     values: list[float] = []
     fitted: list[float] = []
     codes: collections.Counter[str] = collections.Counter()
@@ -328,9 +396,13 @@ def _arm(key: ArmKey, rows: list[dict], claims: SeedClaims) -> Arm:
             collapsed += 1
 
     arm = Arm(
-        recipe_hash=key[0],
-        backbone_commit=key[1],
-        code=key[2],
+        recipe_hash=key.recipe_hash,
+        backbone_commit=key.backbone_commit,
+        data_snapshot_hash=key.data_snapshot_hash,
+        tokenizer_hash=key.tokenizer_hash,
+        code=key.code,
+        names_data=len({k.data_snapshot_hash for k in namesakes}) > 1,
+        names_tokenizer=len({k.tokenizer_hash for k in namesakes}) > 1,
         values=values,
         fitted=fitted,
         collapsed=collapsed,
@@ -346,7 +418,8 @@ def _arm(key: ArmKey, rows: list[dict], claims: SeedClaims) -> Arm:
 
 
 def _row_name(row: dict) -> str:
-    """A row as a refusal names it: whatever tells a re-run from the run it repeats."""
+    """A row as a refusal names it: whatever tells a re-run from the run it repeats, and the
+    data snapshot it read, which the arm's label leaves out wherever no other arm needs it."""
     protocol = row.get("protocol") or {}
     return (
         f"row {row.get('row_id', '?')} (code {code_of(row)}, "
@@ -375,10 +448,10 @@ def _why_refused(
         verdict = "does not" if split_by_code else "would not"
         lines.append(
             f"{within} of them repeat under one code identity -- one digest, one launch rev, "
-            f"or none recorded -- which {SPLIT_BY_CODE} {verdict} separate. "
-            "Where the rows name one data snapshot this is a reproducibility check: compare "
-            "the rows with each other, because they are not a population of seeds. Where the "
-            "snapshots differ they are two arms this key cannot tell apart."
+            f"or none recorded -- which {SPLIT_BY_CODE} {verdict} separate. The rows of one "
+            "arm share their recipe, backbone, data snapshot and tokenizer, so neither the "
+            "protocol nor the code tells these runs apart: this is a reproducibility check. "
+            "Compare the rows with each other, because they are not a population of seeds."
         )
     return "\n".join(lines)
 
@@ -477,7 +550,8 @@ def render(arms: dict[ArmKey, Arm]) -> list[str]:
 
 
 def render_pairwise(arms: dict[ArmKey, Arm]) -> list[str]:
-    """Arm-vs-arm differences, at the two-arm floor rather than the one-sample one."""
+    """Arm-vs-arm differences, at the two-arm floor rather than the one-sample one, each
+    saying when it crosses a data snapshot or a tokenizer."""
     lines = ["=== arm vs arm (fitted seeds; pooled sd; the sqrt(2) floor) ==="]
     pairs = 0
     ordered = sorted(arms.values(), key=lambda a: a.key)
@@ -499,11 +573,34 @@ def render_pairwise(arms: dict[ArmKey, Arm]) -> list[str]:
             f"    {right.label}\n        minus {left.label}\n        "
             f"{diff * 100:+.2f}pp   pooled sd {pooled * 100:.2f}pp   "
             f"floor at n={n} known-sd / estimated-sd {known * 100:.2f} / {honest * 100:.2f}pp"
-            f"   {verdict}"
+            f"   {verdict}" + "".join(f"\n        {note}" for note in _crossed(left, right))
         )
     if not pairs:
         lines.append("    no pair of arms has two fitted seeds each; nothing to compare")
     return lines
+
+
+def _crossed(left: Arm, right: Arm) -> list[str]:
+    """What a comparison crosses besides the arms' own difference: data, tokenizer.
+
+    A label names neither unless two arms would otherwise share a name, so two arms told
+    apart by backbone or recipe can read different snapshots with no label saying so. The
+    rung-0 sweeps read snapshot 22f39f9d10 and the tuned-capacity, lr-sweep and span-in-diff
+    sweeps read 728eee3743, so one ledger of each read together is that case, and every
+    difference between their arms includes whatever the data changed.
+    """
+    notes = []
+    if right.data_snapshot_hash != left.data_snapshot_hash:
+        notes.append(
+            f"ACROSS DATA SNAPSHOTS {right.data_snapshot_hash[:10]} / "
+            f"{left.data_snapshot_hash[:10]}: the difference includes whatever the data changed"
+        )
+    if right.tokenizer_hash != left.tokenizer_hash:
+        notes.append(
+            f"ACROSS TOKENIZERS {right.tokenizer_hash} / {left.tokenizer_hash}: the "
+            "difference includes whatever the tokenizer changed"
+        )
+    return notes
 
 
 def render_gates(rows: list[dict]) -> list[str]:

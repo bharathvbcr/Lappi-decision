@@ -11,7 +11,10 @@ implementations is one somebody wrote:
 * using the one-sample floor on an arm-vs-arm difference claims 1.41x more sensitivity than
   the comparison has, which flipped a verdict the same day;
 * counting every row of an arm as a new seed pools a re-run with the run it repeats -- the
-  four-way ``after`` arm of 2026-09-22 was reported as n=13 over 8 seeds.
+  four-way ``after`` arm of 2026-09-22 was reported as n=13 over 8 seeds;
+* keying an arm on ``(recipe_hash, backbone_commit)`` pools two data snapshots whose seeds do
+  not overlap into one arm, with no seed repeated for the refusal above to fire on --
+  ``mac-rung0-prereg`` is two runs over two snapshots, caught only because it reused seeds.
 
 The tests on committed ledgers read the rows rather than a fixture, so the row shape this
 module parses stays pinned to the row shape the runners actually write.
@@ -19,6 +22,7 @@ module parses stays pinned to the row shape the runners actually write.
 
 from __future__ import annotations
 
+import dataclasses
 import statistics
 import sys
 from pathlib import Path
@@ -31,6 +35,8 @@ sys.path.insert(0, str(REPO / "python"))
 
 import ledger_arms  # noqa: E402
 
+from qd_train.ledger import Protocol  # noqa: E402
+
 #: The sweep whose three arms share one recipe. Committed at 7f191bd, off the rented box.
 CAPACITY_E30 = REPO / "ledger" / "gh200-rung0-capacity-4096-e30-2026-09-21.jsonl"
 #: The four-way `after` arm twice: seeds 0-4 of a first run (5 killed), then all of 0-7 again.
@@ -38,6 +44,8 @@ FOURWAY = REPO / "ledger" / "gh200-fourway-2026-09-22.jsonl"
 #: Seed 0 run twice at one code on purpose, to ask whether the two runs agree.
 REPRO = REPO / "ledger" / "gh200-rung0-repro-2026-09-21.jsonl"
 REPRODET = REPO / "ledger" / "gh200-rung0-reprodet-2026-09-21.jsonl"
+#: One recipe and backbone, one code digest, seeds 0 and 1 over each of two data snapshots.
+PREREG = REPO / "ledger" / "mac-rung0-prereg-2026-09-21.jsonl"
 
 
 def _row(
@@ -46,6 +54,8 @@ def _row(
     val: float,
     fit: bool = True,
     recipe: str = "r" * 64,
+    data: str = "d" * 64,
+    tokenizer: str = "bytes-utf8-256",
     baseline: float = 0.484,
     metrics: bool = True,
     seed: int | None = None,
@@ -57,9 +67,17 @@ def _row(
     ``seed=None`` leaves ``protocol.seed`` out, which every real row carries; the tests that
     are not about seeds use that, so no two of their rows can collide. ``code`` is the
     ``code_that_ran`` digest, spelled out rather than read from the tool so a name that
-    drifted away from what the runner writes fails here.
+    drifted away from what the runner writes fails here. ``data`` and ``tokenizer`` default
+    to one snapshot and the byte tokenizer every measured row in the committed ledgers
+    names, so a test that is not about them reads one of each, as every committed sweep but
+    the four-row prereg check does.
     """
-    protocol: dict = {"recipe_hash": recipe, "backbone_commit": backbone}
+    protocol: dict = {
+        "recipe_hash": recipe,
+        "backbone_commit": backbone,
+        "data_snapshot_hash": data,
+        "tokenizer_hash": tokenizer,
+    }
     if seed is not None:
         protocol["seed"] = seed
     row: dict = {"protocol": protocol, "metrics": {}}
@@ -307,7 +325,7 @@ def test_the_committed_capacity_ledger_reads_as_three_arms_of_eight() -> None:
     all 24 held-out numbers statements about generalisation.
     """
     arms = ledger_arms.arms_of(ledger_arms.read_rows([CAPACITY_E30]))
-    assert len(arms) == 3, f"expected three arms, got {sorted(k[1] for k in arms)}"
+    assert len(arms) == 3, f"expected three arms, got {sorted(k.backbone_commit for k in arms)}"
     assert {a.recipe_hash for a in arms.values()} == {
         next(iter(arms.values())).recipe_hash
     }, "the three arms share one recipe; they are separated by the backbone"
@@ -387,7 +405,11 @@ def test_a_repeat_nothing_in_the_row_separates_is_refused_even_split(split_by_co
     ]
     with pytest.raises(ledger_arms.RepeatedSeed) as refused:
         ledger_arms.arms_of(rows, split_by_code=split_by_code)
-    assert "reproducibility check" in str(refused.value), str(refused.value)
+    msg = str(refused.value)
+    assert "reproducibility check" in msg, msg
+    # Not "unless the snapshots differ": rows over two snapshots are two arms now, so a repeat
+    # inside one arm always shares its data snapshot and tokenizer, and the refusal says so.
+    assert "neither the protocol nor the code tells these runs apart" in msg, msg
 
 
 def test_a_repeat_among_rows_that_measured_nothing_is_counted_rather_than_refused() -> None:
@@ -491,13 +513,137 @@ DOCUMENTED = [
 @pytest.mark.parametrize("name", DOCUMENTED)
 def test_a_documented_ledger_reads_the_same_split_or_not(name) -> None:
     """The refusal must not break a command a handoff tells the next lane to run, and on a
-    ledger with one code per arm the override must change nothing it prints about an arm."""
+    ledger with one code per arm the override must change nothing it prints about an arm.
+
+    Nor may the wider key. Each of these read one data snapshot and one tokenizer, so no
+    label names either and the report prints what it printed when the key was the recipe
+    and the backbone -- checked byte for byte against that version in
+    ``HANDOFF/ledger-arms-data-snapshot-2026-09-22.md``, and held here by the label.
+    """
     rows = ledger_arms.read_rows([REPO / "ledger" / name])
     pooled = ledger_arms.arms_of(rows)
     split = ledger_arms.arms_of(rows, split_by_code=True)
-    assert sorted((k[0], k[1], a.values) for k, a in pooled.items()) == sorted(
-        (k[0], k[1], a.values) for k, a in split.items()
+    assert sorted((k._replace(code=None), a.values) for k, a in pooled.items()) == sorted(
+        (k._replace(code=None), a.values) for k, a in split.items()
     )
+    assert len({(k.data_snapshot_hash, k.tokenizer_hash) for k in pooled}) == 1
+    labels = [a.label for a in [*pooled.values(), *split.values()]]
+    assert not [x for x in labels if " data " in x or " tokenizer " in x], labels
+
+
+# -- an arm is the protocol minus its seed: data snapshot and tokenizer are in the key -----
+
+
+def test_the_arm_key_is_the_writers_protocol_minus_its_seed() -> None:
+    """One owner of which rows are one population: ``qd_train.ledger.Protocol``, whose
+    ``hash_without_seed`` names the seed family three rows must share to promote. A component
+    added there and not here would pool the arms that differ in it, which is what the data
+    snapshot did -- so the key is pinned to the writer instead of kept in agreement by hand.
+    """
+    written = {f.name for f in dataclasses.fields(Protocol)} - {"seed"}
+    assert set(ledger_arms.ArmKey._fields) - {"code"} == written
+
+
+@pytest.mark.parametrize(
+    ("component", "word", "first", "second", "shown"),
+    [
+        ("data", "data", "a" * 64, "b" * 64, ("a" * 10, "b" * 10)),
+        # Two names alike in their first ten characters. Cut to a digest's prefix, both arms
+        # would print as "tokenizer bytes-utf8" -- "X minus X" again.
+        ("tokenizer", "tokenizer", "bytes-utf8-256", "bytes-utf8-512",
+         ("bytes-utf8-256", "bytes-utf8-512")),
+    ],
+)
+def test_two_snapshots_with_disjoint_seeds_are_two_arms(
+    component, word, first, second, shown
+) -> None:
+    """The gap. One recipe and one backbone over two data snapshots, each seed once: no seed
+    repeats, so the refusal has nothing to fire on, and keyed on the recipe and the backbone
+    alone the two corpora were one arm of four seeds, their difference printed as a seed
+    spread. A second tokenizer is the same case.
+
+    Against that key this is one arm of n=4. The two arms share everything the label used to
+    name, so the label now names what tells them apart.
+    """
+    rows = [
+        _row(backbone="b", val=0.50, seed=0, **{component: first}),
+        _row(backbone="b", val=0.52, seed=1, **{component: first}),
+        _row(backbone="b", val=0.40, seed=2, **{component: second}),
+        _row(backbone="b", val=0.42, seed=3, **{component: second}),
+    ]
+    arms = ledger_arms.arms_of(rows)
+    assert sorted(a.values for a in arms.values()) == [[0.40, 0.42], [0.50, 0.52]], (
+        f"read as {len(arms)} arm(s): two {component} values under one recipe are two arms"
+    )
+    assert sorted(a.label for a in arms.values()) == [
+        f"b recipe rrrrrrrrrr {word} {shown[0]}",
+        f"b recipe rrrrrrrrrr {word} {shown[1]}",
+    ]
+
+
+def _seeds(backbone: str, data: str, *vals: float) -> list[dict]:
+    """One arm over data snapshot ``data``: ``vals`` as seeds 0, 1, ..."""
+    return [_row(backbone=backbone, val=v, seed=s, data=data) for s, v in enumerate(vals)]
+
+
+def test_a_label_names_the_snapshot_only_where_two_arms_would_otherwise_share_a_name() -> None:
+    """Every committed sweep but the prereg check reads one snapshot and one tokenizer, so
+    naming them on every label would lengthen every report and tell no two of its arms apart.
+    Two backbones over two snapshots are already told apart by the backbone, so their labels
+    read as they did; what the snapshot does to their DIFFERENCE is said where it is taken."""
+    rows = _seeds("small", "a" * 64, 0.40, 0.42) + _seeds("large", "b" * 64, 0.50, 0.52)
+    assert sorted(a.label for a in ledger_arms.arms_of(rows).values()) == [
+        "large recipe rrrrrrrrrr",
+        "small recipe rrrrrrrrrr",
+    ]
+
+
+def test_a_comparison_across_data_snapshots_says_so_on_its_line() -> None:
+    """The rung-0 sweeps read snapshot 22f39f9d10 and the tuned-capacity, lr-sweep and
+    span-in-diff sweeps 728eee3743, so reading one ledger of each together compares arms
+    across data. Their labels already differ in backbone or recipe; without a word on the
+    line, the whole difference would read as the backbone's, when it includes whatever the
+    data changed. A comparison inside one snapshot carries no such word, or the word would
+    mean nothing."""
+    small = _seeds("small", "a" * 64, 0.40, 0.42)
+    (line,) = [
+        ln
+        for ln in ledger_arms.render_pairwise(
+            ledger_arms.arms_of(small + _seeds("large", "b" * 64, 0.50, 0.52))
+        )
+        if "minus" in ln
+    ]
+    assert "ACROSS DATA SNAPSHOTS aaaaaaaaaa / bbbbbbbbbb" in line, line
+    assert "TOKENIZERS" not in line, "both arms read one tokenizer"
+
+    (line,) = [
+        ln
+        for ln in ledger_arms.render_pairwise(
+            ledger_arms.arms_of(small + _seeds("large", "a" * 64, 0.50, 0.52))
+        )
+        if "minus" in ln
+    ]
+    assert "ACROSS" not in line, line
+
+
+@pytest.mark.parametrize("split_by_code", [False, True])
+def test_the_committed_prereg_ledger_reads_as_one_arm_per_data_snapshot(
+    split_by_code, capsys
+) -> None:
+    """The ledger the gap was found on. Its two runs share a recipe, a backbone and a code
+    digest and read snapshots c2e856e15a and 6267ab7c85, seeds 0 and 1 each. It was refused
+    as a repeat from dd59c68, split or not, and would have been pooled without a word had the
+    second run used seeds 2 and 3. Keyed on the protocol it is two arms of two seeds -- every
+    one collapsed, at 48.86% against a 48.3% baseline -- told apart by the snapshot."""
+    arms = ledger_arms.arms_of(ledger_arms.read_rows([PREREG]), split_by_code=split_by_code)
+    assert sorted(
+        (a.data_snapshot_hash[:10], len(a.values), a.collapsed) for a in arms.values()
+    ) == [("6267ab7c85", 2, 2), ("c2e856e15a", 2, 2)]
+
+    argv = [str(PREREG), *(["--split-by-code"] if split_by_code else [])]
+    assert ledger_arms.main(argv) == 0
+    out = capsys.readouterr().out
+    assert "data 6267ab7c85" in out and "data c2e856e15a" in out, out
 
 
 # -- render_gates: a gate nobody evaluated and a gate that passed must not look alike ----
