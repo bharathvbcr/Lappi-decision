@@ -74,6 +74,42 @@ A further 8 `after` rows carry `paired_margin_vs_linear` as **not_run** — the 
 before the control cache existed and the in-process fit was refused at 39.8 hours against a
 15-minute budget. Those rows are honest and are not counted above.
 
+### The four-way task, runnable for the first time
+
+`commitpackft-corpus-v2` (50,177 examples, all four classes, no empty diff anywhere),
+`ledger/gh200-fourway-2026-09-22.jsonl`:
+
+| mode | n | paired margin | range | positive | model top-1 | control |
+| --- | --- | --- | --- | --- | --- | --- |
+| `after` | 13 | **−0.0764** | −0.088 … −0.065 | **0/13** | 50.20% | 57.8% |
+| `diff` | 8 | **−0.1258** | −0.148 … −0.102 | **0/8** | 75.93% | 88.5% |
+
+Mean choice accuracy over the 46.0% majority prior: `after` **+4.1%** (spread 2.3), `diff`
+**+30.0%** (spread 4.7).
+
+Five of the 13 `after` rows come from a superseded run under `d0de223`, whose span END
+metric was only half decomposed. That does not touch the paired margin or the span START
+figure, which are identical in both; the rows are pooled for those and nothing else.
+
+**Across all four arms — two corpora, two representations, 29 completed rows — the model
+wins zero times and no confidence interval touches zero.**
+
+### The span head collapses on the four-class corpus
+
+On `commitpackft-mutated`, where every row points, the span head reached 9.5% against 3.2%
+chance — the one head in rung 0 that was generalising. On `commitpackft-corpus-v2`, where
+17% of rows abstain, it reaches **1.50%**: *below* chance, on 13 rows. Span loss rises
+during training (2.581 → 3.951) rather than falling.
+
+Asked to learn both where to point and when not to, at `--span-weight 0.05`, it learns the
+abstention and stops pointing. This was invisible until the pointing decomposition landed:
+the undecomposed figure read 9.5% on the same runs, because the abstentions it got right
+were counted as pointers it placed correctly.
+
+In `--context-source diff` the span metric is `NotRun` by construction — span offsets are
+into `after` and encoding the diff moves every byte, so there is no pointer to score. The
+log says `span NOT MEASURED (all 12792 scored rows abstain)`.
+
 ### The model, on the same corpus
 
 `after` arm, 8 seeds, 128x4x2, 3 epochs, span-weight 0.05. First seeds:
