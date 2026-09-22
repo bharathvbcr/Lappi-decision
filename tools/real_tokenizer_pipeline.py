@@ -532,6 +532,9 @@ class Census:
     #: `TokenNotInRemap` for a token that only ever appears in a row the writer drops.
     #: Measured 2026-09-20; recorded as GAP-PIPELINE-REMAP-DEMANDED-BEFORE-EXCLUSION.
     ids: list[np.ndarray] = None  # type: ignore[assignment]
+    #: The row each entry of ``ids`` came from, index for index. A row renders to one
+    #: sequence per slot, and "can this row be encoded" is a question about all of them.
+    id_rows: list[str] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         self.lengths = []
@@ -539,6 +542,7 @@ class Census:
         self.examples = {}
         self.fatal_classes = set()
         self.ids = []
+        self.id_rows = []
 
 
 def census(rows: list[DataRow], *, tok: RealTokenizer, config: DataConfig) -> Census:
@@ -563,6 +567,7 @@ def census(rows: list[DataRow], *, tok: RealTokenizer, config: DataConfig) -> Ce
                 # Recorded here, before the span projection can refuse the row, because
                 # this is the point at which `write_shards` itself demands remap coverage.
                 out.ids.append(ids)
+                out.id_rows.append(row.row_id)
                 projected = shards_module._span_token_positions(
                     spec, ids, token_offsets=tok.offsets, decode=tok.decode, where=where
                 )
@@ -591,6 +596,57 @@ def census(rows: list[DataRow], *, tok: RealTokenizer, config: DataConfig) -> Ce
         out.span_rows_out += staged_spans
         out.lengths.extend(int(i.size) for i in staged_ids)
     return out
+
+
+def remap_coverage(cen: Census, remap: RemapTable, *, split_name: str) -> TriState:
+    """How many rows of a split the remap can encode at all, when it was not built from them.
+
+    The remap keeps every token the TRAIN rows use and nothing else, and
+    :meth:`RemapTable.encode` raises on any other id rather than substituting an ``UNK``
+    (``qd_train.remap``'s coverage policy, deliberately). So a row of another split that
+    holds one token the train rows never used cannot be written, scored or served under
+    that remap -- not scored badly, not scored at all. The plan's S2 gate is a loss on
+    held-out sequences under the remap, and row af64957d measured parity only on sequences
+    the remap was built from, because nothing had counted how many held-out rows the remap
+    can reach.
+
+    Counted over ``cen``, the same per-row work ``write_shards`` does, so a row the writer
+    would refuse before tokenizing is not charged to the remap. Both populations are stated:
+    the rows that tokenized, and the rows that came in.
+    """
+    if not cen.ids:
+        return NotRun(
+            reason=(
+                f"no row of the {split_name} split tokenized ({cen.rows_in} in), so there "
+                "is nothing to check the remap against"
+            )
+        )
+    tokenized: set[str] = set()
+    short: set[str] = set()
+    missing: collections.Counter[int] = collections.Counter()
+    tokens = 0
+    for row_id, ids in zip(cen.id_rows, cen.ids, strict=True):
+        tokenized.add(row_id)
+        tokens += int(ids.size)
+        dropped = ids[remap.old_to_new[ids] < 0]
+        if dropped.size:
+            short.add(row_id)
+            missing.update(int(i) for i in dropped)
+    encodable = len(tokenized) - len(short)
+    return Ran(
+        passed=not short,
+        value=encodable,
+        n=encodable,
+        n_total=len(tokenized),
+        detail=(
+            f"{encodable} of {len(tokenized)} tokenized {split_name} row(s) use only ids the "
+            f"train remap kept ({cen.rows_in} row(s) in, {cen.rows_in - len(tokenized)} "
+            f"never tokenized). {len(short)} hold at least one dropped id: "
+            f"{sum(missing.values())} of {tokens} tokens, {len(missing)} distinct ids. "
+            "RemapTable.encode raises on each of those rows and has no UNK, so under this "
+            "remap they cannot be written, scored or served."
+        ),
+    )
 
 
 # -- the run ----------------------------------------------------------------------------
@@ -874,6 +930,17 @@ def run(
           f"{len(cen.lengths)} reach the shard set; the difference is rows the writer "
           "excludes but still demands remap coverage for")
 
+    # The val and held-out rows are tokenized here and counted, never written: nothing below
+    # stage 5b sees them, so no training artifact depends on held-out text (rule 3).
+    print("\n== stage 5b: the rows the remap was not built from ==")
+    unseen: dict[str, TriState] = {}
+    for split_name in ("val", HELD_OUT):
+        split_rows = list(split_report.rows_by_split.get(split_name, ()))
+        unseen[split_name] = remap_coverage(
+            census(split_rows, tok=tok, config=config), remap, split_name=split_name
+        )
+        print(f"  {split_name}: {json.dumps(unseen[split_name].to_json())[:600]}")
+
     print("\n== stage 6: write_shards with tokenize + token_offsets + decode ==")
     shard_dir = out / "shards" / "train"
     header = write_shards(
@@ -994,6 +1061,8 @@ def run(
             n_total=remap.source_vocab_size,
             detail=f"counted over {len(cen.ids)} tokenized sequence(s)",
         ),
+        "remap_covers_val_rows": unseen["val"],
+        "remap_covers_heldout_rows": unseen[HELD_OUT],
         "decode_check_leaves_a_trace": Ran(
             passed=not to_json_identical or cen.span_rows_out == 0,
             value=str(not to_json_identical),
