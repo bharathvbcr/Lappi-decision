@@ -84,6 +84,35 @@ something is not a measurement.
   the pre-flight passes. **A diagnostic subset, not the shipping task**: the option list is
   still four wide, so no run over it can discharge the four-way gate.
 
+## After the repair: the style shortcut did not replace the length one
+
+Re-taken on `commitpackft-corpus-v2` with the same tool
+(`AUDIT/after-vs-diff-v2.log`), 9,000-row sample, repo-disjoint split. Every clean row now
+carries the agent's own commit diff; `empty diff, whole corpus, by class: {}`.
+
+| four classes, diff mode | v1 (leaky) | v2 (repaired) |
+| --- | --- | --- |
+| clean | **100.00%** (353/353) | **68.45%** (256/374) |
+| cosmetic | 83.79% | 69.28% |
+| logic | 91.04% | 89.47% |
+| stub | 98.22% | 98.12% |
+| **overall** | 94.72% | **87.15%** |
+
+Confirmed at full scale by the cached v2 controls on the box: **after 57.8%** (12,770 rows)
+against **diff 88.5%** (12,792 rows), a **+30.7 point** gap on the four-way task.
+
+**This is the measurement the style caveat needed.** Clean diffs are real human commits and
+mutated diffs are synthetic single-operator edits, so the worry was that a model would
+separate them by style rather than by defect -- trading one shortcut for another. If that
+were happening, `clean` would have stayed near 100%. It fell to 68.45%, which makes it the
+*hardest* class in the set alongside `cosmetic`, and the overall figure fell by 7.6 points
+-- almost exactly the clean class's share of the corpus times the accuracy it lost. The
+leak's contribution is gone and nothing took its place.
+
+The caveat is weakened, not discharged: 68.45% is well above the 16.8% prior for that class,
+and none of this says *what* the control keys on. It says the trivially separable case is no
+longer trivially separable.
+
 ## What is still open
 
 The repair that makes the *four-way* task valid is to give `clean` rows the agent's own

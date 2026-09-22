@@ -31,6 +31,7 @@ expected to confirm something is not a measurement.
 
 from __future__ import annotations
 
+import argparse
 import json
 import random
 import sys
@@ -109,15 +110,25 @@ def score(train: list[dict], val: list[dict], *, field: str, tag: str) -> float 
     return accuracy
 
 
-def main() -> int:
-    if not EXAMPLES.is_file():
-        raise SystemExit(f"no corpus at {EXAMPLES}")
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    # Parameterised so the SAME measurement can be re-taken on the repaired corpus. Once
+    # `clean` carries the agent's own diff the length leak is gone, and the question becomes
+    # whether a different shortcut replaced it -- clean diffs are real human commits while
+    # mutated diffs are synthetic single-operator edits, so a model might separate them by
+    # style rather than by defect. The per-class table below is what answers that, and it is
+    # only an answer if it can be taken on both corpora with one tool.
+    parser.add_argument("--examples", type=Path, default=EXAMPLES)
+    args = parser.parse_args(argv)
+
+    if not args.examples.is_file():
+        raise SystemExit(f"no corpus at {args.examples}")
     rows = [
         json.loads(line)
-        for line in EXAMPLES.read_text(encoding="utf-8").splitlines()
+        for line in args.examples.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    print(f"corpus: {len(rows)} example(s) from {EXAMPLES}")
+    print(f"corpus: {len(rows)} example(s) from {args.examples}")
 
     empty_all = Counter(r["class"] for r in rows if r["diff"] == "")
     nonempty_clean = sum(1 for r in rows if r["class"] == CLEAN and r["diff"] != "")

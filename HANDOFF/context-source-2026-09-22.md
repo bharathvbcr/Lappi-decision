@@ -52,6 +52,28 @@ Confirmed at full scale by the two cached controls on `commitpackft-mutated` (41
 
 **+25.1 points**, on a corpus where the leak cannot operate. The finding survives.
 
+### The gate: 16 seeds, two representations, 0 wins
+
+`paired_margin_vs_linear`, `ledger/gh200-context-source-2026-09-22.jsonl`, 10,000 bootstrap
+resamples per row:
+
+| mode | n | mean margin | range | positive | CI touches zero |
+| --- | --- | --- | --- | --- | --- |
+| `after` | 8 | **−0.0866** | −0.0922 … −0.0798 | **0/8** | never |
+| `diff` | 8 | **−0.1047** | −0.1234 … −0.0926 | **0/8** | never |
+
+Every row reads *"the whole interval is below zero, so this is not an inconclusive result:
+the baseline beats the model by N and the comparison separates them"* — the three-outcome
+verdict added in `e952af3`, doing the job it was added for.
+
+**The margin does not close when the model is given the diff. It widens.** Reading the
+change is worth ~+24 points to the model and ~+25 to the control, so the deficit is
+untouched: the diff fixes the *task*, not the model. That is the finding this lane ends on.
+
+A further 8 `after` rows carry `paired_margin_vs_linear` as **not_run** — the first arm ran
+before the control cache existed and the in-process fit was refused at 39.8 hours against a
+15-minute budget. Those rows are honest and are not counted above.
+
 ### The model, on the same corpus
 
 `after` arm, 8 seeds, 128x4x2, 3 epochs, span-weight 0.05. First seeds:
