@@ -48,6 +48,18 @@ LEDGER = REPO / "ledger"
 #: matched or exceeded -- and exceeding one means a row arrived without provenance, which
 #: is the event this file exists for. A file absent from this map may contribute NONE.
 KNOWN_WITHOUT_DIGEST = {
+    # 2026-09-22. NOT a row that predates the wiring -- it came from a tool that had the
+    # wiring and lost it on the way out. `rung0_real_run.py` recorded `code_that_ran` at
+    # the END of its training block, and this run was killed by SIGTERM at its wall-clock
+    # cap, so `RunRecorder._on_signal` wrote the row before the digest was ever set. The
+    # ledger is append-only, so the row stands as the evidence it is.
+    #
+    # The writer is fixed rather than the inventory relaxed: `RunRecorder.__enter__` now
+    # records the digest before the work and before the signal handlers are installed, so
+    # completed, failed and killed runs all carry it. `test_provenance_on_every_exit.py`
+    # holds that to all three exit paths and to every tool.
+    # GAP-LEDGER-A-KILLED-RUN-LOSES-ITS-PROVENANCE.
+    "gh200-commitpackft-2026-09-22.jsonl": 1,
     "gh200-2026-09-20.jsonl": 116,
     "gh200-2026-09-21.jsonl": 198,
     "gh200-det-2026-09-21.jsonl": 18,

@@ -360,19 +360,32 @@ def test_every_runner_records_which_sources_produced_its_row() -> None:
 
     So the scope is derived. Any tool that constructs a recorder is in it, and a seventh
     runner is covered by existing rather than by being remembered.
+
+    **And then it happened a third time, one level deeper.** Every runner recorded the
+    digest, and every runner recorded it at the END of its training block -- so a run that
+    died never recorded it at all. `RunRecorder._on_signal` writes the row immediately, and
+    the digest was not yet among the metrics. `ledger/gh200-commitpackft-2026-09-22.jsonl`
+    carries the proof: an `ft` row, `code_that_ran: None`, notes `received SIGTERM`. Six
+    tools each remembering to do a thing is six chances to do it in the wrong place.
+
+    What is asserted therefore moved from "the tool names the digest" to "the tool hands
+    the recorder its entry point", because `RunRecorder.__enter__` now takes the digest
+    before the work and before the signal handlers exist. That is strictly stronger: it
+    covers the killed and failed paths this check could never have reached.
+    `test_provenance_on_every_exit.py` holds the behaviour end of it.
     """
     runners = _row_writing_tools()
-    # Whitespace-tolerant: the same call wraps across three lines where the indentation is
-    # deeper. A pattern that failed on line breaks would be satisfied again by a reformat,
-    # which is a worse failure than the one it guards against.
-    call = re.compile(r'"code_that_ran",\s*what_ran_state\(')
+    # Whitespace-tolerant: the same call wraps across several lines where the indentation
+    # is deeper. A pattern that failed on line breaks would be satisfied again by a
+    # reformat, which is a worse failure than the one it guards against.
+    call = re.compile(r"entry_point\s*=\s*Path\(__file__\)")
     missing = [
         name
         for name in runners
         if not call.search((TOOLS / name).read_text(encoding="utf-8"))
     ]
     assert not missing, (
-        f"{missing} write ledger rows without recording which sources produced them, so "
+        f"{missing} write ledger rows without handing RunRecorder their entry point, so "
         "those rows are pinned only by code_commit -- which reads '<sha>-dirty' for any "
         "uncommitted change and is permanently dirty on the box that runs them"
     )

@@ -96,7 +96,6 @@ from qd_train.ledger import (  # noqa: E402
     Ledger,
     Protocol,
     RunRecorder,
-    what_ran_state,
 )
 from qd_train.mutate_adapter import (  # noqa: E402
     CONTEXT_AFTER,
@@ -1629,6 +1628,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         with RunRecorder(
             ledger,
+            entry_point=Path(__file__),
             protocol=protocol,
             run_kind="ft",
             repo=REPO,
@@ -1758,10 +1758,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                     target=args.target_difference,
                     against_known_reference=True,
                 ),
-            )
-            recorder.metric(
-                "code_that_ran",
-                what_ran_state(REPO / "python" / "qd_train", Path(__file__)),
             )
             recorder.metric(
                 "val_choice_top1_over_baseline",

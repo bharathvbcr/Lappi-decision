@@ -1176,6 +1176,7 @@ class RunRecorder:
         quick_reason: str | None = None,
         notes: str = "",
         recipe: Mapping[str, Any] | None = None,
+        entry_point: str | os.PathLike[str] | None = None,
     ) -> None:
         if run_kind not in _RUN_KINDS:
             raise ValueError(f"run_kind {run_kind!r} not one of {sorted(_RUN_KINDS)}")
@@ -1217,6 +1218,19 @@ class RunRecorder:
                 "on (RunControl.cost), or CostEstimate.for_device(...) -- which prices a "
                 "local device at zero and refuses to invent a rate for anything else"
             )
+
+        # The invoking tool, so `__enter__` can pin the code BEFORE the work starts.
+        # Every tool used to record `code_that_ran` at the end of its training block, which
+        # meant a run that died never recorded it: `_on_signal` writes the row immediately,
+        # and the digest was not among the metrics yet. That is
+        # GAP-LEDGER-A-KILLED-RUN-LOSES-ITS-PROVENANCE, found on a real row --
+        # gh200-commitpackft-2026-09-22.jsonl, an ft run terminated by SIGTERM with
+        # `code_that_ran: None`. Precisely the runs that ended abnormally, whose
+        # circumstances most need pinning, were the ones pinned only by `code_commit` --
+        # which on the rented box is a permanently `-dirty` string that distinguishes
+        # nothing. The digest never depends on the outcome, so there was never a reason to
+        # compute it late.
+        self.entry_point = None if entry_point is None else Path(entry_point)
 
         self.metrics: dict[str, TriState] = {}
         self.controls: dict[str, TriState] = {}
@@ -1306,6 +1320,13 @@ class RunRecorder:
 
     def __enter__(self) -> Self:
         self._t0 = time.monotonic()
+        if self.entry_point is not None:
+            # First, before the handlers are even installed. A digest computed here is on
+            # the row whether the block completes, raises, or is killed mid-step.
+            self.metric(
+                "code_that_ran",
+                what_ran_state(self.repo / "python" / "qd_train", self.entry_point),
+            )
         for sig in (signal.SIGTERM, signal.SIGINT):
             try:
                 self._prev_handlers[sig] = signal.getsignal(sig)

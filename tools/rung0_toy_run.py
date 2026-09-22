@@ -105,7 +105,6 @@ from qd_train.ledger import (
     Ledger,
     Protocol,
     RunRecorder,
-    what_ran_state,
 )
 from qd_train.mutate_adapter import CLEAN, MUTATION_CLASSES, parse_example, to_decision
 from qd_train.run_control import CostEstimate, LRSchedule, RunControl, WallClockCap
@@ -459,6 +458,7 @@ def _record(run: dict, *, ledger: Ledger, wiring: dict, steps: int, rows: int) -
     """One ledger row per run. Always ``quick``: a toy corpus on a truncated schedule."""
     recorder = RunRecorder(
         ledger,
+        entry_point=Path(__file__),
         protocol=_protocol(seed=run["seed"], device=run["device"], steps=steps, rows=rows),
         run_kind="smoke",
         repo=REPO,
@@ -486,9 +486,6 @@ def _record(run: dict, *, ledger: Ledger, wiring: dict, steps: int, rows: int) -
         ),
     )
     with recorder:
-        recorder.metric(
-            "code_that_ran", what_ran_state(REPO / "python" / "qd_train", Path(__file__))
-        )
         for name, value in (
             ("choice_loss_first", run["choice_first"]),
             ("choice_loss_last", run["choice_last"]),

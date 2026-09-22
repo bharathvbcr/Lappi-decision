@@ -715,12 +715,35 @@ def test_both_row_kinds_record_what_ran() -> None:
     Asserted against the source because there is no cheap way to run both paths here, and
     because the failure being guarded is a call site quietly disappearing in a refactor --
     which is how this tool came to be the only one of four that recorded it at all.
+
+    It used to count TWO hand-written `code_that_ran` calls, one per row kind. Counting
+    them was the right check for an arrangement in which each row kind recorded its own,
+    and that arrangement had a hole underneath it: both calls sat at the END of their
+    blocks, so a run killed part-way wrote a row with no digest at all -- which is what
+    happened to the SIGTERM'd fit in `ledger/gh200-commitpackft-2026-09-22.jsonl`.
+
+    Now there is one construction site, `_recorder`, which both row kinds go through, and
+    `RunRecorder.__enter__` takes the digest on entry. "Recorded on only one of the two"
+    stopped being reachable rather than being checked for, which is the stronger outcome;
+    what has to hold instead is that there is still exactly one site and it still hands
+    over the entry point.
     """
     import re
 
     source = (REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8")
-    found = re.findall(r'"code_that_ran",\s*what_ran_state\(', source)
-    assert len(found) == 2, f"expected both row kinds to record it, found {len(found)}"
+    sites = re.findall(r"RunRecorder\(", source)
+    assert len(sites) == 1, (
+        f"expected one recorder construction both row kinds share, found {len(sites)}; "
+        "two sites is two chances to pass entry_point to only one of them"
+    )
+    assert re.search(r"entry_point\s*=\s*Path\(__file__\)", source), (
+        "the shared recorder does not hand over its entry point, so neither row kind "
+        "records what produced it"
+    )
+    # Both row kinds reach that one site: the ft row and the verdict row.
+    assert len(re.findall(r"=\s*_recorder\(", source)) == 2, (
+        "expected the ft row and the verdict row to both come from _recorder"
+    )
 
 
 def test_code_fingerprint_still_defaults_to_qd_data() -> None:

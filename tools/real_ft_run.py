@@ -168,7 +168,6 @@ from qd_train.ledger import (
     Ledger,
     Protocol,
     RunRecorder,
-    what_ran_state,
 )
 from qd_train.power import resolution_state
 from qd_train.run_control import CostEstimate, LRSchedule, RunControl, WallClockCap
@@ -1307,6 +1306,7 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
     """
     return RunRecorder(
         ledger,
+        entry_point=Path(__file__),
         protocol=_protocol(reader=reader, seed=seed, recipe=recipe),
         run_kind=run_kind,  # type: ignore[arg-type]
         repo=REPO,
@@ -1521,9 +1521,6 @@ def _train(
     # deterministic implementation, so reaching the end means every op this model used had
     # one. Off, the honest answer is that nothing was established, which is what NotRun is
     # for -- and the measured consequence is on the record rather than left to be assumed.
-    recorder.metric(
-        "code_that_ran", what_ran_state(REPO / "python" / "qd_train", Path(__file__))
-    )
     recorder.metric(
         "deterministic_kernels",
         Ran(
@@ -1823,9 +1820,6 @@ def _record_verdict(run: dict[str, object], *, ledger: Ledger, reader: ShardRead
         # a floor computed from the corpus, which is a property of the data rather than a
         # quantity with seed noise -- so one variance, not two.
         recorder.metric("sweep_can_resolve", resolution)
-        recorder.metric(
-            "code_that_ran", what_ran_state(REPO / "python" / "qd_train", Path(__file__))
-        )
         recorder.metric(
             "ft_run_row_id",
             Ran(passed=True, value=run["ft_row_id"], detail="the train_ft row this is of"),

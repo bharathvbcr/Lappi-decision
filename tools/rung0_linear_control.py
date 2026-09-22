@@ -64,7 +64,6 @@ from qd_train.ledger import (  # noqa: E402
     Ledger,
     Protocol,
     RunRecorder,
-    what_ran_state,
 )
 from qd_train.mutate_adapter import MUTATION_CLASSES  # noqa: E402
 from qd_train.tristate import NotRun, Ran, TriState  # noqa: E402
@@ -193,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     with RunRecorder(
         ledger,
+        entry_point=Path(__file__),
         protocol=protocol,
         run_kind="smoke",
         repo=REPO,
@@ -224,10 +224,7 @@ def main(argv: list[str] | None = None) -> int:
         # concurrent lane checked `learning_curve.sh`, which invokes `rung0_real_run.py`
         # and nothing else. The gap was real and the justification was not, which is worth
         # leaving in place: a true finding reached for the wrong reason is still a reason
-        # nobody checked.
-        recorder.metric(
-            "code_that_ran", what_ran_state(REPO / "python" / "qd_train", Path(__file__))
-        )
+        # nobody checked        )
         recorder.metric("linear_control_beats_the_prior", _control_gate(
             val_acc, baseline, n=len(val_labels)
         ))

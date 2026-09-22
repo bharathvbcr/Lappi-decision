@@ -140,7 +140,6 @@ from qd_train.ledger import (
     Ledger,
     Protocol,
     RunRecorder,
-    what_ran_state,
 )
 from qd_train.run_control import CostEstimate, LRSchedule, RunControl, WallClockCap
 from qd_train.trainer import SpanScoringStep, ft_supervision, train_ft
@@ -726,6 +725,7 @@ def _recorder(
     """
     return RunRecorder(
         ledger,
+        entry_point=Path(__file__),
         protocol=_protocol(seed=seed, device=device, steps=steps, rows=rows, tag=tag),
         run_kind=run_kind,  # type: ignore[arg-type]
         repo=REPO,
@@ -766,9 +766,6 @@ def _train_once(*, device: str, seed: int, steps: int, rows: list[_Row], ledger:
             f"tools/ft_toy_run.py [{tag}] -- does qd_train.trainer.train_ft execute, and does "
             "its loss reach the floor this corpus admits. Not an evaluation of any model."
         ),
-    )
-    recorder.metric(
-        "code_that_ran", what_ran_state(REPO / "python" / "qd_train", Path(__file__))
     )
     letter_floor, span_floor = _letter_floor(batch), _span_floor(batch)
     for name, value, detail in (
@@ -922,9 +919,6 @@ def _record_verdict(
         ),
     )
     with recorder:
-        recorder.metric(
-            "code_that_ran", what_ran_state(REPO / "python" / "qd_train", Path(__file__))
-        )
         recorder.metric(
             "ft_run_row_id",
             Ran(passed=True, value=run["ft_row_id"], detail="the train_ft row this verdict is of"),
