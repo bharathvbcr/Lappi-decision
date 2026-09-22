@@ -133,13 +133,26 @@ pipeline edits.
 
 Coordination notes for whoever runs next in this worktree:
 
-* **DevMap.** From about 17:10 −0500, name lookups against `.devmap/codeintel/devmap.sqlite` fail
-  for every session here. `devmap_search` returns "fts5: corruption found reading blob
-  412316860426 from table nodes_fts", and `devmap_explore` returns "database disk image is
-  malformed". `devmap_neighbors` on an exact id still answers. `devmap_status` reports the index as
-  merely stale, and `PRAGMA quick_check` says ok. Not repaired here: every session shares the store
-  and a writer held its lock. This lane read `python/qd_train/gaps.py` directly after that, and
-  nothing it says about that file is graph-confirmed.
+* **DevMap. The store is healthy; one kind of reader was not.** Revised after a peer reported
+  search working again. From about 17:10 −0500, this session's long-lived `devmap mcp` (pid 33291)
+  failed every name lookup:
+  * `devmap_search` returned "fts5: corruption found reading blob 412316860426 from table
+    nodes_fts".
+  * `devmap_explore` returned "database disk image is malformed".
+  * `devmap_status` reported the index only as stale, at generation 2384.
+
+  `lsof +L1` shows that process holding `devmap.sqlite-wal` and `-shm` files deleted from disk
+  while open. A fresh read-only connection sees generation 2433: the FTS query answers and
+  `quick_check` is ok. From this same session, the GitPulse plugin's `devmap_*` tools read 2433
+  and answer. So the first version of this note ("fails for every session here") was an
+  overreach from one session.
+
+  The other long-lived servers on this store, pids 36598 and 83988, hold deleted copies too. Their
+  failure is unchecked. If your `devmap_status` shows a generation below the plugin's, restart
+  your session's devmap server or use the plugin's tools. What deletes the files under live
+  connections is DevMap's to find (DevCouncil `rust/devmap-store`). This lane read
+  `python/qd_train/gaps.py` directly while its server was failing, so nothing it says about that
+  file is graph-confirmed.
 * **GitPulse** reported 0 agent sessions while `ListAgents` showed five live local sessions in this
   worktree, the known same-worktree blind spot (CLAUDE.md rule 3). File claims were agreed by
   `SendMessage`. The repeated-seed lane confirmed it holds none of this lane's files. HEAD moved 5
