@@ -48,6 +48,7 @@ def _after(**over) -> dict[str, object]:
         "span_n": 10_635,
         "span_pointing_n": 0,
         "span_pointing_start_top1": 0.0,
+        "span_pointing_end_top1": 0.0,
         "span_pointing_chance": 0.0,
     }
     base.update(over)
@@ -81,7 +82,16 @@ def test_evaluate_reports_the_pointing_decomposition_at_all() -> None:
     import inspect
 
     source = inspect.getsource(tool.evaluate)
-    for field in ("span_pointing_n", "span_pointing_start_top1", "span_pointing_chance"):
+    for field in (
+        "span_pointing_n",
+        "span_pointing_start_top1",
+        # END as well as START. Decomposing one and not the other prints them side by side
+        # as though they were the same measurement: the four-class arm showed `start 1.6%`
+        # over pointing rows beside `end 17.9%` over all rows, which reads as a head that
+        # locates the end of a span whose start it cannot find.
+        "span_pointing_end_top1",
+        "span_pointing_chance",
+    ):
         assert field in source, f"evaluate does not report {field}"
     assert "span_is_noul" in source, (
         "evaluate does not consult span_is_noul, so it cannot tell a row that pointed from "
@@ -126,6 +136,25 @@ def test_the_gate_counts_pointing_rows_not_every_scored_row() -> None:
     )
     assert isinstance(verdict, Ran)
     assert verdict.n_total == 8_300 and verdict.n_total != 10_000
+
+
+def test_both_pointers_are_decomposed_not_only_the_start() -> None:
+    """The end gate must read the pointing figure too.
+
+    It did not at first: `val_span_end_top1_over_chance` was gated on `pointing_n` but still
+    read `span_end_top1` over every scored row. The v2 four-class arm printed the result --
+    `span start 1.6% end 17.9%` -- and the gap was the abstentions showing through one of
+    the two, not an asymmetry in the head.
+    """
+    import inspect
+
+    source = inspect.getsource(tool.main)
+    end_gate = source[source.index("val_span_end_top1_over_chance") :][:600]
+    assert "span_pointing_end_top1" in end_gate, (
+        "the end gate reads the undecomposed figure while the start gate reads the "
+        "decomposed one, so the pair is not comparable with itself"
+    )
+    assert "span_pointing_chance" in end_gate
 
 
 def test_a_pointing_head_at_chance_fails_rather_than_passing_on_abstentions() -> None:

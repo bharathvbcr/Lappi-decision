@@ -519,7 +519,7 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
     # Rows whose gold span is a real line, counted apart from rows whose gold is the
     # abstention. See the loop below: the undecomposed figure is a mixture, and a corpus
     # where every gold abstains scores 100% on it having pointed at nothing.
-    pointing_n = pointing_start_hit = 0
+    pointing_n = pointing_start_hit = pointing_end_hit = 0
     pointing_chance = 0.0
     # The per-row choice distribution, kept so `degenerate_head_check` can be evaluated.
     # It needs nothing but these numbers, which this loop already computes -- which is why
@@ -566,8 +566,9 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
                     gold_start = int(span_plan.gold_start[k])
                     gold_end = int(span_plan.gold_end[k])
                     hit_start = int(start_rows[k].argmax()) == gold_start
+                    hit_end = int(end_rows[k].argmax()) == gold_end
                     start_hit += 1 if hit_start else 0
-                    end_hit += 1 if int(end_rows[k].argmax()) == gold_end else 0
+                    end_hit += 1 if hit_end else 0
                     # `serving_scores` returns exactly the rows a runtime would accept, so
                     # its length is the real number of choices this pointer had.
                     span_chance += 1.0 / max(1, int(start_rows[k].numel()))
@@ -583,6 +584,13 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
                     if not plan.span_is_noul[k]:
                         pointing_n += 1
                         pointing_start_hit += 1 if hit_start else 0
+                        # BOTH pointers, or the pair is a mixture of one decomposed number
+                        # and one inflated one. Measured on the four-class v2 arm before this
+                        # was fixed: start 1.6% (pointing rows) printed beside end 17.9% (all
+                        # rows), which reads as a head that finds the end of a span it cannot
+                        # find the start of, and is really just the abstentions showing
+                        # through on one of the two.
+                        pointing_end_hit += 1 if hit_end else 0
                         pointing_chance += 1.0 / max(1, int(start_rows[k].numel()))
     model.train()
     return {
@@ -598,6 +606,7 @@ def evaluate(model: Rung0Model, plans: Sequence[BatchPlan], *, device: str) -> d
         # incomparable with the rows it extends. The GATE reads these.
         "span_pointing_n": pointing_n,
         "span_pointing_start_top1": pointing_start_hit / pointing_n if pointing_n else 0.0,
+        "span_pointing_end_top1": pointing_end_hit / pointing_n if pointing_n else 0.0,
         "span_pointing_chance": pointing_chance / pointing_n if pointing_n else 0.0,
         "choice_probs": choice_probs,
         "choice_gold": choice_gold,
@@ -1824,9 +1833,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             recorder.metric(
                 "val_span_end_top1_over_chance",
                 _accuracy_gate(
-                    float(after["span_end_top1"]),  # type: ignore[index]
-                    float(after["span_chance"]),  # type: ignore[index]
-                    n=int(after["span_n"]),  # type: ignore[index]
+                    float(after["span_pointing_end_top1"]),  # type: ignore[index]
+                    float(after["span_pointing_chance"]),  # type: ignore[index]
+                    n=pointing_n,
                     what="span end",
                     baseline_name="uniform-pointer chance over the candidate line starts",
                 )
@@ -1883,7 +1892,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             # result gets read as a triumph on the way past.
             + (
                 f"span start {float(after['span_pointing_start_top1']):.1%} "  # type: ignore[index]
-                f"end {float(after['span_end_top1']):.1%} "  # type: ignore[index]
+                f"end {float(after['span_pointing_end_top1']):.1%} "  # type: ignore[index]
                 f"(chance {float(after['span_pointing_chance']):.1%}, "  # type: ignore[index]
                 f"{int(after['span_pointing_n'])} pointing rows)  "  # type: ignore[index]
                 if int(after["span_pointing_n"])  # type: ignore[index]
