@@ -6,6 +6,20 @@ running; §1 says how their results come home and what to do with them.
 
 ## 1. Running now — and the exact first command for the next lane
 
+**Update 2026-09-23 03:30Z — both landed, and the box is idle.** Run 3 printed DONE at
+01:33Z. The copy-down copied both ledgers into `ledger/`, checksum-verified them against the
+box, and printed `SAFE TO DELETE`. Both chains verify. Run 3: 144 rows, and `paired_margin_vs_linear` ran
+on all 144. The model trails its control in 17 of 18 arms. Holdout `stub.panic` leads by
++1.92 ± 2.04 (6/8 seeds). See `AUDIT/operator-holdout-model.md`, "Run 3: the comparison,
+measured". FT: 12 rows. Memorise: all 3 seeds at the letter floor. Epoch: 1860 steps in about
+542 s. The run exited with **one failed claim**: seed 2's letter loss at its last micro-batch
+(1.633) was not below its first (1.524). Seeds 0 and 1 ended at 0.974 and 0.882. Both ends of
+that comparison are single micro-batches of 1–2 rows, so the check is noisy by construction,
+and seed 2 scored best on val. It is still a failed claim, and it is reported as one. Val
+choice 46/90 on every seed, equal to the majority baseline. Val score 38, 54 and 55 of 90
+against 37. See GAP-RUNG3-NOTHING-SCORES-A-TRAINED-MODEL-ON-ROWS-IT-DID-NOT-TRAIN-ON,
+revised. The table below is the plan as launched.
+
 | where | what | ETA (UTC) | writes |
 | --- | --- | --- | --- |
 | GH200 `192.222.58.240` | run 3, the controlled operator-holdout re-run: 18 arms, 7 exited at 22:36Z, ~17.5 min/arm | ~01:50 | `/home/ubuntu/qwen-decision/ledger/gh200-operator-holdout-controlled-2026-09-22.jsonl` |

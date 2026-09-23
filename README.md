@@ -1,5 +1,7 @@
 # qwen-decision — the repository behind **Lappi**
 
+[![Website](https://img.shields.io/badge/website-lappi.vbcr.dev-B91C1C?style=flat&logo=safari&logoColor=white)](https://lappi.vbcr.dev/)
+
 **Lappi** is the model. `qwen-decision` is the repository and `qd-` stays the crate prefix; the
 product name is deliberately independent of the base model, because a name that encodes a dependency
 expires when the dependency changes. See `docs/lappi.md`.
