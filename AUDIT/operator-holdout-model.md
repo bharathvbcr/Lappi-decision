@@ -281,15 +281,49 @@ before its seed loop. On a miss it fits inline only when the fit projects under 
 every miss recorded `not_run`. The 144 rows above are final and can never gain margins
 retroactively.
 
-**That re-run is in flight** (run 3): all 18 arms, six operators, launched 2026-09-22T20:25:19Z
-at `52c8fe9fc39acbd5e3aa2b859c38637d2696a586` (`code_that_ran` `7318cbb3…`, the same closure
-as rows 73–144), writing to its **own** ledger,
-`ledger/gh200-operator-holdout-controlled-2026-09-22.jsonl`, so its seeds are never pooled
-with these. The report now refuses to pool them if both ledgers are passed together. The six
-minor-operator controls are being fitted alongside it by
-`QD_HOLDOUT_OPERATORS="logic.negate_condition cosmetic.edit_comment stub.default_return" bash
-tools/fit_operator_holdout_controls.sh`, well before the re-run reaches those arms. See
-`HANDOFF/rung0-control-2026-09-22.md` for how to read it when it lands.
+### Run 3: the comparison, measured
+
+The re-run landed: `ledger/gh200-operator-holdout-controlled-2026-09-22.jsonl`, 144 `ft` rows
+= 18 arms × 8 seeds, all `completed`, the chain verifies. Launch rev (`recipe.rev`)
+`52c8fe9fc39acbd5e3aa2b859c38637d2696a586`, `code_that_ran` `7318cbb3…` on every row (the
+same closure as rows 73–144). One `data_snapshot_hash`, `728eee3743dbed57…`, the same as
+rows 1–144. $5.49, 13,261.8 s summed across rows. Every row carries `quick: true` with the
+same reason quoted under Provenance. It is its own ledger, so its seeds never pool with rows
+1–144; the report refuses to pool them if both are passed together. Reproduce with:
+
+```bash
+python tools/operator_holdout_report.py ledger/gh200-operator-holdout-controlled-2026-09-22.jsonl
+```
+
+**`paired_margin_vs_linear` ran on all 144 rows**, against 40 of 144 before. The model's
+paired margin against a linear control fitted on each arm's own training set (mean over 8
+seeds, ± the report's seed spread, seeds with a positive margin):
+
+| operator | reference | holdout | sizematch |
+| --- | --- | --- | --- |
+| `stub.panic` | −7.62% ± 1.07 (0/8) | **+1.92% ± 2.04 (6/8)** | −9.65% ± 1.33 (0/8) |
+| `logic.change_constant` | −7.87% ± 1.47 (0/8) | −8.43% ± 2.47 (0/8) | −7.14% ± 0.98 (0/8) |
+| `cosmetic.rename_local` | −7.79% ± 1.59 (0/8) | −6.38% ± 1.15 (0/8) | −8.45% ± 2.32 (0/8) |
+| `logic.negate_condition` | −7.74% ± 1.75 (0/8) | −9.99% ± 1.16 (0/8) | −8.62% ± 1.86 (0/8) |
+| `cosmetic.edit_comment` | −8.04% ± 2.22 (0/8) | −5.92% ± 0.63 (0/8) | −7.73% ± 1.97 (0/8) |
+| `stub.default_return` | −7.72% ± 1.30 (0/8) | −8.78% ± 1.25 (0/8) | −8.69% ± 2.62 (0/8) |
+
+**The headline stands.** The model trails its linear control in 17 of 18 arms, by 5.92 to
+9.99 points, and in every one of those arms all 8 seeds trail. That includes every holdout
+and size-matched arm the earlier rows could not score. The one arm it leads is holdout
+`stub.panic`: +1.92 points, 6 of 8 seeds positive. That is the arm where the control
+collapses to 50.0% overall when its dominant generator is removed, and the model holds 51.97%.
+It is a lead the size of its own seed spread, in the single configuration where the
+opponent had lost its shortcut. It is not evidence that rung 0 reads changes the control
+cannot. The earlier "difference of means across tools" (51.74% against 50.0%) was the right
+sign. The paired statistic confirms the sign and not a margin anyone should act on.
+
+The per-arm accuracies reproduce rows 1–144: the dominant operators collapse under holdout
+(`stub.panic` 82.44% → 15.52%, `logic.change_constant` 86.72% → 28.77%,
+`cosmetic.rename_local` 77.33% → 0.50%) while siblings hold. Two of the three minor
+operators collapse too (`logic.negate_condition` 88.70% → 43.39%, `cosmetic.edit_comment`
+77.73% → 0.92%). `stub.default_return` transfers (82.36% → 76.66%, 3.44 points beyond its
+siblings). The reading above does not change.
 
 ## Gaps this leaves open
 
@@ -302,5 +336,5 @@ tools/fit_operator_holdout_controls.sh`, well before the re-run reaches those ar
   cost 36.5 minutes, not the ~15 hours first recorded there: that figure came from
   `projected_fit_seconds`, which prices `max_iter` iterations and overshot by 17.6×.
 - `GAP-THE-CONTROL-CLASSIFIES-BY-GENERATOR-NOT-BY-CHANGE` — moved to
-  `resolved-with-residual` by this experiment; the residual is the 104 unmeasured margins,
-  which run 3 exists to measure.
+  `resolved-with-residual` by this experiment. The residual was the 104 unmeasured margins,
+  and run 3 measured them (see "Run 3: the comparison, measured").
