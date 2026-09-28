@@ -30,34 +30,32 @@ context), and `noul` (abstain, present in every option set).
   abstains on margin *and* a permuted second pass, a registered `choice` on margin only, and a
   registered `span` is refused outright. Faster, and narrower.
 
-## Status — 2026-09-19
+## Status — 2026-09-28
 
-Code is substantial; **no model has been trained.** There is no training data on disk (`data/` does
-not exist), and the base model this repo is named for — `Qwen/Qwen3.5-2B-Base` — is not cached. The
-Hugging Face cache on this host is not empty, but nothing in it belongs to this project. Every test
-number below is about code.
+Data exists under `data/pool/` (including the 50,177-example mutation corpus manifest), and the base
+model `Qwen/Qwen3.5-2B-Base` is cached on disk. Both Rung 0 and initial Rung 3 runs have landed in the
+ledger.
 
 Suites, measured rather than remembered — **re-run them instead of quoting this line**, because it
 went stale inside a day the last time it was written:
 
 ```
-cargo test --workspace                                  # 347 passed, 0 failed
-.venv/bin/python -m pytest python/tests -o 'addopts='   # 1104 passed, 7 skipped, 0 failed
+cargo test --workspace                                  # 369 passed, 0 failed
+.venv/bin/python -m pytest python/tests -o 'addopts='   # 1784 passed, 66 skipped, 0 failed
 ```
 
 On 2026-09-18/19 four public System-1 decision models appeared, one of them on this exact base model.
-That did not change the destination, but it changed the order of the work — Lappi is now built as a
+That did not change the destination, but it changed the order of the work — Lappi is built as a
 **ladder**, cheapest rung first, so the expensive rung is justified by measurement rather than by plan:
 
 | Rung | Approach | Status |
 | --- | --- | --- |
-| 0 | byte-level, from scratch, 606,336 params | model built and verified, **untrained** |
-| 1 | frozen base, option logits | not started |
-| 2 | LoRA r=16 | not started |
-| 3 | CPT + FT + vocabulary remap (the original plan) | S2/S4/trainer built, blocked on HF terms |
+| 0 | byte-level, from scratch, 606,336 params | **Trained & evaluated.** 80.97% best vs 88.5% control; 144 margins measured across 18 arms (`ledger/gh200-operator-holdout-controlled-2026-09-22.jsonl`), trailing control in 17/18 arms and justifying higher rungs |
+| 1 | frozen base, option logits | Planned as Step 1 in `docs/train-plan-2026-09-28.md` |
+| 2 | LoRA r=16 | Planned as Step 6 control arm |
+| 3 | 2B Supervised FT / CPT | **Initial FT run completed.** 2k commitpackft rows on GH200 (`ledger/gh200-ft-commitpackft-2026-09-22.jsonl`); score slot learned on 2/3 seeds (54, 55/90 vs 37 base); fast-training plan synthesized in `docs/train-plan-2026-09-28.md` |
 
-Rung 0 needs no Hugging Face terms and no GPU block. Weeks 1-3 run entirely on the Mac at $0, and
-**no Metal kernel is written before the 8xH100 gate reports.**
+Repository is hosted on GitHub: [bharathvbcr/Lappi-decision](https://github.com/bharathvbcr/Lappi-decision).
 
 Read in this order:
 
@@ -65,11 +63,12 @@ Read in this order:
 | --- | --- |
 | `CLAUDE.md` | The rules that bind every agent. Read first |
 | `docs/lappi.md` | What Lappi is, the ladder, and the three things that are actually differentiated |
+| `docs/train-plan-2026-09-28.md` | Fast 2B training plan based on seven external models and 2026-09-28 status |
 | `docs/schema-api.md` | The typed request/answer contract, shared by training and serving |
 | `docs/ledger-schema.md` | The decision record, and the tri-state that keeps "not run" from reading as "passed" |
 | `docs/hardening.md` | The adversarial contract each lane tests against before calling a feature done |
 | `docs/build-order-2026-09-19.md` | Why the cheap rungs run first |
-| `docs/schedule-2026-09-28.md` | What can and cannot be finished, with the evidence |
+| `docs/schedule-2026-09-28.md` | What can and cannot be finished, with the 2026-09-28 verification |
 | `AUDIT/prior-art-jev-nimble-2026-09-19.md` | The four public peers, their licences, and what is reusable |
 | `AUDIT/` | Evidence for every external claim the plan rests on |
 | `gaps.jsonl` | What DevMap and GitPulse could not answer |

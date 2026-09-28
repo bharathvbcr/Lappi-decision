@@ -14,6 +14,10 @@
 > scratch, 606,336 parameters, needing no Hugging Face terms at all. It dissolves the BPE
 > line-mapping gap family rather than solving it. See `docs/lappi.md` and
 > `docs/schedule-2026-09-28.md`.
+>
+> **Update 2026-09-28:** Rung 0 completed its empirical evaluation (trailing the linear control
+> in 17/18 arms, establishing the floor and justifying the 2B rung). The 2B weights are cached and
+> `docs/train-plan-2026-09-28.md` defines the fast training sequence.
 
 Two systems with this thesis went public on 2026-09-18/19 (see
 `AUDIT/prior-art-jev-nimble-2026-09-19.md`). Bespoke Nimble reached 90.12% raw agreement with

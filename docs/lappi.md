@@ -33,15 +33,15 @@ cost of each and they disagree by three orders of magnitude.
 
 | Rung | Approach | Public evidence | Status here |
 | --- | --- | --- | --- |
-| **0** | byte-level, from scratch, ~600K params | `cua-s1-forms`: 706K params, near-ceiling on a *narrow* task | **model built**, untrained |
-| **1** | frozen base, option logits, no training | SemIf: 0.813 balanced accuracy on a frozen 4B | not started |
-| **2** | LoRA r=16, one epoch | Nimble: 90.12% raw agreement, 2,676 examples, two days | not started |
-| **3** | CPT + FT, vocabulary remap | `decider-2b`: 0.805 in-task / 0.755 held-out | S2/S4/trainer built, blocked |
+| **0** | byte-level, from scratch, ~600K params | `cua-s1-forms`: 706K params, near-ceiling on a *narrow* task | **Trained & evaluated.** 80.97% best vs 88.5% control (`AUDIT/capacity-and-learning-rate.md`). Measured all 144 margins across 18 arms (`ledger/gh200-operator-holdout-controlled-2026-09-22.jsonl`); model trails control in 17/18 arms, establishing floor |
+| **1** | frozen base, option logits, no training | SemIf: 0.813 balanced accuracy on a frozen 4B | Planned as Step 1 in `docs/train-plan-2026-09-28.md` |
+| **2** | LoRA r=16, one epoch | Nimble: 90.12% raw agreement, 2,676 examples, two days | Planned as Step 6 control arm |
+| **3** | 2B Supervised FT / CPT | `decider-2b`: 0.805 in-task / 0.755 held-out | **Initial FT run completed.** 2k commitpackft rows on GH200 (`ledger/gh200-ft-commitpackft-2026-09-22.jsonl`); score slot learned on 2/3 seeds; fast-training plan in `docs/train-plan-2026-09-28.md` |
 
 The ordering is deliberate and was a decision, not a default: **the cheap rungs run first**
 so the expensive one is justified by measurement rather than by plan. Rung 3 is the only one
-that needs Hugging Face terms, an 8xH100 block, or a vocabulary remap, and it is the least
-evidenced rung on the ladder.
+that needs the 2B base model weights (now cached on disk), and its training trajectory is
+governed by `docs/train-plan-2026-09-28.md`.
 
 Rungs are not exclusive. A rung that clears the gates ships; the ladder exists to find the
 cheapest one that does.

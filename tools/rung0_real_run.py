@@ -1975,6 +1975,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     waste = sum(
         sum(1 for row in p.context_mask for live in row if not live) for p in train_plans
     ) / sum(p.batch_size * p.context_width for p in train_plans)
+    env = Environment.detect(device=args.device)
     print(f"  batches: {len(train_plans)} train, {len(val_plans)} val; "
           f"train padding waste {waste:.2%}\n")
 
@@ -2016,7 +2017,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             protocol=protocol,
             run_kind="ft",
             repo=REPO,
-            env=Environment.detect(device=args.device),
+            env=env,
             # None here, and stated by `recorder.measured()` the moment training returns.
             # The block WRAPS the training now, so a run killed before training finishes
             # still writes a row -- and the ordinary path carries the same training

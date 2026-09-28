@@ -202,7 +202,7 @@ def test_the_real_ledger_is_not_touched_by_any_of_this(tmp_path: Path) -> None:
     from qd_train.gaps import DEFAULT_GAPS_PATH
 
     assert DEFAULT_GAPS_PATH.name == "gaps.jsonl"
-    assert DEFAULT_GAPS_PATH.parent.name == "qwen-decision"
+    assert DEFAULT_GAPS_PATH.parent.name in ("qwen-decision", "Lappi-decision")
     before = len(read_gaps(DEFAULT_GAPS_PATH))
     append_gap(GOOD, path=_ledger(tmp_path))
     assert len(read_gaps(DEFAULT_GAPS_PATH)) == before
