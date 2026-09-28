@@ -8,10 +8,21 @@
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
 .venv/
+venv/
 *.egg-info/
+.eggs/
+dist/
+build/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
 
 # Data pool, shards, checkpoints — large, reproducible from manifests.
 # The manifests themselves ARE tracked: they are the provenance record.
@@ -29,6 +40,11 @@ __pycache__/
 *.npy.gz
 *.safetensors
 *.bin
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.h5
 
 # Never commit credentials or environment files.
 .env
@@ -53,8 +69,22 @@ AUDIT/*.log
 # ledger/ (JSONL, append-only, tracked) and gaps.jsonl, not this.
 .devcouncil/
 
-# macOS
+# Agent and assistant local runtime directories
+.claude/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS and OS artifacts
 .DS_Store
+**/.DS_Store
+._*
+Thumbs.db
 
 # The ledger is append-only and IS tracked — it is the decision record.
 # Nothing under ledger/ is ignored.
+
