@@ -338,6 +338,25 @@ Measured by the GPU lane; `HANDOFF/mac-gpu-lane-2026-09-29.md` has every row.
 - **GDN is ~64% of a torch forward** (`c352cee1`), confirming the tessl kernel order. MLX prefill
   reaches 7.6k tok/s on the 2B.
 
+### Found by the committed-tree smoke (2026-09-29, `25000da`) — fixed before renting
+
+- **The trainer could not run a campaign.** `tools/real_ft_run.py` hardcoded a 30-min wall-clock cap
+  (`WALL_CLOCK_CAP_S`), so phase 4's 24–30 h epoch would have stopped at 30 min. It also recorded
+  every row `quick=True`, so under rule 8 no phase could ever promote.
+- **The pipeline's default corpus is this repo's own git history at `--rev HEAD`**, not the plan's
+  pool. At HEAD it includes today's commits: rows up to 37k tokens that MPS cannot backprop, a
+  corpus that moves with every commit, and a capped (NotRun) data snapshot. **Decision: `--rev`
+  is always a pinned full sha** (the 09-22 GH200 rows used `0632f693`). **Phase 3 trains on
+  `code.defect_class` only**, as the plan already says, with no repo-history rows.
+- Proven on the real 2B at `25000da`:
+  - The fp32 optimizer, lower-layer LR and option permutation run: memorise arm `246249ed`, loss fell
+    on both channels.
+  - The final full rebuild `3e577d0b`: 295,496 train sequences, padding waste 4.1%; 3,568 replay-only
+    sequences; the contradiction drops are CLINC 8 rows, SQuAD 58. It is superseded, because it was
+    built at `--rev HEAD`.
+- Not yet proven: the epoch → `--score-val` → `--verdicts-out` → `ft_linear_control` path on the real
+  tower. The smoke's epoch arm was refused on the 23–32k-token repo-history buckets.
+
 ### What would change the schedule
 
 - **Throughput below ~8k tok/s** → phase 4 drops to the mutation + C1 + C2 families only, general
