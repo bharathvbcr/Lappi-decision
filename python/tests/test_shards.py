@@ -177,8 +177,12 @@ class Snapshot:
 @pytest.fixture
 def snapshot(tmp_path: Path) -> Snapshot:
     """A written snapshot plus the rows behind it, the way the pipeline hands them over."""
+    return _snapshot(tmp_path)
+
+
+def _snapshot(tmp_path: Path, *, families: Sequence[str] | None = None) -> Snapshot:
     config = DataConfig()
-    mixture = build_mixture(small_corpus(24), config=config)
+    mixture = build_mixture(small_corpus(24), config=config, families=families)
     report = dedupe(list(mixture.rows), config=config)
     split_report = split(report, config=config)
     manifests = build_manifests(
@@ -402,10 +406,16 @@ def test_an_abstaining_span_is_encoded_not_refused(snapshot: Snapshot) -> None:
 def test_the_whole_corpus_encodes_with_no_escape_hatch(
     reader: ShardReader, snapshot: Snapshot
 ) -> None:
-    """106/106. If this ever drops, that is a finding, not a reason to pass a flag."""
+    """98/98. If this ever drops, that is a finding, not a reason to pass a flag.
+
+    It did drop, from 106, on 2026-09-29, and the finding is the SQuAD title partition (user
+    decision, GAP-DATA-SQUAD-SPAN-NOUL-LEAKS-HELD-OUT-ANSWERABILITY): the fixture's SQuAD
+    rows now carry one title each and a quarter go to the held-out answerability family,
+    so fewer SQuAD rows reach train. Every row that does still encodes, which is the claim.
+    """
     coverage = reader.coverage
     assert isinstance(coverage, Ran)
-    assert coverage.n == coverage.n_total == len(snapshot.rows["train"]) == 106
+    assert coverage.n == coverage.n_total == len(snapshot.rows["train"]) == 98
     assert coverage.passed and coverage.is_complete_coverage
 
 
@@ -427,11 +437,11 @@ def test_an_unencodable_row_is_still_counted_in_coverage_never_dropped_quietly(
         buckets=[2],
         allow_unencodable=True,
     )
-    assert header.n_sequences < 106, "the span rows could not be written"
+    assert header.n_sequences < 98, "the span rows could not be written"
     reader = ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
     coverage = reader.coverage
     assert isinstance(coverage, Ran)
-    assert coverage.n is not None and coverage.n < coverage.n_total == 106
+    assert coverage.n is not None and coverage.n < coverage.n_total == 98
     assert not coverage.passed and not coverage.is_complete_coverage
 
 
@@ -634,16 +644,33 @@ def test_a_missing_span_check_reads_as_not_run_not_as_verified(
     assert not hasattr(fresh.span_check, "passed")
 
 
-def test_a_split_with_no_span_rows_reports_the_span_check_as_not_run(
-    snapshot: Snapshot, tmp_path: Path
-) -> None:
+def test_a_split_with_no_span_rows_reports_the_span_check_as_not_run(tmp_path: Path) -> None:
     """0 of 0 verified is not a pass.
 
     ``artifacts.padding_waste`` refuses to score an empty shard set for the same reason,
     and ``all([])`` being ``True`` is that trap one level down. A span check reported as
     passed over a set with no span in it would make the strongest statement this writer can
     make about spans available to every set that has none.
+
+    The corpus is built without the span family rather than relying on which split the
+    fixture's SQuAD titles hash to: since the title partition (2026-09-29) they land in val.
     """
+    from qd_data.general import CLINC_TWO_STAGE_FAMILIES
+    from qd_data.sources import TASK_FAMILIES
+
+    sources = set(small_corpus(24))
+    # The two-stage CLINC families need a domain map this fixture does not carry; named
+    # without one they fail closed (no_clinc_domain_map), which is not this test's subject.
+    two_stage = {f.family_id for f in CLINC_TWO_STAGE_FAMILIES}
+    snapshot = _snapshot(
+        tmp_path,
+        families=[
+            f.family_id for f in TASK_FAMILIES.values()
+            if f.source_id in sources
+            and f.family_id != "qa.answer_span"
+            and f.family_id not in two_stage
+        ],
+    )
     rows = snapshot.rows["val"]
     assert rows and not any(
         isinstance(slot, SpanSlot) for r in rows for slot in r.request.slots
@@ -1298,7 +1325,9 @@ def test_a_span_row_carries_gold_token_positions(snapshot: Snapshot) -> None:
         for r in snapshot.rows["train"]
         if r.family_id == "qa.answer_span" and not r.gold[0].is_noul
     ]
-    assert len(pointing) == 19, "the fixture's pointing span rows"
+    # 13 since the SQuAD title partition moved a quarter of the fixture's questions to the
+    # held-out answerability family (2026-09-29); it was 19.
+    assert len(pointing) == 13, "the fixture's pointing span rows"
 
     for row in pointing:
         spec = training_texts(row, seed=snapshot.config.seed)[0]
@@ -1396,7 +1425,7 @@ def test_the_gold_producers_line_numbers_index_this_line_grid(snapshot: Snapshot
         grid = line_start_indices(context)
         assert 1 <= gold_start <= gold_end <= len(grid), row.row_id
         checked += 1
-    assert checked == 19
+    assert checked == 13  # was 19 before the SQuAD title partition (2026-09-29)
 
 
 # -- the decoded-text check: the one that does not consult the offsets it checks --------
@@ -1414,7 +1443,7 @@ def test_the_whole_train_split_passes_the_decode_check(
     runs it; what the next test establishes is that it would bite when one does.
     """
     header = _write(snapshot, "train", tmp_path / "decoded", decode=byte_decode)
-    assert header.n_sequences == 106
+    assert header.n_sequences == 98
 
 
 def test_a_token_that_does_not_decode_to_its_claimed_characters_is_refused(
@@ -1466,7 +1495,7 @@ def test_a_recorded_line_start_that_is_not_one_in_the_decoded_text_is_refused(
     assert "GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED" in message
 
     # The control. Same corpus, same tokenizer, no decode -- and it writes cleanly.
-    assert _write(snapshot, "train", tmp_path / "unchecked").n_sequences == 106
+    assert _write(snapshot, "train", tmp_path / "unchecked").n_sequences == 98
 
 
 def test_ids_that_do_not_round_trip_to_their_text_are_refused(
@@ -1557,7 +1586,9 @@ def test_span_rows_carry_positions_or_abstain_and_others_carry_no_span(
         pointing += int(real.sum())
         assert np.all(starts[real] >= 0) and np.all(starts[real] <= ends[real])
         assert np.all(ends[real] < batch.lengths[is_span][real])
-    assert (pointing, abstaining) == (19, 5), "all 24 span rows, none dropped"
+    # All 16 span rows (was 24: a quarter of the fixture's SQuAD questions now feed the
+    # held-out answerability family under the title partition, 2026-09-29).
+    assert (pointing, abstaining) == (13, 3), "all 16 span rows, none dropped"
 
 
 def test_every_span_batch_carries_the_pointer_heads_candidate_set(
@@ -1601,7 +1632,7 @@ def test_a_span_gold_always_lands_on_a_candidate(reader: ShardReader) -> None:
             assert batch.line_starts[r, start], "gold start is not a line-start token"
             assert batch.line_starts[r, end], "gold end is not a line-start token"
             checked += 1
-    assert checked == 19
+    assert checked == 13  # was 19 before the SQuAD title partition (2026-09-29)
 
 
 def test_the_candidate_set_is_the_contexts_line_starts(
@@ -1786,7 +1817,7 @@ def test_the_trainer_accepts_these_batches_and_routes_spans_to_the_pointer_head(
                 batch.target_index[is_span].astype(np.int64),  # type: ignore[index]
             )
             assert np.all(supervision.span.start <= supervision.span.end)
-    assert span_rows_seen == 24, "19 pointing + 5 abstaining"
+    assert span_rows_seen == 16, "13 pointing + 3 abstaining (title partition, 2026-09-29)"
 
 
 def test_to_json_carries_the_checks_the_coverage_and_the_gate(reader: ShardReader) -> None:
@@ -1796,7 +1827,9 @@ def test_to_json_carries_the_checks_the_coverage_and_the_gate(reader: ShardReade
     assert payload["checks"]["shard_split_trainable"]["passed"] is True
     assert payload["checks"]["shard_not_packed"]["passed"] is True
     assert payload["padding_waste"]["state"] == "ran"
-    assert payload["coverage"]["n_total"] == payload["coverage"]["n"] == 106
+    assert payload["coverage"]["n_total"] == payload["coverage"]["n"] == 98
+    # The slot record rides beside row coverage: every (row, slot) of this corpus encodes.
+    assert payload["slot_coverage"]["n_total"] == payload["slot_coverage"]["n"] == 98
     # The `reader` fixture writes without decode=, so this set's span mapping was never
     # checked against decoded text -- and a ledger row built from this payload has to say
     # so rather than being silent about it.
@@ -2037,17 +2070,50 @@ def test_the_default_bucketing_clears_the_padding_gate_on_the_set_that_failed_it
     )
 
 
-def test_the_old_default_of_eight_buckets_is_what_failed_and_still_would() -> None:
+def test_the_measured_set_is_hard_enough_that_a_small_budget_still_fails() -> None:
     """The contrast, pinned. Without this the test above could be passing because the
-    distribution is easy rather than because the default changed."""
+    distribution is easy rather than because the bucketing is right.
+
+    This pinned ``n_buckets=8`` failing at 25.66% -- the GH200 run's number under the
+    equal-count quantile rule. That rule is gone (see ``choose_buckets``), and the exact
+    minimum-padding partition clears the gate at 8 on this set (13.35%), so "8 fails" was a
+    fact about the old rule, not about the distribution. What stays true of the
+    distribution: even an optimal placement of 4 boundaries wastes 30.00%, so the set is not
+    one any bucketing passes by default.
+    """
     lengths = _measured_lengths()
-    old = padding_waste(lengths, choose_buckets(lengths, n_buckets=8))
-    assert isinstance(old, Ran)
-    assert not old.passed
-    assert old.value == pytest.approx(0.2566, abs=5e-5), (
-        f"n_buckets=8 now wastes {old.value:.4%}; the failing GH200 run measured 25.66%, so "
-        "either the distribution artifact or padding_waste has changed underneath this test"
+    small = padding_waste(lengths, choose_buckets(lengths, n_buckets=4))
+    assert isinstance(small, Ran)
+    assert not small.passed
+    assert small.value == pytest.approx(0.2999690, abs=5e-6), (
+        f"n_buckets=4 now wastes {small.value:.4%}; measured 30.00% on 2026-09-29, so the "
+        "distribution artifact, padding_waste or the partition has changed underneath this"
     )
+    eight = padding_waste(lengths, choose_buckets(lengths, n_buckets=8))
+    assert isinstance(eight, Ran)
+    assert eight.value == pytest.approx(0.133457, abs=5e-6)
+
+
+def _defect_build_lengths() -> list[int]:
+    """The 78,643 train lengths of the first ``code.defect_class`` build (ledger 8f8558a9)."""
+    payload = json.loads(
+        (REPO_ROOT / "AUDIT" / "shard-lengths-2026-09-29.json").read_text(encoding="utf-8")
+    )
+    lengths = [int(n) for n in payload["lengths"]]
+    assert len(lengths) == payload["n_sequences"] == 78_643
+    assert max(lengths) == 37_098
+    return lengths
+
+
+def test_the_default_bucketing_clears_the_gate_on_the_defect_build_that_failed_it() -> None:
+    """74.47% under the quantile rule: its last bucket ran from 713 tokens to 37,098 and
+    held 2,449 sequences, every one padded to the maximum. The gate is read-only; the
+    bucketing was wrong. The exact minimum-padding partition gives 4.79%."""
+    lengths = _defect_build_lengths()
+    state = padding_waste(lengths, choose_buckets(lengths))
+    assert isinstance(state, Ran)
+    assert state.passed, f"{state.value:.2%} against a gate of {MAX_PADDING_WASTE:.0%}"
+    assert state.value == pytest.approx(0.047889, abs=5e-6)
 
 
 def test_more_buckets_never_orphans_a_sequence() -> None:

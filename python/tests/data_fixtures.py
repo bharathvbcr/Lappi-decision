@@ -13,8 +13,10 @@ is not duplicated.
 
 from __future__ import annotations
 
+from qd_data.config import DataConfig
 from qd_data.loaders import ClincRow, CommitPackFtRow, SquadRow
 from qd_data.mixture import LANGUAGE_OPTIONS
+from qd_data.split import squad_title_family
 
 INTENT_VOCABULARY: tuple[str, ...] = tuple(f"intent_{i:03d}" for i in range(40))
 
@@ -83,7 +85,25 @@ def clinc_row(i: int, *, force_oos: bool | None = None) -> ClincRow:
     )
 
 
-def squad_row(i: int, *, force_impossible: bool | None = None) -> SquadRow:
+def squad_title_for(family_id: str, *, stem: str = "Article", seed: int | None = None) -> str:
+    """The first ``{stem}{k}`` title that SQuAD's title partition gives to ``family_id``.
+
+    SQuAD is partitioned by article title between qa.answerability and qa.answer_span
+    (``qd_data.split.squad_title_family``, user decision 2026-09-29). Tests that need a row
+    in a particular family ask for its title here rather than hard-coding one, so no test
+    pins where a given string happens to hash, and moving the fraction moves no test.
+    """
+    seed = DataConfig().seed if seed is None else seed
+    for k in range(100_000):
+        title = f"{stem}{k}"
+        if squad_title_family(title, seed=seed) == family_id:
+            return title
+    raise AssertionError(f"no {stem}<k> title routes to {family_id} in 100,000 tries")
+
+
+def squad_row(
+    i: int, *, force_impossible: bool | None = None, family: str | None = None
+) -> SquadRow:
     passage = (
         f"Paragraph {i} opens with background material.\n"
         f"The second line states that Subject{i} was founded in {1800 + i}.\n"
@@ -94,7 +114,9 @@ def squad_row(i: int, *, force_impossible: bool | None = None) -> SquadRow:
     start = passage.index(needle)
     return SquadRow(
         qid=f"q{i:05d}",
-        title=f"Article{i % 6}",
+        # One article per question, or one chosen to land in `family`: SQuAD is partitioned
+        # by title between its two families (split.squad_title_family).
+        title=squad_title_for(family, stem=f"Article{i}-") if family else f"Article{i}",
         context=passage,
         question=f"What was founded in paragraph {i}?",
         answers=() if impossible else (needle,),
@@ -108,7 +130,12 @@ def small_corpus(n: int = 24) -> dict[str, list[object]]:
     return {
         "bigcode/commitpackft": [commitpackft_row(i) for i in range(n)],
         "clinc/clinc_oos": [clinc_row(i) for i in range(n)],
-        "rajpurkar/squad_v2": [squad_row(i) for i in range(n)],
+        # A quarter to the held-out answerability family, by construction rather than by
+        # where the titles hash, so the corpus has both SQuAD families at any fraction.
+        "rajpurkar/squad_v2": [
+            squad_row(i, family="qa.answerability" if i % 4 == 0 else "qa.answer_span")
+            for i in range(n)
+        ],
     }
 
 

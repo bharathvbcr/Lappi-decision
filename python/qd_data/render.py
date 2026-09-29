@@ -103,6 +103,7 @@ __all__ = [
     "first_invisible_format_char",
     "render",
     "render_for_serving",
+    "second_pass_permutation",
     "shuffle_options",
     "unescape",
 ]
@@ -425,6 +426,47 @@ class DeterministicRng:
             j = self.below(i + 1)
             idx[i], idx[j] = idx[j], idx[i]
         return tuple(idx)
+
+    def cyclic_permutation(self, n: int) -> tuple[int, ...]:
+        """Sattolo: uniform over the ``(n-1)!`` cyclic permutations, so a derangement.
+
+        One character from :meth:`permutation` -- ``below(i)``, not ``below(i + 1)`` -- and
+        that character is the difference between a shuffle with fixed points and one where
+        every option moves. The same algorithm as qd-runtime's
+        ``CounterRng::cyclic_permutation``; the *stream* is not the same (blake2b here,
+        sha256 there), so equal inputs do not give equal outputs across the two.
+        """
+        if n < 2:
+            raise ValueError(f"a derangement needs at least 2 items, got {n}")
+        idx = list(range(n))
+        for i in range(n - 1, 0, -1):
+            j = self.below(i)
+            idx[i], idx[j] = idx[j], idx[i]
+        return tuple(idx)
+
+
+def second_pass_permutation(
+    n: int, *, seed: int, example_id: str, slot_name: str
+) -> tuple[int, ...]:
+    """The permutation a choice slot's second pass presents its options in: a derangement.
+
+    ``permutation_consistency`` asks whether the head gives the same *answer* when the
+    options move; ``docs/schema-api.md`` requires every option to move, which a uniform
+    shuffle does not guarantee. This module owns option order (:func:`shuffle_options` is the
+    first pass), so it owns the second pass too.
+
+    The domain string is the one ``qd_data.defect_class`` introduced it under, kept so the
+    stream -- and every permutation drawn before it moved here -- is unchanged.
+
+    **Not** ``render::second_pass_permutation`` in qd-runtime: that seeds a sha256
+    ``CounterRng`` from ``request.digest()`` and the slot name, and this seeds blake2b from
+    ``(seed, example_id, slot_name)``. Same algorithm, different stream, so the training gate
+    and the served check draw different derangements for one request. Recorded as
+    ``GAP-A3-SECOND-PASS-PERMUTATION-NOT-WIRED-INTO-RENDER``; parity is not claimed.
+    """
+    return DeterministicRng(
+        "qd_data.defect_class.second_pass.v1", seed, example_id, slot_name
+    ).cyclic_permutation(n)
 
 
 def shuffle_options(

@@ -41,10 +41,80 @@ from qd_data.sources import (
 # -- the admitted roster -----------------------------------------------------
 
 
-def test_exactly_three_sources_are_admitted_unattended() -> None:
+def test_exactly_these_sources_are_admitted_unattended() -> None:
     assert {s.source_id for s in admitted_sources()} == {
         "bigcode/commitpackft", "clinc/clinc_oos", "rajpurkar/squad_v2",
+        "qd-mutate/commitpackft", "cais/mmlu", "tau/commonsense_qa",
     }
+
+
+def test_the_mutation_corpus_claims_exactly_its_parents_licence() -> None:
+    """``qd-mutate/commitpackft`` is derived from ``bigcode/commitpackft``, whose
+    licence is per row. The derived source may claim no more than the parent: same
+    declared licence, same per-row filtering. A literal ``"mit"`` restated here would
+    pass today and drift the day the parent's declaration is corrected."""
+    parent = source_by_id("bigcode/commitpackft")
+    derived = source_by_id("qd-mutate/commitpackft")
+    assert derived.declared_licence == parent.declared_licence
+    assert derived.per_row_licence_field is parent.per_row_licence_field is True
+    assert derived.licence_policy == parent.licence_policy
+    assert task_family_by_id("code.defect_class").source_id == derived.source_id
+
+
+@pytest.mark.parametrize(
+    ("source_id", "licence"),
+    [
+        ("allenai/sciq", "cc-by-nc-3.0"),
+        ("lmsys/toxic-chat", "cc-by-nc-4.0"),
+        ("Tobi-Bueck/customer-support-tickets", "cc-by-nc-4.0"),
+    ],
+)
+def test_non_commercial_general_sets_are_refused_and_cannot_be_enabled(
+    source_id: str, licence: str
+) -> None:
+    assert source_by_id(source_id).declared_licence == licence
+    reasons = refusal_report()[source_id]
+    assert any(licence in r and "disqualifying" in r for r in reasons)
+    assert source_id not in {s.source_id for s in admitted_sources()}
+    with pytest.raises(LicenceRefused):
+        LicenceConfig(admitted_by_human={licence: "we only want the replay"})
+
+
+def test_openbookqa_is_refused_for_an_unknown_licence() -> None:
+    reasons = refusal_report()["allenai/openbookqa"]
+    assert any("'unknown'" in r and "needs a human call" in r for r in reasons)
+    assert "allenai/openbookqa" not in {s.source_id for s in admitted_sources()}
+
+
+def test_arc_is_share_alike_opt_in_and_off_by_default() -> None:
+    """ARC's tier admits it -- ``cc-by-sa-4.0`` is ALLOW because SQuAD needs it -- so
+    the tier cannot be the switch. The switch is per source, with a reason."""
+    arc = source_by_id("allenai/ai2_arc")
+    assert arc.licence_policy.tier is LicenceTier.ALLOW
+    assert "share-alike" in arc.licence_policy.obligations
+    reasons = refusal_report()["allenai/ai2_arc"]
+    assert len(reasons) == 1
+    assert "opt-in" in reasons[0] and "share-alike" in reasons[0]
+    config = LicenceConfig(
+        admitted_sources_by_human={"allenai/ai2_arc": "human reviewed 2026-09-29"}
+    )
+    assert not arc.admission_refusals(config)
+    # Opting ARC in admits ARC and nothing else.
+    assert {s.source_id for s in admitted_sources(config)} - {
+        s.source_id for s in admitted_sources()
+    } == {"allenai/ai2_arc"}
+
+
+def test_a_source_opt_in_without_a_justification_is_refused() -> None:
+    with pytest.raises(ValueError, match="carries no justification"):
+        LicenceConfig(admitted_sources_by_human={"allenai/ai2_arc": "  "})
+    with pytest.raises(ValueError, match="names no source"):
+        LicenceConfig(admitted_sources_by_human={" ": "why not"})
+
+
+def test_a_source_opt_in_is_exact_not_fuzzy() -> None:
+    config = LicenceConfig(admitted_sources_by_human={"AllenAI/AI2_ARC": "typo"})
+    assert source_by_id("allenai/ai2_arc").admission_refusals(config)
 
 
 def test_commitpackft_is_the_primary_pool_and_carries_a_per_row_licence() -> None:
@@ -221,13 +291,15 @@ def test_a_duplicate_holdout_is_refused() -> None:
 
 
 def test_a_holdout_that_leaves_nothing_to_train_on_is_refused() -> None:
-    """Built by admitting only one source, so its two families are the whole roster."""
+    """Built from one source's families. Holding out two CLINC families still leaves
+    every other source to train on, so this must construct. Named rather than counted:
+    the two-stage CLINC design adds families to the source (``qd_data.general``)."""
     only_clinc = {
         f.family_id for f in TASK_FAMILIES.values() if f.source_id == "clinc/clinc_oos"
     }
-    assert len(only_clinc) == N_HELD_OUT_FAMILIES
-    # Both clinc families held out still leaves the other sources, so this must pass.
-    DataConfig(held_out_families=tuple(sorted(only_clinc)))
+    held = ("intent.classification", "intent.in_scope")
+    assert set(held) <= only_clinc and len(held) == N_HELD_OUT_FAMILIES
+    DataConfig(held_out_families=held)
 
 
 def test_training_families_are_the_admitted_ones_minus_the_holdout() -> None:

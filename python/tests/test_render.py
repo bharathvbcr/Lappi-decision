@@ -676,3 +676,30 @@ def test_a_bidi_override_still_round_trips_through_the_unchanged_escapers() -> N
         assert ch in escape_inline(text)
         assert unescape(escape_block(text)) == text
         assert unescape(escape_inline(text)) == text
+
+
+# -- the second-pass permutation, owned here ---------------------------------------------
+
+
+def test_render_owns_the_second_pass_and_defect_class_reexports_it() -> None:
+    """GAP-A3-SECOND-PASS-PERMUTATION-NOT-WIRED-INTO-RENDER: one implementation, in the
+    module that owns option order. The pinned value was drawn by the defect_class copy
+    before the move, so it also pins that the stream did not change."""
+    from qd_data import defect_class
+    from qd_data.render import second_pass_permutation
+
+    assert defect_class.second_pass_permutation is second_pass_permutation
+    assert second_pass_permutation(
+        4, seed=0, example_id="qdm:code.defect_class:" + "0" * 40 + ":x.py#0",
+        slot_name="defect_class",
+    ) == (3, 0, 1, 2)
+
+
+@settings(max_examples=200)
+@given(st.integers(2, 12), st.integers(0, 2**31), st.text(max_size=12))
+def test_the_second_pass_is_always_a_derangement(n: int, seed: int, example_id: str) -> None:
+    from qd_data.render import second_pass_permutation
+
+    perm = second_pass_permutation(n, seed=seed, example_id=example_id, slot_name="s")
+    assert sorted(perm) == list(range(n))
+    assert all(perm[k] != k for k in range(n))

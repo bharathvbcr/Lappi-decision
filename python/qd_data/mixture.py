@@ -34,7 +34,13 @@ on 0.693147, which is ln 2, the entropy of a fair coin, with accuracy capped at 
 of 78 permanently. Dedupe *saw* the pair (``dedupe_text`` was byte-identical) and
 kept it correctly, because leakage and contradiction are different questions and
 dedupe asks only the first. :func:`check_prompt_consistency` asks the second, over
-the rendered prompt, and :func:`build_mixture` fails closed on it.
+the rendered prompt, and :func:`build_mixture` removes every row of a prompt that
+carries two golds (:func:`drop_contradictory_prompts`), counted as
+``contradictory_prompt`` -- no winner is chosen. It used to refuse the whole corpus
+instead; on 2026-09-29 the approved SQuAD v2 and CLINC caches were found to carry
+33 such groups among ~190k rows, upstream duplicates rather than a generator
+defect, and refusing 315k rows over them is the wrong remedy. ``qd_train.shards``
+still refuses any contradiction that reaches the write boundary.
 
 The free ``noul`` supervision, which is why these two datasets are load-bearing:
 CLINC150's out-of-scope class becomes an abstention on ``intent.classification``,
@@ -50,14 +56,31 @@ import unicodedata
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from qd_train.tristate import NotRun, Ran, TriState
 
 from .config import DataConfig
+from .defect_class import (
+    CHOICE_SLOT,
+    CONTEXT_HEADER_LINES,
+    DEFECT_CLASSES,
+    DEFECT_FAMILY_ID,
+    DEFECT_SOURCE_ID,
+    SPAN_SLOT,
+    DefectRow,
+)
 from .errors import LicenceRefused, QdRefusal
 from .licences import admit_licence, classify
-from .loaders import ClincRow, CommitPackFtRow, RawRow, SourceUnavailableRefusal, SquadRow
+from .loaders import (
+    ClincRow,
+    CommitPackFtRow,
+    CsqaRow,
+    MmluRow,
+    RawRow,
+    SourceUnavailableRefusal,
+    SquadRow,
+)
 from .render import (
     DEFAULT_CAPS,
     DeterministicRng,
@@ -75,23 +98,33 @@ from .schema import (
     canonical_json,
 )
 from .sources import source_by_id, task_family_by_id
+from .split import SQUAD_TITLE_FAMILIES, squad_title_family
+
+if TYPE_CHECKING:
+    # qd_data.general imports this module's `_request`/`_row` funnel, so its runtime
+    # import stays local to the functions that use it.
+    from .general import ClincDomainMap
 
 __all__ = [
     "CHANGE_SCOPE_BIN_EDGES",
+    "CONTRADICTORY_PROMPT",
     "DEFAULT_MAX_CONSISTENCY_ROWS",
     "LANGUAGE_OPTIONS",
     "MAX_NAMED_CONTRADICTIONS",
     "MAX_NAMED_GOLDS",
     "MAX_NAMED_ROW_IDS",
     "N_INTENT_OPTIONS",
+    "ConsistencyDrop",
     "MixtureResult",
     "PromptContradiction",
     "RowRefused",
     "abstention_supply",
     "build_mixture",
     "check_prompt_consistency",
+    "drop_contradictory_prompts",
     "rewrite_clinc",
     "rewrite_commitpackft",
+    "rewrite_defect_class",
     "rewrite_squad",
 ]
 
@@ -205,24 +238,26 @@ def _request(
     *,
     family_id: str,
     context: str,
-    slot_name: str,
-    slot: ChoiceSlot | ScoreSlot | SpanSlot,
+    slots: tuple[ChoiceSlot | ScoreSlot | SpanSlot, ...],
     example_id: str,
 ) -> Request:
+    """A tuple of slots, so a family asking two questions of one context -- the class and
+    the lines, for ``code.defect_class`` -- is one request through this one funnel rather
+    than a second builder beside it. That every gold names one of these slots is checked
+    by ``DataRow`` itself."""
     family = task_family_by_id(family_id)
-    if slot.name != slot_name:
-        raise ValueError(f"slot name mismatch: {slot.name!r} vs {slot_name!r}")
     # The single funnel every family's request passes through, so the invisible-
     # character check has one owner rather than one copy per rewriter.
     _refuse_invisible_format(context, field="context")
-    if isinstance(slot, ChoiceSlot):
-        for option in slot.options:
-            _refuse_invisible_format(option, field=f"option {option!r}")
+    for slot in slots:
+        if isinstance(slot, ChoiceSlot):
+            for option in slot.options:
+                _refuse_invisible_format(option, field=f"option {option!r}")
     return Request(
         task=family_id,
         context=context.encode("utf-8"),
         question=family.description,
-        slots=(slot,),
+        slots=tuple(slots),
         route="generic",
         example_id=example_id,
     )
@@ -237,7 +272,7 @@ def _row(
     identity_key: str,
     licence_id: str,
     request: Request,
-    gold: GoldAnswer,
+    gold: tuple[GoldAnswer, ...],
     dedupe_text: str,
     metadata: dict[str, str] | None = None,
 ) -> DataRow:
@@ -259,7 +294,7 @@ def _row(
         licence_id=policy.licence_id,
         obligations=policy.obligations,
         request=request,
-        gold=(gold,),
+        gold=tuple(gold),
         dedupe_text=dedupe_text,
         metadata=metadata or {},
     )
@@ -343,11 +378,13 @@ def rewrite_commitpackft(
             row_id=row_id, source_id="bigcode/commitpackft", family_id=family_id,
             repo_key=repo, identity_key=identity, licence_id=raw.licence,
             request=_request(
-                family_id=family_id, context=context, slot_name="implements_claim",
-                slot=ChoiceSlot(name="implements_claim", options=_YES_NO),
+                family_id=family_id, context=context,
+                slots=(ChoiceSlot(name="implements_claim", options=_YES_NO),),
                 example_id=row_id,
             ),
-            gold=GoldAnswer(slot_name="implements_claim", value="no" if use_decoy else "yes"),
+            gold=(
+                GoldAnswer(slot_name="implements_claim", value="no" if use_decoy else "yes"),
+            ),
             dedupe_text=dedupe_text,
             metadata={"decoy": str(use_decoy)},
         )
@@ -364,11 +401,11 @@ def rewrite_commitpackft(
             row_id=row_id, source_id="bigcode/commitpackft", family_id=family_id,
             repo_key=repo, identity_key=identity, licence_id=raw.licence,
             request=_request(
-                family_id=family_id, context=context, slot_name="language",
-                slot=ChoiceSlot(name="language", options=LANGUAGE_OPTIONS),
+                family_id=family_id, context=context,
+                slots=(ChoiceSlot(name="language", options=LANGUAGE_OPTIONS),),
                 example_id=row_id,
             ),
-            gold=GoldAnswer(slot_name="language", value=raw.lang),
+            gold=(GoldAnswer(slot_name="language", value=raw.lang),),
             dedupe_text=dedupe_text,
         )
 
@@ -390,11 +427,11 @@ def rewrite_commitpackft(
             row_id=row_id, source_id="bigcode/commitpackft", family_id=family_id,
             repo_key=repo, identity_key=identity, licence_id=raw.licence,
             request=_request(
-                family_id=family_id, context=context, slot_name="scope",
-                slot=ScoreSlot(name="scope", bins=bins), example_id=row_id,
+                family_id=family_id, context=context,
+                slots=(ScoreSlot(name="scope", bins=bins),), example_id=row_id,
             ),
-            gold=GoldAnswer(
-                slot_name="scope", value=_bin_of(n, CHANGE_SCOPE_BIN_EDGES)
+            gold=(
+                GoldAnswer(slot_name="scope", value=_bin_of(n, CHANGE_SCOPE_BIN_EDGES)),
             ),
             dedupe_text=dedupe_text,
             metadata={"changed_lines": str(n)},
@@ -466,10 +503,10 @@ def rewrite_clinc(
             row_id=row_id, source_id=source.source_id, family_id=family_id,
             repo_key=repo_key, identity_key=identity, licence_id=source.declared_licence,
             request=_request(
-                family_id=family_id, context=utterance, slot_name="intent",
-                slot=ChoiceSlot(name="intent", options=tuple(chosen)), example_id=row_id,
+                family_id=family_id, context=utterance,
+                slots=(ChoiceSlot(name="intent", options=tuple(chosen)),), example_id=row_id,
             ),
-            gold=gold, dedupe_text=utterance,
+            gold=(gold,), dedupe_text=utterance,
             metadata={"oos": str(raw.is_oos)},
         )
 
@@ -478,10 +515,10 @@ def rewrite_clinc(
             row_id=row_id, source_id=source.source_id, family_id=family_id,
             repo_key=repo_key, identity_key=identity, licence_id=source.declared_licence,
             request=_request(
-                family_id=family_id, context=utterance, slot_name="in_scope",
-                slot=ChoiceSlot(name="in_scope", options=_YES_NO), example_id=row_id,
+                family_id=family_id, context=utterance,
+                slots=(ChoiceSlot(name="in_scope", options=_YES_NO),), example_id=row_id,
             ),
-            gold=GoldAnswer(slot_name="in_scope", value="no" if raw.is_oos else "yes"),
+            gold=(GoldAnswer(slot_name="in_scope", value="no" if raw.is_oos else "yes"),),
             dedupe_text=utterance,
             metadata={"oos": str(raw.is_oos)},
         )
@@ -506,6 +543,22 @@ def rewrite_squad(
     passage = raw.context
     if not passage.strip():
         raise RowRefused(reason_code="empty_passage", expected="a non-empty passage", actual="")
+    if family_id in SQUAD_TITLE_FAMILIES:
+        if not raw.title.strip():
+            raise RowRefused(
+                reason_code="empty_title", expected="a SQuAD article title", actual=raw.title,
+                detail="the title is the partition unit between the two SQuAD families",
+            )
+        # User decision 2026-09-29 (GAP-DATA-SQUAD-SPAN-NOUL-LEAKS-HELD-OUT-ANSWERABILITY,
+        # option a): each SQuAD article feeds exactly one of the two families, so the held-out
+        # answerability rows' contexts never appear in span training with a noul/span gold.
+        owner = squad_title_family(raw.title, seed=config.seed)
+        if owner != family_id:
+            raise RowRefused(
+                reason_code="squad_title_reserved_for_other_family",
+                expected=owner, actual=family_id,
+                detail=f"title {raw.title!r} belongs to {owner}",
+            )
     row_id = f"squad:{family_id}:{raw.qid}"
     # The split unit is the article title: SQuAD draws many questions from one
     # article, so a row-level split would put questions about the same paragraph on
@@ -523,11 +576,11 @@ def rewrite_squad(
             row_id=row_id, source_id=source.source_id, family_id=family_id,
             repo_key=repo_key, identity_key=identity, licence_id=source.declared_licence,
             request=_request(
-                family_id=family_id, context=context, slot_name="answerable",
-                slot=ChoiceSlot(name="answerable", options=_YES_NO), example_id=row_id,
+                family_id=family_id, context=context,
+                slots=(ChoiceSlot(name="answerable", options=_YES_NO),), example_id=row_id,
             ),
-            gold=GoldAnswer(
-                slot_name="answerable", value="no" if raw.is_impossible else "yes"
+            gold=(
+                GoldAnswer(slot_name="answerable", value="no" if raw.is_impossible else "yes"),
             ),
             dedupe_text=dedupe_text,
             metadata={"impossible": str(raw.is_impossible)},
@@ -550,10 +603,10 @@ def rewrite_squad(
             row_id=row_id, source_id=source.source_id, family_id=family_id,
             repo_key=repo_key, identity_key=identity, licence_id=source.declared_licence,
             request=_request(
-                family_id=family_id, context=context, slot_name="evidence",
-                slot=SpanSlot(name="evidence"), example_id=row_id,
+                family_id=family_id, context=context,
+                slots=(SpanSlot(name="evidence"),), example_id=row_id,
             ),
-            gold=gold, dedupe_text=dedupe_text,
+            gold=(gold,), dedupe_text=dedupe_text,
             metadata={"impossible": str(raw.is_impossible)},
         )
 
@@ -561,6 +614,97 @@ def rewrite_squad(
         reason_code="unknown_family_for_source",
         expected="one of qa.answerability, qa.answer_span", actual=family_id,
         detail="rajpurkar/squad_v2",
+    )
+
+
+# -- qd-mutate/commitpackft ----------------------------------------------------
+
+
+def rewrite_defect_class(
+    raw: DefectRow, *, family_id: str, index: int, config: DataConfig
+) -> DataRow:
+    """One qd-mutate example: which class of change, and which lines it touched.
+
+    Two slots over one context, the unified diff. ``clean`` is a real class on the choice
+    slot and a genuine abstention on the span slot -- nothing was found, so the span points
+    at nothing -- which gives the span channel a ``noul`` that is taught, not dumped.
+
+    ``index`` is unused beyond the signature every rewriter shares: the row id is the
+    corpus's own example id, so a read at a different offset renames nothing.
+    """
+    del index
+    if family_id != DEFECT_FAMILY_ID:
+        raise RowRefused(
+            reason_code="unknown_family_for_source",
+            expected=DEFECT_FAMILY_ID, actual=family_id, detail=DEFECT_SOURCE_ID,
+        )
+    # The per-row licence check. The join in `qd_data.defect_class` resolved which
+    # licence governs the row; whether that licence is admitted is asked here, where a
+    # refusal is counted like every other source's.
+    admit_licence(raw.licence, config=config.licence, source=f"{DEFECT_SOURCE_ID} {raw.example_id}")
+    if not raw.repo.strip():
+        raise RowRefused(
+            reason_code="missing_repo", expected="a repository", actual=raw.repo,
+            detail="a row with no split unit cannot be split at the repo level",
+        )
+    if raw.span_refusal is not None:
+        raise RowRefused(
+            reason_code=raw.span_refusal,
+            expected="a span the diff represents", actual=raw.example_id,
+            detail=(
+                f"class {raw.mutation_class!r}: the mutation's span could not be rebased "
+                "into the diff, and a span pointed at a nearby line trains the pointer on "
+                "a fabricated target"
+            ),
+        )
+    header = f"file: {raw.path}\n\n"
+    if header.count("\n") != CONTEXT_HEADER_LINES:
+        raise RowRefused(
+            reason_code="path_contains_newline",
+            expected=f"a one-line path ({CONTEXT_HEADER_LINES} header lines)",
+            actual=header.count("\n"),
+            detail="every span label would shift by the extra lines",
+        )
+    # The final newline is dropped so the context does not end on an empty line that is
+    # a span candidate pointing at nothing; every earlier line keeps its number.
+    body = raw.diff[:-1] if raw.diff.endswith("\n") else raw.diff
+    context = header + body
+
+    if raw.diff_span is None:
+        span_gold = GoldAnswer(slot_name=SPAN_SLOT, value=None, is_noul=True)
+    else:
+        start, end = raw.diff_span
+        span_gold = GoldAnswer(
+            slot_name=SPAN_SLOT,
+            value=(start + CONTEXT_HEADER_LINES, end + CONTEXT_HEADER_LINES),
+        )
+    row_id = f"qdm:{family_id}:{raw.example_id}"
+    return _row(
+        row_id=row_id, source_id=DEFECT_SOURCE_ID, family_id=family_id,
+        repo_key=raw.repo,
+        # `pair_key`'s identity (repo, path, symbol, arity): the same function mutated
+        # twice is one identity, and the identity check keeps it on one side.
+        identity_key=f"{raw.repo}::{raw.path}::{raw.symbol}/{raw.arity}",
+        licence_id=raw.licence,
+        request=_request(
+            family_id=family_id, context=context,
+            slots=(
+                ChoiceSlot(name=CHOICE_SLOT, options=DEFECT_CLASSES),
+                SpanSlot(name=SPAN_SLOT),
+            ),
+            example_id=row_id,
+        ),
+        gold=(GoldAnswer(slot_name=CHOICE_SLOT, value=raw.mutation_class), span_gold),
+        # The diff, because it is the text the model reads: a leak is a diff seen in
+        # training reappearing across a repo boundary. The whole file is not compared --
+        # two vendored copies mutated at different sites share no diff lines, and neither
+        # diff shows the model the other's content.
+        dedupe_text=raw.diff,
+        metadata={
+            "language": raw.language,
+            "operator": raw.operator,
+            "pool_id": raw.pool_id,
+        },
     )
 
 
@@ -597,10 +741,16 @@ def rewrite_squad(
 # **Why the legitimate case survives.** An unanswerable row is *supposed* to sit
 # beside an answerable one -- that is what the two task-holdout families are for,
 # and a check that refused the shape would be worse than no check. The shape is not
-# what is refused: byte-identical prompts are. SQuAD 2.0 gives its unanswerable
-# question different words, so the honest pair renders two prompts and never meets
-# in a group. Only a generator that asked the identical question twice is caught,
-# which is exactly the defect that was measured.
+# what is removed: byte-identical prompts are. SQuAD 2.0 *usually* gives its
+# unanswerable question different words, so the honest pair renders two prompts and
+# never meets in a group. Not always: the approved cache (2026-09-29) holds 29
+# identical-question pairs over one context, one answerable and one not, and CLINC
+# files 4 identical utterances under two intents. Those groups are dropped whole.
+#
+# **Remove, not refuse.** The group goes and is counted; the corpus stays trainable.
+# Neither gold can be preferred without a judgement about the upstream data that
+# this pass cannot make, and refusing the corpus made one upstream duplicate veto
+# every other row.
 
 #: Bounded fan-out for the consistency pass. Measured on this repository's own
 #: corpus (672 rows, ~26 KB of rendered text per row): 1.88 ms/row, so this bound is
@@ -670,50 +820,47 @@ def _gold_key(row: DataRow) -> str:
     return canonical_json(sorted((g.to_json() for g in row.gold), key=lambda g: g["slot_name"]))
 
 
-def check_prompt_consistency(
-    rows: Sequence[DataRow],
-    *,
-    max_rows: int = DEFAULT_MAX_CONSISTENCY_ROWS,
-    caps: RenderCaps = DEFAULT_CAPS,
-) -> tuple[TriState, tuple[PromptContradiction, ...]]:
-    """Group by rendered prompt; a group whose golds disagree is a contradiction.
+@dataclass(frozen=True, slots=True)
+class _PromptGroups:
+    """Every rendered row, grouped by prompt digest and then by gold."""
 
-    Returns the verdict and the named groups. The verdict carries ``n``/``n_total``
-    as *rows grouped* over *rows examined*: a row whose context is over
-    :class:`~qd_data.render.RenderCaps` cannot be rendered, and therefore cannot be
-    grouped -- ``qd_train.shards`` refuses exactly those rows too (it catches
-    ``QdRefusal`` around its own ``render`` call), so such a row reaches no shard and
-    can contradict nothing that does. That is a reason to *carry both numbers*, not a
-    reason to call the pass complete.
+    #: digest -> gold key -> row ids. Only the digest is kept, never the prompt: a
+    #: rendered prompt runs to ``caps.max_rendered_bytes``, and holding one per row is
+    #: an unbounded allocation wearing a dict.
+    by_digest: dict[str, dict[str, list[str]]]
+    families: dict[str, set[str]]
+    n_total: int
+    n_unrenderable: int
 
-    ``NotRun`` above ``max_rows``: a consistency claim over a subsample is the defect
-    this function exists to catch, one level up.
+    @property
+    def n_grouped(self) -> int:
+        return self.n_total - self.n_unrenderable
+
+    @property
+    def conflicting(self) -> list[str]:
+        return sorted(d for d, by_gold in self.by_digest.items() if len(by_gold) > 1)
+
+    def rows_in(self, digests: Sequence[str]) -> set[str]:
+        return {i for d in digests for group in self.by_digest[d].values() for i in group}
+
+
+def _group_prompts(rows: Sequence[DataRow], *, caps: RenderCaps) -> _PromptGroups:
+    """Render every row at ``seed=None`` and group by prompt, then by gold.
+
+    A row whose context is over :class:`~qd_data.render.RenderCaps` cannot be rendered
+    and therefore cannot be grouped -- ``qd_train.shards`` refuses exactly those rows
+    too (it catches ``QdRefusal`` around its own ``render`` call), so such a row
+    reaches no shard and can contradict nothing that does. It is counted, never
+    dropped quietly: ``(n_grouped, n_total)`` is what keeps this from reading as full
+    coverage.
     """
-    n_total = len(rows)
-    if n_total > max_rows:
-        return (
-            NotRun(
-                reason=(
-                    f"the corpus has {n_total} rows and the consistency pass is bounded at "
-                    f"{max_rows}; the prompts were not grouped, so this corpus is "
-                    "unchecked for contradictory supervision, not clean of it"
-                )
-            ),
-            (),
-        )
-
-    # digest -> gold key -> row ids. Only the digest is kept, never the prompt: a
-    # rendered prompt runs to `caps.max_rendered_bytes`, and holding one per row is
-    # an unbounded allocation wearing a dict.
-    seen: dict[str, dict[str, list[str]]] = {}
+    by_digest: dict[str, dict[str, list[str]]] = {}
     families: dict[str, set[str]] = {}
     n_unrenderable = 0
     for row in rows:
         try:
             rendered = render(row.request, caps=caps, seed=None)
         except QdRefusal:
-            # Counted, never dropped quietly: the pair (n, n_total) below is what
-            # keeps this from reading as full coverage.
             n_unrenderable += 1
             continue
         hasher = hashlib.blake2b(digest_size=16)
@@ -729,70 +876,109 @@ def check_prompt_consistency(
             hasher.update(len(blob).to_bytes(8, "big"))
             hasher.update(blob)
         digest = hasher.hexdigest()
-        seen.setdefault(digest, {}).setdefault(_gold_key(row), []).append(row.row_id)
+        by_digest.setdefault(digest, {}).setdefault(_gold_key(row), []).append(row.row_id)
         families.setdefault(digest, set()).add(row.family_id)
+    return _PromptGroups(
+        by_digest=by_digest, families=families, n_total=len(rows),
+        n_unrenderable=n_unrenderable,
+    )
 
-    n_grouped = n_total - n_unrenderable
-    conflicting = sorted(d for d, by_gold in seen.items() if len(by_gold) > 1)
+
+def _name_contradictions(groups: _PromptGroups) -> tuple[PromptContradiction, ...]:
+    """The conflicting groups as a reader sees them, capped at the named maxima."""
+    named: list[PromptContradiction] = []
+    for digest in groups.conflicting[:MAX_NAMED_CONTRADICTIONS]:
+        by_gold = groups.by_digest[digest]
+        # One id per distinct gold first, then fill. Taking the lowest ids outright can
+        # name eight rows that all carry the *same* answer, which shows a reader one
+        # side of a disagreement and calls it the pair.
+        witnesses = [sorted(group)[0] for _, group in sorted(by_gold.items())]
+        chosen = set(witnesses)
+        rest = sorted(i for group in by_gold.values() for i in group if i not in chosen)
+        ids = (witnesses + rest)[:MAX_NAMED_ROW_IDS]
+        named.append(
+            PromptContradiction(
+                prompt_digest=digest,
+                row_ids=tuple(sorted(ids)),
+                golds=tuple(sorted(by_gold)[:MAX_NAMED_GOLDS]),
+                n_rows=sum(len(group) for group in by_gold.values()),
+                n_golds=len(by_gold),
+                family_ids=tuple(sorted(groups.families[digest])),
+            )
+        )
+    return tuple(named)
+
+
+def _bound_refusal(n_total: int, max_rows: int) -> NotRun:
+    return NotRun(
+        reason=(
+            f"the corpus has {n_total} rows and the consistency pass is bounded at "
+            f"{max_rows}; the prompts were not grouped, so this corpus is "
+            "unchecked for contradictory supervision, not clean of it"
+        )
+    )
+
+
+def _unrenderable_note(groups: _PromptGroups) -> str:
+    if not groups.n_unrenderable:
+        return ""
+    return (
+        f". {groups.n_unrenderable} row(s) could not be rendered and were not grouped; "
+        "those rows reach no shard either"
+    )
+
+
+def check_prompt_consistency(
+    rows: Sequence[DataRow],
+    *,
+    max_rows: int = DEFAULT_MAX_CONSISTENCY_ROWS,
+    caps: RenderCaps = DEFAULT_CAPS,
+) -> tuple[TriState, tuple[PromptContradiction, ...]]:
+    """Group by rendered prompt; a group whose golds disagree is a contradiction.
+
+    Read-only: reports, never removes. :func:`drop_contradictory_prompts` is the
+    remediation :func:`build_mixture` applies, over the same grouping.
+
+    Returns the verdict and the named groups. The verdict carries ``n``/``n_total``
+    as *rows grouped* over *rows examined* (see :func:`_group_prompts`).
+
+    ``NotRun`` above ``max_rows``: a consistency claim over a subsample is the defect
+    this function exists to catch, one level up.
+    """
+    if len(rows) > max_rows:
+        return _bound_refusal(len(rows), max_rows), ()
+    groups = _group_prompts(rows, caps=caps)
+    conflicting = groups.conflicting
     if not conflicting:
         return (
             Ran(
                 passed=True,
                 value=0,
-                n=n_grouped,
-                n_total=n_total,
+                n=groups.n_grouped,
+                n_total=groups.n_total,
                 detail=(
-                    f"{n_grouped} of {n_total} rows grouped into {len(seen)} distinct "
-                    "rendered prompts; no prompt carries two different gold answers"
-                    + (
-                        f". {n_unrenderable} row(s) could not be rendered and were not "
-                        "grouped; those rows reach no shard either"
-                        if n_unrenderable
-                        else ""
-                    )
+                    f"{groups.n_grouped} of {groups.n_total} rows grouped into "
+                    f"{len(groups.by_digest)} distinct rendered prompts; no prompt carries "
+                    "two different gold answers" + _unrenderable_note(groups)
                 ),
             ),
             (),
         )
-
-    named: list[PromptContradiction] = []
-    n_rows_in_conflict = 0
-    for digest in conflicting:
-        by_gold = seen[digest]
-        n_rows_in_conflict += sum(len(group) for group in by_gold.values())
-        if len(named) < MAX_NAMED_CONTRADICTIONS:
-            # One id per distinct gold first, then fill. Taking the lowest ids
-            # outright can name eight rows that all carry the *same* answer, which
-            # shows a reader one side of a disagreement and calls it the pair.
-            witnesses = [sorted(group)[0] for _, group in sorted(by_gold.items())]
-            chosen = set(witnesses)
-            rest = sorted(
-                i for group in by_gold.values() for i in group if i not in chosen
-            )
-            ids = (witnesses + rest)[:MAX_NAMED_ROW_IDS]
-            named.append(
-                PromptContradiction(
-                    prompt_digest=digest,
-                    row_ids=tuple(sorted(ids)),
-                    golds=tuple(sorted(by_gold)[:MAX_NAMED_GOLDS]),
-                    n_rows=sum(len(group) for group in by_gold.values()),
-                    n_golds=len(by_gold),
-                    family_ids=tuple(sorted(families[digest])),
-                )
-            )
+    named = _name_contradictions(groups)
     first = named[0]
+    n_rows_in_conflict = len(groups.rows_in(conflicting))
     return (
         Ran(
             passed=False,
             value=len(conflicting),
-            n=n_grouped,
-            n_total=n_total,
+            n=groups.n_grouped,
+            n_total=groups.n_total,
             detail=(
                 f"{len(conflicting)} rendered prompt(s) carry more than one gold answer, "
                 f"over {n_rows_in_conflict} rows in families "
-                f"{sorted({f for d in conflicting for f in families[d]})}. A causal model "
-                "conditions on the prompt and nothing else, so it must split its mass "
-                "between them and can never answer better than chance on the group. "
+                f"{sorted({f for d in conflicting for f in groups.families[d]})}. A causal "
+                "model conditions on the prompt and nothing else, so it must split its "
+                "mass between them and can never answer better than chance on the group. "
                 f"First: prompt {first.prompt_digest} over rows {list(first.row_ids)} with "
                 f"golds {list(first.golds)}."
                 + (
@@ -803,7 +989,86 @@ def check_prompt_consistency(
                 )
             ),
         ),
-        tuple(named),
+        named,
+    )
+
+
+#: The refusal code a row dropped by :func:`drop_contradictory_prompts` is counted
+#: under, in :attr:`MixtureResult.refusals` and in its family's coverage.
+CONTRADICTORY_PROMPT: Final[str] = "contradictory_prompt"
+
+
+@dataclass(frozen=True, slots=True)
+class ConsistencyDrop:
+    """What :func:`drop_contradictory_prompts` kept, removed and can say about both."""
+
+    rows: tuple[DataRow, ...]
+    #: Row ids removed, every row of every conflicting group -- never capped.
+    dropped: frozenset[str]
+    #: The verdict on the rows **kept**, with the drop in its detail and value.
+    verdict: TriState
+    #: The dropped groups, named and capped as in :func:`check_prompt_consistency`.
+    named: tuple[PromptContradiction, ...]
+
+
+def drop_contradictory_prompts(
+    rows: Sequence[DataRow],
+    *,
+    max_rows: int = DEFAULT_MAX_CONSISTENCY_ROWS,
+    caps: RenderCaps = DEFAULT_CAPS,
+) -> ConsistencyDrop:
+    """Remove every row of every rendered prompt that carries two golds.
+
+    The whole group goes, never a winner: which of two golds behind one prompt is
+    right is a question about the upstream data this pass cannot answer, and keeping
+    either one trains a label the source itself contradicts. Measured on the approved
+    caches (2026-09-29): SQuAD v2 asks the identical question over the identical
+    context once answerable and once not, and CLINC files the identical utterance
+    under two intents.
+
+    Above ``max_rows`` nothing is grouped and nothing is dropped: the verdict is
+    ``NotRun`` and the rows come back untouched, so the mixture is ``NotRun`` too.
+    """
+    if len(rows) > max_rows:
+        return ConsistencyDrop(
+            rows=tuple(rows), dropped=frozenset(),
+            verdict=_bound_refusal(len(rows), max_rows), named=(),
+        )
+    groups = _group_prompts(rows, caps=caps)
+    conflicting = groups.conflicting
+    dropped = frozenset(groups.rows_in(conflicting))
+    kept = tuple(r for r in rows if r.row_id not in dropped)
+    named = _name_contradictions(groups)
+    drop_note = (
+        f"; {len(conflicting)} rendered prompt(s) carried more than one gold answer "
+        f"(families {sorted({f for d in conflicting for f in groups.families[d]})}), and "
+        f"all {len(dropped)} of their rows were dropped as {CONTRADICTORY_PROMPT!r} with "
+        "no winner chosen"
+        + (
+            f" ({len(conflicting) - len(named)} of those groups counted, not named)"
+            if len(conflicting) > len(named)
+            else ""
+        )
+        if conflicting
+        else ""
+    )
+    return ConsistencyDrop(
+        rows=kept,
+        dropped=dropped,
+        verdict=Ran(
+            passed=True,
+            value=len(conflicting),
+            n=groups.n_grouped,
+            n_total=groups.n_total,
+            detail=(
+                f"{groups.n_grouped} of {groups.n_total} rows grouped into "
+                f"{len(groups.by_digest)} distinct rendered prompts; no prompt in the "
+                "emitted rows carries two different gold answers"
+                + drop_note
+                + _unrenderable_note(groups)
+            ),
+        ),
+        named=named,
     )
 
 
@@ -820,15 +1085,20 @@ _CHANNEL_BY_SLOT: Final[dict[type, str]] = {
     SpanSlot: "span",
 }
 
-#: Families whose rewriter can produce ``is_noul=True`` at all. Derived by reading
-#: every branch of the three rewriters above, not by running them: CLINC's
-#: out-of-scope class and SQuAD's unanswerable questions are the only two, and the
-#: module docstring says as much. ``intent.classification`` is the **only** letter
-#: family on the list, so a corpus built without ``clinc/clinc_oos`` teaches
-#: abstention on no letter channel at all, however many rows it has.
-ABSTAINING_FAMILIES: Final[frozenset[str]] = frozenset(
-    {"intent.classification", "qa.answer_span"}
-)
+#: Families whose rewriter can produce ``is_noul=True``, and **on which channel**.
+#: Derived by reading every branch of the rewriters above, not by running them:
+#: CLINC's out-of-scope class, SQuAD's unanswerable questions, and qd-mutate's
+#: ``clean`` examples, whose span points at nothing. Keyed by channel since
+#: ``code.defect_class`` became the first family with two slots: it abstains on its
+#: span and never on its class, so a family-level flag would report it "able to
+#: abstain" on the letter channel it cannot teach. ``intent.classification`` is still
+#: the **only** letter family here, so a corpus built without ``clinc/clinc_oos``
+#: teaches abstention on no letter channel at all, however many rows it has.
+ABSTAINING_FAMILIES: Final[dict[str, frozenset[str]]] = {
+    "intent.classification": frozenset({"choice"}),
+    "qa.answer_span": frozenset({"span"}),
+    DEFECT_FAMILY_ID: frozenset({"span"}),
+}
 
 
 def abstention_supply(rows: Sequence[DataRow]) -> dict[str, TriState]:
@@ -861,7 +1131,7 @@ def abstention_supply(rows: Sequence[DataRow]) -> dict[str, TriState]:
                 continue
             n_rows[channel] += 1
             present.setdefault(channel, set()).add(row.family_id)
-            if row.family_id in ABSTAINING_FAMILIES:
+            if channel in ABSTAINING_FAMILIES.get(row.family_id, frozenset()):
                 capable.setdefault(channel, set()).add(row.family_id)
             if any(g.is_noul and g.slot_name == slot.name for g in row.gold):
                 n_noul[channel] += 1
@@ -933,12 +1203,14 @@ class MixtureResult:
     #: (``qd_train.data_access.open_training_data``) branches on ``NotRun``.
     family_coverage: dict[str, TriState]
     #: Did any two rows ask one question and demand two answers? See
-    #: :func:`check_prompt_consistency`. Folded into :attr:`status`, so a corpus that
-    #: contradicts itself is refused by ``qd_train.data_access.open_training_data``
-    #: like any other unverified snapshot.
+    #: :func:`drop_contradictory_prompts`: the verdict on the rows **emitted**, whose
+    #: ``value`` counts the contradictory prompts whose rows were dropped. ``NotRun``
+    #: (over the bound) is folded into :attr:`status`, so an unchecked corpus is
+    #: refused by ``qd_train.data_access.open_training_data`` like any other.
     prompt_consistency: TriState
-    #: The named groups behind a failing ``prompt_consistency``, capped at
-    #: :data:`MAX_NAMED_CONTRADICTIONS`. The full count lives in the tri-state.
+    #: The dropped groups, capped at :data:`MAX_NAMED_CONTRADICTIONS`. The full count
+    #: lives in the tri-state, and every dropped row in :attr:`refusals` under
+    #: :data:`CONTRADICTORY_PROMPT`.
     contradictions: tuple[PromptContradiction, ...]
     #: ``channel -> TriState``: how much ``noul`` supervision each decode channel
     #: carries. **Reported, not folded into** :attr:`status` -- see
@@ -966,12 +1238,13 @@ class MixtureResult:
 
 
 def build_mixture(
-    raw_by_source: Mapping[str, Sequence[RawRow]],
+    raw_by_source: Mapping[str, Sequence[RawRow | DefectRow]],
     *,
     config: DataConfig,
     families: Sequence[str] | None = None,
     capped_sources: Sequence[str] = (),
     max_consistency_rows: int = DEFAULT_MAX_CONSISTENCY_ROWS,
+    clinc_domain_map: ClincDomainMap | None = None,
 ) -> MixtureResult:
     """Rewrite every admitted source into the one prompt format.
 
@@ -985,10 +1258,13 @@ def build_mixture(
     coverage.
 
     ``max_consistency_rows`` bounds the self-consistency pass
-    (:func:`check_prompt_consistency`), which renders every row once. Over the bound
-    the pass is ``NotRun`` and so is the mixture.
+    (:func:`drop_contradictory_prompts`), which renders every row once. Over the bound
+    the pass is ``NotRun``, nothing is dropped, and the mixture is ``NotRun``.
     """
+    from . import general  # local: general imports this module
     from .sources import TASK_FAMILIES  # local: avoids a cycle at import time
+
+    general_two_stage = {f.family_id for f in general.CLINC_TWO_STAGE_FAMILIES}
 
     wanted = (
         tuple(families)
@@ -997,6 +1273,9 @@ def build_mixture(
             f.family_id
             for f in TASK_FAMILIES.values()
             if f.source_id in raw_by_source
+            # The two-stage CLINC families need a domain map. Without one they are not
+            # requested by default; naming them in `families` still fails closed.
+            and not (clinc_domain_map is None and f.family_id in general_two_stage)
         )
     )
     for fam in wanted:
@@ -1007,6 +1286,8 @@ def build_mixture(
     n_input: dict[str, int] = {}
     refused_sources: dict[str, tuple[str, ...]] = {}
     family_coverage: dict[str, TriState] = {}
+    #: family -> (source, built, attempted, refusal counts, routed), before the drop.
+    attempts: dict[str, tuple[str, int, int, Counter[str], int]] = {}
 
     for source_id in sorted(raw_by_source):
         source = source_by_id(source_id)
@@ -1042,7 +1323,21 @@ def build_mixture(
         for family_id in source_families:
             n_before = len(rows)
             family_counts: Counter[str] = Counter()
+            # SQuAD rows whose article belongs to the other SQuAD family are ROUTED, not
+            # refused: nothing is wrong with them, they are that family's rows. Counting them
+            # as refusals would read as an 80% data-quality loss and inflate every
+            # built/attempted denominator. `rewrite_squad` still refuses them (fail closed)
+            # for a caller that reaches it directly.
+            routed = 0
             for i, raw in enumerate(raws):
+                if (
+                    family_id in SQUAD_TITLE_FAMILIES
+                    and isinstance(raw, SquadRow)
+                    and raw.title.strip()
+                    and squad_title_family(raw.title, seed=config.seed) != family_id
+                ):
+                    routed += 1
+                    continue
                 try:
                     rows.append(
                         _dispatch(
@@ -1052,6 +1347,7 @@ def build_mixture(
                             config=config,
                             intent_vocabulary=intent_vocab,
                             messages=messages,
+                            clinc_domain_map=clinc_domain_map,
                         )
                     )
                 except RowRefused as exc:
@@ -1059,15 +1355,38 @@ def build_mixture(
                 except LicenceRefused as exc:
                     family_counts[f"licence:{exc.actual}"] += 1
             counts.update(family_counts)
-            # A family belongs to exactly one source, so this never collides.
-            family_coverage[family_id] = _family_coverage(
-                family_id=family_id,
-                source_id=source_id,
-                n_built=len(rows) - n_before,
-                n_attempted=len(raws),
-                reasons=dict(family_counts),
-            )
+            # A family belongs to exactly one source, so this never collides. Coverage
+            # is computed after the consistency drop below, which can take rows from it.
+            attempts[family_id] = (source_id, len(rows) - n_before, len(raws) - routed,
+                                   family_counts, routed)
         refusals[source_id] = dict(counts)
+
+    # Every row of a prompt that carries two golds goes, counted, before anything is
+    # histogrammed: a dropped row is in no split, no shard and no coverage number.
+    drop = drop_contradictory_prompts(rows, max_rows=max_consistency_rows)
+    dropped_by_family: Counter[str] = Counter(
+        r.family_id for r in rows if r.row_id in drop.dropped
+    )
+    dropped_by_source: Counter[str] = Counter(
+        r.source_id for r in rows if r.row_id in drop.dropped
+    )
+    rows = list(drop.rows)
+    consistency, contradictions = drop.verdict, drop.named
+    for source_id, n in dropped_by_source.items():
+        refusals[source_id][CONTRADICTORY_PROMPT] = n
+    for family_id, (source_id, n_built, n_attempted, family_counts, routed) in (
+        attempts.items()
+    ):
+        if dropped_by_family[family_id]:
+            family_counts[CONTRADICTORY_PROMPT] = dropped_by_family[family_id]
+        family_coverage[family_id] = _family_coverage(
+            family_id=family_id,
+            source_id=source_id,
+            n_built=n_built - dropped_by_family[family_id],
+            n_attempted=n_attempted,
+            reasons=dict(family_counts),
+            routed=routed,
+        )
 
     licence_hist: Counter[str] = Counter()
     host_hist: Counter[str] = Counter()
@@ -1077,9 +1396,6 @@ def build_mixture(
         host_hist[row.host] += 1
         obligations[row.licence_id] = row.obligations
 
-    consistency, contradictions = check_prompt_consistency(
-        rows, max_rows=max_consistency_rows
-    )
     abstention = abstention_supply(rows)
 
     capped = tuple(sorted(set(capped_sources)))
@@ -1093,7 +1409,16 @@ def build_mixture(
         )
     elif not rows:
         status = NotRun(
-            reason="no rows survived rewriting, so no mixture was built and nothing was verified"
+            reason=(
+                "no rows survived rewriting"
+                + (
+                    f" and the consistency drop ({len(drop.dropped)} row(s) of "
+                    f"{consistency.value} contradictory prompt(s), {CONTRADICTORY_PROMPT!r})"
+                    if drop.dropped
+                    else ""
+                )
+                + ", so no mixture was built and nothing was verified"
+            )
         )
     elif uncovered:
         # The defect GAP-DATA-COMMITPACKFT-LANG-SET-UNVERIFIED was a proxy for. A
@@ -1117,17 +1442,6 @@ def build_mixture(
         # The pass is bounded and the bound bound. An unchecked corpus is not a clean
         # one, and `open_training_data` refuses a NotRun snapshot by default.
         status = NotRun(reason=consistency.reason)
-    elif not consistency.passed:
-        # Fail closed: `open_training_data` refuses `Ran(passed=False)` too. The
-        # manifest is still written, because the row ids are the whole point -- the
-        # corpus is legible and untrainable, rather than absent.
-        status = Ran(
-            passed=False,
-            value=consistency.value,
-            n=consistency.n,
-            n_total=consistency.n_total,
-            detail="corpus is not self-consistent -- " + consistency.detail,
-        )
     else:
         total_refused = sum(sum(c.values()) for c in refusals.values())
         status = Ran(
@@ -1143,7 +1457,13 @@ def build_mixture(
                     for f, s in sorted(family_coverage.items())
                 )
                 + f"; self-consistency: {consistency.coverage_str()} rows grouped, "
-                + "no contradictory prompt"
+                + "no contradictory prompt in the emitted rows"
+                + (
+                    f" ({len(drop.dropped)} row(s) of {consistency.value} contradictory "
+                    f"prompt(s) dropped as {CONTRADICTORY_PROMPT!r})"
+                    if drop.dropped
+                    else ""
+                )
             ),
         )
 
@@ -1170,8 +1490,16 @@ def _family_coverage(
     n_built: int,
     n_attempted: int,
     reasons: dict[str, int],
+    routed: int = 0,
 ) -> TriState:
-    """One family's built/attempted pair, or ``NotRun`` when it built nothing."""
+    """One family's built/attempted pair, or ``NotRun`` when it built nothing.
+
+    ``routed`` rows belonged to another family by design (the SQuAD title partition) and
+    are in neither number; the detail says how many, so the source's size stays visible.
+    """
+    routed_note = (
+        f"; {routed} {source_id} row(s) routed to another family by design" if routed else ""
+    )
     top = ", ".join(
         f"{code}={n}" for code, n in sorted(reasons.items(), key=lambda kv: (-kv[1], kv[0]))
     )
@@ -1179,7 +1507,7 @@ def _family_coverage(
         return NotRun(
             reason=(
                 f"{family_id}: no rows were read from {source_id}, so the family was "
-                "never built and nothing about it was verified"
+                "never built and nothing about it was verified" + routed_note
             )
         )
     if n_built == 0:
@@ -1187,7 +1515,7 @@ def _family_coverage(
             reason=(
                 f"{family_id}: all {n_attempted} rows read from {source_id} were refused "
                 f"({top}), so the family has no examples -- nothing about it was built "
-                "and nothing about it can be checked"
+                "and nothing about it can be checked" + routed_note
             )
         )
     return Ran(
@@ -1198,18 +1526,20 @@ def _family_coverage(
         detail=(
             f"{family_id}: {n_built} of {n_attempted} {source_id} rows became examples"
             + (f"; refused: {top}" if reasons else "")
+            + routed_note
         ),
     )
 
 
 def _dispatch(
-    raw: RawRow,
+    raw: RawRow | DefectRow,
     *,
     family_id: str,
     index: int,
     config: DataConfig,
     intent_vocabulary: Sequence[str],
     messages: Sequence[str],
+    clinc_domain_map: ClincDomainMap | None = None,
 ) -> DataRow:
     if isinstance(raw, CommitPackFtRow):
         decoy: str | None = None
@@ -1228,13 +1558,36 @@ def _dispatch(
             raw, family_id=family_id, index=index, config=config, decoy_message=decoy
         )
     if isinstance(raw, ClincRow):
+        from . import general  # local: general imports this module
+
+        if family_id in (general.CLINC_DOMAIN_FAMILY, general.CLINC_WITHIN_DOMAIN_FAMILY):
+            if clinc_domain_map is None:
+                raise RowRefused(
+                    reason_code="no_clinc_domain_map",
+                    expected="a ClincDomainMap passed to build_mixture", actual=None,
+                    detail="the two-stage intent families cannot be asked without one",
+                )
+            return general.rewrite_clinc_two_stage(
+                raw, family_id=family_id, index=index, config=config,
+                domain_map=clinc_domain_map,
+            )
         return rewrite_clinc(
             raw, family_id=family_id, index=index, config=config,
             intent_vocabulary=intent_vocabulary,
         )
     if isinstance(raw, SquadRow):
         return rewrite_squad(raw, family_id=family_id, index=index, config=config)
+    if isinstance(raw, DefectRow):
+        return rewrite_defect_class(raw, family_id=family_id, index=index, config=config)
+    if isinstance(raw, (MmluRow, CsqaRow)):
+        # Local import: qd_data.general imports this module's `_request`/`_row` funnel.
+        from . import general
+
+        if isinstance(raw, MmluRow):
+            return general.rewrite_mmlu(raw, family_id=family_id, index=index, config=config)
+        return general.rewrite_csqa(raw, family_id=family_id, index=index, config=config)
     raise RowRefused(
         reason_code="unknown_raw_row_type",
-        expected="CommitPackFtRow | ClincRow | SquadRow", actual=type(raw).__name__,
+        expected="CommitPackFtRow | ClincRow | SquadRow | DefectRow | MmluRow | CsqaRow",
+        actual=type(raw).__name__,
     )

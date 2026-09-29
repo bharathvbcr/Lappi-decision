@@ -330,6 +330,14 @@ class ShardHeader:
     #: **Empty means "written before this field existed", not "matches"**, exactly as for
     #: `code_fingerprint`.
     corpus_rev: str = ""
+    #: sha256 of the bytes of `qd_train.shards.SEQUENCE_INDEX_NAME`: which `(row_id,
+    #: slot_name)` each written sequence is, in write order, and which were excluded and
+    #: why. Pinned here so the index cannot be swapped for another set's -- a consumer that
+    #: pairs labels to sequences by id is only as right as the file it pairs them from.
+    #:
+    #: **Empty means "written before this field existed"**; `ShardReader` then reports the
+    #: set's slot coverage as `NotRun` and exposes no index rather than one it cannot trust.
+    sequence_index_hash: str = ""
 
     def __post_init__(self) -> None:
         if self.format != SHARD_FORMAT:
@@ -408,6 +416,14 @@ class ShardHeader:
             # contributing nothing when empty so every header written before this field
             # still verifies against the hash it was written with.
             *((self.corpus_rev.encode(),) if self.corpus_rev else ()),
+            # Same contract again. Tagged, unlike the two above: it is a hex digest that
+            # sits after an optional field, and an untagged digest in that position could
+            # be read as the field before it by a header that omits one of them.
+            *(
+                (b"sequence_index_hash:" + self.sequence_index_hash.encode(),)
+                if self.sequence_index_hash
+                else ()
+            ),
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -427,6 +443,7 @@ class ShardHeader:
             "created_at": self.created_at or datetime.now(UTC).isoformat(),
             "code_fingerprint": dict(sorted(self.code_fingerprint.items())),
             "corpus_rev": self.corpus_rev,
+            "sequence_index_hash": self.sequence_index_hash,
             "shard_hash": self.shard_hash(),
         }
 
@@ -450,6 +467,7 @@ class ShardHeader:
                 str(k): str(v) for k, v in (raw.get("code_fingerprint") or {}).items()
             },
             corpus_rev=str(raw.get("corpus_rev", "")),
+            sequence_index_hash=str(raw.get("sequence_index_hash", "")),
         )
         if "shard_hash" in raw and raw["shard_hash"] != header.shard_hash():
             raise ShardContractViolation(

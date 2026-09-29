@@ -1,4 +1,4 @@
-"""Bounded, typed readers for the three sources that actually survive admission.
+"""Bounded, typed readers for the sources that survive admission.
 
 The raw row types here mirror each upstream schema exactly once, so the rewriters in
 :mod:`qd_data.mixture` never touch an untyped ``dict``. A missing field raises
@@ -30,6 +30,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -40,19 +41,56 @@ from .sources import Reachability, source_by_id
 __all__ = [
     "DATASETS_SERVER",
     "MAX_FETCH_ROWS",
+    "REFUSED_READS",
     "ClincRow",
     "CommitPackFtRow",
+    "CsqaRow",
     "MalformedRowRefusal",
+    "MmluRow",
     "RawRow",
     "SourceUnavailableRefusal",
     "SquadRow",
+    "check_read_admitted",
     "fetch_rows",
     "load_agentpack",
     "parse_clinc",
     "parse_commitpackft",
+    "parse_csqa",
+    "parse_mmlu",
     "parse_squad",
     "read_jsonl",
 ]
+
+#: ``(source_id, config_or_split_name) -> why``. A read naming any of these, as its
+#: config or its split, is refused before a byte is fetched.
+#:
+#: ``cais/mmlu``'s ``auxiliary_train`` is both a config and a split of ``all``, and it
+#: is not MMLU: its 99,842 rows are drawn from ARC (cc-by-sa-4.0, opt-in here),
+#: OpenBookQA (licence unknown, refused here), RACE and MCTest, re-published under
+#: MMLU's MIT card. Admitting it would launder two refused licences through one
+#: permissive header.
+REFUSED_READS: Final[dict[tuple[str, str], str]] = {
+    ("cais/mmlu", "auxiliary_train"): (
+        "cais/mmlu auxiliary_train is drawn from ARC, OpenBookQA, RACE and MCTest, not "
+        "from MMLU; ARC is share-alike opt-in and OpenBookQA has no licence, so the MIT "
+        "card does not cover it"
+    ),
+    ("tau/commonsense_qa", "test"): (
+        "tau/commonsense_qa test carries no answerKey on the hub (1,140 of 1,140 empty), "
+        "and it is not in the source's pinned split policy"
+    ),
+}
+
+
+def _check_pinned(source_id: str, upstream_split: str) -> None:
+    """Refuse a row from an upstream split its source's pinned policy does not list."""
+    try:
+        source_by_id(source_id).pinned_split_of(upstream_split)
+    except KeyError as exc:
+        raise MalformedRowRefusal(
+            expected=f"an upstream split in {source_id}'s pinned split policy",
+            actual=upstream_split, detail=str(exc),
+        ) from exc
 
 #: The public rows endpoint. Bounded by ``length`` (the server caps it at 100) and
 #: by our own :data:`MAX_FETCH_ROWS`.
@@ -177,7 +215,103 @@ class SquadRow:
             )
 
 
-RawRow = CommitPackFtRow | ClincRow | SquadRow
+@dataclass(frozen=True, slots=True)
+class MmluRow:
+    """``cais/mmlu``. Four options and a gold index; no natural ``noul``.
+
+    ``upstream_split`` is carried because MMLU's split is *pinned*: the upstream split,
+    not the repo hash, decides train or val (``qd_data.sources`` ``cais/mmlu``). It is
+    checked against that policy here, so a row from an unreviewed split cannot exist.
+    """
+
+    subject: str
+    question: str
+    choices: tuple[str, ...]
+    answer_index: int
+    upstream_split: str
+
+    def __post_init__(self) -> None:
+        _check_pinned("cais/mmlu", self.upstream_split)
+        if not 0 <= self.answer_index < len(self.choices):
+            raise MalformedRowRefusal(
+                expected=f"an answer index in 0..{len(self.choices) - 1}",
+                actual=self.answer_index, detail=f"mmlu {self.subject!r}",
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class CsqaRow:
+    """``tau/commonsense_qa``. Five lettered options; the test split is unlabelled.
+
+    ``answer_key`` is kept as the empty string on an unlabelled row rather than being
+    refused here: an unlabelled row is not malformed, it is unusable, and the rewriter
+    counts it under its own reason code so the thinning is visible. (The hub's test
+    split, which is wholly unlabelled, is refused before any row is read.)
+
+    ``upstream_split`` is pinned as MMLU's is (``qd_data.sources`` ``tau/commonsense_qa``).
+    """
+
+    qid: str
+    question: str
+    concept: str
+    labels: tuple[str, ...]
+    texts: tuple[str, ...]
+    answer_key: str
+    upstream_split: str
+
+    def __post_init__(self) -> None:
+        _check_pinned("tau/commonsense_qa", self.upstream_split)
+        if len(self.labels) != len(self.texts):
+            raise MalformedRowRefusal(
+                expected="one text per choice label",
+                actual=f"{len(self.labels)} labels, {len(self.texts)} texts",
+                detail=f"csqa row {self.qid!r}",
+            )
+        if len(set(self.labels)) != len(self.labels):
+            raise MalformedRowRefusal(
+                expected="distinct choice labels", actual=list(self.labels),
+                detail=f"csqa row {self.qid!r}",
+            )
+        if self.answer_key and self.answer_key not in self.labels:
+            raise MalformedRowRefusal(
+                expected=f"answerKey in {list(self.labels)}", actual=self.answer_key,
+                detail=f"csqa row {self.qid!r}",
+            )
+
+
+RawRow = CommitPackFtRow | ClincRow | SquadRow | MmluRow | CsqaRow
+
+
+def _req_int(raw: dict[str, Any], key: str, *, where: str) -> int:
+    if key not in raw:
+        raise MalformedRowRefusal(
+            expected=f"a {key!r} field", actual=sorted(raw)[:12], detail=where,
+        )
+    v = raw[key]
+    # bool is an int subclass; True as an answer index is a type error, not 1.
+    if not isinstance(v, int) or isinstance(v, bool):
+        raise MalformedRowRefusal(
+            expected=f"{key!r} as int", actual=type(v).__name__, detail=where,
+        )
+    return v
+
+
+def _req_str_list(raw: dict[str, Any], key: str, *, where: str) -> tuple[str, ...]:
+    if key not in raw:
+        raise MalformedRowRefusal(
+            expected=f"a {key!r} field", actual=sorted(raw)[:12], detail=where,
+        )
+    v = raw[key]
+    if not isinstance(v, list):
+        raise MalformedRowRefusal(
+            expected=f"{key!r} as a list", actual=type(v).__name__, detail=where,
+        )
+    for item in v:
+        if not isinstance(item, str):
+            raise MalformedRowRefusal(
+                expected=f"{key!r} items as str", actual=type(item).__name__, detail=where,
+            )
+    return tuple(v)
 
 
 def parse_commitpackft(raw: dict[str, Any], *, index: int) -> CommitPackFtRow:
@@ -198,9 +332,47 @@ def parse_commitpackft(raw: dict[str, Any], *, index: int) -> CommitPackFtRow:
     )
 
 
-def parse_clinc(raw: dict[str, Any], *, index: int, oos_label: str = "oos") -> ClincRow:
+def parse_clinc(
+    raw: dict[str, Any],
+    *,
+    index: int,
+    oos_label: str = "oos",
+    label_names: Sequence[str] | None = None,
+) -> ClincRow:
+    """One CLINC150 row. ``intent`` arrives as a name or as a ``ClassLabel`` index.
+
+    The hub schema types ``intent`` as ``ClassLabel`` (datasets-server ``/info``,
+    ``clinc/clinc_oos`` config ``plus``, checked 2026-09-29), so a real row carries an
+    ``int``. This parser used to demand ``str`` and would have refused every real row.
+    An index is resolved through ``label_names`` -- the ``ClassLabel.names`` list
+    from the same ``/info`` response -- and an index with no names to resolve it
+    against is refused rather than stringified, because ``"42"`` is not an intent.
+    """
     where = f"clinc/clinc_oos row {index}"
-    intent = _req_str(raw, "intent", where=where)
+    if "intent" not in raw:
+        raise MalformedRowRefusal(
+            expected="an 'intent' field", actual=sorted(raw)[:12], detail=where,
+        )
+    label = raw["intent"]
+    if isinstance(label, str):
+        intent = label
+    elif isinstance(label, int) and not isinstance(label, bool):
+        if label_names is None:
+            raise MalformedRowRefusal(
+                expected="label_names to resolve a ClassLabel index", actual=label,
+                detail=f"{where}: an intent index without its names is not an intent",
+            )
+        if not 0 <= label < len(label_names):
+            raise MalformedRowRefusal(
+                expected=f"an intent index in 0..{len(label_names) - 1}", actual=label,
+                detail=where,
+            )
+        intent = label_names[label]
+    else:
+        raise MalformedRowRefusal(
+            expected="'intent' as str or ClassLabel int", actual=type(label).__name__,
+            detail=where,
+        )
     return ClincRow(
         utterance=_req_str(raw, "text", where=where),
         intent=intent,
@@ -247,6 +419,63 @@ def parse_squad(raw: dict[str, Any], *, index: int) -> SquadRow:
         answer_starts=tuple(starts),
         is_impossible=impossible,
     )
+
+
+def parse_mmlu(raw: dict[str, Any], *, index: int, split_name: str) -> MmluRow:
+    """One ``cais/mmlu`` row: ``question``, ``subject``, ``choices``, ``answer``.
+
+    ``answer`` is a ``ClassLabel`` over ``A..D`` on the hub, so it arrives as an int
+    index into ``choices``. It is refused out of range by :class:`MmluRow`.
+    ``split_name`` is the upstream split the row was read from; ``auxiliary_train`` is
+    refused by :data:`REFUSED_READS` before the pinned-split check is reached.
+    """
+    check_read_admitted("cais/mmlu", config_name="all", split_name=split_name)
+    where = f"cais/mmlu {split_name} row {index}"
+    return MmluRow(
+        subject=_req_str(raw, "subject", where=where),
+        question=_req_str(raw, "question", where=where),
+        choices=_req_str_list(raw, "choices", where=where),
+        answer_index=_req_int(raw, "answer", where=where),
+        upstream_split=split_name,
+    )
+
+
+def parse_csqa(raw: dict[str, Any], *, index: int, split_name: str) -> CsqaRow:
+    """One ``tau/commonsense_qa`` row. ``choices`` is ``{"label": [...], "text": [...]}``.
+
+    ``split_name`` is the upstream split; ``test`` is refused by :data:`REFUSED_READS`.
+    """
+    check_read_admitted("tau/commonsense_qa", config_name="default", split_name=split_name)
+    where = f"tau/commonsense_qa {split_name} row {index}"
+    choices = raw.get("choices")
+    if not isinstance(choices, dict):
+        raise MalformedRowRefusal(
+            expected="a 'choices' object", actual=type(choices).__name__, detail=where,
+        )
+    return CsqaRow(
+        qid=_req_str(raw, "id", where=where),
+        question=_req_str(raw, "question", where=where),
+        concept=_req_str(raw, "question_concept", where=where),
+        labels=_req_str_list(choices, "label", where=where),
+        texts=_req_str_list(choices, "text", where=where),
+        answer_key=_req_str(raw, "answerKey", where=where),
+        upstream_split=split_name,
+    )
+
+
+def check_read_admitted(source_id: str, *, config_name: str, split_name: str) -> None:
+    """Refuse a read of a config or split that :data:`REFUSED_READS` names.
+
+    Called by :func:`fetch_rows`, and by any offline reader of a file pulled from
+    one of these sources -- the refusal is about *which rows*, not about the network.
+    """
+    for name in (config_name, split_name):
+        why = REFUSED_READS.get((source_id, name))
+        if why is not None:
+            raise SourceUnavailableRefusal(
+                expected=f"a config and split of {source_id} that the licence covers",
+                actual=f"config={config_name!r}, split={split_name!r}", detail=why,
+            )
 
 
 def read_jsonl(
@@ -318,6 +547,7 @@ def fetch_rows(
             expected="a source reachable unattended", actual=source.reachability.value,
             detail=f"{source_id}: {source.evidence}",
         )
+    check_read_admitted(source_id, config_name=config_name, split_name=split_name)
     if limit < 1 or limit > MAX_FETCH_ROWS:
         raise ValueError(f"limit must be in 1..{MAX_FETCH_ROWS}, got {limit}")
 

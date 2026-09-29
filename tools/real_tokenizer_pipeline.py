@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import dataclasses
 import hashlib
 import json
 import subprocess
@@ -67,13 +68,41 @@ from repo_git import git_bytes, git_text, resolve_rev, tracked_paths
 
 from qd_data.config import DataConfig
 from qd_data.dedupe import dedupe
+from qd_data.defect_class import (
+    CHOICE_SLOT as DEFECT_CHOICE_SLOT,
+)
+from qd_data.defect_class import (
+    DEFECT_FAMILY_ID,
+    DEFECT_SOURCE_ID,
+    DefectRow,
+    load_defect_rows,
+)
 from qd_data.errors import QdRefusal
-from qd_data.loaders import CommitPackFtRow, RawRow, SquadRow, parse_commitpackft
+from qd_data.general import (
+    CLINC_DOMAINS_COMMIT,
+    REPLAY_FAMILIES,
+    ClincDomainMap,
+    ReplayPartition,
+    load_clinc_domains,
+    partition_replay,
+)
+from qd_data.loaders import (
+    REFUSED_READS,
+    CommitPackFtRow,
+    RawRow,
+    SquadRow,
+    parse_clinc,
+    parse_commitpackft,
+    parse_csqa,
+    parse_mmlu,
+    parse_squad,
+    read_jsonl,
+)
 from qd_data.manifest import build_manifests
 from qd_data.mixture import build_mixture
 from qd_data.rows import DataRow
 from qd_data.schema import SpanSlot
-from qd_data.split import HELD_OUT, split
+from qd_data.split import HELD_OUT, SplitReport, split
 from qd_train import shards as shards_module
 from qd_train.artifacts import (
     SLOT_SPAN,
@@ -129,6 +158,10 @@ DEFAULT_MAX_PAIRS = 400
 #: Bound on the tokenizer memo. A memo without one is a second unbounded allocation
 #: hiding behind a speed optimisation.
 MEMO_LIMIT = 8192
+
+#: The ``bigcode/commitpackft`` download ``--defect-class`` joins licences from: the qd-mutate
+#: corpus and its pool carry none (``qd_data.defect_class``).
+DEFAULT_DEFECT_DOWNLOAD = REPO / "data" / "pool" / "commitpackft"
 
 
 # -- the corpus -------------------------------------------------------------------------
@@ -436,9 +469,16 @@ class RealTokenizer:
 
     tok: Any
     _memo: dict[str, tuple[list[int], list[tuple[int, int]]]]
+    #: ``0`` disables the memo: every call encodes, so the cost is still independent of row
+    #: order. That is the setting for a corpus far over :data:`MEMO_LIMIT` -- the 50,177-row
+    #: ``code.defect_class`` corpus renders two sequences per row, and a memo holding ids
+    #: and offsets for all of them is several GB of Python objects.
+    memo_limit: int = MEMO_LIMIT
 
     @classmethod
-    def load(cls) -> RealTokenizer:
+    def load(cls, *, memo_limit: int = MEMO_LIMIT) -> RealTokenizer:
+        if memo_limit < 0:
+            raise SystemExit(f"--memo-limit must be >= 0, got {memo_limit}")
         try:
             from transformers import AutoTokenizer
         except ModuleNotFoundError:
@@ -446,7 +486,9 @@ class RealTokenizer:
                 "transformers is not importable from this interpreter. The repo venv does "
                 "not carry it on purpose; run this with /Users/bharath/.venvs/ml/bin/python."
             ) from None
-        return cls(tok=AutoTokenizer.from_pretrained(MODEL), _memo={})
+        return cls(
+            tok=AutoTokenizer.from_pretrained(MODEL), _memo={}, memo_limit=memo_limit
+        )
 
     def _encode(self, text: str) -> tuple[list[int], list[tuple[int, int]]]:
         key = hashlib.blake2b(text.encode("utf-8"), digest_size=16).hexdigest()
@@ -455,11 +497,14 @@ class RealTokenizer:
             return hit
         enc = self.tok(text, add_special_tokens=False, return_offsets_mapping=True)
         value = ([int(i) for i in enc["input_ids"]], [tuple(o) for o in enc["offset_mapping"]])
-        if len(self._memo) >= MEMO_LIMIT:
+        if self.memo_limit == 0:
+            return value
+        if len(self._memo) >= self.memo_limit:
             raise RuntimeError(
-                f"the tokenizer memo reached its {MEMO_LIMIT}-entry bound. Raise the bound "
-                "deliberately rather than evicting: an eviction policy would make this "
-                "run's timing depend on row order."
+                f"the tokenizer memo reached its {self.memo_limit}-entry bound. Raise the "
+                "bound deliberately (--memo-limit), or pass --memo-limit 0 to encode every "
+                "call, rather than evicting: an eviction policy would make this run's "
+                "timing depend on row order."
             )
         self._memo[key] = value
         return value
@@ -596,6 +641,16 @@ class Census:
     #: The row each entry of ``ids`` came from, index for index. A row renders to one
     #: sequence per slot, and "can this row be encoded" is a question about all of them.
     id_rows: list[str] = None  # type: ignore[assignment]
+    #: Every row that wrote NO sequence, by id, with its refusal class: refused before any
+    #: slot was tokenized, or ``every_slot_refused``. ``refused`` counts the first kind.
+    refused_rows: dict[str, str] = None  # type: ignore[assignment]
+    #: Slot-scoped refusals: ``(row_id, slot_name)`` -> class, and their counts. Since the
+    #: writer refuses only the slot whose span cannot be placed, a two-slot family whose
+    #: span collapses under BPE keeps its class sequence; these are counted separately so a
+    #: slot refusal is never read as a lost row (GAP-A3-BPE-SPAN-COLLAPSE-DROPS-...).
+    refused_slots: dict[tuple[str, str], str] = None  # type: ignore[assignment]
+    refused_slot: collections.Counter[str] = None  # type: ignore[assignment]
+    slots_in: int = 0
 
     def __post_init__(self) -> None:
         self.lengths = []
@@ -604,6 +659,9 @@ class Census:
         self.fatal_classes = set()
         self.ids = []
         self.id_rows = []
+        self.refused_rows = {}
+        self.refused_slots = {}
+        self.refused_slot = collections.Counter()
 
 
 def census(rows: list[DataRow], *, tok: RealTokenizer, config: DataConfig) -> Census:
@@ -619,44 +677,141 @@ def census(rows: list[DataRow], *, tok: RealTokenizer, config: DataConfig) -> Ce
     out = Census()
     for row in rows:
         out.rows_in += 1
+        out.slots_in += len(row.request.slots)
         staged_ids: list[np.ndarray] = []
         staged_spans = 0
+        # The writer's two scopes (qd_train.shards.write_shards): what `training_texts`
+        # raises refuses the row; an UnencodableGold from one slot's span projection
+        # refuses that slot's sequence and keeps the others.
         try:
-            for spec in training_texts(row, seed=config.seed):
-                where = f"row {row.row_id!r} slot {spec.slot_name!r}"
+            specs = training_texts(row, seed=config.seed)
+        except (UnencodableGold, ShardContractViolation, QdRefusal) as exc:
+            name = classify_refusal(exc)
+            out.refused[name] += 1
+            out.refused_rows[row.row_id] = name
+            out.examples.setdefault(name, f"{row.row_id}: {exc}")
+            if not isinstance(exc, (UnencodableGold, QdRefusal)):
+                # write_shards excludes UnencodableGold and QdRefusal at this point and
+                # nothing else, so anything else aborts the entire write.
+                out.fatal_classes.add(name)
+            continue
+        slot_refused: dict[str, str] = {}
+        for spec in specs:
+            where = f"row {row.row_id!r} slot {spec.slot_name!r}"
+            try:
                 ids = shards_module._tokenize_checked(tok.tokenize, spec.text, where=where)
-                # Recorded here, before the span projection can refuse the row, because
+                # Recorded here, before the span projection can refuse the slot, because
                 # this is the point at which `write_shards` itself demands remap coverage.
                 out.ids.append(ids)
                 out.id_rows.append(row.row_id)
                 projected = shards_module._span_token_positions(
                     spec, ids, token_offsets=tok.offsets, decode=tok.decode, where=where
                 )
-                if projected is not None and spec.line_char_starts:
-                    offs = tok.offsets(spec.text)
-                    for position, char in zip(
-                        projected[1], spec.line_char_starts, strict=True
-                    ):
-                        out.candidates_total += 1
-                        out.candidates_not_at_token_start += (
-                            0 if offs[position][0] == char else 1
-                        )
-                staged_ids.append(ids)
-                staged_spans += 1 if projected is not None else 0
-        except (UnencodableGold, ShardContractViolation, QdRefusal) as exc:
-            name = classify_refusal(exc)
-            out.refused[name] += 1
-            out.examples.setdefault(name, f"{row.row_id}: {exc}")
-            if not isinstance(exc, UnencodableGold):
-                # write_shards catches UnencodableGold and nothing else, so anything else
-                # here aborts the entire write rather than excluding one row.
-                out.fatal_classes.add(name)
+            except (UnencodableGold, ShardContractViolation) as exc:
+                name = classify_refusal(exc)
+                out.refused_slot[name] += 1
+                slot_refused[spec.slot_name] = name
+                out.examples.setdefault(name, f"{row.row_id} slot {spec.slot_name}: {exc}")
+                if not isinstance(exc, UnencodableGold):
+                    # Only UnencodableGold is slot-scoped in the writer; a contract fault
+                    # from the tokenizer wiring aborts the whole write.
+                    out.fatal_classes.add(name)
+                continue
+            if projected is not None and spec.line_char_starts:
+                offs = tok.offsets(spec.text)
+                for position, char in zip(projected[1], spec.line_char_starts, strict=True):
+                    out.candidates_total += 1
+                    out.candidates_not_at_token_start += 0 if offs[position][0] == char else 1
+            staged_ids.append(ids)
+            staged_spans += 1 if projected is not None else 0
+        for slot_name, name in slot_refused.items():
+            out.refused_slots[(row.row_id, slot_name)] = name
+        if not staged_ids:
+            # Every slot refused on its own account: the writer excludes the row too.
+            out.refused_rows[row.row_id] = "every_slot_refused"
             continue
         out.rows_out += 1
         out.sequences_out += len(staged_ids)
         out.span_rows_out += staged_spans
         out.lengths.extend(int(i.size) for i in staged_ids)
     return out
+
+
+def defect_balance(
+    rows: list[DataRow],
+    *,
+    refused: dict[str, str] | None = None,
+    refused_slots: dict[tuple[str, str], str] | None = None,
+) -> dict[str, Any]:
+    """``code.defect_class``'s class balance over the rows whose CHOICE sequence is written.
+
+    With ``refused`` (a census's ``refused_rows``) and ``refused_slots`` (its
+    ``refused_slots``) this is the class balance that reaches the shard set: a row counts
+    unless its choice slot wrote nothing, whether because the row was refused whole or the
+    choice slot was refused on its own. A span-slot refusal leaves the class label in the
+    set, so it does not move the balance; it is reported beside it, by class and reason,
+    under ``slot_refused_by_class_and_reason``. A refusal that falls unevenly across classes
+    moves the majority rate the trained head is judged against.
+    """
+    refused = refused or {}
+    refused_slots = refused_slots or {}
+    fam = [r for r in rows if r.family_id == DEFECT_FAMILY_ID]
+
+    def label(r: DataRow) -> str:
+        return str(next(g.value for g in r.gold if g.slot_name == DEFECT_CHOICE_SLOT))
+
+    kept = [
+        r for r in fam
+        if r.row_id not in refused and (r.row_id, DEFECT_CHOICE_SLOT) not in refused_slots
+    ]
+    classes = collections.Counter(label(r) for r in kept)
+    out: dict[str, Any] = {
+        "family": DEFECT_FAMILY_ID,
+        "rows": len(kept),
+        "of": len(fam),
+        "repos": len({r.repo_key for r in kept}),
+        "classes": dict(sorted(classes.items())),
+        "languages": dict(
+            sorted(collections.Counter(r.metadata["language"] for r in kept).items())
+        ),
+    }
+    if classes:
+        top, k = classes.most_common(1)[0]
+        out["majority"] = {"class": top, "n": k, "rate": round(k / len(kept), 4)}
+    if refused:
+        by = collections.Counter(
+            f"{label(r)}:{refused[r.row_id]}" for r in fam if r.row_id in refused
+        )
+        out["refused_by_class_and_reason"] = dict(sorted(by.items()))
+    fam_ids = {r.row_id: r for r in fam}
+    slot_by = collections.Counter(
+        f"{label(fam_ids[row_id])}:{slot_name}:{reason}"
+        for (row_id, slot_name), reason in refused_slots.items()
+        if row_id in fam_ids
+    )
+    if slot_by:
+        out["slot_refused_by_class_and_reason"] = dict(sorted(slot_by.items()))
+    return out
+
+
+def shard_sequences_metric(
+    *, n_sequences: int, rows: list[DataRow], total_tokens: int
+) -> TriState:
+    """Sequences written, against the sequences the split's rows render: one per slot.
+
+    Not against rows. Until ``code.defect_class`` every family had one slot, so sequences
+    and rows were one number and ``n_total=rows`` held by coincidence; a two-slot family
+    writes ~2 sequences per row and the pair became ``78643 of 46167`` -- refused by
+    ``Ran`` as n > n_total, after the whole shard set had been written.
+    """
+    offered = sum(len(r.request.slots) for r in rows)
+    return Ran(
+        passed=True, value=n_sequences, n=n_sequences, n_total=offered,
+        detail=(
+            f"total_tokens={total_tokens}; {n_sequences} of {offered} slot sequences "
+            f"offered by {len(rows)} rows were written"
+        ),
+    )
 
 
 def remap_coverage(
@@ -904,6 +1059,155 @@ class Measured:
     quick_reason: str
 
 
+# -- the general families, from the approved download ------------------------------------
+
+#: A fetch record is a short JSON list; a file this large is not one.
+MAX_FETCH_RECORD_BYTES = 1 << 20
+#: Per-line bound for the general caches. SQuAD's longest train context is ~25 KB; a line
+#: forty times that is not a row.
+GENERAL_MAX_ROW_BYTES = 1 << 20
+#: Per-file row bound. SQuAD v2 train, the largest file, is 130,319 rows.
+DEFAULT_GENERAL_MAX_ROWS = 200_000
+#: The bound this tool passes to build_mixture's consistency pass, stated rather than
+#: inherited. qd_data.mixture.DEFAULT_MAX_CONSISTENCY_ROWS (250,000) is a rendering-
+#: cost bound for callers that render nothing else; this tool renders every row again
+#: in stage 3, so the cost argument does not apply here. At the default, the
+#: 2026-09-29 corpus (315,239 rows with the general families) was NotRun, and 42
+#: contradictory sequences reached write_shards unremoved. Recorded in the recipe:
+#: it decides which rows exist.
+PIPELINE_MAX_CONSISTENCY_ROWS = 1_000_000
+#: The datasets a fetch record may name, and the source each becomes.
+GENERAL_DATASETS = frozenset(
+    {"cais/mmlu", "tau/commonsense_qa", "clinc/clinc_oos", "rajpurkar/squad_v2"}
+)
+
+
+@dataclass(frozen=True)
+class GeneralLoad:
+    """The general-family rows read from a fetch record's caches, every file sha-checked."""
+
+    raw: dict[str, list[RawRow]]
+    clinc_domain_map: ClincDomainMap | None
+    #: ``{jsonl path: {"dataset", "rows", "sha256"}}`` for the ledger recipe.
+    files: dict[str, dict[str, Any]]
+    capped: tuple[str, ...]
+    record_sha256: str
+    #: ``{jsonl path: reason}`` for record files whose split
+    #: ``qd_data.loaders.REFUSED_READS`` refuses to read.
+    refused_reads: dict[str, str]
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def general_rows(record: Path, *, max_rows_per_file: int = DEFAULT_GENERAL_MAX_ROWS) -> GeneralLoad:
+    """Read every cache a fetch record names, refusing anything the record does not vouch for.
+
+    Each ``jsonl`` must sit under the record's own directory (the cache root), hash to the
+    record's ``jsonl_sha256`` and hold the record's ``rows``; CLINC's ``intent_names.json``
+    must hold ``n_intent_names`` names; the CLINC domain map is read through
+    ``qd_data.general.load_clinc_domains``, which checks its own pinned sha256. Any mismatch
+    stops the run: a corpus the record does not describe is not the approved download.
+    """
+    raw_bytes = record.read_bytes()
+    if len(raw_bytes) > MAX_FETCH_RECORD_BYTES:
+        raise SystemExit(f"{record}: {len(raw_bytes)} bytes is not a fetch record")
+    entries = json.loads(raw_bytes)
+    if not isinstance(entries, list) or not entries:
+        raise SystemExit(f"{record}: a fetch record is a non-empty JSON list")
+    root = record.parent.resolve()
+    out: dict[str, list[RawRow]] = {}
+    files: dict[str, dict[str, Any]] = {}
+    capped: list[str] = []
+    refused_reads: dict[str, str] = {}
+    for entry in entries:
+        dataset = str(entry.get("dataset"))
+        if dataset not in GENERAL_DATASETS:
+            raise SystemExit(
+                f"{record}: dataset {dataset!r} is not one of {sorted(GENERAL_DATASETS)}"
+            )
+        path = Path(str(entry["jsonl"])).resolve()
+        if not path.is_relative_to(root):
+            raise SystemExit(f"{record}: {path} is outside the cache root {root}")
+        found = _sha256_file(path)
+        if found != entry["jsonl_sha256"]:
+            raise SystemExit(
+                f"{path}: sha256 {found} but the fetch record says {entry['jsonl_sha256']}; "
+                "the cache is not the approved download"
+            )
+        rows, hit = read_jsonl(path, limit=max_rows_per_file, max_row_bytes=GENERAL_MAX_ROW_BYTES)
+        if hit:
+            capped.append(dataset)
+        elif len(rows) != int(entry["rows"]):
+            raise SystemExit(f"{path}: {len(rows)} rows but the fetch record says {entry['rows']}")
+        split_name = path.stem
+        why = REFUSED_READS.get((dataset, split_name))
+        if why is not None:
+            # Fetched, sha-checked and not read: the licence covers the source but not
+            # this split (e.g. CommonsenseQA's unlabelled test). Counted, never parsed.
+            refused_reads[str(path)] = why
+            continue
+        parsed: list[RawRow]
+        if dataset == "cais/mmlu":
+            parsed = [parse_mmlu(r, index=i, split_name=split_name) for i, r in enumerate(rows)]
+        elif dataset == "tau/commonsense_qa":
+            parsed = [parse_csqa(r, index=i, split_name=split_name) for i, r in enumerate(rows)]
+        elif dataset == "clinc/clinc_oos":
+            names = json.loads((path.parent / "intent_names.json").read_text(encoding="utf-8"))
+            if len(names) != int(entry["n_intent_names"]):
+                raise SystemExit(
+                    f"{path.parent}/intent_names.json holds {len(names)} names but the fetch "
+                    f"record says {entry['n_intent_names']}"
+                )
+            parsed = [parse_clinc(r, index=i, label_names=names) for i, r in enumerate(rows)]
+        else:
+            parsed = [parse_squad(r, index=i) for i, r in enumerate(rows)]
+        out.setdefault(dataset, []).extend(parsed)
+        files[str(path)] = {"dataset": dataset, "rows": len(parsed), "sha256": found}
+    domain_map: ClincDomainMap | None = None
+    if "clinc/clinc_oos" in out:
+        domain_map = load_clinc_domains(
+            root / "clinc__oos-eval" / CLINC_DOMAINS_COMMIT / "domains.json"
+        )
+    return GeneralLoad(
+        raw=out, clinc_domain_map=domain_map, files=files,
+        capped=tuple(sorted(set(capped))),
+        record_sha256=hashlib.sha256(raw_bytes).hexdigest(),
+        refused_reads=refused_reads,
+    )
+
+
+def split_off_replay(
+    split_report: SplitReport, *, seed: int
+) -> tuple[SplitReport, SplitReport, ReplayPartition]:
+    """``(gold_report, replay_report, partition)``: the replay slice as its own split report.
+
+    ``qd_data.general.partition_replay`` marks a deterministic share of the replay
+    families' TRAIN rows replay-only. Those leave the gold train split -- a row both
+    gold-trained and replay-trained is the case the partition exists to prevent -- and
+    become a train-only report of their own, so each gets its own manifest and its own
+    shard set (``write_shards(replay=True)``). val and held-out are untouched.
+    """
+    train = list(split_report.rows_by_split.get("train", ()))
+    general_train = [r for r in train if r.family_id in REPLAY_FAMILIES]
+    part = partition_replay(general_train, seed=seed)
+    drawn = {r.row_id for r in general_train}
+    gold_train = tuple(r for r in train if r.row_id not in drawn) + part.gold_rows
+    gold = dataclasses.replace(
+        split_report, rows_by_split={**split_report.rows_by_split, "train": gold_train}
+    )
+    replay = dataclasses.replace(
+        split_report,
+        rows_by_split={"train": part.replay_rows, "val": (), HELD_OUT: ()},
+    )
+    return gold, replay, part
+
+
 def run(
     *,
     out: Path,
@@ -912,10 +1216,23 @@ def run(
     rev: str,
     commitpackft: Path | None = None,
     val_shards: bool = False,
+    defect_class: Path | None = None,
+    defect_download: Path = DEFAULT_DEFECT_DOWNLOAD,
+    defect_max_rows: int | None = None,
+    memo_limit: int = MEMO_LIMIT,
+    general_record: Path | None = None,
+    general_max_rows: int = DEFAULT_GENERAL_MAX_ROWS,
+    replay_shards: bool = False,
 ) -> Measured:
+    if replay_shards and general_record is None:
+        raise SystemExit(
+            "--replay-shards needs --general-record: the replay slice is drawn from the "
+            "general families' training rows"
+        )
     config = DataConfig()
+    extra_metrics: dict[str, TriState] = {}
     resolved = resolve_rev(REPO, rev)
-    tok = RealTokenizer.load()
+    tok = RealTokenizer.load(memo_limit=memo_limit)
     print(
         f"tokenizer {type(tok.tok).__name__} for {MODEL}: vocab_size={tok.tok.vocab_size} "
         f"len={len(tok.tok)} fast={tok.tok.is_fast}"
@@ -938,24 +1255,81 @@ def run(
     spans, spans_capped = span_rows(
         max_rows=max_pairs, blank_line_runs=blank_line_runs, rev=resolved
     )
-    raw: dict[str, list[RawRow]] = {
+    raw: dict[str, list[RawRow | DefectRow]] = {
         "bigcode/commitpackft": list(commits),
         "rajpurkar/squad_v2": list(spans),
     }
     capped = [s for s, hit in (("bigcode/commitpackft", commits_capped),
                                ("rajpurkar/squad_v2", spans_capped)) if hit]
+    if defect_class is not None:
+        # The corpus, its pool and the licence download are each checked against the
+        # sha256 their manifests record, and any row that does not resolve through the
+        # pool to a licence refuses the whole load -- see qd_data.defect_class.
+        load = load_defect_rows(
+            defect_class, download_root=defect_download, config=config, repo_root=REPO,
+            max_rows=defect_max_rows,
+        )
+        raw[DEFECT_SOURCE_ID] = list(load.rows)
+        if load.capped:
+            capped.append(DEFECT_SOURCE_ID)
+        code_source += (
+            f"; {DEFECT_FAMILY_ID} from {defect_class} ({len(load.rows)} of "
+            f"{load.n_corpus} qd-mutate examples"
+            + (", a sha256-ordered sample" if load.capped else "")
+            + f"; classes {load.by_class}; span-rebase refusals {load.span_refusals or 'none'})"
+        )
+        print(
+            f"\n{DEFECT_FAMILY_ID}: {len(load.rows)} of {load.n_corpus} rows, "
+            f"capped={load.capped}, by class {load.by_class}, span-rebase refusals "
+            f"{load.span_refusals or 'none'}"
+        )
+    general: GeneralLoad | None = None
+    if general_record is not None:
+        general = general_rows(general_record, max_rows_per_file=general_max_rows)
+        for dataset, rows in general.raw.items():
+            # Real SQuAD replaces the repository-prose stand-in under the same source.
+            raw[dataset] = list(rows)
+        capped = [c for c in capped if c not in general.raw] + list(general.capped)
+        code_source += (
+            f"; general families from {general_record} (sha256 "
+            f"{general.record_sha256[:16]}; "
+            + ", ".join(f"{d} {len(r)}" for d, r in sorted(general.raw.items()))
+            + "; real SQuAD replaces the prose stand-in)"
+        )
+        print(
+            f"\ngeneral families: {({d: len(r) for d, r in sorted(general.raw.items())})}, "
+            f"capped={list(general.capped) or 'none'}, clinc domain map="
+            f"{general.clinc_domain_map is not None}"
+        )
     print(
         f"\ncorpus: {len(commits)} real (commit, path) pairs, {len(spans)} real prose "
         f"passages; blank_line_runs={blank_line_runs}; capped={capped or 'none'}"
     )
 
-    mixture = build_mixture(raw, config=config, capped_sources=capped)
+    mixture = build_mixture(
+        raw, config=config, capped_sources=capped,
+        clinc_domain_map=general.clinc_domain_map if general is not None else None,
+        max_consistency_rows=PIPELINE_MAX_CONSISTENCY_ROWS,
+    )
+    if isinstance(mixture.prompt_consistency, NotRun):
+        # Fail fast: a capped read is accepted below as a deliberate NotRun, but an
+        # unchecked corpus reaches write_shards' own contradiction refusal twenty
+        # minutes later, having removed nothing.
+        raise SystemExit(
+            "build_mixture could not run its consistency pass, so contradictory "
+            f"prompts were not removed: {mixture.prompt_consistency.reason}"
+        )
+    extra_metrics["prompt_consistency"] = mixture.prompt_consistency
     n_attempted = sum(
         len(v) for v in raw.values()
     )
     print("\n== stage 1: build_mixture ==")
     print(f"  raw rows in: {n_attempted}   DataRows out: {len(mixture.rows)}")
     print(f"  status: {json.dumps(mixture.status.to_json(), sort_keys=True)[:600]}")
+    print(
+        "  prompt consistency: "
+        f"{json.dumps(mixture.prompt_consistency.to_json(), sort_keys=True)[:800]}"
+    )
     for source_id, counts in sorted(mixture.refusals.items()):
         for code, n in sorted(counts.items(), key=lambda kv: -kv[1]):
             print(f"    refused {source_id} {code}: {n}")
@@ -965,8 +1339,29 @@ def run(
     print("\n== stage 2: dedupe + split ==")
     print(f"  rows in: {len(mixture.rows)}   kept: {len(report.kept)}")
     print(f"  split counts: {split_report.counts()}")
+    if defect_class is not None:
+        # The number the rung-3 collapse (46/90, the val majority) is read against: a
+        # choice head that learned nothing scores exactly this on each split.
+        for split_name, split_rows in sorted(split_report.rows_by_split.items()):
+            print(f"  {split_name}: {json.dumps(defect_balance(list(split_rows)))}")
     print(f"  split status: {json.dumps(split_report.status.to_json(), sort_keys=True)[:400]}")
 
+    replay_report: SplitReport | None = None
+    if replay_shards:
+        split_report, replay_report, partition = split_off_replay(
+            split_report, seed=config.seed
+        )
+        drawn = sum(sum(c.values()) for c in partition.counts().values())
+        extra_metrics["replay_partition"] = Ran(
+            passed=True, value=len(partition.replay_rows), n=len(partition.replay_rows),
+            n_total=drawn,
+            detail=(
+                f"replay-only rows drawn from the replay families' train rows at "
+                f"fraction {partition.fraction}: {partition.counts()}. Not yet "
+                "decontaminated: tools/replay_decontam.py attests the replay set."
+            ),
+        )
+        print(f"  replay partition: {partition.counts()}")
     manifests = build_manifests(
         config=config, mixture=mixture, dedupe_report=report, split_report=split_report
     )
@@ -981,6 +1376,15 @@ def run(
             f"    {snapshot_status.to_json()['reason']}"
         )
     paths = _write_manifests(manifests, out, allow_not_run=not_run_snapshot)
+    replay_rows: list[DataRow] = []
+    if replay_report is not None:
+        replay_rows = list(replay_report.rows_by_split["train"])
+        paths["replay"] = out / "data" / "pool" / "train-replay.json"
+        build_manifests(
+            config=config, mixture=mixture, dedupe_report=report,
+            split_report=replay_report,
+        )["train"].write(paths["replay"], allow_not_run=not_run_snapshot)
+        print(f"  replay manifest: {paths['replay']} ({len(replay_rows)} entries)")
     train_rows = list(split_report.rows_by_split.get("train", ()))
     print(f"  train manifest: {paths['train']} ({len(train_rows)} entries)")
 
@@ -994,6 +1398,17 @@ def run(
         print(f"      e.g. {cen.examples[name][:300]}")
     if not cen.refused:
         print("    (no row was refused)")
+    for name, n in sorted(cen.refused_slot.items(), key=lambda kv: (-kv[1], kv[0])):
+        fatal = " FATAL(aborts the write)" if name in cen.fatal_classes else ""
+        print(f"    slot-scoped {name}: {n} of {cen.slots_in} slot(s){fatal}")
+        print(f"      e.g. {cen.examples[name][:300]}")
+    if defect_class is not None:
+        print(
+            "  train, as written: "
+            + json.dumps(defect_balance(
+                train_rows, refused=cen.refused_rows, refused_slots=cen.refused_slots
+            ))
+        )
     print(
         f"  accepted line-start candidates: {cen.candidates_total}, of which "
         f"{cen.candidates_not_at_token_start} sit inside a token that begins earlier "
@@ -1016,16 +1431,33 @@ def run(
     per_bucket = collections.Counter(assign_buckets(cen.lengths, buckets))
     print(f"  lengths: n={len(cen.lengths)} min={min(cen.lengths)} "
           f"max={max(cen.lengths)} mean={sum(cen.lengths) / len(cen.lengths):.1f}")
+    ordered = sorted(cen.lengths)
+    print("  quantiles: " + " ".join(
+        f"p{q}={ordered[min(len(ordered) - 1, (q * len(ordered)) // 100)]}"
+        for q in (10, 50, 90, 99)
+    ))
     print(f"  choose_buckets -> {list(buckets)}")
     print(f"  occupancy: {dict(sorted(per_bucket.items()))}")
     print(f"  padding_waste: {waste.to_json()}")
 
     val_rows = list(split_report.rows_by_split.get("val", ()))
     val_census = census(val_rows, tok=tok, config=config)
+    if defect_class is not None:
+        print(
+            "  val, as written: "
+            + json.dumps(defect_balance(
+                val_rows, refused=val_census.refused_rows,
+                refused_slots=val_census.refused_slots,
+            ))
+        )
     # With --val-shards the val rows are part of the written corpus, and the remap policy is
     # "keep every token the written corpus uses" -- so it is counted over them too. val is
     # a TRAINING_SPLITS member; the held-out rows never enter the count (rule 3).
     remap_ids = cen.ids + val_census.ids if val_shards else cen.ids
+    replay_census = census(replay_rows, tok=tok, config=config) if replay_rows else None
+    if replay_census is not None:
+        # The replay set is written under the same remap, so its tokens are kept too.
+        remap_ids = remap_ids + replay_census.ids
     counts = count_corpus_tokens(
         remap_ids, source_vocab_size=len(tok.tok), max_sequences=len(remap_ids) + 1
     )
@@ -1114,6 +1546,9 @@ def run(
     val_coverage: TriState = NotRun(
         reason="--val-shards was not passed, so no val shard set was written"
     )
+    val_slot_coverage: TriState = NotRun(
+        reason="--val-shards was not passed, so no val shard set was written"
+    )
     if val_shards:
         # Through the same door and the same writer as train: val is a TRAINING_SPLITS
         # member, so open_training_data admits its manifest, and scoring a model on it
@@ -1134,10 +1569,27 @@ def run(
             allow_not_run_snapshot=not_run_snapshot,
             corpus_rev=resolved,
         )
-        val_coverage = ShardReader(val_dir, config=config, repo_root=out).coverage
+        val_reader = ShardReader(val_dir, config=config, repo_root=out)
+        val_coverage = val_reader.coverage
+        val_slot_coverage = val_reader.slot_coverage
         print(f"  header: n_sequences={val_header.n_sequences} "
               f"total_tokens={val_header.total_tokens} vocab_size={val_header.vocab_size}")
         print(f"  coverage: {json.dumps(val_coverage.to_json())[:400]}")
+
+    if replay_rows:
+        print("\n== stage 6c: the replay slice, as its own shard set ==")
+        replay_dir = out / "shards" / "replay"
+        write_shards(
+            paths["replay"], replay_rows, out_dir=replay_dir, remap=remap,
+            tokenize=tok.tokenize, token_offsets=tok.offsets, decode=tok.decode,
+            config=config, repo_root=out, allow_unencodable=True,
+            allow_not_run_snapshot=not_run_snapshot, corpus_rev=resolved, replay=True,
+        )
+        replay_reader = ShardReader(replay_dir, config=config, repo_root=out)
+        extra_metrics["replay_shard_slots_written"] = replay_reader.slot_coverage
+        extra_metrics["replay_shard_padding_waste"] = replay_reader.padding_waste()
+        print(f"  replay: n_sequences={len(replay_reader)} "
+              f"{json.dumps(replay_reader.slot_coverage.to_json())[:300]}")
 
     print("\n== stage 7: read back through ShardReader/Batch ==")
     reader = ShardReader(shard_dir, config=config, repo_root=out)
@@ -1193,9 +1645,11 @@ def run(
             detail="DataRows built against rows attempted, over every family",
         ),
         "shard_rows_written": reader.coverage,
-        "shard_sequences": Ran(
-            passed=True, value=header.n_sequences, n=header.n_sequences,
-            n_total=cen.rows_in, detail=f"total_tokens={header.total_tokens}",
+        "shard_slots_written": reader.slot_coverage,
+        "val_shard_slots_written": val_slot_coverage,
+        "shard_sequences": shard_sequences_metric(
+            n_sequences=header.n_sequences, rows=train_rows,
+            total_tokens=header.total_tokens,
         ),
         "shard_max_seq_len": Ran(passed=True, value=header.max_seq_len,
                                  detail=f"buckets={list(header.buckets)}"),
@@ -1247,6 +1701,13 @@ def run(
     for name, n in sorted(cen.refused.items()):
         metrics[f"refused:{name}"] = Ran(
             passed=False, value=n, n=n, n_total=cen.rows_in,
+            detail=cen.examples[name][:400],
+        )
+    metrics.update(extra_metrics)
+    for name, n in sorted(cen.refused_slot.items()):
+        # Slot-scoped: this slot's sequence was refused and the row's other slots written.
+        metrics[f"refused_slot:{name}"] = Ran(
+            passed=False, value=n, n=n, n_total=cen.slots_in,
             detail=cen.examples[name][:400],
         )
     return Measured(
@@ -1326,14 +1787,77 @@ def main(argv: list[str] | None = None) -> int:
             "it did not keep; the held-out rows still never enter it."
         ),
     )
+    parser.add_argument(
+        "--defect-class",
+        type=Path,
+        default=None,
+        help=(
+            "a qd-mutate corpus directory (examples.jsonl + manifest.json, e.g. "
+            "data/pool/commitpackft-corpus-v2) to add as the code.defect_class family. "
+            "Its pool and licence download are joined and sha256-checked; a row that does "
+            "not resolve refuses the whole load."
+        ),
+    )
+    parser.add_argument(
+        "--defect-download",
+        type=Path,
+        default=DEFAULT_DEFECT_DOWNLOAD,
+        help="the bigcode/commitpackft download the defect rows take their licence from",
+    )
+    parser.add_argument(
+        "--defect-max-rows",
+        type=int,
+        default=None,
+        help="cap the defect rows at a sha256-ordered sample; a cap that binds is reported",
+    )
+    parser.add_argument(
+        "--memo-limit",
+        type=int,
+        default=MEMO_LIMIT,
+        help=(
+            "entries the tokenizer memo may hold before the run refuses; 0 disables the "
+            "memo. The full defect corpus needs 0 -- it is ~100k sequences."
+        ),
+    )
+    parser.add_argument(
+        "--general-record",
+        type=Path,
+        default=None,
+        help=(
+            "a fetch record (e.g. ~/.cache/qd-decision/general/fetch-record-2026-09-29.json) "
+            "naming the approved MMLU / CommonsenseQA / CLINC / SQuAD v2 JSONL caches. Each "
+            "file must sit under the record's directory and match its recorded sha256 and "
+            "row count; real SQuAD then replaces the repository-prose stand-in."
+        ),
+    )
+    parser.add_argument(
+        "--general-max-rows",
+        type=int,
+        default=DEFAULT_GENERAL_MAX_ROWS,
+        help="per-file row bound for the general caches; a bound that binds is reported",
+    )
+    parser.add_argument(
+        "--replay-shards",
+        action="store_true",
+        help=(
+            "split qd_data.general.partition_replay's replay-only slice off the gold train "
+            "split and write it as its own shard set (shards/replay, write_shards(replay=True)) "
+            "under the same remap. Needs --general-record."
+        ),
+    )
     args = parser.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
+    run_kwargs: dict[str, Any] = {
+        "out": args.out, "max_pairs": args.max_pairs,
+        "blank_line_runs": args.blank_line_runs, "rev": args.rev,
+        "commitpackft": args.commitpackft, "val_shards": args.val_shards,
+        "defect_class": args.defect_class, "defect_download": args.defect_download,
+        "defect_max_rows": args.defect_max_rows, "memo_limit": args.memo_limit,
+        "general_record": args.general_record, "general_max_rows": args.general_max_rows,
+        "replay_shards": args.replay_shards,
+    }
     if args.ledger is None:
-        run(
-            out=args.out, max_pairs=args.max_pairs,
-            blank_line_runs=args.blank_line_runs, rev=args.rev,
-            commitpackft=args.commitpackft, val_shards=args.val_shards,
-        )
+        run(**run_kwargs)
         return 0
 
     if not MODEL_REF.exists():
@@ -1359,6 +1883,28 @@ def main(argv: list[str] | None = None) -> int:
     if args.val_shards:
         # Only when used, for the same reason: it changes the remap, so it is the recipe.
         recipe["val_shards"] = True
+    if args.defect_class is not None:
+        # Only when used. The corpus sha256, not its path, names it; load_defect_rows
+        # refuses a file that no longer matches. The memo limit is not recipe: it
+        # changes how often the tokenizer is called, never what it returns.
+        defect_manifest = json.loads(
+            (args.defect_class / "manifest.json").read_text(encoding="utf-8")
+        )
+        recipe["defect_class_examples_sha256"] = str(defect_manifest["examples_sha256"])
+        recipe["defect_download_sha256"] = pool_manifest_shas(args.defect_download)
+        if args.defect_max_rows is not None:
+            recipe["defect_max_rows"] = args.defect_max_rows
+    if args.general_record is not None:
+        # Only when used. The record's sha256 names the corpus; general_rows() refuses a
+        # cache file that no longer matches the record.
+        recipe["general_record_sha256"] = hashlib.sha256(
+            args.general_record.read_bytes()
+        ).hexdigest()
+        recipe["general_max_rows"] = args.general_max_rows
+    if args.replay_shards:
+        recipe["replay_shards"] = True
+    # It decides which rows exist (the contradictory-prompt drop runs only under it).
+    recipe["max_consistency_rows"] = PIPELINE_MAX_CONSISTENCY_ROWS
     protocol = Protocol(
         # Filled after the run, which is why this is a placeholder only until then: a
         # Protocol is frozen, so the real one is built from what the run measured.
@@ -1371,11 +1917,7 @@ def main(argv: list[str] | None = None) -> int:
     # `run()` is the work this row describes, and it finishes before the recorder is built
     # below, so the recorder would otherwise time its own metric writes.
     work_t0 = time.monotonic()
-    measured = run(
-        out=args.out, max_pairs=args.max_pairs,
-        blank_line_runs=args.blank_line_runs, rev=args.rev,
-        commitpackft=args.commitpackft, val_shards=args.val_shards,
-    )
+    measured = run(**run_kwargs)
     work_s = time.monotonic() - work_t0
     protocol = Protocol(
         data_snapshot_hash=measured.data_snapshot_hash,
