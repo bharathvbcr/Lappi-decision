@@ -40,16 +40,31 @@ implemented here, and neither should be assumed from the presence of this one.
 from __future__ import annotations
 
 import functools
+import math
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
 __all__ = [
+    "DEFAULT_BETA2",
     "MAX_MOMENT_RELATIVE_ERROR",
     "MasterWeightAdamW",
     "MomentSettling",
+    "apply_lr",
     "build_optimizer",
+    "layerwise_param_groups",
     "moment_settling",
 ]
+
+#: torch's own default, and what every optimizer this repository built used until beta2
+#: became a parameter. A default that moved would make every new row incomparable to the
+#: old ones without anything saying so.
+DEFAULT_BETA2: float = 0.999
+
+#: The key a parameter group carries its learning-rate multiplier under. `apply_lr` is the
+#: only writer of ``group["lr"]``; this is what it multiplies by.
+LR_SCALE_KEY: str = "lr_scale"
 
 #: Refused above this, rather than discovered as an allocation failure part way through a
 #: run. An fp32 master plus fp32 moments is 12 B/param on top of the live parameters; at
@@ -162,13 +177,155 @@ def moment_settling(*, dtype: Any, beta2: float = 0.999) -> MomentSettling:
     return _settling(name, float(beta2))
 
 
+def _normalise_groups(params: Any) -> list[dict[str, Any]]:
+    """``params`` as torch accepts it -- tensors, or dicts with a ``"params"`` list -- as a
+    list of groups holding only the trainable tensors, in their given order.
+
+    One group per input dict, and a bare iterable of tensors is one group with no extra
+    keys, so a caller that never asked for groups gets exactly the optimizer it got before.
+    A group that ends up with no trainable tensor is dropped, except that its absence is
+    checked by [`layerwise_param_groups`] where it would mean a silently ignored scale.
+    """
+    items = list(params)
+    if items and all(isinstance(item, dict) for item in items):
+        groups: list[dict[str, Any]] = []
+        for item in items:
+            if "params" not in item:
+                raise ValueError(
+                    f"a parameter group needs a 'params' key; got keys {sorted(item)}"
+                )
+            trainable = [p for p in item["params"] if p.requires_grad]
+            if trainable:
+                groups.append({**item, "params": trainable})
+        return groups
+    if any(isinstance(item, dict) for item in items):
+        raise ValueError(
+            "params mixes parameter-group dicts with bare tensors; torch.optim refuses "
+            "that too, and guessing which group a bare tensor belongs to would assign it "
+            "a learning rate nobody chose"
+        )
+    trainable = [p for p in items if p.requires_grad]
+    return [{"params": trainable}] if trainable else []
+
+
+def _check_lr_scale(value: object, *, where: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{where}: lr_scale must be a number, got {type(value).__name__}")
+    scale = float(value)
+    if not (math.isfinite(scale) and scale > 0.0):
+        raise ValueError(
+            f"{where}: lr_scale must be finite and positive, got {scale!r}. Zero would "
+            "freeze the group while it still paid for moments; a group that should not "
+            "train belongs outside the optimizer."
+        )
+    return scale
+
+
+def apply_lr(optimizer: Any, lr: float) -> None:
+    """Set every group's ``lr`` to ``lr * group["lr_scale"]``. The one writer of ``lr``.
+
+    **Why this exists.** Four drivers (``backbone.QwenDecisionStep.apply``,
+    ``byte_train.Rung0Step.apply``, ``tools/real_ft_run.RealFtStep.apply``,
+    ``tools/ft_toy_run.ToyFtStep.apply``) each wrote ``group["lr"] = lr`` for every group
+    before every step. That is correct for one group and quietly wrong for any other: a
+    group built at 0.1x would train at 1x from the first step, and nothing would say so.
+    The schedule is still ``RunControl.lr_at``'s; this only distributes it.
+
+    A group without ``lr_scale`` runs at 1.0x -- that is what every optimizer built before
+    this function existed means. A present value is validated every time, because a NaN
+    written into a group after construction would otherwise reach ``step``.
+    """
+    if not (isinstance(lr, (int, float)) and math.isfinite(lr) and lr > 0.0):
+        raise ValueError(f"lr must be positive and finite, got {lr!r}")
+    for i, group in enumerate(optimizer.param_groups):
+        scale = _check_lr_scale(group.get(LR_SCALE_KEY, 1.0), where=f"param group {i}")
+        group["lr"] = float(lr) * scale
+
+
+#: Decoder-layer index in a parameter name. RSI-Jev ``rsijev/fit.py:127`` uses the same
+#: pattern; it matches ``layers.3.mlp...`` and ``model.layers.3.mlp...`` alike.
+_LAYER_INDEX = re.compile(r"(?:^|\.)layers\.(\d+)\.")
+
+
+def layerwise_param_groups(
+    named: Iterable[tuple[str, Any]],
+    *,
+    lower_layers_n: int,
+    lower_lr_scale: float,
+    extra: Iterable[Any] = (),
+) -> list[dict[str, Any]]:
+    """Split parameters into a ``base`` group (1.0x) and a ``base_lower`` group.
+
+    Ported from RSI-Jev ``rsijev/fit.py:116-153`` (``_param_groups``), MIT licence,
+    Copyright (c) 2026 Shanghua Gao, at commit 8f34a4f. The rule is theirs: decoder layers
+    ``0 .. lower_layers_n - 1`` train at ``lower_lr_scale`` times the schedule, on the same
+    schedule as the rest, because fitting a decision objective through every layer at one
+    rate overwrites the representation general knowledge sits in -- and freezing those
+    layers instead costs decision accuracy. Their scorer/mix groups have no counterpart
+    here; ``extra`` (the span head) joins the base group.
+
+    What differs from the source, and why: the rate is carried as ``lr_scale`` rather than
+    baked into ``lr``, because every driver here rewrites ``lr`` each step and a baked value
+    would be overwritten at the first one -- [`apply_lr`] is what honours it. And the split
+    fails closed: RSI prints the lower group's size and carries on when it is empty; here an
+    empty lower group, or ``lower_layers_n`` past the deepest layer, is a refusal, because
+    both mean the scale a recipe records was applied to nothing.
+    """
+    if isinstance(lower_layers_n, bool) or not isinstance(lower_layers_n, int):
+        raise ValueError(f"lower_layers_n must be an int, got {lower_layers_n!r}")
+    if lower_layers_n < 1:
+        raise ValueError(
+            f"lower_layers_n must be at least 1, got {lower_layers_n}; zero means no "
+            "layer-wise split, which is the plain optimizer -- do not build groups for it"
+        )
+    scale = _check_lr_scale(lower_lr_scale, where="lower_lr_scale")
+    base: list[Any] = []
+    lower: list[Any] = []
+    deepest = -1
+    for name, param in named:
+        if not param.requires_grad:
+            continue
+        match = _LAYER_INDEX.search(name)
+        # `visual` excluded as in the source: a vision tower's layers are not the text
+        # tower's, and this repository only ever loads the text tower anyway.
+        if match and "visual" not in name:
+            index = int(match.group(1))
+            deepest = max(deepest, index)
+            if index < lower_layers_n:
+                lower.append(param)
+                continue
+        base.append(param)
+    base.extend(p for p in extra if p.requires_grad)
+    if not lower:
+        raise ValueError(
+            f"lower_layers_n={lower_layers_n} matched no trainable parameter: no name "
+            "carries a 'layers.<i>.' index. The recipe would record a 0.1x split that "
+            "scaled nothing."
+        )
+    if lower_layers_n > deepest + 1:
+        raise ValueError(
+            f"lower_layers_n={lower_layers_n} but the deepest layer is {deepest}: the "
+            "lower group would be the whole tower, which is a global learning rate "
+            "recorded as a layer-wise one"
+        )
+    if not base:
+        raise ValueError("every trainable parameter fell in the lower group")
+    return [
+        {"params": base, LR_SCALE_KEY: 1.0, "name": "base"},
+        {"params": lower, LR_SCALE_KEY: scale, "name": "base_lower"},
+    ]
+
+
 class MasterWeightAdamW:
     """``torch.optim.AdamW`` over fp32 master copies of low-precision parameters.
 
     Exposes ``param_groups``, ``step``, ``zero_grad``, ``state_dict`` and
     ``load_state_dict``, which is the whole surface ``TrainStep.apply`` and the checkpoint
-    path use -- ``param_groups`` is delegated to the inner optimizer, so the existing
-    ``for group in optimizer.param_groups: group["lr"] = lr`` drives this one unchanged.
+    path use -- ``param_groups`` is delegated to the inner optimizer, so [`apply_lr`] drives
+    this one unchanged, ``lr_scale`` included.
+
+    ``params`` may be tensors or parameter-group dicts; each group's extra keys
+    (``lr_scale``, ``name``) are carried onto the inner group over its masters.
     """
 
     def __init__(
@@ -176,14 +333,15 @@ class MasterWeightAdamW:
         params: Any,
         *,
         lr: float,
-        betas: tuple[float, float] = (0.9, 0.999),
+        betas: tuple[float, float] = (0.9, DEFAULT_BETA2),
         eps: float = 1e-8,
         weight_decay: float = 0.01,
     ) -> None:
         import torch
 
         self._torch = torch
-        live = [p for p in params if p.requires_grad]
+        groups = _normalise_groups(params)
+        live = [p for g in groups for p in g["params"]]
         if not live:
             raise ValueError(
                 "MasterWeightAdamW was given no parameters with requires_grad=True. An "
@@ -223,8 +381,20 @@ class MasterWeightAdamW:
             for live_p, master in zip(live, self._masters, strict=True)
             if master is not live_p
         ]
+        # The same groups over the masters, in the same order `_masters` holds them, so
+        # `state_dict`'s parameter indices and `load_state_dict`'s length check still line
+        # up with the flat list.
+        master_of = {id(p): m for p, m in zip(live, self._masters, strict=True)}
+        inner_groups = []
+        for g in groups:
+            extra = {k: v for k, v in g.items() if k != "params"}
+            if LR_SCALE_KEY in extra:
+                extra["lr"] = float(lr) * _check_lr_scale(
+                    extra[LR_SCALE_KEY], where=f"group {extra.get('name', '?')!r}"
+                )
+            inner_groups.append({**extra, "params": [master_of[id(p)] for p in g["params"]]})
         self._inner = torch.optim.AdamW(
-            self._masters, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay
+            inner_groups, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay
         )
 
     # -- the torch.optim.Optimizer surface the callers actually use ------------------------
@@ -314,6 +484,7 @@ def build_optimizer(
     lr: float,
     total_steps: int,
     allow_frozen_moments: bool = False,
+    beta2: float = DEFAULT_BETA2,
 ) -> Any:
     """The one place that turns an [`qd_train.memory.OptimizerSpec`] into an optimizer.
 
@@ -334,6 +505,16 @@ def build_optimizer(
     real case for it -- a device on which 16 B/param does not fit -- and it must be said out
     loud, land in the recipe, and never be reachable by forgetting to pass something.
 
+    ``beta2`` is AdamW's second-moment decay, default :data:`DEFAULT_BETA2` (unchanged).
+    decider (Mapika/decider, Apache-2.0, @23579f7) trains at 0.95. The fidelity check below
+    is asked **at the beta2 the optimizer is built with** -- the settling point is a
+    property of ``(dtype, beta2)``, and checking 0.999's answer for a 0.95 optimizer would
+    admit or refuse the wrong run. Measured by :func:`moment_settling` on this host: bf16 at
+    0.95 settles 1.95% low after 64 steps (against 50% low after 384 at 0.999), which is
+    still outside ``MAX_MOMENT_RELATIVE_ERROR``; fp32 at 0.95 settles 0.0001% low.
+
+    ``params`` may be tensors or parameter-group dicts (see [`layerwise_param_groups`]).
+
     Raises:
         ValueError: if the schedule outlives the second moment's fidelity, if the spec does
             not describe these parameters, or if ``total_steps`` is not positive.
@@ -345,9 +526,12 @@ def build_optimizer(
             f"total_steps must be at least 1, got {total_steps}; an optimizer for a "
             "schedule of no steps is a budget for a run that does not happen"
         )
-    live = list(params)
+    if not (isinstance(beta2, float) and 0.0 < beta2 < 1.0):
+        raise ValueError(f"beta2 must be a float in (0, 1), got {beta2!r}")
+    groups = _normalise_groups(params)
+    betas = (0.9, beta2)
     if spec.keeps_fp32_master:
-        return MasterWeightAdamW(live, lr=lr)
+        return MasterWeightAdamW(groups, lr=lr, betas=betas)
     if spec.states_per_param != 2:
         raise ValueError(
             f"optimizer spec {spec.name!r} describes {spec.states_per_param} state tensor(s) "
@@ -355,7 +539,7 @@ def build_optimizer(
             "exactly two (exp_avg and exp_avg_sq). Refusing to return an optimizer the "
             "budget does not describe."
         )
-    trainable = [p for p in live if p.requires_grad]
+    trainable = [p for g in groups for p in g["params"]]
     if trainable:
         # Checked against the dtype holding the MOST parameters, not against "all the same
         # dtype". A real step here is mixed -- a bf16 tower plus an fp32 SpanPointerHead of
@@ -371,7 +555,7 @@ def build_optimizer(
         # unhappy and this is the one that silently produces a wrong model: the byte-width
         # mismatch is a budget that over-reports and never crashes, while a frozen second
         # moment mis-scales every step past 384 and shows up nowhere.
-        settling = moment_settling(dtype=dominant)
+        settling = moment_settling(dtype=dominant, beta2=beta2)
         if not settling.survives(total_steps) and not allow_frozen_moments:
             raise ValueError(
                 f"this run is {total_steps} optimizer step(s) long and its moments would "
@@ -394,4 +578,9 @@ def build_optimizer(
                 "bytes) and torch.optim.AdamW keeps its states in the parameter's dtype. "
                 "The budget would describe a layout nothing builds."
             )
-    return torch.optim.AdamW(trainable, lr=lr)
+    for g in groups:
+        if LR_SCALE_KEY in g:
+            g["lr"] = float(lr) * _check_lr_scale(
+                g[LR_SCALE_KEY], where=f"group {g.get('name', '?')!r}"
+            )
+    return torch.optim.AdamW(groups, lr=lr, betas=betas)

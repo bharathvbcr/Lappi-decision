@@ -57,6 +57,7 @@ from torch import nn
 from .byte_batch import MAX_PADDING_WASTE, BatchPlan, span_supervision
 from .byte_decider import ByteDecider, ByteDeciderConfig
 from .heads import SpanPointerHead, plan_span_batch
+from .optim import apply_lr
 from .run_control import (
     AccumulationGroup,
     Checkpoint,
@@ -350,10 +351,9 @@ class Rung0Step:
 
     def apply(self, *, lr: float) -> None:
         """Take the optimizer step at ``lr`` and clear the accumulated gradient."""
-        if not lr > 0.0:
-            raise ValueError(f"lr must be positive, got {lr}")
-        for group in self.optimizer.param_groups:
-            group["lr"] = lr
+        # The one writer of group["lr"], shared with every other driver so a group's
+        # lr_scale is honoured here as it is there. It refuses a non-positive lr.
+        apply_lr(self.optimizer, lr)
         # Bounded before the step: an unclipped gradient on a from-scratch model is how a
         # run ends with NaN parameters and a loss log that stops rather than says why.
         nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)

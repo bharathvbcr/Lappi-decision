@@ -18,6 +18,7 @@ allocates nothing and still compares every key and every shape.
 
 from __future__ import annotations
 
+import json
 import sys
 import warnings
 from pathlib import Path
@@ -758,6 +759,206 @@ def test_a_bf16_tower_under_the_master_recipe_trains_and_stays_bf16(tmp_path):
     assert after.dtype == torch.bfloat16, f"the live weights became {after.dtype}"
     assert not torch.equal(after, before), "the tower did not train"
     assert torch.isfinite(after).all(), "the tower has non-finite weights after 5 steps"
+
+
+@pytest.mark.parametrize("recipe", ["fp32", "master"])
+def test_layerwise_lr_gives_layer_zero_a_tenth_of_the_schedule_after_apply(tmp_path, recipe):
+    """RSI-Jev's layer-wise rule through the real step: layers 0..1 of the tiny tower at
+    0.1x. The number that matters is the lr layer 0's parameters are STEPPED at, which is
+    what `apply` writes -- before `apply_lr`, `apply` wrote the flat schedule into every group
+    and the 0.1x split existed only until the first step."""
+    from qd_train.memory import OptimizerSpec
+
+    if recipe == "master":
+        spec = OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
+        tower, _ = _tiny_tower(tmp_path, dtype="bf16", optimizer=spec)
+    else:
+        tower, _ = _tiny_tower(tmp_path)
+    step = QwenDecisionStep(
+        tower, seed=0, lr=1e-3, total_steps=2, max_width=64,
+        lower_layers_n=2, lower_lr_scale=0.1,
+    )
+    batch = _ft_batch(0)
+    step.accumulate(batch, ft_supervision(batch))
+    step.apply(lr=4e-3)
+    by_name = {g["name"]: g for g in step.optimizer.param_groups}
+    assert by_name["base_lower"]["lr"] == pytest.approx(4e-4)
+    assert by_name["base"]["lr"] == pytest.approx(4e-3)
+    # Membership, by identity against the tower's own names -- a split whose groups held
+    # the wrong tensors would pass the two lines above.
+    layer0 = {id(p) for n, p in tower.model.named_parameters() if n.startswith("layers.0.")}
+    layer3 = {id(p) for n, p in tower.model.named_parameters() if n.startswith("layers.3.")}
+    if recipe == "fp32":
+        lower_ids = {id(p) for p in by_name["base_lower"]["params"]}
+        base_ids = {id(p) for p in by_name["base"]["params"]}
+        assert layer0 <= lower_ids and not layer3 & lower_ids and layer3 <= base_ids
+    span_ids = {id(p) for p in step.span_head.parameters()}
+    assert len(by_name["base"]["params"]) + len(by_name["base_lower"]["params"]) == len(
+        list(tower.model.parameters())
+    ) + len(span_ids)
+
+
+def _written_checkpoint(tmp_path: Path, *, seed: int, total_steps: int = 4, step_at: int = 1,
+                        dtype: str = "bf16") -> tuple[Path, QwenDecisionStep]:
+    from qd_train.memory import OptimizerSpec
+    from qd_train.run_control import Checkpoint, LossLog, Position
+
+    spec = OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
+    tower, _ = _tiny_tower(tmp_path / f"s{seed}", dtype=dtype, optimizer=spec)
+    step = QwenDecisionStep(tower, seed=seed, lr=1e-3, total_steps=total_steps, max_width=64)
+    ckpt = Checkpoint(
+        position=Position(epoch=0, index=step_at),
+        optimizer_step=step_at,
+        seed=seed,
+        schedule=LRSchedule(peak_lr=1e-3, total_steps=total_steps, warmup_steps=1, min_lr=1e-4),
+        loss_log=LossLog().snapshot(),
+        consumed_digest=f"{seed:064x}",
+        model_state=step.state(),
+    )
+    path = tmp_path / f"ckpt-{seed}-{total_steps}-{step_at}.json"
+    ckpt.write(path)
+    return path, step
+
+
+def _ckpt_average():
+    tools = REPO / "tools"
+    if str(tools) not in sys.path:
+        sys.path.insert(0, str(tools))
+    import ckpt_average
+
+    return ckpt_average
+
+
+def test_checkpoint_averaging_is_the_fp32_mean_cast_back_and_writes_weights_only(tmp_path):
+    """Two seeds of one configuration: the tower is loaded from one snapshot so it is
+    identical, the span head is seeded so it differs. The average of the tower is the tower,
+    the average of the head is the mean, both come back in their own dtype, and the output
+    carries no optimizer state and says it is not resumable."""
+    from safetensors.torch import load_file
+
+    tool = _ckpt_average()
+    a, step_a = _written_checkpoint(tmp_path, seed=1)
+    b, step_b = _written_checkpoint(tmp_path, seed=2)
+    out = tmp_path / "avg" / "avg.safetensors"
+    assert tool.main([str(a), str(b), "--out", str(out), "--ft-row-ids", "r1", "r2"]) == 0
+    got = load_file(str(out))
+    assert not any(k.startswith("optimizer") for k in got)
+    emb = "tower.embed_tokens.weight"
+    assert got[emb].dtype == torch.bfloat16
+    assert torch.equal(got[emb], step_a.tower.model.get_input_embeddings().weight.detach())
+    head = dict(step_a.span_head.named_parameters())
+    other = dict(step_b.span_head.named_parameters())
+    name = next(iter(head))
+    expected = ((head[name].detach().float() + other[name].detach().float()) / 2).to(
+        head[name].dtype
+    )
+    assert torch.equal(got[f"span_head.{name}"], expected)
+    manifest = json.loads((out.parent / "avg.safetensors.manifest.json").read_text())
+    assert manifest["resumable"] is False and manifest["n_inputs"] == 2
+    assert manifest["ft_row_ids"] == ["r1", "r2"]
+    with pytest.raises(SystemExit, match="already exists"):
+        tool.main([str(a), str(b), "--out", str(out)])
+
+
+def test_checkpoint_averaging_refuses_mismatched_schedules_steps_and_duplicates(tmp_path):
+    from qd_train.run_control import Checkpoint
+
+    tool = _ckpt_average()
+    a, _ = _written_checkpoint(tmp_path, seed=1)
+    other_schedule, _ = _written_checkpoint(tmp_path, seed=2, total_steps=8)
+    other_step, _ = _written_checkpoint(tmp_path, seed=3, step_at=2)
+    out = tmp_path / "x.safetensors"
+    with pytest.raises(SystemExit, match="Different schedules"):
+        tool.main([str(a), str(other_schedule), "--out", str(out)])
+    with pytest.raises(SystemExit, match="optimizer step 2"):
+        tool.main([str(a), str(other_step), "--out", str(out)])
+    with pytest.raises(SystemExit, match="named twice"):
+        tool.main([str(a), str(a), "--out", str(out)])
+    same = Checkpoint.read(a)
+    with pytest.raises(tool.AverageRefusal, match="identical weights"):
+        tool.check_compatible([same, Checkpoint.read(a)], ["a", "a-copy"])
+    # A different architecture: one tensor dropped from the second input's tower.
+    broken = Checkpoint.read(a)
+    tower_state = dict(broken.model_state["tower"])
+    tower_state.pop(sorted(tower_state)[0])
+    broken.model_state["tower"] = tower_state
+    with pytest.raises(tool.AverageRefusal, match="different architecture"):
+        tool.check_compatible([Checkpoint.read(a), broken], ["a", "broken"])
+    assert not out.exists()
+
+
+def test_a_replay_checkpoint_resumed_into_a_bare_step_is_refused(tmp_path):
+    """A checkpoint written under PriorKLReplay carries "replay". Resumed without the replay
+    flags, the bare step used to ignore the key and continue without the replay term --
+    and consumed_digest, which covers only the training source, could not notice."""
+    tower, _ = _tiny_tower(tmp_path)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64)
+    state = {**step.state(), "replay": {"micro_batches": 6, "replayed": 1}}
+    with pytest.raises(BackboneContractViolation, match=r"\['replay'\]"):
+        step.load_state(state)
+
+
+@pytest.mark.parametrize(
+    "saved_kwargs",
+    [{"beta2": 0.95}, {"lower_layers_n": 2, "lower_lr_scale": 0.1}],
+)
+def test_a_checkpoint_taken_under_another_optimizer_recipe_is_refused(tmp_path, saved_kwargs):
+    """torch's load_state_dict overwrites betas and every extra group key with the saved
+    ones, so this resume used to succeed and train on the CHECKPOINT's beta2 or split while
+    the ledger recorded the resuming run's flags."""
+    tower, _ = _tiny_tower(tmp_path / "a")
+    saved = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=2, max_width=64,
+                             **saved_kwargs)
+    state = saved.state()
+    tower_b, _ = _tiny_tower(tmp_path / "b")
+    plain = QwenDecisionStep(tower_b, seed=0, lr=1e-3, total_steps=2, max_width=64)
+    before = plain.tower.model.get_input_embeddings().weight.detach().clone()
+    with pytest.raises(BackboneContractViolation, match="optimizer groups"):
+        plain.load_state(state)
+    assert torch.equal(plain.tower.model.get_input_embeddings().weight, before), (
+        "the refusal came after the weights had already been overwritten"
+    )
+    same = QwenDecisionStep(_tiny_tower(tmp_path / "c")[0], seed=0, lr=1e-3, total_steps=2,
+                            max_width=64, **saved_kwargs)
+    same.load_state(state)
+
+
+def test_a_replay_wrapper_state_survives_a_real_checkpoint_write_and_read(tmp_path):
+    """The wrapper's state through Checkpoint.write/read -- the JSON body and the sidecar --
+    and back into a fresh wrapper, which restores its cursor and hands the step its own
+    keys only."""
+    from qd_train.replay import PriorCache, PriorKLReplay
+    from qd_train.run_control import Checkpoint, LossLog, Position
+
+    tower, _ = _tiny_tower(tmp_path / "a")
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=4, max_width=64)
+    batches = [_ft_batch(0)]
+    cache = PriorCache.build(step, batches, letter_ids=(1, 2, 3), key={"base": "tiny"})
+    wrapped = PriorKLReplay(step, batches=batches, cache=cache, weight=0.1, every=1)
+    wrapped.accumulate(batches[0], ft_supervision(batches[0]))
+    wrapped.apply(lr=1e-3)
+    path = tmp_path / "ckpt.json"
+    Checkpoint(
+        position=Position(epoch=0, index=1), optimizer_step=1, seed=0,
+        schedule=LRSchedule(peak_lr=1e-3, total_steps=4, warmup_steps=1, min_lr=1e-4),
+        loss_log=LossLog().snapshot(), consumed_digest="0" * 64, model_state=wrapped.state(),
+    ).write(path)
+    tower_b, _ = _tiny_tower(tmp_path / "b")
+    fresh = PriorKLReplay(
+        QwenDecisionStep(tower_b, seed=0, lr=1e-3, total_steps=4, max_width=64),
+        batches=batches, cache=cache, weight=0.1, every=1,
+    )
+    fresh.load_state(Checkpoint.read(path).model_state)
+    assert (fresh.micro_batches, fresh.replayed) == (1, 1)
+    assert torch.equal(
+        tower_b.model.get_input_embeddings().weight, tower.model.get_input_embeddings().weight
+    )
+
+
+def test_a_layerwise_scale_without_a_split_is_refused(tmp_path):
+    tower, _ = _tiny_tower(tmp_path)
+    with pytest.raises(ValueError, match="lower_layers_n=0"):
+        QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64, lower_lr_scale=0.1)
 
 
 # --- resume, through the REAL step -------------------------------------------------------

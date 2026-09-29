@@ -171,7 +171,9 @@ from qd_train.ledger import (
     Protocol,
     RunRecorder,
 )
+from qd_train.optim import DEFAULT_BETA2, apply_lr
 from qd_train.power import resolution_state
+from qd_train.replay import PriorCache, PriorKLReplay, ReplayRefusal, check_attestation
 from qd_train.run_control import CostEstimate, LRSchedule, RunControl, WallClockCap
 from qd_train.shards import (
     HEADER_NAME,
@@ -181,10 +183,119 @@ from qd_train.shards import (
     corpus_contradictions,
     training_texts,
 )
-from qd_train.trainer import SpanScoringStep, ft_supervision, train_ft
+from qd_train.trainer import (
+    ChoicePermutation,
+    SpanScoringStep,
+    ft_supervision,
+    newline_terminated_ids,
+    train_ft,
+)
 from qd_train.tristate import NotRun, Ran, TriState, aggregate
 
 REPO = Path(__file__).resolve().parents[1]
+
+#: Recipe keys the ported pieces add -- each ONLY when its piece is on, so a run that uses
+#: none of them hashes exactly as the rows before them did. Mirrored into the verdict and
+#: score rows beside BACKBONE_KEYS, for the same reason those are.
+RECIPE_PIECE_KEYS: Final[tuple[str, ...]] = (
+    "lower_layers_n",
+    "lower_lr_scale",
+    "beta2",
+    "option_permutation_seed",
+    "replay_shard_hash",
+    "replay_attestation_sha256",
+    "replay_weight",
+    "replay_every",
+    "replay_direction",
+)
+
+#: RSI-Jev's layer-wise default (fit.py): decoder layers 0-7 at 0.1x.
+RSI_LOWER_LAYERS_N: Final[int] = 8
+RSI_LOWER_LR_SCALE: Final[float] = 0.1
+#: One replay micro-batch per this many training micro-batches: 1 in 7 of all micro-batches,
+#: ~14%, the "~15% replay" of docs/train-plan-2026-09-28.md (A5).
+DEFAULT_REPLAY_EVERY: Final[int] = 6
+
+
+@dataclasses.dataclass(frozen=True)
+class ReplayPlan:
+    """Replay batches (same remap as the train set, already width-filtered) and the term."""
+
+    batches: list[Batch]
+    shard_hash: str
+    cache_path: Path
+    letter_ids: tuple[int, ...]
+    weight: float
+    every: int
+    attestation_sha256: str
+
+
+def _recipe_pieces(
+    *, lower_layers_n: int, lower_lr_scale: float, beta2: float,
+    permutation: ChoicePermutation | None, replay: ReplayPlan | None,
+) -> dict[str, object]:
+    """The recipe keys for whichever ported pieces are on. Empty when none is."""
+    out: dict[str, object] = {}
+    if lower_layers_n:
+        out["lower_layers_n"] = lower_layers_n
+        out["lower_lr_scale"] = lower_lr_scale
+    if beta2 != DEFAULT_BETA2:
+        out["beta2"] = beta2
+    if permutation is not None:
+        out["option_permutation_seed"] = permutation.seed
+    if replay is not None:
+        out["replay_shard_hash"] = replay.shard_hash
+        out["replay_attestation_sha256"] = replay.attestation_sha256
+        out["replay_weight"] = replay.weight
+        out["replay_every"] = replay.every
+        out["replay_direction"] = "base_to_model"
+    return out
+
+
+def _prior_cache(
+    step: object, replay: ReplayPlan, *, backbone_keys: Mapping[str, object], device: str,
+    seed: int, resuming: bool,
+) -> PriorCache:
+    """Load the base's cached letter logits for this replay plan, or build them now.
+
+    The key names what "the base" is: the real tower's snapshot, vocabulary and kernel, or
+    -- for the stand-in, whose base is a seeded random init -- its shape and seed; plus the
+    device, because two devices' logits differ in the last bits. A cache for another base is
+    refused, never rebuilt over. And on a resume a missing cache is refused: the step has
+    loaded trained weights by then, and a cache built from them would distil toward the
+    trained model, not the base.
+    """
+    identity = {
+        k: backbone_keys[k]
+        for k in ("backbone_snapshot", "backbone_vocab", "attn_implementation", "hidden",
+                  "heads")
+        if k in backbone_keys
+    }
+    if "hidden" in identity:
+        identity["seed"] = seed
+    key = {"base": identity, "device": device, "replay_shard_hash": replay.shard_hash}
+    expect = {
+        **key,
+        "letter_ids": list(replay.letter_ids),
+        "plan_digest": PriorCache.plan_digest(replay.batches),
+    }
+    if replay.cache_path.exists():
+        return PriorCache.load(replay.cache_path, expect_key=expect)
+    if resuming:
+        raise ReplayRefusal(
+            f"--replay-cache {replay.cache_path} does not exist and this run resumes from a "
+            "checkpoint: the model is no longer the base, so a cache built now would anchor "
+            "replay to the trained weights. Point at the cache the original run built."
+        )
+    t0 = time.monotonic()
+    cache = PriorCache.build(step, replay.batches, letter_ids=replay.letter_ids, key=key)
+    cache.save(replay.cache_path)
+    print(
+        f"  replay: cached the base's letter logits on {cache.row.size} rows -> "
+        f"{replay.cache_path} ({time.monotonic() - t0:.1f}s)",
+        flush=True,
+    )
+    return cache
 
 #: The stand-in's shape and learning rate. 3e-3 is right for a randomly-initialised 128-wide
 #: block and catastrophic for pretrained weights.
@@ -612,7 +723,8 @@ class RealFtStep:
     """
 
     def __init__(self, *, seed: int, device: str, vocab: int, width: int, hidden: int,
-                 heads: int, lr: float, span_weight: float) -> None:
+                 heads: int, lr: float, span_weight: float,
+                 beta2: float = DEFAULT_BETA2) -> None:
         torch.manual_seed(seed)
         if not span_weight > 0.0:
             raise ValueError(
@@ -633,7 +745,9 @@ class RealFtStep:
         self.ln_f = nn.LayerNorm(hidden).to(device)
         self.lm_head = nn.Linear(hidden, vocab, bias=False).to(device)
         self.span_head = SpanPointerHead(hidden).to(device)
-        self.optimizer = torch.optim.AdamW(self.parameters(), lr=lr)
+        # beta2 through the same parameter the real branch takes; the default is torch's
+        # own 0.999, so a run that does not pass --beta2 builds the optimizer it always did.
+        self.optimizer = torch.optim.AdamW(self.parameters(), lr=lr, betas=(0.9, beta2))
         #: Per-micro-batch component losses. `TrainResult.loss_log` carries the combined
         #: number only, and a falling total with a flat span term is a model that learned the
         #: letter and nothing about *where*.
@@ -704,8 +818,8 @@ class RealFtStep:
         return float(total.item())
 
     def apply(self, *, lr: float) -> None:
-        for group in self.optimizer.param_groups:
-            group["lr"] = lr
+        # `qd_train.optim.apply_lr`, the one writer of group["lr"]; see its docstring.
+        apply_lr(self.optimizer, lr)
         self.optimizer.step()
         self.optimizer.zero_grad(set_to_none=True)
 
@@ -745,9 +859,19 @@ def _decode(
     ``noul`` first would produce. It retrains nothing: the letter channel never sees a row,
     so the loss is not merely uninformative about the difference, it is the same number.
 
+    A letter row is decoded over the letters it OFFERS, so every one of them needs a token
+    id. ``letter_id`` read off the shard set by gold correspondence (``_letter_ids``) knows
+    only letters some row has as its gold; main extends it from the tokenizer's vocabulary
+    (``vocab_letter_ids``) when one is available. A row offering a letter that still has no
+    id is not decoded -- decoding it over a subset of its rows would not be the runtime's
+    query -- and is COUNTED in ``rows_not_decoded`` / ``letters_without_id`` rather than
+    raising: until 2026-09-29 this was a bare ``KeyError`` part-way through a paid run.
+
     Never consults the loss. Returns per-row verdicts and the counts.
     """
     verdicts: list[dict[str, object]] = []
+    not_decoded: list[str] = []
+    letters_without_id: set[str] = set()
     with torch.no_grad():
         for b, batch in enumerate(batches):
             hidden = step.hidden(batch)
@@ -786,6 +910,7 @@ def _decode(
                     verdicts.append({
                         "kind": "span",
                         "row_id": label.row_id,
+                        "slot_name": label.slot_name,
                         "prefix_key": hashlib.sha256(
                             batch.tokens[r, : int(batch.target_index[r]) + 1].tobytes()  # type: ignore[index]
                         ).hexdigest(),
@@ -813,6 +938,11 @@ def _decode(
                 ordered = (
                     [NOUL_LETTER, *order] if noul_first else [*order, NOUL_LETTER]
                 )
+                unknown = [x for x in ordered if x not in letter_id]
+                if unknown:
+                    not_decoded.append(label.row_id)
+                    letters_without_id.update(unknown)
+                    continue
                 row_tokens = [letter_id[x] for x in ordered]
                 noul_row = len(row_tokens) - RESERVED_NOUL_ROWS
                 at = int(batch.target_index[r])  # type: ignore[index]
@@ -825,6 +955,7 @@ def _decode(
                 verdicts.append({
                     "kind": KIND_NAMES[label.slot_kind],
                     "row_id": label.row_id,
+                    "slot_name": label.slot_name,
                     "prefix_key": hashlib.sha256(
                         batch.tokens[r, : at + 1].tobytes()
                     ).hexdigest(),
@@ -907,6 +1038,9 @@ def _decode(
         "span_abstaining_decoded_as_abstain": int(
             by_kind.get("span", {}).get("abstaining_correct", 0)
         ),
+        "rows_decoded": len(verdicts),
+        "rows_not_decoded": len(not_decoded),
+        "letters_without_id": sorted(letters_without_id),
     }
 
 
@@ -1343,15 +1477,31 @@ def _train(
     n_gpus: int | None = None, usd_per_hour: float | None = None,
     usd_per_gpu_hour: float | None = None, instance: str | None = None,
     approved_by: str = "",
+    lower_layers_n: int = 0, lower_lr_scale: float = 1.0, beta2: float = DEFAULT_BETA2,
+    permutation: ChoicePermutation | None = None,
+    alphabets: Mapping[int, list[tuple[str, ...] | None]] | None = None,
+    replay: ReplayPlan | None = None,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
     The batches are the real reader's, re-indexed: ``_train`` requires strictly increasing
     indices inside an epoch because S5 reconstructs a resume position from them, and a
     repeated plan would otherwise go backwards.
+
+    The ported pieces are all off by default and each lands in ``recipe`` only when on, so
+    a run that uses none of them hashes exactly as every row before them did:
+    ``lower_layers_n``/``lower_lr_scale`` (layer-wise lr, real backbone only), ``beta2``,
+    ``permutation`` (with ``alphabets[b]``: plan batch ``b``'s per-row choice letters) and
+    ``replay`` (prior_kl toward the base's cached answers).
     """
     width = max(int(b.tokens.shape[1]) for b in plan)
     steps = len(plan) * passes
+    pieces = _recipe_pieces(
+        lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
+        permutation=permutation, replay=replay,
+    )
+    if permutation is not None and alphabets is None:
+        raise ValueError("option permutation needs each plan batch's per-row alphabets")
     recipe: dict[str, object] = {
         "tool": "tools/real_ft_run.py", "tag": tag, "device": device,
         "lr": lr, "passes": passes, "batches": len(plan), "width": width,
@@ -1371,9 +1521,14 @@ def _train(
     # hash, and `_backbone_commit` refuses a recipe that names no backbone at all.
     backbone_keys: dict[str, object] = {}
     if backbone is None:
+        if lower_layers_n:
+            raise ValueError(
+                "layer-wise lr needs --real-backbone: the stand-in is one block with no "
+                "'layers.<i>.' to split"
+            )
         step: SpanScoringStep = RealFtStep(
             seed=seed, device=device, vocab=int(reader.header.vocab_size), width=width,
-            hidden=hidden, heads=heads, lr=lr, span_weight=span_weight,
+            hidden=hidden, heads=heads, lr=lr, span_weight=span_weight, beta2=beta2,
         )
         # Only meaningful for the stand-in, so only recorded for it: under --real-backbone
         # these determine nothing and would still move recipe_hash.
@@ -1439,6 +1594,9 @@ def _train(
             total_steps=steps,
             span_weight=span_weight,
             max_width=width,
+            lower_layers_n=lower_layers_n,
+            lower_lr_scale=lower_lr_scale,
+            beta2=beta2,
         )
         # `tower.snapshot.name`, not `str(backbone)`: the directory name is the HF revision
         # (refs/main and the snapshot dir agree), while the absolute path is
@@ -1465,6 +1623,41 @@ def _train(
         raise TypeError(
             f"{type(step).__name__} does not satisfy SpanScoringStep, so train_ft would "
             "refuse every batch carrying a span row rather than training it"
+        )
+    # The ported pieces ride with the backbone keys: into this recipe, into the run dict, and
+    # through RECIPE_PIECE_KEYS into the verdict and score rows, so every row of a run that
+    # used one says so and hashes apart from the rows of runs that did not.
+    backbone_keys.update(pieces)
+    # Before any optimizer step, while the step is still the base: the prior this run's
+    # replay term anchors to. Built (or loaded and checked) here so a mismatched cache is
+    # refused before a single step is paid for.
+    train_step: SpanScoringStep = step
+    cache: PriorCache | None = None
+    if replay is not None:
+        cache = _prior_cache(
+            step, replay, backbone_keys=backbone_keys, device=device, seed=seed,
+            resuming=resume_from is not None,
+        )
+        train_step = PriorKLReplay(
+            step, batches=replay.batches, cache=cache, weight=replay.weight,
+            every=replay.every,
+        )
+        what_ran += (
+            f" Replay: prior_kl (base->model) at weight {replay.weight} on one replay "
+            f"micro-batch every {replay.every}, over {len(cache.row)} cached base rows from "
+            f"shard set {replay.shard_hash[:16]}."
+        )
+    # Validated over the whole plan BEFORE training, so a row whose option block cannot be
+    # located refuses the run now rather than at batch 900 of a rented epoch.
+    permuted_per_pass = 0
+    if permutation is not None:
+        if alphabets is None:  # pragma: no cover - refused at the top of this function
+            raise ValueError("option permutation needs each plan batch's per-row alphabets")
+        for b, batch in enumerate(plan):
+            permuted_per_pass += permutation.apply(batch, alphabets[b])[1]
+        what_ran += (
+            f" Option permutation seed {permutation.seed}: {permuted_per_pass} choice rows "
+            "re-permuted per pass on top of the shard set's own shuffle."
         )
     recipe.update(backbone_keys)
     recorder = _recorder(
@@ -1566,11 +1759,34 @@ def _train(
     ):
         recorder.metric(name, Ran(passed=True, value=value, detail=detail))
 
+    if permutation is not None:
+        recorder.metric(
+            "option_permutation.rows_per_pass",
+            Ran(
+                passed=True, value=permuted_per_pass,
+                detail=(
+                    f"choice rows re-permuted per pass at seed {permutation.seed}, located and "
+                    "checked over the whole plan before training"
+                ),
+            ),
+        )
+    if cache is not None:
+        recorder.metric(
+            "replay.base_rows_cached",
+            Ran(passed=True, value=int(cache.row.size),
+                detail=f"base letter logits over {len(cache.key['letter_ids'])} letters"),
+        )
+
     def source():
         index = 0
         for _ in range(passes):
-            for batch in plan:
-                yield dataclasses.replace(batch, index=index)
+            for b, batch in enumerate(plan):
+                out = dataclasses.replace(batch, index=index)
+                # A pure function of (seed, index, row), so a resume regenerates the batches
+                # it skips bit-for-bit and consumed_digest still matches.
+                if permutation is not None and alphabets is not None:
+                    out = permutation.apply(out, alphabets[b])[0]
+                yield out
                 index += 1
 
     started = time.monotonic()
@@ -1608,7 +1824,7 @@ def _train(
     result = train_ft(
         source(),
         epoch=0,
-        step=step,
+        step=train_step,
         control=_control(
             steps, device=device, lr=lr, checkpoint_every=checkpoint_every,
             n_gpus=n_gpus, usd_per_hour=usd_per_hour,
@@ -1665,6 +1881,16 @@ def _train(
         "steps_per_s": round(result.optimizer_steps / wall, 2) if wall > 0 else float("inf"),
         "ft_row_id": result.row_id,
         "final": final,
+        **(
+            {
+                "replayed": train_step.replayed,
+                "replay_kl_first": train_step.replay_log[0] if train_step.replay_log else None,
+                "replay_kl_last": train_step.replay_log[-1] if train_step.replay_log else None,
+            }
+            if isinstance(train_step, PriorKLReplay)
+            else {}
+        ),
+        **({"option_rows_permuted": permuted_per_pass * passes} if permutation else {}),
         "_step": step,
     }
 
@@ -1804,7 +2030,7 @@ def _record_verdict(run: dict[str, object], *, ledger: Ledger, reader: ShardRead
         "device": run["device"],
         # Mirrored from the run, not restated: the verdict row has to name the same backbone
         # the ft row named, and under --real-backbone there is no hidden/heads to name.
-        **{k: run[k] for k in BACKBONE_KEYS if k in run},
+        **{k: run[k] for k in (*BACKBONE_KEYS, *RECIPE_PIECE_KEYS) if k in run},
         "shard_hash": reader.header.shard_hash(),
     }
     recorder = _recorder(
@@ -2088,6 +2314,125 @@ class ValSet:
     letter_id: dict[str, int]
 
 
+def ft_splits(
+    *,
+    commitpackft: Path | None,
+    max_pairs: int,
+    rev: str,
+    config: DataConfig,
+    defect_class: Path | None = None,
+    defect_download: Path | None = None,
+    defect_max_rows: int | None = None,
+) -> dict[str, list[DataRow]]:
+    """Every split of the corpus this tool's shard sets were built from, by split name.
+
+    The same "which rows" ``tools/real_tokenizer_pipeline.py``'s ``run`` answered, from the
+    same functions in the same order, so a set built from the commitpackft download is
+    relabelled from the download and a set built with ``--defect-class`` gets its
+    ``code.defect_class`` rows back through the same ``load_defect_rows`` call (same
+    corpus, licence download and sha256-ordered cap). ``rev`` must already be resolved
+    (``repo_git.resolve_rev``). One owner for this rebuild: ``main``, :func:`ft_split_rows`
+    (``tools/ft_linear_control.py``) and ``tools/replay_decontam.py`` (which needs the
+    ``heldout`` split as well) all call it, rather than each carrying a copy that could
+    drift from the shard set.
+    """
+    if defect_class is None and (defect_download is not None or defect_max_rows is not None):
+        raise ValueError("defect_download/defect_max_rows without defect_class read nothing")
+    import real_tokenizer_pipeline as pipeline
+
+    from qd_data.config import SPLITS
+    from qd_data.dedupe import dedupe
+    from qd_data.mixture import build_mixture
+    from qd_data.split import split
+
+    commits, _, _ = pipeline.code_rows(commitpackft=commitpackft, max_pairs=max_pairs, rev=rev)
+    spans, _ = pipeline.span_rows(max_rows=max_pairs, blank_line_runs=False, rev=rev)
+    raw: dict[str, list[Any]] = {
+        "bigcode/commitpackft": list(commits),
+        "rajpurkar/squad_v2": list(spans),
+    }
+    if defect_class is not None:
+        from qd_data.defect_class import DEFECT_SOURCE_ID, load_defect_rows
+
+        load = load_defect_rows(
+            defect_class,
+            download_root=(
+                pipeline.DEFAULT_DEFECT_DOWNLOAD if defect_download is None else defect_download
+            ),
+            config=config, repo_root=REPO, max_rows=defect_max_rows,
+        )
+        raw[DEFECT_SOURCE_ID] = list(load.rows)
+    mixture = build_mixture(raw, config=config)
+    report = dedupe(list(mixture.rows), config=config)
+    split_report = split(report, config=config)
+    return {name: list(split_report.rows_by_split.get(name, ())) for name in SPLITS}
+
+
+def ft_split_rows(
+    *,
+    commitpackft: Path | None,
+    max_pairs: int,
+    rev: str,
+    config: DataConfig,
+    defect_class: Path | None = None,
+    defect_download: Path | None = None,
+    defect_max_rows: int | None = None,
+) -> tuple[list[DataRow], list[DataRow]]:
+    """``(train_rows, val_rows)``: exactly the two splits ``main`` trains and scores on."""
+    splits = ft_splits(
+        commitpackft=commitpackft, max_pairs=max_pairs, rev=rev, config=config,
+        defect_class=defect_class, defect_download=defect_download,
+        defect_max_rows=defect_max_rows,
+    )
+    return splits["train"], splits["val"]
+
+
+#: Where ``tools/real_tokenizer_pipeline.py`` writes the train manifest, under its --out.
+TRAIN_MANIFEST: Final[str] = "data/pool/train.json"
+
+
+def check_defect_source(out: Path, *, defect_class: Path | None) -> None:
+    """Refuse a rebuild that disagrees with the shard set about the defect-class source.
+
+    Read off the train manifest the pipeline wrote beside the shards: ``mixture.n_input``
+    is the row count each source actually FED this build. Not ``admitted_source_ids``,
+    which lists every source the licence registry admits whether or not this build read
+    it -- measured 2026-09-29, a plain 100-pair build lists 'qd-mutate/commitpackft' there
+    with no defect row in it, and the first version of this check refused it.
+
+    A set built with ``--defect-class`` and relabelled without it would rebuild a different
+    row set; the reverse adds rows the shards never held. Both are refused here, before any
+    tower loads.
+    """
+    from qd_data.defect_class import DEFECT_SOURCE_ID
+
+    path = out / TRAIN_MANIFEST
+    if not path.is_file():
+        raise SystemExit(
+            f"{path} is absent, so which sources this shard set was built from cannot be "
+            "checked against this run's --defect-class. Refusing rather than guessing."
+        )
+    n_input = json.loads(path.read_text(encoding="utf-8")).get("mixture", {}).get("n_input")
+    if not isinstance(n_input, dict):
+        raise SystemExit(
+            f"{path} carries no mixture.n_input, so which sources fed this build cannot be "
+            "checked against this run's --defect-class"
+        )
+    built_with = int(n_input.get(DEFECT_SOURCE_ID, 0)) > 0
+    if built_with and defect_class is None:
+        raise SystemExit(
+            f"{path}: {n_input[DEFECT_SOURCE_ID]} {DEFECT_SOURCE_ID!r} rows fed this shard set "
+            "-- it was built with tools/real_tokenizer_pipeline.py --defect-class, and "
+            "without the same --defect-class here its labels would be rebuilt from a "
+            "different row set"
+        )
+    if defect_class is not None and not built_with:
+        raise SystemExit(
+            f"--defect-class was given but no {DEFECT_SOURCE_ID!r} row fed {path}: this shard "
+            "set was built without it"
+        )
+
+
 def merge_letter_ids(train: dict[str, int], val: dict[str, int]) -> dict[str, int]:
     """One ``letter -> id`` map over both sets, or a refusal.
 
@@ -2110,9 +2455,71 @@ def merge_letter_ids(train: dict[str, int], val: dict[str, int]) -> dict[str, in
     return merged
 
 
+def pair_labels(reader: ShardReader, labels: list[Label], *, require_index: bool) -> list[Label]:
+    """``labels`` in the shard set's sequence order, paired by ``(row_id, slot_name)``.
+
+    When the set carries ``sequence_index.json`` (``reader.sequence_index``), sequence ``i``
+    gets exactly the label whose id the index names -- never a position in a reconstructed
+    order -- and any disagreement is a refusal: an index id this rebuild has no label for,
+    a rebuilt label the writer neither wrote nor excluded, a duplicate id, or a slot kind
+    that differs. A set written before the index existed has none; it is only accepted when
+    ``require_index`` is false, and then ``_inventory`` still checks the reconstructed order
+    against ``supervision.npz``. A ``--defect-class`` set requires the index: its writer
+    drops span slots at tokenization, which no tokenizer-free rebuild can predict.
+    """
+    index = getattr(reader, "sequence_index", None)
+    if index is None:
+        if require_index:
+            raise SystemExit(
+                f"{reader.root} carries no sequence index, so its labels could only be paired "
+                "by reconstructing the writer's order -- which a defect-class set breaks at "
+                "tokenization. Rebuild the shard set with the current writer."
+            )
+        return labels
+    from qd_train.shards import GOLD_ROLE
+
+    # A replay_only set's rows are anchored to the base's answers, not trained against a
+    # gold, so pairing gold labels to it would supervise rows that were never meant to be.
+    role = getattr(index, "role", None)
+    if role != GOLD_ROLE:
+        raise SystemExit(
+            f"{reader.root}: sequence index role is {role!r}, not {GOLD_ROLE!r}; its rows are "
+            "not trained against a gold label and cannot be relabelled for FT"
+        )
+    by_id: dict[tuple[str, str], Label] = {}
+    for label in labels:
+        key = (label.row_id, label.slot_name)
+        if key in by_id:
+            raise SystemExit(f"the rebuild produced {key} twice")
+        by_id[key] = label
+    missing = [key for key in index.sequences if key not in by_id]
+    if missing:
+        raise SystemExit(
+            f"{reader.root}: {len(missing)} sequence(s) name a (row_id, slot_name) this "
+            f"rebuild does not have, first {missing[:3]}. The shard set was not built from "
+            "these rows."
+        )
+    excluded = {(e.row_id, e.slot_name) for e in index.excluded}
+    stray = sorted(set(by_id) - set(index.sequences) - excluded)
+    if stray:
+        raise SystemExit(
+            f"{reader.root}: the rebuild has {len(stray)} slot(s) the writer neither wrote nor "
+            f"excluded, first {stray[:3]}. The shard set was not built from these rows."
+        )
+    paired = [by_id[key] for key in index.sequences]
+    wrong_kind = [
+        (i, key) for i, (key, kind) in enumerate(zip(index.sequences, index.slot_kinds,
+                                                      strict=True))
+        if by_id[key].slot_kind != kind
+    ]
+    if wrong_kind:
+        raise SystemExit(f"{reader.root}: slot kinds disagree at {wrong_kind[:3]}")
+    return paired
+
+
 def open_val_set(
     out: Path, *, config: DataConfig, rev: str, rows: list[DataRow], train: ShardReader,
-    letter_id: dict[str, int],
+    letter_id: dict[str, int], require_index: bool = False,
 ) -> ValSet:
     """Read, relabel and batch the val shard set, refusing anything that would misscore it.
 
@@ -2137,6 +2544,7 @@ def open_val_set(
             "row in the model being scored"
         )
     labels, excluded = _labels(rows, config=config)
+    labels = pair_labels(reader, labels, require_index=require_index)
     _inventory(reader, labels, excluded)
     merged = merge_letter_ids(letter_id, _letter_ids(reader, labels))
     unknown = sorted(
@@ -2144,10 +2552,13 @@ def open_val_set(
         - set(merged)
     )
     if unknown:
-        raise SystemExit(
-            f"val rows offer letter(s) {unknown} that no train or val row uses as its gold, "
-            "so their token ids cannot be read off either set and those rows cannot be "
-            "decoded the way answer.rs decodes them"
+        # Counted, not refused: _decode skips exactly the rows offering these and reports
+        # them as rows_not_decoded, which _record_score puts on the eval row beside the
+        # rows that were. Pass the tokenizer (--real-backbone, or --tokenizer-json) and
+        # main reads every offered letter's id off the vocabulary instead.
+        print(
+            f"val rows offer letter(s) {unknown} with no known token id (never a gold in "
+            "either set, and no tokenizer.json given): those rows will not be decoded"
         )
     plan = list(
         reader.batches(batch_tokens=int(max(reader.header.buckets)), seed=config.seed, epoch=0)
@@ -2292,7 +2703,7 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
     recipe: dict[str, object] = {
         "tool": "tools/real_ft_run.py", "tag": f"{run['tag']}-score-val",
         "device": run["device"],
-        **{k: run[k] for k in BACKBONE_KEYS if k in run},
+        **{k: run[k] for k in (*BACKBONE_KEYS, *RECIPE_PIECE_KEYS) if k in run},
         "shard_hash": reader.header.shard_hash(),
         "val_shard_hash": val.reader.header.shard_hash(),
     }
@@ -2337,6 +2748,19 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
             ),
         )
         recorder.metric("val_shard_coverage", val.reader.coverage)
+        decoded, skipped = int(scored["rows_decoded"]), int(scored["rows_not_decoded"])  # type: ignore[call-overload]
+        recorder.metric(
+            "val_rows_decoded",
+            Ran(
+                passed=skipped == 0, value=decoded, n=decoded, n_total=decoded + skipped,
+                detail=(
+                    "every val row decoded" if not skipped else
+                    f"{skipped} row(s) offer letter(s) {scored['letters_without_id']} with no "
+                    "known token id and were not decoded; every score on this row is over "
+                    f"the {decoded} that were"
+                ),
+            ),
+        )
         recorder.noul_rate = NotRun(
             reason=(
                 "this corpus supervises no letter-channel abstention, so an abstain rate "
@@ -2347,6 +2771,305 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
     if recorder.row is None:  # pragma: no cover - RunRecorder always writes on exit
         raise RuntimeError("RunRecorder exited without writing a row")
     return recorder.row.row_id
+
+
+def _check_piece_flags(args: argparse.Namespace) -> None:
+    """Refuse, at argv time, every combination of the ported-piece flags that would record a
+    value that determined nothing, or run a piece without what it needs. Resolves defaults
+    in place (``lower_layers_lr_scale``, ``beta2``, ``tokenizer_json``)."""
+    if args.lower_layers_n < 0:
+        raise SystemExit(f"--lower-layers-n must not be negative, got {args.lower_layers_n}")
+    if args.lower_layers_n:
+        if args.real_backbone is None:
+            raise SystemExit(
+                "--lower-layers-n needs --real-backbone: the stand-in is one block with no "
+                "decoder layers to split, and the recipe would record a split of nothing"
+            )
+        if args.lower_layers_lr_scale is None:
+            args.lower_layers_lr_scale = RSI_LOWER_LR_SCALE
+    elif args.lower_layers_lr_scale is not None:
+        raise SystemExit("--lower-layers-lr-scale without --lower-layers-n scales no layer")
+    else:
+        args.lower_layers_lr_scale = 1.0
+    if args.beta2 is None:
+        args.beta2 = DEFAULT_BETA2
+    elif not 0.0 < args.beta2 < 1.0:
+        raise SystemExit(f"--beta2 must be in (0, 1), got {args.beta2}")
+    # The snapshot's own tokenizer, when one is there: read for every offered letter's id
+    # (decode) and by --option-permutation-seed.
+    if args.tokenizer_json is None and args.real_backbone is not None:
+        candidate = args.real_backbone / "tokenizer.json"
+        if candidate.is_file():
+            args.tokenizer_json = candidate
+    if args.option_permutation_seed is not None:
+        if not args.epoch:
+            raise SystemExit(
+                "--option-permutation-seed applies to the epoch arm only (--epoch): the "
+                "memorisation arm's floors are statements about FIXED rows, and a per-pass "
+                "permutation would change the rows the floor was computed over"
+            )
+        if args.tokenizer_json is None or not args.tokenizer_json.is_file():
+            raise SystemExit(
+                "--option-permutation-seed needs the tokenizer.json the shards were built "
+                f"with (got {args.tokenizer_json}): which token ids end a line is a fact "
+                "about the vocabulary, and the option-line search refuses to guess it"
+            )
+    if args.tokenizer_json is not None and not args.tokenizer_json.is_file():
+        raise SystemExit(f"--tokenizer-json {args.tokenizer_json} does not exist")
+    replay_flags = {
+        "--replay-attestation": args.replay_attestation,
+        "--replay-cache": args.replay_cache,
+        "--replay-weight": args.replay_weight,
+    }
+    if args.replay_shards is None:
+        given = [k for k, v in replay_flags.items() if v is not None]
+        if args.replay_every != DEFAULT_REPLAY_EVERY:
+            given.append("--replay-every")
+        if given:
+            raise SystemExit(f"{', '.join(given)} without --replay-shards does nothing")
+    else:
+        missing = [k for k, v in replay_flags.items() if v is None]
+        if missing:
+            raise SystemExit(f"--replay-shards needs {', '.join(missing)}")
+        if not args.epoch:
+            raise SystemExit(
+                "--replay-shards applies to the epoch arm only (--epoch), for the same "
+                "reason permutation does: the memorisation arm's floors are about its rows"
+            )
+        if not (math.isfinite(args.replay_weight) and args.replay_weight > 0.0):
+            raise SystemExit(f"--replay-weight must be positive, got {args.replay_weight}")
+        if args.replay_every < 1:
+            raise SystemExit(f"--replay-every must be at least 1, got {args.replay_every}")
+        if not args.replay_attestation.is_file():
+            raise SystemExit(f"--replay-attestation {args.replay_attestation} does not exist")
+        if not (args.replay_shards / HEADER_NAME).is_file():
+            raise SystemExit(f"--replay-shards {args.replay_shards} holds no shard header")
+    if args.verdicts_out is not None:
+        if not args.score_val:
+            raise SystemExit(
+                "--verdicts-out writes the val verdicts --score-val decodes; without it "
+                "there are none"
+            )
+        if args.verdicts_out.exists():
+            raise SystemExit(f"--verdicts-out {args.verdicts_out} already exists")
+
+
+def _remap_post(reader: ShardReader) -> Any:
+    """``source id -> post-remap id`` for this set, ``None`` for a token the remap dropped."""
+    if reader.remap is None:
+        raise SystemExit(f"{reader.root}: no remap table beside the shards")
+    old_to_new = reader.remap.old_to_new
+
+    def post(source_id: int) -> int | None:
+        if not 0 <= source_id < old_to_new.size:
+            return None
+        new = int(old_to_new[source_id])
+        return new if new >= 0 else None
+
+    return post
+
+
+def vocab_letter_ids(
+    reader: ShardReader, *, tokenizer_json: Path, letter_id: Mapping[str, int]
+) -> dict[str, int]:
+    """Every option letter's post-remap id, read off the tokenizer's vocabulary.
+
+    A superset of ``letter_id`` (the ids read off the shard set by gold correspondence),
+    and cross-checked against it: a tokenizer.json that disagrees on any letter is not the
+    one the shards were built with and is refused. A letter the remap dropped is absent --
+    no row of this set can offer it.
+    """
+    from qd_data.schema import OPTION_LETTERS
+
+    vocab = json.loads(tokenizer_json.read_text(encoding="utf-8"))["model"]["vocab"]
+    post = _remap_post(reader)
+    letters: dict[str, int] = {}
+    for letter in (*OPTION_LETTERS, NOUL_LETTER):
+        if letter in vocab and (new := post(int(vocab[letter]))) is not None:
+            letters[letter] = new
+    for letter, new in letter_id.items():
+        if letters.get(letter) != new:
+            raise SystemExit(
+                f"{tokenizer_json}: letter {letter!r} is post-remap id {letters.get(letter)} "
+                f"by this tokenizer and {new} by the shard set. It is not the tokenizer the "
+                "shards were built with."
+            )
+    return letters
+
+
+def _permutation_spec(
+    reader: ShardReader, *, tokenizer_json: Path, letter_id: Mapping[str, int], seed: int
+) -> ChoicePermutation:
+    """Post-remap letter ids and newline-terminated ids, read off ``tokenizer_json``.
+
+    Cross-checked against ``_letter_ids`` -- the ids read off the shard set by
+    correspondence -- so a tokenizer.json that is not the one the shards were built with is
+    refused rather than used to cut option lines in the wrong places.
+    """
+    letters = vocab_letter_ids(reader, tokenizer_json=tokenizer_json, letter_id=letter_id)
+    vocab = json.loads(tokenizer_json.read_text(encoding="utf-8"))["model"]["vocab"]
+    post = _remap_post(reader)
+    line_ends = frozenset(
+        new for sid in newline_terminated_ids(vocab) if (new := post(sid)) is not None
+    )
+    if NOUL_LETTER not in letters:
+        raise SystemExit(f"the noul letter {NOUL_LETTER!r} is not in this shard set's remap")
+    return ChoicePermutation(
+        seed=seed, letter_ids=letters, noul_id=letters[NOUL_LETTER], line_end_ids=line_ends
+    )
+
+
+def _alphabets(
+    plan: list[Batch], labels_for: Mapping[int, list[Label]]
+) -> dict[int, list[tuple[str, ...] | None]]:
+    """Per plan batch, per row: the choice letters in rendered order (noul excluded), or None."""
+    return {
+        b: [
+            tuple(x for x in label.letters if x != NOUL_LETTER)
+            if label.slot_kind == SLOT_CHOICE
+            else None
+            for label in labels_for[b]
+        ]
+        for b in range(len(plan))
+    }
+
+
+def replay_corpus_identity(
+    *, rev: str, max_pairs: int, commitpackft: Path | None, defect_class: Path | None,
+    defect_max_rows: int | None,
+) -> dict[str, object]:
+    """What ``ft_splits`` was called with, as the replay attestation records it. One
+    function, used by ``tools/replay_decontam.py`` to write it and by ``_replay_plan`` to
+    check it, so the two cannot spell the corpus differently."""
+    return {
+        "rev": rev,
+        "max_pairs": max_pairs,
+        "commitpackft": None if commitpackft is None else commitpackft.name,
+        "defect_class": None if defect_class is None else defect_class.name,
+        "defect_max_rows": defect_max_rows,
+    }
+
+
+def check_replay_role(reader: ShardReader) -> None:
+    """Refuse a replay set whose sequence index is not marked ``replay_only``.
+
+    The mirror of ``pair_labels``' gold check, so neither direction can be crossed: a gold
+    set is never replayed and a replay set is never relabelled. Fails closed -- a set with
+    no sequence index, or an index with no role, is refused, because nothing then says its
+    rows were written for replay.
+    """
+    from qd_data.general import REPLAY_ONLY
+
+    index = getattr(reader, "sequence_index", None)
+    role = None if index is None else getattr(index, "role", None)
+    if role != REPLAY_ONLY:
+        raise SystemExit(
+            f"--replay-shards {reader.root}: sequence index role is {role!r}, not "
+            f"{REPLAY_ONLY!r}. Write replay sets with write_shards(replay=True); a gold set, "
+            "or one whose role is unrecorded, is not replayed."
+        )
+
+
+def _replay_plan(
+    args: argparse.Namespace, *, config: DataConfig, train: ShardReader, width: int,
+    letter_id: Mapping[str, int], val_rows: list[DataRow], rev: str,
+) -> ReplayPlan:
+    """Open the replay shard set and hold it to its attestation before anything trains."""
+    from qd_data.render import render
+    from qd_train.replay import prompt_content
+
+    replay_reader = ShardReader(args.replay_shards, config=config, repo_root=args.out)
+    check_replay_role(replay_reader)
+    if replay_reader.header.remap_hash != train.header.remap_hash:
+        raise SystemExit(
+            f"--replay-shards was tokenized under remap {replay_reader.header.remap_hash[:16]} "
+            f"and the train set under {train.header.remap_hash[:16]}; the same id would name "
+            "different tokens in the two"
+        )
+    raw_attestation = args.replay_attestation.read_bytes()
+    attestation = json.loads(raw_attestation)
+    corpus = replay_corpus_identity(
+        rev=rev, max_pairs=args.max_pairs, commitpackft=args.commitpackft,
+        defect_class=args.defect_class, defect_max_rows=args.defect_max_rows,
+    )
+    if attestation.get("corpus") != corpus:
+        raise SystemExit(
+            f"the attestation was made against corpus {attestation.get('corpus')} and this "
+            f"run's is {corpus}: its val/heldout target sets are not this run's"
+        )
+    # Only the val set is recomputed here. The heldout split is Rule 3's: it is checked by
+    # tools/replay_decontam.py, a process that does not train, and this run holds it to
+    # that check through the corpus identity above rather than by reading it.
+    val_texts: dict[str, str] = {}
+    for row in val_rows:
+        rendered = render(row.request, seed=None)
+        for slot in rendered.slots:
+            val_texts[f"{row.row_id}#{slot.name}"] = prompt_content(
+                rendered.prompt_for(slot.name)
+            )
+    try:
+        check_attestation(
+            attestation, replay_shard_hash=replay_reader.header.shard_hash(),
+            verify_targets={"val": val_texts}, required_targets=("val", "heldout"),
+        )
+    except ReplayRefusal as exc:
+        raise SystemExit(f"--replay-attestation: {exc}") from exc
+    batches = [
+        b
+        for b in replay_reader.batches(
+            batch_tokens=int(max(train.header.buckets)), seed=config.seed, epoch=0
+        )
+        if int(b.tokens.shape[1]) <= width
+    ]
+    if not batches:
+        raise SystemExit(f"no replay batch is at most {width} tokens wide")
+    return ReplayPlan(
+        batches=batches,
+        shard_hash=replay_reader.header.shard_hash(),
+        cache_path=args.replay_cache,
+        letter_ids=tuple(sorted(letter_id.values())),
+        weight=float(args.replay_weight),
+        every=int(args.replay_every),
+        attestation_sha256=hashlib.sha256(raw_attestation).hexdigest(),
+    )
+
+
+def write_verdicts_jsonl(path: Path, lines: list[dict[str, object]]) -> None:
+    """Every line to ``path``, atomically, refusing to overwrite. One JSON object per line."""
+    from qd_train.replay import ReplayRefusal as _Refusal
+    from qd_train.replay import write_text_atomic
+
+    required = ("eval_row_id", "seed", "row_id", "kind", "correct")
+    for i, line in enumerate(lines):
+        missing = [k for k in required if k not in line]
+        if missing or not isinstance(line["correct"], bool):
+            raise ValueError(f"verdict line {i} is missing {missing} or has a non-bool correct")
+    body = "".join(json.dumps(line, sort_keys=True) + "\n" for line in lines)
+    try:
+        write_text_atomic(path, body)
+    except _Refusal as exc:
+        raise SystemExit(f"--verdicts-out: {exc}") from exc
+
+
+def _verdict_lines(
+    scored: Mapping[str, object], *, eval_row_id: str, seed: int
+) -> list[dict[str, object]]:
+    """The JSONL lines ``--verdicts-out`` writes for one eval row."""
+    out: list[dict[str, object]] = []
+    for v in scored["verdicts"]:  # type: ignore[union-attr]
+        line: dict[str, object] = {
+            "eval_row_id": eval_row_id,
+            "seed": int(seed),
+            "row_id": v["row_id"],
+            "kind": v["kind"],
+            "correct": bool(v["correct"]),
+            "top": v["top"],
+            "gold_row": v.get("gold_row"),
+        }
+        if "slot_name" in v:
+            line["slot_name"] = v["slot_name"]
+        out.append(line)
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2443,6 +3166,22 @@ def main(argv: list[str] | None = None) -> int:
             "re-running that corpus, so without it a set built from the download is "
             "refused: its rows are not this repository's history"
         ),
+    )
+    parser.add_argument(
+        "--defect-class", type=Path, default=None,
+        help=(
+            "the qd-mutate corpus directory the shard set was built with, exactly as passed "
+            "to tools/real_tokenizer_pipeline.py --defect-class. Required when the set's "
+            "train manifest admits the code.defect_class source, refused when it does not"
+        ),
+    )
+    parser.add_argument(
+        "--defect-download", type=Path, default=None,
+        help="as the pipeline's --defect-download; default the pipeline's own default",
+    )
+    parser.add_argument(
+        "--defect-max-rows", type=int, default=None,
+        help="as the pipeline's --defect-max-rows: the same sha256-ordered cap, or none",
     )
     parser.add_argument("--epoch", action="store_true", help="also run arm 1, the real epoch")
     parser.add_argument(
@@ -2544,8 +3283,74 @@ def main(argv: list[str] | None = None) -> int:
             "one -- every op in THIS model has one, so a full train should pass it"
         ),
     )
+    # --- ported pieces (RSI-Jev MIT @8f34a4f, decider Apache-2.0 @23579f7). All off by
+    # default; each lands in the recipe only when on.
+    parser.add_argument(
+        "--lower-layers-n", type=int, default=0,
+        help=(
+            "layer-wise lr (RSI-Jev fit.py): train decoder layers 0..N-1 at "
+            "--lower-layers-lr-scale times the schedule. 0 (default) is off. RSI's value is "
+            f"{RSI_LOWER_LAYERS_N}. Needs --real-backbone"
+        ),
+    )
+    parser.add_argument(
+        "--lower-layers-lr-scale", type=float, default=None,
+        help=f"with --lower-layers-n; default {RSI_LOWER_LR_SCALE} (RSI's)",
+    )
+    parser.add_argument(
+        "--beta2", type=float, default=None,
+        help=(
+            f"AdamW beta2; default {DEFAULT_BETA2} (unchanged). decider trains at 0.95. The "
+            "bf16 recipe's moment-fidelity check is asked at this value: bf16 at 0.95 "
+            "settles 1.95%% low after 64 steps and is refused past that; --optimizer "
+            "master is not affected"
+        ),
+    )
+    parser.add_argument(
+        "--option-permutation-seed", type=int, default=None,
+        help=(
+            "re-permute every choice row's options per pass (epoch arm only), keeping the "
+            "gold on its option, seeded by this. Needs --epoch and a tokenizer.json "
+            "(--tokenizer-json, or the --real-backbone snapshot's)"
+        ),
+    )
+    parser.add_argument(
+        "--tokenizer-json", type=Path, default=None,
+        help="tokenizer.json the shards were tokenized with; default: the snapshot's",
+    )
+    parser.add_argument(
+        "--replay-shards", type=Path, default=None,
+        help=(
+            "a shard set (same remap as the train set) to replay with prior_kl toward the "
+            "base's own cached answers, epoch arm only. Needs --replay-attestation, "
+            "--replay-cache, --replay-weight and --epoch"
+        ),
+    )
+    parser.add_argument(
+        "--replay-attestation", type=Path, default=None,
+        help="the clean attestation tools/replay_decontam.py wrote for --replay-shards",
+    )
+    parser.add_argument(
+        "--replay-cache", type=Path, default=None,
+        help="the base-logit cache: read if present (key-checked), else built once and written",
+    )
+    parser.add_argument("--replay-weight", type=float, default=None,
+                        help="weight on prior_kl; no default -- say it")
+    parser.add_argument(
+        "--replay-every", type=int, default=DEFAULT_REPLAY_EVERY,
+        help=f"one replay micro-batch per N training ones; default {DEFAULT_REPLAY_EVERY}",
+    )
+    parser.add_argument(
+        "--verdicts-out", type=Path, default=None,
+        help=(
+            "with --score-val: write every val verdict as one JSONL line (eval_row_id, seed, "
+            "row_id, slot_name, kind, correct, top, gold_row), atomically; refused if the "
+            "file exists"
+        ),
+    )
     parser.add_argument("--probe", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    _check_piece_flags(args)
 
     # Resolve the sentinels against the backbone that was actually chosen. --hidden and
     # --heads are REFUSED rather than ignored under --real-backbone: the real tower's width
@@ -2707,38 +3512,35 @@ def main(argv: list[str] | None = None) -> int:
     # sequence and said nothing.
     reader = ShardReader(shard_dir, config=config, repo_root=args.out, expect_rev=rev)
 
-    import real_tokenizer_pipeline as pipeline
-
-    # The same "which rows" the builder answered, from the same function, so a set built
-    # from the download is relabelled from the download.
-    commits, _, _ = pipeline.code_rows(
-        commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=rev
+    check_defect_source(args.out, defect_class=args.defect_class)
+    train_rows, val_rows = ft_split_rows(
+        commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=rev, config=config,
+        defect_class=args.defect_class, defect_download=args.defect_download,
+        defect_max_rows=args.defect_max_rows,
     )
-    spans, _ = pipeline.span_rows(max_rows=args.max_pairs, blank_line_runs=False, rev=rev)
-    from qd_data.dedupe import dedupe
-    from qd_data.mixture import build_mixture
-    from qd_data.split import split
-
-    mixture = build_mixture(
-        {"bigcode/commitpackft": list(commits), "rajpurkar/squad_v2": list(spans)},
-        config=config,
-    )
-    report = dedupe(list(mixture.rows), config=config)
-    split_report = split(report, config=config)
-    train_rows = list(split_report.rows_by_split.get("train", ()))
     labels, excluded = _labels(train_rows, config=config)
+    # Paired by id against the writer's sequence index where the set has one; see
+    # pair_labels for why a --defect-class set must.
+    labels = pair_labels(reader, labels, require_index=args.defect_class is not None)
 
     inventory = _inventory(reader, labels, excluded)
     inventory["contradictions"] = _contradictions(reader, labels)
     letter_id = _letter_ids(reader, labels)
+    # Every letter a row OFFERS needs an id to be decoded, not only the letters some row
+    # has as its gold. The vocabulary supplies them, cross-checked against the gold ids.
+    if args.tokenizer_json is not None:
+        letter_id = vocab_letter_ids(
+            reader, tokenizer_json=args.tokenizer_json, letter_id=letter_id
+        )
     # Opened before any tower loads, so every way it could misscore is refused on argv's
     # time rather than after an epoch has been paid for.
     val_set: ValSet | None = None
     if args.score_val:
         val_set = open_val_set(
             args.out, config=config, rev=rev,
-            rows=list(split_report.rows_by_split.get("val", ())),
+            rows=list(val_rows),
             train=reader, letter_id=letter_id,
+            require_index=args.defect_class is not None,
         )
         print(
             f"val set: {len(val_set.reader)} sequences in {len(val_set.plan)} batches, "
@@ -2850,6 +3652,29 @@ def main(argv: list[str] | None = None) -> int:
     if not plan_small:
         raise SystemExit(f"no real batch is at most {args.max_width} wide")
 
+    # The epoch arm's ported pieces, built and checked before any tower loads.
+    permutation: ChoicePermutation | None = None
+    epoch_alphabets: dict[int, list[tuple[str, ...] | None]] | None = None
+    if args.option_permutation_seed is not None:
+        permutation = _permutation_spec(
+            reader, tokenizer_json=args.tokenizer_json, letter_id=letter_id,
+            seed=args.option_permutation_seed,
+        )
+        epoch_alphabets = _alphabets(plan_all, labels_by_batch_all)
+    replay_plan: ReplayPlan | None = None
+    if args.replay_shards is not None:
+        replay_plan = _replay_plan(
+            args, config=config, train=reader,
+            width=max(int(b.tokens.shape[1]) for b in plan_all),
+            letter_id=letter_id, val_rows=list(val_rows), rev=rev,
+        )
+        print(
+            f"replay: {len(replay_plan.batches)} batches from {args.replay_shards} "
+            f"(attestation {replay_plan.attestation_sha256[:16]}), weight "
+            f"{replay_plan.weight}, every {replay_plan.every}"
+        )
+    verdict_lines: list[dict[str, object]] = []
+
 
     ledger = Ledger(args.ledger)
     # Read once, before any arm runs. `train_ft` checks it against the schedule, the seed
@@ -2932,6 +3757,8 @@ def main(argv: list[str] | None = None) -> int:
                 usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
                 approved_by=args.approved_by,
                 tag="memorise", quick_reason=quick_small,
+                lower_layers_n=args.lower_layers_n,
+                lower_lr_scale=args.lower_layers_lr_scale, beta2=args.beta2,
             )
             step = run.pop("_step")
             decode_at = time.monotonic()
@@ -2968,6 +3795,13 @@ def main(argv: list[str] | None = None) -> int:
                         f"admits -- gap {final[f'{channel}_gap']}, bar {FLOOR_SLACK}, over "  # type: ignore[index]
                         f"{final[f'{channel}_rows']} row(s)"  # type: ignore[index]
                     )
+            if shipped["rows_not_decoded"]:
+                failures.append(
+                    f"{where}: {shipped['rows_not_decoded']} row(s) offer letter(s) "
+                    f"{shipped['letters_without_id']} with no known token id and were not "
+                    "decoded; pass --tokenizer-json (or --real-backbone) so every offered "
+                    "letter has one"
+                )
             if shipped["prefix_groups_that_decoded_inconsistently"]:
                 failures.append(
                     f"{where}: {shipped['prefix_groups_that_decoded_inconsistently']} "
@@ -3023,6 +3857,9 @@ def main(argv: list[str] | None = None) -> int:
                     usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
                     approved_by=args.approved_by,
                     tag="epoch", quick_reason=quick_epoch,
+                    lower_layers_n=args.lower_layers_n,
+                    lower_lr_scale=args.lower_layers_lr_scale, beta2=args.beta2,
+                    permutation=permutation, alphabets=epoch_alphabets, replay=replay_plan,
                 )
                 step = run.pop("_step")
                 if val_set is not None:
@@ -3033,6 +3870,12 @@ def main(argv: list[str] | None = None) -> int:
                         run, scored, ledger=ledger, reader=reader, val=val_set,
                         quick_reason=quick_epoch, decode_s=decode_s,
                     )
+                    if args.verdicts_out is not None:
+                        verdict_lines.extend(
+                            _verdict_lines(
+                                scored, eval_row_id=str(run["score_row_id"]), seed=seed
+                            )
+                        )
                     for name, state in score_states(scored, val_set.labels).items():
                         print(f"  {device} seed={seed} {name}: {json.dumps(state.to_json())[:300]}")
                     _, ece, degenerate = calibration_states(scored)
@@ -3051,6 +3894,15 @@ def main(argv: list[str] | None = None) -> int:
                 if not (run["letter_last"] < run["letter_first"]):
                     failures.append(f"arm1 {device} seed={seed}: the letter loss did not fall")
 
+    if args.verdicts_out is not None:
+        # Once, after every seed, so the file is either every eval row's verdicts or absent.
+        # Absent, too, when no eval row was written: an empty file would read as a scored
+        # model with no verdicts rather than as a score that never ran.
+        if verdict_lines:
+            write_verdicts_jsonl(args.verdicts_out, verdict_lines)
+            print(f"verdicts: {len(verdict_lines)} lines -> {args.verdicts_out}")
+        else:
+            print(f"verdicts: NOT WRITTEN -- no eval row was recorded, {args.verdicts_out} absent")
     report["failures"] = failures
     print(json.dumps(report, indent=2, sort_keys=True, default=str))
     if failures:

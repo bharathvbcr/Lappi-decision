@@ -111,7 +111,7 @@ from .memory import (
     StepFootprint,
     estimate_step,
 )
-from .optim import build_optimizer
+from .optim import DEFAULT_BETA2, apply_lr, build_optimizer, layerwise_param_groups
 from .remap import RemapApplication, apply_remap_to_model
 from .trainer import Supervision
 
@@ -689,6 +689,16 @@ def saved_activation_bytes(
 # --- the step ---------------------------------------------------------------------------------
 
 
+def _group_recipe(group: Mapping[str, Any]) -> tuple[Any, ...]:
+    """What of a parameter group is recipe rather than state: betas, lr_scale, name."""
+    betas = group.get("betas")
+    return (
+        None if betas is None else tuple(float(b) for b in betas),
+        float(group.get("lr_scale", 1.0)),
+        group.get("name"),
+    )
+
+
 class QwenDecisionStep:
     """A [`qd_train.trainer.SpanScoringStep`] over the real text tower.
 
@@ -719,6 +729,9 @@ class QwenDecisionStep:
         max_grad_norm: float = 1.0,
         max_width: int = 34_522,
         allow_frozen_moments: bool = False,
+        lower_layers_n: int = 0,
+        lower_lr_scale: float = 1.0,
+        beta2: float = DEFAULT_BETA2,
     ) -> None:
         import torch
         from torch import nn
@@ -778,12 +791,35 @@ class QwenDecisionStep:
         # this optimizer is fit for this run: a bf16 second moment is correct for 383 steps
         # and broken for 384, and the step that knows the dtype has never been the one that
         # knows the schedule. Passing it here is what closes that gap.
+        #
+        # `lower_layers_n > 0` is the layer-wise split (RSI-Jev fit.py; see
+        # `qd_train.optim.layerwise_param_groups`): the tower's first `lower_layers_n`
+        # decoder layers train at `lower_lr_scale` times the schedule. Zero, the default,
+        # builds exactly the single-group optimizer this class always built.
+        if lower_layers_n < 0:
+            raise ValueError(f"lower_layers_n must not be negative, got {lower_layers_n}")
+        if not lower_layers_n and lower_lr_scale != 1.0:
+            raise ValueError(
+                f"lower_lr_scale={lower_lr_scale} was given with lower_layers_n=0, so it "
+                "would scale no layer while a recipe recorded it"
+            )
+        params: list[Any] = (
+            layerwise_param_groups(
+                tower.model.named_parameters(),
+                lower_layers_n=lower_layers_n,
+                lower_lr_scale=lower_lr_scale,
+                extra=self.span_head.parameters(),
+            )
+            if lower_layers_n
+            else list(self.parameters())
+        )
         self.optimizer = build_optimizer(
-            list(self.parameters()),
+            params,
             spec=tower.optimizer,
             lr=lr,
             total_steps=total_steps,
             allow_frozen_moments=allow_frozen_moments,
+            beta2=beta2,
         )
         #: Component losses per micro-batch. ``TrainResult.loss_log`` carries the combined
         #: number only, and a falling total with a flat span term is a model that learned
@@ -898,10 +934,9 @@ class QwenDecisionStep:
         return float(total.detach())
 
     def apply(self, *, lr: float) -> None:
-        if not lr > 0.0:
-            raise ValueError(f"lr must be positive, got {lr}")
-        for group in self.optimizer.param_groups:
-            group["lr"] = lr
+        # `apply_lr` rather than `group["lr"] = lr`, which flattened a layer-wise split back
+        # to one rate at the first step. It refuses a non-positive lr, as this did.
+        apply_lr(self.optimizer, lr)
         # Bounded before the step: an unclipped gradient is how a run ends with NaN
         # parameters and a loss log that stops rather than says why.
         self._nn.utils.clip_grad_norm_(self.parameters(), self.max_grad_norm)
@@ -1046,6 +1081,37 @@ class QwenDecisionStep:
                 "loads without complaint and resumes a run whose moments are zero, which "
                 "looks like a working resume and is not one."
             )
+        # Unexpected keys are refused too, not ignored. `state` writes exactly the six keys
+        # checked here, and anything else was written by a wrapper this step is not inside:
+        # a checkpoint taken under `qd_train.replay.PriorKLReplay` carries "replay", and
+        # resuming it into a bare step would silently drop the replay term mid-run -- the
+        # training source's consumed_digest never sees replay batches, so no other check
+        # would notice.
+        unexpected = set(state) - {
+            "tower", "span_head", "span_weight", "vocab_size", "optimizer", "micro_batches"
+        }
+        if unexpected:
+            raise BackboneContractViolation(
+                f"this checkpoint state carries {sorted(unexpected)}, which "
+                "QwenDecisionStep.state never writes. It was taken under a wrapper (e.g. "
+                "replay) this run does not have; resuming it here would continue a different "
+                "objective without saying so."
+            )
+        # The optimizer's own recipe, checked before anything is loaded. torch's
+        # `load_state_dict` overwrites each group's hyperparameters with the saved ones, so a
+        # checkpoint taken at beta2=0.95 or with a layer-wise split, resumed by a run built
+        # without them, would silently train on the checkpoint's recipe while the ledger row
+        # recorded this run's.
+        revived_optimizer = self._revive_optimizer(state["optimizer"])
+        saved_groups = (revived_optimizer.get("inner") or revived_optimizer).get("param_groups")
+        mine = [_group_recipe(g) for g in self.optimizer.param_groups]
+        theirs = [_group_recipe(g) for g in saved_groups or []]
+        if mine != theirs:
+            raise BackboneContractViolation(
+                f"the checkpoint's optimizer groups are {theirs} and this step's are {mine} "
+                "(betas, lr_scale, name). Resuming would train on the checkpoint's recipe "
+                "under this run's ledger row; pass the flags the checkpoint was taken with."
+            )
         if int(state["vocab_size"]) != self.tower.vocab_size:
             raise BackboneContractViolation(
                 f"the checkpoint was written at vocab_size={state['vocab_size']} and this "
@@ -1080,5 +1146,5 @@ class QwenDecisionStep:
         # so loading it against parameters that are about to be replaced would cast against
         # the wrong ones. The two halves are also restored together or not at all --
         # `MasterWeightAdamW.load_state_dict` refuses a partial state for the same reason.
-        self.optimizer.load_state_dict(self._revive_optimizer(state["optimizer"]))
+        self.optimizer.load_state_dict(revived_optimizer)
         self.span_weight = float(state["span_weight"])
