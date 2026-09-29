@@ -131,6 +131,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--defect-class", type=Path, default=None)
     parser.add_argument("--defect-download", type=Path, default=None)
     parser.add_argument("--defect-max-rows", type=int, default=None)
+    parser.add_argument(
+        "--no-repo-history", dest="repo_history", action="store_false",
+        help="as the pipeline's and real_ft_run.py's --no-repo-history",
+    )
     parser.add_argument("--n", type=int, default=DEFAULT_N)
     parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
     args = parser.parse_args(argv)
@@ -147,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     splits = ft_splits(
         commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=rev, config=config,
         defect_class=args.defect_class, defect_download=args.defect_download,
-        defect_max_rows=args.defect_max_rows,
+        defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
     )
     targets, unrenderable = target_texts(splits)
     reader = ShardReader(args.replay_shards, config=config, repo_root=args.out)
@@ -165,6 +169,7 @@ def main(argv: list[str] | None = None) -> int:
         "corpus": replay_corpus_identity(
             rev=rev, max_pairs=args.max_pairs, commitpackft=args.commitpackft,
             defect_class=args.defect_class, defect_max_rows=args.defect_max_rows,
+            repo_history=args.repo_history,
         ),
     }
     write_text_atomic(args.attestation_out, json.dumps(body, indent=2, sort_keys=True) + "\n")

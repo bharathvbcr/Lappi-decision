@@ -198,17 +198,25 @@ def test_main_trains_on_exactly_what_ft_split_rows_returns(tmp_path, monkeypatch
     def trip(rows, *, config):
         raise _Stop(rows)
 
+    from types import SimpleNamespace
+
+    rev = "a" * 40  # every run writes ledger rows, so --rev is a full sha
     monkeypatch.setattr(rft, "ft_split_rows", spy)
     monkeypatch.setattr(rft, "_labels", trip)
     monkeypatch.setattr(rft, "resolve_rev", lambda repo, rev: rev)
-    monkeypatch.setattr(rft, "ShardReader", lambda *a, **k: object())
+    monkeypatch.setattr(
+        rft, "ShardReader",
+        lambda *a, **k: SimpleNamespace(header=SimpleNamespace(data_snapshot_hash="d" * 64)),
+    )
     monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
+    monkeypatch.setattr(rft, "corpus_facts", lambda out, **kw: None)
     with pytest.raises(_Stop) as got:
-        rft.main(["--out", str(tmp_path), "--max-pairs", "7", "--rev", "abc"])
+        rft.main(["--out", str(tmp_path), "--max-pairs", "7", "--rev", rev])
     assert got.value.args[0] is sentinel_train
-    assert calls == [{"commitpackft": None, "max_pairs": 7, "rev": "abc",
+    assert calls == [{"commitpackft": None, "max_pairs": 7, "rev": rev,
                       "config": calls[0]["config"], "defect_class": None,
-                      "defect_download": None, "defect_max_rows": None}]
+                      "defect_download": None, "defect_max_rows": None,
+                      "repo_history": True}]
 
 
 def test_ft_split_rows_is_the_rebuild_main_used_to_inline(tmp_path):

@@ -20,7 +20,13 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
 
-from repo_git import git_bytes, git_text, resolve_rev, tracked_paths  # noqa: E402
+from repo_git import (  # noqa: E402
+    git_bytes,
+    git_text,
+    require_full_sha,
+    resolve_rev,
+    tracked_paths,
+)
 
 
 def test_tracked_paths_is_sorted_and_filtered() -> None:
@@ -124,6 +130,24 @@ def test_a_missing_revision_raises_rather_than_echoing_the_name_back() -> None:
     shard header, where it would be compared for equality against another one."""
     with pytest.raises(subprocess.CalledProcessError):
         resolve_rev(REPO, "no-such-revision-0000")
+
+
+@pytest.mark.parametrize(
+    "rev",
+    ["HEAD", "main", "HEAD~1", "0632f69", "0632F693D3B765B726499E7B4BF19C67959B75CB",
+     "0632f693d3b765b726499e7b4bf19c67959b75cb0", "", "g" * 40],
+)
+def test_a_name_or_an_abbreviation_is_not_a_pinned_revision(rev: str) -> None:
+    """A ledger-writing run names its corpus by the full sha: HEAD and branches move, an
+    abbreviation can become ambiguous, and upper case is not what git prints."""
+    with pytest.raises(ValueError, match="not a full 40-character commit sha"):
+        require_full_sha(rev)
+
+
+def test_a_full_sha_is_returned_unchanged_and_resolves_to_itself() -> None:
+    head = resolve_rev(REPO, "HEAD")
+    assert require_full_sha(head) == head
+    assert resolve_rev(REPO, require_full_sha(head)) == head
 
 
 def test_the_pipeline_pins_the_resolved_revision_and_not_the_argument() -> None:

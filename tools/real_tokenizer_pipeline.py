@@ -64,7 +64,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
-from repo_git import git_bytes, git_text, resolve_rev, tracked_paths
+from repo_git import git_bytes, git_text, require_full_sha, resolve_rev, tracked_paths
 
 from qd_data.config import DataConfig
 from qd_data.dedupe import dedupe
@@ -324,7 +324,71 @@ def code_rows(
     return commitpackft_pool_rows(commitpackft, max_pairs=max_pairs)
 
 
-def quick_reason_for(*, commitpackft_rows: tuple[int, int] | None) -> str:
+#: The sources whose rows :func:`base_sources` reads out of this repository's git history
+#: when nothing else supplies them: the code rows (without ``--commitpackft``) and the span
+#: prose that stands in for ``rajpurkar/squad_v2``.
+REPO_HISTORY_SOURCES: tuple[str, ...] = ("bigcode/commitpackft", "rajpurkar/squad_v2")
+
+
+@dataclass(frozen=True)
+class BaseSources:
+    """The code and span rows every build starts from, before the optional families."""
+
+    raw: dict[str, list[Any]]
+    #: Sources whose read hit ``max_pairs``; each makes the mixture ``NotRun``.
+    capped: tuple[str, ...]
+    n_commits: int
+    n_spans: int
+    #: Rows the commitpackft download held, or ``None`` when it was not read.
+    pool_total: int | None
+    #: Which of :data:`REPO_HISTORY_SOURCES` were read from this repository's history.
+    from_history: tuple[str, ...]
+
+
+def base_sources(
+    *, repo_history: bool, commitpackft: Path | None, max_pairs: int, blank_line_runs: bool,
+    rev: str,
+) -> BaseSources:
+    """Which code and span rows a build reads -- one owner for the builder and every rebuild.
+
+    ``run`` and ``real_ft_run.ft_splits`` composed this dict separately, and a flag added to
+    one of them would have left the other rebuilding a different corpus. ``repo_history``
+    False reads nothing from this repository's git history: no span prose, and code rows only
+    from the ``--commitpackft`` download when one is given. Absent sources are omitted rather
+    than passed empty, so ``build_mixture`` asks nothing of their families.
+    """
+    raw: dict[str, list[Any]] = {}
+    capped: list[str] = []
+    from_history: list[str] = []
+    commits: list[CommitPackFtRow] = []
+    pool_total: int | None = None
+    if commitpackft is not None or repo_history:
+        commits, commits_capped, pool_total = code_rows(
+            commitpackft=commitpackft, max_pairs=max_pairs, rev=rev
+        )
+        raw["bigcode/commitpackft"] = list(commits)
+        if commits_capped:
+            capped.append("bigcode/commitpackft")
+        if commitpackft is None:
+            from_history.append("bigcode/commitpackft")
+    spans: list[SquadRow] = []
+    if repo_history:
+        spans, spans_capped = span_rows(
+            max_rows=max_pairs, blank_line_runs=blank_line_runs, rev=rev
+        )
+        raw["rajpurkar/squad_v2"] = list(spans)
+        if spans_capped:
+            capped.append("rajpurkar/squad_v2")
+        from_history.append("rajpurkar/squad_v2")
+    return BaseSources(
+        raw=raw, capped=tuple(capped), n_commits=len(commits), n_spans=len(spans),
+        pool_total=pool_total, from_history=tuple(from_history),
+    )
+
+
+def quick_reason_for(
+    *, commitpackft_rows: tuple[int, int] | None, repo_history: bool = True
+) -> str:
     """Why a row this tool writes is ``quick``, stated for the corpus the run actually read.
 
     ``commitpackft_rows`` is ``(rows read, rows the download held)`` when ``--commitpackft``
@@ -338,7 +402,24 @@ def quick_reason_for(*, commitpackft_rows: tuple[int, int] | None) -> str:
     over. The flag stays ``True`` for both sources: one seed, and the span rows are this
     repository's Markdown standing in for ``rajpurkar/squad_v2`` whichever source the code
     rows came from.
+
+    ``repo_history=False`` (``--no-repo-history``) reads no span prose and no history rows,
+    so neither stand-in sentence is true of it; it is still one seed.
     """
+    if not repo_history:
+        code = (
+            "no code rows from bigcode/commitpackft"
+            if commitpackft_rows is None
+            else (
+                f"{commitpackft_rows[0]} of {commitpackft_rows[1]} code rows from the plan's "
+                "bigcode/commitpackft download"
+            )
+        )
+        return (
+            "one seed; --no-repo-history: no row was read from this repository's git "
+            f"history ({code}, no repository-prose span rows). Repo rule 8: fewer than 3 "
+            "seeds is marked quick and excluded from decisions."
+        )
     if commitpackft_rows is None:
         return (
             "one seed, and a corpus drawn from this repository alone rather than from the "
@@ -1223,11 +1304,19 @@ def run(
     general_record: Path | None = None,
     general_max_rows: int = DEFAULT_GENERAL_MAX_ROWS,
     replay_shards: bool = False,
+    repo_history: bool = True,
 ) -> Measured:
     if replay_shards and general_record is None:
         raise SystemExit(
             "--replay-shards needs --general-record: the replay slice is drawn from the "
             "general families' training rows"
+        )
+    if not repo_history and commitpackft is None and defect_class is None and (
+        general_record is None
+    ):
+        raise SystemExit(
+            "--no-repo-history with no --commitpackft, --defect-class or --general-record "
+            "reads no source at all; there would be nothing to build"
         )
     config = DataConfig()
     extra_metrics: dict[str, TriState] = {}
@@ -1239,28 +1328,36 @@ def run(
     )
     print(f"corpus revision: {rev} -> {resolved}")
 
-    commits, commits_capped, pool_total = code_rows(
-        commitpackft=commitpackft, max_pairs=max_pairs, rev=resolved
+    base = base_sources(
+        repo_history=repo_history, commitpackft=commitpackft, max_pairs=max_pairs,
+        blank_line_runs=blank_line_runs, rev=resolved,
     )
-    if pool_total is None:
+    commits_n, spans_n, pool_total = base.n_commits, base.n_spans, base.pool_total
+    if not repo_history:
+        code_source = (
+            "no row from this repository's history (--no-repo-history)"
+            + (
+                f"; bigcode/commitpackft from {commitpackft} ({commits_n} of {pool_total} "
+                "rows, a sha256-ordered sample; files pinned by the download's manifest)"
+                if pool_total is not None else ""
+            )
+        )
+        quick_reason = quick_reason_for(
+            commitpackft_rows=None if pool_total is None else (commits_n, pool_total),
+            repo_history=False,
+        )
+    elif pool_total is None:
         code_source = f"this repository's own history at {resolved}"
         quick_reason = quick_reason_for(commitpackft_rows=None)
     else:
         code_source = (
-            f"bigcode/commitpackft from {commitpackft} ({len(commits)} of {pool_total} "
+            f"bigcode/commitpackft from {commitpackft} ({commits_n} of {pool_total} "
             "rows, a sha256-ordered sample; files pinned by the download's manifest), "
             f"with span prose from this repository at {resolved}"
         )
-        quick_reason = quick_reason_for(commitpackft_rows=(len(commits), pool_total))
-    spans, spans_capped = span_rows(
-        max_rows=max_pairs, blank_line_runs=blank_line_runs, rev=resolved
-    )
-    raw: dict[str, list[RawRow | DefectRow]] = {
-        "bigcode/commitpackft": list(commits),
-        "rajpurkar/squad_v2": list(spans),
-    }
-    capped = [s for s, hit in (("bigcode/commitpackft", commits_capped),
-                               ("rajpurkar/squad_v2", spans_capped)) if hit]
+        quick_reason = quick_reason_for(commitpackft_rows=(commits_n, pool_total))
+    raw: dict[str, list[RawRow | DefectRow]] = dict(base.raw)
+    capped = list(base.capped)
     if defect_class is not None:
         # The corpus, its pool and the licence download are each checked against the
         # sha256 their manifests record, and any row that does not resolve through the
@@ -1302,7 +1399,7 @@ def run(
             f"{general.clinc_domain_map is not None}"
         )
     print(
-        f"\ncorpus: {len(commits)} real (commit, path) pairs, {len(spans)} real prose "
+        f"\ncorpus: {commits_n} real (commit, path) pairs, {spans_n} real prose "
         f"passages; blank_line_runs={blank_line_runs}; capped={capped or 'none'}"
     )
 
@@ -1718,8 +1815,8 @@ def run(
         tokenizer_hash=remap.tokenizer_hash,
         notes=(
             f"real-tokenizer end-to-end over {code_source}; "
-            f"blank_line_runs={blank_line_runs}; {len(commits)} commit pairs, "
-            f"{len(spans)} prose passages; snapshot status="
+            f"blank_line_runs={blank_line_runs}; {commits_n} commit pairs, "
+            f"{spans_n} prose passages; snapshot status="
             f"{snapshot_status.to_json()['state']}"
         ),
         quick_reason=quick_reason,
@@ -1736,14 +1833,34 @@ def _strip_created(blob: dict[str, Any]) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, type=Path, help="directory for artifacts")
-    parser.add_argument("--max-pairs", type=int, default=DEFAULT_MAX_PAIRS)
+    parser.add_argument(
+        "--max-pairs", type=int, default=None,
+        help=(
+            f"default {DEFAULT_MAX_PAIRS}. The bound on the repository-history code and span "
+            "rows, or the sample size of --commitpackft. Refused under --no-repo-history "
+            "without --commitpackft, where it bounds nothing"
+        ),
+    )
+    parser.add_argument(
+        "--no-repo-history",
+        dest="repo_history",
+        action="store_false",
+        help=(
+            "read no row from this repository's git history: no span prose standing in for "
+            "rajpurkar/squad_v2, and code rows only from --commitpackft when it is given. "
+            "For a set built from --defect-class (and/or --commitpackft, --general-record) "
+            "alone -- the campaign's phase 3 is code.defect_class only"
+        ),
+    )
     parser.add_argument(
         "--rev",
         default="HEAD",
         help=(
             "the revision the corpus is read at. Several lanes commit to this worktree "
             "while a run is in progress, so two runs against HEAD hours apart read "
-            "different corpora; name a commit to reproduce a recorded row."
+            "different corpora; name a commit to reproduce a recorded row. With --ledger "
+            "it must be a full 40-character sha: a row recorded against a name cannot be "
+            "rebuilt"
         ),
     )
     parser.add_argument(
@@ -1846,6 +1963,30 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+    # `--max-pairs` bounds what `base_sources` reads from history or samples from the
+    # download. With neither in play it would determine nothing and still land in the
+    # recipe, which feeds recipe_hash.
+    max_pairs_bounds_nothing = not args.repo_history and args.commitpackft is None
+    if max_pairs_bounds_nothing and args.max_pairs is not None:
+        raise SystemExit(
+            "--max-pairs bounds the repository-history rows and the --commitpackft sample; "
+            "under --no-repo-history without --commitpackft it bounds nothing, and a value "
+            "that determined nothing would still move recipe_hash. Drop it."
+        )
+    if not args.repo_history and args.blank_line_runs:
+        raise SystemExit(
+            "--blank-line-runs shapes the repository-prose span rows, and --no-repo-history "
+            "reads none; it would determine nothing"
+        )
+    if args.max_pairs is None:
+        args.max_pairs = DEFAULT_MAX_PAIRS
+    if args.ledger is not None:
+        # Before any work: a pipeline row is what every FT run downstream trains on, and a
+        # recipe that says "HEAD" names a corpus that no longer exists after the next commit.
+        try:
+            require_full_sha(args.rev)
+        except ValueError as exc:
+            raise SystemExit(f"--ledger: {exc}") from exc
     args.out.mkdir(parents=True, exist_ok=True)
     run_kwargs: dict[str, Any] = {
         "out": args.out, "max_pairs": args.max_pairs,
@@ -1854,7 +1995,7 @@ def main(argv: list[str] | None = None) -> int:
         "defect_class": args.defect_class, "defect_download": args.defect_download,
         "defect_max_rows": args.defect_max_rows, "memo_limit": args.memo_limit,
         "general_record": args.general_record, "general_max_rows": args.general_max_rows,
-        "replay_shards": args.replay_shards,
+        "replay_shards": args.replay_shards, "repo_history": args.repo_history,
     }
     if args.ledger is None:
         run(**run_kwargs)
@@ -1867,13 +2008,20 @@ def main(argv: list[str] | None = None) -> int:
             "to write a row rather than inventing one."
         )
     # Named so the row can carry it as well as be identified by it.
-    recipe = {
+    recipe: dict[str, Any] = {
         "tool": "tools/real_tokenizer_pipeline.py",
         "model": MODEL,
         "max_pairs": args.max_pairs,
         "blank_line_runs": bool(args.blank_line_runs),
         "rev": args.rev,
     }
+    if not args.repo_history:
+        # Only when used, like every key below: a build with history hashes as before.
+        recipe["repo_history"] = False
+        # Neither bounds anything without history rows to read or span prose to join.
+        del recipe["blank_line_runs"]
+        if max_pairs_bounds_nothing:
+            del recipe["max_pairs"]
     if args.commitpackft is not None:
         # Only when used: every row written before the flag existed hashed the five keys
         # above, and adding a sixth to all of them would rename that protocol family.

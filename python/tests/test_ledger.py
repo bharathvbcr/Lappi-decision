@@ -252,7 +252,9 @@ def test_a_quick_run_cannot_promote(tmp_path: Path):
     assert any("quick runs cannot promote" in r for r in verdict.reasons)
 
 
-def test_a_capped_run_cannot_promote_even_when_it_calls_itself_complete(tmp_path: Path):
+def test_a_capped_run_cannot_promote_even_when_it_calls_itself_complete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Rule 8's "truncated schedule", derived from evidence instead of taken on trust.
 
     Measured against the pre-fix code on 2026-09-20: this exact ledger -- three seeds,
@@ -261,7 +263,13 @@ def test_a_capped_run_cannot_promote_even_when_it_calls_itself_complete(tmp_path
     `promoted=True` with the single reason line *"3 completed rows, seeds [1, 2, 3], every
     gate and control ran and passed"*. `quick` was the only thing standing between a capped
     run and a promotion, and `quick` is whatever the caller typed.
+
+    Since 2026-09-29 the recorder also marks such a row quick when it writes it
+    (``test_the_recorder_marks_a_truncated_training_row_quick``). Every row written before
+    that still says ``quick=False``, so the read-time derivation is tested here against a
+    writer without the write-time one -- it is the only guard those rows have.
     """
+    monkeypatch.setattr(RunRecorder, "_quick_if_truncated", lambda self: None)
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2, 3):
         with RunRecorder(
@@ -275,6 +283,61 @@ def test_a_capped_run_cannot_promote_even_when_it_calls_itself_complete(tmp_path
     verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
     assert not verdict.promoted, str(verdict)
     assert any("truncated schedule" in r for r in verdict.reasons), str(verdict)
+
+
+def _row_ending(
+    led: Ledger, termination: object, *, run_kind: str = "ft", quick: bool = False,
+    quick_reason: str | None = None,
+) -> LedgerRow:
+    with RunRecorder(
+        led, protocol=_protocol(1), run_kind=run_kind, repo=REPO,  # type: ignore[arg-type]
+        env=_env(), wall_clock_s=None, cost=None, quick=quick, quick_reason=quick_reason,
+    ) as rec:
+        if termination is not None:
+            rec.metric("train.termination", termination)  # type: ignore[arg-type]
+    assert rec.row is not None
+    return rec.row
+
+
+@pytest.mark.parametrize(
+    "termination",
+    [Ran(passed=False, value="wall_clock_cap"), Ran(passed=True, value="data_exhausted"),
+     NotRun(reason="the loop never said")],
+)
+def test_the_recorder_marks_a_truncated_training_row_quick(tmp_path: Path, termination) -> None:
+    """The flag a training tool passes is decided before its loop runs; the loop's own
+    ``train.termination`` is what says whether the schedule finished. A row whose schedule
+    did not finish is written ``quick``, whatever the caller passed."""
+    row = _row_ending(Ledger(tmp_path / "runs.jsonl"), termination)
+    assert row.quick is True
+    assert "truncated schedule" in (row.quick_reason or "")
+
+
+def test_a_finished_schedule_leaves_the_callers_flag_alone(tmp_path: Path) -> None:
+    led = Ledger(tmp_path / "runs.jsonl")
+    done = Ran(passed=True, value="steps_exhausted")
+    assert _row_ending(led, done).quick is False
+    kept = _row_ending(led, done, quick=True, quick_reason="memorisation arm")
+    assert (kept.quick, kept.quick_reason) == (True, "memorisation arm")
+
+
+def test_truncation_is_added_to_the_callers_reasons_never_in_place_of_them(tmp_path: Path) -> None:
+    row = _row_ending(
+        Ledger(tmp_path / "runs.jsonl"), Ran(passed=False, value="wall_clock_cap"),
+        quick=True, quick_reason="device mps is not the campaign's",
+    )
+    assert row.quick_reason is not None
+    assert row.quick_reason.startswith("device mps is not the campaign's; ")
+    assert "'wall_clock_cap'" in row.quick_reason
+
+
+def test_only_training_rows_are_judged_by_a_termination(tmp_path: Path) -> None:
+    """An eval row has no schedule of its own; a termination metric on it says nothing
+    about it, and a row with no termination at all is left to promotion_verdict."""
+    led = Ledger(tmp_path / "runs.jsonl")
+    capped = Ran(passed=False, value="wall_clock_cap")
+    assert _row_ending(led, capped, run_kind="eval").quick is False
+    assert _row_ending(led, None).quick is False
 
 
 def _rows_with_coverage(led: Ledger, gate_value, control_value=None) -> None:

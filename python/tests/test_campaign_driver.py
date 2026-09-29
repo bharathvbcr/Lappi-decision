@@ -40,6 +40,7 @@ p.add_argument("--steps", type=int, default=0); p.add_argument("--wall", type=fl
 p.add_argument("--sleep", type=float, default=0.0); p.add_argument("--exit", type=int, default=0)
 p.add_argument("--no-row", action="store_true"); p.add_argument("--pidfile")
 p.add_argument("--count"); p.add_argument("--raise", dest="boom", action="store_true")
+p.add_argument("--quick", action="store_true")
 a, rest = p.parse_known_args(sys.argv[1:])
 if a.count:
     with open(a.count, "a") as fh: fh.write(" ".join(rest) + "\\n")
@@ -51,7 +52,8 @@ if not a.no_row:
                      backbone_commit="fake", recipe_hash="r" * 64, seed=a.seed)
     with RunRecorder(Ledger(a.ledger), protocol=proto, run_kind=a.kind, repo=REPO,
                      env=Environment.detect(device="cpu"), wall_clock_s=a.wall, cost=None,
-                     quick=True, quick_reason="driver test", recipe={"tool": a.tool}) as rec:
+                     quick=a.quick, quick_reason="driver test" if a.quick else None,
+                     recipe={"tool": a.tool}) as rec:
         if a.boom:
             raise RuntimeError("simulated crash inside the recorder block")
         if a.steps:
@@ -137,7 +139,8 @@ def gate_phase(env: dict[str, Path], results: list[str]) -> dict[str, object]:
     return {
         "name": "3-go-no-go", "cap_hours": 0.5,
         "units": [unit(env, f"control-s{i}", "--kind", "eval", "--seed", str(i), "--tool",
-                       "tools/ft_linear_control.py", "--gate", g)
+                       "tools/ft_linear_control.py", "--gate", g.removesuffix("-quick"),
+                       *(["--quick"] if g.endswith("-quick") else []))
                   for i, g in enumerate(results)],
         "gate": {"ledger": str(env["ledger"]), "name": "paired_margin_vs_linear",
                  "tool": "tools/ft_linear_control.py", "min_seeds": 3},
@@ -228,7 +231,7 @@ def test_go_runs_every_phase_then_syncs_and_terminates(
 
 
 @pytest.mark.parametrize("results", [["pass", "fail", "pass"], ["pass", "not_run", "pass"],
-                                     ["pass", "pass"]])
+                                     ["pass", "pass"], ["pass", "pass-quick", "pass"]])
 def test_no_go_stops_before_the_workhorse_phase(
     env: dict[str, Path], results: list[str], puller: Callable[[Path, Path], None]
 ) -> None:
@@ -240,6 +243,23 @@ def test_no_go_stops_before_the_workhorse_phase(
     state = json.loads((env["state"] / cd.STATE_NAME).read_text())
     assert state["phases"]["3-go-no-go"]["status"] == "stopped_at_gate"
     assert "4-workhorse" not in state["phases"]
+
+
+def test_a_passing_gate_on_a_quick_row_is_not_evidence_for_go(env: dict[str, Path]) -> None:
+    """Rule 8: a quick row is excluded from decisions, and GO is one. Three passing seeds,
+    one of them quick, is two seeds of evidence -- and the refusal names the quick row."""
+    ledger = env["ledger"]
+    for seed, quick in ((0, False), (1, True), (2, False)):
+        subprocess.run(
+            [sys.executable, "-P", str(env["tool"]), str(REPO), "--ledger", str(ledger),
+             "--kind", "eval", "--seed", str(seed), "--tool", "tools/ft_linear_control.py",
+             "--gate", "pass", *(["--quick"] if quick else [])],
+            check=True, timeout=60,
+        )
+    gate = cd.GateSpec(ledger, "paired_margin_vs_linear", "tools/ft_linear_control.py", 2)
+    go, why = cd.gate_verdict(gate, 0)
+    assert not go
+    assert "seed 1: quick (driver test)" in why
 
 
 def test_no_verdict_row_at_all_is_a_no_go(
@@ -397,12 +417,38 @@ def test_a_crash_that_writes_a_failed_row_is_not_accepted(
 
 
 def test_a_real_backbone_unit_must_state_its_optimizer(env: dict[str, Path]) -> None:
-    argv = ["python", "tools/real_ft_run.py", "--real-backbone", "/snap", "--devices", "cuda"]
+    argv = ["python", "tools/real_ft_run.py", "--real-backbone", "/snap", "--devices", "cuda",
+            "--wall-clock-cap-s", "3600"]
     phase = {"name": "1-diag", "cap_hours": 1, "units": [{"name": "a2", "argv": argv}]}
     with pytest.raises(cd.ConfigRefused, match="explicit"):
         cd.load_config(config(env, [phase]))
     phase["units"][0]["argv"] = [*argv, "--optimizer", "master"]  # type: ignore[index]
     assert cd.load_config(config(env, [phase])).phases[0].units[0].argv[-1] == "master"
+
+
+@pytest.mark.parametrize(
+    ("cap", "match"),
+    [(None, "without --wall-clock-cap-s"), (["3601"], "not in \\(0, 3600\\]"),
+     (["0"], "not in \\(0, 3600\\]"), (["nan"], "not in"), ([], "needs a number"),
+     (["soon"], "needs a number")],
+)
+def test_a_trainer_unit_states_a_cap_that_fits_its_phase(
+    env: dict[str, Path], cap: list[str] | None, match: str
+) -> None:
+    """real_ft_run's own default cap is 30 minutes; a phase unit that inherited it would
+    stop there and write only quick rows. One above the phase cap never gets to end it."""
+    argv = ["python", "tools/real_ft_run.py", "--devices", "cpu"]
+    if cap is not None:
+        argv += ["--wall-clock-cap-s", *cap]
+    phase = {"name": "3-go", "cap_hours": 1, "units": [{"name": "s0", "argv": argv}]}
+    with pytest.raises(cd.ConfigRefused, match=match):
+        cd.load_config(config(env, [phase]))
+
+
+def test_a_trainer_unit_cap_at_or_under_its_phase_cap_is_accepted(env: dict[str, Path]) -> None:
+    argv = ["python", "tools/real_ft_run.py", "--devices", "cpu", "--wall-clock-cap-s", "3600"]
+    phase = {"name": "3-go", "cap_hours": 1, "units": [{"name": "s0", "argv": argv}]}
+    assert cd.load_config(config(env, [phase])).phases[0].units[0].argv[-1] == "3600"
 
 
 def test_two_units_may_not_share_a_checkpoint_dir(env: dict[str, Path]) -> None:

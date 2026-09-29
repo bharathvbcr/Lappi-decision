@@ -650,6 +650,37 @@ def test_the_wall_clock_cap_terminates_the_run_and_the_row_is_still_written(tmp_
     assert rows[0].wall_clock_s >= 0.0
 
 
+def _armed_control(fired: list[str], **over) -> RunControl:
+    """A control whose watchdog is armed: auto_terminate records instead of exiting."""
+    return _control(auto_terminate=fired.append, **over)
+
+
+def test_the_watchdog_is_disarmed_when_the_loop_returns(tmp_path):
+    """``start()`` arms a watchdog; nothing called ``stop()``. A finished run's thread kept
+    polling its cap, and in a process that goes on to train the next seed or score the
+    model it would fire the terminate action -- a hard exit -- mid-way through that."""
+    fired: list[str] = []
+    control = _armed_control(fired, total_steps=4)
+    train_cpt(batches_for(7, 0, n=8), epoch=0, step=TinyStep(), control=control,
+              recorder=_recorder(tmp_path))
+    assert control._disarm is not None and control._disarm.is_set()
+    assert fired == []
+
+
+def test_the_watchdog_is_disarmed_when_the_loop_raises(tmp_path):
+    class NanStep(TinyStep):
+        def accumulate(self, batch, supervision) -> float:
+            super().accumulate(batch, supervision)
+            return float("nan")
+
+    fired: list[str] = []
+    control = _armed_control(fired, total_steps=4)
+    with pytest.raises(TrainerContractViolation, match="non-finite loss"):
+        train_cpt(batches_for(7, 0, n=4), epoch=0, step=NanStep(), control=control,
+                  recorder=_recorder(tmp_path))
+    assert control._disarm is not None and control._disarm.is_set()
+
+
 def test_the_ledger_row_carries_the_capped_cost_estimate(tmp_path):
     rec = _recorder(tmp_path)
     result = train_cpt(

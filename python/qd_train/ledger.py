@@ -1316,6 +1316,37 @@ class RunRecorder:
                 ctl, NotRun(reason=f"control {ctl!r} was never evaluated by this run")
             )
 
+    def _quick_if_truncated(self) -> None:
+        """Rule 8's "truncated schedule", from the row's own evidence, at the moment it is written.
+
+        A training loop's recorder is built BEFORE the loop runs -- it has to be, to write a
+        row for a run that dies -- so the caller cannot know yet whether the schedule will
+        finish, and the flag it passes can only say what was known at launch. The loop
+        records ``train.termination`` inside the block, so this is the first point at which
+        the answer exists. ``promotion_verdict`` already derives the same fact at read time;
+        this puts it in the row as well, so every reader of ``quick`` sees it and the
+        campaign's go/no-go (which reads ``quick``) cannot promote a capped run.
+
+        Only ever sets ``quick``; it never clears it (rule 2). Anything but a ``Ran``
+        ``steps_exhausted`` counts as truncated -- a ``NotRun`` termination is a schedule
+        nobody can show finished. A training row with no termination at all is left to
+        ``promotion_verdict``, which already refuses it, and to ``status``.
+        """
+        if self.run_kind not in TRAINING_RUN_KINDS:
+            return
+        termination = self.metrics.get("train.termination")
+        if termination is None:
+            return
+        if isinstance(termination, Ran) and termination.value == "steps_exhausted":
+            return
+        said = termination.value if isinstance(termination, Ran) else "not_run"
+        reason = (
+            f"train.termination is {said!r}, not 'steps_exhausted': the schedule did not run "
+            "to its end, which rule 8 calls a truncated schedule"
+        )
+        self.quick = True
+        self.quick_reason = f"{self.quick_reason}; {reason}" if self.quick_reason else reason
+
     # -- lifecycle -------------------------------------------------------
 
     def _on_signal(self, signum: int, frame: types.FrameType | None) -> None:
@@ -1370,6 +1401,7 @@ class RunRecorder:
         if self.row is not None:
             return
         self._fill_unreported()
+        self._quick_if_truncated()
         # `self.wall_clock_s` is the caller saying it measured the run itself. Only the
         # caller can know: a recorder entered after the work times the reporting, not the
         # run, and cannot tell the difference from the inside.

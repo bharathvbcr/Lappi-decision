@@ -71,6 +71,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
 sys.path.insert(0, str(REPO / "tools"))
 
+from repo_git import require_full_sha  # noqa: E402
+
 from qd_data.config import DataConfig  # noqa: E402
 from qd_data.rows import DataRow  # noqa: E402
 from qd_train.baseline import (  # noqa: E402
@@ -581,8 +583,17 @@ def main(argv: list[str] | None = None) -> int:
         help="where to append the gate row; default: --ledger, beside the row it scores",
     )
     parser.add_argument("--commitpackft", type=Path, default=None)
-    parser.add_argument("--max-pairs", type=int, required=True)
-    parser.add_argument("--rev", required=True)
+    parser.add_argument(
+        "--max-pairs", type=int, default=None,
+        help="exactly as the run was given it. Required, except under --no-repo-history "
+             "without --commitpackft, where it bounds nothing and is refused",
+    )
+    parser.add_argument(
+        "--no-repo-history", dest="repo_history", action="store_false",
+        help="exactly as the run was given it: the split holds no row from this repository's "
+             "git history",
+    )
+    parser.add_argument("--rev", required=True, help="a full 40-character sha")
     parser.add_argument(
         "--defect-class", type=Path, default=None,
         help="the code.defect_class corpus, exactly as the run was given it: it is part of how "
@@ -601,6 +612,21 @@ def main(argv: list[str] | None = None) -> int:
         args.defect_download is not None or args.defect_max_rows is not None
     ):
         parser.error("--defect-download/--defect-max-rows without --defect-class read nothing")
+    max_pairs_bounds_nothing = not args.repo_history and args.commitpackft is None
+    if max_pairs_bounds_nothing and args.max_pairs is not None:
+        raise Refused(
+            "--max-pairs bounds the repository-history rows and the --commitpackft sample; "
+            "under --no-repo-history without --commitpackft it bounds nothing"
+        )
+    if not max_pairs_bounds_nothing and args.max_pairs is None:
+        raise Refused("--max-pairs is required: it decides which rows the split holds")
+    # This tool writes a ledger row, and the split it rebuilds is named by the revision.
+    try:
+        rev = require_full_sha(args.rev)
+    except ValueError as exc:
+        raise Refused(str(exc)) from exc
+    # Unread by the rebuild when it bounds nothing; ft_split_rows takes an int.
+    max_pairs = 0 if args.max_pairs is None else args.max_pairs
 
     ledger = Ledger(args.ledger)
     verdicts = load_verdicts(args.verdicts)
@@ -617,9 +643,9 @@ def main(argv: list[str] | None = None) -> int:
 
     config = DataConfig()
     train_rows, val_rows = split_rows_function()(
-        commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=args.rev, config=config,
+        commitpackft=args.commitpackft, max_pairs=max_pairs, rev=rev, config=config,
         defect_class=args.defect_class, defect_download=args.defect_download,
-        defect_max_rows=args.defect_max_rows,
+        defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
     )
     # Rule 3 through this door too. A control fitted on a held-out family would not train a
     # model, but it would set the bar the model is measured against with data the model may
@@ -643,7 +669,8 @@ def main(argv: list[str] | None = None) -> int:
         "tool": "tools/ft_linear_control.py", "eval_row_id": row.row_id,
         "max_iter": args.max_iter, "hold_out_operator": args.hold_out_operator,
         "operator_key": args.operator_key if hold else "", "key": "slot_name"
-        if verdicts.by_slot_name else "kind", "max_pairs": args.max_pairs, "rev": args.rev,
+        if verdicts.by_slot_name else "kind", "max_pairs": args.max_pairs, "rev": rev,
+        "repo_history": args.repo_history,
         "defect_class": None if args.defect_class is None else args.defect_class.name,
         "defect_max_rows": args.defect_max_rows,
     }

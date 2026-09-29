@@ -52,7 +52,7 @@ not a rounding choice.
 | `protocol` | object | `{data_snapshot_hash, tokenizer_hash, backbone_commit, recipe_hash, seed}` |
 | `run_kind` | enum | `teacher` \| `lr_probe` \| `cpt` \| `prune_heal` \| `ft` \| `ablation` \| `eval` \| `calibration` \| `smoke` \| `throughput` \| `resume` \| `scale` \| `build` (see below) |
 | `status` | enum | `completed` \| `killed` \| `failed`. A killed run still writes a row |
-| `quick` | bool | true if <3 seeds, truncated schedule, or subsampled. **A `quick` row cannot promote anything** |
+| `quick` | bool | true if <3 seeds, truncated schedule, or subsampled. **A `quick` row cannot promote anything**. Set by the caller; since 2026-09-29 `RunRecorder` also sets it on a `cpt`/`ft`/`prune_heal` row whose `train.termination` is not `steps_exhausted`, appending the reason (it never clears it). Seed count is judged per family by `promotion_verdict` (rule 3 below), since a one-seed-per-unit row cannot see its family |
 | `quick_reason` | string \| null | Required non-empty when `quick` is true |
 | `code_commit` | string | git HEAD of this repo at launch; `-dirty` suffix if the tree was dirty |
 | `env` | object | `{torch, transformers_sha, fla_present, causal_conv1d_present, device, host}` |

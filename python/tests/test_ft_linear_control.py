@@ -19,6 +19,8 @@ import numpy as np
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
+#: A full sha: the tool writes a ledger row, so it refuses a revision named by HEAD or a branch.
+REV = "0632f693d3b765b726499e7b4bf19c67959b75cb"
 sys.path.insert(0, str(REPO / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -272,10 +274,11 @@ def _fake_runner(
     if with_fn:
         # The real signature: the defect-class corpus is part of how the run built its split.
         def ft_split_rows(*, commitpackft, max_pairs, rev, config, defect_class=None,
-                          defect_download=None, defect_max_rows=None):
+                          defect_download=None, defect_max_rows=None, repo_history=True):
             if calls is not None:
                 calls.append({"defect_class": defect_class, "defect_download": defect_download,
-                              "defect_max_rows": defect_max_rows})
+                              "defect_max_rows": defect_max_rows,
+                              "repo_history": repo_history, "rev": rev})
             return train, val
         module.ft_split_rows = ft_split_rows  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "real_ft_run", module)
@@ -311,7 +314,7 @@ def test_the_tool_writes_the_gate_as_a_new_eval_row(
         # No --eval-row: the verdicts file names its eval row, which is how a campaign config
         # can point at a file before the row it scores exists.
         "--ledger", str(ledger), "--verdicts", str(verdicts),
-        "--max-pairs", "80", "--rev", "HEAD",
+        "--max-pairs", "80", "--rev", REV,
     ])
     rows_out = Ledger(ledger).rows()
     assert len(rows_out) == 2
@@ -349,12 +352,66 @@ def test_the_defect_class_corpus_reaches_the_runs_own_split_function(
     corpus, download = tmp_path / "corpus-v2", tmp_path / "download"
     ftc.main([
         "--ledger", str(ledger), "--verdicts", str(verdicts), "--max-pairs", "80",
-        "--rev", "HEAD", "--defect-class", str(corpus), "--defect-download", str(download),
+        "--rev", REV, "--defect-class", str(corpus), "--defect-download", str(download),
         "--defect-max-rows", "40",
     ])
     assert calls == [{"defect_class": corpus, "defect_download": download,
-                      "defect_max_rows": 40}]
+                      "defect_max_rows": 40, "repo_history": True, "rev": REV}]
     assert Ledger(ledger).rows()[-1].recipe["defect_class"] == "corpus-v2"
+
+
+def _scorable(tmp_path: Path) -> tuple[Path, Path, list, list]:
+    rows, config = _rows(80)
+    rows = [r for r in rows if r.family_id == "code.commit_intent"]
+    train, val = _split(rows)
+    val_docs, _ = request_texts(val, seed=config.seed)
+    ledger = tmp_path / "ledger.jsonl"
+    eval_id = _eval_row(ledger, choice=(len(val_docs), len(val_docs)), score=(0, 0))
+    verdicts = _write_verdicts(tmp_path / "v.jsonl", [
+        {"eval_row_id": eval_id, "seed": 0, "row_id": d.row_id, "kind": d.kind, "correct": True}
+        for d in val_docs
+    ])
+    return ledger, verdicts, train, val
+
+
+def test_a_set_built_without_repository_history_is_rebuilt_without_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Phase 3 trains on code.defect_class alone (--no-repo-history). The control has
+    to rebuild that split, not one with this repository's history added back."""
+    ledger, verdicts, train, val = _scorable(tmp_path)
+    calls: list[dict[str, object]] = []
+    _fake_runner(monkeypatch, train, val, calls=calls)
+    ftc.main(["--ledger", str(ledger), "--verdicts", str(verdicts), "--rev", REV,
+              "--no-repo-history", "--defect-class", str(tmp_path / "corpus-v2")])
+    assert [c["repo_history"] for c in calls] == [False]
+    assert Ledger(ledger).rows()[-1].recipe["repo_history"] is False
+
+
+def test_max_pairs_is_refused_where_it_bounds_nothing_and_required_where_it_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger, verdicts, train, val = _scorable(tmp_path)
+    _fake_runner(monkeypatch, train, val)
+    base = ["--ledger", str(ledger), "--verdicts", str(verdicts), "--rev", REV]
+    with pytest.raises(ftc.Refused, match="bounds nothing"):
+        ftc.main([*base, "--no-repo-history", "--max-pairs", "80"])
+    with pytest.raises(ftc.Refused, match="--max-pairs is required"):
+        ftc.main(base)
+    assert len(Ledger(ledger).rows()) == 1, "a refused control writes no gate row"
+
+
+@pytest.mark.parametrize("rev", ["HEAD", "main", "0632f69"])
+def test_a_revision_named_by_anything_but_its_full_sha_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rev: str
+) -> None:
+    """The gate row names the split by its revision; HEAD is a different split tomorrow."""
+    ledger, verdicts, train, val = _scorable(tmp_path)
+    _fake_runner(monkeypatch, train, val)
+    with pytest.raises(ftc.Refused, match="not a full 40-character commit sha"):
+        ftc.main(["--ledger", str(ledger), "--verdicts", str(verdicts), "--max-pairs", "80",
+                  "--rev", rev])
+    assert len(Ledger(ledger).rows()) == 1
 
 
 def test_defect_options_without_the_corpus_are_refused(
@@ -363,7 +420,7 @@ def test_defect_options_without_the_corpus_are_refused(
     _fake_runner(monkeypatch, [], [])
     with pytest.raises(SystemExit) as exc:
         ftc.main(["--ledger", str(tmp_path / "l.jsonl"), "--verdicts", str(tmp_path / "v"),
-                  "--max-pairs", "80", "--rev", "HEAD", "--defect-max-rows", "40"])
+                  "--max-pairs", "80", "--rev", REV, "--defect-max-rows", "40"])
     assert exc.value.code == 2
     assert "without --defect-class read nothing" in capsys.readouterr().err
 
@@ -380,7 +437,7 @@ def test_verdicts_from_another_decode_are_refused(
     _fake_runner(monkeypatch, [], [])
     with pytest.raises(ftc.Refused, match="not that run's decode"):
         ftc.main(["--ledger", str(ledger), "--eval-row", eval_id, "--verdicts",
-                  str(verdicts), "--max-pairs", "1", "--rev", "HEAD"])
+                  str(verdicts), "--max-pairs", "1", "--rev", REV])
 
 
 def test_a_runner_without_ft_split_rows_is_refused_not_replaced(
@@ -419,5 +476,5 @@ def test_held_out_families_are_refused_before_any_fit(
     _fake_runner(monkeypatch, intent[5:] + held, intent[:5])
     with pytest.raises(ftc.Refused, match="held-out"):
         ftc.main(["--ledger", str(ledger), "--verdicts", str(verdicts),
-                  "--max-pairs", "1", "--rev", "HEAD"])
+                  "--max-pairs", "1", "--rev", REV])
     assert len(Ledger(ledger).rows()) == 1, "a refused control writes no gate row"

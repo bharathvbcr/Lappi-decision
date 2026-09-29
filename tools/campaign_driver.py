@@ -23,6 +23,8 @@ when the Mac is asleep. Before anything starts it refuses:
 * a phase longer than :data:`MAX_CHECKPOINT_INTERVAL_H` whose units do not checkpoint,
   two units sharing a checkpoint dir, or a real-backbone ``real_ft_run.py`` unit that does
   not state its ``--optimizer``;
+* a ``real_ft_run.py`` unit without ``--wall-clock-cap-s``, or with one above its phase cap
+  (the trainer's 1800 s default would end a campaign phase at 30 minutes);
 * resuming a state file written under a different config (its digest is recorded).
 
 ## Getting the data home: the Mac pulls, and termination waits for it
@@ -64,7 +66,9 @@ State lives in ``<state_dir>/campaign_state.json``, rewritten atomically. Comple
 are skipped; an interrupted unit is rerun, with ``--resume-from <newest>`` when its
 checkpoint dir holds one. ``{checkpoint_every}`` is replaced by the optimizer steps the
 throughput phase measured in ``every_hours``. A phase with a ``gate`` requires it ``Ran``
-and passed on ``min_seeds`` seeds in rows written by ``gate.tool``; ``not_run`` is a stop.
+and passed on ``min_seeds`` seeds in rows written by ``gate.tool``; ``not_run`` is a stop,
+and so is any such row that is ``quick`` (rule 8: a quick row is excluded from decisions,
+and GO is one).
 
 Usage:
     python tools/campaign_driver.py --config campaign.json            # start or resume
@@ -222,6 +226,36 @@ def _num(raw: dict[str, Any], key: str, where: str) -> float:
     return float(value)
 
 
+def _check_unit_cap(argv: tuple[str, ...], *, phase_cap: WallClockCap, where: str) -> None:
+    """A ``real_ft_run.py`` unit states its own cap, and it fits inside its phase's.
+
+    The trainer's default cap is 30 minutes, which is right for a Mac smoke and silently
+    wrong for a campaign phase: a unit that leaves it out trains for 30 minutes, records
+    ``wall_clock_cap``, and every row it writes is quick. So the cap is required, and one
+    above the phase cap is refused -- the phase's process-group timeout would kill the unit
+    first, and the trainer's own cap would never be what ended it. The cap is per arm per
+    seed; a unit running several seeds or both arms can still outlast the phase, which the
+    phase timeout bounds.
+    """
+    flag = "--wall-clock-cap-s"
+    if flag not in argv:
+        raise ConfigRefused(
+            f"{where}: real_ft_run.py without {flag}. Its default is 1800 s, which would stop "
+            f"a campaign phase at 30 minutes; state the cap, at most the phase's "
+            f"{phase_cap.cap_s:g} s"
+        )
+    i = argv.index(flag)
+    try:
+        unit_cap = float(argv[i + 1])
+    except (IndexError, ValueError) as exc:
+        raise ConfigRefused(f"{where}: {flag} needs a number of seconds") from exc
+    if not (math.isfinite(unit_cap) and 0 < unit_cap <= phase_cap.cap_s):
+        raise ConfigRefused(
+            f"{where}: {flag} {unit_cap:g} s is not in (0, {phase_cap.cap_s:g}], the phase "
+            "cap; the phase would kill the unit before its own cap could end it cleanly"
+        )
+
+
 def _phase(p: object, i: int, names: set[str]) -> Phase:
     where = f"phases[{i}]"
     if not isinstance(p, dict) or not isinstance(p.get("name"), str):
@@ -276,6 +310,8 @@ def _phase(p: object, i: int, names: set[str]) -> Phase:
             raise ConfigRefused(f"{uw} ({u['name']}): real_ft_run.py --real-backbone without an "
                                 "explicit --optimizer. State it per phase (master for long "
                                 "schedules)")
+        if any(a.endswith("real_ft_run.py") for a in argv):
+            _check_unit_cap(argv, phase_cap=cap, where=f"{uw} ({u['name']})")
         units.append(Unit(u["name"], argv, expect, ck, tuple(accept)))
     if not units:
         raise ConfigRefused(f"{where} has no units")
@@ -913,7 +949,11 @@ def gate_verdict(gate: GateSpec, start: int) -> tuple[bool, str]:
     seeds = set()
     for r in rows:
         g = r.gates.get(gate.name)
-        if isinstance(g, Ran) and g.passed:
+        if r.quick:
+            # Rule 8: a quick row is excluded from decisions, and GO is one. A passing gate
+            # on a truncated, subsampled or smoke run is not evidence for spending the rest.
+            bad.append(f"{r.row_id[:8]} seed {r.protocol.seed}: quick ({r.quick_reason})")
+        elif isinstance(g, Ran) and g.passed:
             seeds.add(r.protocol.seed)
         else:
             bad.append(f"{r.row_id[:8]} seed {r.protocol.seed}: {g}")

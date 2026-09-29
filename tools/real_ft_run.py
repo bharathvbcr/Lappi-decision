@@ -27,8 +27,11 @@ paid for).
 **Arm 2, the memorisation.** A bounded subset of the *same real batches*, repeated, so the
 floor is memorisation and "reached the floor the corpus admits" is a statement with content.
 The subset rule is stated, not tuned: every batch of the real epoch whose padded width is at
-most ``--max-width``. Under rule 8 that is a subsample on a truncated schedule and both arms
-are ``quick``; they promote nothing.
+most ``--max-width``. Under rule 8 that is a subsample, so this arm is always ``quick``.
+The epoch arm is ``quick`` for whichever of :func:`quick_reasons` apply to it -- a
+truncated schedule, a NotRun snapshot, repository-history rows, a non-campaign device, the
+stand-in backbone -- and for none of them otherwise. Seed count is the family's, enforced
+by ``Ledger.promotion_verdict`` and the campaign driver's ``min_seeds``.
 
 ## What the abstention question turned into
 
@@ -72,7 +75,10 @@ RUN
 ---
     /Users/bharath/.venvs/ml/bin/python tools/real_tokenizer_pipeline.py \\
       --out /tmp/qd-real --max-pairs 400 --rev <sha> --ledger
-    /Users/bharath/.venvs/ml/bin/python tools/real_ft_run.py --out /tmp/qd-real --ledger
+    /Users/bharath/.venvs/ml/bin/python tools/real_ft_run.py --out /tmp/qd-real \\
+      --rev <the same full sha> --ledger <path>
+
+``--rev`` is a full 40-character sha on both: every run of this tool writes ledger rows.
 
 The repo venv carries no torch by design, so this refuses there rather than reporting a
 vacuous pass. Exit status is non-zero if any claim it makes fails.
@@ -135,7 +141,7 @@ from ft_toy_run import (
 # Resolving --rev to a commit is repo_git's job, not a second rev-parse here: this tool and
 # real_tokenizer_pipeline.py must agree on the string that goes in and comes out of a shard
 # header, and two copies of "peel it to a commit" is exactly how they would stop agreeing.
-from repo_git import resolve_rev
+from repo_git import require_full_sha, resolve_rev
 
 # Counting GPUs needs torch and `run_control` is torch-free by contract, so the count lives
 # in tools. Its own module rather than this one because `rung0_real_run.py` needs the same
@@ -174,7 +180,14 @@ from qd_train.ledger import (
 from qd_train.optim import DEFAULT_BETA2, apply_lr
 from qd_train.power import resolution_state
 from qd_train.replay import PriorCache, PriorKLReplay, ReplayRefusal, check_attestation
-from qd_train.run_control import CostEstimate, LRSchedule, RunControl, WallClockCap
+from qd_train.run_control import (
+    MAX_CAP_S,
+    CostEstimate,
+    LRSchedule,
+    RunControl,
+    WallClockCap,
+    hard_exit_on_cap,
+)
 from qd_train.shards import (
     HEADER_NAME,
     ShardReader,
@@ -190,7 +203,7 @@ from qd_train.trainer import (
     newline_terminated_ids,
     train_ft,
 )
-from qd_train.tristate import NotRun, Ran, TriState, aggregate
+from qd_train.tristate import NotRun, Ran, TriState, aggregate, parse_tristate
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -207,7 +220,24 @@ RECIPE_PIECE_KEYS: Final[tuple[str, ...]] = (
     "replay_weight",
     "replay_every",
     "replay_direction",
+    "wall_clock_cap_s",
+    "no_memorise",
 )
+
+#: The wall-clock cap a run here carries when ``--wall-clock-cap-s`` is not given -- the one
+#: every row before 2026-09-29 was taken under. `RunControl` stops at a group boundary and the
+#: ledger row records `termination`, so a capped run is legible as capped, not as finished.
+WALL_CLOCK_CAP_S = 1_800.0
+
+#: The most ``--wall-clock-cap-s`` may be. The campaign approval is "up to 2-3 days" (72 h),
+#: but ``MAX_CAP_S`` -- the program's own cap, 40 h, read-only under rule 2 -- is lower, and
+#: ``WallClockCap`` refuses anything above it. The lower of the two binds; it is checked at
+#: argv time so the refusal comes before a shard set is read or a tower loaded.
+MAX_WALL_CLOCK_CAP_S: Final[float] = min(72 * 3600.0, MAX_CAP_S)
+
+#: The devices the GH200 campaign trains on. A row from any other device is a smoke of the
+#: path, not a measurement a decision rests on (``quick_reasons``).
+CAMPAIGN_DEVICES: Final[frozenset[str]] = frozenset({"cuda"})
 
 #: RSI-Jev's layer-wise default (fit.py): decoder layers 0-7 at 0.1x.
 RSI_LOWER_LAYERS_N: Final[int] = 8
@@ -233,9 +263,18 @@ class ReplayPlan:
 def _recipe_pieces(
     *, lower_layers_n: int, lower_lr_scale: float, beta2: float,
     permutation: ChoicePermutation | None, replay: ReplayPlan | None,
+    cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
 ) -> dict[str, object]:
-    """The recipe keys for whichever ported pieces are on. Empty when none is."""
+    """The recipe keys for whichever ported pieces are on. Empty when none is.
+
+    The wall-clock cap and ``--no-memorise`` ride here too, on the same terms: named only
+    when they differ from what every earlier row ran under, so those rows hash as before.
+    """
     out: dict[str, object] = {}
+    if cap_s != WALL_CLOCK_CAP_S:
+        out["wall_clock_cap_s"] = cap_s
+    if no_memorise:
+        out["no_memorise"] = True
     if lower_layers_n:
         out["lower_layers_n"] = lower_layers_n
         out["lower_lr_scale"] = lower_lr_scale
@@ -351,10 +390,6 @@ MAX_SEEDS = 8
 #: Seconds a single forward+backward probe is given before it is called a refusal. Generous:
 #: the widest real batch is 34,522 positions and `mps` takes 13.6s for the attention alone.
 PROBE_TIMEOUT_S = 240.0
-
-#: The wall-clock cap every run here carries. `RunControl` stops at a group boundary and the
-#: ledger row records `termination`, so a capped run is legible as capped, not as finished.
-WALL_CLOCK_CAP_S = 1_800.0
 
 
 # --- the corpus behind the shard set -------------------------------------------------------
@@ -1312,6 +1347,7 @@ def _counterfactual_holds(shipped: dict[str, object], defect: dict[str, object])
 def _cost(
     *, device: str, n_gpus: int | None = None, usd_per_hour: float | None = None,
     usd_per_gpu_hour: float | None = None, instance: str | None = None,
+    cap_s: float = WALL_CLOCK_CAP_S,
 ) -> CostEstimate:
     """What this run costs, in one place.
 
@@ -1321,12 +1357,12 @@ def _cost(
     and that only one of two call sites passed -- so the estimate could be right while the
     row said a GH200 hour cost nothing.
 
-    The cap is the same ``WALL_CLOCK_CAP_S`` the control uses, because ``projected_usd`` is
-    priced from the cap; a cost built against a different cap would answer a different
-    question about the same run.
+    The cap is the same ``cap_s`` the control uses (``--wall-clock-cap-s``), because
+    ``projected_usd`` is priced from the cap; a cost built against a different cap would
+    answer a different question about the same run -- and ``RunControl`` refuses the pair.
     """
     return CostEstimate.for_device(
-        cap=WallClockCap(cap_s=WALL_CLOCK_CAP_S),
+        cap=WallClockCap(cap_s=cap_s),
         device=device,
         n_gpus=n_gpus,
         usd_per_hour=usd_per_hour,
@@ -1339,7 +1375,7 @@ def _control(
     steps: int, *, device: str, lr: float, checkpoint_every: int = 0,
     n_gpus: int | None = None, usd_per_hour: float | None = None,
     usd_per_gpu_hour: float | None = None, instance: str | None = None,
-    approved_by: str = "",
+    approved_by: str = "", cap_s: float = WALL_CLOCK_CAP_S,
 ) -> RunControl:
     """The cap, the schedule and the price of a local run.
 
@@ -1357,23 +1393,34 @@ def _control(
     ``checkpoint_every=0`` -- the default, and what every run before 2026-09-21 used --
     means the loop never calls ``on_checkpoint`` and nothing reaches a disk. That was
     survivable while this tool ran for two minutes and is not survivable for a full train.
+
+    ``auto_terminate`` is rule 4's fourth requirement, and ``RunControl`` refuses a run that
+    needs a human yes without one. Under the old fixed 30-minute cap no run here ever
+    needed one ($0.75 at a GH200's rate); a campaign-length cap does ($44.70 at 30 h), so
+    it is passed exactly when the estimate requires approval -- a cheap run keeps the
+    cooperative cap alone, as every earlier row did. With it armed, the watchdog fires
+    within about a second of the cap while the loop checks only between optimizer steps, so
+    a capped run will usually end as a ``killed`` row rather than ``completed`` with
+    ``train.termination == 'wall_clock_cap'``. Neither can promote.
     """
-    cap = WallClockCap(cap_s=WALL_CLOCK_CAP_S)
+    cap = WallClockCap(cap_s=cap_s)
+    cost = _cost(
+        device=device, n_gpus=n_gpus, usd_per_hour=usd_per_hour,
+        usd_per_gpu_hour=usd_per_gpu_hour, instance=instance, cap_s=cap_s,
+    )
     return RunControl(
         schedule=LRSchedule(
             peak_lr=lr, total_steps=steps, warmup_steps=max(1, steps // 20), min_lr=lr / 10
         ),
         cap=cap,
-        cost=_cost(
-            device=device, n_gpus=n_gpus, usd_per_hour=usd_per_hour,
-            usd_per_gpu_hour=usd_per_gpu_hour, instance=instance,
-        ),
+        cost=cost,
         grad_accum=1,
         checkpoint_every=checkpoint_every,
         # Threaded through so the refusal RunControl already makes is reachable. It fires on
         # `cost.requires_human_approval and not approved_by.strip()` -- which, while the
         # rate was 0.0 and n_gpus 0, could not fire at all.
         approved_by=approved_by,
+        auto_terminate=hard_exit_on_cap if cost.requires_human_approval else None,
     )
 
 
@@ -1439,7 +1486,7 @@ def _protocol(*, reader: ShardReader, seed: int, recipe: dict[str, object]) -> P
 
 
 def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[str, object],
-              run_kind: str, quick_reason: str, notes: str,
+              run_kind: str, quick_reasons: Sequence[str], notes: str,
               wall_clock_s: float | None, cost: CostEstimate | None) -> RunRecorder:
     """Both of this tool's row kinds go through here, and they need different answers.
 
@@ -1447,7 +1494,13 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
     elapsed from :func:`_record_verdict`, which describes a decode that finished before its
     recorder existed -- 162 of this tool's rows recorded the time taken to write the row
     because that distinction had no way to be stated.
+
+    ``quick`` is the run's own facts (:func:`quick_reasons`), every one that applies. It was
+    ``True`` on every row this tool ever wrote, so nothing the campaign trained could have
+    promoted however it ran. An ``ft`` row's truncation is added by the recorder itself, from
+    the ``train.termination`` the loop writes inside its block.
     """
+    reasons = [r for r in quick_reasons if r.strip()]
     return RunRecorder(
         ledger,
         entry_point=Path(__file__),
@@ -1461,8 +1514,8 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
         # The hash makes two recipes incomparable and says nothing about how they differ;
         # a sweep's rows could not name their own arm without the launch command.
         recipe=recipe,
-        quick=True,
-        quick_reason=quick_reason,
+        quick=bool(reasons),
+        quick_reason="; ".join(reasons) if reasons else None,
         notes=notes,
     )
 
@@ -1470,7 +1523,8 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
 def _train(
     *, reader: ShardReader, plan: list[Batch], passes: int, device: str, seed: int,
     hidden: int, heads: int, lr: float, span_weight: float, ledger: Ledger, tag: str,
-    quick_reason: str, backbone: Path | None = None, optimizer_recipe: str = "bf16",
+    quick_reasons: Sequence[str], backbone: Path | None = None,
+    optimizer_recipe: str = "bf16",
     checkpoint_dir: Path | None = None, checkpoint_every: int = 0,
     resume_from: object | None = None, deterministic: bool = False,
     attn_implementation: str = DEFAULT_ATTN_IMPLEMENTATION,
@@ -1481,6 +1535,7 @@ def _train(
     permutation: ChoicePermutation | None = None,
     alphabets: Mapping[int, list[tuple[str, ...] | None]] | None = None,
     replay: ReplayPlan | None = None,
+    cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -1498,7 +1553,7 @@ def _train(
     steps = len(plan) * passes
     pieces = _recipe_pieces(
         lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
-        permutation=permutation, replay=replay,
+        permutation=permutation, replay=replay, cap_s=cap_s, no_memorise=no_memorise,
     )
     if permutation is not None and alphabets is None:
         raise ValueError("option permutation needs each plan batch's per-row alphabets")
@@ -1670,9 +1725,9 @@ def _train(
         # refuses a row that omits it.
         cost=_cost(
             device=device, n_gpus=n_gpus, usd_per_hour=usd_per_hour,
-            usd_per_gpu_hour=usd_per_gpu_hour, instance=instance,
+            usd_per_gpu_hour=usd_per_gpu_hour, instance=instance, cap_s=cap_s,
         ),
-        quick_reason=quick_reason,
+        quick_reasons=quick_reasons,
         notes=(
             f"tools/real_ft_run.py [{tag}] -- qd_train.trainer.train_ft over a shard set "
             f"written by tools/real_tokenizer_pipeline.py with the live Qwen tokenizer. "
@@ -1829,7 +1884,7 @@ def _train(
             steps, device=device, lr=lr, checkpoint_every=checkpoint_every,
             n_gpus=n_gpus, usd_per_hour=usd_per_hour,
             usd_per_gpu_hour=usd_per_gpu_hour, instance=instance,
-            approved_by=approved_by,
+            approved_by=approved_by, cap_s=cap_s,
         ),
         recorder=recorder,
         on_checkpoint=on_checkpoint,
@@ -1854,7 +1909,7 @@ def _train(
         # rather than build a second one from arguments it does not have.
         "cost": _cost(
             device=device, n_gpus=n_gpus, usd_per_hour=usd_per_hour,
-            usd_per_gpu_hour=usd_per_gpu_hour, instance=instance,
+            usd_per_gpu_hour=usd_per_gpu_hour, instance=instance, cap_s=cap_s,
         ),
         # So the verdict row names the same backbone this row does, rather than restating it.
         **backbone_keys,
@@ -2019,7 +2074,8 @@ def _evaluate(
 def _record_verdict(run: dict[str, object], *, ledger: Ledger, reader: ShardReader,
                     shipped: dict[str, object], defect: dict[str, object],
                     inventory: dict[str, object], batch_chunks: dict[str, int],
-                    quick_reason: str, decode_s: float, resolution: TriState) -> str:
+                    quick_reasons: Sequence[str], decode_s: float,
+                    resolution: TriState) -> str:
     """One row per run for what happened **after** the last optimizer step.
 
     Separate from the ``ft`` row because ``train_ft`` owns its recorder's context manager and
@@ -2035,7 +2091,7 @@ def _record_verdict(run: dict[str, object], *, ledger: Ledger, reader: ShardRead
     }
     recorder = _recorder(
         ledger, reader=reader, seed=int(run["seed"]), recipe=recipe, run_kind="smoke",
-        quick_reason=quick_reason,
+        quick_reasons=quick_reasons,
         # The decode this row reports on, which ran before this function was called -- NOT
         # the parent run's duration. 186 ft rows and 162 verdict rows each claiming the same
         # seconds would sum to twice the GPU time actually spent.
@@ -2323,6 +2379,7 @@ def ft_splits(
     defect_class: Path | None = None,
     defect_download: Path | None = None,
     defect_max_rows: int | None = None,
+    repo_history: bool = True,
 ) -> dict[str, list[DataRow]]:
     """Every split of the corpus this tool's shard sets were built from, by split name.
 
@@ -2335,6 +2392,9 @@ def ft_splits(
     (``tools/ft_linear_control.py``) and ``tools/replay_decontam.py`` (which needs the
     ``heldout`` split as well) all call it, rather than each carrying a copy that could
     drift from the shard set.
+
+    ``repo_history=False`` mirrors the pipeline's ``--no-repo-history``, through the same
+    ``base_sources`` the pipeline itself calls.
     """
     if defect_class is None and (defect_download is not None or defect_max_rows is not None):
         raise ValueError("defect_download/defect_max_rows without defect_class read nothing")
@@ -2345,12 +2405,12 @@ def ft_splits(
     from qd_data.mixture import build_mixture
     from qd_data.split import split
 
-    commits, _, _ = pipeline.code_rows(commitpackft=commitpackft, max_pairs=max_pairs, rev=rev)
-    spans, _ = pipeline.span_rows(max_rows=max_pairs, blank_line_runs=False, rev=rev)
-    raw: dict[str, list[Any]] = {
-        "bigcode/commitpackft": list(commits),
-        "rajpurkar/squad_v2": list(spans),
-    }
+    raw: dict[str, list[Any]] = dict(
+        pipeline.base_sources(
+            repo_history=repo_history, commitpackft=commitpackft, max_pairs=max_pairs,
+            blank_line_runs=False, rev=rev,
+        ).raw
+    )
     if defect_class is not None:
         from qd_data.defect_class import DEFECT_SOURCE_ID, load_defect_rows
 
@@ -2377,12 +2437,13 @@ def ft_split_rows(
     defect_class: Path | None = None,
     defect_download: Path | None = None,
     defect_max_rows: int | None = None,
+    repo_history: bool = True,
 ) -> tuple[list[DataRow], list[DataRow]]:
     """``(train_rows, val_rows)``: exactly the two splits ``main`` trains and scores on."""
     splits = ft_splits(
         commitpackft=commitpackft, max_pairs=max_pairs, rev=rev, config=config,
         defect_class=defect_class, defect_download=defect_download,
-        defect_max_rows=defect_max_rows,
+        defect_max_rows=defect_max_rows, repo_history=repo_history,
     )
     return splits["train"], splits["val"]
 
@@ -2431,6 +2492,139 @@ def check_defect_source(out: Path, *, defect_class: Path | None) -> None:
             f"--defect-class was given but no {DEFECT_SOURCE_ID!r} row fed {path}: this shard "
             "set was built without it"
         )
+
+
+#: Sources only ``--general-record`` supplies. ``ft_splits`` does not rebuild them, so a set
+#: built with them cannot be relabelled here.
+GENERAL_ONLY_SOURCES: Final[tuple[str, ...]] = (
+    "cais/mmlu", "tau/commonsense_qa", "clinc/clinc_oos",
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class CorpusFacts:
+    """What the train manifest beside the shards says about the corpus, for rule 8."""
+
+    #: ``None`` when the snapshot ran; else ``NotRun``'s reason (a capped read, a family
+    #: with no rows, an unchecked consistency pass).
+    snapshot_not_run: str | None
+    #: ``{source: rows}`` read from this repository's git history.
+    history_rows: dict[str, int]
+
+
+def corpus_facts(
+    out: Path, *, data_snapshot_hash: str, repo_history: bool, commitpackft: Path | None,
+) -> CorpusFacts:
+    """Read the train manifest the pipeline wrote, and refuse what this rebuild cannot match.
+
+    Refused: a manifest that is absent, that names a different ``data_snapshot_hash`` than
+    the shard header (it is not this set's manifest), that carries a family only
+    ``--general-record`` supplies (``ft_splits`` does not rebuild those), or whose
+    repository-history rows disagree with ``repo_history`` -- a set built with
+    ``--no-repo-history`` and relabelled with history would rebuild rows the shards never
+    held, and the reverse would drop rows they did.
+    """
+    path = out / TRAIN_MANIFEST
+    if not path.is_file():
+        raise SystemExit(f"{path} is absent, so the corpus behind this shard set cannot be read")
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    recorded = raw.get("data_snapshot_hash")
+    if recorded != data_snapshot_hash:
+        raise SystemExit(
+            f"{path} records data_snapshot_hash {recorded!r} but the shard header pins "
+            f"{data_snapshot_hash!r}: it is not the manifest this shard set was written from"
+        )
+    status = parse_tristate(raw.get("status"), field=f"{path}:status")
+    n_input = raw.get("mixture", {}).get("n_input")
+    if not isinstance(n_input, dict):
+        raise SystemExit(f"{path} carries no mixture.n_input, so its sources cannot be read")
+    general = sorted(s for s in GENERAL_ONLY_SOURCES if int(n_input.get(s, 0)) > 0)
+    if general:
+        raise SystemExit(
+            f"{path}: {general} fed this shard set -- it was built with --general-record, and "
+            "ft_splits does not rebuild the general families, so its labels cannot be "
+            "reconstructed here. Refusing rather than pairing labels to a different row set."
+        )
+    history_sources = ("rajpurkar/squad_v2",) + (
+        ("bigcode/commitpackft",) if commitpackft is None else ()
+    )
+    history_rows = {s: int(n_input[s]) for s in history_sources if int(n_input.get(s, 0)) > 0}
+    if history_rows and not repo_history:
+        raise SystemExit(
+            f"{path}: {history_rows} rows from this repository's history fed this shard set, "
+            "but --no-repo-history was passed; the rebuild would not have them"
+        )
+    if repo_history and not history_rows:
+        raise SystemExit(
+            f"{path}: no row from this repository's history fed this shard set -- it was built "
+            "with --no-repo-history. Pass the same flag here, or the rebuild adds rows the "
+            "shards never held."
+        )
+    return CorpusFacts(
+        snapshot_not_run=status.reason if isinstance(status, NotRun) else None,
+        history_rows=history_rows,
+    )
+
+
+def quick_reasons(
+    *, tag: str, device: str, real_backbone: bool, corpus: CorpusFacts,
+    termination: str | None = None, memorise_detail: str = "",
+) -> list[str]:
+    """Every rule-8 reason that stands for one row, from the run's facts. Empty means none.
+
+    Rule 8: *"Fewer than 3 seeds, a truncated schedule or a subsample is marked quick."*
+
+    * **Subsample.** The memorisation arm (a subset of batches, repeated), a data snapshot
+      that is ``NotRun`` (a capped read is a sample; so is a mixture with a family that
+      produced nothing), and rows from this repository's own history -- the precedent in
+      ``real_tokenizer_pipeline.quick_reason_for`` and ``rung0_real_run.quick_reason_for``,
+      both of which call a corpus drawn from this repository a subsample of the plan's pool.
+    * **Truncated schedule.** ``termination`` other than ``steps_exhausted``, for the rows
+      written after the loop (verdict, eval). The ``ft`` row's own truncation is added by
+      ``RunRecorder`` from ``train.termination``, since it is written inside the loop.
+    * **Not the campaign's run**, stated beside rule 8 because the tool made every row quick
+      before this existed and these conditions were among the reasons: a device outside
+      :data:`CAMPAIGN_DEVICES` (a Mac or CPU run is a smoke of the path) and the stand-in
+      backbone (a statement about the loop, not about any model).
+    * **Seeds** are not decided here. A campaign unit runs one seed, so a row cannot see its
+      family. The family's seed count is enforced where the family is visible:
+      ``Ledger.promotion_verdict`` (three distinct seeds under one protocol-minus-seed) and
+      the campaign driver's ``gate.min_seeds``.
+
+    Only ever a list of reasons to be quick; nothing here clears a flag a caller set.
+    """
+    reasons: list[str] = []
+    if tag == "memorise":
+        reasons.append(
+            "the memorisation arm is a subsample by construction"
+            + (f": {memorise_detail}" if memorise_detail else "")
+        )
+    if termination is not None and termination != "steps_exhausted":
+        reasons.append(
+            f"train.termination is {termination!r}, not 'steps_exhausted': a truncated schedule"
+        )
+    if corpus.snapshot_not_run is not None:
+        reasons.append(
+            "the shard set's data snapshot is NotRun, so the corpus is a capped or partial "
+            f"sample: {corpus.snapshot_not_run}"
+        )
+    if corpus.history_rows:
+        reasons.append(
+            f"the corpus holds rows drawn from this repository's own history "
+            f"({corpus.history_rows}) rather than the plan's pool, which rule 8 counts as a "
+            "subsample"
+        )
+    if device not in CAMPAIGN_DEVICES:
+        reasons.append(
+            f"device {device!r} is not a campaign device ({sorted(CAMPAIGN_DEVICES)}): a "
+            "smoke of the path, not the measurement"
+        )
+    if not real_backbone:
+        reasons.append(
+            "the backbone is the randomly-initialised stand-in, a statement about the loop "
+            "and the data rather than about any model"
+        )
+    return reasons
 
 
 def merge_letter_ids(train: dict[str, int], val: dict[str, int]) -> dict[str, int]:
@@ -2694,7 +2888,8 @@ def calibration_states(
 
 
 def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: Ledger,
-                  reader: ShardReader, val: ValSet, quick_reason: str, decode_s: float) -> str:
+                  reader: ShardReader, val: ValSet, quick_reasons: Sequence[str],
+                  decode_s: float) -> str:
     """One ``eval`` row per epoch run: what its model does on the val set.
 
     Pinned to the TRAIN set's protocol, like the verdict row, so the rows of one
@@ -2709,7 +2904,7 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
     }
     recorder = _recorder(
         ledger, reader=reader, seed=int(run["seed"]), recipe=recipe, run_kind="eval",
-        quick_reason=quick_reason,
+        quick_reasons=quick_reasons,
         # The decode, not the training run: see _record_verdict.
         wall_clock_s=decode_s,
         cost=run["cost"],  # type: ignore[arg-type]
@@ -2936,17 +3131,19 @@ def _alphabets(
 
 def replay_corpus_identity(
     *, rev: str, max_pairs: int, commitpackft: Path | None, defect_class: Path | None,
-    defect_max_rows: int | None,
+    defect_max_rows: int | None, repo_history: bool = True,
 ) -> dict[str, object]:
     """What ``ft_splits`` was called with, as the replay attestation records it. One
     function, used by ``tools/replay_decontam.py`` to write it and by ``_replay_plan`` to
-    check it, so the two cannot spell the corpus differently."""
+    check it, so the two cannot spell the corpus differently. ``repo_history`` is named
+    only when False, so every attestation written before it existed still matches."""
     return {
         "rev": rev,
         "max_pairs": max_pairs,
         "commitpackft": None if commitpackft is None else commitpackft.name,
         "defect_class": None if defect_class is None else defect_class.name,
         "defect_max_rows": defect_max_rows,
+        **({} if repo_history else {"repo_history": False}),
     }
 
 
@@ -2991,6 +3188,7 @@ def _replay_plan(
     corpus = replay_corpus_identity(
         rev=rev, max_pairs=args.max_pairs, commitpackft=args.commitpackft,
         defect_class=args.defect_class, defect_max_rows=args.defect_max_rows,
+        repo_history=args.repo_history,
     )
     if attestation.get("corpus") != corpus:
         raise SystemExit(
@@ -3154,8 +3352,25 @@ def main(argv: list[str] | None = None) -> int:
         help="arm 2 trains on every real batch at most this wide. The rule is stated rather "
              "than tuned: it is what this Mac can repeat often enough to reach a floor.",
     )
-    parser.add_argument("--max-pairs", type=int, default=400)
-    parser.add_argument("--rev", default="0632f693d3b765b726499e7b4bf19c67959b75cb")
+    parser.add_argument(
+        "--max-pairs", type=int, default=None,
+        help=(
+            "as the pipeline's --max-pairs; default 400. Refused under --no-repo-history "
+            "without --commitpackft, where the rebuild reads nothing it bounds"
+        ),
+    )
+    parser.add_argument(
+        "--no-repo-history", dest="repo_history", action="store_false",
+        help=(
+            "the shard set was built with tools/real_tokenizer_pipeline.py "
+            "--no-repo-history: rebuild its labels without reading this repository's git "
+            "history. Checked against the train manifest's sources; a mismatch is refused"
+        ),
+    )
+    parser.add_argument(
+        "--rev", default="0632f693d3b765b726499e7b4bf19c67959b75cb",
+        help="the corpus revision the shard set was built at, as a full 40-character sha",
+    )
     parser.add_argument(
         "--commitpackft",
         type=Path,
@@ -3184,6 +3399,26 @@ def main(argv: list[str] | None = None) -> int:
         help="as the pipeline's --defect-max-rows: the same sha256-ordered cap, or none",
     )
     parser.add_argument("--epoch", action="store_true", help="also run arm 1, the real epoch")
+    parser.add_argument(
+        "--no-memorise", action="store_true",
+        help=(
+            "skip arm 2, the memorisation, and run only the epoch arm. Needs --epoch. The "
+            "memorisation arm is a Mac smoke convenience and a subsample by construction: "
+            "on a rented box it is time spent on rows no decision can use. Recorded in the "
+            "recipe"
+        ),
+    )
+    parser.add_argument(
+        "--wall-clock-cap-s", type=float, default=WALL_CLOCK_CAP_S,
+        help=(
+            f"the wall-clock cap on EACH arm of each seed, in seconds; default "
+            f"{WALL_CLOCK_CAP_S:g}. At most {MAX_WALL_CLOCK_CAP_S:g} "
+            f"({MAX_WALL_CLOCK_CAP_S / 3600:g} h): the program's MAX_CAP_S, which is below "
+            "the campaign's 72 h approval. The cost estimate is priced from it, so above "
+            "rule 4's $20 line a run needs --approved-by and is armed with auto-terminate. "
+            "Recorded in the recipe when it differs from the default"
+        ),
+    )
     parser.add_argument(
         "--score-val",
         action="store_true",
@@ -3463,6 +3698,42 @@ def main(argv: list[str] | None = None) -> int:
             "would be nothing to score. The memorisation arm trains on a subset of the "
             "train split and is not the model a val number is about."
         )
+    if args.no_memorise and not args.epoch:
+        raise SystemExit(
+            "--no-memorise skips the memorisation arm, and without --epoch there is no "
+            "other arm: the run would train nothing"
+        )
+    if args.no_memorise and resume_cell is not None and resume_cell[0] == "memorise":
+        raise SystemExit(
+            "--resume-from is a 'memorise' checkpoint but --no-memorise was passed, so this "
+            "run has no arm to resume it into"
+        )
+    if not (math.isfinite(args.wall_clock_cap_s)
+            and 0.0 < args.wall_clock_cap_s <= MAX_WALL_CLOCK_CAP_S):
+        raise SystemExit(
+            f"--wall-clock-cap-s {args.wall_clock_cap_s!r} is outside (0, "
+            f"{MAX_WALL_CLOCK_CAP_S:g}]. The campaign approval is up to 72 h, but MAX_CAP_S "
+            f"({MAX_CAP_S / 3600:g} h) is the program's own cap and is read-only (rule 2): "
+            "report that a cap was hit, do not raise it"
+        )
+    # Every run of this tool writes ledger rows, so the corpus revision is always a full sha:
+    # a recipe that says "HEAD" names a corpus that no longer exists after the next commit.
+    try:
+        require_full_sha(args.rev)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    if not args.repo_history and args.commitpackft is None:
+        if args.max_pairs is not None:
+            raise SystemExit(
+                "--max-pairs bounds the repository-history rows and the --commitpackft "
+                "sample; under --no-repo-history without --commitpackft the rebuild reads "
+                "neither, so it would determine nothing. Drop it."
+            )
+        # Unread by the rebuild in this mode; a number rather than None because ft_splits
+        # and the replay attestation take an int.
+        args.max_pairs = 400
+    elif args.max_pairs is None:
+        args.max_pairs = 400
 
     if args.probe:
         return _run_probe(args.probe)
@@ -3488,6 +3759,21 @@ def main(argv: list[str] | None = None) -> int:
             "check, so the two values that look like harmless defaults are the two that "
             "turn rule 4 off. Example: --instance lambda-1xGH200 --usd-per-hour 1.49"
         )
+    # Rule 4 at argv time, priced from the cap this run will actually carry. RunControl makes
+    # the same refusal, but per arm inside `_train` -- after the shard set is read and, on
+    # the real backbone, after the tower has loaded on a box billed by the hour.
+    for device in args.devices or []:
+        estimate = _cost(
+            device=device, n_gpus=n_gpus_for_device(device), usd_per_hour=args.usd_per_hour,
+            usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
+            cap_s=args.wall_clock_cap_s,
+        )
+        if estimate.requires_human_approval and not args.approved_by.strip():
+            raise SystemExit(
+                f"rule 4: {estimate.approval_line()}. Each arm of each seed carries this cap, "
+                "so each needs a human yes: pass --approved-by '<who said yes>' once a human "
+                "has. An agent cannot supply it on a human's behalf."
+            )
 
     if args.deterministic:
         # Before the tower loads, so nothing has run on a nondeterministic kernel by the
@@ -3513,10 +3799,17 @@ def main(argv: list[str] | None = None) -> int:
     reader = ShardReader(shard_dir, config=config, repo_root=args.out, expect_rev=rev)
 
     check_defect_source(args.out, defect_class=args.defect_class)
+    # Before the rebuild, which on the full defect corpus is minutes of work: what the
+    # manifest says about the corpus decides both whether this rebuild can match it and,
+    # below, which of this run's rows are quick.
+    corpus = corpus_facts(
+        args.out, data_snapshot_hash=reader.header.data_snapshot_hash,
+        repo_history=args.repo_history, commitpackft=args.commitpackft,
+    )
     train_rows, val_rows = ft_split_rows(
         commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=rev, config=config,
         defect_class=args.defect_class, defect_download=args.defect_download,
-        defect_max_rows=args.defect_max_rows,
+        defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
     )
     labels, excluded = _labels(train_rows, config=config)
     # Paired by id against the writer's sequence index where the set has one; see
@@ -3649,7 +3942,7 @@ def main(argv: list[str] | None = None) -> int:
         f"{sum(int(b.tokens.shape[0]) for b in plan_small)} of {len(reader)} sequences, "
         f"slot kinds {sorted(KIND_NAMES[k] for k in kinds_in_plan)} of {sorted(kinds_in_set)}"
     )
-    if not plan_small:
+    if not plan_small and not args.no_memorise:
         raise SystemExit(f"no real batch is at most {args.max_width} wide")
 
     # The epoch arm's ported pieces, built and checked before any tower loads.
@@ -3699,17 +3992,18 @@ def main(argv: list[str] | None = None) -> int:
         if args.real_backbone is None
         else f"the real text tower from {args.real_backbone.name}"
     )
-    quick_small = (
-        f"a subsample on a truncated schedule: {len(plan_small)} of {len(plan_all)} real "
-        f"batches ({sum(int(b.tokens.shape[0]) for b in plan_small)} of {len(reader)} "
-        f"sequences) repeated {args.passes}x against {backbone_said}. Rule 8: excluded from "
-        "every decision."
+    memorise_detail = (
+        f"{len(plan_small)} of {len(plan_all)} real batches "
+        f"({sum(int(b.tokens.shape[0]) for b in plan_small)} of {len(reader)} sequences) "
+        f"repeated {args.passes}x against {backbone_said}"
     )
-    quick_epoch = (
-        f"one epoch over {len(reader)} real sequences against {backbone_said}, "
-        f"{len(plan_all)} optimizer steps. Rule 8: a truncated schedule is quick and "
-        "promotes nothing."
-    )
+
+    def reasons_for(tag: str, device: str, termination: str | None = None) -> list[str]:
+        """This run's rule-8 reasons for one (arm, device); see :func:`quick_reasons`."""
+        return quick_reasons(
+            tag=tag, device=device, real_backbone=args.real_backbone is not None,
+            corpus=corpus, termination=termination, memorise_detail=memorise_detail,
+        )
 
     report: dict[str, object] = {
         "torch": torch.__version__,
@@ -3723,7 +4017,9 @@ def main(argv: list[str] | None = None) -> int:
     }
     failures: list[str] = []
 
-    for device in devices:
+    if args.no_memorise:
+        print("\narm 2: NOT RUN -- --no-memorise")
+    for device in [] if args.no_memorise else devices:
         refused = [
             p for p in probes
             if p["device"] == device and not p["ok"]
@@ -3756,9 +4052,10 @@ def main(argv: list[str] | None = None) -> int:
                 n_gpus=n_gpus_for_device(device), usd_per_hour=args.usd_per_hour,
                 usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
                 approved_by=args.approved_by,
-                tag="memorise", quick_reason=quick_small,
+                tag="memorise", quick_reasons=reasons_for("memorise", device),
                 lower_layers_n=args.lower_layers_n,
                 lower_lr_scale=args.lower_layers_lr_scale, beta2=args.beta2,
+                cap_s=args.wall_clock_cap_s,
             )
             step = run.pop("_step")
             decode_at = time.monotonic()
@@ -3767,7 +4064,8 @@ def main(argv: list[str] | None = None) -> int:
             decode_s = time.monotonic() - decode_at
             run["verdict_row_id"] = _record_verdict(
                 run, ledger=ledger, reader=reader, shipped=shipped, defect=defect,
-                inventory=inventory, quick_reason=quick_small, decode_s=decode_s,
+                inventory=inventory, decode_s=decode_s,
+                quick_reasons=reasons_for("memorise", device, str(run["termination"])),
                 resolution=resolution_state(
                     sd=args.prior_sd,
                     n_per_arm=len(args.seeds),
@@ -3856,7 +4154,8 @@ def main(argv: list[str] | None = None) -> int:
                     n_gpus=n_gpus_for_device(device), usd_per_hour=args.usd_per_hour,
                     usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
                     approved_by=args.approved_by,
-                    tag="epoch", quick_reason=quick_epoch,
+                    tag="epoch", quick_reasons=reasons_for("epoch", device),
+                    cap_s=args.wall_clock_cap_s, no_memorise=args.no_memorise,
                     lower_layers_n=args.lower_layers_n,
                     lower_lr_scale=args.lower_layers_lr_scale, beta2=args.beta2,
                     permutation=permutation, alphabets=epoch_alphabets, replay=replay_plan,
@@ -3868,7 +4167,8 @@ def main(argv: list[str] | None = None) -> int:
                     decode_s = time.monotonic() - decode_at
                     run["score_row_id"] = _record_score(
                         run, scored, ledger=ledger, reader=reader, val=val_set,
-                        quick_reason=quick_epoch, decode_s=decode_s,
+                        quick_reasons=reasons_for("epoch", device, str(run["termination"])),
+                        decode_s=decode_s,
                     )
                     if args.verdicts_out is not None:
                         verdict_lines.extend(

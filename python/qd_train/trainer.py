@@ -682,6 +682,41 @@ def _train(
         first_step = resume_from.optimizer_step
         log = resume_from.loss_log.snapshot()
 
+    control.start()
+    # Disarmed on every way out. `start()` arms a watchdog when the control carries an
+    # auto_terminate, and nothing else ever called `stop()`: after this function returned,
+    # the thread kept polling the cap of a run that had finished, and would fire the
+    # terminate action -- a hard exit -- in the middle of whatever the process did next: the
+    # next seed's arm, or scoring the model this run just trained.
+    try:
+        return _train_loop(
+            batches, objective=objective, epoch=epoch, step=step, control=control,
+            recorder=recorder, on_checkpoint=on_checkpoint, resume_from=resume_from,
+            max_batches=max_batches, seed=seed, start_index=start_index,
+            first_step=first_step, log=log, consumed=consumed,
+        )
+    finally:
+        control.stop()
+
+
+def _train_loop(
+    batches: Iterable[Batch],
+    *,
+    objective: Objective,
+    epoch: int,
+    step: TrainStep,
+    control: RunControl,
+    recorder: RunRecorder,
+    on_checkpoint: Callable[[Checkpoint], None] | None,
+    resume_from: Checkpoint | None,
+    max_batches: int,
+    seed: int,
+    start_index: int,
+    first_step: int,
+    log: LossLog,
+    consumed: ConsumedPrefix,
+) -> TrainResult:
+    """The loop ``_train`` runs between ``control.start()`` and ``control.stop()``."""
     optimizer_step = first_step
     micro_batches = 0
     supervised_tokens = 0
@@ -693,7 +728,6 @@ def _train(
 
     group = AccumulationGroup(control, violation=TrainerContractViolation)
 
-    control.start()
     with recorder:
         recorder.metric(
             "train.projected_usd_at_cap",
