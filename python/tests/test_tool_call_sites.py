@@ -435,6 +435,9 @@ WRAPPING = {
     ("real_ft_run.py", "None"),
     ("ft_toy_run.py", "None"),
     ("ledger.py", "None"),
+    # The FT linear control's fit is CPU work on whatever box runs it -- billed with the
+    # instance during a campaign -- so its recorder wraps the fit.
+    ("ft_linear_control.py", "None"),
 }
 
 

@@ -170,7 +170,15 @@ def test_the_refusal_documents_that_it_consumes_a_worst_case_bound() -> None:
     Against a worst-case bound, a cap chosen from observed times over-refuses: a 60-minute
     cap would reject a fit that finishes in six. That is cheap to state and expensive to
     rediscover, and it is the reason FIT_CAP_MIN is 150 rather than 10."""
-    src = (REPO / "tools" / "fit_linear_control.py").read_text()
+    # Read from the function itself, wherever it lives: it moved from
+    # tools/fit_linear_control.py (which still re-exports it) into qd_train.baseline so the FT
+    # control could apply it without importing torch. A path pinned here would have passed
+    # vacuously against a stale copy, or failed on the move while the property held.
+    import inspect
+
+    from qd_train.baseline import fit_budget_refusal
+
+    src = inspect.getsource(fit_budget_refusal)
     assert "worst-case bound" in src
     assert "345.7s" in src, "with the measurement that showed the gap"
     assert "17.6x" in src

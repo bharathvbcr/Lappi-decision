@@ -21,21 +21,35 @@ problem, and for the check that was run to establish it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Protocol
 
 import numpy as np
 
+from qd_data.errors import QdRefusal
+from qd_data.render import DEFAULT_CAPS, RenderCaps, render
+from qd_data.rows import DataRow
+
+from .artifacts import SLOT_CHOICE, SLOT_SCORE, line_start_indices
 from .mutate_adapter import MUTATION_CLASSES
+from .shards import UnencodableGold, answer_letter, training_texts
 from .tristate import NotRun, Ran, TriState
 
 __all__ = [
     "CSR",
     "DENSE_OPERAND_BUDGET_BYTES",
+    "LETTER_KINDS",
     "BaselineFit",
     "CharNGramHasher",
+    "ContextLengthFeatures",
     "DenseOperand",
+    "Featurizer",
     "LinearBaseline",
+    "RequestDoc",
     "context_texts",
+    "fit_budget_refusal",
+    "request_texts",
 ]
 
 
@@ -64,6 +78,135 @@ def context_texts(decisions) -> tuple[list[str], list[str]]:
         docs.append(bytes(d.context.ids).decode("utf-8", errors="replace"))
         labels.append(MUTATION_CLASSES[d.gold_option])
     return docs, labels
+
+
+def fit_budget_refusal(projected_s: float, max_fit_minutes: float | None) -> str | None:
+    """The refusal to print and exit on, or ``None`` when the fit may start.
+
+    This module already knew how long the fit would take -- ``projected_fit_seconds`` is
+    computed and printed one line before the fit begins -- and did nothing with it. A
+    caller that wrapped the fit in a shorter ``timeout`` therefore got the worst of both:
+    the box saturated for the length of the cap, the process killed before it converged,
+    and nothing written to the cache. The arm that reads the cache then reports
+    ``paired_margin_vs_linear: not_run`` exactly as it would have if the fit had never
+    been launched, so the wasted hour leaves no trace distinguishing it from doing nothing.
+
+    That already happened once in this repository -- 5fd0ea8, *"The linear control could
+    not finish inside the cap it was launched under"*.
+
+    So the projection becomes a precondition rather than a progress message. Refusing
+    costs the caller nothing it would otherwise have had, and it turns a silent hour into
+    an immediate, legible error naming both numbers.
+
+    **The projection is a worst-case bound, and the cap must be read against it as one.**
+    ``projected_fit_seconds`` prices ``max_iter`` iterations. The optimiser stops at ``tol``
+    instead, usually far earlier: measured 2026-09-22 on 37,385 training documents, the
+    projection was 101.4 minutes and the fit converged in 443 iterations and **345.7s** --
+    an overshoot of 17.6x. Six sibling fits landed between 204.2s and 351.7s against the
+    same projection.
+
+    Two things follow, and the second is easy to get backwards. A cap must be set above the
+    PROJECTION, not above observed times, or this refuses fits that would have finished
+    comfortably -- a 60-minute cap would reject a six-minute fit. And a projection must
+    never be quoted as a cost: doing that turned a $0.91 job into a documented $22 one and
+    routed it to a human as a spending decision it did not need to be.
+
+    ``None`` for ``max_fit_minutes`` means the caller accepts any duration, which is the
+    right default for an interactive fit that owns its own terminal.
+    """
+    if max_fit_minutes is None:
+        return None
+    if projected_s <= max_fit_minutes * 60:
+        return None
+    return (
+        f"refusing to start: the fit projects to {projected_s / 60:.1f} minute(s) but "
+        f"--max-fit-minutes is {max_fit_minutes:g}. It would be killed before it "
+        "converged and NOTHING would be cached, which the arm that reads this cache "
+        "cannot tell apart from a fit that was never launched.\n"
+        "Raise the caller's cap above the projection, or fit a smaller training set. "
+        "Do not lower --max-iter to fit inside the cap: that weakens the opponent the "
+        "model is measured against, which is a promotion decision and not this tool's."
+    )
+
+
+#: The slot kinds the linear control can stand opposite: the letter channel. A span slot's
+#: answer is a pair of line numbers chosen by the pointer head, which a bag of n-grams has no
+#: way to produce, so it is excluded by name rather than scored as a constant.
+LETTER_KINDS: dict[int, str] = {SLOT_CHOICE: "choice", SLOT_SCORE: "score"}
+
+
+@dataclass(frozen=True, slots=True)
+class RequestDoc:
+    """One letter slot of one FT row, as the linear control sees it.
+
+    ``text`` is ``render(...).prompt_for(slot)`` -- the prefix and the slot's suffix, which is
+    every byte the model conditions on for that slot's answer. ``value`` is the gold VALUE,
+    not the gold letter: ``qd_data.render`` permutes a choice slot's options per example, so
+    the letter is an artefact of one rendering. A control asked to predict ``'A'`` from text
+    whose ``A`` means something different on every row would be an artificially weak
+    opponent, and a weak opponent manufactures a win. Correctness is therefore value
+    equality, which is the same question the model's ``top == gold_row`` answers.
+    """
+
+    row_id: str
+    slot_name: str
+    kind: str
+    #: ``family_id/slot_name``: the label space. One control per task, because a
+    #: ``change_scope`` bin is not a candidate answer to ``commit_intent``.
+    task: str
+    text: str
+    value: str
+    metadata: Mapping[str, str] = field(default_factory=dict)
+    #: ``row.request.context`` alone -- what :class:`ContextLengthFeatures` measures. Empty
+    #: for a doc built without it, which the length control reports as not run rather than
+    #: scoring as a zero-length context. ``str`` or ``bytes``, as the request carries it.
+    context: str | bytes = ""
+
+
+def request_texts(
+    rows: Iterable[DataRow], *, seed: int, caps: RenderCaps = DEFAULT_CAPS
+) -> tuple[list[RequestDoc], list[str]]:
+    """``(docs, excluded)``: every letter slot of every row, rendered the way FT renders it.
+
+    The FT counterpart of :func:`context_texts`, and here for the same reason: the paired
+    margin depends on there being exactly one rendering of the control's input. The row
+    admission is the writer's -- ``training_texts`` raises ``UnencodableGold`` or a
+    ``QdRefusal`` for exactly the rows ``write_shards`` drops, and a row dropped there has no
+    model verdict to pair with -- so the same ``except`` drops it here and names it.
+
+    ``seed`` must be the ``DataConfig.seed`` the shards were written at. Rendered at any
+    other seed the choice options come out in a different order and the prompt text is not
+    the one the model read.
+    """
+    docs: list[RequestDoc] = []
+    excluded: list[str] = []
+    for row in sorted(rows, key=lambda r: r.row_id):
+        staged: list[RequestDoc] = []
+        try:
+            rendered = render(row.request, caps=caps, seed=seed)
+            for spec in training_texts(row, seed=seed, caps=caps):
+                kind = LETTER_KINDS.get(spec.slot_kind)
+                if kind is None:
+                    continue
+                slot = rendered.slot(spec.slot_name)
+                letter = answer_letter(row, spec.slot_name, slot.letter_to_value)
+                staged.append(
+                    RequestDoc(
+                        row_id=row.row_id,
+                        slot_name=spec.slot_name,
+                        kind=kind,
+                        task=f"{row.family_id}/{spec.slot_name}",
+                        text=rendered.prompt_for(spec.slot_name),
+                        value=slot.letter_to_value[letter],
+                        metadata=dict(row.metadata),
+                        context=row.request.context,
+                    )
+                )
+        except (UnencodableGold, QdRefusal) as exc:
+            excluded.append(f"{row.row_id}: {type(exc).__name__}: {exc}")
+            continue
+        docs.extend(staged)
+    return docs, excluded
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,6 +360,12 @@ class CharNGramHasher:
             raise ValueError(f"dim must be a power of two >= 16, got {dim}")
         self.n_min, self.n_max, self.dim = n_min, n_max, dim
 
+    def nnz_bound(self, docs: list[str]) -> int:
+        """An upper bound on ``transform(docs)``'s nonzeros: at most one column per n-gram,
+        and at most ``dim`` per document. High is the safe direction for a fit-time guard."""
+        orders = self.n_max - self.n_min + 1
+        return sum(min(orders * len(doc), self.dim) for doc in docs)
+
     def _hash(self, gram: str) -> int:
         # FNV-1a, 64-bit. Stable across processes and platforms, unlike hash(),
         # which is salted per interpreter and would make features irreproducible.
@@ -263,6 +412,59 @@ class CharNGramHasher:
         )
 
 
+class Featurizer(Protocol):
+    """What ``LinearBaseline`` needs from a feature map: a width, a transform, and a bound on
+    the transform's nonzeros for ``projected_fit_seconds``."""
+
+    dim: int
+
+    def transform(self, docs: list[str]) -> CSR: ...
+
+    def nnz_bound(self, docs: list[str]) -> int: ...
+
+
+class ContextLengthFeatures:
+    """The context's size and nothing else: a control for labels that length predicts.
+
+    ``GAP-A3-CLEAN-DIFFS-ARE-LONGER-THAN-MUTATION-DIFFS``: in ``code.defect_class`` a clean
+    row is a real commit's diff and a mutated row one synthetic edit, so clean diffs are
+    longer (p50 739 bytes against 286-410) and a model can beat the majority rate by reading
+    size alone. Fitted by :class:`LinearBaseline` exactly as the n-gram control is -- same
+    L2 grid, same convergence check -- on these five dense features of the CONTEXT (not the
+    rendered prompt, whose fixed scaffolding would only add a constant):
+
+    ``b = log2(1 + utf8 bytes) / 20`` and ``l = log2(1 + lines) / 16`` -- lines by
+    :func:`qd_train.artifacts.line_start_indices`, the system's one line rule -- then
+    ``b, l, b*b, l*l, b*l``. The quadratic terms let a linear model put a class in a middle
+    band of length rather than only at one end, which is the stronger opponent. The fixed
+    scales keep every feature near ``[0, 1]`` without fitting a normaliser on anything.
+    """
+
+    dim: int = 5
+
+    def features(self, doc: str | bytes) -> tuple[float, float, float, float, float]:
+        # A request context is str or bytes; bytes are counted on UTF-8 either way, and
+        # line_start_indices counts the same lines in both (a newline is one byte, one char).
+        raw = doc.encode("utf-8") if isinstance(doc, str) else bytes(doc)
+        b = float(np.log2(1 + len(raw))) / 20.0
+        lines = float(np.log2(1 + len(line_start_indices(raw)))) / 16.0
+        return (b, lines, b * b, lines * lines, b * lines)
+
+    def nnz_bound(self, docs: Sequence[str | bytes]) -> int:
+        return len(docs) * self.dim
+
+    def transform(self, docs: Sequence[str | bytes]) -> CSR:
+        n = len(docs)
+        data = np.asarray([v for doc in docs for v in self.features(doc)], dtype=np.float64)
+        return CSR(
+            indptr=np.arange(0, n * self.dim + 1, self.dim, dtype=np.int64),
+            indices=np.tile(np.arange(self.dim, dtype=np.int64), n),
+            data=data,
+            rows=np.repeat(np.arange(n), self.dim),
+            shape=(n, self.dim),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class BaselineFit:
     weights: np.ndarray
@@ -281,7 +483,7 @@ class LinearBaseline:
     def __init__(
         self,
         *,
-        hasher: CharNGramHasher | None = None,
+        hasher: Featurizer | None = None,
         l2_grid: tuple[float, ...] = (1e-4, 1e-3, 1e-2, 1e-1),
         max_iter: int = 500,
         tol: float = 1e-4,
@@ -289,7 +491,7 @@ class LinearBaseline:
         seed: int = 0,
         dense_budget_bytes: int | None = None,
     ) -> None:
-        self.hasher = hasher or CharNGramHasher()
+        self.hasher: Featurizer = hasher or CharNGramHasher()
         self.l2_grid = l2_grid
         self.max_iter = max_iter
         self.tol = tol
@@ -370,10 +572,9 @@ class LinearBaseline:
         and fixable, but it will not admit one that is not, which is the failure that
         burns a run.
         """
-        orders = self.hasher.n_max - self.hasher.n_min + 1
         d = self.hasher.dim
         n = len(docs)
-        nnz = sum(min(orders * len(doc), d) for doc in docs)
+        nnz = self.hasher.nnz_bound(docs)
         limit = (
             DENSE_OPERAND_BUDGET_BYTES
             if self.dense_budget_bytes is None

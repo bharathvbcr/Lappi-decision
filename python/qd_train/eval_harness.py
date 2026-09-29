@@ -14,6 +14,7 @@ because there is no accuracy to read.
 from __future__ import annotations
 
 import math
+from collections.abc import Hashable, Mapping
 from dataclasses import dataclass
 
 import numpy as np
@@ -28,6 +29,7 @@ __all__ = [
     "conformal_sets",
     "degenerate_head_check",
     "evaluate",
+    "paired_margin_by_key",
     "paired_margin_test",
     "shuffled_label_control",
     "split_conformal_threshold",
@@ -202,6 +204,47 @@ def paired_margin_test(
             f"paired margin {point:+.4f}, {int((1 - alpha) * 100)}% CI [{lo:+.4f}, {hi:+.4f}] "
             f"over {n_boot} bootstrap resamples" + verdict
         ),
+    )
+
+
+def paired_margin_by_key(
+    model_correct: Mapping[Hashable, bool],
+    baseline_correct: Mapping[Hashable, bool],
+    *,
+    seed: int = 0,
+    n_boot: int = 10_000,
+    alpha: float = 0.05,
+) -> TriState:
+    """:func:`paired_margin_test` over two arms scored by row key rather than by position.
+
+    Positional pairing is only sound when both arms enumerated the rows in one order, which
+    is true inside one process and false across two: the FT model's verdicts come from the
+    shard reader's bucketed batch order and the control's from the renderer's row order. So
+    the pairing is done here by key, and **the key sets must be identical**. A row one arm
+    scored and the other did not is not a row either arm can be credited with -- dropping it
+    silently would let a refusal on one side reshape the population the margin is over. So a
+    mismatch is ``NotRun`` naming both counts and an example of each, never an intersection.
+    """
+    model_keys = set(model_correct)
+    base_keys = set(baseline_correct)
+    if model_keys != base_keys:
+        only_model = sorted(map(repr, model_keys - base_keys))
+        only_base = sorted(map(repr, base_keys - model_keys))
+        return NotRun(
+            reason=(
+                f"the two arms scored different rows: {len(only_model)} only by the model "
+                f"(e.g. {only_model[:3]}), {len(only_base)} only by the control "
+                f"(e.g. {only_base[:3]}). A paired margin needs the identical population, "
+                "so nothing was paired"
+            )
+        )
+    keys = sorted(model_keys, key=repr)
+    return paired_margin_test(
+        np.array([bool(model_correct[k]) for k in keys], dtype=bool),
+        np.array([bool(baseline_correct[k]) for k in keys], dtype=bool),
+        n_boot=n_boot,
+        alpha=alpha,
+        seed=seed,
     )
 
 
