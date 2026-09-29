@@ -1,0 +1,39 @@
+[package]
+name = "qd-metal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Qwen3.5-2B decision inference on Apple silicon through tessl's Metal kernels: the DecisionBackend for qd-runtime."
+
+[lib]
+name = "qd_metal"
+path = "src/lib.rs"
+
+[[bin]]
+name = "qd-metal-parity"
+path = "src/bin/parity.rs"
+
+[[bin]]
+name = "qd-metal-bench"
+path = "src/bin/bench.rs"
+
+# Two dependencies are new to this workspace, both approved:
+#
+# * `tessl` — the user's own Metal crate, canonical copy (CLAUDE.md rule 6). A path dependency,
+#   never a vendored or nested copy. This crate does not edit it.
+# * `tokenizers` — approved 2026-09-28 (docs/train-plan-2026-09-28.md, "Human decisions").
+#   Pinned to 0.22 because the Python side that tokenized every training row is tokenizers
+#   0.22.2, and to the `onig` regex engine because that is the engine the Python wheel uses:
+#   Qwen's pre-tokenizer pattern is run by the same engine on both sides. Default features
+#   (progressbar, esaxx_fast) are training-only and are left off.
+#
+# Everything else is already in the workspace. Safetensors are parsed by hand (8-byte header
+# length + serde_json), because the format is that small and a crate for it would be a new
+# dependency for capability std already has.
+[dependencies]
+qd-runtime = { path = "../qd-runtime" }
+serde_json.workspace = true
+tessl = { path = "../../../tessl" }
+tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
