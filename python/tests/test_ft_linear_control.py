@@ -264,10 +264,18 @@ def _eval_row(ledger_path: Path, *, choice: tuple[int, int], score: tuple[int, i
     return rec.row.row_id
 
 
-def _fake_runner(monkeypatch: pytest.MonkeyPatch, train, val, *, with_fn: bool = True) -> None:
+def _fake_runner(
+    monkeypatch: pytest.MonkeyPatch, train, val, *, with_fn: bool = True,
+    calls: list[dict[str, object]] | None = None,
+) -> None:
     module = types.ModuleType("real_ft_run")
     if with_fn:
-        def ft_split_rows(*, commitpackft, max_pairs, rev, config):
+        # The real signature: the defect-class corpus is part of how the run built its split.
+        def ft_split_rows(*, commitpackft, max_pairs, rev, config, defect_class=None,
+                          defect_download=None, defect_max_rows=None):
+            if calls is not None:
+                calls.append({"defect_class": defect_class, "defect_download": defect_download,
+                              "defect_max_rows": defect_max_rows})
             return train, val
         module.ft_split_rows = ft_split_rows  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "real_ft_run", module)
@@ -314,6 +322,50 @@ def test_the_tool_writes_the_gate_as_a_new_eval_row(
     assert rows_out[-1].metrics["scored_eval_row_id"].value == eval_id  # type: ignore[union-attr]
     # Before this tool the gate on the FT row was never evaluated; the new row is.
     assert isinstance(rows_out[0].gates["paired_margin_vs_linear"], NotRun)
+
+
+def test_the_defect_class_corpus_reaches_the_runs_own_split_function(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Phase 3's go/no-go scores a model trained on code.defect_class. Without the corpus the
+    control rebuilt the split with no defect rows, so the run's verdicts could never pair and
+    the gate could never pass -- the campaign would stop on a tool gap, not on the model."""
+    rows, config = _rows(80)
+    rows = [r for r in rows if r.family_id == "code.commit_intent"]
+    train, val = _split(rows)
+    val_docs, _ = request_texts(val, seed=config.seed)
+    kinds = {"choice": [0, 0], "score": [0, 0]}
+    for d in val_docs:
+        kinds[d.kind][0] += 1
+        kinds[d.kind][1] += 1
+    ledger = tmp_path / "ledger.jsonl"
+    eval_id = _eval_row(ledger, choice=tuple(kinds["choice"]), score=(0, 0))
+    verdicts = _write_verdicts(tmp_path / "v.jsonl", [
+        {"eval_row_id": eval_id, "seed": 0, "row_id": d.row_id, "kind": d.kind, "correct": True}
+        for d in val_docs
+    ])
+    calls: list[dict[str, object]] = []
+    _fake_runner(monkeypatch, train, val, calls=calls)
+    corpus, download = tmp_path / "corpus-v2", tmp_path / "download"
+    ftc.main([
+        "--ledger", str(ledger), "--verdicts", str(verdicts), "--max-pairs", "80",
+        "--rev", "HEAD", "--defect-class", str(corpus), "--defect-download", str(download),
+        "--defect-max-rows", "40",
+    ])
+    assert calls == [{"defect_class": corpus, "defect_download": download,
+                      "defect_max_rows": 40}]
+    assert Ledger(ledger).rows()[-1].recipe["defect_class"] == "corpus-v2"
+
+
+def test_defect_options_without_the_corpus_are_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _fake_runner(monkeypatch, [], [])
+    with pytest.raises(SystemExit) as exc:
+        ftc.main(["--ledger", str(tmp_path / "l.jsonl"), "--verdicts", str(tmp_path / "v"),
+                  "--max-pairs", "80", "--rev", "HEAD", "--defect-max-rows", "40"])
+    assert exc.value.code == 2
+    assert "without --defect-class read nothing" in capsys.readouterr().err
 
 
 def test_verdicts_from_another_decode_are_refused(

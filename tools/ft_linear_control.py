@@ -583,6 +583,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--commitpackft", type=Path, default=None)
     parser.add_argument("--max-pairs", type=int, required=True)
     parser.add_argument("--rev", required=True)
+    parser.add_argument(
+        "--defect-class", type=Path, default=None,
+        help="the code.defect_class corpus, exactly as the run was given it: it is part of how "
+             "the run built its split, so a control rebuilt without it scores a different split",
+    )
+    parser.add_argument("--defect-download", type=Path, default=None)
+    parser.add_argument("--defect-max-rows", type=int, default=None)
     parser.add_argument("--control-cache", type=Path, default=None)
     parser.add_argument("--max-iter", type=int, default=DEFAULT_MAX_ITER)
     parser.add_argument("--dense-budget-gb", type=float, default=24.0)
@@ -590,6 +597,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--hold-out-operator", default="")
     parser.add_argument("--operator-key", default="operator")
     args = parser.parse_args(argv)
+    if args.defect_class is None and (
+        args.defect_download is not None or args.defect_max_rows is not None
+    ):
+        parser.error("--defect-download/--defect-max-rows without --defect-class read nothing")
 
     ledger = Ledger(args.ledger)
     verdicts = load_verdicts(args.verdicts)
@@ -606,7 +617,9 @@ def main(argv: list[str] | None = None) -> int:
 
     config = DataConfig()
     train_rows, val_rows = split_rows_function()(
-        commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=args.rev, config=config
+        commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=args.rev, config=config,
+        defect_class=args.defect_class, defect_download=args.defect_download,
+        defect_max_rows=args.defect_max_rows,
     )
     # Rule 3 through this door too. A control fitted on a held-out family would not train a
     # model, but it would set the bar the model is measured against with data the model may
@@ -631,6 +644,8 @@ def main(argv: list[str] | None = None) -> int:
         "max_iter": args.max_iter, "hold_out_operator": args.hold_out_operator,
         "operator_key": args.operator_key if hold else "", "key": "slot_name"
         if verdicts.by_slot_name else "kind", "max_pairs": args.max_pairs, "rev": args.rev,
+        "defect_class": None if args.defect_class is None else args.defect_class.name,
+        "defect_max_rows": args.defect_max_rows,
     }
     quick = bool(row.quick) or hold is not None
     quick_reason = (
