@@ -123,10 +123,10 @@ if "--deterministic" in sys.argv:
 # its cache before the ceiling and raises an out-of-memory error past it: a refusal in
 # seconds instead of an hour that measures nothing. Read by the allocator when MPS first
 # initialises, hence here, before torch is imported; setdefault, so an explicit value wins.
-MPS_HIGH_WATERMARK_RATIO: Final[str] = "1.0"
-MPS_LOW_WATERMARK_RATIO: Final[str] = "0.9"
-os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", MPS_HIGH_WATERMARK_RATIO)
-os.environ.setdefault("PYTORCH_MPS_LOW_WATERMARK_RATIO", MPS_LOW_WATERMARK_RATIO)
+# Literals, not named constants: ruff's E402 exemption covers os.environ changes before the
+# imports, and an ordinary assignment in between is not one.
+os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "1.0")
+os.environ.setdefault("PYTORCH_MPS_LOW_WATERMARK_RATIO", "0.9")
 
 try:
     import torch
