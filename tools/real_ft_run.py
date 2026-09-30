@@ -1231,6 +1231,40 @@ class ProgressLine:
         self._emit(line)
 
 
+class CheckpointSink:
+    """``train_ft``'s ``on_checkpoint``, plus the write at the end of the arm.
+
+    The loop writes only at interval boundaries. The GH200 campaign of 2026-09-30 derived an
+    interval of 1,747 steps for a 1,505-step epoch, so all three phase-3 seeds trained to
+    completion and saved nothing: the rows and val scores exist, the weights do not.
+    ``final`` writes the finished state unless the last interval already wrote that step.
+    Timed and sized, because the interval is a cost decision and nothing here could price
+    it: this model's checkpoint is ~8.5 GB -- weights plus both AdamW moments.
+    """
+
+    def __init__(self, target: Path) -> None:
+        self.target = target
+        self.last_step: int | None = None
+
+    def __call__(self, ckpt: Any) -> None:
+        t0 = time.monotonic()
+        written = ckpt.write(self.target)
+        took = time.monotonic() - t0
+        self.last_step = int(ckpt.optimizer_step)
+        payload = sum(
+            p.stat().st_size for p in written.parent.glob(f"{written.stem}*") if p.is_file()
+        )
+        print(
+            f"  checkpoint: step {ckpt.optimizer_step} -> {written} "
+            f"({payload / (1 << 30):.2f} GiB in {took:.1f}s)",
+            flush=True,
+        )
+
+    def final(self, ckpt: Any) -> None:
+        if self.last_step != int(ckpt.optimizer_step):
+            self(ckpt)
+
+
 def _checkpoint_name(tag: str, seed: int, device: str) -> str:
     """The one place a checkpoint's filename is spelled.
 
@@ -2004,27 +2038,7 @@ def _train(
     # this is a resume point rather than a history.
     on_checkpoint = None
     if checkpoint_every and checkpoint_dir is not None:
-        target = checkpoint_dir / _checkpoint_name(tag, seed, device)
-
-        def on_checkpoint(ckpt: Any, _target: Path = target) -> None:
-            # Timed and sized, because the interval is a cost decision and nothing here
-            # could price it. This model's checkpoint is ~8.5 GB -- weights plus both AdamW
-            # moments -- and at ~1.5 s/step a 20-step interval spends more wall clock
-            # writing than training. The number belongs on screen next to the step it was
-            # taken at, not in a handoff someone has to remember.
-            t0 = time.monotonic()
-            written = ckpt.write(_target)
-            took = time.monotonic() - t0
-            payload = sum(
-                p.stat().st_size
-                for p in written.parent.glob(f"{written.stem}*")
-                if p.is_file()
-            )
-            print(
-                f"  checkpoint: step {ckpt.optimizer_step} -> {written} "
-                f"({payload / (1 << 30):.2f} GiB in {took:.1f}s)",
-                flush=True,
-            )
+        on_checkpoint = CheckpointSink(checkpoint_dir / _checkpoint_name(tag, seed, device))
 
     result = train_ft(
         source(),
@@ -2045,6 +2059,8 @@ def _train(
         ),
     )
     wall = time.monotonic() - started
+    if on_checkpoint is not None:
+        on_checkpoint.final(result.checkpoint)
     losses = result.loss_log.losses()
     letter = [x for x in step.letter_log if x > 0.0]
     spans = [x for x in step.span_log if x > 0.0]
