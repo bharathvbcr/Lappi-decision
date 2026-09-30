@@ -191,6 +191,17 @@ from qd_train.ledger import (
     RunRecorder,
 )
 from qd_train.memory import ADAMW_BF16, ADAMW_FP32, OptimizerSpec
+from qd_train.needle import (
+    NEEDLE_CASES_PER_DEPTH,
+    NEEDLE_HIT_RULE,
+    NEEDLE_MIN_RECALL,
+    NEEDLE_TARGET_TOKENS,
+    NeedleCase,
+    build_suite,
+    hunk_of_context_line,
+    needle_defect_row,
+    score_suite,
+)
 from qd_train.optim import DEFAULT_BETA2, apply_lr
 from qd_train.power import resolution_state
 from qd_train.replay import PriorCache, PriorKLReplay, ReplayRefusal, check_attestation
@@ -208,7 +219,9 @@ from qd_train.shards import (
     ShardReader,
     UnencodableGold,
     answer_letter,
+    assemble_batch,
     corpus_contradictions,
+    encode_slot,
     training_texts,
 )
 from qd_train.trainer import (
@@ -963,7 +976,15 @@ def _decode(
     with torch.no_grad():
         for b, batch in enumerate(batches):
             hidden = step.hidden(batch)
-            logits = step.lm_head(hidden)
+            # A batch of span rows reads no letter, and the full-vocabulary head over every
+            # position is the costliest tensor here -- 8 GB in fp32 at the needle suite's
+            # 8K tokens. Skipped only when no row could read it; the letter path below
+            # would fail on the None rather than decode without it.
+            logits = (
+                step.lm_head(hidden)
+                if any(label.slot_kind != SLOT_SPAN for label in labels_for[b])
+                else None
+            )
             supervision = ft_supervision(batch)
             plan = start_rows = end_rows = None
             if supervision.span is not None:
@@ -1034,6 +1055,7 @@ def _decode(
                 row_tokens = [letter_id[x] for x in ordered]
                 noul_row = len(row_tokens) - RESERVED_NOUL_ROWS
                 at = int(batch.target_index[r])  # type: ignore[index]
+                assert logits is not None  # a letter row in this batch computed them
                 top = int(
                     logits[r, at, torch.as_tensor(row_tokens, device=step.device)].argmax()
                 )
@@ -3373,9 +3395,148 @@ def score_permutation_consistency(
     return permutation_agreement(scored, second, second_pass.perms)
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class NeedleSuite:
+    """The needle suite, encoded one case per batch before a tower loads; or why not."""
+
+    cases: list[NeedleCase]
+    batches: list[Batch]
+    labels_for: dict[int, list[Label]]
+    #: Real token count per case, re-measured: ``build_suite`` sizes by a 3-chars/token guess.
+    token_lengths: list[int]
+    seed: int = 0
+    not_run: str | None = None
+
+
+def prepare_needle(reader: ShardReader, *, config: DataConfig, enabled: bool) -> NeedleSuite:
+    """Build, render and encode the needle suite under ``reader``'s remap and tokenizer.
+
+    Each case is a ``code.defect_class`` row (``needle_defect_row``), and only its span slot
+    is encoded, through ``encode_slot`` -- the shard writer's own path. Two checks per case
+    make the hunk mapping trustworthy before anything is decoded: one candidate per rendered
+    context line, and the encoded gold's line falling in the needle hunk. Either failing is
+    a refusal, because a mapping off by one line scores the model against the wrong hunk.
+    """
+    if not enabled:
+        return NeedleSuite([], [], {}, [], not_run="--needle was not given")
+    import real_tokenizer_pipeline as pipeline
+
+    from qd_data.defect_class import CONTEXT_HEADER_LINES, DEFECT_FAMILY_ID
+
+    if reader.remap is None:
+        raise SystemExit(f"{reader.root}: no remap table beside the shards")
+    tok = pipeline.RealTokenizer.load(memo_limit=0)
+    if tok.hash() != reader.header.tokenizer_hash:
+        raise SystemExit(
+            f"the tokenizer loaded for the needle suite hashes to {tok.hash()[:16]}, not the "
+            f"val set's {reader.header.tokenizer_hash[:16]}: its ids would not be this model's"
+        )
+    cases = build_suite(
+        target_tokens=NEEDLE_TARGET_TOKENS, cases_per_depth=NEEDLE_CASES_PER_DEPTH,
+        seed=config.seed,
+    )
+    batches: list[Batch] = []
+    labels_for: dict[int, list[Label]] = {}
+    lengths: list[int] = []
+    for i, case in enumerate(cases):
+        where = f"needle case {case.case_id}"
+        row = needle_defect_row(case, config=config)
+        (spec,) = [
+            s for s in training_texts(row, seed=config.seed, caps=DEFAULT_CAPS)
+            if s.slot_kind == SLOT_SPAN
+        ]
+        encoded = encode_slot(
+            spec, tokenize=tok.tokenize, remap=reader.remap, token_offsets=tok.offsets,
+            decode=tok.decode, where=where,
+        )
+        body = case.context[:-1] if case.context.endswith("\n") else case.context
+        n_lines = CONTEXT_HEADER_LINES + len(body.split("\n"))
+        if len(encoded.candidates) != n_lines:
+            raise SystemExit(
+                f"{where}: {len(encoded.candidates)} line-start candidates for {n_lines} "
+                "context lines, so a candidate index is not a line number"
+            )
+        gold_line = encoded.candidates.index(encoded.span[0])
+        if hunk_of_context_line(case, gold_line) != case.needle_index:
+            raise SystemExit(
+                f"{where}: the encoded gold starts on line {gold_line}, in hunk "
+                f"{hunk_of_context_line(case, gold_line)}, not the needle hunk "
+                f"{case.needle_index}"
+            )
+        n = int(encoded.ids.size)
+        batches.append(
+            assemble_batch(
+                [encoded.ids], kinds=np.asarray([SLOT_SPAN]),
+                target_index=np.asarray([n - 2]), spans=np.asarray([encoded.span]),
+                candidates=[encoded.candidates], width=n, bucket=n, index=i,
+            )
+        )
+        labels_for[i] = [
+            Label(
+                row_id=case.case_id, family_id=DEFECT_FAMILY_ID, slot_name=spec.slot_name,
+                slot_kind=SLOT_SPAN, gold_letter=NOUL_LETTER, letters=(NOUL_LETTER,),
+                language=case.language,
+            )
+        ]
+        lengths.append(n)
+    return NeedleSuite(cases, batches, labels_for, lengths, seed=config.seed)
+
+
+def score_needle(
+    step: RealFtStep, suite: NeedleSuite, letter_id: Mapping[str, int]
+) -> tuple[TriState, dict[str, TriState]]:
+    """``needle_hunk_recall`` and its by-depth metrics, under the approved contract."""
+    if suite.not_run is not None:
+        return NotRun(reason=suite.not_run), {}
+    decoded = _decode(step, suite.batches, suite.labels_for, dict(letter_id))
+    by_case = {str(v["row_id"]): v for v in decoded["verdicts"]}  # type: ignore[union-attr]
+    predictions: dict[str, int | None] = {}
+    for case in suite.cases:
+        v = by_case.get(case.case_id)
+        if v is None:
+            continue  # score_suite reports a case with no prediction as not_run
+        start, end = (int(x) for x in v["top"])  # type: ignore[union-attr]
+        noul = int(v["noul_row"])  # type: ignore[call-overload]
+        predictions[case.case_id] = (
+            None if noul in (start, end) else hunk_of_context_line(case, start)
+        )
+    report, gate = score_suite(suite.cases, predictions, min_recall=NEEDLE_MIN_RECALL)
+    metrics: dict[str, TriState] = {}
+    for bucket in report.by_depth:
+        metrics[f"needle_hunk_recall.depth.{bucket.label}"] = Ran(
+            passed=bucket.recall >= NEEDLE_MIN_RECALL, value=bucket.recall,
+            n=bucket.correct, n_total=bucket.total,
+            detail=f"95% Wilson CI [{bucket.lo:.3f}, {bucket.hi:.3f}]",
+        )
+    abstained = sum(1 for p in predictions.values() if p is None)
+    lengths = sorted(suite.token_lengths)
+    metrics["needle_suite_tokens"] = Ran(
+        passed=True, value=lengths[len(lengths) // 2], n=len(lengths), n_total=len(lengths),
+        detail=(
+            f"real tokens per case, min {lengths[0]}, median {lengths[len(lengths) // 2]}, "
+            f"max {lengths[-1]}, against a {NEEDLE_TARGET_TOKENS} target sized by a "
+            f"3-chars/token guess; {abstained} of {len(predictions)} cases abstained. The "
+            "model trained on sequences of at most ~1.1K tokens"
+        ),
+    ) if lengths else NotRun(reason="the suite is empty")
+    return gate, metrics
+
+
+def needle_recipe(suite: NeedleSuite) -> dict[str, object]:
+    """What the needle gate was scored under, for the eval row's recipe -- only when it
+    ran, so a row without it keeps the recipe hash it always had."""
+    return {
+        "min_recall": NEEDLE_MIN_RECALL, "cases_per_depth": NEEDLE_CASES_PER_DEPTH,
+        "target_tokens": NEEDLE_TARGET_TOKENS, "hit_rule": NEEDLE_HIT_RULE,
+        "suite_seed": suite.seed, "cases": len(suite.cases),
+    }
+
+
 def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: Ledger,
                   reader: ShardReader, val: ValSet, quick_reasons: Sequence[str],
-                  decode_s: float, permutation: TriState) -> str:
+                  decode_s: float, permutation: TriState,
+                  needle: tuple[TriState, dict[str, TriState]] | None = None,
+                  needle_suite: NeedleSuite | None = None) -> str:
     """One ``eval`` row per epoch run: what its model does on the val set.
 
     Pinned to the TRAIN set's protocol, like the verdict row, so the rows of one
@@ -3389,6 +3550,8 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
         "shard_hash": reader.header.shard_hash(),
         "val_shard_hash": val.reader.header.shard_hash(),
     }
+    if needle_suite is not None and needle_suite.not_run is None:
+        recipe["needle"] = needle_recipe(needle_suite)
     recorder = _recorder(
         ledger, reader=reader, seed=int(run["seed"]), recipe=recipe, run_kind="eval",
         quick_reasons=quick_reasons,
@@ -3421,6 +3584,12 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
         recorder.gate("ece", ece)
         recorder.control("degenerate_head", degenerate)
         recorder.gate("permutation_consistency", permutation)
+        needle_gate, needle_metrics = (
+            needle if needle is not None else (NotRun(reason="--needle was not given"), {})
+        )
+        for name, state in needle_metrics.items():
+            recorder.metric(name, state)
+        recorder.gate("needle_hunk_recall", needle_gate)
         decoded_abstain = sum(
             1 for v in scored["verdicts"]  # type: ignore[union-attr]
             if str(v["runtime_verdict"]) == "abstain"
@@ -3492,10 +3661,11 @@ def _ft_row(ledger_path: Path, row_id: str) -> dict[str, Any]:
 def _score_checkpoint(
     args: argparse.Namespace, *, reader: ShardReader, val: ValSet, device: str,
     ledger: Ledger, reasons_for: Callable[..., list[str]], second_pass: SecondPass,
-) -> tuple[str, dict[str, object], TriState]:
+    needle_suite: NeedleSuite,
+) -> tuple[str, dict[str, object], TriState, TriState]:
     """Score a saved epoch checkpoint on the val set.
 
-    Returns ``(eval row id, scored, permutation_consistency)``.
+    Returns ``(eval row id, scored, permutation_consistency, needle_hunk_recall)``.
 
     Every pairing that could silently score the wrong weights under the wrong row is checked
     before the tower loads: the file's arm, seed and training device against the ft row; the
@@ -3558,13 +3728,14 @@ def _score_checkpoint(
     decode_at = time.monotonic()
     scored = _decode(step, val.plan, val.labels_for, val.letter_id)
     permutation = score_permutation_consistency(step, val, second_pass, scored)
+    needle = score_needle(step, needle_suite, val.letter_id)
     decode_s = time.monotonic() - decode_at
     reasons = reasons_for("epoch", device, None if termination is None else str(termination))
     row_id = _record_score(
         run, scored, ledger=ledger, reader=reader, val=val, quick_reasons=reasons,
-        decode_s=decode_s, permutation=permutation,
+        decode_s=decode_s, permutation=permutation, needle=needle, needle_suite=needle_suite,
     )
-    return row_id, scored, permutation
+    return row_id, scored, permutation, needle[0]
 
 
 def _check_piece_flags(args: argparse.Namespace) -> None:
@@ -4109,6 +4280,15 @@ def main(argv: list[str] | None = None) -> int:
             "on MPS drifts ~0.8 nats on letter logits (GAP-TORCH-MPS-BF16-LETTER-LOGITS-DRIFT)"
         ),
     )
+    parser.add_argument(
+        "--needle", action="store_true",
+        help=(
+            "with --score-val: also score needle_hunk_recall on qd_train.needle's generated "
+            "~8K-token multi-hunk suite, under the contract approved on 2026-09-30 (min recall "
+            f"{NEEDLE_MIN_RECALL} on the worst depth bucket, {NEEDLE_CASES_PER_DEPTH} cases "
+            "per depth, hit = the hunk of the predicted start line). Needs --real-backbone"
+        ),
+    )
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER_PATH)
     parser.add_argument(
         "--optimizer",
@@ -4391,6 +4571,11 @@ def main(argv: list[str] | None = None) -> int:
             )
     elif args.ft_ledger is not None or args.ft_row_id is not None:
         raise SystemExit("--ft-ledger/--ft-row-id only mean something with --score-checkpoint")
+    if args.needle and not (args.score_val and args.real_backbone is not None):
+        raise SystemExit(
+            "--needle scores the model the val pass scores and encodes with the real "
+            "tokenizer: it needs --score-val and --real-backbone"
+        )
     if args.score_val and not args.epoch and args.score_checkpoint is None:
         raise SystemExit(
             "--score-val scores the epoch arm's model and --epoch was not passed, so there "
@@ -4542,6 +4727,7 @@ def main(argv: list[str] | None = None) -> int:
     # time rather than after an epoch has been paid for.
     val_set: ValSet | None = None
     second_pass = SecondPass([], {}, {}, not_run="no val set: --score-val was not given")
+    needle_suite = NeedleSuite([], [], {}, [], not_run="no val set: --score-val was not given")
     if args.score_val:
         val_set = open_val_set(
             args.out, config=config, rev=rev,
@@ -4562,6 +4748,13 @@ def main(argv: list[str] | None = None) -> int:
             f"{len(second_pass.batches)} batches (seed {config.seed})"
             if second_pass.not_run is None else
             f"permutation second pass: not run -- {second_pass.not_run}"
+        )
+        needle_suite = prepare_needle(val_set.reader, config=config, enabled=args.needle)
+        print(
+            f"needle suite: {len(needle_suite.cases)} cases, real tokens "
+            f"{min(needle_suite.token_lengths)}..{max(needle_suite.token_lengths)}"
+            if needle_suite.not_run is None else
+            f"needle suite: not run -- {needle_suite.not_run}"
         )
     batch_tokens, recipe_batch_tokens = _resolve_batch_tokens(
         args.batch_tokens, widest=int(max(reader.header.buckets))
@@ -4635,15 +4828,17 @@ def main(argv: list[str] | None = None) -> int:
                 termination=termination,
             )
 
-        score_row_id, scored, permutation = _score_checkpoint(
+        score_row_id, scored, permutation, needle_gate = _score_checkpoint(
             args, reader=reader, val=val_set, device=devices[0],
             ledger=Ledger(args.ledger), reasons_for=eval_reasons, second_pass=second_pass,
+            needle_suite=needle_suite,
         )
         for name, state in score_states(scored, val_set.labels).items():
             print(f"  {name}: {json.dumps(state.to_json())[:300]}")
         _, ece, degenerate = calibration_states(scored)
         for name, state in (("ece", ece), ("degenerate_head", degenerate),
-                            ("permutation_consistency", permutation)):
+                            ("permutation_consistency", permutation),
+                            ("needle_hunk_recall", needle_gate)):
             print(f"  {name}: {json.dumps(state.to_json())[:300]}")
         if args.verdicts_out is not None:
             write_verdicts_jsonl(
@@ -4928,11 +5123,13 @@ def main(argv: list[str] | None = None) -> int:
                     permutation = score_permutation_consistency(
                         step, val_set, second_pass, scored
                     )
+                    needle = score_needle(step, needle_suite, val_set.letter_id)
                     decode_s = time.monotonic() - decode_at
                     run["score_row_id"] = _record_score(
                         run, scored, ledger=ledger, reader=reader, val=val_set,
                         quick_reasons=reasons_for("epoch", device, str(run["termination"])),
-                        decode_s=decode_s, permutation=permutation,
+                        decode_s=decode_s, permutation=permutation, needle=needle,
+                        needle_suite=needle_suite,
                     )
                     if args.verdicts_out is not None:
                         verdict_lines.extend(
@@ -4944,7 +5141,8 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"  {device} seed={seed} {name}: {json.dumps(state.to_json())[:300]}")
                     _, ece, degenerate = calibration_states(scored)
                     for name, state in (("ece", ece), ("degenerate_head", degenerate),
-                                        ("permutation_consistency", permutation)):
+                                        ("permutation_consistency", permutation),
+                                        ("needle_hunk_recall", needle[0])):
                         print(f"  {device} seed={seed} {name}: {json.dumps(state.to_json())[:300]}")
                     print(f"  score row {run['score_row_id']}")
                 report["arm1"].append(run)  # type: ignore[union-attr]

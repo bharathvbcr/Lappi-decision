@@ -136,6 +136,7 @@ __all__ = [
     "SUPERVISION_NAME",
     "TOKENS_NAME",
     "Decode",
+    "EncodedSlot",
     "SequenceIndex",
     "SequenceSpec",
     "ShardReader",
@@ -143,8 +144,10 @@ __all__ = [
     "TokenOffsets",
     "UnencodableGold",
     "answer_letter",
+    "assemble_batch",
     "choose_buckets",
     "corpus_contradictions",
+    "encode_slot",
     "line_starts",
     "slot_kind_of",
     "training_texts",
@@ -816,6 +819,100 @@ def _tokenize_checked(
     return ids
 
 
+@dataclass(frozen=True, slots=True)
+class EncodedSlot:
+    """One slot's sequence as the writer stores it: post-remap ids and span supervision.
+
+    ``span`` is ``(NO_SPAN, NO_SPAN)`` and ``candidates`` empty for a letter slot; a span
+    slot carries its gold token positions (or ``SPAN_ABSTAIN`` twice) and its line starts.
+    """
+
+    ids: np.ndarray
+    slot_kind: int
+    span: tuple[int, int]
+    candidates: tuple[int, ...]
+
+
+def encode_slot(
+    spec: SequenceSpec,
+    *,
+    tokenize: Callable[[str], list[int]],
+    remap: RemapTable,
+    token_offsets: TokenOffsets | None,
+    decode: Decode | None,
+    where: str,
+) -> EncodedSlot:
+    """Tokenize, remap and project one slot's sequence -- the writer's only way to do it.
+
+    Public so an eval that builds sequences the shard writer never saw (the needle suite)
+    encodes them through the same checks rather than a second copy of them. Raises
+    :class:`UnencodableGold` when the span cannot be placed in this tokenization; the
+    writer decides whether that excludes the slot or aborts.
+    """
+    ids = _tokenize_checked(tokenize, spec.text, where=where)
+    # Not caught: RemapTable.encode raises on an id the remap dropped, and that exception
+    # is the S2<->S4 cross-lane check firing. Substituting a token here would turn a
+    # coverage bug into a training example that teaches the wrong thing, and the only
+    # symptom would be slightly worse loss.
+    new_ids = remap.encode(ids)
+    if int(new_ids.min()) < 0:
+        raise ShardContractViolation(
+            f"{where}: the remap produced a negative id, which cannot be stored as {TOKEN_DTYPE}"
+        )
+    projected = _span_token_positions(
+        spec, ids, token_offsets=token_offsets, decode=decode, where=where
+    )
+    if projected is None:
+        if spec.slot_kind == SLOT_SPAN:
+            raise ShardContractViolation(
+                f"{where}: a SLOT_SPAN row reached the writer with no candidates"
+            )
+        return EncodedSlot(new_ids, spec.slot_kind, (NO_SPAN, NO_SPAN), ())
+    return EncodedSlot(new_ids, spec.slot_kind, projected[0], projected[1])
+
+
+def assemble_batch(
+    sequences: Sequence[np.ndarray],
+    *,
+    kinds: np.ndarray,
+    target_index: np.ndarray,
+    spans: np.ndarray,
+    candidates: Sequence[Sequence[int] | np.ndarray],
+    width: int,
+    bucket: int,
+    index: int,
+) -> Batch:
+    """One padded batch from its sequences and their supervision, one row per sequence.
+
+    The only place a ``Batch`` is put together from stored sequences: the shard reader and
+    the needle suite both come through here. ``span_target`` and ``line_starts`` are passed
+    only when a span row is present, because ``Batch`` refuses either on a batch with
+    nothing to point.
+    """
+    n = len(sequences)
+    tokens = np.full((n, width), PAD_ID, dtype=np.int32)
+    lengths = np.zeros(n, dtype=np.int64)
+    for r, seq in enumerate(sequences):
+        tokens[r, : seq.size] = seq
+        lengths[r] = seq.size
+    has_span = bool((kinds == SLOT_SPAN).any())
+    mask: np.ndarray | None = None
+    if has_span:
+        mask = np.zeros((n, width), dtype=np.bool_)
+        for r, cands in enumerate(candidates):
+            mask[r, np.asarray(cands, dtype=np.int64)] = True
+    return Batch(
+        tokens=tokens,
+        lengths=lengths,
+        bucket=bucket,
+        index=index,
+        slot_kind=kinds,
+        target_index=target_index,
+        span_target=spans if has_span else None,
+        line_starts=mask,
+    )
+
+
 def _assert_spans_decode_to_their_text(
     spec: SequenceSpec,
     ids: Sequence[int],
@@ -1374,24 +1471,10 @@ def write_shards(
         refused_here: list[SlotExclusion] = []
         for spec in specs:
             where = f"row {row.row_id!r} slot {spec.slot_name!r}"
-            ids = _tokenize_checked(tokenize, spec.text, where=where)
-            # Not caught: RemapTable.encode raises on an id the remap dropped, and that
-            # exception is the S2<->S4 cross-lane check firing. Substituting a token
-            # here would turn a coverage bug into a training example that teaches the
-            # wrong thing, and the only symptom would be slightly worse loss.
-            new_ids = remap.encode(ids)
-            if int(new_ids.min()) < 0:
-                raise ShardContractViolation(
-                    f"{where}: the remap produced a negative id, which cannot be stored "
-                    f"as {TOKEN_DTYPE}"
-                )
             try:
-                projected = _span_token_positions(
-                    spec,
-                    ids,
-                    token_offsets=token_offsets,
-                    decode=decode,
-                    where=where,
+                encoded = encode_slot(
+                    spec, tokenize=tokenize, remap=remap, token_offsets=token_offsets,
+                    decode=decode, where=where,
                 )
             except UnencodableGold as exc:
                 # Only UnencodableGold is slot-scoped: it says this slot's span cannot be
@@ -1407,18 +1490,10 @@ def write_shards(
                     )
                 )
                 continue
-            if projected is None:
-                if spec.slot_kind == SLOT_SPAN:
-                    raise ShardContractViolation(
-                        f"{where}: a SLOT_SPAN row reached the writer with no candidates"
-                    )
-                staged.append(
-                    (new_ids, where, spec.slot_name, spec.slot_kind, (NO_SPAN, NO_SPAN), ())
-                )
-            else:
-                staged.append(
-                    (new_ids, where, spec.slot_name, spec.slot_kind, projected[0], projected[1])
-                )
+            staged.append(
+                (encoded.ids, where, spec.slot_name, spec.slot_kind, encoded.span,
+                 encoded.candidates)
+            )
         slot_exclusions.extend(refused_here)
         if not staged:
             # Every slot refused on its own account: the row wrote nothing, so it is a row
@@ -2152,31 +2227,13 @@ class ShardReader:
         """
         for index, plan in enumerate(self._plan(batch_tokens=batch_tokens, seed=seed, epoch=epoch)):
             rows = np.asarray(plan.rows, dtype=np.int64)
-            tokens = np.full((len(plan.rows), plan.width), PAD_ID, dtype=np.int32)
-            lengths = np.zeros(len(plan.rows), dtype=np.int64)
-            for r, i in enumerate(plan.rows):
-                seq = self.sequence(i)
-                tokens[r, : seq.size] = seq
-                lengths[r] = seq.size
-            kinds = self._slot_kind[rows]
-            spans = self._span_target[rows]
-            has_span = bool((kinds == SLOT_SPAN).any())
-            mask: np.ndarray | None = None
-            if has_span:
-                # Materialised at this batch's width, and only when a span row is present:
-                # Batch refuses a candidate set on a batch with nothing to point.
-                mask = np.zeros((len(plan.rows), plan.width), dtype=np.bool_)
-                for r, i in enumerate(plan.rows):
-                    mask[r, self.candidates(i)] = True
-            yield Batch(
-                tokens=tokens,
-                lengths=lengths,
-                bucket=plan.bucket,
-                index=index,
-                slot_kind=kinds,
+            yield assemble_batch(
+                [self.sequence(i) for i in plan.rows],
+                kinds=self._slot_kind[rows],
                 target_index=self._target_index[rows],
-                span_target=spans if has_span else None,
-                line_starts=mask,
+                spans=self._span_target[rows],
+                candidates=[self.candidates(i) for i in plan.rows],
+                width=plan.width, bucket=plan.bucket, index=index,
             )
 
     def to_json(self) -> dict[str, Any]:

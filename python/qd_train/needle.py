@@ -26,14 +26,25 @@ import hashlib
 import math
 import random
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Final
 
 from .tristate import NotRun, Ran, TriState
 
+if TYPE_CHECKING:
+    from qd_data.config import DataConfig
+    from qd_data.rows import DataRow
+
 __all__ = [
+    "NEEDLE_CASES_PER_DEPTH",
+    "NEEDLE_HIT_RULE",
+    "NEEDLE_MIN_RECALL",
+    "NEEDLE_TARGET_TOKENS",
     "DepthBucket",
     "NeedleCase",
     "NeedleReport",
     "build_suite",
+    "hunk_of_context_line",
+    "needle_defect_row",
     "score_suite",
     "wilson_interval",
 ]
@@ -352,3 +363,67 @@ def score_suite(
             f"aggregate {report.aggregate_recall:.3f} (reported, not the gate){verdict}"
         ),
     )
+
+
+# -- the FT eval's contract --------------------------------------------------------------
+#
+# Approved by the human on 2026-09-30 (GAP-NEEDLE-HUNK-RECALL-HAS-NO-FT-EVAL-CONTRACT), on a
+# Fable recommendation. Thresholds are read-only to an agent (rule 2): these change only by
+# a human's say-so, and the ledger row records all of them.
+
+#: The worst depth bucket's recall must reach this. The repo's one comparable floor is
+#: PERMUTATION_CONSISTENCY_FLOOR, also 0.95.
+NEEDLE_MIN_RECALL: Final[float] = 0.95
+#: Per depth bucket. At 20 a 0.95 point estimate carries a ~0.2-wide Wilson interval and
+#: cannot be read against 0.95; 60 is the count the human approved.
+NEEDLE_CASES_PER_DEPTH: Final[int] = 60
+NEEDLE_TARGET_TOKENS: Final[int] = 8192
+#: A hit is the hunk holding the predicted START line being the needle hunk; an abstention
+#: is a miss. The stricter both-ends-inside rule was offered and not chosen.
+NEEDLE_HIT_RULE: Final[str] = "hunk-of-predicted-start-line"
+
+_EXTENSIONS: dict[str, str] = {
+    "rust": "rs", "go": "go", "python": "py", "typescript": "ts", "swift": "swift",
+}
+
+
+def needle_defect_row(case: NeedleCase, *, config: DataConfig) -> DataRow:
+    """``case`` as a ``code.defect_class`` row: the needle is a ``stub`` and the span slot
+    points at its hunk.
+
+    Built through ``qd_data.mixture.rewrite_defect_class`` itself, so the prompt, the
+    ``file:`` header and the 1-based span convention are the ones the model was trained on
+    rather than a copy of them. The suite's text is written in this repository, hence the
+    repository's licence.
+    """
+    from qd_data.defect_class import DEFECT_FAMILY_ID, DefectRow
+    from qd_data.mixture import rewrite_defect_class
+
+    raw = DefectRow(
+        example_id=case.case_id, pool_id="needle-suite", repo=f"needle-suite/{case.case_id}",
+        path=f"needle.{_EXTENSIONS[case.language]}", symbol="needle", arity=1,
+        language=case.language, mutation_class="stub", operator="needle",
+        diff=case.context, diff_span=(case.needle_start_line, case.needle_end_line),
+        span_refusal=None, licence="MIT",
+    )
+    return rewrite_defect_class(raw, family_id=DEFECT_FAMILY_ID, index=0, config=config)
+
+
+def hunk_of_context_line(case: NeedleCase, line: int) -> int | None:
+    """The 0-based hunk holding rendered context line ``line`` (0-based), or ``None``.
+
+    The rendered context is ``CONTEXT_HEADER_LINES`` header lines, then the haystack. A
+    header line belongs to no hunk, so pointing at one is a miss, never hunk 0.
+    """
+    from qd_data.defect_class import CONTEXT_HEADER_LINES
+
+    if line < 0:
+        raise ValueError(f"line {line} is negative")
+    if line < CONTEXT_HEADER_LINES:
+        return None
+    body = case.context.split("\n")
+    j = line - CONTEXT_HEADER_LINES
+    if j >= len(body):
+        raise ValueError(f"{case.case_id}: line {line} is past the context's {len(body)} lines")
+    headers = sum(1 for text in body[: j + 1] if text.startswith("@@"))
+    return headers - 1 if headers else None
