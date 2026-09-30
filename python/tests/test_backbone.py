@@ -731,6 +731,47 @@ def test_the_state_survives_a_real_checkpoint_write_and_read(tmp_path):
     assert torch.equal(tower.model.get_input_embeddings().weight.detach(), original)
 
 
+def test_weights_read_without_the_optimizer_restore_the_trained_step(tmp_path):
+    """The evaluation path: ``Checkpoint.read_weights`` + ``load_weights``, no optimizer.
+
+    Restores the tower AND the span head exactly (both are what a verdict depends on), and
+    refuses a span weight other than the one the checkpoint was trained with.
+    """
+    from qd_train.run_control import Checkpoint, LossLog, Position
+
+    tower, _ = _tiny_tower(tmp_path)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64)
+    Checkpoint(
+        position=Position(epoch=0, index=1),
+        optimizer_step=1,
+        seed=7,
+        schedule=LRSchedule(peak_lr=1e-3, total_steps=4, warmup_steps=1, min_lr=1e-4),
+        loss_log=LossLog().snapshot(),
+        consumed_digest="0" * 64,
+        model_state=step.state(),
+    ).write(tmp_path / "ckpt.json")
+    embed = tower.model.get_input_embeddings().weight.detach().clone()
+    head = [p.detach().clone() for p in step.span_head.parameters()]
+    with torch.no_grad():
+        tower.model.get_input_embeddings().weight.add_(1.0)
+        for p in step.span_head.parameters():
+            p.add_(1.0)
+
+    weights, meta = Checkpoint.read_weights(tmp_path / "ckpt.json", subtrees=("tower", "span_head"))
+    assert "optimizer" not in weights and meta["optimizer_step"] == 1
+    step.load_weights(weights)
+    assert torch.equal(tower.model.get_input_embeddings().weight.detach(), embed)
+    restored = zip(step.span_head.parameters(), head, strict=True)
+    assert all(torch.equal(p.detach(), q) for p, q in restored)
+
+    other = dict(weights)
+    other["span_weight"] = float(weights["span_weight"]) + 1.0
+    with pytest.raises(BackboneContractViolation, match="span_weight"):
+        step.load_weights(other)
+    with pytest.raises(BackboneContractViolation, match="missing"):
+        step.load_weights({"tower": weights["tower"]})
+
+
 def test_a_state_that_lost_its_tensors_is_refused(tmp_path):
     """A body that came back without its sidecar is not a body with fewer tensors."""
     tower, _ = _tiny_tower(tmp_path)

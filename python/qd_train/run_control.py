@@ -115,7 +115,7 @@ import signal
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Final, Literal, Self
@@ -845,6 +845,31 @@ def _payload_digest(body: dict[str, Any]) -> str:
     ).hexdigest()
 
 
+def _verify_payload_digest(raw: dict[str, Any]) -> None:
+    """Refuse a checkpoint body that is not the one written. The one owner of that check.
+
+    Shared by [`Checkpoint.from_json`] and [`Checkpoint.read_weights`]: the body carries every
+    tensor's manifest (key, dtype, shape, digest), so once it verifies, a partial read of the
+    sidecar is checked against a manifest nothing could have edited.
+    """
+    stated = raw.get("payload_digest")
+    if stated is None:
+        raise ValueError(
+            "checkpoint has no payload_digest. Every checkpoint this repo writes has "
+            "one, so a file without it was either truncated, written by something else, "
+            "or edited -- and an absent checksum is not a passed checksum. Refusing "
+            "rather than loading weights nothing vouches for."
+        )
+    body = {k: v for k, v in raw.items() if k != "payload_digest"}
+    actual = _payload_digest(body)
+    if stated != actual:
+        raise ValueError(
+            f"checkpoint payload_digest is {stated!r} but the body hashes to {actual!r}; "
+            "the checkpoint was modified after it was written, and a resume from it "
+            "cannot claim to reproduce the trajectory"
+        )
+
+
 def _fsync_dir(directory: Path) -> None:
     """Make a rename durable. The rename is metadata; the directory holds it."""
     fd = os.open(directory, os.O_RDONLY)
@@ -1275,6 +1300,11 @@ def _join_tensors(value: Any, tensors: Mapping[str, TensorRef]) -> Any:
     return value
 
 
+#: The largest safetensors header [`Checkpoint.read_weights`] will parse. A real 2B sidecar's
+#: header is about 160 KB (1,302 tensors); 100 MB is safetensors' own documented bound.
+_MAX_SIDECAR_HEADER_BYTES: Final[int] = 100_000_000
+
+
 def _sidecar_digest(tensors: Mapping[str, TensorRef]) -> str:
     """One digest over a whole tensor set: its names, in sorted order, and each one's digest.
 
@@ -1481,22 +1511,7 @@ class Checkpoint:
         get less" -- a body that declares a sidecar and is handed none is **refused**. An
         absent sidecar is not an empty one, the same rule an absent digest follows.
         """
-        stated = raw.get("payload_digest")
-        if stated is None:
-            raise ValueError(
-                "checkpoint has no payload_digest. Every checkpoint this repo writes has "
-                "one, so a file without it was either truncated, written by something else, "
-                "or edited -- and an absent checksum is not a passed checksum. Refusing "
-                "rather than loading weights nothing vouches for."
-            )
-        body = {k: v for k, v in raw.items() if k != "payload_digest"}
-        actual = _payload_digest(body)
-        if stated != actual:
-            raise ValueError(
-                f"checkpoint payload_digest is {stated!r} but the body hashes to {actual!r}; "
-                "the checkpoint was modified after it was written, and a resume from it "
-                "cannot claim to reproduce the trajectory"
-            )
+        _verify_payload_digest(raw)
         log = LossLog.from_json(raw["loss_log"])
         # Kept as well as the payload digest: it names *which* part disagrees, and it is
         # what `test_a_tampered_checkpoint_is_refused_on_read` has always asserted.
@@ -1734,6 +1749,109 @@ class Checkpoint:
             for name, info in safetensors.deserialize(sidecar.read_bytes())
         }
         return cls.from_json(raw, tensors=loaded)
+
+    @classmethod
+    def read_weights(
+        cls, path: str | Path, *, subtrees: Sequence[str]
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Only ``model_state[s]`` for each ``s`` in ``subtrees``, verified, without the rest.
+
+        [`read`] deserializes the whole sidecar. For a real 2B checkpoint that is 24.66 GiB,
+        of which 21 GiB are fp32 Adam moments and master copies an evaluation never uses.
+        This reads the JSON body, checks its ``payload_digest`` (the body carries every
+        tensor's key, dtype, shape and digest), then reads just the named subtrees' byte
+        ranges from the sidecar and checks each tensor against that manifest with
+        [`_join_tensors`] -- the same per-tensor check a full read makes. It cannot resume a
+        run (no optimizer state comes back), which is why it is a separate method and not a
+        flag on [`read`].
+
+        Returns ``(model_state_subset, header)``: the subset maps each subtree to its revived
+        tree, plus every scalar entry of ``model_state`` (e.g. ``span_weight``,
+        ``vocab_size``); ``header`` is ``optimizer_step``, ``seed`` and ``sidecar``.
+        """
+        if not subtrees:
+            raise ValueError("read_weights needs at least one model_state subtree to read")
+        p = Path(path)
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError(f"{p}: a checkpoint body is a JSON object")
+        _verify_payload_digest(raw)
+        declared = raw.get("sidecar")
+        if declared is None:
+            raise ValueError(f"{p} declares no tensor sidecar, so it carries no weights to read")
+        model_state = raw.get("model_state")
+        if not isinstance(model_state, dict):
+            raise ValueError(f"{p}: model_state is missing or not an object")
+        missing = [s for s in subtrees if s not in model_state]
+        if missing:
+            raise ValueError(
+                f"{p}: model_state has no {missing}; it holds {sorted(model_state)}"
+            )
+        _require_little_endian("read a checkpoint sidecar")
+        sidecar = cls.sidecar_path(p, declared["digest"])
+        if not sidecar.exists():
+            raise FileNotFoundError(f"{p}: its sidecar {sidecar.name} is not beside it")
+
+        wanted: dict[str, None] = {}
+
+        def collect(value: Any) -> None:
+            if isinstance(value, dict):
+                entry = value.get(_TENSOR_REF_TAG)
+                if entry is not None and len(value) == 1:
+                    wanted[str(entry["key"])] = None
+                    return
+                for item in value.values():
+                    collect(item)
+            elif isinstance(value, list):
+                for item in value:
+                    collect(item)
+
+        for s in subtrees:
+            collect(model_state[s])
+        loaded: dict[str, TensorRef] = {}
+        with sidecar.open("rb") as fh:
+            raw_len = fh.read(8)
+            if len(raw_len) != 8:
+                raise ValueError(f"{sidecar}: truncated safetensors header length")
+            n = int.from_bytes(raw_len, "little")
+            if not 0 < n <= _MAX_SIDECAR_HEADER_BYTES:
+                raise ValueError(
+                    f"{sidecar}: safetensors header claims {n} bytes, outside "
+                    f"(0, {_MAX_SIDECAR_HEADER_BYTES}]"
+                )
+            header = json.loads(fh.read(n))
+            base = 8 + n
+            for key in wanted:
+                info = header.get(key)
+                if info is None:
+                    raise ValueError(
+                        f"the checkpoint body names a tensor at {key} and {sidecar.name} "
+                        "does not carry it"
+                    )
+                start, end = (int(x) for x in info["data_offsets"])
+                fh.seek(base + start)
+                data = fh.read(end - start)
+                if len(data) != end - start:
+                    raise ValueError(f"{sidecar}: {key} is truncated")
+                loaded[key] = TensorRef(
+                    dtype=_wire_dtype(key, info["dtype"]),
+                    shape=tuple(int(axis) for axis in info["shape"]),
+                    data=data,
+                )
+        # Scalars only: the optimizer's param groups are a JSON tree even when its moments
+        # are empty, and they are not part of what an evaluation restores.
+        subset: dict[str, Any] = {
+            k: v for k, v in model_state.items()
+            if v is None or isinstance(v, (bool, int, float, str))
+        }
+        for s in subtrees:
+            subset[s] = _join_tensors(model_state[s], loaded)
+        meta = {
+            "optimizer_step": int(raw["optimizer_step"]),
+            "seed": int(raw["seed"]),
+            "sidecar": declared,
+        }
+        return subset, meta
 
 
 # --- the three of them, driving one loop --------------------------------------------------

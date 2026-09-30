@@ -190,6 +190,7 @@ from qd_train.ledger import (
     Protocol,
     RunRecorder,
 )
+from qd_train.memory import ADAMW_BF16, ADAMW_FP32, OptimizerSpec
 from qd_train.optim import DEFAULT_BETA2, apply_lr
 from qd_train.power import resolution_state
 from qd_train.replay import PriorCache, PriorKLReplay, ReplayRefusal, check_attestation
@@ -1677,6 +1678,87 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
     )
 
 
+def _real_step(
+    *, backbone: Path, reader: ShardReader, plan: list[Batch], device: str, dtype: str,
+    spec: OptimizerSpec, attn_implementation: str, seed: int, lr: float, total_steps: int,
+    span_weight: float, width: int, lower_layers_n: int = 0, lower_lr_scale: float = 1.0,
+    beta2: float = DEFAULT_BETA2,
+) -> tuple[Any, Any, TriState]:
+    """The real tower, remapped to the shard set, budgeted, and wrapped in a step.
+
+    The one place the real backbone becomes a step: ``_train`` builds it in bf16 to train,
+    and ``--score-checkpoint`` builds it in fp32 to receive a checkpoint's weights. Returns
+    ``(step, tower, budget)``.
+    """
+    # Imported here, not at module scope: qd_train.backbone needs transformers and
+    # safetensors, which are the optional `mac` extra.
+    from qd_train.backbone import (
+        QwenDecisionStep,
+        footprint_at,
+        load_text_tower,
+        remap_text_tower,
+    )
+
+    tower = load_text_tower(
+        backbone,
+        gradient_checkpointing=True,
+        optimizer=spec,
+        attn_implementation=attn_implementation,
+        device=device,
+        dtype=dtype,
+        # A real batch's shape; the budget below takes the worst of all of them.
+        rows=int(plan[0].tokens.shape[0]),
+        width=int(plan[0].tokens.shape[1]),
+    )
+    # The shard set's ids are post-remap, so the tied embedding has to be sliced to the
+    # same vocabulary or every id indexes a different row than the one it names. The
+    # reader's own table is used rather than a second one read from disk here.
+    if reader.remap is None:
+        raise ValueError(
+            f"{reader.header.shard_hash()}: this shard set carries no remap table, but "
+            "the real tower's embedding is 248,320 rows and the set's ids are post-remap. "
+            "Training would index the wrong row for every token. Refusing."
+        )
+    tower = remap_text_tower(tower, reader.remap)
+    # The footprint the row records and the budget checks is the costliest batch the
+    # plan really contains. It used to pair the plan's most rows with its widest width
+    # -- harmless at batch_tokens = widest bucket, where they nearly coincide, and ~8x
+    # too high at --batch-tokens 32768, which it refused at 105 GiB on 2026-09-30.
+    tower = dataclasses.replace(
+        tower,
+        footprint=max(
+            (footprint_at(tower, rows=r, width=w) for r, w in _batch_shapes(plan)),
+            key=lambda f: f.total_bytes,
+        ),
+    )
+    # Before a step is paid for: memory.py's estimate for this batch shape and optimizer,
+    # against what the device can hold. A refusal here costs seconds; the unchecked
+    # full-vocabulary smoke of 2026-09-29 paged for 58 minutes. A pass is necessary, not
+    # sufficient -- the estimate covers tensors, and MPS's Metal-side allocations are not
+    # in it -- so it is recorded on the row, and the MPS watermark cap stays the backstop.
+    budget = device_budget(tower.footprint.total_bytes, device)
+    if isinstance(budget, Ran) and not budget.passed:
+        raise SystemExit(f"device budget: {budget.detail}")
+    # `total_steps` travels into the step, so a schedule that would outlive its own second
+    # moment is refused before the tower is trained rather than discovered in a loss
+    # curve that shows nothing.
+    step = QwenDecisionStep(
+        # The same `seed` this run records in its protocol and names its checkpoint
+        # with. Until QwenDecisionStep took one, that seed governed the batch order and
+        # not the span head's initialisation, so two runs at one seed were two runs.
+        tower,
+        seed=seed,
+        lr=lr,
+        total_steps=total_steps,
+        span_weight=span_weight,
+        max_width=width,
+        lower_layers_n=lower_layers_n,
+        lower_lr_scale=lower_lr_scale,
+        beta2=beta2,
+    )
+    return step, tower, budget
+
+
 def _train(
     *, reader: ShardReader, plan: list[Batch], passes: int, device: str, seed: int,
     hidden: int, heads: int, lr: float, span_weight: float, ledger: Ledger, tag: str,
@@ -1756,18 +1838,6 @@ def _train(
             "statement about the loop and the data, not an evaluation of any model."
         )
     else:
-        # Imported here, not at module scope: qd_train.backbone needs transformers and
-        # safetensors, which are the optional `mac` extra. A module-level import would make
-        # this tool unimportable wherever the stand-in path is the only one available --
-        # which is every machine without a checkpoint.
-        from qd_train.backbone import (
-            QwenDecisionStep,
-            footprint_at,
-            load_text_tower,
-            remap_text_tower,
-        )
-        from qd_train.memory import ADAMW_BF16, OptimizerSpec
-
         # ADAMW_BF16 is not ADAMW_FP32: torch.optim.AdamW keeps exp_avg and exp_avg_sq in
         # the parameter dtype, so a bf16 tower gets 2-byte states, and load_text_tower
         # refuses the mismatch rather than budgeting a layout nothing builds. The master
@@ -1778,63 +1848,11 @@ def _train(
             if optimizer_recipe == "master"
             else ADAMW_BF16
         )
-        tower = load_text_tower(
-            backbone,
-            gradient_checkpointing=True,
-            optimizer=spec,
-            attn_implementation=attn_implementation,
-            device=device,
-            dtype="bf16",
-            # A real batch's shape; the budget below takes the worst of all of them.
-            rows=int(plan[0].tokens.shape[0]),
-            width=int(plan[0].tokens.shape[1]),
-        )
-        # The shard set's ids are post-remap, so the tied embedding has to be sliced to the
-        # same vocabulary or every id indexes a different row than the one it names. The
-        # reader's own table is used rather than a second one read from disk here.
-        if reader.remap is None:
-            raise ValueError(
-                f"{reader.header.shard_hash()}: this shard set carries no remap table, but "
-                "the real tower's embedding is 248,320 rows and the set's ids are post-remap. "
-                "Training would index the wrong row for every token. Refusing."
-            )
-        tower = remap_text_tower(tower, reader.remap)
-        # The footprint the row records and the budget checks is the costliest batch the
-        # plan really contains. It used to pair the plan's most rows with its widest width
-        # -- harmless at batch_tokens = widest bucket, where they nearly coincide, and ~8x
-        # too high at --batch-tokens 32768, which it refused at 105 GiB on 2026-09-30.
-        tower = dataclasses.replace(
-            tower,
-            footprint=max(
-                (footprint_at(tower, rows=r, width=w) for r, w in _batch_shapes(plan)),
-                key=lambda f: f.total_bytes,
-            ),
-        )
-        # Before a step is paid for: memory.py's estimate for this batch shape and optimizer,
-        # against what the device can hold. A refusal here costs seconds; the unchecked
-        # full-vocabulary smoke of 2026-09-29 paged for 58 minutes. A pass is necessary, not
-        # sufficient -- the estimate covers tensors, and MPS's Metal-side allocations are not
-        # in it -- so it is recorded on the row, and the MPS watermark cap stays the backstop.
-        budget = device_budget(tower.footprint.total_bytes, device)
-        if isinstance(budget, Ran) and not budget.passed:
-            raise SystemExit(f"device budget: {budget.detail}")
-        # `steps` is computed at the top of this function and was always available here;
-        # it now travels into the step, so a schedule that would outlive its own second
-        # moment is refused before the tower is trained rather than discovered in a loss
-        # curve that shows nothing.
-        step = QwenDecisionStep(
-            # The same `seed` this run records in its protocol and names its checkpoint
-            # with. Until QwenDecisionStep took one, that seed governed the batch order and
-            # not the span head's initialisation, so two runs at one seed were two runs.
-            tower,
-            seed=seed,
-            lr=lr,
-            total_steps=steps,
-            span_weight=span_weight,
-            max_width=width,
-            lower_layers_n=lower_layers_n,
-            lower_lr_scale=lower_lr_scale,
-            beta2=beta2,
+        step, tower, budget = _real_step(
+            backbone=backbone, reader=reader, plan=plan, device=device, dtype="bf16",
+            spec=spec, attn_implementation=attn_implementation, seed=seed, lr=lr,
+            total_steps=steps, span_weight=span_weight, width=width,
+            lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
         )
         # `tower.snapshot.name`, not `str(backbone)`: the directory name is the HF revision
         # (refs/main and the snapshot dir agree), while the absolute path is
@@ -3188,6 +3206,7 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
         "tool": "tools/real_ft_run.py", "tag": f"{run['tag']}-score-val",
         "device": run["device"],
         **{k: run[k] for k in (*BACKBONE_KEYS, *RECIPE_PIECE_KEYS) if k in run},
+        **{k: run[k] for k in SCORED_CHECKPOINT_KEYS if k in run},
         "shard_hash": reader.header.shard_hash(),
         "val_shard_hash": val.reader.header.shard_hash(),
     }
@@ -3202,6 +3221,12 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
             f"({run['device']} seed={run['seed']}): the epoch model decoded on "
             f"{len(val.reader)} val sequences it never trained on, the way "
             "crates/qd-runtime/src/answer.rs decodes them."
+            + (
+                f" Scored from the saved checkpoint {run['scored_checkpoint']} in "
+                f"{run['score_dtype']} on {run['device']}, not in the training process; "
+                "a different device and dtype from the ft row's own score row."
+                if "scored_checkpoint" in run else ""
+            )
         ),
     )
     with recorder:
@@ -3255,6 +3280,108 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
     if recorder.row is None:  # pragma: no cover - RunRecorder always writes on exit
         raise RuntimeError("RunRecorder exited without writing a row")
     return recorder.row.row_id
+
+
+#: Keys a ``--score-checkpoint`` run adds to its eval row's recipe -- only then, so every
+#: score row written by a training run keeps the recipe hash it always had.
+SCORED_CHECKPOINT_KEYS: Final[tuple[str, ...]] = ("score_dtype", "scored_checkpoint")
+
+
+def _ft_row(ledger_path: Path, row_id: str) -> dict[str, Any]:
+    """The one ft row ``row_id`` names (a full id or a unique prefix), or a refusal."""
+    if len(row_id) < 8:
+        raise SystemExit(f"--ft-row-id {row_id!r}: give at least 8 characters of the row id")
+    found = [
+        row for row in (
+            json.loads(line) for line in ledger_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        )
+        if str(row.get("row_id", "")).startswith(row_id)
+    ]
+    if len(found) != 1:
+        raise SystemExit(f"{ledger_path}: {len(found)} rows match --ft-row-id {row_id!r}, not 1")
+    row = found[0]
+    if row.get("run_kind") != "ft" or row.get("status") != "completed":
+        raise SystemExit(
+            f"row {row['row_id']} is a {row.get('status')} {row.get('run_kind')!r} row; "
+            "--score-checkpoint scores the model a completed ft row trained"
+        )
+    return row
+
+
+def _score_checkpoint(
+    args: argparse.Namespace, *, reader: ShardReader, val: ValSet, device: str,
+    ledger: Ledger, reasons_for: Callable[..., list[str]],
+) -> tuple[str, dict[str, object]]:
+    """Score a saved epoch checkpoint on the val set. Returns ``(eval row id, scored)``.
+
+    Every pairing that could silently score the wrong weights under the wrong row is checked
+    before the tower loads: the file's arm, seed and training device against the ft row; the
+    ft row's shard set and backbone against this run's; the checkpoint's optimizer step and
+    seed against the ft row's. Only the tower and span head are read
+    (``Checkpoint.read_weights``), cast to ``--score-dtype``.
+    """
+    from qd_train.run_control import Checkpoint
+
+    tag, seed, trained_on = _resume_arm(args.score_checkpoint)
+    if tag != "epoch":
+        raise SystemExit(f"{args.score_checkpoint.name}: only an epoch checkpoint is scored")
+    if list(args.seeds) != [seed]:
+        raise SystemExit(f"{args.score_checkpoint.name} is seed {seed}; --seeds says {args.seeds}")
+    ft = _ft_row(args.ft_ledger, args.ft_row_id)
+    recipe = ft["recipe"]
+    expected = {
+        "recipe tag": (recipe.get("tag"), "epoch"),
+        "recipe device": (recipe.get("device"), trained_on),
+        "protocol seed": (ft["protocol"]["seed"], seed),
+        "shard_hash": (recipe.get("shard_hash"), reader.header.shard_hash()),
+        "backbone_snapshot": (recipe.get("backbone_snapshot"), args.real_backbone.name),
+    }
+    wrong = {k: v for k, v in expected.items() if v[0] != v[1]}
+    if wrong:
+        raise SystemExit(
+            f"ft row {ft['row_id']} does not describe {args.score_checkpoint.name} scored "
+            f"against this shard set and backbone: "
+            + "; ".join(f"{k}: row says {a!r}, here {b!r}" for k, (a, b) in wrong.items())
+        )
+    steps = int(ft["metrics"]["train.optimizer_steps"]["value"])
+    weights, meta = Checkpoint.read_weights(args.score_checkpoint, subtrees=("tower", "span_head"))
+    if meta["optimizer_step"] != steps or meta["seed"] != seed:
+        raise SystemExit(
+            f"{args.score_checkpoint.name} is at optimizer step {meta['optimizer_step']}, seed "
+            f"{meta['seed']}; ft row {ft['row_id']} ended at step {steps}, seed {seed}. This "
+            "is not the model that row trained."
+        )
+    width = max(int(b.tokens.shape[1]) for b in val.plan)
+    step, _, _ = _real_step(
+        backbone=args.real_backbone, reader=reader, plan=val.plan, device=device,
+        dtype=args.score_dtype, spec=ADAMW_FP32 if args.score_dtype == "fp32" else ADAMW_BF16,
+        attn_implementation=str(recipe["attn_implementation"]), seed=seed,
+        lr=float(recipe["lr"]), total_steps=steps, span_weight=float(recipe["span_weight"]),
+        width=width,
+    )
+    step.load_weights(weights)
+    run: dict[str, object] = {
+        "tag": "epoch", "device": device, "seed": seed, "ft_row_id": ft["row_id"],
+        "cost": _cost(
+            device=device, n_gpus=n_gpus_for_device(device), usd_per_hour=args.usd_per_hour,
+            usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
+            cap_s=args.wall_clock_cap_s,
+        ),
+        **{k: recipe[k] for k in (*BACKBONE_KEYS, *RECIPE_PIECE_KEYS) if k in recipe},
+        "score_dtype": args.score_dtype,
+        "scored_checkpoint": f"{args.score_checkpoint.name}:{meta['sidecar']['digest']}",
+    }
+    termination = ft["metrics"].get("train.termination", {}).get("value")
+    decode_at = time.monotonic()
+    scored = _decode(step, val.plan, val.labels_for, val.letter_id)
+    decode_s = time.monotonic() - decode_at
+    reasons = reasons_for("epoch", device, None if termination is None else str(termination))
+    row_id = _record_score(
+        run, scored, ledger=ledger, reader=reader, val=val, quick_reasons=reasons,
+        decode_s=decode_s,
+    )
+    return row_id, scored
 
 
 def _check_piece_flags(args: argparse.Namespace) -> None:
@@ -3769,6 +3896,32 @@ def main(argv: list[str] | None = None) -> int:
             "the model that saw the whole train split once"
         ),
     )
+    parser.add_argument(
+        "--score-checkpoint",
+        type=Path,
+        default=None,
+        help=(
+            "score a SAVED epoch checkpoint (<tag>-seed<N>-<device>.json, with its sidecar "
+            "beside it) on the val set instead of training: reads only its tower and span "
+            "head, never its optimizer. Needs --score-val, --real-backbone, one --devices "
+            "entry, and --ft-ledger/--ft-row-id naming the ft row that wrote it"
+        ),
+    )
+    parser.add_argument(
+        "--ft-ledger", type=Path, default=None,
+        help="the ledger holding the ft row that wrote --score-checkpoint",
+    )
+    parser.add_argument(
+        "--ft-row-id", default=None,
+        help="that ft row's row_id (the full uuid or a unique prefix of it)",
+    )
+    parser.add_argument(
+        "--score-dtype", choices=["fp32", "bf16"], default="fp32",
+        help=(
+            "the dtype a --score-checkpoint tower is scored in. fp32 by default: torch bf16 "
+            "on MPS drifts ~0.8 nats on letter logits (GAP-TORCH-MPS-BF16-LETTER-LOGITS-DRIFT)"
+        ),
+    )
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER_PATH)
     parser.add_argument(
         "--optimizer",
@@ -4031,7 +4184,27 @@ def main(argv: list[str] | None = None) -> int:
             f"--span-weight must be positive, got {args.span_weight}; zero would train the "
             "span head on nothing while its loss still appeared in the log"
         )
-    if args.score_val and not args.epoch:
+    if args.score_checkpoint is not None:
+        needed = {
+            "--score-val": args.score_val, "--real-backbone": args.real_backbone,
+            "--ft-ledger": args.ft_ledger, "--ft-row-id": args.ft_row_id,
+            "--devices": args.devices,
+        }
+        absent = [flag for flag, value in needed.items() if not value]
+        if absent:
+            raise SystemExit(f"--score-checkpoint needs {', '.join(absent)}")
+        if len(args.devices) != 1 or len(args.seeds) != 1:
+            raise SystemExit(
+                "--score-checkpoint scores one checkpoint on one device: pass exactly one "
+                "--devices entry and the checkpoint's one seed in --seeds"
+            )
+        if args.epoch or args.resume_from is not None:
+            raise SystemExit(
+                "--score-checkpoint trains nothing; --epoch and --resume-from would train"
+            )
+    elif args.ft_ledger is not None or args.ft_row_id is not None:
+        raise SystemExit("--ft-ledger/--ft-row-id only mean something with --score-checkpoint")
+    if args.score_val and not args.epoch and args.score_checkpoint is None:
         raise SystemExit(
             "--score-val scores the epoch arm's model and --epoch was not passed, so there "
             "would be nothing to score. The memorisation arm trains on a subset of the "
@@ -4250,6 +4423,37 @@ def main(argv: list[str] | None = None) -> int:
             devices.append("mps")
         else:
             print("mps: NOT RUN -- torch.backends.mps.is_available() is False on this host")
+
+    # --score-checkpoint trains nothing, so nothing below here runs: the probes, the plans and
+    # the arms are all about training. Its eval row is written by `_record_score`, the same
+    # writer an epoch arm's --score-val uses.
+    if args.score_checkpoint is not None:
+        if val_set is None:
+            raise SystemExit("--score-checkpoint needs --score-val's val set")
+
+        def eval_reasons(tag: str, device: str, termination: str | None = None) -> list[str]:
+            return quick_reasons(
+                tag=tag, device=device, real_backbone=True, corpus=corpus,
+                termination=termination,
+            )
+
+        score_row_id, scored = _score_checkpoint(
+            args, reader=reader, val=val_set, device=devices[0],
+            ledger=Ledger(args.ledger), reasons_for=eval_reasons,
+        )
+        for name, state in score_states(scored, val_set.labels).items():
+            print(f"  {name}: {json.dumps(state.to_json())[:300]}")
+        _, ece, degenerate = calibration_states(scored)
+        for name, state in (("ece", ece), ("degenerate_head", degenerate)):
+            print(f"  {name}: {json.dumps(state.to_json())[:300]}")
+        if args.verdicts_out is not None:
+            write_verdicts_jsonl(
+                args.verdicts_out,
+                _verdict_lines(scored, eval_row_id=score_row_id, seed=int(args.seeds[0])),
+            )
+            print(f"verdicts -> {args.verdicts_out}")
+        print(f"score row {score_row_id}")
+        return 0
 
     # Which device can take which bucket, measured out of process. The probe builds the
     # STAND-IN block, not the real tower, so it answers "can this device take this shape"

@@ -128,6 +128,7 @@ __all__ = [
     "footprint_at",
     "load_text_tower",
     "remap_text_tower",
+    "revive_tensors",
     "saved_activation_bytes",
     "text_tensor_index",
 ]
@@ -704,6 +705,31 @@ def saved_activation_bytes(
 # --- the step ---------------------------------------------------------------------------------
 
 
+def revive_tensors(entries: Mapping[str, Any], *, where: str) -> dict[str, Any]:
+    """A checkpoint's ``{name: TensorRef}`` as ``{name: torch.Tensor}``, byte for byte.
+
+    The one place a saved tensor becomes a torch tensor, for both [`QwenDecisionStep.load_state`]
+    (resume) and [`QwenDecisionStep.load_weights`] (evaluation).
+    """
+    import torch
+
+    from .run_control import TensorRef
+
+    out: dict[str, Any] = {}
+    for name, ref in entries.items():
+        if not isinstance(ref, TensorRef):
+            raise BackboneContractViolation(
+                f"{where}[{name!r}] is a {type(ref).__name__}, not a TensorRef. A "
+                "checkpoint body that lost its tensors on the way through is not a "
+                "checkpoint with fewer tensors."
+            )
+        dtype = getattr(torch, ref.dtype)
+        out[name] = (
+            torch.frombuffer(bytearray(ref.data), dtype=dtype).reshape(ref.shape).clone()
+        )
+    return out
+
+
 def _group_recipe(group: Mapping[str, Any]) -> tuple[Any, ...]:
     """What of a parameter group is recipe rather than state: betas, lr_scale, name."""
     betas = group.get("betas")
@@ -1079,12 +1105,40 @@ class QwenDecisionStep:
 
         return convert(body, numeric_keys=False)
 
+    def load_weights(self, state: Mapping[str, Any]) -> None:
+        """Restore only the trained weights -- ``tower`` and ``span_head`` -- for evaluation.
+
+        What [`Checkpoint.read_weights`] returns: no optimizer state, so this step can be
+        scored and cannot be resumed. The tensors are cast to this step's own dtype by
+        ``load_state_dict``, which is how a bf16-trained checkpoint is scored in fp32.
+        ``vocab_size`` and ``span_weight`` must match: a different remap renumbers every row,
+        and a different span weight is a different trained objective than the one named.
+        """
+        missing = {"tower", "span_head", "span_weight", "vocab_size"} - set(state)
+        if missing:
+            raise BackboneContractViolation(
+                f"these weights are missing {sorted(missing)}; they were not read from a "
+                "checkpoint QwenDecisionStep.state wrote"
+            )
+        if int(state["vocab_size"]) != self.tower.vocab_size:
+            raise BackboneContractViolation(
+                f"the checkpoint was written at vocab_size={state['vocab_size']} and this "
+                f"tower is {self.tower.vocab_size}. A different remap renumbers every row."
+            )
+        if float(state["span_weight"]) != float(self.span_weight):
+            raise BackboneContractViolation(
+                f"the checkpoint was trained at span_weight={state['span_weight']} and this "
+                f"step was built with {self.span_weight}; pass the weight it was trained with"
+            )
+        self.tower.model.load_state_dict(
+            revive_tensors(state["tower"], where="tower"), strict=True
+        )
+        self.span_head.load_state_dict(
+            revive_tensors(state["span_head"], where="span_head"), strict=True
+        )
+
     def load_state(self, state: Mapping[str, Any]) -> None:
         """Revive what [`state`] produced. The digests were already checked by ``Checkpoint``."""
-        import torch
-
-        from .run_control import TensorRef
-
         missing = {"tower", "span_head", "span_weight", "vocab_size", "optimizer"} - set(
             state
         )
@@ -1133,28 +1187,11 @@ class QwenDecisionStep:
                 f"tower is {self.tower.vocab_size}. A different remap renumbers every row."
             )
 
-        def revive(entries: Mapping[str, Any], *, where: str) -> dict[str, Any]:
-            out: dict[str, Any] = {}
-            for name, ref in entries.items():
-                if not isinstance(ref, TensorRef):
-                    raise BackboneContractViolation(
-                        f"{where}[{name!r}] is a {type(ref).__name__}, not a TensorRef. A "
-                        "checkpoint body that lost its tensors on the way through is not a "
-                        "checkpoint with fewer tensors."
-                    )
-                dtype = getattr(torch, ref.dtype)
-                out[name] = (
-                    torch.frombuffer(bytearray(ref.data), dtype=dtype)
-                    .reshape(ref.shape)
-                    .clone()
-                )
-            return out
-
         self.tower.model.load_state_dict(
-            revive(state["tower"], where="tower"), strict=True
+            revive_tensors(state["tower"], where="tower"), strict=True
         )
         self.span_head.load_state_dict(
-            revive(state["span_head"], where="span_head"), strict=True
+            revive_tensors(state["span_head"], where="span_head"), strict=True
         )
         # After the parameters, never before: `torch.optim.Optimizer.load_state_dict` casts
         # each restored state tensor to the dtype and device of the parameter it belongs to,
