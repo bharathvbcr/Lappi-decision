@@ -410,6 +410,41 @@ def build_remap(
     )
 
 
+def full_vocab_remap(
+    *,
+    source_vocab_size: int,
+    tokenizer_hash: str,
+    special_ids: Sequence[int],
+) -> RemapTable:
+    """The identity remap: every tokenizer id is kept, at its own index.
+
+    The corpus-built remap of [`build_remap`] cannot encode text it was not counted over,
+    and a served model is sent exactly that text (GAP-REMAP-CANNOT-ENCODE-THE-ROWS-IT-WAS-
+    NOT-BUILT-FROM, decided (c) on 2026-09-29). This keeps the whole tokenizer vocabulary,
+    so `RemapTable.encode` refuses nothing the tokenizer can produce, while every consumer
+    that pins a remap table -- the shard header, `remap_text_tower`, the scorer -- works
+    unchanged. `remap_text_tower` then slices only the embedding rows past the tokenizer
+    (Qwen3.5 pads 248,077 ids to 248,320 rows), which no token can reach.
+    """
+    if source_vocab_size <= 0:
+        raise RemapCoverageError(f"source_vocab_size must be positive, got {source_vocab_size}")
+    specials = sorted({int(raw) for raw in special_ids})
+    outside = [sid for sid in specials if sid < 0 or sid >= source_vocab_size]
+    if outside:
+        raise RemapCoverageError(
+            f"special id(s) {outside} are outside the source vocabulary [0, "
+            f"{source_vocab_size}). A special token the vocabulary does not contain is a "
+            "tokenizer mismatch."
+        )
+    ids = np.arange(source_vocab_size, dtype=np.int32)
+    return RemapTable(
+        old_to_new=ids,
+        new_to_old=ids.copy(),
+        tokenizer_hash=tokenizer_hash,
+        special_ids=tuple(specials),
+    )
+
+
 # --- Applying the remap to weights -----------------------------------------------------
 
 

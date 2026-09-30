@@ -19,6 +19,7 @@ from qd_train.remap import (
     RemapCoverageError,
     build_remap,
     count_corpus_tokens,
+    full_vocab_remap,
     remap_parity_report,
     verify_remap_parity,
 )
@@ -291,6 +292,41 @@ def test_the_contract_still_refuses_a_missing_tokenizer_hash():
             special_ids=(),
             target_vocab_size=None,
         )
+
+
+# --- the full vocabulary ---------------------------------------------------------------------
+
+
+def test_the_full_vocabulary_keeps_every_id_where_it_was():
+    r = full_vocab_remap(source_vocab_size=V_OLD, tokenizer_hash=TOK_HASH, special_ids=[0, 63])
+    assert r.vocab_size == r.source_vocab_size == V_OLD
+    every = np.arange(V_OLD)
+    assert np.array_equal(r.encode(every), every)
+    assert r.special_ids == (0, 63)
+
+
+def test_the_full_vocabulary_encodes_what_a_corpus_remap_refuses():
+    corpus = build_remap(
+        counts={4: 1, 9: 3}, source_vocab_size=V_OLD, tokenizer_hash=TOK_HASH,
+        special_ids=[0], target_vocab_size=None,
+    )
+    unseen = np.array([4, 17])
+    with pytest.raises(TokenNotInRemap):
+        corpus.encode(unseen)
+    full = full_vocab_remap(source_vocab_size=V_OLD, tokenizer_hash=TOK_HASH, special_ids=[0])
+    assert np.array_equal(full.encode(unseen), unseen)
+    assert full.remap_hash() != corpus.remap_hash()
+
+
+@pytest.mark.parametrize("bad", [[-1], [V_OLD]])
+def test_the_full_vocabulary_refuses_a_special_the_tokenizer_lacks(bad):
+    with pytest.raises(RemapCoverageError, match="outside the source vocabulary"):
+        full_vocab_remap(source_vocab_size=V_OLD, tokenizer_hash=TOK_HASH, special_ids=bad)
+
+
+def test_the_full_vocabulary_refuses_an_empty_tokenizer():
+    with pytest.raises(RemapCoverageError, match="must be positive"):
+        full_vocab_remap(source_vocab_size=0, tokenizer_hash=TOK_HASH, special_ids=[])
 
 
 # --- count input shapes --------------------------------------------------------------------

@@ -118,7 +118,7 @@ from qd_train.ledger import (
     Protocol,
     RunRecorder,
 )
-from qd_train.remap import build_remap, count_corpus_tokens
+from qd_train.remap import build_remap, count_corpus_tokens, full_vocab_remap
 from qd_train.shards import (
     COVERAGE_NAME,
     HEADER_NAME,
@@ -1157,6 +1157,13 @@ DEFAULT_GENERAL_MAX_ROWS = 200_000
 #: contradictory sequences reached write_shards unremoved. Recorded in the recipe:
 #: it decides which rows exist.
 PIPELINE_MAX_CONSISTENCY_ROWS = 1_000_000
+#: The vocabulary policy. ``full`` keeps every tokenizer id (qd_train.remap.full_vocab_remap):
+#: a served model is sent text no corpus was counted over, and the corpus-built remap
+#: refuses 608 of 2,210 held-out rows of the phase-3 set (row d849d700). Decided (c) on
+#: 2026-09-29, so it is the default; ``corpus`` is the older remap over the written rows.
+VOCAB_FULL = "full"
+VOCAB_CORPUS = "corpus"
+VOCAB_POLICIES = (VOCAB_FULL, VOCAB_CORPUS)
 #: The datasets a fetch record may name, and the source each becomes.
 GENERAL_DATASETS = frozenset(
     {"cais/mmlu", "tau/commonsense_qa", "clinc/clinc_oos", "rajpurkar/squad_v2"}
@@ -1305,7 +1312,10 @@ def run(
     general_max_rows: int = DEFAULT_GENERAL_MAX_ROWS,
     replay_shards: bool = False,
     repo_history: bool = True,
+    vocab: str = VOCAB_FULL,
 ) -> Measured:
+    if vocab not in VOCAB_POLICIES:
+        raise SystemExit(f"vocab must be one of {VOCAB_POLICIES}, got {vocab!r}")
     if replay_shards and general_record is None:
         raise SystemExit(
             "--replay-shards needs --general-record: the replay slice is drawn from the "
@@ -1558,14 +1568,20 @@ def run(
     counts = count_corpus_tokens(
         remap_ids, source_vocab_size=len(tok.tok), max_sequences=len(remap_ids) + 1
     )
-    remap = build_remap(
-        counts=counts,
-        source_vocab_size=len(tok.tok),
-        tokenizer_hash=tok.hash(),
-        special_ids=tuple(sorted({int(i) for i in tok.tok.all_special_ids})),
-        target_vocab_size=None,
-    )
-    print("\n== stage 5: remap over the real vocabulary ==")
+    special_ids = tuple(sorted({int(i) for i in tok.tok.all_special_ids}))
+    if vocab == VOCAB_FULL:
+        remap = full_vocab_remap(
+            source_vocab_size=len(tok.tok), tokenizer_hash=tok.hash(), special_ids=special_ids
+        )
+    else:
+        remap = build_remap(
+            counts=counts,
+            source_vocab_size=len(tok.tok),
+            tokenizer_hash=tok.hash(),
+            special_ids=special_ids,
+            target_vocab_size=None,
+        )
+    print(f"\n== stage 5: remap over the real vocabulary (--vocab {vocab}) ==")
     print(f"  source vocab {remap.source_vocab_size} -> kept {remap.vocab_size} "
           f"({counts.n_distinct} distinct ids used by {counts.n_tokens} tokens)")
     print(f"  counted over {len(remap_ids)} tokenized sequence(s) -- "
@@ -1580,6 +1596,16 @@ def run(
     fallback: dict[str, TriState] = {}
     byte_ids = tok.byte_token_ids()
     for split_name in ("val", HELD_OUT):
+        if vocab == VOCAB_FULL:
+            whole = NotRun(
+                reason=(
+                    "--vocab full keeps every tokenizer id, so every row of this split "
+                    "encodes by construction and a count here would measure nothing"
+                )
+            )
+            unseen[split_name] = fallback[split_name] = whole
+            print(f"  {split_name}: {whole.reason}")
+            continue
         if split_name == "val" and val_shards:
             by_construction = NotRun(
                 reason=(
@@ -1777,7 +1803,9 @@ def run(
             passed=True, value=remap.vocab_size, n=remap.vocab_size,
             n_total=remap.source_vocab_size,
             detail=(
-                f"counted over {len(remap_ids)} tokenized sequence(s), "
+                "--vocab full: every tokenizer id kept, none counted"
+                if vocab == VOCAB_FULL
+                else f"counted over {len(remap_ids)} tokenized sequence(s), "
                 f"{'train and val' if val_shards else 'train only'}"
             ),
         ),
@@ -1962,6 +1990,16 @@ def main(argv: list[str] | None = None) -> int:
             "under the same remap. Needs --general-record."
         ),
     )
+    parser.add_argument(
+        "--vocab",
+        choices=VOCAB_POLICIES,
+        default=VOCAB_FULL,
+        help=(
+            "full (default): keep every tokenizer id, so any text encodes -- what a served "
+            "model needs. corpus: the older remap over the written rows only, which refuses "
+            "any row using a token those rows did not."
+        ),
+    )
     args = parser.parse_args(argv)
     # `--max-pairs` bounds what `base_sources` reads from history or samples from the
     # download. With neither in play it would determine nothing and still land in the
@@ -1996,6 +2034,7 @@ def main(argv: list[str] | None = None) -> int:
         "defect_max_rows": args.defect_max_rows, "memo_limit": args.memo_limit,
         "general_record": args.general_record, "general_max_rows": args.general_max_rows,
         "replay_shards": args.replay_shards, "repo_history": args.repo_history,
+        "vocab": args.vocab,
     }
     if args.ledger is None:
         run(**run_kwargs)
@@ -2051,6 +2090,11 @@ def main(argv: list[str] | None = None) -> int:
         recipe["general_max_rows"] = args.general_max_rows
     if args.replay_shards:
         recipe["replay_shards"] = True
+    if args.vocab == VOCAB_FULL:
+        # Keyed on full, not corpus: every row written before the flag existed used the
+        # corpus remap and hashed without this key, so a trimmed set still hashes as before
+        # and a full-vocabulary set can never share its recipe_hash.
+        recipe["vocab"] = VOCAB_FULL
     # It decides which rows exist (the contradictory-prompt drop runs only under it).
     recipe["max_consistency_rows"] = PIPELINE_MAX_CONSISTENCY_ROWS
     protocol = Protocol(

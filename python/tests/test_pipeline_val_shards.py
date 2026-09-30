@@ -41,7 +41,7 @@ def test_the_val_split_is_written_under_the_remap_the_train_split_uses(tmp_path)
 
     measured = pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev="HEAD",
-        commitpackft=DOWNLOAD, val_shards=True,
+        commitpackft=DOWNLOAD, val_shards=True, vocab=pipeline.VOCAB_CORPUS,
     )
 
     coverage = measured.metrics["val_shard_coverage"]
@@ -62,6 +62,31 @@ def test_the_val_split_is_written_under_the_remap_the_train_split_uses(tmp_path)
     assert val.header.split == "val"
     assert val.header.vocab_size == train.header.vocab_size
     assert val.header.remap_hash == train.header.remap_hash, "scored under another remap"
+
+
+def test_the_default_full_vocabulary_writes_every_id_and_counts_nothing(tmp_path) -> None:
+    pytest.importorskip("transformers")
+    if not pipeline.MODEL_REF.exists():
+        pytest.skip(f"{pipeline.MODEL} is not in this host's HF cache")
+    if not any((DOWNLOAD / f"{lang}.jsonl").exists() for lang in ("go", "python")):
+        pytest.skip("the commitpackft download is not on this host; only its manifest is")
+
+    measured = pipeline.run(
+        out=tmp_path, max_pairs=60, blank_line_runs=False, rev="HEAD",
+        commitpackft=DOWNLOAD, val_shards=True,
+    )
+
+    vocabulary = measured.metrics["remap_vocabulary"]
+    assert isinstance(vocabulary, Ran) and vocabulary.value == vocabulary.n_total
+    # Every row encodes by construction, so a coverage count would measure nothing.
+    for name in ("remap_covers_val_rows", "remap_covers_heldout_rows",
+                 "remap_byte_fallback_heldout_tokens"):
+        got = measured.metrics[name]
+        assert isinstance(got, NotRun) and "--vocab full" in got.reason, (name, got)
+    train = ShardReader(
+        tmp_path / "shards" / "train", config=DataConfig(), repo_root=tmp_path
+    )
+    assert train.header.vocab_size == vocabulary.n_total
 
 
 def test_without_the_flag_no_val_set_is_claimed() -> None:

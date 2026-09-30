@@ -356,6 +356,33 @@ Measured by the GPU lane; `HANDOFF/mac-gpu-lane-2026-09-29.md` has every row.
     built at `--rev HEAD`.
 - Not yet proven: the epoch → `--score-val` → `--verdicts-out` → `ft_linear_control` path on the real
   tower. The smoke's epoch arm was refused on the 23–32k-token repo-history buckets.
+  **Proven at `c97c39f`** (`ledger/mac-phase3-smoke-2026-09-29.jsonl`):
+  - ft `cfb2eb01`: 193 steps, `steps_exhausted`.
+  - eval `75ffa23e`: 22 verdicts.
+  - `paired_margin_vs_linear` `00b57d10` ran; the baseline was ahead on 11 val rows.
+  - All are quick rows on 300 training rows, so this is not a decision signal.
+
+### Vocabulary: full tokenizer vocabulary (user decision 2026-09-29)
+
+- **The corpus-built remap could not encode what it was not counted over.** It kept 56,170 of
+  248,077 ids and refused 608 of 2,210 held-out rows (row `d849d700`). It would also refuse any
+  served input with a dropped id, and serving is the product.
+- **Decision (c):** keep every tokenizer id.
+  - `real_tokenizer_pipeline.py --vocab full` is now the default, built with
+    `qd_train.remap.full_vocab_remap` (the identity table).
+  - `--vocab corpus` keeps the old remap.
+  - The recipe carries `vocab: full`, so full and trimmed sets never share a `recipe_hash`.
+  - The Rust side (`qd-metal`) never had a remap; it reads `vocab_size` from the model config.
+- **Cost:**
+  - Training: +480M parameters, about 7.2 GiB of optimizer state. That is irrelevant on a
+    96 GB GH200.
+  - Serving on the Mac: about 1 GB in bf16.
+  - The 7.16 GiB saving in `HANDOFF/memory-2026-09-20.md` no longer applies.
+- **Open:** the trained embedding has 248,077 rows, and the checkpoint config says 248,320. The
+  export must re-pad 243 rows that no token can reach
+  (GAP-EXPORT-FULL-VOCAB-CHECKPOINT-IS-243-ROWS-SHORT-OF-THE-CONFIG).
+- **Every campaign shard set is rebuilt under `--vocab full`**, and the phase-3 smoke is re-run on
+  it before renting.
 
 ### What would change the schedule
 
