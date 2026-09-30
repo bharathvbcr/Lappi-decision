@@ -1711,9 +1711,15 @@ def _real_step(
     *, backbone: Path, reader: ShardReader, plan: list[Batch], device: str, dtype: str,
     spec: OptimizerSpec, attn_implementation: str, seed: int, lr: float, total_steps: int,
     span_weight: float, width: int, lower_layers_n: int = 0, lower_lr_scale: float = 1.0,
-    beta2: float = DEFAULT_BETA2,
+    beta2: float = DEFAULT_BETA2, eval_widths: Sequence[int] = (),
 ) -> tuple[Any, Any, TriState]:
     """The real tower, remapped to the shard set, budgeted, and wrapped in a step.
+
+    ``eval_widths`` are the widths of batches the step will only DECODE -- the needle
+    suite's ~8K cases. They raise the step's ``max_width`` bound and nothing else: the
+    budget prices ``plan``'s forward+backward with optimizer state, which would misprice a
+    no-grad forward, so an eval-only shape is not budgeted here. A step bounded by
+    ``plan`` alone refused the needle suite after a full val pass on 2026-09-30.
 
     The one place the real backbone becomes a step: ``_train`` builds it in bf16 to train,
     and ``--score-checkpoint`` builds it in fp32 to receive a checkpoint's weights. Returns
@@ -1780,7 +1786,7 @@ def _real_step(
         lr=lr,
         total_steps=total_steps,
         span_weight=span_weight,
-        max_width=width,
+        max_width=max((width, *eval_widths)),
         lower_layers_n=lower_layers_n,
         lower_lr_scale=lower_lr_scale,
         beta2=beta2,
@@ -1803,6 +1809,7 @@ def _train(
     permutation: ChoicePermutation | None = None,
     alphabets: Mapping[int, list[tuple[str, ...] | None]] | None = None,
     replay: ReplayPlan | None = None,
+    eval_widths: Sequence[int] = (),
     cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
     batch_tokens: int | None = None,
 ) -> dict[str, object]:
@@ -1882,6 +1889,7 @@ def _train(
             spec=spec, attn_implementation=attn_implementation, seed=seed, lr=lr,
             total_steps=steps, span_weight=span_weight, width=width,
             lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
+            eval_widths=eval_widths,
         )
         # `tower.snapshot.name`, not `str(backbone)`: the directory name is the HF revision
         # (refs/main and the snapshot dir agree), while the absolute path is
@@ -3488,6 +3496,13 @@ def score_needle(
     """``needle_hunk_recall`` and its by-depth metrics, under the approved contract."""
     if suite.not_run is not None:
         return NotRun(reason=suite.not_run), {}
+    bound = getattr(step, "max_width", None)
+    widest = max(suite.token_lengths)
+    if bound is not None and int(bound) < widest:
+        raise SystemExit(
+            f"the step is bounded at {bound} tokens and the needle suite's widest case is "
+            f"{widest}: build it with eval_widths=suite.token_lengths"
+        )
     decoded = _decode(step, suite.batches, suite.labels_for, dict(letter_id))
     by_case = {str(v["row_id"]): v for v in decoded["verdicts"]}  # type: ignore[union-attr]
     predictions: dict[str, int | None] = {}
@@ -3710,7 +3725,7 @@ def _score_checkpoint(
         dtype=args.score_dtype, spec=ADAMW_FP32 if args.score_dtype == "fp32" else ADAMW_BF16,
         attn_implementation=str(recipe["attn_implementation"]), seed=seed,
         lr=float(recipe["lr"]), total_steps=steps, span_weight=float(recipe["span_weight"]),
-        width=width,
+        width=width, eval_widths=needle_suite.token_lengths,
     )
     step.load_weights(weights)
     run: dict[str, object] = {
@@ -5115,6 +5130,7 @@ def main(argv: list[str] | None = None) -> int:
                     lower_layers_n=args.lower_layers_n,
                     lower_lr_scale=args.lower_layers_lr_scale, beta2=args.beta2,
                     permutation=permutation, alphabets=epoch_alphabets, replay=replay_plan,
+                    eval_widths=needle_suite.token_lengths,
                 )
                 step = run.pop("_step")
                 if val_set is not None:

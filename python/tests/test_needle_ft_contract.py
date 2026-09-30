@@ -143,6 +143,26 @@ def test_needle_argv_needs_score_val_and_the_real_backbone(tmp_path):
         rft.main(["--out", str(tmp_path), "--rev", "0" * 40, "--needle"])
 
 
+def test_a_step_too_narrow_for_the_suite_is_refused_before_any_decode(monkeypatch):
+    """2026-09-30: the step was bounded by the val plan (1,110 tokens), and the needle
+    suite's first 8,329-token case was refused by the step itself -- after a full val pass.
+    Now refused before anything is decoded, and both paths size the step for the suite."""
+    import inspect
+    from types import SimpleNamespace
+
+    cases = build_suite(target_tokens=1024, cases_per_depth=1, seed=0)
+
+    def never(*a, **k):
+        raise AssertionError("decoded with a step that cannot hold the suite")
+
+    monkeypatch.setattr(rft, "_decode", never)
+    with pytest.raises(SystemExit, match="bounded at 1110"):
+        rft.score_needle(SimpleNamespace(max_width=1110), _suite(cases), {})  # type: ignore[arg-type]
+    assert "max_width=max((width, *eval_widths))" in inspect.getsource(rft._real_step)
+    assert "eval_widths=needle_suite.token_lengths" in inspect.getsource(rft._score_checkpoint)
+    assert "eval_widths=needle_suite.token_lengths" in inspect.getsource(rft.main)
+
+
 def test_a_span_only_batch_skips_the_vocabulary_head():
     import inspect
 
