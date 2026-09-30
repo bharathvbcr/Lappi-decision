@@ -2435,6 +2435,9 @@ def ft_splits(
     defect_download: Path | None = None,
     defect_max_rows: int | None = None,
     repo_history: bool = True,
+    general_record: Path | None = None,
+    general_max_rows: int | None = None,
+    replay_partition: bool = False,
 ) -> dict[str, list[DataRow]]:
     """Every split of the corpus this tool's shard sets were built from, by split name.
 
@@ -2450,9 +2453,29 @@ def ft_splits(
 
     ``repo_history=False`` mirrors the pipeline's ``--no-repo-history``, through the same
     ``base_sources`` the pipeline itself calls.
+
+    ``general_record`` / ``general_max_rows`` mirror the pipeline's ``--general-record`` /
+    ``--general-max-rows``: the general families come back through the pipeline's own
+    ``general_rows`` (same sha-checked caches, same per-file cap), inserted after the base
+    and defect sources exactly as ``run`` inserts them (real SQuAD replaces the repository
+    prose stand-in under the same source), and ``build_mixture`` gets the record's CLINC
+    domain map, without which it builds no two-stage CLINC rows at all.
+    ``replay_partition`` mirrors the pipeline's ``--replay-shards``: its
+    ``split_off_replay`` takes the replay-only rows out of the gold ``train`` split, so
+    they are never gold-trained here either. val and held-out are untouched by it.
+
+    ``build_mixture`` runs at the pipeline's ``PIPELINE_MAX_CONSISTENCY_ROWS``, not the
+    library default: the two agree below 250,000 rows and build different row sets above
+    it. A consistency pass that could not run is refused, as the pipeline refuses it: no
+    shard set was ever written from such a mixture, so this rebuild has diverged from it.
     """
     if defect_class is None and (defect_download is not None or defect_max_rows is not None):
         raise ValueError("defect_download/defect_max_rows without defect_class read nothing")
+    if general_record is None and (general_max_rows is not None or replay_partition):
+        raise ValueError(
+            "general_max_rows/replay_partition without general_record read nothing: the "
+            "replay slice is drawn from the general families' training rows"
+        )
     import real_tokenizer_pipeline as pipeline
 
     from qd_data.config import SPLITS
@@ -2477,9 +2500,34 @@ def ft_splits(
             config=config, repo_root=REPO, max_rows=defect_max_rows,
         )
         raw[DEFECT_SOURCE_ID] = list(load.rows)
-    mixture = build_mixture(raw, config=config)
+    clinc_domain_map = None
+    if general_record is not None:
+        general = pipeline.general_rows(
+            general_record,
+            max_rows_per_file=(
+                pipeline.DEFAULT_GENERAL_MAX_ROWS if general_max_rows is None
+                else general_max_rows
+            ),
+        )
+        for dataset, rows in general.raw.items():
+            raw[dataset] = list(rows)
+        clinc_domain_map = general.clinc_domain_map
+    mixture = build_mixture(
+        raw, config=config, clinc_domain_map=clinc_domain_map,
+        max_consistency_rows=pipeline.PIPELINE_MAX_CONSISTENCY_ROWS,
+    )
+    if isinstance(mixture.prompt_consistency, NotRun):
+        raise SystemExit(
+            "build_mixture could not run its consistency pass on the rebuild, and the "
+            "pipeline refuses to write a shard set from such a mixture, so this rebuild is "
+            f"not the one any shard set was written from: {mixture.prompt_consistency.reason}"
+        )
     report = dedupe(list(mixture.rows), config=config)
     split_report = split(report, config=config)
+    if replay_partition:
+        split_report, _replay, _partition = pipeline.split_off_replay(
+            split_report, seed=config.seed
+        )
     return {name: list(split_report.rows_by_split.get(name, ())) for name in SPLITS}
 
 
@@ -2493,18 +2541,26 @@ def ft_split_rows(
     defect_download: Path | None = None,
     defect_max_rows: int | None = None,
     repo_history: bool = True,
+    general_record: Path | None = None,
+    general_max_rows: int | None = None,
+    replay_partition: bool = False,
 ) -> tuple[list[DataRow], list[DataRow]]:
     """``(train_rows, val_rows)``: exactly the two splits ``main`` trains and scores on."""
     splits = ft_splits(
         commitpackft=commitpackft, max_pairs=max_pairs, rev=rev, config=config,
         defect_class=defect_class, defect_download=defect_download,
         defect_max_rows=defect_max_rows, repo_history=repo_history,
+        general_record=general_record, general_max_rows=general_max_rows,
+        replay_partition=replay_partition,
     )
     return splits["train"], splits["val"]
 
 
 #: Where ``tools/real_tokenizer_pipeline.py`` writes the train manifest, under its --out.
 TRAIN_MANIFEST: Final[str] = "data/pool/train.json"
+#: Where it writes the replay slice's manifest -- only under its ``--replay-shards``, whose
+#: ``split_off_replay`` took those rows out of the gold train split.
+REPLAY_MANIFEST: Final[str] = "data/pool/train-replay.json"
 
 
 def check_defect_source(out: Path, *, defect_class: Path | None) -> None:
@@ -2549,8 +2605,9 @@ def check_defect_source(out: Path, *, defect_class: Path | None) -> None:
         )
 
 
-#: Sources only ``--general-record`` supplies. ``ft_splits`` does not rebuild them, so a set
-#: built with them cannot be relabelled here.
+#: Sources only ``--general-record`` supplies. A set fed by any of them is relabelled only
+#: with the same ``--general-record``, which ``ft_splits`` reads through the pipeline's own
+#: ``general_rows``.
 GENERAL_ONLY_SOURCES: Final[tuple[str, ...]] = (
     "cais/mmlu", "tau/commonsense_qa", "clinc/clinc_oos",
 )
@@ -2567,17 +2624,41 @@ class CorpusFacts:
     history_rows: dict[str, int]
 
 
+def general_record_datasets(record: Path | None) -> frozenset[str] | None:
+    """The datasets a fetch record names, read through the pipeline's own record parser --
+    before the rebuild, which sha-checks every cache. ``None`` when no record was given."""
+    if record is None:
+        return None
+    import real_tokenizer_pipeline as pipeline
+
+    _raw, entries = pipeline.fetch_record_entries(record)
+    return frozenset(str(e["dataset"]) for e in entries)
+
+
 def corpus_facts(
     out: Path, *, data_snapshot_hash: str, repo_history: bool, commitpackft: Path | None,
+    general_datasets: frozenset[str] | None = None, replay_partition: bool = False,
 ) -> CorpusFacts:
     """Read the train manifest the pipeline wrote, and refuse what this rebuild cannot match.
 
     Refused: a manifest that is absent, that names a different ``data_snapshot_hash`` than
-    the shard header (it is not this set's manifest), that carries a family only
-    ``--general-record`` supplies (``ft_splits`` does not rebuild those), or whose
-    repository-history rows disagree with ``repo_history`` -- a set built with
-    ``--no-repo-history`` and relabelled with history would rebuild rows the shards never
-    held, and the reverse would drop rows they did.
+    the shard header (it is not this set's manifest), whose repository-history rows
+    disagree with ``repo_history`` -- a set built with ``--no-repo-history`` and relabelled
+    with history would rebuild rows the shards never held, and the reverse would drop rows
+    they did -- and any disagreement about the general families or the replay slice:
+
+    * ``general_datasets`` is what this run's ``--general-record`` names
+      (:func:`general_record_datasets`), ``None`` without one. A set fed by a family only a
+      record supplies is refused without a record, and with a record that does not name
+      that family; a record none of whose datasets fed the set is refused too. A dataset
+      the record names may legitimately feed nothing (a split ``REFUSED_READS`` forbids),
+      so that alone is not a refusal.
+    * ``rajpurkar/squad_v2`` counts as repository history only when the record does not
+      supply it: the pipeline replaces the prose stand-in with real SQuAD.
+    * ``replay_partition`` must agree with the replay manifest the pipeline writes beside
+      the train manifest only under its ``--replay-shards``: without the partition the
+      rebuild would gold-train rows the set keeps for replay, and with it on a set that
+      had none it would drop rows the shards hold.
     """
     path = out / TRAIN_MANIFEST
     if not path.is_file():
@@ -2594,13 +2675,41 @@ def corpus_facts(
     if not isinstance(n_input, dict):
         raise SystemExit(f"{path} carries no mixture.n_input, so its sources cannot be read")
     general = sorted(s for s in GENERAL_ONLY_SOURCES if int(n_input.get(s, 0)) > 0)
-    if general:
+    if general and general_datasets is None:
         raise SystemExit(
             f"{path}: {general} fed this shard set -- it was built with --general-record, and "
-            "ft_splits does not rebuild the general families, so its labels cannot be "
-            "reconstructed here. Refusing rather than pairing labels to a different row set."
+            "without the same --general-record here the general families are not rebuilt, "
+            "so its labels cannot be reconstructed. Refusing rather than pairing labels to a "
+            "different row set."
         )
-    history_sources = ("rajpurkar/squad_v2",) + (
+    if general_datasets is not None:
+        unnamed = sorted(set(general) - general_datasets)
+        if unnamed:
+            raise SystemExit(
+                f"{path}: {unnamed} fed this shard set but this run's --general-record does "
+                f"not name them (it names {sorted(general_datasets)}): not the record the set "
+                "was built from"
+            )
+        if not any(int(n_input.get(d, 0)) > 0 for d in general_datasets):
+            raise SystemExit(
+                f"--general-record names {sorted(general_datasets)} but none of them fed "
+                f"{path}: this shard set was built without it"
+            )
+    built_with_replay = (out / REPLAY_MANIFEST).is_file()
+    if built_with_replay and not replay_partition:
+        raise SystemExit(
+            f"{out / REPLAY_MANIFEST} exists: this shard set was built with the pipeline's "
+            "--replay-shards, whose replay-only rows left the gold train split. Pass "
+            "--replay-partition, or the rebuild gold-trains rows the set keeps for replay."
+        )
+    if replay_partition and not built_with_replay:
+        raise SystemExit(
+            f"--replay-partition was given but {out / REPLAY_MANIFEST} is absent: this shard "
+            "set was built without the pipeline's --replay-shards, and partitioning the "
+            "rebuild would drop rows the shards hold"
+        )
+    squad_from_history = general_datasets is None or "rajpurkar/squad_v2" not in general_datasets
+    history_sources = (("rajpurkar/squad_v2",) if squad_from_history else ()) + (
         ("bigcode/commitpackft",) if commitpackft is None else ()
     )
     history_rows = {s: int(n_input[s]) for s in history_sources if int(n_input.get(s, 0)) > 0}
@@ -2609,7 +2718,9 @@ def corpus_facts(
             f"{path}: {history_rows} rows from this repository's history fed this shard set, "
             "but --no-repo-history was passed; the rebuild would not have them"
         )
-    if repo_history and not history_rows:
+    # With --commitpackft and a record that supplies SQuAD, the rebuild reads no history row
+    # whatever --no-repo-history says, so the flag decides nothing and is not checked.
+    if repo_history and history_sources and not history_rows:
         raise SystemExit(
             f"{path}: no row from this repository's history fed this shard set -- it was built "
             "with --no-repo-history. Pass the same flag here, or the rebuild adds rows the "
@@ -3187,11 +3298,28 @@ def _alphabets(
 def replay_corpus_identity(
     *, rev: str, max_pairs: int, commitpackft: Path | None, defect_class: Path | None,
     defect_max_rows: int | None, repo_history: bool = True,
+    general_record: Path | None = None, general_max_rows: int | None = None,
 ) -> dict[str, object]:
     """What ``ft_splits`` was called with, as the replay attestation records it. One
     function, used by ``tools/replay_decontam.py`` to write it and by ``_replay_plan`` to
     check it, so the two cannot spell the corpus differently. ``repo_history`` is named
-    only when False, so every attestation written before it existed still matches."""
+    only when False, and the general record only when given, so every attestation written
+    before either existed still matches. The record is named by its sha256, as the
+    pipeline's recipe names it: its general families are val and held-out targets too, and
+    an attestation made without them compared the replay set against fewer rows."""
+    if general_record is None and general_max_rows is not None:
+        raise ValueError("general_max_rows without general_record read nothing")
+    general: dict[str, object] = {}
+    if general_record is not None:
+        import real_tokenizer_pipeline as pipeline
+
+        general = {
+            "general_record_sha256": hashlib.sha256(general_record.read_bytes()).hexdigest(),
+            "general_max_rows": (
+                pipeline.DEFAULT_GENERAL_MAX_ROWS if general_max_rows is None
+                else general_max_rows
+            ),
+        }
     return {
         "rev": rev,
         "max_pairs": max_pairs,
@@ -3199,6 +3327,7 @@ def replay_corpus_identity(
         "defect_class": None if defect_class is None else defect_class.name,
         "defect_max_rows": defect_max_rows,
         **({} if repo_history else {"repo_history": False}),
+        **general,
     }
 
 
@@ -3243,7 +3372,8 @@ def _replay_plan(
     corpus = replay_corpus_identity(
         rev=rev, max_pairs=args.max_pairs, commitpackft=args.commitpackft,
         defect_class=args.defect_class, defect_max_rows=args.defect_max_rows,
-        repo_history=args.repo_history,
+        repo_history=args.repo_history, general_record=args.general_record,
+        general_max_rows=args.general_max_rows,
     )
     if attestation.get("corpus") != corpus:
         raise SystemExit(
@@ -3452,6 +3582,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--defect-max-rows", type=int, default=None,
         help="as the pipeline's --defect-max-rows: the same sha256-ordered cap, or none",
+    )
+    parser.add_argument(
+        "--general-record", type=Path, default=None,
+        help=(
+            "the general-family fetch record the shard set was built with, exactly as passed "
+            "to tools/real_tokenizer_pipeline.py --general-record. Required when the set's "
+            "train manifest was fed a family only the record supplies (MMLU, CSQA, CLINC), "
+            "refused when none of the record's datasets fed it"
+        ),
+    )
+    parser.add_argument(
+        "--general-max-rows", type=int, default=None,
+        help="as the pipeline's --general-max-rows: the same per-file bound; default its default",
+    )
+    parser.add_argument(
+        "--replay-partition", action="store_true",
+        help=(
+            "the shard set was built with the pipeline's --replay-shards, whose replay-only "
+            "rows left the gold train split: rebuild the split the same way. Needs "
+            "--general-record; checked against the replay manifest beside the train manifest"
+        ),
     )
     parser.add_argument("--epoch", action="store_true", help="also run arm 1, the real epoch")
     parser.add_argument(
@@ -3777,6 +3928,13 @@ def main(argv: list[str] | None = None) -> int:
         require_full_sha(args.rev)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    if args.general_record is None and (
+        args.general_max_rows is not None or args.replay_partition
+    ):
+        raise SystemExit(
+            "--general-max-rows/--replay-partition without --general-record read nothing: "
+            "the replay slice is drawn from the general families' training rows"
+        )
     if not args.repo_history and args.commitpackft is None:
         if args.max_pairs is not None:
             raise SystemExit(
@@ -3860,16 +4018,23 @@ def main(argv: list[str] | None = None) -> int:
     corpus = corpus_facts(
         args.out, data_snapshot_hash=reader.header.data_snapshot_hash,
         repo_history=args.repo_history, commitpackft=args.commitpackft,
+        general_datasets=general_record_datasets(args.general_record),
+        replay_partition=args.replay_partition,
     )
     train_rows, val_rows = ft_split_rows(
         commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=rev, config=config,
         defect_class=args.defect_class, defect_download=args.defect_download,
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
+        general_record=args.general_record, general_max_rows=args.general_max_rows,
+        replay_partition=args.replay_partition,
     )
     labels, excluded = _labels(train_rows, config=config)
     # Paired by id against the writer's sequence index where the set has one; see
-    # pair_labels for why a --defect-class set must.
-    labels = pair_labels(reader, labels, require_index=args.defect_class is not None)
+    # pair_labels for why a --defect-class set must. A --general-record set must too: the
+    # writer that built it records one, and the replay partition moves gold rows within
+    # the train split, so a reconstructed order is never what this set is checked against.
+    require_index = args.defect_class is not None or args.general_record is not None
+    labels = pair_labels(reader, labels, require_index=require_index)
 
     inventory = _inventory(reader, labels, excluded)
     inventory["contradictions"] = _contradictions(reader, labels)
@@ -3888,7 +4053,7 @@ def main(argv: list[str] | None = None) -> int:
             args.out, config=config, rev=rev,
             rows=list(val_rows),
             train=reader, letter_id=letter_id,
-            require_index=args.defect_class is not None,
+            require_index=require_index,
         )
         print(
             f"val set: {len(val_set.reader)} sequences in {len(val_set.plan)} batches, "

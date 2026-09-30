@@ -235,7 +235,8 @@ def test_a_history_free_set_is_not_relabelled_with_history_or_the_reverse(tmp_pa
 
 
 def test_a_general_record_set_is_refused_rather_than_mislabelled(tmp_path):
-    """ft_splits does not rebuild the general families (phase 4's full mixture)."""
+    """Without --general-record the general families (phase 4's full mixture) are not
+    rebuilt; test_real_ft_general_record.py covers the set relabelled with its record."""
     _manifest(tmp_path, n_input={"cais/mmlu": 10, "qd-mutate/commitpackft": 50})
     with pytest.raises(SystemExit, match="built with --general-record"):
         _facts(tmp_path, repo_history=False)

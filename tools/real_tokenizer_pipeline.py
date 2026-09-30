@@ -1222,6 +1222,30 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def fetch_record_entries(record: Path) -> tuple[bytes, list[dict[str, Any]]]:
+    """``(raw bytes, entries)`` of a fetch record, bounded and shape-checked, nothing read.
+
+    Every entry must be an object naming one of :data:`GENERAL_DATASETS`. The one parser of
+    the record's outer shape: :func:`general_rows` reads the caches through it, and
+    ``real_ft_run`` asks it which datasets a record supplies before a rebuild starts.
+    """
+    raw_bytes = record.read_bytes()
+    if len(raw_bytes) > MAX_FETCH_RECORD_BYTES:
+        raise SystemExit(f"{record}: {len(raw_bytes)} bytes is not a fetch record")
+    entries = json.loads(raw_bytes)
+    if not isinstance(entries, list) or not entries:
+        raise SystemExit(f"{record}: a fetch record is a non-empty JSON list")
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise SystemExit(f"{record}: every fetch record entry is a JSON object")
+        dataset = str(entry.get("dataset"))
+        if dataset not in GENERAL_DATASETS:
+            raise SystemExit(
+                f"{record}: dataset {dataset!r} is not one of {sorted(GENERAL_DATASETS)}"
+            )
+    return raw_bytes, entries
+
+
 def general_rows(record: Path, *, max_rows_per_file: int = DEFAULT_GENERAL_MAX_ROWS) -> GeneralLoad:
     """Read every cache a fetch record names, refusing anything the record does not vouch for.
 
@@ -1231,23 +1255,14 @@ def general_rows(record: Path, *, max_rows_per_file: int = DEFAULT_GENERAL_MAX_R
     ``qd_data.general.load_clinc_domains``, which checks its own pinned sha256. Any mismatch
     stops the run: a corpus the record does not describe is not the approved download.
     """
-    raw_bytes = record.read_bytes()
-    if len(raw_bytes) > MAX_FETCH_RECORD_BYTES:
-        raise SystemExit(f"{record}: {len(raw_bytes)} bytes is not a fetch record")
-    entries = json.loads(raw_bytes)
-    if not isinstance(entries, list) or not entries:
-        raise SystemExit(f"{record}: a fetch record is a non-empty JSON list")
+    raw_bytes, entries = fetch_record_entries(record)
     root = record.parent.resolve()
     out: dict[str, list[RawRow]] = {}
     files: dict[str, dict[str, Any]] = {}
     capped: list[str] = []
     refused_reads: dict[str, str] = {}
     for entry in entries:
-        dataset = str(entry.get("dataset"))
-        if dataset not in GENERAL_DATASETS:
-            raise SystemExit(
-                f"{record}: dataset {dataset!r} is not one of {sorted(GENERAL_DATASETS)}"
-            )
+        dataset = str(entry["dataset"])
         path = Path(str(entry["jsonl"])).resolve()
         if not path.is_relative_to(root):
             raise SystemExit(f"{record}: {path} is outside the cache root {root}")
