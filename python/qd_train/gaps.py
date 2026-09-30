@@ -27,9 +27,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 #: The ledger this module writes. Repo-level, not package-level: it is the index of what
 #: every lane could not verify, not a training artifact.
@@ -39,6 +40,13 @@ DEFAULT_GAPS_PATH = Path(__file__).resolve().parents[2] / "gaps.jsonl"
 #: earlier lines are immutable history -- and on every record this function writes, because
 #: a new record has no excuse for being incomplete.
 REQUIRED_KEYS = frozenset({"id", "question", "status"})
+
+#: What a gap id is. The one owner of the grammar: `test_gaps_ledger` finds citations of ids
+#: in tracked files with it, and `validate_gap` refuses to write an id it could not find. The
+#: two used to disagree -- the writer only checked the "GAP-" prefix -- and an id with dots
+#: in it was recorded on 2026-09-30 and then failed to resolve in the handoff that cited it.
+GAP_ID_PATTERN: Final[str] = r"GAP-[A-Z0-9][A-Z0-9-]{3,}"
+GAP_ID_RE: Final[re.Pattern[str]] = re.compile(GAP_ID_PATTERN)
 
 #: The only statuses a record may carry, and which of them mean the question is answered.
 #:
@@ -96,10 +104,11 @@ def validate_gap(record: Mapping[str, Any], *, known_ids: set[str]) -> str:
         )
 
     gid = record["id"]
-    if not isinstance(gid, str) or not gid.startswith("GAP-") or not gid[4:].strip():
+    if not isinstance(gid, str) or not GAP_ID_RE.fullmatch(gid):
         raise GapRecordError(
-            f"id {gid!r} does not look like a gap id: it must be a string starting 'GAP-' "
-            "with something after it"
+            f"id {gid!r} is not a gap id: it must match {GAP_ID_PATTERN}. That is the "
+            "grammar every citation of an id is found by, so an id outside it (a dot, a "
+            "lower-case letter) is recorded and then never resolves where it is cited"
         )
 
     status = record["status"]

@@ -82,7 +82,7 @@ def open_records() -> dict[str, dict]:
 # wrapped across a line break is captured *with* its trailing hyphen instead of being
 # clipped. That hyphen is the signal `citation_resolves` keys on, so a pattern that
 # drops it cannot tell a wrap from a truncation.
-_ID_PATTERN = r"GAP-[A-Z0-9][A-Z0-9-]{3,}"
+_ID_PATTERN = _gaps.GAP_ID_PATTERN
 ID_RE = re.compile(_ID_PATTERN.encode())
 ID_RE_TEXT = re.compile(_ID_PATTERN)
 

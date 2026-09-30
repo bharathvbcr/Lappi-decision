@@ -143,10 +143,17 @@ def test_a_record_missing_a_required_key_is_refused(tmp_path: Path, missing: str
 
 
 @pytest.mark.parametrize(
-    "bad_id", ["", "GAP" + "-", "gap-lowercase", "NOT-A-" + "GAP-ID", 17, None]
+    "bad_id",
+    [
+        "", "GAP" + "-", "gap-lowercase", "NOT-A-" + "GAP-ID", 17, None,
+        # Recorded on 2026-09-30 and then unresolvable where the handoff cited it: the dots
+        # end a citation early, so a reader finds only the part before the first dot.
+        "GAP" + "-MEMORY-PREDICTS-0.84-0.97X-ON-GH200",
+        "GAP" + "-Mixed-Case-ID",
+    ],
 )
 def test_an_id_that_is_not_one_is_refused(tmp_path: Path, bad_id: object) -> None:
-    with pytest.raises(GapRecordError, match="does not look like a gap id"):
+    with pytest.raises(GapRecordError, match="is not a gap id"):
         append_gap({**GOOD, "id": bad_id}, path=_ledger(tmp_path))
 
 
