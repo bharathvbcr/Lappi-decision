@@ -1,0 +1,305 @@
+{
+  "name": "gh200-phase0-3-2026-09-29",
+  "state_dir": "/home/ubuntu/campaign/state",
+  "ledger": "/home/ubuntu/qwen-decision/ledger/gh200-campaign-phase0-3.jsonl",
+  "device": "cuda",
+  "instance": "lambda-1xgh200",
+  "usd_per_hour": 1.49,
+  "usd_per_hour_source": "",
+  "n_gpus": 1,
+  "campaign_cap_hours": 13,
+  "terminate_command": [],
+  "pull_grace_minutes": 45,
+  "approved_by": "",
+  "kill_grace_s": 60,
+  "phases": [
+    {
+      "name": "0-hour0",
+      "cap_hours": 1.5,
+      "units": [
+        {
+          "name": "footprint-master",
+          "expect_rows": 0,
+          "argv": [
+            "/home/ubuntu/qd-venv/bin/python",
+            "/home/ubuntu/qwen-decision/tools/gh200_footprint.py",
+            "--optimizer",
+            "master"
+          ]
+        },
+        {
+          "name": "phase3-shards-full-vocab",
+          "expect_rows": 1,
+          "argv": [
+            "/home/ubuntu/qd-venv/bin/python",
+            "/home/ubuntu/qwen-decision/tools/real_tokenizer_pipeline.py",
+            "--out",
+            "/home/ubuntu/phase3",
+            "--no-repo-history",
+            "--defect-class",
+            "/home/ubuntu/qwen-decision/data/pool/commitpackft-corpus-v2",
+            "--val-shards",
+            "--memo-limit",
+            "0",
+            "--vocab",
+            "full",
+            "--rev",
+            "c80aedb9e0e71c7c24b71957e0cac3ecb8e5b405",
+            "--ledger",
+            "/home/ubuntu/qwen-decision/ledger/gh200-campaign-phase0-3.jsonl"
+          ]
+        },
+        {
+          "name": "throughput-capped",
+          "expect_rows": 1,
+          "argv": [
+            "/home/ubuntu/qd-venv/bin/python",
+            "/home/ubuntu/qwen-decision/tools/real_ft_run.py",
+            "--out",
+            "/home/ubuntu/phase3",
+            "--no-repo-history",
+            "--defect-class",
+            "/home/ubuntu/qwen-decision/data/pool/commitpackft-corpus-v2",
+            "--rev",
+            "c80aedb9e0e71c7c24b71957e0cac3ecb8e5b405",
+            "--real-backbone",
+            "/home/ubuntu/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
+            "--optimizer",
+            "master",
+            "--devices",
+            "cuda",
+            "--seeds",
+            "0",
+            "--epoch",
+            "--no-memorise",
+            "--wall-clock-cap-s",
+            "1500",
+            "--instance",
+            "lambda-1xgh200",
+            "--usd-per-hour",
+            "1.49",
+            "--ledger",
+            "/home/ubuntu/qwen-decision/ledger/gh200-campaign-phase0-3.jsonl"
+          ],
+          "accept_returncodes": [
+            0,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3-train",
+      "cap_hours": 9,
+      "units": [
+        {
+          "name": "ft-s0",
+          "expect_rows": 2,
+          "checkpoint": {
+            "dir": "/home/ubuntu/ckpt/p3-s0",
+            "every_hours": 1.5,
+            "throughput_from": "0-hour0"
+          },
+          "argv": [
+            "/home/ubuntu/qd-venv/bin/python",
+            "/home/ubuntu/qwen-decision/tools/real_ft_run.py",
+            "--out",
+            "/home/ubuntu/phase3",
+            "--no-repo-history",
+            "--defect-class",
+            "/home/ubuntu/qwen-decision/data/pool/commitpackft-corpus-v2",
+            "--rev",
+            "c80aedb9e0e71c7c24b71957e0cac3ecb8e5b405",
+            "--real-backbone",
+            "/home/ubuntu/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
+            "--optimizer",
+            "master",
+            "--devices",
+            "cuda",
+            "--seeds",
+            "0",
+            "--epoch",
+            "--no-memorise",
+            "--score-val",
+            "--verdicts-out",
+            "/home/ubuntu/phase3/verdicts-s0.jsonl",
+            "--checkpoint-dir",
+            "/home/ubuntu/ckpt/p3-s0",
+            "--checkpoint-every",
+            "{checkpoint_every}",
+            "--wall-clock-cap-s",
+            "9900",
+            "--instance",
+            "lambda-1xgh200",
+            "--usd-per-hour",
+            "1.49",
+            "--ledger",
+            "/home/ubuntu/qwen-decision/ledger/gh200-campaign-phase0-3.jsonl"
+          ],
+          "accept_returncodes": [
+            0,
+            1
+          ]
+        },
+        {
+          "name": "ft-s1",
+          "expect_rows": 2,
+          "checkpoint": {
+            "dir": "/home/ubuntu/ckpt/p3-s1",
+            "every_hours": 1.5,
+            "throughput_from": "0-hour0"
+          },
+          "argv": [
+            "/home/ubuntu/qd-venv/bin/python",
+            "/home/ubuntu/qwen-decision/tools/real_ft_run.py",
+            "--out",
+            "/home/ubuntu/phase3",
+            "--no-repo-history",
+            "--defect-class",
+            "/home/ubuntu/qwen-decision/data/pool/commitpackft-corpus-v2",
+            "--rev",
+            "c80aedb9e0e71c7c24b71957e0cac3ecb8e5b405",
+            "--real-backbone",
+            "/home/ubuntu/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
+            "--optimizer",
+            "master",
+            "--devices",
+            "cuda",
+            "--seeds",
+            "1",
+            "--epoch",
+            "--no-memorise",
+            "--score-val",
+            "--verdicts-out",
+            "/home/ubuntu/phase3/verdicts-s1.jsonl",
+            "--checkpoint-dir",
+            "/home/ubuntu/ckpt/p3-s1",
+            "--checkpoint-every",
+            "{checkpoint_every}",
+            "--wall-clock-cap-s",
+            "9900",
+            "--instance",
+            "lambda-1xgh200",
+            "--usd-per-hour",
+            "1.49",
+            "--ledger",
+            "/home/ubuntu/qwen-decision/ledger/gh200-campaign-phase0-3.jsonl"
+          ],
+          "accept_returncodes": [
+            0,
+            1
+          ]
+        },
+        {
+          "name": "ft-s2",
+          "expect_rows": 2,
+          "checkpoint": {
+            "dir": "/home/ubuntu/ckpt/p3-s2",
+            "every_hours": 1.5,
+            "throughput_from": "0-hour0"
+          },
+          "argv": [
+            "/home/ubuntu/qd-venv/bin/python",
+            "/home/ubuntu/qwen-decision/tools/real_ft_run.py",
+            "--out",
+            "/home/ubuntu/phase3",
+            "--no-repo-history",
+            "--defect-class",
+            "/home/ubuntu/qwen-decision/data/pool/commitpackft-corpus-v2",
+            "--rev",
+            "c80aedb9e0e71c7c24b71957e0cac3ecb8e5b405",
+            "--real-backbone",
+            "/home/ubuntu/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
+            "--optimizer",
+            "master",
+            "--devices",
+            "cuda",
+            "--seeds",
+            "2",
+            "--epoch",
+            "--no-memorise",
+            "--score-val",
+            "--verdicts-out",
+            "/home/ubuntu/phase3/verdicts-s2.jsonl",
+            "--checkpoint-dir",
+            "/home/ubuntu/ckpt/p3-s2",
+            "--checkpoint-every",
+            "{checkpoint_every}",
+            "--wall-clock-cap-s",
+            "9900",
+            "--instance",
+            "lambda-1xgh200",
+            "--usd-per-hour",
+            "1.49",
+            "--ledger",
+            "/home/ubuntu/qwen-decision/ledger/gh200-campaign-phase0-3.jsonl"
+          ],
+          "accept_returncodes": [
+            0,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3-go-no-go",
+      "cap_hours": 1,
+      "units": [
+        {
+          "name": "control-s0",
+          "argv": [
+            "/home/ubuntu/qd-venv/bin/python",
+            "/home/ubuntu/qwen-decision/tools/ft_linear_control.py",
+            "--ledger",
+            "/home/ubuntu/qwen-decision/ledger/gh200-campaign-phase0-3.jsonl",
+            "--verdicts",
+            "/home/ubuntu/phase3/verdicts-s0.jsonl",
+            "--no-repo-history",
+            "--defect-class",
+            "/home/ubuntu/qwen-decision/data/pool/commitpackft-corpus-v2",
+            "--rev",
+            "c80aedb9e0e71c7c24b71957e0cac3ecb8e5b405"
+          ]
+        },
+        {
+          "name": "control-s1",
+          "argv": [
+            "/home/ubuntu/qd-venv/bin/python",
+            "/home/ubuntu/qwen-decision/tools/ft_linear_control.py",
+            "--ledger",
+            "/home/ubuntu/qwen-decision/ledger/gh200-campaign-phase0-3.jsonl",
+            "--verdicts",
+            "/home/ubuntu/phase3/verdicts-s1.jsonl",
+            "--no-repo-history",
+            "--defect-class",
+            "/home/ubuntu/qwen-decision/data/pool/commitpackft-corpus-v2",
+            "--rev",
+            "c80aedb9e0e71c7c24b71957e0cac3ecb8e5b405"
+          ]
+        },
+        {
+          "name": "control-s2",
+          "argv": [
+            "/home/ubuntu/qd-venv/bin/python",
+            "/home/ubuntu/qwen-decision/tools/ft_linear_control.py",
+            "--ledger",
+            "/home/ubuntu/qwen-decision/ledger/gh200-campaign-phase0-3.jsonl",
+            "--verdicts",
+            "/home/ubuntu/phase3/verdicts-s2.jsonl",
+            "--no-repo-history",
+            "--defect-class",
+            "/home/ubuntu/qwen-decision/data/pool/commitpackft-corpus-v2",
+            "--rev",
+            "c80aedb9e0e71c7c24b71957e0cac3ecb8e5b405"
+          ]
+        }
+      ],
+      "gate": {
+        "ledger": "/home/ubuntu/qwen-decision/ledger/gh200-campaign-phase0-3.jsonl",
+        "name": "paired_margin_vs_linear",
+        "tool": "tools/ft_linear_control.py",
+        "min_seeds": 3
+      }
+    }
+  ]
+}
