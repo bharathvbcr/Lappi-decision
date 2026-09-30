@@ -458,6 +458,9 @@ class Label:
     slot_kind: int
     gold_letter: str
     letters: tuple[str, ...]
+    #: ``DataRow.metadata["language"]`` where the row has one -- ``code.defect_class`` rows
+    #: do, the commitpackft rewriters' rows do not. What ``ece.lang.*`` groups by.
+    language: str | None = None
 
 
 def _labels(rows: list[DataRow], *, config: DataConfig) -> tuple[list[Label], list[str]]:
@@ -482,6 +485,8 @@ def _labels(rows: list[DataRow], *, config: DataConfig) -> tuple[list[Label], li
             # `answer_letter`'s docstring warns about.
             rendered = render(row.request, caps=DEFAULT_CAPS, seed=config.seed)
             by_name = {slot.name: slot for slot in rendered.slots}
+            raw_language = row.metadata.get("language")
+            language = raw_language if isinstance(raw_language, str) and raw_language else None
             for spec in training_texts(row, seed=config.seed, caps=DEFAULT_CAPS):
                 slot = by_name[spec.slot_name]
                 letters = tuple(slot.letter_to_value)
@@ -507,6 +512,7 @@ def _labels(rows: list[DataRow], *, config: DataConfig) -> tuple[list[Label], li
                         slot_kind=spec.slot_kind,
                         gold_letter=gold,
                         letters=letters,
+                        language=language,
                     )
                 )
         except (UnencodableGold, QdRefusal) as exc:
@@ -1051,6 +1057,7 @@ def _decode(
                     ),
                     "correct": top == gold_row,
                     "abstain_correct": abstained == expected,
+                    "language": label.language,
                     # The mass this model puts on a row it was never supervised at. Softmax
                     # over the slot's own rows, which is what `QueryKind::Letters` decodes.
                     "noul_probability": float(
@@ -3117,15 +3124,56 @@ def score_states(scored: dict[str, object], labels: list[Label]) -> dict[str, Tr
     return states
 
 
-#: Why ``ece.lang.*`` cannot be computed from these rows, carried INTO the ``ece`` gate. The
-#: plan's calibration gate is per-k and per-language (docs/ledger-schema.md, "an aggregate
-#: hides exactly the failure it is meant to catch"), so a gate aggregated over the per-k half
-#: would pass on a breakdown the plan does not accept. GAP-FT-ECE-HAS-NO-LANGUAGE-TO-SPLIT-BY.
+#: Why ``ece.lang.*`` cannot be computed from rows without a language, carried INTO the
+#: ``ece`` gate. The plan's calibration gate is per-k and per-language
+#: (docs/ledger-schema.md, "an aggregate hides exactly the failure it is meant to catch"), so
+#: a gate aggregated over the per-k half would pass on a breakdown the plan does not accept.
+#: ``code.defect_class`` rows carry ``metadata["language"]`` and are split by it; the
+#: commitpackft rewriters' rows carry none. GAP-FT-ECE-HAS-NO-LANGUAGE-TO-SPLIT-BY.
 NO_LANGUAGE_REASON: Final[str] = (
-    "these rows carry no language: qd_data.mixture's code rewriters put it in no DataRow "
-    "metadata key and Label has no field for it, so ece.lang.* cannot be computed and the "
-    "per-language half of the plan's calibration gate is unmeasured"
+    "these rows carry no language: qd_data.mixture's commitpackft rewriters put none in "
+    "DataRow.metadata (only code.defect_class rows have one), so ece.lang.* cannot be "
+    "computed for them and the per-language half of the plan's calibration gate is unmeasured"
 )
+
+
+def language_eces(verdicts: Sequence[Mapping[str, object]]) -> dict[str, TriState]:
+    """``ece.lang.{language}`` for every language the letter rows carry, fail-closed.
+
+    Letter rows without a language are ``ece.lang`` :class:`NotRun` with
+    :data:`NO_LANGUAGE_REASON` -- all of them or some of them, because a gate that passed on
+    the rows that had a language would be silent about the ones that did not. A language
+    whose rows span two slot shapes is not run either: stacking distributions over different
+    row counts needs padding, which :func:`letter_distributions` refuses for the same reason.
+    Empty when there are no letter rows at all.
+    """
+    letter_rows = [v for v in verdicts if str(v["kind"]) != "span"]
+    by_language: dict[str, list[Mapping[str, object]]] = {}
+    missing = 0
+    for v in letter_rows:
+        language = v.get("language")
+        if isinstance(language, str) and language:
+            by_language.setdefault(language, []).append(v)
+        else:
+            missing += 1
+    states: dict[str, TriState] = {}
+    if missing:
+        states["ece.lang"] = NotRun(
+            reason=f"{missing} of {len(letter_rows)} letter rows: {NO_LANGUAGE_REASON}"
+        )
+    for language, rows in sorted(by_language.items()):
+        groups = letter_distributions(rows)
+        if len(groups) != 1:
+            states[f"ece.lang.{language}"] = NotRun(
+                reason=(
+                    f"{language} rows span slot shapes {sorted(groups)}; one ECE over "
+                    "distributions of different row counts needs padding, which is refused"
+                )
+            )
+            continue
+        ((probs, gold),) = groups.values()
+        states[f"ece.lang.{language}"] = ece_gate(probs, gold)
+    return states
 
 
 def letter_distributions(
@@ -3176,8 +3224,8 @@ def calibration_states(
     Both read the model's own distributions, uncalibrated, at the functions' default
     thresholds -- rule 2 makes a threshold read-only, and passing one from here would be
     retuning it where nobody looks (the rung-0 call site says the same). The gate aggregates
-    every per-k ECE AND :data:`NO_LANGUAGE_REASON`, so it is ``not_run`` until the language
-    half exists; the per-k numbers are recorded as metrics regardless.
+    every per-k ECE AND every per-language one (:func:`language_eces`), so it is ``not_run``
+    while any letter row has no language; every number is recorded as a metric regardless.
     """
     verdicts = scored["verdicts"]
     if not isinstance(verdicts, list):
@@ -3188,9 +3236,11 @@ def calibration_states(
     for key, (probs, gold) in letter_distributions(verdicts).items():
         eces[f"ece.{key}"] = ece_gate(probs, gold)
         degenerate[f"degenerate_head.{key}"] = degenerate_head_check(probs)
+    eces.update(language_eces(verdicts))
     metrics.update(eces)
     metrics.update(degenerate)
-    eces["ece.lang"] = NotRun(reason=NO_LANGUAGE_REASON)
+    if not eces:
+        eces["ece.lang"] = NotRun(reason="no letter rows were decoded")
     return metrics, aggregate(eces, name="ece"), aggregate(degenerate, name="degenerate_head")
 
 
