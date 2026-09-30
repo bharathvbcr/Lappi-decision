@@ -8,9 +8,13 @@
   "usd_per_hour_source": "https://lambda.ai/pricing, 1x NVIDIA GH200 (96 GB) on-demand, $2.29/h, read 2026-09-30",
   "n_gpus": 1,
   "campaign_cap_hours": 8,
-  "terminate_command": [],
+  "terminate_command": [
+    "/bin/sh",
+    "-c",
+    "echo \"$(date -u +%FT%TZ) campaign finalized; instance NOT terminated by the user's choice (2026-09-30): the user shuts this box down\" >> /home/ubuntu/campaign/NOT-TERMINATED; exit 3"
+  ],
   "pull_grace_minutes": 45,
-  "approved_by": "",
+  "approved_by": "bharath, 2026-09-30, answered in session: yes, approve the $20.04 bound (8 h cap + 45 min pull grace at $2.29/h); leave the box running at the end",
   "kill_grace_s": 60,
   "phases": [
     {
