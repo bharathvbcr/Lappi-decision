@@ -401,9 +401,11 @@ Measured by the GPU lane; `HANDOFF/mac-gpu-lane-2026-09-29.md` has every row.
   - The untrimmed tower already measured 14.02 GiB under bf16 AdamW on the GH200
     (`HANDOFF/gh200-2026-09-20.md`).
   - Phase caps get 1.5× margin until hour 0 re-cuts them (`HANDOFF/gh200-readiness-2026-09-29.md`).
-- **Open:** the trained embedding has 248,077 rows, and the checkpoint config says 248,320. The
-  export must re-pad 243 rows that no token can reach
-  (GAP-EXPORT-FULL-VOCAB-CHECKPOINT-IS-243-ROWS-SHORT-OF-THE-CONFIG).
+- **Closed at `8af5fa1`:** `--vocab full` sizes the identity remap to the checkpoint's 248,320
+  embedding rows, not the tokenizer's 248,077, so the trained tower keeps the shape `config.json`
+  states and no export re-pads anything
+  (GAP-EXPORT-FULL-VOCAB-CHECKPOINT-IS-243-ROWS-SHORT-OF-THE-CONFIG, resolved 2026-09-29; the
+  GH200 footprint log of 2026-09-30 loaded vocab 248320).
 - **Every campaign shard set is rebuilt under `--vocab full`**, and the phase-3 smoke is re-run on
   it before renting.
 
