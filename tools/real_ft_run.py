@@ -1498,6 +1498,36 @@ def _protocol(*, reader: ShardReader, seed: int, recipe: dict[str, object]) -> P
     )
 
 
+def device_budget(estimate_bytes: int, device: str) -> TriState:
+    """``memory.py``'s step estimate against what ``device`` can hold, before training.
+
+    cuda: the free bytes ``torch.cuda.mem_get_info`` reports now, so another tenant's memory
+    counts against the run. mps: ``torch.mps.recommended_max_memory``, the working set the
+    watermark cap above is a fraction of. cpu: not checked, and said so.
+    """
+    gib = 1024**3
+    if device == "cuda":
+        available, source = int(torch.cuda.mem_get_info()[0]), "torch.cuda.mem_get_info free"
+    elif device == "mps":
+        available, source = (
+            int(torch.mps.recommended_max_memory()), "torch.mps.recommended_max_memory"
+        )
+    else:
+        return NotRun(reason=f"device {device!r} has no memory budget this tool can read")
+    return Ran(
+        passed=estimate_bytes <= available,
+        # The estimate is the value; the budget is in the detail. Not n / n_total: those
+        # are a count examined out of a total, and an estimate over budget is exactly the
+        # case where the first exceeds the second.
+        value=estimate_bytes,
+        detail=(
+            f"memory.py estimates {estimate_bytes} B ({estimate_bytes / gib:.2f} GiB) for "
+            f"this step (tensors only, with its stated allowance) against {available} B "
+            f"({available / gib:.2f} GiB) from {source}"
+        ),
+    )
+
+
 def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[str, object],
               run_kind: str, quick_reasons: Sequence[str], notes: str,
               wall_clock_s: float | None, cost: CostEstimate | None) -> RunRecorder:
@@ -1588,6 +1618,9 @@ def _train(
     # value, and -- through that -- in the verdict row's recipe. All three feed a protocol
     # hash, and `_backbone_commit` refuses a recipe that names no backbone at all.
     backbone_keys: dict[str, object] = {}
+    budget: TriState = NotRun(
+        reason="the stand-in backbone is one block; memory.py budgets the real tower only"
+    )
     if backbone is None:
         if lower_layers_n:
             raise ValueError(
@@ -1648,6 +1681,14 @@ def _train(
                 "Training would index the wrong row for every token. Refusing."
             )
         tower = remap_text_tower(tower, reader.remap)
+        # Before a step is paid for: memory.py's estimate for this batch shape and optimizer,
+        # against what the device can hold. A refusal here costs seconds; the unchecked
+        # full-vocabulary smoke of 2026-09-29 paged for 58 minutes. A pass is necessary, not
+        # sufficient -- the estimate covers tensors, and MPS's Metal-side allocations are not
+        # in it -- so it is recorded on the row, and the MPS watermark cap stays the backstop.
+        budget = device_budget(tower.footprint.total_bytes, device)
+        if isinstance(budget, Ran) and not budget.passed:
+            raise SystemExit(f"device budget: {budget.detail}")
         # `steps` is computed at the top of this function and was always available here;
         # it now travels into the step, so a schedule that would outlive its own second
         # moment is refused before the tower is trained rather than discovered in a loss
@@ -1747,6 +1788,7 @@ def _train(
             + what_ran
         ),
     )
+    recorder.metric("device_budget", budget)
 
     supervised = [ft_supervision(b) for b in plan]
     # Per batch as well as over the plan. The per-batch numbers are what each batch's loss

@@ -64,6 +64,35 @@ def test_an_unknown_policy_is_refused_before_any_work(tmp_path: Path) -> None:
                      vocab="trimmed")
 
 
+class _Config:
+    def __init__(self, rows: object) -> None:
+        self.text_config = type("T", (), {"vocab_size": rows})()
+
+
+def test_the_full_vocabulary_is_sized_to_the_checkpoint_not_the_tokenizer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """248,320 rows for 248,077 ids: sized to the tokenizer, the remap would slice 243 rows
+    off and the trained checkpoint would no longer match its own config.json."""
+    transformers = pytest.importorskip("transformers")
+    monkeypatch.setattr(
+        transformers.AutoConfig, "from_pretrained", classmethod(lambda cls, m: _Config(248_320))
+    )
+    assert pipeline.checkpoint_vocab_rows(tokenizer_len=248_077) == 248_320
+
+
+@pytest.mark.parametrize("rows", [100, None, 0])
+def test_a_checkpoint_narrower_than_its_tokenizer_is_refused(
+    monkeypatch: pytest.MonkeyPatch, rows: object
+) -> None:
+    transformers = pytest.importorskip("transformers")
+    monkeypatch.setattr(
+        transformers.AutoConfig, "from_pretrained", classmethod(lambda cls, m: _Config(rows))
+    )
+    with pytest.raises(SystemExit):
+        pipeline.checkpoint_vocab_rows(tokenizer_len=248_077)
+
+
 def _recipe_hash(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, extra: list[str]) -> str:
     ref = tmp_path / "refs-main"
     ref.write_text("b" * 40, encoding="utf-8")

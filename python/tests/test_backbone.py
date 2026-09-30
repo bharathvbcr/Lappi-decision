@@ -50,7 +50,7 @@ from qd_train.backbone import (  # noqa: E402
 )
 from qd_train.ledger import Environment, Ledger, Protocol, RunRecorder  # noqa: E402
 from qd_train.memory import ADAMW_BF16, ADAMW_FP32, ModelSpec  # noqa: E402
-from qd_train.remap import build_remap  # noqa: E402
+from qd_train.remap import build_remap, full_vocab_remap  # noqa: E402
 from qd_train.run_control import (  # noqa: E402
     CostEstimate,
     LRSchedule,
@@ -426,6 +426,24 @@ def test_the_remap_moves_every_kept_row_to_the_right_place_in_both_directions(tm
         assert torch.equal(after[int(old_to_new[old_id])], before[int(old_id)]), (
             f"old id {int(old_id)} did not land at new id {int(old_to_new[old_id])}"
         )
+
+
+def test_the_full_vocabulary_remap_leaves_the_tower_exactly_as_loaded(tmp_path):
+    """Sized to the checkpoint's rows, the identity remap slices nothing: every row stays
+    where it was and the config still states the checkpoint's vocabulary, so a trained
+    tower exports under the config.json it was loaded from."""
+    tower, _ = _tiny_tower(tmp_path)
+    before = tower.model.get_input_embeddings().weight.detach().clone()
+    table = full_vocab_remap(
+        source_vocab_size=TINY_VOCAB, tokenizer_hash="t" * 64, special_ids=[0, 2]
+    )
+    remapped = remap_text_tower(tower, table)
+    after = remapped.model.get_input_embeddings().weight.detach()
+    assert tuple(after.shape) == tuple(before.shape) == (TINY_VOCAB, TINY_HIDDEN)
+    assert torch.equal(after, before)
+    assert remapped.vocab_size == TINY_VOCAB
+    assert remapped.model.config.vocab_size == TINY_VOCAB
+    assert remapped.lm_head_weight is remapped.model.get_input_embeddings().weight
 
 
 def test_the_remap_keeps_the_head_tied_to_the_embedding(tmp_path):

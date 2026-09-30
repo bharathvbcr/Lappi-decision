@@ -87,6 +87,11 @@ def test_the_default_full_vocabulary_writes_every_id_and_counts_nothing(tmp_path
         tmp_path / "shards" / "train", config=DataConfig(), repo_root=tmp_path
     )
     assert train.header.vocab_size == vocabulary.n_total
+    # Every embedding row of the checkpoint, including the padding past the tokenizer, so the
+    # trained tower keeps the shape its config.json states.
+    rows = pipeline.checkpoint_vocab_rows(tokenizer_len=0)
+    assert train.header.vocab_size == rows
+    assert rows > len(pipeline.RealTokenizer.load(memo_limit=0).tok)
 
 
 def test_without_the_flag_no_val_set_is_claimed() -> None:

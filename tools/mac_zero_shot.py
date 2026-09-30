@@ -51,6 +51,15 @@ if str(TOOLS) not in sys.path:
 ft = importlib.import_module("real_ft_run")
 pipeline = importlib.import_module("real_tokenizer_pipeline")
 resolve_rev = importlib.import_module("repo_git").resolve_rev
+n_gpus_for_device = importlib.import_module("run_cost").n_gpus_for_device
+
+
+def _sync(device: str) -> None:
+    """Wait for the device, so the decode's wall clock is the decode's and not its launch."""
+    if device == "mps":
+        torch.mps.synchronize()
+    elif device == "cuda":
+        torch.cuda.synchronize()
 
 from qd_data.config import DataConfig  # noqa: E402
 from qd_data.dedupe import dedupe  # noqa: E402
@@ -73,7 +82,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-pairs", type=int, required=True)
     parser.add_argument("--rev", required=True)
     parser.add_argument("--commitpackft", type=Path, default=None)
-    parser.add_argument("--device", choices=["mps", "cpu"], default="mps")
+    parser.add_argument(
+        "--device", choices=["mps", "cpu", "cuda"], default="mps",
+        help=(
+            "cuda re-measures rung 1 on the rented box, where bf16 letter logits do not "
+            "carry MPS's drift (GAP-TORCH-MPS-BF16-LETTER-LOGITS-DRIFT); it needs "
+            "--instance and --usd-per-hour, because a rented hour is not free"
+        ),
+    )
+    parser.add_argument("--instance", default=None, help="the priced machine, for cuda")
+    parser.add_argument(
+        "--usd-per-hour", type=float, default=None,
+        help="the instance rate from the provider's price page at launch, for cuda",
+    )
+    parser.add_argument(
+        "--wall-clock-cap-s", type=float, default=1800.0,
+        help="the cap the cost estimate is priced from; the decode itself is minutes",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--ledger", type=Path, required=True)
     parser.add_argument("--notes", default="", help="appended to the row's notes")
@@ -161,7 +186,18 @@ def main(argv: list[str] | None = None) -> int:
         repo=ft.REPO,
         env=Environment.detect(device=args.device),
         wall_clock_s=None,
-        cost=None,
+        # A Mac run is priced at zero by leaving it out, as every earlier row did. A rented
+        # device is priced from the arguments, and _cost refuses a missing instance or rate
+        # by name rather than recording a GH200 hour as free.
+        cost=(
+            ft._cost(
+                device="cuda", n_gpus=n_gpus_for_device("cuda"),
+                usd_per_hour=args.usd_per_hour, instance=args.instance,
+                cap_s=args.wall_clock_cap_s,
+            )
+            if args.device == "cuda"
+            else None
+        ),
         quick=True,
         quick_reason=QUICK_REASON,
         recipe=recipe,
@@ -179,12 +215,10 @@ def main(argv: list[str] | None = None) -> int:
             "decode_code_that_ran",
             what_ran_state(ft.REPO / "python" / "qd_train", TOOLS / "real_ft_run.py"),
         )
-        if args.device == "mps":
-            torch.mps.synchronize()
+        _sync(args.device)
         t1 = time.monotonic()
         scored = ft._decode(step, val.plan, val.labels_for, val.letter_id)
-        if args.device == "mps":
-            torch.mps.synchronize()
+        _sync(args.device)
         decode_s = time.monotonic() - t1
         recorder.measured(decode_s)
         peak_gb = (

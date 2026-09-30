@@ -1164,6 +1164,35 @@ PIPELINE_MAX_CONSISTENCY_ROWS = 1_000_000
 VOCAB_FULL = "full"
 VOCAB_CORPUS = "corpus"
 VOCAB_POLICIES = (VOCAB_FULL, VOCAB_CORPUS)
+
+
+def checkpoint_vocab_rows(*, tokenizer_len: int) -> int:
+    """The embedding rows of ``MODEL``'s checkpoint, read from its own config.
+
+    ``--vocab full`` keeps every one of them, not only the tokenizer's ids: Qwen3.5 pads its
+    248,077 ids to 248,320 rows, and a remap sized to the tokenizer slices those 243 rows off,
+    so a trained checkpoint no longer matches the ``config.json`` it is served under
+    (GAP-EXPORT-FULL-VOCAB-CHECKPOINT-IS-243-ROWS-SHORT-OF-THE-CONFIG). Sized to the
+    checkpoint, ``remap_text_tower`` is a no-op and nothing downstream re-pads anything.
+    """
+    try:
+        from transformers import AutoConfig
+    except ModuleNotFoundError:
+        raise SystemExit(
+            "transformers is not importable from this interpreter; run this with "
+            "/Users/bharath/.venvs/ml/bin/python."
+        ) from None
+    config = AutoConfig.from_pretrained(MODEL)
+    text = getattr(config, "text_config", None) or config
+    rows = getattr(text, "vocab_size", None)
+    if not isinstance(rows, int) or rows <= 0:
+        raise SystemExit(f"{MODEL}'s config states no usable vocab_size ({rows!r})")
+    if rows < tokenizer_len:
+        raise SystemExit(
+            f"{MODEL}'s checkpoint has {rows} embedding rows but its tokenizer has "
+            f"{tokenizer_len} ids; a token id past the last row cannot be embedded"
+        )
+    return rows
 #: The datasets a fetch record may name, and the source each becomes.
 GENERAL_DATASETS = frozenset(
     {"cais/mmlu", "tau/commonsense_qa", "clinc/clinc_oos", "rajpurkar/squad_v2"}
@@ -1571,7 +1600,8 @@ def run(
     special_ids = tuple(sorted({int(i) for i in tok.tok.all_special_ids}))
     if vocab == VOCAB_FULL:
         remap = full_vocab_remap(
-            source_vocab_size=len(tok.tok), tokenizer_hash=tok.hash(), special_ids=special_ids
+            source_vocab_size=checkpoint_vocab_rows(tokenizer_len=len(tok.tok)),
+            tokenizer_hash=tok.hash(), special_ids=special_ids,
         )
     else:
         remap = build_remap(

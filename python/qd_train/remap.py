@@ -416,15 +416,16 @@ def full_vocab_remap(
     tokenizer_hash: str,
     special_ids: Sequence[int],
 ) -> RemapTable:
-    """The identity remap: every tokenizer id is kept, at its own index.
+    """The identity remap: every id below ``source_vocab_size`` is kept, at its own index.
 
     The corpus-built remap of [`build_remap`] cannot encode text it was not counted over,
     and a served model is sent exactly that text (GAP-REMAP-CANNOT-ENCODE-THE-ROWS-IT-WAS-
     NOT-BUILT-FROM, decided (c) on 2026-09-29). This keeps the whole tokenizer vocabulary,
     so `RemapTable.encode` refuses nothing the tokenizer can produce, while every consumer
     that pins a remap table -- the shard header, `remap_text_tower`, the scorer -- works
-    unchanged. `remap_text_tower` then slices only the embedding rows past the tokenizer
-    (Qwen3.5 pads 248,077 ids to 248,320 rows), which no token can reach.
+    unchanged. Pass the checkpoint's embedding rows (248,320 for Qwen3.5, whose tokenizer
+    has 248,077 ids), not the tokenizer's length: then `remap_text_tower` keeps every row and
+    a trained checkpoint still matches the `config.json` it is served under.
     """
     if source_vocab_size <= 0:
         raise RemapCoverageError(f"source_vocab_size must be positive, got {source_vocab_size}")
