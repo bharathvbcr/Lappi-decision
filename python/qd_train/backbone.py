@@ -125,6 +125,7 @@ __all__ = [
     "GradientCheckpointingDisabled",
     "QwenDecisionStep",
     "TextTower",
+    "footprint_at",
     "load_text_tower",
     "remap_text_tower",
     "saved_activation_bytes",
@@ -562,6 +563,32 @@ def load_text_tower(
 # --- the remap ------------------------------------------------------------------------------
 
 
+def footprint_at(
+    tower: TextTower, *, rows: int, width: int, vocab_size: int | None = None
+) -> StepFootprint:
+    """``estimate_step`` for this tower at a ``rows x width`` batch.
+
+    The one place a loaded tower's step is priced, so a caller budgeting several batch
+    shapes uses the arithmetic the load recorded. ``vocab_size`` defaults to the tower's own.
+    """
+    return estimate_step(
+        tower.spec,
+        rows=rows,
+        width=width,
+        # The tower's own optimizer spec, carried rather than reconstructed: rebuilding it
+        # from the footprint's byte totals would hardcode AdamW's two fp32 states and
+        # silently re-budget an SGD run as an AdamW one.
+        optimizer=tower.optimizer,
+        param_dtype=tower.dtype,
+        grad_dtype=tower.dtype,
+        activation_dtype=tower.dtype,
+        activations=ActivationModel(
+            recompute="full" if tower.gradient_checkpointing else "none"
+        ),
+        vocab_size=tower.vocab_size if vocab_size is None else vocab_size,
+    )
+
+
 def remap_text_tower(tower: TextTower, remap: RemapTable) -> TextTower:
     """Slice the tied embedding to ``remap``'s vocabulary, and verify every kept row.
 
@@ -616,20 +643,8 @@ def remap_text_tower(tower: TextTower, remap: RemapTable) -> TextTower:
             "have drifted."
         )
 
-    footprint = estimate_step(
-        tower.spec,
-        rows=tower.footprint.rows,
-        width=tower.footprint.width,
-        # The tower's own optimizer spec, carried rather than reconstructed: rebuilding it
-        # from the footprint's byte totals would hardcode AdamW's two fp32 states and
-        # silently re-budget an SGD run as an AdamW one.
-        optimizer=tower.optimizer,
-        param_dtype=tower.dtype,
-        grad_dtype=tower.dtype,
-        activation_dtype=tower.dtype,
-        activations=ActivationModel(
-            recompute="full" if tower.gradient_checkpointing else "none"
-        ),
+    footprint = footprint_at(
+        tower, rows=tower.footprint.rows, width=tower.footprint.width,
         vocab_size=application.new_vocab_size,
     )
     return TextTower(

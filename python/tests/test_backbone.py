@@ -43,6 +43,7 @@ from qd_train.backbone import (  # noqa: E402
     BackboneContractViolation,
     GradientCheckpointingDisabled,
     QwenDecisionStep,
+    footprint_at,
     load_text_tower,
     remap_text_tower,
     saved_activation_bytes,
@@ -394,6 +395,17 @@ def _tiny_remap(kept: list[int], specials: list[int]):
         special_ids=specials,
         target_vocab_size=None,
     )
+
+
+def test_footprint_at_is_the_estimate_the_tower_was_loaded_with(tmp_path):
+    """One owner for "what does a step at this shape cost on this tower", so the budget a
+    caller checks per batch shape is the same arithmetic the load recorded."""
+    tower, _ = _tiny_tower(tmp_path)
+    fp = tower.footprint
+    assert footprint_at(tower, rows=fp.rows, width=fp.width) == fp
+    wider = footprint_at(tower, rows=fp.rows, width=fp.width * 4)
+    assert (wider.rows, wider.width) == (fp.rows, fp.width * 4)
+    assert wider.total_bytes > fp.total_bytes
 
 
 def test_the_remap_moves_every_kept_row_to_the_right_place_in_both_directions(tmp_path):

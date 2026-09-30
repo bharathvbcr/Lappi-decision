@@ -312,6 +312,11 @@ def _recipe_pieces(
     return out
 
 
+def _batch_shapes(plan: Sequence[Batch]) -> list[tuple[int, int]]:
+    """The distinct ``(rows, width)`` shapes the plan's batches really have, sorted."""
+    return sorted({(int(b.tokens.shape[0]), int(b.tokens.shape[1])) for b in plan})
+
+
 def _resolve_batch_tokens(given: int | None, *, widest: int) -> tuple[int, int | None]:
     """``--batch-tokens`` against the shard set: ``(the value to plan with, its recipe key)``.
 
@@ -1723,6 +1728,7 @@ def _train(
         # which is every machine without a checkpoint.
         from qd_train.backbone import (
             QwenDecisionStep,
+            footprint_at,
             load_text_tower,
             remap_text_tower,
         )
@@ -1745,8 +1751,9 @@ def _train(
             attn_implementation=attn_implementation,
             device=device,
             dtype="bf16",
-            rows=max(int(b.tokens.shape[0]) for b in plan),
-            width=width,
+            # A real batch's shape; the budget below takes the worst of all of them.
+            rows=int(plan[0].tokens.shape[0]),
+            width=int(plan[0].tokens.shape[1]),
         )
         # The shard set's ids are post-remap, so the tied embedding has to be sliced to the
         # same vocabulary or every id indexes a different row than the one it names. The
@@ -1758,6 +1765,17 @@ def _train(
                 "Training would index the wrong row for every token. Refusing."
             )
         tower = remap_text_tower(tower, reader.remap)
+        # The footprint the row records and the budget checks is the costliest batch the
+        # plan really contains. It used to pair the plan's most rows with its widest width
+        # -- harmless at batch_tokens = widest bucket, where they nearly coincide, and ~8x
+        # too high at --batch-tokens 32768, which it refused at 105 GiB on 2026-09-30.
+        tower = dataclasses.replace(
+            tower,
+            footprint=max(
+                (footprint_at(tower, rows=r, width=w) for r, w in _batch_shapes(plan)),
+                key=lambda f: f.total_bytes,
+            ),
+        )
         # Before a step is paid for: memory.py's estimate for this batch shape and optimizer,
         # against what the device can hold. A refusal here costs seconds; the unchecked
         # full-vocabulary smoke of 2026-09-29 paged for 58 minutes. A pass is necessary, not

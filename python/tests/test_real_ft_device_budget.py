@@ -26,6 +26,32 @@ from qd_train.tristate import NotRun, Ran  # noqa: E402
 GIB = 1024**3
 
 
+def _batch(rows: int, width: int, index: int = 0):
+    import numpy as np
+
+    from qd_train.artifacts import Batch
+
+    return Batch(
+        tokens=np.ones((rows, width), dtype=np.int32),
+        lengths=np.full(rows, width, dtype=np.int32),
+        bucket=0, index=index,
+    )
+
+
+def test_the_budget_is_checked_at_shapes_the_plan_actually_has() -> None:
+    """--batch-tokens 32768 on the GH200 (2026-09-30) was refused at 105 GiB: the estimate
+    paired the plan's most rows (~163 short rows) with its widest width (1,625), a batch of
+    ~265k positions that no plan contains -- every real one is at most 32,768."""
+    plan = [_batch(163, 200, 0), _batch(20, 1625, 1), _batch(163, 200, 2)]
+    assert real_ft_run._batch_shapes(plan) == [(20, 1625), (163, 200)]
+
+
+def test_the_trainer_budgets_the_worst_real_shape() -> None:
+    src = (REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8")
+    assert "rows=max(int(b.tokens.shape[0]) for b in plan)" not in src
+    assert "footprint_at(tower, rows=r, width=w) for r, w in _batch_shapes(plan)" in src
+
+
 def test_cuda_over_budget_is_a_failed_check(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(torch.cuda, "mem_get_info", lambda: (10 * GIB, 96 * GIB))
     got = real_ft_run.device_budget(20 * GIB, "cuda")
