@@ -216,7 +216,8 @@ def test_main_trains_on_exactly_what_ft_split_rows_returns(tmp_path, monkeypatch
     assert calls == [{"commitpackft": None, "max_pairs": 7, "rev": rev,
                       "config": calls[0]["config"], "defect_class": None,
                       "defect_download": None, "defect_max_rows": None,
-                      "repo_history": True}]
+                      "repo_history": True, "general_record": None,
+                      "general_max_rows": None, "replay_partition": False}]
 
 
 def test_ft_split_rows_is_the_rebuild_main_used_to_inline(tmp_path):

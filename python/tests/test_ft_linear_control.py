@@ -10,6 +10,7 @@ to be a silent no-op.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import types
@@ -273,12 +274,18 @@ def _fake_runner(
     module = types.ModuleType("real_ft_run")
     if with_fn:
         # The real signature: the defect-class corpus is part of how the run built its split.
+        # The general record, its per-file cap and the replay partition too (phase 4).
         def ft_split_rows(*, commitpackft, max_pairs, rev, config, defect_class=None,
-                          defect_download=None, defect_max_rows=None, repo_history=True):
+                          defect_download=None, defect_max_rows=None, repo_history=True,
+                          general_record=None, general_max_rows=None,
+                          replay_partition=False):
             if calls is not None:
                 calls.append({"defect_class": defect_class, "defect_download": defect_download,
                               "defect_max_rows": defect_max_rows,
-                              "repo_history": repo_history, "rev": rev})
+                              "repo_history": repo_history, "rev": rev,
+                              "general_record": general_record,
+                              "general_max_rows": general_max_rows,
+                              "replay_partition": replay_partition})
             return train, val
         module.ft_split_rows = ft_split_rows  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "real_ft_run", module)
@@ -356,7 +363,9 @@ def test_the_defect_class_corpus_reaches_the_runs_own_split_function(
         "--defect-max-rows", "40",
     ])
     assert calls == [{"defect_class": corpus, "defect_download": download,
-                      "defect_max_rows": 40, "repo_history": True, "rev": REV}]
+                      "defect_max_rows": 40, "repo_history": True, "rev": REV,
+                      "general_record": None, "general_max_rows": None,
+                      "replay_partition": False}]
     assert Ledger(ledger).rows()[-1].recipe["defect_class"] == "corpus-v2"
 
 
@@ -386,6 +395,71 @@ def test_a_set_built_without_repository_history_is_rebuilt_without_it(
               "--no-repo-history", "--defect-class", str(tmp_path / "corpus-v2")])
     assert [c["repo_history"] for c in calls] == [False]
     assert Ledger(ledger).rows()[-1].recipe["repo_history"] is False
+
+
+def test_a_general_record_set_is_rebuilt_with_the_record_and_its_replay_partition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Phase 4 trains on the full mixture (--general-record, --replay-shards). The control
+    has to rebuild that split -- the general families in, the replay-only rows out of the
+    gold train split -- and its row names the record by sha256, only when one was used."""
+    ledger, verdicts, train, val = _scorable(tmp_path)
+    record = tmp_path / "fetch-record.json"
+    record.write_text("[]", encoding="utf-8")
+    calls: list[dict[str, object]] = []
+    _fake_runner(monkeypatch, train, val, calls=calls)
+    ftc.main(["--ledger", str(ledger), "--verdicts", str(verdicts), "--rev", REV,
+              "--max-pairs", "80", "--general-record", str(record),
+              "--general-max-rows", "123", "--replay-partition"])
+    assert [(c["general_record"], c["general_max_rows"], c["replay_partition"])
+            for c in calls] == [(record, 123, True)]
+    recipe = Ledger(ledger).rows()[-1].recipe
+    assert recipe["general_record_sha256"] == hashlib.sha256(b"[]").hexdigest()
+    assert recipe["general_max_rows"] == 123
+    assert recipe["replay_partition"] is True
+
+
+def test_the_general_row_cap_is_recorded_resolved_not_as_null(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import real_tokenizer_pipeline as pipeline
+
+    ledger, verdicts, train, val = _scorable(tmp_path)
+    record = tmp_path / "fetch-record.json"
+    record.write_text("[]", encoding="utf-8")
+    _fake_runner(monkeypatch, train, val)
+    ftc.main(["--ledger", str(ledger), "--verdicts", str(verdicts), "--rev", REV,
+              "--max-pairs", "80", "--general-record", str(record)])
+    recipe = Ledger(ledger).rows()[-1].recipe
+    assert recipe["general_max_rows"] == pipeline.DEFAULT_GENERAL_MAX_ROWS
+    assert "replay_partition" not in recipe
+
+
+def test_a_control_without_a_general_record_hashes_as_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger, verdicts, train, val = _scorable(tmp_path)
+    calls: list[dict[str, object]] = []
+    _fake_runner(monkeypatch, train, val, calls=calls)
+    ftc.main(["--ledger", str(ledger), "--verdicts", str(verdicts), "--rev", REV,
+              "--max-pairs", "80"])
+    assert [(c["general_record"], c["general_max_rows"], c["replay_partition"])
+            for c in calls] == [(None, None, False)]
+    recipe = Ledger(ledger).rows()[-1].recipe
+    assert not {"general_record_sha256", "general_max_rows", "replay_partition"} & set(recipe)
+
+
+@pytest.mark.parametrize("flags", [["--general-max-rows", "5"], ["--replay-partition"]])
+def test_general_options_without_the_record_are_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    flags: list[str],
+) -> None:
+    _fake_runner(monkeypatch, [], [])
+    with pytest.raises(SystemExit) as exc:
+        ftc.main(["--ledger", str(tmp_path / "l.jsonl"), "--verdicts", str(tmp_path / "v"),
+                  "--max-pairs", "80", "--rev", REV, *flags])
+    assert exc.value.code == 2
+    assert "without --general-record read nothing" in capsys.readouterr().err
 
 
 def test_max_pairs_is_refused_where_it_bounds_nothing_and_required_where_it_does(

@@ -58,6 +58,7 @@ RUN (on the machine that has torch; it imports the FT runner for the split)
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -601,6 +602,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--defect-download", type=Path, default=None)
     parser.add_argument("--defect-max-rows", type=int, default=None)
+    parser.add_argument(
+        "--general-record", type=Path, default=None,
+        help="the general-family fetch record, exactly as the run was given it: the split "
+             "holds MMLU/CSQA/CLINC/SQuAD rows only through it",
+    )
+    parser.add_argument("--general-max-rows", type=int, default=None)
+    parser.add_argument(
+        "--replay-partition", action="store_true",
+        help="exactly as the run was given it: the replay-only rows left the gold train "
+             "split, so the control is not fitted on them",
+    )
     parser.add_argument("--control-cache", type=Path, default=None)
     parser.add_argument("--max-iter", type=int, default=DEFAULT_MAX_ITER)
     parser.add_argument("--dense-budget-gb", type=float, default=24.0)
@@ -612,6 +624,12 @@ def main(argv: list[str] | None = None) -> int:
         args.defect_download is not None or args.defect_max_rows is not None
     ):
         parser.error("--defect-download/--defect-max-rows without --defect-class read nothing")
+    if args.general_record is None and (
+        args.general_max_rows is not None or args.replay_partition
+    ):
+        parser.error(
+            "--general-max-rows/--replay-partition without --general-record read nothing"
+        )
     max_pairs_bounds_nothing = not args.repo_history and args.commitpackft is None
     if max_pairs_bounds_nothing and args.max_pairs is not None:
         raise Refused(
@@ -646,6 +664,8 @@ def main(argv: list[str] | None = None) -> int:
         commitpackft=args.commitpackft, max_pairs=max_pairs, rev=rev, config=config,
         defect_class=args.defect_class, defect_download=args.defect_download,
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
+        general_record=args.general_record, general_max_rows=args.general_max_rows,
+        replay_partition=args.replay_partition,
     )
     # Rule 3 through this door too. A control fitted on a held-out family would not train a
     # model, but it would set the bar the model is measured against with data the model may
@@ -674,6 +694,22 @@ def main(argv: list[str] | None = None) -> int:
         "defect_class": None if args.defect_class is None else args.defect_class.name,
         "defect_max_rows": args.defect_max_rows,
     }
+    if args.general_record is not None:
+        # Only when used, so every gate row written before these inputs existed hashes as
+        # it did. The record is named by its sha256, as the pipeline's recipe names it.
+        recipe["general_record_sha256"] = hashlib.sha256(
+            args.general_record.read_bytes()
+        ).hexdigest()
+        # Resolved, as the pipeline's recipe and the replay attestation record it, so the
+        # default is a number rather than a null that means "whatever the default was".
+        import real_tokenizer_pipeline as pipeline
+
+        recipe["general_max_rows"] = (
+            pipeline.DEFAULT_GENERAL_MAX_ROWS if args.general_max_rows is None
+            else args.general_max_rows
+        )
+    if args.replay_partition:
+        recipe["replay_partition"] = True
     quick = bool(row.quick) or hold is not None
     quick_reason = (
         f"inherits eval row {row.row_id[:8]}'s quick flag ({row.quick_reason})"
