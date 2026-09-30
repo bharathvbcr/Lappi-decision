@@ -202,6 +202,16 @@ from qd_train.needle import (
     needle_defect_row,
     score_suite,
 )
+from qd_train.ood import (
+    OOD_CASES_PER_CATEGORY,
+    OOD_CATEGORIES,
+    OOD_MAX_IN_DISTRIBUTION_ABSTAIN,
+    OOD_MIN_ABSTAIN,
+    OodCase,
+    build_ood_suite,
+    ood_defect_row,
+    ood_gate,
+)
 from qd_train.optim import DEFAULT_BETA2, apply_lr
 from qd_train.power import resolution_state
 from qd_train.replay import PriorCache, PriorKLReplay, ReplayRefusal, check_attestation
@@ -3395,12 +3405,104 @@ def prepare_second_pass(
 
 def score_permutation_consistency(
     step: RealFtStep, val: ValSet, second_pass: SecondPass, scored: Mapping[str, object]
-) -> TriState:
-    """Decode the val set's choice rows a second time, options deranged, and compare."""
+) -> tuple[TriState, dict[str, object] | None]:
+    """Decode the val set's choice rows a second time, options deranged, and compare.
+
+    Returns the gate and the second pass's decode (``None`` when it did not run), which the
+    ``ood_abstain`` in-distribution bound reads rather than decoding the val set a third time.
+    """
     if second_pass.not_run is not None:
-        return NotRun(reason=second_pass.not_run)
+        return NotRun(reason=second_pass.not_run), None
     second = _decode(step, second_pass.batches, second_pass.labels_for, val.letter_id)
-    return permutation_agreement(scored, second, second_pass.perms)
+    return permutation_agreement(scored, second, second_pass.perms), second
+
+
+def choice_rule_abstentions(
+    first: Mapping[str, object],
+    second: Mapping[str, object],
+    perms: Mapping[tuple[str, str], tuple[int, ...]],
+) -> dict[str, bool]:
+    """Per first-pass choice row whose gold is not ``noul``: would the runtime abstain?
+
+    ``crates/qd-runtime/src/answer.rs``'s generic-route choice rule, minus the calibrated
+    margin: abstain when either pass's top row is ``noul``, or when the permuted pass's
+    winner maps back to a different option. A row with no derangement (fewer than two
+    options) has no second pass and abstains only on ``noul``. Keyed ``row_id``.
+    """
+    again = {
+        (str(v["row_id"]), str(v["slot_name"])): v
+        for v in second["verdicts"]  # type: ignore[union-attr]
+        if v["kind"] == "choice"
+    }
+    out: dict[str, bool] = {}
+    for v in first["verdicts"]:  # type: ignore[union-attr]
+        if v["kind"] != "choice" or bool(v["expected_abstain"]):
+            continue
+        key = (str(v["row_id"]), str(v["slot_name"]))
+        top1 = int(v["top"])  # type: ignore[call-overload]
+        abstained = top1 == int(v["noul_row"])  # type: ignore[call-overload]
+        perm = perms.get(key)
+        if perm is not None:
+            w = again.get(key)
+            if w is None:
+                raise SystemExit(f"row {key} was decoded in the first pass and not the second")
+            top2 = int(w["top"])  # type: ignore[call-overload]
+            abstained = (
+                abstained or top2 == int(w["noul_row"])  # type: ignore[call-overload]
+                or perm[top2] != top1
+            )
+        out[key[0]] = abstained
+    return out
+
+
+def _matching_tokenizer(reader: ShardReader, *, what: str) -> Any:
+    """The pipeline's tokenizer, refused unless it hashes to the one ``reader`` was built with."""
+    import real_tokenizer_pipeline as pipeline
+
+    if reader.remap is None:
+        raise SystemExit(f"{reader.root}: no remap table beside the shards")
+    tok = pipeline.RealTokenizer.load(memo_limit=0)
+    if tok.hash() != reader.header.tokenizer_hash:
+        raise SystemExit(
+            f"the tokenizer loaded for {what} hashes to {tok.hash()[:16]}, not the "
+            f"val set's {reader.header.tokenizer_hash[:16]}: its ids would not be this model's"
+        )
+    return tok
+
+
+def encode_slot_batch(
+    row: DataRow, *, slot_kind: int, tok: Any, reader: ShardReader, config: DataConfig,
+    index: int, row_id: str, where: str,
+) -> tuple[Batch, Label, Any]:
+    """One slot of an eval-only row as its own one-row batch, with its label.
+
+    For suites the shard writer never saw (needle, OOD): rendered by ``training_texts``,
+    encoded by ``encode_slot`` and batched by ``assemble_batch`` -- the writer's and the
+    reader's own paths -- and labelled by :func:`_labels`, so letters and language come from
+    the same place a val row's do. ``row_id`` is the suite's case id, which is how the
+    suite's scorer finds the verdict.
+    """
+    if reader.remap is None:
+        raise SystemExit(f"{reader.root}: no remap table beside the shards")
+    (spec,) = [
+        s for s in training_texts(row, seed=config.seed, caps=DEFAULT_CAPS)
+        if s.slot_kind == slot_kind
+    ]
+    labels, excluded = _labels([row], config=config)
+    if excluded:
+        raise SystemExit(f"{where}: the row was refused: {excluded[0]}")
+    (label,) = [x for x in labels if x.slot_name == spec.slot_name]
+    encoded = encode_slot(
+        spec, tokenize=tok.tokenize, remap=reader.remap, token_offsets=tok.offsets,
+        decode=tok.decode, where=where,
+    )
+    n = int(encoded.ids.size)
+    batch = assemble_batch(
+        [encoded.ids], kinds=np.asarray([slot_kind]), target_index=np.asarray([n - 2]),
+        spans=np.asarray([encoded.span]), candidates=[encoded.candidates],
+        width=n, bucket=n, index=index,
+    )
+    return batch, dataclasses.replace(label, row_id=row_id), encoded
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -3427,18 +3529,9 @@ def prepare_needle(reader: ShardReader, *, config: DataConfig, enabled: bool) ->
     """
     if not enabled:
         return NeedleSuite([], [], {}, [], not_run="--needle was not given")
-    import real_tokenizer_pipeline as pipeline
+    from qd_data.defect_class import CONTEXT_HEADER_LINES
 
-    from qd_data.defect_class import CONTEXT_HEADER_LINES, DEFECT_FAMILY_ID
-
-    if reader.remap is None:
-        raise SystemExit(f"{reader.root}: no remap table beside the shards")
-    tok = pipeline.RealTokenizer.load(memo_limit=0)
-    if tok.hash() != reader.header.tokenizer_hash:
-        raise SystemExit(
-            f"the tokenizer loaded for the needle suite hashes to {tok.hash()[:16]}, not the "
-            f"val set's {reader.header.tokenizer_hash[:16]}: its ids would not be this model's"
-        )
+    tok = _matching_tokenizer(reader, what="the needle suite")
     cases = build_suite(
         target_tokens=NEEDLE_TARGET_TOKENS, cases_per_depth=NEEDLE_CASES_PER_DEPTH,
         seed=config.seed,
@@ -3448,14 +3541,9 @@ def prepare_needle(reader: ShardReader, *, config: DataConfig, enabled: bool) ->
     lengths: list[int] = []
     for i, case in enumerate(cases):
         where = f"needle case {case.case_id}"
-        row = needle_defect_row(case, config=config)
-        (spec,) = [
-            s for s in training_texts(row, seed=config.seed, caps=DEFAULT_CAPS)
-            if s.slot_kind == SLOT_SPAN
-        ]
-        encoded = encode_slot(
-            spec, tokenize=tok.tokenize, remap=reader.remap, token_offsets=tok.offsets,
-            decode=tok.decode, where=where,
+        batch, label, encoded = encode_slot_batch(
+            needle_defect_row(case, config=config), slot_kind=SLOT_SPAN, tok=tok,
+            reader=reader, config=config, index=i, row_id=case.case_id, where=where,
         )
         body = case.context[:-1] if case.context.endswith("\n") else case.context
         n_lines = CONTEXT_HEADER_LINES + len(body.split("\n"))
@@ -3471,22 +3559,9 @@ def prepare_needle(reader: ShardReader, *, config: DataConfig, enabled: bool) ->
                 f"{hunk_of_context_line(case, gold_line)}, not the needle hunk "
                 f"{case.needle_index}"
             )
-        n = int(encoded.ids.size)
-        batches.append(
-            assemble_batch(
-                [encoded.ids], kinds=np.asarray([SLOT_SPAN]),
-                target_index=np.asarray([n - 2]), spans=np.asarray([encoded.span]),
-                candidates=[encoded.candidates], width=n, bucket=n, index=i,
-            )
-        )
-        labels_for[i] = [
-            Label(
-                row_id=case.case_id, family_id=DEFECT_FAMILY_ID, slot_name=spec.slot_name,
-                slot_kind=SLOT_SPAN, gold_letter=NOUL_LETTER, letters=(NOUL_LETTER,),
-                language=case.language,
-            )
-        ]
-        lengths.append(n)
+        batches.append(batch)
+        labels_for[i] = [label]
+        lengths.append(int(encoded.ids.size))
     return NeedleSuite(cases, batches, labels_for, lengths, seed=config.seed)
 
 
@@ -3547,11 +3622,179 @@ def needle_recipe(suite: NeedleSuite) -> dict[str, object]:
     }
 
 
+#: Rows per general cache file read for the OOD prose pool. The val split is a keyed hash
+#: per split unit, so reading fewer rows changes which texts are available, never which
+#: split a text is in; 2,000 per file gave 2,699 val-split MMLU/CSQA questions.
+OOD_GENERAL_MAX_ROWS: Final[int] = 2_000
+#: The general families whose context is plain English prose.
+OOD_PROSE_FAMILIES: Final[tuple[str, ...]] = (
+    "knowledge.multiple_choice", "commonsense.multiple_choice",
+)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class OodSuite:
+    """The OOD suite's choice rows, encoded, with their permuted second pass; or why not."""
+
+    cases: list[OodCase]
+    val: ValSet | None
+    second_pass: SecondPass | None
+    record_sha256: str = ""
+    seed: int = 0
+    not_run: str | None = None
+
+
+def prepare_ood(
+    reader: ShardReader, *, config: DataConfig, rev: str, letter_id: Mapping[str, int],
+    tokenizer_json: Path | None, general_record: Path | None, enabled: bool,
+) -> OodSuite:
+    """Build and encode the OOD suite, and its second pass, before a tower loads.
+
+    The prose pool is the general records' **val** split, rebuilt by :func:`ft_splits`
+    from ``general_record`` alone -- never the held-out split, which ``ft_splits`` returns
+    and this does not read.
+    """
+    if not enabled:
+        return OodSuite([], None, None, not_run="--ood was not given")
+    if general_record is None or tokenizer_json is None:
+        raise SystemExit("--ood needs --ood-general-record and the backbone's tokenizer.json")
+    splits = ft_splits(
+        commitpackft=None, max_pairs=0, rev=rev, config=config, repo_history=False,
+        general_record=general_record, general_max_rows=OOD_GENERAL_MAX_ROWS,
+    )
+    prose = [
+        row.request.context.decode("utf-8")
+        for row in splits["val"]
+        if row.family_id in OOD_PROSE_FAMILIES
+    ]
+    cases = build_ood_suite(prose, seed=config.seed)
+    tok = _matching_tokenizer(reader, what="the OOD suite")
+    plan: list[Batch] = []
+    labels_for: dict[int, list[Label]] = {}
+    for i, case in enumerate(cases):
+        batch, label, _ = encode_slot_batch(
+            ood_defect_row(case, config=config), slot_kind=SLOT_CHOICE, tok=tok,
+            reader=reader, config=config, index=i, row_id=case.case_id,
+            where=f"OOD case {case.case_id}",
+        )
+        plan.append(batch)
+        labels_for[i] = [label]
+    val = ValSet(
+        reader=reader, labels=[x for rows in labels_for.values() for x in rows], plan=plan,
+        labels_for=labels_for, letter_id=dict(letter_id),
+    )
+    second_pass = prepare_second_pass(
+        val, reader=reader, tokenizer_json=tokenizer_json, seed=config.seed
+    )
+    return OodSuite(
+        cases, val, second_pass,
+        record_sha256=hashlib.sha256(general_record.read_bytes()).hexdigest(),
+        seed=config.seed,
+    )
+
+
+def score_ood(
+    step: RealFtStep, suite: OodSuite, *, scored: Mapping[str, object],
+    val_second: Mapping[str, object] | None, val_second_pass: SecondPass,
+) -> tuple[TriState, dict[str, TriState]]:
+    """``ood_abstain`` and its metrics: the OOD suite's abstentions, and the val set's."""
+    margin: TriState = NotRun(
+        reason=(
+            "the calibrated-margin half of the runtime's abstain rule needs a fitted "
+            "calibration table, and none exists (GAP-RT-CALIBRATION-NOT-FITTED)"
+        )
+    )
+    if suite.not_run is not None:
+        return NotRun(reason=suite.not_run), {}
+    assert suite.val is not None and suite.second_pass is not None  # set whenever it ran
+    if suite.second_pass.not_run is not None or val_second is None:
+        why = suite.second_pass.not_run or val_second_pass.not_run or "no val second pass"
+        return NotRun(reason=f"the permuted second pass did not run: {why}"), {
+            "ood_abstain.margin": margin,
+        }
+    first = _decode(step, suite.val.plan, suite.val.labels_for, suite.val.letter_id)
+    second = _decode(
+        step, suite.second_pass.batches, suite.second_pass.labels_for, suite.val.letter_id
+    )
+    ood = choice_rule_abstentions(first, second, suite.second_pass.perms)
+    indist = choice_rule_abstentions(scored, val_second, val_second_pass.perms)
+    metrics: dict[str, TriState] = {"ood_abstain.margin": margin}
+    for category in OOD_CATEGORIES:
+        ids = [c.case_id for c in suite.cases if c.category == category and c.case_id in ood]
+        k = sum(1 for i in ids if ood[i])
+        metrics[f"ood_abstain.{category}"] = (
+            Ran(
+                passed=True, value=k / len(ids), n=k, n_total=len(ids),
+                detail=f"abstained on {k} of {len(ids)} {category} cases (reported, not the gate)",
+            )
+            if ids else NotRun(reason=f"no {category} case was decoded")
+        )
+    in_k = sum(indist.values())
+    metrics["ood_abstain.in_distribution"] = (
+        Ran(
+            passed=True, value=in_k / len(indist), n=in_k, n_total=len(indist),
+            detail="val choice rows the runtime rule would abstain on (reported, not the gate)",
+        )
+        if indist else NotRun(reason="no val choice row was scored")
+    )
+    gate = ood_gate(
+        ood_abstained=sum(ood.values()), ood_total=len(ood),
+        in_abstained=in_k, in_total=len(indist),
+    )
+    return gate, metrics
+
+
+def suite_widths(needle_suite: NeedleSuite, ood_suite: OodSuite) -> list[int]:
+    """Every eval-only batch width the step will decode, for its ``max_width`` bound."""
+    widths = list(needle_suite.token_lengths)
+    if ood_suite.val is not None:
+        widths += [int(b.tokens.shape[1]) for b in ood_suite.val.plan]
+    if ood_suite.second_pass is not None:
+        widths += [int(b.tokens.shape[1]) for b in ood_suite.second_pass.batches]
+    return widths
+
+
+def ood_recipe(suite: OodSuite) -> dict[str, object]:
+    """What ``ood_abstain`` was scored under, for the recipe -- only when it ran."""
+    return {
+        "min_abstain": OOD_MIN_ABSTAIN, "max_in_distribution": OOD_MAX_IN_DISTRIBUTION_ABSTAIN,
+        "cases_per_category": OOD_CASES_PER_CATEGORY, "categories": list(OOD_CATEGORIES),
+        "general_record_sha256": suite.record_sha256,
+        "general_max_rows": OOD_GENERAL_MAX_ROWS, "suite_seed": suite.seed,
+        "rule": "noul-either-pass-or-permuted-disagreement; margin half not applied",
+    }
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class SuiteGate:
+    """A gate scored on a generated suite: its state, its metrics, and -- only when it ran --
+    what it was scored under, which goes in the eval row's recipe under ``recipe_key``."""
+
+    name: str
+    state: TriState
+    metrics: Mapping[str, TriState]
+    recipe_key: str
+    recipe: Mapping[str, object] | None
+
+
+def needle_gate(
+    state_metrics: tuple[TriState, dict[str, TriState]], suite: NeedleSuite
+) -> SuiteGate:
+    return SuiteGate("needle_hunk_recall", state_metrics[0], state_metrics[1], "needle",
+                     None if suite.not_run is not None else needle_recipe(suite))
+
+
+def ood_suite_gate(
+    state_metrics: tuple[TriState, dict[str, TriState]], suite: OodSuite
+) -> SuiteGate:
+    return SuiteGate("ood_abstain", state_metrics[0], state_metrics[1], "ood",
+                     None if suite.not_run is not None else ood_recipe(suite))
+
+
 def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: Ledger,
                   reader: ShardReader, val: ValSet, quick_reasons: Sequence[str],
                   decode_s: float, permutation: TriState,
-                  needle: tuple[TriState, dict[str, TriState]] | None = None,
-                  needle_suite: NeedleSuite | None = None) -> str:
+                  suite_gates: Sequence[SuiteGate] = ()) -> str:
     """One ``eval`` row per epoch run: what its model does on the val set.
 
     Pinned to the TRAIN set's protocol, like the verdict row, so the rows of one
@@ -3565,8 +3808,9 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
         "shard_hash": reader.header.shard_hash(),
         "val_shard_hash": val.reader.header.shard_hash(),
     }
-    if needle_suite is not None and needle_suite.not_run is None:
-        recipe["needle"] = needle_recipe(needle_suite)
+    for suite_gate in suite_gates:
+        if suite_gate.recipe is not None:
+            recipe[suite_gate.recipe_key] = dict(suite_gate.recipe)
     recorder = _recorder(
         ledger, reader=reader, seed=int(run["seed"]), recipe=recipe, run_kind="eval",
         quick_reasons=quick_reasons,
@@ -3599,12 +3843,10 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
         recorder.gate("ece", ece)
         recorder.control("degenerate_head", degenerate)
         recorder.gate("permutation_consistency", permutation)
-        needle_gate, needle_metrics = (
-            needle if needle is not None else (NotRun(reason="--needle was not given"), {})
-        )
-        for name, state in needle_metrics.items():
-            recorder.metric(name, state)
-        recorder.gate("needle_hunk_recall", needle_gate)
+        for suite_gate in suite_gates:
+            for name, state in suite_gate.metrics.items():
+                recorder.metric(name, state)
+            recorder.gate(suite_gate.name, suite_gate.state)
         decoded_abstain = sum(
             1 for v in scored["verdicts"]  # type: ignore[union-attr]
             if str(v["runtime_verdict"]) == "abstain"
@@ -3676,11 +3918,11 @@ def _ft_row(ledger_path: Path, row_id: str) -> dict[str, Any]:
 def _score_checkpoint(
     args: argparse.Namespace, *, reader: ShardReader, val: ValSet, device: str,
     ledger: Ledger, reasons_for: Callable[..., list[str]], second_pass: SecondPass,
-    needle_suite: NeedleSuite,
-) -> tuple[str, dict[str, object], TriState, TriState]:
+    needle_suite: NeedleSuite, ood_suite: OodSuite,
+) -> tuple[str, dict[str, object], TriState, list[SuiteGate]]:
     """Score a saved epoch checkpoint on the val set.
 
-    Returns ``(eval row id, scored, permutation_consistency, needle_hunk_recall)``.
+    Returns ``(eval row id, scored, permutation_consistency, suite gates)``.
 
     Every pairing that could silently score the wrong weights under the wrong row is checked
     before the tower loads: the file's arm, seed and training device against the ft row; the
@@ -3725,7 +3967,7 @@ def _score_checkpoint(
         dtype=args.score_dtype, spec=ADAMW_FP32 if args.score_dtype == "fp32" else ADAMW_BF16,
         attn_implementation=str(recipe["attn_implementation"]), seed=seed,
         lr=float(recipe["lr"]), total_steps=steps, span_weight=float(recipe["span_weight"]),
-        width=width, eval_widths=needle_suite.token_lengths,
+        width=width, eval_widths=suite_widths(needle_suite, ood_suite),
     )
     step.load_weights(weights)
     run: dict[str, object] = {
@@ -3742,15 +3984,22 @@ def _score_checkpoint(
     termination = ft["metrics"].get("train.termination", {}).get("value")
     decode_at = time.monotonic()
     scored = _decode(step, val.plan, val.labels_for, val.letter_id)
-    permutation = score_permutation_consistency(step, val, second_pass, scored)
-    needle = score_needle(step, needle_suite, val.letter_id)
+    permutation, val_second = score_permutation_consistency(step, val, second_pass, scored)
+    gates = [
+        needle_gate(score_needle(step, needle_suite, val.letter_id), needle_suite),
+        ood_suite_gate(
+            score_ood(step, ood_suite, scored=scored, val_second=val_second,
+                      val_second_pass=second_pass),
+            ood_suite,
+        ),
+    ]
     decode_s = time.monotonic() - decode_at
     reasons = reasons_for("epoch", device, None if termination is None else str(termination))
     row_id = _record_score(
         run, scored, ledger=ledger, reader=reader, val=val, quick_reasons=reasons,
-        decode_s=decode_s, permutation=permutation, needle=needle, needle_suite=needle_suite,
+        decode_s=decode_s, permutation=permutation, suite_gates=gates,
     )
-    return row_id, scored, permutation, needle[0]
+    return row_id, scored, permutation, gates
 
 
 def _check_piece_flags(args: argparse.Namespace) -> None:
@@ -4304,6 +4553,23 @@ def main(argv: list[str] | None = None) -> int:
             "per depth, hit = the hunk of the predicted start line). Needs --real-backbone"
         ),
     )
+    parser.add_argument(
+        "--ood", action="store_true",
+        help=(
+            "with --score-val: also score ood_abstain on qd_train.ood's generated suite under "
+            "the contract approved on 2026-09-30 (OOD abstain Wilson lower >= "
+            f"{OOD_MIN_ABSTAIN}, in-distribution Wilson upper <= "
+            f"{OOD_MAX_IN_DISTRIBUTION_ABSTAIN}). Needs --real-backbone and --ood-general-record"
+        ),
+    )
+    parser.add_argument(
+        "--ood-general-record", type=Path, default=None,
+        help=(
+            "the general fetch record the OOD prose is drawn from (its val split only). "
+            "Separate from --general-record, which changes which rows the val set is "
+            "relabelled from"
+        ),
+    )
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER_PATH)
     parser.add_argument(
         "--optimizer",
@@ -4586,6 +4852,13 @@ def main(argv: list[str] | None = None) -> int:
             )
     elif args.ft_ledger is not None or args.ft_row_id is not None:
         raise SystemExit("--ft-ledger/--ft-row-id only mean something with --score-checkpoint")
+    if (args.ood_general_record is not None) != args.ood:
+        raise SystemExit("--ood and --ood-general-record are given together or not at all")
+    if args.ood and not (args.score_val and args.real_backbone is not None):
+        raise SystemExit(
+            "--ood scores the model the val pass scores and encodes with the real "
+            "tokenizer: it needs --score-val and --real-backbone"
+        )
     if args.needle and not (args.score_val and args.real_backbone is not None):
         raise SystemExit(
             "--needle scores the model the val pass scores and encodes with the real "
@@ -4743,6 +5016,7 @@ def main(argv: list[str] | None = None) -> int:
     val_set: ValSet | None = None
     second_pass = SecondPass([], {}, {}, not_run="no val set: --score-val was not given")
     needle_suite = NeedleSuite([], [], {}, [], not_run="no val set: --score-val was not given")
+    ood_suite = OodSuite([], None, None, not_run="no val set: --score-val was not given")
     if args.score_val:
         val_set = open_val_set(
             args.out, config=config, rev=rev,
@@ -4770,6 +5044,17 @@ def main(argv: list[str] | None = None) -> int:
             f"{min(needle_suite.token_lengths)}..{max(needle_suite.token_lengths)}"
             if needle_suite.not_run is None else
             f"needle suite: not run -- {needle_suite.not_run}"
+        )
+        ood_suite = prepare_ood(
+            val_set.reader, config=config, rev=rev, letter_id=val_set.letter_id,
+            tokenizer_json=args.tokenizer_json, general_record=args.ood_general_record,
+            enabled=args.ood,
+        )
+        print(
+            f"OOD suite: {len(ood_suite.cases)} cases, "
+            f"{0 if ood_suite.second_pass is None else len(ood_suite.second_pass.perms)} "
+            "deranged for the second pass"
+            if ood_suite.not_run is None else f"OOD suite: not run -- {ood_suite.not_run}"
         )
     batch_tokens, recipe_batch_tokens = _resolve_batch_tokens(
         args.batch_tokens, widest=int(max(reader.header.buckets))
@@ -4843,17 +5128,17 @@ def main(argv: list[str] | None = None) -> int:
                 termination=termination,
             )
 
-        score_row_id, scored, permutation, needle_gate = _score_checkpoint(
+        score_row_id, scored, permutation, suite_gates = _score_checkpoint(
             args, reader=reader, val=val_set, device=devices[0],
             ledger=Ledger(args.ledger), reasons_for=eval_reasons, second_pass=second_pass,
-            needle_suite=needle_suite,
+            needle_suite=needle_suite, ood_suite=ood_suite,
         )
         for name, state in score_states(scored, val_set.labels).items():
             print(f"  {name}: {json.dumps(state.to_json())[:300]}")
         _, ece, degenerate = calibration_states(scored)
         for name, state in (("ece", ece), ("degenerate_head", degenerate),
                             ("permutation_consistency", permutation),
-                            ("needle_hunk_recall", needle_gate)):
+                            *((g.name, g.state) for g in suite_gates)):
             print(f"  {name}: {json.dumps(state.to_json())[:300]}")
         if args.verdicts_out is not None:
             write_verdicts_jsonl(
@@ -5130,22 +5415,30 @@ def main(argv: list[str] | None = None) -> int:
                     lower_layers_n=args.lower_layers_n,
                     lower_lr_scale=args.lower_layers_lr_scale, beta2=args.beta2,
                     permutation=permutation, alphabets=epoch_alphabets, replay=replay_plan,
-                    eval_widths=needle_suite.token_lengths,
+                    eval_widths=suite_widths(needle_suite, ood_suite),
                 )
                 step = run.pop("_step")
                 if val_set is not None:
                     decode_at = time.monotonic()
                     scored = _decode(step, val_set.plan, val_set.labels_for, val_set.letter_id)
-                    permutation = score_permutation_consistency(
+                    permutation, val_second = score_permutation_consistency(
                         step, val_set, second_pass, scored
                     )
-                    needle = score_needle(step, needle_suite, val_set.letter_id)
+                    suite_gates = [
+                        needle_gate(
+                            score_needle(step, needle_suite, val_set.letter_id), needle_suite
+                        ),
+                        ood_suite_gate(
+                            score_ood(step, ood_suite, scored=scored, val_second=val_second,
+                                      val_second_pass=second_pass),
+                            ood_suite,
+                        ),
+                    ]
                     decode_s = time.monotonic() - decode_at
                     run["score_row_id"] = _record_score(
                         run, scored, ledger=ledger, reader=reader, val=val_set,
                         quick_reasons=reasons_for("epoch", device, str(run["termination"])),
-                        decode_s=decode_s, permutation=permutation, needle=needle,
-                        needle_suite=needle_suite,
+                        decode_s=decode_s, permutation=permutation, suite_gates=suite_gates,
                     )
                     if args.verdicts_out is not None:
                         verdict_lines.extend(
@@ -5158,7 +5451,7 @@ def main(argv: list[str] | None = None) -> int:
                     _, ece, degenerate = calibration_states(scored)
                     for name, state in (("ece", ece), ("degenerate_head", degenerate),
                                         ("permutation_consistency", permutation),
-                                        ("needle_hunk_recall", needle[0])):
+                                        *((g.name, g.state) for g in suite_gates)):
                         print(f"  {device} seed={seed} {name}: {json.dumps(state.to_json())[:300]}")
                     print(f"  score row {run['score_row_id']}")
                 report["arm1"].append(run)  # type: ignore[union-attr]

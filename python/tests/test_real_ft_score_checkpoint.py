@@ -89,7 +89,7 @@ def test_a_checkpoint_paired_with_the_wrong_row_is_refused_before_any_read(tmp_p
     with pytest.raises(SystemExit, match=match):
         real_ft_run._score_checkpoint(
             args, reader=_reader(), val=None, device="mps", ledger=None,  # type: ignore[arg-type]
-            reasons_for=lambda *a, **k: [], second_pass=None, needle_suite=None,  # type: ignore[arg-type]
+            reasons_for=lambda *a, **k: [], second_pass=None, needle_suite=None, ood_suite=None,  # type: ignore[arg-type]
         )
 
 
@@ -98,7 +98,7 @@ def test_the_seed_in_the_filename_must_be_the_seed_asked_for(tmp_path):
     with pytest.raises(SystemExit, match="is seed 0"):
         real_ft_run._score_checkpoint(
             args, reader=_reader(), val=None, device="mps", ledger=None,  # type: ignore[arg-type]
-            reasons_for=lambda *a, **k: [], second_pass=None, needle_suite=None,  # type: ignore[arg-type]
+            reasons_for=lambda *a, **k: [], second_pass=None, needle_suite=None, ood_suite=None,  # type: ignore[arg-type]
         )
 
 
@@ -107,7 +107,7 @@ def test_only_an_epoch_checkpoint_is_scored(tmp_path):
     with pytest.raises(SystemExit, match="only an epoch checkpoint"):
         real_ft_run._score_checkpoint(
             args, reader=_reader(), val=None, device="mps", ledger=None,  # type: ignore[arg-type]
-            reasons_for=lambda *a, **k: [], second_pass=None, needle_suite=None,  # type: ignore[arg-type]
+            reasons_for=lambda *a, **k: [], second_pass=None, needle_suite=None, ood_suite=None,  # type: ignore[arg-type]
         )
 
 

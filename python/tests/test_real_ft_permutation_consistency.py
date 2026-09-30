@@ -162,7 +162,8 @@ def test_a_row_decoded_once_is_refused_rather_than_dropped():
 
 def test_without_a_tokenizer_the_gate_is_not_run_and_says_why():
     second_pass = rft.prepare_second_pass(_val(), reader=None, tokenizer_json=None, seed=0)  # type: ignore[arg-type]
-    got = rft.score_permutation_consistency(None, _val(), second_pass, {"verdicts": []})  # type: ignore[arg-type]
+    got, second = rft.score_permutation_consistency(None, _val(), second_pass, {"verdicts": []})  # type: ignore[arg-type]
+    assert second is None
     assert isinstance(got, NotRun) and "tokenizer.json" in got.reason
 
 

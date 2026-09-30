@@ -100,7 +100,7 @@ from qd_data.loaders import (
 )
 from qd_data.manifest import build_manifests
 from qd_data.mixture import build_mixture
-from qd_data.rows import DataRow
+from qd_data.rows import MAX_DEDUPE_TEXT_BYTES, DataRow
 from qd_data.schema import SpanSlot
 from qd_data.split import HELD_OUT, SplitReport, split
 from qd_train import shards as shards_module
@@ -230,6 +230,13 @@ def commit_rows(*, max_pairs: int, rev: str) -> tuple[list[CommitPackFtRow], boo
                 old = _git_bytes("show", f"{parent}:{name}").decode("utf-8")
                 new = _git_bytes("show", f"{commit}:{name}").decode("utf-8")
             except (subprocess.CalledProcessError, UnicodeDecodeError):
+                continue
+            # A commit row's dedupe_text is the new contents, and DataRow refuses one over
+            # MAX_DEDUPE_TEXT_BYTES with a ValueError that stops the whole build. This
+            # repository's own tools/real_ft_run.py crossed that bound on 2026-09-30, so a
+            # file that size is skipped here, like one that does not decode, rather than
+            # crashing every --repo-history build whose window holds such a commit.
+            if len(new.encode("utf-8")) > MAX_DEDUPE_TEXT_BYTES:
                 continue
             rows.append(
                 CommitPackFtRow(

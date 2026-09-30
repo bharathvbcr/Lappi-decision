@@ -131,11 +131,12 @@ def test_without_the_flag_the_gate_is_not_run_and_the_recipe_is_untouched():
     suite = rft.NeedleSuite([], [], {}, [], not_run="--needle was not given")
     gate, metrics = rft.score_needle(None, suite, {})  # type: ignore[arg-type]
     assert isinstance(gate, NotRun) and metrics == {}
-    import inspect
-
-    assert "if needle_suite is not None and needle_suite.not_run is None:" in inspect.getsource(
-        rft._record_score
+    assert rft.needle_gate((gate, metrics), suite).recipe is None, (
+        "a gate that did not run must not move the recipe hash"
     )
+    ran = rft.NeedleSuite([], [], {}, [8000], seed=4)
+    recipe = rft.needle_gate((gate, metrics), ran).recipe
+    assert recipe is not None and recipe["min_recall"] == 0.95 and recipe["suite_seed"] == 4
 
 
 def test_needle_argv_needs_score_val_and_the_real_backbone(tmp_path):
@@ -159,8 +160,12 @@ def test_a_step_too_narrow_for_the_suite_is_refused_before_any_decode(monkeypatc
     with pytest.raises(SystemExit, match="bounded at 1110"):
         rft.score_needle(SimpleNamespace(max_width=1110), _suite(cases), {})  # type: ignore[arg-type]
     assert "max_width=max((width, *eval_widths))" in inspect.getsource(rft._real_step)
-    assert "eval_widths=needle_suite.token_lengths" in inspect.getsource(rft._score_checkpoint)
-    assert "eval_widths=needle_suite.token_lengths" in inspect.getsource(rft.main)
+    assert "eval_widths=suite_widths(needle_suite, ood_suite)" in inspect.getsource(
+        rft._score_checkpoint
+    )
+    assert "eval_widths=suite_widths(needle_suite, ood_suite)" in inspect.getsource(rft.main)
+    empty = rft.OodSuite([], None, None, not_run="x")
+    assert rft.suite_widths(_suite(cases), empty) == _suite(cases).token_lengths
 
 
 def test_a_span_only_batch_skips_the_vocabulary_head():
