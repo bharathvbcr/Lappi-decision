@@ -373,11 +373,22 @@ Measured by the GPU lane; `HANDOFF/mac-gpu-lane-2026-09-29.md` has every row.
   - `--vocab corpus` keeps the old remap.
   - The recipe carries `vocab: full`, so full and trimmed sets never share a `recipe_hash`.
   - The Rust side (`qd-metal`) never had a remap; it reads `vocab_size` from the model config.
-- **Cost:**
-  - Training: +480M parameters, about 7.2 GiB of optimizer state. That is irrelevant on a
-    96 GB GH200.
+- **Cost, measured:**
+  - Training: +480M parameters. Live tensors on MPS (bf16, AdamW, one [4, 965] batch) peak at
+    16.06 GiB, against 12.45 GiB trimmed: +3.6 GiB.
+  - Under the fp32-master recipe the arithmetic adds about 5.7 GB more. The GH200 fit is
+    arithmetic, not yet a measurement.
   - Serving on the Mac: about 1 GB in bf16.
   - The 7.16 GiB saving in `HANDOFF/memory-2026-09-20.md` no longer applies.
+- **The first full-vocabulary smoke swapped, and it was not the tensors.**
+  - Its footprint reached 61 GiB, against 32.5 GiB for the trimmed smoke. It was killed after
+    58 minutes and wrote no rows.
+  - The MPS caching allocator grew to 30 GiB after three steps while live tensors held at
+    16 GiB. torch's default watermarks let it grow into swap on a 64 GiB Mac.
+  - `real_ft_run.py` now caps the allocator at the recommended working set, so it reclaims
+    its cache below that and fails fast above it
+    (GAP-MPS-ALLOCATOR-CACHE-SWAPS-INSTEAD-OF-REFUSING).
+  - CUDA frees its cache before raising out-of-memory, so this is Mac-only.
 - **Open:** the trained embedding has 248,077 rows, and the checkpoint config says 248,320. The
   export must re-pad 243 rows that no token can reach
   (GAP-EXPORT-FULL-VOCAB-CHECKPOINT-IS-243-ROWS-SHORT-OF-THE-CONFIG).

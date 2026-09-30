@@ -115,6 +115,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 if "--deterministic" in sys.argv:
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
+# The MPS caching allocator's ceiling, as fractions of the device's recommended working set
+# (48 GiB on a 64 GiB Mac). torch's defaults are 1.7 / 1.4, which let the cache -- not the
+# tensors -- grow past physical memory into swap: the full-vocabulary smoke of 2026-09-29
+# held 16 GiB of live tensors and 61 GiB of footprint, and ran for 58 minutes paging
+# (GAP-MPS-ALLOCATOR-CACHE-SWAPS-INSTEAD-OF-REFUSING). At 1.0 / 0.9 the allocator reclaims
+# its cache before the ceiling and raises an out-of-memory error past it: a refusal in
+# seconds instead of an hour that measures nothing. Read by the allocator when MPS first
+# initialises, hence here, before torch is imported; setdefault, so an explicit value wins.
+MPS_HIGH_WATERMARK_RATIO: Final[str] = "1.0"
+MPS_LOW_WATERMARK_RATIO: Final[str] = "0.9"
+os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", MPS_HIGH_WATERMARK_RATIO)
+os.environ.setdefault("PYTORCH_MPS_LOW_WATERMARK_RATIO", MPS_LOW_WATERMARK_RATIO)
+
 try:
     import torch
 except ModuleNotFoundError as exc:  # pragma: no cover - the repo venv has no torch by design
