@@ -11,6 +11,9 @@ tokens only -- no generation, no KV cache kept, no full-vocab slab over every po
   and projections for labelling N items (INFERRED: assumes the campaign's prompt-length
   distribution matches these items'). Prompts are re-tokenized with the 27B's own tokenizer
   from the text the 2B tokenizer decodes, and the identity of the two encodings is measured.
+  ``--logits-out`` keeps each item's letter distribution; ``--reference`` compares it with
+  another scorer's (``teacher_torch_score.py`` in bf16), which is how far 4-bit labels sit
+  from bf16 labels. The comparison uses the model's own head, the head the labels come from.
 
 One ``throughput`` row per invocation.
 """
@@ -104,6 +107,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ledger", type=Path, required=True)
     ap.add_argument("--torch-parity", type=Path, help="parity: mac_torch_attrib --parity-out")
     ap.add_argument("--base-tokenizer", type=Path, help="teacher: the 2B tokenizer.json")
+    ap.add_argument(
+        "--logits-out", type=Path,
+        help="teacher: write each item's letter logits and log-softmax (the parity format)",
+    )
+    ap.add_argument(
+        "--reference", type=Path,
+        help="teacher: a letter file from another scorer of the same items (e.g. "
+             "teacher_torch_score.py in bf16); records teacher.divergence.* against it",
+    )
     ap.add_argument("--n", type=int, default=100)
     ap.add_argument("--lengths", type=int, nargs="+", default=[1024, 2048, 8192])
     ap.add_argument("--project", type=int, nargs="+", default=[20_000, 50_000])
@@ -126,6 +138,9 @@ def main(argv: list[str] | None = None) -> int:
         "scoring": "one prefill, last-position hidden, option-letter rows only",
         "dtype": args.dtype, "parity_head": "fp32" if args.mode == "parity" else "model",
     }
+    if args.reference is not None:
+        # Added only when used, so a row without a reference keeps its old recipe hash.
+        recipe["reference"] = args.reference.name
     rec = RunRecorder(
         Ledger(args.ledger),
         entry_point=Path(__file__),
@@ -175,24 +190,22 @@ def main(argv: list[str] | None = None) -> int:
 def _parity(rec, model, items, args) -> None:  # type: ignore[no-untyped-def]
     if args.torch_parity is None:
         raise SystemExit("parity needs --torch-parity")
-    ref = {r["row_id"]: r for r in map(json.loads, args.torch_parity.read_text().splitlines())}
+    ref = common.read_letter_records(args.torch_parity)
     todo = [it for it in items if it["row_id"] in ref][: args.n]
-    diffs, agree = [], 0
-    for it in todo:
-        z = score(model, it["prompt_ids"], it["letter_ids"], fp32_head=True)
-        ls = _log_softmax(z).tolist()
-        tl = ref[it["row_id"]]["letter_logsoftmax"]
-        diffs.append(max(abs(a - b) for a, b in zip(ls, tl, strict=True)))
-        agree += int(max(range(len(ls)), key=ls.__getitem__)
-                     == max(range(len(tl)), key=tl.__getitem__))
-    n = len(todo)
-    if n == 0:
-        raise SystemExit("no item overlaps the torch parity file")
+    ours = {
+        it["row_id"]: _log_softmax(
+            score(model, it["prompt_ids"], it["letter_ids"], fp32_head=True)
+        ).tolist()
+        for it in todo
+    }
+    d = common.letter_divergence(ours, ref)
+    n = int(d["n"])
     rec.metric("parity.max_abs_logsoftmax_diff", Ran(
-        passed=True, value=round(max(diffs), 5), n=n, n_total=len(ref),
+        passed=True, value=round(float(d["max_abs_logsoftmax_diff"]), 5), n=n, n_total=len(ref),
         detail=(f"max over {n} items of max |mlx - torch| log-softmax over each item's decode "
-                f"rows; median per-item max {statistics.median(diffs):.5f}; mlx {args.dtype} "
-                f"vs {args.torch_parity.name}; fp32 head on both sides")))
+                f"rows; median per-item max {d['median_item_max_abs_diff']:.5f}; mlx "
+                f"{args.dtype} vs {args.torch_parity.name}; fp32 head on both sides")))
+    agree = int(d["argmax_agreement"])
     rec.metric("parity.argmax_agreement", Ran(
         passed=agree == n, value=agree, n=agree, n_total=n,
         detail=f"{agree} of {n} items pick the same decode row in mlx and torch"))
@@ -230,37 +243,42 @@ def _teacher(rec, model, tok, items, args) -> None:  # type: ignore[no-untyped-d
 
     base = Tokenizer.from_file(str(args.base_tokenizer))
     todo = items[: args.n]
-    same_ids = 0
-    prepared = []
-    letter_single = True
-    for it in todo:
-        text = base.decode(it["prompt_ids"], skip_special_tokens=False)
-        ids = tok.encode(text, add_special_tokens=False)
-        same_ids += int(ids == it["prompt_ids"])
-        lids = []
-        for lid in it["letter_ids"]:
-            s = base.decode([lid], skip_special_tokens=False)
-            enc = tok.encode(s, add_special_tokens=False)
-            if len(enc) != 1:
-                letter_single = False
-            lids.append(enc[0])
-        prepared.append((ids, lids, it["gold_row"]))
+    prepared, same_ids = common.prepare_teacher_items(
+        todo,
+        decode=lambda ids: base.decode(ids, skip_special_tokens=False),
+        encode=lambda text: tok.encode(text, add_special_tokens=False),
+    )
     rec.metric("tokenizer.prompt_ids_identical", Ran(
         passed=same_ids == len(todo), value=same_ids, n=same_ids, n_total=len(todo),
         detail="items whose 27B re-tokenization equals the 2B ids exactly"))
     rec.metric("tokenizer.letters_single_token", Ran(
-        passed=letter_single, value=letter_single,
-        detail="every option letter (as the 2B decodes it) is one 27B token"))
-    score(model, prepared[0][0], prepared[0][1])  # warmup
+        passed=True, value=True,
+        detail="every option letter (as the 2B decodes it) is one 27B token; "
+               "prepare_teacher_items refuses the run otherwise"))
+    score(model, prepared[0][1], prepared[0][2])  # warmup
     ts, toks, correct = [], 0, 0
+    records: dict[str, list[float]] = {}
+    out = None if args.logits_out is None else args.logits_out.open("w", encoding="utf-8")
     t_all = time.perf_counter()
-    for ids, lids, gold in prepared:
-        t = time.perf_counter()
-        z = score(model, ids, lids).tolist()
-        ts.append(time.perf_counter() - t)
-        toks += len(ids)
-        correct += int(max(range(len(z)), key=z.__getitem__) == gold)
+    try:
+        for row_id, ids, lids, gold in prepared:
+            t = time.perf_counter()
+            z = score(model, ids, lids).tolist()
+            ts.append(time.perf_counter() - t)
+            toks += len(ids)
+            correct += int(max(range(len(z)), key=z.__getitem__) == gold)
+            record = common.letter_record(row_id=row_id, n_tokens=len(ids), letter_logits=z)
+            records[row_id] = record["letter_logsoftmax"]
+            if out is not None:
+                out.write(json.dumps(record) + "\n")
+    finally:
+        if out is not None:
+            out.close()
     wall = time.perf_counter() - t_all
+    if args.reference is not None:
+        common.record_divergence(
+            rec, records, args.reference, ours_label=f"mlx {args.model.parent.parent.name}"
+        )
     n = len(prepared)
     ips = n / wall
     rec.metric("teacher.items_per_s", common.num(
