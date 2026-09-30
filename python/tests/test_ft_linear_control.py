@@ -162,6 +162,40 @@ def test_slot_name_disambiguates_two_slots_of_one_kind(tmp_path: Path) -> None:
     assert v.span_rows == 1
 
 
+def _span(row: str, correct: bool, expected: bool | None) -> dict:
+    line = {"eval_row_id": "e", "seed": 0, "row_id": row, "kind": "span",
+            "slot_name": "defect_span", "correct": correct}
+    if expected is not None:
+        line["expected_abstain"] = expected
+    return line
+
+
+def test_span_rows_are_scored_against_always_abstaining(tmp_path: Path) -> None:
+    """The n-gram control cannot produce a line pair, so the span rows had no opponent at
+    all. Always abstaining is right exactly where the gold abstains: a span head that only
+    learned to abstain would tie it, and one that points correctly beats it."""
+    rows = [_span(f"q{i}", True, i % 2 == 0) for i in range(200)]
+    v = ftc.load_verdicts(_write_verdicts(tmp_path / "v.jsonl", rows))
+    got = ftc.abstain_constant_margin(v, seed=0)
+    assert isinstance(got, Ran) and got.value == pytest.approx(0.5) and got.passed
+    constant = [_span(f"q{i}", i % 2 == 0, i % 2 == 0) for i in range(200)]
+    tie = ftc.abstain_constant_margin(
+        ftc.load_verdicts(_write_verdicts(tmp_path / "w.jsonl", constant)), seed=0
+    )
+    assert isinstance(tie, Ran) and tie.value == 0.0 and not tie.passed
+
+
+def test_a_file_without_expected_abstain_leaves_the_span_margin_not_run(tmp_path: Path) -> None:
+    rows = [_span("q0", True, True), _span("q1", True, None)]
+    v = ftc.load_verdicts(_write_verdicts(tmp_path / "v.jsonl", rows))
+    got = ftc.abstain_constant_margin(v, seed=0)
+    assert isinstance(got, NotRun) and "predates" in got.reason
+    with pytest.raises(ftc.Refused, match="JSON boolean"):
+        ftc.load_verdicts(_write_verdicts(tmp_path / "w.jsonl", [
+            {**_span("q0", True, True), "expected_abstain": 1}
+        ]))
+
+
 # --- the control ----------------------------------------------------------------------
 
 
@@ -195,6 +229,7 @@ def test_gate_is_the_paired_margin_over_every_letter_row() -> None:
     assert result.gate.value == pytest.approx(0.75 - 1.0)
     assert result.gate.passed is False
     assert isinstance(result.metrics["paired_margin_vs_linear.span"], NotRun)
+    assert isinstance(result.metrics["paired_margin_vs_abstain_constant.span"], NotRun)
 
 
 def test_a_task_whose_control_cannot_fit_makes_the_gate_not_run() -> None:

@@ -170,6 +170,15 @@ def test_verdict_lines_carry_the_fields_a4_reads(tmp_path):
         rft.write_verdicts_jsonl(tmp_path / "w.jsonl", [{**lines[0], "correct": 1}])
 
 
+def test_verdict_lines_carry_expected_abstain_when_the_decoder_wrote_it():
+    """What ft_linear_control scores the span rows' always-abstain opponent against."""
+    scored = _scored()
+    scored["verdicts"][1]["expected_abstain"] = True  # type: ignore[index]
+    lines = rft._verdict_lines(scored, eval_row_id="e1", seed=2)
+    assert lines[1]["expected_abstain"] is True
+    assert "expected_abstain" not in lines[0]
+
+
 def test_the_decoder_threads_slot_name_into_every_verdict():
     """``_decode`` is where Label.slot_name is available; both verdict dicts must carry it."""
     import inspect

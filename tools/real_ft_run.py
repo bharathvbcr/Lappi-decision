@@ -3884,6 +3884,10 @@ def _verdict_lines(
         }
         if "slot_name" in v:
             line["slot_name"] = v["slot_name"]
+        if "expected_abstain" in v:
+            # What an always-abstaining span head is scored against
+            # (ft_linear_control's paired_margin_vs_abstain_constant.span).
+            line["expected_abstain"] = bool(v["expected_abstain"])
         out.append(line)
     return out
 

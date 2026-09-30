@@ -129,6 +129,10 @@ class Verdicts:
     kind_of: dict[Key, str]
     by_slot_name: bool
     span_rows: int
+    #: Span rows' correctness and whether their gold abstains, by the same key. ``None``
+    #: when any span line lacks ``expected_abstain`` (files written before it existed).
+    span_correct: dict[Key, bool] | None = None
+    span_expected_abstain: dict[Key, bool] | None = None
 
 
 def load_verdicts(path: Path) -> Verdicts:
@@ -149,6 +153,8 @@ def load_verdicts(path: Path) -> Verdicts:
         raise Refused(f"{path} holds no verdicts")
     #: (eval_row_id, seed, row_id, kind, slot_name or None, correct), each field checked.
     records: list[tuple[str, int, str, str, str | None, bool]] = []
+    #: Per record, the span line's ``expected_abstain``, or None where absent.
+    abstains: list[bool | None] = []
     for n, line in enumerate(lines, 1):
         try:
             rec = json.loads(line)
@@ -167,9 +173,13 @@ def load_verdicts(path: Path) -> Verdicts:
         slot = rec.get("slot_name")
         if slot is not None and not isinstance(slot, str):
             raise Refused(f"{path}:{n}: 'slot_name' must be a string when present")
+        expected = rec.get("expected_abstain")
+        if expected is not None and not isinstance(expected, bool):
+            raise Refused(f"{path}:{n}: 'expected_abstain' must be a JSON boolean when present")
         records.append(
             (rec["eval_row_id"], seed, rec["row_id"], rec["kind"], slot, rec["correct"])
         )
+        abstains.append(expected)
 
     eval_ids = {r[0] for r in records}
     seeds = {r[1] for r in records}
@@ -186,9 +196,20 @@ def load_verdicts(path: Path) -> Verdicts:
     correct: dict[Key, bool] = {}
     kind_of: dict[Key, str] = {}
     span_rows = 0
-    for _, _, row_id, kind, slot, hit in records:
+    span_correct: dict[Key, bool] = {}
+    span_expected: dict[Key, bool] = {}
+    span_complete = True
+    for (_, _, row_id, kind, slot, hit), expected in zip(records, abstains, strict=True):
         if kind == "span":
             span_rows += 1
+            span_key: Key = (row_id, slot if (by_slot_name and slot is not None) else kind)
+            if span_key in span_correct:
+                raise Refused(f"{path}: two span verdicts share key {span_key}")
+            span_correct[span_key] = hit
+            if expected is None:
+                span_complete = False
+            else:
+                span_expected[span_key] = expected
             continue
         if kind not in LETTER_KIND_NAMES:
             raise Refused(f"{path}: unknown kind {kind!r} on row {row_id}")
@@ -203,6 +224,8 @@ def load_verdicts(path: Path) -> Verdicts:
     return Verdicts(
         eval_row_id=eval_ids.pop(), seed=seeds.pop(), correct=correct, kind_of=kind_of,
         by_slot_name=by_slot_name, span_rows=span_rows,
+        span_correct=span_correct if span_complete else None,
+        span_expected_abstain=span_expected if span_complete else None,
     )
 
 
@@ -302,6 +325,27 @@ LENGTH_ARM: Final[ControlArm] = ControlArm(
 )
 #: The metric name for the model's paired margin over the length-only control.
 LENGTH_MARGIN: Final[str] = "paired_margin_vs_length_control"
+
+#: The span rows' opponent, since the n-gram control cannot produce a line pair: a head
+#: that abstains on every row, correct exactly where the gold abstains. A constant, not a
+#: linear control, and named as one -- it is a metric beside the gate, never inside it.
+ABSTAIN_MARGIN: Final[str] = "paired_margin_vs_abstain_constant"
+
+
+def abstain_constant_margin(verdicts: Verdicts, *, seed: int) -> TriState:
+    """The model's span rows against always abstaining, paired by row."""
+    if verdicts.span_rows == 0:
+        return NotRun(reason="the verdicts hold no span rows")
+    if verdicts.span_correct is None or verdicts.span_expected_abstain is None:
+        return NotRun(
+            reason=(
+                f"{verdicts.span_rows} span verdict(s) without expected_abstain: the file "
+                "predates it, so what an always-abstaining head scores is not known"
+            )
+        )
+    return paired_margin_by_key(
+        verdicts.span_correct, verdicts.span_expected_abstain, seed=seed
+    )
 
 
 @dataclass(frozen=True)
@@ -501,6 +545,7 @@ def score_against_control(
             "pair the char-n-gram control cannot produce"
         )
     )
+    metrics[f"{ABSTAIN_MARGIN}.span"] = abstain_constant_margin(verdicts, seed=seed)
     if hold is not None:
         metrics.update(_holdout_metrics(val, verdicts, control, hold, seed=seed, gate=gate))
     return ControlScore(gate, metrics, len(train), removed, fit_seconds)
