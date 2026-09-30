@@ -700,10 +700,17 @@ def main(argv: list[str] | None = None) -> int:
         recipe["general_record_sha256"] = hashlib.sha256(
             args.general_record.read_bytes()
         ).hexdigest()
-        recipe["general_max_rows"] = args.general_max_rows
+        # Resolved, as the pipeline's recipe and the replay attestation record it, so the
+        # default is a number rather than a null that means "whatever the default was".
+        import real_tokenizer_pipeline as pipeline
+
+        recipe["general_max_rows"] = (
+            pipeline.DEFAULT_GENERAL_MAX_ROWS if args.general_max_rows is None
+            else args.general_max_rows
+        )
     if args.replay_partition:
         recipe["replay_partition"] = True
-    quick =bool(row.quick) or hold is not None
+    quick = bool(row.quick) or hold is not None
     quick_reason = (
         f"inherits eval row {row.row_id[:8]}'s quick flag ({row.quick_reason})"
         if row.quick else "an operator-holdout arm is a diagnostic; it promotes nothing"

@@ -246,6 +246,10 @@ def test_a_record_that_does_not_match_the_set_is_refused(tmp_path: Path) -> None
     _manifest(plain, {"bigcode/commitpackft": 5, "rajpurkar/squad_v2": 4})
     with pytest.raises(SystemExit, match="built without it"):
         _facts(plain, general_datasets=frozenset({"cais/mmlu"}))
+    # The history SQuAD rows must not pass for the record's: refused up front, before the
+    # rebuild, not minutes later by pair_labels.
+    with pytest.raises(SystemExit, match="built without it"):
+        _facts(plain, general_datasets=GENERAL)
 
 
 def test_the_replay_partition_must_agree_with_the_replay_manifest(tmp_path: Path) -> None:

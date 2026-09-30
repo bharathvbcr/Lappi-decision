@@ -419,6 +419,22 @@ def test_a_general_record_set_is_rebuilt_with_the_record_and_its_replay_partitio
     assert recipe["replay_partition"] is True
 
 
+def test_the_general_row_cap_is_recorded_resolved_not_as_null(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import real_tokenizer_pipeline as pipeline
+
+    ledger, verdicts, train, val = _scorable(tmp_path)
+    record = tmp_path / "fetch-record.json"
+    record.write_text("[]", encoding="utf-8")
+    _fake_runner(monkeypatch, train, val)
+    ftc.main(["--ledger", str(ledger), "--verdicts", str(verdicts), "--rev", REV,
+              "--max-pairs", "80", "--general-record", str(record)])
+    recipe = Ledger(ledger).rows()[-1].recipe
+    assert recipe["general_max_rows"] == pipeline.DEFAULT_GENERAL_MAX_ROWS
+    assert "replay_partition" not in recipe
+
+
 def test_a_control_without_a_general_record_hashes_as_before(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

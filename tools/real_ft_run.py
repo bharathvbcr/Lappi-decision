@@ -2690,7 +2690,12 @@ def corpus_facts(
                 f"not name them (it names {sorted(general_datasets)}): not the record the set "
                 "was built from"
             )
-        if not any(int(n_input.get(d, 0)) > 0 for d in general_datasets):
+        # Only the families a record alone supplies can tell whether it fed the set: a SQuAD
+        # count is the same whether the rows came from the record or from this repository's
+        # prose stand-in. A SQuAD-only record is therefore not refused here; pair_labels,
+        # which compares row ids, is the refusal for it.
+        record_only = general_datasets & set(GENERAL_ONLY_SOURCES)
+        if record_only and not any(int(n_input.get(d, 0)) > 0 for d in record_only):
             raise SystemExit(
                 f"--general-record names {sorted(general_datasets)} but none of them fed "
                 f"{path}: this shard set was built without it"
