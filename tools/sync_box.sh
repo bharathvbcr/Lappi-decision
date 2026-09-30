@@ -71,6 +71,7 @@
 #
 # Usage:  bash tools/sync_box.sh
 #         QD_BOX=ubuntu@1.2.3.4 QD_BOX_KEY=~/.ssh/id_ed25519 bash tools/sync_box.sh
+#         QD_BOX=ubuntu@1.2.3.4 bash tools/sync_box.sh watch   # or: status (once)
 #         QD_PULL_DEST=~/qd-campaign QD_PULL_SYNC_DIR=/home/ubuntu/campaign/state/sync \
 #           bash tools/sync_box.sh pull
 set -uo pipefail
@@ -93,6 +94,36 @@ from qd_train.ledger import what_ran_state
 r = what_ran_state(root / "python" / "qd_train", root / sys.argv[2])
 print(f"{r.value} {r.n}")
 '
+
+if [ "${1:-}" = "watch" ] || [ "${1:-}" = "status" ]; then
+  # A read-only look at a live box: the training processes and how long they have run, each
+  # log's latest `progress` line (tools/real_ft_run.py ProgressLine, one a minute), the last
+  # GPU sample, and the box ledger's row count. `status` prints once; `watch` repeats every
+  # QD_WATCH_EVERY_S (default 60) until interrupted. Nothing here writes to the box.
+  LOGS="${QD_BOX_LOGS:-/home/ubuntu/logs}"
+  LEDGERS="${QD_BOX_LEDGERS:-/home/ubuntu/ledger}"
+  EVERY="${QD_WATCH_EVERY_S:-60}"
+  case "$EVERY" in ''|*[!0-9]*) echo "!!! QD_WATCH_EVERY_S must be a whole number of seconds, got '$EVERY'"; exit 1;; esac
+  [ "$EVERY" -ge 5 ] || { echo "!!! QD_WATCH_EVERY_S below 5 s would hammer the box over ssh"; exit 1; }
+  PROBE='
+echo "--- $(date -u +%H:%M:%SZ) $(hostname)"
+ps -eo pid,etime,args | grep -E "tools/[a-z_0-9]+\.py" | grep -v grep | cut -c1-140 || echo "    no tool process running"
+for f in LOGS_DIR/*.log; do
+  [ -f "$f" ] || continue
+  last=$(grep -E "^  progress |^arm[12] |Traceback|Error" "$f" | tail -1 | cut -c1-220)
+  [ -n "$last" ] && echo "$(basename "$f"): $last"
+done
+[ -f LOGS_DIR/gpu.csv ] && echo "gpu: $(tail -1 LOGS_DIR/gpu.csv)" || nvidia-smi --query-gpu=utilization.gpu,memory.used,power.draw --format=csv,noheader | sed "s/^/gpu: /"
+for l in LEDGERS_DIR/*.jsonl; do [ -f "$l" ] && echo "ledger $(basename "$l"): $(wc -l < "$l") row(s)"; done
+'
+  PROBE="${PROBE//LOGS_DIR/$LOGS}"
+  PROBE="${PROBE//LEDGERS_DIR/$LEDGERS}"
+  while true; do
+    $SSH -o ConnectTimeout=15 "$BOX" "$PROBE" || echo "!!! $(date -u +%H:%M:%SZ) ssh to $BOX failed"
+    [ "$1" = "status" ] && exit 0
+    sleep "$EVERY"
+  done
+fi
 
 if [ "${1:-}" = "pull" ]; then
   DEST="${QD_PULL_DEST:-}"
