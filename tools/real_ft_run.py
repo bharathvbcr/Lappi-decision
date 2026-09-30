@@ -96,7 +96,7 @@ import os
 import subprocess
 import sys
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final
 
@@ -203,6 +203,7 @@ from qd_train.run_control import (
 )
 from qd_train.shards import (
     HEADER_NAME,
+    MAX_POSITIONS_PER_BATCH,
     ShardReader,
     UnencodableGold,
     answer_letter,
@@ -211,6 +212,7 @@ from qd_train.shards import (
 )
 from qd_train.trainer import (
     ChoicePermutation,
+    Progress,
     SpanScoringStep,
     ft_supervision,
     newline_terminated_ids,
@@ -235,6 +237,7 @@ RECIPE_PIECE_KEYS: Final[tuple[str, ...]] = (
     "replay_direction",
     "wall_clock_cap_s",
     "no_memorise",
+    "batch_tokens",
 )
 
 #: The wall-clock cap a run here carries when ``--wall-clock-cap-s`` is not given -- the one
@@ -277,17 +280,22 @@ def _recipe_pieces(
     *, lower_layers_n: int, lower_lr_scale: float, beta2: float,
     permutation: ChoicePermutation | None, replay: ReplayPlan | None,
     cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
+    batch_tokens: int | None = None,
 ) -> dict[str, object]:
     """The recipe keys for whichever ported pieces are on. Empty when none is.
 
-    The wall-clock cap and ``--no-memorise`` ride here too, on the same terms: named only
-    when they differ from what every earlier row ran under, so those rows hash as before.
+    The wall-clock cap, ``--no-memorise`` and ``--batch-tokens`` ride here too, on the same
+    terms: named only when they differ from what every earlier row ran under, so those rows
+    hash as before. ``batch_tokens`` is ``None`` at the default (the widest bucket), which
+    ``_resolve_batch_tokens`` decides.
     """
     out: dict[str, object] = {}
     if cap_s != WALL_CLOCK_CAP_S:
         out["wall_clock_cap_s"] = cap_s
     if no_memorise:
         out["no_memorise"] = True
+    if batch_tokens is not None:
+        out["batch_tokens"] = batch_tokens
     if lower_layers_n:
         out["lower_layers_n"] = lower_layers_n
         out["lower_lr_scale"] = lower_lr_scale
@@ -302,6 +310,26 @@ def _recipe_pieces(
         out["replay_every"] = replay.every
         out["replay_direction"] = "base_to_model"
     return out
+
+
+def _resolve_batch_tokens(given: int | None, *, widest: int) -> tuple[int, int | None]:
+    """``--batch-tokens`` against the shard set: ``(the value to plan with, its recipe key)``.
+
+    The default is the widest bucket, what every row before the flag trained at -- one
+    optimizer step per ~1.4k positions on the phase-3 set (row d732111f). Asking for exactly
+    that is the default too, so it hashes the same. Below the widest bucket the planner would
+    have no batch for that bucket's rows; above ``MAX_POSITIONS_PER_BATCH`` it refuses.
+    Both are refused here, on argv's time, before a tower loads.
+    """
+    if given is None or given == widest:
+        return widest, None
+    if not widest <= given <= MAX_POSITIONS_PER_BATCH:
+        raise SystemExit(
+            f"--batch-tokens {given} is outside [{widest}, {MAX_POSITIONS_PER_BATCH}]: the "
+            f"widest bucket ({widest}) must fit in one batch, and the shard reader refuses "
+            "more positions per batch than MAX_POSITIONS_PER_BATCH"
+        )
+    return given, given
 
 
 def _prior_cache(
@@ -1151,6 +1179,53 @@ ARM_TAGS: Final[tuple[str, ...]] = ("memorise", "epoch")
 ARM_DEVICES: Final[tuple[str, ...]] = ("cpu", "mps", "cuda")
 
 
+#: Seconds between progress lines. A line per step would be ~1 s apart on the GH200 and bury
+#: everything else; a minute is legible over `tail -f` and ~10 lines per 1500 s arm.
+PROGRESS_EVERY_S: Final[float] = 60.0
+
+
+class ProgressLine:
+    """``train_ft``'s ``on_progress``, throttled to one flushed line per ``every_s``.
+
+    The GH200 hour-0 run of 2026-09-30 trained for 25 minutes with nothing in its log:
+    stdout was a file, so block-buffered, and the loop said nothing. The line carries what
+    a person watching a rented box needs -- step of total, positions per second (padding
+    included: that is what the device processed), an ETA to the schedule's end, the loss
+    and, on cuda, the allocator's peak. The first step always prints, so a run that is
+    stepping at all says so within one step. ``clock`` is the loop's own elapsed time, so
+    no second clock is read here.
+    """
+
+    def __init__(
+        self, label: str, *, every_s: float = PROGRESS_EVERY_S,
+        peak_bytes: Callable[[], int] | None = None,
+        emit: Callable[[str], None] | None = None,
+    ) -> None:
+        if not (math.isfinite(every_s) and every_s > 0.0):
+            raise ValueError(f"every_s must be finite and positive, got {every_s!r}")
+        self.label = label
+        self.every_s = every_s
+        self._peak = peak_bytes
+        self._emit = emit if emit is not None else (lambda s: print(s, flush=True))
+        self._last: float | None = None
+
+    def __call__(self, p: Progress) -> None:
+        if self._last is not None and p.elapsed_s - self._last < self.every_s:
+            return
+        self._last = p.elapsed_s
+        rate = p.total_positions / p.elapsed_s if p.elapsed_s > 0 else 0.0
+        per_step = p.elapsed_s / p.optimizer_step
+        eta = per_step * (p.total_steps - p.optimizer_step)
+        line = (
+            f"  progress {self.label}: step {p.optimizer_step}/{p.total_steps} "
+            f"elapsed {p.elapsed_s:.0f}s {per_step:.2f}s/step {rate:.0f} pos/s "
+            f"eta {eta:.0f}s loss {p.loss:.4f}"
+        )
+        if self._peak is not None:
+            line += f" peak {self._peak() / (1 << 30):.1f}GiB"
+        self._emit(line)
+
+
 def _checkpoint_name(tag: str, seed: int, device: str) -> str:
     """The one place a checkpoint's filename is spelled.
 
@@ -1579,6 +1654,7 @@ def _train(
     alphabets: Mapping[int, list[tuple[str, ...] | None]] | None = None,
     replay: ReplayPlan | None = None,
     cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
+    batch_tokens: int | None = None,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -1597,6 +1673,7 @@ def _train(
     pieces = _recipe_pieces(
         lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
         permutation=permutation, replay=replay, cap_s=cap_s, no_memorise=no_memorise,
+        batch_tokens=batch_tokens,
     )
     if permutation is not None and alphabets is None:
         raise ValueError("option permutation needs each plan batch's per-row alphabets")
@@ -1944,6 +2021,10 @@ def _train(
         recorder=recorder,
         on_checkpoint=on_checkpoint,
         resume_from=resume_from,
+        on_progress=ProgressLine(
+            f"{tag} {device} seed={seed}",
+            peak_bytes=torch.cuda.max_memory_allocated if device == "cuda" else None,
+        ),
     )
     wall = time.monotonic() - started
     losses = result.loss_log.losses()
@@ -2816,7 +2897,10 @@ def open_val_set(
         reader=reader,
         labels=labels,
         plan=plan,
-        labels_for=_labels_by_batch(reader, plan, labels, config=config),
+        labels_for=_labels_by_batch(
+            reader, plan, labels, config=config,
+            batch_tokens=int(max(reader.header.buckets)),
+        ),
         letter_id=merged,
     )
 
@@ -3475,6 +3559,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--batch-tokens", type=int, default=None,
+        help=(
+            "positions per optimizer step (rows x padded width). Default: the widest bucket, "
+            "what every earlier row trained at -- ~1.4k positions a step on the phase-3 set, "
+            "which leaves a GH200 waiting on the host. Larger is a different recipe (fewer, "
+            "bigger steps; the lr is tuned for the default), so it is recorded in the recipe "
+            "when it differs"
+        ),
+    )
+    parser.add_argument(
         "--score-val",
         action="store_true",
         help=(
@@ -3894,7 +3988,9 @@ def main(argv: list[str] | None = None) -> int:
             f"val set: {len(val_set.reader)} sequences in {len(val_set.plan)} batches, "
             f"remap {val_set.reader.header.remap_hash[:16]} (the train set's)"
         )
-    batch_tokens = int(max(reader.header.buckets))
+    batch_tokens, recipe_batch_tokens = _resolve_batch_tokens(
+        args.batch_tokens, widest=int(max(reader.header.buckets))
+    )
     batch_info = _batch_inventory(reader, batch_tokens=batch_tokens, seed=config.seed)
 
     print(f"shard set: {shard_dir}")
@@ -3982,7 +4078,9 @@ def main(argv: list[str] | None = None) -> int:
             )
 
     plan_all = list(reader.batches(batch_tokens=batch_tokens, seed=config.seed, epoch=0))
-    labels_by_batch_all = _labels_by_batch(reader, plan_all, labels, config=config)
+    labels_by_batch_all = _labels_by_batch(
+        reader, plan_all, labels, config=config, batch_tokens=batch_tokens
+    )
     keep = [i for i, b in enumerate(plan_all) if b.tokens.shape[1] <= args.max_width]
     plan_small = [plan_all[i] for i in keep]
     labels_small = {new: labels_by_batch_all[old] for new, old in enumerate(keep)}
@@ -4110,7 +4208,7 @@ def main(argv: list[str] | None = None) -> int:
                 tag="memorise", quick_reasons=reasons_for("memorise", device),
                 lower_layers_n=args.lower_layers_n,
                 lower_lr_scale=args.lower_layers_lr_scale, beta2=args.beta2,
-                cap_s=args.wall_clock_cap_s,
+                cap_s=args.wall_clock_cap_s, batch_tokens=recipe_batch_tokens,
             )
             step = run.pop("_step")
             decode_at = time.monotonic()
@@ -4211,6 +4309,7 @@ def main(argv: list[str] | None = None) -> int:
                     approved_by=args.approved_by,
                     tag="epoch", quick_reasons=reasons_for("epoch", device),
                     cap_s=args.wall_clock_cap_s, no_memorise=args.no_memorise,
+                    batch_tokens=recipe_batch_tokens,
                     lower_layers_n=args.lower_layers_n,
                     lower_lr_scale=args.lower_layers_lr_scale, beta2=args.beta2,
                     permutation=permutation, alphabets=epoch_alphabets, replay=replay_plan,
@@ -4269,7 +4368,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _labels_by_batch(
-    reader: ShardReader, plan: list[Batch], labels: list[Label], *, config: DataConfig
+    reader: ShardReader, plan: list[Batch], labels: list[Label], *, config: DataConfig,
+    batch_tokens: int,
 ) -> dict[int, list[Label]]:
     """Which :class:`Label` each row of each batch is.
 
@@ -4278,9 +4378,9 @@ def _labels_by_batch(
     it rather than re-derived. Checked: every row's stored ``target_index`` and ``slot_kind``
     must match the label's, over every row of every batch.
     """
-    plans = reader._plan(
-        batch_tokens=int(max(reader.header.buckets)), seed=config.seed, epoch=0
-    )
+    # The plan ``plan`` was yielded from, so it must be the same batch_tokens: a different
+    # value is a different grouping, and the check below would refuse it row by row.
+    plans = reader._plan(batch_tokens=batch_tokens, seed=config.seed, epoch=0)
     if len(plans) != len(plan):
         raise SystemExit(f"{len(plans)} planned batches against {len(plan)} yielded")
     out: dict[int, list[Label]] = {}

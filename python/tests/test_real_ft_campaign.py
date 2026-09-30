@@ -107,6 +107,36 @@ def test_the_cap_and_no_memorise_reach_the_recipe_only_when_they_differ():
     assert {"wall_clock_cap_s", "no_memorise"} <= set(rft.RECIPE_PIECE_KEYS)
 
 
+# --- --batch-tokens --------------------------------------------------------------------------
+
+
+def test_batch_tokens_reaches_the_recipe_only_when_it_differs():
+    """The GH200 throughput row d732111f ran ~1,424 positions per optimizer step: the widest
+    bucket, 1,625, was the only batch size the tool could run, and a 2B model at that size
+    leaves the GPU waiting on the host. A larger batch is a different recipe, so it hashes
+    differently; the default hashes as every row before the flag did."""
+    base = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
+            "permutation": None, "replay": None}
+    assert rft._recipe_pieces(**base, batch_tokens=None) == {}
+    assert rft._recipe_pieces(**base, batch_tokens=32768) == {"batch_tokens": 32768}
+    assert "batch_tokens" in rft.RECIPE_PIECE_KEYS
+
+
+@pytest.mark.parametrize(("given", "widest", "want"), [
+    (None, 1625, (1625, None)),
+    (1625, 1625, (1625, None)),
+    (32768, 1625, (32768, 32768)),
+])
+def test_batch_tokens_resolves_against_the_widest_bucket(given, widest, want):
+    assert rft._resolve_batch_tokens(given, widest=widest) == want
+
+
+@pytest.mark.parametrize("given", [1624, 0, -1, (1 << 20) + 1])
+def test_a_batch_that_cannot_hold_the_widest_row_or_breaks_the_ceiling_is_refused(given):
+    with pytest.raises(SystemExit, match="--batch-tokens"):
+        rft._resolve_batch_tokens(given, widest=1625)
+
+
 # --- --no-memorise ---------------------------------------------------------------------------
 
 
