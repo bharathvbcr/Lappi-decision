@@ -389,6 +389,18 @@ Measured by the GPU lane; `HANDOFF/mac-gpu-lane-2026-09-29.md` has every row.
     its cache below that and fails fast above it
     (GAP-MPS-ALLOCATOR-CACHE-SWAPS-INSTEAD-OF-REFUSING).
   - CUDA frees its cache before raising out-of-memory, so this is Mac-only.
+- **With the cap in place, the real 2B at full vocabulary still does not fit this Mac.**
+  - ft `b7b8dec6` refused in 8 minutes: 16.65 GiB of tensors plus 30.55 GiB of Metal-side
+    allocations against 48 GiB.
+  - The full-vocab downstream path is proven on the stand-in backbone:
+    - ft `3a1bb317`;
+    - eval `f3254710`;
+    - control `e91692f3`.
+  - The real tower's full-vocab fit and throughput move to **GH200 hour 0**:
+    `tools/gh200_footprint.py --optimizer master`, then a capped tok/s run, before any phase.
+  - The untrimmed tower already measured 14.02 GiB under bf16 AdamW on the GH200
+    (`HANDOFF/gh200-2026-09-20.md`).
+  - Phase caps get 1.5× margin until hour 0 re-cuts them (`HANDOFF/gh200-readiness-2026-09-29.md`).
 - **Open:** the trained embedding has 248,077 rows, and the checkpoint config says 248,320. The
   export must re-pad 243 rows that no token can reach
   (GAP-EXPORT-FULL-VOCAB-CHECKPOINT-IS-243-ROWS-SHORT-OF-THE-CONFIG).
