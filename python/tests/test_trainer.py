@@ -38,6 +38,7 @@ from qd_train.run_control import (
     WallClockCap,
 )
 from qd_train.trainer import (
+    Progress,
     SpanScoringStep,
     SpanSupervision,
     TrainerContractViolation,
@@ -775,6 +776,29 @@ def test_checkpoints_are_taken_at_the_configured_interval(tmp_path):
     )
     assert [c.optimizer_step for c in taken] == [3, 6, 9]
     assert [c.position.index for c in taken] == [3, 6, 9]
+
+
+def test_progress_is_reported_after_every_optimizer_step(tmp_path):
+    """The GH200 hour-0 throughput run of 2026-09-30 trained for 25 minutes with an empty
+    log: nothing inside the loop said where it was, so the only live signal was nvidia-smi."""
+    seen: list[Progress] = []
+    step = TinyStep()
+    result = train_cpt(
+        batches_for(7, 0, n=20),
+        epoch=0,
+        step=step,
+        control=_control(total_steps=5, clock=StepClock(step, seconds_per_step=2.0)),
+        recorder=_recorder(tmp_path),
+        on_progress=seen.append,
+    )
+    assert [p.optimizer_step for p in seen] == [1, 2, 3, 4, 5]
+    assert all(p.total_steps == 5 for p in seen)
+    assert [p.elapsed_s for p in seen] == [2.0, 4.0, 6.0, 8.0, 10.0]
+    assert tuple(p.loss for p in seen) == tuple(result.loss_log.losses())
+    last = seen[-1]
+    assert (last.micro_batches, last.total_positions, last.supervised_tokens) == (
+        result.micro_batches, result.total_positions, result.supervised_tokens
+    )
 
 
 def test_resuming_under_a_different_seed_is_refused(tmp_path):

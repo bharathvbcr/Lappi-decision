@@ -141,6 +141,7 @@ __all__ = [
     "ChoicePermutation",
     "Objective",
     "PermutationRefusal",
+    "Progress",
     "SpanScoringStep",
     "SpanSupervision",
     "Supervision",
@@ -557,6 +558,24 @@ class TrainResult:
         return self.padded_positions / self.total_positions if self.total_positions else 0.0
 
 
+@dataclass(frozen=True, slots=True)
+class Progress:
+    """Where a live loop is, handed to ``on_progress`` after every optimizer step.
+
+    Counts are cumulative over this call; ``elapsed_s`` is ``RunControl.elapsed_s()``, the
+    clock the cap is checked on. The loop reports and never throttles: a caller that prints
+    decides how often, so a slow sink costs the run nothing it did not choose.
+    """
+
+    optimizer_step: int
+    total_steps: int
+    micro_batches: int
+    supervised_tokens: int
+    total_positions: int
+    elapsed_s: float
+    loss: float
+
+
 # --- the loop ------------------------------------------------------------------------------
 
 
@@ -635,6 +654,7 @@ def _train(
     on_checkpoint: Callable[[Checkpoint], None] | None = None,
     resume_from: Checkpoint | None = None,
     max_batches: int = MAX_BATCHES_PER_CALL,
+    on_progress: Callable[[Progress], None] | None = None,
 ) -> TrainResult:
     """The mechanics both objectives share. The objective itself arrives as a value."""
     if not isinstance(epoch, int) or isinstance(epoch, bool):
@@ -692,7 +712,8 @@ def _train(
         return _train_loop(
             batches, objective=objective, epoch=epoch, step=step, control=control,
             recorder=recorder, on_checkpoint=on_checkpoint, resume_from=resume_from,
-            max_batches=max_batches, seed=seed, start_index=start_index,
+            on_progress=on_progress, max_batches=max_batches, seed=seed,
+            start_index=start_index,
             first_step=first_step, log=log, consumed=consumed,
         )
     finally:
@@ -709,6 +730,7 @@ def _train_loop(
     recorder: RunRecorder,
     on_checkpoint: Callable[[Checkpoint], None] | None,
     resume_from: Checkpoint | None,
+    on_progress: Callable[[Progress], None] | None,
     max_batches: int,
     seed: int,
     start_index: int,
@@ -835,6 +857,18 @@ def _train_loop(
                 )
             )
             optimizer_step += 1
+            if on_progress is not None:
+                on_progress(
+                    Progress(
+                        optimizer_step=optimizer_step,
+                        total_steps=control.total_steps,
+                        micro_batches=micro_batches,
+                        supervised_tokens=supervised_tokens,
+                        total_positions=total_positions,
+                        elapsed_s=control.elapsed_s(),
+                        loss=group_loss,
+                    )
+                )
 
             if on_checkpoint is not None and control.should_checkpoint(optimizer_step - first_step):
                 on_checkpoint(
@@ -921,6 +955,7 @@ def train_cpt(
     on_checkpoint: Callable[[Checkpoint], None] | None = None,
     resume_from: Checkpoint | None = None,
     max_batches: int = MAX_BATCHES_PER_CALL,
+    on_progress: Callable[[Progress], None] | None = None,
 ) -> TrainResult:
     """Continued pre-training: next-token prediction over every real token of every row.
 
@@ -938,6 +973,7 @@ def train_cpt(
         on_checkpoint=on_checkpoint,
         resume_from=resume_from,
         max_batches=max_batches,
+        on_progress=on_progress,
     )
 
 
@@ -951,6 +987,7 @@ def train_ft(
     on_checkpoint: Callable[[Checkpoint], None] | None = None,
     resume_from: Checkpoint | None = None,
     max_batches: int = MAX_BATCHES_PER_CALL,
+    on_progress: Callable[[Progress], None] | None = None,
 ) -> TrainResult:
     """Fine-tuning: one supervised position per row, the single answer token at its end.
 
@@ -968,6 +1005,7 @@ def train_ft(
         on_checkpoint=on_checkpoint,
         resume_from=resume_from,
         max_batches=max_batches,
+        on_progress=on_progress,
     )
 
 
