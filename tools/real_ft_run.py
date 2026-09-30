@@ -3565,6 +3565,18 @@ def prepare_needle(reader: ShardReader, *, config: DataConfig, enabled: bool) ->
     return NeedleSuite(cases, batches, labels_for, lengths, seed=config.seed)
 
 
+def release_device_cache() -> None:
+    """Hand the allocator's cached blocks back to the device, on whichever backend is up.
+
+    A decode that follows a long one inherits its cache: MPS counts those blocks against its
+    high-watermark cap, so an eval that fits alone can run out of memory after another.
+    """
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def score_needle(
     step: RealFtStep, suite: NeedleSuite, letter_id: Mapping[str, int]
 ) -> tuple[TriState, dict[str, TriState]]:
@@ -3578,8 +3590,19 @@ def score_needle(
             f"the step is bounded at {bound} tokens and the needle suite's widest case is "
             f"{widest}: build it with eval_widths=suite.token_lengths"
         )
-    decoded = _decode(step, suite.batches, suite.labels_for, dict(letter_id))
-    by_case = {str(v["row_id"]): v for v in decoded["verdicts"]}  # type: ignore[union-attr]
+    # One case at a time, the device cache released before each. On 2026-09-30 the seed-0
+    # needle pass ran out of MPS memory at its first 8K case with 37.56 GiB of "other
+    # allocations" -- blocks cached by the val pass before it -- while the same case decoded
+    # in 6.6 s from a fresh process with the cache released (scratch probe, driver memory
+    # 18.8 GiB). Driver memory still rose ~4 GiB per case there, so it is released per case,
+    # not once.
+    verdicts: list[Mapping[str, object]] = []
+    for i, batch in enumerate(suite.batches):
+        release_device_cache()
+        decoded = _decode(step, [batch], {0: suite.labels_for[i]}, dict(letter_id))
+        verdicts.extend(decoded["verdicts"])  # type: ignore[arg-type]
+    release_device_cache()
+    by_case = {str(v["row_id"]): v for v in verdicts}
     predictions: dict[str, int | None] = {}
     for case in suite.cases:
         v = by_case.get(case.case_id)

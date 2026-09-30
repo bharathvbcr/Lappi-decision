@@ -79,7 +79,8 @@ import real_ft_run as rft  # noqa: E402
 def _suite(cases):
     return rft.NeedleSuite(
         cases=cases, batches=[None] * len(cases),  # type: ignore[list-item]
-        labels_for={}, token_lengths=[8000 + i for i in range(len(cases))],
+        labels_for={i: [] for i in range(len(cases))},
+        token_lengths=[8000 + i for i in range(len(cases))],
     )
 
 
@@ -166,6 +167,26 @@ def test_a_step_too_narrow_for_the_suite_is_refused_before_any_decode(monkeypatc
     assert "eval_widths=suite_widths(needle_suite, ood_suite)" in inspect.getsource(rft.main)
     empty = rft.OodSuite([], None, None, not_run="x")
     assert rft.suite_widths(_suite(cases), empty) == _suite(cases).token_lengths
+
+
+def test_the_suite_is_decoded_one_case_at_a_time_with_the_cache_released(monkeypatch):
+    """2026-09-30: the needle pass hit MPS's cap at its first 8K case with 37.56 GiB held
+    by the val pass's cached blocks; a fresh process with the cache released decoded it."""
+    cases = build_suite(target_tokens=1024, cases_per_depth=2, seed=0)
+    released: list[int] = []
+    calls: list[int] = []
+
+    def decode(step, batches, labels_for, letter_id):
+        calls.append(len(batches))
+        return {"verdicts": []}
+
+    monkeypatch.setattr(rft, "_decode", decode)
+    monkeypatch.setattr(rft, "release_device_cache", lambda: released.append(1))
+    suite = rft.NeedleSuite(cases, [None] * len(cases), {i: [] for i in range(len(cases))},  # type: ignore[list-item]
+                            [100] * len(cases))
+    rft.score_needle(None, suite, {})  # type: ignore[arg-type]
+    assert calls == [1] * len(cases), "every case decoded on its own"
+    assert len(released) == len(cases) + 1, "released before each case and after the last"
 
 
 def test_a_span_only_batch_skips_the_vocabulary_head():
