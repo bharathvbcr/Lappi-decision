@@ -93,6 +93,43 @@ def test_a_checkpoint_narrower_than_its_tokenizer_is_refused(
         pipeline.checkpoint_vocab_rows(tokenizer_len=248_077)
 
 
+def _args(**kw: Any) -> Any:
+    import argparse
+
+    base = {"instance": None, "usd_per_hour": None, "wall_clock_cap_s": 3600.0}
+    return argparse.Namespace(**{**base, **kw})
+
+
+@pytest.mark.parametrize("device", ["cpu", "mps"])
+def test_a_local_build_is_priced_by_leaving_the_cost_out(device: str) -> None:
+    assert pipeline._pipeline_cost(device, _args()) is None
+
+
+def test_a_rented_build_is_priced_from_its_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The GH200 hour-0 build of 2026-09-30 wrote its shards and then could not write its row:
+    the recorder refuses a cuda row with no cost, and nothing here could supply one."""
+    import types
+
+    monkeypatch.setitem(
+        sys.modules, "run_cost", types.SimpleNamespace(n_gpus_for_device=lambda d: 1)
+    )
+    cost = pipeline._pipeline_cost(
+        "cuda:1xNVIDIA GH200 480GB",
+        _args(instance="lambda-1xgh200", usd_per_hour=2.29, wall_clock_cap_s=1800.0),
+    )
+    assert cost is not None and cost.usd_per_hour == 2.29 and cost.instance == "lambda-1xgh200"
+
+
+def test_a_rented_build_without_a_rate_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    import types
+
+    monkeypatch.setitem(
+        sys.modules, "run_cost", types.SimpleNamespace(n_gpus_for_device=lambda d: 1)
+    )
+    with pytest.raises((ValueError, SystemExit)):
+        pipeline._pipeline_cost("cuda:1xNVIDIA GH200 480GB", _args())
+
+
 def _recipe_hash(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, extra: list[str]) -> str:
     ref = tmp_path / "refs-main"
     ref.write_text("b" * 40, encoding="utf-8")

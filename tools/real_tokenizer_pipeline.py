@@ -119,6 +119,7 @@ from qd_train.ledger import (
     RunRecorder,
 )
 from qd_train.remap import build_remap, count_corpus_tokens, full_vocab_remap
+from qd_train.run_control import CostEstimate, WallClockCap
 from qd_train.shards import (
     COVERAGE_NAME,
     HEADER_NAME,
@@ -1166,6 +1167,25 @@ VOCAB_CORPUS = "corpus"
 VOCAB_POLICIES = (VOCAB_FULL, VOCAB_CORPUS)
 
 
+def _pipeline_cost(env_device: str, args: argparse.Namespace) -> CostEstimate | None:
+    """``None`` on a local device; on a rented one, the priced ``CostEstimate``.
+
+    ``env_device`` is ``Environment.detect``'s string (``"mps"``, ``"cpu"``, or
+    ``"cuda:<n>x<name>"``). ``run_cost`` imports torch, so it is imported here, on the rented
+    branch only: the Mac and the torch-free gate never reach it.
+    """
+    kind = env_device.split(":", 1)[0]
+    if kind in CostEstimate.LOCAL_DEVICES:
+        return None
+    from run_cost import n_gpus_for_device
+
+    return CostEstimate.for_device(
+        cap=WallClockCap(cap_s=args.wall_clock_cap_s), device=kind,
+        n_gpus=n_gpus_for_device(kind), usd_per_hour=args.usd_per_hour,
+        instance=args.instance,
+    )
+
+
 def checkpoint_vocab_rows(*, tokenizer_len: int) -> int:
     """The embedding rows of ``MODEL``'s checkpoint, read from its own config.
 
@@ -2030,6 +2050,18 @@ def main(argv: list[str] | None = None) -> int:
             "any row using a token those rows did not."
         ),
     )
+    parser.add_argument(
+        "--instance", default=None,
+        help="the priced machine, on a rented box (the row's cost cannot be omitted there)",
+    )
+    parser.add_argument(
+        "--usd-per-hour", type=float, default=None,
+        help="the instance rate from the provider's price page, on a rented box",
+    )
+    parser.add_argument(
+        "--wall-clock-cap-s", type=float, default=3600.0,
+        help="the cap the row's cost estimate is priced from, on a rented box",
+    )
     args = parser.parse_args(argv)
     # `--max-pairs` bounds what `base_sources` reads from history or samples from the
     # download. With neither in play it would determine nothing and still land in the
@@ -2148,20 +2180,21 @@ def main(argv: list[str] | None = None) -> int:
         recipe_hash=protocol.recipe_hash,
         seed=protocol.seed,
     )
+    env = Environment.detect(transformers_sha=_transformers_version())
     recorder = RunRecorder(
         Ledger(Path(args.ledger)),
         entry_point=Path(__file__),
         protocol=protocol,
         run_kind="smoke",
         repo=REPO,
-        env=Environment.detect(transformers_sha=_transformers_version()),
+        env=env,
         wall_clock_s=work_s,
-        # This pipeline tokenises on whatever machine it is run on, and on a Mac that is
-        # already bought nothing is billed by the hour. `None` states that. It is not a
-        # blanket exemption: `Environment.detect` reports the real device, and on anything
-        # outside CostEstimate.LOCAL_DEVICES the recorder refuses this rather than writing
-        # an unstated zero that reads like a measured one.
-        cost=None,
+        # This pipeline tokenises on whatever machine it is run on. On a Mac that is already
+        # bought nothing is billed by the hour, and `None` states that. On a rented box the
+        # hour bills while this CPU work runs, so the row is priced from --instance and
+        # --usd-per-hour; the GH200 hour-0 build of 2026-09-30 wrote its shards and then
+        # could not write its row, because nothing here could say what the hour cost.
+        cost=_pipeline_cost(env.device, args),
         # The same object the `recipe_hash` above was taken of.
         recipe=recipe,
         quick=True,

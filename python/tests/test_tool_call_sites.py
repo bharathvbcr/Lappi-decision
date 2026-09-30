@@ -419,8 +419,14 @@ NOT_WRAPPING = {
         "cpu and mps rather than inventing one"
     ),
     ("real_tokenizer_pipeline.py", "work_s"): (
-        "tokenises on whatever machine it is run on with `cost=None`, which the recorder "
-        "accepts only on a local device and refuses on anything billed by the hour"
+        "re-argued 2026-09-30, when it gained --usd-per-hour: the GH200 hour-0 build wrote "
+        "its shards and could not write its row, because a cuda row cannot omit its cost. "
+        "Its row's protocol hashes the corpus run() returns, so the recorder cannot open "
+        "before the work. On a rented box it runs as a campaign_driver unit: the driver's "
+        "state records every attempt's exit code and wall clock, a unit that writes fewer "
+        "rows than it expects fails and stops the campaign, and the campaign's own "
+        "CostEstimate prices the instance for its whole cap -- so a kill loses this row, "
+        "never the spend. On a Mac it is priced at zero (cost=None)"
     ),
     ("rung0_linear_control.py", "time.monotonic() - work_t0"): (
         "fits a linear control on `Environment.detect(device=\"cpu\")` with `cost=None`; "
@@ -589,18 +595,26 @@ def test_the_only_billed_work_outside_a_block_is_the_verdict_decode() -> None:
     """The claim the inventory above rests on, checked against the source rather than
     carried in a comment.
 
-    Three of the five `NOT_WRAPPING` entries claim they cannot be billed. Two of those are
-    checkable here: `real_tokenizer_pipeline.py` and `rung0_linear_control.py` both pass
-    `cost=None`, which `RunRecorder.__init__` accepts only when the device is in
-    `CostEstimate.LOCAL_DEVICES` and refuses otherwise -- so they cannot silently start
-    pricing a rented machine. `rung0_toy_run.py` reaches its rate through
+    Two of the five `NOT_WRAPPING` entries claim they cannot be billed, and are checkable
+    here: `rung0_linear_control.py` passes `cost=None`, which `RunRecorder.__init__` accepts
+    only when the device is in `CostEstimate.LOCAL_DEVICES` -- so it cannot silently start
+    pricing a rented machine -- and `rung0_toy_run.py` reaches its rate through
     `CostEstimate.for_device` with no rate argument, which refuses anything but cpu and
-    mps.
+    mps. `real_tokenizer_pipeline.py` IS billed on a rented box since 2026-09-30; its entry
+    was re-argued then, and what is checked of it is that it prices only through
+    `for_device`.
 
     If one of them gains a `--usd-per-hour`, this fails and the entry in `NOT_WRAPPING`
     has to be re-argued rather than inherited.
     """
-    for name in ("real_tokenizer_pipeline.py", "rung0_linear_control.py"):
+    # real_tokenizer_pipeline.py took a rate on 2026-09-30 and its NOT_WRAPPING entry was
+    # re-argued then; what is checked of it now is that a rented row is priced only through
+    # CostEstimate.for_device, and a local one only by leaving the cost out.
+    pipeline_src = (TOOLS / "real_tokenizer_pipeline.py").read_text(encoding="utf-8")
+    assert "cost=_pipeline_cost(env.device, args)" in pipeline_src
+    assert "if kind in CostEstimate.LOCAL_DEVICES:\n        return None" in pipeline_src
+    assert "return CostEstimate.for_device(" in pipeline_src
+    for name in ("rung0_linear_control.py",):
         source = (TOOLS / name).read_text(encoding="utf-8")
         assert "cost=None" in source, (
             f"{name} no longer passes cost=None, so its NOT_WRAPPING entry -- which says "
