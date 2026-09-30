@@ -86,8 +86,12 @@ from qd_train.byte_train import Rung0Model, Rung0Step, train_rung0  # noqa: E402
 from qd_train.calibration_fit import ece_gate  # noqa: E402
 from qd_train.control_cache import control_key, load_control, store_control  # noqa: E402
 from qd_train.eval_harness import (  # noqa: E402
+    PERMUTATION_CONSISTENCY_FLOOR as PERMUTATION_CONSISTENCY_FLOOR,
+)
+from qd_train.eval_harness import (  # noqa: E402
     degenerate_head_check,
     paired_margin_test,
+    permutation_consistency_state,
     shuffled_label_control,
 )
 from qd_train.heads import plan_span_batch, serving_scores  # noqa: E402
@@ -873,10 +877,9 @@ def sattolo_permutation(n: int, *, seed_text: str) -> list[int]:
     return items
 
 
-#: The gate from `docs/schema-api.md`: "permutation consistency (>= 95%) is a training gate
-#: and not only a runtime check: a model that fails it makes the second pass fire constantly
-#: and the abstain rate blows the cap." A threshold from the plan, read-only to an agent.
-PERMUTATION_CONSISTENCY_FLOOR: Final[float] = 0.95
+#: `PERMUTATION_CONSISTENCY_FLOOR`, the plan's 95%, is imported above and re-exported: it is
+#: owned by `qd_train.eval_harness` now that the FT eval gates on it too, and
+#: `test_shuffled_label_control.py` has always read it from here.
 
 
 #: The linear control's iteration budget, which must match `rung0_linear_control`'s.
@@ -975,27 +978,7 @@ def permutation_consistency(
                 if second[i] < len(perm) and perm[second[i]] == first[i]:
                     agree += 1
     model.train()
-
-    if asked == 0:
-        return NotRun(
-            reason=(
-                f"no row of {total} had two or more live options, so no derangement exists "
-                "and permutation consistency was not measured on anything"
-            )
-        )
-    rate = agree / asked
-    return Ran(
-        passed=rate >= PERMUTATION_CONSISTENCY_FLOOR,
-        value=rate,
-        n=agree,
-        n_total=asked,
-        detail=(
-            f"the choice head agreed with itself across a derangement on {agree} of "
-            f"{asked} rows ({rate:.1%}) against a {PERMUTATION_CONSISTENCY_FLOOR:.0%} "
-            f"floor; {total - asked} row(s) had fewer than two live options and were "
-            "excluded rather than counted as agreeing"
-        ),
-    )
+    return permutation_consistency_state(agree=agree, asked=asked, total=total)
 
 
 def quick_reason_for(

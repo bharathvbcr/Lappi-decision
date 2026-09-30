@@ -164,7 +164,7 @@ from torch import nn
 
 from qd_data.config import DataConfig
 from qd_data.errors import QdRefusal
-from qd_data.render import DEFAULT_CAPS, render
+from qd_data.render import DEFAULT_CAPS, render, second_pass_permutation
 from qd_data.rows import DataRow
 from qd_data.schema import NOUL_LETTER
 from qd_train.artifacts import (
@@ -175,7 +175,7 @@ from qd_train.artifacts import (
     Batch,
 )
 from qd_train.calibration_fit import ece_gate, letters_key
-from qd_train.eval_harness import degenerate_head_check
+from qd_train.eval_harness import degenerate_head_check, permutation_consistency_state
 from qd_train.fused_ce import fused_linear_cross_entropy, resolve_chunk_size
 from qd_train.heads import (
     RESERVED_NOUL_ROWS,
@@ -3194,9 +3194,138 @@ def calibration_states(
     return metrics, aggregate(eces, name="ece"), aggregate(degenerate, name="degenerate_head")
 
 
+def second_pass_batches(
+    val: ValSet, spec: ChoicePermutation, *, seed: int
+) -> tuple[list[Batch], dict[int, list[Label]], dict[tuple[str, str], tuple[int, ...]]]:
+    """Every val batch holding a choice row, its choice rows' options deranged. CPU only.
+
+    Built whole before any forward pass, so a row :meth:`ChoicePermutation.apply` refuses
+    fails the run in seconds rather than after the first decode. Each row's order is
+    ``qd_data.render.second_pass_permutation`` of ``(seed, row_id, slot_name)`` -- the
+    derangement ``docs/schema-api.md`` requires, not the trainer's uniform per-pass shuffle,
+    whose fixed points let a position-biased model agree with itself. Returns the batches,
+    their labels by position, and each asked row's permutation (``perm[j]`` is the option
+    first shown at ``j``, now shown at ``j``'s place in the second pass). A row with fewer
+    than two options is left in place and not in the map: it has no derangement.
+    """
+    alphabets = _alphabets(val.plan, val.labels_for)
+    batches: list[Batch] = []
+    labels_for: dict[int, list[Label]] = {}
+    perms: dict[tuple[str, str], tuple[int, ...]] = {}
+    for b, batch in enumerate(val.plan):
+        rows = val.labels_for[b]
+        if not any(label.slot_kind == SLOT_CHOICE for label in rows):
+            continue
+        drawn: dict[int, tuple[int, ...]] = {}
+        for r, letters in enumerate(alphabets[b]):
+            if letters is None:
+                continue
+            label = rows[r]
+            if len(letters) < 2:
+                drawn[r] = tuple(range(len(letters)))
+                continue
+            perm = second_pass_permutation(
+                len(letters), seed=seed, example_id=label.row_id, slot_name=label.slot_name
+            )
+            if any(perm[j] == j for j in range(len(perm))):
+                raise SystemExit(
+                    f"row {label.row_id}: second-pass permutation {perm} leaves an option in "
+                    "place; it is not the derangement docs/schema-api.md requires"
+                )
+            key = (label.row_id, label.slot_name)
+            if key in perms:
+                raise SystemExit(f"two val choice rows share {key}; they cannot be paired")
+            perms[key] = perm
+            drawn[r] = perm
+        permuted, _ = spec.apply(
+            batch, alphabets[b], permutation_for=lambda _index, r, _m, drawn=drawn: drawn[r]
+        )
+        labels_for[len(batches)] = rows
+        batches.append(permuted)
+    return batches, labels_for, perms
+
+
+def permutation_agreement(
+    scored: Mapping[str, object],
+    second: Mapping[str, object],
+    perms: Mapping[tuple[str, str], tuple[int, ...]],
+) -> TriState:
+    """``permutation_consistency`` from the first pass's verdicts and the second pass's.
+
+    Only ``top``, ``noul_row`` and the row's key are read from the second pass: its
+    ``gold_row`` and ``correct`` are against labels that were not permuted, so they are
+    meaningless, and nothing from it reaches the verdicts, accuracy or calibration. Both
+    passes abstaining is agreement -- the runtime answers ``noul`` either way -- and one
+    abstaining is not.
+    """
+    first = {
+        (str(v["row_id"]), str(v["slot_name"])): v
+        for v in scored["verdicts"]  # type: ignore[union-attr]
+        if v["kind"] == "choice"
+    }
+    again = {
+        (str(v["row_id"]), str(v["slot_name"])): v
+        for v in second["verdicts"]  # type: ignore[union-attr]
+        if v["kind"] == "choice"
+    }
+    agree = asked = 0
+    for key, v in first.items():
+        perm = perms.get(key)
+        if perm is None:
+            continue
+        w = again.get(key)
+        if w is None:
+            raise SystemExit(f"row {key} was decoded in the first pass and not the second")
+        asked += 1
+        top1, top2 = int(v["top"]), int(w["top"])  # type: ignore[call-overload]
+        abstained1 = top1 == int(v["noul_row"])  # type: ignore[call-overload]
+        abstained2 = top2 == int(w["noul_row"])  # type: ignore[call-overload]
+        if abstained1 or abstained2:
+            agree += int(abstained1 and abstained2)
+        elif perm[top2] == top1:
+            agree += 1
+    return permutation_consistency_state(agree=agree, asked=asked, total=len(first))
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class SecondPass:
+    """:func:`second_pass_batches`' output, built before a tower loads; or why it was not."""
+
+    batches: list[Batch]
+    labels_for: dict[int, list[Label]]
+    perms: dict[tuple[str, str], tuple[int, ...]]
+    not_run: str | None = None
+
+
+def prepare_second_pass(
+    val: ValSet, *, reader: ShardReader, tokenizer_json: Path | None, seed: int
+) -> SecondPass:
+    if tokenizer_json is None:
+        return SecondPass(
+            [], {}, {},
+            not_run=(
+                "no tokenizer.json: which token ids end an option line is a fact about the "
+                "vocabulary, and without it the options cannot be moved"
+            ),
+        )
+    spec = _permutation_spec(reader, tokenizer_json=tokenizer_json, letter_id=val.letter_id,
+                             seed=seed)
+    return SecondPass(*second_pass_batches(val, spec, seed=seed))
+
+
+def score_permutation_consistency(
+    step: RealFtStep, val: ValSet, second_pass: SecondPass, scored: Mapping[str, object]
+) -> TriState:
+    """Decode the val set's choice rows a second time, options deranged, and compare."""
+    if second_pass.not_run is not None:
+        return NotRun(reason=second_pass.not_run)
+    second = _decode(step, second_pass.batches, second_pass.labels_for, val.letter_id)
+    return permutation_agreement(scored, second, second_pass.perms)
+
+
 def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: Ledger,
                   reader: ShardReader, val: ValSet, quick_reasons: Sequence[str],
-                  decode_s: float) -> str:
+                  decode_s: float, permutation: TriState) -> str:
     """One ``eval`` row per epoch run: what its model does on the val set.
 
     Pinned to the TRAIN set's protocol, like the verdict row, so the rows of one
@@ -3241,6 +3370,7 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
             recorder.metric(name, state)
         recorder.gate("ece", ece)
         recorder.control("degenerate_head", degenerate)
+        recorder.gate("permutation_consistency", permutation)
         decoded_abstain = sum(
             1 for v in scored["verdicts"]  # type: ignore[union-attr]
             if str(v["runtime_verdict"]) == "abstain"
@@ -3311,9 +3441,11 @@ def _ft_row(ledger_path: Path, row_id: str) -> dict[str, Any]:
 
 def _score_checkpoint(
     args: argparse.Namespace, *, reader: ShardReader, val: ValSet, device: str,
-    ledger: Ledger, reasons_for: Callable[..., list[str]],
-) -> tuple[str, dict[str, object]]:
-    """Score a saved epoch checkpoint on the val set. Returns ``(eval row id, scored)``.
+    ledger: Ledger, reasons_for: Callable[..., list[str]], second_pass: SecondPass,
+) -> tuple[str, dict[str, object], TriState]:
+    """Score a saved epoch checkpoint on the val set.
+
+    Returns ``(eval row id, scored, permutation_consistency)``.
 
     Every pairing that could silently score the wrong weights under the wrong row is checked
     before the tower loads: the file's arm, seed and training device against the ft row; the
@@ -3375,13 +3507,14 @@ def _score_checkpoint(
     termination = ft["metrics"].get("train.termination", {}).get("value")
     decode_at = time.monotonic()
     scored = _decode(step, val.plan, val.labels_for, val.letter_id)
+    permutation = score_permutation_consistency(step, val, second_pass, scored)
     decode_s = time.monotonic() - decode_at
     reasons = reasons_for("epoch", device, None if termination is None else str(termination))
     row_id = _record_score(
         run, scored, ledger=ledger, reader=reader, val=val, quick_reasons=reasons,
-        decode_s=decode_s,
+        decode_s=decode_s, permutation=permutation,
     )
-    return row_id, scored
+    return row_id, scored, permutation
 
 
 def _check_piece_flags(args: argparse.Namespace) -> None:
@@ -4354,6 +4487,7 @@ def main(argv: list[str] | None = None) -> int:
     # Opened before any tower loads, so every way it could misscore is refused on argv's
     # time rather than after an epoch has been paid for.
     val_set: ValSet | None = None
+    second_pass = SecondPass([], {}, {}, not_run="no val set: --score-val was not given")
     if args.score_val:
         val_set = open_val_set(
             args.out, config=config, rev=rev,
@@ -4364,6 +4498,16 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"val set: {len(val_set.reader)} sequences in {len(val_set.plan)} batches, "
             f"remap {val_set.reader.header.remap_hash[:16]} (the train set's)"
+        )
+        second_pass = prepare_second_pass(
+            val_set, reader=val_set.reader, tokenizer_json=args.tokenizer_json,
+            seed=config.seed,
+        )
+        print(
+            f"permutation second pass: {len(second_pass.perms)} choice rows deranged in "
+            f"{len(second_pass.batches)} batches (seed {config.seed})"
+            if second_pass.not_run is None else
+            f"permutation second pass: not run -- {second_pass.not_run}"
         )
     batch_tokens, recipe_batch_tokens = _resolve_batch_tokens(
         args.batch_tokens, widest=int(max(reader.header.buckets))
@@ -4437,14 +4581,15 @@ def main(argv: list[str] | None = None) -> int:
                 termination=termination,
             )
 
-        score_row_id, scored = _score_checkpoint(
+        score_row_id, scored, permutation = _score_checkpoint(
             args, reader=reader, val=val_set, device=devices[0],
-            ledger=Ledger(args.ledger), reasons_for=eval_reasons,
+            ledger=Ledger(args.ledger), reasons_for=eval_reasons, second_pass=second_pass,
         )
         for name, state in score_states(scored, val_set.labels).items():
             print(f"  {name}: {json.dumps(state.to_json())[:300]}")
         _, ece, degenerate = calibration_states(scored)
-        for name, state in (("ece", ece), ("degenerate_head", degenerate)):
+        for name, state in (("ece", ece), ("degenerate_head", degenerate),
+                            ("permutation_consistency", permutation)):
             print(f"  {name}: {json.dumps(state.to_json())[:300]}")
         if args.verdicts_out is not None:
             write_verdicts_jsonl(
@@ -4726,11 +4871,14 @@ def main(argv: list[str] | None = None) -> int:
                 if val_set is not None:
                     decode_at = time.monotonic()
                     scored = _decode(step, val_set.plan, val_set.labels_for, val_set.letter_id)
+                    permutation = score_permutation_consistency(
+                        step, val_set, second_pass, scored
+                    )
                     decode_s = time.monotonic() - decode_at
                     run["score_row_id"] = _record_score(
                         run, scored, ledger=ledger, reader=reader, val=val_set,
                         quick_reasons=reasons_for("epoch", device, str(run["termination"])),
-                        decode_s=decode_s,
+                        decode_s=decode_s, permutation=permutation,
                     )
                     if args.verdicts_out is not None:
                         verdict_lines.extend(
@@ -4741,7 +4889,8 @@ def main(argv: list[str] | None = None) -> int:
                     for name, state in score_states(scored, val_set.labels).items():
                         print(f"  {device} seed={seed} {name}: {json.dumps(state.to_json())[:300]}")
                     _, ece, degenerate = calibration_states(scored)
-                    for name, state in (("ece", ece), ("degenerate_head", degenerate)):
+                    for name, state in (("ece", ece), ("degenerate_head", degenerate),
+                                        ("permutation_consistency", permutation)):
                         print(f"  {device} seed={seed} {name}: {json.dumps(state.to_json())[:300]}")
                     print(f"  score row {run['score_row_id']}")
                 report["arm1"].append(run)  # type: ignore[union-attr]

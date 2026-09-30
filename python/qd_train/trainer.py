@@ -1201,7 +1201,11 @@ class ChoicePermutation:
         ).permutation(m)
 
     def apply(
-        self, batch: Batch, alphabets: list[tuple[str, ...] | None]
+        self,
+        batch: Batch,
+        alphabets: list[tuple[str, ...] | None],
+        *,
+        permutation_for: Callable[[int, int, int], tuple[int, ...]] | None = None,
     ) -> tuple[Batch, int]:
         """``(batch with every choice row permuted, rows permuted)``.
 
@@ -1209,7 +1213,12 @@ class ChoicePermutation:
         excluded) for a ``SLOT_CHOICE`` row, and ``None`` for any other: score bins are
         ordinal and never shuffled (``qd_data.render.shuffle_options``), and a span row has
         no named option. A mismatch between the two is a refusal.
+
+        ``permutation_for(index, row, m)`` replaces :meth:`permutation` as the source of each
+        row's order -- the eval's second pass draws a derangement per example, where training
+        draws a uniform shuffle per pass -- and every refusal here applies to it unchanged.
         """
+        draw = self.permutation if permutation_for is None else permutation_for
         from .artifacts import SLOT_CHOICE
 
         if batch.slot_kind is None or batch.target_index is None:
@@ -1254,7 +1263,7 @@ class ChoicePermutation:
                 letter_ids=ids,
                 noul_id=self.noul_id,
                 line_end_ids=self.line_end_ids,
-                perm=self.permutation(batch.index, r, len(ids)),
+                perm=draw(batch.index, r, len(ids)),
             )
             permuted += 1
         return _replace_tokens(batch, tokens), permuted

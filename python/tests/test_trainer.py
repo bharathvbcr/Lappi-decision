@@ -1077,6 +1077,35 @@ def test_the_batch_permutation_is_a_pure_function_of_seed_index_and_row():
     assert len(others) > 1, "the seed does not reach the permutation"
 
 
+def test_an_injected_permutation_source_replaces_the_shuffle_and_keeps_every_refusal():
+    """The eval's second pass draws a derangement per example, not the per-pass shuffle.
+    ``permutation_for`` is how, and it must go through the same checks: a source that
+    skipped them could move a line whose letter was never located."""
+    from qd_train.trainer import ChoicePermutation, PermutationRefusal
+
+    row = _choice_row([[40], [41], [43]], gold=A)
+    batch = Batch(
+        tokens=row[None, :].copy(), lengths=np.asarray([len(row)]), bucket=len(row),
+        index=7, slot_kind=np.asarray([SLOT_CHOICE]), target_index=np.asarray([len(row) - 2]),
+    )
+    spec = ChoicePermutation(
+        seed=0, letter_ids={"A": A, "B": B, "C": C}, noul_id=Z, line_end_ids=LINE_ENDS
+    )
+    asked: list[tuple[int, int, int]] = []
+
+    def source(index: int, r: int, m: int) -> tuple[int, ...]:
+        asked.append((index, r, m))
+        return (1, 2, 0)
+
+    out, n = spec.apply(batch, [("A", "B", "C")], permutation_for=source)
+    assert n == 1 and asked == [(7, 0, 3)]
+    assert out.tokens[0].tolist() == _permute(row, (A, B, C), (1, 2, 0)).tolist()
+    with pytest.raises(PermutationRefusal, match="not a permutation"):
+        spec.apply(batch, [("A", "B", "C")], permutation_for=lambda *_: (0, 0, 1))
+    with pytest.raises(PermutationRefusal, match="slot_kind"):
+        spec.apply(batch, [None], permutation_for=source)
+
+
 def test_a_choice_row_whose_letter_has_no_known_id_refuses_the_batch():
     from qd_train.trainer import ChoicePermutation, PermutationRefusal
 

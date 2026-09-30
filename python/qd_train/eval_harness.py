@@ -25,12 +25,14 @@ __all__ = [
     "DEFAULT_ENTROPY_FLOOR",
     "DEFAULT_FEATURE_VAR_FLOOR",
     "DEFAULT_MAX_CLASS_SHARE",
+    "PERMUTATION_CONSISTENCY_FLOOR",
     "EvalReport",
     "conformal_sets",
     "degenerate_head_check",
     "evaluate",
     "paired_margin_by_key",
     "paired_margin_test",
+    "permutation_consistency_state",
     "shuffled_label_control",
     "split_conformal_threshold",
 ]
@@ -40,6 +42,45 @@ __all__ = [
 DEFAULT_ENTROPY_FLOOR = 0.15      # nats, mean predictive entropy
 DEFAULT_MAX_CLASS_SHARE = 0.95    # no single predicted class above this share
 DEFAULT_FEATURE_VAR_FLOOR = 1e-6  # mean per-dim variance of pooled features
+
+#: The gate from `docs/schema-api.md`: "permutation consistency (>= 95%) is a training gate
+#: and not only a runtime check: a model that fails it makes the second pass fire constantly
+#: and the abstain rate blows the cap." A threshold from the plan, read-only to an agent.
+#: Owned here, torch-free, because rung 0 and the FT eval both gate on it.
+PERMUTATION_CONSISTENCY_FLOOR = 0.95
+
+
+def permutation_consistency_state(*, agree: int, asked: int, total: int) -> TriState:
+    """The ``permutation_consistency`` gate from its counts, one wording for every caller.
+
+    ``asked`` rows had a derangement (two or more options) and were decoded in both orders;
+    ``agree`` of them gave the same answer. ``total - asked`` rows had no derangement: they
+    leave through the denominator, never the numerator, because a row that cannot disagree
+    would inflate the rate with a question it was never asked.
+    """
+    if not 0 <= agree <= asked <= total:
+        raise ValueError(f"counts must satisfy 0 <= agree <= asked <= total, got "
+                         f"{agree}, {asked}, {total}")
+    if asked == 0:
+        return NotRun(
+            reason=(
+                f"no row of {total} had two or more live options, so no derangement exists "
+                "and permutation consistency was not measured on anything"
+            )
+        )
+    rate = agree / asked
+    return Ran(
+        passed=rate >= PERMUTATION_CONSISTENCY_FLOOR,
+        value=rate,
+        n=agree,
+        n_total=asked,
+        detail=(
+            f"the choice head agreed with itself across a derangement on {agree} of "
+            f"{asked} rows ({rate:.1%}) against a {PERMUTATION_CONSISTENCY_FLOOR:.0%} "
+            f"floor; {total - asked} row(s) had fewer than two live options and were "
+            "excluded rather than counted as agreeing"
+        ),
+    )
 
 
 def _entropy(probs: np.ndarray) -> np.ndarray:
