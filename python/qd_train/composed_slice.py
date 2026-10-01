@@ -378,21 +378,24 @@ def needle_hunk_hit(case: ComposedCase, lines: Sequence[int]) -> bool:
 
 
 #: Every exclusion the slice's ``sequence_index.json`` may carry, as ``(scope, refusal,
-#: marker in its detail, bucket)``. The list is v4's train census under refuse-gold (compose
-#: lane, 2026-10-01), until the slice's own measured list replaces it:
+#: marker in its detail, bucket)``: the slice's own measured list (build row ``dafe86af``,
+#: longctx lane, 2026-10-01), which replaced v4's train census.
 #:
 #: * ``gold_shares_token``: the gold's line start shares a token -- the collision both
-#:   policies refuse;
-#: * ``nfc_unstable``: a context the tokenizer would normalise, refused under both policies
-#:   and not a collision;
-#: * ``over_max_seq_len``: the whole row, over the slice's 8,192.
+#:   policies refuse.
 #:
-#: Any exclusion matching none of these, or more than one, refuses the pass.
+#: v4's census also had NFC-unstable contexts and rows over 8,192; the slice has neither,
+#: so they are no bucket here. Any exclusion matching none of these, or more than one,
+#: refuses the pass.
 EXCLUSION_BUCKETS: Final[tuple[tuple[str, str, str, str], ...]] = (
     ("slot", "UnencodableGold", "the gold's line start shares token", "gold_shares_token"),
-    ("slot", "UnencodableGold", "the context is not NFC-stable", "nfc_unstable"),
-    ("row", "OverMaxSeqLen", "", "over_max_seq_len"),
 )
+#: The slice's exclusions, exactly: ``(row id, slot name) -> bucket``. One gold collision on
+#: a diag row (``unseen``, 16 files, logic), and nothing else. The slice's shard hash pins
+#: it already; this pins the refusal's message to what drifted.
+MEASURED_EXCLUSIONS: Final[Mapping[tuple[str, str], str]] = {
+    (SHARD_ROW_PREFIX + "compose:diag:000206", "defect_span"): "gold_shares_token",
+}
 #: A slice row ``sequence_index.json`` never names, in neither its sequences nor its
 #: exclusions: ``build_mixture`` or dedupe removed it before ``write_shards`` saw it (longctx
 #: lane, 2026-10-01). It has no record to bucket, so it is in no :data:`EXCLUSION_BUCKETS`
@@ -420,6 +423,45 @@ def exclusion_bucket(scope: str, refusal: str, detail: str) -> str:
             f"{[b for *_, b in EXCLUSION_BUCKETS]}"
         )
     return found[0]
+
+
+def check_measured_exclusions(
+    found: Mapping[tuple[str, str], str],
+    *, measured: Mapping[tuple[str, str], str] = MEASURED_EXCLUSIONS,
+) -> None:
+    """Refuse a slice whose exclusions are not ``measured`` (:data:`MEASURED_EXCLUSIONS`),
+    exactly.
+
+    ``found`` is ``(row id, slot name) -> bucket`` over the index's exclusions, each already
+    through :func:`exclusion_bucket`."""
+    if dict(found) != dict(measured):
+        extra = sorted(set(found.items()) - set(measured.items()))
+        gone = sorted(set(measured.items()) - set(found.items()))
+        raise SliceRefusal(
+            f"the slice's exclusions are not the measured list: {len(extra)} not measured "
+            f"(e.g. {extra[:3]}), {len(gone)} measured and absent (e.g. {gone[:3]}). The list "
+            "is pinned to build row dafe86af; a different slice re-pins it before scoring"
+        )
+
+
+#: The slice's header, by the writer's own vocabulary (``qd_train.shards``): a report-only
+#: val set, written refuse-gold.
+REPORT_ONLY_POLICY: Final[str] = "refuse-gold"
+
+
+def require_report_only_slice(header: object, *, where: str) -> None:
+    """The opposite of ``ShardHeader.require_gate_population``: refuse unless the header says
+    ``report_only`` and ``span_collapse_policy: refuse-gold``. A gate population read as the
+    slice would report gate rows as a diagnostic, and a slice written refuse-any would
+    measure one population twice."""
+    report_only = getattr(header, "report_only", None)
+    policy = getattr(header, "span_collapse_policy", None)
+    if report_only is not True or policy != REPORT_ONLY_POLICY:
+        raise SliceRefusal(
+            f"{where}: not the report-only slice (report_only={report_only!r}, "
+            f"span_collapse_policy={policy!r}); the slice is read only from a header that says "
+            f"report_only and {REPORT_ONLY_POLICY}"
+        )
 
 
 def dropped_before_write(
@@ -508,6 +550,94 @@ class SliceVerdict:
         if self.case.is_clean or self.predicted_lines is None:
             return None
         return len(self.predicted_lines) > 1
+
+
+@dataclass(frozen=True, slots=True)
+class SpanSequence:
+    """A row's span sequence as the shard holds it, read before any model runs: one
+    line-start position per rendered line (two lines on one token repeat it), the head's gold
+    row from the shard's own supervision, and the sequence's length in real tokens."""
+
+    candidates: tuple[int, ...]
+    gold_head_row: int
+    length_tokens: int
+
+    @property
+    def head_rows(self) -> int:
+        """The pointer head's rows before the abstention: one per unique token."""
+        return len(set(self.candidates))
+
+
+def slice_verdict(
+    case: ComposedCase, *, span: SpanSequence | None, span_verdict: Mapping[str, object] | None,
+    span_excluded: str | None, choice_length: int | None,
+    choice_verdict: Mapping[str, object] | None, choice_excluded: str | None,
+) -> SliceVerdict:
+    """One row's :class:`SliceVerdict` from the scorer's two slot verdicts.
+
+    ``span_verdict`` is the scorer's span verdict (``top`` = start and end head rows,
+    ``noul_row``, ``correct``); the runtime abstains when EITHER pointer is on the
+    abstention, and then the prediction is no line at all. ``choice_verdict`` is the letter
+    verdict (``correct``). A slot is a verdict and its sequence, or excluded with neither.
+    """
+    where = case.row_id
+    if (span_excluded is None) != (span is not None and span_verdict is not None) or (
+        span_excluded is not None and (span is not None or span_verdict is not None)
+    ):
+        raise SliceRefusal(f"{where}: the span slot is decoded or excluded, never neither or both")
+    if (choice_excluded is None) != (choice_length is not None and choice_verdict is not None) or (
+        choice_excluded is not None and (choice_length is not None or choice_verdict is not None)
+    ):
+        raise SliceRefusal(
+            f"{where}: the choice slot is decoded or excluded, never neither or both"
+        )
+    shared = span_correct = predicted = None
+    if span is not None and span_verdict is not None:
+        top = span_verdict["top"]
+        noul = span_verdict["noul_row"]
+        if not (isinstance(top, (list, tuple)) and len(top) == 2
+                and all(isinstance(x, int) and not isinstance(x, bool) for x in top)
+                and isinstance(noul, int) and not isinstance(noul, bool)):
+            raise SliceRefusal(f"{where}: span verdict top {top!r}, noul_row {noul!r}")
+        if noul != span.head_rows:
+            raise SliceRefusal(
+                f"{where}: the verdict's abstention is row {noul}, the sequence has "
+                f"{span.head_rows} unique line-start tokens"
+            )
+        start, end = int(top[0]), int(top[1])
+        predicted = () if noul in (start, end) else lines_on_token(span.candidates, start)
+        span_correct = bool(span_verdict["correct"])
+        shared = len(set(span.candidates)) != len(span.candidates)
+    lengths = [n for n in (span.length_tokens if span is not None else None, choice_length)
+               if n is not None]
+    if not lengths:
+        raise SliceRefusal(f"{where}: both slots excluded is a row exclusion, not a verdict")
+    return SliceVerdict(
+        case=case, length_tokens=max(lengths), shared_candidates=shared,
+        span_correct=span_correct, predicted_lines=predicted,
+        choice_correct=(
+            None if choice_verdict is None else bool(choice_verdict["correct"])
+        ),
+        span_excluded=span_excluded, choice_excluded=choice_excluded,
+    )
+
+
+def verdict_line(v: SliceVerdict) -> dict[str, object]:
+    """One row's suite-verdict line: what it is, what was predicted, how it was counted."""
+    case = v.case
+    return {
+        "suite": "composed_slice", "case_id": case.row_id, "slice_set": case.slice_set,
+        "mutation_class": case.mutation_class, "n_files": case.n_files,
+        "needle_index": case.needle_index, "depth_bucket": case.depth_bucket,
+        "files_bin": case.files_bin, "length_tokens": v.length_tokens,
+        "length_bin": length_bin(v.length_tokens), "gold_line": case.gold_line,
+        "gold_hunk": case.gold_hunk, "span_excluded": v.span_excluded,
+        "choice_excluded": v.choice_excluded, "shared_candidates": v.shared_candidates,
+        "predicted_lines": None if v.predicted_lines is None else list(v.predicted_lines),
+        "span_correct": v.span_correct, "hunk_hit": v.hunk_hit,
+        "shared_prediction": v.shared_prediction, "choice_correct": v.choice_correct,
+        "populations": [p for p in POPULATIONS if v.in_span_population(p)],
+    }
 
 
 def _cells(v: SliceVerdict) -> list[tuple[str, str]]:

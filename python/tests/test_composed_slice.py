@@ -13,6 +13,7 @@ import dataclasses
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -223,6 +224,108 @@ def test_a_shared_token_is_a_hit_only_if_every_line_on_it_is_in_the_gold_hunk():
         cs.needle_hunk_hit(clean, (2,))
 
 
+# --- the scorer's verdicts, as slice verdicts --------------------------------------------------
+
+
+def _span_verdict(start: int, end: int, noul: int, *, correct: bool) -> dict:
+    """The scorer's span verdict as ``real_ft_run._decode`` writes it (the fields read here)."""
+    return {"kind": "span", "top": [start, end], "noul_row": noul, "correct": correct}
+
+
+def test_a_span_verdict_names_the_lines_on_its_token_and_abstains_on_either_pointer():
+    """The runtime abstains when EITHER pointer is on the abstention row, so then the
+    prediction is no line -- never the start pointer's line."""
+    _, case = _stub()
+    gold = case.gold_line
+    inside = _inside(case)
+    shared_line = next(c for c in inside if c - 1 in inside and gold not in (c, c - 1))
+    candidates = _candidates(case, (shared_line,))
+    unique = sorted(set(candidates))
+    seq = cs.SpanSequence(tuple(candidates), unique.index(candidates[gold]), 3000)
+    noul = len(unique)
+    assert seq.head_rows == noul
+
+    def verdict(span_verdict, **kw):
+        return cs.slice_verdict(
+            case, span=seq, span_verdict=span_verdict, span_excluded=None,
+            choice_length=kw.get("choice_length", 2990),
+            choice_verdict={"correct": kw.get("choice", True)}, choice_excluded=None,
+        )
+
+    g = seq.gold_head_row
+    hit = verdict(_span_verdict(g, g, noul, correct=True))
+    assert hit.predicted_lines == (gold,) and hit.hunk_hit and hit.span_correct
+    assert hit.shared_candidates is True and hit.length_tokens == 3000
+    on_shared = unique.index(candidates[shared_line])
+    two = verdict(_span_verdict(on_shared, on_shared, noul, correct=False))
+    assert two.predicted_lines == (shared_line - 1, shared_line) and two.shared_prediction
+    end_abstains = verdict(_span_verdict(g, noul, noul, correct=False))
+    assert end_abstains.predicted_lines == () and end_abstains.hunk_hit is False
+    longer_choice = verdict(_span_verdict(g, g, noul, correct=True), choice_length=3100)
+    assert longer_choice.length_tokens == 3100, "the longer of the row's sequences"
+    with pytest.raises(cs.SliceRefusal, match="abstention is row"):
+        verdict(_span_verdict(g, g, noul + 1, correct=True))
+    with pytest.raises(cs.SliceRefusal, match="span verdict top"):
+        verdict({"top": [g, True], "noul_row": noul, "correct": True})
+
+
+def test_a_slot_is_one_verdict_and_its_sequence_or_excluded_with_neither():
+    _, case = _stub()
+    candidates = _candidates(case)
+    seq = cs.SpanSequence(tuple(candidates), case.gold_line, 3000)
+    excluded = cs.slice_verdict(
+        case, span=None, span_verdict=None, span_excluded="gold_shares_token",
+        choice_length=2990, choice_verdict={"correct": False}, choice_excluded=None,
+    )
+    assert excluded.span_excluded == "gold_shares_token" and excluded.predicted_lines is None
+    assert excluded.length_tokens == 2990 and excluded.hunk_hit is None
+    span_ok = _span_verdict(case.gold_line, case.gold_line, len(candidates), correct=True)
+    for kw in (
+        dict(span=seq, span_verdict=None, span_excluded=None),           # neither
+        dict(span=None, span_verdict=span_ok, span_excluded=None),       # no sequence
+        dict(span=seq, span_verdict=span_ok, span_excluded="gold_shares_token"),  # both
+    ):
+        with pytest.raises(cs.SliceRefusal, match="span slot"):
+            cs.slice_verdict(case, **kw, choice_length=2990, choice_verdict={"correct": True},
+                             choice_excluded=None)
+    with pytest.raises(cs.SliceRefusal, match="choice slot"):
+        cs.slice_verdict(case, span=seq, span_verdict=span_ok, span_excluded=None,
+                         choice_length=None, choice_verdict={"correct": True},
+                         choice_excluded=None)
+
+
+def test_a_clean_rows_abstention_is_its_right_answer_and_no_hunk_is_scored():
+    clean = next(c for c in cs.load_cases([FIXTURE]).values() if c.is_clean)
+    candidates = _candidates(clean)
+    seq = cs.SpanSequence(tuple(candidates), len(candidates), 900)
+    v = cs.slice_verdict(
+        clean, span=seq, span_verdict=_span_verdict(len(candidates), len(candidates),
+                                                    len(candidates), correct=True),
+        span_excluded=None, choice_length=890, choice_verdict={"correct": True},
+        choice_excluded=None,
+    )
+    assert v.predicted_lines == () and v.span_correct and v.hunk_hit is None
+    line = cs.verdict_line(v)
+    assert line["suite"] == "composed_slice" and line["case_id"] == clean.row_id
+    assert line["populations"] == ["refuse_gold", "refuse_any"]
+    assert line["predicted_lines"] == [] and line["hunk_hit"] is None
+    json.dumps(line)  # one JSON line
+
+
+def test_only_a_report_only_refuse_gold_header_is_the_slice():
+    ok = SimpleNamespace(report_only=True, span_collapse_policy="refuse-gold")
+    cs.require_report_only_slice(ok, where="slice")
+    for header in (
+        SimpleNamespace(report_only=False, span_collapse_policy="refuse-any"),   # gate val
+        SimpleNamespace(report_only=False, span_collapse_policy=""),             # an old header
+        SimpleNamespace(report_only=True, span_collapse_policy="refuse-any"),
+        SimpleNamespace(report_only=False, span_collapse_policy="refuse-gold"),  # v4 train
+        SimpleNamespace(),
+    ):
+        with pytest.raises(cs.SliceRefusal, match="not the report-only slice"):
+            cs.require_report_only_slice(header, where="slice")
+
+
 # --- the tables -------------------------------------------------------------------------------
 
 
@@ -321,10 +424,13 @@ def test_a_prediction_on_a_shared_token_is_counted_and_scored_by_condition_8():
 
 # --- exclusions: counted under their own bucket, never misses ----------------------------------
 
-#: Details as qd_train.shards writes them (compose lane's writer): "<where>: <reason>".
+#: Details as qd_train.shards writes them; the first is the slice's one measured exclusion
+#: (sequence_index.json of build row dafe86af).
 _COLLISION = (
-    "qdm:code.defect_class:compose:val:000007 slot defect_span: the gold's line start shares "
-    "token(s) [41] with line(s) [12]"
+    "row 'qdm:code.defect_class:compose:diag:000206' slot 'defect_span': the gold's line start "
+    "shares token(s) [2449] with another context line, so the pointer head cannot tell the "
+    "gold from its neighbour. Refused under span_collapse_policy=refuse-gold, which keeps a "
+    "collapse only when it misses the gold."
 )
 _NFC = (
     "qdm:code.defect_class:compose:val:000008 slot defect_span: the context is not NFC-stable "
@@ -332,35 +438,49 @@ _NFC = (
 )
 
 
-def test_every_exclusion_falls_in_one_known_bucket_or_the_pass_refuses():
-    """The compose lane's v4 census (2026-10-01): gold collisions, NFC-unstable contexts and
-    rows over 8,192. Anything else is unknown until the slice's own list pins it."""
+def test_every_exclusion_falls_in_the_slices_measured_bucket_or_the_pass_refuses():
+    """Re-pinned to the slice's own measured list (build row dafe86af): one gold collision
+    and nothing else. v4's NFC-unstable contexts and rows over 8,192 are not the slice's, so
+    an exclusion of either kind now refuses the pass instead of being counted."""
     assert cs.exclusion_bucket("slot", "UnencodableGold", _COLLISION) == "gold_shares_token"
-    assert cs.exclusion_bucket("slot", "UnencodableGold", _NFC) == "nfc_unstable"
-    assert cs.exclusion_bucket("row", "OverMaxSeqLen", "8,342 tokens > 8,192") == (
-        "over_max_seq_len"
-    )
     for scope, refusal, detail in (
+        ("slot", "UnencodableGold", _NFC),                        # v4's, never the slice's
+        ("row", "OverMaxSeqLen", "8,342 tokens > 8,192"),         # v4's, never the slice's
         ("slot", "UnencodableGold", "the span is empty"),        # a refusal never measured
         ("row", "UnencodableGold", _COLLISION),                   # a known detail, wrong scope
-        ("slot", "OverMaxSeqLen", "8,342 tokens > 8,192"),        # a known refusal, wrong scope
-        ("slot", "TokenNotInRemap", _NFC),                        # a known detail, wrong refusal
+        ("slot", "TokenNotInRemap", _COLLISION),                  # a known detail, wrong refusal
     ):
         with pytest.raises(cs.SliceRefusal, match="known bucket"):
             cs.exclusion_bucket(scope, refusal, detail)
-    assert cs.SLOT_EXCLUSIONS == ("gold_shares_token", "nfc_unstable")
-    assert cs.ROW_EXCLUSIONS == ("over_max_seq_len", "dropped_before_write")
+    assert cs.SLOT_EXCLUSIONS == ("gold_shares_token",)
+    assert cs.ROW_EXCLUSIONS == ("dropped_before_write",)
     # No index record maps to dropped_before_write: such a row has no record at all.
     assert "dropped_before_write" not in {bucket for *_, bucket in cs.EXCLUSION_BUCKETS}
+
+
+def test_the_slice_is_refused_unless_its_exclusions_are_the_measured_ones():
+    measured = {("qdm:code.defect_class:compose:diag:000206", "defect_span"): "gold_shares_token"}
+    assert dict(cs.MEASURED_EXCLUSIONS) == measured
+    cs.check_measured_exclusions(measured)
+    for found in (
+        {},                                                              # the collision gone
+        {**measured, ("qdm:code.defect_class:compose:val:000001", "defect_span"):
+         "gold_shares_token"},                                           # a second one
+        {("qdm:code.defect_class:compose:diag:000207", "defect_span"): "gold_shares_token"},
+    ):
+        with pytest.raises(cs.SliceRefusal, match="not the measured list"):
+            cs.check_measured_exclusions(found)
 
 
 def test_a_slot_is_decoded_or_excluded_for_a_known_reason_never_neither_or_both():
     _, stub = _stub()
     for bad in (
         dict(shared_candidates=None, span_correct=None, predicted_lines=None),   # neither
-        dict(span_excluded="nfc_unstable"),                                       # both
+        dict(span_excluded="gold_shares_token"),                                  # both
         dict(shared_candidates=None, span_correct=None, predicted_lines=None,
-             span_excluded="over_max_seq_len"),                                   # a row bucket
+             span_excluded="dropped_before_write"),                               # a row bucket
+        dict(shared_candidates=None, span_correct=None, predicted_lines=None,
+             span_excluded="nfc_unstable"),                                       # retired
         dict(choice_correct=None),                                                # choice: neither
     ):
         fields = dict(case=stub, length_tokens=3000, shared_candidates=False, span_correct=True,
@@ -368,49 +488,48 @@ def test_a_slot_is_decoded_or_excluded_for_a_known_reason_never_neither_or_both(
         with pytest.raises(cs.SliceRefusal):
             cs.SliceVerdict(**{**fields, **bad})
     with pytest.raises(cs.SliceRefusal, match="row exclusion"):
-        cs.SliceVerdict(stub, 3000, None, None, None, None, span_excluded="nfc_unstable",
-                        choice_excluded="nfc_unstable")
+        cs.SliceVerdict(stub, 3000, None, None, None, None, span_excluded="gold_shares_token",
+                        choice_excluded="gold_shares_token")
 
 
 def test_exclusions_are_counted_per_bucket_and_never_scored():
-    """nfc_unstable is not a collision: its own bucket, in neither span population, and not
-    a miss. A row over 8,192 has no sequence, so it is counted per set and cut by nothing."""
+    """A gold collision drops the span sequence alone: the row is in neither span population,
+    is no miss, and its choice verdict still counts. A row the index never names is counted
+    per set and cut by nothing."""
     _, stub = _stub()
     verdicts = [
         _verdict(_as(stub, 1)),
         cs.SliceVerdict(_as(stub, 2), 3000, None, None, None, True,
                         span_excluded="gold_shares_token"),
-        cs.SliceVerdict(_as(stub, 3), 3000, None, None, None, True, span_excluded="nfc_unstable"),
-        cs.SliceVerdict(_as(stub, 4), 3000, False, False, (), None,
-                        choice_excluded="nfc_unstable"),                 # abstained: a miss
+        cs.SliceVerdict(_as(stub, 3), 3000, False, False, (), None,
+                        choice_excluded="gold_shares_token"),            # abstained: a miss
     ]
-    over = [(_as(stub, 5), "over_max_seq_len")]
-    m = cs.slice_metrics(verdicts, row_exclusions=over, corpus=_corpus(verdicts, over))
+    dropped = [(_as(stub, 4), "dropped_before_write")]
+    m = cs.slice_metrics(verdicts, row_exclusions=dropped, corpus=_corpus(verdicts, dropped))
 
     def at(name):
         return m[f"composed.val.{name}"]
 
     assert at("span_excluded.gold_shares_token").value == 1
-    assert at("span_excluded.nfc_unstable").value == 1
-    assert at("span_excluded.nfc_unstable.all.all").n_total == 4
-    assert at("choice_excluded.nfc_unstable").value == 1
-    assert at("choice_excluded.gold_shares_token").value == 0
-    assert "choice_excluded.gold_shares_token.all.all" not in {
-        k.removeprefix("composed.val.") for k in m
-    }, "per-cell counts only for the buckets the set has"
-    rows = at("rows_excluded.over_max_seq_len")
-    assert (rows.value, rows.n_total) == (1, 5)
-    assert at("refuse_gold.span_sequences").value == 2, "two span sequences decoded, two excluded"
+    assert at("span_excluded.gold_shares_token.all.all").n_total == 3
+    assert at("choice_excluded.gold_shares_token").value == 1
+    assert not any(k.startswith("composed.val.span_excluded.nfc") for k in m)
+    rows = at("rows_excluded.dropped_before_write")
+    assert (rows.value, rows.n_total) == (1, 4)
+    assert at("refuse_gold.span_sequences").value == 2, "two span sequences decoded, one excluded"
     hit = at("refuse_gold.all.all.hunk_hit")
-    assert (hit.n, hit.n_total) == (1, 2), "the exclusions are not misses"
+    assert (hit.n, hit.n_total) == (1, 2), "the exclusion is not a miss"
     choice = at("both_policies.all.all.choice_top1")
-    assert (choice.n, choice.n_total) == (3, 3)
-    twice = [(_as(stub, 1), "over_max_seq_len")]
+    assert (choice.n, choice.n_total) == (2, 2)
+    twice = [(_as(stub, 1), "dropped_before_write")]
     with pytest.raises(cs.SliceRefusal, match="counted twice"):
         cs.slice_metrics(verdicts, row_exclusions=twice, corpus=_corpus(verdicts))
-    slot = [(_as(stub, 6), "nfc_unstable")]
+    slot = [(_as(stub, 6), "gold_shares_token")]
     with pytest.raises(cs.SliceRefusal, match="not a row exclusion"):
         cs.slice_metrics(verdicts, row_exclusions=slot, corpus=_corpus(verdicts, slot))
+    retired = [(_as(stub, 7), "over_max_seq_len")]
+    with pytest.raises(cs.SliceRefusal, match="not a row exclusion"):
+        cs.slice_metrics(verdicts, row_exclusions=retired, corpus=_corpus(verdicts, retired))
 
 
 def test_a_row_the_index_never_names_is_dropped_before_write_and_never_a_miss():
@@ -432,16 +551,14 @@ def test_a_row_the_index_never_names_is_dropped_before_write_and_never_a_miss():
         cs.dropped_before_write(corpus, [*indexed, _as(stub, 6).row_id.removeprefix(
             cs.SHARD_ROW_PREFIX)])
 
-    verdicts = [_verdict(_as(stub, k)) for k in (1, 2, 3, 4)]
-    excluded = [(_as(stub, 5), "over_max_seq_len"), *dropped]
-    m = cs.slice_metrics(verdicts, row_exclusions=excluded, corpus=corpus)
+    verdicts = [_verdict(_as(stub, k)) for k in (1, 2, 3, 4, 5)]
+    m = cs.slice_metrics(verdicts, row_exclusions=dropped, corpus=corpus)
     gone = m["composed.val.rows_excluded.dropped_before_write"]
     assert (gone.value, gone.n_total) == (1, 6), "counted against the set's corpus rows"
-    assert m["composed.val.rows_excluded.over_max_seq_len"].n_total == 6
     hit = m["composed.val.refuse_gold.all.all.hunk_hit"]
-    assert (hit.n, hit.n_total) == (4, 4), "a dropped row is not a miss"
+    assert (hit.n, hit.n_total) == (5, 5), "a dropped row is not a miss"
     with pytest.raises(cs.SliceRefusal, match="neither decoded nor excluded"):
-        cs.slice_metrics(verdicts, row_exclusions=excluded[:1], corpus=corpus)
+        cs.slice_metrics(verdicts, row_exclusions=(), corpus=corpus)
 
 
 def test_every_slice_row_is_counted_once_against_the_corpus():
