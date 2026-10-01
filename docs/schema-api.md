@@ -183,6 +183,13 @@ table (`GAP-RT-CALIBRATION-HASH-PIN-BINDS-THE-BACKEND-NOT-THE-LOADED-TABLE`,
 `crates/qd-runtime/tests/calibration_hash_pin.rs`). A runtime built from a release takes its table
 only from the release, verified against `release_manifest.json` (`qd_runtime::release`).
 
+A runtime serving an N-tower ensemble (`Runtime::from_ensemble`, `qd_runtime::ensemble`) reports
+**the ensemble's** `weight_hash`: `ensemble_weight_hash` over the members' weight hashes in
+manifest order, recorded as `expected_identity.weight_hash` in `ensemble_manifest.json`. A pin of
+one member's weight hash is refused by the ensemble, as it should be: the answer is not that
+tower's. `calibration_hash` is the ensemble's table, fitted on the ensemble's decode (the mean of
+the members' row log-softmax, `qd_runtime::release::ENSEMBLE_DECODE`).
+
 This is the second instance of one shape found in a single audit — `GAP-RT-WIRE-CONTEXT-ENCODING`
 was the first. **One name meaning two things, with both lanes' suites green**, is the failure mode
 this document exists to prevent, and neither instance was caught by either lane testing itself. The

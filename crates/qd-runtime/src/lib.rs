@@ -14,6 +14,7 @@
 //! | [`render`] | `docs/hardening.md` §3 — the context is adversarial by construction |
 //! | [`backend`] | the four operations a model backend must provide |
 //! | [`reference`] | a deterministic reference backend that is **not** a model and says so |
+//! | [`ensemble`] | N towers behind one backend: per-row letter log-probabilities averaged |
 //! | [`calibration`] | split-conformal sets on calibrated scores — margin, never entropy |
 //! | [`calibration_fit`] | fitting that table from verdicts: temperature, `noul_margin`, `1 - q̂` |
 //! | [`registry`] | the registered route's head files, hash-bound to the backbone |
@@ -54,6 +55,7 @@ pub mod backend;
 pub mod calibration;
 pub mod calibration_fit;
 pub mod context;
+pub mod ensemble;
 pub mod fixtures;
 pub mod oneshot;
 pub mod reference;

@@ -15,6 +15,12 @@ path = "src/lib.rs"
 name = "qd-export"
 path = "src/main.rs"
 
+# A bin of its own rather than a subcommand, so `qd-export`'s flat CLI (and the box command in
+# HANDOFF/j7-export-2026-10-01.md) stays as it is.
+[[bin]]
+name = "qd-export-ensemble"
+path = "src/bin/qd_export_ensemble.rs"
+
 # A crate of its own rather than a bin in an existing one:
 #
 # * not in qd-metal, because tessl links `objc2-metal` unconditionally

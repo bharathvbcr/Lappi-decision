@@ -89,12 +89,12 @@ pub struct ExportSummary {
     pub dropped: Vec<AllowedExtra>,
 }
 
-fn refuse(kind: RefusalKind, msg: impl Into<String>) -> Refusal {
+pub(crate) fn refuse(kind: RefusalKind, msg: impl Into<String>) -> Refusal {
     Refusal::new(kind, msg)
 }
 
 /// Read a small file whole, bounded.
-fn read_small(path: &Path, kind: RefusalKind) -> Result<Vec<u8>> {
+pub(crate) fn read_small(path: &Path, kind: RefusalKind) -> Result<Vec<u8>> {
     let meta = std::fs::metadata(path).map_err(|e| refuse(kind, format!("{}: {e}", path.display())))?;
     if !meta.is_file() {
         return Err(refuse(kind, format!("{} is not a file", path.display())));
@@ -105,15 +105,15 @@ fn read_small(path: &Path, kind: RefusalKind) -> Result<Vec<u8>> {
     std::fs::read(path).map_err(|e| refuse(kind, format!("{}: {e}", path.display())))
 }
 
-fn len64(bytes: &[u8]) -> Result<u64> {
+pub(crate) fn len64(bytes: &[u8]) -> Result<u64> {
     u64::try_from(bytes.len()).map_err(|e| refuse(RefusalKind::Io, format!("byte count: {e}")))
 }
 
-fn sha256(bytes: &[u8]) -> [u8; 32] {
+pub(crate) fn sha256(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
-fn is_hex64(s: &str) -> bool {
+pub(crate) fn is_hex64(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
@@ -195,7 +195,7 @@ fn same_json(a: &Value, b: &Value) -> bool {
 /// The calibration table: parsed as the runtime's own type, validated, and refused unless it
 /// reads back as the same document. serde ignores fields a struct does not name, so without the
 /// read-back a table carrying a field the runtime drops would pass through looking honoured.
-fn read_calibration(path: &Path) -> Result<(Vec<u8>, CalibrationTable)> {
+pub(crate) fn read_calibration(path: &Path) -> Result<(Vec<u8>, CalibrationTable)> {
     let k = RefusalKind::Calibration;
     let bytes = read_small(path, k)?;
     let doc: Value = serde_json::from_slice(&bytes).map_err(|e| refuse(k, format!("{}: not JSON: {e}", path.display())))?;
@@ -494,7 +494,7 @@ fn non_finite(name: &str, b: BadValue) -> Refusal {
 }
 
 /// Write `bytes` to a new file, fsync it, then read it back and require the same SHA-256.
-fn write_verified(path: &Path, bytes: &[u8], kind: RefusalKind) -> Result<String> {
+pub(crate) fn write_verified(path: &Path, bytes: &[u8], kind: RefusalKind) -> Result<String> {
     let want = hex(&sha256(bytes));
     let mut f = File::options()
         .write(true)
@@ -729,60 +729,85 @@ fn staging_dir(out: &Path) -> Result<PathBuf> {
     Ok(out.with_file_name(staged))
 }
 
+/// A new output directory and the sibling directory it is staged in. Shared by every writer in
+/// this crate, so a release and an ensemble are published the same way.
+pub(crate) struct Staging {
+    out: PathBuf,
+    parent: PathBuf,
+    dir: PathBuf,
+}
+
+impl Staging {
+    /// Refuse unless `out` does not exist, its parent is a directory, and its staging directory
+    /// is free. Nothing is created.
+    pub(crate) fn plan(out: &Path) -> Result<Self> {
+        if std::fs::symlink_metadata(out).is_ok() {
+            return Err(refuse(
+                RefusalKind::OutputExists,
+                format!("{} already exists; a release is never overwritten", out.display()),
+            ));
+        }
+        let parent = out
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        if !parent.is_dir() {
+            return Err(refuse(RefusalKind::Io, format!("{} is not a directory", parent.display())));
+        }
+        let dir = staging_dir(out)?;
+        if std::fs::symlink_metadata(&dir).is_ok() {
+            return Err(refuse(
+                RefusalKind::OutputExists,
+                format!("{} exists; another export may be running", dir.display()),
+            ));
+        }
+        Ok(Self {
+            out: out.to_path_buf(),
+            parent: parent.to_path_buf(),
+            dir,
+        })
+    }
+
+    /// Create the staging directory, run `write` into it, and rename it to `out` only if
+    /// `write` succeeded and `out` is still free. On any failure the staging directory is
+    /// removed, and the refusal says so if it could not be.
+    pub(crate) fn publish<T>(&self, write: impl FnOnce(&Path) -> Result<T>) -> Result<T> {
+        std::fs::create_dir(&self.dir).map_err(|e| Refusal::io(&self.dir, e))?;
+        let written = write(&self.dir).and_then(|summary| {
+            if std::fs::symlink_metadata(&self.out).is_ok() {
+                return Err(refuse(
+                    RefusalKind::OutputExists,
+                    format!("{} appeared while the release was being written", self.out.display()),
+                ));
+            }
+            std::fs::rename(&self.dir, &self.out).map_err(|e| Refusal::io(&self.out, e))?;
+            File::open(&self.parent)
+                .and_then(|d| d.sync_all())
+                .map_err(|e| Refusal::io(&self.parent, e))?;
+            Ok(summary)
+        });
+        match written {
+            Ok(summary) => Ok(summary),
+            Err(mut err) => {
+                if std::fs::symlink_metadata(&self.dir).is_ok()
+                    && let Err(cleanup) = std::fs::remove_dir_all(&self.dir)
+                {
+                    err.detail.push_str(&format!(
+                        "; and the staging directory {} could not be removed: {cleanup}",
+                        self.dir.display()
+                    ));
+                }
+                Err(err)
+            }
+        }
+    }
+}
+
 /// Export `req.source` to `req.out`. Nothing is written unless every check passes; a failure
 /// after staging began removes the staging directory and says so if it cannot.
 pub fn export(req: &ExportRequest) -> Result<ExportSummary> {
-    if std::fs::symlink_metadata(&req.out).is_ok() {
-        return Err(refuse(
-            RefusalKind::OutputExists,
-            format!("{} already exists; a release is never overwritten", req.out.display()),
-        ));
-    }
-    let parent = req
-        .out
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    if !parent.is_dir() {
-        return Err(refuse(RefusalKind::Io, format!("{} is not a directory", parent.display())));
-    }
-    let staging = staging_dir(&req.out)?;
-    if std::fs::symlink_metadata(&staging).is_ok() {
-        return Err(refuse(
-            RefusalKind::OutputExists,
-            format!("{} exists; another export may be running", staging.display()),
-        ));
-    }
-
+    let staging = Staging::plan(&req.out)?;
     let src = SafeTensorsFile::open(&req.source)?;
     let plan = plan(req, &src)?;
-
-    std::fs::create_dir(&staging).map_err(|e| Refusal::io(&staging, e))?;
-    let written = write_release(req, &src, &plan, &staging).and_then(|summary| {
-        if std::fs::symlink_metadata(&req.out).is_ok() {
-            return Err(refuse(
-                RefusalKind::OutputExists,
-                format!("{} appeared while the release was being written", req.out.display()),
-            ));
-        }
-        std::fs::rename(&staging, &req.out).map_err(|e| Refusal::io(&req.out, e))?;
-        File::open(parent)
-            .and_then(|d| d.sync_all())
-            .map_err(|e| Refusal::io(parent, e))?;
-        Ok(summary)
-    });
-    match written {
-        Ok(summary) => Ok(summary),
-        Err(mut err) => {
-            if std::fs::symlink_metadata(&staging).is_ok()
-                && let Err(cleanup) = std::fs::remove_dir_all(&staging)
-            {
-                err.detail.push_str(&format!(
-                    "; and the staging directory {} could not be removed: {cleanup}",
-                    staging.display()
-                ));
-            }
-            Err(err)
-        }
-    }
+    staging.publish(|dir| write_release(req, &src, &plan, dir))
 }

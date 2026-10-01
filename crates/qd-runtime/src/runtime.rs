@@ -22,10 +22,11 @@ use std::time::{Duration, Instant};
 use crate::answer::{answer, AnswerContext, Deadline};
 use crate::backend::{BackendIdentity, DecisionBackend};
 use crate::calibration::CalibrationTable;
+use crate::ensemble::EnsembleBackend;
 use crate::reference::ReferenceBackend;
 use crate::refusal::{BackendError, HashKind, QdError, Refusal};
 use crate::registry::HeadRegistry;
-use crate::release::Release;
+use crate::release::{Ensemble, Release};
 use crate::render::RenderCaps;
 use crate::schema::{DecisionRequest, HashExpectation, Response, Route};
 
@@ -124,6 +125,60 @@ impl Runtime {
         Self::assemble(
             backend,
             release.calibration().clone(),
+            registry,
+            caps,
+            Duration::ZERO,
+        )
+    }
+
+    /// Build around N member backends, each loaded from the matching tower of `ensemble`, with
+    /// the ensemble's calibration table.
+    ///
+    /// Refused, as [`BackendError::Unavailable`] carrying why, unless there is exactly one
+    /// member per tower, in order, and each member reports its tower's weight and tokenizer
+    /// hashes ([`crate::release::Tower::check_backend`]) and declares the ensemble's table.
+    /// [`EnsembleBackend::new`] then refuses members that disagree on tokenizer, letter ids or
+    /// table. N-1 members are never built into a runtime.
+    pub fn from_ensemble(
+        ensemble: &Ensemble,
+        members: Vec<Arc<dyn DecisionBackend>>,
+        registry: HeadRegistry,
+        caps: RenderCaps,
+    ) -> Result<Self, BackendError> {
+        let towers = ensemble.towers();
+        if members.len() != towers.len() {
+            return Err(BackendError::Unavailable {
+                detail: format!(
+                    "ensemble {} names {} towers and {} members were loaded; a partial ensemble \
+                     is not served",
+                    ensemble.dir().display(),
+                    towers.len(),
+                    members.len()
+                ),
+            });
+        }
+        let table_hash = ensemble.calibration().hash();
+        for (i, (tower, member)) in towers.iter().zip(&members).enumerate() {
+            let identity = member.identity();
+            tower
+                .check_backend(identity)
+                .map_err(|refusal| BackendError::Unavailable {
+                    detail: format!("ensemble member {i}: {refusal}"),
+                })?;
+            if identity.calibration_hash != table_hash {
+                return Err(BackendError::Unavailable {
+                    detail: format!(
+                        "ensemble member {i} (`{}`) declares calibration_hash {}; the ensemble's \
+                         table is {table_hash}",
+                        identity.name, identity.calibration_hash
+                    ),
+                });
+            }
+        }
+        let backend = EnsembleBackend::new(members)?;
+        Self::assemble(
+            Arc::new(backend),
+            ensemble.calibration().clone(),
             registry,
             caps,
             Duration::ZERO,
