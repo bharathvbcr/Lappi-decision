@@ -29,6 +29,29 @@ def probe() -> Path:
     return binary
 
 
+#: Names a prebuilt ``qd-calib-fit`` (the cross-built one, say); unset, the fixture builds one.
+QD_CALIB_FIT_BIN_ENV = "QD_CALIB_FIT_BIN"
+
+
+@pytest.fixture(scope="session")
+def calib_fit_bin() -> Path:
+    """``qd-calib-fit``: the one ``QD_CALIB_FIT_BIN`` names, else built once per session
+    (release, which the benchmark beside its parity tests needs) from this checkout."""
+    named = os.environ.get(QD_CALIB_FIT_BIN_ENV, "")
+    if named:
+        return Path(named)
+    if CARGO is None:
+        pytest.skip(f"cargo is not on PATH and {QD_CALIB_FIT_BIN_ENV} is unset: not built")
+    subprocess.run(
+        [CARGO, "build", "--quiet", "--release", "--manifest-path", str(REPO / "Cargo.toml"),
+         "-p", "qd-runtime", "--bin", "qd-calib-fit"],
+        check=True, timeout=900,
+    )
+    binary = REPO / "target" / "release" / "qd-calib-fit"
+    assert binary.is_file(), binary
+    return binary
+
+
 #: ``tools/real_tokenizer_pipeline.PREP_BIN_ENV``; ``test_qd_prep_minhash_parity.py`` asserts
 #: the two agree.
 QD_PREP_BIN_ENV = "QD_PREP_BIN"
