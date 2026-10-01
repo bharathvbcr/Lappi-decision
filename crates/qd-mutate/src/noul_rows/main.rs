@@ -83,9 +83,15 @@ struct GenerateArgs {
     /// Output directory. Refused if it already holds a corpus.
     #[arg(long)]
     out: PathBuf,
-    /// Rows per source; the corpus holds three times this.
-    #[arg(long, default_value_t = 834)]
-    per_source: usize,
+    /// Rows per source; the corpus holds three times this. Default 834. Not with
+    /// `--form-counts`, which sets every form's count itself.
+    #[arg(long)]
+    per_source: Option<usize>,
+    /// `--forms v2` only: every form's row count, instead of equal thirds in exact halves, as
+    /// `paragraph=N,question=N,lines=N,tokens=N,template=N` (all five, each at least 1).
+    /// Recorded in the manifest as `form_counts`.
+    #[arg(long)]
+    form_counts: Option<String>,
     #[arg(long, default_value_t = 0)]
     seed: u64,
     /// Which row forms to write. `v1` (default) is R2's defect-noul-v1, byte for byte.
@@ -172,7 +178,9 @@ struct Manifest {
     tool_version: &'static str,
     seed: u64,
     seed_derivation: &'static str,
-    per_source: usize,
+    /// Absent when `--form-counts` set the forms one by one; `form_counts` says how many.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    per_source: Option<usize>,
     /// The split the allowlist was computed under. The loader refuses a run at another seed.
     split: allowlist::Split,
     allowlist_sha256: String,
@@ -195,6 +203,81 @@ struct Manifest {
     /// The bars this corpus is judged by, recorded before any run reads it.
     #[serde(skip_serializing_if = "Option::is_none")]
     preregistered: Option<serde_json::Value>,
+    /// The per-form counts `--form-counts` asked for (absent for the equal-thirds layouts,
+    /// whose bytes are pinned). `totals.by_form` is what was written; the two are equal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    form_counts: Option<BTreeMap<&'static str, usize>>,
+}
+
+/// How many rows each form gets. v1 has no forms; it uses `paragraph`, `lines` and `template`
+/// as its three sources' counts and leaves `question` and `tokens` at zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Mix {
+    paragraph: usize,
+    question: usize,
+    lines: usize,
+    tokens: usize,
+    template: usize,
+}
+
+impl Mix {
+    /// v1: every source `n` rows. v2: equal thirds of `n`, prose and scrambled in exact halves.
+    fn thirds(n: usize, v2: bool) -> Mix {
+        if v2 {
+            Mix { paragraph: n / 2, question: n - n / 2, lines: n / 2, tokens: n - n / 2,
+                  template: n }
+        } else {
+            Mix { paragraph: n, question: 0, lines: n, tokens: 0, template: n }
+        }
+    }
+
+    fn by_form(self) -> BTreeMap<&'static str, usize> {
+        BTreeMap::from([
+            (FORM_PARAGRAPH, self.paragraph),
+            (questions::FORM, self.question),
+            (corpus::FORM_LINES, self.lines),
+            (corpus::FORM_TOKENS, self.tokens),
+            (FORM_TEMPLATE, self.template),
+        ])
+    }
+
+    /// `paragraph=N,question=N,lines=N,tokens=N,template=N`: all five forms, once each, in any
+    /// order, each count in `1..=MAX_PER_SOURCE`.
+    fn parse(spec: &str) -> Result<Mix> {
+        let forms = [FORM_PARAGRAPH, questions::FORM, corpus::FORM_LINES, corpus::FORM_TOKENS,
+                     FORM_TEMPLATE];
+        let mut got: BTreeMap<&'static str, usize> = BTreeMap::new();
+        for part in spec.split(',') {
+            let (name, count) = part
+                .split_once('=')
+                .with_context(|| format!("--form-counts: {part:?} is not form=count"))?;
+            let name = name.trim();
+            let Some(form) = forms.iter().copied().find(|f| *f == name) else {
+                bail!("--form-counts: {name:?} is not a form; the forms are {forms:?}");
+            };
+            let count: usize = count.trim().parse().with_context(|| {
+                format!("--form-counts: {form}={count:?} is not a count")
+            })?;
+            if count == 0 || count > MAX_PER_SOURCE {
+                bail!("--form-counts: {form} must be at least 1 and at most {MAX_PER_SOURCE}, \
+                       got {count}");
+            }
+            if got.insert(form, count).is_some() {
+                bail!("--form-counts names {form} twice");
+            }
+        }
+        let missing: Vec<&str> = forms.iter().copied().filter(|f| !got.contains_key(f)).collect();
+        if !missing.is_empty() {
+            bail!("--form-counts must name every form; missing {missing:?}");
+        }
+        Ok(Mix {
+            paragraph: got[FORM_PARAGRAPH],
+            question: got[questions::FORM],
+            lines: got[corpus::FORM_LINES],
+            tokens: got[corpus::FORM_TOKENS],
+            template: got[FORM_TEMPLATE],
+        })
+    }
 }
 
 fn file_name(path: &Path) -> Result<String> {
@@ -293,14 +376,15 @@ fn scrambled_from_pool(
     Ok(scramble_skips)
 }
 
-/// v2's scrambled rows: the corpus's own diffs, half line-shuffled and half token-shuffled, one
-/// row per repo across both forms, an equal quota per language within each form.
+/// v2's scrambled rows: the corpus's own diffs, `n_lines` line-shuffled and `n_tokens`
+/// token-shuffled, one row per repo across both forms, an equal quota per language within each
+/// form.
 fn scrambled_from_corpus(
     rows: &mut Vec<Row<'_>>,
     corpus: &corpus::Corpus,
     records: &[pool::PoolRecord],
     allow: &Allowlist,
-    n: usize,
+    (n_lines, n_tokens): (usize, usize),
     seed: u64,
 ) -> Result<BTreeMap<String, u64>> {
     // The loader re-checks every row's repo against its pool id; a corpus row that disagrees
@@ -324,7 +408,7 @@ fn scrambled_from_corpus(
     let mut skips: BTreeMap<String, u64> = BTreeMap::new();
     let mut used_repos: BTreeSet<&str> = BTreeSet::new();
     let langs = scramble::LANGUAGES.len();
-    for (form, total) in [(corpus::FORM_LINES, n / 2), (corpus::FORM_TOKENS, n - n / 2)] {
+    for (form, total) in [(corpus::FORM_LINES, n_lines), (corpus::FORM_TOKENS, n_tokens)] {
         for (k, lang) in scramble::LANGUAGES.iter().enumerate() {
             let quota = total / langs + usize::from(k < total % langs);
             let mut got = 0usize;
@@ -368,9 +452,25 @@ fn scrambled_from_corpus(
 }
 
 fn generate(args: &GenerateArgs) -> Result<()> {
-    if args.per_source == 0 || args.per_source > MAX_PER_SOURCE {
-        bail!("--per-source must be in 1..={MAX_PER_SOURCE}, got {}", args.per_source);
-    }
+    let v2 = args.forms == Forms::V2;
+    let (mix, per_source, form_counts) = match (&args.form_counts, args.per_source) {
+        (Some(_), Some(_)) => bail!(
+            "--per-source and --form-counts both size the corpus; give one (--form-counts sets \
+             every form's count)"
+        ),
+        (Some(_), None) if !v2 => bail!("--form-counts is a --forms v2 input; v1 has no forms"),
+        (Some(spec), None) => {
+            let mix = Mix::parse(spec)?;
+            (mix, None, Some(mix.by_form()))
+        }
+        (None, n) => {
+            let n = n.unwrap_or(834);
+            if n == 0 || n > MAX_PER_SOURCE {
+                bail!("--per-source must be in 1..={MAX_PER_SOURCE}, got {n}");
+            }
+            (Mix::thirds(n, v2), Some(n), None)
+        }
+    };
     let examples_path = args.out.join("examples.jsonl");
     let manifest_path = args.out.join("manifest.json");
     if examples_path.exists() || manifest_path.exists() {
@@ -395,8 +495,6 @@ fn generate(args: &GenerateArgs) -> Result<()> {
     }
     let ranges = &allow.invisible_format_ranges;
     let seed = args.seed;
-    let n = args.per_source;
-    let v2 = args.forms == Forms::V2;
     if !v2 && (args.corpus.is_some() || args.preregistered.is_some()) {
         bail!("--corpus and --preregistered are --forms v2 inputs; --forms v1 reads neither");
     }
@@ -427,20 +525,20 @@ fn generate(args: &GenerateArgs) -> Result<()> {
     let squad_bytes = read_pinned(&args.squad, &allow.squad.file, &allow.squad.sha256)?;
     let pool_bytes = read_pinned(&args.pool, &allow.pool.file, &allow.pool.sha256)?;
 
-    let mut rows: Vec<Row> = Vec::with_capacity(3 * n);
+    let total = mix.by_form().values().sum::<usize>();
+    let mut rows: Vec<Row> = Vec::with_capacity(total);
     let mut skipped: BTreeMap<&'static str, BTreeMap<String, u64>> = BTreeMap::new();
 
-    // (a) prose: v1 all paragraphs; v2 half paragraphs (the same draw), half short questions.
+    // (a) prose: v1 all paragraphs; v2 paragraphs (the same draw) and short questions.
     let (paragraphs, mut prose_skips) =
         prose::read_paragraphs(&squad_bytes[..], &allow.squad.titles, ranges)
             .map_err(anyhow::Error::msg)?;
-    let n_paragraphs = if v2 { n / 2 } else { n };
     if v2 {
         let (groups, read_skips) =
             questions::read(&squad_bytes[..], &allow.squad.titles, ranges)
                 .map_err(anyhow::Error::msg)?;
         let (picked, render_skips) =
-            questions::select(&groups, n - n_paragraphs, seed).map_err(anyhow::Error::msg)?;
+            questions::select(&groups, mix.question, seed).map_err(anyhow::Error::msg)?;
         for (reason, count) in read_skips.into_iter().chain(render_skips) {
             *prose_skips.entry(reason).or_insert(0) += count;
         }
@@ -465,7 +563,7 @@ fn generate(args: &GenerateArgs) -> Result<()> {
         }
     }
     skipped.insert(prose::SOURCE, prose_skips);
-    for p in prose::select(&paragraphs, n_paragraphs, seed).map_err(anyhow::Error::msg)? {
+    for p in prose::select(&paragraphs, mix.paragraph, seed).map_err(anyhow::Error::msg)? {
         let (path, diff) = prose::render(p, seed);
         let unit = allow.squad.titles[&p.title].clone();
         rows.push(Row {
@@ -496,15 +594,17 @@ fn generate(args: &GenerateArgs) -> Result<()> {
         );
     }
     let scramble_skips = match &corpus {
-        Some(corpus) => scrambled_from_corpus(&mut rows, corpus, &records, &allow, n, seed)?,
-        None => scrambled_from_pool(&mut rows, &records, &allow, n, seed)?,
+        Some(corpus) => scrambled_from_corpus(
+            &mut rows, corpus, &records, &allow, (mix.lines, mix.tokens), seed,
+        )?,
+        None => scrambled_from_pool(&mut rows, &records, &allow, mix.lines, seed)?,
     };
     skipped.insert(scramble::SOURCE, scramble_skips);
 
     // (c) unseen-language templates
     let allowed_units: BTreeSet<String> = allow.templates.units.iter().cloned().collect();
     let (template_rows, template_skips) =
-        templates::rows(&allowed_units, n, seed).map_err(anyhow::Error::msg)?;
+        templates::rows(&allowed_units, mix.template, seed).map_err(anyhow::Error::msg)?;
     skipped.insert(templates::SOURCE, template_skips);
     for t in template_rows {
         rows.push(Row {
@@ -565,6 +665,11 @@ fn generate(args: &GenerateArgs) -> Result<()> {
         if by_form.values().sum::<usize>() != rows.len() {
             bail!("a v2 row carries no form");
         }
+        if let Some(asked) = &form_counts
+            && *asked != by_form
+        {
+            bail!("--form-counts asked for {asked:?}, but {by_form:?} were written");
+        }
         totals.by_form = Some(by_form);
     }
     let examples_sha256 = sha256_hex(body.as_bytes());
@@ -576,7 +681,7 @@ fn generate(args: &GenerateArgs) -> Result<()> {
         seed_derivation: "ChaCha20Rng::from_seed(sha256(seed.to_le_bytes() || 0 || source || 0 \
                           || key)); sample order sha256((seed+1).to_le_bytes() || 0 || source \
                           || 0 || key)",
-        per_source: n,
+        per_source,
         split: allow.split.clone(),
         allowlist_sha256: sha256_hex(&allowlist_bytes),
         squad: InputFile { file: allow.squad.file.clone(), sha256: allow.squad.sha256.clone() },
@@ -621,6 +726,7 @@ fn generate(args: &GenerateArgs) -> Result<()> {
         forms: v2.then_some("v2"),
         corpus: corpus.map(|c| c.meta),
         preregistered,
+        form_counts,
     };
 
     fs::create_dir_all(&args.out).with_context(|| format!("creating {}", args.out.display()))?;
@@ -629,9 +735,12 @@ fn generate(args: &GenerateArgs) -> Result<()> {
     manifest_json.push('\n');
     write_atomic(&manifest_path, manifest_json.as_bytes())?;
     println!(
-        "{} rows ({} per source) -> {}  examples sha256 {examples_sha256}",
+        "{} rows ({}) -> {}  examples sha256 {examples_sha256}",
         rows.len(),
-        n,
+        match per_source {
+            Some(n) => format!("{n} per source"),
+            None => format!("form counts {:?}", mix.by_form()),
+        },
         examples_path.display()
     );
     Ok(())
