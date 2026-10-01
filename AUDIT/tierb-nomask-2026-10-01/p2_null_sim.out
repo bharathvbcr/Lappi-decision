@@ -1,0 +1,2 @@
+null, 3 baselines vs 3 candidate(s): frac D<=S mean 0.205 [0.11, 0.36] over 200 trials; rule passes 0.0% of null candidates
+null, 3 baselines vs 1 candidate(s): frac D<=S mean 0.501 [0.35, 0.63] over 200 trials; rule passes 0.0% of null candidates

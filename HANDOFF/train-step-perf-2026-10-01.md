@@ -130,6 +130,27 @@ on main 4fd08cf. **No GPU work was done and nothing was queued.**
 - The 8 gate tests from 46da2a5, run against de59c98's `perf_parity.py`: 8 failed, and the 8
   existing P2 tests passed (`failfirst-gate-pre-change.log`).
 
+**The P2 rule as accepted fails a candidate identical to the baseline.** Do not wire item 9's
+cancel until Fable amends the rule.
+
+Evidence: `AUDIT/tierb-nomask-2026-10-01/p2_null_sim.py` and its `.out`, a CPU simulation
+against `p2_screen`.
+- **The setup.** Six exchangeable arms, the same path plus iid noise. Three are labelled baseline,
+  three candidate.
+- **The result.** D(t) ≤ S(t) held on a mean of **20.5%** of steps (range 11–36%, 200 trials). With
+  one candidate the mean is 50.1%. The ≥ 90% rule passed **0 of 200** null candidates.
+- **The cause is combinatorial.** D is a maximum over 9 cross pairs, S over 3 baseline pairs. For
+  exchangeable arms, the largest of those 12 pairs is a baseline pair only about 1/4 of the time.
+- `--p2` implements the accepted text unchanged. It is pre-registered, and amending it is
+  Fable's call.
+- **A calibrated alternative is not ready.** I tried a role-permutation version
+  (`p2_perm_sim.py`/`.out`). It passes 97% of null candidates, but it also passes 100% of
+  candidates offset by 4σ, because the labelling that swaps baseline and candidate mirrors the
+  true one. A sound rule needs design first. Options for Fable:
+  - per step, compare each candidate's distance to the baseline mean against the baselines'
+    leave-one-out spread;
+  - a permutation test that excludes the complementary labelling.
+
 **Full suite on the branch:** 3,282 passed, 58 skipped, 2 failed. That run was taken before
 46da2a5; the gate's test file passes 16 of 16 since. The two failures are the same worktree-only
 ones as before: the repo directory name, and no `.venv/bin/ruff` in this worktree.
