@@ -27,7 +27,9 @@ sys.path.insert(0, str(REPO / "python"))
 from qd_train.calibration_fit import fit_noul_margin  # noqa: E402
 
 CARGO = shutil.which("cargo")
-pytestmark = pytest.mark.skipif(CARGO is None, reason="cargo is not on PATH: the probe was not built")
+pytestmark = pytest.mark.skipif(
+    CARGO is None, reason="cargo is not on PATH: the probe was not built"
+)
 
 
 @pytest.fixture(scope="module")
