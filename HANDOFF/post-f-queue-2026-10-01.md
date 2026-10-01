@@ -24,43 +24,45 @@ To start it on `avgnp.done` instead, change line 22 of `campaign/post-f-queue/bo
 
 | Rule | Rows read | Result |
 | --- | --- | --- |
-| (i) avg-np qualifies | J7g's average scored as if it were avg-np: `1d93b3ee` (gate) + `0b86fae3` (control), retagged in a temp ledger | **fails**: (a) `ood_abstain` 0/180 < 34/180. (b) is *ambiguous* (below), (c) passes |
+| (i) avg-np qualifies | J7g's average scored as if it were avg-np: `1d93b3ee` (gate) + `0b86fae3` (control), retagged in a temp ledger | **fails**: (a) `ood_abstain` 0/180 < 34/180. (b) passes (it ties the average on every part; the cited row governs, below), (c) passes |
 | (ii) seeds 3-4 | J4 eval rows `2f5fe57a` / `f3612f73` / `02cf5ff4`, pinned to ft rows `80b19a41` / `9b108fe2` / `8b600511` | **fires**: 8K worst 45/60 (seed 0, 60-80%) minus 0/59 (seed 2, 40-60%) = 0.75 > 0.30 |
 | (iii) J6(f) early | the same rows | **fires**: 8K worst < 0.95 on 3 of 3 seeds; prose 3 / 9 / 2 (<= 9) and scrambled 3 / 4 / 8 (<= 8) on every seed |
 
-### What is ambiguous in (b), exactly (for Fable)
+### The avg-np reading (Fable, `54512e6`), as the checker now applies it
 
-The pre-registration prints each threshold as a 3-decimal number **and** cites the row it was read
-from. The decimals are roundings of those rows' fractions, and they do not sit on them:
+The pre-registration prints each (b)/(c) threshold as a 3-decimal number **and** cites the row it
+was read from, and the decimals do not sit on the rows' fractions. Until Fable ruled, the checker
+computed both readings and refused when they disagreed. Fable's ruling
+(`campaign/f-j7prime-preregistered.json` -> `avg_np_qualifies_for_f_j7prime.avg_np_reading`,
+`54512e6`): **the cited row's exact count governs.** Each part passes iff
+`candidate.n * cited.n_total >= cited.n * candidate.n_total` (integer cross-multiplication on the
+candidate's own worst-bucket or val fraction, never the float), and a tie passes. (a) is unchanged
+(integer >= 34/180). The decimals stay as the rows' rendering, **report-only**: each part's JSON
+still carries `literal.passes`, which decides nothing. The refusal when a cited row stops
+rounding to its printed decimal stays.
 
-| Clause | Printed | Cited row's exact value | A candidate that ties the cited row |
+| Clause | Printed (report-only) | Threshold (cited row's count) | Where the readings differ |
 | --- | --- | --- | --- |
-| (b) 8K worst | `>= 0.279` | `1d93b3ee` 80-100%: 17/61 = 0.27869 | passes "not below the average", **fails** ">= 0.279" |
-| (b) 1K control | "not below the average's 0.895" | `0b86fae3` 0-20%: 51/57 = 0.89474 | same split |
-| (b) 2K control | "... 0.767" | `0b86fae3` 80-100%: 46/60 = 0.76667 | same split |
-| (b) 4K control | "... 0.426" | `0b86fae3` 80-100%: 26/61 = 0.42623 | both pass (the decimal is below the fraction) |
-| (c) choice | `>= 0.765` | `f3612f73`: 8405/10985 = 0.76514 | 8404/10985 = 0.76505 **passes** ">= 0.765", fails "J4 seed minimum" |
-| (c) span | `>= 0.884` | `2f5fe57a`: 6399/7238 = 0.88408 | same split, other direction |
-| (a) OOD | `>= 34/180` | `6fcba23d` `ood_diagnostic.all`: 34/180 | integer: one reading |
+| (b) 8K worst | 0.279 | `1d93b3ee` 80-100%: 17/61 = 0.27869 | 17/61 now **passes** |
+| (b) 1K control | 0.895 | `0b86fae3` 0-20%: 51/57 = 0.89474 | 51/57 now **passes** |
+| (b) 2K control | 0.767 | `0b86fae3` 80-100%: 46/60 = 0.76667 | 46/60 now **passes** |
+| (b) 4K control | 0.426 | `0b86fae3` 80-100%: 26/61 = 0.42623 | none |
+| (c) choice | 0.765 | `f3612f73`: 8405/10985 = 0.76514 | 8404/10985 now **fails** |
+| (c) span | 0.884 | `2f5fe57a`: 6399/7238 = 0.88408 | none (0.884 x 7238 = 6398.39; this file's earlier "same split" for span was wrong, as Fable found) |
+| (a) OOD | 34/180 | `6fcba23d` `ood_diagnostic.all`: 34/180 | integer: one reading |
 
-So for the 8K, 1K and 2K parts, a candidate exactly equal to the J7g average passes one reading
-and fails the other; for (c), a candidate in the sliver between the decimal and the seed minimum
-does the same. **The checker does not pick a reading.** Each comparison is made both ways, exactly
-(integer cross-multiplication on `n`/`n_total`, never the float). A clause whose two readings
-disagree is `ambiguous`; (i) is the Kleene conjunction of (a), (b), (c):
+Those four values are Fable's `what_changes`, and a test now checks it by enumeration: over every
+count the suites can produce (the 8K/1K/2K/4K bucket sizes and the val sizes the ruling lists),
+the verdict is the row reading, and it differs from the decimal reading on exactly those four.
 
-- any clause **fails under both readings** -> `fails` (the outcome is the same whichever reading
-  holds, so no reading was chosen);
-- otherwise, any clause ambiguous -> **refused, exit 3** ("which reading holds is the human's call
-  (rule 2)"); item 3 then logs avg-np NOT RUN and the human decides;
-- otherwise `qualifies`.
+What went: `Verdict::Ambiguous`, the Kleene conjunction (now a plain conjunction) and the
+refusal "which reading holds is the human's call". With one reading there is no third state, and
+leaving them in would be unreachable code. On J4's stand-in the answer is still `fails`, on (a)
+alone; (b) and (c) pass.
 
-On J4's stand-in rows (a) fails 0/180 under its only reading, so the answer is `fails` while (b)
-is reported `ambiguous` in the JSON (8K, 1K and 2K parts). If Fable wants a refusal whenever *any*
-clause is ambiguous, even when another clause already fails, that is a one-line change in
-`rule_avgnp` (`Verdict::Ambiguous` checked before `Fail`); it is not made, because it would refuse
-a case the rule decides. Test: `a_tie_with_the_cited_row_where_the_decimals_disagree_refuses`.
-The checker also refuses if a cited row ever stops rounding to its printed decimal.
+Fable's `binds_iff` names the human as the committer of `54512e6`; the commit says the lead made
+it under the human's standing instruction and flagged that. That question is the lead's and the
+human's, not this checker's.
 
 ## What changed
 
@@ -70,6 +72,7 @@ The checker also refuses if a cited row ever stops rounding to its printed decim
 | `9715e8b` | `campaign/post-f-queue/` (8 waiters + `post_f_common.sh`); `AUDIT/j7-avg-ood-diag-2026-10-01/delta_cosine.py` takes argv |
 | `0b235ef` | items 8 and 9 wired: `box_q_nomaskp2.sh`, `box_q_nomask.sh`; items 4, 6, 7, 10 re-ordered around them; `wait_queued` replaces the lock re-check loops |
 | (this file) | the HANDOFF |
+| this commit | branch `post-f-avgnp-reading` from main `54512e6`: the checker applies Fable's avg-np reading; `RULES_SHA256` updated to the rebuilt binary; this file |
 
 Size: +~2,000 lines (checker 1,040 of which ~560 are tests; scripts ~560; this file), -29
 (delta_cosine's hardcoded paths), and -55 +93 in the items 8/9 re-wire (two new waiters; the lock re-check loops removed). `Cargo.lock` unchanged (cargo keeps re-resolving the external
@@ -83,7 +86,7 @@ input hashes. No new dependency; no lockfile change; it does not link the runtim
 
 | Subcommand | Prints (stdout) | Refuses (exit 3) on |
 | --- | --- | --- |
-| `avgnp --j7-ledger --j4-ledger --out` | `qualifies` / `fails` | no or several completed `avg-np-score-val` / `avg-np-needle-length-control` rows naming `1d93b3ee`'s three ft rows; dtype not the average's; a reference row missing or drifted; an ambiguous tie (above) |
+| `avgnp --j7-ledger --j4-ledger --out` | `qualifies` / `fails` | no or several completed `avg-np-score-val` / `avg-np-needle-length-control` rows naming `1d93b3ee`'s three ft rows; dtype not the average's; a reference row missing, or drifted so it no longer prints as its decimal |
 | `seeds34 --f-ledger --ft-row 0=ID --ft-row 1=ID --ft-row 2=ID --out` | `fires` / `quiet` | seeds other than 0, 1, 2 in order; an ft row not a completed ft row of that seed; not exactly one completed `epoch-score-val` eval row whose `ft_run_row_id` is that ft row |
 | `j6f` (same args) | `fires` / `quiet` | the same, plus an OOD category not out of 60 |
 | `ft-rows --ledger --ft-row S=ID...` | the ids, in order | not completed, `quick` not `false`, tag not `epoch`, a `shuffled_label` recipe, wrong seed, or recipe hash / data snapshot differing between rows |
@@ -95,13 +98,16 @@ value is not the minimum of its own five depth buckets, an existing `--out`. JSO
 (create-new + fsync) and to stderr, with every ledger's path, sha256, bytes and row count. clap
 usage errors exit 2. Never a default.
 
-**Tests: 23**, in the bin (`cargo test -p qd-runtime --bin qd-post-f-rules`), 4 on J4's real
-committed rows, the rest on synthetic boundaries (spread exactly 0.30 quiet / one hit more fires,
-with unequal denominators too; 57/60 = 0.95 not below the floor; one seed below vs two; prose 9
-vs 10, scrambled 8 vs 9; OOD 34 vs 33; every control length; the decimal/row splits) and
-refusals. One test asserts every threshold's text appears verbatim in both pre-registration files;
-another that each decimal's number is its text. `cargo clippy -D warnings` clean; full
-`cargo test -p qd-runtime` passes.
+**Tests: 26** (23 before the reading), in the bin (`cargo test -p qd-runtime --bin
+qd-post-f-rules`), 4 on J4's real committed rows, the rest on synthetic boundaries (spread
+exactly 0.30 quiet / one hit more fires, with unequal denominators too; 57/60 = 0.95 not below the
+floor; one seed below vs two; prose 9 vs 10, scrambled 8 vs 9; OOD 34 vs 33; every control length;
+ties with the cited row at 8K, 1K and 2K pass, 8404/10985 choice fails, span 6398 fails and 6399
+passes; the enumeration above) and refusals. One test asserts every threshold's text appears
+verbatim in both pre-registration files, one that the reading's key phrases are in
+`avg_np_reading` and the comparison in every avg-np JSON, one that each decimal's number is its
+text. `cargo clippy -p qd-runtime --all-targets -D warnings` clean; full `cargo test -p
+qd-runtime` passes; the file is rustfmt-clean (the rest of the crate is not, and was not touched).
 
 **Fail-first evidence** (each threshold or comparison set wrong in the source, tests run, source
 restored; `git diff` clean afterwards):
@@ -120,6 +126,16 @@ restored; `git diff` clean afterwards):
 | 8K 0.279 -> 0.250 | 6, including **`j4s_average_scored_as_avgnp...`** |
 | choice 0.765 -> 0.766 (number only) | 6 (0.766 no longer rounds from `f3612f73`, so every avg-np case refuses) |
 
+(The rows above were measured on `0e99282`.) **For the reading** (`54512e6`), on this branch:
+
+| Run | Tests that fail |
+| --- | --- |
+| 827363b's checker (pre-ruling) with the new tests transplanted (the enumeration ported to its `at_least` signature) | **5 of 26**: `j4s_average_scored_as_avgnp_fails_a_with_b_and_c_passing` (b = "ambiguous", want "pass"), `a_tie_with_the_cited_row_passes...`, `a_choice_between_the_decimal_and_the_seed_minimum_fails_c`, `the_verdict_is_the_rows_and_differs...` ("ambiguous", want "pass"), `the_reading_is_the_preregistrations_own_text`; the other 21 pass. Four fail on the reading itself; the fifth only because its `reading` field and the `54512e6` pin are new |
+| the printed decimal decides (`Verdict::of(candidate.ge_dec(literal))`) | 4: the J4 stand-in, the tie test, the choice test, the enumeration |
+| both readings must pass (`by_row && ge_dec`) | 3: the J4 stand-in, the tie test, the enumeration |
+| a tie fails (strictly greater) | 4: the J4 stand-in, the tie test, the choice test, the enumeration |
+| the cited-row rounding refusal removed | 1: `a_cited_row_that_no_longer_prints_as_its_decimal_refuses` |
+
 ### The binary for the box
 
 The brief's premise that `qd-prep-m1` was built on the box is not what the HANDOFFs record: the
@@ -135,9 +151,11 @@ glibc 2.39 (`HANDOFF/needle-ood-followup-2026-09-30.md` "Building Rust for the b
       --target-dir /Users/bharath/qd-campaign/target-aarch64-linux-postf
 
 - File: `/Users/bharath/qd-campaign/target-aarch64-linux-postf/aarch64-unknown-linux-gnu/release/qd-post-f-rules`
-- sha256 `330e681672897a5369a04d5d1fdafdc8b9071e31e44b8d866927c90daa43c98e`, built from `0e99282`
-  (the source is unchanged since). ELF 64-bit aarch64 PIE; highest symbol version GLIBC_2.34
-  (`llvm-objdump -T`), under the box's 2.39.
+- sha256 **`cadbdc74eabdc26a2395bd31cb20eab35152c958025af46ba50ef30365111339`**, built from branch
+  `post-f-avgnp-reading` (the reading). It replaces `330e6816…c98e` (built from `0e99282`, the
+  two-readings checker), which every waiter launched before this change holds in memory: they
+  source `post_f_common.sh` once, at start, so they must be relaunched. ELF 64-bit aarch64 PIE;
+  symbol versions GLIBC_2.17 to GLIBC_2.34 (`llvm-objdump -T`), under the box's 2.39.
 - **Copy this file; do not rebuild it elsewhere.** `post_f_common.sh` pins this sha256 and every
   script refuses another. A build from a different checkout path embeds different paths and will
   not match; if you must rebuild, update `RULES_SHA256` and commit it.
@@ -145,7 +163,10 @@ glibc 2.39 (`HANDOFF/needle-ood-followup-2026-09-30.md` "Building Rust for the b
   network) against J4's committed ledgers: `seeds34` -> fires, `j6f` -> fires, `avgnp` on the
   committed J7 ledger -> refused, exit 3, "missing row: no completed eval row tagged
   avg-np-score-val" (item 2 has not run), an existing `--out` -> refused, `ft-rows` and
-  `eval-row` print J4's ids, a short id -> usage error exit 2. **Not run on the box.**
+  `eval-row` print J4's ids, a short id -> usage error exit 2. **Not run on the box.** The
+  rebuilt binary, the same way: all of the above again, plus `avgnp` on J7's ledger with J7g's
+  average retagged as avg-np -> `fails`, exit 0, (a) fail, (b) pass on all four parts (with
+  `literal.passes` false at 8K, 1K and 2K, true at 4K), (c) pass.
 
 ### `delta_cosine.py`
 
@@ -315,8 +336,9 @@ The dry-run harness is throwaway (session scratchpad: `pfq_sim/` incl. `run2.sh`
 - `GAP-POST-F-QUEUE-NAVIGATION-2026-10-01` (new): GitPulse returned ok=false on every facet
   (REPOSITORY_TRUST_REQUIRED), DevMap has no store in this worktree (answers came from main's
   index, generation 2959), and no ListAgents tool was exposed.
-- For Fable: the (b)/(c) decimal-versus-row ambiguity above. Until ruled, a tie refuses (avg-np
-  NOT RUN) unless another clause fails outright.
+- Ruled: the (b)/(c) reading (Fable, `54512e6`; the cited row's count governs, a tie passes),
+  applied on branch `post-f-avgnp-reading`. It binds only if it is on the box before J4's
+  avg-np-score-val row is written (item 2, ~midday UTC 2026-10-02): see "Redeploy" below.
 - For the lead: whether the human's $20 yes covers 2S, J5', J6(f), J6(d)-v4.
 - For the lead: `touch /home/ubuntu/queue/nomask-p2-ruled` once Fable's amended P2 rule is on the
   box, before item 9's turn (after J5'); until then item 9 is NOT RUN.
@@ -356,7 +378,7 @@ must print nothing (stop and ask if it does):
 
     chmod +x /home/ubuntu/bin/qd-post-f-rules
     sha256sum /home/ubuntu/bin/qd-post-f-rules /home/ubuntu/post-f/delta_cosine.py
-    #   330e681672897a5369a04d5d1fdafdc8b9071e31e44b8d866927c90daa43c98e  qd-post-f-rules
+    #   cadbdc74eabdc26a2395bd31cb20eab35152c958025af46ba50ef30365111339  qd-post-f-rules
     #   f4e373a94c87c54759a4a4e382de1349010e18c3d0b646a4c9f376b8dca34961  delta_cosine.py
     cat /home/ubuntu/queue/f.ckpt-skip                                     # 6
     for d in qd-lane8 qd-lane10 perf/p3fused; do (cd /home/ubuntu/$d && echo "$d $(git rev-parse --short=7 HEAD) dirty=[$(git status --porcelain | head -1)]"); done
@@ -388,6 +410,41 @@ item 4 starts at once, and T1/T2 run by hand in a later gap.
 
 **Watch:** `grep -h '^=== ' /home/ubuntu/logs/q-{j7p_cpu,s34,j7p,nomaskp2,fslice,j5p,j6f,nomask,tierb2,j6dv4}.log`
 and `ls /home/ubuntu/ledger/post-f-decisions-2026-10-01/`.
+
+### Redeploy for the avg-np reading (waiters already running)
+
+Only `post_f_common.sh` (the new `RULES_SHA256`) and the binary change; no `box_q_*.sh` does.
+The running waiters sourced the old pin at start and would refuse the new binary, so they are
+stopped and relaunched. Do this before `f.done` (nothing has a `.started` yet, and item 0 has not
+begun averaging); it must be done before J4's avg-np row is written for the reading to bind.
+
+    # on the box: confirm none of this chain has started or decided anything
+    ls /home/ubuntu/queue | grep -E '^(j7pcpu|j7pavg|s34|j7p|nomaskp2|fslice|j5p|j6f|nomask|tierb2|j6dv4)\.(started|done|position)$'
+    ls /home/ubuntu/ledger/post-f-decisions-2026-10-01/ 2>/dev/null
+    #   both print nothing (before f.done); see below if j7pcpu.started is there
+    pkill -KILL -f 'post-f/box_q_[a-z0-9_]+\.sh'   # -KILL: no EXIT trap, so no .done is touched
+    # on the Mac (stop first, copy second: bash reads a running script as it goes)
+    scp -i $KEY /Users/bharath/qd-campaign/target-aarch64-linux-postf/aarch64-unknown-linux-gnu/release/qd-post-f-rules $BOX:/home/ubuntu/bin/qd-post-f-rules
+    scp -i $KEY $WT/campaign/post-f-queue/post_f_common.sh $BOX:/home/ubuntu/post-f/
+    # on the box: step 2's sha256sum (cadbdc74…1339) and the seeds34 smoke, then step 3's loop
+
+The `pkill` patterns are written so they cannot match their own command line (a bracket class
+or an alternation), so they are safe from an ssh one-liner too. The relaunched waiters touch
+their `.queued` again (already there) and wait as before.
+
+**If `j7pcpu.started` already exists** (redeploy after `f.done`): item 0 has already pinned the
+old binary and is averaging. Leave it running: it never calls `avgnp` and never re-pins, and its
+later `ft-rows` call behaves the same in both binaries. Killing it would leave `j7pavg.done`
+untouched (a rerun refuses its existing outputs), and item 3 would wait forever. Stop and relaunch
+only the other nine:
+
+    pkill -KILL -f 'post-f/box_q_(s34|j7p|nomaskp2|fslice|j5p|j6f|nomask|tierb2|j6dv4)\.sh'
+    for s in s34 j7p nomaskp2 fslice j5p j6f nomask tierb2 j6dv4; do
+      nohup bash /home/ubuntu/post-f/box_q_$s.sh > /home/ubuntu/logs/q-$s.log 2>&1 &
+    done
+
+If any other marker of this chain has `.started`, or a decision JSON other than item 0's own
+(`item0-*.json`) exists, stop and look before killing anything.
 
 ## First command for the next lane
 
