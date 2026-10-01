@@ -380,6 +380,11 @@ with no `.queued`):
 
 **4. When Fable's amended P2 rule is on the box** (any time before J5' ends):
 `touch /home/ubuntu/queue/nomask-p2-ruled`. Without it item 9 logs NOT RUN and the chain goes on.
+Since `1de0a34` (Fable amended the P2 rule: the accepted one is unsatisfiable under an
+exchangeable null), **item 8 is gated on the same marker** (lead's edit after the merge): the
+marker means the amended rule is on main with its calibration `.out` and the box overlay is
+rebuilt at that commit, Fable's precondition for any P2 session. Without it item 8 logs NOT RUN,
+item 4 starts at once, and T1/T2 run by hand in a later gap.
 
 **Watch:** `grep -h '^=== ' /home/ubuntu/logs/q-{j7p_cpu,s34,j7p,nomaskp2,fslice,j5p,j6f,nomask,tierb2,j6dv4}.log`
 and `ls /home/ubuntu/ledger/post-f-decisions-2026-10-01/`.

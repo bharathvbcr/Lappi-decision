@@ -14,6 +14,15 @@ source /home/ubuntu/post-f/post_f_common.sh || exit 3
 trap 'touch /home/ubuntu/queue/nomaskp2.done' EXIT
 touch $Q/nomaskp2.queued
 until [ -f $Q/j7p.done ]; do sleep 30; done
+# Fable's P2 amendment (campaign/f-j7prime-preregistered.json "no_mask.p2_timing", 1de0a34): no
+# P2 session runs before the amended rule is on main with its calibration .out and the box overlay
+# is rebuilt at that commit, so that no retired-rule verdict row ever enters p2_gate's input. The
+# lead touches $Q/nomask-p2-ruled once that holds; without it item 8 waits for a later gap (run by
+# hand) and the chain moves on.
+if [ ! -f $Q/nomask-p2-ruled ]; then
+  say "item 8 not run: amended P2 rule not yet on the box (no $Q/nomask-p2-ruled); run T1/T2 by hand in a later gap"
+  exit 0
+fi
 touch $Q/nomaskp2.started
 for S in T1 T2; do
   say "item 8: no-mask P2 screen $S"
