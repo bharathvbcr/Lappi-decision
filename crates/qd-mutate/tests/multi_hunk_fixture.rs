@@ -15,6 +15,7 @@ use qd_mutate::diffspan;
 use qd_mutate::generate::{Example, DIFF_CONTEXT};
 use qd_mutate::manifest::{sha256_hex, Manifest};
 use qd_mutate::ops::MutationClass;
+use qd_mutate::pool;
 
 fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -45,9 +46,20 @@ fn the_fixture_is_pinned_by_its_own_manifest() {
     assert_eq!(manifest.diff.renderer, "multi_hunk");
 }
 
+/// Pool id -> the commit's post-image, the text each mutation was applied to.
+fn post_images() -> std::collections::HashMap<String, String> {
+    let bytes = std::fs::read(fixture_dir().join("pool.jsonl")).expect("the pool is committed");
+    pool::read_jsonl(bytes.as_slice())
+        .expect("a pool")
+        .into_iter()
+        .map(|r| (r.id, r.source))
+        .collect()
+}
+
 #[test]
 fn every_diff_in_the_fixture_is_what_the_renderer_produces_today() {
     let (examples, _, _) = read_fixture();
+    let sources = post_images();
     assert!(!examples.is_empty());
     for example in &examples {
         let rendered = diffspan::unified_multi_detailed(&example.before, &example.after, DIFF_CONTEXT)
@@ -63,7 +75,12 @@ fn every_diff_in_the_fixture_is_what_the_renderer_produces_today() {
             continue;
         }
         let span = example.span.expect("a mutated row has a span");
-        assert!(rendered.shows_change_at(span), "{}", example.id);
+        let source = sources.get(&example.pool_id).expect("every row's pool record is committed");
+        assert!(
+            rendered.shows_edit(&example.before, source, &example.after),
+            "{}",
+            example.id
+        );
         assert!(rendered.hunk_containing(span).is_some(), "{}", example.id);
     }
 }

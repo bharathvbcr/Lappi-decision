@@ -209,7 +209,10 @@ pub struct HunkRange {
 pub struct MultiHunkDiff {
     pub text: String,
     pub hunks: Vec<HunkRange>,
-    /// Lines in the after-text, phantom final line included — at least one for any string.
+    /// Lines in the before- and after-text, phantom final line included — at least one each for
+    /// any string. Kept so [`MultiHunkDiff::shows_edit`] can refuse texts this was not rendered
+    /// from rather than answer about them.
+    pub old_lines: usize,
     pub new_lines: usize,
 }
 
@@ -225,28 +228,70 @@ impl MultiHunkDiff {
             .position(|h| h.new_start <= first && last < h.new_end)
     }
 
-    /// Whether the diff shows a change **at** `span`: an inserted line inside it, or a deletion
-    /// positioned at one of its lines. A span over lines the diff carries only as context is a
-    /// label over text the reader is told did not change — which is what a mutation that undoes the
-    /// commit's own edit at that site produces once the diff is taken from the pre-image.
-    pub fn shows_change_at(&self, span: LineSpan) -> bool {
-        let Some((first, last)) = span_rows(span) else {
+    /// Whether the edit that took `source` to `after` is visible in this diff, which was rendered
+    /// from `base` to `after`.
+    ///
+    /// The edit is located the way [`span_from_text_diff`] locates it — the rows between the
+    /// common prefix and suffix of `source` and `after` — and then asked about by **content**, not
+    /// by position:
+    ///
+    /// * an edit that wrote lines shows when one of the lines it wrote is an added line here — a
+    ///   line `base` does not have at that point;
+    /// * an edit that only removed lines shows when a change block at its deletion point removes
+    ///   at least one of the lines it removed.
+    ///
+    /// Position alone is not enough, and was measured not to be: when the edit undoes the
+    /// commit's own change (removes an `else` the commit added, restores a `<=` it narrowed), the
+    /// edited lines match `base` and show nothing, while the commit's *other* changes can sit right
+    /// beside the span — two commitpackft rows paired a removed `else` with the commit's own
+    /// end-of-file edit. A span over lines the diff shows unchanged is a label over text the reader
+    /// is told did not change.
+    ///
+    /// `false` for texts this diff was not rendered from (line counts disagree) and for a `source`
+    /// identical to `after`.
+    pub fn shows_edit(&self, base: &str, source: &str, after: &str) -> bool {
+        let old = lines_for_diff(base);
+        let src = lines_for_diff(source);
+        let new = lines_for_diff(after);
+        if old.len() != self.old_lines || new.len() != self.new_lines {
+            return false;
+        }
+        let Some((start, src_end, new_end)) = edited_rows(&src, &new) else {
             return false;
         };
-        self.hunks.iter().flat_map(|h| h.blocks.iter()).any(|b| {
-            if b.new_end > b.new_start {
-                b.new_start <= last && first < b.new_end
-            } else {
-                // A pure deletion sits between after-lines `new_start - 1` and `new_start`; it is
-                // at the span when the line it precedes is one of the span's. That is exactly how
-                // the span of a pure-deletion mutation is placed: on the line the deletion joined.
-                // A deletion past the last line — the end of a file with no trailing newline —
-                // joined onto that last line, and `span_from_text_diff` clamps it there too.
-                let joined = b.new_start.min(self.new_lines.saturating_sub(1));
-                first <= joined && joined <= last
-            }
-        })
+        let mut blocks = self.hunks.iter().flat_map(|h| h.blocks.iter());
+        if new_end > start {
+            blocks.any(|b| b.new_start < new_end && start < b.new_end)
+        } else {
+            let removed = &src[start..src_end];
+            blocks.any(|b| {
+                b.new_start <= start
+                    && start <= b.new_end
+                    && old
+                        .get(b.old_start..b.old_end)
+                        .is_some_and(|gone| gone.iter().any(|line| removed.contains(line)))
+            })
+        }
     }
+}
+
+/// The rows an edit from `src` to `new` touched, trimmed from both ends exactly as
+/// [`span_from_text_diff`] trims: `(start, src_end, new_end)`, 0-based and half-open, so the edit
+/// replaced `src[start..src_end]` with `new[start..new_end]`. `None` when the texts are equal.
+fn edited_rows(src: &[&str], new: &[&str]) -> Option<(usize, usize, usize)> {
+    if src == new {
+        return None;
+    }
+    let mut prefix = 0usize;
+    while prefix < src.len() && prefix < new.len() && src[prefix] == new[prefix] {
+        prefix += 1;
+    }
+    let max_suffix = src.len().min(new.len()) - prefix;
+    let mut suffix = 0usize;
+    while suffix < max_suffix && src[src.len() - 1 - suffix] == new[new.len() - 1 - suffix] {
+        suffix += 1;
+    }
+    Some((prefix, src.len() - suffix, new.len() - suffix))
 }
 
 /// `span` as 0-based inclusive rows, or `None` for a malformed one.
@@ -298,6 +343,7 @@ pub fn unified_multi_detailed(
     Ok(MultiHunkDiff {
         text,
         hunks,
+        old_lines: old.len(),
         new_lines: new.len(),
     })
 }
@@ -963,7 +1009,7 @@ mod tests {
     }
 
     #[test]
-    fn hunk_containing_and_shows_change_at_answer_over_after_lines() {
+    fn hunk_containing_answers_over_after_lines() {
         let before = numbered(30);
         let mut after = before.clone();
         after[4] = "CHANGED 5".to_string();
@@ -974,26 +1020,73 @@ mod tests {
         assert_eq!(d.hunk_containing(LineSpan::new(21, 21)), Some(1));
         assert_eq!(d.hunk_containing(LineSpan::new(5, 21)), None, "straddles two hunks");
         assert_eq!(d.hunk_containing(LineSpan::new(12, 12)), None, "in no hunk");
-        assert!(d.shows_change_at(LineSpan::new(5, 5)));
-        assert!(d.shows_change_at(LineSpan::new(21, 21)), "the join line of a deletion");
-        assert!(!d.shows_change_at(LineSpan::new(4, 4)), "context is not a change");
-        assert!(!d.shows_change_at(LineSpan::new(22, 22)), "the line after the join is not");
-        assert!(!d.shows_change_at(LineSpan::new(0, 3)), "a malformed span shows nothing");
+        assert_eq!(d.hunk_containing(LineSpan::new(0, 3)), None, "malformed");
     }
 
     #[test]
-    fn a_deletion_that_ends_a_file_with_no_trailing_newline_shows_at_its_last_line() {
-        // Deleting "\nX" from "a\nb\nX" leaves "a\nb": the deleted line sits past the last line
-        // of `after`, and `span_from_text_diff` clamps the span onto that last line ("b"). The
-        // diff must say a change is shown there, or every such candidate is refused as an
-        // invisible needle.
-        let (before, after) = ("a\nb\nX", "a\nb");
-        let span = span_from_text_diff(before, after).expect("a change");
-        assert_eq!(span, LineSpan::new(2, 2));
-        let d = unified_multi_detailed(before, after, 3).expect("renders");
-        assert!(d.shows_change_at(span), "{d:?}");
-        assert_eq!(d.hunk_containing(span), Some(0));
-        assert!(!d.shows_change_at(LineSpan::new(1, 1)), "the clamp moves onto the last line only");
+    fn an_edit_on_top_of_an_untouched_base_shows() {
+        // base == source: whatever the edit did is the whole diff.
+        let base = join(&numbered(30));
+        let replaced = base.replace("line 5\n", "CHANGED 5\n");
+        let deleted = base.replace("line 21\n", "");
+        let inserted = base.replace("line 9\n", "line 9\nNEW\n");
+        let at_eof = ("a\nb\nX", "a\nb"); // a deletion past the last line, no trailing newline
+        for after in [&replaced, &deleted, &inserted] {
+            let d = unified_multi_detailed(&base, after, 3).expect("renders");
+            assert!(d.shows_edit(&base, &base, after), "{}", d.text);
+        }
+        let d = unified_multi_detailed(at_eof.0, at_eof.1, 3).expect("renders");
+        assert!(d.shows_edit(at_eof.0, at_eof.0, at_eof.1), "{}", d.text);
+    }
+
+    #[test]
+    fn an_edit_that_undoes_the_commit_does_not_show_even_beside_another_change() {
+        // The commit narrowed `<=` to `<` on line 5 and changed line 6; the edit widens line 5
+        // back. From the base, line 5 is unchanged -- only the commit's line 6 shows, right
+        // beside it. Position would call that the edit; content does not.
+        let base = join(&numbered(12)).replace("line 5\n", "a <= b\n");
+        let source = base.replace("a <= b\n", "a < b\n").replace("line 6\n", "line six\n");
+        let after = source.replace("a < b\n", "a <= b\n");
+        let d = unified_multi_detailed(&base, &after, 3).expect("renders");
+        assert!(d.text.contains("+line six"), "{}", d.text);
+        assert!(!d.shows_edit(&base, &source, &after), "{}", d.text);
+    }
+
+    #[test]
+    fn a_removed_line_the_commit_added_does_not_show_through_the_commits_eof_edit() {
+        // Measured on commitpackft (django_compat_patcher/patcher.py): the commit added an `else`
+        // branch and dropped the trailing newline; the edit removes the `else`. From the base the
+        // `else` never existed, and the only change at the end is the commit's newline -- which
+        // a positional check took for the edit.
+        let base = "def f():\n    run()\n    return x\n";
+        let source = "def f():\n    if a:\n        run()\n    else:\n        warn()\n    return x";
+        let after = "def f():\n    if a:\n        run()\n    return x";
+        let d = unified_multi_detailed(base, after, 3).expect("renders");
+        assert!(!d.shows_edit(base, source, after), "{}", d.text);
+        // The same removal when the base HAD the `else` is a removal the reader can see.
+        let base_with_else = "def f():\n    if a:\n        run()\n    else:\n        warn()\n    return x\n";
+        let d = unified_multi_detailed(base_with_else, after, 3).expect("renders");
+        assert!(d.shows_edit(base_with_else, source, after), "{}", d.text);
+    }
+
+    #[test]
+    fn an_edit_whose_written_line_matches_the_base_does_not_show() {
+        // Measured on commitpackft (scripts/compare_dir.py): removing a trailing `else` turned
+        // the file's last line into the phantom empty line, which the base also has at that
+        // point. The edit's only written line is context, so nothing of it shows.
+        let base = "for f in fs:\n    print(f)\n\nprint(n)";
+        let source = "for f in fs:\n    if new(f):\n        copy(f)\n    else:\n        print(f)";
+        let after = "for f in fs:\n    if new(f):\n        copy(f)\n";
+        let d = unified_multi_detailed(base, after, 3).expect("renders");
+        assert!(!d.shows_edit(base, source, after), "{}", d.text);
+    }
+
+    #[test]
+    fn shows_edit_refuses_texts_the_diff_was_not_rendered_from() {
+        let d = unified_multi_detailed("a\nb\n", "a\nX\n", 3).expect("renders");
+        assert!(d.shows_edit("a\nb\n", "a\nb\n", "a\nX\n"));
+        assert!(!d.shows_edit("a\nb\nc\n", "a\nb\n", "a\nX\n"), "base has another length");
+        assert!(!d.shows_edit("a\nb\n", "a\nX\n", "a\nX\n"), "no edit at all");
     }
 
     /// Length of the longest common subsequence, by the textbook O(NM) table.

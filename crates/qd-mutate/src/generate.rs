@@ -40,8 +40,8 @@
 //! post-image and the mutated text — so the label is the injected edit and nothing else. The
 //! *diff* a reader is handed is a separate choice, [`DiffShape`]. By default it runs from the
 //! commit's pre-image ([`diffspan::unified_multi`]), so the commit's real hunks are the fillers and
-//! the injected edit is one hunk among them; two refusals keep that honest — the span must show a
-//! change in the diff (`needle_not_in_diff`) and sit inside one hunk (`needle_split_across_hunks`).
+//! the injected edit is one hunk among them; two refusals keep that honest — the injected edit must show in the diff
+//! by content (`needle_not_in_diff`) and its span sit inside one hunk (`needle_split_across_hunks`).
 //! `DiffShape::SingleHunk` is the v2 shape, kept byte-for-byte.
 
 use std::collections::HashMap;
@@ -690,12 +690,12 @@ impl Generator {
                     .map_err(|e| Refusal::DiffRefused {
                         detail: e.to_string(),
                     })?;
-                if !rendered.shows_change_at(from_bytes) {
+                if !rendered.shows_edit(base, before, &after) {
                     return Err(Refusal::NeedleNotInDiff {
                         operator: op.as_str().to_string(),
                         detail: format!(
-                            "after lines {from_bytes} carry no added line and no deletion in a \
-                             {}-hunk diff from the pre-image",
+                            "the edit at after lines {from_bytes} writes no added line and removes \
+                             no removed line in a {}-hunk diff from the pre-image",
                             rendered.hunks.len()
                         ),
                     });
@@ -949,7 +949,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
                 .expect("renders");
             assert_eq!(rendered.text, example.diff);
             assert_eq!(rendered.hunk_containing(span), Some(2), "{}", example.id);
-            assert!(rendered.shows_change_at(span), "{}", example.id);
+            assert!(rendered.shows_edit(&prior, &source, &example.after), "{}", example.id);
         }
         assert_eq!(
             run.manifest.diff.hunks_per_diff.get(&3).copied(),
@@ -993,7 +993,7 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
             let rendered = diffspan::unified_multi_detailed(&prior, &example.after, DIFF_CONTEXT)
                 .expect("renders");
             assert_eq!(rendered.hunk_containing(span), Some(0), "{}", example.id);
-            assert!(rendered.shows_change_at(span), "{}", example.id);
+            assert!(rendered.shows_edit(&prior, &source, &example.after), "{}", example.id);
             // Where the mutation left the commit's line alone, the commit's change is in the same
             // hunk as the needle -- it was merged, not dropped.
             if example.after.contains("    let mut z = 0;\n") {
@@ -1089,7 +1089,11 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
             let span = example.span.expect("span");
             let rendered = diffspan::unified_multi_detailed(&example.before, &example.after, DIFF_CONTEXT)
                 .expect("renders");
-            assert!(rendered.shows_change_at(span), "{}: invisible needle emitted", example.id);
+            assert!(
+                rendered.shows_edit(&example.before, &source, &example.after),
+                "{}: invisible needle emitted",
+                example.id
+            );
             assert!(rendered.hunk_containing(span).is_some(), "{}", example.id);
         }
     }
