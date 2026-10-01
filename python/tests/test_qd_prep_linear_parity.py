@@ -16,9 +16,14 @@
 3. The fit, against the oracle's DEFAULT operand (dense BLAS where it fits, which the box used
    below 24 GB): (a) the same convergence flag, iteration counts within 1% (at least 1), (b) the
    same selected L2, (c) the same predictions except rows whose top-2 logit gap is below 1e-9
-   relative (counted, printed), (d) weights within ``DENSE_WEIGHT_RTOL`` of the largest weight.
-   The oracle's own two operands already differ by rounding
-   (``test_the_fit_is_unchanged_by_densification``); this bounds the port inside that envelope.
+   relative (counted, printed), (d) ``||W_native - W_dense|| / ||W_dense||`` (Frobenius) at
+   most ``DENSE_WEIGHT_RTOL``, with the largest elementwise difference printed beside it.
+   Because 2. holds, every number in 3. is the oracle's OWN dense-vs-sparse spread -- the
+   operand ``--dense-budget-gb`` already picks per task. Its two operands differ by rounding
+   (``test_the_fit_is_unchanged_by_densification``), and over hundreds of Adam steps that
+   rounding grows: Adam's normalised step moves a rarely-active feature's weight by about
+   ``lr`` whatever the size of its gradient, so the largest ELEMENTWISE difference is not a
+   tolerance worth stating, while the weight vector as a whole and the logits stay close.
 
 The bit-for-bit claims rest on numpy's float64 ``exp``/``log``/``**`` being the platform libm's
 and on numpy's pairwise summation order, both measured on this Mac (numpy 2.5.0); on another
@@ -59,11 +64,13 @@ from qd_train.baseline import (  # noqa: E402
 CONFIG = DataConfig()
 DEFECT_DIR = REPO / "data" / "pool" / "commitpackft-corpus-v2"
 DEFECT_DOWNLOAD = REPO / "data" / "pool" / "commitpackft"
-#: (d) above: the largest |W_native - W_dense| as a fraction of the largest |W|. Because the
-#: port IS the sparse operand bit for bit, this bounds the reference's own dense-vs-sparse
-#: spread: measured on this Mac at 1e-16..1e-15 on the synthetic fixtures and 6.3e-7 on 400
-#: real defect-corpus prompts (777 iterations), so the bound sits one decade above the worst.
-DENSE_WEIGHT_RTOL = 1e-5
+#: (d) above, on the Frobenius norm. Measured on this Mac (the reference's dense-vs-sparse
+#: spread, since the port is the sparse operand bit for bit): ~1e-16 on the synthetic fixtures;
+#: on real defect-corpus prompts the largest elementwise difference was 6.3e-7 at 400 docs (777
+#: iterations) and 1.08e-3 at 10,800 docs (850 iterations), where the Frobenius difference was
+#: 1.54e-4, the held-out logits differed by at most 5.9e-6 relative and no prediction moved
+#: (smallest top-2 gap 2.3e-3). The bound sits above the worst measured, not above a guess.
+DENSE_WEIGHT_RTOL = 1e-3
 #: (c) above: a row whose top-2 logits are closer than this (relative) may flip on rounding.
 NEAR_TIE_REL = 1e-9
 
@@ -205,6 +212,15 @@ def _keyword_docs(n: int, n_classes: int, seed: int) -> tuple[list[str], list[st
     return docs, labels
 
 
+def _largest_fittable_task(docs) -> str:
+    """The task with the most docs among those with two classes or more; ties go to the name
+    sorted first, because ``max`` keeps the first of equal counts and set order varies per
+    process."""
+    tasks = sorted(t for t in {d.task for d in docs}
+                   if len({d.value for d in docs if d.task == t}) >= 2)
+    return max(tasks, key=lambda t: sum(d.task == t for d in docs))
+
+
 def _fixtures() -> dict[str, tuple[object, list, list, list, int, int]]:
     """name -> (featurizer, docs, labels, eval docs, seed, max_iter)."""
     out: dict[str, tuple[object, list, list, list, int, int]] = {}
@@ -233,8 +249,7 @@ def _fixtures() -> dict[str, tuple[object, list, list, list, int, int]]:
         ctx[:25], 2, 1500,
     )
     request = _fixture_request_docs()
-    task = max({d.task for d in request}, key=lambda t: sum(d.task == t for d in request))
-    in_task = [d for d in request if d.task == task]
+    in_task = [d for d in request if d.task == _largest_fittable_task(request)]
     out["ft-request-prompts"] = (
         CharNGramHasher(), [d.text for d in in_task], [d.value for d in in_task],
         [d.text for d in in_task[:10]], 0, 6000,
@@ -339,7 +354,6 @@ def _dense_comparison(binary: Path, featurizer, docs, labels, eval_docs, seed, m
     want_logits = featurizer.transform(list(eval_docs)).matmul(want.weights) + want.bias
     disagree = np.nonzero(np.argmax(want_logits, axis=1) != np.argmax(got.eval_logits, axis=1))[0]
     near_tie = _top2_rel_gap(want_logits) < NEAR_TIE_REL
-    scale = max(float(np.abs(want.weights).max()), 1e-300)
     return {
         "converged": (want.converged, got.fit.converged),
         "iterations": (want.iterations, got.fit.iterations),
@@ -348,7 +362,18 @@ def _dense_comparison(binary: Path, featurizer, docs, labels, eval_docs, seed, m
         "disagreements_not_near_tie": int(np.sum(~near_tie[disagree])),
         "near_ties": int(near_tie.sum()),
         "eval_rows": len(eval_docs),
-        "max_weight_rel_diff": float(np.abs(want.weights - got.fit.weights).max()) / scale,
+        **_weight_spread(want.weights, got.fit.weights),
+    }
+
+
+def _weight_spread(want: np.ndarray, got: np.ndarray) -> dict[str, float]:
+    """(d): the Frobenius difference the bound is on, and the elementwise one beside it."""
+    diff = want - got
+    return {
+        "frobenius_weight_rel_diff": float(np.linalg.norm(diff))
+        / max(float(np.linalg.norm(want)), 1e-300),
+        "max_weight_rel_diff": float(np.abs(diff).max())
+        / max(float(np.abs(want).max()), 1e-300),
     }
 
 
@@ -361,7 +386,7 @@ def test_the_fit_is_within_tolerance_of_the_dense_reference(qd_prep_bin: Path, n
     assert abs(dense_it - it) <= max(1, int(0.01 * dense_it))
     assert measured["l2"][0] == measured["l2"][1]
     assert measured["disagreements_not_near_tie"] == 0
-    assert measured["max_weight_rel_diff"] <= DENSE_WEIGHT_RTOL
+    assert measured["frobenius_weight_rel_diff"] <= DENSE_WEIGHT_RTOL
 
 
 @pytest.mark.skipif(
@@ -389,7 +414,7 @@ def test_real_defect_prompts_fit_bit_for_bit_and_within_tolerance_of_dense(
     assert measured["converged"][0] == measured["converged"][1]
     assert measured["l2"][0] == measured["l2"][1]
     assert measured["disagreements_not_near_tie"] == 0
-    assert measured["max_weight_rel_diff"] <= DENSE_WEIGHT_RTOL
+    assert measured["frobenius_weight_rel_diff"] <= DENSE_WEIGHT_RTOL
 
 
 # --- the adapter's refusals -------------------------------------------------------------
@@ -563,13 +588,15 @@ def _bench(binary: Path, name: str, texts: list[str], labels: list[str], rounds:
             "iterations": [wf.iterations, gf.iterations],
             "held_rows": len(held), "prediction_disagreements": int(disagree.size),
             "disagreements_not_near_tie": int(np.sum(~near_tie[disagree])),
-            "max_weight_rel_diff": float(np.abs(wf.weights - gf.weights).max())
-            / max(float(np.abs(wf.weights).max()), 1e-300),
+            "min_top2_gap": float(_top2_rel_gap(wl).min()) if len(held) else None,
+            "max_held_logit_rel_diff": float(np.abs(wl - gl).max())
+            / max(float(np.abs(wl).max()), 1e-300) if len(held) else None,
+            **_weight_spread(wf.weights, gf.weights),
         }
         assert wf.l2 == gf.l2 and wf.converged == gf.converged, measured
         assert abs(wf.iterations - gf.iterations) <= max(1, int(0.01 * wf.iterations)), measured
         assert measured["disagreements_not_near_tie"] == 0, measured
-        assert measured["max_weight_rel_diff"] <= DENSE_WEIGHT_RTOL, measured
+        assert measured["frobenius_weight_rel_diff"] <= DENSE_WEIGHT_RTOL, measured
         return measured
 
     nnz = int(hasher.transform(texts[:500]).indices.size)
@@ -593,7 +620,7 @@ def test_benchmark_small_real_shaped_fixture_interleaved_min_of_n(qd_prep_bin: P
         QD_PREP_BENCH=1 pytest -s python/tests/test_qd_prep_linear_parity.py -k benchmark
     """
     docs = _fixture_request_docs()
-    task = max({d.task for d in docs}, key=lambda t: sum(d.task == t for d in docs))
+    task = _largest_fittable_task(docs)
     in_task = [d for d in docs if d.task == task]
     _bench(qd_prep_bin, f"ft-request-prompts:{task}", [d.text for d in in_task],
            [d.value for d in in_task], BENCH_ROUNDS)
