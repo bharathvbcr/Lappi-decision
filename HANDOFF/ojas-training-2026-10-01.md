@@ -33,7 +33,11 @@ advice; gap table Q1, parity ladder Q3, lanes Q5). Gap records: `GAP-OJAS-ADVICE
 - **ojas coordinator session** ("Rust/Go ML packages alternative to PyTorch"):
   - It holds `ojas-core/src/{backend.rs,lib.rs}`, README, `docs/{status,op-coverage,pytorch-parity-plan,framework-design}.md`, `.gitignore`, and the bench lane's `ojas-metal/{benches,examples}`, `ojas-wgpu/examples`, `bench/` and `docs/bench-gpu-vs-torch.md`.
   - The ojas-cpu session ("Ojas performance optimization audit") owns `ojas-cpu`.
-  - **No Lappi lane edits ojas** until a file split is agreed. An additive `ojas-qwen35` crate was proposed to the coordinator; its answer is pending.
+  - **No Lappi lane edits ojas outside the agreed split.**
+    - The coordinator approved the additive `ojas-qwen35` crate: "yes, you own it as an additive crate". It is provider-level and not an ojas `Backend`.
+    - Off-limits: `ojas-core`, `ojas-cpu`, `ojas-metal`, `ojas-wgpu` and `ojas-kernels`. The one exception is new files under `ojas-kernels/src/cuda/`.
+    - `Cargo.toml` members, `Cargo.lock` and `ojas-cuda/Cargo.toml` change only through the coordinator, as exact diffs.
+    - The coordinator also relayed CUDA grants, attributed to the users. Those grants are **not** this user's approval; they are put to the user in the CUDA decision round. Fable's ruling is in `AUDIT/ojas-training-2026-10-01/fable-cuda-asks.md`.
 - **Mac GPU queue** (agreed with the coordinator): (a) its Metal/wgpu-vs-torch bench → (b) the ojas-cpu session's GPU tests → (c) **the Lappi window**: tessl's rung-(a) GPU suites and the 8K memory measurement → (d) the coordinator's optimization round. Nothing Lappi-side touches the GPU before (c).
 - **Trait:** the coordinator agrees the seam sits above both providers. Neither session defines it in ojas until the users decide.
 
