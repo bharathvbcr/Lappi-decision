@@ -321,7 +321,7 @@ def _recipe_pieces(
     permutation: ChoicePermutation | None, replay: ReplayPlan | None,
     cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
-    checkpoint_skip_layers: int = 0,
+    checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
 ) -> dict[str, object]:
     """The recipe keys for whichever ported pieces are on. Empty when none is.
 
@@ -333,6 +333,8 @@ def _recipe_pieces(
     beside it only when it is on.
     """
     out: dict[str, object] = {}
+    if fused_adamw:
+        out["optimizer_fused"] = True
     if checkpoint_skip_layers:
         out["checkpoint_skip_layers"] = checkpoint_skip_layers
     if cap_s != WALL_CLOCK_CAP_S:
@@ -1782,7 +1784,7 @@ def _real_step(
     spec: OptimizerSpec, attn_implementation: str, seed: int, lr: float, total_steps: int,
     span_weight: float, width: int, lower_layers_n: int = 0, lower_lr_scale: float = 1.0,
     beta2: float = DEFAULT_BETA2, eval_widths: Sequence[int] = (),
-    span_channel_off: bool = False, checkpoint_skip_layers: int = 0,
+    span_channel_off: bool = False, checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
 ) -> tuple[Any, Any, TriState]:
     """The real tower, remapped to the shard set, budgeted, and wrapped in a step.
 
@@ -1876,6 +1878,7 @@ def _real_step(
         lower_lr_scale=lower_lr_scale,
         beta2=beta2,
         span_channel_off=span_channel_off,
+        fused_adamw=fused_adamw,
     )
     return step, tower, budget
 
@@ -1898,7 +1901,7 @@ def _train(
     eval_widths: Sequence[int] = (),
     cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
-    checkpoint_skip_layers: int = 0,
+    checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -1922,12 +1925,17 @@ def _train(
         lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
         permutation=permutation, replay=replay, cap_s=cap_s, no_memorise=no_memorise,
         batch_tokens=batch_tokens, shuffled_label=shuffled_label,
-        checkpoint_skip_layers=checkpoint_skip_layers,
+        checkpoint_skip_layers=checkpoint_skip_layers, fused_adamw=fused_adamw,
     )
     if checkpoint_skip_layers and backbone is None:
         raise ValueError(
             "checkpoint_skip_layers needs the real backbone: the stand-in is one block with "
             "no checkpointing to be selective about"
+        )
+    if fused_adamw and (backbone is None or optimizer_recipe != "master"):
+        raise ValueError(
+            "fused_adamw is built for the real backbone's fp32-master optimizer only; the "
+            "recipe would record a fused optimizer this run does not build"
         )
     if permutation is not None and alphabets is None:
         raise ValueError("option permutation needs each plan batch's per-row alphabets")
@@ -1990,7 +1998,7 @@ def _train(
             total_steps=steps, span_weight=span_weight, width=width,
             lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
             eval_widths=eval_widths, span_channel_off=shuffled_label is not None,
-            checkpoint_skip_layers=checkpoint_skip_layers,
+            checkpoint_skip_layers=checkpoint_skip_layers, fused_adamw=fused_adamw,
         )
         train_path.update(
             linear_attention_kernels=dict(tower.linear_attention_kernels),
@@ -5276,6 +5284,7 @@ def planned_ft_recipe(
             beta2=args.beta2, permutation=permutation, replay=replay,
             cap_s=args.wall_clock_cap_s, no_memorise=args.no_memorise,
             batch_tokens=batch_tokens, checkpoint_skip_layers=args.checkpoint_skip_layers,
+            fused_adamw=args.fused_adamw,
         ),
     }
     if args.real_backbone is None:
@@ -5530,6 +5539,11 @@ def _check_piece_flags(args: argparse.Namespace) -> None:
         raise SystemExit(
             "--checkpoint-skip-layers needs --real-backbone: the stand-in is one block with "
             "no checkpointing to be selective about"
+        )
+    if args.fused_adamw and (args.real_backbone is None or args.optimizer != "master"):
+        raise SystemExit(
+            "--fused-adamw needs --real-backbone and --optimizer master: it fuses the fp32-"
+            "master optimizer's inner AdamW, and on any other recipe it would build nothing"
         )
     if args.lower_layers_n < 0:
         raise SystemExit(f"--lower-layers-n must not be negative, got {args.lower_layers_n}")
@@ -6242,6 +6256,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     # --- ported pieces (RSI-Jev MIT @8f34a4f, decider Apache-2.0 @23579f7). All off by
     # default; each lands in the recipe only when on.
+    parser.add_argument(
+        "--fused-adamw", action="store_true",
+        help=(
+            "build the fp32-master optimizer's inner AdamW as torch's fused kernel: one launch "
+            "per step and no full-size fp32 temporaries (GH200 2026-10-01: optimizer step "
+            "70 -> 40 ms and peak -7 GiB at 4 x 8,441). Different rounding from the default "
+            "foreach AdamW, so a numerics change: in the recipe as optimizer_fused. Needs "
+            "--real-backbone and --optimizer master"
+        ),
+    )
     parser.add_argument(
         "--checkpoint-skip-layers", type=int, default=0,
         help=(
@@ -7048,7 +7072,7 @@ def main(argv: list[str] | None = None) -> int:
                 lower_layers_n=args.lower_layers_n,
                 lower_lr_scale=args.lower_layers_lr_scale, beta2=args.beta2,
                 cap_s=args.wall_clock_cap_s, batch_tokens=recipe_batch_tokens,
-                checkpoint_skip_layers=args.checkpoint_skip_layers,
+                checkpoint_skip_layers=args.checkpoint_skip_layers, fused_adamw=args.fused_adamw,
             )
             step = run.pop("_step")
             decode_at = time.monotonic()
@@ -7156,6 +7180,7 @@ def main(argv: list[str] | None = None) -> int:
                     eval_widths=suite_widths(needle_suite, ood_suite),
                     shuffled_label=None if shuffled is None else SHUFFLED_LABEL_RECIPE,
                     checkpoint_skip_layers=args.checkpoint_skip_layers,
+                    fused_adamw=args.fused_adamw,
                 )
                 step = run.pop("_step")
                 if shuffled is not None and val_set is not None:

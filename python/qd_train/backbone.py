@@ -930,6 +930,7 @@ class QwenDecisionStep:
         lower_lr_scale: float = 1.0,
         beta2: float = DEFAULT_BETA2,
         span_channel_off: bool = False,
+        fused_adamw: bool = False,
     ) -> None:
         import torch
         from torch import nn
@@ -1028,6 +1029,7 @@ class QwenDecisionStep:
             total_steps=total_steps,
             allow_frozen_moments=allow_frozen_moments,
             beta2=beta2,
+            fused=fused_adamw,
         )
         #: Component losses per micro-batch. ``TrainResult.loss_log`` carries the combined
         #: number only, and a falling total with a flat span term is a model that learned
