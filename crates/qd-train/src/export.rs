@@ -32,7 +32,9 @@ use qd_export::bf16::f32_to_bf16_rne;
 use qd_export::layout::{Layout, SPAN_PREFIX, TOWER_PREFIX};
 use qd_export::safetensors::{Dtype, PlannedTensor, Writer};
 
-use crate::pyjson::{Json, PyJsonError};
+use serde_json::Value;
+
+use crate::pyjson::{dumps, obj, PyJsonError, CANONICAL};
 use crate::run_control::hex;
 use crate::step::ParamSpec;
 
@@ -66,7 +68,7 @@ pub struct NamedTensor<'a> {
 pub struct ManifestInfo {
     pub optimizer_step: u64,
     pub seed: u64,
-    pub schedule: Json,
+    pub schedule: Value,
     /// The ft row that trained these weights; `None` only when no row was written (a test).
     pub ft_row_id: Option<String>,
     pub provider: String,
@@ -136,7 +138,7 @@ pub fn export(
         check_against(SPAN_PREFIX, head, &l.span_head_tensors())?;
     }
     let mut plan = Vec::with_capacity(tower.len() + head.len());
-    let mut sources: BTreeMap<String, Json> = BTreeMap::new();
+    let mut sources: BTreeMap<String, Value> = BTreeMap::new();
     let mut by_name: BTreeMap<String, (&NamedTensor<'_>, bool)> = BTreeMap::new();
     for (tensors, prefix, bf16) in [(tower, TOWER_PREFIX, true), (head, SPAN_PREFIX, false)] {
         for t in tensors {
@@ -157,7 +159,7 @@ pub fn export(
             });
             sources.insert(
                 name.clone(),
-                Json::str(if bf16 { "f32 master, rounded to bf16 (RNE)" } else { "f32 master, as is" }),
+                Value::from(if bf16 { "f32 master, rounded to bf16 (RNE)" } else { "f32 master, as is" }),
             );
             if by_name.insert(name.clone(), (t, bf16)).is_some() {
                 return Err(ExportError::Refused(format!("{name} is planned twice")));
@@ -195,44 +197,41 @@ pub fn export(
     }
     let written = w.finish()?;
     let sha = hex(&written.sha256);
-    let int = |x: u64| -> Result<Json, ExportError> {
-        Ok(Json::Int(i64::try_from(x).map_err(|e| ExportError::Refused(e.to_string()))?))
-    };
-    let body = Json::obj([
-        ("tool", Json::str("crates/qd-train (export.rs)")),
-        ("from", Json::str(FROM_METAL_MASTERS)),
+    let body = obj([
+        ("tool", Value::from("crates/qd-train (export.rs)")),
+        ("from", Value::from(FROM_METAL_MASTERS)),
         (
             "method",
-            Json::str("one run's f32 master weights at its last optimizer step; tower.* rounded once to bf16 (RNE), span_head.* kept f32"),
+            Value::from("one run's f32 master weights at its last optimizer step; tower.* rounded once to bf16 (RNE), span_head.* kept f32"),
         ),
-        ("resumable", Json::Bool(false)),
+        ("resumable", Value::Bool(false)),
         (
             "why_not_resumable",
-            Json::str("weights only: the optimizer moments are in the trainer's checkpoint, not here"),
+            Value::from("weights only: the optimizer moments are in the trainer's checkpoint, not here"),
         ),
-        ("n_inputs", Json::Int(1)),
-        ("optimizer_step", int(info.optimizer_step)?),
+        ("n_inputs", Value::from(1u64)),
+        ("optimizer_step", Value::from(info.optimizer_step)),
         ("schedule", info.schedule.clone()),
         (
             "inputs",
-            Json::Arr(vec![Json::obj([
-                ("seed", int(info.seed)?),
-                ("provider", Json::str(info.provider.clone())),
-                ("operands", Json::str(info.operands.clone())),
-                ("recipe_hash", Json::str(info.recipe_hash.clone())),
-                ("loss_log_digest", Json::str(info.loss_log_digest.clone())),
-                ("consumed_digest", Json::str(info.consumed_digest.clone())),
+            Value::Array(vec![obj([
+                ("seed", Value::from(info.seed)),
+                ("provider", Value::from(info.provider.as_str())),
+                ("operands", Value::from(info.operands.as_str())),
+                ("recipe_hash", Value::from(info.recipe_hash.as_str())),
+                ("loss_log_digest", Value::from(info.loss_log_digest.as_str())),
+                ("consumed_digest", Value::from(info.consumed_digest.as_str())),
             ])?]),
         ),
         (
             "ft_row_ids",
-            Json::Arr(info.ft_row_id.iter().map(|r| Json::str(r.clone())).collect()),
+            Value::Array(info.ft_row_id.iter().map(|r| Value::from(r.as_str())).collect()),
         ),
-        ("safetensors_sha256", Json::str(sha.clone())),
-        ("n_tensors", int(by_name.len() as u64)?),
-        ("tensor_sources", Json::Obj(sources)),
+        ("safetensors_sha256", Value::from(sha.as_str())),
+        ("n_tensors", Value::from(by_name.len())),
+        ("tensor_sources", obj(sources)?),
     ])?;
-    let text = body.dumps(false)? + "\n";
+    let text = dumps(&body, CANONICAL)? + "\n";
     let tmp = manifest.with_file_name(format!(
         ".{}.partial",
         manifest.file_name().and_then(|n| n.to_str()).unwrap_or("manifest")

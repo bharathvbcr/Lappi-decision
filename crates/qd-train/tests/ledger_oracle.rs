@@ -7,8 +7,8 @@ mod common;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use qd_train::ledger::{self, Environment, FtRecipe, FtRow, Protocol, Stamp, Status, TriState, WallClockSource};
-use qd_train::pyjson::Json;
+use qd_train::ledger::{self, Environment, FtRecipe, FtRow, Protocol, Stamp, Status, WallClockSource};
+use qd_train::tristate::TriState;
 use qd_train::run_control::{LossLog, LossPoint};
 use qd_train::trainer::{BatchCounts, Termination, TrainResult};
 
@@ -104,7 +104,7 @@ fn row(o: &serde_json::Value, termination: Termination) -> FtRow {
 
 #[test]
 fn the_recipe_and_protocol_hash_as_python_hashes_them() {
-    let o = common::oracle();
+    let o = common::trainer_oracle();
     let r = row(&o, Termination::StepsExhausted);
     assert_eq!(r.protocol.recipe_hash, o["ledger"]["recipe_hash"].as_str().unwrap());
     assert_eq!(r.protocol.hash().unwrap(), o["ledger"]["protocol_hash"].as_str().unwrap());
@@ -112,7 +112,7 @@ fn the_recipe_and_protocol_hash_as_python_hashes_them() {
 
 #[test]
 fn rows_are_pythons_lines_and_chain_as_python_chains_them() {
-    let o = common::oracle();
+    let o = common::trainer_oracle();
     let lines: Vec<&str> = o["ledger"]["lines"].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect();
     let first = row(&o, Termination::StepsExhausted)
         .line(&Stamp {
@@ -141,7 +141,7 @@ fn rows_are_pythons_lines_and_chain_as_python_chains_them() {
 
 #[test]
 fn append_chains_refuses_duplicates_and_writes_only_mac_ojas_ledgers() {
-    let o = common::oracle();
+    let o = common::trainer_oracle();
     let dir = std::env::temp_dir().join(format!("qd-train-ledger-{}", std::process::id()));
     let path: PathBuf = dir.join("ledger").join("mac-ojas-test-2026-10-01.jsonl");
     if dir.exists() {
@@ -171,7 +171,7 @@ fn append_chains_refuses_duplicates_and_writes_only_mac_ojas_ledgers() {
 
 #[test]
 fn a_row_whose_recipe_hash_is_not_its_recipes_is_refused() {
-    let o = common::oracle();
+    let o = common::trainer_oracle();
     let mut r = row(&o, Termination::StepsExhausted);
     r.recipe.lr = 2e-5;
     let stamp = Stamp {
@@ -190,7 +190,7 @@ fn a_row_whose_recipe_hash_is_not_its_recipes_is_refused() {
     p.recipe.backbone_snapshot = "/Users/bharath/snap".into();
     assert!(p.recipe.to_json().is_err(), "a path is not a revision");
     // The scorer's pairing keys are all present in the stored recipe.
-    let Json::Obj(m) = row(&o, Termination::StepsExhausted).recipe.to_json().unwrap() else { panic!() };
+    let serde_json::Value::Object(m) = row(&o, Termination::StepsExhausted).recipe.to_json().unwrap() else { panic!() };
     for k in ["tag", "device", "shard_hash", "backbone_snapshot", "attn_implementation", "lr", "span_weight", "optimizer_recipe"] {
         assert!(m.contains_key(k), "recipe lacks {k}");
     }

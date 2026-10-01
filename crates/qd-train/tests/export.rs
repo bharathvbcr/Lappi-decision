@@ -8,7 +8,7 @@ use qd_export::bf16::f32_to_bf16_rne;
 use qd_export::layout::{LayerKind, Layout};
 use qd_export::safetensors::{Dtype, SafeTensorsFile};
 use qd_train::export::{export, manifest_path, ExportError, ManifestInfo, NamedTensor, FROM_METAL_MASTERS};
-use qd_train::pyjson::Json;
+use qd_train::pyjson::{float, obj};
 use qd_train::step::ParamSpec;
 
 fn layout() -> Layout {
@@ -55,7 +55,7 @@ fn info() -> ManifestInfo {
     ManifestInfo {
         optimizer_step: 20,
         seed: 0,
-        schedule: Json::obj([("peak_lr", Json::Float(1e-5))]).unwrap(),
+        schedule: obj([("peak_lr", float(1e-5).unwrap())]).unwrap(),
         ft_row_id: Some("00000000-0000-4000-8000-000000000000".into()),
         provider: "toy".into(),
         operands: "exact_f32".into(),

@@ -32,11 +32,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::pyjson::{Json, PyJsonError};
+use crate::pyjson::{dumps, float, obj, PyJsonError, CANONICAL, CANONICAL_ASCII};
 use crate::run_control::hex;
 use crate::trainer::{Termination, TrainResult};
+use crate::tristate::{TriState, TriStateError};
 
 /// `ledger.REQUIRED_GATES`, filled `not_run` when a run did not evaluate them.
 pub const REQUIRED_GATES: [&str; 5] = [
@@ -57,6 +59,8 @@ pub enum LedgerError {
     Refused(String),
     #[error(transparent)]
     Json(#[from] PyJsonError),
+    #[error(transparent)]
+    TriState(#[from] TriStateError),
     #[error("io: {0}")]
     Io(String),
 }
@@ -65,109 +69,22 @@ fn refuse<T>(m: impl Into<String>) -> Result<T, LedgerError> {
     Err(LedgerError::Refused(m.into()))
 }
 
-/// A check that ran (with whether it passed) or did not (with why). `tristate.py`'s two cases.
-#[derive(Debug, Clone, PartialEq)]
-pub enum TriState {
-    Ran {
-        passed: bool,
-        value: Option<Json>,
-        /// `(n, n_total)`, carried together or not at all.
-        coverage: Option<(u64, u64)>,
-        detail: String,
-    },
-    NotRun {
-        reason: String,
-    },
-}
-
-impl TriState {
-    pub fn ran(passed: bool, value: Json) -> Self {
-        TriState::Ran {
-            passed,
-            value: Some(value),
-            coverage: None,
-            detail: String::new(),
-        }
-    }
-
-    pub fn with_detail(self, d: impl Into<String>) -> Self {
-        match self {
-            TriState::Ran {
-                passed, value, coverage, ..
-            } => TriState::Ran {
-                passed,
-                value,
-                coverage,
-                detail: d.into(),
-            },
-            other => other,
-        }
-    }
-
-    pub fn with_coverage(self, n: u64, n_total: u64) -> Self {
-        match self {
-            TriState::Ran { passed, value, detail, .. } => TriState::Ran {
-                passed,
-                value,
-                coverage: Some((n, n_total)),
-                detail,
-            },
-            other => other,
-        }
-    }
-
-    pub fn not_run(reason: impl Into<String>) -> Self {
-        TriState::NotRun { reason: reason.into() }
-    }
-
-    /// `Ran.to_json` / `NotRun.to_json`, with `Ran.__post_init__`'s and `NotRun`'s checks.
-    pub fn to_json(&self) -> Result<Json, LedgerError> {
-        match self {
-            TriState::NotRun { reason } => {
-                if reason.trim().is_empty() {
-                    return refuse("NotRun requires a non-empty reason");
-                }
-                Ok(Json::obj([("state", Json::str("not_run")), ("reason", Json::str(reason.clone()))])?)
-            }
-            TriState::Ran {
-                passed,
-                value,
-                coverage,
-                detail,
-            } => {
-                let mut pairs = vec![("state", Json::str("ran")), ("passed", Json::Bool(*passed))];
-                if let Some(v) = value
-                    && *v != Json::Null
-                {
-                    pairs.push(("value", v.clone()));
-                }
-                if let Some((n, total)) = coverage {
-                    if n > total {
-                        return refuse(format!("examined {n} of {total}: n exceeds n_total"));
-                    }
-                    pairs.push(("n", int(*n)?));
-                    pairs.push(("n_total", int(*total)?));
-                }
-                if !detail.is_empty() {
-                    pairs.push(("detail", Json::str(detail.clone())));
-                }
-                Ok(Json::obj(pairs)?)
-            }
-        }
-    }
-
-    fn termination_value(&self) -> Option<&str> {
-        match self {
-            TriState::Ran {
-                value: Some(Json::Str(s)), ..
-            } => Some(s),
-            _ => None,
-        }
+/// The string a `Ran` record measured, if that is what it carries: how a row's
+/// `train.termination` is read back.
+fn termination_value(t: &TriState) -> Option<&str> {
+    match t {
+        TriState::Ran { value: Value::String(s), .. } => Some(s),
+        _ => None,
     }
 }
 
-fn int(x: u64) -> Result<Json, LedgerError> {
-    Ok(Json::Int(i64::try_from(x).map_err(|e| LedgerError::Refused(format!("{x}: {e}")))?))
+/// A map of named tri-states as the row stores it, each written by [`TriState::to_json`].
+fn tristates(m: &BTreeMap<String, TriState>) -> Result<Value, LedgerError> {
+    Ok(Value::Object(
+        m.iter()
+            .map(|(k, v)| Ok((k.clone(), v.to_json(k)?)))
+            .collect::<Result<_, LedgerError>>()?,
+    ))
 }
 
 /// The ft recipe as the row stores (and hashes) it. Keys follow `real_ft_run._train`'s recipe
@@ -202,11 +119,11 @@ pub struct FtRecipe {
     pub optimizer_groups: String,
     pub train_attention_mask: String,
     pub deterministic: bool,
-    pub extra: BTreeMap<String, Json>,
+    pub extra: BTreeMap<String, Value>,
 }
 
 impl FtRecipe {
-    pub fn to_json(&self) -> Result<Json, LedgerError> {
+    pub fn to_json(&self) -> Result<Value, LedgerError> {
         if self.backbone_snapshot.contains('/') || self.backbone_snapshot.contains('\\') {
             return refuse(format!(
                 "backbone_snapshot is {:?}, a path rather than a revision; it feeds recipe_hash and \
@@ -214,58 +131,53 @@ impl FtRecipe {
                 self.backbone_snapshot
             ));
         }
-        let mut m: BTreeMap<String, Json> = BTreeMap::new();
-        let mut put = |k: &str, v: Json| -> Result<(), LedgerError> {
-            if m.insert(k.to_string(), v).is_some() {
-                return refuse(format!("recipe key {k} given twice"));
-            }
-            Ok(())
-        };
-        put("tool", Json::str("crates/qd-train-metal"))?;
-        put("tag", Json::str(self.tag.clone()))?;
-        put("device", Json::str(self.device.clone()))?;
-        put("lr", Json::Float(self.lr))?;
-        put("passes", int(self.passes)?)?;
-        put("batches", int(self.batches)?)?;
-        put("width", int(self.width)?)?;
-        put("span_weight", Json::Float(self.span_weight))?;
-        put("deterministic", Json::Bool(self.deterministic))?;
-        put("shard_hash", Json::str(self.shard_hash.clone()))?;
-        put("backbone_snapshot", Json::str(self.backbone_snapshot.clone()))?;
-        put("backbone_vocab", int(self.backbone_vocab)?)?;
-        put("backbone_params", int(self.backbone_params)?)?;
-        put("attn_implementation", Json::str(self.attn_implementation.clone()))?;
-        put("optimizer_recipe", Json::str(self.optimizer_recipe.clone()))?;
-        put("provider", Json::str(self.provider.clone()))?;
-        put("operands", Json::str(self.operands.clone()))?;
-        put("optimizer_groups", Json::str(self.optimizer_groups.clone()))?;
+        let mut pairs: Vec<(String, Value)> = vec![
+            ("tool".into(), Value::from("crates/qd-train-metal")),
+            ("tag".into(), Value::from(self.tag.as_str())),
+            ("device".into(), Value::from(self.device.as_str())),
+            ("lr".into(), float(self.lr)?),
+            ("passes".into(), Value::from(self.passes)),
+            ("batches".into(), Value::from(self.batches)),
+            ("width".into(), Value::from(self.width)),
+            ("span_weight".into(), float(self.span_weight)?),
+            ("deterministic".into(), Value::Bool(self.deterministic)),
+            ("shard_hash".into(), Value::from(self.shard_hash.as_str())),
+            ("backbone_snapshot".into(), Value::from(self.backbone_snapshot.as_str())),
+            ("backbone_vocab".into(), Value::from(self.backbone_vocab)),
+            ("backbone_params".into(), Value::from(self.backbone_params)),
+            ("attn_implementation".into(), Value::from(self.attn_implementation.as_str())),
+            ("optimizer_recipe".into(), Value::from(self.optimizer_recipe.as_str())),
+            ("provider".into(), Value::from(self.provider.as_str())),
+            ("operands".into(), Value::from(self.operands.as_str())),
+            ("optimizer_groups".into(), Value::from(self.optimizer_groups.as_str())),
+        ];
         if self.train_attention_mask != "padding" {
-            put("train_attention_mask", Json::str(self.train_attention_mask.clone()))?;
+            pairs.push(("train_attention_mask".into(), Value::from(self.train_attention_mask.as_str())));
         }
         if let Some(c) = self.wall_clock_cap_s
             && c != crate::run_control::DEFAULT_CAP_S
         {
-            put("wall_clock_cap_s", Json::Float(c))?;
+            pairs.push(("wall_clock_cap_s".into(), float(c)?));
         }
         if let Some(b) = self.batch_tokens {
-            put("batch_tokens", int(b)?)?;
+            pairs.push(("batch_tokens".into(), Value::from(b)));
         }
         if self.no_memorise {
-            put("no_memorise", Json::Bool(true))?;
+            pairs.push(("no_memorise".into(), Value::Bool(true)));
         }
         if let Some(b2) = self.beta2
             && b2 != crate::recipe::DEFAULT_BETA2
         {
-            put("beta2", Json::Float(b2))?;
+            pairs.push(("beta2".into(), float(b2)?));
         }
         if let Some((n, s)) = self.lower_layers {
-            put("lower_layers_n", int(n)?)?;
-            put("lower_lr_scale", Json::Float(s))?;
+            pairs.push(("lower_layers_n".into(), Value::from(n)));
+            pairs.push(("lower_lr_scale".into(), float(s)?));
         }
         for (k, v) in &self.extra {
-            put(k, v.clone())?;
+            pairs.push((k.clone(), v.clone()));
         }
-        Ok(Json::Obj(m))
+        Ok(obj(pairs)?)
     }
 }
 
@@ -284,7 +196,7 @@ impl Protocol {
     /// `"<snapshot>:vocab<vocab>"` (`_backbone_commit`), `recipe_hash` is sha256 over the
     /// recipe's `json.dumps(sort_keys=True, separators=(",", ":"))`.
     pub fn for_recipe(recipe: &FtRecipe, data_snapshot_hash: &str, tokenizer_hash: &str, seed: u64) -> Result<Self, LedgerError> {
-        let body = recipe.to_json()?.dumps(true)?;
+        let body = dumps(&recipe.to_json()?, CANONICAL_ASCII)?;
         Ok(Self {
             data_snapshot_hash: data_snapshot_hash.to_string(),
             tokenizer_hash: tokenizer_hash.to_string(),
@@ -294,7 +206,7 @@ impl Protocol {
         })
     }
 
-    pub fn to_json(&self) -> Result<Json, LedgerError> {
+    pub fn to_json(&self) -> Result<Value, LedgerError> {
         for (name, v) in [
             ("data_snapshot_hash", &self.data_snapshot_hash),
             ("tokenizer_hash", &self.tokenizer_hash),
@@ -310,18 +222,18 @@ impl Protocol {
                 ));
             }
         }
-        Ok(Json::obj([
-            ("data_snapshot_hash", Json::str(self.data_snapshot_hash.clone())),
-            ("tokenizer_hash", Json::str(self.tokenizer_hash.clone())),
-            ("backbone_commit", Json::str(self.backbone_commit.clone())),
-            ("recipe_hash", Json::str(self.recipe_hash.clone())),
-            ("seed", int(self.seed)?),
+        Ok(obj([
+            ("data_snapshot_hash", Value::from(self.data_snapshot_hash.as_str())),
+            ("tokenizer_hash", Value::from(self.tokenizer_hash.as_str())),
+            ("backbone_commit", Value::from(self.backbone_commit.as_str())),
+            ("recipe_hash", Value::from(self.recipe_hash.as_str())),
+            ("seed", Value::from(self.seed)),
         ])?)
     }
 
     /// `Protocol.hash`: sha256 over the canonical protocol (`ensure_ascii=False`).
     pub fn hash(&self) -> Result<String, LedgerError> {
-        Ok(hex(&Sha256::digest(self.to_json()?.dumps(false)?.as_bytes())))
+        Ok(hex(&Sha256::digest(dumps(&self.to_json()?, CANONICAL)?.as_bytes())))
     }
 }
 
@@ -370,15 +282,15 @@ impl Environment {
         }
     }
 
-    fn to_json(&self) -> Result<Json, LedgerError> {
-        let probe = |what: &str| TriState::not_run(format!("{what} dry run not executed")).to_json();
-        Ok(Json::obj([
-            ("torch", Json::str(self.torch.clone())),
-            ("transformers_sha", Json::str(self.transformers_sha.clone())),
-            ("device", Json::str(self.device.clone())),
-            ("host", Json::str(self.host.clone())),
-            ("fla_present", probe("fla")?),
-            ("causal_conv1d_present", probe("causal-conv1d")?),
+    fn to_json(&self) -> Result<Value, LedgerError> {
+        let probe = |what: &str, field: &str| TriState::not_run(format!("{what} dry run not executed")).to_json(field);
+        Ok(obj([
+            ("torch", Value::from(self.torch.as_str())),
+            ("transformers_sha", Value::from(self.transformers_sha.as_str())),
+            ("device", Value::from(self.device.as_str())),
+            ("host", Value::from(self.host.as_str())),
+            ("fla_present", probe("fla", "env.fla_present")?),
+            ("causal_conv1d_present", probe("causal-conv1d", "env.causal_conv1d_present")?),
         ])?)
     }
 }
@@ -416,7 +328,7 @@ impl FtRow {
         if !(self.wall_clock_s.is_finite() && self.wall_clock_s >= 0.0) {
             return refuse(format!("wall_clock_s {} is not a measured duration", self.wall_clock_s));
         }
-        let recipe_hash = hex(&Sha256::digest(self.recipe.to_json()?.dumps(true)?.as_bytes()));
+        let recipe_hash = hex(&Sha256::digest(dumps(&self.recipe.to_json()?, CANONICAL_ASCII)?.as_bytes()));
         if recipe_hash != self.protocol.recipe_hash {
             return refuse(format!(
                 "protocol.recipe_hash {} is not the hash of the stored recipe ({recipe_hash})",
@@ -426,7 +338,7 @@ impl FtRow {
         // `_quick_if_truncated`: a schedule that did not run to its end is a truncated one.
         let mut quick_reason = self.quick_reason.clone();
         if let Some(term) = self.metrics.get("train.termination") {
-            let said = term.termination_value().unwrap_or("not_run");
+            let said = termination_value(term).unwrap_or("not_run");
             if said != "steps_exhausted" {
                 quick_reason = format!(
                     "{quick_reason}; train.termination is '{said}', not 'steps_exhausted': the schedule \
@@ -434,13 +346,6 @@ impl FtRow {
                 );
             }
         }
-        let tri = |m: &BTreeMap<String, TriState>| -> Result<Json, LedgerError> {
-            Ok(Json::Obj(
-                m.iter()
-                    .map(|(k, v)| Ok((k.clone(), v.to_json()?)))
-                    .collect::<Result<_, LedgerError>>()?,
-            ))
-        };
         let gates: BTreeMap<String, TriState> = REQUIRED_GATES
             .iter()
             .map(|g| (g.to_string(), TriState::not_run(format!("gate '{g}' was never evaluated by this run"))))
@@ -449,38 +354,38 @@ impl FtRow {
             .iter()
             .map(|c| (c.to_string(), TriState::not_run(format!("control '{c}' was never evaluated by this run"))))
             .collect();
-        let row = Json::obj([
-            ("row_id", Json::str(stamp.row_id.clone())),
-            ("written_at", Json::str(stamp.written_at.clone())),
+        let row = obj([
+            ("row_id", Value::from(stamp.row_id.as_str())),
+            ("written_at", Value::from(stamp.written_at.as_str())),
             (
                 "prev_row_hash",
-                stamp.prev_row_hash.clone().map_or(Json::Null, Json::Str),
+                stamp.prev_row_hash.clone().map_or(Value::Null, Value::from),
             ),
-            ("protocol_hash", Json::Str(self.protocol.hash()?)),
+            ("protocol_hash", Value::from(self.protocol.hash()?)),
             ("protocol", self.protocol.to_json()?),
-            ("run_kind", Json::str("ft")),
-            ("status", Json::str(self.status.as_str())),
-            ("quick", Json::Bool(true)),
-            ("quick_reason", Json::Str(quick_reason)),
-            ("code_commit", Json::str(self.code_commit.clone())),
+            ("run_kind", Value::from("ft")),
+            ("status", Value::from(self.status.as_str())),
+            ("quick", Value::Bool(true)),
+            ("quick_reason", Value::from(quick_reason)),
+            ("code_commit", Value::from(self.code_commit.as_str())),
             ("env", self.env.to_json()?),
-            ("metrics", tri(&self.metrics)?),
-            ("noul_rate", TriState::not_run("noul rate not computed by this run").to_json()?),
-            ("controls", tri(&controls)?),
-            ("gates", tri(&gates)?),
-            ("wall_clock_s", Json::Float(self.wall_clock_s)),
+            ("metrics", tristates(&self.metrics)?),
+            ("noul_rate", TriState::not_run("noul rate not computed by this run").to_json("noul_rate")?),
+            ("controls", tristates(&controls)?),
+            ("gates", tristates(&gates)?),
+            ("wall_clock_s", float(self.wall_clock_s)?),
             (
                 "wall_clock_source",
-                Json::str(match self.wall_clock_source {
+                Value::from(match self.wall_clock_source {
                     WallClockSource::Caller => "caller",
                     WallClockSource::Recorder => "recorder",
                 }),
             ),
-            ("cost_usd", Json::Float(0.0)),
-            ("notes", Json::str(self.notes.clone())),
+            ("cost_usd", float(0.0)?),
+            ("notes", Value::from(self.notes.as_str())),
             ("recipe", self.recipe.to_json()?),
         ])?;
-        Ok(row.dumps(false)?)
+        Ok(dumps(&row, CANONICAL)?)
     }
 }
 
@@ -491,17 +396,17 @@ pub fn ft_metrics(result: &TrainResult, cap_s: f64, provider: &str) -> Result<BT
     let steps = result.optimizer_steps;
     m.insert(
         "train.termination".to_string(),
-        TriState::ran(result.termination != Termination::WallClockCap, Json::str(result.termination.as_str()))
+        TriState::ran(result.termination != Termination::WallClockCap, result.termination.as_str())
             .with_detail(format!("ft stopped after {steps} optimizer step(s)")),
     );
-    m.insert("train.optimizer_steps".to_string(), TriState::ran(true, int(steps)?));
-    m.insert("train.micro_batches".to_string(), TriState::ran(true, int(result.micro_batches)?));
+    m.insert("train.optimizer_steps".to_string(), TriState::ran(true, steps));
+    m.insert("train.micro_batches".to_string(), TriState::ran(true, result.micro_batches));
     let c = &result.counts;
     m.insert(
         "train.supervised_tokens".to_string(),
-        TriState::ran(true, int(c.supervised_tokens)?).with_coverage(c.supervised_tokens, c.total_positions),
+        TriState::ran(true, c.supervised_tokens).with_coverage(c.supervised_tokens, c.total_positions),
     );
-    m.insert("train.span_rows".to_string(), TriState::ran(true, int(c.span_rows)?));
+    m.insert("train.span_rows".to_string(), TriState::ran(true, c.span_rows));
     let frac = if c.total_positions > 0 {
         c.padded_positions as f64 / c.total_positions as f64
     } else {
@@ -509,29 +414,24 @@ pub fn ft_metrics(result: &TrainResult, cap_s: f64, provider: &str) -> Result<BT
     };
     m.insert(
         "train.padding_fraction".to_string(),
-        TriState::ran(true, Json::Float(frac)).with_coverage(c.padded_positions, c.total_positions),
+        TriState::ran(true, float(frac)?).with_coverage(c.padded_positions, c.total_positions),
     );
     m.insert(
         "train.final_loss".to_string(),
         match result.loss_log.last() {
-            Some(p) => TriState::ran(true, Json::Float(p.loss)),
-            None => TriState::Ran {
-                passed: false,
-                value: None,
-                coverage: None,
-                detail: "no optimizer step completed".into(),
-            },
+            Some(p) => TriState::ran(true, float(p.loss)?),
+            None => TriState::ran(false, Value::Null).with_detail("no optimizer step completed"),
         },
     );
-    m.insert("train.loss_log_digest".to_string(), TriState::ran(true, Json::Str(result.loss_log_digest()?)));
+    m.insert("train.loss_log_digest".to_string(), TriState::ran(true, result.loss_log_digest()?));
     m.insert(
         "train.consumed_digest".to_string(),
-        TriState::ran(true, Json::Str(result.consumed_digest.clone()))
+        TriState::ran(true, result.consumed_digest.as_str())
             .with_detail(format!("ConsumedPrefix over the {} batch(es) this run consumed", result.consumed_n)),
     );
     m.insert(
         "train.projected_usd_at_cap".to_string(),
-        TriState::ran(true, Json::Float(0.0)).with_detail(format!(
+        TriState::ran(true, float(0.0)?).with_detail(format!(
             "local-metal: the Mac's own GPU, not billed, capped at {:.2} h -> $0.00 at the cap -- no \
              approval required",
             cap_s / 3600.0
@@ -539,7 +439,7 @@ pub fn ft_metrics(result: &TrainResult, cap_s: f64, provider: &str) -> Result<BT
     );
     m.insert(
         "train.path".to_string(),
-        TriState::ran(true, Json::str(provider.to_string()))
+        TriState::ran(true, provider)
             .with_detail("what this row ran on; compare rows only where this agrees or says why not"),
     );
     Ok(m)
@@ -713,15 +613,5 @@ mod tests {
         assert_eq!(&u[14..15], "4");
         assert!(matches!(&u[19..20], "8" | "9" | "a" | "b"));
         assert_ne!(u, uuid4().unwrap());
-    }
-
-    #[test]
-    fn a_tristate_is_checked_as_python_checks_it() {
-        assert!(TriState::not_run("  ").to_json().is_err());
-        assert!(TriState::ran(true, Json::Int(1)).with_coverage(3, 2).to_json().is_err());
-        assert_eq!(
-            TriState::ran(true, Json::Int(3)).with_coverage(3, 4).to_json().unwrap().dumps(false).unwrap(),
-            "{\"n\":3,\"n_total\":4,\"passed\":true,\"state\":\"ran\",\"value\":3}"
-        );
     }
 }
