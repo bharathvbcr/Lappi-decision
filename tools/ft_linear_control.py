@@ -51,6 +51,19 @@ arm's opponent. Beside the gate it reports the margins the rung-0 report reads: 
 operator's own val rows, on its **siblings** (same task and gold value, other operator --
 the rows that separate "lost the generator" from "the prior moved"), and overall.
 
+## The per-option control (``--option-control``)
+
+A second, separately named control for the tasks whose rows offer their own options (Fable H,
+2026-10-01; :mod:`qd_train.option_control`): one binary scorer over each row's shown options,
+the best of them its answer. The letter-labelled control above stays the general families'
+control of record; this one is **report-only**. ``--option-control`` fits only it and writes it
+on its OWN supplement row, joined to the eval row by ``eval_row_id`` like the gate's row, under
+keys of its own -- ``linear_option_control.*`` and ``paired_margin_vs_linear_option.*`` -- and
+never a gate, so neither row can be read as the other and promotion reads it as nothing.
+Adopting it as a gate's comparator is the human's decision under G1. Tasks whose rows share
+one option set (``code.defect_class``, ``intent.domain``, ``intent.in_scope``) are recorded as
+not scored by it, with the reason: ``control_label_space`` is the test, as it is for the label.
+
 ## The engine
 
 Both controls -- the n-gram gate's and the length control -- are featurised and fitted by
@@ -111,10 +124,22 @@ from qd_train.ledger import (  # noqa: E402
     Protocol,
     RunRecorder,
 )
+from qd_train.option_control import OptionScorer, read_option_rows  # noqa: E402
 from qd_train.tristate import NotRun, Ran, TriState, aggregate  # noqa: E402
 
 #: The gate this tool exists to evaluate, spelled once.
 GATE: Final[str] = "paired_margin_vs_linear"
+
+#: The per-option control's metric prefixes. Every key its row carries starts with one of these
+#: two, and neither is a gate or control name the ledger joins (``REQUIRED_GATES``/``_CONTROLS``).
+OPTION_ARM: Final[str] = "linear_option_control"
+OPTION_MARGIN: Final[str] = "paired_margin_vs_linear_option"
+#: What the per-option row is, stated on it.
+OPTION_REPORT_ONLY: Final[str] = (
+    "report-only (Fable H, 2026-10-01): the per-option linear control for tasks whose rows offer "
+    "their own options, beside the letter control of record; adopting it as a gate's comparator "
+    "is the human's decision under G1"
+)
 
 #: The control's iteration budget. The same number as ``rung0_linear_control`` and
 #: ``rung0_real_run.LINEAR_CONTROL_MAX_ITER``; restated rather than imported because both of
@@ -595,6 +620,25 @@ def score_against_control(
     return ControlScore(gate, metrics, len(train), removed, fit_seconds)
 
 
+def _population_refusal(val: Sequence[RequestDoc], verdicts: Verdicts) -> str | None:
+    """Why a subset of the model's rows cannot be attributed, or ``None``.
+
+    A margin over a subset -- one family's rows, the per-row-option tasks' rows -- finds that
+    subset among the rebuilt split's docs. A model row the split does not hold belongs to no
+    subset and would drop out of every one without a word, so unless the two are one
+    population no subset margin is computed.
+    """
+    split = {doc_key(d, by_slot_name=verdicts.by_slot_name) for d in val}
+    if split == set(verdicts.correct):
+        return None
+    return (
+        f"the rebuilt split's {len(split)} val row(s) and the verdicts' {len(verdicts.correct)} "
+        f"letter row(s) are different populations ({len(set(verdicts.correct) - split)} only "
+        f"in the verdicts, {len(split - set(verdicts.correct))} only in the split), so which "
+        "of the model's rows belong to which subset is not known"
+    )
+
+
 def _subset_margin(
     model: Mapping[Key, bool], control: Mapping[Key, bool], keys: Sequence[Key], seed: int
 ) -> TriState:
@@ -635,6 +679,210 @@ def _holdout_metrics(
                 if scored else NotRun(reason=f"no {name} rows were scored by the {arm}")
             )
     return out
+
+
+# --- the per-option control ---------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class OptionTaskControl:
+    task: str
+    #: Whether the task's rows offer their own options, the only tasks this control scores.
+    applies: bool
+    correct: dict[Key, bool]
+    convergence: TriState
+    accuracy: TriState
+    chance: TriState
+    fitted_s: float
+
+
+def fit_option_task(
+    task: str,
+    train: list[RequestDoc],
+    val: list[RequestDoc],
+    *,
+    by_slot_name: bool,
+    seed: int,
+    max_iter: int,
+    max_fit_minutes: float | None,
+    engine: Path,
+) -> OptionTaskControl:
+    """One task's per-option control, scored on that task's val rows. Never raises for a
+    weak fit: a task it does not apply to, cannot read or cannot fit comes back ``not_run``
+    with the reason, and a val row whose shown options cannot be read is left unscored (and
+    named), never scored wrong."""
+
+    def not_run(reason: str, *, applies: bool = True) -> OptionTaskControl:
+        state = NotRun(reason=reason)
+        return OptionTaskControl(task, applies, {}, state, state, state, 0.0)
+
+    try:
+        space = control_label_space(train, val)
+    except ValueError as exc:
+        return not_run(f"task {task}: whether its rows offer their own options is undecided: {exc}")
+    if space != "letter":
+        return not_run(
+            f"task {task}: every row offers one option set, so its control is the {space}-"
+            f"labelled linear control; the {OPTION_ARM} scores only tasks whose rows offer "
+            "their own options",
+            applies=False,
+        )
+    train_rows, train_bad = read_option_rows(train)
+    val_rows, val_bad = read_option_rows(val)
+    if not val_rows:
+        first = f"; first: {val_bad[0][1]}" if val_bad else ""
+        return not_run(
+            f"task {task}: none of its {len(val)} val row(s) shows options that can be read"
+            f"{first}"
+        )
+    if len(train_rows) < 4:
+        first = f"; first unreadable: {train_bad[0][1]}" if train_bad else ""
+        return not_run(
+            f"task {task}: {len(train_rows)} readable training row(s) of {len(train)}; the "
+            f"carve needs at least 4{first}"
+        )
+    scorer = OptionScorer(seed=seed, max_iter=max_iter)
+    refusal = fit_budget_refusal(scorer.projected_fit_seconds(train_rows), max_fit_minutes)
+    if refusal is not None:
+        raise Refused(f"task {task}: {refusal}")
+    started = time.monotonic()
+    try:
+        result = native.fit_options(
+            engine, scorer, train_rows, val_rows,
+            timeout_s=(
+                native.DEFAULT_FIT_TIMEOUT_S if max_fit_minutes is None else max_fit_minutes * 60
+            ),
+        )
+    except ValueError as exc:
+        return not_run(f"task {task}: {exc}")
+    fitted_s = time.monotonic() - started
+    print(f"task {task} ({OPTION_ARM}): {result.summary}", file=sys.stderr, flush=True)
+    scorer.fit_ = result.fit
+    convergence = scorer.convergence()
+    if not (isinstance(convergence, Ran) and convergence.passed):
+        reason = convergence.reason if isinstance(convergence, NotRun) else convergence.detail
+        state = NotRun(reason=reason)
+        return OptionTaskControl(task, True, {}, convergence, state, state, fitted_s)
+    hits = [p == r.gold for p, r in zip(result.predictions, val_rows, strict=True)]
+    correct = {
+        doc_key(r.doc, by_slot_name=by_slot_name): hit
+        for r, hit in zip(val_rows, hits, strict=True)
+    }
+    left_out = "".join([
+        f"; {len(val_bad)} val row(s) whose shown options could not be read are NOT scored "
+        f"(first: {val_bad[0][1]})" if val_bad else "",
+        f"; {len(train_bad)} unreadable training row(s) were not fitted" if train_bad else "",
+    ])
+    accuracy = Ran(
+        passed=True, value=sum(hits) / len(hits), n=sum(hits), n_total=len(hits),
+        detail=(
+            f"{OPTION_ARM} top-1 on task {task}'s val rows: the best of each row's shown "
+            f"options, noul included, by one binary scorer over n-grams of (question, option) "
+            f"and of the option ({len(train_rows)} training rows){left_out}"
+        ),
+    )
+    chance = Ran(
+        passed=True, value=sum(1 / len(r.options) for r in val_rows) / len(val_rows),
+        detail=(
+            f"a uniform choice among each of the {len(val_rows)} scored val rows' shown "
+            "options, noul included, averaged over the rows"
+        ),
+    )
+    return OptionTaskControl(task, True, correct, convergence, accuracy, chance, fitted_s)
+
+
+@dataclass(frozen=True)
+class OptionControlScore:
+    metrics: dict[str, TriState]
+    train_rows: int
+    fit_seconds: float
+
+
+def score_against_option_control(
+    train: list[RequestDoc],
+    val: list[RequestDoc],
+    verdicts: Verdicts,
+    *,
+    seed: int,
+    max_iter: int = DEFAULT_MAX_ITER,
+    max_fit_minutes: float | None = None,
+    engine: Path | None = None,
+) -> OptionControlScore:
+    """The per-option control's metrics: per task, and the paired margin pooled over the
+    per-row-option tasks' choice rows. No gate -- the row is report-only.
+
+    The pooled margin is ``not_run`` when any per-row-option task's control did not run, as the
+    gate is: a margin over the tasks that happened to fit is a capped sample. It is paired by
+    ``paired_margin_by_key``, which refuses when the two arms scored different rows, so a val
+    row the control could not read leaves the margin ``not_run`` rather than smaller.
+    """
+    engine = native.prep_binary() if engine is None else engine
+    by = verdicts.by_slot_name
+    by_task_train: dict[str, list[RequestDoc]] = {}
+    for d in train:
+        by_task_train.setdefault(d.task, []).append(d)
+    by_task_val: dict[str, list[RequestDoc]] = {}
+    for d in val:
+        by_task_val.setdefault(d.task, []).append(d)
+
+    metrics: dict[str, TriState] = {}
+    control: dict[Key, bool] = {}
+    population: list[Key] = []
+    states: dict[str, TriState] = {}
+    fit_seconds, train_rows = 0.0, 0
+    refusal = _population_refusal(val, verdicts)
+    for task in sorted(by_task_val):
+        task_train = by_task_train.get(task, [])
+        oc = fit_option_task(
+            task, task_train, by_task_val[task], by_slot_name=by, seed=seed,
+            max_iter=max_iter, max_fit_minutes=max_fit_minutes, engine=engine,
+        )
+        metrics[f"{OPTION_ARM}.top1.{task}"] = oc.accuracy
+        if not oc.applies:
+            continue
+        fit_seconds += oc.fitted_s
+        train_rows += len(task_train)
+        metrics[f"{OPTION_ARM}.convergence.{task}"] = oc.convergence
+        metrics[f"{OPTION_ARM}.chance.{task}"] = oc.chance
+        states[task] = oc.convergence
+        control.update(oc.correct)
+        keys = [doc_key(d, by_slot_name=by) for d in by_task_val[task] if d.kind == "choice"]
+        population.extend(keys)
+        if refusal is not None:
+            metrics[f"{OPTION_MARGIN}.choice.{task}"] = NotRun(reason=refusal)
+        elif isinstance(oc.convergence, Ran) and oc.convergence.passed:
+            metrics[f"{OPTION_MARGIN}.choice.{task}"] = _subset_margin(
+                verdicts.correct, oc.correct, keys, seed
+            )
+        else:
+            metrics[f"{OPTION_MARGIN}.choice.{task}"] = NotRun(
+                reason=f"task {task}'s {OPTION_ARM} did not run"
+            )
+
+    pooled = f"{OPTION_MARGIN}.choice"
+    ran = aggregate(states, name=f"{OPTION_ARM}.convergence")
+    if not states:
+        metrics[pooled] = NotRun(
+            reason=f"no task in this split offers per-row options; the {OPTION_ARM} scored nothing"
+        )
+    elif not (isinstance(ran, Ran) and ran.passed):
+        why = ran.reason if isinstance(ran, NotRun) else ran.detail
+        metrics[pooled] = NotRun(reason=f"a per-row-option task's control did not run: {why}")
+    elif refusal is not None:
+        metrics[pooled] = NotRun(reason=refusal)
+    else:
+        margin = _subset_margin(verdicts.correct, control, population, seed)
+        if isinstance(margin, Ran):
+            margin = Ran(
+                passed=margin.passed, value=margin.value, n=margin.n, n_total=margin.n_total,
+                detail=(
+                    f"{margin.detail}; over the {len(population)} choice row(s) of the "
+                    f"per-row-option tasks {sorted(states)}, and none of the split's other "
+                    f"{len(val) - len(population)} letter row(s)"
+                ),
+            )
+        metrics[pooled] = margin
+    return OptionControlScore(metrics, train_rows, fit_seconds)
 
 
 # --- main ------------------------------------------------------------------------------
@@ -722,7 +970,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--hold-out-operator", default="")
     parser.add_argument("--operator-key", default="operator")
+    parser.add_argument(
+        "--option-control", action="store_true",
+        help=f"fit only the per-option control and write it on a row of its own: {OPTION_ARM}.* "
+             f"and {OPTION_MARGIN}.* metrics, no gate ({OPTION_REPORT_ONLY})",
+    )
     args = parser.parse_args(argv)
+    if args.option_control and args.hold_out_operator:
+        raise Refused(
+            "--option-control scores the tasks whose rows offer their own options; an "
+            "operator-holdout arm is a code.defect_class diagnostic it has no opponent for"
+        )
+    if args.option_control and args.control_cache is not None:
+        raise Refused(
+            "--control-cache caches the letter control's fits; the per-option control is not "
+            "cached, so the flag would read and write nothing"
+        )
     if args.defect_class is None and (
         args.defect_download is not None or args.defect_max_rows is not None
     ):
@@ -833,6 +1096,11 @@ def main(argv: list[str] | None = None) -> int:
         f"inherits eval row {row.row_id[:8]}'s quick flag ({row.quick_reason})"
         if row.quick else "an operator-holdout arm is a diagnostic; it promotes nothing"
     ) if quick else None
+    if args.option_control:
+        return write_option_row(
+            args, row, verdicts, train_docs, val_docs, recipe=recipe, quick=quick,
+            quick_reason=quick_reason, engine=engine,
+        )
     # The recorder WRAPS the fit: on a rented box this CPU work is billed with the instance,
     # and a fit killed outside a block would leave no row saying it ran.
     with RunRecorder(
@@ -865,6 +1133,58 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{GATE}: {result.gate}")
     print(f"wrote row {written.row_id if written else '?'} to {args.write_ledger or args.ledger}")
     return 0 if isinstance(result.gate, Ran) else 3
+
+
+def write_option_row(
+    args: argparse.Namespace, row: LedgerRow, verdicts: Verdicts,
+    train_docs: list[RequestDoc], val_docs: list[RequestDoc], *, recipe: dict[str, object],
+    quick: bool, quick_reason: str | None, engine: Path,
+) -> int:
+    """The per-option control's own supplement row: metrics only, never a gate.
+
+    Joined to the eval row by ``eval_row_id`` as the gate's row is, so promotion reads the
+    three as one unit; every key here is the per-option control's own, and the ledger joins
+    only gates and controls, so this row changes no gate or control the unit is judged by. It
+    inherits the eval row's ``quick`` flag exactly as the gate's row does -- a report-only row
+    must not become a promotion blocker -- and, like any row of the unit, a failed run blocks
+    promotion until it is rerun.
+    """
+    recipe = {
+        **recipe,
+        "control": OPTION_ARM,
+        "report_only": True,
+        "comparator_decision": "the human's, under G1 (Fable H, 2026-10-01)",
+        # The interpretation taken of Fable's "(question + option) pair text", stated where the
+        # numbers are: the row's question is the prompt's context region, not the whole prompt,
+        # whose remainder is constant within a task.
+        "option_question_text": "the rendered prompt's context region",
+    }
+    with RunRecorder(
+        Ledger(args.write_ledger or args.ledger), entry_point=Path(__file__),
+        protocol=Protocol(**row.protocol.to_json()), run_kind="eval", repo=REPO,
+        env=Environment.detect(device="cpu"), wall_clock_s=None, cost=None,
+        recipe=recipe, quick=quick, quick_reason=quick_reason,
+        notes=(f"tools/ft_linear_control.py --option-control for eval row {row.row_id}: "
+               f"{OPTION_REPORT_ONLY}"),
+    ) as recorder:
+        started = time.monotonic()
+        result = score_against_option_control(
+            train_docs, val_docs, verdicts, seed=row.protocol.seed, max_iter=args.max_iter,
+            max_fit_minutes=args.max_fit_minutes, engine=engine,
+        )
+        recorder.measured(time.monotonic() - started)
+        recorder.metric(f"{OPTION_ARM}.scored_eval_row_id", Ran(
+            passed=True, value=row.row_id, detail="the eval row these verdicts are"))
+        recorder.metric(f"{OPTION_ARM}.train_rows", Ran(
+            passed=True, value=result.train_rows,
+            detail="training letter slots of the per-row-option tasks"))
+        for name, state in result.metrics.items():
+            recorder.metric(name, state)
+    written = recorder.row
+    pooled = result.metrics[f"{OPTION_MARGIN}.choice"]
+    print(f"{OPTION_MARGIN}.choice (report-only): {pooled}")
+    print(f"wrote row {written.row_id if written else '?'} to {args.write_ledger or args.ledger}")
+    return 0 if isinstance(pooled, Ran) else 3
 
 
 if __name__ == "__main__":
