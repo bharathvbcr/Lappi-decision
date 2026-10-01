@@ -111,6 +111,23 @@ pub enum Refusal {
     /// counted, because "the pool had no pre-image at all" and "the pre-image was identical"
     /// are different facts and only the second is a record that promised a change.
     CleanDiffEmpty,
+    /// The multi-hunk renderer declined the record's two texts: over its line cap or its
+    /// edit-distance cap (`diffspan::MAX_DIFF_LINES`, `diffspan::MAX_EDIT_DISTANCE`). Refused, not
+    /// truncated -- a diff of part of a file is a diff of a different file.
+    DiffRefused { detail: String },
+    /// Taken from the pre-image, the diff shows no change at the injected edit's span: no added
+    /// line inside it and no deletion at it.
+    ///
+    /// The placement rule puts every mutation inside a hunk the commit touched, so an operator can
+    /// undo the commit's own edit there -- flip `<=` back to `<`, drop the line the commit added.
+    /// The post-image-to-mutated diff shows that change; the pre-image-to-mutated diff does not,
+    /// because the mutated line is the pre-image's line again. Emitting it would put a defect
+    /// label on text the reader is told did not change.
+    NeedleNotInDiff { operator: String, detail: String },
+    /// The injected edit's span is not inside one hunk of the diff: it reaches past every hunk,
+    /// or two hunks each hold part of it. "Which hunk is the defect in" then has no single answer,
+    /// and a span end the diff does not carry is one `qd_train.mutate_adapter` cannot rebase.
+    NeedleSplitAcrossHunks { operator: String, detail: String },
 }
 
 impl Refusal {
@@ -136,6 +153,9 @@ impl Refusal {
             Refusal::EditFailed { .. } => "edit_failed",
             Refusal::SplitConflict { .. } => "split_conflict",
             Refusal::CleanDiffEmpty => "clean_diff_empty",
+            Refusal::DiffRefused { .. } => "diff_refused",
+            Refusal::NeedleNotInDiff { .. } => "needle_not_in_diff",
+            Refusal::NeedleSplitAcrossHunks { .. } => "needle_split_across_hunks",
         }
     }
 }

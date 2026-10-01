@@ -33,6 +33,16 @@
 //! records touching one file always land on the same side and the same function can never appear
 //! both mutated and clean. The bookkeeping check in [`Generator::run`] exists to prove that rather
 //! than to assume it.
+//!
+//! # Diffs
+//!
+//! The mutation is applied to the commit's post-image, and both span derivations run between the
+//! post-image and the mutated text — so the label is the injected edit and nothing else. The
+//! *diff* a reader is handed is a separate choice, [`DiffShape`]. By default it runs from the
+//! commit's pre-image ([`diffspan::unified_multi`]), so the commit's real hunks are the fillers and
+//! the injected edit is one hunk among them; two refusals keep that honest — the injected edit must show in the diff
+//! by content (`needle_not_in_diff`) and its span sit inside one hunk (`needle_split_across_hunks`).
+//! `DiffShape::SingleHunk` is the v2 shape, kept byte-for-byte.
 
 use std::collections::HashMap;
 
@@ -58,7 +68,32 @@ pub const MAX_BODIES_PER_FILE: usize = 256;
 /// Examples one file may contribute, for the same reason.
 pub const MAX_EXAMPLES_PER_FILE: usize = 32;
 /// Lines of unified-diff context carried on each example.
-const DIFF_CONTEXT: usize = 3;
+pub const DIFF_CONTEXT: usize = 3;
+
+/// What an example's `before` and `diff` are taken from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum DiffShape {
+    /// `before` is the commit's pre-image and `diff` is [`diffspan::unified_multi`] from it: the
+    /// commit's own hunks are carried as they are, and on a mutated example the injected edit is
+    /// one hunk among them. A record with no pre-image falls back to the post-image as `before`,
+    /// and is counted.
+    #[default]
+    MultiHunk,
+    /// The v2 shape, byte for byte: a mutated example diffs the post-image against the mutated
+    /// text and a clean one the pre-image against the post-image, both through
+    /// [`diffspan::unified`], which always renders exactly one hunk. Kept so the v2 corpus can be
+    /// regenerated and its digest checked.
+    SingleHunk,
+}
+
+impl DiffShape {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DiffShape::MultiHunk => "multi_hunk",
+            DiffShape::SingleHunk => "single_hunk",
+        }
+    }
+}
 
 /// How the run was configured. Everything here lands in the manifest.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,6 +107,8 @@ pub struct Options {
     pub limit: Option<usize>,
     /// Examples one file may contribute.
     pub max_examples_per_file: usize,
+    /// What `before` and `diff` are taken from.
+    pub diff_shape: DiffShape,
 }
 
 impl Default for Options {
@@ -85,6 +122,7 @@ impl Default for Options {
             languages: Vec::new(),
             limit: None,
             max_examples_per_file: MAX_EXAMPLES_PER_FILE,
+            diff_shape: DiffShape::default(),
         }
     }
 }
@@ -105,10 +143,18 @@ pub struct Example {
     pub silent: bool,
     /// **The span label.** 1-based, inclusive both ends, over `after`. `None` for `clean`, which
     /// points at nothing because nothing was found.
+    ///
+    /// Always the injected edit's lines, derived (twice) between the commit's post-image and
+    /// `after`. Under [`DiffShape::MultiHunk`] with a pre-image, `before` is that pre-image, so
+    /// re-deriving the span from `before` and `after` would cover the commit's changes as well and
+    /// is not how it was made.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub span: Option<LineSpan>,
-    /// The same region in `before` coordinates, which is what the hunk-intersection rule is checked
-    /// against. Carried so a consumer can re-check the placement rule without re-deriving it.
+    /// The same region in the coordinates of the commit's **post-image** — the text the mutation
+    /// was applied to, and the one `hunks` are stated in — which is what the hunk-intersection rule
+    /// is checked against. Carried so a consumer can re-check the placement rule without
+    /// re-deriving it. That is `before`'s coordinates only when `before` is the post-image
+    /// ([`DiffShape::SingleHunk`], or a record with no pre-image).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_span: Option<LineSpan>,
     pub function: FunctionIdentity,
@@ -116,6 +162,9 @@ pub struct Example {
     /// ambiguous for nested functions and closures, so the mutator names which node it took.
     pub node_kind: String,
     pub is_nested: bool,
+    /// The text `diff` is taken from. The commit's normalized pre-image whenever the pool carried
+    /// one — on every clean example, and on mutated ones under [`DiffShape::MultiHunk`] — and
+    /// otherwise the normalized post-image.
     pub before: String,
     pub after: String,
     pub diff: String,
@@ -205,6 +254,8 @@ impl Generator {
 
     pub fn run(&self, records: &[PoolRecord], pool: PoolReport) -> Run {
         let mut manifest = Manifest::new(self.options.seed, pool, &self.formatters);
+        manifest.diff.renderer = self.options.diff_shape.as_str().to_string();
+        manifest.diff.context = DIFF_CONTEXT;
         let mut examples: Vec<Example> = Vec::new();
         // The split-safety proof. Keyed on the function identity, which does not move when the
         // layout does.
@@ -269,6 +320,19 @@ impl Generator {
 
             let mut rng = record_rng(self.options.seed, &record.id);
 
+            // NORMALIZED, through the same function `source` went through above. Diffing a raw
+            // pre-image against a normalized post-image would put every line of the file in the
+            // diff whenever the post-image needed normalizing -- 469 of 50,178 commitpackft
+            // examples carry `crlf: true` and 57 carry `bom: true`, so a diff there would have
+            // claimed the whole file was rewritten. The `Normalization` record on the example
+            // already says `before` is not byte-identical to the file on disk; this makes that
+            // true of the pre-image too, rather than true of only one side of a comparison
+            // between them. Both branches diff from it, so it is normalized once, here.
+            let normalized_prior = record
+                .prior_source
+                .as_deref()
+                .map(|raw| normalize::normalize(raw).0);
+
             if disposition == Disposition::Clean {
                 // `clean` is the original agent diff, unmodified — one example for the record, not
                 // one per body. It is noisy by construction: some real agent diffs *are* stubs, and
@@ -287,18 +351,6 @@ impl Generator {
                 // sources has no prior version, and inventing one would be worse than admitting
                 // there is none: `qd_train.mutate_adapter.refuse_leaky_diff_corpus` refuses such a
                 // corpus in diff mode rather than letting it train.
-                // NORMALIZED, through the same function `source` went through above. Diffing a
-                // raw pre-image against a normalized post-image would put every line of the
-                // file in the diff whenever the post-image needed normalizing -- 469 of 50,178
-                // commitpackft examples carry `crlf: true` and 57 carry `bom: true`, so a
-                // clean example there would have claimed the whole file was rewritten. The
-                // `Normalization` record on the example already says `before` is not
-                // byte-identical to the file on disk; this makes that true of the pre-image
-                // too, rather than true of only one side of a comparison between them.
-                let normalized_prior = record
-                    .prior_source
-                    .as_deref()
-                    .map(|raw| normalize::normalize(raw).0);
                 let prior = normalized_prior.as_deref().unwrap_or(source.as_str());
                 // A pool that HANDED OVER a pre-image and whose two images normalize to the
                 // same text described a commit that changed nothing in this file. There is no
@@ -313,6 +365,30 @@ impl Generator {
                     manifest.note_refusal(language_id, &Refusal::CleanDiffEmpty);
                     continue;
                 }
+                // Empty exactly when `prior == source`, which is now only the no-pre-image case.
+                // Otherwise the renderer every mutated example's diff in this run goes through,
+                // so the two kinds are the same shape and a model cannot separate them by format.
+                let diff = if prior == source.as_str() {
+                    String::new()
+                } else {
+                    match self.options.diff_shape {
+                        DiffShape::SingleHunk => diffspan::unified(prior, &source, DIFF_CONTEXT),
+                        DiffShape::MultiHunk => {
+                            match diffspan::unified_multi(prior, &source, DIFF_CONTEXT) {
+                                Ok(diff) => diff,
+                                Err(e) => {
+                                    manifest.note_refusal(
+                                        language_id,
+                                        &Refusal::DiffRefused {
+                                            detail: e.to_string(),
+                                        },
+                                    );
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                };
                 let first = &bodies[0];
                 examples.push(Example {
                     id: format!("{}#clean", record.id),
@@ -330,15 +406,7 @@ impl Generator {
                     is_nested: first.is_nested,
                     before: prior.to_string(),
                     after: source.clone(),
-                    // Empty exactly when `prior == source`, which is now only the
-                    // no-pre-image case. `diffspan::unified` is the same function every
-                    // mutated example's diff goes through, so the two are the same shape
-                    // and a model cannot separate them by format.
-                    diff: if prior == source.as_str() {
-                        String::new()
-                    } else {
-                        diffspan::unified(prior, &source, DIFF_CONTEXT)
-                    },
+                    diff,
                     normalization,
                     hunks: record.hunks.clone(),
                     hunk_constrained: record.hunks.is_some(),
@@ -351,6 +419,9 @@ impl Generator {
                 manifest.totals.clean += 1;
                 if record.hunks.is_none() {
                     manifest.totals.examples_without_hunk_constraint += 1;
+                }
+                if record.prior_source.is_none() {
+                    manifest.diff.clean_without_prior += 1;
                 }
                 continue;
             }
@@ -425,6 +496,7 @@ impl Generator {
                     *op,
                     candidate,
                     &source,
+                    normalized_prior.as_deref(),
                     normalization,
                     emitted_here,
                 ) {
@@ -432,6 +504,9 @@ impl Generator {
                         manifest.note_emitted(language_id, *op);
                         manifest.totals.examples += 1;
                         manifest.totals.mutated += 1;
+                        if normalized_prior.is_none() {
+                            manifest.diff.mutated_without_prior += 1;
+                        }
                         if op.is_silent() {
                             manifest.totals.silent_stubs += 1;
                         }
@@ -447,6 +522,10 @@ impl Generator {
         }
 
         manifest.pool.records = records.len() as u64;
+        // Measured on what is emitted, not inferred from the renderer.
+        for example in &examples {
+            manifest.diff.note_diff(example.class.as_str(), &example.diff);
+        }
         let mut run = Run { examples, manifest };
         // The digest is over the JSONL a caller would write, so the manifest names the same bytes
         // the ledger will hash. A `Run` that is never written still carries it, rather than an
@@ -492,6 +571,7 @@ impl Generator {
         op: OpId,
         candidate: &Candidate,
         before: &str,
+        prior: Option<&str>,
         normalization: Normalization,
         index: usize,
     ) -> Result<Example, Refusal> {
@@ -596,6 +676,43 @@ impl Generator {
             }
         }
 
+        // --- The diff the reader sees ---------------------------------------------------------
+        // Last, so every refusal above is counted exactly as it was before this step existed and
+        // the two new keys count only candidates that would otherwise have been emitted.
+        let (diff_base, diff) = match self.options.diff_shape {
+            DiffShape::SingleHunk => (before, diffspan::unified(before, &after, DIFF_CONTEXT)),
+            DiffShape::MultiHunk => {
+                // From the pre-image, so the commit's own hunks are in the diff beside the
+                // injected one. The label does not move: the span was derived above between the
+                // post-image and `after`, and `after` is unchanged.
+                let base = prior.unwrap_or(before);
+                let rendered = diffspan::unified_multi_detailed(base, &after, DIFF_CONTEXT)
+                    .map_err(|e| Refusal::DiffRefused {
+                        detail: e.to_string(),
+                    })?;
+                if !rendered.shows_edit(base, before, &after) {
+                    return Err(Refusal::NeedleNotInDiff {
+                        operator: op.as_str().to_string(),
+                        detail: format!(
+                            "the edit at after lines {from_bytes} writes no added line and removes \
+                             no removed line in a {}-hunk diff from the pre-image",
+                            rendered.hunks.len()
+                        ),
+                    });
+                }
+                if rendered.hunk_containing(from_bytes).is_none() {
+                    return Err(Refusal::NeedleSplitAcrossHunks {
+                        operator: op.as_str().to_string(),
+                        detail: format!(
+                            "after lines {from_bytes} are not inside one of {} hunks",
+                            rendered.hunks.len()
+                        ),
+                    });
+                }
+                (base, rendered.text)
+            }
+        };
+
         Ok(Example {
             id: format!("{}#{index}", record.id),
             pool_id: record.id.clone(),
@@ -610,8 +727,8 @@ impl Generator {
             function: record.identity(&body.name, body.arity),
             node_kind: body.node_kind.to_string(),
             is_nested: body.is_nested,
-            diff: diffspan::unified(before, &after, DIFF_CONTEXT),
-            before: before.to_string(),
+            diff,
+            before: diff_base.to_string(),
             after,
             normalization,
             hunks: record.hunks.clone(),
@@ -746,10 +863,267 @@ fn total(a: usize, b: usize) -> Result<usize, String> {
             // cannot be separated on format alone.
             assert_eq!(
                 example.diff,
-                diffspan::unified(&prior, RUST_FILE, DIFF_CONTEXT),
+                diffspan::unified_multi(&prior, RUST_FILE, DIFF_CONTEXT).expect("renders"),
                 "the clean diff must be rendered the way every other diff is"
             );
         }
+    }
+
+    // --- Multi-hunk diffs from the pre-image ------------------------------------------------
+
+    /// Three functions, each far enough from the next that a change in one and a change in
+    /// another are separate hunks at three lines of context: `alpha` on lines 1-4, `beta` on
+    /// 15-18, `gamma` on 29-35.
+    fn three_region_file() -> String {
+        let mut out = String::from("fn alpha(a: usize) -> usize {\n    let x = a + 1;\n    x\n}\n");
+        for i in 1..=10 {
+            out.push_str(&format!("// note {i}\n"));
+        }
+        out.push_str("fn beta(b: usize) -> usize {\n    let y = b * 2;\n    y\n}\n");
+        for i in 11..=20 {
+            out.push_str(&format!("// note {i}\n"));
+        }
+        out.push_str(
+            "fn gamma(c: usize, d: usize) -> usize {\n    let mut z = 0;\n    if c < d {\n        \
+             z += c;\n    }\n    z\n}\n",
+        );
+        out
+    }
+
+    /// Every line of `gamma`: where the placement rule puts the mutation.
+    const GAMMA: LineSpan = LineSpan { start: 29, end: 35 };
+
+    /// `n` records of one file, each its own path so each gets its own RNG and disposition.
+    fn records_over(n: usize, prior: Option<&str>, source: &str) -> Vec<PoolRecord> {
+        (0..n)
+            .map(|i| PoolRecord {
+                prior_source: prior.map(str::to_string),
+                ..record(&format!("r{i}"), &format!("g{i}.rs"), source, Some(vec![GAMMA]))
+            })
+            .collect()
+    }
+
+    fn all_mutated() -> Options {
+        Options {
+            seed: 17,
+            clean_permille: 0,
+            ..Options::default()
+        }
+    }
+
+    fn header_count(diff: &str) -> usize {
+        diff.lines().filter(|l| l.starts_with("@@ ")).count()
+    }
+
+    #[test]
+    fn two_agent_hunks_and_a_mutation_in_a_third_region_are_three_hunks() {
+        let source = three_region_file();
+        let prior = source.replace("a + 1", "a + 2").replace("b * 2", "b * 3");
+        let run = Generator::new(all_mutated()).run(&records_over(24, Some(&prior), &source), pool_report());
+        let mutated: Vec<_> = run
+            .examples
+            .iter()
+            .filter(|e| e.class != MutationClass::Clean)
+            .collect();
+        assert!(mutated.len() >= 5, "only {} examples; the fixture is not exercising this", mutated.len());
+        for example in &mutated {
+            assert_eq!(example.before, prior, "{}: before must be the pre-image", example.id);
+            assert_eq!(
+                header_count(&example.diff),
+                3,
+                "{}: the commit's two hunks and the injected one:\n{}",
+                example.id,
+                example.diff
+            );
+            assert_eq!(
+                diffspan::oracle::apply(&prior, &example.diff).as_deref(),
+                Ok(example.after.as_str()),
+                "{}: the diff does not take the pre-image to after",
+                example.id
+            );
+            // The label is the injected edit, unchanged: derived between the post-image and
+            // `after`, and it sits in the third hunk -- the needle.
+            let span = example.span.expect("a mutated example has a span");
+            assert_eq!(diffspan::span_from_text_diff(&source, &example.after), Some(span));
+            let rendered = diffspan::unified_multi_detailed(&prior, &example.after, DIFF_CONTEXT)
+                .expect("renders");
+            assert_eq!(rendered.text, example.diff);
+            assert_eq!(rendered.hunk_containing(span), Some(2), "{}", example.id);
+            assert!(rendered.shows_edit(&prior, &source, &example.after), "{}", example.id);
+        }
+        assert_eq!(
+            run.manifest.diff.hunks_per_diff.get(&3).copied(),
+            Some(mutated.len() as u64),
+            "the manifest histogram must count what was emitted"
+        );
+        assert_eq!(run.manifest.diff.renderer, "multi_hunk");
+        assert_eq!(run.manifest.diff.mutated_without_prior, 0);
+    }
+
+    #[test]
+    fn a_mutation_next_to_an_agent_hunk_shares_that_hunk() {
+        let source = three_region_file();
+        // The commit's only change is inside `gamma`, a line or two from wherever the mutation
+        // lands -- so the two must come out as one hunk, holding both.
+        let prior = source.replace("let mut z = 0;", "let mut z = 7;");
+        let run = Generator::new(all_mutated()).run(&records_over(24, Some(&prior), &source), pool_report());
+        let mutated: Vec<_> = run
+            .examples
+            .iter()
+            .filter(|e| e.class != MutationClass::Clean)
+            .collect();
+        assert!(mutated.len() >= 5, "only {} examples", mutated.len());
+        let mut both_visible = 0usize;
+        for example in &mutated {
+            assert_eq!(example.before, prior, "{}", example.id);
+            assert_eq!(
+                header_count(&example.diff),
+                1,
+                "{}: adjacent changes must merge:\n{}",
+                example.id,
+                example.diff
+            );
+            assert_eq!(
+                diffspan::oracle::apply(&prior, &example.diff).as_deref(),
+                Ok(example.after.as_str()),
+                "{}",
+                example.id
+            );
+            let span = example.span.expect("span");
+            let rendered = diffspan::unified_multi_detailed(&prior, &example.after, DIFF_CONTEXT)
+                .expect("renders");
+            assert_eq!(rendered.hunk_containing(span), Some(0), "{}", example.id);
+            assert!(rendered.shows_edit(&prior, &source, &example.after), "{}", example.id);
+            // Where the mutation left the commit's line alone, the commit's change is in the same
+            // hunk as the needle -- it was merged, not dropped.
+            if example.after.contains("    let mut z = 0;\n") {
+                assert!(
+                    example.diff.contains("-    let mut z = 7;\n")
+                        && example.diff.contains("+    let mut z = 0;\n"),
+                    "{}: the commit's own change is missing from the merged hunk:\n{}",
+                    example.id,
+                    example.diff
+                );
+                both_visible += 1;
+            }
+        }
+        assert!(both_visible > 0, "no example kept the commit's line, so the merge went unchecked");
+    }
+
+    #[test]
+    fn a_crlf_or_bom_pre_image_renders_exactly_as_its_lf_twin() {
+        let source = three_region_file();
+        let prior = source.replace("a + 1", "a + 2").replace("b * 2", "b * 3");
+        let crlf_prior = format!("\u{feff}{}", prior.replace('\n', "\r\n"));
+        let lf = Generator::new(all_mutated()).run(&records_over(12, Some(&prior), &source), pool_report());
+        let crlf =
+            Generator::new(all_mutated()).run(&records_over(12, Some(&crlf_prior), &source), pool_report());
+        assert!(!lf.examples.is_empty());
+        assert_eq!(lf.examples.len(), crlf.examples.len());
+        for (a, b) in lf.examples.iter().zip(&crlf.examples) {
+            assert_eq!(a.id, b.id);
+            assert_eq!(a.diff, b.diff, "{}: line endings in the pre-image reached the diff", a.id);
+            assert_eq!(a.before, b.before);
+            assert_eq!(b.before, prior, "{}: before must be the normalized pre-image", b.id);
+            assert!(!b.before.contains('\r') && !b.before.starts_with('\u{feff}'));
+            assert_eq!(a.span, b.span);
+        }
+    }
+
+    #[test]
+    fn a_record_without_a_pre_image_falls_back_and_is_counted() {
+        let source = three_region_file();
+        let mutated =
+            Generator::new(all_mutated()).run(&records_over(10, None, &source), pool_report());
+        assert!(mutated.manifest.totals.mutated > 0);
+        assert_eq!(
+            mutated.manifest.diff.mutated_without_prior, mutated.manifest.totals.mutated,
+            "every mutated example from a record with no pre-image is a fallback"
+        );
+        for example in &mutated.examples {
+            // The v2 pairing: the post-image against the mutated text, the injected edit alone.
+            assert_eq!(example.before, source);
+            assert_eq!(header_count(&example.diff), 1, "{}", example.id);
+        }
+
+        let clean = Generator::new(Options {
+            clean_permille: 1000,
+            ..Options::default()
+        })
+        .run(&records_over(10, None, &source), pool_report());
+        assert!(clean.manifest.totals.clean > 0);
+        assert_eq!(clean.manifest.diff.clean_without_prior, clean.manifest.totals.clean);
+        assert_eq!(clean.manifest.diff.mutated_without_prior, 0);
+
+        // A pool that carries pre-images counts no fallback at all.
+        let source_prior = source.replace("a + 1", "a + 2");
+        let with_prior = Generator::new(all_mutated())
+            .run(&records_over(10, Some(&source_prior), &source), pool_report());
+        assert!(with_prior.manifest.totals.mutated > 0);
+        assert_eq!(with_prior.manifest.diff.mutated_without_prior, 0);
+    }
+
+    #[test]
+    fn a_mutation_that_undoes_the_commit_is_refused_not_emitted_as_an_invisible_needle() {
+        // The commit narrowed `<=` to `<`; `logic.widen_comparison` widens it straight back, so
+        // the mutated line IS the pre-image's line and a diff from the pre-image shows nothing
+        // there. That candidate must be refused and counted, and nothing emitted may point at a
+        // span the diff does not show changing.
+        let source = three_region_file();
+        let prior = source.replace("if c < d {", "if c <= d {");
+        let run = Generator::new(all_mutated()).run(&records_over(80, Some(&prior), &source), pool_report());
+        let refused = run.manifest.refusals.get("needle_not_in_diff").copied().unwrap_or(0);
+        assert!(refused > 0, "no candidate undid the commit, so the refusal went unexercised");
+        let gamma_report = run
+            .manifest
+            .languages
+            .iter()
+            .find(|r| r.language == LangId::Rust)
+            .and_then(|r| r.operators.get("logic.widen_comparison"))
+            .expect("widen_comparison ran");
+        assert!(
+            gamma_report.refused.get("needle_not_in_diff").copied().unwrap_or(0) > 0,
+            "the refusal must be charged to the operator that produced it"
+        );
+        for example in run.examples.iter().filter(|e| e.class != MutationClass::Clean) {
+            let span = example.span.expect("span");
+            let rendered = diffspan::unified_multi_detailed(&example.before, &example.after, DIFF_CONTEXT)
+                .expect("renders");
+            assert!(
+                rendered.shows_edit(&example.before, &source, &example.after),
+                "{}: invisible needle emitted",
+                example.id
+            );
+            assert!(rendered.hunk_containing(span).is_some(), "{}", example.id);
+        }
+    }
+
+    #[test]
+    fn single_hunk_reproduces_the_v2_shape() {
+        let source = three_region_file();
+        let prior = source.replace("a + 1", "a + 2").replace("b * 2", "b * 3");
+        let options = Options {
+            diff_shape: DiffShape::SingleHunk,
+            clean_permille: 300,
+            ..all_mutated()
+        };
+        let run = Generator::new(options).run(&records_over(30, Some(&prior), &source), pool_report());
+        let mut seen = (0usize, 0usize);
+        for example in &run.examples {
+            if example.class == MutationClass::Clean {
+                assert_eq!(example.before, prior);
+                assert_eq!(example.diff, diffspan::unified(&prior, &source, DIFF_CONTEXT));
+                seen.0 += 1;
+            } else {
+                assert_eq!(example.before, source, "v2 diffs a mutation from the post-image");
+                assert_eq!(example.diff, diffspan::unified(&source, &example.after, DIFF_CONTEXT));
+                seen.1 += 1;
+            }
+            assert_eq!(header_count(&example.diff), 1);
+        }
+        assert!(seen.0 > 0 && seen.1 > 0, "both branches must be exercised, got {seen:?}");
+        assert_eq!(run.manifest.diff.renderer, "single_hunk");
+        assert_eq!(run.manifest.diff.hunks_per_diff.keys().copied().collect::<Vec<_>>(), [1]);
     }
 
     #[test]

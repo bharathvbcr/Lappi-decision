@@ -1,0 +1,240 @@
+{
+  "tool_version": "0.1.0",
+  "seed": 0,
+  "seed_derivation": "ChaCha20Rng::from_seed(sha256(seed.to_le_bytes() || record.id))",
+  "pool": {
+    "path": "python/tests/data/qd_mutate_multi_hunk/pool.jsonl",
+    "sha256": "0d51c03e0f57c4a4e566ddf285a3ba16b9e95d015248a3f22e934b970b13455d",
+    "records": 12,
+    "by_language": {
+      "python": 12
+    }
+  },
+  "examples_sha256": "c661d177d0ac4e7769d8cf24d318949ba9cc5e2146d36a7b6dba8645b4da8442",
+  "totals": {
+    "examples": 12,
+    "mutated": 10,
+    "clean": 2,
+    "silent_stubs": 0,
+    "span_disagreements": 0,
+    "outside_hunk": 20,
+    "examples_without_hunk_constraint": 0,
+    "mutation_did_not_parse": 0
+  },
+  "diff": {
+    "renderer": "multi_hunk",
+    "context": 3,
+    "hunks_per_diff": {
+      "1": 4,
+      "2": 1,
+      "3": 7
+    },
+    "hunks_per_diff_by_class": {
+      "clean": {
+        "1": 1,
+        "2": 1
+      },
+      "cosmetic": {
+        "3": 2
+      },
+      "logic": {
+        "1": 3,
+        "3": 3
+      },
+      "stub": {
+        "3": 2
+      }
+    },
+    "mutated_without_prior": 0,
+    "clean_without_prior": 0
+  },
+  "languages": [
+    {
+      "language": "rust",
+      "formatter": {
+        "state": "found",
+        "program": "rustfmt",
+        "path": "/Users/bharath/.cargo/bin/rustfmt"
+      },
+      "restricted_operators": {},
+      "files_seen": 0,
+      "files_refused": 0,
+      "bodies_seen": 0,
+      "bodies_nested": 0,
+      "examples": 0,
+      "operators": {},
+      "refusals": {}
+    },
+    {
+      "language": "go",
+      "formatter": {
+        "state": "found",
+        "program": "gofmt",
+        "path": "/opt/homebrew/bin/gofmt"
+      },
+      "restricted_operators": {
+        "cosmetic.wrap_line": "go terminates statements at line ends"
+      },
+      "files_seen": 0,
+      "files_refused": 0,
+      "bodies_seen": 0,
+      "bodies_nested": 0,
+      "examples": 0,
+      "operators": {},
+      "refusals": {}
+    },
+    {
+      "language": "python",
+      "formatter": {
+        "state": "unusable",
+        "program": "black",
+        "path": "/Users/bharath/.local/bin/black",
+        "detail": "ran on the smoke input, exited zero and formatted it correctly, but announced that its own equivalence check did not run: Warning: Python 3.14 cannot parse code formatted for Python 3.15. To fix this: run Black with Python 3.15, set --target-version to py314, or use --fast to skip the safety check. Black's safety check verifies equivalence by parsing the AST, which fails when the running Python is older than the target version.. `cosmetic` claims a formatter verified the rewrite preserves behaviour, and this one says it did not verify anything, so it is not a formatter this run can make that claim with"
+      },
+      "restricted_operators": {
+        "cosmetic.reformat": "no usable formatter for python on this machine (unusable)",
+        "cosmetic.reorder_imports": "Python imports execute in order; a circular-import workaround depends on it",
+        "cosmetic.wrap_line": "python terminates statements at line ends"
+      },
+      "files_seen": 12,
+      "files_refused": 0,
+      "bodies_seen": 36,
+      "bodies_nested": 0,
+      "examples": 12,
+      "operators": {
+        "cosmetic.reformat": {
+          "sites_found": 0,
+          "emitted": 0,
+          "refused": {
+            "no_formatter": 30
+          },
+          "declined": {}
+        },
+        "cosmetic.rename_local": {
+          "sites_found": 300,
+          "emitted": 2,
+          "refused": {
+            "outside_hunk": 9
+          },
+          "declined": {}
+        },
+        "cosmetic.wrap_line": {
+          "sites_found": 0,
+          "emitted": 0,
+          "refused": {
+            "cosmetic_not_preserving": 30
+          },
+          "declined": {}
+        },
+        "logic.change_constant": {
+          "sites_found": 90,
+          "emitted": 1,
+          "refused": {
+            "outside_hunk": 6
+          },
+          "declined": {}
+        },
+        "logic.drop_else": {
+          "sites_found": 10,
+          "emitted": 1,
+          "refused": {},
+          "declined": {}
+        },
+        "logic.negate_condition": {
+          "sites_found": 10,
+          "emitted": 2,
+          "refused": {},
+          "declined": {}
+        },
+        "logic.widen_comparison": {
+          "sites_found": 10,
+          "emitted": 2,
+          "refused": {},
+          "declined": {}
+        },
+        "stub.default_return": {
+          "sites_found": 0,
+          "emitted": 0,
+          "refused": {
+            "precondition_unmet": 30
+          },
+          "declined": {}
+        },
+        "stub.early_return": {
+          "sites_found": 0,
+          "emitted": 0,
+          "refused": {
+            "precondition_unmet": 30
+          },
+          "declined": {}
+        },
+        "stub.hardcoded": {
+          "sites_found": 0,
+          "emitted": 0,
+          "refused": {
+            "precondition_unmet": 30
+          },
+          "declined": {}
+        },
+        "stub.panic": {
+          "sites_found": 60,
+          "emitted": 2,
+          "refused": {
+            "outside_hunk": 5
+          },
+          "declined": {}
+        }
+      },
+      "refusals": {
+        "cosmetic_not_preserving": 30,
+        "no_formatter": 30,
+        "outside_hunk": 20,
+        "precondition_unmet": 90
+      }
+    },
+    {
+      "language": "typescript",
+      "formatter": {
+        "state": "not_found",
+        "program": "prettier",
+        "detail": "not on PATH"
+      },
+      "restricted_operators": {
+        "cosmetic.reformat": "no usable formatter for typescript on this machine (not_found)",
+        "cosmetic.reorder_imports": "an ES module is evaluated when it is imported, in source order; a check confined to one file cannot rule out an interaction between two module bodies",
+        "cosmetic.wrap_line": "typescript terminates statements at line ends"
+      },
+      "files_seen": 0,
+      "files_refused": 0,
+      "bodies_seen": 0,
+      "bodies_nested": 0,
+      "examples": 0,
+      "operators": {},
+      "refusals": {}
+    },
+    {
+      "language": "swift",
+      "formatter": {
+        "state": "found",
+        "program": "swift-format",
+        "path": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-format"
+      },
+      "restricted_operators": {
+        "cosmetic.wrap_line": "swift terminates statements at line ends"
+      },
+      "files_seen": 0,
+      "files_refused": 0,
+      "bodies_seen": 0,
+      "bodies_nested": 0,
+      "examples": 0,
+      "operators": {},
+      "refusals": {}
+    }
+  ],
+  "refusals": {
+    "cosmetic_not_preserving": 30,
+    "no_formatter": 30,
+    "outside_hunk": 20,
+    "precondition_unmet": 90
+  }
+}
