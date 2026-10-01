@@ -209,6 +209,27 @@ pub enum Refusal {
     ContextNotUtf8 { offset: usize, invalid_len: usize },
 
     #[error(
+        "context is not a unified diff in the shape this task was trained on: at line {line}, \
+         expected {expected}, found {found}. The model was never shown such a context, so its \
+         answer would be read from a shape it cannot read"
+    )]
+    ContextNotUnifiedDiff {
+        line: usize,
+        expected: String,
+        found: String,
+    },
+
+    #[error(
+        "context's file `{path}` is {language}, a language the pool this task was trained on did \
+         not hold (it held {pool:?}); the model was never shown one"
+    )]
+    ContextLanguageNotInPool {
+        path: String,
+        language: String,
+        pool: Vec<String>,
+    },
+
+    #[error(
         "the rendered prompt is {actual} bytes, over the cap of {cap}; the bound is on the bytes \
          the model sees, not only on those that arrived"
     )]
@@ -349,6 +370,8 @@ impl Refusal {
             Refusal::ContextNotBase64 { .. } => "context_not_base64",
             Refusal::ContextEmpty { .. } => "context_empty",
             Refusal::ContextNotUtf8 { .. } => "context_not_utf8",
+            Refusal::ContextNotUnifiedDiff { .. } => "context_not_unified_diff",
+            Refusal::ContextLanguageNotInPool { .. } => "context_language_not_in_pool",
             Refusal::RenderedPromptOverCap { .. } => "rendered_prompt_over_cap",
             Refusal::EmptyOption { .. } => "empty_option",
             Refusal::OptionTextOverCap { .. } => "option_text_over_cap",

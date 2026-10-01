@@ -1,0 +1,23 @@
+[package]
+name = "qd-lang"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "The source languages: LangId, the path-to-language map the pool is built with, and the languages the code.defect_class pool holds."
+
+[lib]
+name = "qd_lang"
+path = "src/lib.rs"
+
+# A crate of its own so the serving runtime can ask "which language is this path, and did the
+# pool hold it" without linking qd-mutate's tree-sitter grammars (C code) into the product. One
+# owner: qd-mutate re-exports `LangId` and `language_from_path` from here, and qd-noul-rows
+# reads `DEFECT_CLASS_POOL_LANGUAGES`. `serde` is already a workspace dependency.
+[dependencies]
+serde.workspace = true
+
+# Test-only: reads the pool manifest the language list is measured from.
+[dev-dependencies]
+serde_json.workspace = true

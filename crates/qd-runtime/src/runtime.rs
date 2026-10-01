@@ -282,6 +282,8 @@ impl Runtime {
             }
         };
         self.check_hashes(&request.expect, &head_hash)?;
+        // Before the model: a context its task was never trained on is refused, not answered.
+        crate::admission::admit(request)?;
 
         let ctx = AnswerContext {
             backend: self.backend.as_ref(),

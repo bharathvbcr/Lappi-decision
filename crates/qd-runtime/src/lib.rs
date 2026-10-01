@@ -9,6 +9,7 @@
 //! | [`context`] | "`context` crosses the FFI boundary as **bytes and a length**" |
 //! | [`b64`] | the codec behind `context_b64` — RFC 4648, canonical only |
 //! | [`refusal`] | "Refusals — fail closed, never truncate" |
+//! | [`admission`] | a `code.defect_class` context not in the trained diff shape or pool language |
 //! | [`wire`] | the JSON envelope, and the only way to build a validated request |
 //! | [`render`] | `docs/hardening.md` §3 — the context is adversarial by construction |
 //! | [`backend`] | the four operations a model backend must provide |
@@ -46,6 +47,7 @@
 //! explicitly enabled and marks every answer it does produce `degraded`. An absent backend is
 //! [`refusal::BackendError::Unavailable`], a typed error — never a plausible letter.
 
+pub mod admission;
 pub mod answer;
 pub mod b64;
 pub mod backend;

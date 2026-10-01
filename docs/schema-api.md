@@ -140,6 +140,7 @@ The runtime **refuses** rather than degrades when:
 | tokenizer / weight / head / label-set hash != build | A swapped tokenizer maps wrong ids silently. Answering would be confidently wrong |
 | `options.len() > 16` | The letter slice holds 16 option rows plus the reserved `noul` row. Dropping an option changes the question |
 | `context` over the configured cap | Truncating moves the answer out of the window without saying so. Line spans would point at the wrong lines |
+| a `code.defect_class` `context` not in the trained shape (`file: <path>`, a blank line, unified-diff hunks whose bodies match their headers): `context_not_unified_diff`; or its file's language not one the pool held: `context_language_not_in_pool` (`crates/qd-runtime/src/admission.rs`) | The model was never shown such a context. An answer would be read from a shape it cannot read, and would look like any other |
 | `slots` empty, or a duplicate slot name | The answer map would be ambiguous |
 | `bins < 2` for `score`, or `bins > 16` | Same 16-letter limit; a 1-bin ordinal is not a question |
 | `schema_version` unknown | Forward-compat guessing is how a field changes meaning silently |

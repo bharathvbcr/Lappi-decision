@@ -7,7 +7,6 @@
 //! kind. That is correct, and it is **recorded per language** in the manifest so a silent zero
 //! reads as "no opportunities here", not as "the operator ran".
 
-use serde::{Deserialize, Serialize};
 use tree_sitter::{Node, Tree};
 
 pub mod go_lang;
@@ -17,63 +16,8 @@ pub mod swift_lang;
 pub mod ts_lang;
 pub mod util;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LangId {
-    Rust,
-    Go,
-    Python,
-    TypeScript,
-    Swift,
-}
-
-impl LangId {
-    pub const ALL: [LangId; 5] = [
-        LangId::Rust,
-        LangId::Go,
-        LangId::Python,
-        LangId::TypeScript,
-        LangId::Swift,
-    ];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            LangId::Rust => "rust",
-            LangId::Go => "go",
-            LangId::Python => "python",
-            LangId::TypeScript => "typescript",
-            LangId::Swift => "swift",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<LangId> {
-        match s {
-            "rust" | "rs" => Some(LangId::Rust),
-            "go" => Some(LangId::Go),
-            "python" | "py" => Some(LangId::Python),
-            "typescript" | "ts" => Some(LangId::TypeScript),
-            "swift" => Some(LangId::Swift),
-            _ => None,
-        }
-    }
-
-    /// Extension used when a formatter needs a filename to decide its dialect.
-    pub fn extension(self) -> &'static str {
-        match self {
-            LangId::Rust => "rs",
-            LangId::Go => "go",
-            LangId::Python => "py",
-            LangId::TypeScript => "ts",
-            LangId::Swift => "swift",
-        }
-    }
-}
-
-impl std::fmt::Display for LangId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
+/// Owned by `qd-lang`, so the serving runtime can name a language without linking the grammars.
+pub use qd_lang::LangId;
 
 /// A function or method **with a real body**.
 ///

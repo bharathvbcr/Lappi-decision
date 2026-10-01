@@ -467,6 +467,19 @@ pub fn all_refusals() -> Vec<Refusal> {
             offset: 2,
             invalid_len: 1,
         },
+        Refusal::ContextNotUnifiedDiff {
+            line: 1,
+            expected: "a `file: <path>` header line".into(),
+            found: "\"What is the capital of France?\"".into(),
+        },
+        Refusal::ContextLanguageNotInPool {
+            path: "src/main.c".into(),
+            language: "unrecognised".into(),
+            pool: qd_lang::DEFECT_CLASS_POOL_LANGUAGES
+                .iter()
+                .map(|lang| lang.as_str().to_string())
+                .collect(),
+        },
         Refusal::RenderedPromptOverCap {
             cap: 802_816,
             actual: 900_000,

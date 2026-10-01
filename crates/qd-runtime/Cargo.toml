@@ -33,6 +33,9 @@ path = "src/bin/qd_calib_fit.rs"
 # Adding one would be a new dependency for capability std already has.
 [dependencies]
 base64.workspace = true
+# The admission check's language facts: the path map and the languages the pool held. A
+# workspace crate whose only dependency is serde, so no grammar is linked into the runtime.
+qd-lang = { path = "../qd-lang" }
 serde.workspace = true
 # `float_roundtrip` (no extra crate: the feature is `[]` in serde_json's manifest): the default
 # parser is best-effort and read a fitted conformal cutoff back one ulp off (…b9d0 -> …b9d1), so a

@@ -17,7 +17,9 @@ from qd_data.pool_builder import (
 )
 from qd_train.tristate import NotRun, Ran
 
-POOL_RS = Path(__file__).resolve().parents[2] / "crates" / "qd-mutate" / "src" / "pool.rs"
+#: ``language_from_path`` moved here from ``crates/qd-mutate/src/pool.rs`` (which re-exports
+#: it) so the serving runtime can read it without the grammars.
+LANGUAGE_MAP_RS = Path(__file__).resolve().parents[2] / "crates" / "qd-lang" / "src" / "lib.rs"
 MIT = "MIT"
 
 
@@ -223,9 +225,9 @@ def test_a_missing_root_is_refused(tmp_path: Path):
 
 def test_the_extension_map_still_matches_pool_rs():
     """The Python mirror is duplication; this is what stops it rotting."""
-    src = POOL_RS.read_text(encoding="utf-8")
+    src = LANGUAGE_MAP_RS.read_text(encoding="utf-8")
     body = re.search(r"pub fn language_from_path.*?\n\}", src, re.S)
-    assert body, f"language_from_path not found in {POOL_RS}"
+    assert body, f"language_from_path not found in {LANGUAGE_MAP_RS}"
     # Arms are `"py" | "pyi" => Some(LangId::Python)`. A regex that matches only the last
     # alternative would silently compare a 5-entry map against a 9-entry one and pass on the
     # overlap, so the alternation is parsed explicitly.
@@ -241,7 +243,7 @@ def test_the_extension_map_still_matches_pool_rs():
     }
     assert len(rust_map) > len(arms), "the alternation was not expanded; this check is vacuous"
     assert rust_map == POOL_EXTENSIONS, (
-        f"pool.rs maps {rust_map}, this module mirrors {POOL_EXTENSIONS}"
+        f"qd-lang maps {rust_map}, this module mirrors {POOL_EXTENSIONS}"
     )
     assert '.d.ts' in body.group(0), "the declaration-file exclusion is part of the contract"
 
