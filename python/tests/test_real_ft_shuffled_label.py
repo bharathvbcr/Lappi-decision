@@ -624,3 +624,34 @@ def test_a_quick_control_for_a_target_that_is_not_quick_is_refused(corpus: Corpu
 
 def _no_training(**kwargs: object) -> dict[str, object]:
     raise AssertionError("a refusal decidable before training reached _train")
+
+
+def test_two_seeds_in_one_invocation_each_train_with_no_inherited_permutation(
+    corpus: Corpus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not the control: the ordinary epoch arm the fixture already runs, at two seeds at once.
+
+    The scoring block named its ``permutation_consistency`` gate ``permutation`` -- the same
+    local that holds the epoch arm's option permutation spec -- so the second seed's ``_train``
+    was handed the first seed's gate as the permutation to train with. The campaign ran one
+    seed per invocation and never reached it; ``--seeds 0 1 2`` does.
+    """
+    handed: list[object] = []
+    original = rft._train
+
+    def spy(**kwargs: object) -> dict[str, object]:
+        handed.append(kwargs["permutation"])
+        return original(**kwargs)
+
+    _patch(monkeypatch, (corpus.train, corpus.val))
+    monkeypatch.setattr(rft, "_train", spy)
+    argv = _argv(corpus, tmp_path / "two-seeds.jsonl")
+    at = argv.index("--seeds")
+    argv[at + 1:at + 2] = ["0", "1"]
+    rft.main(argv)
+
+    assert handed == [None, None], "no --option-permutation-seed: neither seed trains permuted"
+    evals = [r for r in Ledger(tmp_path / "two-seeds.jsonl").rows() if r.run_kind == "eval"]
+    assert sorted(r.protocol.seed for r in evals) == [0, 1]
+    # Not run on the stand-in (no tokenizer.json), but each seed's row states its own.
+    assert all("permutation_consistency" in r.gates for r in evals)

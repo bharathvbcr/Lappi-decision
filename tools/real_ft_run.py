@@ -6553,7 +6553,10 @@ def main(argv: list[str] | None = None) -> int:
                 if val_set is not None and shuffled is None:
                     decode_at = time.monotonic()
                     scored = _decode(step, val_set.plan, val_set.labels_for, val_set.letter_id)
-                    permutation, val_second = score_permutation_consistency(
+                    # Not ``permutation``: that local is the option permutation spec the next
+                    # seed's ``_train`` is handed, and a gate there broke every seed after the
+                    # first.
+                    permutation_gate, val_second = score_permutation_consistency(
                         step, val_set, second_pass, scored
                     )
                     suite_gates = [
@@ -6570,7 +6573,7 @@ def main(argv: list[str] | None = None) -> int:
                     run["score_row_id"] = _record_score(
                         run, scored, ledger=ledger, reader=reader, val=val_set,
                         quick_reasons=reasons_for("epoch", device, str(run["termination"])),
-                        decode_s=decode_s, permutation=permutation, suite_gates=suite_gates,
+                        decode_s=decode_s, permutation=permutation_gate, suite_gates=suite_gates,
                     )
                     if args.verdicts_out is not None:
                         verdict_lines.extend(
@@ -6588,7 +6591,7 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"  {device} seed={seed} {name}: {json.dumps(state.to_json())[:300]}")
                     _, ece, degenerate = calibration_states(scored)
                     for name, state in (("ece", ece), ("degenerate_head", degenerate),
-                                        ("permutation_consistency", permutation),
+                                        ("permutation_consistency", permutation_gate),
                                         *((g.name, g.state) for g in suite_gates)):
                         print(f"  {device} seed={seed} {name}: {json.dumps(state.to_json())[:300]}")
                     print(f"  score row {run['score_row_id']}")
