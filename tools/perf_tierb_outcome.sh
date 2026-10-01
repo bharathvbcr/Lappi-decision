@@ -82,6 +82,11 @@ case "$ACTION" in
   *) echo "usage: $0 fused|nomask --build | --run | --print"; exit 2 ;;
 esac
 
+if [ "$CAND" = "nomask" ]; then
+  # Fable: a P2 fail cancels this run. Both shapes must have a P2 verdict, and both 'pass'; a
+  # missing shape or a not_run cancels too -- an unexamined screen is not a passed one.
+  $PY $PERF/overlay-nomask/tools/perf_parity.py --p2-gate $PERF/nomask-p2-verdicts.jsonl || exit 5
+fi
 cd $CODE || exit 3
 if [ -n "$(git status --porcelain)" ]; then echo "$CODE is dirty; refusing"; exit 3; fi
 mkdir -p $OUT

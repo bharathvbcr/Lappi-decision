@@ -286,6 +286,23 @@ def p2_screen(
     return out
 
 
+#: The shapes whose P2 verdicts the outcome run needs; a verdict's shape is its baseline tags'
+#: prefix (``A-mask-1`` -> ``A``), as perf_nomask_p2_body.sh names them.
+P2_SHAPES = ("A", "B")
+
+
+def p2_gate(rows: list[dict[str, Any]]) -> tuple[bool, str]:
+    """Whether the outcome run may go: the latest P2 verdict of every shape in ``P2_SHAPES``
+    is ``pass``. A shape with no verdict, or a ``not_run`` one, cancels it as a ``fail`` does
+    (Fable: a P2 fail cancels the outcome run; an unexamined screen is not a passed one)."""
+    latest: dict[str, str] = {}
+    for row in rows:
+        latest[str(row["base"][0]).split("-", 1)[0]] = str(row["verdict"])
+    state = {shape: latest.get(shape, "missing") for shape in P2_SHAPES}
+    ok = all(v == "pass" for v in state.values())
+    return ok, f"P2 verdicts {state}: outcome run {'may go' if ok else 'cancelled'}"
+
+
 def _tagged(path: Path, tags: list[str]) -> list[dict[str, Any]]:
     return [_load(f"{path}:{tag}") for tag in tags]
 
@@ -298,6 +315,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--base", nargs="+", default=[], metavar="TAG")
     ap.add_argument("--cand", nargs="+", default=[], metavar="TAG")
     ap.add_argument("--p2-out", type=Path, help="append the P2 verdict row here too")
+    ap.add_argument("--p2-gate", type=Path, metavar="VERDICTS",
+                    help="exit 0 only if every shape's latest P2 verdict in VERDICTS is pass")
     ap.add_argument("--code-root", type=Path)
     ap.add_argument("--out", type=Path, help="shard set root (has shards/train)")
     ap.add_argument("--backbone", type=Path)
@@ -326,6 +345,16 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     if args.compare:
         return compare(args.compare)
+    if args.p2_gate:
+        if not args.p2_gate.is_file():
+            print(f"{args.p2_gate} does not exist: P2 has not run, so the outcome run is "
+                  "cancelled", flush=True)
+            return 5
+        rows = [json.loads(line) for line in args.p2_gate.read_text().splitlines()
+                if line.strip()]
+        ok, detail = p2_gate(rows)
+        print(detail, flush=True)
+        return 0 if ok else 5
     if args.p2:
         report = p2_screen(_tagged(args.p2, args.base), _tagged(args.p2, args.cand))
         print(json.dumps(report, sort_keys=True), flush=True)

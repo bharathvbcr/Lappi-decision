@@ -108,6 +108,36 @@ def test_arms_over_different_batches_or_lengths_are_refused(change, match):
         pp.p2_screen(bases, cands)
 
 
+def _verdict(shape: str, verdict: str) -> dict:
+    return {"base": [f"{shape}-mask-1", f"{shape}-mask-2", f"{shape}-mask-3"],
+            "cand": [f"{shape}-none-1"], "verdict": verdict}
+
+
+@pytest.mark.parametrize(
+    ("rows", "ok"),
+    [
+        ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+        ([_verdict("A", "pass")], False),
+        ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+        ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+        # A rerun of a shape supersedes its earlier verdict, in both directions.
+        ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+        ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+        ([], False),
+    ],
+)
+def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+    """Fable: a P2 fail cancels the outcome run. A shape with no verdict, or not_run, cancels
+    it too -- an unexamined screen is not a passed one."""
+    passed, detail = pp.p2_gate(rows)
+    assert passed is ok
+    assert ("A" in detail and "B" in detail) or not ok
+
+
+def test_the_gate_cli_refuses_a_missing_verdict_file(tmp_path):
+    assert pp.main(["--p2-gate", str(tmp_path / "nope.jsonl")]) == 5
+
+
 @pytest.mark.parametrize(("n_base", "n_cand"), [(2, 3), (3, 0)])
 def test_fewer_than_three_baselines_or_no_candidate_is_refused(n_base, n_cand):
     """Fable: the spread is measured on >= 3 baseline repeats."""
