@@ -755,8 +755,10 @@ def test_both_row_kinds_record_what_ran() -> None:
         and isinstance(node.func, ast.Name)
         and node.func.id == "_recorder"
     }
-    assert writers == {"_train", "_record_verdict", "_record_score"}, (
-        f"expected the ft, verdict and eval rows to come from _recorder, got {sorted(writers)}"
+    # run_needle_control (2026-09-30): the --needle-control diagnostic's own eval row.
+    assert writers == {"_train", "_record_verdict", "_record_score", "run_needle_control"}, (
+        "expected the ft, verdict, eval and needle-control rows to come from _recorder, "
+        f"got {sorted(writers)}"
     )
 
 

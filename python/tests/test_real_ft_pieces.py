@@ -110,6 +110,7 @@ def test_the_defaults_resolve_to_the_optimizer_every_row_so_far_used():
         option_permutation_seed=None, tokenizer_json=None, real_backbone=None, epoch=False,
         replay_shards=None, replay_attestation=None, replay_cache=None, replay_weight=None,
         replay_every=rft.DEFAULT_REPLAY_EVERY, verdicts_out=None, score_val=False,
+        suite_verdicts_out=None, needle=False, ood=False,
     )
     rft._check_piece_flags(ns)
     assert ns.beta2 == 0.999 and ns.lower_layers_lr_scale == 1.0
@@ -177,6 +178,21 @@ def test_verdict_lines_carry_expected_abstain_when_the_decoder_wrote_it():
     lines = rft._verdict_lines(scored, eval_row_id="e1", seed=2)
     assert lines[1]["expected_abstain"] is True
     assert "expected_abstain" not in lines[0]
+
+
+def test_verdict_lines_carry_the_letter_distribution_a_calibration_fit_reads():
+    """2026-09-30: --verdicts-out kept the argmax only, so the margin the runtime abstains
+    on could not be computed from a scored run without decoding it again."""
+    scored = _scored()
+    scored["verdicts"][0].update({  # type: ignore[index]
+        "noul_row": 4, "rows": 5, "language": "go", "noul_probability": 0.01,
+        "row_logits": [0.0, 3.0, 0.5, 0.1, -2.0],
+    })
+    lines = rft._verdict_lines(scored, eval_row_id="e1", seed=2)
+    assert lines[0]["row_logits"] == [0.0, 3.0, 0.5, 0.1, -2.0]
+    assert (lines[0]["noul_row"], lines[0]["rows"], lines[0]["language"]) == (4, 5, "go")
+    assert lines[0]["noul_probability"] == 0.01
+    assert "row_logits" not in lines[1], "a field the decoder did not write is not invented"
 
 
 def test_the_decoder_threads_slot_name_into_every_verdict():

@@ -112,7 +112,7 @@ def _score(monkeypatch, cases, tops):
 def test_pointing_inside_the_needle_hunk_is_a_hit_whatever_the_end_line(monkeypatch):
     cases = build_suite(target_tokens=1024, cases_per_depth=5, seed=1)
     tops = [(_line_in_hunk(c, c.needle_index), 0) for c in cases]
-    gate, metrics = _score(monkeypatch, cases, tops)
+    gate, metrics, _ = _score(monkeypatch, cases, tops)
     assert isinstance(gate, Ran) and gate.passed and gate.value == 1.0
     assert set(metrics) >= {"needle_hunk_recall.depth.0-20%", "needle_suite_tokens"}
 
@@ -128,20 +128,20 @@ def test_the_next_hunk_an_abstention_and_a_header_line_are_misses(monkeypatch):
             tops.append((999, 999))  # the abstention row
         else:
             tops.append((0, 0))  # the `file:` header
-    gate, metrics = _score(monkeypatch, cases, tops)
+    gate, metrics, _ = _score(monkeypatch, cases, tops)
     assert isinstance(gate, Ran) and gate.value == 0.0 and not gate.passed
     assert "abstained" in metrics["needle_suite_tokens"].detail
 
 
 def test_without_the_flag_the_gate_is_not_run_and_the_recipe_is_untouched():
     suite = rft.NeedleSuite([], [], {}, [], not_run="--needle was not given")
-    gate, metrics = rft.score_needle(None, suite, {})  # type: ignore[arg-type]
+    gate, metrics, lines = rft.score_needle(None, suite, {})  # type: ignore[arg-type]
     assert isinstance(gate, NotRun) and metrics == {}
-    assert rft.needle_gate((gate, metrics), suite).recipe is None, (
+    assert rft.needle_gate((gate, metrics, lines), suite).recipe is None, (
         "a gate that did not run must not move the recipe hash"
     )
     ran = rft.NeedleSuite([], [], {}, [8000], seed=4)
-    recipe = rft.needle_gate((gate, metrics), ran).recipe
+    recipe = rft.needle_gate((gate, metrics, lines), ran).recipe
     assert recipe is not None and recipe["min_recall"] == 0.95 and recipe["suite_seed"] == 4
 
 
@@ -201,9 +201,9 @@ def test_a_workers_predictions_are_scored_without_decoding(monkeypatch):
         raise AssertionError("decoded although the worker's predictions were given")
 
     monkeypatch.setattr(rft, "_decode", never)
-    gate, _ = rft.score_needle(
+    gate, _, _ = rft.score_needle(
         None, _suite(cases), {},  # type: ignore[arg-type]
-        predictions={c.case_id: c.needle_index for c in cases},
+        decoded=rft.NeedleDecoded({c.case_id: c.needle_index for c in cases}),
     )
     assert isinstance(gate, Ran) and gate.value == 1.0
 
@@ -221,17 +221,68 @@ def _worker(monkeypatch, payload, returncode=0):
     monkeypatch.setattr(rft.subprocess, "run", fake_run)
 
 
+def _raw(cases, predictions):
+    return [
+        {**{k: 0 for k in rft.NEEDLE_VERDICT_FIELDS}, "suite": "needle", "case_id": c.case_id,
+         "predicted_hunk": predictions[c.case_id]}
+        for c in cases
+    ]
+
+
+def test_score_needle_keeps_each_cases_raw_pointer(monkeypatch):
+    """2026-09-30: 235 of 300 cases abstained and ~63 missed, and only the hunk index was
+    kept -- so a miss in the adjacent hunk (a mapping defect) and one in a far filler (the
+    model) could not be told apart. The pointer itself is now kept per case."""
+    cases = build_suite(target_tokens=1024, cases_per_depth=2, seed=1)
+    tops = [
+        (999, 999) if i == 0 else (_line_in_hunk(c, c.needle_index), 0)
+        for i, c in enumerate(cases)
+    ]
+    _, _, lines = _score(monkeypatch, cases, tops)
+    assert [v["case_id"] for v in lines] == [c.case_id for c in cases]
+    for v, c, (start, end) in zip(lines, cases, tops, strict=True):
+        assert set(rft.NEEDLE_VERDICT_FIELDS) <= set(v)
+        assert (v["start"], v["end"], v["noul_row"]) == (start, end, 999)
+        assert v["needle_index"] == c.needle_index and v["depth_bucket"] == c.depth_bucket
+    assert lines[0]["abstained"] and lines[0]["predicted_hunk"] is None and not lines[0]["hit"]
+    assert all(v["hit"] and not v["abstained"] for v in lines[1:])
+    gate = rft.needle_gate(_score(monkeypatch, cases, tops), _suite(cases))
+    assert gate.verdicts == lines
+
+
+def test_a_worker_without_matching_raw_verdicts_is_refused(monkeypatch):
+    cases = build_suite(target_tokens=1024, cases_per_depth=1, seed=0)
+    suite = rft.NeedleSuite(cases, [], {}, [1] * len(cases), digest="d" * 64)
+    good = {c.case_id: c.needle_index for c in cases}
+    raw = _raw(cases, good)
+    wrong_hunk = [{**raw[0], "predicted_hunk": None}, *raw[1:]]
+    short = [{k: v for k, v in raw[0].items() if k != "start"}, *raw[1:]]
+    for verdicts, match in (
+        (None, "no raw verdicts"),
+        (raw[1:], "raw verdicts do not name exactly"),
+        (wrong_hunk, "names hunk None and its prediction"),
+        (short, "lacks \\['start'\\]"),
+    ):
+        _worker(monkeypatch, {"digest": "d" * 64, "predictions": good, "verdicts": verdicts})
+        with pytest.raises(SystemExit, match=match):
+            rft.run_needle_worker(["--x"], suite)
+
+
 def test_the_needle_worker_is_trusted_only_for_this_exact_suite(monkeypatch):
     cases = build_suite(target_tokens=1024, cases_per_depth=1, seed=0)
     suite = rft.NeedleSuite(cases, [], {}, [1] * len(cases), digest="d" * 64)
     good = {c.case_id: (None if i % 2 else c.needle_index) for i, c in enumerate(cases)}
-    _worker(monkeypatch, {"digest": "d" * 64, "predictions": good})
-    assert rft.run_needle_worker(["--x"], suite) == good
+    raw = _raw(cases, good)
+    _worker(monkeypatch, {"digest": "d" * 64, "predictions": good, "verdicts": raw})
+    got = rft.run_needle_worker(["--x"], suite)
+    assert got.predictions == good and list(got.verdicts) == raw
     for payload, code, match in (
-        ({"digest": "e" * 64, "predictions": good}, 0, "different suite"),
-        ({"digest": "d" * 64, "predictions": good}, 3, "exited 3"),
-        ({"digest": "d" * 64, "predictions": dict(list(good.items())[1:])}, 0, "exactly"),
-        ({"digest": "d" * 64, "predictions": {**good, cases[0].case_id: "2"}}, 0, "is '2'"),
+        ({"digest": "e" * 64, "predictions": good, "verdicts": raw}, 0, "different suite"),
+        ({"digest": "d" * 64, "predictions": good, "verdicts": raw}, 3, "exited 3"),
+        ({"digest": "d" * 64, "predictions": dict(list(good.items())[1:]), "verdicts": raw},
+         0, "exactly"),
+        ({"digest": "d" * 64, "predictions": {**good, cases[0].case_id: "2"}, "verdicts": raw},
+         0, "is '2'"),
     ):
         _worker(monkeypatch, payload, code)
         with pytest.raises(SystemExit, match=match):
@@ -269,3 +320,160 @@ def test_a_span_only_batch_skips_the_vocabulary_head():
 
     src = inspect.getsource(rft._decode)
     assert "if any(label.slot_kind != SLOT_SPAN for label in labels_for[b])" in src
+
+
+# --- --needle-control: the gate's rule at other lengths, on a row of its own -----------------
+
+
+@pytest.mark.parametrize(
+    ("text", "match"),
+    [
+        ("2048,1024", "distinct and ascending"),
+        ("1024,1024", "distinct and ascending"),
+        ("128,1024", "at least 256"),
+        ("1k,2k", "comma-separated"),
+        (",".join(str(256 * (i + 1)) for i in range(9)), "at most 8 arms"),
+    ],
+)
+def test_needle_control_lengths_are_refused_unless_well_formed(text, match):
+    with pytest.raises(SystemExit, match=match):
+        rft.parse_needle_control(text)
+
+
+def test_needle_control_lengths_parse():
+    assert rft.parse_needle_control("1024,2048,4096,8192") == (1024, 2048, 4096, 8192)
+
+
+@pytest.mark.parametrize(
+    ("extra", "match"),
+    [
+        ([], "needs --score-checkpoint and --needle"),
+        (["--needle", "--score-checkpoint", "/c.json", "--ood"], "--ood would record nothing"),
+    ],
+)
+def test_needle_control_argv_is_refused_before_anything_loads(tmp_path, extra, match):
+    with pytest.raises(SystemExit, match=match):
+        rft.main(["--out", str(tmp_path), "--rev", "0" * 40, "--needle-control", "1024",
+                  *extra])
+
+
+def _decoded(cases, hit_every: int, abstain_every: int):
+    predictions = {}
+    for i, c in enumerate(cases):
+        if i % abstain_every == 0:
+            predictions[c.case_id] = None
+        elif i % hit_every == 0:
+            predictions[c.case_id] = c.needle_index
+        else:
+            predictions[c.case_id] = c.needle_index + 1
+    return rft.NeedleDecoded(predictions, tuple(_raw(cases, predictions)))
+
+
+def test_an_arm_is_recorded_under_its_control_key_and_never_the_gate():
+    cases = build_suite(target_tokens=1024, cases_per_depth=5, seed=1)
+    suite = _suite(cases)
+    metrics = rft.needle_control_metrics(
+        1024, suite, _decoded(cases, hit_every=1, abstain_every=5), trained_width=1625
+    )
+    assert "needle_hunk_recall" not in metrics
+    assert all(
+        k.startswith(("needle_hunk_recall.control.1024", "needle_suite_tokens.control.1024"))
+        for k in metrics
+    )
+    arm = metrics["needle_hunk_recall.control.1024"]
+    assert isinstance(arm, Ran) and "NOT the gate" in arm.detail
+    abstained = metrics["needle_hunk_recall.control.1024.abstained"]
+    assert (abstained.n, abstained.n_total) == (5, 25)
+    assert "beyond the trained width 1625" in metrics["needle_suite_tokens.control.1024"].detail, (
+        "_suite() reports 8000+ real tokens per case, past the trained width"
+    )
+    assert {f"needle_hunk_recall.control.1024.depth.{b}"
+            for b in ("0-20%", "20-40%", "40-60%", "60-80%", "80-100%")} <= set(metrics)
+
+
+def test_the_gate_length_arm_must_be_the_gate_suite(monkeypatch):
+    from types import SimpleNamespace
+
+    cases = build_suite(target_tokens=1024, cases_per_depth=1, seed=0)
+    built = rft.NeedleSuite(cases, [], {}, [1] * len(cases), digest="b" * 64)
+    monkeypatch.setattr(rft, "prepare_needle", lambda *a, **k: built)
+
+    def never(*a, **k):
+        raise AssertionError("a checkpoint was loaded for a refused sweep")
+
+    monkeypatch.setattr(rft, "_checkpoint_step", never)
+    args = SimpleNamespace(needle_control=(1024, rft.NEEDLE_TARGET_TOKENS))
+    val = SimpleNamespace(reader=None, letter_id={})
+    gate = rft.NeedleSuite(cases, [], {}, [1] * len(cases), digest="a" * 64)
+    with pytest.raises(SystemExit, match="not the gate suite's"):
+        rft.run_needle_control(
+            args, reader=None, val=val, device="cpu", ledger=None,  # type: ignore[arg-type]
+            config=DataConfig(), gate_suite=gate, reasons_for=lambda *a: [],
+        )
+
+
+def test_a_control_row_is_its_own_quick_family_and_names_no_eval_row(monkeypatch):
+    """The promotion join treats a row naming recipe.eval_row_id as a supplement of that
+    eval row, and a quick row in a family refuses the whole family. So the sweep's row has
+    a recipe of its own and is quick by construction."""
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    cases = build_suite(target_tokens=1024, cases_per_depth=1, seed=0)
+    suite = rft.NeedleSuite(
+        cases, [SimpleNamespace(tokens=np.zeros((1, 1088)))] * len(cases), {},
+        [900] * len(cases), digest="a" * 64,
+    )
+    monkeypatch.setattr(rft, "prepare_needle", lambda *a, **k: suite)
+    ft = {"row_id": "ft1", "metrics": {"corpus.plan_max_width": {"value": 1625},
+                                       "train.termination": {"value": "steps_exhausted"}}}
+    meta = {"sidecar": {"digest": "c" * 16}}
+    monkeypatch.setattr(rft, "_checkpoint_step", lambda *a, **k: (None, ft, {}, 0, meta))
+    monkeypatch.setattr(
+        rft, "needle_predictions",
+        lambda step, s, letter_id: _decoded(s.cases, hit_every=1, abstain_every=2),
+    )
+    captured: dict[str, object] = {}
+
+    class Recorder:
+        row = SimpleNamespace(row_id="row-1")
+        noul_rate = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def metric(self, name, state):
+            captured.setdefault("metrics", {})[name] = state  # type: ignore[union-attr]
+
+        def gate(self, name, state):
+            raise AssertionError(f"the control recorded the gate {name}")
+
+    def recorder(ledger, **kw):
+        captured.update(kw)
+        return Recorder()
+
+    monkeypatch.setattr(rft, "_recorder", recorder)
+    monkeypatch.setattr(rft, "_cost", lambda **k: None)
+    args = SimpleNamespace(
+        needle_control=(1024,), score_dtype="fp32",
+        score_checkpoint=Path("epoch-seed0-cuda.json"), usd_per_hour=2.29,
+        usd_per_gpu_hour=None, instance="gh200", wall_clock_cap_s=600.0,
+    )
+    reader = SimpleNamespace(header=SimpleNamespace(shard_hash=lambda: "s" * 64))
+    val = SimpleNamespace(reader=reader, letter_id={})
+    row_id, lines = rft.run_needle_control(
+        args, reader=reader, val=val, device="cuda", ledger=None,  # type: ignore[arg-type]
+        config=DataConfig(), gate_suite=suite, reasons_for=lambda *a: [],
+    )
+    recipe = captured["recipe"]
+    assert row_id == "row-1" and captured["run_kind"] == "eval"
+    assert "eval_row_id" not in recipe, "a control naming the eval row would join its family"
+    assert recipe["tag"] == "epoch-needle-length-control" and "needle" not in recipe
+    assert recipe["needle_control"]["target_tokens"] == [1024]
+    assert rft.NEEDLE_CONTROL_QUICK_REASON in captured["quick_reasons"]
+    assert "needle_hunk_recall.control.1024" in captured["metrics"]
+    assert len(lines) == len(cases) and all(v["target_tokens"] == 1024 for v in lines)
