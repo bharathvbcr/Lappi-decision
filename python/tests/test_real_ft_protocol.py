@@ -758,12 +758,13 @@ def test_both_row_kinds_record_what_ran() -> None:
     # run_needle_control (2026-09-30): the --needle-control diagnostic's own eval row.
     # _record_shuffled_label (2026-09-30): the --shuffled-label control row, which carries
     # the protocol of the eval row it supplements through _recorder's `protocol`.
+    # run_ood_diagnostic (2026-10-01): a --score-plan kind's OOD-only diagnostic row.
     assert writers == {
         "_train", "_record_verdict", "_record_score", "run_needle_control",
-        "_record_shuffled_label",
+        "_record_shuffled_label", "run_ood_diagnostic",
     }, (
-        "expected the ft, verdict, eval, needle-control and shuffled-label control rows to "
-        f"come from _recorder, got {sorted(writers)}"
+        "expected the ft, verdict, eval, needle-control, shuffled-label control and OOD "
+        f"diagnostic rows to come from _recorder, got {sorted(writers)}"
     )
 
 

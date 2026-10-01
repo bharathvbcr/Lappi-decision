@@ -137,15 +137,19 @@ def test_suite_logits_is_refused_where_it_would_be_dropped(tmp_path, extra, matc
 
 
 @pytest.mark.parametrize(
-    ("needle", "ood", "control"),
-    [(False, True, None), (True, False, (1024,)), (True, False, None)],
+    ("needle", "ood", "control", "plan"),
+    [(False, True, None, None), (True, False, (1024,), None), (True, False, None, None),
+     (True, True, None, Path("/plan.json"))],
 )
-def test_suite_logits_is_accepted_where_it_is_written(needle, ood, control):
+def test_suite_logits_is_accepted_where_it_is_written(needle, ood, control, plan):
+    """A --score-plan decodes its gate rows' needle suite in-process, so it keeps them."""
     args = argparse.Namespace(
-        suite_logits=True, score_checkpoint=Path("/c/epoch-seed0-cuda.json"),
+        suite_logits=True,
+        score_checkpoint=None if plan else Path("/c/epoch-seed0-cuda.json"),
         suite_verdicts_out=Path("/s.jsonl"), needle=needle, ood=ood, needle_control=control,
+        score_plan=plan,
     )
-    if needle and control is None:
+    if needle and control is None and plan is None:
         with pytest.raises(SystemExit, match="needle worker process"):
             rft._check_suite_logits_flags(args)
         return
