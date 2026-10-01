@@ -103,6 +103,11 @@ an aggregate hides exactly the failure it is meant to catch:
 - `brier.k{...}`, `ece.k{...}`, `ece.lang.{...}`
 - `span_iou`, `span_exact`
 - `ordinal_mae`, `ordinal_spearman`
+- Per family, on a `tools/real_ft_run.py` FT `eval` row, **report-only** (never aggregated into
+  a gate): `permutation_consistency.family.{family_id}` and
+  `ood_abstain.in_distribution.family.{family_id}`, whose `n`/`n_total` sum to the gate or pooled
+  metric they break down; `ood_abstain.in_distribution.gold_noul.family.{family_id}`, the rows
+  that bound excludes by contract; and `ece.family.{family_id}.{kind}.k{...}`
 
 A key that was not computed is present with `state: "not_run"` and a reason, or absent entirely.
 It is **never** present with a zero value.
