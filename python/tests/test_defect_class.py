@@ -328,10 +328,13 @@ def test_the_family_builds_splits_by_repo_and_teaches_span_abstention(tmp_path: 
     span = mix.abstention["span"]
     assert isinstance(span, Ran) and span.passed and span.value == 40
     choice = mix.abstention["choice"]
-    # Per channel: the family abstains on its span, never on its class.
-    assert isinstance(choice, Ran) and not choice.passed
-    assert "able to abstain at all: none" in choice.detail
-    assert ABSTAINING_FAMILIES[DEFECT_FAMILY_ID] == frozenset({"span"})
+    # Per channel: the qd-mutate corpus abstains on its span and never on its class. The
+    # class abstains only over the noul corpus, which this build did not load -- and the
+    # census says that, rather than calling the zero a construction defect.
+    assert isinstance(choice, Ran) and not choice.passed and choice.n == 0
+    assert "able to abstain at all: ['code.defect_class']" in choice.detail
+    assert "did not load" in choice.detail and "construction defect" not in choice.detail
+    assert ABSTAINING_FAMILIES[DEFECT_FAMILY_ID] == frozenset({"span", "choice"})
 
     report = split(dedupe(list(mix.rows), config=config), config=config)
     assert report.repo_disjoint.passed and report.identity_disjoint.passed  # type: ignore[union-attr]

@@ -60,3 +60,18 @@ def qd_prep(qd_prep_bin: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     qd-prep (``real_tokenizer_pipeline.native_minhash``); there is no Python fallback."""
     monkeypatch.setenv(QD_PREP_BIN_ENV, str(qd_prep_bin))
     return qd_prep_bin
+
+
+@pytest.fixture(scope="session")
+def noul_rows_bin() -> Path:
+    """``qd-noul-rows``, built once per session from this checkout."""
+    if CARGO is None:
+        pytest.skip("cargo is not on PATH: qd-noul-rows was not built")
+    subprocess.run(
+        [CARGO, "build", "--quiet", "--manifest-path", str(REPO / "Cargo.toml"),
+         "-p", "qd-mutate", "--bin", "qd-noul-rows"],
+        check=True, timeout=900,
+    )
+    binary = REPO / "target" / "debug" / "qd-noul-rows"
+    assert binary.is_file(), binary
+    return binary

@@ -2669,6 +2669,7 @@ def ft_splits(
     general_record: Path | None = None,
     general_max_rows: int | None = None,
     replay_partition: bool = False,
+    defect_noul: Path | None = None,
 ) -> dict[str, list[DataRow]]:
     """Every split of the corpus this tool's shard sets were built from, by split name.
 
@@ -2694,14 +2695,20 @@ def ft_splits(
     ``replay_partition`` mirrors the pipeline's ``--replay-shards``: its
     ``split_off_replay`` takes the replay-only rows out of the gold ``train`` split, so
     they are never gold-trained here either. val and held-out are untouched by it.
+    ``defect_noul`` mirrors the pipeline's ``--defect-noul``: the same ``load_defect_rows``
+    call appends the noul corpus's rows after the defect corpus's, in the same order.
 
     ``build_mixture`` runs at the pipeline's ``PIPELINE_MAX_CONSISTENCY_ROWS``, not the
     library default: the two agree below 250,000 rows and build different row sets above
     it. A consistency pass that could not run is refused, as the pipeline refuses it: no
     shard set was ever written from such a mixture, so this rebuild has diverged from it.
     """
-    if defect_class is None and (defect_download is not None or defect_max_rows is not None):
-        raise ValueError("defect_download/defect_max_rows without defect_class read nothing")
+    if defect_class is None and (
+        defect_download is not None or defect_max_rows is not None or defect_noul is not None
+    ):
+        raise ValueError(
+            "defect_download/defect_max_rows/defect_noul without defect_class read nothing"
+        )
     if general_record is None and (general_max_rows is not None or replay_partition):
         raise ValueError(
             "general_max_rows/replay_partition without general_record read nothing: the "
@@ -2728,7 +2735,7 @@ def ft_splits(
             download_root=(
                 pipeline.DEFAULT_DEFECT_DOWNLOAD if defect_download is None else defect_download
             ),
-            config=config, repo_root=REPO, max_rows=defect_max_rows,
+            config=config, repo_root=REPO, max_rows=defect_max_rows, noul_dir=defect_noul,
         )
         raw[DEFECT_SOURCE_ID] = list(load.rows)
     clinc_domain_map = None
@@ -2778,6 +2785,7 @@ def ft_split_rows(
     general_record: Path | None = None,
     general_max_rows: int | None = None,
     replay_partition: bool = False,
+    defect_noul: Path | None = None,
 ) -> tuple[list[DataRow], list[DataRow]]:
     """``(train_rows, val_rows)``: exactly the two splits ``main`` trains and scores on."""
     splits = ft_splits(
@@ -2785,7 +2793,7 @@ def ft_split_rows(
         defect_class=defect_class, defect_download=defect_download,
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record, general_max_rows=general_max_rows,
-        replay_partition=replay_partition,
+        replay_partition=replay_partition, defect_noul=defect_noul,
     )
     return splits["train"], splits["val"]
 
@@ -5136,6 +5144,7 @@ def replay_corpus_identity(
     *, rev: str, max_pairs: int, commitpackft: Path | None, defect_class: Path | None,
     defect_max_rows: int | None, repo_history: bool = True,
     general_record: Path | None = None, general_max_rows: int | None = None,
+    defect_noul: Path | None = None,
 ) -> dict[str, object]:
     """What ``ft_splits`` was called with, as the replay attestation records it. One
     function, used by ``tools/replay_decontam.py`` to write it and by ``_replay_plan`` to
@@ -5165,6 +5174,15 @@ def replay_corpus_identity(
         "defect_max_rows": defect_max_rows,
         **({} if repo_history else {"repo_history": False}),
         **general,
+        # Named by its examples' sha256, and only when given, so every attestation written
+        # before it still matches: a corpus with the noul rows is not the corpus without.
+        **(
+            {} if defect_noul is None else {
+                "defect_noul_examples_sha256": str(json.loads(
+                    (defect_noul / "manifest.json").read_text(encoding="utf-8")
+                )["examples_sha256"]),
+            }
+        ),
     }
 
 
@@ -5210,7 +5228,7 @@ def _replay_plan(
         rev=rev, max_pairs=args.max_pairs, commitpackft=args.commitpackft,
         defect_class=args.defect_class, defect_max_rows=args.defect_max_rows,
         repo_history=args.repo_history, general_record=args.general_record,
-        general_max_rows=args.general_max_rows,
+        general_max_rows=args.general_max_rows, defect_noul=args.defect_noul,
     )
     if attestation.get("corpus") != corpus:
         raise SystemExit(
@@ -5434,6 +5452,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--defect-max-rows", type=int, default=None,
         help="as the pipeline's --defect-max-rows: the same sha256-ordered cap, or none",
+    )
+    parser.add_argument(
+        "--defect-noul", type=Path, default=None,
+        help=(
+            "the qd-noul-rows corpus the shard set was built with, exactly as passed to "
+            "tools/real_tokenizer_pipeline.py --defect-noul. A rebuild without it (or with it, "
+            "for a set built without) is refused by the sequence-index pairing"
+        ),
     )
     parser.add_argument(
         "--general-record", type=Path, default=None,
@@ -6034,7 +6060,7 @@ def main(argv: list[str] | None = None) -> int:
         defect_class=args.defect_class, defect_download=args.defect_download,
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
         general_record=args.general_record, general_max_rows=args.general_max_rows,
-        replay_partition=args.replay_partition,
+        replay_partition=args.replay_partition, defect_noul=args.defect_noul,
     )
     labels, excluded = _labels(train_rows, config=config)
     # Paired by id against the writer's sequence index where the set has one; see
