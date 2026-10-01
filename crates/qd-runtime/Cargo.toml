@@ -28,6 +28,13 @@ path = "src/bin/qd_margin_probe.rs"
 name = "qd-calib-fit"
 path = "src/bin/qd_calib_fit.rs"
 
+# Report-only: every gate per val family beside its pooled value, pooled and per-language ECE,
+# and the two- and four-option slot diagnostics, re-reported on CPU from a scoring run's verdict
+# files and cross-checked against its eval row. It gates nothing (CLAUDE.md rule 2).
+[[bin]]
+name = "qd-gate-report"
+path = "src/bin/qd_gate_report.rs"
+
 # No async runtime, no socket crate, no timer crate: `std::os::unix::net`,
 # `Condvar::wait_timeout` and `set_read_timeout` cover the whole server.
 # Adding one would be a new dependency for capability std already has.

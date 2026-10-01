@@ -1,0 +1,67 @@
+{
+  "schema": "qd.promotion-decisions.v1",
+  "who_edits": "A human, and only a human (CLAUDE.md rule 2). Agents and tools read this file and never write it. To record a decision: set its status to \"decided\", set value (and families, for promotion_population) to what was decided, and fill decided_by, decided_on (YYYY-MM-DD) and decision_ref (the HANDOFF section, gap answer or message the ruling is in), in a commit of its own whose message names the gap. docs/ledger-schema.md, section Promotion, says how the verdict reads this file.",
+  "decisions": {
+    "promotion_population": {
+      "question": "Which val population do permutation_consistency and ood_abstain's in-distribution bound judge promotion on: every family pooled (as built), each family separately, or code.defect_class with the general families report-only?",
+      "gap": "GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS",
+      "status": "open",
+      "value": "pooled: every val family's choice rows, judged together",
+      "families": "all",
+      "source": "the gates as built, not a ruling: tools/real_ft_run.py permutation_agreement and choice_rule_abstentions read every val choice row of every family; both were defined when val was code.defect_class only (gaps.jsonl, GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS, revised record)",
+      "decided_by": null,
+      "decided_on": null,
+      "decision_ref": null
+    },
+    "average_may_promote": {
+      "question": "May an average of seeds' weights, scored as an 'avg' eval row, be the promoted artifact in place of its seeds?",
+      "gap": "GAP-AVERAGE-PROMOTION-IS-THE-HUMANS-DECISION",
+      "status": "open",
+      "value": false,
+      "source": "tools/real_ft_run.py AVERAGED_PROMOTION_NOTE (every averaged eval row says it does not make this decision); Fable F1 and D1-D3 in HANDOFF/gh200-phase4-2026-10-01.md",
+      "decided_by": null,
+      "decided_on": null,
+      "decision_ref": null
+    },
+    "ece_population": {
+      "question": "Should the ece gate run over all letter rows, with only its per-language breakdown requiring language metadata?",
+      "gap": "GAP-ECE-GATE-IS-NOT-RUN-ON-THE-FULL-MIXTURE",
+      "status": "open",
+      "value": "per slot shape and per language; a letter row with no language leaves the gate not_run",
+      "source": "tools/real_ft_run.py calibration_states and language_eces as built",
+      "decided_by": null,
+      "decided_on": null,
+      "decision_ref": null
+    },
+    "degenerate_head_floor": {
+      "question": "Is the degenerate_head control's 0.15-nat entropy floor meaningful for a calibrated, near-certain head, on binary and four-way slots?",
+      "gap": "GAP-DEGENERATE-HEAD-FAILS-ON-BINARY-SLOTS-TOO",
+      "status": "open",
+      "value": "mean predictive entropy >= 0.15 nats and no predicted class above 0.95, on every slot shape",
+      "source": "python/qd_train/eval_harness.py DEFAULT_ENTROPY_FLOOR and DEFAULT_MAX_CLASS_SHARE as built",
+      "decided_by": null,
+      "decided_on": null,
+      "decision_ref": null
+    },
+    "privileged_hunk_pass_rule": {
+      "question": "What eligibility share makes privileged_hunk a ceiling rather than a vacuous control, and what is its pass rule?",
+      "gap": "GAP-PRIVILEGED-HUNK-IS-NEARLY-VACUOUS-ON-COMMITPACKFT",
+      "status": "open",
+      "value": "not set: the control stays not_run",
+      "source": "gaps.jsonl, GAP-PRIVILEGED-HUNK-IS-NEARLY-VACUOUS-ON-COMMITPACKFT",
+      "decided_by": null,
+      "decided_on": null,
+      "decision_ref": null
+    },
+    "transfer_gate_definition": {
+      "question": "What is transfer_gate, and on what data is it measured?",
+      "gap": "GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA",
+      "status": "open",
+      "value": "not specified: the control stays not_run",
+      "source": "gaps.jsonl, GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA",
+      "decided_by": null,
+      "decided_on": null,
+      "decision_ref": null
+    }
+  }
+}
