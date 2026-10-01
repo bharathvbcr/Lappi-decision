@@ -1,0 +1,31 @@
+{
+  "recorded": "2026-10-01, before any run F row (F on v4, shard row d96409bd) exists",
+  "decision": "Fable (2026-10-01, after J6(b)): F carries --lower-layers-n 8 --lower-layers-lr-scale 0.1. A recipe choice only; nothing promotes on it (rule 8).",
+  "recipe": {
+    "shards": "v4, ledger/mac-phase4-v4-shards-2026-10-01.jsonl row d96409bd (train 8bcf56ad..., val ef06ab99..., built at 881ab30, span_collapse_policy refuse-gold on train, refuse-any on val)",
+    "flags": "J4's recipe (--optimizer master --lr 1e-5 --epoch --no-memorise) with --batch-tokens 35403, --lower-layers-n 8 --lower-layers-lr-scale 0.1, default (non-deterministic) kernels, --wall-clock-cap-s 32400 per seed, seeds 0, 1, 2; every seed also scores --needle-control 1024,2048,4096",
+    "seeds_3_4": "added and five averaged if the three seeds' 8K needle worst buckets spread by more than 0.30 (Round G)"
+  },
+  "j6b_evidence": {
+    "rows": ["3fa33161 (ft)", "f4958492 (eval)", "156366b9 (needle length control)"],
+    "ledger": "ledger/gh200-j6-ablations-2026-10-01.jsonl",
+    "against": "J4 eval rows 2f5fe57a / f3612f73 / 02cf5ff4 (ledger/gh200-p4-v3-2026-10-01.jsonl)",
+    "win_definition": "J6(b) wins if, on the metrics the flag was meant to move, its one seed lands outside J4's three-seed envelope in the right direction by more than J4's own seed range, and no gate-bearing metric of the promotion population (defect_class choice/span, defect_class permutation, defect_class ECE, needle) lands outside the envelope in the wrong direction. It loses if prose or scrambled abstention sits inside J4's envelope (<= 9/60, <= 8/60), or any defect_class gate metric falls below J4's seed minimum.",
+    "met": "yes: OOD prose 44/60 and scrambled 51/60 against J4's 2-9 and 3-8; ID abstention down (8.1% pooled, 17/2304 defect_class); permutation up or inside on every family; defect_class ECE inside; the 8K needle is uninformative (J4's envelope spans 0.00-0.75 worst)",
+    "confound": "one seed, nondeterministic kernels; the only clean pair is J4 s0 vs J6(b) s0. F-vs-J4 differences are attributable to neither data nor flag."
+  },
+  "ood_falsifier": {
+    "rule": "if any F seed's prose or scrambled abstention falls back inside J4's envelope (<= 9/60 prose, <= 8/60 scrambled), the J6(b) gain is not reproduced and J6(f) runs",
+    "bar": "F2's >= 30/60 per category per seed stands as the bar"
+  },
+  "report_only_expectations_per_seed": {
+    "defect_class_in_distribution_abstention": "<= 1% (J6(b) 0.74%); F3's <= 2% bound stands",
+    "defect_class_permutation_consistency": ">= 0.99",
+    "kind": "misses are reported, not acted on"
+  },
+  "needle_attribution_rule": {
+    "j6f": "J6(f) = F's recipe minus --lower-layers-n/--lower-layers-lr-scale, seed 0, same data order as F seed 0, quick (the plan's phase-5 'no layer-wise LR' ablation, on v4)",
+    "trigger": "J6(f) runs first among the v4 ablations, ahead of J6(a)/J6(d), if F's 8K needle worst bucket is < 0.95 on >= 2 of 3 seeds, or if any F seed trips the OOD falsifier; otherwise it is lowest priority, after J6(d)"
+  },
+  "free_cpu_readout": "mean of the last ~200 steps' loss, choice and span channels separately, from J4 s0's and J6(b)'s logs on the box (J6(b)'s last-batch loss 1.143 vs J4 s0's 0.464 on the same final batch); goes in the J6(b) handoff section, not on F's critical path"
+}
