@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Literal, Protocol
 
 import numpy as np
 
@@ -45,9 +45,12 @@ __all__ = [
     "ContextLengthFeatures",
     "DenseOperand",
     "Featurizer",
+    "LabelSpace",
     "LinearBaseline",
     "RequestDoc",
     "context_texts",
+    "control_label",
+    "control_label_space",
     "fit_budget_refusal",
     "request_texts",
 ]
@@ -141,21 +144,23 @@ class RequestDoc:
 
     ``text`` is ``render(...).prompt_for(slot)`` -- the prefix and the slot's suffix, which is
     every byte the model conditions on for that slot's answer. ``value`` is the gold VALUE,
-    not the gold letter: ``qd_data.render`` permutes a choice slot's options per example, so
-    the letter is an artefact of one rendering. A control asked to predict ``'A'`` from text
-    whose ``A`` means something different on every row would be an artificially weak
-    opponent, and a weak opponent manufactures a win. Correctness is therefore value
-    equality, which is the same question the model's ``top == gold_row`` answers.
+    ``letter`` the gold letter in this rendering, and ``offered`` every ``(letter, value)``
+    pair the rendering shows, noul included. Which of ``value`` and ``letter`` the control is
+    labelled by is a per-task decision, :func:`control_label_space`; either way correctness
+    is the same question the model's ``top == gold_row`` answers, because on one row the
+    letter and the value name the same option.
     """
 
     row_id: str
     slot_name: str
     kind: str
-    #: ``family_id/slot_name``: the label space. One control per task, because a
-    #: ``change_scope`` bin is not a candidate answer to ``commit_intent``.
+    #: ``family_id/slot_name``: the task. One control per task, because a ``change_scope``
+    #: bin is not a candidate answer to ``commit_intent``.
     task: str
     text: str
     value: str
+    letter: str
+    offered: tuple[tuple[str, str], ...]
     metadata: Mapping[str, str] = field(default_factory=dict)
     #: ``row.request.context`` alone -- what :class:`ContextLengthFeatures` measures. Empty
     #: for a doc built without it, which the length control reports as not run rather than
@@ -198,6 +203,8 @@ def request_texts(
                         task=f"{row.family_id}/{spec.slot_name}",
                         text=rendered.prompt_for(spec.slot_name),
                         value=slot.letter_to_value[letter],
+                        letter=letter,
+                        offered=tuple(slot.letter_to_value.items()),
                         metadata=dict(row.metadata),
                         context=row.request.context,
                     )
@@ -207,6 +214,72 @@ def request_texts(
             continue
         docs.extend(staged)
     return docs, excluded
+
+
+#: What a task's control is labelled by. See :func:`control_label_space`.
+LabelSpace = Literal["value", "letter"]
+
+
+def control_label_space(train: Sequence[RequestDoc], val: Sequence[RequestDoc]) -> LabelSpace:
+    """``"value"`` when every row of the task offers one option set, else ``"letter"``.
+
+    The control is a classifier over one class set, so its labels have to mean the same
+    thing on every row. Which label does depends on where the options come from:
+
+    * **One option set on every row** (``code.defect_class``'s classes, yes/no, a score's
+      bins, CLINC's domains). The value is the class. The letter is not: ``qd_data.render``
+      shuffles a choice slot's options per example, so ``'A'`` names a different class on
+      every row, and a control asked to predict it from n-grams would be an artificially
+      weak opponent -- which manufactures a win.
+    * **The row's own options** (CommonsenseQA, MMLU, CLINC's sampled and per-domain intent
+      sets). The value is not a class: it is one of THIS question's options, so values barely
+      recur across rows (k=4,956 on 9,619 CSQA train rows, k=12,080 on 14,200 MMLU rows, on
+      the 2026-09-29 general record without the replay partition), and where the split is by
+      label -- CLINC's ``repo_key`` is the intent -- no val gold is a training class at all
+      (0/1,500 on ``intent.classification``). A control over those classes
+      cannot answer the question it is scored on; J1's CSQA control selected its L2 at
+      4/1635 on a five-way task. The letter is the one label every row shares, and the
+      model answers in letters.
+
+    Decided from the option sets the rows OFFER -- the prompt -- never from their golds, so
+    no val label is read to configure the control. A train split that offers one set while
+    val offers another is refused: the control's classes would not cover what val asks, and
+    that is a split defect to fix, not a label space to guess. So is a doc without its
+    rendering's options, or docs from more than one task.
+    """
+    docs = [*train, *val]
+    tasks = sorted({d.task for d in docs})
+    if len(tasks) > 1:
+        raise ValueError(f"a control's label space is one task's; these docs span {tasks}")
+    bare = [d.row_id for d in docs if not d.offered or not d.letter]
+    if bare:
+        raise ValueError(
+            f"{len(bare)} doc(s) carry no rendering (no offered options or gold letter), "
+            f"first {bare[:3]}: build them with request_texts, which records what the model "
+            "was shown"
+        )
+    train_sets = {frozenset(v for _, v in d.offered) for d in train}
+    val_sets = {frozenset(v for _, v in d.offered) for d in val}
+    if len(train_sets | val_sets) == 1:
+        return "value"
+    if len(train_sets) == 1:
+        (fixed,) = train_sets
+        differing = sorted(sorted(s) for s in val_sets if s != fixed)
+        raise ValueError(
+            f"task {tasks[0]}: every training row offers the option set {sorted(fixed)} and "
+            f"{len(differing)} val option set(s) differ from it, first {differing[0]}; the "
+            "control's classes would not cover what val asks"
+        )
+    return "letter"
+
+
+def control_label(doc: RequestDoc, space: LabelSpace) -> str:
+    """``doc``'s label in ``space``: its gold value, or its gold letter in this rendering."""
+    if space == "value":
+        return doc.value
+    if space == "letter":
+        return doc.letter
+    raise ValueError(f"unknown label space {space!r}")
 
 
 @dataclass(frozen=True, slots=True)

@@ -21,6 +21,8 @@ sys.path.insert(0, str(REPO / "tools"))
 
 import ft_linear_control as ftc  # noqa: E402
 
+from qd_data.defect_class import DEFECT_CLASSES  # noqa: E402
+from qd_data.schema import NOUL, NOUL_LETTER, OPTION_LETTERS  # noqa: E402
 from qd_train.baseline import (  # noqa: E402
     ContextLengthFeatures,
     LinearBaseline,
@@ -36,12 +38,17 @@ def _context(i: int, *, lines: int) -> str:
     return "".join(f"+    x{(i + k) % 7} = y\n" for k in range(lines))
 
 
+#: What every code.defect_class row offers, in letter order: one option set, so the control
+#: is labelled by value (``qd_train.baseline.control_label_space``).
+OFFERED = (*zip(OPTION_LETTERS, DEFECT_CLASSES, strict=False), (NOUL_LETTER, NOUL))
+
+
 def _doc(i: int, value: str, *, context: str) -> RequestDoc:
     # The prompt text says nothing about the class, so the n-gram control cannot read it.
     return RequestDoc(
         row_id=f"r{i:04d}", slot_name="defect_class", kind="choice", task=TASK,
         text=f"<|qd_context|>\n{context}<|qd_context_end|> which class?", value=value,
-        context=context,
+        letter=next(k for k, v in OFFERED if v == value), offered=OFFERED, context=context,
     )
 
 
@@ -99,7 +106,7 @@ def test_docs_without_a_context_leave_the_length_control_not_run(qd_prep: Path) 
     def bare(docs: list[RequestDoc]) -> list[RequestDoc]:
         return [
             RequestDoc(row_id=d.row_id, slot_name=d.slot_name, kind=d.kind, task=d.task,
-                       text=d.text, value=d.value)
+                       text=d.text, value=d.value, letter=d.letter, offered=d.offered)
             for d in docs
         ]
 

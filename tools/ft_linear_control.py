@@ -26,11 +26,14 @@ the first here, pairs them by row key, and appends the gate as a new ``eval`` ro
 ## Its input is the model's input
 
 The control reads ``render(...).prompt_for(slot)`` -- every byte the model conditions on --
-through :func:`qd_train.baseline.request_texts`, and is labelled by gold **value**, not by
-letter (the letter is a per-example permutation artefact; see ``RequestDoc``). One control
-is fitted per task (``family_id/slot_name``), because one task's labels are not candidate
-answers to another. Span slots are not scored: a pointer's answer is a line pair a bag of
-n-grams cannot produce, and the row says so.
+through :func:`qd_train.baseline.request_texts`. One control is fitted per task
+(``family_id/slot_name``), because one task's labels are not candidate answers to another,
+and each task's labels are chosen by :func:`qd_train.baseline.control_label_space`: the gold
+**value** where every row offers one option set (the letter is a per-example permutation
+artefact there), the gold **letter** where the options are the row's own (CommonsenseQA,
+MMLU, CLINC's intent sets), whose values are not classes any other row shares. The val rows'
+``linear_control_top1`` detail names which. Span slots are not scored: a pointer's answer is
+a line pair a bag of n-grams cannot produce, and the row says so.
 
 ## The rows
 
@@ -91,8 +94,11 @@ from qd_train.baseline import (  # noqa: E402
     CharNGramHasher,
     ContextLengthFeatures,
     Featurizer,
+    LabelSpace,
     LinearBaseline,
     RequestDoc,
+    control_label,
+    control_label_space,
     fit_budget_refusal,
     request_texts,
 )
@@ -393,7 +399,14 @@ def fit_task(
     engine and so over-states the native one -- the safe direction for a refusal."""
     val_docs = [arm.text_of(d) for d in val]
     keys = [doc_key(d, by_slot_name=by_slot_name) for d in val]
-    classes = sorted({d.value for d in train})
+    try:
+        space = control_label_space(train, val)
+    except ValueError as exc:
+        reason = f"task {task}: no label space every row shares: {exc}"
+        return TaskControl(task, {}, NotRun(reason=reason), NotRun(reason=reason), 0.0, False)
+    train_labels = [control_label(d, space) for d in train]
+    val_golds = [control_label(d, space) for d in val]
+    classes = sorted(set(train_labels))
     if len(classes) < 2:
         reason = (
             f"task {task}: the training split holds {len(train)} row(s) with class(es) "
@@ -408,7 +421,6 @@ def fit_task(
             "as zero-length would make a constant, easily beaten control"
         )
         return TaskControl(task, {}, NotRun(reason=reason), NotRun(reason=reason), 0.0, False)
-    train_labels = [d.value for d in train]
     features = arm.make_features()
     model = LinearBaseline(
         hasher=features, seed=seed, max_iter=max_iter, dense_budget_bytes=dense_budget_bytes
@@ -431,7 +443,7 @@ def fit_task(
                 task, correct,
                 Ran(passed=True, value=hit.final_grad_norm,
                     detail=f"cached: converged in {hit.iterations} iterations at l2={hit.l2}"),
-                _accuracy(task, correct), hit.fitted_s, True,
+                _accuracy(task, correct, space), hit.fitted_s, True,
             )
 
     refusal = fit_budget_refusal(
@@ -454,7 +466,7 @@ def fit_task(
         reason = convergence.reason if isinstance(convergence, NotRun) else convergence.detail
         return TaskControl(task, {}, convergence, NotRun(reason=reason), fitted_s, False)
     predicted = result.predictions
-    hits = [p == d.value for p, d in zip(predicted, val, strict=True)]
+    hits = [p == gold for p, gold in zip(predicted, val_golds, strict=True)]
     fit = model.fit_
     if fit is None:  # pragma: no cover - convergence() refused an unfitted model above
         raise RuntimeError("a converged control has no fit")
@@ -465,17 +477,19 @@ def fit_task(
         )
     correct = dict(zip(keys, hits, strict=True))
     return TaskControl(
-        task, correct, convergence, _accuracy(task, correct, arm.name), fitted_s, False
+        task, correct, convergence, _accuracy(task, correct, space, arm.name), fitted_s, False
     )
 
 
-def _accuracy(task: str, correct: Mapping[Key, bool], arm: str = "linear_control") -> TriState:
+def _accuracy(
+    task: str, correct: Mapping[Key, bool], space: LabelSpace, arm: str = "linear_control"
+) -> TriState:
     if not correct:
         return NotRun(reason=f"task {task} has no val rows")
     hits = sum(correct.values())
     return Ran(
         passed=True, value=hits / len(correct), n=hits, n_total=len(correct),
-        detail=f"{arm} top-1 on task {task}'s val rows",
+        detail=f"{arm} top-1 on task {task}'s val rows, labelled by {space}",
     )
 
 

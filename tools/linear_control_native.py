@@ -12,9 +12,11 @@ operand where it does not -- and at 65,536 columns, any task above ~49k training
 
 ## What moved, and what did not
 
-``qd_train.baseline`` is the reference oracle and is **not edited**: ``control_cache`` folds its
-sha256 into every cache key, so one changed byte would orphan every cached control on the box.
-Everything that is a *choice* stays defined there and is read from it: the featurizer and its
+``qd_train.baseline`` is the reference oracle and was not edited by this move: ``control_cache``
+folds its sha256 into every cache key, so one changed byte orphans every cached control on the
+box (the label-space fix, ``control_label_space``, did so deliberately on 2026-10-01). Everything
+that is a *choice* stays defined there and is read from it: which labels a task's control is
+fitted on (``control_label_space``; they arrive here already chosen), the featurizer and its
 parameters, the classes (``sorted(set(labels))``), the validation carve (``fit``'s own
 ``default_rng(seed).permutation`` and ``max(1, int(n * val_frac))``), the initial weights
 (``_train_once``'s ``default_rng(seed).normal(0, 0.01, (d, k))``, identical for every fit
