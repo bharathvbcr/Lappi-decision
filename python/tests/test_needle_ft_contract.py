@@ -465,12 +465,16 @@ def test_a_control_row_is_its_own_quick_family_and_names_no_eval_row(monkeypatch
     )
     reader = SimpleNamespace(header=SimpleNamespace(shard_hash=lambda: "s" * 64))
     val = SimpleNamespace(reader=reader, letter_id={})
-    row_id, lines = rft.run_needle_control(
+    row_id, lines, seed = rft.run_needle_control(
         args, reader=reader, val=val, device="cuda", ledger=None,  # type: ignore[arg-type]
         config=DataConfig(), gate_suite=suite, reasons_for=lambda *a: [],
     )
     recipe = captured["recipe"]
     assert row_id == "row-1" and captured["run_kind"] == "eval"
+    assert seed == 0, "one seed's control row is at its checkpoint's seed"
+    assert recipe["scored_checkpoint"] == f"epoch-seed0-cuda.json:{'c' * 16}"
+    assert captured["metrics"]["ft_run_row_id"].value == "ft1"
+    assert "ft_run_row_ids" not in captured["metrics"] and "averaged" not in recipe
     assert "eval_row_id" not in recipe, "a control naming the eval row would join its family"
     assert recipe["tag"] == "epoch-needle-length-control" and "needle" not in recipe
     assert recipe["needle_control"]["target_tokens"] == [1024]

@@ -4100,14 +4100,19 @@ def needle_control_metrics(
 def run_needle_control(
     args: argparse.Namespace, *, reader: ShardReader, val: ValSet, device: str, ledger: Ledger,
     config: DataConfig, gate_suite: NeedleSuite, reasons_for: Callable[..., list[str]],
-) -> tuple[str, list[dict[str, object]]]:
+) -> tuple[str, list[dict[str, object]], int]:
     """``--needle-control``: the needle suite at each given length, scored by the gate's rule,
-    on a quick row of its own. Returns ``(row id, raw verdict lines)``.
+    on a quick row of its own. Returns ``(row id, raw verdict lines, row seed)``.
 
     The row's recipe is its own (``tag`` ``epoch-needle-length-control`` and the arms), so it
     is a seed family of its own: it never joins, supplements or blocks the gate's eval rows,
     and it names no ``eval_row_id``. The gate-length arm must be the gate suite byte for
     byte (digest), or the sweep is refused: its 8K point is then the gate's own suite.
+
+    An average (``.safetensors``) is paired as its score row is (:func:`_averaged_weights`):
+    the row's tag is ``avg-needle-length-control``, its recipe carries the ``averaged``
+    block, it names every input's ft row under ``ft_run_row_ids`` and never one of them under
+    ``ft_run_row_id``, and its protocol seed is the suite seed, which is the row seed returned.
     """
     lengths: tuple[int, ...] = args.needle_control
     suites: dict[int, NeedleSuite] = {}
@@ -4128,6 +4133,9 @@ def run_needle_control(
         args, reader=reader, val=val, device=device, eval_widths=widths,
         suite_seed=config.seed,
     )
+    averaged = meta.get("averaged")
+    # For an average `ft` is its first input's row; _averaged_weights has checked that every
+    # input's row has this shard set and this recipe, which fix the plan's widest batch.
     plan_width = ft["metrics"].get("corpus.plan_max_width", {}).get("value")
     trained_width = int(plan_width) if isinstance(plan_width, int) else None
     decode_at = time.monotonic()
@@ -4139,11 +4147,25 @@ def run_needle_control(
         lines.extend({**v, "target_tokens": n} for v in decoded.verdicts)
         print(f"  needle control {n}: {metrics[f'needle_hunk_recall.control.{n}'].to_json()}")
     decode_s = time.monotonic() - decode_at
+    if averaged is None:
+        scored_checkpoint = f"{args.score_checkpoint.name}:{meta['sidecar']['digest']}"
+        terminations = [ft["metrics"].get("train.termination", {}).get("value")]
+        ft_rows = f"ft row {ft['row_id']}"
+    else:
+        scored_checkpoint = str(meta["scored_checkpoint"])
+        terminations = list(meta["terminations"])
+        ft_rows = (
+            f"an AVERAGE of seeds {averaged['seeds']} from their {averaged['source']}, ft rows "
+            f"{', '.join(averaged['ft_row_ids'])}, manifest sha256 {averaged['manifest_sha256']}"
+        )
     control_recipe: dict[str, object] = {
-        "tool": "tools/real_ft_run.py", "tag": "epoch-needle-length-control", "device": device,
+        "tool": "tools/real_ft_run.py",
+        "tag": f"{'epoch' if averaged is None else AVERAGED_TAG}-needle-length-control",
+        "device": device,
         **{k: recipe[k] for k in (*BACKBONE_KEYS, *RECIPE_PIECE_KEYS) if k in recipe},
         "score_dtype": args.score_dtype,
-        "scored_checkpoint": f"{args.score_checkpoint.name}:{meta['sidecar']['digest']}",
+        "scored_checkpoint": scored_checkpoint,
+        **({} if averaged is None else {"averaged": averaged}),
         "shard_hash": reader.header.shard_hash(),
         "val_shard_hash": val.reader.header.shard_hash(),
         "needle_control": {
@@ -4152,11 +4174,19 @@ def run_needle_control(
             "suite_seed": config.seed, "gate_suite_digest": gate_suite.digest,
         },
     }
-    termination = ft["metrics"].get("train.termination", {}).get("value")
-    reasons = [
-        *reasons_for("epoch", device, None if termination is None else str(termination)),
-        NEEDLE_CONTROL_QUICK_REASON,
-    ]
+    reasons: list[str] = []
+    for termination in terminations:
+        for reason in reasons_for(
+            "epoch", device, None if termination is None else str(termination)
+        ):
+            if reason not in reasons:
+                reasons.append(reason)
+    if averaged is not None and int(averaged["n_inputs"]) < MIN_AVERAGED_SEEDS:
+        reasons.append(
+            f"an average of {averaged['n_inputs']} seeds: rule 8 marks fewer than "
+            f"{MIN_AVERAGED_SEEDS} seeds quick"
+        )
+    reasons.append(NEEDLE_CONTROL_QUICK_REASON)
     recorder = _recorder(
         ledger, reader=reader, seed=seed, recipe=control_recipe, run_kind="eval",
         quick_reasons=reasons, wall_clock_s=decode_s,
@@ -4167,23 +4197,32 @@ def run_needle_control(
         ),
         notes=(
             f"tools/real_ft_run.py --needle-control {','.join(map(str, lengths))} on "
-            f"{control_recipe['scored_checkpoint']} (ft row {ft['row_id']}), {args.score_dtype} "
+            f"{scored_checkpoint} ({ft_rows}), {args.score_dtype} "
             f"on {device}: the needle gate's rule at other lengths, a diagnostic for "
             "GAP-NEEDLE-FAILS-AT-8K-CAUSE-UNRESOLVED. Length and hunk count move together "
             "(fixed filler templates), so this cannot separate them."
         ),
     )
     with recorder:
-        recorder.metric(
-            "ft_run_row_id",
-            Ran(passed=True, value=ft["row_id"], detail="the train_ft row whose model this is"),
-        )
+        if averaged is None:
+            recorder.metric(
+                "ft_run_row_id",
+                Ran(passed=True, value=ft["row_id"],
+                    detail="the train_ft row whose model this is"),
+            )
+        else:
+            # Not ft_run_row_id: that names ONE row, and shuffled_label_target reads it so.
+            recorder.metric(
+                "ft_run_row_ids",
+                Ran(passed=True, value=",".join(averaged["ft_row_ids"]),
+                    detail="the train_ft rows whose weights were averaged into this model"),
+            )
         for name, state in metrics.items():
             recorder.metric(name, state)
         recorder.noul_rate = NotRun(reason="a needle length-control row decodes no val row")
     if recorder.row is None:  # pragma: no cover - RunRecorder always writes on exit
         raise RuntimeError("RunRecorder exited without writing a row")
-    return recorder.row.row_id, lines
+    return recorder.row.row_id, lines, seed
 
 
 #: Rows per general cache file read for the OOD prose pool. The val split is a keyed hash
@@ -6384,11 +6423,6 @@ def main(argv: list[str] | None = None) -> int:
                 "--score-checkpoint of an average needs --seeds to list the average's seeds, "
                 "two or more (J7: --seeds 0 1 2); they are checked against its manifest"
             )
-        if averaged and args.needle_control is not None:
-            raise SystemExit(
-                "--needle-control diagnoses one seed's checkpoint against its own ft row; an "
-                "average is no one seed's model"
-            )
         if args.epoch or args.resume_from is not None:
             raise SystemExit(
                 "--score-checkpoint trains nothing; --epoch and --resume-from would train"
@@ -6689,7 +6723,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.needle_control is not None:
-            control_row_id, control_lines = run_needle_control(
+            control_row_id, control_lines, control_seed = run_needle_control(
                 args, reader=reader, val=val_set, device=devices[0], ledger=Ledger(args.ledger),
                 config=config, gate_suite=needle_suite,
                 reasons_for=lambda tag, device, termination=None: quick_reasons(
@@ -6697,10 +6731,12 @@ def main(argv: list[str] | None = None) -> int:
                     termination=termination,
                 ),
             )
+            # The row's own protocol seed, as for the score row below: never --seeds[0],
+            # which for an average is one of its inputs.
             if args.suite_verdicts_out is not None:
                 write_suite_verdicts_jsonl(
                     args.suite_verdicts_out,
-                    [{"eval_row_id": control_row_id, "seed": int(args.seeds[0]),
+                    [{"eval_row_id": control_row_id, "seed": control_seed,
                       "gate": "needle_hunk_recall.control", **v} for v in control_lines],
                 )
                 print(f"suite verdicts: {len(control_lines)} lines -> {args.suite_verdicts_out}")
