@@ -70,7 +70,9 @@ Lane worktree `agent-a49d73cb7bb3e7dad`, branch `worktree-agent-a49d73cb7bb3e7da
   - **Not at `eeb1c67`.** The box commands below are pinned there, where the refusal still
     stands: on those jobs, needle pointer scores come only from `--needle-control` and
     `--score-plan` (in-process, cuda).
-- **J4's ens3 gate row: re-score from `lane7-eeb1c67` at `0062bde`.** The run on the box (qd-lane7 at `eeb1c67`) wrote the seed0, seed1, seed2 and avg OOD rows to `gh200-p6-j7-avg-2026-10-01.jsonl`. It died on kind ens3 (gates) in `combine_readouts`. `0062bde` is `eeb1c67` plus the fix alone, so the v3 shard fingerprint pin still holds. Re-run with a plan holding only the ens3 kind (the four OOD rows exist), from qd-lane7 checked out at `0062bde`.
+- **J4's ens3 gate row: re-score from `lane7-eeb1c67` at `0062bde`.** The run on the box (qd-lane7 at `eeb1c67`) wrote the seed0, seed1, seed2 and avg OOD rows to `gh200-p6-j7-avg-2026-10-01.jsonl`. It died on kind ens3 (gates) in `combine_readouts`. `0062bde` is `eeb1c67` plus the fix alone, so the v3 shard fingerprint pin still holds. Re-run from qd-lane7 checked out at `0062bde`, which reaches the box from this Mac: the ref was moved here and nothing was pushed.
+  - Use a plan holding only the ens3 kind, keeping `--needle --ood --suite-logits` for its gates pass. The committed plan is refused at argv because `suite-verdicts-{seed0,seed1,seed2,avg}.jsonl` already exist from the run that died. `verdicts-ens3.jsonl` was never written.
+  - The fix takes the ensemble mean's log-softmax on the host: one small `.cpu()` per decoded row per tower. Its cost on the GH200 is **not measured**.
 - **GAP-ENSEMBLE-ROW-HAS-NO-PROMOTION-KIND-2026-10-01** (human). Neither `promotion_verdict` nor
   `promotion_verdict_avg` judges an `ens3` row. Read from the code.
 - **GAP-ENS3-SCORING-NAVIGATION-2026-10-01.** DevMap answered for main's index only, and GitPulse
@@ -343,4 +345,5 @@ From a checkout of this branch (or of main once it is merged):
       --with pytest --with hypothesis --with datasketch python -m pytest \
       python/tests/test_real_ft_score_plan.py python/tests/test_real_ft_ensemble.py \
       python/tests/test_real_ft_suite_logits.py python/tests/test_ckpt_average_norm_preserving.py \
+      python/tests/test_composed_slice.py python/tests/test_real_ft_composed_slice.py \
       -o addopts= -q -k "not mps"
