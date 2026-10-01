@@ -45,6 +45,61 @@ enum Command {
     Formatters,
     /// Mutate one source file and print the examples as JSONL.
     One(OneArgs),
+    /// Compose a corpus's examples into PR-shaped multi-file rows (`qd_mutate::compose`).
+    Compose(ComposeArgs),
+}
+
+#[derive(clap::Args, Debug)]
+struct ComposeArgs {
+    /// The corpus the needles and clean examples come from: a directory holding `examples.jsonl`
+    /// and the `manifest.json` `generate` wrote.
+    #[arg(long)]
+    corpus: PathBuf,
+    /// The pool that corpus was generated from; its sha256 must match the corpus manifest's.
+    #[arg(long)]
+    pool: PathBuf,
+    /// Every pool repo's split, written by `tools/compose_split_map.py`.
+    #[arg(long)]
+    split_map: PathBuf,
+    /// The output directory: `examples.jsonl` and `manifest.json` (or `census.json` alone).
+    #[arg(long)]
+    out: PathBuf,
+    #[arg(long)]
+    seed: u64,
+    #[arg(long, default_value_t = 25_000)]
+    train_rows: usize,
+    #[arg(long, default_value_t = 1_250)]
+    val_rows: usize,
+    /// A row's target estimated tokens is uniform over `[min_tokens, max_tokens]`.
+    #[arg(long, default_value_t = 850)]
+    min_tokens: u32,
+    #[arg(long, default_value_t = 7_300)]
+    max_tokens: u32,
+    /// No row's estimate may exceed this.
+    #[arg(long, default_value_t = 7_450)]
+    hard_max_tokens: u32,
+    #[arg(long, default_value_t = 3)]
+    min_files: usize,
+    #[arg(long, default_value_t = 12)]
+    max_files: usize,
+    /// Rows in a thousand composed clean. v3's clean share is 8,449 of 49,953.
+    #[arg(long, default_value_t = 169, value_parser = clap::value_parser!(u32).range(0..=1000))]
+    clean_permille: u32,
+    /// No constituent may carry more than this share of its row's estimate.
+    #[arg(long, default_value_t = 400)]
+    max_share_permille: u32,
+    /// A row's estimate must land within this many permille of its target.
+    #[arg(long, default_value_t = 100)]
+    tolerance_permille: u32,
+    /// The row bound `qd_data.config.DataConfig.max_row_bytes` enforces.
+    #[arg(long, default_value_t = 1_048_576)]
+    max_row_bytes: usize,
+    /// No filler appears in more rows than this.
+    #[arg(long, default_value_t = 40)]
+    max_filler_uses: u64,
+    /// Write only the supply census (`census.json`): no rows are composed.
+    #[arg(long)]
+    census: bool,
 }
 
 #[derive(clap::Args, Debug)]
@@ -112,7 +167,61 @@ fn main() -> Result<()> {
         Command::Generate(args) => generate(args),
         Command::Formatters => formatters(),
         Command::One(args) => one(args),
+        Command::Compose(args) => compose(args),
     }
+}
+
+fn compose(args: ComposeArgs) -> Result<()> {
+    use qd_mutate::compose;
+    let inputs = compose::load(&args.corpus, &args.pool, &args.split_map)?;
+    let prepared = compose::prepare(&inputs)?;
+    drop(inputs);
+    if args.census {
+        let report = serde_json::json!({
+            "schema": "qd-compose-census/v1",
+            "base_corpus": prepared.base,
+            "pool": prepared.pool_ref,
+            "split_map": prepared.split_map_ref,
+            "prepare_refusals": prepared.refusals,
+            "heldout_skipped": prepared.heldout_skipped,
+            "clean_diff_parity_checked": prepared.parity_checked,
+            "token_estimate_tokens_per_piece": compose::TOKENS_PER_PIECE,
+            "splits": compose::census(&prepared),
+        });
+        let text = serde_json::to_string_pretty(&report).context("serialising the census")?;
+        write_atomically(&args.out.join("census.json"), text.as_bytes())?;
+        println!("{text}");
+        return Ok(());
+    }
+    let options = compose::Options {
+        seed: args.seed,
+        train_rows: args.train_rows,
+        val_rows: args.val_rows,
+        min_tokens: args.min_tokens,
+        max_tokens: args.max_tokens,
+        hard_max_tokens: args.hard_max_tokens,
+        min_files: args.min_files,
+        max_files: args.max_files,
+        clean_permille: args.clean_permille,
+        max_share_permille: args.max_share_permille,
+        tolerance_permille: args.tolerance_permille,
+        max_row_bytes: args.max_row_bytes,
+        max_filler_uses: args.max_filler_uses,
+    };
+    let composed = compose::compose(&prepared, &options)?;
+    let (jsonl, digest) = composed.to_jsonl().context("serialising the rows")?;
+    if digest != composed.manifest.examples_sha256 {
+        bail!(
+            "the rows serialised to {digest}, the manifest recorded {}",
+            composed.manifest.examples_sha256
+        );
+    }
+    write_atomically(&args.out.join("examples.jsonl"), jsonl.as_bytes())?;
+    let manifest =
+        serde_json::to_string_pretty(&composed.manifest).context("serialising the manifest")?;
+    write_atomically(&args.out.join("manifest.json"), manifest.as_bytes())?;
+    println!("examples {} sha256 {digest}", composed.rows.len());
+    Ok(())
 }
 
 fn generate(args: GenerateArgs) -> Result<()> {
@@ -147,8 +256,8 @@ fn generate(args: GenerateArgs) -> Result<()> {
     write_atomically(&args.out, jsonl.as_bytes())
         .with_context(|| format!("writing {}", args.out.display()))?;
 
-    let manifest_json = serde_json::to_string_pretty(&run.manifest)
-        .context("serialising the manifest")?;
+    let manifest_json =
+        serde_json::to_string_pretty(&run.manifest).context("serialising the manifest")?;
     write_atomically(&args.manifest, manifest_json.as_bytes())
         .with_context(|| format!("writing {}", args.manifest.display()))?;
 
