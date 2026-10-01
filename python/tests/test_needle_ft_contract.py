@@ -183,9 +183,10 @@ def test_the_suite_is_decoded_one_case_at_a_time_at_one_width(monkeypatch):
     cases = build_suite(target_tokens=1024, cases_per_depth=2, seed=0)
     widths: list[int] = []
 
-    def decode(step, batches, labels_for, letter_id):
+    def decode(step, batches, labels_for, letter_id, *, pointer_scores):
         widths.extend(int(b.tokens.shape[1]) for b in batches)
         assert len(batches) == 1
+        assert pointer_scores is False, "the gate's own decode never asks for pointer scores"
         return {"verdicts": []}
 
     monkeypatch.setattr(rft, "_decode", decode)
@@ -454,7 +455,7 @@ def test_a_control_row_is_its_own_quick_family_and_names_no_eval_row(monkeypatch
     monkeypatch.setattr(rft, "_checkpoint_step", lambda *a, **k: (None, ft, {}, 0, meta))
     monkeypatch.setattr(
         rft, "needle_predictions",
-        lambda step, s, letter_id: _decoded(s.cases, hit_every=1, abstain_every=2),
+        lambda step, s, letter_id, **kw: _decoded(s.cases, hit_every=1, abstain_every=2),
     )
     captured: dict[str, object] = {}
 
@@ -483,7 +484,7 @@ def test_a_control_row_is_its_own_quick_family_and_names_no_eval_row(monkeypatch
     args = SimpleNamespace(
         needle_control=(1024,), score_dtype="fp32",
         score_checkpoint=Path("epoch-seed0-cuda.json"), usd_per_hour=2.29,
-        usd_per_gpu_hour=None, instance="gh200", wall_clock_cap_s=600.0,
+        usd_per_gpu_hour=None, instance="gh200", wall_clock_cap_s=600.0, suite_logits=False,
     )
     reader = SimpleNamespace(header=SimpleNamespace(shard_hash=lambda: "s" * 64))
     val = SimpleNamespace(reader=reader, letter_id={})

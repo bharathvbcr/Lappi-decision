@@ -442,10 +442,11 @@ class _CapturedRecorder:
         raise AssertionError(f"a needle control recorded the gate {name}")
 
 
-def _run_avg_needle_control(monkeypatch, args, *, step_reached=None):
+def _run_avg_needle_control(monkeypatch, args, *, step_reached=None, predictions=None):
     """``run_needle_control`` on an average, with ``_averaged_weights``' pairing checks run as
-    written. Only the tower (``_real_step``), the suite build and the decode are stood in
-    for: no GPU, no backbone."""
+    written. Only the tower (``_real_step``), the suite build and the decode
+    (``predictions``, standing in for ``needle_predictions``) are stood in for: no GPU, no
+    backbone."""
     import numpy as np
     from test_needle_ft_contract import _decoded
 
@@ -457,10 +458,10 @@ def _run_avg_needle_control(monkeypatch, args, *, step_reached=None):
         [900] * len(cases), digest="a" * 64,
     )
     monkeypatch.setattr(real_ft_run, "prepare_needle", lambda *a, **k: suite)
-    monkeypatch.setattr(
-        real_ft_run, "needle_predictions",
-        lambda step, s, letter_id: _decoded(s.cases, hit_every=1, abstain_every=2),
-    )
+    if predictions is None:
+        def predictions(step, s, letter_id, **kw):
+            return _decoded(s.cases, hit_every=1, abstain_every=2)
+    monkeypatch.setattr(real_ft_run, "needle_predictions", predictions)
     if step_reached is None:
         def step_reached(**kwargs):
             return SimpleNamespace(load_weights=lambda weights: None), None, None
@@ -489,6 +490,7 @@ def _avg_control_args(avg: Path, ledger: Path, seeds=(0, 1, 2)) -> argparse.Name
     return argparse.Namespace(
         **vars(_avg_args(avg, ledger, seeds)), needle_control=(1024, 2048, 4096),
         usd_per_hour=2.29, usd_per_gpu_hour=None, instance="gh200", wall_clock_cap_s=5400.0,
+        suite_logits=False,
     )
 
 

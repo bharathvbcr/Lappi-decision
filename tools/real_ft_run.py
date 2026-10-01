@@ -4019,10 +4019,16 @@ NEEDLE_VERDICT_FIELDS: Final[tuple[str, ...]] = (
 
 
 def needle_predictions(
-    step: RealFtStep, suite: NeedleSuite, letter_id: Mapping[str, int]
+    step: RealFtStep | TowerEnsemble, suite: NeedleSuite, letter_id: Mapping[str, int],
+    *, logits: bool = False,
 ) -> NeedleDecoded:
     """Decode the suite: per case, the hunk of the predicted start line (``None`` on
-    abstain), and the raw pointer verdict it came from."""
+    abstain), and the raw pointer verdict it came from.
+
+    ``logits`` (``--suite-logits``) adds each case's pointer scores over the runtime's rows
+    -- ``start_logits`` and ``end_logits``, the abstention at ``noul_row`` -- to its raw
+    verdict; for an ensemble they are its mean log-probabilities. Off, the verdicts are what
+    they always were."""
     bound = getattr(step, "max_width", None)
     widest = max(int(b.tokens.shape[1]) for b in suite.batches)
     if bound is not None and int(bound) < widest:
@@ -4033,7 +4039,9 @@ def needle_predictions(
     release_device_cache()
     verdicts: list[Mapping[str, object]] = []
     for i, batch in enumerate(suite.batches):
-        decoded = _decode(step, [batch], {0: suite.labels_for[i]}, dict(letter_id))
+        decoded = _decode(
+            step, [batch], {0: suite.labels_for[i]}, dict(letter_id), pointer_scores=logits
+        )
         verdicts.extend(decoded["verdicts"])  # type: ignore[arg-type]
     by_case = {str(v["row_id"]): v for v in verdicts}
     predictions: dict[str, int | None] = {}
@@ -4053,24 +4061,31 @@ def needle_predictions(
             "token_length": suite.token_lengths[i], "start": start, "end": end,
             "noul_row": noul, "rows": v.get("rows"), "abstained": hunk is None,
             "predicted_hunk": hunk, "hit": hunk == case.needle_index,
+            **{k: v[k] for k in SUITE_LOGIT_KEYS if logits and k in v},
         })
     return NeedleDecoded(predictions, tuple(raw))
 
 
+#: What ``--suite-logits`` adds to a needle case's raw verdict: the pointer's scores over
+#: the runtime's rows, the abstention included (at ``noul_row``). An OOD case's line always
+#: carries both passes' letter rows (``row_logits_1``/``row_logits_2``, noul included).
+SUITE_LOGIT_KEYS: Final[tuple[str, ...]] = ("start_logits", "end_logits")
+
+
 def score_needle(
-    step: RealFtStep, suite: NeedleSuite, letter_id: Mapping[str, int],
-    *, decoded: NeedleDecoded | None = None,
+    step: RealFtStep | TowerEnsemble, suite: NeedleSuite, letter_id: Mapping[str, int],
+    *, decoded: NeedleDecoded | None = None, logits: bool = False,
 ) -> tuple[TriState, dict[str, TriState], tuple[dict[str, object], ...]]:
     """``needle_hunk_recall``, its by-depth metrics, and the raw per-case verdicts, under
     the approved contract.
 
     ``decoded`` is a worker process's (``--needle-predictions-out``); without it the suite
-    is decoded here, with ``step``.
+    is decoded here, with ``step`` (and ``logits`` as :func:`needle_predictions` takes it).
     """
     if suite.not_run is not None:
         return NotRun(reason=suite.not_run), {}, ()
     if decoded is None:
-        decoded = needle_predictions(step, suite, letter_id)
+        decoded = needle_predictions(step, suite, letter_id, logits=logits)
     predictions = decoded.predictions
     report, gate = score_suite(suite.cases, dict(predictions), min_recall=NEEDLE_MIN_RECALL)
     metrics: dict[str, TriState] = {}
@@ -4287,7 +4302,7 @@ def run_needle_control(
     metrics: dict[str, TriState] = {}
     lines: list[dict[str, object]] = []
     for n, suite in suites.items():
-        decoded = needle_predictions(step, suite, val.letter_id)
+        decoded = needle_predictions(step, suite, val.letter_id, logits=args.suite_logits)
         metrics.update(needle_control_metrics(n, suite, decoded, trained_width=trained_width))
         lines.extend({**v, "target_tokens": n} for v in decoded.verdicts)
         print(f"  needle control {n}: {metrics[f'needle_hunk_recall.control.{n}'].to_json()}")
@@ -5459,7 +5474,7 @@ def _score_checkpoint(
     gates = [
         needle_gate(
             score_needle(step, needle_suite, val.letter_id,
-                         decoded=needle_decoded),
+                         decoded=needle_decoded, logits=args.suite_logits),
             needle_suite,
         ),
         ood_suite_gate(
@@ -5979,6 +5994,35 @@ def _check_shuffled_label_flags(args: argparse.Namespace, raw_argv: Sequence[str
             "nothing"
         )
     args.span_weight = 0.0
+
+
+def _check_suite_logits_flags(args: argparse.Namespace) -> None:
+    """``--suite-logits`` is refused wherever it would write nothing or be dropped.
+
+    It is read by the checkpoint scorer's in-process needle decode (``--needle-control``)
+    and nowhere else: the gate row's needle suite is decoded by the worker process
+    (:func:`run_needle_worker`), whose verdicts carry no pointer scores, so with ``--needle``
+    there the flag would be accepted and silently lost. The OOD suite's lines carry both
+    passes' letter rows with or without it.
+    """
+    if not args.suite_logits:
+        return
+    if args.score_checkpoint is None:
+        raise SystemExit(
+            "--suite-logits writes a scored checkpoint's per-case scores: it needs "
+            "--score-checkpoint"
+        )
+    if args.suite_verdicts_out is None:
+        raise SystemExit(
+            "--suite-logits adds scores to the --suite-verdicts-out lines; without that file "
+            "they would be decoded and dropped"
+        )
+    if args.needle and args.needle_control is None:
+        raise SystemExit(
+            "--suite-logits with --needle: the gate row's needle suite is decoded by the "
+            "needle worker process, whose verdicts carry no pointer scores, so the flag would "
+            "be dropped. Pass it with --needle-control or with --ood alone"
+        )
 
 
 def _check_piece_flags(args: argparse.Namespace) -> None:
@@ -6776,6 +6820,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--suite-logits", action="store_true",
+        help=(
+            "with --score-checkpoint and --suite-verdicts-out: each needle line also carries "
+            "the pointer's start_logits/end_logits over the runtime's rows, the abstention "
+            "at noul_row (an ensemble's are its mean log-probabilities). OOD lines carry "
+            "both passes' letter rows, noul included, with or without it"
+        ),
+    )
+    parser.add_argument(
         "--verdicts-out", type=Path, default=None,
         help=(
             "with --score-val: write every val verdict as one JSONL line (eval_row_id, seed, "
@@ -6979,6 +7032,7 @@ def main(argv: list[str] | None = None) -> int:
             )
     elif args.ft_ledger is not None or args.ft_row_id is not None:
         raise SystemExit("--ft-ledger/--ft-row-id only mean something with --score-checkpoint")
+    _check_suite_logits_flags(args)
     if (args.ood_general_record is not None) != args.ood:
         raise SystemExit("--ood and --ood-general-record are given together or not at all")
     if args.ood and not (args.score_val and args.real_backbone is not None):
