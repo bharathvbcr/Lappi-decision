@@ -1,0 +1,106 @@
+{
+  "tool": "qd-noul-rows",
+  "tool_version": "0.1.0",
+  "seed": 0,
+  "seed_derivation": "ChaCha20Rng::from_seed(sha256(seed.to_le_bytes() || 0 || source || 0 || key)); sample order sha256((seed+1).to_le_bytes() || 0 || source || 0 || key)",
+  "per_source": 834,
+  "split": {
+    "seed": 20260919,
+    "train_fraction": 0.9,
+    "val_fraction": 0.05
+  },
+  "allowlist_sha256": "ee04e0eda61adbdabb8815ddc19e6133ac2c95ba9eefd8e99deadaab931c5554",
+  "squad": {
+    "file": "train.jsonl",
+    "sha256": "6c7bcda5c15b2bc12e76ee22526bb8ff5e2478d4bf5d5b2d3d8de947d70a8515"
+  },
+  "pool": {
+    "path": "commitpackft-pool-v2.jsonl",
+    "sha256": "2cb31231a586baaddc5ec201637f784e1ff5724962df3f777c4de58fbf4fc5d2",
+    "records": 61193
+  },
+  "template_catalogue_sha256": "39be8b0c387e079cb2fe6fd5218b9f752383fdf50859e91219de84958df6a800",
+  "examples_sha256": "bb392e41796062800a5c84cb7ccc4f61720b75fb3b74d331ac37df78026cea87",
+  "totals": {
+    "examples": 2502,
+    "by_source": {
+      "prose": 834,
+      "scrambled": 834,
+      "unseen-language": 834
+    },
+    "by_language": {
+      "csharp": 139,
+      "elixir": 139,
+      "go": 209,
+      "kotlin": 139,
+      "php": 139,
+      "prose": 834,
+      "python": 209,
+      "rust": 208,
+      "scala": 139,
+      "shell": 139,
+      "typescript": 208
+    },
+    "by_licence": {
+      "apache-2.0": 1040,
+      "bsd-2-clause": 27,
+      "bsd-3-clause": 74,
+      "cc-by-sa-4.0": 834,
+      "cc0-1.0": 3,
+      "isc": 5,
+      "mit": 512,
+      "unlicense": 7
+    },
+    "units_by_source": {
+      "prose": 320,
+      "scrambled": 832,
+      "unseen-language": 35
+    }
+  },
+  "licences": {
+    "prose": {
+      "licence": "cc-by-sa-4.0",
+      "basis": "rajpurkar/squad_v2's registered licence (qd_data.sources); share-alike, carried per row"
+    },
+    "scrambled": {
+      "licence": null,
+      "basis": "per row: pool_id -> commitpackft pool -> bigcode/commitpackft download (commit, new_file), as the main defect corpus is joined"
+    },
+    "unseen-language": {
+      "licence": "apache-2.0",
+      "basis": "authored in this repository (crates/qd-mutate/src/noul_rows/templates.rs) and released under its LICENSE, Apache-2.0 -- the workspace licence in Cargo.toml"
+    }
+  },
+  "excluded_by_allowlist": {
+    "prose": {
+      "family:qa.answerability": 71,
+      "split:heldout": 20,
+      "split:val": 16
+    },
+    "scrambled": {
+      "split:heldout": 2821,
+      "split:val": 3004
+    },
+    "unseen-language": {
+      "split:heldout": 3,
+      "split:val": 4
+    }
+  },
+  "skipped": {
+    "prose": {
+      "invisible_format_character": 38,
+      "longer_than_max_chars": 493,
+      "multi_line_paragraph": 51,
+      "shorter_than_min_chars": 373
+    },
+    "scrambled": {
+      "carriage_return": 14,
+      "file_shorter_than_window": 16,
+      "invisible_format_character": 3,
+      "too_few_shufflable_lines": 27
+    },
+    "unseen-language": {
+      "duplicate_instantiation": 1
+    }
+  }
+}

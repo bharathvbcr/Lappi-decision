@@ -15,6 +15,13 @@ path = "src/lib.rs"
 name = "qd-mutate"
 path = "src/main.rs"
 
+# `code.defect_class` rows whose gold is `noul`: contexts that are not this model's kind (prose,
+# scrambled code, languages the pool never held). Outside `src/bin/` so cargo's target
+# auto-discovery does not claim the same file a second time.
+[[bin]]
+name = "qd-noul-rows"
+path = "src/noul_rows/main.rs"
+
 [dependencies]
 tree-sitter.workspace = true
 tree-sitter-rust.workspace = true

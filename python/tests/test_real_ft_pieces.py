@@ -242,7 +242,8 @@ def test_main_trains_on_exactly_what_ft_split_rows_returns(tmp_path, monkeypatch
                       "config": calls[0]["config"], "defect_class": None,
                       "defect_download": None, "defect_max_rows": None,
                       "repo_history": True, "general_record": None,
-                      "general_max_rows": None, "replay_partition": False}]
+                      "general_max_rows": None, "replay_partition": False,
+                      "defect_noul": None}]
 
 
 def test_ft_split_rows_is_the_rebuild_main_used_to_inline(tmp_path):

@@ -77,7 +77,7 @@ from qd_data.defect_class import (
     DefectRow,
     load_defect_rows,
 )
-from qd_data.errors import QdRefusal
+from qd_data.errors import NOUL, QdRefusal
 from qd_data.general import (
     CLINC_DOMAINS_COMMIT,
     REPLAY_FAMILIES,
@@ -847,7 +847,9 @@ def defect_balance(
     fam = [r for r in rows if r.family_id == DEFECT_FAMILY_ID]
 
     def label(r: DataRow) -> str:
-        return str(next(g.value for g in r.gold if g.slot_name == DEFECT_CHOICE_SLOT))
+        gold = next(g for g in r.gold if g.slot_name == DEFECT_CHOICE_SLOT)
+        # A noul-corpus row's choice gold is the abstention, whose value is None.
+        return NOUL if gold.is_noul else str(gold.value)
 
     kept = [
         r for r in fam
@@ -1384,9 +1386,15 @@ def run(
     replay_shards: bool = False,
     repo_history: bool = True,
     vocab: str = VOCAB_FULL,
+    defect_noul: Path | None = None,
 ) -> Measured:
     if vocab not in VOCAB_POLICIES:
         raise SystemExit(f"vocab must be one of {VOCAB_POLICIES}, got {vocab!r}")
+    if defect_noul is not None and defect_class is None:
+        raise SystemExit(
+            "--defect-noul needs --defect-class: its rows are code.defect_class rows whose "
+            "gold is noul, and a family of only abstentions teaches nothing but abstaining"
+        )
     if replay_shards and general_record is None:
         raise SystemExit(
             "--replay-shards needs --general-record: the replay slice is drawn from the "
@@ -1445,21 +1453,26 @@ def run(
         # pool to a licence refuses the whole load -- see qd_data.defect_class.
         load = load_defect_rows(
             defect_class, download_root=defect_download, config=config, repo_root=REPO,
-            max_rows=defect_max_rows,
+            max_rows=defect_max_rows, noul_dir=defect_noul,
         )
         raw[DEFECT_SOURCE_ID] = list(load.rows)
         if load.capped:
             capped.append(DEFECT_SOURCE_ID)
+        n_main = len(load.rows) - load.n_noul
         code_source += (
-            f"; {DEFECT_FAMILY_ID} from {defect_class} ({len(load.rows)} of "
+            f"; {DEFECT_FAMILY_ID} from {defect_class} ({n_main} of "
             f"{load.n_corpus} qd-mutate examples"
             + (", a sha256-ordered sample" if load.capped else "")
+            + (
+                f", plus {load.n_noul} noul rows from {defect_noul} {load.noul_by_source}"
+                if defect_noul is not None else ""
+            )
             + f"; classes {load.by_class}; span-rebase refusals {load.span_refusals or 'none'})"
         )
         print(
-            f"\n{DEFECT_FAMILY_ID}: {len(load.rows)} of {load.n_corpus} rows, "
-            f"capped={load.capped}, by class {load.by_class}, span-rebase refusals "
-            f"{load.span_refusals or 'none'}"
+            f"\n{DEFECT_FAMILY_ID}: {n_main} of {load.n_corpus} rows, "
+            f"capped={load.capped}, noul rows {load.n_noul} {load.noul_by_source}, by class "
+            f"{load.by_class}, span-rebase refusals {load.span_refusals or 'none'}"
         )
     general: GeneralLoad | None = None
     if general_record is not None:
@@ -2028,6 +2041,18 @@ def main(argv: list[str] | None = None) -> int:
         help="cap the defect rows at a sha256-ordered sample; a cap that binds is reported",
     )
     parser.add_argument(
+        "--defect-noul",
+        type=Path,
+        default=None,
+        help=(
+            "a qd-noul-rows corpus directory (examples.jsonl + manifest.json, e.g. "
+            "data/pool/defect-noul-v1) whose code.defect_class rows have the gold noul -- "
+            "contexts that are not the model's kind. Needs --defect-class; appended uncapped "
+            "after its rows. Every row's split unit is re-checked to be train; one that is "
+            "not refuses the whole corpus."
+        ),
+    )
+    parser.add_argument(
         "--memo-limit",
         type=int,
         default=MEMO_LIMIT,
@@ -2118,7 +2143,7 @@ def main(argv: list[str] | None = None) -> int:
         "defect_max_rows": args.defect_max_rows, "memo_limit": args.memo_limit,
         "general_record": args.general_record, "general_max_rows": args.general_max_rows,
         "replay_shards": args.replay_shards, "repo_history": args.repo_history,
-        "vocab": args.vocab,
+        "vocab": args.vocab, "defect_noul": args.defect_noul,
     }
     if args.ledger is None:
         run(**run_kwargs)
@@ -2165,6 +2190,14 @@ def main(argv: list[str] | None = None) -> int:
         recipe["defect_download_sha256"] = pool_manifest_shas(args.defect_download)
         if args.defect_max_rows is not None:
             recipe["defect_max_rows"] = args.defect_max_rows
+    if args.defect_noul is not None:
+        # Only when used, so a set built without it hashes as before and one built with it
+        # never shares its recipe_hash. The noul corpus's sha256 names it; load_noul_rows
+        # refuses examples that no longer match the manifest.
+        noul_manifest = json.loads(
+            (args.defect_noul / "manifest.json").read_text(encoding="utf-8")
+        )
+        recipe["defect_noul_examples_sha256"] = str(noul_manifest["examples_sha256"])
     if args.general_record is not None:
         # Only when used. The record's sha256 names the corpus; general_rows() refuses a
         # cache file that no longer matches the record.

@@ -26,3 +26,18 @@ def probe() -> Path:
     binary = REPO / "target" / "debug" / "qd-margin-probe"
     assert binary.is_file(), binary
     return binary
+
+
+@pytest.fixture(scope="session")
+def noul_rows_bin() -> Path:
+    """``qd-noul-rows``, built once per session from this checkout."""
+    if CARGO is None:
+        pytest.skip("cargo is not on PATH: qd-noul-rows was not built")
+    subprocess.run(
+        [CARGO, "build", "--quiet", "--manifest-path", str(REPO / "Cargo.toml"),
+         "-p", "qd-mutate", "--bin", "qd-noul-rows"],
+        check=True, timeout=900,
+    )
+    binary = REPO / "target" / "debug" / "qd-noul-rows"
+    assert binary.is_file(), binary
+    return binary
