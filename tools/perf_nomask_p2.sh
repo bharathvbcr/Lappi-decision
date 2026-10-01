@@ -12,6 +12,12 @@
 #     channel and per step set (first live step, all live steps), the candidates' mean
 #     relative shift from the baseline mean, dev, against tau = 2%, provided the baselines'
 #     leave-one-out noise is at most tau/3. Otherwise the result is inconclusive.
+#   - A shape is decided from its four applications (letter, span) x (first, all), per Fable's
+#     second amendment ("no_mask.p2_amendment_2"):
+#     - it fails only when every application is conclusive and at least one fails;
+#     - otherwise it is not_run if any application is not_run, else inconclusive if any is,
+#       else pass.
+#     The verdict row names the failing applications in fail_applications.
 #   - The retired D(t) <= S(t)-on->=90% rule could not pass a correct candidate (per step
 #     P(D <= S) = 1/5).
 # Data: v4 (/home/ubuntu/phase4-v4-2026-10-01, F's set), which current main reads without the
@@ -19,7 +25,8 @@
 # What a verdict does to the outcome run (item 9):
 #   - fail cancels it;
 #   - not_run cancels it until a rerun;
-#   - inconclusive holds it for the human, with no override;
+#   - inconclusive holds it for the human, with no override (the human reads each
+#     application's verdict, dev_i and noise_j, then fail_applications and the step-1 dev);
 #   - pass admits nothing on its own.
 # Precondition (Fable's p2_timing): before T1, the amended rule with its tests and the committed
 # calibration .out are on main, and the overlay is rebuilt at that commit (--build <sha>).
