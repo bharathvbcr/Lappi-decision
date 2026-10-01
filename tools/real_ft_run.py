@@ -3855,7 +3855,8 @@ def needle_control_metrics(
     metrics: dict[str, TriState] = {
         key: (
             dataclasses.replace(
-                gate, detail=f"length control at {length} target tokens, NOT the gate: {gate.detail}"
+                gate,
+                detail=f"length control at {length} target tokens, NOT the gate: {gate.detail}",
             )
             if isinstance(gate, Ran) else gate
         ),
