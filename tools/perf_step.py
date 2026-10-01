@@ -69,7 +69,7 @@ def _parse_config(text: str, n_layers: int) -> dict[str, Any]:
     counts = {f for f in flags if f.startswith("n") and f[1:].isdigit()}
     steps = int(next(iter(counts))[1:]) if counts else None
     flags -= counts
-    unknown = flags - {"fused", "compile", "profile", "syncdebug", "memhist", "det"}
+    unknown = flags - {"fused", "compile", "profile", "syncdebug", "memhist", "det", "nomask"}
     if unknown or len(counts) > 1:
         raise SystemExit(f"config {text!r}: unknown toggles {sorted(unknown)} or two nNN")
     return {"name": text, "n_off": n_off, "flags": flags, "steps": steps, "rule": rule}
@@ -158,6 +158,30 @@ def _set_fused(step: Any, torch: Any, fused: bool) -> str:
     del inner
     gc.collect()
     return "fused" if fused else "rebuilt-default"
+
+
+def _set_nomask(step: Any, torch: Any, on: bool) -> str:
+    """A PROBE, not a product path: the tower called with no attention mask.
+
+    Shard batches are right-padded, so under causal attention no real position can see a pad
+    and real positions' outputs are the same function of the same inputs; without an explicit
+    mask SDPA may take its flash backend (is_causal) instead of mem-efficient. Which backend
+    ran is read off the profile. Different kernels, so a numerics change (Tier B) -- measured
+    here for speed only.
+    """
+    if not on:
+        step.__dict__.pop("hidden", None)
+        return "padding-mask"
+    import numpy as np
+
+    weight = step.tower.lm_head_weight
+
+    def hidden(batch: Any) -> Any:
+        ids = torch.as_tensor(batch.tokens.astype(np.int64), device=weight.device)
+        return step.tower.model(input_ids=ids, attention_mask=None).last_hidden_state
+
+    step.hidden = hidden
+    return "none (is_causal)"
 
 
 def _one_step(step: Any, batch: Any, sup: Any, lr: float, torch: Any, sync: bool) -> dict:
@@ -371,6 +395,7 @@ def run_profile(args: argparse.Namespace) -> int:
             row["deterministic"] = torch.are_deterministic_algorithms_enabled()
             row["cublas_workspace_config"] = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
             row["optimizer"] = _set_fused(step, torch, "fused" in cfg["flags"])
+            row["attention_mask"] = _set_nomask(step, torch, "nomask" in cfg["flags"])
             row["compiled_modules"] = _set_compile(model, "compile" in cfg["flags"])
             if "compile" in cfg["flags"]:
                 torch._dynamo.utils.counters.clear()
@@ -391,11 +416,25 @@ def run_profile(args: argparse.Namespace) -> int:
             for i in order[: args.warmup]:
                 _one_step(step, batches[i], sups[i], 1e-5, torch, on_cuda)
             row["warmup_s"] = round(time.perf_counter() - t_c0, 2)
-            timed = [_one_step(step, batches[i], sups[i], 1e-5, torch, on_cuda)
+            # --overlap: no synchronize after each optimizer step, exactly as trainer._train_loop
+            # runs (its only per-step sync is float(loss)), so the next batch's host work
+            # overlaps the optimizer's kernels; one sync closes the window. Without it, every
+            # step is timed in isolation, which session 1 did and which reads ~13% slower than
+            # the production loop at shape A (0.95 vs J6(b)'s logged 0.83 s/step).
+            if on_cuda:
+                torch.cuda.synchronize()
+            t_loop = time.perf_counter()
+            timed = [_one_step(step, batches[i], sups[i], 1e-5, torch,
+                               on_cuda and not args.overlap)
                      for i in order[args.warmup:]]
+            if on_cuda:
+                torch.cuda.synchronize()
+            loop_wall = time.perf_counter() - t_loop
             pos = sum(int(batches[i].tokens.size) for i in order[args.warmup:])
             real = sum(int(batches[i].lengths.sum()) for i in order[args.warmup:])
-            wall = sum(t["step_s"] for t in timed)
+            wall = loop_wall if args.overlap else sum(t["step_s"] for t in timed)
+            row["timing"] = "overlapped (one sync per window)" if args.overlap else "per-step sync"
+            row["step_s_window_mean"] = round(loop_wall / len(timed), 4)
             est_s["per_step"] = max(est_s.get("per_step", 0.0), wall / len(timed))
             row.update({
                 "status": "ran",
@@ -478,6 +517,7 @@ def run_profile(args: argparse.Namespace) -> int:
         finally:
             step.optimizer.zero_grad(set_to_none=True)
             _set_compile(model, False)
+            _set_nomask(step, torch, False)
             gc.collect()
             if on_cuda:
                 torch.cuda.empty_cache()
@@ -511,6 +551,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--results", type=Path)
     ap.add_argument("--budget-s", type=float, default=540.0)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--overlap", action="store_true",
+                    help="time like the production loop: no sync after each step")
     ap.add_argument("--rounds", type=int, default=1,
                     help="interleave: every config once per round, this many rounds")
     ap.add_argument("--summarize", type=Path, help="min-of-N over a results file; no GPU")
@@ -544,9 +586,11 @@ def summarize(path: Path) -> int:
                                for r in rs if r.get("status") != "ran"}),
         }
         if ran:
-            best = min(ran, key=lambda r: r["step_s_median"])
+            best = min(ran, key=lambda r: r.get("step_s_window_mean", r["step_s_median"]))
             out.update({
+                "min_step_s_window_mean": best.get("step_s_window_mean"),
                 "min_step_s_median": best["step_s_median"],
+                "timing": sorted({r.get("timing", "per-step sync") for r in ran}),
                 "max_pos_per_s": max(r["pos_per_s"] for r in ran),
                 "pos_per_s_by_round": [r["pos_per_s"] for r in ran],
                 "peak_alloc_gib_max": max(r.get("peak_alloc_gib", 0.0) for r in ran),

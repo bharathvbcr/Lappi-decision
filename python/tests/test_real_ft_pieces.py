@@ -131,6 +131,33 @@ def test_each_piece_that_is_on_lands_in_the_recipe_under_a_mirrored_key(tmp_path
     assert set(pieces) <= set(rft.RECIPE_PIECE_KEYS)
 
 
+def test_every_recipe_piece_key_is_mirrored_into_the_verdict_and_score_rows(tmp_path):
+    """`_train` puts every piece into the ft recipe, and the verdict, eval and score rows
+    mirror ``(*BACKBONE_KEYS, *RECIPE_PIECE_KEYS)`` off it -- so a piece key missing from
+    RECIPE_PIECE_KEYS is on the ft row and silently absent from every row scored after it.
+    --checkpoint-skip-layers and --fused-adamw were, until this test: an F run with skip 6
+    named it on its ft row only, and a fused (Tier-B) model's eval rows did not say fused."""
+    from qd_train.trainer import ChoicePermutation
+
+    replay = rft.ReplayPlan(
+        batches=[], shard_hash="s" * 64, cache_path=tmp_path / "c.npz", letter_ids=(1, 2),
+        weight=0.1, every=6, attestation_sha256="a" * 64,
+    )
+    pieces = rft._recipe_pieces(
+        lower_layers_n=8, lower_lr_scale=0.1, beta2=0.95,
+        permutation=ChoicePermutation(seed=5, letter_ids={}, noul_id=0,
+                                      line_end_ids=frozenset()),
+        replay=replay, cap_s=32_400.0, no_memorise=True, batch_tokens=35_403,
+        shuffled_label={"family": "code.defect_class"},
+        checkpoint_skip_layers=6, fused_adamw=True,
+    )
+    assert {"checkpoint_skip_layers", "optimizer_fused"} <= set(pieces)
+    assert sorted(set(pieces) - set(rft.RECIPE_PIECE_KEYS)) == []
+    run = {**pieces, "backbone_snapshot": "snap", "unrelated": 1}
+    mirrored = {k: run[k] for k in (*rft.BACKBONE_KEYS, *rft.RECIPE_PIECE_KEYS) if k in run}
+    assert mirrored["checkpoint_skip_layers"] == 6 and mirrored["optimizer_fused"] is True
+
+
 # --- argv refusals ---------------------------------------------------------------------------
 
 

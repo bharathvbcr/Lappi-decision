@@ -284,6 +284,11 @@ RECIPE_PIECE_KEYS: Final[tuple[str, ...]] = (
     # --shuffled-label: so any score row of a model trained on permuted golds -- a
     # --score-checkpoint of its weights included -- hashes apart from the real model's.
     "shuffled_label",
+    # --checkpoint-skip-layers (Tier A) and --fused-adamw (Tier B): Fable's tier rule records
+    # the fused flag on every row, and a piece the ft recipe names must not drop out of the
+    # rows scored after it.
+    "checkpoint_skip_layers",
+    "optimizer_fused",
 )
 
 #: The wall-clock cap a run here carries when ``--wall-clock-cap-s`` is not given -- the one
