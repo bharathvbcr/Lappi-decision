@@ -57,6 +57,19 @@ advice; gap table Q1, parity ladder Q3, lanes Q5). Gap records: `GAP-OJAS-ADVICE
 - New code is Rust; Python appears only as reference oracles. No new dependencies.
 - The PyTorch GH200 campaign (run F and the post-F queue) is untouched.
 
+## Window (c) on the Mac GPU (22:43–22:53 UTC; released to the ojas coordinator after it)
+
+Both results are logs only, so they cannot be cited as rows yet. The bench has no shard header, which a protocol needs. The quick `smoke`/`throughput` rows are written once L-trainer's ledger writer lands.
+
+- **Rung (a), tessl's training GPU suites** (`AUDIT/ojas-training-2026-10-01/rung-a-tessl-gpu-suites.log`):
+  - attn_train 4, cross_entropy 6, gdn_fixtures 11, gdn_train 5, qwen35_adamw 8, qwen35_bwd 20, qwen35_train 8;
+  - 62 passed, 0 failed, 3 ignored (the real-2B oracle tests); 25 s wall.
+  - The run was on canonical tessl's working tree, which has ~20 uncommitted files that are not ours (the ojas coordinator says they are not its files either).
+- **8K memory and throughput** (`mac-8k-train-step-bench.log`): `bench_qwen35_train --bf16 --step=8192` on the real Qwen3.5-2B snapshot `b1485b2f…`:
+  - `train_step` at T=8192 takes 18.141 s (452 tok/s), loss 14.1156;
+  - peak memory footprint 30.78 GB. Adding 16 GB for AdamW's moments gives ≈47 GB of the M5 Pro's 64 GB, so it fits. The Metal working-set ceiling has not been read.
+  - **Consequence:** at 452 tok/s, v4's 323.07M positions take ≈198 h per seed, so rung (d)'s "10% of steps" is ≈20 h, not Fable's 3–6 h, which was sized on J1's 74.7M. Rung (d) goes back to Fable for re-sizing. The user's approval covers 3–6 h.
+
 ## Open
 
 - The coordinator's answer on the `ojas-qwen35` crate and the ojas file split.
