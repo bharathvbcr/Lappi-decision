@@ -1,0 +1,6 @@
+order tag: CAUGHT by ['batch_order_and_consumed_digest_match_python_on_every_config', 'ft_supervision_and_span_plans_match_python_on_every_batch']
+pcg multiplier: CAUGHT by ['seed_sequence_pcg64_and_permutation_match_numpy', 'batch_order_and_consumed_digest_match_python_on_every_config', 'ft_supervision_and_span_plans_match_python_on_every_batch']
+fold order: CAUGHT by ['batch_order_and_consumed_digest_match_python_on_every_config']
+span rows in the letter mask: CAUGHT by ['ft_supervision_refuses_what_the_trainer_refuses', 'ft_supervision_and_span_plans_match_python_on_every_batch']
+abstain row first: CAUGHT by ['ft_supervision_and_span_plans_match_python_on_every_batch']
+restored all sources; 5 of 5 mutations caught

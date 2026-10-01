@@ -35,6 +35,8 @@ or cites ledger row `d96409bd-4890-4d7f-9e7c-ca4cafbdb9a8` (`ledger/mac-phase4-v
 - **The parity suite is not vacuous.** I applied five single-point mutations: the order tag,
   the PCG multiplier, the fold byte order, span rows in the letter mask, and the abstain row
   first. The suite caught all five, and I restored the sources byte-identical after each run.
+- Raw output of both runs: `AUDIT/ojas-training-2026-10-01/l-data-stub-door-run.txt` (the
+  stub-door `cargo test` output) and `AUDIT/ojas-training-2026-10-01/l-data-parity-mutations.txt`.
 - **Real v4.** `tests/v4.rs` is opt-in. It opens `shards/{train,val}` beside
   `data/pool/{train,val}.json` with `expect_rev` set to the row's `recipe.rev` and with no
   `allow_stale_code`. Every door, rev, code-fingerprint and remap check passes. It matches
