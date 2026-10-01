@@ -89,6 +89,7 @@ path this module never reads would be a check that cannot fire, which is worse t
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import struct
 import warnings
@@ -256,6 +257,15 @@ class TextTower:
     optimizer: OptimizerSpec
     footprint: StepFootprint
     remap: RemapApplication | None = None
+    #: Decoder layers that run WITHOUT activation checkpointing although
+    #: ``gradient_checkpointing`` is on -- selective checkpointing, read back off the layers.
+    #: Empty, the default, is every layer checkpointed: the policy every earlier run used.
+    checkpoint_skip_layers: tuple[int, ...] = ()
+    #: The kernels the linear-attention layers actually bound, read off transformers' own
+    #: dispatch rather than assumed: fla's Triton ``chunk_gated_delta_rule`` or the torch
+    #: reference fallback, which transformers itself puts at more than an order of magnitude
+    #: slower. A row that does not say which ran cannot be compared with one that does.
+    linear_attention_kernels: Mapping[str, str] = dataclasses.field(default_factory=dict)
 
     @property
     def lm_head_weight(self) -> torch.Tensor:
@@ -280,10 +290,57 @@ class TextTower:
             "footprint_total_bytes": self.footprint.total_bytes,
             "footprint_provenance": self.footprint.provenance,
             "remap": None if self.remap is None else self.remap.to_json(),
+            "linear_attention_kernels": dict(self.linear_attention_kernels),
+            # Only when on, so a tower checkpointed everywhere describes itself as before.
+            **(
+                {"checkpoint_skip_layers": list(self.checkpoint_skip_layers)}
+                if self.checkpoint_skip_layers else {}
+            ),
         }
 
 
-def _verify_checkpointing_took(model: Any, *, enabled: bool) -> None:
+def evenly_spaced_layers(n_skip: int, n_layers: int) -> tuple[int, ...]:
+    """The ``n_skip`` decoder layers selective checkpointing leaves un-checkpointed.
+
+    Evenly spaced over the stack (the centre of each of ``n_skip`` equal strata), so the set
+    is a pure function of the two counts -- a recipe that records ``n_skip`` names the
+    layers too -- and mixes the hybrid's linear- and full-attention layers rather than
+    taking one end of the stack.
+    """
+    if not isinstance(n_skip, int) or isinstance(n_skip, bool) or n_skip < 0:
+        raise ValueError(f"n_skip must be a non-negative int, got {n_skip!r}")
+    if n_skip > n_layers:
+        raise ValueError(f"cannot skip {n_skip} of {n_layers} layers")
+    return tuple(sorted({(2 * i + 1) * n_layers // (2 * n_skip) for i in range(n_skip)}))
+
+
+def activation_model(
+    *, gradient_checkpointing: bool, skip_layers: tuple[int, ...], layer_types: list[str]
+) -> ActivationModel:
+    """The one place a tower's checkpointing policy becomes ``memory.ActivationModel``."""
+    if not gradient_checkpointing:
+        if skip_layers:
+            raise BackboneContractViolation(
+                "checkpoint_skip_layers names layers to leave un-checkpointed, and with "
+                "gradient_checkpointing off every layer already is; refusing the pair"
+            )
+        return ActivationModel(recompute="none")
+    kinds = [layer_types[i] for i in skip_layers]
+    unknown = sorted({k for k in kinds} - {"linear_attention", "full_attention"})
+    if unknown:
+        raise BackboneContractViolation(
+            f"layer kind(s) {unknown} have no activation model; the budget cannot price them"
+        )
+    return ActivationModel(
+        recompute="full",
+        retained_linear_layers=kinds.count("linear_attention"),
+        retained_full_layers=kinds.count("full_attention"),
+    )
+
+
+def _verify_checkpointing_took(
+    model: Any, *, enabled: bool, skip_layers: tuple[int, ...] = ()
+) -> None:
     """Read the flag back off every decoder layer. Refuse a request that did not take.
 
     transformers 5.12.1 implements checkpointing in ``GradientCheckpointingLayer.__call__``,
@@ -299,14 +356,24 @@ def _verify_checkpointing_took(model: Any, *, enabled: bool) -> None:
             "took effect cannot be read back. Refusing: an unverified checkpointing flag is "
             "the one that costs a rented card."
         )
+    skip = set(skip_layers)
+    out_of_range = sorted(i for i in skip if not 0 <= i < len(layers))
+    if out_of_range:
+        raise BackboneContractViolation(
+            f"checkpoint_skip_layers {out_of_range} name no layer of {len(layers)}"
+        )
+    # Per layer: a selective request is verified layer by layer, so one that reached the
+    # wrong layers fails here exactly as one that reached none does.
     disagreed = [
-        i for i, layer in enumerate(layers) if bool(layer.gradient_checkpointing) != enabled
+        i for i, layer in enumerate(layers)
+        if bool(layer.gradient_checkpointing) != (enabled and i not in skip)
     ]
     if disagreed:
         raise BackboneContractViolation(
-            f"gradient_checkpointing was requested {enabled} but layer(s) "
-            f"{disagreed[:16]} of {len(layers)} report "
-            f"{not enabled}. transformers implements this through "
+            f"gradient_checkpointing was requested {enabled} "
+            f"(un-checkpointed: {sorted(skip)}) but layer(s) "
+            f"{disagreed[:16]} of {len(layers)} report the opposite. "
+            "transformers implements this through "
             "GradientCheckpointingLayer.__call__, which Qwen3_5DecoderLayer inherits rather "
             "than defines; a version that changed that would fail exactly here. The flag was "
             "not believed, which is why this is an error and not a log line."
@@ -366,6 +433,7 @@ def load_text_tower(
     width: int = 34_522,
     spec: ModelSpec = QWEN3_5_2B_TEXT,
     config_overrides: Mapping[str, Any] | None = None,
+    checkpoint_skip_layers: int = 0,
 ) -> TextTower:
     """Build the text tower from ``snapshot`` and load exactly its 320 text tensors.
 
@@ -392,6 +460,13 @@ def load_text_tower(
         rows, width: the batch shape the returned ``footprint`` describes. The default width
             is the widest real bucket, so a caller that supplies neither gets the arithmetic
             for the case that actually binds rather than for a comfortable one.
+        checkpoint_skip_layers: selective checkpointing. With ``gradient_checkpointing``
+            on, this many decoder layers ([`evenly_spaced_layers`]) run without it and keep
+            their activations, buying back their recompute for memory the budget prices
+            (``memory.ActivationModel.retained_*_layers``). Every layer's flag is read back,
+            as for the all-or-nothing case. ``0``, the default, checkpoints every layer.
+            Recompute replays the same kernels on the same inputs, so under
+            ``torch.use_deterministic_algorithms`` the trajectory is unchanged by this.
         config_overrides: applied to the text config before construction. Present so a test
             can build a tiny tower through this same function; a production caller passes
             nothing.
@@ -526,10 +601,23 @@ def load_text_tower(
             GradientCheckpointingDisabled,
             stacklevel=2,
         )
-    _verify_checkpointing_took(model, enabled=gradient_checkpointing)
+    skip_layers = evenly_spaced_layers(checkpoint_skip_layers, len(model.layers))
+    if skip_layers and not gradient_checkpointing:
+        raise BackboneContractViolation(
+            f"checkpoint_skip_layers={checkpoint_skip_layers} needs gradient_checkpointing "
+            "on: it names the layers to leave out of a checkpointed stack"
+        )
+    for i in skip_layers:
+        # GradientCheckpointingLayer.__call__ checkpoints iff `self.gradient_checkpointing
+        # and self.training`; the flag is per layer, and it is read back below.
+        model.layers[i].gradient_checkpointing = False
+    _verify_checkpointing_took(
+        model, enabled=gradient_checkpointing, skip_layers=skip_layers
+    )
 
     embedding = model.get_input_embeddings().weight
     _verify_spec_describes(spec, model=model, config=text_config)
+    layer_types = list(text_config.layer_types)
     footprint = estimate_step(
         spec,
         rows=rows,
@@ -538,8 +626,10 @@ def load_text_tower(
         param_dtype=dtype,
         grad_dtype=dtype,
         activation_dtype=dtype,
-        activations=ActivationModel(
-            recompute="full" if gradient_checkpointing else "none"
+        activations=activation_model(
+            gradient_checkpointing=gradient_checkpointing,
+            skip_layers=skip_layers,
+            layer_types=layer_types,
         ),
         vocab_size=int(embedding.shape[0]),
     )
@@ -558,7 +648,69 @@ def load_text_tower(
         device=str(device),
         optimizer=optimizer,
         footprint=footprint,
+        checkpoint_skip_layers=skip_layers,
+        linear_attention_kernels=linear_attention_kernels(model),
     )
+
+
+#: The linear-attention kernels, by the name a ``Qwen3_5GatedDeltaNet`` holds each under in
+#: transformers 5.12 (an instance attribute, ``None`` when the package did not import), and
+#: the module-level function transformers 5.17 dispatches through instead
+#: (``use_kernel_func_from_hub_with_fallback``, which binds the optimised package's
+#: function at import and the module's own torch reference otherwise).
+_LINEAR_ATTENTION_KERNELS: Final = (
+    ("chunk_gated_delta_rule", "torch_chunk_gated_delta_rule"),
+    ("recurrent_gated_delta_rule", "torch_recurrent_gated_delta_rule"),
+    ("causal_conv1d_fn", "causal_conv1d_fn"),
+    ("causal_conv1d_update", "causal_conv1d_update"),
+)
+_REFERENCE_PREFIX: Final = "transformers.models.qwen3_5.modeling_qwen3_5."
+
+
+def _bound_name(fn: Any) -> str:
+    """The function ``fn`` actually runs: through a 5.17 dispatch wrapper to what it bound."""
+    if fn is None:
+        # 5.12 sets the attribute to None when the package did not import, and then runs
+        # its own torch code inline -- the reference path, said as such.
+        return f"{_REFERENCE_PREFIX}<inline torch fallback>"
+    code = getattr(fn, "__code__", None)
+    cells = dict(zip(getattr(code, "co_freevars", ()), getattr(fn, "__closure__", None) or (),
+                     strict=False))
+    if "implementation" in cells:
+        fn = cells["implementation"].cell_contents
+    return f"{getattr(fn, '__module__', '?')}.{getattr(fn, '__qualname__', '?')}"
+
+
+def linear_attention_kernels(model: Any) -> dict[str, str]:
+    """``{kernel: the function that runs}``, read off the loaded model and transformers.
+
+    The layer's own attribute when it has one (5.12), else the module's dispatch binding
+    (5.17). A version that does neither yields ``"unreadable: ..."`` for that kernel rather
+    than a guess, so a row says it does not know instead of claiming fla.
+    """
+    try:
+        from transformers.models.qwen3_5 import modeling_qwen3_5 as mq
+    except ImportError as exc:  # pragma: no cover - load_text_tower imported it already
+        return {"modeling_qwen3_5": f"unreadable: {exc}"}
+    layer = next(
+        (getattr(lyr, "linear_attn", None) for lyr in getattr(model, "layers", ())
+         if getattr(lyr, "linear_attn", None) is not None),
+        None,
+    )
+    out: dict[str, str] = {}
+    for attr, module_fn in _LINEAR_ATTENTION_KERNELS:
+        if layer is not None and hasattr(layer, attr):
+            out[attr] = _bound_name(getattr(layer, attr))
+        elif hasattr(mq, module_fn):
+            out[attr] = _bound_name(getattr(mq, module_fn))
+        else:
+            out[attr] = "unreadable: neither the layer nor modeling_qwen3_5 names it"
+    return out
+
+
+def linear_attention_on_reference_path(kernels: Mapping[str, str]) -> list[str]:
+    """The kernels bound to transformers' own torch reference, not an optimised package."""
+    return sorted(name for name, bound in kernels.items() if bound.startswith(_REFERENCE_PREFIX))
 
 
 # --- the remap ------------------------------------------------------------------------------
@@ -583,8 +735,10 @@ def footprint_at(
         param_dtype=tower.dtype,
         grad_dtype=tower.dtype,
         activation_dtype=tower.dtype,
-        activations=ActivationModel(
-            recompute="full" if tower.gradient_checkpointing else "none"
+        activations=activation_model(
+            gradient_checkpointing=tower.gradient_checkpointing,
+            skip_layers=tower.checkpoint_skip_layers,
+            layer_types=list(tower.model.config.layer_types),
         ),
         vocab_size=tower.vocab_size if vocab_size is None else vocab_size,
     )
@@ -648,21 +802,12 @@ def remap_text_tower(tower: TextTower, remap: RemapTable) -> TextTower:
         tower, rows=tower.footprint.rows, width=tower.footprint.width,
         vocab_size=application.new_vocab_size,
     )
-    return TextTower(
-        model=tower.model,
-        snapshot=tower.snapshot,
-        spec=tower.spec,
-        n_tensors_loaded=tower.n_tensors_loaded,
+    # `replace`, so every field the remap does not touch -- attention kernel, checkpointing
+    # policy, the linear-attention binding -- is carried rather than re-listed. A field list
+    # spelled out here silently dropped any field added after it was written.
+    return dataclasses.replace(
+        tower,
         vocab_size=application.new_vocab_size,
-        hidden_size=tower.hidden_size,
-        gradient_checkpointing=tower.gradient_checkpointing,
-        dtype=tower.dtype,
-        device=tower.device,
-        # Carried, not re-derived: the remap slices the tied embedding and touches nothing
-        # about attention, and asking the config again here would re-read a value this
-        # function cannot have changed.
-        attn_implementation=tower.attn_implementation,
-        optimizer=tower.optimizer,
         footprint=footprint,
         remap=application,
     )
@@ -1049,6 +1194,14 @@ class QwenDecisionStep:
             # diverged from the uninterrupted 12 at 5 of 12 losses.
             "optimizer": self._optimizer_refs(),
             "micro_batches": len(self.letter_log),
+            # Both channels, per micro-batch, as float.hex -- the same exact encoding
+            # `run_control.LossLog` uses for the combined loss beside them in the checkpoint
+            # body. The ledger row carries only the combined log's digest, so without these
+            # a later run could match on the total and never be compared channel by channel.
+            "channel_log": {
+                "letter": [float(x).hex() for x in self.letter_log],
+                "span": [float(x).hex() for x in self.span_log],
+            },
             "span_weight": self.span_weight,
             "vocab_size": self.tower.vocab_size,
         }
@@ -1168,7 +1321,8 @@ class QwenDecisionStep:
         # training source's consumed_digest never sees replay batches, so no other check
         # would notice.
         unexpected = set(state) - {
-            "tower", "span_head", "span_weight", "vocab_size", "optimizer", "micro_batches"
+            "tower", "span_head", "span_weight", "vocab_size", "optimizer", "micro_batches",
+            "channel_log",
         }
         if unexpected:
             raise BackboneContractViolation(
@@ -1211,3 +1365,20 @@ class QwenDecisionStep:
         # `MasterWeightAdamW.load_state_dict` refuses a partial state for the same reason.
         self.optimizer.load_state_dict(revived_optimizer)
         self.span_weight = float(state["span_weight"])
+        # Optional on the way in: checkpoints written before the channel log existed
+        # resume as they always did, with the logs starting empty. One that carries it
+        # continues it, so a resumed run's checkpoint holds the whole trajectory.
+        channel_log = state.get("channel_log")
+        if channel_log is not None:
+            letter = [float.fromhex(x) for x in channel_log["letter"]]
+            span = [float.fromhex(x) for x in channel_log["span"]]
+            if len(letter) != len(span) or (
+                "micro_batches" in state and len(letter) != int(state["micro_batches"])
+            ):
+                raise BackboneContractViolation(
+                    f"the checkpoint's channel log has {len(letter)} letter and {len(span)} "
+                    f"span entries for {state.get('micro_batches')} micro-batches; the two "
+                    "logs are parallel by construction, so this one was not written by state()"
+                )
+            self.letter_log = letter
+            self.span_log = span

@@ -321,15 +321,20 @@ def _recipe_pieces(
     permutation: ChoicePermutation | None, replay: ReplayPlan | None,
     cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
+    checkpoint_skip_layers: int = 0,
 ) -> dict[str, object]:
     """The recipe keys for whichever ported pieces are on. Empty when none is.
 
     The wall-clock cap, ``--no-memorise`` and ``--batch-tokens`` ride here too, on the same
     terms: named only when they differ from what every earlier row ran under, so those rows
     hash as before. ``batch_tokens`` is ``None`` at the default (the widest bucket), which
-    ``_resolve_batch_tokens`` decides.
+    ``_resolve_batch_tokens`` decides. So does ``--checkpoint-skip-layers``: the policy is
+    already in every recipe as ``gradient_checkpointing``, and a selective one is named
+    beside it only when it is on.
     """
     out: dict[str, object] = {}
+    if checkpoint_skip_layers:
+        out["checkpoint_skip_layers"] = checkpoint_skip_layers
     if cap_s != WALL_CLOCK_CAP_S:
         out["wall_clock_cap_s"] = cap_s
     if no_memorise:
@@ -1777,7 +1782,7 @@ def _real_step(
     spec: OptimizerSpec, attn_implementation: str, seed: int, lr: float, total_steps: int,
     span_weight: float, width: int, lower_layers_n: int = 0, lower_lr_scale: float = 1.0,
     beta2: float = DEFAULT_BETA2, eval_widths: Sequence[int] = (),
-    span_channel_off: bool = False,
+    span_channel_off: bool = False, checkpoint_skip_layers: int = 0,
 ) -> tuple[Any, Any, TriState]:
     """The real tower, remapped to the shard set, budgeted, and wrapped in a step.
 
@@ -1796,6 +1801,7 @@ def _real_step(
     from qd_train.backbone import (
         QwenDecisionStep,
         footprint_at,
+        linear_attention_on_reference_path,
         load_text_tower,
         remap_text_tower,
     )
@@ -1810,7 +1816,20 @@ def _real_step(
         # A real batch's shape; the budget below takes the worst of all of them.
         rows=int(plan[0].tokens.shape[0]),
         width=int(plan[0].tokens.shape[1]),
+        checkpoint_skip_layers=checkpoint_skip_layers,
     )
+    # On CUDA the linear-attention layers must be on fla's kernels. transformers falls back
+    # to its torch reference silently apart from a log line, and puts that path at more
+    # than an order of magnitude slower: a run on it is one that hits its wall-clock cap
+    # having trained a fraction of the plan. CPU and MPS have no fla kernel, so there the
+    # reference path is the only one and is recorded rather than refused.
+    slow = linear_attention_on_reference_path(tower.linear_attention_kernels)
+    if device == "cuda" and "chunk_gated_delta_rule" in slow:
+        raise SystemExit(
+            "linear attention is bound to transformers' torch reference on cuda "
+            f"({tower.linear_attention_kernels}); fla's chunk_gated_delta_rule did not "
+            "import. Refusing rather than training on the slow path."
+        )
     # The shard set's ids are post-remap, so the tied embedding has to be sliced to the
     # same vocabulary or every id indexes a different row than the one it names. The
     # reader's own table is used rather than a second one read from disk here.
@@ -1879,6 +1898,7 @@ def _train(
     eval_widths: Sequence[int] = (),
     cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
+    checkpoint_skip_layers: int = 0,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -1902,7 +1922,13 @@ def _train(
         lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
         permutation=permutation, replay=replay, cap_s=cap_s, no_memorise=no_memorise,
         batch_tokens=batch_tokens, shuffled_label=shuffled_label,
+        checkpoint_skip_layers=checkpoint_skip_layers,
     )
+    if checkpoint_skip_layers and backbone is None:
+        raise ValueError(
+            "checkpoint_skip_layers needs the real backbone: the stand-in is one block with "
+            "no checkpointing to be selective about"
+        )
     if permutation is not None and alphabets is None:
         raise ValueError("option permutation needs each plan batch's per-row alphabets")
     recipe: dict[str, object] = {
@@ -1923,6 +1949,16 @@ def _train(
     # value, and -- through that -- in the verdict row's recipe. All three feed a protocol
     # hash, and `_backbone_commit` refuses a recipe that names no backbone at all.
     backbone_keys: dict[str, object] = {}
+    # Which path this row's numbers came off: kernels, determinism, checkpointing policy,
+    # optimizer implementation. A metric, not recipe keys -- recording it must not move the
+    # recipe hash of a run that is otherwise the one every earlier row describes -- and on
+    # every ft row, so two rows are never compared without saying what each ran on.
+    train_path: dict[str, object] = {
+        "deterministic": deterministic,
+        "deterministic_algorithms_enabled": torch.are_deterministic_algorithms_enabled(),
+        "torch": torch.__version__,
+        "compile": "off",
+    }
     budget: TriState = NotRun(
         reason="the stand-in backbone is one block; memory.py budgets the real tower only"
     )
@@ -1937,6 +1973,7 @@ def _train(
             hidden=hidden, heads=heads, lr=lr, span_weight=span_weight, beta2=beta2,
             span_channel_off=shuffled_label is not None,
         )
+        train_path["backbone"] = "stand-in: one causal block, no linear attention"
         # Only meaningful for the stand-in, so only recorded for it: under --real-backbone
         # these determine nothing and would still move recipe_hash.
         backbone_keys["hidden"] = hidden
@@ -1953,6 +1990,19 @@ def _train(
             total_steps=steps, span_weight=span_weight, width=width,
             lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
             eval_widths=eval_widths, span_channel_off=shuffled_label is not None,
+            checkpoint_skip_layers=checkpoint_skip_layers,
+        )
+        train_path.update(
+            linear_attention_kernels=dict(tower.linear_attention_kernels),
+            gradient_checkpointing=tower.gradient_checkpointing,
+            checkpoint_skip_layers=list(tower.checkpoint_skip_layers),
+            optimizer=type(step.optimizer).__name__,
+            optimizer_inner_fused=bool(
+                getattr(step.optimizer, "param_groups", [{}])[0].get("fused") or False
+            ),
+            optimizer_inner_foreach=getattr(step.optimizer, "param_groups", [{}])[0].get(
+                "foreach"
+            ),
         )
         # `tower.snapshot.name`, not `str(backbone)`: the directory name is the HF revision
         # (refs/main and the snapshot dir agree), while the absolute path is
@@ -2042,6 +2092,14 @@ def _train(
         ),
     )
     recorder.metric("device_budget", budget)
+    recorder.metric(
+        "train.path",
+        Ran(
+            passed=True,
+            value=json.dumps(train_path, sort_keys=True, separators=(",", ":")),
+            detail="what this row ran on; compare rows only where this agrees or says why not",
+        ),
+    )
 
     supervised = [ft_supervision(b) for b in plan]
     # Per batch as well as over the plan. The per-batch numbers are what each batch's loss
@@ -5178,7 +5236,7 @@ def planned_ft_recipe(
             lower_layers_n=args.lower_layers_n, lower_lr_scale=args.lower_layers_lr_scale,
             beta2=args.beta2, permutation=permutation, replay=replay,
             cap_s=args.wall_clock_cap_s, no_memorise=args.no_memorise,
-            batch_tokens=batch_tokens,
+            batch_tokens=batch_tokens, checkpoint_skip_layers=args.checkpoint_skip_layers,
         ),
     }
     if args.real_backbone is None:
@@ -5425,6 +5483,15 @@ def _check_piece_flags(args: argparse.Namespace) -> None:
     """Refuse, at argv time, every combination of the ported-piece flags that would record a
     value that determined nothing, or run a piece without what it needs. Resolves defaults
     in place (``lower_layers_lr_scale``, ``beta2``, ``tokenizer_json``)."""
+    if args.checkpoint_skip_layers < 0:
+        raise SystemExit(
+            f"--checkpoint-skip-layers must not be negative, got {args.checkpoint_skip_layers}"
+        )
+    if args.checkpoint_skip_layers and args.real_backbone is None:
+        raise SystemExit(
+            "--checkpoint-skip-layers needs --real-backbone: the stand-in is one block with "
+            "no checkpointing to be selective about"
+        )
     if args.lower_layers_n < 0:
         raise SystemExit(f"--lower-layers-n must not be negative, got {args.lower_layers_n}")
     if args.lower_layers_n:
@@ -6136,6 +6203,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     # --- ported pieces (RSI-Jev MIT @8f34a4f, decider Apache-2.0 @23579f7). All off by
     # default; each lands in the recipe only when on.
+    parser.add_argument(
+        "--checkpoint-skip-layers", type=int, default=0,
+        help=(
+            "selective activation checkpointing: N decoder layers, evenly spaced, run without "
+            "it and keep their activations, saving their recompute. 0 (default) checkpoints "
+            "every layer, as every earlier run did. Read back per layer and priced by the "
+            "device budget; in the recipe only when non-zero. Needs --real-backbone"
+        ),
+    )
     parser.add_argument(
         "--lower-layers-n", type=int, default=0,
         help=(
@@ -6936,6 +7012,7 @@ def main(argv: list[str] | None = None) -> int:
                 lower_layers_n=args.lower_layers_n,
                 lower_lr_scale=args.lower_layers_lr_scale, beta2=args.beta2,
                 cap_s=args.wall_clock_cap_s, batch_tokens=recipe_batch_tokens,
+                checkpoint_skip_layers=args.checkpoint_skip_layers,
             )
             step = run.pop("_step")
             decode_at = time.monotonic()
@@ -7042,6 +7119,7 @@ def main(argv: list[str] | None = None) -> int:
                     permutation=permutation, alphabets=epoch_alphabets, replay=replay_plan,
                     eval_widths=suite_widths(needle_suite, ood_suite),
                     shuffled_label=None if shuffled is None else SHUFFLED_LABEL_RECIPE,
+                    checkpoint_skip_layers=args.checkpoint_skip_layers,
                 )
                 step = run.pop("_step")
                 if shuffled is not None and val_set is not None:

@@ -1717,3 +1717,153 @@ def test_the_same_order_still_resumes_so_the_refusal_is_the_order(tmp_path):
     assert len(result.loss_log.losses()) == 12, (
         "a resume onto the order it was cut from should complete the schedule"
     )
+
+
+# --- selective checkpointing (Tier A: semantics-preserving) ----------------------------------
+
+
+def _trajectory(where: Path, *, skip: int, n: int = 6, gradient_checkpointing: bool = True):
+    """``n`` real FT steps through ``train_ft``; every number a Tier-A comparison reads."""
+    tower, _ = _tiny_tower(
+        where, gradient_checkpointing=gradient_checkpointing, checkpoint_skip_layers=skip
+    )
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=n, max_width=64)
+    result = train_ft(
+        (_ft_batch(i) for i in range(n)),
+        epoch=0,
+        step=step,
+        control=_control(n),
+        recorder=_recorder(where / "rec"),
+    )
+    return {
+        "digest": result.loss_log.digest(),
+        "losses": result.loss_log.losses(),
+        "letter": list(step.letter_log),
+        "span": list(step.span_log),
+        "consumed": result.checkpoint.consumed_digest,
+    }
+
+
+def test_selective_checkpointing_reaches_exactly_the_named_layers(tmp_path):
+    from qd_train.backbone import evenly_spaced_layers
+
+    tower, _ = _tiny_tower(tmp_path, checkpoint_skip_layers=2)
+    assert tower.checkpoint_skip_layers == evenly_spaced_layers(2, TINY_LAYERS) == (1, 3)
+    flags = [bool(layer.gradient_checkpointing) for layer in tower.model.layers]
+    assert flags == [True, False, True, False]
+    assert tower.to_json()["checkpoint_skip_layers"] == [1, 3]
+
+
+def test_a_tower_checkpointed_everywhere_describes_itself_as_before(tmp_path):
+    """The default must not move a single key a ledger row or a recipe reads."""
+    tower, _ = _tiny_tower(tmp_path)
+    assert tower.checkpoint_skip_layers == ()
+    assert "checkpoint_skip_layers" not in tower.to_json()
+    assert tower.footprint.recompute == "full"
+
+
+def test_a_selective_request_that_reached_the_wrong_layers_is_refused(tmp_path):
+    """Read back per layer: a skip that landed on layer 2 instead of 1 is not the policy."""
+    from qd_train.backbone import _verify_checkpointing_took
+
+    tower, _ = _tiny_tower(tmp_path, checkpoint_skip_layers=2)
+    tower.model.layers[1].gradient_checkpointing = True
+    tower.model.layers[2].gradient_checkpointing = False
+    with pytest.raises(BackboneContractViolation) as excinfo:
+        _verify_checkpointing_took(tower.model, enabled=True, skip_layers=(1, 3))
+    assert "[1, 2]" in str(excinfo.value)
+
+
+def test_skipping_layers_without_checkpointing_is_refused(tmp_path):
+    with pytest.raises(BackboneContractViolation, match="needs gradient_checkpointing on"):
+        _tiny_tower(tmp_path, gradient_checkpointing=False, checkpoint_skip_layers=1)
+
+
+def test_the_budget_prices_selective_checkpointing_between_full_and_none(tmp_path):
+    """Fail closed needs the budget to see the retained layers: priced as 'full' it would
+    admit a run that does not fit; priced as 'none' it would refuse one that does."""
+    full, _ = _tiny_tower(tmp_path / "full")
+    part, _ = _tiny_tower(tmp_path / "part", checkpoint_skip_layers=2)
+    none, _ = _tiny_tower(tmp_path / "none", gradient_checkpointing=False)
+    a = [t.footprint.activation_bytes for t in (full, part, none)]
+    assert a[0] < a[1] <= a[2] + full.footprint.positions * TINY_HIDDEN * 4 * (TINY_LAYERS + 1)
+    assert part.footprint.recompute == "full-except-0-linear-2-full"
+    assert footprint_at(part, rows=1, width=64).activation_bytes == a[1]
+
+
+def test_the_remap_carries_the_checkpointing_policy_and_the_kernel_record(tmp_path):
+    """The remap used to rebuild TextTower field by field, so a field added later was
+    dropped on exactly the towers that train. It now replaces only what it changes."""
+    tower, _ = _tiny_tower(tmp_path, checkpoint_skip_layers=1)
+    remapped = remap_text_tower(tower, _tiny_remap(list(range(0, TINY_VOCAB, 2)), []))
+    assert remapped.checkpoint_skip_layers == tower.checkpoint_skip_layers == (2,)
+    assert remapped.linear_attention_kernels == tower.linear_attention_kernels
+    assert remapped.footprint.recompute == "full-except-1-linear-0-full"
+
+
+@pytest.mark.parametrize("skip", [1, 2, TINY_LAYERS])
+def test_selective_checkpointing_leaves_the_trajectory_bit_identical(tmp_path, skip):
+    """Tier A on CPU, whose kernels are deterministic: recompute replays the same kernels on
+    the same inputs, so skipping it must not move one bit of any loss, in either channel,
+    or the batch order. Identical, not close."""
+    base = _trajectory(tmp_path / "full", skip=0)
+    other = _trajectory(tmp_path / f"skip{skip}", skip=skip)
+    assert other == base
+    assert any(x > 0.0 for x in base["span"]), "the span channel must actually be exercised"
+
+
+def test_the_tower_records_which_linear_attention_kernels_it_bound(tmp_path):
+    from qd_train.backbone import linear_attention_on_reference_path
+
+    tower, _ = _tiny_tower(tmp_path)
+    kernels = tower.linear_attention_kernels
+    assert set(kernels) == {
+        "chunk_gated_delta_rule", "recurrent_gated_delta_rule",
+        "causal_conv1d_fn", "causal_conv1d_update",
+    }
+    assert all(isinstance(v, str) and v for v in kernels.values())
+    assert tower.to_json()["linear_attention_kernels"] == dict(kernels)
+    assert linear_attention_on_reference_path({
+        "chunk_gated_delta_rule":
+            "transformers.models.qwen3_5.modeling_qwen3_5.torch_chunk_gated_delta_rule",
+        "causal_conv1d_fn": "causal_conv1d.causal_conv1d_interface.causal_conv1d_fn",
+    }) == ["chunk_gated_delta_rule"]
+
+
+# --- the per-step channel log persists beside the checkpoint ---------------------------------
+
+
+def test_the_checkpoint_carries_both_channels_per_step_and_a_resume_continues_them(tmp_path):
+    """The ledger row holds only the combined log's digest; a later run is comparable step
+    by step and channel by channel only if the checkpoint keeps the numbers themselves."""
+    checkpoint = _resumable_checkpoint(tmp_path / "first")
+    log = checkpoint.model_state["channel_log"]
+    letter = [float.fromhex(x) for x in log["letter"]]
+    span = [float.fromhex(x) for x in log["span"]]
+    assert len(letter) == len(span) == 6 == checkpoint.model_state["micro_batches"]
+    assert all(x > 0.0 for x in span), "every _ft_batch carries a span row"
+
+    tower, _ = _tiny_tower(tmp_path / "second")
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=12, max_width=64)
+    step.load_state(checkpoint.model_state)
+    assert step.letter_log == letter and step.span_log == span
+
+
+def test_a_checkpoint_written_before_the_channel_log_still_resumes(tmp_path):
+    checkpoint = _resumable_checkpoint(tmp_path / "first")
+    older = {k: v for k, v in checkpoint.model_state.items() if k != "channel_log"}
+    tower, _ = _tiny_tower(tmp_path / "second")
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=12, max_width=64)
+    step.load_state(older)
+    assert step.letter_log == [] and step.span_log == []
+
+
+def test_a_channel_log_that_disagrees_with_its_micro_batches_is_refused(tmp_path):
+    checkpoint = _resumable_checkpoint(tmp_path / "first")
+    broken = dict(checkpoint.model_state)
+    broken["channel_log"] = {"letter": broken["channel_log"]["letter"][:-1],
+                             "span": broken["channel_log"]["span"]}
+    tower, _ = _tiny_tower(tmp_path / "second")
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=12, max_width=64)
+    with pytest.raises(BackboneContractViolation, match="channel log"):
+        step.load_state(broken)
