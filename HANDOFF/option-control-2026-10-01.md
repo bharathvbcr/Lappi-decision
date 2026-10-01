@@ -146,6 +146,11 @@ bit-for-bit comparison is a committed test on a CSQA-shaped fixture at productio
     That matches the box's J4 finding.
   - `intent.in_scope`'s control scored 1,500/1,500. J1's margin against it is −0.245,
     95% CI [−0.267, −0.223].
+    - Verified: every val gold is `yes` (1,500/1,500), while train holds 1,350 `no`. Out of
+      scope is one split unit, so its rows all fall on one side, and a control that answers
+      `yes` cannot miss.
+    - **The per-family margins will surface this on the box** as a measured negative
+      `paired_margin_vs_linear.choice.intent.in_scope`. It reflects the split.
 
 ## Per-family margins (the lead's finding)
 
@@ -173,8 +178,19 @@ bit-for-bit comparison is a committed test on a CSQA-shaped fixture at productio
     `data/pool` files symlinked in: 35 passed, 2 skipped (the opt-in benchmark). The links were
     removed afterwards.
   - Ruff is clean on all changed Python.
-  - The full CPU suite result is in the session report. It was not finished when this file was
-    written.
+  - **The full CPU suite** (`python/tests -k "not mps"`, at `c394f6d`, with main's `data/pool`
+    files linked in and removed afterwards): **2,924 passed, 31 skipped, 2 failed**, in 581 s.
+    - Both failures are the worktree-only ones the csqa-control-fix lane also reported:
+      - `test_gaps_writer::test_the_real_ledger_is_not_touched_by_any_of_this` asserts the gaps
+        file's parent directory is named `Lappi-decision`.
+      - `test_lint_gate::test_ruff_is_installed_not_merely_declared` finds no `.venv/bin/ruff`
+        in the worktree.
+    - Neither touches a file this lane changed. No pre-existing test failed on the new
+      per-family keys.
+    - The 31 skips were not itemised (`-rs` was not passed).
+  - Re-run after the last gap record and this file existed: `test_gaps_ledger`,
+    `test_wire_gap_pins` and `test_gaps_writer` gave 42 passed and the same 1 worktree-only
+    failure. So the five gap ids cited here resolve.
 - **Pre-change** (verified):
   - **New tests on the `88373b8` tree:**
     - `test_ft_linear_control`: 2 failed, 39 passed. The two failures are the new family tests,
@@ -199,29 +215,26 @@ bit-for-bit comparison is a committed test on a CSQA-shaped fixture at productio
 - **Which binary for which run:**
   - `qd-prep-lc2` refuses `--option-control` loudly.
   - The letter control needs only Python, so `qd-prep-lc2` stays its engine.
-- **The commands.** From `/home/ubuntu/qd-lane5` at a commit containing `c394f6d`, with
-  `HF_HUB_OFFLINE=1`, `PY=/home/ubuntu/qd-venv/bin/python`, and `REC` as in
-  `box_controls_fixed.sh`:
+- **The commands.** They are written out literally, all eight invocations, in
+  `box_controls_optctl.sh`, which sits beside `box_controls_fixed.sh` in the lead's scratchpad.
+  - It carries `box_controls_fixed.sh`'s guards: a clean `qd-lane5`, and no running control.
+  - It also refuses unless `qd-lane5` contains `c394f6d`, and unless `qd-prep-oc1` has the
+    sha256 above.
+  - Block 1 is the letter control with per-family margins, on `qd-prep-lc2`, for J4 seeds 0–2
+    and then J1. It supersedes `d597ee7d`/`7921ae18` and J1's fixed-control row.
+  - Block 2 is the same four argvs plus `--option-control`, on `qd-prep-oc1`.
+- **Do not cap these runs with `--max-fit-minutes` below about 20 h.** The option control's fit
+  projection is the Python-calibrated worst case:
 
-```
-# letter control + per-family margins (supersedes d597ee7d / 7921ae18 and J1's fixed-control row)
-export QD_PREP_BIN=/home/ubuntu/bin/qd-prep-lc2
-for SEED in 0 1 2; do
-  nice -n 10 "$PY" -u tools/ft_linear_control.py --ledger /home/ubuntu/ledger/gh200-p4-v3-2026-10-01.jsonl \
-    --verdicts /home/ubuntu/p4-v3/verdicts-s$SEED.jsonl --no-repo-history \
-    --defect-class data/pool/commitpackft-corpus-v3 --defect-download data/pool/commitpackft \
-    --defect-noul data/pool/defect-noul-v1 --general-record $REC --general-max-rows 200000 \
-    --replay-partition --rev b381a03cb12e816c380915b1983f4e13cd1c843c
-done
-nice -n 10 "$PY" -u tools/ft_linear_control.py --ledger /home/ubuntu/ledger/gh200-p4-base-2026-09-30.jsonl \
-  --verdicts /home/ubuntu/p4-base/s0/verdicts.jsonl --no-repo-history \
-  --defect-class data/pool/commitpackft-corpus-v2 --general-record $REC --general-max-rows 200000 \
-  --replay-partition --rev d43790dbff4693c4fc9b89a4597e42be00cd2eea
+  | task | projection | native, Mac, 18 threads |
+  | --- | --- | --- |
+  | CSQA | 3.1 h | 7.6 s |
+  | MMLU | 14.9 h | 28.6 s |
+  | `intent.classification` | 16.4 h | 51.7 s |
+  | `intent.within_domain` | 15.4 h | 48.9 s |
 
-# per-option control rows (report-only): the same four argvs plus --option-control, new binary
-export QD_PREP_BIN=/home/ubuntu/bin/qd-prep-oc1   # the c7626dfd... build above
-# ...repeat the four commands above with --option-control appended
-```
+  A smaller cap refuses those tasks before fitting. This is the same overshoot shape as the
+  letter control's documented 17.6×. The script passes no cap.
 
 ## Unverified
 
@@ -242,6 +255,9 @@ export QD_PREP_BIN=/home/ubuntu/bin/qd-prep-oc1   # the c7626dfd... build above
 
 ## First command for the next lane
 
-Review and merge this branch. Deploy the `c7626dfd…` binary to the box as
-`/home/ubuntu/bin/qd-prep-oc1`. Then run the letter block above, then the `--option-control`
-block. Report the general-family option margins only with the CLINC gap beside them.
+1. Review and merge this branch with a real merge (the script checks for `c394f6d`).
+2. Deploy the `c7626dfd…` binary to the box as `/home/ubuntu/bin/qd-prep-oc1`.
+3. Run `bash box_controls_optctl.sh` from the lead's scratchpad, as `box_controls_fixed.sh` was
+   run.
+4. Report the general-family option margins only with
+   `GAP-OPTION-CONTROL-CLINC-SPLIT-DEFEATS-AN-OPTION-PRIOR` beside them.
