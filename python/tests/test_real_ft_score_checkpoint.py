@@ -15,6 +15,7 @@ each source checkpoint's JSON body on disk must hash to what the manifest record
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import json
 import sys
@@ -158,8 +159,10 @@ def test_the_scored_checkpoint_keys_reach_the_recipe_only_when_present():
     assert "**{k: run[k] for k in SCORED_CHECKPOINT_KEYS if k in run}" in src
     # "averaged" joined for J7: the provenance block of a scored average (its seeds, ft
     # rows, manifest sha256 and source), on an averaged score row and on no other.
+    # "ensemble" joined for J7' (Fable I): a logit ensemble's seeds, ft rows, towers and
+    # combine rule, on an ensemble's score row and on no other.
     assert set(real_ft_run.SCORED_CHECKPOINT_KEYS) == {
-        "score_dtype", "scored_checkpoint", "averaged",
+        "score_dtype", "scored_checkpoint", "averaged", "ensemble",
     }
 
 
@@ -614,20 +617,28 @@ def _defect_shards(out: Path):
     return train, val
 
 
-def test_an_average_of_three_tiny_master_checkpoints_is_scored_end_to_end_on_cpu(
-    tmp_path, monkeypatch
-):
-    """The J7 sequence on CPU: three ``--optimizer master`` checkpoints, averaged from their
-    masters by ``tools/ckpt_average.py``, scored by ``real_ft_run.py --score-checkpoint``
-    through the same val, permutation and gate code as a per-seed score. The eval row names
-    its seeds, its ft rows, its manifest's sha256 and its source; it is quick only because a
-    CPU is not a campaign device, never for a seed, schedule or subsample shortfall."""
+@dataclasses.dataclass(frozen=True)
+class TinyCheckpoints:
+    """Three tiny ``--optimizer master`` epoch checkpoints over the byte-tokenized defect
+    shard sets, with the ft ledger that names them: the fixture every CPU end-to-end
+    ``--score-checkpoint`` test (one seed, an average, an ensemble) scores."""
+
+    out: Path
+    train: list
+    val: list
+    snapshot: Path
+    paths: list[Path]
+    ids: list[str]
+    ft_ledger: Path
+    tokenizer: Path
+
+
+def tiny_master_checkpoints(tmp_path: Path, monkeypatch) -> TinyCheckpoints:
     import test_backbone as tb
     from test_real_ft_family_metrics import _tokenizer_json
     from test_real_ft_shuffled_label import REV, _patch
 
     import qd_train.backbone as backbone
-    from qd_train.ledger import Ledger
     from qd_train.memory import OptimizerSpec
     from qd_train.run_control import Checkpoint, LossLog, LRSchedule, Position
     from qd_train.shards import ShardReader
@@ -696,6 +707,29 @@ def test_an_average_of_three_tiny_master_checkpoints_is_scored_end_to_end_on_cpu
         }
         for s, rid in zip((0, 1, 2), ids, strict=True)
     ))
+    _patch(monkeypatch, (train, val))
+    return TinyCheckpoints(
+        out=out, train=train, val=val, snapshot=snapshot, paths=paths, ids=ids,
+        ft_ledger=ft_ledger, tokenizer=_tokenizer_json(tmp_path / "tokenizer.json"),
+    )
+
+
+def test_an_average_of_three_tiny_master_checkpoints_is_scored_end_to_end_on_cpu(
+    tmp_path, monkeypatch
+):
+    """The J7 sequence on CPU: three ``--optimizer master`` checkpoints, averaged from their
+    masters by ``tools/ckpt_average.py``, scored by ``real_ft_run.py --score-checkpoint``
+    through the same val, permutation and gate code as a per-seed score. The eval row names
+    its seeds, its ft rows, its manifest's sha256 and its source; it is quick only because a
+    CPU is not a campaign device, never for a seed, schedule or subsample shortfall."""
+    from test_real_ft_shuffled_label import REV
+
+    from qd_train.ledger import Ledger
+
+    tiny = tiny_master_checkpoints(tmp_path, monkeypatch)
+    out, snapshot, paths, ids, ft_ledger = (
+        tiny.out, tiny.snapshot, tiny.paths, tiny.ids, tiny.ft_ledger
+    )
     avg = tmp_path / "avg" / "avg.safetensors"
     assert ckpt_average.main(
         [*map(str, paths), "--out", str(avg), "--from", "masters", "--ft-row-ids", *ids]
@@ -705,12 +739,11 @@ def test_an_average_of_three_tiny_master_checkpoints_is_scored_end_to_end_on_cpu
 
     eval_ledger = tmp_path / "eval.jsonl"
     verdicts = tmp_path / "verdicts.jsonl"
-    _patch(monkeypatch, (train, val))
     assert real_ft_run.main([
         "--out", str(out), "--rev", REV, "--devices", "cpu", "--seeds", "0", "1", "2",
         "--score-val", "--score-checkpoint", str(avg), "--real-backbone", str(snapshot),
         "--ft-ledger", str(ft_ledger), "--ledger", str(eval_ledger),
-        "--tokenizer-json", str(_tokenizer_json(tmp_path / "tokenizer.json")),
+        "--tokenizer-json", str(tiny.tokenizer),
         "--verdicts-out", str(verdicts),
     ]) == 0
 
