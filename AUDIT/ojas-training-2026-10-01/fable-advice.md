@@ -58,6 +58,28 @@ Tolerances are written in the test before the first run (tessl's own practice). 
 
 **What a first run may claim** (rule 8): "A Rust trainer over canonical tessl trained a Lappi checkpoint on the M5 Pro; the campaign's PyTorch scorer scored it at X on val; row `<id>`, quick=True" — with "ojas" in the sentence only if the trainer lives in ojas (placement A). Not: a candidate, a gate verdict that transfers, a promotion, or a replacement for F. Promotion needs 3 seeds on the full schedule under the same gates — 90–180 Mac-GPU hours [I] or a CUDA port — a later decision.
 
+**Amendment 1 (2026-10-01, Fable; ratified by the lead under the user's standing "follow Fable's recommendations" instruction). Span head reference.**
+
+The pass criterion "span head ≤1e-6 rel (f32, host)" is clarified.
+
+**Reference.** The reference is the oracle's float64 arm (`tools/qd_train_oracle_span_head.py`, `ref64_*`): the same `SpanPointerHead`, run in `.double()` on the CPU.
+
+**Gate.** For every tensor, max|rust − ref64| ≤ 1e-6 · max|ref64|. For the loss, |rust − ref64| ≤ 1e-6·|ref64|. It covers all 9 cases, and none is dropped.
+
+**The torch fp32 arm** stays in the fixtures as a report-only pin for Rust. The test does two things with it:
+- it prints rust-vs-fp32 and fp32-vs-f64 for each tensor;
+- it asserts that the manifest's `torch_f32_vs_f64` equals the value recomputed from the two dumps.
+
+**Why the fp32 arm is not a gate.**
+- At H = 2048, torch fp32's own `d_hidden` rounding is 9–11 f32 ulps of max (9.65e-7, 1.19e-6). That is the size of the gate. So rust-vs-fp32 ≤ 1e-6 measures whether two roundings align, not whether Rust is correct.
+- Any fp32 gate derived from torch's own error is implied by the f64 gate through the triangle inequality. It cannot fail, so it is not a gate.
+
+**What does not change.** The "f32" in the original criterion names the head's storage dtype, not the oracle's. The tolerance is unchanged.
+
+**The ledger.** Row 6d6ca078 (failed, `adf6aea`) stands as the record of the gate as first written. The amended suite appends a new row after it. Full ruling: `AUDIT/ojas-training-2026-10-01/fable-span-head-reference.md`.
+
+**Note for later lanes.** 1e-6 against the exact value at H = 2048 is reachable here because the host head accumulates in f64. A Metal/tessl span kernel that accumulates in f32 will sit near torch's 1.2e-6. Its tolerance is written before its first run and derived from its accumulation width, not copied from this one.
+
 ## Q4. Interaction with the running campaign
 
 **Decision: zero GH200 time for ojas until the post-F queue ends; nothing displaces J5′ or the ablations; queue gaps are not used.**
