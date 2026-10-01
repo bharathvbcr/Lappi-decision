@@ -296,6 +296,11 @@ _CONTROL = ["--shuffled-label", "6d170b3c", "--rev", REV]
          "--score-checkpoint would measure"),
         (["--epoch", "--no-memorise", "--score-val", "--verdicts-out", "v.jsonl"],
          "--verdicts-out would measure"),
+        # The control's checkpoint would be the real arm's file name in a mirrored launch.
+        # --real-backbone, because the stand-in refuses checkpointing before this is asked.
+        (["--epoch", "--no-memorise", "--score-val", "--real-backbone", "snapshot",
+          "--checkpoint-dir", "ckpt", "--checkpoint-every", "5"],
+         "--checkpoint-dir, --checkpoint-every would write or read"),
         (["--epoch", "--no-memorise", "--score-val", "--devices", "cpu", "--seeds", "0", "1"],
          "exactly one --seeds"),
         (["--epoch", "--no-memorise", "--score-val", "--seeds", "0"], "one --devices entry"),
@@ -315,6 +320,20 @@ def test_a_combination_the_control_cannot_be_is_refused_before_anything_loads(
 
 def _tripwire(*args: object, **kwargs: object) -> None:
     raise AssertionError("an argv refusal read the shard set first")
+
+
+def test_resuming_the_control_from_a_checkpoint_is_refused(tmp_path, monkeypatch):
+    """The only epoch checkpoint at this seed and device is the REAL arm's: resuming the
+    control from it would start the control from the model it is the control for."""
+    checkpoint = tmp_path / "epoch-seed0-cpu.json"
+    checkpoint.write_text("{}")
+    monkeypatch.setattr(rft, "ShardReader", _tripwire)
+    with pytest.raises(SystemExit, match="--resume-from would write or read"):
+        rft.main([
+            "--out", str(tmp_path), *_CONTROL, "--epoch", "--no-memorise", "--score-val",
+            "--real-backbone", str(tmp_path), "--devices", "cpu", "--seeds", "0",
+            "--resume-from", str(checkpoint),
+        ])
 
 
 # --- 6. end to end on the CPU stand-in ------------------------------------------------------------

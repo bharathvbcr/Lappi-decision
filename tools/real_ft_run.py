@@ -4928,6 +4928,21 @@ def _check_shuffled_label_flags(args: argparse.Namespace, raw_argv: Sequence[str
             f"--shuffled-label writes one control row and scores no gate; {', '.join(clashing)} "
             "would measure the shuffled model as if it were the recipe's"
         )
+    # A checkpoint is named by (tag, seed, device) alone, so the control's would be
+    # epoch-seed<N>-<device>.json -- the real arm's file, in the directory a mirrored launch
+    # line names, rewritten with the shuffled model's weights. Nothing consumes the control's.
+    saving = [
+        flag for flag, given in (
+            ("--checkpoint-dir", args.checkpoint_dir is not None),
+            ("--checkpoint-every", bool(args.checkpoint_every)),
+            ("--resume-from", args.resume_from is not None),
+        ) if given
+    ]
+    if saving:
+        raise SystemExit(
+            f"--shuffled-label saves and resumes no weights: {', '.join(saving)} would write "
+            "or read epoch-seed<N>-<device>.json, the real epoch arm's checkpoint name"
+        )
     if len(args.seeds) != 1 or not args.devices or len(args.devices) != 1:
         raise SystemExit(
             "--shuffled-label supplements one eval row, which has one seed and one device: "
