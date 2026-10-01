@@ -88,6 +88,13 @@ Lane worktree `agent-a49d73cb7bb3e7dad`, branch `worktree-agent-a49d73cb7bb3e7da
     main. Main's `ShardReader` refuses the slice header (its `shard_hash` covers those fields),
     and the choice labels need that loader. The compose lane lands it after v4's row, the lead
     merges it, and this lane merges main.
+  - **Populations (`a0adebc`, per the compose lane):**
+    - refuse_gold and refuse_any are span populations only.
+    - The choice slot is one population, `both_policies`, because a span refusal drops only the
+      span sequence.
+    - A row whose gold start shares a token is in neither span population. It is counted per cell
+      as `span_excluded`, read from `sequence_index.json` `excluded` (UnencodableGold, "gold's
+      line start shares token"), never as a miss.
   - **Then:** a `composed` plan pass, which:
     - opens `<slice>/shards/val-report-only-composed`, requiring `report_only` true and
       `span_collapse_policy` refuse-gold, the train remap and the tokenizer;
