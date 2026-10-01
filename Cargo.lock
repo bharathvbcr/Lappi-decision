@@ -662,6 +662,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "qd-lang"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "qd-metal"
 version = "0.1.0"
 dependencies = [
@@ -677,6 +685,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "qd-lang",
  "rand",
  "rand_chacha",
  "serde",
@@ -716,6 +725,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "clap",
+ "qd-lang",
  "serde",
  "serde_json",
  "sha2",

@@ -102,6 +102,11 @@ REFUSAL_KINDS: Final[dict[str, dict[str, str]]] = {
         'len': 'usize',
         'non_whitespace': 'usize',
     },
+    'context_language_not_in_pool': {
+        'language': 'String',
+        'path': 'String',
+        'pool': 'Vec<String>',
+    },
     'context_len_missing': {
         'found': 'String',
     },
@@ -116,6 +121,11 @@ REFUSAL_KINDS: Final[dict[str, dict[str, str]]] = {
     },
     'context_not_bytes': {
         'got': 'String',
+    },
+    'context_not_unified_diff': {
+        'expected': 'String',
+        'found': 'String',
+        'line': 'usize',
     },
     'context_not_utf8': {
         'invalid_len': 'usize',

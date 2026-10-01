@@ -13,8 +13,8 @@
 //! | `tokenizer.json` | `backend.rs:331`, `tokenizer.rs:28-37` | the base snapshot's, pinned |
 //! | `tokenizer_config.json`, `vocab.json`, `merges.txt` | (transformers) | the base snapshot's |
 //! | `span_head.safetensors` | none yet | the span pointer head, F32 |
-//! | `calibration.json` | none yet (the runtime has no file loader) | optional, validated |
-//! | `release_manifest.json` | none | every file's sha256, the source, the identity hashes |
+//! | `calibration.json` | `qd_runtime::release` | optional here, validated; a release without it is refused at load |
+//! | `release_manifest.json` | `qd_runtime::release` | every file's sha256, the source, and `expected_identity`: the tower's `weight_hash` bound to `config.json`'s sha256 and the tokenizer's |
 //!
 //! | Module | Holds |
 //! | --- | --- |
@@ -22,12 +22,15 @@
 //! | [`bf16`] | the one cast: round to nearest, ties to even |
 //! | [`layout`] | `config.json` -> the tensor set and shapes the loader reads |
 //! | [`export`] | the refusals, the staging directory, the manifest |
+//! | [`ensemble`] | N released towers and the ensemble's table -> one `qd-ensemble.v1` directory |
 
 pub mod bf16;
+pub mod ensemble;
 pub mod export;
 pub mod layout;
 pub mod refusal;
 pub mod safetensors;
 
+pub use ensemble::{EnsembleRequest, EnsembleSummary, export_ensemble};
 pub use export::{export, AllowedExtra, ExportRequest, ExportSummary};
 pub use refusal::{Refusal, RefusalKind};

@@ -12,12 +12,15 @@
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read};
-use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use crate::lang::LangId;
 use crate::span::LineSpan;
+
+/// The path-to-language map the pool is read with. Owned by `qd-lang` (its tests carry the
+/// cases), so the serving runtime's admission check reads the same map without the grammars.
+pub use qd_lang::language_from_path;
 
 /// Largest single pool record. A record is one source file plus metadata, and the parser refuses
 /// anything over `parse::MAX_SOURCE_BYTES` anyway; this stops a malformed line from being buffered
@@ -94,26 +97,6 @@ impl PoolRecord {
             symbol: symbol.to_string(),
             arity,
         }
-    }
-}
-
-/// The language a path names, or `None`.
-///
-/// `.d.ts` is excluded on purpose: a declaration file has no function bodies, so it would parse,
-/// yield nothing, and inflate the "files seen, zero examples" column with files that never could
-/// have produced one.
-pub fn language_from_path(path: &str) -> Option<LangId> {
-    if path.ends_with(".d.ts") {
-        return None;
-    }
-    let ext = Path::new(path).extension()?.to_str()?;
-    match ext {
-        "rs" => Some(LangId::Rust),
-        "go" => Some(LangId::Go),
-        "py" | "pyi" => Some(LangId::Python),
-        "ts" | "tsx" | "mts" | "cts" => Some(LangId::TypeScript),
-        "swift" => Some(LangId::Swift),
-        _ => None,
     }
 }
 
@@ -203,17 +186,6 @@ pub fn language_census(records: &[PoolRecord]) -> BTreeMap<String, u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_path_names_its_language_and_a_declaration_file_names_none() {
-        assert_eq!(language_from_path("a/b.rs"), Some(LangId::Rust));
-        assert_eq!(language_from_path("a/b.go"), Some(LangId::Go));
-        assert_eq!(language_from_path("a/b.py"), Some(LangId::Python));
-        assert_eq!(language_from_path("a/b.tsx"), Some(LangId::TypeScript));
-        assert_eq!(language_from_path("a/b.swift"), Some(LangId::Swift));
-        assert_eq!(language_from_path("a/b.d.ts"), None, "no bodies to mutate");
-        assert_eq!(language_from_path("Makefile"), None);
-    }
 
     #[test]
     fn an_absent_hunk_list_stays_absent_rather_than_becoming_the_whole_file() {
