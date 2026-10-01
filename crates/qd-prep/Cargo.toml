@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "CPU-bound data-preparation loops ported out of Python: MinHash signatures for the ft_splits rebuild."
+description = "CPU-bound loops ported out of Python: MinHash signatures for the ft_splits rebuild, and the FT linear control's n-gram hashing and fit."
 
 [lib]
 name = "qd_prep"

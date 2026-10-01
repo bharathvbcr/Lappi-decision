@@ -49,13 +49,18 @@ pub struct Request<'b> {
     buf: &'b [u8],
 }
 
-struct Cursor<'b> {
-    buf: &'b [u8],
-    at: usize,
+/// A bounds-checked reader over a request buffer; shared with [`crate::linwire`].
+pub(crate) struct Cursor<'b> {
+    pub(crate) buf: &'b [u8],
+    pub(crate) at: usize,
 }
 
 impl<'b> Cursor<'b> {
-    fn take(&mut self, n: usize, what: &str) -> Result<Range<usize>, String> {
+    pub(crate) fn new(buf: &'b [u8]) -> Self {
+        Self { buf, at: 0 }
+    }
+
+    pub(crate) fn take(&mut self, n: usize, what: &str) -> Result<Range<usize>, String> {
         let end = self
             .at
             .checked_add(n)
@@ -72,14 +77,14 @@ impl<'b> Cursor<'b> {
         Ok(range)
     }
 
-    fn u32(&mut self, what: &str) -> Result<u32, String> {
+    pub(crate) fn u32(&mut self, what: &str) -> Result<u32, String> {
         let r = self.take(4, what)?;
         let mut bytes = [0u8; 4];
         bytes.copy_from_slice(&self.buf[r]);
         Ok(u32::from_le_bytes(bytes))
     }
 
-    fn u64(&mut self, what: &str) -> Result<u64, String> {
+    pub(crate) fn u64(&mut self, what: &str) -> Result<u64, String> {
         let r = self.take(8, what)?;
         let mut bytes = [0u8; 8];
         bytes.copy_from_slice(&self.buf[r]);
@@ -109,7 +114,7 @@ pub fn parse(buf: &[u8]) -> Result<Request<'_>, String> {
             buf.len()
         ));
     }
-    let mut c = Cursor { buf, at: 0 };
+    let mut c = Cursor::new(buf);
     let magic = c.take(8, "the magic")?;
     if &buf[magic] != INPUT_MAGIC {
         return Err(format!(
