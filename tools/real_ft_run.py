@@ -145,7 +145,17 @@ import numpy as np
 
 # An average's manifest is ckpt_average's format, so reading it back -- and checking its
 # sources and its weights against it -- is ckpt_average's too, not a second reader here.
-from ckpt_average import AverageRefusal, read_average, read_manifest, verify_sources
+# A Metal export's weights are the same file layout (tower.* and span_head.* beside a
+# <name>.manifest.json), so read_average reads them too, after their own manifest's checks.
+from ckpt_average import SOURCES as AVERAGE_SOURCES
+from ckpt_average import (
+    AverageManifest,
+    AverageRefusal,
+    manifest_path,
+    read_average,
+    read_manifest,
+    verify_sources,
+)
 
 # The floor formulas and the causal block, from the lane that calibrated them. Private by
 # name because they are this repository's, not a public API -- but a second copy of the
@@ -5313,6 +5323,14 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
             f"protocol seed {run['seed']}, as every per-seed score row's are. "
             + AVERAGED_PROMOTION_NOTE
         )
+    elif model is not None and model.trained_by is not None:
+        notes = (
+            f"tools/real_ft_run.py --score-checkpoint of {model.described}, scored in "
+            f"{run['score_dtype']} on {run['device']} at T = 1 on {len(val.reader)} val "
+            "sequences it never trained on, the way crates/qd-runtime/src/answer.rs decodes "
+            "them. The weights are another trainer's export, not a checkpoint this tool "
+            f"wrote; recipe.{TRAINED_BY_KEY} names who trained them and on what."
+        )
     elif averaged is None:
         notes = (
             f"tools/real_ft_run.py --score-val for ft row {run['ft_row_id']} "
@@ -5420,15 +5438,44 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
 #: score row written by a training run keeps the recipe hash it always had. ``averaged`` is
 #: on a scored average's row alone: its seeds, ft rows, manifest sha256 and source.
 #: ``ensemble`` is on a scored logit ensemble's row alone: its seeds, ft rows, each tower's
-#: checkpoint and digests, and how the towers are combined.
+#: checkpoint and digests, and how the towers are combined. ``trained_by`` is on a row
+#: scoring a model another trainer made (a Metal export) alone: that trainer, the device it
+#: trained on, the export's source and its manifest sha256.
 SCORED_CHECKPOINT_KEYS: Final[tuple[str, ...]] = (
-    "score_dtype", "scored_checkpoint", "averaged", "ensemble",
+    "score_dtype", "scored_checkpoint", "averaged", "ensemble", "trained_by",
 )
 
 #: What ``--score-checkpoint`` given this suffix scores: an average ``tools/ckpt_average.py``
-#: wrote, with its ``.manifest.json`` beside it. Anything else is one seed's
-#: ``<tag>-seed<N>-<device>.json``.
+#: wrote, with its ``.manifest.json`` beside it -- unless the name is a Metal export's
+#: (:func:`_is_metal_export`). Anything else is one seed's ``<tag>-seed<N>-<device>.json``.
 AVERAGED_SUFFIX: Final[str] = ".safetensors"
+#: A model the Rust trainer (``crates/qd-train``, over canonical tessl's Metal kernels)
+#: trained: human ask 7 of ``AUDIT/ojas-training-2026-10-01/fable-advice.md``, a scoring
+#: input only. One seed's ``tower.*`` and ``span_head.*``, named as every per-seed checkpoint
+#: is but as a ``.safetensors`` -- ``<tag>-seed<N>-metal.safetensors`` -- with the Rust
+#: export's manifest at ``<name>.manifest.json`` (:func:`_metal_export_weights`).
+METAL_DEVICE: Final[str] = "metal"
+#: The trainer a Metal export's manifest and its ft row's ``recipe.trainer`` both name.
+METAL_TRAINER: Final[str] = "qd-train-metal"
+#: A Metal export's manifest ``from``: the Rust export. An average's is one of
+#: ``ckpt_average.SOURCES``; a ``from`` that is neither is refused.
+METAL_EXPORT_SOURCE: Final[str] = "qd-train-export"
+#: The recipe block every row scoring a model another trainer made carries
+#: (:meth:`ScoredModel.recipe_block`), so it never reads as a model this tool trained.
+TRAINED_BY_KEY: Final[str] = "trained_by"
+#: A Metal export's manifest fields and their JSON types; each one is checked.
+METAL_MANIFEST_FIELDS: Final[Mapping[str, type | tuple[type, ...]]] = {
+    "from": str, "trainer": str, "device": str, "seed": int, "optimizer_step": int,
+    "ft_row_id": str, "vocab_size": int, "span_weight": (int, float),
+    "safetensors_sha256": str, "n_tensors": int,
+}
+#: What the scoring step is built from (:func:`_scoring_step`), which a Metal ft row's
+#: recipe must therefore name itself: a ``.json`` checkpoint's older rows may lack
+#: ``optimizer_recipe`` and are read at ``bf16``, a new trainer's are not guessed at.
+METAL_ROW_RECIPE_KEYS: Final[tuple[str, ...]] = (
+    "attn_implementation", "lr", "span_weight", "optimizer_recipe",
+)
+_SHA256_HEX: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{64}")
 #: A scored average's run tag; :func:`_record_score` makes its recipe tag ``avg-score-val``,
 #: as an epoch arm's is ``epoch-score-val``.
 AVERAGED_TAG: Final[str] = "avg"
@@ -5482,7 +5529,20 @@ def ft_row_ids(value: str | Sequence[str] | None) -> tuple[str, ...]:
 
 def _is_average(path: Path | Sequence[Path]) -> bool:
     paths = score_paths(path)
-    return len(paths) == 1 and paths[0].suffix == AVERAGED_SUFFIX
+    return (
+        len(paths) == 1 and paths[0].suffix == AVERAGED_SUFFIX and not _is_metal_export(paths)
+    )
+
+
+def _is_metal_export(path: Path | Sequence[Path]) -> bool:
+    """One ``.safetensors`` whose name ends in ``-metal``: one seed's Metal export, routed by
+    its device as every per-seed checkpoint is. :func:`_metal_export_seed` refuses any other
+    part of the name it cannot read, and the manifest refuses an average named like one."""
+    paths = score_paths(path)
+    return (
+        len(paths) == 1 and paths[0].suffix == AVERAGED_SUFFIX
+        and paths[0].stem.endswith(f"-{METAL_DEVICE}")
+    )
 
 
 def _is_ensemble(path: Path | Sequence[Path]) -> bool:
@@ -5510,16 +5570,26 @@ class ScoredModel:
     described: str
     #: A norm-preserving average whose lambda was given rather than derived from c.
     lambda_chosen: bool = False
+    #: A model another trainer made (a Metal export): the :data:`TRAINED_BY_KEY` block every
+    #: row scoring it carries. ``None`` for a model this tool trained.
+    trained_by: Mapping[str, object] | None = None
+    #: That model's ft row's ``quick_reason`` when the row is quick, which its rows carry.
+    ft_quick_reason: str | None = None
 
     @property
     def n_inputs(self) -> int:
         return len(self.ft_row_ids)
 
     def recipe_block(self) -> dict[str, object]:
-        """``{block_key: block}``, or nothing for one seed's checkpoint."""
-        if self.block_key is None or self.block is None:
-            return {}
-        return {self.block_key: dict(self.block)}
+        """``{block_key: block}``, or nothing for one seed's checkpoint; and the
+        :data:`TRAINED_BY_KEY` block for a model another trainer made."""
+        block: dict[str, object] = (
+            {} if self.block_key is None or self.block is None
+            else {self.block_key: dict(self.block)}
+        )
+        if self.trained_by is not None:
+            block[TRAINED_BY_KEY] = dict(self.trained_by)
+        return block
 
     def ft_row_metric(self) -> tuple[str, TriState]:
         """``ft_run_row_id`` for one seed's model; ``ft_run_row_ids`` for any other, never
@@ -5550,6 +5620,17 @@ class ScoredModel:
         if self.lambda_chosen:
             reasons.append(LAMBDA_CHOSEN_REASON)
         return reasons
+
+    def provenance_reasons(self) -> list[str]:
+        """Rule 8 carried from the ft row of a model another trainer made: a model a quick
+        run trained is no less quick, whatever device scores it."""
+        if self.ft_quick_reason is None or self.trained_by is None:
+            return []
+        return [
+            f"ft row {self.ft_row_ids[0]}, which {self.trained_by['trainer']} trained on "
+            f"{self.trained_by['device']}, is quick ({self.ft_quick_reason}); a model a quick "
+            "run trained is no less quick"
+        ]
 
 
 def scored_model(
@@ -5608,6 +5689,23 @@ def scored_model(
                 + f"), combined as the {ensemble['combine']}"
             ),
         )
+    trained_by = meta.get(TRAINED_BY_KEY)
+    if trained_by is not None:
+        assert isinstance(trained_by, Mapping)  # what _metal_export_weights writes
+        return ScoredModel(
+            tag="epoch",
+            scored_checkpoint=str(meta["scored_checkpoint"]),
+            terminations=(ft["metrics"]["train.termination"]["value"],),
+            ft_row_ids=(str(ft["row_id"]),),
+            block_key=None, block=None,
+            described=(
+                f"ft row {ft['row_id']}, a model TRAINED BY {trained_by['trainer']} on "
+                f"{trained_by['device']} -- not by this tool -- read from its export "
+                f"{meta['scored_checkpoint']} (manifest sha256 {trained_by['manifest_sha256']})"
+            ),
+            trained_by=trained_by,
+            ft_quick_reason=str(ft["quick_reason"]) if ft["quick"] else None,
+        )
     path = score_paths(args.score_checkpoint)[0]
     return ScoredModel(
         tag="epoch",
@@ -5653,8 +5751,9 @@ def _checkpoint_step(
 
     Returns ``(step, ft row, its recipe, seed, checkpoint meta)``. The one
     loader for both the scoring process and its needle worker, for one seed's checkpoint
-    (:func:`_seed_weights`) and for an average (:func:`_averaged_weights`): only where the
-    weights come from and what is checked about them differ, never the step they load into.
+    (:func:`_seed_weights`), one seed's Metal export (:func:`_metal_export_weights`) and an
+    average (:func:`_averaged_weights`): only where the weights come from and what is checked
+    about them differ, never the step they load into.
 
     ``seed`` is the eval row's protocol seed: the checkpoint's own for one seed's, and
     ``suite_seed`` -- the protocol seed every suite is built at -- for an average or an
@@ -5694,6 +5793,8 @@ def _checkpoint_step(
         ft, recipe, seed, meta, weights = _averaged_weights(
             args, reader=reader, suite_seed=suite_seed
         )
+    elif _is_metal_export(args.score_checkpoint):
+        ft, recipe, seed, meta, weights = _metal_export_weights(args, reader=reader)
     else:
         ft, recipe, seed, meta, weights = _seed_weights(args, reader=reader)
     step = _scoring_step(
@@ -5772,6 +5873,199 @@ def _seed_weights(
             f"{meta['seed']}; ft row {ft['row_id']} ended at step {steps}, seed {seed}. This "
             "is not the model that row trained."
         )
+    return ft, recipe, seed, meta, weights
+
+
+def _metal_export_seed(path: Path) -> int:
+    """The seed in a Metal export's name, ``epoch-seed<N>-metal.safetensors``, or a
+    refusal: only an epoch arm is scored, and a name that does not say its seed is not one
+    the Rust export writes."""
+    parts = path.stem.rsplit("-", 2)
+    if (len(parts) != 3 or parts[2] != METAL_DEVICE or not parts[1].startswith("seed")
+            or not parts[1][4:].isdigit()):
+        raise SystemExit(
+            f"Metal export {path.name}: not a name the Rust export writes. Expected "
+            f"<tag>-seed<N>-{METAL_DEVICE}{AVERAGED_SUFFIX}, which says the seed it was taken at"
+        )
+    if parts[0] != "epoch":
+        raise SystemExit(f"Metal export {path.name}: only an epoch checkpoint is scored")
+    return int(parts[1][4:])
+
+
+def _read_metal_manifest(path: Path) -> AverageManifest:
+    """The Rust export's manifest beside ``path``, every field present and of its type, its
+    source, trainer and device the Metal export's; refused otherwise. Returned as the
+    ``AverageManifest`` ``read_average`` reads the weights through -- the same file layout,
+    never an average: nothing here reads its ``inputs`` or ``ft_row_ids``."""
+    where = f"Metal export {path.name}"
+    file = manifest_path(path)
+    if not file.is_file():
+        raise SystemExit(
+            f"{where} has no manifest at {file}; without it nothing says which ft row, step "
+            "and seed these weights are"
+        )
+    raw = file.read_bytes()
+    try:
+        body = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"{where}: its manifest {file} is not JSON ({exc})") from exc
+    if not isinstance(body, dict):
+        raise SystemExit(f"{where}: its manifest {file} is not a JSON object")
+    source = body.get("from")
+    if source in AVERAGE_SOURCES:
+        raise SystemExit(
+            f"{where}: its manifest's 'from' is {source!r}, an average's manifest "
+            f"(tools/ckpt_average.py). An average is not named <tag>-seed<N>-{METAL_DEVICE}"
+            f"{AVERAGED_SUFFIX}; this name says one seed's Metal export"
+        )
+    if source != METAL_EXPORT_SOURCE:
+        raise SystemExit(
+            f"{where}: its manifest's 'from' is {source!r}, neither a Metal export's "
+            f"{METAL_EXPORT_SOURCE!r} nor an average's {AVERAGE_SOURCES}"
+        )
+    problems: list[str] = []
+    for key, kind in METAL_MANIFEST_FIELDS.items():
+        value = body.get(key)
+        if not isinstance(value, kind) or isinstance(value, bool):
+            kinds = kind if isinstance(kind, tuple) else (kind,)
+            problems.append(f"{key} is {value!r}, not {' or '.join(k.__name__ for k in kinds)}")
+    if not problems:
+        if body["trainer"] != METAL_TRAINER:
+            problems.append(f"trainer is {body['trainer']!r}, not {METAL_TRAINER!r}")
+        if body["device"] != METAL_DEVICE:
+            problems.append(
+                f"device is {body['device']!r}, not {METAL_DEVICE!r}: the name says this is "
+                "a Metal export, and the export says it trained elsewhere"
+            )
+        if _SHA256_HEX.fullmatch(body["safetensors_sha256"]) is None:
+            problems.append("safetensors_sha256 is not a lowercase hex sha256")
+    if problems:
+        raise SystemExit(
+            f"{where}: its manifest {file} is not one a Metal export can be scored from: "
+            + "; ".join(problems)
+        )
+    return AverageManifest(
+        weights=path, path=file, sha256=hashlib.sha256(raw).hexdigest(), body=body
+    )
+
+
+def _metal_row_problems(ft: Mapping[str, Any]) -> list[str]:
+    """What a Metal export's ft row lacks beyond :func:`_ft_row_mismatches`: the trainer
+    that wrote it, what the scoring step is built from, whether it is quick (rule 8, stated
+    either way), and how its run ended."""
+    recipe = ft["recipe"]
+    problems: list[str] = []
+    if recipe.get("trainer") != METAL_TRAINER:
+        problems.append(
+            f"recipe trainer: row says {recipe.get('trainer')!r}, a Metal export's ft row "
+            f"says {METAL_TRAINER!r}"
+        )
+    missing = [k for k in METAL_ROW_RECIPE_KEYS if k not in recipe]
+    if missing:
+        problems.append(f"its recipe names no {missing}, which the scoring step is built from")
+    quick = ft.get("quick")
+    if not isinstance(quick, bool):
+        problems.append(
+            f"quick is {quick!r}: a Metal ft row says whether it is quick (rule 8), true or "
+            "false, and its rows inherit it"
+        )
+    elif quick and not (isinstance(ft.get("quick_reason"), str) and ft["quick_reason"].strip()):
+        problems.append("quick is true and quick_reason says nothing")
+    metrics = ft.get("metrics") or {}
+    steps = metrics.get("train.optimizer_steps", {}).get("value")
+    if not isinstance(steps, int) or isinstance(steps, bool):
+        problems.append(f"metrics train.optimizer_steps is {steps!r}, not a step count")
+    termination = metrics.get("train.termination", {}).get("value")
+    if not isinstance(termination, str):
+        problems.append(
+            f"metrics train.termination is {termination!r}: a run that does not say how it "
+            "ended cannot say its schedule was not truncated"
+        )
+    return problems
+
+
+def _metal_export_weights(
+    args: argparse.Namespace, *, reader: ShardReader
+) -> tuple[dict[str, Any], dict[str, Any], int, dict[str, Any], dict[str, Any]]:
+    """One seed's Metal export (``epoch-seed<N>-metal.safetensors``):
+    ``(ft row, recipe, seed, meta, weights)``, every pairing checked before a tensor is read.
+
+    * the name is an epoch arm's and its seed is ``--seeds``' one;
+    * the manifest (:func:`_read_metal_manifest`) says ``from`` :data:`METAL_EXPORT_SOURCE`,
+      ``trainer`` :data:`METAL_TRAINER` and ``device`` :data:`METAL_DEVICE`, and names its
+      seed, optimizer step, ft row, ``vocab_size``, ``span_weight``, ``n_tensors`` and
+      ``safetensors_sha256``;
+    * ``--ft-row-id``'s row describes it as a ``.json`` checkpoint's row must
+      (:func:`_ft_row_mismatches`: an epoch arm, on ``metal``, at its seed, on this run's
+      shard set and backbone) and as a Metal export's must (:func:`_metal_row_problems`);
+    * the manifest names that row, its step and its seed, and the row's span weight;
+    * the ``.safetensors`` hashes to the manifest's sha256 and holds only ``tower.*`` and
+      ``span_head.*``, ``n_tensors`` of them (``ckpt_average.read_average``).
+
+    ``meta[TRAINED_BY_KEY]`` is what every row scoring it records about who trained it.
+    """
+    (path,) = score_paths(args.score_checkpoint)
+    (row_id,) = ft_row_ids(args.ft_row_id)
+    where = f"Metal export {path.name}"
+    seed = _metal_export_seed(path)
+    if list(args.seeds) != [seed]:
+        raise SystemExit(f"{where} is seed {seed}; --seeds says {args.seeds}")
+    manifest = _read_metal_manifest(path)
+    body = manifest.body
+    ft = _ft_row(args.ft_ledger, row_id)
+    protocol = ft.get("protocol")
+    if not isinstance(ft.get("recipe"), Mapping) or not (
+        isinstance(protocol, Mapping) and isinstance(protocol.get("seed"), int)
+    ):
+        raise SystemExit(
+            f"{where}: ft row {ft['row_id']} records no recipe or no protocol seed, so "
+            "nothing in it can be checked against this export"
+        )
+    recipe = ft["recipe"]
+    problems = [
+        f"{k}: row says {a!r}, here {b!r}"
+        for k, (a, b) in _ft_row_mismatches(
+            ft, seed=seed, trained_on=METAL_DEVICE, reader=reader,
+            real_backbone=args.real_backbone,
+        ).items()
+    ]
+    problems.extend(_metal_row_problems(ft))
+    if not problems:
+        steps = int(ft["metrics"]["train.optimizer_steps"]["value"])
+        if body["ft_row_id"] != ft["row_id"]:
+            problems.append(
+                f"the manifest's ft_row_id is {body['ft_row_id']!r}: it is not this row's export"
+            )
+        if body["seed"] != seed:
+            problems.append(f"the manifest says seed {body['seed']} and the name seed {seed}")
+        if body["optimizer_step"] != steps:
+            problems.append(
+                f"the export is at optimizer step {body['optimizer_step']} and the row ended "
+                f"at optimizer step {steps}"
+            )
+        if float(body["span_weight"]) != float(recipe["span_weight"]):
+            problems.append(
+                f"the export says span_weight {body['span_weight']} and the row trained at "
+                f"{recipe['span_weight']}"
+            )
+    if problems:
+        raise SystemExit(
+            f"{where} and ft row {ft['row_id']} do not describe one model scored against "
+            "this shard set and backbone: " + "; ".join(problems)
+        )
+    try:
+        weights = read_average(manifest)
+    except AverageRefusal as exc:
+        raise SystemExit(f"{where}: {exc}") from exc
+    meta = {
+        "optimizer_step": int(body["optimizer_step"]),
+        "seed": seed,
+        "scored_checkpoint": f"{path.name}:{body['safetensors_sha256']}",
+        TRAINED_BY_KEY: {
+            "trainer": METAL_TRAINER, "device": METAL_DEVICE, "source": METAL_EXPORT_SOURCE,
+            "manifest_sha256": manifest.sha256,
+        },
+    }
     return ft, recipe, seed, meta, weights
 
 
@@ -6141,6 +6435,7 @@ def model_reasons(
             if reason not in reasons:
                 reasons.append(reason)
     reasons.extend(model.seed_reasons())
+    reasons.extend(model.provenance_reasons())
     return reasons
 
 
@@ -8096,7 +8391,11 @@ def main(argv: list[str] | None = None) -> int:
             "--ft-row-id) and scored under --seeds listing the average's seeds. Or a LOGIT "
             "ENSEMBLE: two or more per-seed checkpoints, each paired with its own ft row "
             "(--ft-row-id, one per checkpoint, in order) under --seeds listing their seeds in "
-            "order; every decode reads the mean of the towers' log-probabilities (tag ens<N>)"
+            "order; every decode reads the mean of the towers' log-probabilities (tag ens<N>). "
+            "Or a METAL EXPORT: epoch-seed<N>-metal.safetensors, one seed's weights the Rust "
+            "trainer (crates/qd-train) exported, with its .manifest.json beside it, paired "
+            "with the ft row it wrote (--ft-ledger/--ft-row-id) under its one --seeds; every "
+            "row it is scored into records recipe.trained_by"
         ),
     )
     parser.add_argument(

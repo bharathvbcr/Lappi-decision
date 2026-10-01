@@ -1,0 +1,48 @@
+{
+  "case": "duplicate-positions",
+  "description": "query is also a candidate: first / middle (and gold) / last, one abstaining",
+  "device": "cpu",
+  "dtype": "float32",
+  "dw_encoding": "npy",
+  "head": "python/qd_train/heads.py::SpanPointerHead (plan from plan_span_batch)",
+  "hidden_scale": 0.9306048591020996,
+  "hidden_size": 16,
+  "n_spans": 3,
+  "oracle": "tools/qd_train_oracle_span_head.py",
+  "reduction": "mean",
+  "reserved_noul_rows": 1,
+  "seq_len": 24,
+  "sha256": {
+    "d_end_proj": "a1fe35480ce20bca38ea728f9cb0220cdade3ff101a0a8864a61004e08759c03",
+    "d_start_proj": "0c2ee0a87aa44e7af858db2e2e5c8ab2cc2225473e73c8c97c87a11090a13392",
+    "end_proj_weight": "6e4b16232d712d94d99c6a81e786871153e9e35da7904a53cc74d93afd1f8a06",
+    "ref64_d_end_proj": "ced8ffa0f2505413c67b3ff199b8fec77849a503216fadfef45954af60f27063",
+    "ref64_d_start_proj": "7d5e4ae768a1a8b28c4dabb9a14ef3da386ae53da44da1609d257f964343c870",
+    "start_proj_weight": "b4811583c9bafd0900052b250c8c4502849beb429e20e6124c2f4bd04469ff2f"
+  },
+  "span_weight": 0.5,
+  "torch_f32_vs_f64": {
+    "d_abstain_end": 4.092003089709891e-07,
+    "d_abstain_start": 3.34630667371007e-07,
+    "d_end_proj": 1.4654623480870412e-07,
+    "d_hidden": 1.992237506755207e-07,
+    "d_start_proj": 1.4345922841944793e-07,
+    "loss": 2.650649424902142e-08,
+    "scores_end": 1.2402148990989613e-07,
+    "scores_start": 8.074408258151868e-08
+  },
+  "torch_threads": 1,
+  "versions": {
+    "numpy": "2.5.0",
+    "python": "3.14.7",
+    "torch": "2.12.1"
+  },
+  "weight_generator": {
+    "algorithm": "splitmix64(seed << 40 ^ stream << 32 ^ index) >> 40, centred, times 2^-(23 + shift)",
+    "seed": 105,
+    "shift": 2,
+    "stream_end_proj": 2,
+    "stream_start_proj": 1
+  },
+  "zero_abstain": false
+}

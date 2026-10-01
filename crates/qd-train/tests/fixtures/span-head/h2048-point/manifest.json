@@ -1,0 +1,48 @@
+{
+  "case": "h2048-point",
+  "description": "the real width, one pointing row (K=1: dW encoded through dq)",
+  "device": "cpu",
+  "dtype": "float32",
+  "dw_encoding": "outer_k1",
+  "head": "python/qd_train/heads.py::SpanPointerHead (plan from plan_span_batch)",
+  "hidden_scale": 0.2326512147755249,
+  "hidden_size": 2048,
+  "n_spans": 1,
+  "oracle": "tools/qd_train_oracle_span_head.py",
+  "reduction": "mean",
+  "reserved_noul_rows": 1,
+  "seq_len": 28,
+  "sha256": {
+    "d_end_proj": "efcb1141025b80a7015f055d22ffdde00a5b788a4b270a55d6e813f27fe8ad5a",
+    "d_start_proj": "b9a5a3f4c641a7c35d598fa6fbe2eb3937656493a1a6afb9e6301fd90566a54c",
+    "end_proj_weight": "12ea8c52ba10348ab0955dc395c4139aa3a5b77a144fb0268f43534782c02f22",
+    "ref64_d_end_proj": "21ca22d707105d28ec78d7957d17b43daca23a32d7ba4eca8abe9e99764f30a1",
+    "ref64_d_start_proj": "464d34e8ea75e54ec684b660fffa4703bd54b74f94baabb71a7cc78096c2d11c",
+    "start_proj_weight": "ed07bf94dfe7704a481591655517f84c17cc781301b79bd2e033a83bbbcf3f1b"
+  },
+  "span_weight": 0.75,
+  "torch_f32_vs_f64": {
+    "d_abstain_end": 1.6690797180304208e-07,
+    "d_abstain_start": 4.5839487009162456e-07,
+    "d_end_proj": 1.399822552316747e-07,
+    "d_hidden": 9.653405903585473e-07,
+    "d_start_proj": 1.5616082333581215e-07,
+    "loss": 5.483014190453961e-08,
+    "scores_end": 1.8754091284250643e-07,
+    "scores_start": 1.4928146126425676e-07
+  },
+  "torch_threads": 1,
+  "versions": {
+    "numpy": "2.5.0",
+    "python": "3.14.7",
+    "torch": "2.12.1"
+  },
+  "weight_generator": {
+    "algorithm": "splitmix64(seed << 40 ^ stream << 32 ^ index) >> 40, centred, times 2^-(23 + shift)",
+    "seed": 107,
+    "shift": 5,
+    "stream_end_proj": 2,
+    "stream_start_proj": 1
+  },
+  "zero_abstain": false
+}
