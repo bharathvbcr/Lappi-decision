@@ -7,8 +7,8 @@
 #      (+0.150 [+0.136, +0.165]);
 #   3. all-gates re-score of the saved checkpoint, fp32, against 58fd1532.
 # Code: /home/ubuntu/perf/p3fused = qd-lane2 (main 884b658, whose qd_data matches the phase-3
-# shard set) + the train-step patch (branch commits e728a1d..e19dcf6), committed locally so the
-# rows carry a clean code_commit. Built by --build (CPU only); --run takes the GPU lock.
+# shard set) + the train-step patch (branch commits e728a1d..e19dcf6) + mirror.patch (0b95adb),
+# each committed locally so the rows carry a clean code_commit. Built by --build (CPU only); --run takes the GPU lock.
 # Writes only under /home/ubuntu/perf.
 set -o pipefail
 PERF=/home/ubuntu/perf
@@ -31,7 +31,12 @@ if [ "$1" = "--build" ]; then
   git apply $PERF/trainstep.patch
   git -c user.name="train-step perf lane" -c user.email=noreply@anthropic.com commit --quiet \
     -am "Train-step patch (e728a1d..e19dcf6 on the agent branch) on 884b658, for the Tier-B run"
-  echo "p3fused at $(git rev-parse HEAD) on $(git rev-parse HEAD~1) dirty=[$(git status --porcelain)]"
+  # 0b95adb: RECIPE_PIECE_KEYS names optimizer_fused, so this run's verdict, eval and score
+  # rows say fused too (Fable: the fused flag on every row), not its ft row alone.
+  git apply $PERF/mirror.patch
+  git -c user.name="train-step perf lane" -c user.email=noreply@anthropic.com commit --quiet \
+    -am "Mirror optimizer_fused and checkpoint_skip_layers into scored rows (0b95adb)"
+  echo "p3fused at $(git rev-parse HEAD) on $(git rev-parse HEAD~2) dirty=[$(git status --porcelain)]"
   exit 0
 fi
 [ "$1" = "--run" ] || { echo "usage: $0 --build | --run"; exit 2; }
