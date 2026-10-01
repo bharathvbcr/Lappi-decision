@@ -13,11 +13,22 @@ population changed, and nothing became promotable (rule 2).
   `dc946a82`: bit for bit on seeds 0 and 1 (72 numbers each), within 8.1e-9 on seed 2 (J7 fitted
   on the box's glibc libm, these on macOS). Out-of-fold ECE after calibration, k2 / k4:
   0.0230 / 0.0169, 0.0084 / 0.0171, 0.0105 / 0.0146.
-- **The gate report** (`qd-gate-report` at `92c7a07`) re-read J4's eval rows `2f5fe57a`,
-  `f3612f73` and `02cf5ff4` from their local verdict files (sha256 `783e38be…`, `0f956a83…`,
-  `f4923587…`) and J4's suite verdicts. It writes no row of its own: its numbers are those rows'
-  verdicts, and on each row 52 recorded numbers were recomputed and equal before anything was
-  reported. Per seed, s0 / s1 / s2:
+- **Gate report rows** in `ledger/mac-gate-report-2026-10-01.jsonl` (quick, `run_kind` eval,
+  Mac CPU, from `0603f7f`, written by `tools/gate_report_row.py`):
+
+  | Report row | Re-reads eval row | Verdicts sha256 |
+  | --- | --- | --- |
+  | `676e6498` | `2f5fe57a` (J4 s0) | `783e38be…` |
+  | `a8ddf12c` | `f3612f73` (J4 s1) | `0f956a83…` |
+  | `1563b03c` | `02cf5ff4` (J4 s2) | `f4923587…` |
+  | `c308c802` | `1d93b3ee` (the average) | `fe544685…` |
+
+  On each row, `gate_report.cross_check` is 52/65: 52 numbers the eval row records were
+  recomputed from its verdicts and are equal, and 13 are absent or not_run there. Each row has
+  165 metrics, 103 ran and 62 not_run, and none carries a failed verdict.
+  - Rows 2–4 carry a `-dirty` `code_commit`. Their only dirt is this ledger file, which row 1
+    created untracked; the same happened in `mac-calib-crossfit`.
+  - The tables below cite these rows. Per seed, s0 / s1 / s2:
 
   | Report-only number | defect_class | MMLU | CSQA | Pooled (the gate's population) |
   | --- | --- | --- | --- | --- |
@@ -36,6 +47,38 @@ population changed, and nothing became promotable (rule 2).
   - **G3, k4, defect_class:** entropy 0.090–0.096, also under the floor, with marginals within
     1σ. The pooled k4 control passes only because MMLU lifts the mean.
   - **G3, k4, MMLU:** over-predicts option 3 by +11.6σ / +16.3σ / +7.9σ, a last-position bias.
+- **The average `1d93b3ee`** (report row `c308c802`). The report's per-family numbers for the
+  average:
+
+  | Report-only number | defect_class | MMLU | CSQA | within_domain |
+  | --- | --- | --- | --- | --- |
+  | permutation agreement | 0.990 | 0.669 | 0.899 | 0.919 |
+  | in-distribution abstention | 0.010 | 0.331 | 0.101 | 0.107 |
+  | ECE | 0.009 | 0.041 | 0.041 | 0.191 |
+
+  - Mean entropy: defect_class k4 is 0.111 and in_scope k2 is 0.171.
+  - G2: pooled ECE is 0.0304, and the `none` bucket is 0.0373.
+  - G3: MMLU over-predicts option 3 by +14.5σ; across all k4 rows the excess is +9.8σ.
+  - The OOD suite has no val family: per-family `ood_suite` is not_run, with that reason.
+- **`verdict --kind avg` on the average**, with `--input-ledger ledger/gh200-p4-v3-2026-10-01.jsonl`,
+  prints `REFUSED [avg]` over 4 rows: the average and its three J4 ft inputs.
+  - The input checks raised nothing. The inputs are non-quick and ran to `steps_exhausted`; they
+    share one recipe, snapshot, tokenizer and backbone; there are 3 distinct seeds, matching
+    `recipe.averaged`. On real data that is no structural finding.
+  - It is refused by its own gates:
+
+    | Gate | Result |
+    | --- | --- |
+    | `ood_abstain` | FAILED, 0/180 |
+    | `needle_hunk_recall` | FAILED, worst bucket 0.2787 |
+    | `permutation_consistency` | FAILED, 10127/10985 |
+    | `paired_margin_vs_linear` | not run |
+    | `ece` | not run: 8,681 rows carry no language |
+
+  - Also by its controls: `shuffled_label`, `privileged_hunk` and `transfer_gate` did not run.
+  - And by all six open human decisions.
+  - J7n's needle-control row `0b86fae3` is quick and has no `eval_row_id`, so the promotion join
+    does not read it.
 
 ## What changed (commits)
 
@@ -45,6 +88,9 @@ population changed, and nothing became promotable (rule 2).
 | `92c7a07` | `qd-gate-report`, a Rust bin in qd-runtime with no new crate, covering G1–G3 and the population. `python/tests/test_gate_report_parity.py` |
 | `d8a0047` | `calib_fit_row.py --population cross-fit` (G7) |
 | `a05490b` | the three cross-fit rows above |
+| `0fa94d2` | on the lead's yes, the eval row also carries the report metrics: `real_ft_run.calibration_states` adds `degenerate_head.family.{family}.{shape}` (G1) and `ece.report.pooled` / `ece.report.lang.{lang\|none}` (G2), as metrics only, never in `eces` or `degenerate`. `qd-gate-report` cross-checks them where a row records them |
+| `0603f7f` | `tools/gate_report_row.py`: a `qd-gate-report` run as its own quick ledger row, on the `calib_fit_row.py` pattern |
+| `229efc4` | the four gate report rows above |
 
 **G7, what was missing.** Each population was its own row. The `all` rows recorded in-sample
 numbers, and no row named the shipped table or bound the two populations together.
@@ -66,9 +112,16 @@ numbers, and no row named the shipped table or bound the two populations togethe
 clean inputs and gets REFUSED, by the human items alone. Its positive control promotes the same
 fixture once a test record decides every question.
 
-**Not done, by choice.** No in-process metric was added to `real_ft_run.py`. The new numbers
-have one owner, the offline reporter, and the box writes `--verdicts-out` on every run, so any
-future eval row can be re-reported. Mirroring them in-process would be a second implementation.
+**In-process metrics (`0fa94d2`), with the gates unchanged.** Since the lead's yes,
+`calibration_states` returns the report metrics too. `qd-gate-report` stays the cross-check: it
+recomputes them from the verdicts and refuses a 1e-9 difference.
+- `test_real_ft_report_metrics.py` pins the sha256 of every gate, control and earlier metric. The
+  golden was computed from the unmodified function at `90e7586`.
+- On real data the same digest is identical before and after, on J4 s0 and on the average.
+
+**The GDN path is not recorded here.** These report rows run no model. The training-step perf
+lane owns the record that GDN ran through fla's `chunk_gated_delta_rule` with `causal_conv1d`,
+and nothing here duplicates it.
 
 ## Tests
 
@@ -80,11 +133,19 @@ future eval row can be re-reported. Mirroring them in-process would be a second 
   | --- | --- |
   | `test_promotion_decisions.py` | 30 passed |
   | `test_ledger.py`, `test_gaps_ledger.py` | 112 passed |
-  | `test_gate_report_parity.py` | 10 passed |
+  | `test_gate_report_parity.py` | 11 passed (2 assertions fail against the pre-`0fa94d2` binary) |
+  | `test_real_ft_report_metrics.py` | 5 passed (gate sha256 pinned at `90e7586`) |
+  | `test_gate_report_row.py` | 5 passed (before `0603f7f`: `ModuleNotFoundError: gate_report_row`) |
   | `test_calib_fit_row.py` | 7 passed |
   | `test_calib_fit_parity.py` | 18 passed, 1 opt-in benchmark skipped |
   | `cargo test -p qd-runtime --bin qd-gate-report` | 5 passed |
 
+- **Full CPU suite at `229efc4`:** 1 failed, 2945 passed, 48 skipped, 8 deselected, in 13 min.
+  - Deselected by name: the `mps` tests and the two environmental tests below.
+  - The one failure was `test_tool_call_sites.py::test_every_tool_that_hashes_a_recipe_is_found_by_this_check`.
+    The new tool lacked its recipe-hash spelling pin.
+  - The pin was added in the next commit, with the tight side's count 5 → 6. That file now
+    passes 19 of 19.
 - clippy `-D warnings` and rustfmt are clean.
 - Mutation checks: a last-max argmax, and dropping the permuted half of the in-distribution rule,
   each fail the parity tests.
@@ -105,27 +166,29 @@ future eval row can be re-reported. Mirroring them in-process would be a second 
   - `GAP-DEGENERATE-HEAD-FAILS-ON-BINARY-SLOTS-TOO`
   - `GAP-PRIVILEGED-HUNK-IS-NEARLY-VACUOUS-ON-COMMITPACKFT`
   - `GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA`
-- **The average is not re-reported.** Its files are not on the Mac. Copy these from the box;
-  the paths are J7's planned ones, so confirm them first with
-  `grep -n -- '--verdicts-out\|--suite-verdicts-out\|--ledger' /home/ubuntu/box_q_j7g.sh /home/ubuntu/box_j7.sh`:
-  - `/home/ubuntu/ledger/gh200-p6-j7-avg-2026-10-01.jsonl`, the average's eval row and any
-    supplement;
-  - `/home/ubuntu/j7/avg-verdicts.jsonl`;
-  - `/home/ubuntu/j7/avg-suite-verdicts.jsonl`.
+- The average was re-reported (`c308c802`), so nothing for it is still to copy.
+- `verdict --row-id` takes the full row id, not a prefix. `1d93b3ee` alone reports "0 rows have
+  id"; `tools/*_row.py` resolve unique prefixes and the CLI does not. This is an observation
+  only; nothing was changed.
 
 ## First command for the next lane
 
-Once the three files are in `/Users/bharath/qd-campaign/p4-v3-2026-10-01/`:
+For any new eval row whose `--verdicts-out` file is on the Mac, write its report row (this works
+the same for an average's verdicts). Replace `<…>` with that row's files:
 
-    cargo build --release -p qd-runtime --bin qd-gate-report
-    target/release/qd-gate-report \
-      --verdicts /Users/bharath/qd-campaign/p4-v3-2026-10-01/avg-verdicts.jsonl \
-      --suite-verdicts /Users/bharath/qd-campaign/p4-v3-2026-10-01/avg-suite-verdicts.jsonl \
-      --eval-ledger /Users/bharath/qd-campaign/p4-v3-2026-10-01/gh200-p6-j7-avg-2026-10-01.jsonl \
-      --decisions docs/promotion-decisions.json
+    cargo build --release -p qd-runtime --bin qd-gate-report \
+      --target-dir /Users/bharath/qd-campaign/target-reportmetrics
+    git checkout -- Cargo.lock   # the tessl path dep re-resolves; never commit it
+    /Users/bharath/.venvs/ml/bin/python tools/gate_report_row.py \
+      --bin /Users/bharath/qd-campaign/target-reportmetrics/release/qd-gate-report \
+      --verdicts <verdicts.jsonl> --suite-verdicts <suite-verdicts.jsonl> \
+      --eval-ledger ledger/<eval ledger>.jsonl \
+      --ledger ledger/mac-gate-report-<date>.jsonl --out-json <new report.json>
 
-Then the promotion verdict on the average. It must print `REFUSED [avg]`:
+Then the promotion verdict on an average, with the full row id. For `1d93b3ee` it must print
+`REFUSED [avg]`:
 
     PYTHONPATH=python python -m qd_train.ledger verdict --kind avg \
-      --ledger /Users/bharath/qd-campaign/p4-v3-2026-10-01/gh200-p6-j7-avg-2026-10-01.jsonl \
-      --row-id <the avg-score-val row> --input-ledger ledger/gh200-p4-v3-2026-10-01.jsonl
+      --ledger ledger/gh200-p6-j7-avg-2026-10-01.jsonl \
+      --row-id 1d93b3ee-28fc-4345-a02c-f757bcdb8466 \
+      --input-ledger ledger/gh200-p4-v3-2026-10-01.jsonl
