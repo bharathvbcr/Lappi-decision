@@ -43,18 +43,20 @@ So:
   the ``H^2`` elements from ``dq`` and the stored ``hidden`` and checks the digest, so this is a
   lossless encoding with the proof on both sides, not a sample.
 
-## The float64 arm: the exact value, beside the float32 one
+## The float64 arm: the gate's reference
 
-Each case is also run in float64 -- the same head ``.double()``, the same ``hidden``
-``.double()``, the same plan -- and its outputs are dumped with a ``ref64_`` prefix
-(``<f8``; the projections' gradients through the same ``dq`` encoding, asserted the same
-way). The manifest also records ``max|f32 - f64| / max|f64|`` per tensor under
-``torch_f32_vs_f64``: how far the float32 oracle itself is from the exact value.
+Each case is also run in float64. It uses the same head ``.double()``, the same ``hidden``
+``.double()`` and the same plan, and its outputs are dumped with a ``ref64_`` prefix
+(``<f8``). The projections' gradients go through the same ``dq`` encoding, asserted the same
+way. The manifest also records ``max|f32 - f64| / max|f64|`` per tensor under
+``torch_f32_vs_f64``: how far the float32 arm is from the exact value.
 
-That is needed because at ``H = 2048`` torch's own float32 rounding of ``d_hidden`` is about
-``1e-6`` of the tensor's max, the size of the gate the Rust test applies against it. A
-Rust-vs-torch32 residual of that size cannot, from the float32 dump alone, be told apart
-from an error of Rust's; against the float64 dump it can.
+Under the ojas plan's Q3 Amendment 1, the float64 arm is the Rust test's reference: ``1e-6``
+of each tensor's max. The float32 arm is a report-only pin, and the Rust test asserts that
+``torch_f32_vs_f64`` equals the value recomputed from the two dumps. The reason is that at
+``H = 2048`` torch's own float32 rounding of ``d_hidden`` is about ``1e-6`` of the tensor's
+max, the size of the tolerance itself. A comparison against the float32 arm at that tolerance
+measures whether two roundings align, not whether the Rust head is right.
 
 Usage, from the repository root::
 
@@ -456,7 +458,7 @@ def write_case(case: Case, out: Path) -> dict:
         stale.unlink()
 
     def dump_outputs(prefix: str, result: dict) -> None:
-        """One arm's outputs: ``""`` is the float32 gate reference, ``"ref64_"`` the exact one."""
+        """One arm's outputs: ``""`` is the float32 pin, ``"ref64_"`` the gate's reference."""
         arrays = {name: t.detach().cpu().numpy() for name, t in result.items()}
         for name in (
             "scores_start",

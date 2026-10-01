@@ -3,24 +3,32 @@
 //!
 //! The fixtures under `tests/fixtures/span-head/` are written by
 //! `tools/qd_train_oracle_span_head.py`, which runs `python/qd_train/heads.py`'s
-//! `SpanPointerHead` over a plan from `plan_span_batch`, on the CPU, in float32 (the gate
-//! reference) and in float64 (the exact reference). See that script's docstring for what each
-//! file holds and why the `[H, H]` tensors are generated or encoded rather than stored.
+//! `SpanPointerHead` over a plan from `plan_span_batch`, on the CPU, in float32 (the head as
+//! the campaign runs it) and in float64 (the exact value, the gate's reference). See that
+//! script's docstring for what each file holds and why the `[H, H]` tensors are generated or
+//! encoded rather than stored.
 //!
-//! # Tolerance
+//! # The gate (ojas plan Q3 rung a, Amendment 1)
 //!
-//! Written here before the first run of the implementation (Fable's ojas advice, Q3 rung a:
-//! "span head <= 1e-6 rel (f32, host)"): for every tensor, `max |rust - ref| <= 1e-6 *
-//! max |ref|`, and for the loss `|rust - ref| <= 1e-6 * |ref|`. It is applied against two
-//! references:
+//! The tolerance was written here before the first run of the implementation: "span head
+//! <= 1e-6 rel (f32, host)". Amendment 1 (`AUDIT/ojas-training-2026-10-01/fable-advice.md`
+//! Q3; ruling in `fable-span-head-reference.md`) fixed its **reference** without moving the
+//! number. The reference is the oracle's float64 arm (`ref64_*`). For every tensor of every
+//! case, `max |rust - ref64| <= 1e-6 * max |ref64|`; for the loss, `|rust - ref64| <= 1e-6 *
+//! |ref64|`. All 9 cases are gated and none is dropped.
 //!
-//! * **gate A**, torch float32 -- the head as the campaign runs it, the gate the task states;
-//! * **gate B**, torch float64 -- the exact value, added because torch float32's own rounding
-//!   is of the order of the gate at `H = 2048` (the manifests' `torch_f32_vs_f64`), so gate A
-//!   alone cannot say whose error a residual is.
+//! As first written, the test also gated against torch float32 at the same 1e-6 ("gate A").
+//! At `H = 2048`, torch float32's own `d_hidden` rounding is 9-11 ulps of max, the size of the
+//! gate, so that comparison measured whether two roundings happened to align. It failed once,
+//! at `adf6aea`; ledger row 6d6ca078 records that run and stands. The float32 arm is now a
+//! report-only pin. Each case prints rust-vs-fp32 and fp32-vs-f64 per tensor, and asserts one
+//! fixture-integrity fact: each manifest `torch_f32_vs_f64` equals the value recomputed here
+//! from the two dumps, exactly (see [`assert_manifest_matches_dumps`]).
 //!
-//! Gate B is additive: a correct head passes both, a wrong one fails both. Neither may be
-//! loosened to make a run pass (CLAUDE.md rule 2).
+//! There is deliberately no gate derived from torch's own float32 error. Any such gate (for
+//! example rust-vs-fp32 <= 1e-6 + fp32-vs-f64) is implied by the float64 gate through the
+//! triangle inequality, so it cannot fail. A check that cannot fail is not a gate.
+//! Nothing here may be loosened to make a run pass (CLAUDE.md rule 2).
 //!
 //! # The npy reader
 //!
@@ -263,6 +271,9 @@ struct Case {
     name: String,
     dir: PathBuf,
     manifest: Value,
+    /// The manifest as written, for the numbers that must be read without `serde_json`'s
+    /// float parse (see [`Case::manifest_f32_vs_f64`]).
+    manifest_text: String,
     width: usize,
     n_spans: usize,
     seq_len: usize,
@@ -295,12 +306,13 @@ impl Case {
         );
         assert_eq!(
             manifest["dtype"], "float32",
-            "{name}: the gate arm is float32"
+            "{name}: the oracle's head arm is float32 (its float64 arm is ref64_*)"
         );
         Case {
             name: name.to_owned(),
             dir,
             manifest,
+            manifest_text: text,
             width,
             n_spans,
             seq_len,
@@ -326,6 +338,44 @@ impl Case {
 
     fn i64(&self, file: &str) -> (Vec<usize>, Vec<i64>) {
         self.npy(file).i64(file)
+    }
+
+    /// `torch_f32_vs_f64`, in [`TENSORS`] order, parsed from the manifest's own text with
+    /// `str::parse::<f64>`, which rounds correctly. `serde_json` parses floats correctly only
+    /// with its `float_roundtrip` feature. Whether that feature is on depends on which other
+    /// workspace crates share the build, and an exact comparison cannot depend on that.
+    fn manifest_f32_vs_f64(&self) -> [f64; 8] {
+        let open = "\"torch_f32_vs_f64\": {";
+        let at = self
+            .manifest_text
+            .find(open)
+            .unwrap_or_else(|| panic!("{}: manifest has no torch_f32_vs_f64", self.name));
+        let body = &self.manifest_text[at + open.len()..];
+        let body = &body[..body.find('}').expect("torch_f32_vs_f64 closes")];
+        let mut out = [0f64; 8];
+        for (slot, tensor) in out.iter_mut().zip(TENSORS) {
+            let key = format!("\"{tensor}\":");
+            let from = body
+                .find(&key)
+                .unwrap_or_else(|| panic!("{}: torch_f32_vs_f64 has no {tensor}", self.name));
+            let rest = body[from + key.len()..].trim_start();
+            let end = rest.find([',', '\n']).unwrap_or(rest.len());
+            let text = rest[..end].trim();
+            *slot = text.parse().unwrap_or_else(|e| {
+                panic!("{}: torch_f32_vs_f64.{tensor} = {text:?}: {e}", self.name)
+            });
+            // The structured parse must name the same number to within its own rounding; a
+            // disagreement beyond that is a malformed manifest, not a float-parsing nuance.
+            let structured = self.manifest["torch_f32_vs_f64"][tensor]
+                .as_f64()
+                .unwrap_or_else(|| panic!("{}: torch_f32_vs_f64.{tensor}", self.name));
+            assert!(
+                (structured - *slot).abs() <= slot.abs() * 4.0 * f64::EPSILON,
+                "{}: torch_f32_vs_f64.{tensor}: text {text} vs parsed {structured:e}",
+                self.name
+            );
+        }
+        out
     }
 
     fn sha(&self, key: &str) -> String {
@@ -704,31 +754,58 @@ fn check_case(name: &str) {
     let torch32 = torch_outputs(&case, "", &python, &hidden);
     let torch64 = torch_outputs(&case, "ref64_", &python, &hidden);
 
+    // Fixture integrity first: a float32 arm regenerated without its float64 arm (or the
+    // reverse), or a hand-edited manifest, fails here as a fixture defect rather than as parity.
+    let own = assert_manifest_matches_dumps(&case, &torch32, &torch64);
+
     let mut failures = Vec::new();
     println!("{name}: H={h} K={k} L={l} span_weight={}", case.span_weight);
     println!(
         "  {:<16} {:>12} {:>12} {:>12}",
-        "tensor", "rust-torch32", "rust-f64", "torch32-f64"
+        "tensor", "rust-f64", "rust-torch32", "torch32-f64"
     );
-    for tensor in TENSORS {
-        let a = rel_to_max(rust.get(tensor), torch32.get(tensor));
-        let b = rel_to_max(rust.get(tensor), torch64.get(tensor));
-        let own = case.manifest["torch_f32_vs_f64"][tensor]
-            .as_f64()
-            .unwrap_or(f64::NAN);
-        println!("  {tensor:<16} {a:>12.3e} {b:>12.3e} {own:>12.3e}");
-        if !within_tolerance(a) {
+    for (tensor, own) in TENSORS.into_iter().zip(own) {
+        // The gate (Amendment 1): against the exact value.
+        let gate = rel_to_max(rust.get(tensor), torch64.get(tensor));
+        // Report-only: the campaign's dtype, and torch's own distance from the exact value.
+        let fp32 = rel_to_max(rust.get(tensor), torch32.get(tensor));
+        println!("  {tensor:<16} {gate:>12.3e} {fp32:>12.3e} {own:>12.3e}");
+        if !within_tolerance(gate) {
             failures.push(format!(
-                "gate A (torch fp32) {tensor}: {a:.3e} > {PARITY_TOL:e}"
-            ));
-        }
-        if !within_tolerance(b) {
-            failures.push(format!(
-                "gate B (torch f64) {tensor}: {b:.3e} > {PARITY_TOL:e}"
+                "gate (rust vs torch float64) {tensor}: {gate:.3e} > {PARITY_TOL:e}"
             ));
         }
     }
     assert!(failures.is_empty(), "{name}: {}", failures.join("; "));
+}
+
+/// The manifest's `torch_f32_vs_f64`, recomputed from the `.npy` dumps and required to be
+/// **exactly** equal, tensor by tensor. Returns the values, in [`TENSORS`] order.
+///
+/// Exact, not toleranced, because both sides are the same IEEE-754 binary64 computation on
+/// bit-identical inputs. The oracle computes `max|x32 - x64| / max|x64|` over the finite
+/// entries in float64. The subtraction is correctly rounded, `abs` and `max` are exact and
+/// independent of order, and the division is one correctly rounded operation. That is
+/// [`rel_to_max`] whenever the float64 tensor is not all zero, which no case's is. The inputs
+/// are the dumps, and the encoded `dW` is reconstructed under a sha256 proof. The manifest
+/// holds Python's shortest round-trip `repr`, and this reads that number's text with Rust's
+/// correctly rounded parser rather than through `serde_json`, whose default float parse is not
+/// guaranteed to round-trip. Any tolerance here would only hide an edit smaller than itself.
+fn assert_manifest_matches_dumps(case: &Case, torch32: &Outputs, torch64: &Outputs) -> [f64; 8] {
+    let recorded = case.manifest_f32_vs_f64();
+    let mut out = [0f64; 8];
+    for ((slot, tensor), stated) in out.iter_mut().zip(TENSORS).zip(recorded) {
+        let recomputed = rel_to_max(torch32.get(tensor), torch64.get(tensor));
+        assert!(
+            recomputed.to_bits() == stated.to_bits(),
+            "{}: manifest torch_f32_vs_f64.{tensor} is {stated:e} but the two dumps give \
+             {recomputed:e}: one arm was regenerated without the other, or the manifest was \
+             edited",
+            case.name
+        );
+        *slot = recomputed;
+    }
+    out
 }
 
 macro_rules! parity {
