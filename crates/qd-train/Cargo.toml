@@ -1,0 +1,23 @@
+[package]
+name = "qd-train"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Lappi's Rust fine-tune path: the v4 shard reader behind the held-out door, the supervision port, and the span head, parity-checked against the PyTorch trainer (AUDIT/ojas-training-2026-10-01/fable-advice.md)."
+
+# A crate of its own (Fable's ojas advice, Q5 placement): the Lappi-specific half of training
+# without PyTorch. Kernels stay in canonical tessl (CLAUDE.md rule 6); the trainer's home (here
+# or an ojas-train crate) is the human's decision. No dependency on tessl or qd-metal yet, so
+# this crate builds and tests on any host, including the aarch64 Linux box.
+
+[lib]
+name = "qd_train"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
