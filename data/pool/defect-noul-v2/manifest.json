@@ -1,0 +1,166 @@
+{
+  "tool": "qd-noul-rows",
+  "tool_version": "0.1.0",
+  "seed": 0,
+  "seed_derivation": "ChaCha20Rng::from_seed(sha256(seed.to_le_bytes() || 0 || source || 0 || key)); sample order sha256((seed+1).to_le_bytes() || 0 || source || 0 || key)",
+  "per_source": 834,
+  "split": {
+    "seed": 20260919,
+    "train_fraction": 0.9,
+    "val_fraction": 0.05
+  },
+  "allowlist_sha256": "ee04e0eda61adbdabb8815ddc19e6133ac2c95ba9eefd8e99deadaab931c5554",
+  "squad": {
+    "file": "train.jsonl",
+    "sha256": "6c7bcda5c15b2bc12e76ee22526bb8ff5e2478d4bf5d5b2d3d8de947d70a8515"
+  },
+  "pool": {
+    "path": "commitpackft-pool-v2.jsonl",
+    "sha256": "2cb31231a586baaddc5ec201637f784e1ff5724962df3f777c4de58fbf4fc5d2",
+    "records": 61193
+  },
+  "template_catalogue_sha256": "39be8b0c387e079cb2fe6fd5218b9f752383fdf50859e91219de84958df6a800",
+  "examples_sha256": "9bfa93046c9918468da4f8d1029e55839e15647ff652b72a508a70bb04a9877d",
+  "totals": {
+    "examples": 2502,
+    "by_source": {
+      "prose": 834,
+      "scrambled": 834,
+      "unseen-language": 834
+    },
+    "by_language": {
+      "csharp": 139,
+      "elixir": 139,
+      "go": 210,
+      "kotlin": 139,
+      "php": 139,
+      "prose": 834,
+      "python": 208,
+      "rust": 208,
+      "scala": 139,
+      "shell": 139,
+      "typescript": 208
+    },
+    "by_licence": {
+      "apache-2.0": 1034,
+      "bsd-2-clause": 25,
+      "bsd-3-clause": 86,
+      "cc-by-sa-4.0": 834,
+      "cc0-1.0": 3,
+      "isc": 12,
+      "mit": 501,
+      "unlicense": 7
+    },
+    "units_by_source": {
+      "prose": 295,
+      "scrambled": 834,
+      "unseen-language": 35
+    },
+    "by_form": {
+      "lines": 417,
+      "paragraph": 417,
+      "question": 417,
+      "template": 834,
+      "tokens": 417
+    }
+  },
+  "licences": {
+    "prose": {
+      "licence": "cc-by-sa-4.0",
+      "basis": "rajpurkar/squad_v2's registered licence (qd_data.sources); share-alike, carried per row"
+    },
+    "scrambled": {
+      "licence": null,
+      "basis": "per row: the corpus row's pool_id -> commitpackft pool -> bigcode/commitpackft download (commit, new_file), as the main defect corpus is joined"
+    },
+    "unseen-language": {
+      "licence": "apache-2.0",
+      "basis": "authored in this repository (crates/qd-mutate/src/noul_rows/templates.rs) and released under its LICENSE, Apache-2.0 -- the workspace licence in Cargo.toml"
+    }
+  },
+  "excluded_by_allowlist": {
+    "prose": {
+      "family:qa.answerability": 71,
+      "split:heldout": 20,
+      "split:val": 16
+    },
+    "scrambled": {
+      "split:heldout": 2821,
+      "split:val": 3004
+    },
+    "unseen-language": {
+      "split:heldout": 3,
+      "split:val": 4
+    }
+  },
+  "skipped": {
+    "prose": {
+      "invisible_format_character": 38,
+      "longer_than_max_chars": 493,
+      "multi_line_paragraph": 51,
+      "question:duplicate_text": 103,
+      "question:fewer_words_than_min": 5,
+      "question:longer_than_max_chars": 5,
+      "shorter_than_min_chars": 373
+    },
+    "scrambled": {
+      "lines:diff_length_out_of_band": 21,
+      "lines:fewer_body_lines_than_min": 1,
+      "lines:line_over_max_chars": 1,
+      "tokens:diff_length_out_of_band": 29,
+      "tokens:fewer_body_lines_than_min": 2,
+      "tokens:line_over_max_chars": 4,
+      "tokens:shuffle_moved_too_little": 1,
+      "tokens:too_few_shufflable_lines": 18
+    },
+    "unseen-language": {
+      "duplicate_instantiation": 1
+    }
+  },
+  "forms": "v2",
+  "corpus": {
+    "dir": "commitpackft-corpus-v3",
+    "examples_sha256": "610bb1f0f1d86dc23f419001d8670e01418485644bea93e2b33631e5650c62e0",
+    "pool_sha256": "2cb31231a586baaddc5ec201637f784e1ff5724962df3f777c4de58fbf4fc5d2",
+    "examples_read": 49953,
+    "examples_admitted": 45411,
+    "excluded": {
+      "pool_id_not_allowlisted": 4542
+    }
+  },
+  "preregistered": {
+    "decision": "Fable F2/F3 (2026-10-01): the noul rows re-formed at the same 5% share; the lever is form diversity, not share",
+    "defect_class_in_distribution_abstention": {
+      "bound": "<= 2% on every seed",
+      "j4_on_v1": [
+        "33/2304",
+        "39/2304",
+        "21/2304"
+      ],
+      "kind": "Fable's data-design bound, not a gate"
+    },
+    "gates_unchanged": "ood_abstain (Wilson lower >= 0.90 OOD, Wilson upper <= 0.05 in-distribution) is read-only (rule 2); these bars are design checks beside it, not replacements",
+    "ood_abstain_by_category": {
+      "bar": ">= 30/60 on every seed (0, 1, 2), each of prose, scrambled, unseen-language",
+      "j4_on_v1": {
+        "prose": [
+          3,
+          9,
+          2
+        ],
+        "scrambled": [
+          3,
+          4,
+          8
+        ],
+        "unseen-language": [
+          40,
+          20,
+          56
+        ]
+      }
+    },
+    "recorded": "2026-10-01, before defect-noul-v2 was generated and before any v3.1 run",
+    "risk": "a noul set designed to span the suite's three forms passes the suite's forms; whether those three categories are the product's OOD definition is a suite question for the human (rule 2)"
+  }
+}

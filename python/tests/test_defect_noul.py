@@ -75,7 +75,17 @@ PER_SOURCE = 6
 SUITE_SEEDS = (CONFIG.seed, 0, 1, 2, 3)
 
 REAL_NOUL = REPO / "data" / "pool" / "defect-noul-v1"
+#: v3.1's re-form (``qd-noul-rows generate --forms v2``): same share and thirds, wider forms.
+REAL_NOUL_V2 = REPO / "data" / "pool" / "defect-noul-v2"
+#: v2's forms and their exact counts at 834 rows per source.
+V2_FORMS = {
+    (NOUL_PROSE, "paragraph"): 417, (NOUL_PROSE, "question"): 417,
+    (NOUL_SCRAMBLED, "lines"): 417, (NOUL_SCRAMBLED, "tokens"): 417,
+    (NOUL_UNSEEN_LANGUAGE, "template"): 834,
+}
 REAL_DEFECT = REPO / "data" / "pool" / "commitpackft-corpus-v2"
+#: The corpus v2's scrambled rows are made from (and the v3.1 shards' defect corpus).
+REAL_DEFECT_V3 = REPO / "data" / "pool" / "commitpackft-corpus-v3"
 REAL_DOWNLOAD = REPO / "data" / "pool" / "commitpackft"
 GENERAL_RECORD = Path.home() / ".cache/qd-decision/general/fetch-record-2026-09-29.json"
 
@@ -747,22 +757,30 @@ def test_the_ft_rebuild_refuses_noul_rows_without_the_defect_family() -> None:
 # -- the real corpus ----------------------------------------------------------------------------
 
 
-def _real_present() -> bool:
-    return (REAL_NOUL / "examples.jsonl").is_file() and (
+def _real_present(noul: Path = REAL_NOUL) -> bool:
+    return (noul / "examples.jsonl").is_file() and (
         REPO / "data" / "pool" / "commitpackft-pool-v2.jsonl"
     ).is_file() and (REAL_DOWNLOAD / "manifest.json").is_file()
 
 
-@pytest.mark.skipif(not _real_present(), reason="data/pool/defect-noul-v1 is not on this host")
+#: Both real corpora, each skipped where its rows are not on this host.
+REAL_CORPORA = [
+    pytest.param(d, id=d.name, marks=pytest.mark.skipif(
+        not _real_present(d), reason=f"data/pool/{d.name} is not on this host"))
+    for d in (REAL_NOUL, REAL_NOUL_V2)
+]
+
+
+@pytest.mark.parametrize("noul", REAL_CORPORA)
 def test_the_real_corpus_loads_in_equal_thirds_of_train_units_and_is_disjoint_from_the_suite(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], noul: Path,
 ) -> None:
-    load = load_noul_rows(REAL_NOUL, download_root=REAL_DOWNLOAD, config=CONFIG,
+    load = load_noul_rows(noul, download_root=REAL_DOWNLOAD, config=CONFIG,
                           repo_root=REPO)
-    manifest = json.loads((REAL_NOUL / "manifest.json").read_text("utf-8"))
+    manifest = json.loads((noul / "manifest.json").read_text("utf-8"))
     per = int(manifest["per_source"])
     assert load.by_source == {s: per for s in NOUL_SOURCES}
-    rows = _rows(REAL_NOUL)
+    rows = _rows(noul)
     mix = build_mixture({DEFECT_SOURCE_ID: load.rows}, config=CONFIG,
                         families=[DEFECT_FAMILY_ID])
     assert mix.refusals[DEFECT_SOURCE_ID] == {}, mix.refusals
@@ -774,21 +792,20 @@ def test_the_real_corpus_loads_in_equal_thirds_of_train_units_and_is_disjoint_fr
     }
     worst = _assert_disjoint(rows, require_real_prose=True)
     with capsys.disabled():
-        print(f"\nR2 real corpus: max 8-gram containment against the suite = {worst:.4f}")
+        print(f"\n{noul.name}: max 8-gram containment against the suite = {worst:.4f}")
     assert worst < 0.5
 
 
-@pytest.mark.skipif(
-    not (_real_present() and GENERAL_RECORD.is_file()),
-    reason="the noul corpus or the general fetch record is not on this host",
-)
+@pytest.mark.parametrize("noul", REAL_CORPORA)
 def test_the_real_corpus_is_disjoint_from_the_exact_suite_the_gate_builds(
-    capsys: pytest.CaptureFixture[str], qd_prep: Path,
+    capsys: pytest.CaptureFixture[str], qd_prep: Path, noul: Path,
 ) -> None:
     """The suite ``real_ft_run.prepare_ood`` builds, rebuilt the way it builds it: prose from
     the general record's val split through ``ft_splits``, at the config seed. The superset
     check above varies the seed; this one is the gate's own draw, whose code cases depend on
     the prose pool through the shared RNG."""
+    if not GENERAL_RECORD.is_file():
+        pytest.skip(f"{GENERAL_RECORD} is absent: the gate's suite cannot be drawn")
     pytest.importorskip("torch", reason="tools/real_ft_run.py raises at import without torch")
     import real_ft_run as rft
     from repo_git import resolve_rev
@@ -805,13 +822,117 @@ def test_the_real_corpus_is_disjoint_from_the_exact_suite_the_gate_builds(
         "prose": ood.OOD_CASES_PER_CATEGORY, "unseen": ood.OOD_CASES_PER_CATEGORY,
         "scrambled": ood.OOD_CASES_PER_CATEGORY,
     }
-    r2 = {r["id"]: r["diff"] for r in _rows(REAL_NOUL)}
+    r2 = {r["id"]: r["diff"] for r in _rows(noul)}
     _checked_clean(r2, suite)
     worst = _max_containment(r2, suite)
     with capsys.disabled():
-        print(f"\nR2 real corpus vs the gate's own suite (seed {CONFIG.seed}): "
+        print(f"\n{noul.name} vs the gate's own suite (seed {CONFIG.seed}): "
               f"{len(r2)} rows x {len(suite)} cases, max 8-gram containment {worst:.4f}")
     assert worst < 0.5
+
+
+# -- defect-noul-v2: the v3.1 re-form ----------------------------------------------------------
+
+
+@pytest.mark.skipif(not _real_present(REAL_NOUL_V2),
+                    reason="data/pool/defect-noul-v2 is not on this host")
+def test_v2_fills_each_form_exactly_and_records_the_preregistered_bars() -> None:
+    """Fable F2/F3: the same 5% share (2,502 rows, equal thirds), each third's forms in exact
+    halves, the scrambled rows drawn from the defect corpus's own train-split diffs, and the
+    bars recorded in the manifest before any run reads the corpus."""
+    rows = _rows(REAL_NOUL_V2)
+    manifest = json.loads((REAL_NOUL_V2 / "manifest.json").read_text("utf-8"))
+    v1 = json.loads((REAL_NOUL / "manifest.json").read_text("utf-8"))
+    assert len(rows) == v1["totals"]["examples"] == 2502
+    assert Counter((r["noul_source"], r["noul_form"]) for r in rows) == V2_FORMS
+    assert manifest["forms"] == "v2"
+    assert manifest["corpus"]["dir"] == REAL_DEFECT_V3.name
+    v3 = json.loads((REAL_DEFECT_V3 / "manifest.json").read_text("utf-8"))
+    assert manifest["corpus"]["examples_sha256"] == v3["examples_sha256"]
+    bars = manifest["preregistered"]
+    assert "30/60" in bars["ood_abstain_by_category"]["bar"]
+    assert "2%" in bars["defect_class_in_distribution_abstention"]["bound"]
+    # Every scrambled row's diff is a permutation of one corpus row's diff from its own pool
+    # file: same headers, same body lines (lines form) or same per-line tokens (tokens form).
+    by_pool: dict[str, list[str]] = {}
+    for ex in _jsonl(REAL_DEFECT_V3 / "examples.jsonl") if (
+            REAL_DEFECT_V3 / "examples.jsonl").is_file() else []:
+        by_pool.setdefault(ex["pool_id"], []).append(ex["diff"])
+    if not by_pool:
+        pytest.skip("data/pool/commitpackft-corpus-v3/examples.jsonl is not on this host")
+
+    def lines_key(diff: str) -> list[str]:
+        return sorted(diff.split("\n"))
+
+    def tokens_key(diff: str) -> list[str]:
+        return sorted(line[:1] + " ".join(sorted(line[1:].split()))
+                      if not line.startswith("@@ -") else line for line in diff.split("\n"))
+
+    for r in rows:
+        if r["noul_source"] != NOUL_SCRAMBLED:
+            continue
+        key = lines_key if r["noul_form"] == "lines" else tokens_key
+        originals = by_pool[r["pool_id"]]
+        assert r["diff"] not in originals, r["id"]
+        assert any(key(r["diff"]) == key(o) for o in originals), r["id"]
+        assert r["diff"].startswith("@@ -")
+
+
+@pytest.mark.skipif(not _real_present(REAL_NOUL_V2),
+                    reason="data/pool/defect-noul-v2 is not on this host")
+def test_v2_question_rows_are_disjoint_from_the_general_val_split(qd_prep: Path) -> None:
+    """The question rows are SQuAD questions of train-split titles, so by the title split no
+    one is a val row; this checks the text too, against the general val split the v3.1 shards
+    are built with (the build's own --general-max-rows), in both directions."""
+    if not GENERAL_RECORD.is_file():
+        pytest.skip(f"{GENERAL_RECORD} is absent: the general val split cannot be built")
+    pytest.importorskip("torch", reason="tools/real_ft_run.py raises at import without torch")
+    import real_ft_run as rft
+    from repo_git import resolve_rev
+
+    splits = rft.ft_splits(
+        commitpackft=None, max_pairs=0, rev=resolve_rev(REPO, "HEAD"), config=CONFIG,
+        repo_history=False, general_record=GENERAL_RECORD, general_max_rows=200_000,
+    )
+    val = {row.row_id: row.request.context.decode("utf-8") for row in splits["val"]}
+    assert val, "the general val split is empty: nothing was compared"
+    questions = {r["id"]: r["diff"] for r in _rows(REAL_NOUL_V2)
+                 if r["noul_form"] == "question"}
+    assert len(questions) == V2_FORMS[(NOUL_PROSE, "question")]
+    there = decontaminate(questions, {"general_val": val})
+    assert sum(there.hits.values()) == 0, there.hit_examples
+    assert there.replay_rows_too_short == 0
+    back = decontaminate(val, {"questions": questions})
+    assert sum(back.hits.values()) == 0, back.hit_examples
+    # And no val text contains a question row's questions verbatim.
+    texts = [" ".join(line[1:] for line in d.split("\n")[1:] if line) for d in questions.values()]
+    joined_val = "\n".join(val.values())
+    assert not [t for t in texts if t in joined_val]
+
+
+@pytest.mark.skipif(
+    not (_real_present() and (REAL_NOUL / "allowlist.json").is_file()
+         and GENERAL_RECORD.is_file()),
+    reason="defect-noul-v1's rows, allowlist or the general record is not on this host",
+)
+def test_the_real_v1_regenerates_byte_for_byte_at_the_default_forms(
+    noul_rows_bin: Path, tmp_path: Path,
+) -> None:
+    """``--forms v1`` (the default) still writes defect-noul-v1 exactly: the generator's v2
+    work left v1 reproducible."""
+    squad = next(Path(e["jsonl"]) for e in json.loads(GENERAL_RECORD.read_text("utf-8"))
+                 if e["dataset"] == "rajpurkar/squad_v2" and Path(e["jsonl"]).name == "train.jsonl")
+    out = tmp_path / "v1"
+    done = subprocess.run(
+        [str(noul_rows_bin), "generate", "--allowlist", str(REAL_NOUL / "allowlist.json"),
+         "--squad", str(squad),
+         "--pool", str(REPO / "data" / "pool" / "commitpackft-pool-v2.jsonl"),
+         "--out", str(out)],
+        capture_output=True, timeout=600,
+    )
+    assert done.returncode == 0, done.stderr.decode()
+    assert (out / "manifest.json").read_bytes() == (REAL_NOUL / "manifest.json").read_bytes()
+    assert (out / "examples.jsonl").read_bytes() == (REAL_NOUL / "examples.jsonl").read_bytes()
 
 
 @pytest.mark.skipif(
