@@ -7,6 +7,9 @@ the Mac's CPU. Nothing ran on MPS or the GPU, and nothing was sent to the box.
 Labels: **verified** means I ran it and the output is quoted below. **Inferred** means it
 follows from verified facts but was not run. **Unverified** means it was not checked.
 
+**No number here is a ledger row.** These are diagnostics from scratch runs on the Mac, and
+they promote nothing.
+
 ## The cause
 
 `qd_train.baseline.request_texts` labelled every control doc by its gold **value**. The line is
@@ -39,13 +42,20 @@ general val doc pairs 1:1 by `(row_id, slot_name)` with J1's verdicts
 1,499 + 1,500 + 1,500 paired, 0 unpaired. So **pairing is not the defect**. The label space
 is the defect, and so is k.
 
-**It is not native-only** (**verified**). With value labels, the Python oracle and qd-prep fail
-the same way:
-- The CSQA-shaped fixture, pre-fix, through `fit_task`: grid `0/24` at every L2, val
-  0/50.
-- 60 real CSQA docs, value labels: `0/12` at every L2. Two grid points were UNCONVERGED at
-  6,000 iterations, and val scored 1/30. The sparse-oracle half of that run is in
-  "Open" below.
+**It is not native-only** (**verified**). With value labels, the Python oracle fails exactly
+as qd-prep does:
+- **The CSQA-shaped fixture**, pre-fix, through `fit_task` (native): grid `0/24` at every L2,
+  val 0/50.
+- **The first 60 / 30 of J1's real CSQA train / val docs**, value labels (k=60, one class per
+  row), production settings, sparse oracle against native:
+  ```
+  native: grid [l2=0.0001 0/12 UNCONVERGED in 6000; l2=0.001 0/12 UNCONVERGED in 6000; l2=0.01 0/12 converged in 671; l2=0.1 0/12 converged in 755]; refit l2=0.0001 converged in 249 iterations
+  native:    converged=True iterations=249 l2=0.0001 grad=9.944192939234302e-05 val top-1 1/30
+  reference: converged=True iterations=249 l2=0.0001 grad=9.944192939234302e-05 val top-1 1/30
+  PARITY: converged True, iterations True, l2 True, grad bits True, W bit-identical True, predictions 30/30 equal
+  ```
+  Only native printed the per-grid accuracies. The reference picked the same L2 by the
+  same first-best rule, and its refit is bit-identical.
 
 **J1's `intent.classification` 253/4228 is a different thing**, but the same bug sits
 underneath it. In value space every selection-slice gold *was* reachable (k=133). The fit did
@@ -96,8 +106,11 @@ have answered any row: 0/1,500 val golds were classes.
 
 ## Tests
 
-`python/tests/test_control_label_space.py` has 9 tests. Against `7fc3af7` all 9 fail
-(**verified**: I ran a copy without the new imports). The two that fail on assertions:
+`python/tests/test_control_label_space.py` has 9 tests. I ran a copy without the new imports
+against `7fc3af7` (**verified**): **8 failed, 1 passed.** The one that passes,
+`test_a_fixed_option_set_task_hands_the_engine_its_values_unchanged`, is a characterization
+test: fixed-set labels equal values before and after the fix, and passing on both sides is
+its point. Two of the eight fail on assertions:
 
 - `test_a_csqa_shaped_control_beats_chance`:
   - **pre-fix** `Ran(value=0.0, n=0, n_total=50)` with grid `0/24`;
@@ -105,13 +118,18 @@ have answered any row: 0/1,500 val golds were classes.
 - `test_no_task_hands_the_engine_more_classes_than_a_row_can_offer`:
   - **pre-fix** `('commonsense.multiple_choice/answer', 40)`, `assert 40 <= 17`.
 
-The other seven fail on `NameError`/`AttributeError`/`TypeError`, because the API they test
+The other six fail on `NameError`/`AttributeError`/`TypeError`, because the API they test
 does not exist pre-fix. They cover:
 - the rule: one set → value; per-row → letter; and the letter names the gold value on its
   own row;
-- fixed-set tasks keep their values;
-- the refusals (split mismatch, bare doc, two tasks);
+- the refusals (split mismatch, bare doc, two tasks), including the task going `not_run`;
 - letter-space parity, native against oracle.
+
+Score slots stay in value space. `change_scope`'s `bins` is the constant
+`len(CHANGE_SCOPE_BIN_EDGES) + 1` (`mixture.py:421`), so every row offers one set. I read
+this from the code; no real score task reached `control_label_space` in a test. Even if it
+did not, an ordinal slot's letters map to bins in order and are never shuffled, so the two
+spaces would be isomorphic.
 
 The existing helpers in `test_ft_linear_control.py` and `test_length_control.py` now build
 docs with `letter`/`offered`. The parity test there now uses the shared rule.
@@ -125,6 +143,19 @@ Post-fix runs (**verified**):
   `QD_PREP_BENCH` benchmark).
 - `test_gaps_ledger` passes.
 - Ruff is clean on all six files.
+- **The full CPU suite** (`python/tests -k "not mps"`, at `bc51bd7`, with the corpus
+  symlinks below in place): **2,893 passed, 27 skipped, 2 failed.** Both failures come from
+  running in a worktree, not from this change:
+  - `test_lint_gate::test_ruff_is_installed_not_merely_declared`: the worktree has no
+    `.venv/bin/ruff`.
+  - `test_gaps_writer::test_the_real_ledger_is_not_touched_by_any_of_this`: it asserts the
+    gaps file's parent directory is named `Lappi-decision`, and here it is
+    `agent-a55f38d6486706fee`.
+
+  I read both assertions; I did not rerun them on `7fc3af7`. The phase-4 handoff reports the
+  same kind of worktree failures.
+- To run the real-corpus tests, I symlinked main's ignored `data/pool` files into the
+  worktree for those runs, then removed the links. No symlink remains.
 
 ## Oracle against native, on real CSQA docs (verified)
 
@@ -198,11 +229,9 @@ Unaffected, all defect-only with labels identical (**verified** on corpus-v2):
 
 ## Open
 
-- The value-label **oracle** half of the 60-doc CSQA reproduction was still running when this
-  was written. The native half is quoted above. The 9 tests already show the value-space
-  failure is shared by both engines, through `fit_task` on the fixture.
-- A full value-label native refit of J1's CSQA, meant to reproduce `4/1635` byte for byte on
-  the Mac, was started. It had not finished at writing (J1 took 1,423 s on 64 threads). The
+- A full value-label native refit of J1's CSQA, meant to reproduce `4/1635` on the Mac, was
+  **stopped** after about 35 minutes on 12 threads (J1 took 1,423 s on 64), to free the CPU
+  for the full test suite. So `4/1635` itself was not reproduced here (**unverified**). The
   nnz identity above is the evidence that the inputs are J1's.
 - J4's v3 defect rows: label space inferred, not rebuilt (above).
 - The control's cache key covers train labels but not val golds (pre-existing). The label
@@ -219,13 +248,15 @@ REPOSITORY_TRUST_REQUIRED, so collisions were not checked),
 ## First command for the next lane
 
 First, review and merge `csqa-control-fix` into main. Only Python changed, so the box's
-cross-built `qd-prep` is still the engine. Then, on the box, rerun J1's control from a
-checkout at the merge commit, with `--control-cache` unset or pointed at a fresh directory:
+cross-built `qd-prep` is still the engine.
 
-    QD_PREP_BIN=<box qd-prep> python tools/ft_linear_control.py \
-      --ledger <J1 ledger> --verdicts <J1 verdicts.jsonl> --eval-row 09ff303f \
-      <J1's own split flags, verbatim from its box script: --defect-class/--defect-noul,
-       --no-repo-history, --general-record, --replay-partition, --max-pairs, --rev>
+Then, on the box, from a checkout at the merge commit:
+- run `/home/ubuntu/box_j4_controls_native.sh` (`HANDOFF/gh200-phase4-2026-10-01.md:185`
+  names it the native control runner of record from J4 on);
+- run J1's equivalent native control script for eval row `09ff303f`;
+- point `--control-cache` at a fresh directory in both.
 
-Then rerun J4's three per-seed rows the same way. Do not report their general-family margins
-until the gap above is answered.
+I could not read those scripts from the Mac, so their argv is not restated here. Their split
+flags have to be the ones the eval rows were built with.
+
+Do not report their general-family margins until the gap above is answered.
