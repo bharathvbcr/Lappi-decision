@@ -55,6 +55,30 @@ session 2. The human picks a route. Evidence labels: **[V]** measured or read, *
 - Whether two det no-mask runs are bit-identical. No repeat was run.
 - How much of the default-kernel gain carries over to F's narrower buckets.
 
+## What a custom kernel would still buy over route d
+
+- **The ceiling is attention's share of the step, and after d that share is small.**
+  - In the det no-mask profile, flash backward is 9.98% of self-CUDA time and flash forward
+    3.41%. Together that is about **13% of the step, roughly 0.19 s of about 1.4 s**. [V] profile
+    above.
+  - The step's remaining time goes to cuBLAS GEMMs (`aten::mm`, 31%), elementwise `mul`/`copy_`
+    (25%), det-mode `fill_` (6%), and fla's GDN (about 7%).
+  - So a perfect attention kernel recovers at most ~13% under det. A realistic one recovers less.
+  - The default-kernel share is unmeasured: there is no default no-mask profile. [U]
+- **The realistic gain is Hopper-native code.** PyTorch's FA2 is sm80 code running on sm90. A
+  wgmma/TMA backward in the FlashAttention-3 style is where a custom kernel could beat it. At a
+  ~13% share, even a 2× faster backward saves about 0.07 s/step, or ~5%. [I] Specialist work
+  (route a); not worth it on these numbers.
+- **What d structurally cannot do:**
+  - **Packed or varlen batches with no pad compute.** d still runs attention over the pad tail of
+    every row. How much that buys depends on F-like padding waste, which these runs did not
+    measure at the step level. [U] fla `parallel_attn` with `cu_seqlens` (route e) covers this
+    without a custom kernel, if its layout fits.
+  - **A batch layout that needs a non-causal or non-tail mask.** None is planned.
+- **A larger lever than any attention kernel.** Elementwise fusion of `mul`/`copy_`/`fill_` is about
+  31% of det GPU time. That is compiler territory, and compile was dropped for F (Fable J). Det's
+  `fill_` (`fill_uninitialized_memory`) is a separate Tier-A cleanup candidate. [I]
+
 ## Routes, cheapest first
 
 | route | what | language rule | dependency | effort | risk |
