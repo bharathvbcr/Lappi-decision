@@ -82,6 +82,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import unicodedata
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -1094,6 +1095,24 @@ def _span_token_positions(
             f"{where}: token_offsets reach character {reach} of a {len(spec.text)}-character "
             "text, so they describe a different string than the one tokenized -- a "
             "normalised copy, most likely. Every line start would map to a wrong token."
+        )
+    # A text the tokenizer itself rewrites: Qwen3.5's normalizer is NFC, and a character
+    # NFC changes (Bengali U+09DF, a composition exclusion, decomposes) makes the ids decode
+    # to a different string than the one the offsets index. The offsets are aligned to the
+    # original, but nothing can then check them against decoded text, so the slot is refused
+    # here, counted, rather than reaching the decode check below -- which still aborts the
+    # write for any other mismatch, the tokenizer-wiring fault it exists for. Only text that
+    # is not itself NFC-stable can take this exit, so an NFC-stable text never does.
+    if (
+        decode is not None
+        and not unicodedata.is_normalized("NFC", spec.text)
+        and decode([int(i) for i in ids]) == unicodedata.normalize("NFC", spec.text)
+    ):
+        raise UnencodableGold(
+            f"{where}: the context is not NFC-stable and the tokenizer's NFC normalizer "
+            "rewrites it, so its ids decode to a different string than the line offsets "
+            "index and the line mapping cannot be verified against decoded text. "
+            "Refused for this slot rather than trusted unverified."
         )
 
     candidates = tuple(

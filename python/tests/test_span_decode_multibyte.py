@@ -107,6 +107,44 @@ def test_offsets_over_a_normalised_copy_are_still_refused() -> None:
         )
 
 
+QWEN_TOKENIZER = (
+    "/Users/bharath/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots/"
+    "b1485b2fa6dfa1287294f269f5fb618e03d52d7c/tokenizer.json"
+)
+
+
+def test_text_the_real_tokenizer_nfc_normalises_refuses_its_slot_not_the_write() -> None:
+    """The 2026-10-01 corpus-v3 build aborted at stage 6 on
+    ``qdm:code.defect_class:7d1d1a07...:gem/migrations/0014_add_default_tags.py#0``: a diff
+    line holds Bengali U+09DF, a composition exclusion that Qwen3.5's NFC normalizer
+    decomposes, so the ids decode one character longer than the text and every later line
+    start is off by one. The offsets were honest (aligned to the original); the text is one
+    the tokenizer rewrites, so its line mapping cannot be verified against decoded text.
+    That is this row's property -- refused for its slot, counted -- not a wiring fault."""
+    tokenizers = pytest.importorskip("tokenizers")
+    from pathlib import Path
+
+    from qd_train.remap import full_vocab_remap
+    from qd_train.shards import UnencodableGold, encode_slot
+
+    if not Path(QWEN_TOKENIZER).is_file():
+        pytest.skip("the Qwen3.5 tokenizer.json is not in this machine's HF cache")
+    tok = tokenizers.Tokenizer.from_file(QWEN_TOKENIZER)
+    # Spelled as escapes: an editor that normalises its buffer would silently remove U+09DF.
+    text = "@@ -1,1 +1,4 @@\n+t = 'পিরিয়ড'\n+x = 1\n+y = 2"
+    assert "য়" in text
+    remap = full_vocab_remap(
+        source_vocab_size=tok.get_vocab_size(), tokenizer_hash="qwen", special_ids=()
+    )
+    with pytest.raises(UnencodableGold, match="NFC"):
+        encode_slot(
+            _spec(text), remap=remap, where="t",
+            tokenize=lambda t: tok.encode(t, add_special_tokens=False).ids,
+            token_offsets=lambda t: list(tok.encode(t, add_special_tokens=False).offsets),
+            decode=lambda ids: tok.decode([int(i) for i in ids], skip_special_tokens=False),
+        )
+
+
 def test_a_byte_split_run_that_decodes_to_other_characters_is_refused() -> None:
     """Overlapping offsets widen what is compared; they do not excuse a wrong decode."""
     text = f"x\n{S_DOT}ab"
