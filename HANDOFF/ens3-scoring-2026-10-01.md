@@ -43,6 +43,10 @@ Lane worktree `agent-a49d73cb7bb3e7dad`, branch `worktree-agent-a49d73cb7bb3e7da
 | `b9e4a1c` | merge of main `b5575cc` | 450 passed, 1 skipped on the merged tree |
 | `6c24076` | `qd_train/composed_slice.py`, the report-only slice's scoring core (conditions 6 and 8). `needle.depth_bucket_label` is now the one bucket rule. | `test_composed_slice.py`: 20 (the module is new). Swapping condition 8's `all` for `any` fails 2. |
 | `9238456` | merge of main `f45a646` (prep-perf: the needle worker reads the scoring process's suite from an `.npz` handoff). Closes GAP-SUITE-LOGITS-NEEDLE-WORKER-2026-10-01: `needle_worker_main` decodes with `logits=args.suite_logits`, the `--needle` refusal is gone, and `score_needle` refuses a needle verdict without `start_logits`/`end_logits` under the flag. | 5 fail on the pre-fix merged tree (`test_real_ft_suite_logits.py`: the worker test, the refusal test, 2 accepted-argv cases; `test_needle_handoff.py`: the worker stub). Affected set after: 693 passed, 3 skipped, 1 failed (`test_gaps_writer`: asserts the repo dir name, which in a worktree is `agent-a49d73cb7bb3e7dad`) |
+| `4e6b141` | `dropped_before_write`: a slice row the index never names is a row exclusion, joined from the corpus's ids; `slice_metrics(corpus=)` counts every corpus row once | `test_composed_slice.py`: 6 fail on `60bdf62` |
+| `6e16ced` | merge of main `913f79f` (compose's header fields, slice manifest, build row `dafe86af`) | clean merge |
+| `e242b94` | the slice decode: `--score-plan` pass `composed`, `open_composed_slice`, `run_composed_slice`, exclusions re-pinned to the measured list | 24 fail on `6e16ced` (15 in the new `test_real_ft_composed_slice.py`, 8 in `test_composed_slice.py`, 1 in `test_ood_abstain.py`); the real-slice test passes on the Mac |
+| `738159b` | `combine_readouts` device fix (J4's ens3 gate row died on the GH200: `np.asarray` of a cuda `runtime_rows`). `same_span_plan` compares every SpanPlan field on the host via `on_host`; the ensemble mean's float64 log-softmax is taken on the host (MPS has no float64). Cherry-picked onto `lane7-eeb1c67` as `0062bde`: same patch-id, clean. | `test_real_ft_ensemble.py`: 2 new tests fail on the pre-fix code, on `6e16ced`'s line and on `eeb1c67`. On MPS it is the box's `TypeError`; on CPU a different gold row "DID NOT RAISE". |
 
 - **Size:** +4131 / −265 lines over 14 files (`90e7586..eeb1c67`).
 - **Ruff:** clean.
@@ -66,6 +70,7 @@ Lane worktree `agent-a49d73cb7bb3e7dad`, branch `worktree-agent-a49d73cb7bb3e7da
   - **Not at `eeb1c67`.** The box commands below are pinned there, where the refusal still
     stands: on those jobs, needle pointer scores come only from `--needle-control` and
     `--score-plan` (in-process, cuda).
+- **J4's ens3 gate row: re-score from `lane7-eeb1c67` at `0062bde`.** The run on the box (qd-lane7 at `eeb1c67`) wrote the seed0, seed1, seed2 and avg OOD rows to `gh200-p6-j7-avg-2026-10-01.jsonl`. It died on kind ens3 (gates) in `combine_readouts`. `0062bde` is `eeb1c67` plus the fix alone, so the v3 shard fingerprint pin still holds. Re-run with a plan holding only the ens3 kind (the four OOD rows exist), from qd-lane7 checked out at `0062bde`.
 - **GAP-ENSEMBLE-ROW-HAS-NO-PROMOTION-KIND-2026-10-01** (human). Neither `promotion_verdict` nor
   `promotion_verdict_avg` judges an `ens3` row. Read from the code.
 - **GAP-ENS3-SCORING-NAVIGATION-2026-10-01.** DevMap answered for main's index only, and GitPulse
@@ -86,39 +91,55 @@ Lane worktree `agent-a49d73cb7bb3e7dad`, branch `worktree-agent-a49d73cb7bb3e7da
     (`commitpackft-composed-v1`, ids renamed into the slice's space) with 0 refusals. Split:
     4,102 clean, 10,975 stub, 5,710 logic and 4,213 cosmetic. Every block header and span
     contract it checks holds corpus-wide.
-  - **Blocked:** the decode that feeds it. Compose's commit adding
-    `report_only`/`span_collapse_policy` to `ShardHeader` (and its composed-row loader) is not on
-    main. Main's `ShardReader` refuses the slice header (its `shard_hash` covers those fields),
-    and the choice labels need that loader. The compose lane lands it after v4's row, the lead
-    merges it, and this lane merges main.
+  - **Decode: wired** (`e242b94`, on main `913f79f`, which carries compose's header commit
+    `037c2b8`, the slice manifest `92a0b52` and build row `dafe86af`). It is a `--score-plan`
+    pass, `composed`, so it runs on one checkpoint, an average or a logit ensemble. GPU decode:
+    **not run**.
   - **Populations (`a0adebc`, per the compose lane):**
     - refuse_gold and refuse_any are span populations only.
     - The choice slot is one population, `both_policies`, because a span refusal drops only the
       span sequence.
     - A slot with no sequence is in neither span population and is never scored as a miss.
-  - **Exclusions (`2d4ae8e`):** every one in `sequence_index.json` is counted under exactly one
-    bucket (`EXCLUSION_BUCKETS`); any other exclusion refuses the pass.
-    - `gold_shares_token`: slot-scoped, a gold collision;
-    - `nfc_unstable`: slot-scoped, not a collision;
-    - `over_max_seq_len`: the whole row.
-    - The list is v4's train census. The compose lane will send the slice's measured
-      (scope, refusal, detail) counts after the build; re-pin the list to them before scoring.
-    - `dropped_before_write` (the commit on top of `60bdf62`, per the longctx lane): a slice row
-      that `sequence_index.json` never names, in neither its sequences nor its exclusions,
-      because `build_mixture` or dedupe removed it before `write_shards`. It is row-scoped and
-      counted per set, never as a miss. `dropped_before_write(cases, indexed)` finds it by
-      joining the corpus's row ids (`qdm:code.defect_class:<id>`) to the index, and refuses an
-      indexed id the corpus does not hold. `slice_metrics` now takes `corpus=` and refuses any
-      corpus row counted nowhere, so each set's `rows_excluded.*` is out of its corpus rows.
-    - **At decode:** cross-check the dropped count against the slice build row's
-      `report_only_slice_rows` (n = rows that reached val, n_total = 1,550 rows read), whose
-      difference is the dropped count. If it is nonzero, the longctx lane sends the ids.
-  - **Then:** a `composed` plan pass, which:
-    - opens `<slice>/shards/val-report-only-composed`, requiring `report_only` true and
-      `span_collapse_policy` refuse-gold, the train remap and the tokenizer;
-    - pairs the `compose:*` sequences with their corpus rows;
-    - decodes one-row batches;
-    - feeds `SliceVerdict`s to `slice_metrics` on a quick `<tag>-composed-slice` row.
+  - **Exclusions, re-pinned to the slice's measured list (`e242b94`):**
+    - `EXCLUSION_BUCKETS` is one entry, `gold_shares_token` (slot-scoped).
+      `MEASURED_EXCLUSIONS` pins it exactly: `compose:diag:000206` `defect_span`.
+    - v4's `nfc_unstable` and `over_max_seq_len` are not the slice's, so they now refuse the
+      pass.
+    - `dropped_before_write` (`4e6b141`) is the one row bucket. It is cross-checked at open
+      against the build row's `report_only_slice_rows` (n_total − n = 0).
+  - **What `open_composed_slice` refuses, before any tower loads:**
+    - a header that does not say `report_only` and refuse-gold (`require_report_only_slice`,
+      the opposite of the gate readers' `require_gate_population`);
+    - a shard hash other than the pinned `042d9b50…` (named by `dafe86af`'s
+      `report_only_slice_header`);
+    - a set not written at the build's rev `92a0b52`, or not under the train set's remap;
+    - a corpus whose manifest sha256 is not the build's. The corpus is read by the pipeline's
+      own `load_report_only_slice`;
+    - labels that do not pair with the writer's index and `supervision.npz`
+      (`rewrite_defect_class` → `_labels` → `pair_labels(require_index=True)` →
+      `_inventory`), or an offered letter with no id;
+    - exclusions that are not the measured list, or a dropped count that disagrees with the
+      build row;
+    - any span sequence whose candidates do not line up with its corpus row
+      (`check_alignment` against the shard's own gold head row, from `plan_span_batch`).
+  - **Measured on the Mac, real slice, no model** (`test_the_real_slice_opens_aligns_and_scores_its_gold_perfectly`,
+    opt-in via `QD_SLICE_*`, 8 s):
+    - 1,550 rows, 3,099 sequences, 1,549 span sequences, all aligned; widest batch 7,801.
+    - refuse_any holds 461: 377 val, 45 seen_filler and 39 unseen. That matches the build's
+      survival readout bin for bin (2, 121, 104, 80, 53, 45, 40, 16).
+    - A stand-in decode that answers every slot with the shard's gold gives 1.0 on every span,
+      hunk and choice table, so the corpus's hunks, the shard's candidates and the head's rows
+      are one mapping.
+  - **Per kind:** one `_decode` of every slice sequence at T = 1 (an ensemble's mean
+    log-probabilities go through it unchanged), and `slice_metrics`' `composed.*` tables on a
+    quick row tagged `<tag>-composed-slice`, with no gate and noul_rate NotRun.
+    - The runtime abstains when either pointer is on the abstention row, and then the
+      prediction is no line.
+    - Per-row lines go to `<stem>-<kind>.composed<suffix>` under gate
+      `composed_slice.report_only`. They are kept apart from the kind's gate lines, which
+      qd-gate-report reads and would refuse beside them.
+    - `--suite-logits` adds the span pointer scores, and their absence is refused. The choice
+      row logits are always on the line.
 
 ## Box commands
 
@@ -239,6 +260,80 @@ The command is the same as `1d93b3ee`'s, with the avg-np checkpoint swapped in:
 - This writes one `avg-np-needle-length-control` row. It is comparable with `0b86fae3` (avg) and
   with J4's `0b6c8d4a`, `21dcda47` and `30539c6a`.
 - **Estimate:** about 10 min (`0b86fae3` decoded in 205.8 s), plus the prelude and the load.
+
+### (f) The composed slice on F (Fable G5(ii), report-only)
+
+This runs from F's lane at main, at a commit that holds `e242b94` **and `738159b`**. `738159b`
+is the `combine_readouts` device fix; without it the ens3 kind dies on cuda, as J4's did. It
+is not `eeb1c67`: the slice needs main's header fields. F's data argv is the longctx
+HANDOFF's `SPLIT`.
+
+**Box prerequisites, beyond F's own data:**
+
+- The slice set, at `/home/ubuntu/slice-v4-2026-10-01/shards/val-report-only-composed/`. Use
+  the longctx HANDOFF's `rsync`, shard_hash `042d9b50…`.
+- The slice corpus examples, at
+  `<lane>/data/pool/commitpackft-composed-slice-v1/examples.jsonl`: 32,345,507 bytes, sha256
+  `f3c8c60c439d6c18d257cf2a03463d764360a8c00dd334d9e9569c2d1689659a`. On the Mac this is in
+  the longctx worktree's `data/pool`. The manifest is committed.
+- The loader also reads, as F's prelude does: the v3 base corpus, `commitpackft-pool-v2.jsonl`
+  and the `commitpackft` licences under `data/pool`.
+
+The lead fills in the five `F_*` variables from F's rows:
+
+    cd /home/ubuntu/<F's lane> && git fetch origin && git checkout --detach <main holding e242b94 and 738159b>
+    [ -z "$(git status --porcelain)" ] || { echo dirty; exit 3; }
+    export HF_HUB_OFFLINE=1 QD_PREP_BIN=/home/ubuntu/bin/qd-prep-m1
+    PY=/home/ubuntu/qd-venv/bin/python
+    REC=/Users/bharath/.cache/qd-decision/general/fetch-record-2026-09-29.json
+    BACKBONE=/home/ubuntu/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c
+    F_LEDGER=...   # the ledger F's three ft rows are in
+    F_CKPT=...     # F's checkpoint dir: epoch-seed0-cuda.json, epoch-seed1-cuda.json, epoch-seed2-cuda.json
+    F_AVG=...      # J7'(F)'s average: ckpt_average --from masters, seeds 0 1 2 (.safetensors)
+    F0=... F1=... F2=...   # F's ft row ids, seed 0, 1, 2
+    SLICE_LEDGER=/home/ubuntu/ledger/gh200-f-composed-slice-2026-10-01.jsonl
+    SPLIT=(--out /home/ubuntu/phase4-v4-2026-10-01 --no-repo-history
+           --rev 881ab304f15ea13529002391dda8520c2ea47af4
+           --defect-class data/pool/commitpackft-composed-v1
+           --defect-download data/pool/commitpackft
+           --defect-noul data/pool/defect-noul-v3b
+           --general-record $REC --general-max-rows 200000)
+    mkdir -p /home/ubuntu/f-slice /home/ubuntu/logs
+    export F_CKPT F_AVG F0 F1 F2
+    "$PY" -c 'import json, os
+    e = os.environ; ck = e["F_CKPT"]; ids = [e["F0"], e["F1"], e["F2"]]
+    seeds = [{"name": f"seed{s}", "checkpoints": [f"{ck}/epoch-seed{s}-cuda.json"],
+              "ft_row_ids": [ids[s]], "seeds": [s], "passes": ["composed"]} for s in (0, 1, 2)]
+    avg = {"name": "avg", "checkpoints": [e["F_AVG"]], "seeds": [0, 1, 2], "passes": ["composed"]}
+    ens3 = {"name": "ens3", "checkpoints": [f"{ck}/epoch-seed{s}-cuda.json" for s in (0, 1, 2)],
+            "ft_row_ids": ids, "seeds": [0, 1, 2], "passes": ["composed"]}
+    json.dump({"kinds": [*seeds, avg, ens3]}, open("/home/ubuntu/f-slice/plan.json", "x"))'
+    timeout 6h "$PY" -u tools/real_ft_run.py "${SPLIT[@]}" \
+      --score-plan /home/ubuntu/f-slice/plan.json --ft-ledger $F_LEDGER \
+      --composed-slice /home/ubuntu/slice-v4-2026-10-01 \
+      --real-backbone $BACKBONE --score-val --suite-logits \
+      --score-dtype fp32 --devices cuda --instance lambda-1xgh200 --usd-per-hour 2.29 \
+      --wall-clock-cap-s 21600 --ledger $SLICE_LEDGER \
+      --suite-verdicts-out /home/ubuntu/f-slice/suite-verdicts.jsonl \
+      2>&1 | tee /home/ubuntu/logs/f-composed-slice.log
+
+- **Subsets.** For one checkpoint, keep only that kind in the plan. For the average alone, keep
+  `avg`; for the ensemble alone, keep `ens3`. A kind may also run `["gates", "composed"]`, which
+  writes its gate row and its slice row from one load.
+- **Output.**
+  - Rows: one quick `<tag>-composed-slice` row per kind in `$SLICE_LEDGER` (`epoch-…`,
+    `avg-…`, `ens3-…`), each naming its ft rows and the slice's build row and shard hash.
+  - Lines: `suite-verdicts-<kind>.composed.jsonl`, one per slice row.
+  - The ensemble runs last, so the other kinds' rows and files survive an ensemble failure.
+- **Argv checked on the Mac:** this exact flag set with stand-in values passes every argv check
+  in `main` and stops at the first disk read, the train shard header. That was a scratch run;
+  the committed tests cover the same combinations.
+- **Estimate: about 3–5 h; inferred, not measured.**
+  - The slice is about 13.2M real tokens per tower decode (3,099 sequences, up to 7,801 wide).
+  - J7g decoded val, permutation and OOD in fp32 in 1,089 s (`1d93b3ee`), which suggests 25–40
+    min per tower at the slice's widths.
+  - That gives 7 tower decodes (3 seeds, avg, ens3 × 3), plus the prelude and loads.
+  - The 6 h cap is $13.74, under $20 on a single GPU.
 
 ## First command for the next lane
 
