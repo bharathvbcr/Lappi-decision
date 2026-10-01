@@ -648,6 +648,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--defect-download", type=Path, default=None)
     parser.add_argument("--defect-max-rows", type=int, default=None)
     parser.add_argument(
+        "--defect-noul", type=Path, default=None,
+        help="exactly as the run was given it: the code.defect_class noul corpus is in the "
+             "split, so a control rebuilt without it would pair a different val set",
+    )
+    parser.add_argument(
         "--general-record", type=Path, default=None,
         help="the general-family fetch record, exactly as the run was given it: the split "
              "holds MMLU/CSQA/CLINC/SQuAD rows only through it",
@@ -710,7 +715,7 @@ def main(argv: list[str] | None = None) -> int:
         defect_class=args.defect_class, defect_download=args.defect_download,
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
         general_record=args.general_record, general_max_rows=args.general_max_rows,
-        replay_partition=args.replay_partition,
+        replay_partition=args.replay_partition, defect_noul=args.defect_noul,
     )
     # Rule 3 through this door too. A control fitted on a held-out family would not train a
     # model, but it would set the bar the model is measured against with data the model may
@@ -755,6 +760,12 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.replay_partition:
         recipe["replay_partition"] = True
+    if args.defect_noul is not None:
+        # Only when used, as the pipeline's and real_ft_run's recipes record it: by the noul
+        # corpus's examples sha256, so a control with the noul rows never hashes as one without.
+        recipe["defect_noul_examples_sha256"] = str(json.loads(
+            (args.defect_noul / "manifest.json").read_text(encoding="utf-8")
+        )["examples_sha256"])
     quick = bool(row.quick) or hold is not None
     quick_reason = (
         f"inherits eval row {row.row_id[:8]}'s quick flag ({row.quick_reason})"

@@ -313,14 +313,15 @@ def _fake_runner(
         def ft_split_rows(*, commitpackft, max_pairs, rev, config, defect_class=None,
                           defect_download=None, defect_max_rows=None, repo_history=True,
                           general_record=None, general_max_rows=None,
-                          replay_partition=False):
+                          replay_partition=False, defect_noul=None):
             if calls is not None:
                 calls.append({"defect_class": defect_class, "defect_download": defect_download,
                               "defect_max_rows": defect_max_rows,
                               "repo_history": repo_history, "rev": rev,
                               "general_record": general_record,
                               "general_max_rows": general_max_rows,
-                              "replay_partition": replay_partition})
+                              "replay_partition": replay_partition,
+                              "defect_noul": defect_noul})
             return train, val
         module.ft_split_rows = ft_split_rows  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "real_ft_run", module)
@@ -400,8 +401,28 @@ def test_the_defect_class_corpus_reaches_the_runs_own_split_function(
     assert calls == [{"defect_class": corpus, "defect_download": download,
                       "defect_max_rows": 40, "repo_history": True, "rev": REV,
                       "general_record": None, "general_max_rows": None,
-                      "replay_partition": False}]
+                      "replay_partition": False, "defect_noul": None}]
     assert Ledger(ledger).rows()[-1].recipe["defect_class"] == "corpus-v2"
+    assert "defect_noul_examples_sha256" not in Ledger(ledger).rows()[-1].recipe
+
+
+def test_a_set_built_with_noul_rows_is_rebuilt_with_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Phase 4's v3 set (89b619d9) was built with --defect-noul: the noul rows are in its
+    train and val splits, so a control that rebuilt the split without them would pair a
+    different val set. The row names the noul corpus by its manifest's examples sha256, as
+    the pipeline's and real_ft_run's recipes do."""
+    ledger, verdicts, train, val = _scorable(tmp_path)
+    noul = tmp_path / "defect-noul-v1"
+    noul.mkdir()
+    (noul / "manifest.json").write_text(json.dumps({"examples_sha256": "ab" * 32}))
+    calls: list[dict[str, object]] = []
+    _fake_runner(monkeypatch, train, val, calls=calls)
+    ftc.main(["--ledger", str(ledger), "--verdicts", str(verdicts), "--rev", REV,
+              "--max-pairs", "80", "--defect-noul", str(noul)])
+    assert [c["defect_noul"] for c in calls] == [noul]
+    assert Ledger(ledger).rows()[-1].recipe["defect_noul_examples_sha256"] == "ab" * 32
 
 
 def _scorable(tmp_path: Path) -> tuple[Path, Path, list, list]:
