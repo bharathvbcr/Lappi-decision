@@ -684,6 +684,8 @@ _SPELLINGS = {
     "real_ft_run.py": {"sort_keys": True, "separators": (",", ":")},
     "rung0_toy_run.py": {"sort_keys": True, "separators": (",", ":")},
     "ft_toy_run.py": {"sort_keys": True, "separators": (",", ":")},
+    # Added 2026-09-30 with the tool's first row (19d28ec3): its spelling from the start.
+    "margin_probe_row.py": {"sort_keys": True, "separators": (",", ":")},
 }
 
 
@@ -818,6 +820,7 @@ def test_the_two_spellings_really_do_disagree() -> None:
     assert distinct == {loose, tight}
     # Several tools on each side, which is the split worth knowing: it is not one outlier.
     # Three and three until remap_parity_real.py joined the loose side on its first row
-    # (2026-09-22); pinned exactly, so a tool moving sides still fails here.
+    # (2026-09-22), and margin_probe_row.py joined the tight side on its first row
+    # (2026-09-30); pinned exactly, so a tool moving sides still fails here.
     assert sorted(digests.values()).count(loose) == 4, digests
-    assert sorted(digests.values()).count(tight) == 3, digests
+    assert sorted(digests.values()).count(tight) == 4, digests
