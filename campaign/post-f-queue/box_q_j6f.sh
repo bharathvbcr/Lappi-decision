@@ -6,12 +6,13 @@
 # Quick by construction (one seed). Then --needle-control 1024,2048,4096 on its checkpoint, as
 # every run's seed now scores. Cap 32,400 s ($20.61; the human's 2026-10-01 yes, as F's).
 # Position, by rule (iii) (qd-post-f-rules j6f, decided once F's rows exist):
-#   fires  -> right after J5' (j5p.done);
-#   quiet  -> after the no-mask outcome run (item 9: the no-mask lane's nomaskp2 / nomask
-#             markers, waited on only if that lane queued them) and after tierb (item 7),
-#             before J6(d) (item 10);
+#   fires  -> right after J5' (j5p.done): 5 -> 6 -> 9 -> 7 -> 10;
+#   quiet  -> after the no-mask outcome run (item 9, nomask.done), before tierb (item 7, filler)
+#             and J6(d) (item 10): 5 -> 9 -> 6 -> 7 -> 10;
 #   refused -> the late slot, logged as such: a refusal moves only its position, never whether
 #             it runs, and the late slot never jumps the queue.
+# Item 9 orders itself by the position this writes ($Q/j6f.position), never by a second reading
+# of the rule, so the two cannot disagree into a deadlock; item 7 waits for both 6 and 9.
 # Rows: a new v4 ablation ledger. Its own checkpoint dir, so F seed 0's epoch-seed0-cuda.json is
 # never rewritten. Holds gpu.lock.
 set -o pipefail
@@ -22,28 +23,19 @@ touch $Q/j6f.queued
 until [ -f $Q/avgnp.done ]; do sleep 30; done
 pin "$RULES" "$RULES_SHA256" || exit 3
 WORD=$(j6f_word item6)
-# Item 7 (tierb) orders itself by this file, never by a second reading of the rule, so the two
-# can never disagree into a deadlock.
 if [ "$WORD" = fires ]; then echo early > $Q/j6f.position; else echo late > $Q/j6f.position; fi
 case "$WORD" in
   fires) say "item 6: rule (iii) fired: J6(f) runs right after J5'"
          until [ -f $Q/j5p.done ]; do sleep 30; done ;;
-  quiet) say "item 6: rule (iii) quiet: J6(f) runs after tierb and the no-mask outcome run, before J6(d)" ;;
-  *)     say "item 6: rule (iii) REFUSED (JSON above): J6(f)'s position is undecided; it takes the late slot (after tierb and the no-mask outcome run), and still runs" ;;
+  quiet) say "item 6: rule (iii) quiet: J6(f) runs after the no-mask outcome run (item 9), before tierb and J6(d)"
+         until [ -f $Q/j5p.done ]; do sleep 30; done
+         wait_queued nomask ;;
+  *)     say "item 6: rule (iii) REFUSED (JSON above): J6(f)'s position is undecided; it takes the late slot (after item 9), and still runs"
+         until [ -f $Q/j5p.done ]; do sleep 30; done
+         wait_queued nomask ;;
 esac
-if [ "$WORD" != fires ]; then
-  until [ -f $Q/tierb2.done ]; do sleep 30; done
-fi
-# In the late slot the no-mask hooks are re-checked under the lock; a no-mask job queued
-# meanwhile gets the lock back rather than a deadlock.
-while true; do
-  if [ "$WORD" != fires ]; then while nomask_pending; do sleep 30; done; fi
-  exec 9>$Q/gpu.lock
-  flock 9
-  if [ "$WORD" = fires ] || ! nomask_pending; then break; fi
-  flock -u 9
-  exec 9>&-
-done
+exec 9>$Q/gpu.lock
+flock 9
 touch $Q/j6f.started
 lane "$LANE8" "$LANE8_AT" || exit 3
 f_skip_ok || exit 3

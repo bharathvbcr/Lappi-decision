@@ -6,33 +6,21 @@
 # 32,400 s ($20.61; the human's 2026-10-01 yes, as F's). Replaces the dropped v3 J6(d)
 # (box_q_j6d2.sh; kill that waiter: its EXIT trap owns j6d.done).
 # Queue: last. It waits for every item of this queue that is queued and not done, by name
-# (j7pcpu, s34, j7p, fslice, j5p, j6f, tierb2), for the no-mask lane's nomaskp2 / nomask if that
-# lane queued them, and logs -- without waiting on -- any other <job>.queued left without a .done.
+# (j7pcpu, s34, j7p, nomaskp2, fslice, j5p, j6f, nomask, tierb2), and logs -- without waiting on
+# -- any other <job>.queued left without a .done.
 # Its own checkpoint dir; rows in the v4 ablation ledger. Holds gpu.lock.
 set -o pipefail
 # shellcheck source=post_f_common.sh
 source /home/ubuntu/post-f/post_f_common.sh || exit 3
 trap 'touch /home/ubuntu/queue/j6dv4.done' EXIT
 touch $Q/j6dv4.queued
-ITEMS="j7pcpu s34 j7p fslice j5p j6f tierb2"
-ahead() {
-  local n
-  for n in $ITEMS; do
-    if [ -f "$Q/$n.queued" ] && [ ! -f "$Q/$n.done" ]; then return 0; fi
-  done
-  nomask_pending
-}
 until [ -f $Q/avgnp.done ]; do sleep 30; done
+# If this waiter is launched after avgnp.done already exists, the others launched with it have
+# touched their .queued well within this settle time; wait_queued skips only the never-queued.
 sleep 120
-# Re-checked under the lock; a job queued meanwhile gets the lock back rather than a deadlock.
-while true; do
-  while ahead; do sleep 60; done
-  exec 9>$Q/gpu.lock
-  flock 9
-  if ! ahead; then break; fi
-  flock -u 9
-  exec 9>&-
-done
+wait_queued j7pcpu s34 j7p nomaskp2 fslice j5p j6f nomask tierb2
+exec 9>$Q/gpu.lock
+flock 9
 touch $Q/j6dv4.started
 for q in $Q/*.queued; do
   n=$(basename "$q" .queued)

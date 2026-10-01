@@ -8,13 +8,15 @@
 # making 9 tower decodes instead of 7 under the same pre-registered 6 h cap; the ensemble runs
 # last, so the other kinds' rows survive a cap hit. Rows: one quick <tag>-composed-slice row per
 # kind in the slice ledger; lines: /home/ubuntu/f-slice/suite-verdicts-<kind>.composed.jsonl.
-# Queue: after item 3 (j7p.done); holds gpu.lock.
+# Queue: after item 3 (j7p.done) and the no-mask P2 screen in its gap (item 8, nomaskp2, if
+# queued); holds gpu.lock.
 set -o pipefail
 # shellcheck source=post_f_common.sh
 source /home/ubuntu/post-f/post_f_common.sh || exit 3
 trap 'touch /home/ubuntu/queue/fslice.done' EXIT
 touch $Q/fslice.queued
 until [ -f $Q/j7p.done ]; do sleep 30; done
+wait_queued nomaskp2
 pin "$RULES" "$RULES_SHA256" || exit 3
 OUT=/home/ubuntu/f-slice
 mkdir -p "$OUT"

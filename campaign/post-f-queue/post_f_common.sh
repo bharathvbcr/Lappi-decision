@@ -146,15 +146,25 @@ f_ft_ids() {
 avg_path() { echo "$F_CKPT/avg/epoch-avg-seed$(echo "$1" | tr -d ' ')-masters.safetensors"; }
 avgnp_path() { echo "$F_CKPT/avg/epoch-avgnp-seed$(echo "$1" | tr -d ' ')-masters.safetensors"; }
 
-# Items 8/9 belong to the no-mask lane. Its scripts mark themselves nomaskp2 (the P2 screen)
-# and nomask (the outcome run) in $Q; a job ordered after item 9 waits only on what that lane
-# has actually queued, so an absent lane never holds the GPU.
-nomask_pending() {
+# Wait for each named item that was queued to finish. An item never queued (its waiter not
+# launched) is not waited on, so a missing waiter never stalls the chain. Every waiter touches
+# its .queued first thing, and the launch loop starts them all together, hours before any of
+# them reaches a wait, so "not queued" means "not launched".
+wait_queued() {
   local n
-  for n in nomaskp2 nomask; do
-    if [ -f "$Q/$n.queued" ] && [ ! -f "$Q/$n.done" ]; then return 0; fi
+  for n in "$@"; do
+    while [ -f "$Q/$n.queued" ] && [ ! -f "$Q/$n.done" ]; do sleep 30; done
   done
-  return 1
+}
+
+# Items 9 and 7 follow J6(f) only when item 6 took the early slot. They read the position item 6
+# wrote ($Q/j6f.position, decided once by rule (iii)), never the rule a second time.
+after_early_j6f() {
+  while [ -f "$Q/j6f.queued" ] && [ ! -f "$Q/j6f.position" ] && [ ! -f "$Q/j6f.done" ]; do sleep 30; done
+  if [ "$(cat "$Q/j6f.position" 2>/dev/null)" = early ]; then
+    say "$1: J6(f) took the early slot; waiting for it (j6f.done)"
+    wait_queued j6f
+  fi
 }
 
 # JSON helpers for --score-plan files (paths and ids hold no quote or backslash).
