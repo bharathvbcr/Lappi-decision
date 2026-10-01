@@ -76,8 +76,13 @@ advice; gap table Q1, parity ladder Q3, lanes Q5). Gap records: `GAP-OJAS-ADVICE
   - qd-train on main: 28 unit + 20 door + 10 parity + 14 span-head tests pass; 2 opt-in v4 tests are ignored.
 - **L-scorer: merged** at `1651fdf`.
 - **L-ojas-qwen35: done.**
-  - 23 CPU tests pass. The 7 GPU parity tests are **not run**; they wait on a Mac GPU window requested from the coordinator.
-  - Its workspace-member diff was sent to the coordinator.
+  - 23 CPU tests pass.
+  - The coordinator applied both diffs: `ojas-qwen35` is now a workspace member, and `ojas-cuda` is pinned to `cuda-12080`.
+  - **Its GPU parity tests ran in a Mac window the coordinator cleared, at 23:16–23:17 UTC by the logs' mtimes.** Conditions: AC power, memory 84–87% free. Logs: `AUDIT/ojas-training-2026-10-01/ojas-qwen35-gpu-*.log`.
+    - `gpu_tiny`: 5/5 pass. Loss 5.82468344 vs transformers 5.82468319; bf16 operands 5.82425679.
+    - `gpu_name_map`: 1/1 passes.
+    - `gpu_real_2b` **fails, deterministically (2/2 runs).** The forward matches transformers (3.81034020 vs 3.81016684, rel 4.55e-5, 128 tokens). Then `read_gradients` on `embed_tokens.weight` hits a Metal 4 command buffer fault.
+  - The fault is `GAP-OJAS-QWEN35-2B-READ-GRADIENTS-METAL-FAULT-2026-10-01`. L-ojas-qwen35 has been resumed to diagnose it. Until it is fixed, no 2B gradient or state read-back from the provider stands.
 - **L-trainer and L-oracle: running.**
   - L-trainer reports one blocker. tessl has a single lr, so F's two-group recipe cannot run until tessl's per-entry `lr_scale` lands.
   - The trainer refuses any lr_scale ≠ 1.0, with no workaround.
