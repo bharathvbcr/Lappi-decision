@@ -299,19 +299,30 @@ class TextTower:
         }
 
 
-def evenly_spaced_layers(n_skip: int, n_layers: int) -> tuple[int, ...]:
+def _evenly_spaced(n: int, pool: list[int]) -> list[int]:
+    """``n`` of ``pool``: the centre of each of ``n`` equal strata."""
+    return [pool[(2 * i + 1) * len(pool) // (2 * n)] for i in range(n)] if n else []
+
+
+def uncheckpointed_layers(n_skip: int, layer_types: list[str]) -> tuple[int, ...]:
     """The ``n_skip`` decoder layers selective checkpointing leaves un-checkpointed.
 
-    Evenly spaced over the stack (the centre of each of ``n_skip`` equal strata), so the set
-    is a pure function of the two counts -- a recipe that records ``n_skip`` names the
-    layers too -- and mixes the hybrid's linear- and full-attention layers rather than
-    taking one end of the stack.
+    Full-attention layers first, then linear-attention layers, each evenly spaced within its
+    kind -- a pure function of ``n_skip`` and the config's ``layer_types``, so a recipe that
+    records ``n_skip`` names the layers too. Full-attention first because that is where the
+    recompute is dearest per byte kept: measured on the GH200 at 4 x 8,441 tokens
+    (2026-10-01, tools/perf_step.py), leaving a full-attention layer un-checkpointed saved
+    about 31 ms/step for 4.3 GiB, a linear-attention layer about 10 ms for 3.5 GiB.
     """
     if not isinstance(n_skip, int) or isinstance(n_skip, bool) or n_skip < 0:
         raise ValueError(f"n_skip must be a non-negative int, got {n_skip!r}")
-    if n_skip > n_layers:
-        raise ValueError(f"cannot skip {n_skip} of {n_layers} layers")
-    return tuple(sorted({(2 * i + 1) * n_layers // (2 * n_skip) for i in range(n_skip)}))
+    if n_skip > len(layer_types):
+        raise ValueError(f"cannot skip {n_skip} of {len(layer_types)} layers")
+    full = [i for i, t in enumerate(layer_types) if t == "full_attention"]
+    rest = [i for i, t in enumerate(layer_types) if t != "full_attention"]
+    if n_skip <= len(full):
+        return tuple(sorted(_evenly_spaced(n_skip, full)))
+    return tuple(sorted(full + _evenly_spaced(n_skip - len(full), rest)))
 
 
 def activation_model(
@@ -461,7 +472,7 @@ def load_text_tower(
             is the widest real bucket, so a caller that supplies neither gets the arithmetic
             for the case that actually binds rather than for a comfortable one.
         checkpoint_skip_layers: selective checkpointing. With ``gradient_checkpointing``
-            on, this many decoder layers ([`evenly_spaced_layers`]) run without it and keep
+            on, this many decoder layers ([`uncheckpointed_layers`]) run without it and keep
             their activations, buying back their recompute for memory the budget prices
             (``memory.ActivationModel.retained_*_layers``). Every layer's flag is read back,
             as for the all-or-nothing case. ``0``, the default, checkpoints every layer.
@@ -601,7 +612,7 @@ def load_text_tower(
             GradientCheckpointingDisabled,
             stacklevel=2,
         )
-    skip_layers = evenly_spaced_layers(checkpoint_skip_layers, len(model.layers))
+    skip_layers = uncheckpointed_layers(checkpoint_skip_layers, list(text_config.layer_types))
     if skip_layers and not gradient_checkpointing:
         raise BackboneContractViolation(
             f"checkpoint_skip_layers={checkpoint_skip_layers} needs gradient_checkpointing "

@@ -1745,13 +1745,33 @@ def _trajectory(where: Path, *, skip: int, n: int = 6, gradient_checkpointing: b
 
 
 def test_selective_checkpointing_reaches_exactly_the_named_layers(tmp_path):
-    from qd_train.backbone import evenly_spaced_layers
+    from qd_train.backbone import uncheckpointed_layers
 
     tower, _ = _tiny_tower(tmp_path, checkpoint_skip_layers=2)
-    assert tower.checkpoint_skip_layers == evenly_spaced_layers(2, TINY_LAYERS) == (1, 3)
+    types = list(tower.model.config.layer_types)
+    assert tower.checkpoint_skip_layers == uncheckpointed_layers(2, types) == (1, 3)
     flags = [bool(layer.gradient_checkpointing) for layer in tower.model.layers]
     assert flags == [True, False, True, False]
     assert tower.to_json()["checkpoint_skip_layers"] == [1, 3]
+
+
+def test_the_skip_order_takes_full_attention_layers_first_then_spreads_linear_ones():
+    """Qwen3.5-2B's 24 layers are three linear-attention layers then one full-attention
+    layer, six times. Full-attention layers are dearest to recompute per byte kept, so they
+    go first; past six, linear layers are spread evenly. Pure in (n, layer_types)."""
+    from qd_train.backbone import uncheckpointed_layers
+
+    types = ["linear_attention"] * 3 + ["full_attention"]
+    types = types * 6
+    assert uncheckpointed_layers(0, types) == ()
+    assert uncheckpointed_layers(6, types) == (3, 7, 11, 15, 19, 23)
+    assert uncheckpointed_layers(3, types) == (7, 15, 23)
+    assert uncheckpointed_layers(8, types) == (3, 5, 7, 11, 15, 17, 19, 23)
+    assert uncheckpointed_layers(24, types) == tuple(range(24))
+    with pytest.raises(ValueError):
+        uncheckpointed_layers(25, types)
+    with pytest.raises(ValueError):
+        uncheckpointed_layers(-1, types)
 
 
 def test_a_tower_checkpointed_everywhere_describes_itself_as_before(tmp_path):
@@ -1796,9 +1816,9 @@ def test_the_remap_carries_the_checkpointing_policy_and_the_kernel_record(tmp_pa
     dropped on exactly the towers that train. It now replaces only what it changes."""
     tower, _ = _tiny_tower(tmp_path, checkpoint_skip_layers=1)
     remapped = remap_text_tower(tower, _tiny_remap(list(range(0, TINY_VOCAB, 2)), []))
-    assert remapped.checkpoint_skip_layers == tower.checkpoint_skip_layers == (2,)
+    assert remapped.checkpoint_skip_layers == tower.checkpoint_skip_layers == (3,)
     assert remapped.linear_attention_kernels == tower.linear_attention_kernels
-    assert remapped.footprint.recompute == "full-except-1-linear-0-full"
+    assert remapped.footprint.recompute == "full-except-0-linear-1-full"
 
 
 @pytest.mark.parametrize("skip", [1, 2, TINY_LAYERS])

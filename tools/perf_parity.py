@@ -90,6 +90,14 @@ def run_arm(args: argparse.Namespace) -> int:
             _fold(consumed, dataclasses.replace(batch, index=index))
             index += 1
 
+    if args.dry_run:
+        print(json.dumps({"dry_run": "ok", "batches": len(plan),
+                          "widths": sorted(set(selection["widths"])),
+                          "span_batches": int(sum(1 for b in plan
+                                                  if (b.slot_kind == SLOT_SPAN).any())),
+                          "consumed_digest": consumed.hexdigest(),
+                          "real_ft_run": real_ft_run.__file__}), flush=True)
+        return 0
     extra: dict[str, Any] = {}
     if args.checkpoint_skip_layers:
         extra["checkpoint_skip_layers"] = args.checkpoint_skip_layers
@@ -205,6 +213,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ledger", type=Path)
     ap.add_argument("--result", type=Path)
     ap.add_argument("--tag")
+    ap.add_argument("--dry-run", action="store_true", help="stop before the tower loads")
     args = ap.parse_args(argv)
     if args.compare:
         return compare(args.compare)

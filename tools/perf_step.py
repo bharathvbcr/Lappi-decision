@@ -54,8 +54,13 @@ def _append(path: Path, row: dict[str, Any]) -> None:
 def _parse_config(text: str, n_layers: int) -> dict[str, Any]:
     parts = text.split("+")
     head = parts[0]
+    # skip:N is the product rule (qd_train.backbone.uncheckpointed_layers, read from the
+    # --code-root tree); off:N is this script's own even spread, for trees that predate it.
+    rule = "skip" if head.startswith("skip:") else "off"
+    if rule == "skip":
+        head = "off:" + head[5:]
     if not head.startswith("off:"):
-        raise SystemExit(f"config {text!r}: must start with off:N")
+        raise SystemExit(f"config {text!r}: must start with off:N or skip:N")
     n_off = n_layers if head == "off:all" else int(head[4:])
     if not 0 <= n_off <= n_layers:
         raise SystemExit(f"config {text!r}: off:{n_off} outside 0..{n_layers}")
@@ -67,7 +72,7 @@ def _parse_config(text: str, n_layers: int) -> dict[str, Any]:
     unknown = flags - {"fused", "compile", "profile", "syncdebug", "memhist", "det"}
     if unknown or len(counts) > 1:
         raise SystemExit(f"config {text!r}: unknown toggles {sorted(unknown)} or two nNN")
-    return {"name": text, "n_off": n_off, "flags": flags, "steps": steps}
+    return {"name": text, "n_off": n_off, "flags": flags, "steps": steps, "rule": rule}
 
 
 def _off_layers(n_off: int, n_layers: int) -> list[int]:
@@ -301,6 +306,12 @@ def run_profile(args: argparse.Namespace) -> int:
     n_layers = len(model.layers)
     base["n_layers"] = n_layers
     base["layer_types"] = list(getattr(model.config, "layer_types", []) or [])
+    layer_types = base["layer_types"]
+    import qd_train.backbone as qb
+
+    skip_rule = getattr(qb, "uncheckpointed_layers", None)
+    if skip_rule is None and any(c.startswith("skip:") for c in args.configs):
+        raise SystemExit(f"{code_root} has no uncheckpointed_layers; skip:N needs that tree")
     try:
         import transformers.models.qwen3_5.modeling_qwen3_5 as mq  # type: ignore
 
@@ -347,7 +358,10 @@ def run_profile(args: argparse.Namespace) -> int:
             _append(args.results, {**row, "status": "not_run",
                                    "reason": f"off:{oom_at} already OOMed at this shape"})
             continue
-        off = _off_layers(cfg["n_off"], n_layers)
+        off = (
+            list(skip_rule(cfg["n_off"], layer_types)) if cfg["rule"] == "skip"
+            else _off_layers(cfg["n_off"], n_layers)
+        )
         row["off_layers"] = off
         try:
             _set_checkpointing(model, off)
