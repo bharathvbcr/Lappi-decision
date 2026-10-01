@@ -1,0 +1,1686 @@
+{
+ "what": "rung (b) torch reference (fable-advice.md Q3 b): the Lappi FT recipe on tessl's tiny Qwen3.5 shape family, CPU, fp32 (tight) and master-bf16 (loose) arms from one init and one batch order",
+ "rule": "published",
+ "generator": {
+  "script": "tools/qd_train_oracle_tiny.py",
+  "script_sha256": "b2a9ea2a9986a6d2eb2091df99096287461cb18bf874ab84c6f14c3414894028",
+  "argv": [
+   "--out",
+   "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a4907ad4a70172990/crates/qd-train/tests/fixtures/tiny-published"
+  ],
+  "python": "3.14.7",
+  "torch": "2.12.1",
+  "transformers": "5.12.1",
+  "numpy": "2.5.0",
+  "safetensors": "0.8.0",
+  "device": "cpu",
+  "torch_threads": 1,
+  "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "git_head": "6a06bd3bf2242335aea9277acfff316f97078013"
+ },
+ "seeds": {
+  "protocol_seed": 0,
+  "data_seed": 20261001,
+  "init_seed": 20260930
+ },
+ "model": {
+  "config": "config.json (Qwen3_5Config with text_config; tessl reads text_config)",
+  "family": "canonical tessl tools/qwen35_ref/make_train_fixture.py tiny_config, 4 layers in the 2B's pattern",
+  "layer_types": [
+   "linear_attention",
+   "linear_attention",
+   "linear_attention",
+   "full_attention"
+  ],
+  "n_tower_params": 362822,
+  "init": "init.safetensors: tower under model.language_model.* in bf16 (every value bf16-exact: tessl reinit, make_train_fixture.py:73-93, then rounded), span head under span_head.* in f32 (SpanPointerHead's own init after torch.manual_seed(seed), backbone.py:983,999); both arms load it bit-identically",
+  "names": "transformers' names below the tower with the checkpoint prefix model.language_model.; tessl's parameter_table drops the prefix"
+ },
+ "seam": {
+  "torch": {
+   "gdn": {
+    "function": "transformers.models.qwen3_5.modeling_qwen3_5.torch_chunk_gated_delta_rule",
+    "rule": "published",
+    "why_published": "the chunk form reads the state decayed by the cumulative gate through position t (k_cumdecay = attn @ (k_beta * exp(g_cum)); v_prime = k_cumdecay @ S), and the recurrent form decays before the read (S = S * exp(g_t); kv_mem = S k_t): e_t = v_t - alpha_t S_{t-1} k_t, the decayed read of AUDIT/gdn-reference-and-contracts.md section 2.2, not nanolab's rule='repo'",
+    "lines": {
+     "torch_chunk_gated_delta_rule": 246,
+     "k_cumdecay": 297,
+     "v_prime": 310,
+     "recurrent_decay_before_read": 359,
+     "fallback_binding": 422,
+     "fp32_core_cast": 263,
+     "l2norm_eps": 240
+    },
+    "file": "transformers/models/qwen3_5/modeling_qwen3_5.py",
+    "chunk_size": 64,
+    "use_qk_l2norm_in_kernel": true,
+    "seam": "transformers' (l2norm of q/k in the kernel, g = -exp(A_log) * softplus(a + dt_bias) and beta = sigmoid(b) given), the same seam tessl's gdn_train runs",
+    "core_dtype": "float32 in both arms (q, k, v, beta, g cast to f32 before the recurrence; the output cast back to the tower dtype)"
+   },
+   "linear_attention_kernels": {
+    "chunk_gated_delta_rule": "transformers.models.qwen3_5.modeling_qwen3_5.torch_chunk_gated_delta_rule",
+    "recurrent_gated_delta_rule": "transformers.models.qwen3_5.modeling_qwen3_5.torch_recurrent_gated_delta_rule",
+    "causal_conv1d_fn": "transformers.models.qwen3_5.modeling_qwen3_5.<inline torch fallback>",
+    "causal_conv1d_update": "transformers.models.qwen3_5.modeling_qwen3_5.torch_causal_conv1d_update"
+   },
+   "attention": {
+    "attn_implementation": "sdpa",
+    "train_attention_mask": "none",
+    "sdpa_backends": "FLASH_ATTENTION only (QwenDecisionStep.training_attention, backbone.py:1090-1104), is_causal, no mask; CPU flash"
+   },
+   "conv1d": "transformers' torch fallback (causal_conv1d not installed on CPU)",
+   "gradient_checkpointing": "on, every layer (load_text_tower, use_reentrant=False)",
+   "padding": "batches right-padded with PAD_ID to the bucket width (64/128/160); with no mask and causal attention/GDN/conv a real position never reads a pad, so tessl's unpadded per-sequence step sees the same math"
+  },
+  "tessl": "gdn_train (published rule, transformers' seam) + attn_train D=256 GQA; the Rust side names its own kernels in its row"
+ },
+ "recipe": {
+  "source": "F: campaign/f-v4-preregistered.json recipe.flags (--optimizer master --lr 1e-5 --lower-layers-n 8 --lower-layers-lr-scale 0.1); see AUDIT/ojas-training-2026-10-01/f-optimizer-spec.md",
+  "lr": 1e-05,
+  "lr_is_f": true,
+  "lower_layers_n": 2,
+  "lower_layers_lr_scale": 0.1,
+  "span_weight": 1.0,
+  "train_attention_mask": "none",
+  "loss": "per batch: letter = mean CE over n_supervised letter rows at target_index (full-vocab, tied head); span = (sum of start and end pointer CEs) / (2 * n_spans); total = letter + span_weight * span (letter absent on a span-only batch). grad_accum 1: one batch per optimizer step",
+  "schedule": {
+   "peak_lr": 1e-05,
+   "total_steps": 20,
+   "warmup_steps": 1,
+   "min_lr": 1.0000000000000002e-06,
+   "grad_accum": 1
+  },
+  "max_grad_norm": 1.0,
+  "clip": "clip_grad_norm_ over tower + span head live grads: coef = min(1, max_norm / (norm + 1e-6)); under master-bf16 the tower's grads are bf16 and are scaled before the fp32 upcast"
+ },
+ "per_parameter": {
+  "model.language_model.embed_tokens.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64,
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.0.linear_attn.dt_bias": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    1
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.layers.0.linear_attn.A_log": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    1
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.0.linear_attn.conv1d.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    384,
+    1,
+    4
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.0.linear_attn.norm.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    128
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.layers.0.linear_attn.out_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64,
+    128
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.0.linear_attn.in_proj_qkv.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    384,
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.0.linear_attn.in_proj_z.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    128,
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.0.linear_attn.in_proj_b.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    1,
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.0.linear_attn.in_proj_a.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    1,
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.0.mlp.gate_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    128,
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.0.mlp.up_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    128,
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.0.mlp.down_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64,
+    128
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.0.input_layernorm.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.layers.0.post_attention_layernorm.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.layers.1.linear_attn.dt_bias": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    1
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.layers.1.linear_attn.A_log": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    1
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.1.linear_attn.conv1d.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    384,
+    1,
+    4
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.1.linear_attn.norm.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    128
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.layers.1.linear_attn.out_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64,
+    128
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.1.linear_attn.in_proj_qkv.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    384,
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.1.linear_attn.in_proj_z.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    128,
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.1.linear_attn.in_proj_b.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    1,
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.1.linear_attn.in_proj_a.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    1,
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.1.mlp.gate_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    128,
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.1.mlp.up_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    128,
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.1.mlp.down_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64,
+    128
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.1.input_layernorm.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.layers.1.post_attention_layernorm.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64
+   ],
+   "group": "base_lower",
+   "lr_scale": 0.1,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.layers.2.linear_attn.dt_bias": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    1
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.layers.2.linear_attn.A_log": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    1
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.2.linear_attn.conv1d.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    384,
+    1,
+    4
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.2.linear_attn.norm.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    128
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.layers.2.linear_attn.out_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64,
+    128
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.2.linear_attn.in_proj_qkv.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    384,
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.2.linear_attn.in_proj_z.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    128,
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.2.linear_attn.in_proj_b.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    1,
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.2.linear_attn.in_proj_a.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    1,
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.2.mlp.gate_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    128,
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.2.mlp.up_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    128,
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.2.mlp.down_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64,
+    128
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.2.input_layernorm.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.layers.2.post_attention_layernorm.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.layers.3.self_attn.q_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    1024,
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.3.self_attn.k_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    256,
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.3.self_attn.v_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    256,
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.3.self_attn.o_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64,
+    512
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.3.self_attn.q_norm.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    256
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.layers.3.self_attn.k_norm.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    256
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.layers.3.mlp.gate_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    128,
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.3.mlp.up_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    128,
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.3.mlp.down_proj.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64,
+    128
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "model.language_model.layers.3.input_layernorm.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.layers.3.post_attention_layernorm.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "model.language_model.norm.weight": {
+   "adamw_steps_taken": 20,
+   "shape": [
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": true
+  },
+  "span_head.abstain_start": {
+   "adamw_steps_taken": 13,
+   "shape": [
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "span_head.abstain_end": {
+   "adamw_steps_taken": 13,
+   "shape": [
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "span_head.start_proj.weight": {
+   "adamw_steps_taken": 13,
+   "shape": [
+    64,
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  },
+  "span_head.end_proj.weight": {
+   "adamw_steps_taken": 13,
+   "shape": [
+    64,
+    64
+   ],
+   "group": "base",
+   "lr_scale": 1.0,
+   "weight_decay": 0.01,
+   "eps": 1e-08,
+   "betas": [
+    0.9,
+    0.999
+   ],
+   "tessl_default_excludes": false
+  }
+ },
+ "contents": {
+  "config.json": "the tiny tower's Qwen3_5Config (text_config inside)",
+  "init.safetensors": "the one init both arms load: tower bf16, span head f32",
+  "batches/tokens.u32": "every sequence's ids back to back, little-endian u32 (shard form)",
+  "batches/offsets.npy": "int64[n+1]: sequence i is tokens[offsets[i]:offsets[i+1]]",
+  "batches/supervision.npz": "np.savez (stored zip): slot_kind u8, target_index i32 (= length-2), span_target i32[n,2] (-1 not a span, -2 abstain), candidate_offsets i64[n+1], candidate_positions i32",
+  "batches/plan.json": "the batch order, one batch per optimizer step: rows (sequence ids), width, bucket, index, lengths, slot kinds, the loss denominators, and the span head's row layout per span row",
+  "<arm>/trajectory.json": "per optimizer step: lr handed to apply, total/letter/span losses (letter_present/span_present say which channel existed), pre-clip global grad norm, clip coefficient",
+  "<arm>/final.safetensors": "f32 weights after the last step (the fp32 masters under master-bf16), same names as init",
+  "fp32/grads_step0.safetensors": "f32 accumulated gradient of optimizer step 0, before clipping (the forward/backward/supervision check, independent of the optimizer)"
+ },
+ "arms": {
+  "fp32": {
+   "tower_dtype": "fp32",
+   "optimizer": {
+    "class": "torch.optim.adamw.AdamW",
+    "inner": "torch.optim.adamw.AdamW",
+    "groups": [
+     {
+      "lr_scale": 1.0,
+      "name": "base",
+      "lr": 1.0613741346877498e-06,
+      "betas": [
+       0.9,
+       0.999
+      ],
+      "eps": 1e-08,
+      "weight_decay": 0.01,
+      "amsgrad": false,
+      "maximize": false,
+      "foreach": null,
+      "capturable": false,
+      "differentiable": false,
+      "fused": null,
+      "decoupled_weight_decay": true,
+      "n_tensors": 31
+     },
+     {
+      "lr_scale": 0.1,
+      "name": "base_lower",
+      "lr": 1.0613741346877499e-07,
+      "betas": [
+       0.9,
+       0.999
+      ],
+      "eps": 1e-08,
+      "weight_decay": 0.01,
+      "amsgrad": false,
+      "maximize": false,
+      "foreach": null,
+      "capturable": false,
+      "differentiable": false,
+      "fused": null,
+      "decoupled_weight_decay": true,
+      "n_tensors": 28
+     }
+    ],
+    "torch_dispatch_on_this_host": {
+     "fused": false,
+     "foreach": false
+    }
+   },
+   "termination": "steps_exhausted",
+   "digests": {
+    "losses_f64": "898eae3bdab6cd35508073dc0b358364dab7d8700edeaf59a2a1eae0690f4003",
+    "letter_f64": "62a19886a7937bcc15cae988661ce370aa0715ea98513b6c041cc19e36cb69bc",
+    "span_f64": "2a63b3f08b7d096c0f37a25035a02ac1c069b9ca317d40f00cb01d1a4f758090",
+    "grad_norms_f64": "f8fc5b5b427e698bccf1281772a3e8ab83a430e3c85c199065926271198a0eaf",
+    "lrs_f64": "12079579716f1821ecaef817c0052d985f0857c686a4640ab7fd570090d10716",
+    "final_weights": "7b497caa8f4e40e3b12d033546a4c74d390c854a5dd5b437382981dfb3f69a8b",
+    "loss_log_digest": "ba7bd71117e37be4ad71b5f47e1c261e11a94219bea1108f4857bf9f093e03d2"
+   },
+   "trajectory": "fp32/trajectory.json",
+   "final_weights": "fp32/final.safetensors",
+   "clip_active_steps": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19
+   ]
+  },
+  "master_bf16": {
+   "tower_dtype": "bf16",
+   "optimizer": {
+    "class": "qd_train.optim.MasterWeightAdamW",
+    "inner": "torch.optim.adamw.AdamW",
+    "groups": [
+     {
+      "lr_scale": 1.0,
+      "name": "base",
+      "lr": 1.0613741346877498e-06,
+      "betas": [
+       0.9,
+       0.999
+      ],
+      "eps": 1e-08,
+      "weight_decay": 0.01,
+      "amsgrad": false,
+      "maximize": false,
+      "foreach": null,
+      "capturable": false,
+      "differentiable": false,
+      "fused": null,
+      "decoupled_weight_decay": true,
+      "n_tensors": 31
+     },
+     {
+      "lr_scale": 0.1,
+      "name": "base_lower",
+      "lr": 1.0613741346877499e-07,
+      "betas": [
+       0.9,
+       0.999
+      ],
+      "eps": 1e-08,
+      "weight_decay": 0.01,
+      "amsgrad": false,
+      "maximize": false,
+      "foreach": null,
+      "capturable": false,
+      "differentiable": false,
+      "fused": null,
+      "decoupled_weight_decay": true,
+      "n_tensors": 28
+     }
+    ],
+    "torch_dispatch_on_this_host": {
+     "fused": false,
+     "foreach": false
+    }
+   },
+   "termination": "steps_exhausted",
+   "digests": {
+    "losses_f64": "da06643236b61698033d8eb970b222d2578b9bc8e72af53e3edd4f782693b09a",
+    "letter_f64": "5f1669fe8d6842f4366806670527c20361046b3ab8d14efdc2fc6970c2422aca",
+    "span_f64": "e631381f7bd6bf597876e002b781c3ca7288d17ddf5152c0e5eb9f6d69970a5a",
+    "grad_norms_f64": "3bf328cc0263b6259fbbeab17564728a7a0b24f128632065fac2d6f13212ef26",
+    "lrs_f64": "12079579716f1821ecaef817c0052d985f0857c686a4640ab7fd570090d10716",
+    "final_weights": "7322b782bb590175d52d7c824b783aae575b74ea47113cb30467d36d9da3b1b5",
+    "loss_log_digest": "dbac0407e6fa2e96c5bc0be2ae082d7b4d4704b233600c16a1ca4216e74c2ac1"
+   },
+   "trajectory": "master_bf16/trajectory.json",
+   "final_weights": "master_bf16/final.safetensors",
+   "clip_active_steps": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19
+   ],
+   "vs_fp32": {
+    "final_weights": {
+     "max_rel_to_param_max": 0.3290994522902271,
+     "param": "span_head.abstain_end",
+     "tower_max_rel_to_param_max": 0.000252620429026923,
+     "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+    },
+    "losses": {
+     "steps_0_5_max_rel": 0.007614113059100791,
+     "all_steps_max_rel": 0.017387465026816647
+    }
+   }
+  }
+ },
+ "files": {
+  "batches/offsets.npy": {
+   "bytes": 504,
+   "sha256": "7d74d8a40523087f0a68ddc00de930fdd0061ee2b290204d614a10b63fda476f"
+  },
+  "batches/plan.json": {
+   "bytes": 10520,
+   "sha256": "fc7243f42458a48ba302eeac64fc8a734b6c79355f6a7549cd773701f8463ae5"
+  },
+  "batches/supervision.npz": {
+   "bytes": 2968,
+   "sha256": "7ef2caa8c0693b73cd19444f4535e2ab8d5ef904a474159cbde3026d85c26f5e"
+  },
+  "batches/tokens.u32": {
+   "bytes": 17864,
+   "sha256": "3fb0e02a0f20da03317c5c98dcc533501ca151fecc8a5bf6506e454fd4310760"
+  },
+  "config.json": {
+   "bytes": 1626,
+   "sha256": "99f26f628bff4ee89b9dc263b6f1a28546145d648426cba2ced5daf5d9c0223e"
+  },
+  "fp32/final.safetensors": {
+   "bytes": 1491608,
+   "sha256": "bfd49cb27f0e7bf094747126705dca79cf28e46ebf645bdc91ab43d6b78cecd5"
+  },
+  "fp32/grads_step0.safetensors": {
+   "bytes": 1457952,
+   "sha256": "add549a0db6cb2e962518f634470dfbc5b6500323ec23f321cc759eb6750e27a"
+  },
+  "fp32/trajectory.json": {
+   "bytes": 7363,
+   "sha256": "1f593372e029a2e9df1f4782439638fc4c06821789b7bb40a2b6e535821a6705"
+  },
+  "init.safetensors": {
+   "bytes": 765956,
+   "sha256": "9d4b47d5ee67327aef6bb810f391200d0da6eac6f38142461e44dd53baad7c3e"
+  },
+  "master_bf16/final.safetensors": {
+   "bytes": 1491616,
+   "sha256": "61fd8f9dc1d13afbe42ef7b0272a1e5dd962124103e5f72271ebd184dfa4cfb7"
+  },
+  "master_bf16/trajectory.json": {
+   "bytes": 7436,
+   "sha256": "8976083007b659f8761af978c65f84e19a4a8e39cdbafb36afc1bbdf4b02e314"
+  }
+ },
+ "coverage": {
+  "letter_only_batches": [
+   0,
+   4,
+   6,
+   10,
+   12,
+   16,
+   18
+  ],
+  "span_only_batches": [
+   2,
+   8,
+   14
+  ],
+  "mixed_batches": [
+   1,
+   3,
+   5,
+   7,
+   9,
+   11,
+   13,
+   15,
+   17,
+   19
+  ],
+  "abstaining_span_rows": 6,
+  "pointing_span_rows": 13,
+  "letter_rows": 27,
+  "row_lengths_min_max": [
+   34,
+   159
+  ],
+  "rows_past_one_gdn_chunk_64": 37,
+  "rows_past_two_chunks_128": 15,
+  "clip_active_steps": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11,
+   12,
+   13,
+   14,
+   15,
+   16,
+   17,
+   18,
+   19
+  ],
+  "clip_inactive_steps": [],
+  "span_head_adamw_steps": 13,
+  "tower_adamw_steps": 20
+ },
+ "independent_check_fp32": {
+  "how": "IndependentStep (this script): one unpadded sequence at a time through the same tower, the tied head's logits and torch cross_entropy written out for the letter, the pointer scores written out for the span head, targets read off the stored sequences (not ft_supervision/plan_span_batch); the reference's optimizer, clip and schedule. Same GDN and attention kernels as the reference: it isolates padding, batching and loss-reduction order, not the kernels",
+  "steps": 20,
+  "grads_step0": {
+   "max_rel_to_param_max": 6.310281390009368e-05,
+   "param": "model.language_model.layers.0.linear_attn.A_log",
+   "tower_max_rel_to_param_max": 6.310281390009368e-05,
+   "tower_param": "model.language_model.layers.0.linear_attn.A_log"
+  },
+  "grad_norm_preclip_max_rel": 1.1540743688820663e-06,
+  "losses": {
+   "steps_0_5_max_rel": 4.899120375184437e-07,
+   "all_steps_max_rel": 5.975484578602188e-07
+  },
+  "final_weights": {
+   "max_rel_to_param_max": 9.117097262105302e-06,
+   "param": "span_head.abstain_start",
+   "tower_max_rel_to_param_max": 9.655237916505509e-07,
+   "tower_param": "model.language_model.layers.2.mlp.up_proj.weight"
+  },
+  "within_rung_b_bars": {
+   "final_weights": true,
+   "losses": true
+  },
+  "clip_active_steps_equal": true,
+  "seconds": 2.0308193750097416
+ },
+ "repeat_equality_fp32": {
+  "how": "a second process (subprocess of this script, --arms fp32) regenerating the snapshot, batches and run from the seeds; same thread count. Compared: the value digests below and the bytes of every file both runs wrote",
+  "first": {
+   "losses_f64": "898eae3bdab6cd35508073dc0b358364dab7d8700edeaf59a2a1eae0690f4003",
+   "letter_f64": "62a19886a7937bcc15cae988661ce370aa0715ea98513b6c041cc19e36cb69bc",
+   "span_f64": "2a63b3f08b7d096c0f37a25035a02ac1c069b9ca317d40f00cb01d1a4f758090",
+   "grad_norms_f64": "f8fc5b5b427e698bccf1281772a3e8ab83a430e3c85c199065926271198a0eaf",
+   "lrs_f64": "12079579716f1821ecaef817c0052d985f0857c686a4640ab7fd570090d10716",
+   "final_weights": "7b497caa8f4e40e3b12d033546a4c74d390c854a5dd5b437382981dfb3f69a8b",
+   "loss_log_digest": "ba7bd71117e37be4ad71b5f47e1c261e11a94219bea1108f4857bf9f093e03d2"
+  },
+  "second": {
+   "losses_f64": "898eae3bdab6cd35508073dc0b358364dab7d8700edeaf59a2a1eae0690f4003",
+   "letter_f64": "62a19886a7937bcc15cae988661ce370aa0715ea98513b6c041cc19e36cb69bc",
+   "span_f64": "2a63b3f08b7d096c0f37a25035a02ac1c069b9ca317d40f00cb01d1a4f758090",
+   "grad_norms_f64": "f8fc5b5b427e698bccf1281772a3e8ab83a430e3c85c199065926271198a0eaf",
+   "lrs_f64": "12079579716f1821ecaef817c0052d985f0857c686a4640ab7fd570090d10716",
+   "final_weights": "7b497caa8f4e40e3b12d033546a4c74d390c854a5dd5b437382981dfb3f69a8b",
+   "loss_log_digest": "ba7bd71117e37be4ad71b5f47e1c261e11a94219bea1108f4857bf9f093e03d2"
+  },
+  "files_compared": [
+   "batches/offsets.npy",
+   "batches/plan.json",
+   "batches/supervision.npz",
+   "batches/tokens.u32",
+   "config.json",
+   "fp32/final.safetensors",
+   "fp32/grads_step0.safetensors",
+   "fp32/trajectory.json",
+   "init.safetensors"
+  ],
+  "files_differing": [],
+  "differing": [],
+  "equal": true
+ },
+ "discrimination": {
+  "how": "fp32 arm rerun with one recipe detail changed; 'caught' means the measured gap exceeds rung (b)'s bar (final weights 1e-5 of each parameter's max; loss 1e-5 relative over steps 0-5, 1e-4 to the end); 'over_independent_floor' divides the gap by the independent restatement's gap at the same lr on the same measure",
+  "by_lr": {
+   "1e-05": {
+    "reference_moved_from_init": {
+     "max_rel_to_param_max": 0.0005742034566428103,
+     "param": "span_head.start_proj.weight",
+     "tower_max_rel_to_param_max": 0.0005468291852941465,
+     "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+    },
+    "independent_floor": {
+     "final_weights": {
+      "max_rel_to_param_max": 9.117097262105302e-06,
+      "param": "span_head.abstain_start",
+      "tower_max_rel_to_param_max": 9.655237916505509e-07,
+      "tower_param": "model.language_model.layers.2.mlp.up_proj.weight"
+     },
+     "losses": {
+      "steps_0_5_max_rel": 4.899120375184437e-07,
+      "all_steps_max_rel": 5.975484578602188e-07
+     },
+     "within_rung_b_bars": {
+      "final_weights": true,
+      "losses": true
+     }
+    },
+    "counterfactuals": {
+     "tessl_default_weight_decay": {
+      "what": "weight decay 0 on tessl's excluded_from_weight_decay names (norms, dt_bias), 0.01 elsewhere; F decays every parameter",
+      "final_weights": {
+       "max_rel_to_param_max": 4.957421636269758e-06,
+       "param": "span_head.abstain_start",
+       "tower_max_rel_to_param_max": 1.5555342389752437e-06,
+       "tower_param": "model.language_model.layers.3.self_attn.k_norm.weight"
+      },
+      "losses": {
+       "steps_0_5_max_rel": 4.61611112025785e-07,
+       "all_steps_max_rel": 9.295198233381182e-07
+      },
+      "caught_by_final_weights": false,
+      "caught_by_losses": false,
+      "over_independent_floor": {
+       "final_weights": 0.5437500000000001,
+       "final_weights_tower": 1.611078103332987,
+       "losses_all_steps": 1.5555555555555556
+      }
+     },
+     "no_weight_decay": {
+      "what": "weight decay 0 everywhere (a port that dropped it)",
+      "final_weights": {
+       "max_rel_to_param_max": 1.5840956492907963e-05,
+       "param": "span_head.abstain_start",
+       "tower_max_rel_to_param_max": 1.787893813410634e-06,
+       "tower_param": "model.language_model.layers.3.mlp.up_proj.weight"
+      },
+      "losses": {
+       "steps_0_5_max_rel": 1.1023020844164981e-06,
+       "all_steps_max_rel": 3.727191506388297e-06
+      },
+      "caught_by_final_weights": true,
+      "caught_by_losses": false,
+      "over_independent_floor": {
+       "final_weights": 1.7375,
+       "final_weights_tower": 1.851734601334113,
+       "losses_all_steps": 6.237471551236398
+      }
+     },
+     "decay_not_lr_scaled": {
+      "what": "the lower group's decay at the full lr (lr_scale applied to the step only); torch's decoupled decay is 1 - group_lr * wd",
+      "final_weights": {
+       "max_rel_to_param_max": 1.1339389719743469e-05,
+       "param": "span_head.abstain_start",
+       "tower_max_rel_to_param_max": 1.7339633245949288e-06,
+       "tower_param": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight"
+      },
+      "losses": {
+       "steps_0_5_max_rel": 1.1023020844164981e-06,
+       "all_steps_max_rel": 6.011873065567918e-06
+      },
+      "caught_by_final_weights": true,
+      "caught_by_losses": false,
+      "over_independent_floor": {
+       "final_weights": 1.24375,
+       "final_weights_tower": 1.795878402572287,
+       "losses_all_steps": 10.060896294663758
+      }
+     },
+     "no_lr_scale": {
+      "what": "every group at 1.0x (the trainer before tessl's per-entry lr_scale lands)",
+      "final_weights": {
+       "max_rel_to_param_max": 0.005283585790821575,
+       "param": "span_head.abstain_start",
+       "tower_max_rel_to_param_max": 0.0015910557030208755,
+       "tower_param": "model.language_model.layers.1.linear_attn.A_log"
+      },
+      "losses": {
+       "steps_0_5_max_rel": 0.0009958490390102935,
+       "all_steps_max_rel": 0.0033803316261152576
+      },
+      "caught_by_final_weights": true,
+      "caught_by_losses": true,
+      "over_independent_floor": {
+       "final_weights": 579.525,
+       "final_weights_tower": 1647.8679415045647,
+       "losses_all_steps": 5656.999999999999
+      }
+     },
+     "no_clip": {
+      "what": "no gradient clipping (max_grad_norm effectively infinite)",
+      "final_weights": {
+       "max_rel_to_param_max": 0.2402274111691932,
+       "param": "span_head.abstain_end",
+       "tower_max_rel_to_param_max": 0.0002434394589583421,
+       "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+      },
+      "losses": {
+       "steps_0_5_max_rel": 6.463391167757503e-05,
+       "all_steps_max_rel": 0.001342665928536584
+      },
+      "caught_by_final_weights": true,
+      "caught_by_losses": true,
+      "over_independent_floor": {
+       "final_weights": 26349.111374262156,
+       "final_weights_tower": 252.13201483330138,
+       "losses_all_steps": 2246.9573988101
+      }
+     },
+     "cosine_off_by_one": {
+      "what": "cosine progress evaluated one step late: lr_at(min(step + 1, total - 1)) after warmup",
+      "final_weights": {
+       "max_rel_to_param_max": 0.08252082269038855,
+       "param": "span_head.abstain_start",
+       "tower_max_rel_to_param_max": 3.948392138053576e-05,
+       "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+      },
+      "losses": {
+       "steps_0_5_max_rel": 8.08354861905432e-06,
+       "all_steps_max_rel": 0.00011905088164522618
+      },
+      "caught_by_final_weights": true,
+      "caught_by_losses": true,
+      "over_independent_floor": {
+       "final_weights": 9051.216666666667,
+       "final_weights_tower": 40.89378399784275,
+       "losses_all_steps": 199.23217954831554
+      }
+     }
+    }
+   },
+   "0.001": {
+    "reference_moved_from_init": {
+     "max_rel_to_param_max": 0.05655740109029504,
+     "param": "span_head.start_proj.weight",
+     "tower_max_rel_to_param_max": 0.05450103989797621,
+     "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+    },
+    "independent_floor": {
+     "final_weights": {
+      "max_rel_to_param_max": 9.573760151712167e-05,
+      "param": "model.language_model.layers.2.mlp.up_proj.weight",
+      "tower_max_rel_to_param_max": 9.573760151712167e-05,
+      "tower_param": "model.language_model.layers.2.mlp.up_proj.weight"
+     },
+     "losses": {
+      "steps_0_5_max_rel": 7.0864879952226405e-06,
+      "all_steps_max_rel": 7.0864879952226405e-06
+     },
+     "within_rung_b_bars": {
+      "final_weights": false,
+      "losses": true
+     }
+    },
+    "counterfactuals": {
+     "tessl_default_weight_decay": {
+      "what": "weight decay 0 on tessl's excluded_from_weight_decay names (norms, dt_bias), 0.01 elsewhere; F decays every parameter",
+      "final_weights": {
+       "max_rel_to_param_max": 0.00014489199868658782,
+       "param": "span_head.abstain_start",
+       "tower_max_rel_to_param_max": 0.0001201085945346206,
+       "tower_param": "model.language_model.norm.weight"
+      },
+      "losses": {
+       "steps_0_5_max_rel": 1.471070374752327e-05,
+       "all_steps_max_rel": 7.648404124130054e-05
+      },
+      "caught_by_final_weights": true,
+      "caught_by_losses": true,
+      "over_independent_floor": {
+       "final_weights": 1.5134283331787395,
+       "final_weights_tower": 1.254560304742337,
+       "losses_all_steps": 10.792940211408288
+      }
+     },
+     "no_weight_decay": {
+      "what": "weight decay 0 everywhere (a port that dropped it)",
+      "final_weights": {
+       "max_rel_to_param_max": 0.0006737618701878425,
+       "param": "span_head.abstain_start",
+       "tower_max_rel_to_param_max": 0.00012260886412720375,
+       "tower_param": "model.language_model.layers.3.mlp.down_proj.weight"
+      },
+      "losses": {
+       "steps_0_5_max_rel": 5.587786694795661e-05,
+       "all_steps_max_rel": 0.00023918536385044575
+      },
+      "caught_by_final_weights": true,
+      "caught_by_losses": true,
+      "over_independent_floor": {
+       "final_weights": 7.0375887792357865,
+       "final_weights_tower": 1.2806761625971634,
+       "losses_all_steps": 33.75231341839465
+      }
+     },
+     "decay_not_lr_scaled": {
+      "what": "the lower group's decay at the full lr (lr_scale applied to the step only); torch's decoupled decay is 1 - group_lr * wd",
+      "final_weights": {
+       "max_rel_to_param_max": 0.0009726250779709452,
+       "param": "span_head.abstain_start",
+       "tower_max_rel_to_param_max": 0.00010797025706522722,
+       "tower_param": "model.language_model.layers.1.mlp.down_proj.weight"
+      },
+      "losses": {
+       "steps_0_5_max_rel": 0.00012403983045527174,
+       "all_steps_max_rel": 0.0004718320238428493
+      },
+      "caught_by_final_weights": true,
+      "caught_by_losses": true,
+      "over_independent_floor": {
+       "final_weights": 10.159279766341351,
+       "final_weights_tower": 1.1277727387594711,
+       "losses_all_steps": 66.58192664136807
+      }
+     },
+     "no_lr_scale": {
+      "what": "every group at 1.0x (the trainer before tessl's per-entry lr_scale lands)",
+      "final_weights": {
+       "max_rel_to_param_max": 0.5059115278570352,
+       "param": "span_head.abstain_start",
+       "tower_max_rel_to_param_max": 0.04164409276891106,
+       "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+      },
+      "losses": {
+       "steps_0_5_max_rel": 0.10585351635683912,
+       "all_steps_max_rel": 0.5656066591108312
+      },
+      "caught_by_final_weights": true,
+      "caught_by_losses": true,
+      "over_independent_floor": {
+       "final_weights": 5284.355570225542,
+       "final_weights_tower": 434.9815757757776,
+       "losses_all_steps": 79814.80523104467
+      }
+     },
+     "no_clip": {
+      "what": "no gradient clipping (max_grad_norm effectively infinite)",
+      "final_weights": {
+       "max_rel_to_param_max": 0.24564099366257036,
+       "param": "span_head.abstain_start",
+       "tower_max_rel_to_param_max": 0.025338420599644793,
+       "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+      },
+      "losses": {
+       "steps_0_5_max_rel": 0.005077679953621538,
+       "all_steps_max_rel": 0.1439823432054604
+      },
+      "caught_by_final_weights": true,
+      "caught_by_losses": true,
+      "over_independent_floor": {
+       "final_weights": 2565.773424129912,
+       "final_weights_tower": 264.6652955381724,
+       "losses_all_steps": 20317.870192191982
+      }
+     },
+     "cosine_off_by_one": {
+      "what": "cosine progress evaluated one step late: lr_at(min(step + 1, total - 1)) after warmup",
+      "final_weights": {
+       "max_rel_to_param_max": 0.07571094909608132,
+       "param": "span_head.abstain_start",
+       "tower_max_rel_to_param_max": 0.0038656733912493923,
+       "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+      },
+      "losses": {
+       "steps_0_5_max_rel": 0.00074499841026503,
+       "all_steps_max_rel": 0.007468549087486263
+      },
+      "caught_by_final_weights": true,
+      "caught_by_losses": true,
+      "over_independent_floor": {
+       "final_weights": 790.8172744701695,
+       "final_weights_tower": 40.377796497837444,
+       "losses_all_steps": 1053.9140251872561
+      }
+     }
+    }
+   }
+  }
+ },
+ "total_bytes_excluding_manifest": 5255413
+}
