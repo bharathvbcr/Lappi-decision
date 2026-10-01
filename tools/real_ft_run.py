@@ -3559,8 +3559,15 @@ def _repad(batch: Batch, width: int) -> Batch:
     )
 
 
-def prepare_needle(reader: ShardReader, *, config: DataConfig, enabled: bool) -> NeedleSuite:
+def prepare_needle(
+    reader: ShardReader, *, config: DataConfig, enabled: bool,
+    target_tokens: int = NEEDLE_TARGET_TOKENS,
+) -> NeedleSuite:
     """Build, render and encode the needle suite under ``reader``'s remap and tokenizer.
+
+    ``target_tokens`` is the gate's ``NEEDLE_TARGET_TOKENS`` for the gate suite; only the
+    ``--needle-control`` diagnostic builds a suite at another length, and it records it on a
+    row of its own, never under the gate.
 
     Each case is a ``code.defect_class`` row (``needle_defect_row``), and only its span slot
     is encoded, through ``encode_slot`` -- the shard writer's own path. Two checks per case
@@ -3574,7 +3581,7 @@ def prepare_needle(reader: ShardReader, *, config: DataConfig, enabled: bool) ->
 
     tok = _matching_tokenizer(reader, what="the needle suite")
     cases = build_suite(
-        target_tokens=NEEDLE_TARGET_TOKENS, cases_per_depth=NEEDLE_CASES_PER_DEPTH,
+        target_tokens=target_tokens, cases_per_depth=NEEDLE_CASES_PER_DEPTH,
         seed=config.seed,
     )
     batches: list[Batch] = []
@@ -3792,6 +3799,171 @@ def needle_recipe(suite: NeedleSuite) -> dict[str, object]:
         "target_tokens": NEEDLE_TARGET_TOKENS, "hit_rule": NEEDLE_HIT_RULE,
         "suite_seed": suite.seed, "cases": len(suite.cases),
     }
+
+
+#: At most this many ``--needle-control`` arms: each is 300 decodes, so the fan-out is bounded.
+NEEDLE_CONTROL_MAX_ARMS: Final[int] = 8
+#: Why a ``--needle-control`` row is quick whatever else holds: it is a diagnostic of one
+#: checkpoint at one seed, on suites the gate does not use. It cannot promote and is not
+#: evidence for or against the gate.
+NEEDLE_CONTROL_QUICK_REASON: Final[str] = (
+    "needle length-control diagnostic: one checkpoint, one seed, suites at lengths the gate "
+    "does not use; not the needle_hunk_recall gate"
+)
+
+
+def parse_needle_control(text: str) -> tuple[int, ...]:
+    """``--needle-control``'s target lengths: distinct, ascending, each one ``build_suite``
+    takes, and at most :data:`NEEDLE_CONTROL_MAX_ARMS` of them."""
+    try:
+        lengths = tuple(int(x) for x in text.split(","))
+    except ValueError as exc:
+        raise SystemExit(f"--needle-control {text!r}: comma-separated token counts") from exc
+    if len(set(lengths)) != len(lengths) or list(lengths) != sorted(lengths):
+        raise SystemExit(f"--needle-control {text!r}: lengths must be distinct and ascending")
+    if lengths[0] < 256:
+        raise SystemExit(f"--needle-control {text!r}: build_suite needs at least 256 tokens")
+    if len(lengths) > NEEDLE_CONTROL_MAX_ARMS:
+        raise SystemExit(
+            f"--needle-control {text!r}: at most {NEEDLE_CONTROL_MAX_ARMS} arms, got {len(lengths)}"
+        )
+    return lengths
+
+
+def needle_control_metrics(
+    length: int, suite: NeedleSuite, decoded: NeedleDecoded, *, trained_width: int | None,
+) -> dict[str, TriState]:
+    """One arm's metrics under ``needle_hunk_recall.control.<length>``: the gate's own rule
+    and threshold applied to a suite of another length, recorded as metrics only.
+
+    The suites are independent ``build_suite`` draws from the same seed, and the fillers are
+    fixed short templates, so a longer arm has more distractor hunks as well as more tokens:
+    the sweep moves length and hunk count together and cannot separate them.
+    """
+    key = f"needle_hunk_recall.control.{length}"
+    report, gate = score_suite(suite.cases, dict(decoded.predictions), min_recall=NEEDLE_MIN_RECALL)
+    lengths = sorted(suite.token_lengths)
+    longest = lengths[-1]
+    width = (
+        "the trained width is not recorded on the ft row" if trained_width is None else
+        f"{'within' if longest <= trained_width else 'beyond'} the trained width {trained_width}"
+    )
+    hunks = sorted(c.n_hunks for c in suite.cases)
+    metrics: dict[str, TriState] = {
+        key: (
+            dataclasses.replace(
+                gate, detail=f"length control at {length} target tokens, NOT the gate: {gate.detail}"
+            )
+            if isinstance(gate, Ran) else gate
+        ),
+        f"needle_suite_tokens.control.{length}": Ran(
+            passed=True, value=lengths[len(lengths) // 2], n=len(lengths), n_total=len(lengths),
+            detail=(
+                f"real tokens min {lengths[0]}, median {lengths[len(lengths) // 2]}, max "
+                f"{longest} ({width}); hunks per case {hunks[0]}..{hunks[-1]}"
+            ),
+        ),
+    }
+    for bucket in report.by_depth:
+        metrics[f"{key}.depth.{bucket.label}"] = Ran(
+            passed=bucket.recall >= NEEDLE_MIN_RECALL, value=bucket.recall,
+            n=bucket.correct, n_total=bucket.total,
+            detail=f"95% Wilson CI [{bucket.lo:.3f}, {bucket.hi:.3f}]",
+        )
+    k = sum(1 for p in decoded.predictions.values() if p is None)
+    metrics[f"{key}.abstained"] = Ran(
+        passed=True, value=k / len(decoded.predictions), n=k, n_total=len(decoded.predictions),
+        detail="cases whose pointer named the abstention row (reported, not a gate)",
+    )
+    return metrics
+
+
+def run_needle_control(
+    args: argparse.Namespace, *, reader: ShardReader, val: ValSet, device: str, ledger: Ledger,
+    config: DataConfig, gate_suite: NeedleSuite, reasons_for: Callable[..., list[str]],
+) -> tuple[str, list[dict[str, object]]]:
+    """``--needle-control``: the needle suite at each given length, scored by the gate's rule,
+    on a quick row of its own. Returns ``(row id, raw verdict lines)``.
+
+    The row's recipe is its own (``tag`` ``epoch-needle-length-control`` and the arms), so it
+    is a seed family of its own: it never joins, supplements or blocks the gate's eval rows,
+    and it names no ``eval_row_id``. The gate-length arm must be the gate suite byte for
+    byte (digest), or the sweep is refused: its 8K point is then the gate's own suite.
+    """
+    lengths: tuple[int, ...] = args.needle_control
+    suites: dict[int, NeedleSuite] = {}
+    for n in lengths:
+        suite = prepare_needle(val.reader, config=config, enabled=True, target_tokens=n)
+        if n == NEEDLE_TARGET_TOKENS and suite.digest != gate_suite.digest:
+            raise SystemExit(
+                f"the {n}-token control arm hashes to {suite.digest[:16]}, not the gate "
+                f"suite's {gate_suite.digest[:16]}: the target_tokens path is not the gate's"
+            )
+        suites[n] = suite
+        print(
+            f"needle control {n}: {len(suite.cases)} cases, real tokens "
+            f"{min(suite.token_lengths)}..{max(suite.token_lengths)}", flush=True,
+        )
+    widths = [int(b.tokens.shape[1]) for s in suites.values() for b in s.batches]
+    step, ft, recipe, seed, meta = _checkpoint_step(
+        args, reader=reader, val=val, device=device, eval_widths=widths
+    )
+    plan_width = ft["metrics"].get("corpus.plan_max_width", {}).get("value")
+    trained_width = int(plan_width) if isinstance(plan_width, int) else None
+    decode_at = time.monotonic()
+    metrics: dict[str, TriState] = {}
+    lines: list[dict[str, object]] = []
+    for n, suite in suites.items():
+        decoded = needle_predictions(step, suite, val.letter_id)
+        metrics.update(needle_control_metrics(n, suite, decoded, trained_width=trained_width))
+        lines.extend({**v, "target_tokens": n} for v in decoded.verdicts)
+        print(f"  needle control {n}: {metrics[f'needle_hunk_recall.control.{n}'].to_json()}")
+    decode_s = time.monotonic() - decode_at
+    control_recipe: dict[str, object] = {
+        "tool": "tools/real_ft_run.py", "tag": "epoch-needle-length-control", "device": device,
+        **{k: recipe[k] for k in (*BACKBONE_KEYS, *RECIPE_PIECE_KEYS) if k in recipe},
+        "score_dtype": args.score_dtype,
+        "scored_checkpoint": f"{args.score_checkpoint.name}:{meta['sidecar']['digest']}",
+        "shard_hash": reader.header.shard_hash(),
+        "val_shard_hash": val.reader.header.shard_hash(),
+        "needle_control": {
+            "target_tokens": list(lengths), "cases_per_depth": NEEDLE_CASES_PER_DEPTH,
+            "hit_rule": NEEDLE_HIT_RULE, "min_recall": NEEDLE_MIN_RECALL,
+            "suite_seed": config.seed, "gate_suite_digest": gate_suite.digest,
+        },
+    }
+    termination = ft["metrics"].get("train.termination", {}).get("value")
+    reasons = [
+        *reasons_for("epoch", device, None if termination is None else str(termination)),
+        NEEDLE_CONTROL_QUICK_REASON,
+    ]
+    recorder = _recorder(
+        ledger, reader=reader, seed=seed, recipe=control_recipe, run_kind="eval",
+        quick_reasons=reasons, wall_clock_s=decode_s,
+        cost=_cost(
+            device=device, n_gpus=n_gpus_for_device(device), usd_per_hour=args.usd_per_hour,
+            usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
+            cap_s=args.wall_clock_cap_s,
+        ),
+        notes=(
+            f"tools/real_ft_run.py --needle-control {','.join(map(str, lengths))} on "
+            f"{control_recipe['scored_checkpoint']} (ft row {ft['row_id']}), {args.score_dtype} "
+            f"on {device}: the needle gate's rule at other lengths, a diagnostic for "
+            "GAP-NEEDLE-FAILS-AT-8K-CAUSE-UNRESOLVED. Length and hunk count move together "
+            "(fixed filler templates), so this cannot separate them."
+        ),
+    )
+    with recorder:
+        recorder.metric(
+            "ft_run_row_id",
+            Ran(passed=True, value=ft["row_id"], detail="the train_ft row whose model this is"),
+        )
+        for name, state in metrics.items():
+            recorder.metric(name, state)
+        recorder.noul_rate = NotRun(reason="a needle length-control row decodes no val row")
+    if recorder.row is None:  # pragma: no cover - RunRecorder always writes on exit
+        raise RuntimeError("RunRecorder exited without writing a row")
+    return recorder.row.row_id, lines
 
 
 #: Rows per general cache file read for the OOD prose pool. The val split is a keyed hash
@@ -5001,6 +5173,15 @@ def main(argv: list[str] | None = None) -> int:
         help=f"one replay micro-batch per N training ones; default {DEFAULT_REPLAY_EVERY}",
     )
     parser.add_argument(
+        "--needle-control", type=str, default=None, metavar="TOKENS,TOKENS,...",
+        help=(
+            "with --score-checkpoint --needle: score the needle suite at each of these target "
+            "lengths (e.g. 1024,2048,4096,8192) under the gate's hit rule, on a quick "
+            "diagnostic row of its own -- never the needle_hunk_recall gate, never the gate "
+            "row. The 8192 arm must hash to the gate suite"
+        ),
+    )
+    parser.add_argument(
         "--suite-verdicts-out", type=Path, default=None,
         help=(
             "with --needle and/or --ood: write every suite case's raw verdict as one JSONL "
@@ -5126,6 +5307,24 @@ def main(argv: list[str] | None = None) -> int:
             f"--span-weight must be positive, got {args.span_weight}; zero would train the "
             "span head on nothing while its loss still appeared in the log"
         )
+    if args.needle_control is not None:
+        args.needle_control = parse_needle_control(args.needle_control)
+        if not (args.needle and args.score_checkpoint is not None):
+            raise SystemExit(
+                "--needle-control scores a saved checkpoint against the gate suite's digest: "
+                "it needs --score-checkpoint and --needle"
+            )
+        clashing = [
+            flag for flag, given in (
+                ("--ood", args.ood), ("--verdicts-out", args.verdicts_out is not None),
+                ("--needle-predictions-out", args.needle_predictions_out is not None),
+            ) if given
+        ]
+        if clashing:
+            raise SystemExit(
+                f"--needle-control writes its own diagnostic row and decodes no val row or "
+                f"gate; {', '.join(clashing)} would record nothing"
+            )
     if args.score_checkpoint is not None:
         needed = {
             "--score-val": args.score_val, "--real-backbone": args.real_backbone,
@@ -5438,6 +5637,24 @@ def main(argv: list[str] | None = None) -> int:
                 f"needle worker: {len(decoded.predictions)} predictions -> "
                 f"{args.needle_predictions_out}"
             )
+            return 0
+        if args.needle_control is not None:
+            control_row_id, control_lines = run_needle_control(
+                args, reader=reader, val=val_set, device=devices[0], ledger=Ledger(args.ledger),
+                config=config, gate_suite=needle_suite,
+                reasons_for=lambda tag, device, termination=None: quick_reasons(
+                    tag=tag, device=device, real_backbone=True, corpus=corpus,
+                    termination=termination,
+                ),
+            )
+            if args.suite_verdicts_out is not None:
+                write_suite_verdicts_jsonl(
+                    args.suite_verdicts_out,
+                    [{"eval_row_id": control_row_id, "seed": int(args.seeds[0]),
+                      "gate": "needle_hunk_recall.control", **v} for v in control_lines],
+                )
+                print(f"suite verdicts: {len(control_lines)} lines -> {args.suite_verdicts_out}")
+            print(f"needle control row {control_row_id}")
             return 0
         worker_decoded = (
             run_needle_worker(raw_argv, needle_suite)
