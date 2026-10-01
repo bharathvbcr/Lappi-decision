@@ -168,6 +168,7 @@ from qd_data.render import DEFAULT_CAPS, render, second_pass_permutation
 from qd_data.rows import DataRow
 from qd_data.schema import NOUL_LETTER
 from qd_train.artifacts import (
+    NO_SPAN,
     SLOT_CHOICE,
     SLOT_SCORE,
     SLOT_SPAN,
@@ -3516,6 +3517,35 @@ class NeedleSuite:
     token_lengths: list[int]
     seed: int = 0
     not_run: str | None = None
+    #: sha256 over every case id and its encoded ids: what a worker process scored must be
+    #: this suite, byte for byte, before its predictions are recorded against it.
+    digest: str = ""
+
+
+#: Every needle batch is padded to one width, a multiple of this. MPS keeps a compiled graph
+#: per distinct input shape and ``torch.mps.empty_cache`` does not release it: measured
+#: 2026-09-30 on the seed-0 checkpoint, six cases padded to one width held driver memory at
+#: 18.81-18.83 GiB, and one unpadded case of a new length added 3.9 GiB. 300 cases of 300
+#: lengths do not fit. Right padding is masked, and the padded and unpadded verdicts of the
+#: probed case were identical.
+NEEDLE_WIDTH_MULTIPLE: Final[int] = 64
+
+
+def _repad(batch: Batch, width: int) -> Batch:
+    """``batch`` (one row) re-assembled at ``width``, its supervision unchanged."""
+    n = int(batch.lengths[0])
+    candidates = (
+        [np.flatnonzero(batch.line_starts[0])] if batch.line_starts is not None else [()]
+    )
+    spans = (
+        batch.span_target if batch.span_target is not None
+        else np.full((1, 2), NO_SPAN, dtype=np.int64)
+    )
+    return assemble_batch(
+        [batch.tokens[0, :n]], kinds=np.asarray(batch.slot_kind),
+        target_index=np.asarray(batch.target_index), spans=spans, candidates=candidates,
+        width=width, bucket=width, index=batch.index,
+    )
 
 
 def prepare_needle(reader: ShardReader, *, config: DataConfig, enabled: bool) -> NeedleSuite:
@@ -3562,7 +3592,15 @@ def prepare_needle(reader: ShardReader, *, config: DataConfig, enabled: bool) ->
         batches.append(batch)
         labels_for[i] = [label]
         lengths.append(int(encoded.ids.size))
-    return NeedleSuite(cases, batches, labels_for, lengths, seed=config.seed)
+    width = -(-max(lengths) // NEEDLE_WIDTH_MULTIPLE) * NEEDLE_WIDTH_MULTIPLE
+    digest = hashlib.sha256()
+    for case, batch in zip(cases, batches, strict=True):
+        digest.update(case.case_id.encode("utf-8"))
+        digest.update(batch.tokens[0, : int(batch.lengths[0])].astype(np.int64).tobytes())
+    return NeedleSuite(
+        cases, [_repad(b, width) for b in batches], labels_for, lengths, seed=config.seed,
+        digest=digest.hexdigest(),
+    )
 
 
 def release_device_cache() -> None:
@@ -3577,31 +3615,22 @@ def release_device_cache() -> None:
         torch.cuda.empty_cache()
 
 
-def score_needle(
+def needle_predictions(
     step: RealFtStep, suite: NeedleSuite, letter_id: Mapping[str, int]
-) -> tuple[TriState, dict[str, TriState]]:
-    """``needle_hunk_recall`` and its by-depth metrics, under the approved contract."""
-    if suite.not_run is not None:
-        return NotRun(reason=suite.not_run), {}
+) -> dict[str, int | None]:
+    """Decode the suite: per case, the hunk of the predicted start line, ``None`` on abstain."""
     bound = getattr(step, "max_width", None)
-    widest = max(suite.token_lengths)
+    widest = max(int(b.tokens.shape[1]) for b in suite.batches)
     if bound is not None and int(bound) < widest:
         raise SystemExit(
-            f"the step is bounded at {bound} tokens and the needle suite's widest case is "
-            f"{widest}: build it with eval_widths=suite.token_lengths"
+            f"the step is bounded at {bound} tokens and the needle suite is padded to "
+            f"{widest}: build it with eval_widths=suite_widths(...)"
         )
-    # One case at a time, the device cache released before each. On 2026-09-30 the seed-0
-    # needle pass ran out of MPS memory at its first 8K case with 37.56 GiB of "other
-    # allocations" -- blocks cached by the val pass before it -- while the same case decoded
-    # in 6.6 s from a fresh process with the cache released (scratch probe, driver memory
-    # 18.8 GiB). Driver memory still rose ~4 GiB per case there, so it is released per case,
-    # not once.
+    release_device_cache()
     verdicts: list[Mapping[str, object]] = []
     for i, batch in enumerate(suite.batches):
-        release_device_cache()
         decoded = _decode(step, [batch], {0: suite.labels_for[i]}, dict(letter_id))
         verdicts.extend(decoded["verdicts"])  # type: ignore[arg-type]
-    release_device_cache()
     by_case = {str(v["row_id"]): v for v in verdicts}
     predictions: dict[str, int | None] = {}
     for case in suite.cases:
@@ -3613,7 +3642,23 @@ def score_needle(
         predictions[case.case_id] = (
             None if noul in (start, end) else hunk_of_context_line(case, start)
         )
-    report, gate = score_suite(suite.cases, predictions, min_recall=NEEDLE_MIN_RECALL)
+    return predictions
+
+
+def score_needle(
+    step: RealFtStep, suite: NeedleSuite, letter_id: Mapping[str, int],
+    *, predictions: Mapping[str, int | None] | None = None,
+) -> tuple[TriState, dict[str, TriState]]:
+    """``needle_hunk_recall`` and its by-depth metrics, under the approved contract.
+
+    ``predictions`` are a worker process's (``--needle-predictions-out``); without them the
+    suite is decoded here, with ``step``.
+    """
+    if suite.not_run is not None:
+        return NotRun(reason=suite.not_run), {}
+    if predictions is None:
+        predictions = needle_predictions(step, suite, letter_id)
+    report, gate = score_suite(suite.cases, dict(predictions), min_recall=NEEDLE_MIN_RECALL)
     metrics: dict[str, TriState] = {}
     for bucket in report.by_depth:
         metrics[f"needle_hunk_recall.depth.{bucket.label}"] = Ran(
@@ -3633,6 +3678,52 @@ def score_needle(
         ),
     ) if lengths else NotRun(reason="the suite is empty")
     return gate, metrics
+
+
+#: The needle worker decodes 300 ~8.5K cases at ~6.5 s each on the Mac (2026-09-30 probe),
+#: plus a checkpoint load: about 35 minutes. Twice that, so a hang is a refusal, not a wait.
+NEEDLE_WORKER_TIMEOUT_S: Final[float] = 2 * 3600.0
+
+
+def run_needle_worker(argv: Sequence[str], suite: NeedleSuite) -> dict[str, int | None]:
+    """Score the needle suite in a fresh process and return its per-case predictions.
+
+    A separate process because MPS keeps a compiled graph per distinct input shape that
+    ``torch.mps.empty_cache`` does not release: on 2026-09-30 the val pass left 37.56 GiB of
+    such allocations, and the needle pass after it ran out of memory twice (48 GiB cap on
+    a 64 GiB Mac), though alone it holds ~18.8 GiB. A process that exits returns all of
+    it. The worker rebuilds the suite from the same argv, and its predictions are refused
+    unless its suite's digest is this one's -- same cases, same ids, byte for byte.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="qd-needle-worker-") as tmp:
+        out = Path(tmp) / "predictions.json"
+        cmd = [sys.executable, str(Path(__file__).resolve()), *argv,
+               "--needle-predictions-out", str(out)]
+        print(f"needle worker: starting {len(suite.cases)} cases in a fresh process", flush=True)
+        try:
+            done = subprocess.run(cmd, timeout=NEEDLE_WORKER_TIMEOUT_S, check=False)
+        except subprocess.TimeoutExpired as exc:
+            raise SystemExit(
+                f"the needle worker ran past {NEEDLE_WORKER_TIMEOUT_S:.0f} s and was killed"
+            ) from exc
+        if done.returncode != 0:
+            raise SystemExit(f"the needle worker exited {done.returncode}; nothing recorded")
+        payload = json.loads(out.read_text(encoding="utf-8"))
+    if payload.get("digest") != suite.digest:
+        raise SystemExit(
+            "the needle worker scored a different suite (digest "
+            f"{str(payload.get('digest'))[:16]} vs {suite.digest[:16]})"
+        )
+    predictions = payload.get("predictions")
+    ids = {c.case_id for c in suite.cases}
+    if not isinstance(predictions, dict) or set(predictions) != ids:
+        raise SystemExit("the needle worker's predictions do not name exactly the suite's cases")
+    for case_id, hunk in predictions.items():
+        if hunk is not None and (not isinstance(hunk, int) or isinstance(hunk, bool)):
+            raise SystemExit(f"needle worker prediction for {case_id} is {hunk!r}")
+    return predictions
 
 
 def needle_recipe(suite: NeedleSuite) -> dict[str, object]:
@@ -3769,7 +3860,7 @@ def score_ood(
 
 def suite_widths(needle_suite: NeedleSuite, ood_suite: OodSuite) -> list[int]:
     """Every eval-only batch width the step will decode, for its ``max_width`` bound."""
-    widths = list(needle_suite.token_lengths)
+    widths = [int(b.tokens.shape[1]) for b in needle_suite.batches]
     if ood_suite.val is not None:
         widths += [int(b.tokens.shape[1]) for b in ood_suite.val.plan]
     if ood_suite.second_pass is not None:
@@ -3938,20 +4029,14 @@ def _ft_row(ledger_path: Path, row_id: str) -> dict[str, Any]:
     return row
 
 
-def _score_checkpoint(
+def _checkpoint_step(
     args: argparse.Namespace, *, reader: ShardReader, val: ValSet, device: str,
-    ledger: Ledger, reasons_for: Callable[..., list[str]], second_pass: SecondPass,
-    needle_suite: NeedleSuite, ood_suite: OodSuite,
-) -> tuple[str, dict[str, object], TriState, list[SuiteGate]]:
-    """Score a saved epoch checkpoint on the val set.
+    eval_widths: Sequence[int],
+) -> tuple[Any, dict[str, Any], dict[str, Any], int, dict[str, Any]]:
+    """``--score-checkpoint``'s weights in a step, every pairing checked before they load.
 
-    Returns ``(eval row id, scored, permutation_consistency, suite gates)``.
-
-    Every pairing that could silently score the wrong weights under the wrong row is checked
-    before the tower loads: the file's arm, seed and training device against the ft row; the
-    ft row's shard set and backbone against this run's; the checkpoint's optimizer step and
-    seed against the ft row's. Only the tower and span head are read
-    (``Checkpoint.read_weights``), cast to ``--score-dtype``.
+    Returns ``(step, ft row, its recipe, seed, checkpoint meta)``. The one
+    loader for both the scoring process and its needle worker.
     """
     from qd_train.run_control import Checkpoint
 
@@ -3990,9 +4075,32 @@ def _score_checkpoint(
         dtype=args.score_dtype, spec=ADAMW_FP32 if args.score_dtype == "fp32" else ADAMW_BF16,
         attn_implementation=str(recipe["attn_implementation"]), seed=seed,
         lr=float(recipe["lr"]), total_steps=steps, span_weight=float(recipe["span_weight"]),
-        width=width, eval_widths=suite_widths(needle_suite, ood_suite),
+        width=width, eval_widths=eval_widths,
     )
     step.load_weights(weights)
+    return step, ft, recipe, seed, meta
+
+
+def _score_checkpoint(
+    args: argparse.Namespace, *, reader: ShardReader, val: ValSet, device: str,
+    ledger: Ledger, reasons_for: Callable[..., list[str]], second_pass: SecondPass,
+    needle_suite: NeedleSuite, ood_suite: OodSuite,
+    needle_predictions_from: Mapping[str, int | None] | None = None,
+) -> tuple[str, dict[str, object], TriState, list[SuiteGate]]:
+    """Score a saved epoch checkpoint on the val set.
+
+    Returns ``(eval row id, scored, permutation_consistency, suite gates)``.
+
+    Every pairing that could silently score the wrong weights under the wrong row is checked
+    before the tower loads: the file's arm, seed and training device against the ft row; the
+    ft row's shard set and backbone against this run's; the checkpoint's optimizer step and
+    seed against the ft row's. Only the tower and span head are read
+    (``Checkpoint.read_weights``), cast to ``--score-dtype``.
+    """
+    step, ft, recipe, seed, meta = _checkpoint_step(
+        args, reader=reader, val=val, device=device,
+        eval_widths=suite_widths(needle_suite, ood_suite),
+    )
     run: dict[str, object] = {
         "tag": "epoch", "device": device, "seed": seed, "ft_row_id": ft["row_id"],
         "cost": _cost(
@@ -4009,7 +4117,11 @@ def _score_checkpoint(
     scored = _decode(step, val.plan, val.labels_for, val.letter_id)
     permutation, val_second = score_permutation_consistency(step, val, second_pass, scored)
     gates = [
-        needle_gate(score_needle(step, needle_suite, val.letter_id), needle_suite),
+        needle_gate(
+            score_needle(step, needle_suite, val.letter_id,
+                         predictions=needle_predictions_from),
+            needle_suite,
+        ),
         ood_suite_gate(
             score_ood(step, ood_suite, scored=scored, val_second=val_second,
                       val_second_pass=second_pass),
@@ -4593,6 +4705,14 @@ def main(argv: list[str] | None = None) -> int:
             "relabelled from"
         ),
     )
+    parser.add_argument(
+        "--needle-predictions-out", type=Path, default=None,
+        help=(
+            "internal: run as the --needle worker. Decode the needle suite with the "
+            "--score-checkpoint weights, write its predictions here, record nothing. The "
+            "scoring process starts this itself, in a fresh process (see run_needle_worker)"
+        ),
+    )
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER_PATH)
     parser.add_argument(
         "--optimizer",
@@ -4747,6 +4867,7 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--probe", help=argparse.SUPPRESS)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
     args = parser.parse_args(argv)
     _check_piece_flags(args)
 
@@ -4882,6 +5003,10 @@ def main(argv: list[str] | None = None) -> int:
             "--ood scores the model the val pass scores and encodes with the real "
             "tokenizer: it needs --score-val and --real-backbone"
         )
+    if args.needle_predictions_out is not None and not (
+        args.needle and args.score_checkpoint is not None
+    ):
+        raise SystemExit("--needle-predictions-out is the --needle worker of --score-checkpoint")
     if args.needle and not (args.score_val and args.real_backbone is not None):
         raise SystemExit(
             "--needle scores the model the val pass scores and encodes with the real "
@@ -5144,6 +5269,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.score_checkpoint is not None:
         if val_set is None:
             raise SystemExit("--score-checkpoint needs --score-val's val set")
+        if args.needle_predictions_out is not None:
+            # The needle worker: decode the suite in this fresh process and hand the
+            # predictions back. No ledger row; the parent records one row with every gate.
+            worker_step, *_ = _checkpoint_step(
+                args, reader=reader, val=val_set, device=devices[0],
+                eval_widths=suite_widths(needle_suite, ood_suite),
+            )
+            predictions = needle_predictions(worker_step, needle_suite, val_set.letter_id)
+            args.needle_predictions_out.write_text(
+                json.dumps({"digest": needle_suite.digest, "predictions": predictions}),
+                encoding="utf-8",
+            )
+            print(f"needle worker: {len(predictions)} predictions -> {args.needle_predictions_out}")
+            return 0
+        worker_predictions = (
+            run_needle_worker(raw_argv, needle_suite)
+            if needle_suite.not_run is None else None
+        )
 
         def eval_reasons(tag: str, device: str, termination: str | None = None) -> list[str]:
             return quick_reasons(
@@ -5155,6 +5298,7 @@ def main(argv: list[str] | None = None) -> int:
             args, reader=reader, val=val_set, device=devices[0],
             ledger=Ledger(args.ledger), reasons_for=eval_reasons, second_pass=second_pass,
             needle_suite=needle_suite, ood_suite=ood_suite,
+            needle_predictions_from=worker_predictions,
         )
         for name, state in score_states(scored, val_set.labels).items():
             print(f"  {name}: {json.dumps(state.to_json())[:300]}")

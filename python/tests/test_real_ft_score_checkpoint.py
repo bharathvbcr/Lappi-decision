@@ -25,6 +25,8 @@ sys.path.insert(0, str(REPO / "python"))
 import real_ft_run  # noqa: E402
 
 SHARD_HASH = "a" * 64
+_NO_NEEDLE = real_ft_run.NeedleSuite([], [], {}, [], not_run="--needle was not given")
+_NO_OOD = real_ft_run.OodSuite([], None, None, not_run="--ood was not given")
 
 
 def _ft_row(row_id: str = "7f2c11db-3eb8-4361-9620-6b164ec37f1e", **recipe_over) -> dict:
@@ -89,7 +91,8 @@ def test_a_checkpoint_paired_with_the_wrong_row_is_refused_before_any_read(tmp_p
     with pytest.raises(SystemExit, match=match):
         real_ft_run._score_checkpoint(
             args, reader=_reader(), val=None, device="mps", ledger=None,  # type: ignore[arg-type]
-            reasons_for=lambda *a, **k: [], second_pass=None, needle_suite=None, ood_suite=None,  # type: ignore[arg-type]
+            reasons_for=lambda *a, **k: [], second_pass=None,  # type: ignore[arg-type]
+            needle_suite=_NO_NEEDLE, ood_suite=_NO_OOD,
         )
 
 
@@ -98,7 +101,8 @@ def test_the_seed_in_the_filename_must_be_the_seed_asked_for(tmp_path):
     with pytest.raises(SystemExit, match="is seed 0"):
         real_ft_run._score_checkpoint(
             args, reader=_reader(), val=None, device="mps", ledger=None,  # type: ignore[arg-type]
-            reasons_for=lambda *a, **k: [], second_pass=None, needle_suite=None, ood_suite=None,  # type: ignore[arg-type]
+            reasons_for=lambda *a, **k: [], second_pass=None,  # type: ignore[arg-type]
+            needle_suite=_NO_NEEDLE, ood_suite=_NO_OOD,
         )
 
 
@@ -107,7 +111,8 @@ def test_only_an_epoch_checkpoint_is_scored(tmp_path):
     with pytest.raises(SystemExit, match="only an epoch checkpoint"):
         real_ft_run._score_checkpoint(
             args, reader=_reader(), val=None, device="mps", ledger=None,  # type: ignore[arg-type]
-            reasons_for=lambda *a, **k: [], second_pass=None, needle_suite=None, ood_suite=None,  # type: ignore[arg-type]
+            reasons_for=lambda *a, **k: [], second_pass=None,  # type: ignore[arg-type]
+            needle_suite=_NO_NEEDLE, ood_suite=_NO_OOD,
         )
 
 
