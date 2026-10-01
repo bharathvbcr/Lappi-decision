@@ -993,13 +993,14 @@ def test_the_letter_channels_report_their_abstention_supply() -> None:
     )
 
 
-def test_clinc_out_of_scope_is_the_only_letter_family_that_can_abstain() -> None:
+def test_clinc_is_the_only_letter_family_that_abstains_without_a_separate_corpus() -> None:
     """The structural half of the finding, checked by execution rather than asserted.
 
-    Four of the five letter families assign a value on every branch, so no corpus of
-    them can ever teach abstention on a letter. Only ``intent.classification`` can,
-    and only from CLINC's out-of-scope rows -- which is why a corpus built without
-    ``clinc/clinc_oos`` has zero abstaining letter rows however large it is.
+    Four of the five letter families assign a value on every branch of their own
+    sources. ``intent.classification`` abstains from CLINC's out-of-scope rows -- which
+    is why a corpus built without ``clinc/clinc_oos`` has zero abstaining letter rows
+    from its own families however large it is. ``code.defect_class`` abstains on its
+    class only over the separately loaded noul corpus, which this corpus does not hold.
     """
     mixture = build_mixture(small_corpus(18), config=DataConfig())
     letter_noul = {
@@ -1009,13 +1010,14 @@ def test_clinc_out_of_scope_is_the_only_letter_family_that_can_abstain() -> None
         and isinstance(r.request.slots[0], (ChoiceSlot, ScoreSlot))
     }
     assert letter_noul == {"intent.classification"}
-    # code.defect_class joined the roster with its span slot; it is still no letter
-    # family, and that is what the per-channel mapping states.
+    # code.defect_class joined the roster with its span slot, and since the noul corpus
+    # (2026-09-30) abstains on its class too -- but only over that corpus's rows, which
+    # this corpus does not hold, so the execution above still finds CLINC alone.
     assert set(ABSTAINING_FAMILIES) == {
         "intent.classification", "qa.answer_span", "code.defect_class"
     }
     assert [f for f, ch in ABSTAINING_FAMILIES.items() if "choice" in ch] == [
-        "intent.classification"
+        "intent.classification", "code.defect_class"
     ]
 
     choice = mixture.abstention["choice"]

@@ -67,6 +67,7 @@ from .defect_class import (
     DEFECT_CLASSES,
     DEFECT_FAMILY_ID,
     DEFECT_SOURCE_ID,
+    NOUL_CLASS,
     SPAN_SLOT,
     DefectRow,
 )
@@ -98,7 +99,7 @@ from .schema import (
     canonical_json,
 )
 from .sources import source_by_id, task_family_by_id
-from .split import SQUAD_TITLE_FAMILIES, squad_title_family
+from .split import SQUAD_TITLE_FAMILIES, squad_title_family, squad_title_repo_key
 
 if TYPE_CHECKING:
     # qd_data.general imports this module's `_request`/`_row` funnel, so its runtime
@@ -563,7 +564,7 @@ def rewrite_squad(
     # The split unit is the article title: SQuAD draws many questions from one
     # article, so a row-level split would put questions about the same paragraph on
     # both sides of the boundary.
-    repo_key = f"squad-title:{raw.title}"
+    repo_key = squad_title_repo_key(raw.title)
     identity = f"{repo_key}::{raw.qid}"
     context = f"{raw.question}\n\n{passage}"
     # The question is part of the compared text: several SQuAD questions share one
@@ -629,6 +630,11 @@ def rewrite_defect_class(
     slot and a genuine abstention on the span slot -- nothing was found, so the span points
     at nothing -- which gives the span channel a ``noul`` that is taught, not dumped.
 
+    A noul-corpus row (``NOUL_CLASS``, ``qd_data.defect_class.load_noul_rows``) abstains on
+    both: its context is not this model's kind, so neither "which class" nor "which lines"
+    has an answer. The options stay the four classes; the gold is the abstention every
+    option set already ends in.
+
     ``index`` is unused beyond the signature every rewriter shares: the row id is the
     corpus's own example id, so a read at a different offset renames nothing.
     """
@@ -678,6 +684,11 @@ def rewrite_defect_class(
             slot_name=SPAN_SLOT,
             value=(start + CONTEXT_HEADER_LINES, end + CONTEXT_HEADER_LINES),
         )
+    choice_gold = (
+        GoldAnswer(slot_name=CHOICE_SLOT, value=None, is_noul=True)
+        if raw.mutation_class == NOUL_CLASS
+        else GoldAnswer(slot_name=CHOICE_SLOT, value=raw.mutation_class)
+    )
     row_id = f"qdm:{family_id}:{raw.example_id}"
     return _row(
         row_id=row_id, source_id=DEFECT_SOURCE_ID, family_id=family_id,
@@ -694,7 +705,7 @@ def rewrite_defect_class(
             ),
             example_id=row_id,
         ),
-        gold=(GoldAnswer(slot_name=CHOICE_SLOT, value=raw.mutation_class), span_gold),
+        gold=(choice_gold, span_gold),
         # The diff, because it is the text the model reads: a leak is a diff seen in
         # training reappearing across a repo boundary. The whole file is not compared --
         # two vendored copies mutated at different sites share no diff lines, and neither
@@ -704,6 +715,10 @@ def rewrite_defect_class(
             "language": raw.language,
             "operator": raw.operator,
             "pool_id": raw.pool_id,
+            # Which of the noul corpus's sources a row is from: the licence and the
+            # provenance of a SQuAD- or template-derived row are not commitpackft's, and
+            # this source id is the family's single one.
+            **({"noul_source": raw.noul_source} if raw.noul_source is not None else {}),
         },
     )
 
@@ -1087,17 +1102,24 @@ _CHANNEL_BY_SLOT: Final[dict[type, str]] = {
 
 #: Families whose rewriter can produce ``is_noul=True``, and **on which channel**.
 #: Derived by reading every branch of the rewriters above, not by running them:
-#: CLINC's out-of-scope class, SQuAD's unanswerable questions, and qd-mutate's
-#: ``clean`` examples, whose span points at nothing. Keyed by channel since
-#: ``code.defect_class`` became the first family with two slots: it abstains on its
-#: span and never on its class, so a family-level flag would report it "able to
-#: abstain" on the letter channel it cannot teach. ``intent.classification`` is still
-#: the **only** letter family here, so a corpus built without ``clinc/clinc_oos``
-#: teaches abstention on no letter channel at all, however many rows it has.
+#: CLINC's out-of-scope class, SQuAD's unanswerable questions, qd-mutate's ``clean``
+#: examples, whose span points at nothing, and the noul corpus's rows
+#: (``qd_data.defect_class.load_noul_rows``), which abstain on both slots. Keyed by
+#: channel since ``code.defect_class`` became the first family with two slots: its
+#: ``clean`` rows abstain on the span and never on the class, and only its noul-corpus rows
+#: abstain on the class -- so a defect-class build without that corpus teaches the letter
+#: channel nothing, which :func:`abstention_supply` says rather than calling it a defect.
 ABSTAINING_FAMILIES: Final[dict[str, frozenset[str]]] = {
     "intent.classification": frozenset({"choice"}),
     "qa.answer_span": frozenset({"span"}),
-    DEFECT_FAMILY_ID: frozenset({"span"}),
+    DEFECT_FAMILY_ID: frozenset({"span", "choice"}),
+}
+
+#: Families that abstain on a channel only through rows a separate corpus supplies, keyed
+#: by channel, with the corpus named. Zero abstentions there is a composition choice -- the
+#: corpus was not loaded -- not a rewriter that dropped them.
+_ABSTAINS_ONLY_VIA_CORPUS: Final[dict[tuple[str, str], str]] = {
+    (DEFECT_FAMILY_ID, "choice"): "the noul corpus (qd_data.defect_class.load_noul_rows)",
 }
 
 
@@ -1150,20 +1172,35 @@ def abstention_supply(rows: Sequence[DataRow]) -> dict[str, TriState]:
                 ),
             )
             continue
+        via_corpus = {
+            f: _ABSTAINS_ONLY_VIA_CORPUS[(f, channel)]
+            for f in able if (f, channel) in _ABSTAINS_ONLY_VIA_CORPUS
+        }
+        if any(f not in via_corpus for f in able):
+            why = (
+                "A family that can abstain produced none, which is a construction defect "
+                "rather than a composition choice."
+            )
+        elif via_corpus:
+            why = (
+                "Every family here that can abstain on this channel does so only through "
+                "a separately loaded corpus ("
+                + "; ".join(f"{f}: {c}" for f, c in sorted(via_corpus.items()))
+                + ") that this build did not load, so this is the corpus's composition "
+                "rather than a rewriter dropping them."
+            )
+        else:
+            why = (
+                "No family on this channel can produce one, so this is the corpus's "
+                "composition rather than a rewriter dropping them."
+            )
         out[channel] = Ran(
             passed=False, value=0, n=0, n_total=total,
             detail=(
                 f"{channel}: 0 of {total} rows carry a noul gold, so every step trains "
                 "this channel against the abstain row. Families present: "
                 f"{sorted(present.get(channel, set()))}; of those, able to abstain at "
-                f"all: {able or 'none'}. "
-                + (
-                    "No family on this channel can produce one, so this is the corpus's "
-                    "composition rather than a rewriter dropping them."
-                    if not able
-                    else "A family that can abstain produced none, which is a "
-                    "construction defect rather than a composition choice."
-                )
+                f"all: {able or 'none'}. {why}"
             ),
         )
     return out

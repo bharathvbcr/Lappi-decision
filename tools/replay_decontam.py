@@ -131,6 +131,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--defect-class", type=Path, default=None)
     parser.add_argument("--defect-download", type=Path, default=None)
     parser.add_argument("--defect-max-rows", type=int, default=None)
+    parser.add_argument("--defect-noul", type=Path, default=None)
     parser.add_argument(
         "--general-record", type=Path, default=None,
         help="as the pipeline's --general-record: its general families are val and held-out "
@@ -159,6 +160,7 @@ def main(argv: list[str] | None = None) -> int:
         defect_class=args.defect_class, defect_download=args.defect_download,
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
         general_record=args.general_record, general_max_rows=args.general_max_rows,
+        defect_noul=args.defect_noul,
     )
     targets, unrenderable = target_texts(splits)
     reader = ShardReader(args.replay_shards, config=config, repo_root=args.out)
@@ -177,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
             rev=rev, max_pairs=args.max_pairs, commitpackft=args.commitpackft,
             defect_class=args.defect_class, defect_max_rows=args.defect_max_rows,
             repo_history=args.repo_history, general_record=args.general_record,
-            general_max_rows=args.general_max_rows,
+            general_max_rows=args.general_max_rows, defect_noul=args.defect_noul,
         ),
     }
     write_text_atomic(args.attestation_out, json.dumps(body, indent=2, sort_keys=True) + "\n")
