@@ -13,5 +13,6 @@ pub mod npy;
 pub mod npz;
 pub mod pyjson;
 pub mod shards;
+pub mod span_head;
 pub mod supervision;
 pub mod tristate;

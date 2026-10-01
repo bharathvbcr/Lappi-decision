@@ -1,0 +1,119 @@
+# Lane L-head, 2026-10-01, ojas plan Q3 rung (a) Amendment 1. Per-tensor span-head parity at
+# commit 32092bb (Cargo.lock dirty, uncommitted by instruction). The suite ledger row is
+# 8e447aea-77bf-41fe-821a-fadee7d52b25 (completed), appended after 6d6ca078 in
+# ledger/mac-ojas-rung-a-span-head-2026-10-01.jsonl. Output of, verbatim below:
+#   cargo test -p qd-train --test span_head -- --nocapture --test-threads=1
+# Columns: max|a - b| / max|b| per tensor. rust-f64 is THE gate (<= 1e-6). rust-torch32 is
+# report-only. torch32-f64 is recomputed from the two dumps and asserted bit-equal to the
+# manifest.
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running tests/span_head.rs (target/debug/deps/span_head-4f8e95c3ad8e6877)
+
+running 14 tests
+test every_fixture_plan_is_the_python_plan_in_this_heads_layout ... ok
+test parity_duplicate_positions ... duplicate-positions: H=16 K=3 L=24 span_weight=0.5
+  tensor               rust-f64 rust-torch32  torch32-f64
+  scores_start         4.151e-8     6.579e-8     8.074e-8
+  scores_end           4.749e-8     1.389e-7     1.240e-7
+  loss                 2.651e-8      0.000e0     2.651e-8
+  d_hidden             3.351e-8     1.783e-7     1.992e-7
+  d_start_proj         5.105e-8     1.740e-7     1.435e-7
+  d_end_proj           4.357e-8     1.609e-7     1.465e-7
+  d_abstain_start      5.246e-8     3.601e-7     3.346e-7
+  d_abstain_end        9.378e-8     5.030e-7     4.092e-7
+ok
+test parity_gold_abstain_zero_init ... gold-abstain-zero-init: H=16 K=3 L=20 span_weight=1
+  tensor               rust-f64 rust-torch32  torch32-f64
+  scores_start         4.185e-8     1.558e-7     1.144e-7
+  scores_end           3.448e-8     7.134e-8     5.716e-8
+  loss                 3.738e-8      0.000e0     3.738e-8
+  d_hidden             4.713e-8     6.197e-8     8.172e-8
+  d_start_proj         2.592e-8     1.094e-7     8.451e-8
+  d_end_proj           6.706e-8     6.327e-8     7.699e-8
+  d_abstain_start      3.521e-8     6.339e-8     7.304e-8
+  d_abstain_end        4.762e-8     1.980e-7     1.867e-7
+ok
+test parity_h2048_abstain_duplicate ... h2048-abstain-duplicate: H=2048 K=1 L=20 span_weight=1
+  tensor               rust-f64 rust-torch32  torch32-f64
+  scores_start         5.895e-8     4.415e-7     4.276e-7
+  scores_end           3.682e-8     1.904e-7     1.564e-7
+  loss                 4.063e-8     1.859e-7     2.265e-7
+  d_hidden             4.673e-8     1.216e-6     1.193e-6
+  d_start_proj         6.576e-8     1.210e-7     1.313e-7
+  d_end_proj           4.858e-8     1.569e-7     1.606e-7
+  d_abstain_start      6.043e-8     1.089e-7     1.158e-7
+  d_abstain_end        6.188e-8     1.573e-7     1.253e-7
+ok
+test parity_h2048_point ... h2048-point: H=2048 K=1 L=28 span_weight=0.75
+  tensor               rust-f64 rust-torch32  torch32-f64
+  scores_start         2.452e-8     1.430e-7     1.493e-7
+  scores_end           4.583e-8     1.924e-7     1.875e-7
+  loss                 3.540e-8     9.023e-8     5.483e-8
+  d_hidden             3.033e-8     9.670e-7     9.653e-7
+  d_start_proj         4.218e-8     1.495e-7     1.562e-7
+  d_end_proj           4.770e-8     1.575e-7     1.400e-7
+  d_abstain_start      1.418e-7     4.793e-7     4.584e-7
+  d_abstain_end        5.412e-8     1.703e-7     1.669e-7
+ok
+test parity_many_candidates ... many-candidates: H=8 K=2 L=400 span_weight=1
+  tensor               rust-f64 rust-torch32  torch32-f64
+  scores_start         5.076e-8     1.113e-7     9.689e-8
+  scores_end           5.061e-8     1.465e-7     9.592e-8
+  loss                 3.687e-8      0.000e0     3.687e-8
+  d_hidden             3.617e-8     1.641e-7     1.627e-7
+  d_start_proj         3.601e-8     1.346e-7     1.480e-7
+  d_end_proj           2.842e-8     1.009e-7     8.481e-8
+  d_abstain_start      2.005e-8     6.964e-8     6.456e-8
+  d_abstain_end        5.025e-8     7.711e-8     7.177e-8
+ok
+test parity_one_candidate ... one-candidate: H=16 K=2 L=12 span_weight=1
+  tensor               rust-f64 rust-torch32  torch32-f64
+  scores_start         3.405e-8     9.850e-8     1.225e-7
+  scores_end           6.356e-8     2.017e-7     1.737e-7
+  loss                 3.271e-8     1.020e-7     1.347e-7
+  d_hidden             2.439e-8     1.702e-7     1.748e-7
+  d_start_proj         3.502e-8     9.293e-8     8.125e-8
+  d_end_proj           4.113e-8     9.278e-8     1.064e-7
+  d_abstain_start      3.228e-8     1.125e-7     1.140e-7
+  d_abstain_end        3.132e-8     3.101e-8     3.132e-8
+ok
+test parity_random_h16 ... random-h16: H=16 K=4 L=32 span_weight=0.75
+  tensor               rust-f64 rust-torch32  torch32-f64
+  scores_start         3.391e-8     8.536e-8     5.145e-8
+  scores_end           3.436e-8     1.200e-7     9.701e-8
+  loss                 2.856e-9      0.000e0     2.856e-9
+  d_hidden             5.427e-8     9.570e-8     1.038e-7
+  d_start_proj         3.186e-8     1.255e-7     1.178e-7
+  d_end_proj           3.855e-8     8.550e-8     5.706e-8
+  d_abstain_start      4.417e-8     1.417e-7     1.103e-7
+  d_abstain_end        3.374e-8     1.263e-7     1.010e-7
+ok
+test parity_random_h48 ... random-h48: H=48 K=5 L=48 span_weight=1
+  tensor               rust-f64 rust-torch32  torch32-f64
+  scores_start         3.702e-8     1.438e-7     1.289e-7
+  scores_end           6.471e-8     1.944e-7     2.143e-7
+  loss                 1.608e-8      0.000e0     1.608e-8
+  d_hidden             4.197e-8     2.422e-7     2.589e-7
+  d_start_proj         4.224e-8     7.132e-8     8.684e-8
+  d_end_proj           3.389e-8     1.490e-7     1.466e-7
+  d_abstain_start      6.344e-8     8.712e-8     1.103e-7
+  d_abstain_end        4.019e-8     9.886e-8     1.239e-7
+ok
+test parity_random_h96 ... random-h96: H=96 K=3 L=40 span_weight=0.5
+  tensor               rust-f64 rust-torch32  torch32-f64
+  scores_start         4.187e-8     2.914e-7     2.496e-7
+  scores_end           3.554e-8     1.559e-7     1.648e-7
+  loss                 1.813e-8     6.854e-8     8.667e-8
+  d_hidden             4.439e-8     3.329e-7     3.339e-7
+  d_start_proj         4.833e-8     2.865e-7     2.755e-7
+  d_end_proj           4.389e-8     2.085e-7     2.020e-7
+  d_abstain_start      4.584e-8     2.549e-7     2.991e-7
+  d_abstain_end        6.159e-8     2.572e-7     2.695e-7
+ok
+test reserved_noul_rows_is_qd_runtime_schemas ... ok
+test span_rows_is_one_per_line_plus_the_reserved_row ... ok
+test the_abstention_is_the_last_row_and_lines_ascend_as_answer_rs_reads_them ... ok
+test the_fixture_set_is_exactly_the_cases_tested ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.11s
+

@@ -5,7 +5,7 @@ Advisor: claude-fable-5-1, through a read-only lane (task ad5979fc44bf7f89d), re
 Lead's notes:
 - Fable's `f.done` ≈ Oct 3 rests on "~40 h". F seed 0 finished its 9,683 steps at ≈22:29 UTC Oct 1, about 4.6 h after the 17:55 launch, so `f.done` is nearer 10–11 UTC Oct 2.
 - This does not change the conclusion. M0 cannot exist before the asks are answered plus about 4 days of K0.
-- `GAP-FABLE-CUDA-OJAS-QWEN35-AUTHORIZATION-UNKNOWN` is answered by the coordinator's reply in this session: "ojas-qwen35: yes, you own it as an additive crate". The HANDOFF line saying "pending" was stale.
+- `GAP-FABLE-CUDA-OJAS-QWEN35-AUTHORIZATION-UNKNOWN-2026-10-01` is answered by the coordinator's reply in this session: "ojas-qwen35: yes, you own it as an additive crate". The HANDOFF line saying "pending" was stale.
 
 ## Verification of the doc's four claims
 
@@ -29,7 +29,7 @@ Rule 6's text contrasts *nested* vs *canonical* tessl (`CLAUDE.md:66-67`, from t
 *Wording:* "Record under rule 6: 'Rule 6 governs tessl kernel work — canonical, never nested — and keeps Lappi kernel-free. CUDA kernels and the CUDA Qwen3.5 provider live in ojas (tessl is Metal-bound and builds only on macOS).' The CUDA work starts as a standalone sibling crate `ojas/ojas-qwen35-cuda/` (own `[workspace]`, no member edit, no file outside that directory), merged into `ojas-cuda`/`ojas-kernels` by the coordinator later. Yes?"
 
 **2. GH200 time — no insertion; the Q4 ruling stands; rung 0 is the first post-queue item.**
-F launched 17:55 UTC Oct 1 (`gh200-phase4:452`), ~40 h → `f.done` ≈ Oct 3; the queue is ≈73 h quiet / ≈94 h if (ii) fires → item 10 ends ≈ Oct 6–7. M0 (the rung-0 binary) cannot exist before asks 1/5 are answered plus ~4 days of K0, i.e. ≈ Oct 6 at the earliest. The question is moot by timing, and nothing rung 0 would learn changes the first four days of CPU-side work. One amendment to my "no ssh" clause, owned as such: during the lead's already-planned box session (the avg-np redeploy), three read-only commands close `GAP-L-CUDA-BOX-LIBS-UNVERIFIED` at zero GPU cost and no lock: `nvidia-smi | head -4`, `ls /home/ubuntu/qd-venv/lib/python3.12/site-packages/nvidia/{cublas,cuda_nvrtc}/lib`, `ls /usr/local/cuda/lib64 | grep -E 'nvrtc|cublas'`.
+F launched 17:55 UTC Oct 1 (`gh200-phase4:452`), ~40 h → `f.done` ≈ Oct 3; the queue is ≈73 h quiet / ≈94 h if (ii) fires → item 10 ends ≈ Oct 6–7. M0 (the rung-0 binary) cannot exist before asks 1/5 are answered plus ~4 days of K0, i.e. ≈ Oct 6 at the earliest. The question is moot by timing, and nothing rung 0 would learn changes the first four days of CPU-side work. One amendment to my "no ssh" clause, owned as such: during the lead's already-planned box session (the avg-np redeploy), three read-only commands close `GAP-L-CUDA-BOX-LIBS-UNVERIFIED-2026-10-01` [date suffix added by the lead] at zero GPU cost and no lock: `nvidia-smi | head -4`, `ls /home/ubuntu/qd-venv/lib/python3.12/site-packages/nvidia/{cublas,cuda_nvrtc}/lib`, `ls /usr/local/cuda/lib64 | grep -E 'nvrtc|cublas'`.
 *Wording:* "No GH200 time for ojas until item 10 ends (unchanged). Rung 0 (~5 min under `flock gpu.lock timeout 300`, ≈$0.08) runs as the first post-queue item if the box is still rented, otherwise on the next rental. The lead may run three read-only commands (listed) in its next ssh session, no lock, no write. Yes?"
 
 **3. cudarc `cuda` feature and repin — yes to `cuda-12080`; the feature is a build flag, not an edit.**

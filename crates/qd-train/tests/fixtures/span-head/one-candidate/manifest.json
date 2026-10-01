@@ -1,0 +1,48 @@
+{
+  "case": "one-candidate",
+  "description": "every row has exactly one line start: one points at it, one abstains",
+  "device": "cpu",
+  "dtype": "float32",
+  "dw_encoding": "npy",
+  "head": "python/qd_train/heads.py::SpanPointerHead (plan from plan_span_batch)",
+  "hidden_scale": 0.9306048591020996,
+  "hidden_size": 16,
+  "n_spans": 2,
+  "oracle": "tools/qd_train_oracle_span_head.py",
+  "reduction": "mean",
+  "reserved_noul_rows": 1,
+  "seq_len": 12,
+  "sha256": {
+    "d_end_proj": "837ac9dfa8820fad81007b4ac45876c0ee8b943f692ebf26133b45afa3073dc6",
+    "d_start_proj": "e1c60640524071403f55cf93f87d5d8e6727b374b1f64a5c07b6f195f04491ff",
+    "end_proj_weight": "c1d9a5b1be9fb76a7ee7f1ab0a738502d6213612cf9c741a2fde71f4769a6313",
+    "ref64_d_end_proj": "a23cc4161ec58f6e3f3a7338287170f207d2e05a50fcad437fa27dfdd190915e",
+    "ref64_d_start_proj": "f2475ecfbb07dc68b809cbb0370b45f4488d7876649ee813c35631ac5e647544",
+    "start_proj_weight": "47fbee4ad062ac47d0e8ac3ad546cb5f3333e27391fd419f1606ab27801522a8"
+  },
+  "span_weight": 1.0,
+  "torch_f32_vs_f64": {
+    "d_abstain_end": 3.1316056152096504e-08,
+    "d_abstain_start": 1.1396959458228939e-07,
+    "d_end_proj": 1.0644762775285013e-07,
+    "d_hidden": 1.748202052712794e-07,
+    "d_start_proj": 8.124779033959385e-08,
+    "loss": 1.3470968496459314e-07,
+    "scores_end": 1.7372199550367873e-07,
+    "scores_start": 1.2253577003692544e-07
+  },
+  "torch_threads": 1,
+  "versions": {
+    "numpy": "2.5.0",
+    "python": "3.14.7",
+    "torch": "2.12.1"
+  },
+  "weight_generator": {
+    "algorithm": "splitmix64(seed << 40 ^ stream << 32 ^ index) >> 40, centred, times 2^-(23 + shift)",
+    "seed": 103,
+    "shift": 2,
+    "stream_end_proj": 2,
+    "stream_start_proj": 1
+  },
+  "zero_abstain": false
+}
