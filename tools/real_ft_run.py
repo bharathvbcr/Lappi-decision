@@ -4666,6 +4666,21 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
             "permuted second pass and the needle and OOD suites are built at the protocol seed "
             f"{run['seed']}, as every per-seed score row's are. " + ENSEMBLE_PROMOTION_NOTE
         )
+    elif model is not None and model.tag == AVERAGED_NP_TAG:
+        notes = (
+            f"tools/real_ft_run.py --score-checkpoint of {model.described}, "
+            f"{run['scored_checkpoint']}, scored in {run['score_dtype']} on {run['device']} at "
+            f"T = 1 on {len(val.reader)} val sequences none of them trained on, the way "
+            "crates/qd-runtime/src/answer.rs decodes them. "
+            + (
+                "lambda was GIVEN, not derived from the measured c, and this row is quick "
+                "for it. " if model.lambda_chosen else
+                "lambda is a function of the measured c (Fable I-2), never chosen on a gate. "
+            )
+            + "The permuted second pass and the needle and OOD suites are built at the "
+            f"protocol seed {run['seed']}, as every per-seed score row's are. "
+            + AVERAGED_PROMOTION_NOTE
+        )
     elif averaged is None:
         notes = (
             f"tools/real_ft_run.py --score-val for ft row {run['ft_row_id']} "
@@ -4782,6 +4797,14 @@ AVERAGED_SUFFIX: Final[str] = ".safetensors"
 #: A scored average's run tag; :func:`_record_score` makes its recipe tag ``avg-score-val``,
 #: as an epoch arm's is ``epoch-score-val``.
 AVERAGED_TAG: Final[str] = "avg"
+#: A scored NORM-PRESERVING average's run tag (``ckpt_average.py --norm-preserving``, Fable
+#: I-2): recipe tags ``avg-np-score-val`` and ``avg-np-needle-length-control``.
+AVERAGED_NP_TAG: Final[str] = "avg-np"
+#: Why a norm-preserving average's row is quick when its lambda was not derived from c.
+LAMBDA_CHOSEN_REASON: Final[str] = (
+    "a norm-preserving average whose lambda was given (--lambda-not-derived-from-c), not "
+    "derived from the measured c: a chosen number could have been chosen on a gate"
+)
 #: Rule 8 for an average: fewer inputs than this is a seed shortfall, and the row is quick.
 MIN_AVERAGED_SEEDS: Final[int] = 3
 #: On every scored average's row. Rule 8's seed count and the promotion join are about seed
@@ -4850,6 +4873,8 @@ class ScoredModel:
     block: Mapping[str, object] | None
     #: For notes: what the model is, in a phrase.
     described: str
+    #: A norm-preserving average whose lambda was given rather than derived from c.
+    lambda_chosen: bool = False
 
     @property
     def n_inputs(self) -> int:
@@ -4877,14 +4902,19 @@ class ScoredModel:
         return "ft_run_row_ids", Ran(passed=True, value=",".join(self.ft_row_ids), detail=detail)
 
     def seed_reasons(self) -> list[str]:
-        """Rule 8 for a several-seed model: fewer than :data:`MIN_AVERAGED_SEEDS` is quick."""
-        if self.block_key is None or self.n_inputs >= MIN_AVERAGED_SEEDS:
-            return []
-        what = "an average" if self.block_key == "averaged" else "an ensemble"
-        return [
-            f"{what} of {self.n_inputs} seeds: rule 8 marks fewer than {MIN_AVERAGED_SEEDS} "
-            "seeds quick"
-        ]
+        """Rule 8 for a several-seed model: fewer than :data:`MIN_AVERAGED_SEEDS` is quick.
+        And a norm-preserving average whose lambda was chosen, not derived from c: a number
+        a person picked could have been picked on a gate."""
+        reasons: list[str] = []
+        if self.block_key is not None and self.n_inputs < MIN_AVERAGED_SEEDS:
+            what = "an average" if self.block_key == "averaged" else "an ensemble"
+            reasons.append(
+                f"{what} of {self.n_inputs} seeds: rule 8 marks fewer than "
+                f"{MIN_AVERAGED_SEEDS} seeds quick"
+            )
+        if self.lambda_chosen:
+            reasons.append(LAMBDA_CHOSEN_REASON)
+        return reasons
 
 
 def scored_model(
@@ -4895,6 +4925,25 @@ def scored_model(
     ensemble = meta.get("ensemble")
     if averaged is not None:
         assert isinstance(averaged, Mapping)  # what _averaged_weights writes
+        norm = averaged.get("norm_preserving")
+        if norm is not None:
+            assert isinstance(norm, Mapping)  # what _averaged_weights writes
+            return ScoredModel(
+                tag=AVERAGED_NP_TAG,
+                scored_checkpoint=str(meta["scored_checkpoint"]),
+                terminations=tuple(meta["terminations"]),
+                ft_row_ids=tuple(averaged["ft_row_ids"]),
+                block_key="averaged", block=averaged,
+                described=(
+                    f"a NORM-PRESERVING AVERAGE of seeds {averaged['seeds']} from their "
+                    f"{averaged['source']} (base {norm['base_snapshot']}, c = {norm['c']:.6f}, "
+                    f"lambda = {norm['lambda']:.6f}"
+                    + ("" if norm["lambda_derived_from_c"] else ", NOT derived from c")
+                    + f"), ft rows {', '.join(averaged['ft_row_ids'])}, manifest sha256 "
+                    f"{averaged['manifest_sha256']}"
+                ),
+                lambda_chosen=not bool(norm["lambda_derived_from_c"]),
+            )
         return ScoredModel(
             tag=AVERAGED_TAG,
             scored_checkpoint=str(meta["scored_checkpoint"]),
@@ -5312,6 +5361,13 @@ def _averaged_weights(
             f"the ft rows {path.name}'s manifest names do not describe its inputs scored "
             "against this shard set and backbone: " + " | ".join(problems)
         )
+    norm = manifest.norm_preserving
+    if norm is not None and norm["base_snapshot"] != args.real_backbone.name:
+        raise SystemExit(
+            f"{path.name} is a norm-preserving average that moved from the base "
+            f"{norm['base_snapshot']!r}, and it is scored on the backbone "
+            f"{args.real_backbone.name!r}: base + lambda * delta means nothing on another base"
+        )
     try:
         verify_sources(manifest)
         weights = read_average(manifest)
@@ -5337,6 +5393,14 @@ def _averaged_weights(
             # per-seed score row -- prepare_second_pass, prepare_needle and prepare_ood take
             # it, never the run seed.
             "protocol_seed": suite_seed, "suite_seed": suite_seed,
+            # Only on a norm-preserving average (tag avg-np): the numbers its manifest was
+            # made with, so a plain average's recipe is what it always was.
+            **({} if norm is None else {"norm_preserving": {
+                k: norm[k] for k in (
+                    "formula", "c", "pairwise_cosine", "lambda_from_c", "lambda",
+                    "lambda_derived_from_c", "base_snapshot",
+                )
+            }}),
         },
     }
     return rows[0], recipe, suite_seed, meta, weights

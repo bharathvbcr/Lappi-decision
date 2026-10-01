@@ -57,6 +57,17 @@ no two same-shape ones are byte-identical (measured 2026-10-01 on snapshot
 the size of the model (about 14 GiB), and drops that input before reading the next. The peak
 does not grow with N; :func:`average_masters` states it.
 
+**``--norm-preserving --base-snapshot DIR``** (with ``--from masters``; Fable I-2): the
+uniform mean of N deltas ``theta_i - base`` whose pairwise cosine is c keeps only
+``sqrt((1 + (N-1)c)/N)`` of one delta's norm, so it shrinks every seed-specific direction.
+This writes ``base + lambda * mean_i(theta_i - base)`` with ``lambda = sqrt(N / (1 +
+(N-1)c))``, and c is MEASURED here -- the mean over input pairs of the cosine between their
+fp32-master deltas against the base, over every tower tensor with a master, in float64,
+streamed one tensor at a time (:func:`norm_preserving_average`) -- never chosen. The span
+head has no base and is averaged plainly. The manifest's ``norm_preserving`` block records
+c, every pair's cosine, N, lambda, the formula and the base's file digests;
+``--lambda-not-derived-from-c`` replaces lambda and the block says so.
+
 What this cannot check: which shard set each input trained on. A ``Checkpoint`` carries the
 batch order's ``consumed_digest`` but not the shard hash; the ledger rows of the runs do.
 Pass ``--ft-row-ids`` to record them in the manifest so the average names its sources;
@@ -74,6 +85,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import resource
 import sys
 from collections.abc import Mapping, Sequence
@@ -371,9 +383,13 @@ class MastersAverage:
     master_index: dict[str, int]
     inputs: list[InputRecord]
     facts: _Facts
+    #: Each tensor's tower dtype: what a float64 mean is cast to, once.
+    out_dtype: dict[str, str]
 
 
-def average_masters(paths: Sequence[Path], names: Sequence[str]) -> MastersAverage:
+def average_masters(
+    paths: Sequence[Path], names: Sequence[str], *, keep_float64: bool = False
+) -> MastersAverage:
     """Each parameter's fp32 masters averaged across the inputs, by name.
 
     One input is read at a time (:meth:`Checkpoint.read_weights` of ``tower``, ``span_head``
@@ -382,6 +398,10 @@ def average_masters(paths: Sequence[Path], names: Sequence[str]) -> MastersAvera
     parameters): ~10.5 GiB of input, ~14.0 GiB of float64 accumulators and the embedding's
     transient copies (~5.7 GiB), about 30 GiB; then the bf16 output (~3.5 GiB) and its
     serialization (~3.5 GiB) as the accumulators drain.
+
+    ``keep_float64`` returns each float tensor's float64 MEAN, uncast, with ``out_dtype``
+    naming the dtype it is to be cast to once: what :func:`norm_preserving_average` moves
+    from before its one cast.
     """
     import torch
 
@@ -466,9 +486,10 @@ def average_masters(paths: Sequence[Path], names: Sequence[str]) -> MastersAvera
             tensors[full] = _tensor(kept.pop(full)).clone()
             continue
         mean = acc.pop(full).div_(len(paths))
-        # float64 -> float32 -> the tower dtype: torch's float64 -> bfloat16 conversion goes
-        # through float32 anyway, and saying so makes the one cast to bf16 the stated one.
-        tensors[full] = mean.to(torch.float32).to(getattr(torch, out_dtype[full]))
+        if keep_float64:
+            tensors[full] = mean
+            continue
+        tensors[full] = _cast_once(mean, out_dtype[full])
         del mean
     master_of = {n: i for i, n in enumerate(mapping)}
     return MastersAverage(
@@ -477,7 +498,264 @@ def average_masters(paths: Sequence[Path], names: Sequence[str]) -> MastersAvera
         master_index={full: master_of[full] for full in tensors if full in master_of},
         inputs=records,
         facts=first,
+        out_dtype=dict(out_dtype),
     )
+
+
+def _cast_once(value: Any, dtype: str) -> Any:
+    """A float64 tensor to ``dtype``, once: float64 -> float32 -> the tower dtype. torch's
+    float64 -> bfloat16 conversion goes through float32 anyway, and saying so makes the one
+    cast to bf16 the stated one."""
+    import torch
+
+    return value.to(torch.float32).to(getattr(torch, dtype))
+
+
+# --- --norm-preserving -----------------------------------------------------------------------
+
+#: The norm-preserving average (Fable I-2): the uniform mean of N fine-tuning deltas whose
+#: pairwise cosine is c has norm sqrt((1 + (N-1)c)/N) of one delta's, so it shrinks every
+#: seed-specific direction; lambda restores the norm. Recorded verbatim in the manifest.
+NORM_PRESERVING_FORMULA: Final[str] = (
+    "theta = base + lambda * mean_i(theta_i - base); lambda = sqrt(n / (1 + (n - 1) * c)), "
+    "c = the mean over input pairs of the cosine between their deltas (fp32 master - base) "
+    "over every tower tensor with a master, in float64"
+)
+#: What the span head gets under --norm-preserving: it is initialised at random, so it has
+#: no base to move from, and it is averaged plainly.
+SPAN_HEAD_NO_BASE: Final[str] = (
+    "span_head: averaged plainly (the arithmetic mean of its masters); it has no base, so "
+    "lambda is not applied to it"
+)
+#: The base tensor's name for a tower tensor: the repository's own mapping.
+BASE_PREFIX_NOTE: Final[str] = "base name = qd_train.backbone.TEXT_PREFIX + tower key"
+#: Elements per float64 slice when the deltas of one tensor are compared: bounds the
+#: transient copies of the embedding (508.6M elements) at a few hundred MiB per input.
+DELTA_CHUNK: Final[int] = 1 << 25
+
+
+class _SidecarTensors:
+    """One checkpoint's tensors read ONE AT A TIME from its sidecar, each checked against the
+    body's recorded dtype, shape, size and digest -- the check ``Checkpoint.read_weights``
+    makes (``run_control._join_tensors``) -- after the body's ``payload_digest`` verifies."""
+
+    def __init__(self, path: Path) -> None:
+        from qd_train.run_control import _MAX_SIDECAR_HEADER_BYTES
+
+        self.path = path
+        self.body = Checkpoint.read_body(path)
+        declared = self.body.get("sidecar")
+        if not isinstance(declared, Mapping) or not isinstance(declared.get("digest"), str):
+            raise AverageRefusal(f"{path} declares no tensor sidecar")
+        self.sidecar = Checkpoint.sidecar_path(path, declared["digest"])
+        if not self.sidecar.is_file():
+            raise AverageRefusal(f"{path}: its sidecar {self.sidecar.name} is not beside it")
+        with self.sidecar.open("rb") as fh:
+            n = int.from_bytes(fh.read(8), "little")
+            if not 0 < n <= _MAX_SIDECAR_HEADER_BYTES:
+                raise AverageRefusal(f"{self.sidecar}: safetensors header claims {n} bytes")
+            self.header = json.loads(fh.read(n))
+        self.base = 8 + n
+
+    def master(self, index: int) -> Any:
+        """``optimizer.masters[index]`` as a float32 torch tensor, verified."""
+        from qd_train.run_control import _TENSOR_REF_TAG, _join_tensors
+
+        masters = self.body["model_state"][MASTERS_PATH[0]][MASTERS_PATH[1]]
+        node = masters[index]
+        entry = node.get(_TENSOR_REF_TAG) if isinstance(node, Mapping) else None
+        if entry is None:
+            raise AverageRefusal(f"{self.path}: master {index} is not a tensor in the body")
+        key = str(entry["key"])
+        info = self.header.get(key)
+        if info is None:
+            raise AverageRefusal(f"{self.sidecar.name} does not carry {key}")
+        start, end = (int(x) for x in info["data_offsets"])
+        with self.sidecar.open("rb") as fh:
+            fh.seek(self.base + start)
+            data = fh.read(end - start)
+        try:
+            ref = _join_tensors(node, {key: TensorRef(
+                dtype=str(entry["dtype"]), shape=tuple(int(a) for a in entry["shape"]),
+                data=data,
+            )})
+        except ValueError as exc:
+            raise AverageRefusal(f"{self.path}: {exc}") from exc
+        del data
+        return _tensor(ref)
+
+
+def _pair_key(i: int, j: int) -> str:
+    return f"{i}-{j}"
+
+
+@dataclass(frozen=True, slots=True)
+class NormPreservingAverage:
+    """What :func:`norm_preserving_average` produced: the average, and its manifest block."""
+
+    average: MastersAverage
+    block: dict[str, Any]
+
+
+def norm_preserving_average(
+    paths: Sequence[Path], names: Sequence[str], *, base: Path,
+    lambda_not_derived_from_c: float | None = None,
+) -> NormPreservingAverage:
+    """``theta = base + lambda * mean_i(theta_i - base)`` (:data:`NORM_PRESERVING_FORMULA`).
+
+    1. :func:`average_masters` with every input check it makes, keeping the float64 means.
+    2. c, streamed tensor by tensor: for every tower tensor with a master, each input's
+       master is read alone from its sidecar (verified), the base tensor beside it, and the
+       float64 dot products and squared norms of the deltas are accumulated in slices of
+       :data:`DELTA_CHUNK` elements. Per pair, cosine = dot / (norm_i * norm_j); c is their
+       mean. lambda = sqrt(n / (1 + (n - 1) c)).
+    3. Every float tower tensor moves from its base by lambda times the mean delta, in
+       float64, and is cast once; the span head (no base) is the plain mean; a non-float
+       tensor is copied as the masters average copies it.
+
+    The peak is the float64 means (~14.0 GiB for the real 2B) plus one tensor of every
+    input as fp32 (the embedding: 3 x 1.9 GiB) plus one slice: below the masters average's
+    own ~30 GiB, which this begins with.
+
+    ``lambda_not_derived_from_c`` replaces lambda by a number the caller chose, and the
+    block says so (``lambda_derived_from_c: false``) beside the lambda c gives.
+    """
+    import torch
+    from safetensors import safe_open
+
+    from qd_train.backbone import TEXT_PREFIX, BackboneContractViolation, text_tensor_index
+
+    if not base.is_dir():
+        raise AverageRefusal(
+            f"--base-snapshot {base} is not a directory: the norm-preserving average moves "
+            "from the base the seeds were fine-tuned from, and there is none to move from"
+        )
+    try:
+        base_index = text_tensor_index(base)
+    except BackboneContractViolation as exc:
+        raise AverageRefusal(f"--base-snapshot {base}: {exc}") from exc
+    done = average_masters(paths, names, keep_float64=True)
+    n = len(paths)
+    tower = sorted(
+        full for full, value in done.tensors.items()
+        if full.startswith("tower.") and value.dtype == torch.float64
+    )
+    problems: list[str] = []
+    for full in tower:
+        key = full[len("tower."):]
+        if key not in base_index:
+            problems.append(f"{full} has no base tensor {TEXT_PREFIX}{key}")
+        elif tuple(base_index[key][1]) != tuple(done.tensors[full].shape):
+            problems.append(
+                f"{full} is {list(done.tensors[full].shape)} and its base "
+                f"{list(base_index[key][1])}: a remapped vocabulary has no base row for row"
+            )
+    if problems:
+        raise AverageRefusal(
+            f"--base-snapshot {base.name} is not the base of these checkpoints: "
+            + "; ".join(problems[:5])
+            + (f" (+{len(problems) - 5} more)" if len(problems) > 5 else "")
+        )
+
+    def base_tensor(key: str) -> Any:
+        shard = base_index[key][0]
+        with safe_open(str(shard), "pt") as handle:
+            return handle.get_tensor(TEXT_PREFIX + key)
+
+    measured = sorted(full for full in tower if full in done.master_index)
+    if not measured:
+        raise AverageRefusal("no tower tensor has a master, so there is no delta to measure c on")
+    readers = [_SidecarTensors(p) for p in paths]
+    sq = [0.0] * n
+    dot = {_pair_key(i, j): 0.0 for i in range(n) for j in range(i + 1, n)}
+    n_params = 0
+    for full in measured:
+        key = full[len("tower."):]
+        flat_base = base_tensor(key).reshape(-1)
+        masters = [r.master(done.master_index[full]).reshape(-1) for r in readers]
+        if any(m.numel() != flat_base.numel() for m in masters):
+            raise AverageRefusal(f"{full}: a master and its base hold different element counts")
+        n_params += flat_base.numel()
+        for lo in range(0, flat_base.numel(), DELTA_CHUNK):
+            b = flat_base[lo:lo + DELTA_CHUNK].to(torch.float64)
+            deltas = [m[lo:lo + DELTA_CHUNK].to(torch.float64) - b for m in masters]
+            for i in range(n):
+                sq[i] += float(torch.dot(deltas[i], deltas[i]))
+                for j in range(i + 1, n):
+                    dot[_pair_key(i, j)] += float(torch.dot(deltas[i], deltas[j]))
+            del b, deltas
+        del flat_base, masters
+    zero = [names[i] for i in range(n) if not sq[i] > 0.0]
+    if zero:
+        raise AverageRefusal(
+            f"{zero} moved no tower master away from the base: a zero delta has no direction, "
+            "so c is undefined"
+        )
+    norms = [math.sqrt(s) for s in sq]
+    cosine = {
+        _pair_key(i, j): dot[_pair_key(i, j)] / (norms[i] * norms[j])
+        for i in range(n) for j in range(i + 1, n)
+    }
+    c = sum(cosine.values()) / len(cosine)
+    denominator = 1.0 + (n - 1) * c
+    if not denominator > 0.0:
+        raise AverageRefusal(
+            f"c = {c!r} makes 1 + (n - 1) c = {denominator!r}, not positive: the mean delta is "
+            "zero or the deltas cancel, and no lambda restores its norm"
+        )
+    from_c = math.sqrt(n / denominator)
+    lam = from_c
+    if lambda_not_derived_from_c is not None:
+        lam = float(lambda_not_derived_from_c)
+        if not (math.isfinite(lam) and lam > 0.0):
+            raise AverageRefusal(f"--lambda-not-derived-from-c {lam!r} is not a positive number")
+    for full in tower:
+        mean = done.tensors[full]
+        b = base_tensor(full[len("tower."):]).to(torch.float64)
+        done.tensors[full] = _cast_once(mean.sub_(b).mul_(lam).add_(b), done.out_dtype[full])
+        del mean, b
+    span = [
+        full for full, value in done.tensors.items()
+        if full.startswith("span_head.") and value.dtype == torch.float64
+    ]
+    for full in span:
+        done.tensors[full] = _cast_once(done.tensors[full], done.out_dtype[full])
+    leftover = [k for k, v in done.tensors.items() if v.dtype == torch.float64
+                and done.out_dtype.get(k) != "float64"]
+    if leftover:  # pragma: no cover - every float tensor is a tower or span_head tensor
+        raise AverageRefusal(f"tensors left uncast: {leftover[:5]}")
+    block = {
+        "formula": NORM_PRESERVING_FORMULA,
+        "n": n,
+        "c": c,
+        "pairwise_cosine": cosine,
+        "pairs_are": "input indices, in the order of 'inputs'",
+        "delta_norms": norms,
+        "lambda_from_c": from_c,
+        "lambda": lam,
+        "lambda_derived_from_c": lambda_not_derived_from_c is None,
+        "c_measured_over": {
+            "tensors": len(measured), "parameters": n_params,
+            "rule": "every tower tensor with an fp32 master; float64",
+        },
+        "base_snapshot": base.name,
+        "base_files": {
+            str(p.name): _sha256_file(p)
+            for p in sorted({shard for shard, _ in base_index.values()})
+        },
+        "base_mapping": BASE_PREFIX_NOTE,
+        "lambda_applied_to": f"{len(tower)} tower tensors",
+        "span_head": SPAN_HEAD_NO_BASE,
+    }
+    return NormPreservingAverage(average=done, block=block)
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 24), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 # --- the output and its manifest -------------------------------------------------------------
@@ -506,10 +784,13 @@ def write(
     ft_row_ids: Sequence[str],
     tensor_sources: Mapping[str, str],
     master_index: Mapping[str, int],
+    norm_preserving: Mapping[str, Any] | None = None,
 ) -> Path:
     """The safetensors file and ``<out>.manifest.json``, each written atomically.
 
     Refuses to overwrite either: an average is an artifact other rows will name.
+    ``norm_preserving`` is :func:`norm_preserving_average`'s block, recorded under that key
+    (and only then: a plain average's manifest is what it always was).
     """
     from safetensors.torch import save
 
@@ -517,6 +798,8 @@ def write(
 
     if source not in SOURCES:
         raise AverageRefusal(f"source {source!r} is not one of {SOURCES}")
+    if norm_preserving is not None and source != "masters":
+        raise AverageRefusal("a norm-preserving average is made from the fp32 masters")
     if set(tensor_sources) != set(tensors):
         raise AverageRefusal("tensor_sources must name exactly the tensors written")
     _refuse_existing(out)
@@ -525,7 +808,7 @@ def write(
     _atomic_write_bytes(out, payload)
     body = {
         "tool": TOOL,
-        "method": METHODS[source],
+        "method": METHODS[source] if norm_preserving is None else NORM_PRESERVING_FORMULA,
         "source": RSI_SOURCE,
         # The --from this average was made with. Not "source", which has always been the
         # attribution above.
@@ -546,6 +829,7 @@ def write(
         "n_tensors": len(tensors),
         "tensor_sources": dict(sorted(tensor_sources.items())),
         "master_index": dict(sorted(master_index.items())),
+        **({} if norm_preserving is None else {"norm_preserving": dict(norm_preserving)}),
     }
     manifest = manifest_path(out)
     _atomic_write_bytes(
@@ -587,6 +871,55 @@ class AverageManifest:
     @property
     def optimizer_step(self) -> int:
         return int(self.body["optimizer_step"])
+
+    @property
+    def norm_preserving(self) -> dict[str, Any] | None:
+        """The ``--norm-preserving`` block, checked by :func:`read_manifest`; ``None`` for a
+        plain average."""
+        block = self.body.get("norm_preserving")
+        return None if block is None else dict(block)
+
+
+def _norm_preserving_problems(block: object, *, n_inputs: int, source: object) -> list[str]:
+    """What is wrong with a manifest's ``norm_preserving`` block: every number a scored row
+    will repeat must be there, and a lambda said to come from c must be the one c gives."""
+    if not isinstance(block, dict):
+        return ["norm_preserving is not an object"]
+    problems: list[str] = []
+    if source != "masters":
+        problems.append("a norm-preserving average is made from the masters")
+    if block.get("formula") != NORM_PRESERVING_FORMULA:
+        problems.append("norm_preserving.formula is not this tool's")
+    numbers = {k: block.get(k) for k in ("c", "lambda", "lambda_from_c")}
+    for key, value in numbers.items():
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(
+            float(value)
+        ):
+            problems.append(f"norm_preserving.{key} is {value!r}, not a finite number")
+    if block.get("n") != n_inputs:
+        problems.append(f"norm_preserving.n is {block.get('n')!r} for {n_inputs} inputs")
+    derived = block.get("lambda_derived_from_c")
+    if not isinstance(derived, bool):
+        problems.append("norm_preserving.lambda_derived_from_c is not a bool")
+    if not isinstance(block.get("base_snapshot"), str) or not block.get("base_snapshot"):
+        problems.append("norm_preserving names no base_snapshot")
+    if problems:
+        return problems
+    c, lam, from_c = (float(numbers[k]) for k in ("c", "lambda", "lambda_from_c"))  # type: ignore[arg-type]
+    denominator = 1.0 + (n_inputs - 1) * c
+    if not denominator > 0.0 or not math.isclose(
+        from_c, math.sqrt(n_inputs / denominator), rel_tol=1e-12, abs_tol=0.0
+    ):
+        problems.append(
+            f"norm_preserving.lambda_from_c {from_c!r} is not sqrt(n / (1 + (n - 1) c)) at "
+            f"n={n_inputs}, c={c!r}"
+        )
+    if derived and lam != from_c:
+        problems.append(
+            f"norm_preserving.lambda {lam!r} is said to come from c and is not lambda_from_c "
+            f"{from_c!r}"
+        )
+    return problems
 
 
 def _is_hex64(value: object) -> bool:
@@ -654,6 +987,10 @@ def read_manifest(weights: Path) -> AverageManifest:
         body.get("span_weight"), (int, float)
     ):
         problems.append("it records no vocab_size and span_weight")
+    if "norm_preserving" in body:
+        problems.extend(_norm_preserving_problems(
+            body["norm_preserving"], n_inputs=len(inputs), source=body.get("from")
+        ))
     if problems:
         raise AverageRefusal(f"{path} is not a manifest an average can be scored from: "
                              + "; ".join(problems))
@@ -752,6 +1089,27 @@ def main(argv: list[str] | None = None) -> int:
         "--ft-row-ids", nargs="*", default=[],
         help="the ledger ft rows of the inputs, in input order, recorded in the manifest",
     )
+    parser.add_argument(
+        "--norm-preserving", action="store_true",
+        help=(
+            "with --from masters: base + lambda * mean(theta_i - base), lambda = "
+            "sqrt(n / (1 + (n - 1) c)) where c is the mean pairwise cosine of the inputs' "
+            "fine-tuning deltas against --base-snapshot, measured here (Fable I-2). The span "
+            "head has no base and is averaged plainly. Recorded in the manifest"
+        ),
+    )
+    parser.add_argument(
+        "--base-snapshot", type=Path, default=None,
+        help="with --norm-preserving: the pretrained snapshot the inputs were fine-tuned from",
+    )
+    parser.add_argument(
+        "--lambda-not-derived-from-c", type=float, default=None, metavar="LAMBDA",
+        help=(
+            "with --norm-preserving: use this lambda INSTEAD of the one c gives. The manifest "
+            "says lambda_derived_from_c: false and keeps the derived one beside it; a scored "
+            "row of such an average is quick"
+        ),
+    )
     args = parser.parse_args(argv)
     resolved = [p.resolve() for p in args.checkpoints]
     if len(set(resolved)) != len(resolved):
@@ -762,10 +1120,31 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.out.suffix != ".safetensors":
         raise SystemExit(f"--out {args.out}: the average is written as a .safetensors file")
+    if args.norm_preserving and (args.source != "masters" or args.base_snapshot is None):
+        raise SystemExit(
+            "--norm-preserving moves from the base by the fp32 masters' mean delta: it needs "
+            "--from masters and --base-snapshot"
+        )
+    if not args.norm_preserving and (
+        args.base_snapshot is not None or args.lambda_not_derived_from_c is not None
+    ):
+        raise SystemExit(
+            "--base-snapshot and --lambda-not-derived-from-c mean something only with "
+            "--norm-preserving"
+        )
     names = [str(p) for p in args.checkpoints]
+    norm_block: dict[str, Any] | None = None
     try:
         _refuse_existing(args.out)
-        if args.source == "masters":
+        if args.norm_preserving:
+            made = norm_preserving_average(
+                args.checkpoints, names, base=args.base_snapshot,
+                lambda_not_derived_from_c=args.lambda_not_derived_from_c,
+            )
+            done, norm_block = made.average, made.block
+            tensors, inputs, facts = done.tensors, done.inputs, done.facts
+            sources, master_index = done.sources, done.master_index
+        elif args.source == "masters":
             done = average_masters(args.checkpoints, names)
             tensors, inputs, facts = done.tensors, done.inputs, done.facts
             sources, master_index = done.sources, done.master_index
@@ -785,7 +1164,7 @@ def main(argv: list[str] | None = None) -> int:
             tensors, args.out, source=args.source, inputs=inputs,
             optimizer_step=facts.optimizer_step, schedule=facts.schedule,
             scalars=facts.scalars, ft_row_ids=args.ft_row_ids, tensor_sources=sources,
-            master_index=master_index,
+            master_index=master_index, norm_preserving=norm_block,
         )
     except AverageRefusal as exc:
         raise SystemExit(f"refused: {exc}") from exc
@@ -794,6 +1173,13 @@ def main(argv: list[str] | None = None) -> int:
         f"averaged {len(inputs)} checkpoints at step {facts.optimizer_step} from "
         f"{args.source} ({from_masters} of {len(sources)} tensors from a master) -> {args.out}"
     )
+    if norm_block is not None:
+        print(
+            f"norm-preserving: c = {norm_block['c']:.6f} (pairs {norm_block['pairwise_cosine']}),"
+            f" lambda from c = {norm_block['lambda_from_c']:.6f}, applied lambda = "
+            f"{norm_block['lambda']:.6f}"
+            + ("" if norm_block["lambda_derived_from_c"] else " -- NOT DERIVED FROM c")
+        )
     print(f"manifest: {manifest} (weights only; not a resume point)")
     # ru_maxrss is bytes on macOS and KiB on Linux.
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
