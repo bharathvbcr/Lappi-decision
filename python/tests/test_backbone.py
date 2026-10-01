@@ -79,11 +79,11 @@ TINY_VOCAB, TINY_HIDDEN, TINY_LAYERS = 64, 32, 4
 # --- the tiny snapshot fixture -------------------------------------------------------------
 
 
-def _tiny_text_config():
+def _tiny_text_config(vocab: int = TINY_VOCAB):
     from transformers.models.qwen3_5 import Qwen3_5TextConfig
 
     return Qwen3_5TextConfig(
-        vocab_size=TINY_VOCAB,
+        vocab_size=vocab,
         hidden_size=TINY_HIDDEN,
         intermediate_size=64,
         num_hidden_layers=TINY_LAYERS,
@@ -107,7 +107,7 @@ def _tiny_spec(vocab: int = TINY_VOCAB) -> ModelSpec:
     itself under test in [`test_a_memory_spec_for_another_model_is_refused`]. This is the
     matching one.
     """
-    cfg = _tiny_text_config()
+    cfg = _tiny_text_config(vocab)
     n_full = sum(1 for t in cfg.layer_types if t == "full_attention")
     return ModelSpec(
         name="tiny Qwen3.5 text tower (test fixture)",
@@ -123,18 +123,18 @@ def _tiny_spec(vocab: int = TINY_VOCAB) -> ModelSpec:
         linear_head_dim=16,
         vocab_size=vocab,
         params_total=4_000_000,
-        params_embedding=TINY_VOCAB * TINY_HIDDEN,
+        params_embedding=vocab * TINY_HIDDEN,
         tied_embedding=True,
         recurrent_state_bytes=4,
     )
 
 
-def _write_tiny_snapshot(dirpath: Path, *, seed: int = 0):
+def _write_tiny_snapshot(dirpath: Path, *, seed: int = 0, vocab: int = TINY_VOCAB):
     """Write a tiny tower in the real on-disk layout. Returns the reference model."""
     from safetensors.torch import save_file
     from transformers.models.qwen3_5 import Qwen3_5Config, Qwen3_5TextModel
 
-    text = _tiny_text_config()
+    text = _tiny_text_config(vocab)
     torch.manual_seed(seed)
     model = Qwen3_5TextModel(text)
     dirpath.mkdir(parents=True, exist_ok=True)
@@ -980,6 +980,207 @@ def test_checkpoint_averaging_refuses_mismatched_schedules_steps_and_duplicates(
     with pytest.raises(tool.AverageRefusal, match="different architecture"):
         tool.check_compatible([Checkpoint.read(a), broken], ["a", "broken"])
     assert not out.exists()
+
+
+# --- averaging the fp32 masters (`ckpt_average.py --from masters`, J7) ----------------------
+
+#: The master recipe's layout, as ``real_ft_run.optimizer_spec("bf16", "master")`` builds it.
+MASTER_SPEC_ARGS = ("AdamW+master", 2, 4)
+
+
+def _seeded_batch(seed: int, step: int) -> Batch:
+    """``_ft_batch`` with tokens of its own per (seed, step): one snapshot, three different
+    trajectories. On one shared batch the letter channel would move every seed's tower the
+    same way and the masters of the three would only differ through the span head."""
+    batch = _ft_batch(step)
+    tokens = batch.tokens.copy()
+    for row, n in enumerate(batch.lengths):
+        tokens[row, :n] = (np.arange(n) * (seed + 2) + 3 * step + seed) % (TINY_VOCAB - 1) + 1
+    return Batch(
+        tokens=tokens, lengths=batch.lengths, bucket=batch.bucket, index=batch.index,
+        slot_kind=batch.slot_kind, target_index=batch.target_index,
+        span_target=batch.span_target, line_starts=batch.line_starts,
+    )
+
+
+def _master_checkpoint(
+    tmp_path: Path, *, seed: int, steps: int = 3, freeze: str | None = None,
+    name: str | None = None,
+) -> tuple[Path, dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+    """A ``--optimizer master`` checkpoint after ``steps`` real steps on batches of its own.
+
+    Returns ``(path, fp32 master by parameter name, live weight by name)``. The names come
+    from the live step -- ``MasterWeightAdamW._live`` paired with ``_masters`` by position,
+    each live parameter named by identity through ``named_parameters`` -- never from the
+    checkpoint, so they are ground truth for the mapping the average has to recover.
+    ``freeze`` names a tower parameter taken out of the optimizer: it gets no master.
+    """
+    from qd_train.memory import OptimizerSpec
+    from qd_train.optim import MasterWeightAdamW
+    from qd_train.run_control import Checkpoint, LossLog, Position
+
+    spec = OptimizerSpec(*MASTER_SPEC_ARGS, keeps_fp32_master=True)
+    tower, _ = _tiny_tower(tmp_path, dtype="bf16", optimizer=spec)
+    if freeze is not None:
+        dict(tower.model.named_parameters())[freeze].requires_grad_(False)
+    step = QwenDecisionStep(tower, seed=seed, lr=1e-2, total_steps=steps, max_width=64)
+    assert isinstance(step.optimizer, MasterWeightAdamW)
+    for k in range(steps):
+        batch = _seeded_batch(seed, k)
+        step.accumulate_span(batch, ft_supervision(batch))
+        step.apply(lr=1e-2)
+    by_id = {id(p): f"tower.{n}" for n, p in tower.model.named_parameters()}
+    by_id.update({id(p): f"span_head.{n}" for n, p in step.span_head.named_parameters()})
+    masters = {
+        by_id[id(live)]: master.detach().to("cpu").clone()
+        for live, master in zip(step.optimizer._live, step.optimizer._masters, strict=True)
+    }
+    lives = {f"tower.{n}": t.detach().to("cpu").clone()
+             for n, t in tower.model.state_dict().items()}
+    lives.update({f"span_head.{n}": t.detach().to("cpu").clone()
+                  for n, t in step.span_head.state_dict().items()})
+    path = tmp_path / (name or f"epoch-seed{seed}-cpu.json")
+    Checkpoint(
+        position=Position(epoch=0, index=steps),
+        optimizer_step=steps,
+        seed=seed,
+        schedule=LRSchedule(peak_lr=1e-2, total_steps=steps, warmup_steps=1, min_lr=1e-3),
+        loss_log=LossLog().snapshot(),
+        consumed_digest=f"{seed + 1:064x}",
+        model_state=step.state(),
+    ).write(path)
+    return path, masters, lives
+
+
+def test_read_weights_reads_a_nested_path_and_not_its_siblings(tmp_path):
+    """``("optimizer", "masters")`` is the fp32 masters and not the Adam moments beside them:
+    7.04 GiB of a real checkpoint's 21.12 GiB of optimizer state. The masters come back at
+    their own position, byte for byte what a full read gives."""
+    from qd_train.run_control import Checkpoint
+
+    path, _, _ = _master_checkpoint(tmp_path, seed=0, steps=2)
+    weights, meta = Checkpoint.read_weights(path, subtrees=("tower", ("optimizer", "masters")))
+    assert set(weights["optimizer"]) == {"masters"}, "the moments were read too"
+    full = Checkpoint.read(path).model_state["optimizer"]["masters"]
+    assert [m.digest() for m in weights["optimizer"]["masters"]] == [m.digest() for m in full]
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert meta["payload_digest"] == raw["payload_digest"]
+    assert meta["schedule"] == raw["schedule"]
+    with pytest.raises(ValueError, match="no 'nope'"):
+        Checkpoint.read_weights(path, subtrees=(("optimizer", "nope"),))
+
+
+def test_a_masters_average_takes_each_parameters_own_master_by_name(tmp_path):
+    """The J7 average: per parameter, the mean of the three inputs' fp32 masters FOR THAT
+    NAME, cast to the tower's dtype once; a parameter with no master (frozen here) averages
+    its tower tensor. Ground truth is the live steps' own pairing, so a master put under
+    any other name -- a positional mapping onto the sorted names, a span-head master under
+    a tower name -- fails the equality below."""
+    from safetensors.torch import load_file
+
+    tool = _ckpt_average()
+    frozen = "norm.weight"
+    made = [
+        _master_checkpoint(tmp_path / f"s{s}", seed=s, freeze=frozen) for s in (0, 1, 2)
+    ]
+    masters = [m for _, m, _ in made]
+    lives = [w for _, _, w in made]
+    assert set(masters[0]) == set(masters[1]) == set(masters[2])
+    assert f"tower.{frozen}" not in masters[0]
+    out = tmp_path / "avg" / "avg.safetensors"
+    argv = [*(str(p) for p, _, _ in made), "--out", str(out), "--from", "masters",
+            "--ft-row-ids", "r0", "r1", "r2"]
+    assert tool.main(argv) == 0
+    got = load_file(str(out))
+    manifest = json.loads(tool.manifest_path(out).read_text(encoding="utf-8"))
+    sources = manifest["tensor_sources"]
+    assert set(got) == set(sources) == set(lives[0])
+    moved_by_the_master = 0
+    for name, tensor in got.items():
+        live_mean = (sum(w[name].to(torch.float32) for w in lives) / 3).to(tensor.dtype)
+        if name not in masters[0]:
+            assert sources[name] == "tower" and name not in manifest["master_index"]
+            assert torch.equal(tensor, live_mean), name
+            continue
+        assert sources[name] == "master", name
+        acc = torch.zeros(tensor.shape, dtype=torch.float64)
+        for m in masters:
+            acc += m[name].to(torch.float64)
+        expected = (acc / 3).to(torch.float32).to(tensor.dtype)
+        assert torch.equal(tensor, expected), f"{name} is not the mean of its own masters"
+        assert tensor.dtype == lives[0][name].dtype, f"{name} came back {tensor.dtype}"
+        moved_by_the_master += not torch.equal(tensor, live_mean)
+    assert sources[f"tower.{frozen}"] == "tower"
+    assert moved_by_the_master > 0, (
+        "no tensor differs from the bf16 average, so this test cannot tell masters from tower"
+    )
+    assert manifest["from"] == "masters" and manifest["resumable"] is False
+    assert manifest["accumulator"] == "float64"
+    assert manifest["ft_row_ids"] == ["r0", "r1", "r2"]
+    for (path, _, _), record in zip(made, manifest["inputs"], strict=True):
+        assert record["payload_digest"] == json.loads(path.read_text())["payload_digest"]
+        assert record["resolved_path"] == str(path.resolve())
+    assert len(manifest["master_index"]) == len(masters[0])
+
+
+def test_a_masters_average_refuses_inputs_with_no_masters(tmp_path):
+    """A checkpoint trained without ``--optimizer master`` has no fp32 masters; averaging
+    its bf16 tower under the name 'masters' would record a source that was never read."""
+    from qd_train.run_control import Checkpoint, LossLog, Position
+
+    tool = _ckpt_average()
+    paths = []
+    for seed in (1, 2):
+        tower, _ = _tiny_tower(tmp_path / f"p{seed}")  # fp32 under plain AdamW: no master
+        step = QwenDecisionStep(tower, seed=seed, lr=1e-3, total_steps=4, max_width=64)
+        assert "masters" not in step.state()["optimizer"]
+        path = tmp_path / f"epoch-seed{seed}-cpu.json"
+        Checkpoint(
+            position=Position(epoch=0, index=1), optimizer_step=1, seed=seed,
+            schedule=LRSchedule(peak_lr=1e-3, total_steps=4, warmup_steps=1, min_lr=1e-4),
+            loss_log=LossLog().snapshot(), consumed_digest=f"{seed:064x}",
+            model_state=step.state(),
+        ).write(path)
+        paths.append(str(path))
+    out = tmp_path / "x.safetensors"
+    with pytest.raises(SystemExit, match="no fp32 masters"):
+        tool.main([*paths, "--out", str(out), "--from", "masters"])
+    assert not out.exists()
+
+
+def _ref(tensor: torch.Tensor):
+    from qd_train.run_control import TensorRef
+
+    host = tensor.detach().contiguous()
+    return TensorRef(
+        dtype=str(host.dtype).removeprefix("torch."), shape=tuple(host.shape),
+        data=host.reshape(-1).view(torch.uint8).numpy().tobytes(),
+    )
+
+
+def test_the_master_mapping_refuses_a_master_it_cannot_place_exactly_once():
+    """Each master must round to exactly one tower or span-head tensor of its shape, and no
+    two masters to one. A guess between two candidates would be a coin flip on whose
+    weights land where."""
+    tool = _ckpt_average()
+    x = torch.tensor([1.0, 2.0, 3.0])
+    y = torch.tensor([4.0, 5.0, 6.0])
+
+    def weights(tower: dict, masters: list) -> dict:
+        return {
+            "tower": {k: _ref(v.to(torch.bfloat16)) for k, v in tower.items()},
+            "span_head": {"h": _ref(torch.tensor([7.0, 8.0]))},
+            "optimizer": {"masters": [_ref(m) for m in masters]},
+        }
+
+    assert tool.master_names(weights({"a": x, "b": y}, [x, y, torch.tensor([7.0, 8.0])]),
+                             where="ok") == ["tower.a", "tower.b", "span_head.h"]
+    with pytest.raises(tool.AverageRefusal, match="ambiguous"):
+        tool.master_names(weights({"a": x, "b": x}, [x]), where="twins")
+    with pytest.raises(tool.AverageRefusal, match="no tower or span_head tensor"):
+        tool.master_names(weights({"a": x}, [y]), where="stray")
+    with pytest.raises(tool.AverageRefusal, match="two masters"):
+        tool.master_names(weights({"a": x}, [x, x]), where="double")
 
 
 def test_a_replay_checkpoint_resumed_into_a_bare_step_is_refused(tmp_path):
