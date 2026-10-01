@@ -13,7 +13,6 @@ import hashlib
 import json
 import math
 import operator
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -26,23 +25,7 @@ sys.path.insert(0, str(REPO / "python"))
 
 from qd_train.calibration_fit import fit_noul_margin  # noqa: E402
 
-CARGO = shutil.which("cargo")
-pytestmark = pytest.mark.skipif(
-    CARGO is None, reason="cargo is not on PATH: the probe was not built"
-)
-
-
-@pytest.fixture(scope="module")
-def probe() -> Path:
-    assert CARGO is not None
-    subprocess.run(
-        [CARGO, "build", "--quiet", "--manifest-path", str(REPO / "Cargo.toml"),
-         "-p", "qd-runtime", "--bin", "qd-margin-probe"],
-        check=True, timeout=900,
-    )
-    binary = REPO / "target" / "debug" / "qd-margin-probe"
-    assert binary.is_file(), binary
-    return binary
+# The binary comes from conftest's ``probe`` fixture, which skips where cargo is absent.
 
 
 def _margin(logits: list[float]) -> float:
