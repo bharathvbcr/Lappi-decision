@@ -1,5 +1,36 @@
 # Tier-B screen design: training without the padding mask (SDPA flash). DRAFT for Fable
 
+> **Ruled on, then built (CPU only).**
+>
+> **Fable's ruling** is in `campaign/f-j7prime-preregistered.json`, under `no_mask` and
+> `tier_b_changes`:
+> - The outcome run waits for J5′.
+> - P2 may fill a gap after F's J7′ decision rows.
+> - The P2 rule below is accepted. A P2 fail cancels the outcome run; a P2 pass admits nothing on
+>   its own.
+> - Tier-A goldens move onto det no-mask only after the self-repeat is bit-identical (two runs,
+>   plus one pair at B) **and** the outcome run passes.
+> - The screen runs alone, not combined with fused.
+> - No Tier-B change enters phase 5/6.
+>
+> **As built:**
+> - **Flag.** `QwenDecisionStep(train_attention_mask=)` and `--train-attention-mask`.
+> - **P2 statistic.** `perf_parity.py --p2`. A channel that no arm ever exercised reads NOT RUN,
+>   never pass.
+> - **Scripts.**
+>   - `tools/perf_nomask_p2.sh` and `tools/perf_nomask_p2_body.sh` for P2 (T1/T2).
+>   - `tools/perf_tierb_outcome.sh nomask` for the outcome run.
+>   - `perf_tierb_fused.sh` is now a wrapper over `perf_tierb_outcome.sh`, so the two outcome runs
+>     cannot drift apart.
+> - **One deviation from the draft: both shapes read v4, not v3.** v3's `code_fingerprint` is
+>   stale for main at or after 4fd08cf (`qd_data/defect_class.py` changed since its build), so v3
+>   would need the stale-shard override. v4 is F's set and reads clean. The shapes are unchanged:
+>   - A = bt 16,384 at widths ≤ 5,383;
+>   - B = bt 35,403 at v4's two widest buckets (7,404 and 7,936).
+>
+>   Each arm refuses fewer than 10 span-carrying batches, so the span channel is never compared
+>   on nothing.
+
 **Status:** a draft for the lead to take to Fable. Nothing here is built or queued.
 - The GPU parts are sized to run **after F**.
 - Fable J said "no GPU time until after J5′" for attention-backward work. Whether this screen

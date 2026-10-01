@@ -21,6 +21,14 @@ then ``torch.use_deterministic_algorithms(True)``, and ``deterministic=True`` in
 ``--compare A.jsonl:tag B.jsonl:tag ...`` (no GPU) reports, for every pair against the
 first, whether all three are identical and, where not, the first differing step and the
 largest per-step deviation in each channel.
+
+``--p2 FILE --base TAG... --cand TAG...`` (no GPU) is Fable's Tier-B screen
+(campaign/f-j7prime-preregistered.json ``no_mask.p2_rule``) over default-kernel arms on the
+same batches: per step t and channel, the baseline spread S(t) = max over baseline pairs of
+|B_i(t) - B_j(t)| and the cross deviation D(t) = max over (candidate, baseline) pairs of
+|M_i(t) - B_j(t)|; the channel passes when D(t) <= S(t) on at least ``--min-frac`` of its live
+steps. A channel with no live step (no arm ever saw it non-zero) is NOT RUN, and a shape with a
+channel not run does not pass.
 """
 
 from __future__ import annotations
@@ -81,6 +89,12 @@ def run_arm(args: argparse.Namespace) -> int:
     )
     if len(plan) < args.n_batches and not args.allow_fewer:
         raise SystemExit(f"only {len(plan)} batches in range; pass --allow-fewer to cycle them")
+    span_batches = int(sum(1 for b in plan if (b.slot_kind == SLOT_SPAN).any()))
+    if span_batches < args.min_span_batches:
+        raise SystemExit(
+            f"{span_batches} of {len(plan)} selected batches carry a span row; this arm needs "
+            f"at least {args.min_span_batches}, or its span channel would be compared on nothing"
+        )
 
     # The loop's own source, rebuilt: _train re-indexes plan x passes exactly like this.
     consumed = ConsumedPrefix()
@@ -93,14 +107,15 @@ def run_arm(args: argparse.Namespace) -> int:
     if args.dry_run:
         print(json.dumps({"dry_run": "ok", "batches": len(plan),
                           "widths": sorted(set(selection["widths"])),
-                          "span_batches": int(sum(1 for b in plan
-                                                  if (b.slot_kind == SLOT_SPAN).any())),
+                          "span_batches": span_batches,
                           "consumed_digest": consumed.hexdigest(),
                           "real_ft_run": real_ft_run.__file__}), flush=True)
         return 0
     extra: dict[str, Any] = {}
     if args.checkpoint_skip_layers:
         extra["checkpoint_skip_layers"] = args.checkpoint_skip_layers
+    if args.train_attention_mask != "padding":
+        extra["train_attention_mask"] = args.train_attention_mask
     ledger = Ledger(args.ledger)
     on_cuda = args.device == "cuda"
     if on_cuda:
@@ -131,9 +146,10 @@ def run_arm(args: argparse.Namespace) -> int:
         "recipe_hash": row.protocol.recipe_hash,
         "deterministic": args.deterministic,
         "checkpoint_skip_layers": args.checkpoint_skip_layers,
+        "train_attention_mask": args.train_attention_mask,
         "shape": {"batch_tokens": args.batch_tokens, "widths": selection["widths"],
                   "rows": selection["rows"], "passes": args.passes},
-        "span_batches": int(sum(1 for b in plan if (b.slot_kind == SLOT_SPAN).any())),
+        "span_batches": span_batches,
         "steps": run["optimizer_steps"],
         "termination": run["termination"],
         "loss_log_digest": digest.value if hasattr(digest, "value") else digest["value"],
@@ -196,9 +212,111 @@ def compare(specs: list[str]) -> int:
     return worst
 
 
+#: Fable's P2 rule: D(t) <= S(t) on at least this fraction of a channel's live steps.
+P2_MIN_FRAC = 0.9
+#: Fable: the baseline spread is measured on at least this many repeats.
+P2_MIN_BASELINES = 3
+
+
+def _channel(rows: list[dict[str, Any]], ch: str) -> list[list[float]]:
+    return [[float.fromhex(x) for x in r[ch]] for r in rows]
+
+
+def p2_screen(
+    bases: list[dict[str, Any]], cands: list[dict[str, Any]], *, min_frac: float = P2_MIN_FRAC
+) -> dict[str, Any]:
+    """Fable's P2 screen over parity-arm result rows (see the module docstring).
+
+    Refuses arms that are not comparable step for step: fewer than three baselines, no
+    candidate, different step counts, or a different batch order (``consumed_digest``). A
+    channel is *live* at step t when any arm's value there is non-zero (a span channel is
+    0.0 on a letter-only batch in every arm, which is evidence of nothing); a channel with no
+    live step is ``not_run``, and the verdict is ``pass`` only when every channel ran and
+    passed, ``fail`` when one ran and failed, ``not_run`` otherwise.
+    """
+    if len(bases) < P2_MIN_BASELINES:
+        raise SystemExit(
+            f"P2 needs at least {P2_MIN_BASELINES} baseline repeats for its spread, got "
+            f"{len(bases)}"
+        )
+    if not cands:
+        raise SystemExit("P2 needs at least one candidate arm")
+    arms = [*bases, *cands]
+    digests = {r["consumed_digest"] for r in arms}
+    if len(digests) != 1:
+        raise SystemExit(f"P2 arms ran over different batches: consumed digests {sorted(digests)}")
+    lengths = {(r["steps"], len(r["letter"]), len(r["span"])) for r in arms}
+    if len(lengths) != 1:
+        raise SystemExit(f"P2 arms differ in steps or logged channel lengths: {sorted(lengths)}")
+    out: dict[str, Any] = {
+        "base": [r["tag"] for r in bases], "cand": [r["tag"] for r in cands],
+        "min_frac": min_frac, "channels": {},
+    }
+    for ch in ("letter", "span"):
+        b = _channel(bases, ch)
+        m = _channel(cands, ch)
+        n = len(b[0])
+        live = [t for t in range(n) if any(arm[t] != 0.0 for arm in (*b, *m))]
+        if not live:
+            out["channels"][ch] = {"status": "not_run", "live_steps": 0,
+                                   "reason": "no arm logged a non-zero value in this channel"}
+            continue
+        s = {t: max(abs(b[i][t] - b[j][t]) for i in range(len(b)) for j in range(i + 1, len(b)))
+             for t in live}
+        d = {t: max(abs(x[t] - y[t]) for x in m for y in b) for t in live}
+        ok = [t for t in live if d[t] <= s[t]]
+        max_s = max(s.values())
+        over = [t for t in live if d[t] > max_s]
+        frac = len(ok) / len(live)
+        out["channels"][ch] = {
+            "status": "ran", "live_steps": len(live), "steps_d_le_s": len(ok),
+            "frac_d_le_s": frac, "passed": frac >= min_frac,
+            "median_d": sorted(d.values())[len(d) // 2], "max_d": max(d.values()),
+            "median_s": sorted(s.values())[len(s) // 2], "max_s": max_s,
+            "first_step_d_over_max_s": over[0] if over else None,
+            "final_base": [arm[-1] for arm in b], "final_cand": [arm[-1] for arm in m],
+        }
+    statuses = [c["status"] for c in out["channels"].values()]
+    if any(c.get("passed") is False for c in out["channels"].values()):
+        out["verdict"] = "fail"
+    elif all(st == "ran" for st in statuses):
+        out["verdict"] = "pass"
+    else:
+        out["verdict"] = "not_run"
+    return out
+
+
+#: The shapes whose P2 verdicts the outcome run needs; a verdict's shape is its baseline tags'
+#: prefix (``A-mask-1`` -> ``A``), as perf_nomask_p2_body.sh names them.
+P2_SHAPES = ("A", "B")
+
+
+def p2_gate(rows: list[dict[str, Any]]) -> tuple[bool, str]:
+    """Whether the outcome run may go: the latest P2 verdict of every shape in ``P2_SHAPES``
+    is ``pass``. A shape with no verdict, or a ``not_run`` one, cancels it as a ``fail`` does
+    (Fable: a P2 fail cancels the outcome run; an unexamined screen is not a passed one)."""
+    latest: dict[str, str] = {}
+    for row in rows:
+        latest[str(row["base"][0]).split("-", 1)[0]] = str(row["verdict"])
+    state = {shape: latest.get(shape, "missing") for shape in P2_SHAPES}
+    ok = all(v == "pass" for v in state.values())
+    return ok, f"P2 verdicts {state}: outcome run {'may go' if ok else 'cancelled'}"
+
+
+def _tagged(path: Path, tags: list[str]) -> list[dict[str, Any]]:
+    return [_load(f"{path}:{tag}") for tag in tags]
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--compare", nargs="+", metavar="FILE:TAG")
+    ap.add_argument("--p2", type=Path, metavar="FILE",
+                    help="Fable's P2 screen over the --base and --cand arms in FILE")
+    ap.add_argument("--base", nargs="+", default=[], metavar="TAG")
+    ap.add_argument("--cand", nargs="+", default=[], metavar="TAG")
+    ap.add_argument("--p2-out", type=Path, help="append the P2 verdict row here too")
+    ap.add_argument("--p2-gate", type=Path, metavar="VERDICTS",
+                    help="exit 0 only if every shape's latest P2 verdict in VERDICTS is pass")
     ap.add_argument("--code-root", type=Path)
     ap.add_argument("--out", type=Path, help="shard set root (has shards/train)")
     ap.add_argument("--backbone", type=Path)
@@ -213,6 +331,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cap-s", type=float, default=900.0)
     ap.add_argument("--deterministic", action="store_true")
     ap.add_argument("--checkpoint-skip-layers", type=int, default=0)
+    ap.add_argument("--train-attention-mask", choices=("padding", "none"), default="padding")
+    ap.add_argument("--min-span-batches", type=int, default=0,
+                    help="refuse a selection with fewer span-carrying batches than this")
     ap.add_argument("--allow-stale-shards", action="store_true")
     ap.add_argument("--ledger", type=Path)
     ap.add_argument("--result", type=Path)
@@ -224,6 +345,22 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     if args.compare:
         return compare(args.compare)
+    if args.p2_gate:
+        if not args.p2_gate.is_file():
+            print(f"{args.p2_gate} does not exist: P2 has not run, so the outcome run is "
+                  "cancelled", flush=True)
+            return 5
+        rows = [json.loads(line) for line in args.p2_gate.read_text().splitlines()
+                if line.strip()]
+        ok, detail = p2_gate(rows)
+        print(detail, flush=True)
+        return 0 if ok else 5
+    if args.p2:
+        report = p2_screen(_tagged(args.p2, args.base), _tagged(args.p2, args.cand))
+        print(json.dumps(report, sort_keys=True), flush=True)
+        if args.p2_out:
+            _append(args.p2_out, report)
+        return {"pass": 0, "fail": 1}.get(report["verdict"], 2)
     missing = [k for k in ("code_root", "out", "backbone", "batch_tokens", "ledger", "result",
                            "tag") if getattr(args, k) is None]
     if missing:

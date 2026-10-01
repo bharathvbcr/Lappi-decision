@@ -49,7 +49,7 @@ def test_fused_adamw_lands_in_the_recipe_only_when_on():
 def test_fused_adamw_without_the_master_recipe_is_refused(backbone, optimizer):
     ns = argparse.Namespace(
         lower_layers_n=0, lower_layers_lr_scale=None, beta2=None, checkpoint_skip_layers=0,
-        fused_adamw=True, optimizer=optimizer,
+        fused_adamw=True, optimizer=optimizer, train_attention_mask="padding",
         option_permutation_seed=None, tokenizer_json=None, real_backbone=backbone, epoch=False,
         replay_shards=None, replay_attestation=None, replay_cache=None, replay_weight=None,
         replay_every=rft.DEFAULT_REPLAY_EVERY, verdicts_out=None, score_val=False,
@@ -75,7 +75,7 @@ def test_selective_checkpointing_lands_in_the_recipe_only_when_on():
 def test_a_checkpoint_skip_that_would_determine_nothing_is_refused(skip, backbone, match):
     ns = argparse.Namespace(
         lower_layers_n=0, lower_layers_lr_scale=None, beta2=None, checkpoint_skip_layers=skip,
-        fused_adamw=False, optimizer="bf16",
+        fused_adamw=False, optimizer="bf16", train_attention_mask="padding",
         option_permutation_seed=None, tokenizer_json=None, real_backbone=backbone, epoch=False,
         replay_shards=None, replay_attestation=None, replay_cache=None, replay_weight=None,
         replay_every=rft.DEFAULT_REPLAY_EVERY, verdicts_out=None, score_val=False,
@@ -149,13 +149,47 @@ def test_every_recipe_piece_key_is_mirrored_into_the_verdict_and_score_rows(tmp_
                                       line_end_ids=frozenset()),
         replay=replay, cap_s=32_400.0, no_memorise=True, batch_tokens=35_403,
         shuffled_label={"family": "code.defect_class"},
-        checkpoint_skip_layers=6, fused_adamw=True,
+        checkpoint_skip_layers=6, fused_adamw=True, train_attention_mask="none",
     )
-    assert {"checkpoint_skip_layers", "optimizer_fused"} <= set(pieces)
+    assert {"checkpoint_skip_layers", "optimizer_fused", "train_attention_mask"} <= set(pieces)
     assert sorted(set(pieces) - set(rft.RECIPE_PIECE_KEYS)) == []
     run = {**pieces, "backbone_snapshot": "snap", "unrelated": 1}
     mirrored = {k: run[k] for k in (*rft.BACKBONE_KEYS, *rft.RECIPE_PIECE_KEYS) if k in run}
     assert mirrored["checkpoint_skip_layers"] == 6 and mirrored["optimizer_fused"] is True
+    assert mirrored["train_attention_mask"] == "none"
+
+
+def test_training_without_the_mask_lands_in_the_recipe_only_when_on():
+    """The padding mask is what every row so far trained with, so it adds nothing; dropping
+    it is a Tier-B change and names itself on the ft row and every row scored after it."""
+    pieces = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
+              "permutation": None, "replay": None}
+    assert rft._recipe_pieces(**pieces, train_attention_mask="padding") == {}
+    assert rft._recipe_pieces(**pieces, train_attention_mask="none") == {
+        "train_attention_mask": "none"
+    }
+    with pytest.raises(ValueError, match="train_attention_mask"):
+        rft._recipe_pieces(**pieces, train_attention_mask="causal")
+
+
+def test_train_refuses_the_no_mask_switch_on_the_stand_in():
+    """The stand-in has no SDPA layer to switch; a recipe saying 'none' would name nothing."""
+    from types import SimpleNamespace
+
+    with pytest.raises(ValueError, match="train_attention_mask needs the real backbone"):
+        rft._train(
+            reader=None, plan=[SimpleNamespace(tokens=np.zeros((1, 4), dtype=np.int32))],
+            passes=1, device="cpu", seed=0, hidden=8, heads=1, lr=1e-3, span_weight=1.0,
+            ledger=None, tag="t", quick_reasons=(), train_attention_mask="none",
+        )
+
+
+def test_the_no_mask_switch_with_replay_is_refused_at_argv_time(tmp_path):
+    """Replay's KL term runs its own forward through `hidden()`, which keeps the mask, so the
+    switch would cover only part of training while the recipe claimed all of it."""
+    with pytest.raises(SystemExit, match="--replay-shards"):
+        rft.main(["--out", str(tmp_path), "--real-backbone", str(tmp_path),
+                  "--train-attention-mask", "none", "--replay-shards", str(tmp_path)])
 
 
 # --- argv refusals ---------------------------------------------------------------------------
@@ -165,6 +199,7 @@ def test_every_recipe_piece_key_is_mirrored_into_the_verdict_and_score_rows(tmp_
     ("flags", "match"),
     [
         (["--lower-layers-n", "8"], "needs --real-backbone"),
+        (["--train-attention-mask", "none"], "--train-attention-mask none needs --real-backbone"),
         (["--lower-layers-lr-scale", "0.1"], "scales no layer"),
         (["--beta2", "1.5"], r"\(0, 1\)"),
         (["--option-permutation-seed", "1"], "epoch arm only"),
@@ -207,7 +242,7 @@ def test_an_existing_verdicts_file_is_refused_before_anything_runs(tmp_path):
 def test_the_defaults_resolve_to_the_optimizer_every_row_so_far_used():
     ns = argparse.Namespace(
         lower_layers_n=0, lower_layers_lr_scale=None, beta2=None, checkpoint_skip_layers=0,
-        fused_adamw=False, optimizer="bf16",
+        fused_adamw=False, optimizer="bf16", train_attention_mask="padding",
         option_permutation_seed=None, tokenizer_json=None, real_backbone=None, epoch=False,
         replay_shards=None, replay_attestation=None, replay_cache=None, replay_weight=None,
         replay_every=rft.DEFAULT_REPLAY_EVERY, verdicts_out=None, score_val=False,
