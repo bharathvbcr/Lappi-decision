@@ -1,7 +1,9 @@
 # Evidence: the FT linear control in Rust (2026-10-01)
 
-These are the verbatim outputs behind every number in
-`HANDOFF/perf-linear-control-rust-2026-10-01.md`. All of them come from the Mac: 18 cores,
+These are the outputs behind every number in `HANDOFF/perf-linear-control-rust-2026-10-01.md`.
+Where a section says "verbatim", every number and word is as printed. Long lines are wrapped
+and indented, though, and the temp-file paths after `->`, the ledger path after `wrote row`
+and the trailing `state='ran'` are dropped. Section 6 is condensed further, as it says. All of them come from the Mac: 18 cores,
 numpy 2.5.0, CPython 3.14.7, on branch `perf-linear-control-rust`. The two ledger rows are in
 `ledger/mac-linear-control-python-engine-2026-10-01.jsonl` (`bba89379`) and
 `ledger/mac-linear-control-qd-prep-engine-2026-10-01.jsonl` (`43a366d0`).
@@ -133,8 +135,9 @@ also running:
 
 These ran on the Mac, against `ledger/gh200-seed0-weights-2026-09-30.jsonl` and
 `box-final-2026-09-30/phase3/verdicts-s{0,1,2}-weights.jsonl`. They wrote scratch ledgers,
-which are not committed; the handoff says why. The summaries are verbatim from
-`target/scratch/ledger_rows.py`, plus the binary's refit lines:
+which are not committed; the handoff says why. The summaries are condensed from
+`target/scratch/ledger_rows.py`'s output and the binary's `fit ... s` lines: every number is as
+printed, but metric names are shortened and `value n n_total` is written `n/n_total`.
 
     8095435c eval 6d170b3c  wall 96.56779583299794
       length_control_top1 1163/2332; linear_control_convergence 9.945408220449172e-05

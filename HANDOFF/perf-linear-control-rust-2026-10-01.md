@@ -23,7 +23,7 @@ Commits on the branch:
   - the parity test's dense bound moves onto the Frobenius norm, the fixtures' task choice
     becomes deterministic, and the benchmark checks every round by (a)-(d);
   - the two comparison ledger files;
-  - `AUDIT/perf-linear-control-rust-2026-10-01.md`, which holds every number below verbatim;
+  - `AUDIT/perf-linear-control-rust-2026-10-01.md`, which holds the output behind every number below;
   - 5 `GAP-` records.
 
 The changes themselves:
@@ -154,7 +154,7 @@ Every row has L2 1e-4. The native rows' recorded wall clocks are 96.6, 90.7 and 
 Mac, with n-gram fits of 93.9, 88.1 and 88.2 s. The box's Python rows record 700.8, 691.3 and
 707.7 s. Those are two different machines, so that is not a speedup claim.
 
-The three native rows are **not committed**; their summaries are verbatim in the AUDIT file.
+The three native rows are **not committed**; their condensed summaries are in the AUDIT file (section 6).
 They would be non-quick supplements of non-quick GH200 eval rows, written from a Mac on a dirty
 tree. Promotion reads an eval row and its supplements as one unit (`SUPPLEMENT_KEY`), so adding
 them to `ledger/` is a decision for a human, not for this lane.
@@ -200,6 +200,11 @@ Three things the table does **not** say:
 - I did not measure on the box, so the GH200 speedup is **unverified**.
 
 ## Tests (all run on this Mac)
+
+The cargo, pytest and ruff results below were re-run at `df8d9e9`, after every edit to the
+test files. No Rust changed after `8f08c52`: the diff from `8f08c52` to `df8d9e9` under
+`crates/` is empty. So the benchmarks, both binaries and the ledger rows all measure the same
+engine.
 
 - `cargo test --release -p qd-prep`: **29 passed** (9 new in `ngram`, `pairwise`, `linfit`,
   `linwire`). `cargo clippy --release -p qd-prep --all-targets`: clean. `cargo fmt --check`:
