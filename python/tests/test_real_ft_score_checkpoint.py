@@ -145,3 +145,22 @@ def test_the_scored_checkpoint_keys_reach_the_recipe_only_when_present():
     src = (REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8")
     assert "**{k: run[k] for k in SCORED_CHECKPOINT_KEYS if k in run}" in src
     assert set(real_ft_run.SCORED_CHECKPOINT_KEYS) == {"score_dtype", "scored_checkpoint"}
+
+
+def test_a_bf16_score_of_a_master_checkpoint_gets_the_master_layout():
+    """2026-09-30, GH200: --score-dtype bf16 on the master-trained phase-3 checkpoints was
+    given ADAMW_BF16, and build_optimizer refused it -- bf16 moments do not survive the
+    1,505-step schedule -- before a single val row was scored. Scoring takes no step, but
+    the step is built like training's, so it is built from the same recipe."""
+    import torch
+
+    from qd_train.memory import ADAMW_BF16, ADAMW_FP32
+    from qd_train.optim import DEFAULT_BETA2, moment_settling
+
+    assert not moment_settling(dtype=torch.bfloat16, beta2=DEFAULT_BETA2).survives(1505)
+    master = real_ft_run.optimizer_spec("bf16", "master")
+    assert master.keeps_fp32_master and master.state_bytes == 4
+    assert real_ft_run.optimizer_spec("bf16", "bf16") is ADAMW_BF16
+    assert real_ft_run.optimizer_spec("fp32", "master") is ADAMW_FP32
+    with pytest.raises(ValueError, match="no optimizer layout"):
+        real_ft_run.optimizer_spec("fp16", "master")

@@ -1718,6 +1718,26 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
     )
 
 
+def optimizer_spec(dtype: str, optimizer_recipe: str) -> OptimizerSpec:
+    """The optimizer layout a step of this dtype and recipe is built with -- one owner.
+
+    ADAMW_BF16 is not ADAMW_FP32: torch.optim.AdamW keeps exp_avg and exp_avg_sq in the
+    parameter dtype, so a bf16 tower gets 2-byte states, and load_text_tower refuses the
+    mismatch rather than budgeting a layout nothing builds. The master spec is the other real
+    recipe -- fp32 master, fp32 moments -- and QwenDecisionStep builds whichever the tower
+    names. Scoring a checkpoint builds the same step, so it asks here too: on 2026-09-30 a
+    bf16 score of a ``master``-trained checkpoint was given ADAMW_BF16, whose moments
+    ``build_optimizer`` refuses for the 1,505-step schedule, though scoring takes no step.
+    """
+    if dtype == "fp32":
+        return ADAMW_FP32
+    if dtype != "bf16":
+        raise ValueError(f"no optimizer layout for dtype {dtype!r}")
+    if optimizer_recipe == "master":
+        return OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
+    return ADAMW_BF16
+
+
 def _real_step(
     *, backbone: Path, reader: ShardReader, plan: list[Batch], device: str, dtype: str,
     spec: OptimizerSpec, attn_implementation: str, seed: int, lr: float, total_steps: int,
@@ -1885,16 +1905,7 @@ def _train(
             "statement about the loop and the data, not an evaluation of any model."
         )
     else:
-        # ADAMW_BF16 is not ADAMW_FP32: torch.optim.AdamW keeps exp_avg and exp_avg_sq in
-        # the parameter dtype, so a bf16 tower gets 2-byte states, and load_text_tower
-        # refuses the mismatch rather than budgeting a layout nothing builds. The master
-        # spec is the other real recipe -- fp32 master, fp32 moments -- and
-        # QwenDecisionStep builds whichever the tower names.
-        spec = (
-            OptimizerSpec("AdamW+master", 2, 4, keeps_fp32_master=True)
-            if optimizer_recipe == "master"
-            else ADAMW_BF16
-        )
+        spec = optimizer_spec("bf16", optimizer_recipe)
         step, tower, budget = _real_step(
             backbone=backbone, reader=reader, plan=plan, device=device, dtype="bf16",
             spec=spec, attn_implementation=attn_implementation, seed=seed, lr=lr,
@@ -4072,7 +4083,8 @@ def _checkpoint_step(
     width = max(int(b.tokens.shape[1]) for b in val.plan)
     step, _, _ = _real_step(
         backbone=args.real_backbone, reader=reader, plan=val.plan, device=device,
-        dtype=args.score_dtype, spec=ADAMW_FP32 if args.score_dtype == "fp32" else ADAMW_BF16,
+        dtype=args.score_dtype,
+        spec=optimizer_spec(args.score_dtype, str(recipe.get("optimizer_recipe", "bf16"))),
         attn_implementation=str(recipe["attn_implementation"]), seed=seed,
         lr=float(recipe["lr"]), total_steps=steps, span_weight=float(recipe["span_weight"]),
         width=width, eval_widths=eval_widths,
