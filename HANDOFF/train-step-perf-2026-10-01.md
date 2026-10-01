@@ -458,3 +458,24 @@ report-only δ = 2% lines.
 - anything on a GPU.
 
 **`nomask-p2-ruled`:** not touched. The lead sets it after merging this commit to main.
+
+**The box overlay is rebuilt at b9ba22c** (CPU only, under `/home/ubuntu/perf`):
+- `nomask.bundle` covers `7ed66d7..b9ba22c`; `git bundle verify` passed.
+- `perf_nomask_p2.sh` was copied in; its md5 `7e35707f…` matches the committed file.
+- `perf_nomask_p2.sh --build b9ba22ce8b8461189d5b630182cb5783835a41ca` exited 0:
+  - `overlay-nomask` is at b9ba22c with 0 dirty paths;
+  - the T1 dry run gave 100 batches, 94 of them span-carrying, at widths 137–5,116;
+  - the T2 dry run gave 50 batches, all 50 span-carrying, at widths 7,035, 7,404 and 7,936;
+  - that matches the selection at 46da2a5.
+- The overlay's `perf_parity.py --p2-gate` on a missing verdicts file exits 5.
+- `p2_overlay_smoke.py`, copied to `/home/ubuntu/perf`, ran the three aggregation cases
+  against the overlay under the box venv (Python 3.12.3): 3 of 3 correct.
+- No P2 rows exist yet (`nomask-p2-verdicts.jsonl` and `nomask-p2-T1.jsonl` are absent).
+  `/home/ubuntu/queue/nomask-p2-ruled` is absent, and I left it so.
+
+**First command for the next lane:** the lead merges b9ba22c and this HANDOFF commit to main
+and touches `/home/ubuntu/queue/nomask-p2-ruled`. Item 8 then runs, in its gap:
+
+```
+bash /home/ubuntu/perf/perf_nomask_p2.sh T1
+```
