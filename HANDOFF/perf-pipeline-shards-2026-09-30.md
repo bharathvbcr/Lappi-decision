@@ -1,7 +1,17 @@
 # Perf lane: the shard pipeline, `tools/real_tokenizer_pipeline.py` (2026-09-30)
 
-Branch `perf-pipeline-shards`, cut from main at 884b658. It is local only: not pushed, not
-merged. Everything ran on the Mac's CPU. Nothing ran on MPS or on the GH200.
+Branch `perf-pipeline-shards` was cut from main at 884b658. Every measurement below was made
+at f164f35. After the measurements, main d34a936 (R2, noul rows) was merged in at 8c0214f.
+R2 edits `qd_data` (`defect_class`, `mixture`, `split`). From that merge on, every shard set
+gets a new `code_fingerprint` whichever MinHash path builds it, so the parity below is stated
+for the pre-merge code. After the merge, these suites were run on CPU with `-k "not mps"`:
+the parity suite, `test_pipeline_val_shards`, `test_real_ft_general_record`,
+`test_real_ft_pieces`, `test_tool_call_sites`, `test_lint_gate`, `test_defect_noul` and
+`test_ledger`. 224 tests passed and 5 were skipped: two because they are gated by
+`QD_PREP_BENCH`, three because their noul corpus is not on this host.
+
+The branch is local only: not pushed, not merged. Everything ran on the Mac's CPU. Nothing
+ran on MPS or on the GH200.
 
 ## What this lane did
 
