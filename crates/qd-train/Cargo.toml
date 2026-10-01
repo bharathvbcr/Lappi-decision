@@ -17,6 +17,9 @@ name = "qd_train"
 path = "src/lib.rs"
 
 [dependencies]
+# The export's safetensors writer and bf16 cast (export.rs), reused rather than duplicated. A
+# path dependency inside this workspace; qd-export builds on the Linux box (no Metal in it).
+qd-export = { path = "../qd-export" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

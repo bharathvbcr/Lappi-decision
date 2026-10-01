@@ -5,3 +5,22 @@
 //! v4 shards behind the held-out door (CLAUDE.md rule 3), the supervision port, and the span
 //! head. Every number it produces is checked against the PyTorch trainer it replaces, on the
 //! parity ladder in the plan (rungs a-d); rows it writes are `quick` (rule 8).
+//!
+//! The trainer half (L-trainer): [`step`] is the model-generic step-provider trait the loop
+//! drives, [`trainer`] the loop, [`objective`] Lappi's letter + span objective, [`schedule`] the
+//! learning-rate schedule, [`recipe`] the optimizer recipe, [`adamw`] the host-side AdamW,
+//! [`run_control`] the cap and the digests, [`ledger`] the `ft` row, [`export`] the trained
+//! weights, [`pyjson`] the bytes Python hashes, and [`mock`] a tiny CPU model that exercises the
+//! loop with no GPU. None of it depends on tessl, so the crate builds and tests on Linux too.
+
+pub mod adamw;
+pub mod export;
+pub mod ledger;
+pub mod mock;
+pub mod objective;
+pub mod pyjson;
+pub mod recipe;
+pub mod run_control;
+pub mod schedule;
+pub mod step;
+pub mod trainer;
