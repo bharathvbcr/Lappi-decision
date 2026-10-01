@@ -146,6 +146,17 @@ No ledger row: nothing ran on a GPU. The tests ran on the Mac CPU in the ml env:
   - needle and OOD on the average path. The byte fixture cannot build them; their code is
     shared with the per-seed path.
 - **Human-owned:** whether the average can be the promoted artifact. Nothing here decides it.
+- **If J4's ft rows are quick, J7 stops (conditional, unverified).** Scoring an average
+  refuses a quick ft row, by the binding decision and rule 8. The A2 rows of 2026-09-30 were
+  quick for a corpus reason: a data snapshot that was NotRun because of a capped read. J4 ran
+  with `--general-max-rows 200000`, and whether its snapshot came back Ran is unknown from
+  here. Step 1's one-liner surfaces this before the average runs. If it fires, stop and
+  escalate to the human; do not weaken the check (rules 2 and 8).
+- **Row shape differs from a per-seed score row.** The average's row carries
+  `ft_run_row_ids` rather than `ft_run_row_id`, and recipe tag `avg-score-val`. Readers built
+  for `epoch-score-val` rows (`tools/ft_linear_control.py`, the calibration fit) will not
+  treat it as one of theirs. J7 writes it to its own ledger file, so nothing that scans J4's
+  ledger sees it.
 
 ## First command for the next lane: J7 on the box
 
@@ -166,6 +177,7 @@ J7 runs from `qd-lane3`, which J4 has finished with and which carries the data s
     arg() { grep -o -- "$1 [^ ]*" "$J4" | head -1 | cut -d' ' -f2; }
     BACKBONE=$(arg --real-backbone); OODREC=$(arg --ood-general-record); TOKJSON=$(arg --tokenizer-json)
     test -x "$PY" && test -n "$BACKBONE" && test -n "$OODREC" || { echo "J4's script does not name the interpreter, --real-backbone and --ood-general-record"; exit 1; }
+    test -d "$BACKBONE" && test -f "$OODREC" && { test -z "$TOKJSON" || test -f "$TOKJSON"; } || { echo "an extracted path does not exist (J4 may spell it as a variable): BACKBONE=$BACKBONE OODREC=$OODREC TOKJSON=$TOKJSON"; exit 1; }
     for f in "--out /home/ubuntu/phase4-v3-2026-10-01" "--no-repo-history" \
              "--defect-class data/pool/commitpackft-corpus-v3" "--defect-download data/pool/commitpackft" \
              "--defect-noul data/pool/defect-noul-v1" \
@@ -173,6 +185,10 @@ J7 runs from `qd-lane3`, which J4 has finished with and which carries the data s
              "--general-max-rows 200000" "--replay-partition" "--rev b381a03cb12e816c380915b1983f4e13cd1c843c"; do
       grep -q -- "$f" "$J4" || { echo "J4 did not run with: $f"; exit 1; }
     done
+
+If J4's script builds its argv from shell variables, the extraction or the flag loop above
+fails. Then a human reads `box_p4_j4.sh` and fills in the literal values J4 ran with. Do not
+drop the check.
 
 **1. The ft row ids** of J4's three epoch arms, in seed order. The command refuses unless the
 ledger holds exactly seeds 0, 1 and 2, all three non-quick. Scoring refuses a quick row, so
