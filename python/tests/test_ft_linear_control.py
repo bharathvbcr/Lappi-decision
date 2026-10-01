@@ -65,6 +65,9 @@ def test_request_texts_is_the_prompt_the_model_reads_labelled_by_value() -> None
         gold = next(g for g in row.gold if g.slot_name == d.slot_name)
         assert d.value == str(gold.value)
         assert d.kind in ("choice", "score")
+        # The rendering's own options and gold letter, which the letter-space control reads.
+        assert d.offered == tuple(rendered.slot(d.slot_name).letter_to_value.items())
+        assert dict(d.offered)[d.letter] == d.value
     # Span slots have no letter answer and are never scored by the control.
     assert not any(d.task.startswith("qa.answer_span") for d in docs)
 
@@ -199,12 +202,19 @@ def test_a_file_without_expected_abstain_leaves_the_span_margin_not_run(tmp_path
 # --- the control ----------------------------------------------------------------------
 
 
+#: One option set offered on every row of every stand-in task, in letter order: these docs
+#: stand for a fixed-class task, so the control is labelled by value
+#: (``qd_train.baseline.control_label_space``).
+_OFFERED = (*zip("ABCDEF", ("a", "logic", "no", "only", "stub", "yes"), strict=True), ("Z", "noul"))
+
+
 def _doc(i: int, value: str, *, task: str = "fam/slot", op: str | None = None) -> RequestDoc:
     # Signal in the text: the value's own token appears, plus row-specific noise.
     return RequestDoc(
         row_id=f"r{i:04d}", slot_name="slot", kind="choice", task=task,
         text=f"change {i} noise {i * 7919 % 97} marker_{value} end",
-        value=value, metadata={"operator": op} if op else {},
+        value=value, letter=next(k for k, v in _OFFERED if v == value), offered=_OFFERED,
+        metadata={"operator": op} if op else {},
     )
 
 
@@ -439,7 +449,7 @@ def test_every_tasks_control_answers_row_for_row_as_the_python_engine_did(
     """Old engine vs new, through the tool's own ``fit_task``: the Python ``LinearBaseline``
     on its sparse operand (what ``fit_task`` ran before) and qd-prep agree on every val row of
     every task, and on convergence, iterations and the selected L2."""
-    from qd_train.baseline import LinearBaseline
+    from qd_train.baseline import LinearBaseline, control_label, control_label_space
 
     train, val = _task_docs()
     tasks = sorted({d.task for d in val})
@@ -451,20 +461,22 @@ def test_every_tasks_control_answers_row_for_row_as_the_python_engine_did(
             task, t_train, t_val, by_slot_name=True, seed=0, max_iter=ftc.DEFAULT_MAX_ITER,
             dense_budget_bytes=0, max_fit_minutes=None, cache_dir=None, engine=qd_prep, arm=arm,
         )
-        if len({d.value for d in t_train}) < 2:
+        space = control_label_space(t_train, t_val)
+        labels = [control_label(d, space) for d in t_train]
+        if len(set(labels)) < 2:
             assert isinstance(got.convergence, NotRun)
             continue
         reference = LinearBaseline(
             hasher=arm.make_features(), seed=0, max_iter=ftc.DEFAULT_MAX_ITER,
             dense_budget_bytes=0,
         )
-        fit = reference.fit([arm.text_of(d) for d in t_train], [d.value for d in t_train])
+        fit = reference.fit([arm.text_of(d) for d in t_train], labels)
         assert isinstance(got.convergence, Ran) == fit.converged, task
         if not fit.converged:
             continue
         assert got.convergence.detail == reference.convergence().detail  # type: ignore[union-attr]
         predicted = reference.predict([arm.text_of(d) for d in t_val])
-        want = {ftc.doc_key(d, by_slot_name=True): p == d.value
+        want = {ftc.doc_key(d, by_slot_name=True): p == control_label(d, space)
                 for d, p in zip(t_val, predicted, strict=True)}
         assert got.correct == want, task
         compared += 1
@@ -474,8 +486,10 @@ def test_every_tasks_control_answers_row_for_row_as_the_python_engine_did(
 def test_a_native_fit_is_cached_and_read_back_under_the_unchanged_key(
     tmp_path: Path, qd_prep: Path
 ) -> None:
-    """``control_cache`` and ``qd_train.baseline`` are untouched, so the key -- which folds in
-    baseline.py's sha256 -- is the one the Python engine's entries were written under."""
+    """A native fit is stored and read back under one key. The key folds in baseline.py's
+    sha256, so the label-space change there (``control_label_space``, 2026-10-01) orphaned
+    every entry written before it -- deliberately: a general task's cached verdicts were
+    scored in the wrong label space."""
     train = [_doc(i, "yes" if i % 2 else "no") for i in range(40)]
     val = [_doc(1000 + i, "yes" if i % 2 else "no") for i in range(12)]
     kwargs = dict(by_slot_name=True, seed=0, max_iter=ftc.DEFAULT_MAX_ITER,
