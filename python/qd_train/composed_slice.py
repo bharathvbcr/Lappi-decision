@@ -7,12 +7,17 @@ Fable's ruling on the slice (relayed by the compose lane, 2026-10-01) sets its t
   says ``report_only`` and ``span_collapse_policy: refuse-gold``.
 * **It is never a gate.** No gate reads it and it is no gate's population (rule 2). Every
   number here is a diagnostic, recorded beside its ``n``.
-* **Condition 6: two populations from the one set.**
-  * ``refuse_gold`` is every written row.
-  * ``refuse_any`` is the rows whose span sequence's candidate positions hold no duplicate,
-    i.e. no two rendered lines start on one token.
-  * Every cell carries both populations. Their difference is the measured selection bias of
-    refuse-any: evidence for the human's open call on val, not a decision.
+* **Condition 6: two span populations from the one set.**
+  * ``refuse_gold`` is every span sequence the set holds.
+  * ``refuse_any`` is the span sequences whose candidate positions hold no duplicate, i.e.
+    no two rendered lines start on one token.
+  * Every cell carries both populations for span top-1 and the needle-hunk hit. Their
+    difference is the measured selection bias of refuse-any: evidence for the human's open
+    call on val, not a decision.
+  * A row whose gold line's start shares a token has no span sequence under either policy.
+    It is counted per cell as excluded, never as a miss.
+  * The choice slot is one population. A span refusal drops only the span sequence
+    (``test_shard_sequence_index.py``), so both policies write the same choice sequences.
 * **Condition 8: the shared-token hit rule.** A prediction on a token that several lines share
   is a needle-hunk hit only if EVERY line on that token is inside the gold hunk. How many
   predictions landed on a shared token is reported per cell.
@@ -75,10 +80,14 @@ FILES_OVER: Final[str] = "32+"
 CLEAN_DEPTH: Final[str] = "clean"
 POPULATIONS: Final[tuple[str, ...]] = ("refuse_gold", "refuse_any")
 POPULATION_DETAIL: Final[Mapping[str, str]] = {
-    "refuse_gold": "every row the refuse-gold slice wrote",
+    "refuse_gold": "every span sequence the refuse-gold slice wrote",
     "refuse_any": (
-        "the rows whose span candidates hold no shared token (no two lines start on one "
+        "the span sequences whose candidates hold no shared token (no two lines start on one "
         "token) -- the subset refuse-any would have written"
+    ),
+    "both_policies": (
+        "every choice sequence: the choice slot is unaffected by the span rule, so both "
+        "policies write the same ones"
     ),
 }
 #: What every slice metric says of itself.
@@ -384,12 +393,17 @@ class SliceVerdict:
     predicted_lines: tuple[int, ...] | None
     choice_correct: bool | None
 
-    def in_population(self, population: str) -> bool:
+    def in_span_population(self, population: str) -> bool:
+        """Whether this row's SPAN sequence is in ``population``.
+
+        A row without one -- its gold line's start shares a token, which both policies refuse
+        -- is in neither; it is counted per cell as excluded, never as a miss. The choice slot
+        has no population: a span refusal drops only the span sequence, so both policies write
+        the same choice sequences.
+        """
         if population == "refuse_gold":
-            return True
+            return self.shared_candidates is not None
         if population == "refuse_any":
-            # A row without a span sequence had its slot refused for a collision on its gold
-            # line, which refuse-any would have refused too.
             return self.shared_candidates is False
         raise SliceRefusal(f"population {population!r} is not one of {POPULATIONS}")
 
@@ -428,6 +442,10 @@ def _rate(flags: list[bool], *, what: str, population: str) -> TriState:
     )
 
 
+def _count(k: int, n: int, *, what: str) -> TriState:
+    return Ran(passed=True, value=k, n=k, n_total=n, detail=f"{k} of {n} {what}; {REPORT_ONLY}")
+
+
 def _order(cut: str, cell: str) -> tuple[int, str]:
     order = {
         "all": ["all"],
@@ -439,22 +457,25 @@ def _order(cut: str, cell: str) -> tuple[int, str]:
 
 
 def slice_metrics(verdicts: Sequence[SliceVerdict]) -> dict[str, TriState]:
-    """Every table, as ``composed.<set>.<population>.<cut>.<cell>.<metric>``.
+    """Every table, under ``composed.<set>.``.
 
     ``<set>`` is ``val`` (the compose:val rows) or ``diag.seen_filler``/``diag.unseen`` (each
     diag half alone). Cuts: ``all``, ``length``, ``depth`` (the needle's file position over
     ``n_files - 1``; ``clean`` for clean rows) and ``files`` for every set, plus
-    ``length_x_depth`` for ``val``. A cell exists when some row of the set falls in it. Its
-    metrics, per population:
+    ``length_x_depth`` for ``val``. A cell exists when some row of the set falls in it.
+
+    Condition 6's two populations are SPAN populations (``<population>.<cut>.<cell>.*``):
 
     * ``span_top1``: the span verdict exactly right (a clean row: the abstention);
     * ``hunk_hit``: condition 8's rule, needle rows only;
-    * ``shared_token_predictions``: of those, predictions on a shared token;
-    * ``choice_top1``: the defect_class verdict right.
+    * ``shared_token_predictions``: of those, predictions on a shared token.
 
-    ``composed.<set>.delta.<cut>.<cell>.<metric>`` is refuse-any's rate minus
-    refuse-gold's, wherever both ran. ``composed.<set>.<population>.rows`` and
-    ``composed.<set>.span_slot_absent`` count the rows.
+    ``delta.<cut>.<cell>.{span_top1,hunk_hit}`` is refuse-any's rate minus refuse-gold's,
+    wherever both ran. ``span_excluded.<cut>.<cell>`` counts the rows with no span sequence
+    -- their gold line's start shares a token, which both policies refuse -- excluded, never
+    misses. ``both_policies.<cut>.<cell>.choice_top1`` is the one choice population: a span
+    refusal drops only the span sequence, so both policies write the same choice sequences.
+    ``<population>.span_sequences`` counts each population's sequences.
     """
     by_set: dict[str, list[SliceVerdict]] = {}
     for v in verdicts:
@@ -462,18 +483,24 @@ def slice_metrics(verdicts: Sequence[SliceVerdict]) -> dict[str, TriState]:
     out: dict[str, TriState] = {}
     for slice_set in sorted(by_set):
         rows = by_set[slice_set]
-        absent = sum(1 for v in rows if v.shared_candidates is None)
-        out[f"composed.{slice_set}.span_slot_absent"] = Ran(
-            passed=True, value=absent, n=absent, n_total=len(rows),
-            detail=(f"rows with no span sequence: refuse-gold refused the slot for a collision "
-                    f"on its gold line; their choice slot is still scored; {REPORT_ONLY}"),
-        )
         cells = sorted({c for v in rows for c in _cells(v)}, key=lambda c: (c[0], _order(*c)))
+        for cut, cell in cells:
+            inside = [v for v in rows if (cut, cell) in _cells(v)]
+            excluded = sum(1 for v in inside if v.shared_candidates is None)
+            out[f"composed.{slice_set}.span_excluded.{cut}.{cell}"] = _count(
+                excluded, len(inside),
+                what=("rows with no span sequence: the gold line's start shares a token, which "
+                      "both policies refuse; excluded from both span populations, not misses"),
+            )
+            out[f"composed.{slice_set}.both_policies.{cut}.{cell}.choice_top1"] = _rate(
+                [bool(v.choice_correct) for v in inside if v.choice_correct is not None],
+                what="defect_class verdicts right", population="both_policies",
+            )
         for population in POPULATIONS:
-            members = [v for v in rows if v.in_population(population)]
-            out[f"composed.{slice_set}.{population}.rows"] = Ran(
-                passed=True, value=len(members), n=len(members), n_total=len(rows),
-                detail=f"{population}: {POPULATION_DETAIL[population]}; {REPORT_ONLY}",
+            members = [v for v in rows if v.in_span_population(population)]
+            out[f"composed.{slice_set}.{population}.span_sequences"] = _count(
+                len(members), len(rows),
+                what=f"rows' span sequences in {population}: {POPULATION_DETAIL[population]}",
             )
             for cut, cell in cells:
                 inside = [v for v in members if (cut, cell) in _cells(v)]
@@ -490,17 +517,12 @@ def slice_metrics(verdicts: Sequence[SliceVerdict]) -> dict[str, TriState]:
                 )
                 shared = sum(1 for v in hits if v.shared_prediction)
                 out[f"{name}.shared_token_predictions"] = (
-                    Ran(passed=True, value=shared, n=shared, n_total=len(hits),
-                        detail=(f"{shared} of {len(hits)} needle predictions on a token that "
-                                f"several lines share; {population}; {REPORT_ONLY}"))
+                    _count(shared, len(hits),
+                           what=f"needle predictions on a token several lines share ({population})")
                     if hits else NotRun(reason=f"no needle prediction in this cell ({population})")
                 )
-                out[f"{name}.choice_top1"] = _rate(
-                    [bool(v.choice_correct) for v in inside if v.choice_correct is not None],
-                    what="defect_class verdicts right", population=population,
-                )
         for cut, cell in cells:
-            for metric in ("span_top1", "hunk_hit", "choice_top1"):
+            for metric in ("span_top1", "hunk_hit"):
                 gold = out[f"composed.{slice_set}.refuse_gold.{cut}.{cell}.{metric}"]
                 anyp = out[f"composed.{slice_set}.refuse_any.{cut}.{cell}.{metric}"]
                 name = f"composed.{slice_set}.delta.{cut}.{cell}.{metric}"

@@ -235,7 +235,13 @@ def _verdict(case, *, tokens=3000, shared=False, span=True, lines=None, choice=T
     )
 
 
-def test_each_cell_carries_both_populations_and_their_difference():
+def test_span_cells_carry_both_populations_and_choice_cells_one():
+    """Condition 6, as the compose lane read Fable's ruling (2026-10-01). The two populations
+    are span populations. A row whose gold line's start shares a token has no span sequence
+    under either policy, so it is excluded from both and counted, never a miss. The choice
+    slot is one population: a span refusal drops only the span sequence, so both policies
+    write the same choice sequences, and a refuse-any choice subset is a selection no
+    refuse-any build makes."""
     cases = cs.load_cases([FIXTURE])
     _, stub = _stub()
     clean = next(c for c in cases.values() if c.is_clean)
@@ -245,24 +251,31 @@ def test_each_cell_carries_both_populations_and_their_difference():
     verdicts = [
         _verdict(stub),                                         # hit, refuse-any
         _verdict(stub, shared=True, span=False, lines=(off,)),  # miss, shared candidates
-        _verdict(stub, shared=None, span=None, lines=None, choice=False),  # no span sequence
+        cs.SliceVerdict(stub, 3000, None, None, None, False),   # no span sequence
         _verdict(clean, tokens=900),                            # clean: abstained right
         _verdict(diag, tokens=5000, span=False, lines=()),      # diag: abstained, a miss
     ]
-    verdicts[2] = cs.SliceVerdict(stub, 3000, None, None, None, False)
     m = cs.slice_metrics(verdicts)
 
     def at(name):
         return m[f"composed.val.{name}"]
 
-    assert at("span_slot_absent").value == 1 and at("span_slot_absent").n_total == 4
-    assert at("refuse_gold.rows").value == 4 and at("refuse_any.rows").value == 2
+    excluded = at("span_excluded.all.all")
+    assert (excluded.value, excluded.n_total) == (1, 4)
+    assert at("span_excluded.depth.clean").value == 0
+    assert at("refuse_gold.span_sequences").value == 3
+    assert at("refuse_any.span_sequences").value == 2
     hit_gold, hit_any = at("refuse_gold.all.all.hunk_hit"), at("refuse_any.all.all.hunk_hit")
-    assert (hit_gold.n, hit_gold.n_total) == (1, 2) and (hit_any.n, hit_any.n_total) == (1, 1)
+    assert (hit_gold.n, hit_gold.n_total) == (1, 2), "the excluded row is not a miss"
+    assert (hit_any.n, hit_any.n_total) == (1, 1)
     assert "Wilson 95%" in hit_gold.detail and "refuse_gold" in hit_gold.detail
     assert at("delta.all.all.hunk_hit").value == pytest.approx(0.5)
-    choice = at("refuse_gold.all.all.choice_top1")
-    assert (choice.n, choice.n_total) == (3, 4), "a row without its span slot still has a choice"
+    choice = at("both_policies.all.all.choice_top1")
+    assert (choice.n, choice.n_total) == (3, 4), "every choice sequence, whatever its span"
+    assert "both policies write the same" in choice.detail
+    assert not any(k.endswith(".choice_top1") and (".refuse_gold." in k or ".refuse_any." in k)
+                   for k in m), "the choice slot has no span population"
+    assert not any(k.startswith("composed.val.delta.") and k.endswith(".choice_top1") for k in m)
     assert at("refuse_gold.depth.clean.span_top1").value == 1.0
     assert isinstance(at("refuse_gold.depth.clean.hunk_hit"), NotRun), "clean rows have no needle"
     assert at("refuse_gold.length.le1k.span_top1").n_total == 1
