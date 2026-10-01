@@ -1855,6 +1855,120 @@ def test_selective_checkpointing_composes_with_the_layerwise_lr_split(tmp_path, 
     assert flat["digest"] != base["digest"], "the split must be live, or this proves nothing"
 
 
+# --- training without the padding mask (Tier B candidate; Fable's no-mask ruling) -------------
+
+
+def _sdpa_flags() -> tuple[bool, bool, bool, bool]:
+    import torch
+
+    b = torch.backends.cuda
+    return (b.flash_sdp_enabled(), b.mem_efficient_sdp_enabled(), b.math_sdp_enabled(),
+            b.cudnn_sdp_enabled())
+
+
+def _watch_attention(step) -> dict[str, list]:
+    """Record what every tower call was handed as ``attention_mask``, and the SDPA backend
+    flags in force each time a full-attention layer ran -- forward AND checkpoint recompute,
+    which happens inside ``backward``."""
+    seen: dict[str, list] = {"mask": [], "flags": []}
+    model = step.tower.model
+
+    def tower_pre(_module, _args, kwargs):
+        seen["mask"].append(kwargs.get("attention_mask"))
+
+    def attn_pre(_module, _args, _kwargs):
+        seen["flags"].append(_sdpa_flags())
+
+    model.register_forward_pre_hook(tower_pre, with_kwargs=True)
+    for i, kind in enumerate(model.config.layer_types):
+        if kind == "full_attention":
+            model.layers[i].self_attn.register_forward_pre_hook(attn_pre, with_kwargs=True)
+    return seen
+
+
+FLASH_ONLY = (True, False, False, False)
+
+
+@pytest.mark.parametrize("span", [False, True])
+def test_train_attention_mask_none_trains_without_the_mask_on_the_flash_backend_only(
+    tmp_path, span
+):
+    """`--train-attention-mask none`: the TRAINING forward gets no mask (`is_causal`), and the
+    forward and its checkpoint recompute run with flash as the only SDPA backend, so on CUDA
+    a shape flash cannot take raises instead of falling back to mem-efficient. Both entry
+    points, the letter-only and the span batch."""
+    tower, _ = _tiny_tower(tmp_path, gradient_checkpointing=True)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64,
+                            train_attention_mask="none")
+    before = _sdpa_flags()
+    seen = _watch_attention(step)
+    batch = _ft_batch(0)
+    if span:
+        step.accumulate_span(batch, ft_supervision(batch))
+    else:
+        letter_only = Batch(
+            tokens=batch.tokens, lengths=batch.lengths, bucket=0, index=0,
+            slot_kind=np.array([SLOT_CHOICE, SLOT_CHOICE], dtype=np.uint8),
+            target_index=np.array([3, 2], dtype=np.int32),
+            span_target=np.array([(NO_SPAN, NO_SPAN)] * 2, dtype=np.int32),
+        )
+        step.accumulate(letter_only, ft_supervision(letter_only))
+    assert seen["mask"] == [None]
+    n_full = sum(1 for t in tower.model.config.layer_types if t == "full_attention")
+    assert len(seen["flags"]) == 2 * n_full, "forward plus the checkpoint recompute"
+    assert set(seen["flags"]) == {FLASH_ONLY}
+    assert _sdpa_flags() == before, "the backend restriction must not outlive the step"
+
+
+def test_scoring_through_hidden_keeps_the_mask_under_train_attention_mask_none(tmp_path):
+    """`hidden()` is shared with `_decode`, `_evaluate` and replay; the switch is training-only,
+    so a scored row changes for one reason only -- the trained weights."""
+    tower, _ = _tiny_tower(tmp_path)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64,
+                            train_attention_mask="none")
+    seen = _watch_attention(step)
+    step.hidden(_ft_batch(0))
+    (mask,) = seen["mask"]
+    assert mask is not None and mask.tolist() == [[1, 1, 1, 1, 1, 0], [1, 1, 1, 1, 0, 0]]
+    assert set(seen["flags"]) == {_sdpa_flags()} and _sdpa_flags() != FLASH_ONLY
+
+
+def test_the_default_trains_with_the_padding_mask_and_every_backend(tmp_path):
+    tower, _ = _tiny_tower(tmp_path, gradient_checkpointing=True)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64)
+    assert step.train_attention_mask == "padding"
+    seen = _watch_attention(step)
+    batch = _ft_batch(0)
+    step.accumulate_span(batch, ft_supervision(batch))
+    (mask,) = seen["mask"]
+    assert mask is not None
+    assert FLASH_ONLY not in seen["flags"]
+
+
+def test_an_unknown_train_attention_mask_is_refused(tmp_path):
+    tower, _ = _tiny_tower(tmp_path)
+    with pytest.raises(ValueError, match="train_attention_mask"):
+        QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64,
+                         train_attention_mask="causal")
+
+
+def test_dropping_the_mask_leaves_real_positions_unchanged_and_moves_only_pads(tmp_path):
+    """Why the switch is admissible at all: batches are right-padded and attention and the
+    GDN recurrence are causal, so no real position reads a pad. Real positions' hidden states
+    agree; pad positions are free to differ. (CPU only -- on CUDA the kernel itself changes,
+    which is what makes this Tier B.)"""
+    tower, _ = _tiny_tower(tmp_path)
+    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64,
+                            train_attention_mask="none")
+    batch = _ft_batch(0, width=12)
+    real = np.arange(12)[None, :] < np.asarray(batch.lengths)[:, None]
+    with step.training_attention():
+        free = step.hidden(batch, padding_mask=False).detach().numpy()
+    masked = step.hidden(batch).detach().numpy()
+    np.testing.assert_allclose(free[real], masked[real], rtol=0, atol=1e-6)
+    assert not np.allclose(free[~real], masked[~real]), "pads must not have been masked"
+
+
 def test_the_tower_records_which_linear_attention_kernels_it_bound(tmp_path):
     from qd_train.backbone import linear_attention_on_reference_path
 

@@ -89,6 +89,7 @@ path this module never reads would be a check that cannot fire, which is worse t
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import json
 import struct
@@ -114,7 +115,7 @@ from .memory import (
 )
 from .optim import DEFAULT_BETA2, apply_lr, build_optimizer, layerwise_param_groups
 from .remap import RemapApplication, apply_remap_to_model
-from .trainer import Supervision
+from .trainer import TRAIN_ATTENTION_MASKS, Supervision
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import torch
@@ -931,9 +932,16 @@ class QwenDecisionStep:
         beta2: float = DEFAULT_BETA2,
         span_channel_off: bool = False,
         fused_adamw: bool = False,
+        train_attention_mask: str = "padding",
     ) -> None:
         import torch
         from torch import nn
+
+        if train_attention_mask not in TRAIN_ATTENTION_MASKS:
+            raise ValueError(
+                f"train_attention_mask must be one of {TRAIN_ATTENTION_MASKS}, got "
+                f"{train_attention_mask!r}"
+            )
 
         if not lr > 0.0:
             raise ValueError(f"lr must be positive, got {lr}")
@@ -979,6 +987,10 @@ class QwenDecisionStep:
         self.span_weight = float(span_weight)
         self.max_grad_norm = float(max_grad_norm)
         self.max_width = int(max_width)
+        #: What the TRAINING forward attends with: ``"padding"`` (the mask from
+        #: ``Batch.lengths``, every row so far) or ``"none"`` (``is_causal`` only, on SDPA's
+        #: flash backend alone -- see :meth:`training_attention`). Scoring always masks.
+        self.train_attention_mask = train_attention_mask
         # float32, deliberately, even when the tower is bf16: the head is two [H, H]
         # projections and two [H] vectors -- 16.8 MB at H=2048, against a 2.8 GB tower --
         # and its loss is a softmax over a candidate set that can run to hundreds of lines.
@@ -1042,12 +1054,18 @@ class QwenDecisionStep:
 
     # -- forward ---------------------------------------------------------------------------
 
-    def hidden(self, batch: Batch) -> torch.Tensor:
+    def hidden(self, batch: Batch, *, padding_mask: bool = True) -> torch.Tensor:
         """``[B, L, H]`` -- the tower's last hidden state for this batch.
 
         The attention mask comes from ``Batch.lengths`` rather than from a padding-token
         comparison: a padding id that also occurs in real text would make the second method
         mask real positions, and ``lengths`` is the channel that states the answer.
+
+        ``padding_mask=False`` is the training forward under ``train_attention_mask="none"``
+        and nothing else: every scoring caller (``_decode``, ``_evaluate``, replay's prior)
+        takes the default. Batches are right-padded and attention and the GDN recurrence are
+        causal, so a real position never reads a pad either way; what changes is the SDPA
+        kernel (an explicit mask rules flash out), which is why it is a Tier-B switch.
         """
         torch = self._torch
         width = int(batch.tokens.shape[1])
@@ -1058,6 +1076,8 @@ class QwenDecisionStep:
             )
         weight = self.tower.lm_head_weight
         ids = torch.as_tensor(batch.tokens.astype(np.int64), device=weight.device)
+        if not padding_mask:
+            return self.tower.model(input_ids=ids, attention_mask=None).last_hidden_state
         lengths = torch.as_tensor(
             np.asarray(batch.lengths).astype(np.int64), device=weight.device
         )
@@ -1066,6 +1086,22 @@ class QwenDecisionStep:
         ).to(torch.int64)
         out = self.tower.model(input_ids=ids, attention_mask=mask)
         return out.last_hidden_state
+
+    def training_attention(self) -> contextlib.AbstractContextManager[None]:
+        """The context a training forward AND its backward run in.
+
+        ``"padding"``: no restriction, exactly as every row so far. ``"none"``: SDPA's flash
+        backend only. On CUDA an explicit mask rules flash out, so a shape flash cannot take
+        then raises rather than quietly running on mem-efficient -- the speed (and the kernel
+        the Tier-B screen measured) is the whole point of the switch, and a silent fallback
+        would record ``none`` over a run that did not get it. The backward is inside too,
+        because gradient checkpointing recomputes the forward there.
+        """
+        if self.train_attention_mask == "padding":
+            return contextlib.nullcontext()
+        from torch.nn.attention import SDPBackend, sdpa_kernel
+
+        return sdpa_kernel([SDPBackend.FLASH_ATTENTION])
 
     def lm_head(self, hidden: torch.Tensor) -> torch.Tensor:
         """``[..., V]`` logits from ``[..., H]`` hidden states, against the tied embedding.
@@ -1105,12 +1141,16 @@ class QwenDecisionStep:
     # -- TrainStep -------------------------------------------------------------------------
 
     def accumulate(self, batch: Batch, supervision: Supervision) -> float:
-        loss = self._letter_loss(self.hidden(batch), supervision)
-        if loss is None:  # pragma: no cover - `_refuse_unsupervised_rows` refuses this first
-            raise RuntimeError(
-                "a span-free batch reached accumulate with no supervised token"
+        with self.training_attention():
+            loss = self._letter_loss(
+                self.hidden(batch, padding_mask=self.train_attention_mask == "padding"),
+                supervision,
             )
-        loss.backward()
+            if loss is None:  # pragma: no cover - `_refuse_unsupervised_rows` refuses first
+                raise RuntimeError(
+                    "a span-free batch reached accumulate with no supervised token"
+                )
+            loss.backward()
         value = float(loss.detach())
         self.letter_log.append(value)
         self.span_log.append(0.0)
@@ -1123,22 +1163,23 @@ class QwenDecisionStep:
                 "accumulate_span was handed a supervision with no span channel"
             )
         torch = self._torch
-        hidden = self.hidden(batch)
-        plan = plan_span_batch(span, device=hidden.device)
-        rows = torch.as_tensor(span.rows.astype(np.int64), device=hidden.device)
-        # float32 for the pointer softmax. The head's scores are a bilinear form over
-        # hidden states and its loss is a cross-entropy over a candidate set that can run
-        # to hundreds of lines; in bf16 the logsumexp of that is computed with 8 bits of
-        # mantissa, and the abstain row competes with every line in it. The head's own
-        # parameters are float32 for the same reason -- see __init__.
-        span_loss = self.span_head.loss(hidden[rows].float(), plan)
-        letter = self._letter_loss(hidden, supervision)
-        total = (
-            self.span_weight * span_loss
-            if letter is None
-            else letter + self.span_weight * span_loss
-        )
-        total.backward()
+        with self.training_attention():
+            hidden = self.hidden(batch, padding_mask=self.train_attention_mask == "padding")
+            plan = plan_span_batch(span, device=hidden.device)
+            rows = torch.as_tensor(span.rows.astype(np.int64), device=hidden.device)
+            # float32 for the pointer softmax. The head's scores are a bilinear form over
+            # hidden states and its loss is a cross-entropy over a candidate set that can
+            # run to hundreds of lines; in bf16 the logsumexp of that is computed with 8
+            # bits of mantissa, and the abstain row competes with every line in it. The
+            # head's own parameters are float32 for the same reason -- see __init__.
+            span_loss = self.span_head.loss(hidden[rows].float(), plan)
+            letter = self._letter_loss(hidden, supervision)
+            total = (
+                self.span_weight * span_loss
+                if letter is None
+                else letter + self.span_weight * span_loss
+            )
+            total.backward()
         self.letter_log.append(0.0 if letter is None else float(letter.detach()))
         self.span_log.append(float(span_loss.detach()))
         return float(total.detach())

@@ -162,6 +162,13 @@ __all__ = [
 #: source that yields for ever while the schedule waits for steps that never complete.
 MAX_BATCHES_PER_CALL: Final[int] = 10_000_000
 
+#: What a training step's forward may attend with (``QwenDecisionStep.train_attention_mask``,
+#: ``real_ft_run --train-attention-mask``). ``"padding"`` -- the mask from ``Batch.lengths``
+#: -- is every row so far; ``"none"`` (``is_causal`` only) is the Tier-B candidate of Fable's
+#: no-mask ruling (campaign/f-j7prime-preregistered.json ``no_mask``). Here rather than in
+#: ``backbone`` so the argv layer can name it without importing the tower's dependencies.
+TRAIN_ATTENTION_MASKS: Final[tuple[str, ...]] = ("padding", "none")
+
 
 class TrainerContractViolation(Exception):
     """A batch, a step or a resume violated what this loop requires to be true."""

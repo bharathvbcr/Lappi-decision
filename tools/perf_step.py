@@ -160,28 +160,17 @@ def _set_fused(step: Any, torch: Any, fused: bool) -> str:
     return "fused" if fused else "rebuilt-default"
 
 
-def _set_nomask(step: Any, torch: Any, on: bool) -> str:
-    """A PROBE, not a product path: the tower called with no attention mask.
+def _set_nomask(step: Any, on: bool) -> str:
+    """The training forward without the padding mask: the product switch
+    (`QwenDecisionStep.train_attention_mask`, `real_ft_run --train-attention-mask none`), so a
+    benchmark measures exactly what a run would -- including flash as the only SDPA backend.
 
-    Shard batches are right-padded, so under causal attention no real position can see a pad
-    and real positions' outputs are the same function of the same inputs; without an explicit
-    mask SDPA may take its flash backend (is_causal) instead of mem-efficient. Which backend
-    ran is read off the profile. Different kernels, so a numerics change (Tier B) -- measured
-    here for speed only.
+    Shard batches are right-padded, so under causal attention no real position can see a pad;
+    without an explicit mask SDPA takes flash (is_causal) instead of mem-efficient. Different
+    kernels, so a numerics change (Tier B) -- measured here for speed only.
     """
-    if not on:
-        step.__dict__.pop("hidden", None)
-        return "padding-mask"
-    import numpy as np
-
-    weight = step.tower.lm_head_weight
-
-    def hidden(batch: Any) -> Any:
-        ids = torch.as_tensor(batch.tokens.astype(np.int64), device=weight.device)
-        return step.tower.model(input_ids=ids, attention_mask=None).last_hidden_state
-
-    step.hidden = hidden
-    return "none (is_causal)"
+    step.train_attention_mask = "none" if on else "padding"
+    return "none (is_causal, flash only)" if on else "padding-mask"
 
 
 def _one_step(step: Any, batch: Any, sup: Any, lr: float, torch: Any, sync: bool) -> dict:
@@ -395,7 +384,7 @@ def run_profile(args: argparse.Namespace) -> int:
             row["deterministic"] = torch.are_deterministic_algorithms_enabled()
             row["cublas_workspace_config"] = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
             row["optimizer"] = _set_fused(step, torch, "fused" in cfg["flags"])
-            row["attention_mask"] = _set_nomask(step, torch, "nomask" in cfg["flags"])
+            row["attention_mask"] = _set_nomask(step, "nomask" in cfg["flags"])
             row["compiled_modules"] = _set_compile(model, "compile" in cfg["flags"])
             if "compile" in cfg["flags"]:
                 torch._dynamo.utils.counters.clear()
@@ -517,7 +506,7 @@ def run_profile(args: argparse.Namespace) -> int:
         finally:
             step.optimizer.zero_grad(set_to_none=True)
             _set_compile(model, False)
-            _set_nomask(step, torch, False)
+            _set_nomask(step, False)
             gc.collect()
             if on_cuda:
                 torch.cuda.empty_cache()

@@ -254,6 +254,7 @@ from qd_train.shards import (
     training_texts,
 )
 from qd_train.trainer import (
+    TRAIN_ATTENTION_MASKS,
     ChoicePermutation,
     Progress,
     SpanScoringStep,
@@ -289,6 +290,8 @@ RECIPE_PIECE_KEYS: Final[tuple[str, ...]] = (
     # rows scored after it.
     "checkpoint_skip_layers",
     "optimizer_fused",
+    # --train-attention-mask none (Tier B, Fable's no-mask ruling): on every scored row too.
+    "train_attention_mask",
 )
 
 #: The wall-clock cap a run here carries when ``--wall-clock-cap-s`` is not given -- the one
@@ -333,6 +336,7 @@ def _recipe_pieces(
     cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
+    train_attention_mask: str = "padding",
 ) -> dict[str, object]:
     """The recipe keys for whichever ported pieces are on. Empty when none is.
 
@@ -341,11 +345,19 @@ def _recipe_pieces(
     hash as before. ``batch_tokens`` is ``None`` at the default (the widest bucket), which
     ``_resolve_batch_tokens`` decides. So does ``--checkpoint-skip-layers``: the policy is
     already in every recipe as ``gradient_checkpointing``, and a selective one is named
-    beside it only when it is on.
+    beside it only when it is on. And ``--train-attention-mask``: ``"padding"`` is every row
+    so far, ``"none"`` (Tier B) names itself.
     """
+    if train_attention_mask not in TRAIN_ATTENTION_MASKS:
+        raise ValueError(
+            f"train_attention_mask must be one of {TRAIN_ATTENTION_MASKS}, got "
+            f"{train_attention_mask!r}"
+        )
     out: dict[str, object] = {}
     if fused_adamw:
         out["optimizer_fused"] = True
+    if train_attention_mask != "padding":
+        out["train_attention_mask"] = train_attention_mask
     if checkpoint_skip_layers:
         out["checkpoint_skip_layers"] = checkpoint_skip_layers
     if cap_s != WALL_CLOCK_CAP_S:
@@ -1982,6 +1994,7 @@ def _real_step(
     span_weight: float, width: int, lower_layers_n: int = 0, lower_lr_scale: float = 1.0,
     beta2: float = DEFAULT_BETA2, eval_widths: Sequence[int] = (),
     span_channel_off: bool = False, checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
+    train_attention_mask: str = "padding",
 ) -> tuple[Any, Any, TriState]:
     """The real tower, remapped to the shard set, budgeted, and wrapped in a step.
 
@@ -2076,6 +2089,7 @@ def _real_step(
         beta2=beta2,
         span_channel_off=span_channel_off,
         fused_adamw=fused_adamw,
+        train_attention_mask=train_attention_mask,
     )
     return step, tower, budget
 
@@ -2099,6 +2113,7 @@ def _train(
     cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
+    train_attention_mask: str = "padding",
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -2123,11 +2138,17 @@ def _train(
         permutation=permutation, replay=replay, cap_s=cap_s, no_memorise=no_memorise,
         batch_tokens=batch_tokens, shuffled_label=shuffled_label,
         checkpoint_skip_layers=checkpoint_skip_layers, fused_adamw=fused_adamw,
+        train_attention_mask=train_attention_mask,
     )
     if checkpoint_skip_layers and backbone is None:
         raise ValueError(
             "checkpoint_skip_layers needs the real backbone: the stand-in is one block with "
             "no checkpointing to be selective about"
+        )
+    if train_attention_mask != "padding" and backbone is None:
+        raise ValueError(
+            "train_attention_mask needs the real backbone: the stand-in has no SDPA layer to "
+            "switch, so a recipe naming the switch would describe nothing that ran"
         )
     if fused_adamw and (backbone is None or optimizer_recipe != "master"):
         raise ValueError(
@@ -2196,11 +2217,18 @@ def _train(
             lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
             eval_widths=eval_widths, span_channel_off=shuffled_label is not None,
             checkpoint_skip_layers=checkpoint_skip_layers, fused_adamw=fused_adamw,
+            train_attention_mask=train_attention_mask,
         )
         train_path.update(
             linear_attention_kernels=dict(tower.linear_attention_kernels),
             gradient_checkpointing=tower.gradient_checkpointing,
             checkpoint_skip_layers=list(tower.checkpoint_skip_layers),
+            # Read off the step, which is what the training forward consults. "none" runs
+            # with SDPA's flash backend as the only one enabled (training_attention).
+            train_attention_mask=step.train_attention_mask,
+            train_sdpa_backends=(
+                ["flash"] if step.train_attention_mask == "none" else "unrestricted"
+            ),
             optimizer=type(step.optimizer).__name__,
             optimizer_inner_fused=bool(
                 getattr(step.optimizer, "param_groups", [{}])[0].get("fused") or False
@@ -7144,7 +7172,7 @@ def planned_ft_recipe(
             beta2=args.beta2, permutation=permutation, replay=replay,
             cap_s=args.wall_clock_cap_s, no_memorise=args.no_memorise,
             batch_tokens=batch_tokens, checkpoint_skip_layers=args.checkpoint_skip_layers,
-            fused_adamw=args.fused_adamw,
+            fused_adamw=args.fused_adamw, train_attention_mask=args.train_attention_mask,
         ),
     }
     if args.real_backbone is None:
@@ -7476,6 +7504,18 @@ def _check_piece_flags(args: argparse.Namespace) -> None:
             "--checkpoint-skip-layers needs --real-backbone: the stand-in is one block with "
             "no checkpointing to be selective about"
         )
+    if args.train_attention_mask != "padding":
+        if args.real_backbone is None:
+            raise SystemExit(
+                f"--train-attention-mask {args.train_attention_mask} needs --real-backbone: "
+                "the stand-in has no SDPA layer to switch"
+            )
+        if args.replay_shards is not None:
+            raise SystemExit(
+                f"--train-attention-mask {args.train_attention_mask} with --replay-shards: "
+                "replay's KL term runs its own forward through hidden(), which keeps the "
+                "mask, so the switch would cover part of training while the recipe named all"
+            )
     if args.fused_adamw and (args.real_backbone is None or args.optimizer != "master"):
         raise SystemExit(
             "--fused-adamw needs --real-backbone and --optimizer master: it fuses the fp32-"
@@ -8250,6 +8290,18 @@ def main(argv: list[str] | None = None) -> int:
             "70 -> 40 ms and peak -7 GiB at 4 x 8,441). Different rounding from the default "
             "foreach AdamW, so a numerics change: in the recipe as optimizer_fused. Needs "
             "--real-backbone and --optimizer master"
+        ),
+    )
+    parser.add_argument(
+        "--train-attention-mask", choices=TRAIN_ATTENTION_MASKS, default="padding",
+        help=(
+            "what the TRAINING forward attends with. 'padding' (default, every row so far): "
+            "the mask from each row's length. 'none': is_causal only, on SDPA's flash "
+            "backend alone, raising rather than falling back (GH200 2026-10-01 probe at 4 x "
+            "8,441: 15,280 -> 25,703 pos/s). Batches are right-padded, so no real position "
+            "reads a pad either way, but the kernel changes: Tier B, in the recipe as "
+            "train_attention_mask. Scoring always masks. Needs --real-backbone; refused with "
+            "--replay-shards, whose KL forward keeps the mask"
         ),
     )
     parser.add_argument(
@@ -9133,6 +9185,7 @@ def main(argv: list[str] | None = None) -> int:
                 lower_lr_scale=args.lower_layers_lr_scale, beta2=args.beta2,
                 cap_s=args.wall_clock_cap_s, batch_tokens=recipe_batch_tokens,
                 checkpoint_skip_layers=args.checkpoint_skip_layers, fused_adamw=args.fused_adamw,
+                train_attention_mask=args.train_attention_mask,
             )
             step = run.pop("_step")
             decode_at = time.monotonic()
@@ -9241,6 +9294,7 @@ def main(argv: list[str] | None = None) -> int:
                     shuffled_label=None if shuffled is None else SHUFFLED_LABEL_RECIPE,
                     checkpoint_skip_layers=args.checkpoint_skip_layers,
                     fused_adamw=args.fused_adamw,
+                    train_attention_mask=args.train_attention_mask,
                 )
                 step = run.pop("_step")
                 if shuffled is not None and val_set is not None:
