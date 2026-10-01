@@ -1385,8 +1385,14 @@ PREP_TIMEOUT_S: Final[float] = 600.0
 #: of the request -- and compared bit for bit. A binary whose arithmetic drifted is refused on
 #: the run's own data, not only in the parity test.
 NATIVE_MINHASH_CANARIES: Final[int] = 4
+#: Keys the reference re-bands after every native LSH call: this many from each end of the
+#: request, with both keys of this many pairs from each end of the reply. The pairs the native
+#: call found among those keys must be exactly the pairs the reference finds among them.
+NATIVE_LSH_CANARIES: Final[int] = 4
 _PREP_REQUEST_MAGIC: Final[bytes] = b"QDPMHIN1"
 _PREP_REPLY_MAGIC: Final[bytes] = b"QDPMHOK1"
+_LSH_REQUEST_MAGIC: Final[bytes] = b"QDPLSIN1"
+_LSH_REPLY_MAGIC: Final[bytes] = b"QDPLSOK1"
 _PREP_BUILD: Final[str] = (
     "build it with `cargo build --release -p qd-prep` (target/release/qd-prep) on the Mac, or "
     "cross-build it for the aarch64 box with `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="
@@ -1398,20 +1404,51 @@ _PREP_BUILD: Final[str] = (
 )
 
 
-def _prep_signatures(
+def _run_prep(binary: Path, command: str, parts: Iterable[Any]) -> bytes:
+    """``binary command --input REQUEST --output REPLY`` over ``parts`` (bytes-like); the reply.
+
+    A missing or relative binary, one that cannot run, a timeout and a non-zero exit are
+    refusals; the reply's content is the caller's to check.
+    """
+    if not binary.is_absolute() or not binary.is_file():
+        raise SystemExit(
+            f"{PREP_BIN_ENV}={binary} is not an absolute path to a file; {_PREP_BUILD}"
+        )
+    with tempfile.TemporaryDirectory(prefix=f"qd-prep-{command}-") as tmp:
+        request, reply_path = Path(tmp) / "request.bin", Path(tmp) / "reply.bin"
+        with request.open("wb") as fh:
+            fh.writelines(parts)
+        cmd = [str(binary), command, "--input", str(request), "--output", str(reply_path)]
+        try:
+            done = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=PREP_TIMEOUT_S, check=False
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise SystemExit(
+                f"{binary} {command} ran past {PREP_TIMEOUT_S:.0f} s and was killed"
+            ) from exc
+        except OSError as exc:
+            raise SystemExit(
+                f"{binary} could not be run ({exc}) -- built for another platform?; {_PREP_BUILD}"
+            ) from exc
+        if done.returncode != 0:
+            raise SystemExit(
+                f"{binary} {command} exited {done.returncode}: {done.stderr.strip()[-2000:]}"
+            )
+        return reply_path.read_bytes()
+
+
+def _prep_signature_matrix(
     binary: Path, sets: list[frozenset[bytes]], reference: Any
-) -> list[tuple[int, ...]]:
-    """``reference.signature(s)`` for every ``s`` in ``sets``, computed by ``qd-prep minhash``.
+) -> np.ndarray:
+    """``reference.signature(s)`` for every ``s`` in ``sets``, computed by ``qd-prep minhash``,
+    as one ``(len(sets), num_perm)`` uint64 array.
 
     ``reference`` is the ``qd_data.minhash.MinHasher`` whose permutation family (``_a``,
     ``_b``, ``_key``) is handed over as numbers, so the derivation has one owner. Everything
     about the reply is checked -- magic, permutation count, document count, exact length --
     and anything else is a refusal: a reply shorter than its request would sign a prefix.
     """
-    if not binary.is_absolute() or not binary.is_file():
-        raise SystemExit(
-            f"{PREP_BIN_ENV}={binary} is not an absolute path to a file; {_PREP_BUILD}"
-        )
     k = int(reference.num_perm)
     key = bytes(reference._key)
     parts = [
@@ -1423,26 +1460,7 @@ def _prep_signatures(
         items = list(shingles)
         parts.append(struct.pack(f"<I{len(items)}I", len(items), *map(len, items)))
         parts.append(b"".join(items))
-    with tempfile.TemporaryDirectory(prefix="qd-prep-minhash-") as tmp:
-        request, reply_path = Path(tmp) / "request.bin", Path(tmp) / "reply.bin"
-        with request.open("wb") as fh:
-            fh.writelines(parts)
-        cmd = [str(binary), "minhash", "--input", str(request), "--output", str(reply_path)]
-        try:
-            done = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=PREP_TIMEOUT_S, check=False
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise SystemExit(f"{binary} ran past {PREP_TIMEOUT_S:.0f} s and was killed") from exc
-        except OSError as exc:
-            raise SystemExit(
-                f"{binary} could not be run ({exc}) -- built for another platform?; {_PREP_BUILD}"
-            ) from exc
-        if done.returncode != 0:
-            raise SystemExit(
-                f"{binary} minhash exited {done.returncode}: {done.stderr.strip()[-2000:]}"
-            )
-        reply = reply_path.read_bytes()
+    reply = _run_prep(binary, "minhash", parts)
     header = len(_PREP_REPLY_MAGIC) + 4 + 8
     if len(reply) < header or reply[: len(_PREP_REPLY_MAGIC)] != _PREP_REPLY_MAGIC:
         raise SystemExit(f"{binary} wrote a reply that is not a {_PREP_REPLY_MAGIC!r} file")
@@ -1452,8 +1470,75 @@ def _prep_signatures(
             f"{binary} replied {got_n} signatures of {got_k} values in {len(reply)} bytes; "
             f"{len(sets)} of {k} were asked for, so the reply is not this request's"
         )
-    values = np.frombuffer(reply, dtype="<u8", offset=header).reshape(got_n, got_k)
-    return [tuple(row) for row in values.tolist()]
+    return np.frombuffer(reply, dtype="<u8", offset=header).reshape(got_n, got_k)
+
+
+def _prep_signatures(
+    binary: Path, sets: list[frozenset[bytes]], reference: Any
+) -> list[tuple[int, ...]]:
+    """:func:`_prep_signature_matrix` as the reference's type: one tuple of ints per set."""
+    return [tuple(row) for row in _prep_signature_matrix(binary, sets, reference).tolist()]
+
+
+@dataclass(frozen=True)
+class NativePairs:
+    """One ``qd-prep lsh`` reply: the pairs, in the order the reference adds them, and
+    whether the bound stopped the search."""
+
+    ordered: tuple[tuple[str, str], ...]
+    pairs: frozenset[tuple[str, str]]
+    truncated: bool
+
+
+def _prep_candidate_pairs(
+    binary: Path, keys: list[str], banded: np.ndarray, *, bands: int, rows: int, max_pairs: int
+) -> NativePairs:
+    """``qd_data.minhash.candidate_pairs`` over ``keys``, computed by ``qd-prep lsh``.
+
+    ``banded[i]`` is the first ``bands * rows`` values of ``keys[i]``'s signature -- all the
+    reference reads. Keys go over as UTF-8 with ``surrogatepass``, which keeps Python's
+    code-point order bytewise (``crates/qd-prep/src/lsh.rs``). The reply is checked in full:
+    magic, flag, exact length, every index in range, every pair ``(lo, hi)`` with ``lo < hi``,
+    no pair twice, and a pair count that is the bound plus one exactly when it says truncated.
+    """
+    n, width = len(keys), bands * rows
+    if banded.shape != (n, width) or banded.dtype != np.uint64:
+        raise SystemExit(
+            f"qd-prep lsh was handed a {banded.dtype} {banded.shape} signature block for {n} "
+            f"keys of {width} banded values"
+        )
+    encoded = [key.encode("utf-8", "surrogatepass") for key in keys]
+    parts = [
+        _LSH_REQUEST_MAGIC, struct.pack("<IIQQ", bands, rows, max_pairs, n),
+        np.fromiter(map(len, encoded), dtype="<u4", count=n), b"".join(encoded),
+        np.ascontiguousarray(banded, dtype="<u8"),
+    ]
+    reply = _run_prep(binary, "lsh", parts)
+    header = len(_LSH_REPLY_MAGIC) + 1 + 8
+    if len(reply) < header or reply[: len(_LSH_REPLY_MAGIC)] != _LSH_REPLY_MAGIC:
+        raise SystemExit(f"{binary} wrote a reply that is not a {_LSH_REPLY_MAGIC!r} file")
+    flag, n_pairs = struct.unpack_from("<BQ", reply, len(_LSH_REPLY_MAGIC))
+    if flag not in (0, 1) or len(reply) != header + n_pairs * 8:
+        raise SystemExit(
+            f"{binary} replied flag {flag} and {n_pairs} pairs in {len(reply)} bytes, which is "
+            "not a qd-prep lsh reply"
+        )
+    truncated = flag == 1
+    if n_pairs > max_pairs + 1 or truncated != (n_pairs == max_pairs + 1):
+        raise SystemExit(
+            f"{binary} replied {n_pairs} pairs, truncated={truncated}, under a bound of "
+            f"{max_pairs}: the reference stops at the bound plus one, and only there"
+        )
+    index = np.frombuffer(reply, dtype="<u4", offset=header).reshape(n_pairs, 2)
+    if n_pairs and int(index.max()) >= n:
+        raise SystemExit(f"{binary} replied a key index past the {n} keys it was sent")
+    ordered = tuple((keys[lo], keys[hi]) for lo, hi in index.tolist())
+    if not all(lo < hi for lo, hi in ordered):
+        raise SystemExit(f"{binary} replied a pair that is not (lo, hi) in key order")
+    pairs = frozenset(ordered)
+    if len(pairs) != n_pairs:
+        raise SystemExit(f"{binary} replied {n_pairs} pairs of which {len(pairs)} are distinct")
+    return NativePairs(ordered=ordered, pairs=pairs, truncated=truncated)
 
 
 @contextlib.contextmanager
@@ -1486,10 +1571,30 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
     (GAP-PERF-PRELUDE-J1-REMAINDER-IS-SHINGLE-BANDING-AND-RENDER). ``shingle`` is not ported
     -- the reference still computes every result -- and a text the table does not hold,
     another ``k`` or ``max_doc_bytes``, or a table nobody read is a refusal, as for signatures.
+
+    ``candidate_pairs`` -- the banded-LSH bucketing over those signatures, 24.6 s of the 78 s
+    phase-4 rebuild on the Mac (2026-10-01) -- is replaced by ``qd-prep lsh``, which adds the
+    reference's pairs in the reference's order, so a truncated answer is the reference's set too.
+    It bands only signatures this block signed (it reads them from the signed matrix, not by
+    re-packing Python ints), and the reference re-bands :data:`NATIVE_LSH_CANARIES` keys from
+    each end of the request and of the reply after every call -- the whole request when the
+    bound truncated it -- and must agree. A call with a negative bound or a banding wider than
+    the signatures goes to the reference instead: it raises ``ValueError`` for both, except
+    that a bound reached before the band that reads past the signatures returns first. Such
+    calls are counted on the block's ``lsh:`` line, never folded into the native count. A block
+    that signed and never banded is refused. ``python/tests/test_qd_prep_lsh_parity.py``
+    holds the parity.
     """
     import qd_data.dedupe as dedupe_module
     import qd_data.split as split_module
-    from qd_data.minhash import DEFAULT_MAX_DOC_BYTES, MinHasher, ShingleResult, shingle
+    from qd_data.minhash import (
+        DEFAULT_MAX_DOC_BYTES,
+        BandConfig,
+        MinHasher,
+        ShingleResult,
+        candidate_pairs,
+        shingle,
+    )
 
     named = os.environ.get(PREP_BIN_ENV, "")
     if not named:
@@ -1506,6 +1611,11 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
                 f"{module.__name__}.MinHasher or .shingle is not qd_data.minhash's, so the "
                 "native tables cannot be installed where that module shingles and signs"
             )
+        if getattr(module, "candidate_pairs", None) is not candidate_pairs:
+            raise SystemExit(
+                f"{module.__name__}.candidate_pairs is not qd_data.minhash's, so the native "
+                "banding cannot be installed where that module bands"
+            )
     started = time.perf_counter()
     shingled: dict[str, ShingleResult] = {}
     index: dict[frozenset[bytes], None] = {}
@@ -1518,7 +1628,12 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
             index.setdefault(result.shingles, None)
     sets = list(index)
     reference = MinHasher(num_perm=config.num_perm, seed=config.seed)
-    table = dict(zip(sets, _prep_signatures(Path(named), sets, reference), strict=True))
+    matrix = _prep_signature_matrix(Path(named), sets, reference)
+    signed = [tuple(row) for row in matrix.tolist()]
+    table = dict(zip(sets, signed, strict=True))
+    # Which matrix row each handed-out tuple is. The table holds every tuple for the life of
+    # the block, so an id here cannot be reused by another object while the block runs.
+    row_of = {id(sig): i for i, sig in enumerate(signed)}
     n = NATIVE_MINHASH_CANARIES
     canaries = list(dict.fromkeys(sets[:n] + sets[-n:]))
     for shingles in canaries:
@@ -1575,15 +1690,73 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
         read += 1
         return found
 
+    banded = 0
+    banded_s = 0.0
+    n_lsh_pairs = 0
+    to_reference = 0
+
+    def native_candidate_pairs(
+        signatures: dict[str, tuple[int, ...]], *, config: BandConfig, max_pairs: int
+    ) -> tuple[frozenset[tuple[str, str]], bool]:
+        """``candidate_pairs`` answered by ``qd-prep lsh`` over the signed matrix's rows."""
+        nonlocal banded, banded_s, n_lsh_pairs, to_reference
+        width = config.bands * config.rows
+        if max_pairs < 0 or width > reference.num_perm:
+            to_reference += 1
+            return candidate_pairs(signatures, config=config, max_pairs=max_pairs)
+        began = time.perf_counter()
+        keys = list(signatures)
+        at = np.fromiter(
+            (row_of.get(id(sig), -1) for sig in signatures.values()), dtype=np.int64,
+            count=len(keys),
+        )
+        if (at < 0).any():
+            raise SystemExit(
+                f"{int((at < 0).sum())} of {len(keys)} signatures handed to candidate_pairs "
+                f"were not signed by {named} in this block; refusing to band them in Python "
+                "behind the binary's back"
+            )
+        # Past n*(n-1)/2 no bound can be hit, so the smaller bound is the same search. A bound
+        # past qd-prep lsh's MAX_PAIRS (2^28) that n*(n-1)/2 does not shrink is refused by the
+        # binary, loudly: its reply would be gigabytes.
+        bound = min(max_pairs, len(keys) * (len(keys) - 1) // 2)
+        got = _prep_candidate_pairs(
+            Path(named), keys, matrix[at, :width], bands=config.bands, rows=config.rows,
+            max_pairs=bound,
+        )
+        if got.truncated:
+            # The reply is an order-dependent prefix; only the whole search can confirm it.
+            want = candidate_pairs(signatures, config=config, max_pairs=max_pairs)
+            same = want == (got.pairs, True)
+        else:
+            n = NATIVE_LSH_CANARIES
+            chosen = set(keys[:n] + keys[-n:])
+            chosen.update(key for pair in got.ordered[:n] + got.ordered[-n:] for key in pair)
+            sub = {key: signatures[key] for key in chosen}
+            want = candidate_pairs(sub, config=config, max_pairs=len(sub) * len(sub))
+            seen = frozenset(p for p in got.pairs if p[0] in chosen and p[1] in chosen)
+            same = want == (seen, False)
+        if not same:
+            raise SystemExit(
+                f"{named} banded {len(keys)} signatures into pairs the reference "
+                "qd_data.minhash.candidate_pairs does not find; its pairs are not the reference's"
+            )
+        banded += 1
+        banded_s += time.perf_counter() - began
+        n_lsh_pairs += len(got.pairs)
+        return got.pairs, got.truncated
+
     for module in modules:
         module.MinHasher = NativeMinHasher  # type: ignore[attr-defined]
         module.shingle = table_shingle  # type: ignore[attr-defined]
+        module.candidate_pairs = native_candidate_pairs  # type: ignore[attr-defined]
     try:
         yield
     finally:
         for module in modules:
             module.MinHasher = MinHasher  # type: ignore[attr-defined]
             module.shingle = shingle  # type: ignore[attr-defined]
+            module.candidate_pairs = candidate_pairs  # type: ignore[attr-defined]
     if table and not asked:
         raise SystemExit(
             "the native MinHash table was installed and never read: qd_data no longer signs "
@@ -1594,10 +1767,25 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
             "the shingle table was installed and never read: qd_data no longer shingles "
             "through the name it replaced, so its texts were shingled a second time unseen"
         )
+    if asked and not banded:
+        raise SystemExit(
+            "signatures were read from the native table and never banded by qd-prep lsh: "
+            "qd_data no longer bands through the name it replaced, so its pairs were found in "
+            "Python unseen"
+        )
     print(
         f"minhash: {len(table)} distinct sets signed by {named} in {signed_s:.1f} s "
         f"(shingling and canaries included), {asked} lookups, {len(canaries)} canaries equal "
         f"to the reference; {len(shingled)} distinct texts shingled once, {read} lookups",
+        file=sys.stderr, flush=True,
+    )
+    canaries_said = (
+        "every canary equal to the reference" if banded else "no canary ran: nothing was banded"
+    )
+    print(
+        f"lsh: {banded} candidate-pair searches banded by {named} in {banded_s:.1f} s "
+        f"(canaries included), {n_lsh_pairs} pairs, {canaries_said}; {to_reference} handed to "
+        "the reference (a negative bound or a banding wider than the signatures)",
         file=sys.stderr, flush=True,
     )
 

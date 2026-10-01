@@ -10,13 +10,15 @@
 //!   the `QDPNGOK1` hashed n-gram rows, as `CharNGramHasher.transform` builds them.
 //! - `qd-prep linfit --input IN --output OUT`: a `QDPLFIN1` request -> the `QDPLFOK1` fit, as
 //!   `LinearBaseline.fit` makes it, with the evaluation rows' logits.
+//! - `qd-prep lsh --input IN --output OUT`: a `QDPLSIN1` request (see `qd_prep::lsh`) -> the
+//!   `QDPLSOK1` banded-LSH candidate pairs, as `qd_data.minhash.candidate_pairs` finds them.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use qd_prep::{linwire, wire};
+use qd_prep::{linwire, lsh, wire};
 
 /// Threads are bounded whatever the host reports.
 const MAX_THREADS: usize = 256;
@@ -54,6 +56,8 @@ enum Command {
     Ngrams(Io),
     /// The FT linear control's fit, as qd_train.baseline.LinearBaseline.fit makes it.
     Linfit(Io),
+    /// Banded-LSH candidate pairs, as qd_data.minhash.candidate_pairs finds them.
+    Lsh(Io),
 }
 
 /// Read `io.input`, hand it to `work` with the thread count, and write what it returns to
@@ -130,6 +134,7 @@ fn main() -> ExitCode {
         Command::Minhash(io) => run(io, wire::MAX_INPUT_BYTES, minhash),
         Command::Ngrams(io) => run(io, linwire::MAX_INPUT_BYTES, linwire::run_ngrams),
         Command::Linfit(io) => run(io, linwire::MAX_INPUT_BYTES, linwire::run_linfit),
+        Command::Lsh(io) => run(io, lsh::MAX_INPUT_BYTES, lsh::run_lsh),
     };
     match result {
         Ok(line) => {
