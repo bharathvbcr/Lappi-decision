@@ -162,3 +162,57 @@ def test_an_existing_out_dir_is_not_overwritten(tmp_path, calib_fit_bin):
         cfr.main(_argv(calib_fit_bin, tmp_path, [tmp_path / "v"], [tmp_path / "e"],
                        "--population", "all"))
     assert not (tmp_path / "out.jsonl").exists()
+
+
+def test_cross_fit_reports_every_number_out_of_fold_and_ships_the_all_val_table(
+    tmp_path, calib_fit_bin
+):
+    """Fable D3 / round G, G7: one calibration row names BOTH populations. Every reported
+    number is the two-fold cross-fit's; the table that ships is the one fit on all of val; and
+    every table and both reports are bound by sha256 on the row."""
+    eval_ledger, verdicts = _fixture(tmp_path)
+    assert cfr.main(_argv(calib_fit_bin, tmp_path, [verdicts], [eval_ledger],
+                          "--population", "cross-fit", "--split-key", "k")) == 0
+    (row,) = Ledger(tmp_path / "out.jsonl").rows()
+    assert row.status == "completed" and row.quick and row.run_kind == "calibration"
+    assert row.recipe is not None
+    assert row.recipe["population"] == "cross-fit"
+    assert row.recipe["reported_population"] == "two-fold"
+    assert row.recipe["shipped_table_population"] == "all"
+    assert row.recipe["split_key"] == "k"
+    assert row.metrics["calib_fit.reported_population"].value == "two-fold"
+    assert row.metrics["calib_fit.shipped_table_population"].value == "all"
+
+    fit = tmp_path / "fit"
+    shipped = (fit / "all" / "table.json").read_bytes()
+    state = row.metrics["calib_fit.shipped_table_sha256"]
+    assert state.value == hashlib.sha256(shipped).hexdigest()
+    assert "fit on all of val" in state.detail and "installs nothing" in state.detail
+    for fold in ("a", "b"):
+        table = (fit / "two-fold" / f"table.fold-{fold}.json").read_bytes()
+        state = row.metrics[f"calib_fit.table_sha256.fold_{fold}"]
+        assert state.value == hashlib.sha256(table).hexdigest()
+        assert "cross-fit" in state.detail
+    for population in ("two_fold", "all"):
+        report = (fit / population.replace("_", "-") / "report.json").read_bytes()
+        assert (row.metrics[f"calib_fit.report_sha256.{population}"].value
+                == hashlib.sha256(report).hexdigest())
+
+    two_fold = json.loads((fit / "two-fold" / "report.json").read_text())
+    entry = two_fold["entries"]["choice:5"]
+    assert row.metrics["calib_fit.choice.k4.ece_after"].value == (
+        entry["scored"]["ece_after"]["value"])
+    assert row.metrics["calib_fit.choice.k4.fold_a.temperature"].value == (
+        entry["folds"]["a"]["temperature"])
+    # Nothing in-sample is reported: not the all-val fit's parameters, not its scores.
+    assert "calib_fit.choice.k4.temperature" not in row.metrics
+    assert not any("in sample" in (getattr(s, "detail", "") or "") for s in row.metrics.values())
+
+
+def test_cross_fit_without_a_split_key_is_refused_before_anything_runs(tmp_path, calib_fit_bin):
+    eval_ledger, verdicts = _fixture(tmp_path)
+    with pytest.raises(SystemExit, match="needs --split-key"):
+        cfr.main(_argv(calib_fit_bin, tmp_path, [verdicts], [eval_ledger],
+                       "--population", "cross-fit"))
+    assert not (tmp_path / "out.jsonl").exists()
+    assert not (tmp_path / "fit").exists()
