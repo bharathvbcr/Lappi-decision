@@ -569,6 +569,7 @@ fn run(args: &Args) -> Result<Outputs> {
         "--out-dir {} already exists",
         args.out_dir.display()
     );
+    staging_site(&args.out_dir)?;
     ensure!(
         !args.name.trim().is_empty() && args.name.len() <= MAX_NAME_BYTES,
         "--name must be a non-empty name of at most {MAX_NAME_BYTES} bytes: it is what a hash pins"
@@ -869,7 +870,10 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
 
 /// Write into a sibling staging directory and rename it into place, so `--out-dir` appears whole
 /// or not at all.
-fn write_outputs(out_dir: &Path, outputs: &Outputs) -> Result<()> {
+/// Where the staging directory goes: beside `--out-dir`, in a parent that must already exist.
+/// Asked before any input is read, so a run that could not land its outputs fails in
+/// milliseconds rather than after the fit.
+fn staging_site(out_dir: &Path) -> Result<(PathBuf, String)> {
     let name = out_dir
         .file_name()
         .ok_or_else(|| format!("--out-dir {} has no final component", out_dir.display()))?;
@@ -877,11 +881,18 @@ fn write_outputs(out_dir: &Path, outputs: &Outputs) -> Result<()> {
         Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
         _ => PathBuf::from("."),
     };
-    let staging = parent.join(format!(
-        ".{}.partial-{}",
-        name.to_string_lossy(),
-        std::process::id()
-    ));
+    ensure!(
+        parent.is_dir(),
+        "--out-dir {}: its parent {} does not exist; create it first",
+        out_dir.display(),
+        parent.display()
+    );
+    Ok((parent, name.to_string_lossy().into_owned()))
+}
+
+fn write_outputs(out_dir: &Path, outputs: &Outputs) -> Result<()> {
+    let (parent, name) = staging_site(out_dir)?;
+    let staging = parent.join(format!(".{name}.partial-{}", std::process::id()));
     std::fs::create_dir(&staging).map_err(|e| format!("{}: {e}", staging.display()))?;
     let report = serde_json::to_string_pretty(&outputs.report).map_err(|e| e.to_string())?;
     write_new(

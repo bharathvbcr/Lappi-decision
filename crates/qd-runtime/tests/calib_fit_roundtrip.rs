@@ -296,3 +296,31 @@ fn an_existing_out_dir_and_a_meaningless_split_key_are_refused() {
     }
     assert!(!dir.join("x").exists() && !dir.join("y").exists());
 }
+
+/// An `--out-dir` whose parent does not exist is refused before any input is read. Before
+/// this check the run fitted everything and then failed creating its staging directory --
+/// inside `calib_fit_row.py`'s recorder block, so a fresh box would have written a `failed`
+/// calibration row for a fit that was never going to land.
+#[test]
+fn an_out_dir_without_a_parent_is_refused_before_the_inputs_are_read() {
+    let dir = scratch("no-parent");
+    let done = Command::new(BIN)
+        .args([
+            "--verdicts",
+            "never-read.jsonl",
+            "--population",
+            "all",
+            "--name",
+            "n",
+        ])
+        .args(["--out-dir", "missing/fit"])
+        .current_dir(&dir)
+        .output()
+        .expect("run");
+    let err = String::from_utf8_lossy(&done.stderr);
+    assert!(
+        !done.status.success() && err.contains("parent") && !err.contains("never-read"),
+        "{err}"
+    );
+    assert!(!dir.join("missing").exists());
+}
