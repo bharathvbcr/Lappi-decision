@@ -1,0 +1,239 @@
+......FFFFFFFF..                                                         [100%]
+=================================== FAILURES ===================================
+_____ test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows0-True] _____
+
+rows = [{'base': ['A-mask-1', 'A-mask-2', 'A-mask-3'], 'cand': ['A-none-1'], 'verdict': 'pass'}, {'base': ['B-mask-1', 'B-mask-2', 'B-mask-3'], 'cand': ['B-none-1'], 'verdict': 'pass'}]
+ok = True
+
+    @pytest.mark.parametrize(
+        ("rows", "ok"),
+        [
+            ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+            ([_verdict("A", "pass")], False),
+            ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+            ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+            # A rerun of a shape supersedes its earlier verdict, in both directions.
+            ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+            ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+            ([], False),
+        ],
+    )
+    def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+        """Fable: a P2 fail cancels the outcome run. A shape with no verdict, or not_run, cancels
+        it too -- an unexamined screen is not a passed one."""
+>       passed, detail = pp.p2_gate(rows)
+                         ^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_gate'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:132: AttributeError
+____ test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows1-False] _____
+
+rows = [{'base': ['A-mask-1', 'A-mask-2', 'A-mask-3'], 'cand': ['A-none-1'], 'verdict': 'pass'}]
+ok = False
+
+    @pytest.mark.parametrize(
+        ("rows", "ok"),
+        [
+            ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+            ([_verdict("A", "pass")], False),
+            ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+            ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+            # A rerun of a shape supersedes its earlier verdict, in both directions.
+            ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+            ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+            ([], False),
+        ],
+    )
+    def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+        """Fable: a P2 fail cancels the outcome run. A shape with no verdict, or not_run, cancels
+        it too -- an unexamined screen is not a passed one."""
+>       passed, detail = pp.p2_gate(rows)
+                         ^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_gate'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:132: AttributeError
+____ test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows2-False] _____
+
+rows = [{'base': ['A-mask-1', 'A-mask-2', 'A-mask-3'], 'cand': ['A-none-1'], 'verdict': 'pass'}, {'base': ['B-mask-1', 'B-mask-2', 'B-mask-3'], 'cand': ['B-none-1'], 'verdict': 'not_run'}]
+ok = False
+
+    @pytest.mark.parametrize(
+        ("rows", "ok"),
+        [
+            ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+            ([_verdict("A", "pass")], False),
+            ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+            ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+            # A rerun of a shape supersedes its earlier verdict, in both directions.
+            ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+            ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+            ([], False),
+        ],
+    )
+    def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+        """Fable: a P2 fail cancels the outcome run. A shape with no verdict, or not_run, cancels
+        it too -- an unexamined screen is not a passed one."""
+>       passed, detail = pp.p2_gate(rows)
+                         ^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_gate'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:132: AttributeError
+____ test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows3-False] _____
+
+rows = [{'base': ['A-mask-1', 'A-mask-2', 'A-mask-3'], 'cand': ['A-none-1'], 'verdict': 'fail'}, {'base': ['B-mask-1', 'B-mask-2', 'B-mask-3'], 'cand': ['B-none-1'], 'verdict': 'pass'}]
+ok = False
+
+    @pytest.mark.parametrize(
+        ("rows", "ok"),
+        [
+            ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+            ([_verdict("A", "pass")], False),
+            ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+            ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+            # A rerun of a shape supersedes its earlier verdict, in both directions.
+            ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+            ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+            ([], False),
+        ],
+    )
+    def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+        """Fable: a P2 fail cancels the outcome run. A shape with no verdict, or not_run, cancels
+        it too -- an unexamined screen is not a passed one."""
+>       passed, detail = pp.p2_gate(rows)
+                         ^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_gate'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:132: AttributeError
+_____ test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows4-True] _____
+
+rows = [{'base': ['A-mask-1', 'A-mask-2', 'A-mask-3'], 'cand': ['A-none-1'], 'verdict': 'fail'}, {'base': ['B-mask-1', 'B-mas...-none-1'], 'verdict': 'pass'}, {'base': ['A-mask-1', 'A-mask-2', 'A-mask-3'], 'cand': ['A-none-1'], 'verdict': 'pass'}]
+ok = True
+
+    @pytest.mark.parametrize(
+        ("rows", "ok"),
+        [
+            ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+            ([_verdict("A", "pass")], False),
+            ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+            ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+            # A rerun of a shape supersedes its earlier verdict, in both directions.
+            ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+            ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+            ([], False),
+        ],
+    )
+    def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+        """Fable: a P2 fail cancels the outcome run. A shape with no verdict, or not_run, cancels
+        it too -- an unexamined screen is not a passed one."""
+>       passed, detail = pp.p2_gate(rows)
+                         ^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_gate'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:132: AttributeError
+____ test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows5-False] _____
+
+rows = [{'base': ['A-mask-1', 'A-mask-2', 'A-mask-3'], 'cand': ['A-none-1'], 'verdict': 'pass'}, {'base': ['B-mask-1', 'B-mas...-none-1'], 'verdict': 'pass'}, {'base': ['B-mask-1', 'B-mask-2', 'B-mask-3'], 'cand': ['B-none-1'], 'verdict': 'fail'}]
+ok = False
+
+    @pytest.mark.parametrize(
+        ("rows", "ok"),
+        [
+            ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+            ([_verdict("A", "pass")], False),
+            ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+            ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+            # A rerun of a shape supersedes its earlier verdict, in both directions.
+            ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+            ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+            ([], False),
+        ],
+    )
+    def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+        """Fable: a P2 fail cancels the outcome run. A shape with no verdict, or not_run, cancels
+        it too -- an unexamined screen is not a passed one."""
+>       passed, detail = pp.p2_gate(rows)
+                         ^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_gate'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:132: AttributeError
+____ test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows6-False] _____
+
+rows = [], ok = False
+
+    @pytest.mark.parametrize(
+        ("rows", "ok"),
+        [
+            ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+            ([_verdict("A", "pass")], False),
+            ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+            ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+            # A rerun of a shape supersedes its earlier verdict, in both directions.
+            ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+            ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+            ([], False),
+        ],
+    )
+    def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+        """Fable: a P2 fail cancels the outcome run. A shape with no verdict, or not_run, cancels
+        it too -- an unexamined screen is not a passed one."""
+>       passed, detail = pp.p2_gate(rows)
+                         ^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_gate'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:132: AttributeError
+_______________ test_the_gate_cli_refuses_a_missing_verdict_file _______________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-391/test_the_gate_cli_refuses_a_mi0')
+
+    def test_the_gate_cli_refuses_a_missing_verdict_file(tmp_path):
+>       assert pp.main(["--p2-gate", str(tmp_path / "nope.jsonl")]) == 5
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:138: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/tools/perf_parity.py:326: in main
+    args = ap.parse_args(argv)
+           ^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2012: in parse_args
+    self.error(msg)
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2785: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='python -m pytest', usage=None, description='One arm of a Tier-A / Tier-B parity comparison, through the REAL training loop.', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = 'python -m pytest: error: unrecognized arguments: --p2-gate /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-391/test_the_gate_cli_refuses_a_mi0/nope.jsonl\n'
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2772: SystemExit
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] [--compare FILE:TAG [FILE:TAG ...]] [--p2 FILE]
+                        [--base TAG [TAG ...]] [--cand TAG [TAG ...]]
+                        [--p2-out P2_OUT] [--code-root CODE_ROOT] [--out OUT]
+                        [--backbone BACKBONE] [--batch-tokens BATCH_TOKENS]
+                        [--width-min WIDTH_MIN] [--width-max WIDTH_MAX]
+                        [--n-batches N_BATCHES] [--allow-fewer]
+                        [--passes PASSES] [--seed SEED] [--lr LR]
+                        [--cap-s CAP_S] [--deterministic]
+                        [--checkpoint-skip-layers CHECKPOINT_SKIP_LAYERS]
+                        [--train-attention-mask {padding,none}]
+                        [--min-span-batches MIN_SPAN_BATCHES]
+                        [--allow-stale-shards] [--ledger LEDGER]
+                        [--result RESULT] [--tag TAG] [--dry-run]
+                        [--device DEVICE] [--stand-in]
+python -m pytest: error: unrecognized arguments: --p2-gate /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-391/test_the_gate_cli_refuses_a_mi0/nope.jsonl
+=========================== short test summary info ============================
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows0-True]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows1-False]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows2-False]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows3-False]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows4-True]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows5-False]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows6-False]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_gate_cli_refuses_a_missing_verdict_file
+8 failed, 8 passed in 7.47s

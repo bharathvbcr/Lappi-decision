@@ -94,3 +94,99 @@ scored rows do not mirror skip 6; that is fixed by 0b95adb, and the lead is reco
 ```
 ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.51.246 'ls /home/ubuntu/queue/tierb.done; tail -60 /home/ubuntu/logs/q-tierb.log; tail -5 /home/ubuntu/perf/ledger-tierb-fused-2026-10-01.jsonl | cut -c1-400'
 ```
+
+## Addendum: the no-mask Tier-B screen, built CPU-only after Fable's ruling
+
+The ruling is in `campaign/f-j7prime-preregistered.json`, under `no_mask` and `tier_b_changes`,
+on main 4fd08cf. **No GPU work was done and nothing was queued.**
+
+**Commits** (on top of main 4fd08cf):
+
+| commit | what |
+| --- | --- |
+| **1cf8e6d** | `QwenDecisionStep(train_attention_mask="padding"\|"none")` and `--train-attention-mask` |
+| **de59c98** | `perf_parity.py --p2`, the screen statistic, plus `--train-attention-mask` and `--min-span-batches` for parity arms |
+| **eb3eafa** | the scripts |
+| **46da2a5** | the outcome-run gate: `perf_tierb_outcome.sh nomask --run` refuses (exit 5, before the lock) unless both shapes' latest P2 verdict is `pass` (`perf_parity.py --p2-gate`), 8 tests |
+
+1cf8e6d in detail:
+- Under `"none"`, only the training forward drops the mask. The training forward and backward run
+  with SDPA's flash backend as the only one enabled, so on CUDA a shape flash cannot take raises
+  instead of falling back to mem-efficient.
+- `hidden()` keeps the mask for every scoring caller.
+- The recipe key is `train_attention_mask`, written only when the value is `"none"`, and it is in
+  RECIPE_PIECE_KEYS so scored rows mirror it.
+- `train.path` records the mode.
+- The flag is refused without `--real-backbone`, and refused with `--replay-shards`, because
+  replay's KL forward keeps the mask.
+- `perf_step`'s no-mask probe now flips this switch instead of monkeypatching `hidden()`.
+
+**Fail-first evidence:** `AUDIT/tierb-nomask-2026-10-01/failfirst-pre-change.log`.
+- I ran the final new tests against unchanged 4fd08cf code: 6 in test_backbone, 5 in
+  test_real_ft_pieces and 8 in test_perf_parity_p2.
+- Result: 19 failed, and every pre-existing test in those files passed.
+- The one setup error is `test_ft_split_rows`, which needs the Cargo workspace; the extracted
+  tree does not have it.
+- The 8 gate tests from 46da2a5, run against de59c98's `perf_parity.py`: 8 failed, and the 8
+  existing P2 tests passed (`failfirst-gate-pre-change.log`).
+
+**Full suite on the branch:** 3,282 passed, 58 skipped, 2 failed. That run was taken before
+46da2a5; the gate's test file passes 16 of 16 since. The two failures are the same worktree-only
+ones as before: the repo directory name, and no `.venv/bin/ruff` in this worktree.
+
+**Scripts** (eb3eafa):
+- `tools/perf_nomask_p2.sh` takes `--build <sha>`, `T1` or `T2`. T1/T2 each run one GPU session
+  under `flock /home/ubuntu/queue/gpu.lock timeout 1200`, then the P2 statistic and the det
+  self-repeat compare on CPU.
+- `tools/perf_nomask_p2_body.sh` runs, in order:
+  1. 3 masked and 3 no-mask arms, interleaved;
+  2. the det no-mask pair (two runs at A, plus the pair at B, per Fable's Tier-A goldens rule);
+  3. speed at B (T1) or peak memory (T2).
+- `tools/perf_tierb_outcome.sh fused|nomask --build|--run|--print` runs the phase-3 seed-0
+  outcome run plus its linear control and the fp32 all-gates re-score.
+  - `tools/perf_tierb_fused.sh` is now a wrapper at its old path. On the box, `--print` resolves to
+    the same three commands as before.
+- `tools/perf_mkoverlay.sh` now takes lane, bundle and destination; its defaults are unchanged.
+
+**One deviation from the design draft: both P2 shapes read v4.** v3's code fingerprint is stale
+for main at or after 4fd08cf. The shapes are unchanged:
+- A = bt 16,384 at widths ≤ 5,383;
+- B = bt 35,403 at widths 7,001–7,936.
+
+**Staged on the box** (CPU only, under `/home/ubuntu/perf`):
+- `overlay-nomask` at 46da2a5, clean.
+  - Dry-run selection: A gives 100 batches, 94 carrying a span row; B gives 50 batches, all 50
+    carrying a span row, at widths 7,035, 7,404 and 7,936.
+  - v4 reads with no stale-shard override.
+- `p3nomask` at 60909b3: 884b658 + trainstep 28eb2bd + mirror d387730 + nomask 60909b3.
+  - nomask.patch also applied to a local reconstruction of that tree, and the 6 backbone and 17
+    argv/recipe no-mask tests passed there.
+- `nomask.bundle` and `nomask.patch`.
+- `perf_tierb_fused.sh` replaced by the wrapper, plus `perf_tierb_outcome.sh`.
+
+**Rules, per Fable:**
+- Item 8 (P2) may fill a gap after F's J7′ decision rows exist.
+- Item 9 (the outcome run) runs only after J5′, and only if P2 passed.
+- A P2 fail cancels item 9. A P2 pass admits nothing on its own.
+- No Tier-B change enters phase 5/6.
+
+**Not verified:**
+- Nothing here has run on a GPU.
+- The CUDA fail-closed behaviour (flash raising on an ineligible shape) is untestable on CPU,
+  because CPU flash accepts masks. The tests check that flash is the only enabled backend during
+  the forward and the checkpoint recompute.
+
+**Commands for the queue builder** (items 8 and 9):
+
+```
+bash /home/ubuntu/perf/perf_nomask_p2.sh T1      # then T2; each session holds the lock at most 1,200 s
+bash /home/ubuntu/perf/perf_tierb_outcome.sh nomask --run   # item 9, after J5', iff both P2 verdicts pass
+```
+
+Results go to:
+- `/home/ubuntu/perf/nomask-p2-T{1,2}.jsonl`
+- `/home/ubuntu/perf/nomask-p2-verdicts.jsonl`
+- `/home/ubuntu/perf/ledger-nomask-p2.jsonl`
+- `/home/ubuntu/perf/ledger-tierb-nomask.jsonl`
+
+Done markers are `/home/ubuntu/perf/nomask-p2-T{1,2}.done` and `/home/ubuntu/perf/tierb-nomask.done`.
