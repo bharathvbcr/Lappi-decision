@@ -370,8 +370,8 @@ Fable ruled on the three misses: main be20c78, `campaign/f-j7prime-preregistered
   applications are conclusive. Otherwise it is held, and it names its failing applications.
 - **The ≤ 12% null bound is kept**, and ×5 is added to the grid.
 
-**What changed** (one commit on `worktree-agent-a59bae74f0f03844b`, from main be20c78; CPU only,
-nothing queued):
+**What changed** (commit b9ba22c on `worktree-agent-a59bae74f0f03844b`, from main be20c78; CPU
+only, nothing queued):
 
 - `tools/perf_parity.py`:
   - `_p2_shape` decides a shape from its four applications (`P2_APPLICATIONS`, in (letter,
@@ -396,7 +396,8 @@ nothing queued):
     all four conclusive with one fail → fail, naming it; one fail beside one inconclusive →
     inconclusive, naming the fail; a pass row carries `[]`.
   - New: `test_the_shape_aggregation_refuses_anything_but_four_known_verdicts`, with three
-    cases for the fail-closed guard.
+    cases for the fail-closed guard. This test and the guard go beyond the order: they make sure
+    nothing unrecognised reads as pass. The lead may keep or drop them.
   - The module docstring is updated.
 - Text: the comment block in `tools/perf_nomask_p2.sh`, and the design-doc addendum.
 
@@ -466,14 +467,18 @@ report-only δ = 2% lines.
   - `overlay-nomask` is at b9ba22c with 0 dirty paths;
   - the T1 dry run gave 100 batches, 94 of them span-carrying, at widths 137–5,116;
   - the T2 dry run gave 50 batches, all 50 span-carrying, at widths 7,035, 7,404 and 7,936;
-  - that matches the selection at 46da2a5.
+  - the consumed digests are `c8d6039e…` (T1) and `1636923d…` (T2);
+  - the batch counts, span counts and B widths match what the 46da2a5 build recorded above.
+    Its A widths and digests were not recorded, so those cannot be compared.
 - The overlay's `perf_parity.py --p2-gate` on a missing verdicts file exits 5.
-- `p2_overlay_smoke.py`, copied to `/home/ubuntu/perf`, ran the three aggregation cases
-  against the overlay under the box venv (Python 3.12.3): 3 of 3 correct.
+- `AUDIT/tierb-nomask-2026-10-01/p2_overlay_smoke.py`, copied to `/home/ubuntu/perf`, ran the
+  three aggregation cases against the overlay under the box venv (Python 3.12.3): 3 of 3
+  correct. The committed copy differs from the one that ran only by a removed lint comment.
 - No P2 rows exist yet (`nomask-p2-verdicts.jsonl` and `nomask-p2-T1.jsonl` are absent).
   `/home/ubuntu/queue/nomask-p2-ruled` is absent, and I left it so.
 
-**First command for the next lane:** the lead merges b9ba22c and this HANDOFF commit to main
+**First command for the next lane:** the lead merges b9ba22c and the HANDOFF commits after it
+(documentation and the smoke script only; the overlay is at b9ba22c) to main
 and touches `/home/ubuntu/queue/nomask-p2-ruled`. Item 8 then runs, in its gap:
 
 ```
