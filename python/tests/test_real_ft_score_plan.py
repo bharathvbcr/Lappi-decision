@@ -190,6 +190,33 @@ def test_suite_logits_with_the_needle_is_kept_under_a_plan(tmp_path):
                        "--suite-verdicts-out", str(tmp_path / "s.jsonl")))
 
 
+def test_the_committed_box_plan_passes_every_argv_check(tmp_path):
+    """campaign/fable-i-ood-diag-plan-2026-10-01.json with the box command HANDOFF
+    ens3-scoring-2026-10-01 gives: every kind paired as its single run would be, every flag
+    accepted, so the first thing it stops on here is the absent shard set."""
+    rec = "/Users/bharath/.cache/qd-decision/general/fetch-record-2026-09-29.json"
+    plan = REPO / "campaign" / "fable-i-ood-diag-plan-2026-10-01.json"
+    assert [k.name for k in rft.read_score_plan(plan).kinds] == [
+        "seed0", "seed1", "seed2", "avg", "ens3"
+    ]
+    with pytest.raises(FileNotFoundError, match=r"shards/train/header\.json"):
+        rft.main([
+            "--out", str(tmp_path), "--no-repo-history",
+            "--defect-class", "data/pool/commitpackft-corpus-v3",
+            "--defect-download", "data/pool/commitpackft",
+            "--defect-noul", "data/pool/defect-noul-v1", "--general-record", rec,
+            "--general-max-rows", "200000", "--replay-partition",
+            "--rev", "b381a03cb12e816c380915b1983f4e13cd1c843c", "--score-plan", str(plan),
+            "--ft-ledger", "/home/ubuntu/ledger/gh200-p4-v3-2026-10-01.jsonl",
+            "--real-backbone", "/home/ubuntu/backbone", "--score-val", "--needle", "--ood",
+            "--ood-general-record", rec, "--suite-logits", "--score-dtype", "fp32",
+            "--devices", "cuda", "--instance", "lambda-1xgh200", "--usd-per-hour", "2.29",
+            "--wall-clock-cap-s", "10800", "--ledger", str(tmp_path / "eval.jsonl"),
+            "--verdicts-out", str(tmp_path / "verdicts.jsonl"),
+            "--suite-verdicts-out", str(tmp_path / "suite-verdicts.jsonl"),
+        ])
+
+
 # --- the OOD-only diagnostic row ---------------------------------------------------------------
 
 
