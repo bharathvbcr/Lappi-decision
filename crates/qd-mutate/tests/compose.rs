@@ -407,3 +407,114 @@ fn the_walk_matches_the_python_adapter_on_its_cases() {
     // A span over a removed line keeps both ends on the new side.
     assert_eq!(diff_line_span(diff, LineSpan::new(1, 3)), Ok(LineSpan::new(2, 5)));
 }
+
+/// `compose_args` for a report-only corpus over the train corpus at `train`.
+fn diag_args<'a>(f: &'a Fixture, out: &'a Path, train: &'a Path, diag: &'a str) -> Vec<&'a str> {
+    let mut args: Vec<&str> = compose_args(f, out, &f.aux)
+        .into_iter()
+        .map(|a| if a == "60" { "0" } else { a })
+        .collect();
+    // --train-rows 0 --val-rows 0 above; val rows back, then the diag rows.
+    let val = args.iter().position(|&a| a == "--val-rows").expect("--val-rows") + 1;
+    args[val] = "60";
+    args.extend(["--diag-rows", diag, "--diag-train-corpus", s(train)]);
+    args
+}
+
+#[test]
+fn diag_rows_probe_train_fillers_from_val_rows_and_never_reach_held_out() {
+    let f = fixture("diag");
+    let (train_rows, _, _) = compose_ok(&f, "train");
+    let train = f.dir.join("train");
+    let out = f.dir.join("slice");
+    ok(&diag_args(&f, &out, &train, "8"));
+    let rows: Vec<ComposedRow> = std::fs::read_to_string(out.join("examples.jsonl"))
+        .expect("read")
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("a composed row"))
+        .collect();
+    let manifest: ComposeManifest =
+        serde_json::from_slice(&std::fs::read(out.join("manifest.json")).expect("read"))
+            .expect("manifest");
+    assert_eq!(manifest.mode, "report_only");
+    let diag = manifest.diag.expect("a diag report");
+    assert_eq!((diag.rows, diag.seen_filler, diag.unseen), (8, 4, 4));
+
+    // What the train corpus showed: each file's filler count and its needle's example.
+    let mut filler_uses: HashMap<&str, u64> = HashMap::new();
+    let mut needle_of: HashMap<&str, &str> = HashMap::new();
+    for row in train_rows.iter().filter(|r| r.split.as_str() == "train") {
+        for c in &row.constituents {
+            if c.role == "needle" {
+                needle_of.insert(&c.pool_id, c.example_id.as_deref().expect("needle example"));
+            } else {
+                *filler_uses.entry(&c.pool_id).or_insert(0) += 1;
+            }
+        }
+    }
+    let val_rows: Vec<&ComposedRow> = rows.iter().filter(|r| r.diag_half.is_none()).collect();
+    assert_eq!(val_rows.len(), 60);
+    let val_files: HashSet<&str> = val_rows
+        .iter()
+        .flat_map(|r| r.constituents.iter().map(|c| c.pool_id.as_str()))
+        .collect();
+    let diag_rows: Vec<&ComposedRow> = rows.iter().filter(|r| r.diag_half.is_some()).collect();
+    assert_eq!(diag_rows.len(), 8);
+    for row in &diag_rows {
+        assert!(row.id.starts_with("compose:diag:"), "{}", row.id);
+        assert_eq!(row.split.as_str(), "val");
+        assert_eq!(split_of(&row.repo), "val", "{}: anchored outside val", row.id);
+        let needle = &row.constituents[row.needle_index.expect("needle") as usize];
+        for c in row.constituents.iter().filter(|c| c.role == "filler") {
+            assert_eq!(split_of(&c.repo), "val", "{}: filler {}", row.id, c.pool_id);
+        }
+        match row.diag_half.as_deref() {
+            Some("seen_filler") => {
+                assert_eq!(split_of(&needle.repo), "train", "{}", row.id);
+                let uses = filler_uses.get(needle.pool_id.as_str()).copied().unwrap_or(0);
+                assert!(uses >= 5, "{}: needle seen as a filler {uses} times", row.id);
+                assert_eq!(row.needle_train_appearances, Some(uses));
+                assert_ne!(
+                    needle_of.get(needle.pool_id.as_str()).copied(),
+                    needle.example_id.as_deref(),
+                    "{}: the diag needle is the very mutation it trained on",
+                    row.id
+                );
+            }
+            Some("unseen") => {
+                assert_eq!(split_of(&needle.repo), "val", "{}", row.id);
+                assert_eq!(row.needle_train_appearances, Some(0));
+                assert!(
+                    !val_files.contains(needle.pool_id.as_str()),
+                    "{}: the unseen needle is in a val row",
+                    row.id
+                );
+            }
+            other => panic!("{}: diag_half {other:?}", row.id),
+        }
+        for c in &row.constituents {
+            assert_ne!(split_of(&c.repo), "heldout", "{}: {}", row.id, c.pool_id);
+        }
+    }
+}
+
+#[test]
+fn diag_rows_are_refused_beside_train_rows_and_without_their_train_corpus() {
+    let f = fixture("diag-refusals");
+    compose_ok(&f, "train");
+    let train = f.dir.join("train");
+    // Beside train rows: a train needle in a val row of a training corpus.
+    let a = f.dir.join("a");
+    let mut args = compose_args(&f, &a, &f.aux);
+    args.extend(["--diag-rows", "8", "--diag-train-corpus", s(&train)]);
+    let out = run(&args);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("never composed into a corpus"));
+    // Without the train corpus whose fillers they probe.
+    let b = f.dir.join("b");
+    let mut args = diag_args(&f, &b, &train, "8");
+    args.truncate(args.len() - 2);
+    let out = run(&args);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--diag-train-corpus"));
+}

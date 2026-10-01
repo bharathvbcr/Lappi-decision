@@ -109,6 +109,14 @@ struct ComposeArgs {
     /// No file appears in more rows than this, needle appearance included.
     #[arg(long, default_value_t = 40)]
     max_filler_uses: u64,
+    /// Report-only diag rows: half whose needle is a train file seen as a filler in
+    /// `--diag-train-corpus`, half whose needle no row holds; fillers from val repos. Refused
+    /// with `--train-rows`.
+    #[arg(long, default_value_t = 0)]
+    diag_rows: usize,
+    /// The train composed corpus whose filler counts the diag rows probe.
+    #[arg(long, requires = "diag_rows")]
+    diag_train_corpus: Option<PathBuf>,
     /// Write only the supply census (`census.json`): no rows are composed.
     #[arg(long)]
     census: bool,
@@ -237,8 +245,14 @@ fn compose(args: ComposeArgs) -> Result<()> {
         floor_uses: args.floor_uses,
         soft_max_uses: args.soft_max_uses,
         max_filler_uses: args.max_filler_uses,
+        diag_rows: args.diag_rows,
     };
-    let composed = compose::compose(&prepared, &options)?;
+    let diag_train = args
+        .diag_train_corpus
+        .as_deref()
+        .map(compose::load_composed)
+        .transpose()?;
+    let composed = compose::compose(&prepared, &options, diag_train.as_ref())?;
     let (jsonl, digest) = composed.to_jsonl().context("serialising the rows")?;
     if digest != composed.manifest.examples_sha256 {
         bail!(

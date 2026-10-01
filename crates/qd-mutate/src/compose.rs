@@ -1043,6 +1043,13 @@ pub struct Options {
     pub soft_max_uses: u64,
     /// No file appears in more rows than this.
     pub max_filler_uses: u64,
+    /// Report-only diag rows (half `seen_filler`, half `unseen`); never with train rows.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub diag_rows: usize,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 impl Options {
@@ -1079,8 +1086,18 @@ impl Options {
                 self.floor_uses, self.soft_max_uses, self.max_filler_uses
             ));
         }
-        if self.train_rows + self.val_rows == 0 {
+        if self.train_rows + self.val_rows + self.diag_rows == 0 {
             return bad("no rows requested".to_string());
+        }
+        if self.diag_rows > 0 && self.train_rows > 0 {
+            return bad(
+                "diag rows are report-only and mix a train needle into val rows; they are never \
+                 composed into a corpus that holds train rows"
+                    .to_string(),
+            );
+        }
+        if self.diag_rows == 1 {
+            return bad("diag rows come in two halves; ask for at least 2".to_string());
         }
         Ok(())
     }
@@ -1143,6 +1160,14 @@ pub struct ComposedRow {
     pub n_files: u32,
     pub est_tokens: u32,
     pub constituents: Vec<Constituent>,
+    /// Diag rows only: `seen_filler` (the needle file's pristine form was a train filler at
+    /// least [`DIAGNOSTIC_MIN_APPEARANCES`] times) or `unseen` (a val file no row of the
+    /// slice otherwise holds).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diag_half: Option<String>,
+    /// Diag rows only: the needle file's appearances as a train filler (0 when unseen).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub needle_train_appearances: Option<u64>,
 }
 
 /// Fixed edges, so two runs' histograms compare.
@@ -1259,6 +1284,72 @@ pub struct ComposeManifest {
     pub heldout_records_skipped: u64,
     pub clean_diff_parity_checked: u64,
     pub splits: BTreeMap<String, SplitReport>,
+    /// The diag rows' report, in a `report_only` corpus.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diag: Option<DiagReport>,
+}
+
+/// What the diag pass composed: rows probing whether a file's pristine form, seen as a train
+/// filler, is what the model reads (`seen_filler`), against needles no row it saw holds
+/// (`unseen`). Every filler is a val file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DiagReport {
+    /// The train corpus whose filler counts define `seen_filler`.
+    pub train_corpus: CorpusRef,
+    pub rows: u64,
+    pub seen_filler: u64,
+    pub unseen: u64,
+    /// Train files with at least `min_train_filler_appearances` filler appearances and a
+    /// mutated rendering other than their train needle's: what `seen_filler` drew from.
+    pub seen_candidates: u64,
+    /// Val files outside the val rows' universe: what `unseen` drew from.
+    pub unseen_candidates: u64,
+    pub min_train_filler_appearances: u64,
+    /// The seen needles' train filler appearances -> rows.
+    pub needle_train_appearances: BTreeMap<u64, u64>,
+    pub report: SplitReport,
+}
+
+/// A train composed corpus, read for its filler counts.
+pub struct DiagTrain {
+    pub rows: Vec<ComposedRow>,
+    pub manifest: ComposeManifest,
+    pub reference: CorpusRef,
+}
+
+/// Read a composed corpus's rows and manifest, checking its digest.
+pub fn load_composed(dir: &Path) -> Result<DiagTrain, ComposeError> {
+    let manifest: ComposeManifest =
+        serde_json::from_slice(&read_file(&dir.join("manifest.json"))?)
+            .map_err(|e| ComposeError::Input(format!("{}: manifest: {e}", dir.display())))?;
+    let bytes = read_file(&dir.join("examples.jsonl"))?;
+    let actual = sha256_hex(&bytes);
+    if actual != manifest.examples_sha256 {
+        return Err(ComposeError::Input(format!(
+            "{}/examples.jsonl hashes to {actual}, its manifest records {}",
+            dir.display(),
+            manifest.examples_sha256
+        )));
+    }
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|e| ComposeError::Input(format!("{}: not UTF-8: {e}", dir.display())))?;
+    let rows = text
+        .lines()
+        .enumerate()
+        .map(|(i, l)| {
+            serde_json::from_str::<ComposedRow>(l).map_err(|e| {
+                ComposeError::Input(format!("{}/examples.jsonl:{}: {e}", dir.display(), i + 1))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(DiagTrain {
+        reference: CorpusRef {
+            name: name_of(dir)?,
+            examples_sha256: actual,
+        },
+        rows,
+        manifest,
+    })
 }
 
 pub struct Composed {
@@ -1568,13 +1659,94 @@ fn assign_needles(
     Ok(())
 }
 
+/// Fill every plan with fillers and render it, refusing rather than shortening: a plan that
+/// fails [`ATTEMPTS_PER_ROW`] attempts refuses the run. `make` turns an accepted rendering
+/// into its row; every row is re-verified from its text before it is kept.
+#[allow(clippy::too_many_arguments)]
+fn fill_rows(
+    what: &'static str,
+    plans: &[Plan],
+    units: &[FileUnit],
+    pool: &mut FillerPool<'_>,
+    opts: &Options,
+    rng: &mut ChaCha20Rng,
+    report: &mut SplitReport,
+    mut make: impl FnMut(usize, &Plan, Rendered, &[usize]) -> Result<ComposedRow, ComposeError>,
+) -> Result<Vec<ComposedRow>, ComposeError> {
+    let mut rows = Vec::with_capacity(plans.len());
+    let mut seen_sets: HashSet<[u8; 32]> = HashSet::new();
+    for (index, plan) in plans.iter().enumerate() {
+        let mut accepted: Option<(Vec<usize>, Rendered)> = None;
+        for _ in 0..ATTEMPTS_PER_ROW {
+            let fillers = match choose_fillers(pool, units, plan, opts, rng) {
+                Ok(f) => f,
+                Err(why) => {
+                    bump(&mut report.attempts_refused, why);
+                    continue;
+                }
+            };
+            let mut ids: Vec<&str> = fillers.iter().map(|&f| units[f].pool_id.as_str()).collect();
+            if let Some((u, _)) = plan.needle {
+                ids.push(units[u].pool_id.as_str());
+            }
+            ids.sort_unstable();
+            let set_key: [u8; 32] = Sha256::digest(ids.join("\0").as_bytes()).into();
+            if seen_sets.contains(&set_key) {
+                bump(&mut report.attempts_refused, "duplicate_constituent_set");
+                continue;
+            }
+            let rendered = render_row(units, plan.needle, &fillers, rng);
+            let lo = u64::from(plan.target) * u64::from(1000 - opts.tolerance_permille) / 1000;
+            let hi = u64::from(plan.target) * u64::from(1000 + opts.tolerance_permille) / 1000;
+            if u64::from(rendered.est) < lo || u64::from(rendered.est) > hi {
+                bump(&mut report.attempts_refused, "estimate_off_target");
+                continue;
+            }
+            if rendered.est > opts.hard_max_tokens {
+                bump(&mut report.attempts_refused, "over_hard_max_tokens");
+                continue;
+            }
+            let share_cap = u64::from(rendered.est) * u64::from(opts.max_share_permille) / 1000;
+            if rendered.constituents.iter().any(|c| u64::from(c.est_tokens) > share_cap) {
+                bump(&mut report.attempts_refused, "constituent_over_share");
+                continue;
+            }
+            seen_sets.insert(set_key);
+            accepted = Some((fillers, rendered));
+            break;
+        }
+        let Some((fillers, rendered)) = accepted else {
+            return Err(ComposeError::Shortfall {
+                split: what,
+                made: rows.len(),
+                wanted: plans.len(),
+                detail: format!(
+                    "row {index} (target {}) failed {ATTEMPTS_PER_ROW} attempts",
+                    plan.target
+                ),
+                refusals: report.attempts_refused.clone(),
+            });
+        };
+        for &f in &fillers {
+            pool.record_use(f);
+        }
+        let row = make(index, plan, rendered, &fillers)?;
+        verify_row(&row, units)?;
+        note_row(report, &row);
+        rows.push(row);
+    }
+    Ok(rows)
+}
+
 /// Compose one split's rows.
+///
+/// Returns the rows, the report, and the split's file universe (indices into `units`).
 fn compose_split(
     split: Split,
     wanted: usize,
     units: &[FileUnit],
     opts: &Options,
-) -> Result<(Vec<ComposedRow>, SplitReport), ComposeError> {
+) -> Result<(Vec<ComposedRow>, SplitReport, Vec<usize>), ComposeError> {
     let mut rng = split_rng(opts.seed, split);
     let mut report = SplitReport {
         files_available: units.len() as u64,
@@ -1592,7 +1764,7 @@ fn compose_split(
         *report.file_est_histogram.entry(length_bin(u.pristine_est)).or_insert(0) += 1;
     }
     if wanted == 0 {
-        return Ok((Vec::new(), report));
+        return Ok((Vec::new(), report, Vec::new()));
     }
     let shortfall = |made: usize, detail: String, refusals: &BTreeMap<String, u64>| {
         ComposeError::Shortfall {
@@ -1648,63 +1820,19 @@ fn compose_split(
         pool.record_use(u);
     }
 
-    let mut rows = Vec::with_capacity(wanted);
-    let mut seen_sets: HashSet<[u8; 32]> = HashSet::new();
-    for (index, plan) in plans.iter().enumerate() {
-        let mut accepted: Option<(Vec<usize>, Rendered)> = None;
-        for _ in 0..ATTEMPTS_PER_ROW {
-            let fillers = match choose_fillers(&pool, units, plan, opts, &mut rng) {
-                Ok(f) => f,
-                Err(why) => {
-                    bump(&mut report.attempts_refused, why);
-                    continue;
-                }
-            };
-            let mut ids: Vec<&str> = fillers.iter().map(|&f| units[f].pool_id.as_str()).collect();
-            if let Some((u, _)) = plan.needle {
-                ids.push(units[u].pool_id.as_str());
-            }
-            ids.sort_unstable();
-            let set_key: [u8; 32] = Sha256::digest(ids.join("\0").as_bytes()).into();
-            if seen_sets.contains(&set_key) {
-                bump(&mut report.attempts_refused, "duplicate_constituent_set");
-                continue;
-            }
-            let rendered = render_row(units, plan.needle, &fillers, &mut rng);
-            let lo = u64::from(plan.target) * u64::from(1000 - opts.tolerance_permille) / 1000;
-            let hi = u64::from(plan.target) * u64::from(1000 + opts.tolerance_permille) / 1000;
-            if u64::from(rendered.est) < lo || u64::from(rendered.est) > hi {
-                bump(&mut report.attempts_refused, "estimate_off_target");
-                continue;
-            }
-            if rendered.est > opts.hard_max_tokens {
-                bump(&mut report.attempts_refused, "over_hard_max_tokens");
-                continue;
-            }
-            let share_cap = u64::from(rendered.est) * u64::from(opts.max_share_permille) / 1000;
-            if rendered.constituents.iter().any(|c| u64::from(c.est_tokens) > share_cap) {
-                bump(&mut report.attempts_refused, "constituent_over_share");
-                continue;
-            }
-            seen_sets.insert(set_key);
-            accepted = Some((fillers, rendered));
-            break;
-        }
-        let Some((fillers, rendered)) = accepted else {
-            return Err(shortfall(
-                rows.len(),
-                format!("row {index} (target {}) failed {ATTEMPTS_PER_ROW} attempts", plan.target),
-                &report.attempts_refused,
-            ));
-        };
-        for &f in &fillers {
-            pool.record_use(f);
-        }
-        let row = build_row(split, index, units, plan, rendered, &fillers, opts)?;
-        verify_row(&row, units)?;
-        note_row(&mut report, &row);
-        rows.push(row);
-    }
+    let rows = fill_rows(
+        split.as_str(),
+        &plans,
+        units,
+        &mut pool,
+        opts,
+        &mut rng,
+        &mut report,
+        |index, plan, rendered, fillers| {
+            let id = format!("compose:{}:{index:06}", split.as_str());
+            build_row(id, split, units, plan, rendered, fillers, opts, Anchor::Needle)
+        },
+    )?;
 
     // Diagnostic 1 is read off the emitted rows, not the sampler's bookkeeping; the two must
     // agree.
@@ -1741,6 +1869,184 @@ fn compose_split(
             split.as_str(),
             report.needle_rate.violations
         )));
+    }
+    Ok((rows, report, needle_files))
+}
+
+fn diag_rng(seed: u64) -> ChaCha20Rng {
+    let mut h = Sha256::new();
+    h.update(seed.to_le_bytes());
+    h.update(b"compose\0diag");
+    ChaCha20Rng::from_seed(h.finalize().into())
+}
+
+/// The report-only diag rows: `diag_rows / 2` whose needle is a train file seen as a filler
+/// at least [`DIAGNOSTIC_MIN_APPEARANCES`] times in `train` (rendered with a mutation other
+/// than its train needle's), the rest whose needle is a val file outside `val_universe`.
+/// Every filler is a val file, and every row is anchored at its first filler, so it splits as
+/// val. A train file in a val row is the point of the probe and the reason these rows are
+/// never composed beside train rows ([`Options::check`]).
+fn compose_diag(
+    prepared: &Prepared,
+    val_universe: &[usize],
+    train: &DiagTrain,
+    opts: &Options,
+) -> Result<(Vec<ComposedRow>, DiagReport), ComposeError> {
+    let m = &train.manifest;
+    if !matches!(m.mode.as_str(), "train_only" | "train_and_val")
+        || m.base_corpus != prepared.base
+        || m.aux_corpus != prepared.aux
+        || m.pool.sha256 != prepared.pool_ref.sha256
+        || m.split_map.sha256 != prepared.split_map_ref.sha256
+    {
+        return Err(ComposeError::Input(format!(
+            "the diag train corpus {} (mode {}) was not composed from this base, aux, pool and \
+             split map",
+            train.reference.name, m.mode
+        )));
+    }
+    let empty: Vec<FileUnit> = Vec::new();
+    let train_units = prepared.units.get(&Split::Train).unwrap_or(&empty);
+    let val_units = prepared.units.get(&Split::Val).unwrap_or(&empty);
+    let mut filler_uses: HashMap<&str, u64> = HashMap::new();
+    let mut needle_example: HashMap<&str, &str> = HashMap::new();
+    // Train rows only: a train_and_val corpus's val rows say nothing about what training saw.
+    for row in train.rows.iter().filter(|r| r.split == Split::Train) {
+        for c in &row.constituents {
+            if c.role == "needle" {
+                if let Some(id) = c.example_id.as_deref() {
+                    needle_example.insert(c.pool_id.as_str(), id);
+                }
+            } else {
+                *filler_uses.entry(c.pool_id.as_str()).or_insert(0) += 1;
+            }
+        }
+    }
+    let mut rng = diag_rng(opts.seed);
+    let seen: Vec<(FileUnit, u64)> = train_units
+        .iter()
+        .filter_map(|u| {
+            let uses = *filler_uses.get(u.pool_id.as_str())?;
+            if uses < DIAGNOSTIC_MIN_APPEARANCES {
+                return None;
+            }
+            let used = needle_example.get(u.pool_id.as_str()).copied();
+            let renderings: Vec<Rendering> = u
+                .renderings
+                .iter()
+                .filter(|r| Some(r.row.id.as_str()) != used)
+                .cloned()
+                .collect();
+            (!renderings.is_empty()).then(|| (FileUnit { renderings, ..u.clone() }, uses))
+        })
+        .collect();
+    let universe: HashSet<usize> = val_universe.iter().copied().collect();
+    let mut unseen: Vec<usize> = (0..val_units.len()).filter(|i| !universe.contains(i)).collect();
+    let n_seen = opts.diag_rows / 2;
+    let n_unseen = opts.diag_rows - n_seen;
+    let mut report = DiagReport {
+        train_corpus: train.reference.clone(),
+        rows: 0,
+        seen_filler: 0,
+        unseen: 0,
+        seen_candidates: seen.len() as u64,
+        unseen_candidates: unseen.len() as u64,
+        min_train_filler_appearances: DIAGNOSTIC_MIN_APPEARANCES,
+        needle_train_appearances: BTreeMap::new(),
+        report: SplitReport::default(),
+    };
+    if seen.len() < n_seen || unseen.len() < n_unseen {
+        return Err(ComposeError::Shortfall {
+            split: "diag",
+            made: 0,
+            wanted: opts.diag_rows,
+            detail: format!(
+                "{n_seen} seen and {n_unseen} unseen needles wanted, {} and {} available",
+                seen.len(),
+                unseen.len()
+            ),
+            refusals: BTreeMap::new(),
+        });
+    }
+    // One unit list: every seen candidate, every unseen candidate, then every other val file
+    // as a filler. The needles are drawn from the candidates row by row (`assign_needles`,
+    // uniform among those that fit the row), so no row is left without a fitting needle.
+    let n_seen_candidates = seen.len();
+    let unseen_candidates: HashSet<usize> = unseen.iter().copied().collect();
+    let mut uses_of: Vec<u64> = Vec::new();
+    let mut units: Vec<FileUnit> = Vec::new();
+    for (u, uses) in seen {
+        units.push(u);
+        uses_of.push(uses);
+    }
+    unseen.sort_unstable();
+    for &i in &unseen {
+        units.push(val_units[i].clone());
+        uses_of.push(0);
+    }
+    let filler_start = units.len();
+    for (i, u) in val_units.iter().enumerate() {
+        if !unseen_candidates.contains(&i) {
+            units.push(u.clone());
+        }
+    }
+    let fillers: Vec<usize> = (filler_start..units.len()).collect();
+
+    let mut halves: Vec<bool> = (0..opts.diag_rows).map(|i| i < n_seen).collect();
+    shuffle(&mut halves, &mut rng);
+    let mut plans: Vec<Plan> = halves
+        .iter()
+        .map(|_| Plan {
+            target: rng.random_range(opts.min_tokens..=opts.max_tokens),
+            needle: Some((usize::MAX, usize::MAX)),
+        })
+        .collect();
+    let seen_rows: Vec<usize> = (0..plans.len()).filter(|&i| halves[i]).collect();
+    let unseen_rows: Vec<usize> = (0..plans.len()).filter(|&i| !halves[i]).collect();
+    let seen_files: Vec<usize> = (0..n_seen_candidates).collect();
+    let unseen_files: Vec<usize> = (n_seen_candidates..filler_start).collect();
+    for (rows_, files) in [(&seen_rows, &seen_files), (&unseen_rows, &unseen_files)] {
+        assign_needles(&mut plans, rows_, files, &units, opts, &mut rng).map_err(|d| {
+            ComposeError::Shortfall {
+                split: "diag",
+                made: 0,
+                wanted: opts.diag_rows,
+                detail: d,
+                refusals: BTreeMap::new(),
+            }
+        })?;
+    }
+    let mut pool = FillerPool::new(&units, &fillers, opts);
+    let rows = fill_rows(
+        "diag",
+        &plans,
+        &units,
+        &mut pool,
+        opts,
+        &mut rng,
+        &mut report.report,
+        |index, plan, rendered, chosen| {
+            let id = format!("compose:diag:{index:06}");
+            let mut row =
+                build_row(id, Split::Val, &units, plan, rendered, chosen, opts, Anchor::Filler)?;
+            let (u, _) = plan.needle.ok_or_else(|| {
+                ComposeError::Invariant(format!("{}: a diag row without a needle", row.id))
+            })?;
+            row.diag_half = Some(if halves[index] { "seen_filler" } else { "unseen" }.to_string());
+            row.needle_train_appearances = Some(uses_of[u]);
+            Ok(row)
+        },
+    )?;
+    for row in &rows {
+        report.rows += 1;
+        match row.diag_half.as_deref() {
+            Some("seen_filler") => {
+                report.seen_filler += 1;
+                let n = row.needle_train_appearances.unwrap_or(0);
+                *report.needle_train_appearances.entry(n).or_insert(0) += 1;
+            }
+            _ => report.unseen += 1,
+        }
     }
     Ok((rows, report))
 }
@@ -1813,36 +2119,58 @@ pub fn needle_rate_report(
     Ok(out)
 }
 
+/// Which file a row's `pool_id`, `repo` and split come from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Anchor {
+    /// The needle's file (a clean row has none, and takes its first filler).
+    Needle,
+    /// The row's first filler in pool-unit order: a diag row's needle may be a train file,
+    /// and the row must still split as val.
+    Filler,
+}
+
+#[allow(clippy::too_many_arguments)]
 fn build_row(
+    id: String,
     split: Split,
-    index: usize,
     units: &[FileUnit],
     plan: &Plan,
     rendered: Rendered,
     fillers: &[usize],
     opts: &Options,
+    anchor: Anchor,
 ) -> Result<ComposedRow, ComposeError> {
     let n_files = rendered.constituents.len() as u32;
-    let id = format!("compose:{}:{index:06}", split.as_str());
+    // The first filler in pool-unit order, which does not move with the file order.
+    let first_filler = fillers.iter().min().copied();
     match (plan.needle, rendered.needle_at) {
         (Some((u, r)), Some((needle_index, diff_span))) => {
             let nd = &units[u].renderings[r].row;
+            let (pool_id, repo) = match anchor {
+                Anchor::Needle => (nd.pool_id.clone(), nd.repo.clone()),
+                Anchor::Filler => {
+                    let f = first_filler.ok_or_else(|| {
+                        ComposeError::Invariant(format!("{id}: anchored at a filler it lacks"))
+                    })?;
+                    (units[f].pool_id.clone(), units[f].repo.clone())
+                }
+            };
             Ok(ComposedRow {
                 id,
-                pool_id: nd.pool_id.clone(),
-                repo: nd.repo.clone(),
-                path: nd.repo.clone(),
+                pool_id,
+                path: repo.clone(),
                 language: nd.language,
                 class: nd.class,
                 operator: nd.operator.clone(),
                 silent: nd.silent,
                 span: nd.span,
                 function: FunctionIdentity {
-                    repo: nd.function.repo.clone(),
-                    path: nd.repo.clone(),
+                    repo: repo.clone(),
+                    path: repo.clone(),
                     symbol: nd.function.symbol.clone(),
                     arity: nd.function.arity,
                 },
+                repo,
                 after: nd.after.clone(),
                 diff: rendered.diff,
                 hunk_constrained: nd.hunk_constrained,
@@ -1856,14 +2184,12 @@ fn build_row(
                 n_files,
                 est_tokens: rendered.est,
                 constituents: rendered.constituents,
+                diag_half: None,
+                needle_train_appearances: None,
             })
         }
         (None, None) => {
-            // The anchor is the row's first file in pool-unit order, which does not move with
-            // the file order.
-            let anchor = *fillers
-                .iter()
-                .min()
+            let anchor = first_filler
                 .ok_or_else(|| ComposeError::Invariant(format!("{id}: a clean row holds no file")))?;
             let unit = &units[anchor];
             let function = &unit.renderings[0].row.function;
@@ -1896,6 +2222,8 @@ fn build_row(
                 n_files,
                 est_tokens: rendered.est,
                 constituents: rendered.constituents,
+                diag_half: None,
+                needle_train_appearances: None,
             })
         }
         _ => Err(ComposeError::Invariant(format!("{id}: the plan and the rendering disagree on the needle"))),
@@ -2021,26 +2349,54 @@ fn note_row(report: &mut SplitReport, row: &ComposedRow) {
 
 /// Compose both splits. Refuses rather than shortens: a run that cannot meet its specification
 /// is an error naming what failed, not a smaller corpus.
-pub fn compose(prepared: &Prepared, opts: &Options) -> Result<Composed, ComposeError> {
+pub fn compose(
+    prepared: &Prepared,
+    opts: &Options,
+    diag_train: Option<&DiagTrain>,
+) -> Result<Composed, ComposeError> {
     opts.check()?;
     let mut rows = Vec::new();
     let mut splits = BTreeMap::new();
     let empty: Vec<FileUnit> = Vec::new();
+    let mut val_universe: Vec<usize> = Vec::new();
     for (split, wanted) in [(Split::Train, opts.train_rows), (Split::Val, opts.val_rows)] {
         let units = prepared.units.get(&split).unwrap_or(&empty);
-        let (r, report) = compose_split(split, wanted, units, opts)?;
+        let (r, report, universe) = compose_split(split, wanted, units, opts)?;
+        if split == Split::Val {
+            val_universe = universe;
+        }
         rows.extend(r);
         splits.insert(split.as_str().to_string(), report);
     }
+    let diag = match (opts.diag_rows, diag_train) {
+        (0, None) => None,
+        (0, Some(_)) => {
+            return Err(ComposeError::Input(
+                "a diag train corpus was given with no diag rows to compose".to_string(),
+            ));
+        }
+        (_, None) => {
+            return Err(ComposeError::Input(
+                "diag rows need the train corpus whose fillers they probe (--diag-train-corpus)"
+                    .to_string(),
+            ));
+        }
+        (_, Some(train)) => {
+            let (r, report) = compose_diag(prepared, &val_universe, train, opts)?;
+            rows.extend(r);
+            Some(report)
+        }
+    };
     let mut by_split = BTreeMap::new();
     let mut by_class = BTreeMap::new();
     for r in &rows {
         *by_split.entry(r.split.as_str().to_string()).or_insert(0) += 1;
         *by_class.entry(r.class.as_str().to_string()).or_insert(0) += 1;
     }
-    let mode = match (opts.train_rows > 0, opts.val_rows > 0) {
-        (true, true) => "train_and_val",
-        (true, false) => "train_only",
+    let mode = match (opts.train_rows > 0, opts.val_rows > 0, opts.diag_rows > 0) {
+        (_, _, true) => "report_only",
+        (true, true, false) => "train_and_val",
+        (true, false, false) => "train_only",
         _ => "val_only",
     };
     let mut composed = Composed {
@@ -2071,6 +2427,7 @@ pub fn compose(prepared: &Prepared, opts: &Options) -> Result<Composed, ComposeE
             heldout_records_skipped: prepared.heldout_skipped,
             clean_diff_parity_checked: prepared.parity_checked,
             splits,
+            diag,
         },
         rows,
     };

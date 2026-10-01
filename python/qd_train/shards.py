@@ -134,6 +134,9 @@ __all__ = [
     "SEQUENCE_INDEX_FORMAT",
     "SEQUENCE_INDEX_NAME",
     "SPAN_CHECK_NAME",
+    "SPAN_COLLAPSE_POLICIES",
+    "SPAN_COLLAPSE_REFUSE_ANY",
+    "SPAN_COLLAPSE_REFUSE_GOLD",
     "SUPERVISION_NAME",
     "TOKENS_NAME",
     "Decode",
@@ -161,6 +164,29 @@ OFFSETS_NAME: Final[str] = "offsets.npy"
 COVERAGE_NAME: Final[str] = "coverage.json"
 SUPERVISION_NAME: Final[str] = "supervision.npz"
 SPAN_CHECK_NAME: Final[str] = "span_check.json"
+
+#: What a span slot whose context lines collapse under BPE -- two line starts inside one
+#: token -- does (GAP-S4-LINE-STARTS-COLLAPSE-UNDER-BPE).
+#:
+#: * ``refuse-any`` (the default, and the only policy a val or gate shard set is written
+#:   under): any collapse refuses the slot.
+#: * ``refuse-gold`` (Fable round K, training shards only): the slot is refused only when the
+#:   gold's first or last line starts inside a token another line also starts in. Lines that
+#:   collapse elsewhere **share one candidate**: ``candidates`` stays one entry per context
+#:   line, the collapsed lines carry the same token index, and the batch's ``line_starts``
+#:   mask -- a set of positions -- holds that token once. Measured on 300 composed rows,
+#:   every collapse (696 of 696) was two consecutive blank context lines. A defect gold
+#:   sits on such a pair in 16 of 20,898 composed and 18 of 41,504 v3 mutated rows
+#:   (``test_pipeline_defect_class.py`` pins the counts); when the pair collapses, the
+#:   slot is refused. The runtime's span candidates must build line start -> token with this same
+#:   rule for a model trained under it (a requirement on G9(a)).
+SPAN_COLLAPSE_REFUSE_ANY: Final[str] = "refuse-any"
+SPAN_COLLAPSE_REFUSE_GOLD: Final[str] = "refuse-gold"
+SPAN_COLLAPSE_POLICIES: Final[tuple[str, ...]] = (
+    SPAN_COLLAPSE_REFUSE_ANY,
+    SPAN_COLLAPSE_REFUSE_GOLD,
+)
+
 #: The self-consistency report :func:`corpus_contradictions` produces, written beside the
 #: shards. It exists as a file so that "the corpus was checked" is a recorded artifact
 #: rather than the absence of an exception: a set written by an older writer has no such
@@ -842,6 +868,7 @@ def encode_slot(
     token_offsets: TokenOffsets | None,
     decode: Decode | None,
     where: str,
+    span_collapse_policy: str = SPAN_COLLAPSE_REFUSE_ANY,
 ) -> EncodedSlot:
     """Tokenize, remap and project one slot's sequence -- the writer's only way to do it.
 
@@ -861,7 +888,8 @@ def encode_slot(
             f"{where}: the remap produced a negative id, which cannot be stored as {TOKEN_DTYPE}"
         )
     projected = _span_token_positions(
-        spec, ids, token_offsets=token_offsets, decode=decode, where=where
+        spec, ids, token_offsets=token_offsets, decode=decode, where=where,
+        span_collapse_policy=span_collapse_policy,
     )
     if projected is None:
         if spec.slot_kind == SLOT_SPAN:
@@ -1033,8 +1061,12 @@ def _span_token_positions(
     token_offsets: TokenOffsets | None,
     decode: Decode | None = None,
     where: str,
+    span_collapse_policy: str = SPAN_COLLAPSE_REFUSE_ANY,
 ) -> tuple[tuple[int, int], tuple[int, ...]] | None:
     """``((start, end), candidates)`` in token positions, or ``None`` for a non-span row.
+
+    ``span_collapse_policy`` decides what collapsed line starts do; see
+    :data:`SPAN_COLLAPSE_REFUSE_ANY` and :data:`SPAN_COLLAPSE_REFUSE_GOLD`.
 
     Both come off the *same* offset mapping, and the gold is one of the candidates by
     construction -- the character offsets it was built from are entries of
@@ -1118,7 +1150,13 @@ def _span_token_positions(
     candidates = tuple(
         _token_index_for_char(offsets, c, where=where) for c in spec.line_char_starts
     )
-    if len(set(candidates)) != len(candidates):
+    if span_collapse_policy not in SPAN_COLLAPSE_POLICIES:
+        raise ValueError(
+            f"span_collapse_policy must be one of {SPAN_COLLAPSE_POLICIES}, "
+            f"got {span_collapse_policy!r}"
+        )
+    collapsed = len(set(candidates)) != len(candidates)
+    if collapsed and span_collapse_policy == SPAN_COLLAPSE_REFUSE_ANY:
         raise UnencodableGold(
             f"{where}: {len(candidates)} context lines map to only "
             f"{len(set(candidates))} distinct tokens, so two lines share one candidate and "
@@ -1167,6 +1205,17 @@ def _span_token_positions(
             "and the candidate set are built from one list of line offsets, so this means "
             "the offset mapping is not monotonic in the text."
         )
+    if collapsed:
+        # Only reached under refuse-gold: collapsed lines elsewhere share their token, but a
+        # gold line that shares one is a target the pointer cannot tell from its neighbour.
+        shared = [p for p in (start_tok, end_tok) if candidates.count(p) > 1]
+        if shared:
+            raise UnencodableGold(
+                f"{where}: the gold's line start shares token(s) {sorted(set(shared))} with "
+                "another context line, so the pointer head cannot tell the gold from its "
+                "neighbour. Refused under span_collapse_policy=refuse-gold, which keeps a "
+                "collapse only when it misses the gold."
+            )
     if decode is not None:
         # The gold positions first, so that when a whole-corpus mapping is shifted the
         # message names the gold rather than an arbitrary candidate.
@@ -1350,6 +1399,7 @@ def write_shards(
     max_sequences: int = DEFAULT_MAX_SEQUENCES,
     max_total_tokens: int = DEFAULT_MAX_TOTAL_TOKENS,
     max_seq_len: int | None = None,
+    span_collapse_policy: str = SPAN_COLLAPSE_REFUSE_ANY,
 ) -> ShardHeader:
     """Tokenize a cleared corpus into a shard set and return its header.
 
@@ -1412,6 +1462,10 @@ def write_shards(
     ``allow_unencodable`` and records the exclusion with it. Never truncated: truncation
     drops the answer token. ``None`` (the default) caps nothing, and the widest bucket is the
     longest sequence as before.
+
+    ``span_collapse_policy`` is :data:`SPAN_COLLAPSE_REFUSE_ANY` by default. A caller may pass
+    :data:`SPAN_COLLAPSE_REFUSE_GOLD` for a TRAINING set only. A val or gate set keeps the
+    default, so every gate's span population stays the one it was measured on (rule 2).
     """
     manifest_path = Path(manifest_path)
     out_dir = Path(out_dir)
@@ -1424,6 +1478,11 @@ def write_shards(
         not isinstance(max_seq_len, int) or isinstance(max_seq_len, bool) or max_seq_len < 2
     ):
         raise ValueError(f"max_seq_len must be an int of at least 2, got {max_seq_len!r}")
+    if span_collapse_policy not in SPAN_COLLAPSE_POLICIES:
+        raise ValueError(
+            f"span_collapse_policy must be one of {SPAN_COLLAPSE_POLICIES}, "
+            f"got {span_collapse_policy!r}"
+        )
 
     handle = open_training_data(
         manifest_path,
@@ -1432,6 +1491,13 @@ def write_shards(
         allow_not_run_snapshot=allow_not_run_snapshot,
     )
     manifest = handle.manifest
+    if span_collapse_policy != SPAN_COLLAPSE_REFUSE_ANY and manifest.split != "train":
+        raise ShardContractViolation(
+            f"{manifest_path}: span_collapse_policy={span_collapse_policy} is a training-side "
+            f"policy, and this is the {manifest.split!r} split. Val and gate sets keep "
+            f"{SPAN_COLLAPSE_REFUSE_ANY}, so every gate's span population is the one it was "
+            "measured on (rule 2)."
+        )
 
     entry_hashes: dict[str, int] = {}
     for entry in manifest.entries:
@@ -1504,7 +1570,7 @@ def write_shards(
             try:
                 encoded = encode_slot(
                     spec, tokenize=tokenize, remap=remap, token_offsets=token_offsets,
-                    decode=decode, where=where,
+                    decode=decode, where=where, span_collapse_policy=span_collapse_policy,
                 )
             except UnencodableGold as exc:
                 # Only UnencodableGold is slot-scoped: it says this slot's span cannot be

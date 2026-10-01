@@ -512,6 +512,111 @@ def test_a_renderer_refusal_without_the_flag_still_refuses_the_whole_write(
     assert not out.exists(), "refused, and nothing was written"
 
 
+#: A diff-shaped context with two consecutive blank context lines (" ", " "), the one
+#: pattern behind every collapse measured on the composed corpus (696 of 696).
+_BLANK_PAIR_TEXT = "ctx\n a\n \n \n+b\n c\n"
+#: Its line starts: "ctx", " a", " ", " ", "+b", " c".
+_BLANK_PAIR_LINES = (0, 4, 7, 9, 11, 14)
+
+
+def _blank_pair_tokens(text: str) -> tuple[list[int], list[tuple[int, int]]]:
+    """One token per character, except "\\n \\n " -- the BPE merge -- which is one token
+    (id 1) holding both blank lines' starts."""
+    ids: list[int] = []
+    offs: list[tuple[int, int]] = []
+    i = 0
+    while i < len(text):
+        if text.startswith("\n \n ", i):
+            ids.append(1)
+            offs.append((i, i + 4))
+            i += 4
+        else:
+            ids.append(ord(text[i]))
+            offs.append((i, i + 1))
+            i += 1
+    return ids, offs
+
+
+def _blank_pair_spec(gold: int | None) -> SequenceSpec:
+    return SequenceSpec(
+        slot_name="defect_span",
+        text=_BLANK_PAIR_TEXT,
+        slot_kind=SLOT_SPAN,
+        span_char_starts=None if gold is None else (gold, gold),
+        span_abstains=gold is None,
+        line_char_starts=_BLANK_PAIR_LINES,
+    )
+
+
+def _encode_blank_pair(spec: SequenceSpec, **kw: object) -> shards_module.EncodedSlot:
+    return shards_module.encode_slot(
+        spec,
+        tokenize=lambda t: _blank_pair_tokens(t)[0],
+        remap=byte_remap(),
+        token_offsets=lambda t: _blank_pair_tokens(t)[1],
+        decode=None,
+        where="row r slot defect_span",
+        **kw,  # type: ignore[arg-type]
+    )
+
+
+def test_refuse_gold_keeps_a_span_slot_whose_collapse_misses_the_gold() -> None:
+    """Fable round K: a collapse of two blank context lines no longer costs the slot.
+
+    The gold ("+b") is untouched; the two blank lines share one candidate token index, one
+    entry per line, so the candidate list still has the context's line count.
+    """
+    spec = _blank_pair_spec(gold=11)
+    with pytest.raises(UnencodableGold, match="share one candidate"):
+        _encode_blank_pair(spec)
+    encoded = _encode_blank_pair(
+        spec, span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD
+    )
+    assert encoded.candidates == (0, 4, 6, 6, 8, 11)
+    assert len(encoded.candidates) == len(_BLANK_PAIR_LINES)
+    assert encoded.span == (8, 8)
+    # And an abstaining span row, which has no gold to collide, keeps its slot too.
+    abstain = _encode_blank_pair(
+        _blank_pair_spec(gold=None), span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD
+    )
+    assert abstain.span == (SPAN_ABSTAIN, SPAN_ABSTAIN)
+    assert abstain.candidates == (0, 4, 6, 6, 8, 11)
+
+
+def test_refuse_gold_still_refuses_a_gold_line_inside_a_collapsed_token() -> None:
+    spec = _blank_pair_spec(gold=9)
+    with pytest.raises(UnencodableGold, match="gold's line start shares token"):
+        _encode_blank_pair(spec, span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD)
+    with pytest.raises(ValueError, match="span_collapse_policy"):
+        _encode_blank_pair(spec, span_collapse_policy="share-everything")
+
+
+def test_refuse_gold_is_refused_on_any_split_but_train(snapshot: Snapshot, tmp_path: Path) -> None:
+    """Val and gate sets keep refuse-any, so no gate's span population moves (rule 2)."""
+    with pytest.raises(ShardContractViolation, match="training-side"):
+        _write(
+            snapshot, "val", tmp_path / "val",
+            span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD,
+        )
+    assert not (tmp_path / "val").exists()
+
+
+def test_refuse_gold_without_a_collapse_writes_the_default_set_byte_for_byte(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """Where nothing collapses (byte tokens), the policy changes no byte of the set."""
+    a = _write(snapshot, "train", tmp_path / "a")
+    b = _write(
+        snapshot, "train", tmp_path / "b",
+        span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD,
+    )
+    assert a.shard_hash() == b.shard_hash()
+    for name in sorted(p.name for p in (tmp_path / "a").iterdir()):
+        if name == HEADER_NAME:
+            continue
+        assert (tmp_path / "a" / name).read_bytes() == (tmp_path / "b" / name).read_bytes(), name
+
+
 def _longest_and_rows_over(snapshot: Snapshot, tmp_path: Path) -> tuple[int, int]:
     """The longest train sequence, and how many rows hold a sequence of that length."""
     out = tmp_path / "shards" / "uncapped"
