@@ -161,8 +161,10 @@ def test_the_scored_checkpoint_keys_reach_the_recipe_only_when_present():
     # rows, manifest sha256 and source), on an averaged score row and on no other.
     # "ensemble" joined for J7' (Fable I): a logit ensemble's seeds, ft rows, towers and
     # combine rule, on an ensemble's score row and on no other.
+    # "trained_by" joined for human ask 7 of Fable's ojas advice (2026-10-01): the trainer,
+    # device, source and manifest of a Metal export, on a row scoring one and on no other.
     assert set(real_ft_run.SCORED_CHECKPOINT_KEYS) == {
-        "score_dtype", "scored_checkpoint", "averaged", "ensemble",
+        "score_dtype", "scored_checkpoint", "averaged", "ensemble", "trained_by",
     }
 
 
