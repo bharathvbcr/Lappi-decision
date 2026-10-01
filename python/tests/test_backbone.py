@@ -1722,12 +1722,18 @@ def test_the_same_order_still_resumes_so_the_refusal_is_the_order(tmp_path):
 # --- selective checkpointing (Tier A: semantics-preserving) ----------------------------------
 
 
-def _trajectory(where: Path, *, skip: int, n: int = 6, gradient_checkpointing: bool = True):
+def _trajectory(
+    where: Path, *, skip: int, n: int = 6, gradient_checkpointing: bool = True,
+    lower_layers_n: int = 0, lower_lr_scale: float = 1.0,
+):
     """``n`` real FT steps through ``train_ft``; every number a Tier-A comparison reads."""
     tower, _ = _tiny_tower(
         where, gradient_checkpointing=gradient_checkpointing, checkpoint_skip_layers=skip
     )
-    step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=n, max_width=64)
+    step = QwenDecisionStep(
+        tower, seed=0, lr=1e-3, total_steps=n, max_width=64,
+        lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale,
+    )
     result = train_ft(
         (_ft_batch(i) for i in range(n)),
         epoch=0,
@@ -1830,6 +1836,23 @@ def test_selective_checkpointing_leaves_the_trajectory_bit_identical(tmp_path, s
     other = _trajectory(tmp_path / f"skip{skip}", skip=skip)
     assert other == base
     assert any(x > 0.0 for x in base["span"]), "the span channel must actually be exercised"
+
+
+@pytest.mark.parametrize("skip", [2, TINY_LAYERS])
+def test_selective_checkpointing_composes_with_the_layerwise_lr_split(tmp_path, skip):
+    """Run F pairs --checkpoint-skip-layers 6 with --lower-layers-n 8, and skip 6's layers 3
+    and 7 sit inside the lower group. The split only scales an optimizer group and the skip
+    only drops a recompute, so with the split on the trajectory must still not move a bit --
+    here with a skipped full-attention layer (1) inside the lower group, as in F."""
+    from qd_train.backbone import uncheckpointed_layers
+
+    types = list(_tiny_text_config().layer_types)
+    assert [i for i in uncheckpointed_layers(skip, types) if i < 2], "no overlap to test"
+    base = _trajectory(tmp_path / "full", skip=0, lower_layers_n=2, lower_lr_scale=0.1)
+    other = _trajectory(tmp_path / f"skip{skip}", skip=skip, lower_layers_n=2, lower_lr_scale=0.1)
+    assert other == base
+    flat = _trajectory(tmp_path / f"flat{skip}", skip=skip)
+    assert flat["digest"] != base["digest"], "the split must be live, or this proves nothing"
 
 
 def test_the_tower_records_which_linear_attention_kernels_it_bound(tmp_path):
