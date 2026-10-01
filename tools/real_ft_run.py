@@ -1058,10 +1058,47 @@ ENSEMBLE_COMBINE: Final[str] = (
 )
 
 
+def on_host(value: object) -> np.ndarray:
+    """``value`` as a host array. A torch tensor on any device (CUDA, MPS) is detached and
+    copied to the CPU first: ``np.asarray`` of a device tensor raises, and so does one of a
+    tensor that requires grad. J4's ens3 gate row on the GH200 (2026-10-01) died on the
+    former in :func:`combine_readouts`."""
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().numpy()
+    return np.asarray(value)
+
+
+def same_span_plan(a: Any, b: Any) -> bool:
+    """Whether two towers planned one batch's span rows identically, read on the host.
+
+    A :class:`qd_train.heads.SpanPlan` is compared in every field (candidates, their
+    validity, counts, query positions, gold rows, abstention) and in ``runtime_rows``; the
+    same row counts with a different gold row are a different batch. Anything else exposing
+    ``runtime_rows`` is compared on that alone.
+    """
+    if a is None or b is None:
+        return a is None and b is None
+
+    def fields(plan: Any) -> dict[str, np.ndarray]:
+        names = (
+            [f.name for f in dataclasses.fields(plan)] if dataclasses.is_dataclass(plan) else []
+        )
+        return {
+            **{name: on_host(getattr(plan, name)) for name in names},
+            "runtime_rows": on_host(plan.runtime_rows),
+        }
+
+    fa, fb = fields(a), fields(b)
+    return fa.keys() == fb.keys() and all(
+        fa[k].shape == fb[k].shape and bool(np.array_equal(fa[k], fb[k])) for k in fa
+    )
+
+
 def combine_readouts(readouts: Sequence[BatchReadout]) -> BatchReadout:
     """The logit ensemble of several towers' readouts of ONE batch (:data:`ENSEMBLE_COMBINE`).
 
-    Every tower must have read the same rows under the same span plan; anything else is a
+    Every tower must have read the same rows under the same span plan
+    (:func:`same_span_plan`, on the host, wherever the towers run); anything else is a
     different batch, and is refused rather than averaged.
     """
     if len(readouts) < 2:
@@ -1070,20 +1107,18 @@ def combine_readouts(readouts: Sequence[BatchReadout]) -> BatchReadout:
     for other in readouts[1:]:
         if set(other.letters) != set(first.letters) or other.span_index != first.span_index:
             raise ValueError("ensemble towers read different rows of one batch")
-        if (first.plan is None) != (other.plan is None) or (
-            first.plan is not None
-            and not np.array_equal(
-                np.asarray(first.plan.runtime_rows), np.asarray(other.plan.runtime_rows)
-            )
-        ):
+        if not same_span_plan(first.plan, other.plan):
             raise ValueError("ensemble towers planned one batch's span rows differently")
 
     def mean_log_probs(scores: Sequence[torch.Tensor]) -> torch.Tensor:
+        # On the host: MPS has no float64 at all, and a row's scores are a handful of values
+        # (a slot's letters, a context's line starts), so the copy costs nothing. The decode
+        # reads the result the same way wherever it lives.
         shapes = {tuple(s.shape) for s in scores}
         if len(shapes) != 1:
             raise ValueError(f"ensemble towers scored one row over different row counts {shapes}")
         return torch.stack(
-            [torch.log_softmax(s.detach().to(torch.float64), dim=-1) for s in scores]
+            [torch.log_softmax(s.detach().cpu().to(torch.float64), dim=-1) for s in scores]
         ).mean(dim=0)
 
     letters = {
