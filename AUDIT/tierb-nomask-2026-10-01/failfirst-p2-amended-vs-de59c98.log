@@ -1,0 +1,580 @@
+FFFFFFFFFFFF..FFFFF..F.FFFFFFFFF                                         [100%]
+=================================== FAILURES ===================================
+_____ test_a_candidate_on_the_baseline_passes_and_the_row_records_the_rule _____
+
+    def test_a_candidate_on_the_baseline_passes_and_the_row_records_the_rule():
+        out = pp.p2_screen(_bases(), _cands())
+        assert out["verdict"] == "pass"
+>       assert (out["tau"], out["kappa"]) == (0.02, 3)
+                ^^^^^^^^^^
+E       KeyError: 'tau'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:79: KeyError
+__ test_the_first_live_step_set_is_the_first_step_and_all_is_every_live_step ___
+
+    def test_the_first_live_step_set_is_the_first_step_and_all_is_every_live_step():
+        out = pp.p2_screen(_bases(), _cands())
+>       sets = out["channels"]["letter"]["sets"]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'sets'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:98: KeyError
+________________ test_a_three_percent_shift_on_every_step_fails ________________
+
+    def test_a_three_percent_shift_on_every_step_fails():
+        out = pp.p2_screen(_bases(), _cands(lambda t: 1.03))
+>       assert out["channels"]["letter"]["verdict"] == "fail"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'verdict'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:106: KeyError
+_______________________ test_a_one_percent_shift_passes ________________________
+
+    def test_a_one_percent_shift_passes():
+        out = pp.p2_screen(_bases(), _cands(lambda t: 1.01, lambda t: 1.01))
+>       assert out["verdict"] == "pass"
+E       AssertionError: assert 'fail' == 'pass'
+E         
+E         - pass
+E         + fail
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:114: AssertionError
+_________ test_a_step_one_only_shift_fails_through_the_first_step_set __________
+
+    def test_a_step_one_only_shift_fails_through_the_first_step_set():
+        """A kernel change that moves only the first forward: invisible in the all-steps mean,
+        caught by the first-live-step set; the channel is the worst of the two."""
+        out = pp.p2_screen(_bases(), _cands(lambda t: 1.03 if t == 0 else 1.0))
+        letter = out["channels"]["letter"]
+>       assert letter["sets"]["first"]["verdict"] == "fail"
+               ^^^^^^^^^^^^^^
+E       KeyError: 'sets'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:122: KeyError
+_____________ test_one_shifted_candidate_among_two_null_ones_fails _____________
+
+    def test_one_shifted_candidate_among_two_null_ones_fails():
+        cands = _cands()
+        cands[1] = _cands(lambda t: 1.04, lambda t: 1.04, k=1)[0] | {"tag": "A-none-2"}
+        out = pp.p2_screen(_bases(), cands)
+        assert out["verdict"] == "fail"
+>       assert out["channels"]["letter"]["sets"]["all"]["dev_i"][1] == pytest.approx(0.04, rel=1e-6)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'sets'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:132: KeyError
+___ test_noisy_baselines_are_inconclusive_even_when_the_candidate_is_far_off ___
+
+    def test_noisy_baselines_are_inconclusive_even_when_the_candidate_is_far_off():
+        """noise > tau/kappa is checked first: a screen that cannot resolve tau says so rather
+        than failing (or passing) the candidate on noise."""
+        out = pp.p2_screen(_bases(jitter=0.02), _cands(lambda t: 1.10, lambda t: 1.10))
+        for ch in ("letter", "span"):
+>           assert out["channels"][ch]["sets"]["all"]["verdict"] == "inconclusive"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'sets'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:140: KeyError
+_____ test_noisy_baselines_with_a_null_candidate_are_inconclusive_not_fail _____
+
+    def test_noisy_baselines_with_a_null_candidate_are_inconclusive_not_fail():
+        out = pp.p2_screen(_bases(jitter=0.02), _cands())
+>       assert out["channels"]["letter"]["verdict"] == "inconclusive"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'verdict'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:147: KeyError
+_______ test_a_channel_no_arm_exercised_is_not_run_and_the_shape_with_it _______
+
+    def test_a_channel_no_arm_exercised_is_not_run_and_the_shape_with_it():
+        bases = [b | {"span": [(0.0).hex()] * N} for b in _bases()]
+        cands = [c | {"span": [(0.0).hex()] * N} for c in _cands()]
+        out = pp.p2_screen(bases, cands)
+>       assert out["channels"]["span"]["verdict"] == "not_run"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'verdict'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:155: KeyError
+_________ test_fail_outranks_not_run_and_not_run_outranks_inconclusive _________
+
+    def test_fail_outranks_not_run_and_not_run_outranks_inconclusive():
+        zero = (0.0).hex()
+        bases = [b | {"span": [zero] * N} for b in _bases()]
+        failing = [c | {"span": [zero] * N} for c in _cands(lambda t: 1.05)]
+        assert pp.p2_screen(bases, failing)["verdict"] == "fail"
+        noisy = [b | {"span": [zero] * N} for b in _bases(jitter=0.02)]
+        null = [c | {"span": [zero] * N} for c in _cands()]
+        out = pp.p2_screen(noisy, null)
+>       assert out["channels"]["letter"]["verdict"] == "inconclusive"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'verdict'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:168: KeyError
+__________ test_a_set_whose_mean_baseline_is_not_positive_is_not_run ___________
+
+    def test_a_set_whose_mean_baseline_is_not_positive_is_not_run():
+        neg = [b | {"letter": [(-1.0).hex(), *b["letter"][1:]]} for b in _bases()]
+        cands = [c | {"letter": [(-1.0).hex(), *c["letter"][1:]]} for c in _cands()]
+        letter = pp.p2_screen(neg, cands)["channels"]["letter"]
+>       assert letter["sets"]["first"]["verdict"] == "not_run"
+               ^^^^^^^^^^^^^^
+E       KeyError: 'sets'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:176: KeyError
+_____________________ test_only_live_steps_enter_a_channel _____________________
+
+    def test_only_live_steps_enter_a_channel():
+        """A span channel is 0.0 on every arm at a letter-only batch: not evidence either way."""
+        zero = (0.0).hex()
+        bases = [b | {"span": [zero, *b["span"][1:]]} for b in _bases()]
+        cands = [c | {"span": [zero, *c["span"][1:]]} for c in _cands()]
+        span = pp.p2_screen(bases, cands)["channels"]["span"]
+        assert span["live_steps"] == N - 1
+>       assert span["sets"]["first"]["L"] == pytest.approx(_span(1))
+               ^^^^^^^^^^^^
+E       KeyError: 'sets'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:187: KeyError
+_ test_arms_the_rule_cannot_compare_are_refused[cand-change2-steps_exhausted] __
+
+which = 'cand', change = {'termination': 'wall_clock_cap'}
+match = 'steps_exhausted'
+
+    @pytest.mark.parametrize(
+        ("which", "change", "match"),
+        [
+            ("cand", {"consumed_digest": "d" * 64}, "different batches"),
+            ("cand", {"letter": [(1.0).hex()] * (N - 1), "steps": N - 1}, "steps"),
+            ("cand", {"termination": "wall_clock_cap"}, "steps_exhausted"),
+            ("base", {"termination": "wall_clock_cap"}, "steps_exhausted"),
+            ("base", {"train_attention_mask": "none"}, "baseline"),
+            ("cand", {"train_attention_mask": "padding"}, "candidate"),
+            ("cand", {"train_attention_mask": None}, "candidate"),
+        ],
+    )
+    def test_arms_the_rule_cannot_compare_are_refused(which, change, match):
+        bases, cands = _bases(), _cands()
+        if which == "base":
+            bases[0] = bases[0] | change
+        else:
+            cands[0] = cands[0] | change
+>       with pytest.raises(SystemExit, match=match):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE SystemExit
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:208: Failed
+_ test_arms_the_rule_cannot_compare_are_refused[base-change3-steps_exhausted] __
+
+which = 'base', change = {'termination': 'wall_clock_cap'}
+match = 'steps_exhausted'
+
+    @pytest.mark.parametrize(
+        ("which", "change", "match"),
+        [
+            ("cand", {"consumed_digest": "d" * 64}, "different batches"),
+            ("cand", {"letter": [(1.0).hex()] * (N - 1), "steps": N - 1}, "steps"),
+            ("cand", {"termination": "wall_clock_cap"}, "steps_exhausted"),
+            ("base", {"termination": "wall_clock_cap"}, "steps_exhausted"),
+            ("base", {"train_attention_mask": "none"}, "baseline"),
+            ("cand", {"train_attention_mask": "padding"}, "candidate"),
+            ("cand", {"train_attention_mask": None}, "candidate"),
+        ],
+    )
+    def test_arms_the_rule_cannot_compare_are_refused(which, change, match):
+        bases, cands = _bases(), _cands()
+        if which == "base":
+            bases[0] = bases[0] | change
+        else:
+            cands[0] = cands[0] | change
+>       with pytest.raises(SystemExit, match=match):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE SystemExit
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:208: Failed
+_____ test_arms_the_rule_cannot_compare_are_refused[base-change4-baseline] _____
+
+which = 'base', change = {'train_attention_mask': 'none'}, match = 'baseline'
+
+    @pytest.mark.parametrize(
+        ("which", "change", "match"),
+        [
+            ("cand", {"consumed_digest": "d" * 64}, "different batches"),
+            ("cand", {"letter": [(1.0).hex()] * (N - 1), "steps": N - 1}, "steps"),
+            ("cand", {"termination": "wall_clock_cap"}, "steps_exhausted"),
+            ("base", {"termination": "wall_clock_cap"}, "steps_exhausted"),
+            ("base", {"train_attention_mask": "none"}, "baseline"),
+            ("cand", {"train_attention_mask": "padding"}, "candidate"),
+            ("cand", {"train_attention_mask": None}, "candidate"),
+        ],
+    )
+    def test_arms_the_rule_cannot_compare_are_refused(which, change, match):
+        bases, cands = _bases(), _cands()
+        if which == "base":
+            bases[0] = bases[0] | change
+        else:
+            cands[0] = cands[0] | change
+>       with pytest.raises(SystemExit, match=match):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE SystemExit
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:208: Failed
+____ test_arms_the_rule_cannot_compare_are_refused[cand-change5-candidate] _____
+
+which = 'cand', change = {'train_attention_mask': 'padding'}
+match = 'candidate'
+
+    @pytest.mark.parametrize(
+        ("which", "change", "match"),
+        [
+            ("cand", {"consumed_digest": "d" * 64}, "different batches"),
+            ("cand", {"letter": [(1.0).hex()] * (N - 1), "steps": N - 1}, "steps"),
+            ("cand", {"termination": "wall_clock_cap"}, "steps_exhausted"),
+            ("base", {"termination": "wall_clock_cap"}, "steps_exhausted"),
+            ("base", {"train_attention_mask": "none"}, "baseline"),
+            ("cand", {"train_attention_mask": "padding"}, "candidate"),
+            ("cand", {"train_attention_mask": None}, "candidate"),
+        ],
+    )
+    def test_arms_the_rule_cannot_compare_are_refused(which, change, match):
+        bases, cands = _bases(), _cands()
+        if which == "base":
+            bases[0] = bases[0] | change
+        else:
+            cands[0] = cands[0] | change
+>       with pytest.raises(SystemExit, match=match):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE SystemExit
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:208: Failed
+____ test_arms_the_rule_cannot_compare_are_refused[cand-change6-candidate] _____
+
+which = 'cand', change = {'train_attention_mask': None}, match = 'candidate'
+
+    @pytest.mark.parametrize(
+        ("which", "change", "match"),
+        [
+            ("cand", {"consumed_digest": "d" * 64}, "different batches"),
+            ("cand", {"letter": [(1.0).hex()] * (N - 1), "steps": N - 1}, "steps"),
+            ("cand", {"termination": "wall_clock_cap"}, "steps_exhausted"),
+            ("base", {"termination": "wall_clock_cap"}, "steps_exhausted"),
+            ("base", {"train_attention_mask": "none"}, "baseline"),
+            ("cand", {"train_attention_mask": "padding"}, "candidate"),
+            ("cand", {"train_attention_mask": None}, "candidate"),
+        ],
+    )
+    def test_arms_the_rule_cannot_compare_are_refused(which, change, match):
+        bases, cands = _bases(), _cands()
+        if which == "base":
+            bases[0] = bases[0] | change
+        else:
+            cands[0] = cands[0] | change
+>       with pytest.raises(SystemExit, match=match):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE SystemExit
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:208: Failed
+_______ test_tau_and_kappa_are_module_constants_and_there_is_no_override _______
+
+    def test_tau_and_kappa_are_module_constants_and_there_is_no_override():
+        """Fable: no override flag, env var or --tau. A changed tau is a recorded amendment and a
+        commit to the constant, then --p2 recomputed from the saved rows."""
+>       assert (pp.P2_TAU, pp.P2_KAPPA) == (0.02, 3)
+                ^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'P2_TAU'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:221: AttributeError
+_____ test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows0-True] _____
+
+rows = [{'base': ['A-mask-1', 'A-mask-2', 'A-mask-3'], 'cand': ['A-none-1'], 'verdict': 'pass'}, {'base': ['B-mask-1', 'B-mask-2', 'B-mask-3'], 'cand': ['B-none-1'], 'verdict': 'pass'}]
+ok = True
+
+    @pytest.mark.parametrize(
+        ("rows", "ok"),
+        [
+            ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+            ([_verdict("A", "pass")], False),
+            ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+            ([_verdict("A", "pass"), _verdict("B", "inconclusive")], False),
+            ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+            # A rerun of a shape supersedes its earlier verdict, in both directions.
+            ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+            ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+            ([], False),
+        ],
+    )
+    def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+        """Fable: fail cancels the outcome run; not_run or missing cancels it until a rerun;
+        inconclusive holds it for the human. Only pass at both shapes opens it."""
+>       passed, detail = pp.p2_gate(rows)
+                         ^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_gate'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:261: AttributeError
+____ test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows1-False] _____
+
+rows = [{'base': ['A-mask-1', 'A-mask-2', 'A-mask-3'], 'cand': ['A-none-1'], 'verdict': 'pass'}]
+ok = False
+
+    @pytest.mark.parametrize(
+        ("rows", "ok"),
+        [
+            ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+            ([_verdict("A", "pass")], False),
+            ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+            ([_verdict("A", "pass"), _verdict("B", "inconclusive")], False),
+            ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+            # A rerun of a shape supersedes its earlier verdict, in both directions.
+            ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+            ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+            ([], False),
+        ],
+    )
+    def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+        """Fable: fail cancels the outcome run; not_run or missing cancels it until a rerun;
+        inconclusive holds it for the human. Only pass at both shapes opens it."""
+>       passed, detail = pp.p2_gate(rows)
+                         ^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_gate'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:261: AttributeError
+____ test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows2-False] _____
+
+rows = [{'base': ['A-mask-1', 'A-mask-2', 'A-mask-3'], 'cand': ['A-none-1'], 'verdict': 'pass'}, {'base': ['B-mask-1', 'B-mask-2', 'B-mask-3'], 'cand': ['B-none-1'], 'verdict': 'not_run'}]
+ok = False
+
+    @pytest.mark.parametrize(
+        ("rows", "ok"),
+        [
+            ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+            ([_verdict("A", "pass")], False),
+            ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+            ([_verdict("A", "pass"), _verdict("B", "inconclusive")], False),
+            ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+            # A rerun of a shape supersedes its earlier verdict, in both directions.
+            ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+            ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+            ([], False),
+        ],
+    )
+    def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+        """Fable: fail cancels the outcome run; not_run or missing cancels it until a rerun;
+        inconclusive holds it for the human. Only pass at both shapes opens it."""
+>       passed, detail = pp.p2_gate(rows)
+                         ^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_gate'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:261: AttributeError
+____ test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows3-False] _____
+
+rows = [{'base': ['A-mask-1', 'A-mask-2', 'A-mask-3'], 'cand': ['A-none-1'], 'verdict': 'pass'}, {'base': ['B-mask-1', 'B-mask-2', 'B-mask-3'], 'cand': ['B-none-1'], 'verdict': 'inconclusive'}]
+ok = False
+
+    @pytest.mark.parametrize(
+        ("rows", "ok"),
+        [
+            ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+            ([_verdict("A", "pass")], False),
+            ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+            ([_verdict("A", "pass"), _verdict("B", "inconclusive")], False),
+            ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+            # A rerun of a shape supersedes its earlier verdict, in both directions.
+            ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+            ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+            ([], False),
+        ],
+    )
+    def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+        """Fable: fail cancels the outcome run; not_run or missing cancels it until a rerun;
+        inconclusive holds it for the human. Only pass at both shapes opens it."""
+>       passed, detail = pp.p2_gate(rows)
+                         ^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_gate'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:261: AttributeError
+____ test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows4-False] _____
+
+rows = [{'base': ['A-mask-1', 'A-mask-2', 'A-mask-3'], 'cand': ['A-none-1'], 'verdict': 'fail'}, {'base': ['B-mask-1', 'B-mask-2', 'B-mask-3'], 'cand': ['B-none-1'], 'verdict': 'pass'}]
+ok = False
+
+    @pytest.mark.parametrize(
+        ("rows", "ok"),
+        [
+            ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+            ([_verdict("A", "pass")], False),
+            ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+            ([_verdict("A", "pass"), _verdict("B", "inconclusive")], False),
+            ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+            # A rerun of a shape supersedes its earlier verdict, in both directions.
+            ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+            ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+            ([], False),
+        ],
+    )
+    def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+        """Fable: fail cancels the outcome run; not_run or missing cancels it until a rerun;
+        inconclusive holds it for the human. Only pass at both shapes opens it."""
+>       passed, detail = pp.p2_gate(rows)
+                         ^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_gate'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:261: AttributeError
+_____ test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows5-True] _____
+
+rows = [{'base': ['A-mask-1', 'A-mask-2', 'A-mask-3'], 'cand': ['A-none-1'], 'verdict': 'fail'}, {'base': ['B-mask-1', 'B-mas...-none-1'], 'verdict': 'pass'}, {'base': ['A-mask-1', 'A-mask-2', 'A-mask-3'], 'cand': ['A-none-1'], 'verdict': 'pass'}]
+ok = True
+
+    @pytest.mark.parametrize(
+        ("rows", "ok"),
+        [
+            ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+            ([_verdict("A", "pass")], False),
+            ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+            ([_verdict("A", "pass"), _verdict("B", "inconclusive")], False),
+            ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+            # A rerun of a shape supersedes its earlier verdict, in both directions.
+            ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+            ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+            ([], False),
+        ],
+    )
+    def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+        """Fable: fail cancels the outcome run; not_run or missing cancels it until a rerun;
+        inconclusive holds it for the human. Only pass at both shapes opens it."""
+>       passed, detail = pp.p2_gate(rows)
+                         ^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_gate'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:261: AttributeError
+____ test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows6-False] _____
+
+rows = [{'base': ['A-mask-1', 'A-mask-2', 'A-mask-3'], 'cand': ['A-none-1'], 'verdict': 'pass'}, {'base': ['B-mask-1', 'B-mas...-none-1'], 'verdict': 'pass'}, {'base': ['B-mask-1', 'B-mask-2', 'B-mask-3'], 'cand': ['B-none-1'], 'verdict': 'fail'}]
+ok = False
+
+    @pytest.mark.parametrize(
+        ("rows", "ok"),
+        [
+            ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+            ([_verdict("A", "pass")], False),
+            ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+            ([_verdict("A", "pass"), _verdict("B", "inconclusive")], False),
+            ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+            # A rerun of a shape supersedes its earlier verdict, in both directions.
+            ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+            ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+            ([], False),
+        ],
+    )
+    def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+        """Fable: fail cancels the outcome run; not_run or missing cancels it until a rerun;
+        inconclusive holds it for the human. Only pass at both shapes opens it."""
+>       passed, detail = pp.p2_gate(rows)
+                         ^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_gate'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:261: AttributeError
+____ test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows7-False] _____
+
+rows = [], ok = False
+
+    @pytest.mark.parametrize(
+        ("rows", "ok"),
+        [
+            ([_verdict("A", "pass"), _verdict("B", "pass")], True),
+            ([_verdict("A", "pass")], False),
+            ([_verdict("A", "pass"), _verdict("B", "not_run")], False),
+            ([_verdict("A", "pass"), _verdict("B", "inconclusive")], False),
+            ([_verdict("A", "fail"), _verdict("B", "pass")], False),
+            # A rerun of a shape supersedes its earlier verdict, in both directions.
+            ([_verdict("A", "fail"), _verdict("B", "pass"), _verdict("A", "pass")], True),
+            ([_verdict("A", "pass"), _verdict("B", "pass"), _verdict("B", "fail")], False),
+            ([], False),
+        ],
+    )
+    def test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes(rows, ok):
+        """Fable: fail cancels the outcome run; not_run or missing cancels it until a rerun;
+        inconclusive holds it for the human. Only pass at both shapes opens it."""
+>       passed, detail = pp.p2_gate(rows)
+                         ^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_gate'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:261: AttributeError
+_______________ test_the_gate_cli_refuses_a_missing_verdict_file _______________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-400/test_the_gate_cli_refuses_a_mi0')
+
+    def test_the_gate_cli_refuses_a_missing_verdict_file(tmp_path):
+>       assert pp.main(["--p2-gate", str(tmp_path / "nope.jsonl")]) == 5
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py:267: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/tools/perf_parity.py:326: in main
+    args = ap.parse_args(argv)
+           ^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2012: in parse_args
+    self.error(msg)
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2785: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='python -m pytest', usage=None, description='One arm of a Tier-A / Tier-B parity comparison, through the REAL training loop.', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = 'python -m pytest: error: unrecognized arguments: --p2-gate /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-400/test_the_gate_cli_refuses_a_mi0/nope.jsonl\n'
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2772: SystemExit
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] [--compare FILE:TAG [FILE:TAG ...]] [--p2 FILE]
+                        [--base TAG [TAG ...]] [--cand TAG [TAG ...]]
+                        [--p2-out P2_OUT] [--code-root CODE_ROOT] [--out OUT]
+                        [--backbone BACKBONE] [--batch-tokens BATCH_TOKENS]
+                        [--width-min WIDTH_MIN] [--width-max WIDTH_MAX]
+                        [--n-batches N_BATCHES] [--allow-fewer]
+                        [--passes PASSES] [--seed SEED] [--lr LR]
+                        [--cap-s CAP_S] [--deterministic]
+                        [--checkpoint-skip-layers CHECKPOINT_SKIP_LAYERS]
+                        [--train-attention-mask {padding,none}]
+                        [--min-span-batches MIN_SPAN_BATCHES]
+                        [--allow-stale-shards] [--ledger LEDGER]
+                        [--result RESULT] [--tag TAG] [--dry-run]
+                        [--device DEVICE] [--stand-in]
+python -m pytest: error: unrecognized arguments: --p2-gate /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-400/test_the_gate_cli_refuses_a_mi0/nope.jsonl
+=========================== short test summary info ============================
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_a_candidate_on_the_baseline_passes_and_the_row_records_the_rule
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_first_live_step_set_is_the_first_step_and_all_is_every_live_step
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_a_three_percent_shift_on_every_step_fails
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_a_one_percent_shift_passes
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_a_step_one_only_shift_fails_through_the_first_step_set
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_one_shifted_candidate_among_two_null_ones_fails
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_noisy_baselines_are_inconclusive_even_when_the_candidate_is_far_off
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_noisy_baselines_with_a_null_candidate_are_inconclusive_not_fail
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_a_channel_no_arm_exercised_is_not_run_and_the_shape_with_it
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_fail_outranks_not_run_and_not_run_outranks_inconclusive
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_a_set_whose_mean_baseline_is_not_positive_is_not_run
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_only_live_steps_enter_a_channel
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_arms_the_rule_cannot_compare_are_refused[cand-change2-steps_exhausted]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_arms_the_rule_cannot_compare_are_refused[base-change3-steps_exhausted]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_arms_the_rule_cannot_compare_are_refused[base-change4-baseline]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_arms_the_rule_cannot_compare_are_refused[cand-change5-candidate]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_arms_the_rule_cannot_compare_are_refused[cand-change6-candidate]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_tau_and_kappa_are_module_constants_and_there_is_no_override
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows0-True]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows1-False]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows2-False]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows3-False]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows4-False]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows5-True]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows6-False]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows7-False]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_gate_cli_refuses_a_missing_verdict_file
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_arms_the_rule_cannot_compare_are_refused[cand-change0-different batches]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_arms_the_rule_cannot_compare_are_refused[cand-change1-steps]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_fewer_than_three_baselines_or_no_candidate_is_refused[2-3]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_fewer_than_three_baselines_or_no_candidate_is_refused[3-0]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prede59/t/python/tests/test_perf_parity_p2.py::test_the_cli_exit_code_reads_pass_fail_and_everything_else
+27 failed, 5 passed in 1.12s

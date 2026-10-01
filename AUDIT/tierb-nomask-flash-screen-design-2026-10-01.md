@@ -30,6 +30,24 @@
 >
 >   Each arm refuses fewer than 10 span-carrying batches, so the span channel is never compared
 >   on nothing.
+>
+> **P2 rule amended** (Fable, 2026-10-01, main 1de0a34, `no_mask.p2_rule`; the old text is in
+> `p2_rule_retired`).
+> - **Why.** The D(t) ≤ S(t)-on-≥90% rule proposed below can't pass a correct candidate. Per
+>   step, P(D ≤ S) = C(3,2)/C(6,2) = 1/5 exactly, for any noise distribution.
+> - **The replacement** is a material-shift test. For each channel and step set (first live
+>   step, all live steps), it compares the candidates' mean relative shift from the baseline
+>   mean against τ = 2%. If the baselines' leave-one-out noise is above τ/3, the result is
+>   inconclusive, and inconclusive holds the outcome run for the human.
+> - **Calibration.** Every target is checked by CPU simulation against the implemented function
+>   in `AUDIT/tierb-nomask-2026-10-01/p2_null_sim.py`/`.out` (v2). Three checks miss, and nothing
+>   was tuned:
+>   - the x20 null at n=100 3v3 fails 12.1% against a 12% limit;
+>   - δ = 2% with one candidate (3v1, noisy step 0) fails 92.6% at n=100 and 91.0% at n=50,
+>     against ≥ 95%.
+>
+>   The mechanisms are in `p2_miss_diag.py`/`.out`. The p2_timing precondition is not met, so T1
+>   waits for Fable (HANDOFF/train-step-perf-2026-10-01.md).
 
 **Status:** a draft for the lead to take to Fable. Nothing here is built or queued.
 - The GPU parts are sized to run **after F**.

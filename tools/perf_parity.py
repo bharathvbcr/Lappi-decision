@@ -22,13 +22,27 @@ then ``torch.use_deterministic_algorithms(True)``, and ``deterministic=True`` in
 first, whether all three are identical and, where not, the first differing step and the
 largest per-step deviation in each channel.
 
-``--p2 FILE --base TAG... --cand TAG...`` (no GPU) is Fable's Tier-B screen
-(campaign/f-j7prime-preregistered.json ``no_mask.p2_rule``) over default-kernel arms on the
-same batches: per step t and channel, the baseline spread S(t) = max over baseline pairs of
-|B_i(t) - B_j(t)| and the cross deviation D(t) = max over (candidate, baseline) pairs of
-|M_i(t) - B_j(t)|; the channel passes when D(t) <= S(t) on at least ``--min-frac`` of its live
-steps. A channel with no live step (no arm ever saw it non-zero) is NOT RUN, and a shape with a
-channel not run does not pass.
+``--p2 FILE --base TAG... --cand TAG...`` (no GPU) is Fable's Tier-B screen, as AMENDED on
+2026-10-01 (campaign/f-j7prime-preregistered.json ``no_mask.p2_rule``). It runs over
+default-kernel arms on the same batches: 3 masked baselines B_j against the no-mask candidates
+M_i.
+- **Per channel and per step set T** (the first live step, and all live steps):
+  - bbar(t) = mean_j B_j(t);
+  - L = mean over T of bbar;
+  - dev_i = mean over T of (M_i - bbar) / L;
+  - noise_j = mean over T of (B_j - mean of the other baselines) / L.
+- **Verdict per (channel, T):** inconclusive if max|noise_j| > tau/kappa (0.02/3); else fail if
+  max|dev_i| > tau; else pass.
+- **Aggregation:** a channel is the worst over T, and a shape the worst channel, where worst
+  means fail > not_run > inconclusive > pass. A channel with no live step is not_run.
+- **Exit codes:** 0 pass, 1 fail, 2 anything else.
+- **The retired per-step rule** (D(t) <= S(t) on >= 90% of steps, unsatisfiable under an
+  exchangeable null: P(D <= S) = 1/5 per step) still rides on the row as a report-only profile.
+- tau and kappa are module constants with no override.
+
+``--p2-gate VERDICTS`` exits 0 only if both shapes' latest verdict is pass. That is the outcome
+run's precondition: fail cancels it, not_run or missing cancels it until a rerun, and
+inconclusive holds it for the human.
 """
 
 from __future__ import annotations
@@ -212,31 +226,95 @@ def compare(specs: list[str]) -> int:
     return worst
 
 
-#: Fable's P2 rule: D(t) <= S(t) on at least this fraction of a channel's live steps.
-P2_MIN_FRAC = 0.9
-#: Fable: the baseline spread is measured on at least this many repeats.
+#: Fable's amended P2 rule (campaign/f-j7prime-preregistered.json ``no_mask.p2_rule``): the
+#: material shift a candidate may not exceed, as a fraction of the baseline loss level, and how
+#: many times finer than that the baselines' own leave-one-out noise must be for the screen to
+#: resolve it. Module constants on purpose -- no flag, env var or --tau: a changed tau is an
+#: amendment recorded in the campaign file and a commit here, then --p2 recomputed from the
+#: saved result rows.
+P2_TAU = 0.02
+P2_KAPPA = 3
+#: Fable: the baseline noise is measured on at least this many repeats.
 P2_MIN_BASELINES = 3
+#: What every arm must have ended on: a capped arm compared a prefix, not the plan.
+P2_TERMINATION = "steps_exhausted"
+#: The labelling the rule compares: masked baselines against no-mask candidates.
+P2_BASE_MASK = "padding"
+P2_CAND_MASK = "none"
+#: Worst first: a channel is the worst of its step sets, a shape the worst of its channels.
+P2_SEVERITY = ("fail", "not_run", "inconclusive", "pass")
 
 
 def _channel(rows: list[dict[str, Any]], ch: str) -> list[list[float]]:
     return [[float.fromhex(x) for x in r[ch]] for r in rows]
 
 
-def p2_screen(
-    bases: list[dict[str, Any]], cands: list[dict[str, Any]], *, min_frac: float = P2_MIN_FRAC
-) -> dict[str, Any]:
-    """Fable's P2 screen over parity-arm result rows (see the module docstring).
+def _worst(verdicts: list[str]) -> str:
+    return min(verdicts, key=P2_SEVERITY.index)
 
-    Refuses arms that are not comparable step for step: fewer than three baselines, no
-    candidate, different step counts, or a different batch order (``consumed_digest``). A
-    channel is *live* at step t when any arm's value there is non-zero (a span channel is
-    0.0 on a letter-only batch in every arm, which is evidence of nothing); a channel with no
-    live step is ``not_run``, and the verdict is ``pass`` only when every channel ran and
-    passed, ``fail`` when one ran and failed, ``not_run`` otherwise.
+
+def _p2_set(b: list[list[float]], m: list[list[float]], steps: list[int]) -> dict[str, Any]:
+    """One application of the rule: one channel, one step set T."""
+    n_t = len(steps)
+    bbar = {t: sum(arm[t] for arm in b) / len(b) for t in steps}
+    level = sum(bbar.values()) / n_t
+    row: dict[str, Any] = {"steps": n_t, "first_step": steps[0], "L": level}
+    if not level > 0.0:
+        row.update(verdict="not_run",
+                   reason=f"L = {level!r}: the mean baseline loss over this set is not positive")
+        return row
+    dev_i = [sum(arm[t] - bbar[t] for t in steps) / n_t / level for arm in m]
+    noise_j = [
+        sum(b[j][t] - sum(b[k][t] for k in range(len(b)) if k != j) / (len(b) - 1)
+            for t in steps) / n_t / level
+        for j in range(len(b))
+    ]
+    dev = max(abs(x) for x in dev_i)
+    noise = max(abs(x) for x in noise_j)
+    if noise > P2_TAU / P2_KAPPA:
+        verdict = "inconclusive"
+    elif dev > P2_TAU:
+        verdict = "fail"
+    else:
+        verdict = "pass"
+    row.update(dev_i=dev_i, noise_j=noise_j, dev=dev, noise=noise, verdict=verdict)
+    return row
+
+
+def _p2_profile(b: list[list[float]], m: list[list[float]], live: list[int]) -> dict[str, Any]:
+    """The retired rule's per-step numbers, kept on the row as a report-only profile."""
+    s = {t: max(abs(b[i][t] - b[j][t]) for i in range(len(b)) for j in range(i + 1, len(b)))
+         for t in live}
+    d = {t: max(abs(x[t] - y[t]) for x in m for y in b) for t in live}
+    max_s = max(s.values())
+    over = [t for t in live if d[t] > max_s]
+    return {
+        "median_d": sorted(d.values())[len(d) // 2], "max_d": max(d.values()),
+        "median_s": sorted(s.values())[len(s) // 2], "max_s": max_s,
+        "frac_d_le_s": sum(1 for t in live if d[t] <= s[t]) / len(live),
+        "first_step_d_over_max_s": over[0] if over else None,
+        "final_base": [arm[-1] for arm in b], "final_cand": [arm[-1] for arm in m],
+    }
+
+
+def p2_screen(bases: list[dict[str, Any]], cands: list[dict[str, Any]]) -> dict[str, Any]:
+    """Fable's amended P2 screen over parity-arm result rows (see the module docstring).
+
+    Refuses, with no verdict, arms the rule cannot compare:
+    - fewer than three baselines, or no candidate;
+    - a different batch order (``consumed_digest``), step count or channel length;
+    - an arm whose ``termination`` is not ``steps_exhausted``;
+    - a baseline not trained with the padding mask, or a candidate not trained without it.
+
+    Per channel, the live steps are those where any arm is non-zero (a span channel is 0.0 on
+    a letter-only batch in every arm, which is evidence of nothing); no live step is
+    ``not_run``. The rule is applied to two step sets, the first live step and all live steps
+    (:func:`_p2_set`); the channel is the worst of the two, the shape the worst channel, worst
+    meaning fail > not_run > inconclusive > pass.
     """
     if len(bases) < P2_MIN_BASELINES:
         raise SystemExit(
-            f"P2 needs at least {P2_MIN_BASELINES} baseline repeats for its spread, got "
+            f"P2 needs at least {P2_MIN_BASELINES} baseline repeats for its noise, got "
             f"{len(bases)}"
         )
     if not cands:
@@ -248,41 +326,39 @@ def p2_screen(
     lengths = {(r["steps"], len(r["letter"]), len(r["span"])) for r in arms}
     if len(lengths) != 1:
         raise SystemExit(f"P2 arms differ in steps or logged channel lengths: {sorted(lengths)}")
+    capped = {r["tag"]: r.get("termination") for r in arms
+              if r.get("termination") != P2_TERMINATION}
+    if capped:
+        raise SystemExit(f"P2 arms must end on {P2_TERMINATION!r}; these did not: {capped}")
+    wrong = {r["tag"]: r.get("train_attention_mask") for r in bases
+             if r.get("train_attention_mask") != P2_BASE_MASK}
+    if wrong:
+        raise SystemExit(f"every P2 baseline must train with {P2_BASE_MASK!r}: {wrong}")
+    wrong = {r["tag"]: r.get("train_attention_mask") for r in cands
+             if r.get("train_attention_mask") != P2_CAND_MASK}
+    if wrong:
+        raise SystemExit(f"every P2 candidate must train with {P2_CAND_MASK!r}: {wrong}")
     out: dict[str, Any] = {
+        "rule": "campaign/f-j7prime-preregistered.json no_mask.p2_rule (amended 2026-10-01)",
+        "tau": P2_TAU, "kappa": P2_KAPPA,
         "base": [r["tag"] for r in bases], "cand": [r["tag"] for r in cands],
-        "min_frac": min_frac, "channels": {},
+        "train_paths": {r["tag"]: r.get("train_path") for r in arms},
+        "channels": {},
     }
     for ch in ("letter", "span"):
         b = _channel(bases, ch)
         m = _channel(cands, ch)
-        n = len(b[0])
-        live = [t for t in range(n) if any(arm[t] != 0.0 for arm in (*b, *m))]
+        live = [t for t in range(len(b[0])) if any(arm[t] != 0.0 for arm in (*b, *m))]
         if not live:
-            out["channels"][ch] = {"status": "not_run", "live_steps": 0,
+            out["channels"][ch] = {"verdict": "not_run", "live_steps": 0,
                                    "reason": "no arm logged a non-zero value in this channel"}
             continue
-        s = {t: max(abs(b[i][t] - b[j][t]) for i in range(len(b)) for j in range(i + 1, len(b)))
-             for t in live}
-        d = {t: max(abs(x[t] - y[t]) for x in m for y in b) for t in live}
-        ok = [t for t in live if d[t] <= s[t]]
-        max_s = max(s.values())
-        over = [t for t in live if d[t] > max_s]
-        frac = len(ok) / len(live)
+        sets = {"first": _p2_set(b, m, live[:1]), "all": _p2_set(b, m, live)}
         out["channels"][ch] = {
-            "status": "ran", "live_steps": len(live), "steps_d_le_s": len(ok),
-            "frac_d_le_s": frac, "passed": frac >= min_frac,
-            "median_d": sorted(d.values())[len(d) // 2], "max_d": max(d.values()),
-            "median_s": sorted(s.values())[len(s) // 2], "max_s": max_s,
-            "first_step_d_over_max_s": over[0] if over else None,
-            "final_base": [arm[-1] for arm in b], "final_cand": [arm[-1] for arm in m],
+            "verdict": _worst([s["verdict"] for s in sets.values()]),
+            "live_steps": len(live), "sets": sets, "profile": _p2_profile(b, m, live),
         }
-    statuses = [c["status"] for c in out["channels"].values()]
-    if any(c.get("passed") is False for c in out["channels"].values()):
-        out["verdict"] = "fail"
-    elif all(st == "ran" for st in statuses):
-        out["verdict"] = "pass"
-    else:
-        out["verdict"] = "not_run"
+    out["verdict"] = _worst([c["verdict"] for c in out["channels"].values()])
     return out
 
 

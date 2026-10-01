@@ -1,2 +1,97 @@
-null, 3 baselines vs 3 candidate(s): frac D<=S mean 0.205 [0.11, 0.36] over 200 trials; rule passes 0.0% of null candidates
-null, 3 baselines vs 1 candidate(s): frac D<=S mean 0.501 [0.35, 0.63] over 200 trials; rule passes 0.0% of null candidates
+tau=0.02 kappa=3; 1000 trials per configuration
+
+1. exchangeable null at the v1 noise model: pass >= 99%, fail 0
+  [MET ] n=100 3v3 noisy step 0: pass 99.8% fail 0.0% inconclusive 0.2% not_run 0.0%
+  [MET ] n=100 3v3 bit-identical step 0: pass 99.7% fail 0.0% inconclusive 0.3% not_run 0.0%
+  [MET ] n=100 3v1 noisy step 0: pass 99.9% fail 0.0% inconclusive 0.1% not_run 0.0%
+  [MET ] n=100 3v1 bit-identical step 0: pass 99.9% fail 0.0% inconclusive 0.1% not_run 0.0%
+  [MET ] n=50 3v3 noisy step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] n=50 3v3 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] n=50 3v1 noisy step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] n=50 3v1 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+
+2. the same null at noise x3, x10, x20, x100: fail <= 12% (split reported)
+  [MET ] x3 n=100 3v3 noisy step 0: pass 42.8% fail 0.1% inconclusive 57.1% not_run 0.0%
+  [MET ] x3 n=100 3v3 bit-identical step 0: pass 49.5% fail 0.1% inconclusive 50.4% not_run 0.0%
+  [MET ] x3 n=100 3v1 noisy step 0: pass 43.7% fail 0.0% inconclusive 56.3% not_run 0.0%
+  [MET ] x3 n=100 3v1 bit-identical step 0: pass 48.5% fail 0.0% inconclusive 51.5% not_run 0.0%
+  [MET ] x3 n=50 3v3 noisy step 0: pass 82.4% fail 0.0% inconclusive 17.6% not_run 0.0%
+  [MET ] x3 n=50 3v3 bit-identical step 0: pass 91.3% fail 0.0% inconclusive 8.7% not_run 0.0%
+  [MET ] x3 n=50 3v1 noisy step 0: pass 81.9% fail 0.0% inconclusive 18.1% not_run 0.0%
+  [MET ] x3 n=50 3v1 bit-identical step 0: pass 91.5% fail 0.0% inconclusive 8.5% not_run 0.0%
+  [MET ] x10 n=100 3v3 noisy step 0: pass 0.1% fail 8.0% inconclusive 91.9% not_run 0.0%
+  [MET ] x10 n=100 3v3 bit-identical step 0: pass 0.7% fail 5.8% inconclusive 93.5% not_run 0.0%
+  [MET ] x10 n=100 3v1 noisy step 0: pass 0.3% fail 2.4% inconclusive 97.3% not_run 0.0%
+  [MET ] x10 n=100 3v1 bit-identical step 0: pass 1.4% fail 2.0% inconclusive 96.6% not_run 0.0%
+  [MET ] x10 n=50 3v3 noisy step 0: pass 1.1% fail 4.1% inconclusive 94.8% not_run 0.0%
+  [MET ] x10 n=50 3v3 bit-identical step 0: pass 10.7% fail 2.5% inconclusive 86.8% not_run 0.0%
+  [MET ] x10 n=50 3v1 noisy step 0: pass 1.5% fail 1.9% inconclusive 96.6% not_run 0.0%
+  [MET ] x10 n=50 3v1 bit-identical step 0: pass 13.1% fail 0.7% inconclusive 86.2% not_run 0.0%
+  [MISS] x20 n=100 3v3 noisy step 0: pass 0.0% fail 12.1% inconclusive 87.9% not_run 0.0%
+  [MET ] x20 n=100 3v3 bit-identical step 0: pass 0.0% fail 5.0% inconclusive 95.0% not_run 0.0%
+  [MET ] x20 n=100 3v1 noisy step 0: pass 0.0% fail 5.6% inconclusive 94.4% not_run 0.0%
+  [MET ] x20 n=100 3v1 bit-identical step 0: pass 0.0% fail 2.8% inconclusive 97.2% not_run 0.0%
+  [MET ] x20 n=50 3v3 noisy step 0: pass 0.0% fail 11.2% inconclusive 88.8% not_run 0.0%
+  [MET ] x20 n=50 3v3 bit-identical step 0: pass 0.2% fail 6.4% inconclusive 93.4% not_run 0.0%
+  [MET ] x20 n=50 3v1 noisy step 0: pass 0.0% fail 5.4% inconclusive 94.6% not_run 0.0%
+  [MET ] x20 n=50 3v1 bit-identical step 0: pass 0.4% fail 1.7% inconclusive 97.9% not_run 0.0%
+  [MET ] x100 n=100 3v3 noisy step 0: pass 0.0% fail 0.8% inconclusive 99.2% not_run 0.0%
+  [MET ] x100 n=100 3v3 bit-identical step 0: pass 0.0% fail 0.4% inconclusive 99.6% not_run 0.0%
+  [MET ] x100 n=100 3v1 noisy step 0: pass 0.0% fail 1.0% inconclusive 99.0% not_run 0.0%
+  [MET ] x100 n=100 3v1 bit-identical step 0: pass 0.0% fail 0.0% inconclusive 100.0% not_run 0.0%
+  [MET ] x100 n=50 3v3 noisy step 0: pass 0.0% fail 1.6% inconclusive 98.4% not_run 0.0%
+  [MET ] x100 n=50 3v3 bit-identical step 0: pass 0.0% fail 0.9% inconclusive 99.1% not_run 0.0%
+  [MET ] x100 n=50 3v1 noisy step 0: pass 0.0% fail 1.2% inconclusive 98.8% not_run 0.0%
+  [MET ] x100 n=50 3v1 bit-identical step 0: pass 0.0% fail 0.8% inconclusive 99.2% not_run 0.0%
+
+3. all candidates x(1+delta): 0.5% pass >= 99%, 2% fail >= 95%, 4% fail >= 99%
+  [MET ] delta 0.5% n=100 3v3 noisy step 0: pass 99.8% fail 0.0% inconclusive 0.2% not_run 0.0%
+  [MET ] delta 0.5% n=100 3v3 bit-identical step 0: pass 99.9% fail 0.0% inconclusive 0.1% not_run 0.0%
+  [MET ] delta 0.5% n=100 3v1 noisy step 0: pass 99.9% fail 0.0% inconclusive 0.1% not_run 0.0%
+  [MET ] delta 0.5% n=100 3v1 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 0.5% n=50 3v3 noisy step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 0.5% n=50 3v3 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 0.5% n=50 3v1 noisy step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 0.5% n=50 3v1 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 2.0% n=100 3v3 noisy step 0: pass 0.1% fail 99.9% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 2.0% n=100 3v3 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MISS] delta 2.0% n=100 3v1 noisy step 0: pass 7.4% fail 92.6% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 2.0% n=100 3v1 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 2.0% n=50 3v3 noisy step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 2.0% n=50 3v3 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MISS] delta 2.0% n=50 3v1 noisy step 0: pass 9.0% fail 91.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 2.0% n=50 3v1 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 4.0% n=100 3v3 noisy step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 4.0% n=100 3v3 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 4.0% n=100 3v1 noisy step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 4.0% n=100 3v1 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 4.0% n=50 3v3 noisy step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 4.0% n=50 3v3 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 4.0% n=50 3v1 noisy step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 4.0% n=50 3v1 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+
+4. one candidate x1.04 with two null: fail >= 99%
+  [MET ] n=100 3v3 noisy step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] n=100 3v3 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] n=50 3v3 noisy step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] n=50 3v3 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+
+5. step-1-only shift, bit-identical baseline forwards: x1.03 fail >= 99%, x1.01 pass >= 99%
+  [MET ] x1.03 n=100 3v3 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] x1.03 n=100 3v1 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] x1.03 n=50 3v3 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] x1.03 n=50 3v1 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] x1.01 n=100 3v3 bit-identical step 0: pass 99.9% fail 0.0% inconclusive 0.1% not_run 0.0%
+  [MET ] x1.01 n=100 3v1 bit-identical step 0: pass 99.7% fail 0.0% inconclusive 0.3% not_run 0.0%
+  [MET ] x1.01 n=50 3v3 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] x1.01 n=50 3v1 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+
+6. Gaussian single application, worst case over sigma/tau of P(fail | null) <= 4.5%
+   (one step, so the first-step and all-steps sets are the same single application; letter = 1 + sigma*z in every arm, span constant)
+  [MET ] 3v3 worst P(fail|null): 3.94% at sigma/tau = 0.7 (20000 trials per grid point, grid 0.05..3.00 step 0.05)
+  [MET ] 3v1 worst P(fail|null): 1.79% at sigma/tau = 0.75 (20000 trials per grid point, grid 0.05..3.00 step 0.05)
+
+3 target(s) MISSED -- not tuned, reported:
+  x20 n=100 3v3 noisy step 0: pass 0.0% fail 12.1% inconclusive 87.9% not_run 0.0%
+  delta 2.0% n=100 3v1 noisy step 0: pass 7.4% fail 92.6% inconclusive 0.0% not_run 0.0%
+  delta 2.0% n=50 3v1 noisy step 0: pass 9.0% fail 91.0% inconclusive 0.0% not_run 0.0%
