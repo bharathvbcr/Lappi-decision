@@ -1,0 +1,32 @@
+=== j7g.done seen at 15:07:22; waiting for the GPU lock
+=== lock held at 15:14:54
+memory.used [MiB], utilization.gpu [%]
+4 MiB, 0 %
+{"selection": {"scanned": 24, "picked": 24, "scan_wall_s": 0.667, "per_batch_build_ms": 27.811, "span_batches": 22}, "widths": [135, 153, 198, 235, 248, 261, 288, 302, 334, 353, 374, 397, 423, 452, 593, 640, 741, 847, 910]}
+{"load_s": 21.2, "n_layers": 24, "attn_implementation": "sdpa", "gdn_bound": {"torch_chunk_gated_delta_rule": "fla.ops.gated_delta_rule.chunk.chunk_gated_delta_rule", "causal_conv1d_fn": "causal_conv1d.causal_conv1d_interface.causal_conv1d_fn"}}
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/profiler/profiler.py:217: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+{"shape": "A", "config": "off:0+profile+syncdebug", "status": "ran", "pos_per_s": 15678.7, "step_s_median": 0.9505, "acc_s_median": 0.8784, "apply_s_median": 0.0743, "peak_alloc_gib": 42.29, "reason": null}
+{"shape": "A", "config": "off:0+det+profile", "status": "ran", "pos_per_s": 14070.8, "step_s_median": 1.0903, "acc_s_median": 1.0025, "apply_s_median": 0.086, "peak_alloc_gib": 42.29, "reason": null}
+{"shape": "A", "config": "off:0+det+fused", "status": "ran", "pos_per_s": 13530.7, "step_s_median": 1.09, "acc_s_median": 1.0388, "apply_s_median": 0.0578, "peak_alloc_gib": 35.24, "reason": null}
+{"shape": "A", "config": "off:12+det", "status": "ran", "pos_per_s": 15316.1, "step_s_median": 0.9733, "acc_s_median": 0.884, "apply_s_median": 0.0906, "peak_alloc_gib": 56.52, "reason": null}
+{"shape": "A", "config": "off:all+det", "status": "ran", "pos_per_s": 18297.4, "step_s_median": 0.8217, "acc_s_median": 0.7346, "apply_s_median": 0.0905, "peak_alloc_gib": 83.98, "reason": null}
+{"shape": "A", "config": "off:0+det+compile", "status": "ran", "pos_per_s": 12932.7, "step_s_median": 1.1435, "acc_s_median": 1.061, "apply_s_median": 0.081, "peak_alloc_gib": 42.28, "reason": null}
+{"shape": "A", "config": "off:12+det+fused+compile", "status": "ran", "pos_per_s": 16528.7, "step_s_median": 0.9033, "acc_s_median": 0.8469, "apply_s_median": 0.0567, "peak_alloc_gib": 46.31, "reason": null}
+=== shape A exit 0 at 15:19:35
+{"selection": {"scanned": 170, "picked": 5, "scan_wall_s": 0.012, "per_batch_build_ms": 0.07, "span_batches": 0}, "widths": [8441]}
+{"load_s": 18.9, "n_layers": 24, "attn_implementation": "sdpa", "gdn_bound": {"torch_chunk_gated_delta_rule": "fla.ops.gated_delta_rule.chunk.chunk_gated_delta_rule", "causal_conv1d_fn": "causal_conv1d.causal_conv1d_interface.causal_conv1d_fn"}}
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/profiler/profiler.py:217: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+[W1001 15:23:06.412052617 unwind.cpp:10] Warning: record_context_cpp is not support on non-linux non-x86_64 platforms (function operator())
+{"shape": "B", "config": "off:0+det+profile+memhist+n50", "status": "ran", "pos_per_s": 9982.7, "step_s_median": 3.1868, "acc_s_median": 3.1168, "apply_s_median": 0.0699, "peak_alloc_gib": 42.16, "reason": null}
+{"shape": "B", "config": "off:0", "status": "ran", "pos_per_s": 15168.1, "step_s_median": 2.2098, "acc_s_median": 2.1431, "apply_s_median": 0.0667, "peak_alloc_gib": 42.16, "reason": null}
+{"shape": "B", "config": "off:6+det", "status": "ran", "pos_per_s": 10161.2, "step_s_median": 3.1281, "acc_s_median": 3.0555, "apply_s_median": 0.0729, "peak_alloc_gib": 62.97, "reason": null}
+{"shape": "B", "config": "off:12+det", "status": "ran", "pos_per_s": 10742.1, "step_s_median": 2.944, "acc_s_median": 2.8718, "apply_s_median": 0.0728, "peak_alloc_gib": 88.83, "reason": null}
+{"shape": "B", "config": "off:all+det", "status": "oom", "pos_per_s": null, "step_s_median": null, "acc_s_median": null, "apply_s_median": null, "peak_alloc_gib": 92.21, "reason": "CUDA out of memory. Tried to allocate 396.00 MiB. GPU 0 has a total capacity of 94.50 GiB of which 250.31 MiB is free. Including non-PyTorch memory, this process has 94.25 GiB memory in use. Of the allocated memory 92.21 GiB is allocated by PyTorch, and 1.33 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_ALLOC_CONF=expandable_segments:Tr"}
+{"shape": "B", "config": "off:0+det+fused", "status": "ran", "pos_per_s": 10073.1, "step_s_median": 3.159, "acc_s_median": 3.1183, "apply_s_median": 0.0404, "peak_alloc_gib": 35.15, "reason": null}
+{"shape": "B", "config": "off:0+det+compile", "status": "ran", "pos_per_s": 11067.9, "step_s_median": 2.8529, "acc_s_median": 2.782, "apply_s_median": 0.0708, "peak_alloc_gib": 42.16, "reason": null}
+=== shape B exit 0 at 15:28:30
+=== session 1 done (exit 0) at 15:28:30
