@@ -140,6 +140,10 @@ except ModuleNotFoundError as exc:  # pragma: no cover - the repo venv has no to
 
 import numpy as np
 
+# An average's manifest is ckpt_average's format, so reading it back -- and checking its
+# sources and its weights against it -- is ckpt_average's too, not a second reader here.
+from ckpt_average import AverageRefusal, read_average, read_manifest, verify_sources
+
 # The floor formulas and the causal block, from the lane that calibrated them. Private by
 # name because they are this repository's, not a public API -- but a second copy of the
 # conditional-entropy computation is the thing to avoid, not an underscore.
@@ -4121,7 +4125,8 @@ def run_needle_control(
         )
     widths = [int(b.tokens.shape[1]) for s in suites.values() for b in s.batches]
     step, ft, recipe, seed, meta = _checkpoint_step(
-        args, reader=reader, val=val, device=device, eval_widths=widths
+        args, reader=reader, val=val, device=device, eval_widths=widths,
+        suite_seed=config.seed,
     )
     plan_width = ft["metrics"].get("corpus.plan_max_width", {}).get("value")
     trained_width = int(plan_width) if isinstance(plan_width, int) else None
@@ -4494,13 +4499,9 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
     for suite_gate in suite_gates:
         if suite_gate.recipe is not None:
             recipe[suite_gate.recipe_key] = dict(suite_gate.recipe)
-    recorder = _recorder(
-        ledger, reader=reader, seed=int(run["seed"]), recipe=recipe, run_kind="eval",
-        quick_reasons=quick_reasons,
-        # The decode, not the training run: see _record_verdict.
-        wall_clock_s=decode_s,
-        cost=run["cost"],  # type: ignore[arg-type]
-        notes=(
+    averaged = run.get("averaged")
+    if averaged is None:
+        notes = (
             f"tools/real_ft_run.py --score-val for ft row {run['ft_row_id']} "
             f"({run['device']} seed={run['seed']}): the epoch model decoded on "
             f"{len(val.reader)} val sequences it never trained on, the way "
@@ -4511,13 +4512,42 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
                 "a different device and dtype from the ft row's own score row."
                 if "scored_checkpoint" in run else ""
             )
-        ),
+        )
+    else:
+        assert isinstance(averaged, Mapping)  # what _averaged_weights writes
+        notes = (
+            f"tools/real_ft_run.py --score-checkpoint of an AVERAGE, {run['scored_checkpoint']}"
+            f": the mean of seeds {averaged['seeds']}' weights taken from their "
+            f"{averaged['source']} (ft rows {', '.join(averaged['ft_row_ids'])}; manifest "
+            f"sha256 {averaged['manifest_sha256']}), scored in {run['score_dtype']} on "
+            f"{run['device']} on {len(val.reader)} val sequences none of them trained on, the "
+            "way crates/qd-runtime/src/answer.rs decodes them. The permuted second pass and "
+            f"the needle and OOD suites are built at the protocol seed "
+            f"{averaged['suite_seed']}, as every per-seed score row's are. "
+            + AVERAGED_PROMOTION_NOTE
+        )
+    recorder = _recorder(
+        ledger, reader=reader, seed=int(run["seed"]), recipe=recipe, run_kind="eval",
+        quick_reasons=quick_reasons,
+        # The decode, not the training run: see _record_verdict.
+        wall_clock_s=decode_s,
+        cost=run["cost"],  # type: ignore[arg-type]
+        notes=notes,
     )
     with recorder:
-        recorder.metric(
-            "ft_run_row_id",
-            Ran(passed=True, value=run["ft_row_id"], detail="the train_ft row whose model this is"),
-        )
+        if averaged is None:
+            recorder.metric(
+                "ft_run_row_id",
+                Ran(passed=True, value=run["ft_row_id"],
+                    detail="the train_ft row whose model this is"),
+            )
+        else:
+            # Not ft_run_row_id: that names ONE row, and shuffled_label_target reads it so.
+            recorder.metric(
+                "ft_run_row_ids",
+                Ran(passed=True, value=",".join(averaged["ft_row_ids"]),
+                    detail="the train_ft rows whose weights were averaged into this model"),
+            )
         for name, state in score_states(scored, val.labels).items():
             recorder.metric(name, state)
         calibration, ece, degenerate = calibration_states(scored)
@@ -4574,8 +4604,32 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
 
 
 #: Keys a ``--score-checkpoint`` run adds to its eval row's recipe -- only then, so every
-#: score row written by a training run keeps the recipe hash it always had.
-SCORED_CHECKPOINT_KEYS: Final[tuple[str, ...]] = ("score_dtype", "scored_checkpoint")
+#: score row written by a training run keeps the recipe hash it always had. ``averaged`` is
+#: on a scored average's row alone: its seeds, ft rows, manifest sha256 and source.
+SCORED_CHECKPOINT_KEYS: Final[tuple[str, ...]] = (
+    "score_dtype", "scored_checkpoint", "averaged",
+)
+
+#: What ``--score-checkpoint`` given this suffix scores: an average ``tools/ckpt_average.py``
+#: wrote, with its ``.manifest.json`` beside it. Anything else is one seed's
+#: ``<tag>-seed<N>-<device>.json``.
+AVERAGED_SUFFIX: Final[str] = ".safetensors"
+#: A scored average's run tag; :func:`_record_score` makes its recipe tag ``avg-score-val``,
+#: as an epoch arm's is ``epoch-score-val``.
+AVERAGED_TAG: Final[str] = "avg"
+#: Rule 8 for an average: fewer inputs than this is a seed shortfall, and the row is quick.
+MIN_AVERAGED_SEEDS: Final[int] = 3
+#: On every scored average's row. Rule 8's seed count and the promotion join are about seed
+#: families; an average is one row of a family of its own, and nothing here decides whether
+#: it may stand in for its three.
+AVERAGED_PROMOTION_NOTE: Final[str] = (
+    "Whether an average can be the promoted artifact is the human's decision; this row "
+    "does not make it."
+)
+
+
+def _is_average(path: Path) -> bool:
+    return path.suffix == AVERAGED_SUFFIX
 
 
 def _ft_row(ledger_path: Path, row_id: str) -> dict[str, Any]:
@@ -4602,13 +4656,43 @@ def _ft_row(ledger_path: Path, row_id: str) -> dict[str, Any]:
 
 def _checkpoint_step(
     args: argparse.Namespace, *, reader: ShardReader, val: ValSet, device: str,
-    eval_widths: Sequence[int],
+    eval_widths: Sequence[int], suite_seed: int,
 ) -> tuple[Any, dict[str, Any], dict[str, Any], int, dict[str, Any]]:
     """``--score-checkpoint``'s weights in a step, every pairing checked before they load.
 
     Returns ``(step, ft row, its recipe, seed, checkpoint meta)``. The one
-    loader for both the scoring process and its needle worker.
+    loader for both the scoring process and its needle worker, for one seed's checkpoint
+    (:func:`_seed_weights`) and for an average (:func:`_averaged_weights`): only where the
+    weights come from and what is checked about them differ, never the step they load into.
+
+    ``seed`` is the eval row's protocol seed: the checkpoint's own for one seed's, and
+    ``suite_seed`` -- the protocol seed every suite is built at -- for an average, which is
+    no one seed's model. ``meta['optimizer_step']`` is the schedule the step is built for.
     """
+    if _is_average(args.score_checkpoint):
+        ft, recipe, seed, meta, weights = _averaged_weights(
+            args, reader=reader, suite_seed=suite_seed
+        )
+    else:
+        ft, recipe, seed, meta, weights = _seed_weights(args, reader=reader)
+    step, _, _ = _real_step(
+        backbone=args.real_backbone, reader=reader, plan=val.plan, device=device,
+        dtype=args.score_dtype,
+        spec=optimizer_spec(args.score_dtype, str(recipe.get("optimizer_recipe", "bf16"))),
+        attn_implementation=str(recipe["attn_implementation"]), seed=seed,
+        lr=float(recipe["lr"]), total_steps=int(meta["optimizer_step"]),
+        span_weight=float(recipe["span_weight"]),
+        width=max(int(b.tokens.shape[1]) for b in val.plan), eval_widths=eval_widths,
+    )
+    step.load_weights(weights)
+    return step, ft, recipe, seed, meta
+
+
+def _seed_weights(
+    args: argparse.Namespace, *, reader: ShardReader
+) -> tuple[dict[str, Any], dict[str, Any], int, dict[str, Any], dict[str, Any]]:
+    """One seed's ``<tag>-seed<N>-<device>.json``: ``(ft row, recipe, seed, meta, weights)``,
+    the file paired with ``--ft-row-id``'s row before its tower and span head are read."""
     from qd_train.run_control import Checkpoint
 
     tag, seed, trained_on = _resume_arm(args.score_checkpoint)
@@ -4640,41 +4724,164 @@ def _checkpoint_step(
             f"{meta['seed']}; ft row {ft['row_id']} ended at step {steps}, seed {seed}. This "
             "is not the model that row trained."
         )
-    width = max(int(b.tokens.shape[1]) for b in val.plan)
-    step, _, _ = _real_step(
-        backbone=args.real_backbone, reader=reader, plan=val.plan, device=device,
-        dtype=args.score_dtype,
-        spec=optimizer_spec(args.score_dtype, str(recipe.get("optimizer_recipe", "bf16"))),
-        attn_implementation=str(recipe["attn_implementation"]), seed=seed,
-        lr=float(recipe["lr"]), total_steps=steps, span_weight=float(recipe["span_weight"]),
-        width=width, eval_widths=eval_widths,
-    )
-    step.load_weights(weights)
-    return step, ft, recipe, seed, meta
+    return ft, recipe, seed, meta, weights
+
+
+def _averaged_weights(
+    args: argparse.Namespace, *, reader: ShardReader, suite_seed: int
+) -> tuple[dict[str, Any], dict[str, Any], int, dict[str, Any], dict[str, Any]]:
+    """An average's ``(first ft row, recipe, protocol seed, meta, weights)``, every pairing
+    checked before the weights are read.
+
+    * the manifest is one ``tools/ckpt_average.py`` wrote, naming one ft row per input;
+    * ``--seeds`` lists exactly the average's seeds;
+    * every row it names is in ``--ft-ledger``, a completed ft row, and **not quick**;
+    * the rows are one configuration at one step: one protocol minus the seed
+      (``recipe_hash``, ``data_snapshot_hash``, ``tokenizer_hash``, ``backbone_commit``), one
+      recipe, one ``train.optimizer_steps``, and it is the manifest's ``optimizer_step``;
+    * row ``i`` describes input ``i``: an epoch arm, its seed, the device in the input's
+      file name, this run's shard set and this run's backbone snapshot;
+    * each input's JSON body on disk hashes to the ``payload_digest`` the manifest recorded,
+      and a body that is not on disk is refused (``ckpt_average.verify_sources``);
+    * the ``.safetensors`` hashes to the manifest's ``safetensors_sha256``.
+
+    ``meta['averaged']`` is what the eval row's recipe records about the average.
+    """
+    path = args.score_checkpoint
+    try:
+        manifest = read_manifest(path)
+    except AverageRefusal as exc:
+        raise SystemExit(f"--score-checkpoint {path.name}: {exc}") from exc
+    seeds = manifest.seeds
+    if sorted(int(s) for s in args.seeds) != sorted(seeds):
+        raise SystemExit(
+            f"{path.name} averages seeds {seeds}; --seeds says {list(args.seeds)}. Pass the "
+            "average's own seeds."
+        )
+    rows: list[dict[str, Any]] = []
+    for row_id in manifest.ft_row_ids:
+        try:
+            rows.append(_ft_row(args.ft_ledger, row_id))
+        except SystemExit as exc:
+            raise SystemExit(f"{path.name}'s manifest names ft row {row_id}: {exc}") from exc
+    quick = [str(r["row_id"]) for r in rows if r.get("quick") is not False]
+    if quick:
+        raise SystemExit(
+            f"ft row(s) {quick} of {path.name} are quick (or do not say they are not): rule 8 "
+            "excludes a quick run from every decision, and an average of one is no less quick"
+        )
+    ids = [str(r["row_id"]) for r in rows]
+    disagree: list[str] = []
+    for key in ("recipe_hash", "data_snapshot_hash", "tokenizer_hash", "backbone_commit"):
+        values = [r["protocol"].get(key) for r in rows]
+        if len(set(values)) != 1:
+            disagree.append(f"protocol.{key} {dict(zip(ids, values, strict=True))}")
+    steps_by_row = [r["metrics"].get("train.optimizer_steps", {}).get("value") for r in rows]
+    if len(set(steps_by_row)) != 1:
+        disagree.append(f"train.optimizer_steps {dict(zip(ids, steps_by_row, strict=True))}")
+    if any(r["recipe"] != rows[0]["recipe"] for r in rows[1:]):
+        disagree.append("recipe (the stored recipe dicts differ)")
+    if disagree:
+        raise SystemExit(
+            f"the ft rows {path.name} averages are not one configuration at one step: "
+            + "; ".join(disagree)
+        )
+    steps = int(steps_by_row[0])
+    if manifest.optimizer_step != steps:
+        raise SystemExit(
+            f"{path.name} averages checkpoints at optimizer step {manifest.optimizer_step}; "
+            f"its ft rows ended at step {steps}. These are not the models those rows trained."
+        )
+    recipe = rows[0]["recipe"]
+    problems: list[str] = []
+    for row, record in zip(rows, manifest.inputs, strict=True):
+        try:
+            tag, seed, trained_on = _resume_arm(Path(record["path"]))
+        except ValueError as exc:
+            raise SystemExit(f"{path.name}'s input {record['path']}: {exc}") from exc
+        expected = {
+            "input arm": (tag, "epoch"),
+            "recipe tag": (row["recipe"].get("tag"), "epoch"),
+            "recipe device": (row["recipe"].get("device"), trained_on),
+            "protocol seed": (row["protocol"]["seed"], record["seed"]),
+            "input file seed": (seed, record["seed"]),
+            "shard_hash": (row["recipe"].get("shard_hash"), reader.header.shard_hash()),
+            "backbone_snapshot": (row["recipe"].get("backbone_snapshot"), args.real_backbone.name),
+        }
+        wrong = {k: v for k, v in expected.items() if v[0] != v[1]}
+        if wrong:
+            problems.append(
+                f"ft row {row['row_id']} and input {Path(record['path']).name}: "
+                + "; ".join(f"{k}: row says {a!r}, here {b!r}" for k, (a, b) in wrong.items())
+            )
+    if problems:
+        raise SystemExit(
+            f"the ft rows {path.name}'s manifest names do not describe its inputs scored "
+            "against this shard set and backbone: " + " | ".join(problems)
+        )
+    try:
+        verify_sources(manifest)
+        weights = read_average(manifest)
+    except AverageRefusal as exc:
+        raise SystemExit(f"--score-checkpoint {path.name}: {exc}") from exc
+    if float(weights["span_weight"]) != float(recipe["span_weight"]):
+        raise SystemExit(
+            f"{path.name} was averaged at span_weight {weights['span_weight']} and its ft "
+            f"rows trained at {recipe['span_weight']}"
+        )
+    meta = {
+        "optimizer_step": steps,
+        "seed": suite_seed,
+        "scored_checkpoint": f"{path.name}:{manifest.body['safetensors_sha256']}",
+        "terminations": [
+            r["metrics"].get("train.termination", {}).get("value") for r in rows
+        ],
+        "averaged": {
+            "seeds": seeds, "ft_row_ids": ids, "manifest_sha256": manifest.sha256,
+            "source": manifest.source, "n_inputs": len(rows),
+            # The eval row's protocol seed, and the seed every suite this run scores (val's
+            # permuted second pass, needle, OOD) was built at: config.seed, as for every
+            # per-seed score row -- prepare_second_pass, prepare_needle and prepare_ood take
+            # it, never the run seed.
+            "protocol_seed": suite_seed, "suite_seed": suite_seed,
+        },
+    }
+    return rows[0], recipe, suite_seed, meta, weights
 
 
 def _score_checkpoint(
     args: argparse.Namespace, *, reader: ShardReader, val: ValSet, device: str,
     ledger: Ledger, reasons_for: Callable[..., list[str]], second_pass: SecondPass,
-    needle_suite: NeedleSuite, ood_suite: OodSuite,
+    needle_suite: NeedleSuite, ood_suite: OodSuite, suite_seed: int,
     needle_decoded: NeedleDecoded | None = None,
-) -> tuple[str, dict[str, object], TriState, list[SuiteGate]]:
-    """Score a saved epoch checkpoint on the val set.
+) -> tuple[str, dict[str, object], TriState, list[SuiteGate], int]:
+    """Score a saved epoch checkpoint, or an average of several, on the val set.
 
-    Returns ``(eval row id, scored, permutation_consistency, suite gates)``.
+    Returns ``(eval row id, scored, permutation_consistency, suite gates, row seed)``.
 
     Every pairing that could silently score the wrong weights under the wrong row is checked
     before the tower loads: the file's arm, seed and training device against the ft row; the
     ft row's shard set and backbone against this run's; the checkpoint's optimizer step and
-    seed against the ft row's. Only the tower and span head are read
-    (``Checkpoint.read_weights``), cast to ``--score-dtype``.
+    seed against the ft row's (for an average, :func:`_averaged_weights`). Only the tower and
+    span head are read, cast to ``--score-dtype``. From there one code path scores both: the
+    val decode, the permuted second pass, the needle and OOD suites, and :func:`_record_score`.
+
+    ``suite_seed`` is ``config.seed``, the seed the suites were built at. An average's eval
+    row takes it as its protocol seed and records it.
     """
+    for suite in (needle_suite, ood_suite):
+        if suite.not_run is None and suite.seed != suite_seed:
+            raise SystemExit(
+                f"a suite was built at seed {suite.seed} and this run's suite seed is "
+                f"{suite_seed}; the row would record a seed its suites were not built at"
+            )
     step, ft, recipe, seed, meta = _checkpoint_step(
         args, reader=reader, val=val, device=device,
-        eval_widths=suite_widths(needle_suite, ood_suite),
+        eval_widths=suite_widths(needle_suite, ood_suite), suite_seed=suite_seed,
     )
+    averaged = meta.get("averaged")
     run: dict[str, object] = {
-        "tag": "epoch", "device": device, "seed": seed, "ft_row_id": ft["row_id"],
+        "tag": "epoch" if averaged is None else AVERAGED_TAG, "device": device, "seed": seed,
         "cost": _cost(
             device=device, n_gpus=n_gpus_for_device(device), usd_per_hour=args.usd_per_hour,
             usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
@@ -4682,9 +4889,15 @@ def _score_checkpoint(
         ),
         **{k: recipe[k] for k in (*BACKBONE_KEYS, *RECIPE_PIECE_KEYS) if k in recipe},
         "score_dtype": args.score_dtype,
-        "scored_checkpoint": f"{args.score_checkpoint.name}:{meta['sidecar']['digest']}",
     }
-    termination = ft["metrics"].get("train.termination", {}).get("value")
+    if averaged is None:
+        run["ft_row_id"] = ft["row_id"]
+        run["scored_checkpoint"] = f"{args.score_checkpoint.name}:{meta['sidecar']['digest']}"
+        terminations = [ft["metrics"].get("train.termination", {}).get("value")]
+    else:
+        run["averaged"] = averaged
+        run["scored_checkpoint"] = meta["scored_checkpoint"]
+        terminations = list(meta["terminations"])
     decode_at = time.monotonic()
     scored = _decode(step, val.plan, val.labels_for, val.letter_id)
     permutation, val_second = score_permutation_consistency(step, val, second_pass, scored)
@@ -4701,12 +4914,23 @@ def _score_checkpoint(
         ),
     ]
     decode_s = time.monotonic() - decode_at
-    reasons = reasons_for("epoch", device, None if termination is None else str(termination))
+    reasons: list[str] = []
+    for termination in terminations:
+        for reason in reasons_for(
+            "epoch", device, None if termination is None else str(termination)
+        ):
+            if reason not in reasons:
+                reasons.append(reason)
+    if averaged is not None and int(averaged["n_inputs"]) < MIN_AVERAGED_SEEDS:
+        reasons.append(
+            f"an average of {averaged['n_inputs']} seeds: rule 8 marks fewer than "
+            f"{MIN_AVERAGED_SEEDS} seeds quick"
+        )
     row_id = _record_score(
         run, scored, ledger=ledger, reader=reader, val=val, quick_reasons=reasons,
         decode_s=decode_s, permutation=permutation, suite_gates=gates,
     )
-    return row_id, scored, permutation, gates
+    return row_id, scored, permutation, gates, seed
 
 
 # --- the shuffled-label control (--shuffled-label) -----------------------------------------
@@ -5767,12 +5991,15 @@ def main(argv: list[str] | None = None) -> int:
             "score a SAVED epoch checkpoint (<tag>-seed<N>-<device>.json, with its sidecar "
             "beside it) on the val set instead of training: reads only its tower and span "
             "head, never its optimizer. Needs --score-val, --real-backbone, one --devices "
-            "entry, and --ft-ledger/--ft-row-id naming the ft row that wrote it"
+            "entry, and --ft-ledger/--ft-row-id naming the ft row that wrote it. Or an "
+            "AVERAGE: the .safetensors tools/ckpt_average.py wrote, with its .manifest.json "
+            "beside it, paired with the ft rows the manifest names (--ft-ledger, no "
+            "--ft-row-id) and scored under --seeds listing the average's seeds"
         ),
     )
     parser.add_argument(
         "--ft-ledger", type=Path, default=None,
-        help="the ledger holding the ft row that wrote --score-checkpoint",
+        help="the ledger holding the ft row(s) that wrote --score-checkpoint",
     )
     parser.add_argument(
         "--ft-row-id", default=None,
@@ -6132,18 +6359,35 @@ def main(argv: list[str] | None = None) -> int:
                 f"gate; {', '.join(clashing)} would record nothing"
             )
     if args.score_checkpoint is not None:
+        averaged = _is_average(args.score_checkpoint)
         needed = {
             "--score-val": args.score_val, "--real-backbone": args.real_backbone,
-            "--ft-ledger": args.ft_ledger, "--ft-row-id": args.ft_row_id,
-            "--devices": args.devices,
+            "--ft-ledger": args.ft_ledger, "--devices": args.devices,
         }
+        if not averaged:
+            needed["--ft-row-id"] = args.ft_row_id
         absent = [flag for flag, value in needed.items() if not value]
         if absent:
             raise SystemExit(f"--score-checkpoint needs {', '.join(absent)}")
-        if len(args.devices) != 1 or len(args.seeds) != 1:
+        if averaged and args.ft_row_id is not None:
+            raise SystemExit(
+                "--score-checkpoint of an average (.safetensors) is paired with the ft rows "
+                "its manifest names, one per input; --ft-row-id would name one of them"
+            )
+        if len(args.devices) != 1 or (not averaged and len(args.seeds) != 1):
             raise SystemExit(
                 "--score-checkpoint scores one checkpoint on one device: pass exactly one "
                 "--devices entry and the checkpoint's one seed in --seeds"
+            )
+        if averaged and len(args.seeds) < 2:
+            raise SystemExit(
+                "--score-checkpoint of an average needs --seeds to list the average's seeds, "
+                "two or more (J7: --seeds 0 1 2); they are checked against its manifest"
+            )
+        if averaged and args.needle_control is not None:
+            raise SystemExit(
+                "--needle-control diagnoses one seed's checkpoint against its own ft row; an "
+                "average is no one seed's model"
             )
         if args.epoch or args.resume_from is not None:
             raise SystemExit(
@@ -6429,7 +6673,7 @@ def main(argv: list[str] | None = None) -> int:
             # predictions back. No ledger row; the parent records one row with every gate.
             worker_step, *_ = _checkpoint_step(
                 args, reader=reader, val=val_set, device=devices[0],
-                eval_widths=suite_widths(needle_suite, ood_suite),
+                eval_widths=suite_widths(needle_suite, ood_suite), suite_seed=config.seed,
             )
             decoded = needle_predictions(worker_step, needle_suite, val_set.letter_id)
             args.needle_predictions_out.write_text(
@@ -6473,10 +6717,10 @@ def main(argv: list[str] | None = None) -> int:
                 termination=termination,
             )
 
-        score_row_id, scored, permutation, suite_gates = _score_checkpoint(
+        score_row_id, scored, permutation, suite_gates, row_seed = _score_checkpoint(
             args, reader=reader, val=val_set, device=devices[0],
             ledger=Ledger(args.ledger), reasons_for=eval_reasons, second_pass=second_pass,
-            needle_suite=needle_suite, ood_suite=ood_suite,
+            needle_suite=needle_suite, ood_suite=ood_suite, suite_seed=config.seed,
             needle_decoded=worker_decoded,
         )
         for name, state in score_states(scored, val_set.labels).items():
@@ -6486,15 +6730,17 @@ def main(argv: list[str] | None = None) -> int:
                             ("permutation_consistency", permutation),
                             *((g.name, g.state) for g in suite_gates)):
             print(f"  {name}: {json.dumps(state.to_json())[:300]}")
+        # The row's own protocol seed: the checkpoint's for one seed's, the protocol seed
+        # for an average -- never --seeds[0], which for an average is one of three.
         if args.verdicts_out is not None:
             write_verdicts_jsonl(
                 args.verdicts_out,
-                _verdict_lines(scored, eval_row_id=score_row_id, seed=int(args.seeds[0])),
+                _verdict_lines(scored, eval_row_id=score_row_id, seed=row_seed),
             )
             print(f"verdicts -> {args.verdicts_out}")
         if args.suite_verdicts_out is not None:
             suite_lines = suite_verdict_lines(
-                suite_gates, eval_row_id=score_row_id, seed=int(args.seeds[0])
+                suite_gates, eval_row_id=score_row_id, seed=row_seed
             )
             write_suite_verdicts_jsonl(args.suite_verdicts_out, suite_lines)
             print(f"suite verdicts: {len(suite_lines)} lines -> {args.suite_verdicts_out}")

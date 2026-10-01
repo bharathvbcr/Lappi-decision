@@ -1361,6 +1361,24 @@ def _safetensors_module() -> Any:
     return safetensors
 
 
+def tensor_refs_from_safetensors(payload: bytes) -> dict[str, TensorRef]:
+    """Every tensor of a safetensors payload as a [`TensorRef`], by its name in the file.
+
+    Each one is built through ``TensorRef``, so its dtype is one this module stores, its
+    length matches its shape, and it is finite -- the checks a sidecar read has always made.
+    """
+    _require_little_endian("read a safetensors payload")
+    safetensors = _safetensors_module()
+    return {
+        name: TensorRef(
+            dtype=_wire_dtype(name, info["dtype"]),
+            shape=tuple(int(axis) for axis in info["shape"]),
+            data=bytes(info["data"]),
+        )
+        for name, info in safetensors.deserialize(payload)
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class Checkpoint:
     """Everything a resume needs that it cannot recompute.
@@ -1739,20 +1757,25 @@ class Checkpoint:
                 "is a checkpoint whose sidecar was moved, deleted or never finished being "
                 "written -- not one that can be resumed with the weights it has."
             )
-        safetensors = _safetensors_module()
-        loaded = {
-            name: TensorRef(
-                dtype=_wire_dtype(name, info["dtype"]),
-                shape=tuple(int(axis) for axis in info["shape"]),
-                data=bytes(info["data"]),
-            )
-            for name, info in safetensors.deserialize(sidecar.read_bytes())
-        }
-        return cls.from_json(raw, tensors=loaded)
+        return cls.from_json(raw, tensors=tensor_refs_from_safetensors(sidecar.read_bytes()))
+
+    @classmethod
+    def read_body(cls, path: str | Path) -> dict[str, Any]:
+        """The JSON body at ``path``, its ``payload_digest`` verified; no tensor is read.
+
+        The body names every tensor's key, dtype, shape and digest, so this is what says
+        *which* checkpoint a file is -- in a few hundred KB, where its sidecar is 24.66 GiB.
+        """
+        p = Path(path)
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError(f"{p}: a checkpoint body is a JSON object")
+        _verify_payload_digest(raw)
+        return raw
 
     @classmethod
     def read_weights(
-        cls, path: str | Path, *, subtrees: Sequence[str]
+        cls, path: str | Path, *, subtrees: Sequence[str | tuple[str, ...]]
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Only ``model_state[s]`` for each ``s`` in ``subtrees``, verified, without the rest.
 
@@ -1765,28 +1788,43 @@ class Checkpoint:
         run (no optimizer state comes back), which is why it is a separate method and not a
         flag on [`read`].
 
+        A subtree is a key of ``model_state``, or a tuple of keys naming a path into it:
+        ``("optimizer", "masters")`` is the 7.04 GiB of fp32 master weights without the
+        14.08 GiB of Adam moments beside them. A path's tree comes back at its own position
+        (``subset["optimizer"]["masters"]``), and nothing else on the way down is read.
+
         Returns ``(model_state_subset, header)``: the subset maps each subtree to its revived
         tree, plus every scalar entry of ``model_state`` (e.g. ``span_weight``,
-        ``vocab_size``); ``header`` is ``optimizer_step``, ``seed`` and ``sidecar``.
+        ``vocab_size``); ``header`` is ``optimizer_step``, ``seed``, ``sidecar``,
+        ``schedule`` and the body's verified ``payload_digest``.
         """
         if not subtrees:
             raise ValueError("read_weights needs at least one model_state subtree to read")
         p = Path(path)
-        raw = json.loads(p.read_text(encoding="utf-8"))
-        if not isinstance(raw, dict):
-            raise ValueError(f"{p}: a checkpoint body is a JSON object")
-        _verify_payload_digest(raw)
+        raw = cls.read_body(p)
         declared = raw.get("sidecar")
         if declared is None:
             raise ValueError(f"{p} declares no tensor sidecar, so it carries no weights to read")
         model_state = raw.get("model_state")
         if not isinstance(model_state, dict):
             raise ValueError(f"{p}: model_state is missing or not an object")
-        missing = [s for s in subtrees if s not in model_state]
-        if missing:
-            raise ValueError(
-                f"{p}: model_state has no {missing}; it holds {sorted(model_state)}"
-            )
+        paths = [(s,) if isinstance(s, str) else tuple(s) for s in subtrees]
+        nodes: list[Any] = []
+        for keys in paths:
+            if not keys or not all(isinstance(k, str) for k in keys):
+                raise ValueError(f"{p}: a subtree path is one or more str keys, got {keys!r}")
+            node: Any = model_state
+            for depth, key in enumerate(keys):
+                if not isinstance(node, dict) or key not in node:
+                    where = "model_state" + "".join(f"[{k!r}]" for k in keys[:depth])
+                    held = sorted(node) if isinstance(node, dict) else type(node).__name__
+                    raise ValueError(f"{p}: {where} has no {key!r}; it holds {held}")
+                node = node[key]
+            nodes.append(node)
+        for i, keys in enumerate(paths):
+            for other in paths[i + 1:]:
+                if other[: len(keys)] == keys or keys[: len(other)] == other:
+                    raise ValueError(f"{p}: subtrees {keys} and {other} overlap")
         _require_little_endian("read a checkpoint sidecar")
         sidecar = cls.sidecar_path(p, declared["digest"])
         if not sidecar.exists():
@@ -1806,8 +1844,8 @@ class Checkpoint:
                 for item in value:
                     collect(item)
 
-        for s in subtrees:
-            collect(model_state[s])
+        for node in nodes:
+            collect(node)
         loaded: dict[str, TensorRef] = {}
         with sidecar.open("rb") as fh:
             raw_len = fh.read(8)
@@ -1844,12 +1882,17 @@ class Checkpoint:
             k: v for k, v in model_state.items()
             if v is None or isinstance(v, (bool, int, float, str))
         }
-        for s in subtrees:
-            subset[s] = _join_tensors(model_state[s], loaded)
+        for keys, node in zip(paths, nodes, strict=True):
+            parent = subset
+            for key in keys[:-1]:
+                parent = parent.setdefault(key, {})
+            parent[keys[-1]] = _join_tensors(node, loaded)
         meta = {
             "optimizer_step": int(raw["optimizer_step"]),
             "seed": int(raw["seed"]),
             "sidecar": declared,
+            "schedule": raw["schedule"],
+            "payload_digest": raw["payload_digest"],
         }
         return subset, meta
 
