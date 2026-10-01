@@ -52,6 +52,29 @@ def calib_fit_bin() -> Path:
     return binary
 
 
+#: Names a prebuilt ``qd-gate-report``; unset, the fixture builds one.
+QD_GATE_REPORT_BIN_ENV = "QD_GATE_REPORT_BIN"
+
+
+@pytest.fixture(scope="session")
+def gate_report_bin() -> Path:
+    """``qd-gate-report``: the one ``QD_GATE_REPORT_BIN`` names, else built once per session
+    (release) from this checkout."""
+    named = os.environ.get(QD_GATE_REPORT_BIN_ENV, "")
+    if named:
+        return Path(named)
+    if CARGO is None:
+        pytest.skip(f"cargo is not on PATH and {QD_GATE_REPORT_BIN_ENV} is unset: not built")
+    subprocess.run(
+        [CARGO, "build", "--quiet", "--release", "--manifest-path", str(REPO / "Cargo.toml"),
+         "-p", "qd-runtime", "--bin", "qd-gate-report"],
+        check=True, timeout=900,
+    )
+    binary = REPO / "target" / "release" / "qd-gate-report"
+    assert binary.is_file(), binary
+    return binary
+
+
 #: ``tools/real_tokenizer_pipeline.PREP_BIN_ENV``; ``test_qd_prep_minhash_parity.py`` asserts
 #: the two agree.
 QD_PREP_BIN_ENV = "QD_PREP_BIN"
