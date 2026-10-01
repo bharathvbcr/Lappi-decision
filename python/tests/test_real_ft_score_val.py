@@ -94,6 +94,22 @@ def test_a_missing_val_set_is_refused_with_the_command_that_builds_one(tmp_path)
         )
 
 
+def test_a_report_only_val_set_is_refused_before_it_is_scored(tmp_path) -> None:
+    """Fable slice condition 4: the gate path fails closed on a report-only header, before
+    the remap, the labels or a tower are touched."""
+    from test_shards import _report_only, _snapshot
+
+    from qd_train.artifacts import ShardContractViolation
+
+    snap = _snapshot(tmp_path)
+    _report_only(snap, tmp_path / "shards" / "val")
+    with pytest.raises(ShardContractViolation, match="not a gate population"):
+        rft.open_val_set(
+            tmp_path, config=DataConfig(), rev="HEAD", rows=[], train=None,  # type: ignore[arg-type]
+            letter_id={},
+        )
+
+
 def test_score_val_without_the_epoch_arm_is_refused_before_anything_loads(tmp_path) -> None:
     with pytest.raises(SystemExit, match="--epoch was not passed"):
         rft.main(["--out", str(tmp_path), "--score-val"])

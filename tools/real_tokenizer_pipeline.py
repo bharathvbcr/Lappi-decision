@@ -112,6 +112,7 @@ from qd_train.artifacts import (
     SLOT_SPAN,
     RemapTable,
     ShardContractViolation,
+    ShardHeader,
     assign_buckets,
     padding_waste,
 )
@@ -130,6 +131,7 @@ from qd_train.shards import (
     SPAN_CHECK_NAME,
     SPAN_COLLAPSE_POLICIES,
     SPAN_COLLAPSE_REFUSE_ANY,
+    SPAN_COLLAPSE_REFUSE_GOLD,
     ShardReader,
     UnencodableGold,
     choose_buckets,
@@ -937,6 +939,288 @@ def composed_span_survival(
     )
 
 
+# -- the report-only long-context slice (Fable G5(ii) slice ruling) -------------------------
+
+#: The ``mode`` a ``qd-mutate compose --diag-rows`` corpus records: rows scored for a report,
+#: never trained on and never a gate population. The corpus's own marker. The pipeline's
+#: ``--report-only-slice`` is the other signal, and the two must agree (condition 2): the
+#: marker cannot live in ``qd_data``, which is frozen at v4's fingerprint (condition 9).
+REPORT_ONLY_MODE: Final[str] = "report_only"
+#: Where the slice's val set is written: its own shard set beside ``shards/val``, never in
+#: it (condition 1).
+REPORT_ONLY_VAL_DIR: Final[str] = "val-report-only-composed"
+REPORT_ONLY_SCOPE: Final[str] = (
+    "report-only long-context slice; gate val and needle suite refuse-any"
+)
+#: ``diag_half`` on a diagnostic row: its needle is a train file v4 trained on as a filler,
+#: or a val file outside the val universe. A slice row without one is a plain composed val
+#: row.
+DIAG_SEEN_FILLER: Final[str] = "seen_filler"
+DIAG_UNSEEN: Final[str] = "unseen"
+#: The key a plain composed val row is counted under, beside the two diag halves.
+SLICE_COMPOSED_VAL: Final[str] = "composed_val"
+
+
+def report_only_violation(
+    obj: dict[str, Any], *, pool: dict[str, str], licences: dict[str, str], config: DataConfig
+) -> str | None:
+    """Why a report-only slice row may not be read, or ``None``.
+
+    ``qd_data.defect_class._composed_violation`` decides every row but one kind, unchanged.
+    The single relaxation is a ``diag_half: seen_filler`` row's needle, which is a train
+    file by design. That row's fillers go through the canonical check on their own (one
+    split, the row's, never held out). Its needle goes through the same pool and licence
+    joins and must split train. Every slice row must split val.
+    """
+    from qd_data import defect_class as dc
+    from qd_data.errors import LicenceRefused
+    from qd_data.licences import admit_licence
+
+    if dc._split_of(str(obj.get("repo")), config) != "val":
+        return "row_does_not_split_val"
+    half = obj.get("diag_half")
+    if half is None or half == DIAG_UNSEEN:
+        return dc._composed_violation(obj, pool=pool, licences=licences, config=config)
+    if half != DIAG_SEEN_FILLER:
+        return "unknown_diag_half"
+    constituents = obj.get("constituents")
+    if not isinstance(constituents, list):
+        return "fewer_than_two_constituents"
+    needles = [c for c in constituents if isinstance(c, dict) and c.get("role") == "needle"]
+    if len(needles) != 1:
+        return "diag_row_without_exactly_one_needle"
+    (needle,) = needles
+    fillers_only = {**obj, "constituents": [c for c in constituents if c is not needle]}
+    reason = dc._composed_violation(fillers_only, pool=pool, licences=licences, config=config)
+    if reason is not None:
+        return reason
+    nid = needle.get("pool_id")
+    if not isinstance(nid, str) or nid not in pool:
+        return "constituent_not_in_pool"
+    if pool[nid] != needle.get("repo"):
+        return "constituent_repo_disagrees_with_pool"
+    if nid not in licences:
+        return "constituent_without_download_licence"
+    try:
+        admit_licence(licences[nid], config=config.licence, source=f"report-only {nid}")
+    except LicenceRefused:
+        return "constituent_licence_not_admitted"
+    if dc._split_of(str(needle.get("repo")), config) != "train":
+        return "seen_filler_needle_not_train"
+    return None
+
+
+@dataclass(frozen=True)
+class ReportOnlySlice:
+    """A report-only slice, joined and checked, and the base rows that carry the build.
+
+    ``base`` is the slice's own base corpus, sampled by ``max_rows`` and then kept to the
+    rows that split train: the pipeline needs a train set to measure and write, and a base
+    row in val would enter the slice's val set beside the slice rows. ``rows`` are the
+    slice's, every one val.
+    """
+
+    base: tuple[DefectRow, ...]
+    base_sampled: int
+    rows: tuple[DefectRow, ...]
+    by_half: dict[str, int]
+    manifest_sha256: str
+    examples_sha256: str
+    #: The train corpus a ``seen_filler`` needle was seen in as a filler, as the slice's
+    #: manifest names it (``diag.train_corpus.examples_sha256``).
+    diag_train_corpus_sha256: str
+
+
+def load_report_only_slice(
+    slice_dir: Path,
+    *,
+    download_root: Path,
+    config: DataConfig,
+    repo_root: Path,
+    base_max_rows: int,
+) -> ReportOnlySlice:
+    """Read a report-only slice through the defect loader's own joins. Fails closed.
+
+    The manifest must say ``mode: report_only``; a corpus that does not is refused here
+    rather than read as a slice. Schema, split parameters, base corpus and pool are checked
+    by ``qd_data.defect_class._load_composed_base``, which also returns the base sample.
+    The examples and pool are sha256-checked, every row is decided by
+    :func:`report_only_violation`, and any refused row refuses the whole slice.
+    """
+    from qd_data import defect_class as dc
+    from qd_train.data_access import assert_path_not_held_out
+    from qd_train.mutate_adapter import MalformedExample
+
+    slice_dir = Path(slice_dir)
+    examples_path = slice_dir / "examples.jsonl"
+    manifest_path = slice_dir / "manifest.json"
+    for p in (examples_path, manifest_path, download_root):
+        assert_path_not_held_out(Path(p), config=config, repo_root=Path(repo_root))
+    manifest_bytes = manifest_path.read_bytes()
+    manifest = json.loads(manifest_bytes)
+    if manifest.get("mode") != REPORT_ONLY_MODE:
+        raise SystemExit(
+            f"--report-only-slice {slice_dir}: its manifest's mode is {manifest.get('mode')!r}, "
+            f"not {REPORT_ONLY_MODE!r}. The flag and the corpus's own marker must agree; a "
+            "corpus composed for training or gating is never read as a report-only slice"
+        )
+    diag = manifest.get("diag")
+    train_corpus = diag.get("train_corpus") if isinstance(diag, dict) else None
+    if not isinstance(train_corpus, dict) or not isinstance(
+        train_corpus.get("examples_sha256"), str
+    ):
+        raise SystemExit(
+            f"{manifest_path}: a report-only slice names the train corpus its seen_filler "
+            "needles were seen in (diag.train_corpus.examples_sha256); this one does not"
+        )
+    base = dc._load_composed_base(
+        manifest, manifest_path=manifest_path, download_root=Path(download_root),
+        config=config, repo_root=Path(repo_root), max_rows=base_max_rows,
+    )
+    pool_meta = manifest["pool"]
+    pool_path = Path(repo_root) / "data" / "pool" / Path(str(pool_meta["path"])).name
+    assert_path_not_held_out(pool_path, config=config, repo_root=Path(repo_root))
+    dc._check_sha(examples_path, str(manifest["examples_sha256"]), recorded_in=manifest_path)
+    dc._check_sha(pool_path, str(pool_meta["sha256"]), recorded_in=manifest_path)
+    pool = dc._load_pool_ids(pool_path)
+    licences = dc._load_licences(Path(download_root))
+
+    rows: list[DefectRow] = []
+    halves: collections.Counter[str] = collections.Counter()
+    bad: collections.Counter[str] = collections.Counter()
+    first_bad: list[str] = []
+    with examples_path.open(encoding="utf-8") as fh:
+        for lineno, line in enumerate(fh, 1):
+            if not line.strip():
+                continue
+            if len(line.encode("utf-8")) > config.max_row_bytes:
+                raise SystemExit(
+                    f"{examples_path}:{lineno}: over the {config.max_row_bytes}-byte row bound"
+                )
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise SystemExit(f"{examples_path}:{lineno}: not JSON: {exc}") from exc
+            reason = (
+                "not_composed" if obj.get("composed") is not True
+                else report_only_violation(obj, pool=pool, licences=licences, config=config)
+            )
+            if reason is not None:
+                bad[reason] += 1
+                if len(first_bad) < 5:
+                    first_bad.append(f"{obj.get('id')}:{reason}")
+                continue
+            try:
+                rows.append(dc._parse_one(obj, licence=licences[str(obj["pool_id"])]))
+            except MalformedExample as exc:
+                raise SystemExit(f"{examples_path}:{lineno}: {exc}") from exc
+            halves[str(obj.get("diag_half") or SLICE_COMPOSED_VAL)] += 1
+    if bad:
+        raise SystemExit(
+            f"{sum(bad.values())} row(s) of {examples_path} cannot be read as a report-only "
+            f"slice: {dict(sorted(bad.items()))}; first five {first_bad}. Refusing the whole "
+            "slice"
+        )
+    recorded = int(manifest.get("totals", {}).get("examples", -1))
+    if len(rows) != recorded:
+        raise SystemExit(
+            f"{examples_path} holds {len(rows)} rows, {manifest_path} records {recorded}"
+        )
+    base_train = tuple(r for r in base.rows if dc._split_of(r.repo, config) == "train")
+    if not base_train:
+        raise SystemExit(
+            f"none of the {len(base.rows)} sampled base rows splits train; the build needs a "
+            "train set to measure. Raise --defect-max-rows"
+        )
+    ids = collections.Counter(r.example_id for r in (*base_train, *rows))
+    dupes = sorted(i for i, c in ids.items() if c > 1)
+    if dupes:
+        raise SystemExit(f"duplicate example ids {dupes[:5]} ({len(dupes)} total)")
+    return ReportOnlySlice(
+        base=base_train,
+        base_sampled=len(base.rows),
+        rows=tuple(rows),
+        by_half=dict(sorted(halves.items())),
+        manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
+        examples_sha256=str(manifest["examples_sha256"]),
+        diag_train_corpus_sha256=str(train_corpus["examples_sha256"]),
+    )
+
+
+def refuse_report_only_corpus(corpus_dir: Path) -> None:
+    """Refuse a report-only corpus offered as a training corpus (``--defect-class``).
+
+    The marker on a corpus that would be trained on is a contradiction, whatever the frozen
+    loader would make of its rows (condition 2).
+    """
+    manifest = json.loads((Path(corpus_dir) / "manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("mode") == REPORT_ONLY_MODE:
+        raise SystemExit(
+            f"--defect-class {corpus_dir}: its manifest's mode is {REPORT_ONLY_MODE!r}. A "
+            "report-only slice is never a training corpus; build it with "
+            "--report-only-slice, which writes it as a report-only val set"
+        )
+
+
+def gate_val_row_ids(gate_set: Path, *, config: DataConfig) -> tuple[frozenset[str], str, str]:
+    """``(row ids, train remap_hash, val shard_hash)`` of the gate set a slice must not touch.
+
+    Every row id the gate val set's sequence index names, written or excluded, through
+    ``ShardReader`` (which checks the index against its header's pin). The gate val header
+    must itself be a gate population, and the train header supplies the remap the slice
+    must be written under.
+    """
+    val_reader = ShardReader(gate_set / "shards" / "val", config=config, repo_root=gate_set)
+    val_reader.header.require_gate_population(where=str(gate_set / "shards" / "val"))
+    index = json.loads(
+        (gate_set / "shards" / "val" / shards_module.SEQUENCE_INDEX_NAME).read_text(
+            encoding="utf-8"
+        )
+    )
+    ids = frozenset(
+        str(e["row_id"]) for key in ("sequences", "excluded") for e in index.get(key, ())
+    )
+    train_header = ShardHeader.from_json(
+        json.loads((gate_set / "shards" / "train" / HEADER_NAME).read_text(encoding="utf-8"))
+    )
+    return ids, train_header.remap_hash, val_reader.header.shard_hash()
+
+
+def check_slice_split(
+    report_slice: ReportOnlySlice, *, by_split: dict[str, set[str]], gate_ids: frozenset[str]
+) -> None:
+    """Refuse a slice build whose split is not the slice in val and its base in train, or
+    whose rows meet the gate val set or claim the needle suite's identity.
+
+    ``by_split`` is the row ids of each split after dedupe and split; ``gate_ids`` every
+    row id the gate val set's sequence index names (:func:`gate_val_row_ids`).
+    """
+    slice_ids = {f"qdm:{DEFECT_FAMILY_ID}:{r.example_id}" for r in report_slice.rows}
+    strays = sorted(by_split.get("val", set()) - slice_ids)
+    held = by_split.get(HELD_OUT, set())
+    in_train = by_split.get("train", set()) & slice_ids
+    if strays or held or in_train:
+        raise SystemExit(
+            f"the report-only slice's split is not slice rows in val and base rows in "
+            f"train: val rows not of the slice {strays[:5]} ({len(strays)}), held-out rows "
+            f"{len(held)}, slice rows in train {len(in_train)}"
+        )
+    overlap = sorted(slice_ids & gate_ids)
+    if overlap:
+        raise SystemExit(
+            f"{len(overlap)} slice row(s) are rows of the gate val set (first five "
+            f"{overlap[:5]}); a report-only slice never shares a row with a gate population"
+        )
+    # The needle suite is synthetic: every case is pool id "needle-suite" in a repo
+    # "needle-suite/<case>" (qd_train.needle.needle_defect_row), whatever its size.
+    needle_like = [
+        r.example_id for r in report_slice.rows
+        if r.pool_id == "needle-suite" or r.repo.startswith("needle-suite/")
+    ]
+    if needle_like:
+        raise SystemExit(f"slice rows {needle_like[:5]} claim the needle suite's identity")
+
+
 def defect_balance(
     rows: list[DataRow],
     *,
@@ -1729,7 +2013,18 @@ def run(
     defect_noul: Path | None = None,
     max_seq_len: int | None = None,
     span_collapse_policy: str = SPAN_COLLAPSE_REFUSE_ANY,
+    report_only_slice: Path | None = None,
+    gate_set: Path | None = None,
 ) -> Measured:
+    """Build, measure and write one shard set, and return what was measured.
+
+    With ``report_only_slice`` the run builds a report-only slice instead (Fable G5(ii)):
+    its rows are the whole val set, written under ``refuse-gold`` with ``report_only`` in
+    the header to ``shards/`` :data:`REPORT_ONLY_VAL_DIR`, and refused if any of them is a
+    row of ``gate_set``'s gate val set or the remap is not the one ``gate_set`` trained
+    under. The train set it also writes is the base-corpus sample the pipeline needs to
+    measure, not a training set.
+    """
     if vocab not in VOCAB_POLICIES:
         raise SystemExit(f"vocab must be one of {VOCAB_POLICIES}, got {vocab!r}")
     if max_seq_len is not None and max_seq_len < 2:
@@ -1749,9 +2044,48 @@ def run(
             "--replay-shards needs --general-record: the replay slice is drawn from the "
             "general families' training rows"
         )
+    if report_only_slice is not None:
+        # Every val row must be a slice row: any other source puts its own val rows beside
+        # them, and the train side is the slice's base sample alone.
+        others = [
+            name for name, given in (
+                ("--defect-class (the slice names its own base corpus)", defect_class),
+                ("--defect-noul", defect_noul),
+                ("--general-record", general_record),
+                ("--commitpackft", commitpackft),
+                ("--replay-shards", replay_shards or None),
+                ("repository history (pass --no-repo-history)", repo_history or None),
+            ) if given is not None
+        ]
+        if others:
+            raise SystemExit(
+                f"--report-only-slice reads no other source, and this run names {others}: "
+                "their val rows would enter the slice's val set"
+            )
+        missing = [
+            name for name, ok in (
+                ("--gate-set", gate_set is not None),
+                ("--val-shards", val_shards),
+                ("--vocab full", vocab == VOCAB_FULL),
+                ("--defect-max-rows (the base sample)", defect_max_rows is not None),
+                (
+                    f"--span-collapse-policy {SPAN_COLLAPSE_REFUSE_GOLD}",
+                    span_collapse_policy == SPAN_COLLAPSE_REFUSE_GOLD,
+                ),
+            ) if not ok
+        ]
+        if missing:
+            raise SystemExit(
+                f"--report-only-slice needs {missing}: the slice is the val set, written "
+                "under refuse-gold and under the gate set's own full-vocabulary remap"
+            )
+    elif gate_set is not None:
+        raise SystemExit("--gate-set is read only by --report-only-slice")
+    if defect_class is not None:
+        refuse_report_only_corpus(defect_class)
     if not repo_history and commitpackft is None and defect_class is None and (
         general_record is None
-    ):
+    ) and report_only_slice is None:
         raise SystemExit(
             "--no-repo-history with no --commitpackft, --defect-class or --general-record "
             "reads no source at all; there would be nothing to build"
@@ -1828,6 +2162,29 @@ def run(
             f"capped={load.capped}, noul rows {load.n_noul} {load.noul_by_source}, by class "
             f"{load.by_class}, span-rebase refusals {load.span_refusals or 'none'}"
         )
+    report_slice: ReportOnlySlice | None = None
+    if report_only_slice is not None:
+        if defect_max_rows is None:  # refused above with the other needs; narrowed here
+            raise SystemExit("--report-only-slice needs --defect-max-rows")
+        report_slice = load_report_only_slice(
+            report_only_slice, download_root=defect_download, config=config, repo_root=REPO,
+            base_max_rows=defect_max_rows,
+        )
+        raw[DEFECT_SOURCE_ID] = [*report_slice.base, *report_slice.rows]
+        # The base is always a sample here, so the read is a capped one.
+        capped.append(DEFECT_SOURCE_ID)
+        code_source += (
+            f"; REPORT-ONLY slice {report_only_slice} ({len(report_slice.rows)} rows "
+            f"{report_slice.by_half}, manifest sha256 {report_slice.manifest_sha256[:16]}, "
+            "every row val), over the "
+            f"{len(report_slice.base)} train-split rows of a {report_slice.base_sampled}-row "
+            "sha256-ordered sample of its base corpus"
+        )
+        print(
+            f"\nreport-only slice: {len(report_slice.rows)} rows {report_slice.by_half}; "
+            f"base carrier {len(report_slice.base)} train rows of {report_slice.base_sampled} "
+            "sampled"
+        )
     general: GeneralLoad | None = None
     if general_record is not None:
         general = general_rows(general_record, max_rows_per_file=general_max_rows)
@@ -1885,7 +2242,7 @@ def run(
     print("\n== stage 2: dedupe + split ==")
     print(f"  rows in: {len(mixture.rows)}   kept: {len(report.kept)}")
     print(f"  split counts: {split_report.counts()}")
-    if defect_class is not None:
+    if DEFECT_SOURCE_ID in raw:
         # The number the rung-3 collapse (46/90, the val majority) is read against: a
         # choice head that learned nothing scores exactly this on each split.
         for split_name, split_rows in sorted(split_report.rows_by_split.items()):
@@ -1933,6 +2290,38 @@ def run(
         print(f"  replay manifest: {paths['replay']} ({len(replay_rows)} entries)")
     train_rows = list(split_report.rows_by_split.get("train", ()))
     print(f"  train manifest: {paths['train']} ({len(train_rows)} entries)")
+    gate_remap_hash = gate_val_shard_hash = ""
+    if report_slice is not None:
+        if gate_set is None:  # refused above with the other needs; narrowed here
+            raise SystemExit("--report-only-slice needs --gate-set")
+        slice_ids = {f"qdm:{DEFECT_FAMILY_ID}:{r.example_id}" for r in report_slice.rows}
+        by_split = {
+            s: {r.row_id for r in split_report.rows_by_split.get(s, ())}
+            for s in ("train", "val", HELD_OUT)
+        }
+        gate_ids, gate_remap_hash, gate_val_shard_hash = gate_val_row_ids(
+            gate_set, config=config
+        )
+        check_slice_split(report_slice, by_split=by_split, gate_ids=gate_ids)
+        lost = len(slice_ids) - len(by_split["val"])
+        extra_metrics["report_only_slice_rows"] = Ran(
+            passed=True, value=len(by_split["val"]), n=len(by_split["val"]),
+            n_total=len(slice_ids),
+            detail=(
+                f"report_only=true; not a gate population. Slice rows that reached the val "
+                f"split of the {len(slice_ids)} read ({lost} removed by build_mixture or "
+                f"dedupe), by half {report_slice.by_half}; 0 shared with the gate val set at "
+                f"{gate_set} ({len(gate_ids)} row ids, val shard_hash {gate_val_shard_hash}); "
+                "0 claiming the needle suite's identity. Slice manifest sha256 "
+                f"{report_slice.manifest_sha256}, examples sha256 "
+                f"{report_slice.examples_sha256}, seen_filler needles seen as fillers in "
+                f"examples sha256 {report_slice.diag_train_corpus_sha256}"
+            ),
+        )
+        print(
+            f"  report-only slice: {len(by_split['val'])} of {len(slice_ids)} slice rows in "
+            f"val, 0 of them in the gate val set ({len(gate_ids)} ids)"
+        )
 
     print("\n== stage 3: census (unmodified write_shards work, per row) ==")
     cen = census(
@@ -1951,7 +2340,7 @@ def run(
         fatal = " FATAL(aborts the write)" if name in cen.fatal_classes else ""
         print(f"    slot-scoped {name}: {n} of {cen.slots_in} slot(s){fatal}")
         print(f"      e.g. {cen.examples[name][:300]}")
-    if defect_class is not None:
+    if DEFECT_SOURCE_ID in raw:
         print(
             "  train, as written: "
             + json.dumps(defect_balance(
@@ -2000,8 +2389,24 @@ def run(
     print(f"  padding_waste: {waste.to_json()}")
 
     val_rows = list(split_report.rows_by_split.get("val", ()))
-    val_census = census(val_rows, tok=tok, config=config, max_seq_len=max_seq_len)
-    if defect_class is not None:
+    # A gate val set is refuse-any, always; only a report-only slice's val set is not.
+    val_policy = (
+        SPAN_COLLAPSE_REFUSE_GOLD if report_slice is not None else SPAN_COLLAPSE_REFUSE_ANY
+    )
+    val_census = census(
+        val_rows, tok=tok, config=config, max_seq_len=max_seq_len,
+        span_collapse_policy=val_policy,
+    )
+    if report_slice is not None:
+        # Condition 7: the slice's own survival under both policies, as a readout. The
+        # pre-registered bar is v4's train census's; here it is reported, not gated.
+        for by in ("length", "files"):
+            survival = composed_span_survival(
+                val_census.composed_span, by=by, policy=val_policy
+            )
+            extra_metrics[f"composed_span_survival_by_{by}"] = survival
+            print(f"  slice span survival by {by}: {json.dumps(survival.to_json())[:1200]}")
+    if DEFECT_SOURCE_ID in raw:
         print(
             "  val, as written: "
             + json.dumps(defect_balance(
@@ -2055,6 +2460,12 @@ def run(
             tokenizer_hash=tok.hash(),
             special_ids=special_ids,
             target_vocab_size=None,
+        )
+    if report_slice is not None and remap.remap_hash() != gate_remap_hash:
+        raise SystemExit(
+            f"this slice's remap hashes to {remap.remap_hash()}, and the gate set at "
+            f"{gate_set} trained under {gate_remap_hash}: a slice scored against a model "
+            "trained under another remap reads other token ids"
         )
     print(f"\n== stage 5: remap over the real vocabulary (--vocab {vocab}) ==")
     print(f"  source vocab {remap.source_vocab_size} -> kept {remap.vocab_size} "
@@ -2155,7 +2566,7 @@ def run(
         # member, so open_training_data admits its manifest, and scoring a model on it
         # reads it without a gradient. Its own buckets, from its own lengths.
         print("\n== stage 6b: the val split, under the same remap ==")
-        val_dir = out / "shards" / "val"
+        val_dir = out / "shards" / (REPORT_ONLY_VAL_DIR if report_slice is not None else "val")
         val_header = write_shards(
             paths["val"],
             val_rows,
@@ -2170,12 +2581,27 @@ def run(
             allow_not_run_snapshot=not_run_snapshot,
             corpus_rev=resolved,
             max_seq_len=max_seq_len,
+            span_collapse_policy=val_policy,
+            report_only=report_slice is not None,
         )
         val_reader = ShardReader(val_dir, config=config, repo_root=out)
         val_coverage = val_reader.coverage
         val_slot_coverage = val_reader.slot_coverage
         print(f"  header: n_sequences={val_header.n_sequences} "
               f"total_tokens={val_header.total_tokens} vocab_size={val_header.vocab_size}")
+        if report_slice is not None:
+            extra_metrics["report_only_slice_header"] = Ran(
+                passed=True, value=val_header.shard_hash(),
+                detail=(
+                    f"{val_dir}: report_only={val_header.report_only}, "
+                    f"span_collapse_policy={val_header.span_collapse_policy!r} "
+                    f"(non-gold collapsed lines share one candidate token index), both "
+                    f"covered by shard_hash {val_header.shard_hash()}; header.json sha256 "
+                    f"{hashlib.sha256((val_dir / HEADER_NAME).read_bytes()).hexdigest()}; "
+                    f"scope: {REPORT_ONLY_SCOPE}; remap_hash {val_header.remap_hash} equal "
+                    f"to the gate set's train header"
+                ),
+            )
         print(f"  coverage: {json.dumps(val_coverage.to_json())[:400]}")
 
     if replay_rows:
@@ -2324,7 +2750,14 @@ def run(
         data_snapshot_hash=header.data_snapshot_hash,
         tokenizer_hash=remap.tokenizer_hash,
         notes=(
-            f"real-tokenizer end-to-end over {code_source}; "
+            (
+                f"REPORT-ONLY long-context slice, not a gate population ({REPORT_ONLY_SCOPE}): "
+                f"its val set is shards/{REPORT_ONLY_VAL_DIR}, written refuse-gold with "
+                "report_only in the header; its train set is the base-corpus carrier the "
+                "pipeline measures, not a training set; "
+                if report_slice is not None else ""
+            )
+            + f"real-tokenizer end-to-end over {code_source}; "
             f"blank_line_runs={blank_line_runs}; {commits_n} commit pairs, "
             f"{spans_n} prose passages; snapshot status="
             f"{snapshot_status.to_json()['state']}"
@@ -2508,13 +2941,33 @@ def main(argv: list[str] | None = None) -> int:
             "what a TRAINING span slot whose line starts collapse under BPE does "
             "(qd_train.shards.SPAN_COLLAPSE_POLICIES). refuse-gold (Fable round K) refuses only "
             "when a gold line shares its token, and collapsed lines elsewhere share one "
-            "candidate. Applied to the train and replay sets; val keeps refuse-any. Without "
-            "it, refuse-any everywhere, as before"
+            "candidate. Applied to the train and replay sets; val keeps refuse-any, except a "
+            "--report-only-slice val set, which is refuse-gold. Without it, refuse-any "
+            "everywhere, as before"
         ),
     )
     parser.add_argument(
         "--instance", default=None,
         help="the priced machine, on a rented box (the row's cost cannot be omitted there)",
+    )
+    parser.add_argument(
+        "--report-only-slice", type=Path, default=None,
+        help=(
+            "a qd-mutate compose corpus whose manifest says mode report_only (e.g. "
+            "data/pool/commitpackft-composed-slice-v1). Its rows become the whole val set, "
+            f"written refuse-gold with report_only in the header to shards/{REPORT_ONLY_VAL_DIR}"
+            "; the train set is a --defect-max-rows sample of its base corpus's train rows. "
+            "Needs --gate-set, --val-shards, --vocab full, --no-repo-history and "
+            "--span-collapse-policy refuse-gold; reads no other source"
+        ),
+    )
+    parser.add_argument(
+        "--gate-set", type=Path, default=None,
+        help=(
+            "with --report-only-slice: the pipeline output the slice is scored beside (e.g. "
+            "v4's). Its gate val set's row ids must not meet the slice's, and its train "
+            "header's remap_hash must equal the slice's"
+        ),
     )
     parser.add_argument(
         "--usd-per-hour", type=float, default=None,
@@ -2561,6 +3014,7 @@ def main(argv: list[str] | None = None) -> int:
         "vocab": args.vocab, "defect_noul": args.defect_noul,
         "max_seq_len": args.max_seq_len,
         "span_collapse_policy": args.span_collapse_policy or SPAN_COLLAPSE_REFUSE_ANY,
+        "report_only_slice": args.report_only_slice, "gate_set": args.gate_set,
     }
     if args.ledger is None:
         run(**run_kwargs)
@@ -2631,8 +3085,20 @@ def main(argv: list[str] | None = None) -> int:
         # Only when given. It decides which train span slots are written and that collapsed
         # lines share a candidate -- a rule the runtime must serve the same way (G9(a)).
         recipe["span_collapse_policy"] = args.span_collapse_policy
-        recipe["span_collapse_policy_scope"] = "train and replay; val refuse-any"
+        recipe["span_collapse_policy_scope"] = (
+            REPORT_ONLY_SCOPE if args.report_only_slice is not None
+            else "train and replay; val refuse-any"
+        )
         recipe["span_collapse_non_gold"] = "shared candidate token index (one entry per line)"
+    if args.report_only_slice is not None:
+        # Only when used. The slice's manifest sha256 names it -- mode, base corpus, pool
+        # and examples sha are all inside it -- and its val set is never a gate population.
+        recipe["report_only"] = True
+        recipe["report_only_slice_manifest_sha256"] = hashlib.sha256(
+            (args.report_only_slice / "manifest.json").read_bytes()
+        ).hexdigest()
+        recipe["defect_download_sha256"] = pool_manifest_shas(args.defect_download)
+        recipe["defect_max_rows"] = args.defect_max_rows
     if args.vocab == VOCAB_FULL:
         # Keyed on full, not corpus: every row written before the flag existed used the
         # corpus remap and hashed without this key, so a trimmed set still hashes as before

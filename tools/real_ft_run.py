@@ -3210,6 +3210,7 @@ def open_val_set(
             "written at all (GAP-REMAP-CANNOT-ENCODE-THE-ROWS-IT-WAS-NOT-BUILT-FROM)."
         )
     reader = ShardReader(val_dir, config=config, repo_root=out, expect_rev=rev)
+    reader.header.require_gate_population(where=str(val_dir))
     if reader.header.remap_hash != train.header.remap_hash:
         raise SystemExit(
             f"the val set's remap {reader.header.remap_hash[:16]} is not the train set's "

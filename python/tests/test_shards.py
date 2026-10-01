@@ -23,6 +23,7 @@ none of this needs torch or transformers -- neither is in the repo venv.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import os
@@ -31,6 +32,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -604,17 +606,119 @@ def test_refuse_gold_is_refused_on_any_split_but_train(snapshot: Snapshot, tmp_p
 def test_refuse_gold_without_a_collapse_writes_the_default_set_byte_for_byte(
     snapshot: Snapshot, tmp_path: Path
 ) -> None:
-    """Where nothing collapses (byte tokens), the policy changes no byte of the set."""
+    """Where nothing collapses (byte tokens), the policy changes no byte of the set but the
+    header's record of it: the header names the policy, and nothing else in it moves."""
     a = _write(snapshot, "train", tmp_path / "a")
     b = _write(
         snapshot, "train", tmp_path / "b",
         span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD,
     )
-    assert a.shard_hash() == b.shard_hash()
+    assert (a.span_collapse_policy, b.span_collapse_policy) == ("", "refuse-gold")
+    assert dataclasses.replace(b, span_collapse_policy="").shard_hash() == a.shard_hash()
     for name in sorted(p.name for p in (tmp_path / "a").iterdir()):
         if name == HEADER_NAME:
             continue
         assert (tmp_path / "a" / name).read_bytes() == (tmp_path / "b" / name).read_bytes(), name
+
+
+# -- the report-only val set (Fable G5(ii) slice, conditions 1-5) ---------------------------
+
+
+def _report_only(snapshot: Snapshot, out: Path) -> ShardHeader:
+    return _write(
+        snapshot, "val", out, report_only=True,
+        span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD,
+    )
+
+
+def test_a_report_only_val_set_is_written_refuse_gold_and_says_so(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    out = tmp_path / "shards" / "val-report-only-composed"
+    header = _report_only(snapshot, out)
+    assert (header.split, header.report_only, header.span_collapse_policy) == (
+        "val", True, "refuse-gold",
+    )
+    raw = json.loads((out / HEADER_NAME).read_text(encoding="utf-8"))
+    assert (raw["report_only"], raw["span_collapse_policy"]) == (True, "refuse-gold")
+    read = ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
+    assert read.header == header
+    # A gate set's header is shaped as before: neither key, so its hash is what it was.
+    gate = _write(snapshot, "val", tmp_path / "shards" / "val")
+    gate_raw = json.loads((tmp_path / "shards" / "val" / HEADER_NAME).read_text(encoding="utf-8"))
+    assert "report_only" not in gate_raw and "span_collapse_policy" not in gate_raw
+    assert (gate.report_only, gate.span_collapse_policy) == (False, "")
+
+
+@pytest.mark.parametrize(
+    ("split_name", "policy"),
+    [
+        ("train", shards_module.SPAN_COLLAPSE_REFUSE_GOLD),
+        ("val", shards_module.SPAN_COLLAPSE_REFUSE_ANY),
+    ],
+)
+def test_report_only_is_refused_off_val_or_without_refuse_gold(
+    snapshot: Snapshot, tmp_path: Path, split_name: str, policy: str
+) -> None:
+    with pytest.raises(ShardContractViolation, match="report_only is a val set"):
+        _write(
+            snapshot, split_name, tmp_path / "x", report_only=True, span_collapse_policy=policy
+        )
+    assert not (tmp_path / "x").exists()
+
+
+def test_a_gate_reader_refuses_a_report_only_or_refuse_gold_header(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    report = _report_only(snapshot, tmp_path / "r")
+    with pytest.raises(ShardContractViolation, match="not a gate population"):
+        report.require_gate_population(where="r")
+    trained = _write(
+        snapshot, "train", tmp_path / "t",
+        span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD,
+    )
+    with pytest.raises(ShardContractViolation, match="not a gate population"):
+        trained.require_gate_population(where="t")
+    _write(snapshot, "val", tmp_path / "g").require_gate_population(where="g")
+
+
+def test_the_header_round_trips_the_policy_and_report_only(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    header = _report_only(snapshot, tmp_path / "r")
+    again = ShardHeader.from_json(json.loads(json.dumps(header.to_json())))
+    assert again == header and again.shard_hash() == header.shard_hash()
+    with pytest.raises(ShardContractViolation, match="only a val set may be report-only"):
+        dataclasses.replace(header, split="train")
+    with pytest.raises(ShardContractViolation, match="is not refuse-any or refuse-gold"):
+        dataclasses.replace(header, span_collapse_policy="share-everything")
+    raw = header.to_json()
+    raw["report_only"] = "true"
+    with pytest.raises(ShardContractViolation, match="JSON boolean"):
+        ShardHeader.from_json(raw)
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        lambda raw: raw.pop("report_only"),
+        lambda raw: raw.__setitem__("report_only", False),
+        lambda raw: raw.pop("span_collapse_policy"),
+        lambda raw: raw.__setitem__("span_collapse_policy", "refuse-any"),
+    ],
+)
+def test_a_hand_edited_report_only_header_fails_its_shard_hash(
+    snapshot: Snapshot, tmp_path: Path, edit: Any
+) -> None:
+    """Turning a report-only set into a gate-shaped one by editing header.json is refused:
+    both fields are under ``shard_hash``."""
+    out = tmp_path / "r"
+    _report_only(snapshot, out)
+    raw = json.loads((out / HEADER_NAME).read_text(encoding="utf-8"))
+    edit(raw)
+    (out / HEADER_NAME).write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ShardContractViolation, match="modified after it was written"):
+        ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
 
 
 def _longest_and_rows_over(snapshot: Snapshot, tmp_path: Path) -> tuple[int, int]:
