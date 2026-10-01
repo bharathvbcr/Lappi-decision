@@ -434,9 +434,25 @@ DATA_LANE_ONLY = {
 #: most damage -- it is the list that says "we looked and there is nothing to find".
 #: ``EmptyTaskRefusal`` now stands for the kind and
 #: ``test_an_empty_task_is_refused_here_the_way_the_runtime_refuses_it`` is what looked.
+#:
+#: ``context_not_unified_diff`` and ``context_language_not_in_pool`` are serving-time
+#: admission (``crates/qd-runtime/src/admission.rs``): a ``code.defect_class`` context that
+#: is not the trained ``file: <path>`` + blank line + unified-diff-hunks shape, or whose
+#: path's language (``qd_lang::language_from_path``) is not in
+#: ``qd_lang::DEFECT_CLASS_POOL_LANGUAGES``, is refused before the model is asked. This
+#: lane asks neither question of a request: the defect rewriter *produces* that shape
+#: (``mixture.py::rewrite_defect_class``), and it deliberately builds rows of this family the
+#: admission check refuses -- composed rows open every file block with ``diff --git`` /
+#: ``---`` / ``+++``, and the noul corpus holds Kotlin and C# diffs. Its nearest checks are
+#: other questions: ``pool_builder.py`` skips files outside ``POOL_EXTENSIONS``, the reader's
+#: five languages including Swift, as a counter rather than a refusal; ``defect_class.py``
+#: returns a ``diff_is_not_a_hunk`` reason code for a noul row. Neither is a ``QdRefusal``.
+#: ``test_the_admission_shapes_are_built_here_rather_than_refused`` is what looked.
 NO_QD_DATA_COUNTERPART = {
     "ambiguous_envelope",
     "calibration_entry_missing",
+    "context_language_not_in_pool",
+    "context_not_unified_diff",
     "payload_over_cap",
     "registered_head_missing",
     "registered_head_slot_missing",
@@ -580,3 +596,53 @@ def test_empty_task_is_no_longer_claimed_to_have_no_counterpart_here() -> None:
         "here is a claim that has stopped being true"
     )
     assert qd_errors.EmptyTaskRefusal.rust_kinds == ("empty_task",)
+
+
+#: ``pub const DEFECT_CLASS_TASK: &str = "...";`` in ``crates/qd-runtime/src/admission.rs``.
+_DEFECT_CLASS_TASK_DECL = re.compile(
+    r'\bpub\s+const\s+DEFECT_CLASS_TASK\s*:\s*&str\s*=\s*"([^"]+)"\s*;'
+)
+
+
+@pytest.mark.parametrize(
+    ("context", "runtime_kind"),
+    [
+        (b"file: app/src/Foo.kt\n\n@@ -1 +1 @@\n-a\n+b", "context_language_not_in_pool"),
+        (
+            b"file: src/lib.rs\n\ndiff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n"
+            b"+++ b/src/lib.rs\n@@ -1 +1 @@\n-a\n+b",
+            "context_not_unified_diff",
+        ),
+        (b"file: src/lib.rs\n\nfn add(a: i32) -> i32 { a + 1 }", "context_not_unified_diff"),
+    ],
+    ids=["language outside the pool", "diff --git preamble", "no hunk at all"],
+)
+def test_the_admission_shapes_are_built_here_rather_than_refused(
+    context: bytes, runtime_kind: str
+) -> None:
+    """The executed half of the two admission entries in ``NO_QD_DATA_COUNTERPART``.
+
+    Each context is one ``admission.rs::admit_defect_context`` refuses as ``runtime_kind``
+    (``crates/qd-runtime/tests/admission.rs`` covers that side). Here it builds and renders.
+    If this lane grows a refusal for either condition, this fails, and the kind moves out of
+    ``NO_QD_DATA_COUNTERPART`` into that class's ``rust_kinds``.
+
+    The task is the one the runtime gates on, read out of the Rust: a request for any other
+    task is admitted there too, and would make this agreement vacuous.
+    """
+    from qd_data.defect_class import DEFECT_FAMILY_ID
+    from qd_data.render import render
+
+    decl = _DEFECT_CLASS_TASK_DECL.search(
+        (rust_src_dir() / "admission.rs").read_text(encoding="utf-8")
+    )
+    if decl is None:
+        raise RustParseError(
+            "pub const DEFECT_CLASS_TASK not found in admission.rs, so the task the admission "
+            "check gates on could not be read and this comparison did not run"
+        )
+    assert decl.group(1) == DEFECT_FAMILY_ID
+    assert runtime_kind in REFUSAL_KINDS
+    assert runtime_kind in NO_QD_DATA_COUNTERPART
+
+    assert render(_request(task=DEFECT_FAMILY_ID, context=context), seed=None).prompts()
