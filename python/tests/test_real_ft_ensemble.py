@@ -101,6 +101,85 @@ def test_towers_that_read_one_batch_differently_are_refused():
         ])
 
 
+def _device_plan(device: str, counts, *, gold=None, requires_grad: bool = False):
+    """A real :class:`SpanPlan` whose tensors live on ``device``, as ``plan_span_batch(...,
+    device=step.device)`` builds it for a tower on the GPU."""
+    from qd_train.heads import SpanPlan
+
+    k, width = len(counts), max(counts)
+
+    def t(values, dtype):
+        return torch.as_tensor(values, dtype=dtype, device=device)
+
+    pos = t([[3 * j for j in range(width)] for _ in range(k)], torch.float32 if requires_grad
+            else torch.int64)
+    if requires_grad:
+        pos.requires_grad_(True)
+    return SpanPlan(
+        candidate_pos=pos,
+        candidate_valid=t([[j < c for j in range(width)] for c in counts], torch.bool),
+        n_candidates=t(list(counts), torch.int64),
+        query_index=t([7] * k, torch.int64),
+        gold_start=t(list(gold or [0] * k), torch.int64),
+        gold_end=t(list(gold or [0] * k), torch.int64),
+        abstaining=t([False] * k, torch.bool),
+    )
+
+
+def _device_readout(device: str, plan) -> rft.BatchReadout:
+    rows = int(plan.runtime_rows[0])
+    return rft.BatchReadout(
+        letters={0: torch.tensor([1.0, 0.0], device=device)}, plan=plan,
+        starts=[torch.arange(rows, dtype=torch.float32, device=device)],
+        ends=[torch.arange(rows, dtype=torch.float32, device=device)], span_index={1: 0},
+    )
+
+
+def _accelerator() -> str | None:
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return None
+
+
+@pytest.mark.skipif(_accelerator() is None, reason="neither CUDA nor MPS is available here")
+def test_towers_on_a_gpu_compare_their_span_plans_on_the_host():
+    """J4's ens3 gate row on the GH200 (2026-10-01) died in combine_readouts: np.asarray of the
+    plan's runtime_rows, a cuda tensor. An MPS tensor refuses np.asarray the same way, so this
+    runs the failing comparison on whichever accelerator this host has."""
+    device = _accelerator()
+    assert device is not None
+    a = _device_readout(device, _device_plan(device, [3]))
+    b = _device_readout(device, _device_plan(device, [3]))
+    out = rft.combine_readouts([a, b])
+    # The mean is taken on the host in float64 (MPS has no float64), from the towers' own
+    # values: two identical towers average to their own log-softmax.
+    assert out.plan is a.plan and out.starts is not None
+    assert out.starts[0].dtype == torch.float64 and out.starts[0].device.type == "cpu"
+    expected = torch.log_softmax(torch.arange(4, dtype=torch.float64), dim=-1)
+    assert torch.allclose(out.starts[0], expected)
+    with pytest.raises(ValueError, match="planned"):
+        rft.combine_readouts([a, _device_readout(device, _device_plan(device, [4]))])
+    with pytest.raises(ValueError, match="planned"):
+        rft.combine_readouts([a, _device_readout(device, _device_plan(device, [3], gold=[2]))])
+
+
+def test_span_plans_are_compared_field_for_field_on_any_tensor():
+    """Device-independent: a plan tensor numpy cannot read directly (one that requires grad
+    raises from np.asarray on any device) is read on the host; and two plans of one batch
+    are the same plan in every field, not only in their row counts -- the same counts with
+    a different gold row are a different batch."""
+    a = _device_readout("cpu", _device_plan("cpu", [3], requires_grad=True))
+    b = _device_readout("cpu", _device_plan("cpu", [3], requires_grad=True))
+    rft.combine_readouts([a, b])
+    same_rows = _device_readout("cpu", _device_plan("cpu", [3], gold=[1]))
+    plain = _device_readout("cpu", _device_plan("cpu", [3]))
+    with pytest.raises(ValueError, match="planned"):
+        rft.combine_readouts([plain, same_rows])
+    assert rft.same_span_plan(None, None) and not rft.same_span_plan(plain.plan, None)
+
+
 def test_a_tower_ensemble_is_bounded_by_its_narrowest_tower_and_one_device():
     steps = [SimpleNamespace(device="cpu", max_width=w) for w in (512, 256, 1024)]
     assert rft.TowerEnsemble(steps).max_width == 256

@@ -204,7 +204,9 @@ def test_suite_verdicts_are_written_once_and_refused_over_an_existing_file(tmp_p
 
 
 def test_suite_verdicts_out_needs_a_suite(tmp_path):
-    with pytest.raises(SystemExit, match="without --needle or --ood there are none"):
+    with pytest.raises(
+        SystemExit, match="without --needle, --ood or --composed-slice there are none"
+    ):
         rft.main(["--out", str(tmp_path), "--rev", "0" * 40,
                   "--suite-verdicts-out", str(tmp_path / "s.jsonl")])
 

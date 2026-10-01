@@ -170,11 +170,12 @@ from run_cost import n_gpus_for_device
 from torch import nn
 
 from qd_data.config import DataConfig
-from qd_data.defect_class import DEFECT_FAMILY_ID
+from qd_data.defect_class import CHOICE_SLOT, DEFECT_FAMILY_ID, SPAN_SLOT
 from qd_data.errors import QdRefusal
 from qd_data.render import DEFAULT_CAPS, second_pass_permutation
 from qd_data.rows import DataRow
 from qd_data.schema import NOUL_LETTER
+from qd_train import composed_slice as cslice
 from qd_train.artifacts import (
     NO_SPAN,
     SLOT_CHOICE,
@@ -1057,10 +1058,47 @@ ENSEMBLE_COMBINE: Final[str] = (
 )
 
 
+def on_host(value: object) -> np.ndarray:
+    """``value`` as a host array. A torch tensor on any device (CUDA, MPS) is detached and
+    copied to the CPU first: ``np.asarray`` of a device tensor raises, and so does one of a
+    tensor that requires grad. J4's ens3 gate row on the GH200 (2026-10-01) died on the
+    former in :func:`combine_readouts`."""
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().numpy()
+    return np.asarray(value)
+
+
+def same_span_plan(a: Any, b: Any) -> bool:
+    """Whether two towers planned one batch's span rows identically, read on the host.
+
+    A :class:`qd_train.heads.SpanPlan` is compared in every field (candidates, their
+    validity, counts, query positions, gold rows, abstention) and in ``runtime_rows``; the
+    same row counts with a different gold row are a different batch. Anything else exposing
+    ``runtime_rows`` is compared on that alone.
+    """
+    if a is None or b is None:
+        return a is None and b is None
+
+    def fields(plan: Any) -> dict[str, np.ndarray]:
+        names = (
+            [f.name for f in dataclasses.fields(plan)] if dataclasses.is_dataclass(plan) else []
+        )
+        return {
+            **{name: on_host(getattr(plan, name)) for name in names},
+            "runtime_rows": on_host(plan.runtime_rows),
+        }
+
+    fa, fb = fields(a), fields(b)
+    return fa.keys() == fb.keys() and all(
+        fa[k].shape == fb[k].shape and bool(np.array_equal(fa[k], fb[k])) for k in fa
+    )
+
+
 def combine_readouts(readouts: Sequence[BatchReadout]) -> BatchReadout:
     """The logit ensemble of several towers' readouts of ONE batch (:data:`ENSEMBLE_COMBINE`).
 
-    Every tower must have read the same rows under the same span plan; anything else is a
+    Every tower must have read the same rows under the same span plan
+    (:func:`same_span_plan`, on the host, wherever the towers run); anything else is a
     different batch, and is refused rather than averaged.
     """
     if len(readouts) < 2:
@@ -1069,20 +1107,18 @@ def combine_readouts(readouts: Sequence[BatchReadout]) -> BatchReadout:
     for other in readouts[1:]:
         if set(other.letters) != set(first.letters) or other.span_index != first.span_index:
             raise ValueError("ensemble towers read different rows of one batch")
-        if (first.plan is None) != (other.plan is None) or (
-            first.plan is not None
-            and not np.array_equal(
-                np.asarray(first.plan.runtime_rows), np.asarray(other.plan.runtime_rows)
-            )
-        ):
+        if not same_span_plan(first.plan, other.plan):
             raise ValueError("ensemble towers planned one batch's span rows differently")
 
     def mean_log_probs(scores: Sequence[torch.Tensor]) -> torch.Tensor:
+        # On the host: MPS has no float64 at all, and a row's scores are a handful of values
+        # (a slot's letters, a context's line starts), so the copy costs nothing. The decode
+        # reads the result the same way wherever it lives.
         shapes = {tuple(s.shape) for s in scores}
         if len(shapes) != 1:
             raise ValueError(f"ensemble towers scored one row over different row counts {shapes}")
         return torch.stack(
-            [torch.log_softmax(s.detach().to(torch.float64), dim=-1) for s in scores]
+            [torch.log_softmax(s.detach().cpu().to(torch.float64), dim=-1) for s in scores]
         ).mean(dim=0)
 
     letters = {
@@ -5116,13 +5152,18 @@ def ood_verdict_lines(
     return tuple(out)
 
 
-def suite_widths(needle_suite: NeedleSuite, ood_suite: OodSuite) -> list[int]:
-    """Every eval-only batch width the step will decode, for its ``max_width`` bound."""
+def suite_widths(
+    needle_suite: NeedleSuite, ood_suite: OodSuite, *, composed: ComposedSlice | None = None,
+) -> list[int]:
+    """Every eval-only batch width the step will decode, for its ``max_width`` bound: the
+    suites', and the composed slice's when a plan scores it (up to 7,801 tokens)."""
     widths = [int(b.tokens.shape[1]) for b in needle_suite.batches]
     if ood_suite.val is not None:
         widths += [int(b.tokens.shape[1]) for b in ood_suite.val.plan]
     if ood_suite.second_pass is not None:
         widths += [int(b.tokens.shape[1]) for b in ood_suite.second_pass.batches]
+    if composed is not None:
+        widths += [int(b.tokens.shape[1]) for b in composed.plan]
     return widths
 
 
@@ -6070,6 +6111,393 @@ def model_reasons(
     return reasons
 
 
+# --- the report-only composed slice (a --score-plan 'composed' pass) ------------------------
+#
+# Fable G5(ii)'s slice ruling, conditions 6 and 8 (qd_train.composed_slice): 1,550 composed
+# long-context rows, written refuse-gold into a report-only val set of their own. Never a gate
+# and no gate's population; every number is a diagnostic beside its n. The set, its build row
+# and its measured exclusions are pinned together, and a rebuilt slice re-pins all three
+# before it is scored.
+
+#: The slice's build row (longctx lane, 2026-10-01) and the ledger that holds it.
+COMPOSED_SLICE_LEDGER: Final[Path] = REPO / "ledger" / "mac-slice-v4-2026-10-01.jsonl"
+COMPOSED_SLICE_ROW: Final[str] = "dafe86af-ac2a-42ca-a3cd-d2b624740783"
+#: The slice set's ``shard_hash``, which covers ``report_only`` and ``span_collapse_policy``.
+COMPOSED_SLICE_SHARD_HASH: Final[str] = (
+    "042d9b5034f9f1b2a4213be1601ed881d16adf9422fc14eefbd812aad28eac9d"
+)
+#: The slice corpus: its manifest is committed, its examples are not (they ship beside the
+#: checkout, like every other corpus under data/pool).
+COMPOSED_SLICE_CORPUS: Final[Path] = REPO / "data" / "pool" / "commitpackft-composed-slice-v1"
+#: The ``gate`` on the slice's suite-verdict lines. No gate is called this, so qd-gate-report
+#: refuses such a line rather than counting it toward anything.
+COMPOSED_SLICE_GATE: Final[str] = "composed_slice.report_only"
+#: Rule 8 for a slice row, whatever it scores.
+COMPOSED_SLICE_QUICK_REASON: Final[str] = (
+    "the report-only composed long-context slice (Fable G5(ii)): a diagnostic, never a gate "
+    "and no gate's population, so it cannot promote anything"
+)
+#: The part name a kind's slice lines are written under (:func:`plan_output`), apart from its
+#: gate lines, which qd-gate-report reads and would refuse beside these.
+COMPOSED_SLICE_PART: Final[str] = "composed"
+
+
+@dataclasses.dataclass(frozen=True)
+class ComposedSlice:
+    """The slice, opened and checked before any tower loads.
+
+    Its reader, labels by batch and letter ids; its corpus rows; each span sequence's
+    candidates (one per rendered line) and gold head row from the shard's own supervision;
+    each choice sequence's length; and how every slot and row that was not written is
+    counted. ``recipe`` is what a scored row records about it.
+    """
+
+    reader: ShardReader
+    plan: list[Batch]
+    labels_for: dict[int, list[Label]]
+    letter_id: dict[str, int]
+    cases: dict[str, cslice.ComposedCase]
+    span: dict[str, cslice.SpanSequence]
+    choice_length: dict[str, int]
+    slot_excluded: dict[tuple[str, str], str]
+    row_exclusions: tuple[tuple[cslice.ComposedCase, str], ...]
+    recipe: dict[str, object]
+
+
+def composed_slice_build(ledger_path: Path, row_id: str, *, shard_hash: str) -> LedgerRow:
+    """The slice's build row, refused unless it is there, once, and names ``shard_hash``."""
+    found = [r for r in Ledger(ledger_path).rows() if r.row_id == row_id]
+    if len(found) != 1:
+        raise SystemExit(
+            f"the composed slice's build row {row_id} is in {ledger_path} {len(found)} times, "
+            "not once"
+        )
+    row = found[0]
+    header = row.metrics.get("report_only_slice_header")
+    reached = row.metrics.get("report_only_slice_rows")
+    recipe = row.recipe or {}
+    if not isinstance(header, Ran) or header.value != shard_hash:
+        raise SystemExit(
+            f"build row {row_id} does not name the slice's shard hash {shard_hash[:16]} "
+            f"(report_only_slice_header: {header})"
+        )
+    if not isinstance(reached, Ran) or reached.n is None or reached.n_total is None:
+        raise SystemExit(f"build row {row_id} records no report_only_slice_rows n and n_total")
+    missing = [k for k in ("rev", "defect_max_rows", "report_only_slice_manifest_sha256")
+               if k not in recipe]
+    if recipe.get("report_only") is not True or missing:
+        raise SystemExit(
+            f"build row {row_id} is not a report-only slice build (report_only "
+            f"{recipe.get('report_only')!r}, recipe lacks {missing})"
+        )
+    return row
+
+
+def open_composed_slice(
+    slice_out: Path, *, corpus_dir: Path, download_root: Path, repo_root: Path,
+    config: DataConfig, train: ShardReader, letter_id: Mapping[str, int],
+    build_ledger: Path = COMPOSED_SLICE_LEDGER, build_row: str = COMPOSED_SLICE_ROW,
+    shard_hash: str = COMPOSED_SLICE_SHARD_HASH,
+    measured: Mapping[tuple[str, str], str] = cslice.MEASURED_EXCLUSIONS,
+) -> ComposedSlice:
+    """Open ``<slice_out>/shards/val-report-only-composed`` and refuse every way it could
+    misscore, before a tower loads.
+
+    Refused unless: the build row names this set's shard hash and the header says
+    ``report_only`` and refuse-gold (the opposite of the gate readers' check); the set was
+    written at the build's revision under the train set's remap; the corpus is the build's
+    (manifest sha256), read by the pipeline's own slice loader; every label pairs with the
+    writer's sequence index and ``supervision.npz``; every letter has an id; the exclusions
+    are the measured list; ``dropped_before_write`` agrees with the build's
+    ``report_only_slice_rows``; and every span sequence's candidates line up with its corpus
+    row (one per rendered line, the shard's gold token on the gold start line).
+    """
+    import real_tokenizer_pipeline as pipeline
+
+    from qd_data.mixture import rewrite_defect_class
+
+    build = composed_slice_build(build_ledger, build_row, shard_hash=shard_hash)
+    recipe = dict(build.recipe or {})
+    set_dir = Path(slice_out) / "shards" / pipeline.REPORT_ONLY_VAL_DIR
+    if not (set_dir / HEADER_NAME).exists():
+        raise SystemExit(f"--composed-slice found no slice set at {set_dir}")
+    try:
+        reader = ShardReader(
+            set_dir, config=config, repo_root=Path(slice_out), expect_rev=str(recipe["rev"])
+        )
+        cslice.require_report_only_slice(reader.header, where=str(set_dir))
+    except (ShardContractViolation, cslice.SliceRefusal) as exc:
+        raise SystemExit(f"--composed-slice: {exc}") from exc
+    if reader.header.shard_hash() != shard_hash:
+        raise SystemExit(
+            f"{set_dir}: shard_hash {reader.header.shard_hash()[:16]}, not the pinned slice's "
+            f"{shard_hash[:16]}"
+        )
+    if reader.header.remap_hash != train.header.remap_hash:
+        raise SystemExit(
+            f"the slice's remap {reader.header.remap_hash[:16]} is not the train set's "
+            f"{train.header.remap_hash[:16]}: the same id would name a different embedding row"
+        )
+    loaded = pipeline.load_report_only_slice(
+        Path(corpus_dir), download_root=Path(download_root), config=config,
+        repo_root=Path(repo_root), base_max_rows=int(recipe["defect_max_rows"]),
+    )
+    if loaded.manifest_sha256 != recipe["report_only_slice_manifest_sha256"]:
+        raise SystemExit(
+            f"{corpus_dir}: manifest sha256 {loaded.manifest_sha256[:16]}, the build read "
+            f"{str(recipe['report_only_slice_manifest_sha256'])[:16]}"
+        )
+    rows = [
+        rewrite_defect_class(r, family_id=DEFECT_FAMILY_ID, index=i, config=config)
+        for i, r in enumerate(loaded.rows)
+    ]
+    labels, excluded = _labels(rows, config=config)
+    labels = pair_labels(reader, labels, require_index=True)
+    _inventory(reader, labels, excluded)
+    merged = merge_letter_ids(dict(letter_id), _letter_ids(reader, labels))
+    unknown = sorted(
+        {x for label in labels if label.slot_kind != SLOT_SPAN for x in label.letters}
+        - set(merged)
+    )
+    if unknown:
+        raise SystemExit(
+            f"slice rows offer letter(s) {unknown} with no token id: those slots would be "
+            "neither decoded nor excluded"
+        )
+    index = reader.sequence_index
+    if index is None:  # pragma: no cover - pair_labels(require_index=True) refused it
+        raise SystemExit(f"{set_dir} carries no sequence index")
+    try:
+        cases = cslice.load_cases([Path(corpus_dir) / "examples.jsonl"])
+        loaded_ids = {f"qdm:{DEFECT_FAMILY_ID}:{r.example_id}" for r in loaded.rows}
+        if set(cases) != loaded_ids:
+            raise cslice.SliceRefusal(
+                f"the slice's cases ({len(cases)}) and the loader's rows ({len(loaded_ids)}) "
+                "are not one set of ids"
+            )
+        found: dict[tuple[str, str], str] = {}
+        for e in index.excluded:
+            key = (e.row_id, e.slot_name)
+            if key in found:
+                raise cslice.SliceRefusal(f"{key} is excluded twice")
+            found[key] = cslice.exclusion_bucket(e.scope, e.refusal, e.detail)
+        cslice.check_measured_exclusions(found, measured=measured)
+        dropped = cslice.dropped_before_write(
+            cases, [rid for rid, _ in index.sequences] + [e.row_id for e in index.excluded]
+        )
+        reached = build.metrics["report_only_slice_rows"]
+        assert isinstance(reached, Ran) and reached.n is not None and reached.n_total is not None
+        if len(cases) != reached.n_total or len(dropped) != reached.n_total - reached.n:
+            raise cslice.SliceRefusal(
+                f"{len(cases)} slice rows and {len(dropped)} dropped before write, against "
+                f"build row {build_row}'s report_only_slice_rows {reached.n} of "
+                f"{reached.n_total} (n_total - n = {reached.n_total - reached.n} dropped)"
+            )
+        batch_tokens = int(max(reader.header.buckets))
+        plan = val_plan(reader, config=config)
+        labels_for = _labels_by_batch(
+            reader, plan, labels, config=config, batch_tokens=batch_tokens
+        )
+        members = reader._plan(batch_tokens=batch_tokens, seed=config.seed, epoch=0)
+        lengths = reader.lengths()
+        span: dict[str, cslice.SpanSequence] = {}
+        choice_length: dict[str, int] = {}
+        for p, batch in zip(members, plan, strict=True):
+            sup = ft_supervision(batch)
+            heads = None if sup.span is None else plan_span_batch(sup.span)
+            span_k = {} if sup.span is None else {
+                int(r): k for k, r in enumerate(sup.span.rows)
+            }
+            for r, i in enumerate(p.rows):
+                label = labels[i]
+                if label.row_id not in cases:
+                    raise cslice.SliceRefusal(f"sequence {i} is {label.row_id}, not a slice row")
+                into = span if label.slot_kind == SLOT_SPAN else choice_length
+                if label.row_id in into:
+                    raise cslice.SliceRefusal(f"{label.row_id} has two {label.slot_name} sequences")
+                if label.slot_kind == SLOT_SPAN:
+                    if heads is None or r not in span_k:  # pragma: no cover - Batch's contract
+                        raise cslice.SliceRefusal(f"span sequence {i} has no span supervision")
+                    seq = cslice.SpanSequence(
+                        candidates=tuple(int(x) for x in reader.candidates(i)),
+                        gold_head_row=int(heads.gold_start[span_k[r]]),
+                        length_tokens=int(lengths[i]),
+                    )
+                    cslice.check_alignment(cases[label.row_id], seq.candidates, seq.gold_head_row)
+                    span[label.row_id] = seq
+                elif label.slot_name == CHOICE_SLOT:
+                    choice_length[label.row_id] = int(lengths[i])
+                else:
+                    raise cslice.SliceRefusal(
+                        f"sequence {i} is slot {label.slot_name!r}, neither {SPAN_SLOT!r} nor "
+                        f"{CHOICE_SLOT!r}"
+                    )
+    except cslice.SliceRefusal as exc:
+        raise SystemExit(f"--composed-slice: {exc}") from exc
+    shared = sum(1 for s in span.values() if len(set(s.candidates)) != len(s.candidates))
+    print(
+        f"composed slice: {len(cases)} rows ({loaded.by_half}), {len(reader)} sequences in "
+        f"{len(plan)} batches; {len(span)} span sequences, {shared} with a shared line-start "
+        f"token (refuse-any keeps {len(span) - shared}); excluded {sorted(found.items())}; "
+        f"{len(dropped)} dropped before write; shard_hash {shard_hash[:16]}, build row "
+        f"{build_row[:8]}"
+    )
+    return ComposedSlice(
+        reader=reader, plan=plan, labels_for=labels_for, letter_id=merged, cases=cases,
+        span=span, choice_length=choice_length, slot_excluded=found,
+        row_exclusions=tuple(dropped),
+        recipe={
+            "build_row": build_row, "build_ledger": Path(build_ledger).name,
+            "shard_hash": shard_hash, "manifest_sha256": loaded.manifest_sha256,
+            "examples_sha256": loaded.examples_sha256, "rows": len(cases),
+            "sequences": len(reader),
+            "measured_exclusions": [[r, s, b] for (r, s), b in sorted(found.items())],
+            "dropped_before_write": len(dropped),
+            "populations": list(cslice.POPULATIONS),
+            "hit_rule": (
+                "a prediction on a token several lines share is a needle-hunk hit only if "
+                "every line on it is in the gold hunk"
+            ),
+        },
+    )
+
+
+def composed_slice_verdicts(
+    composed: ComposedSlice, scored_verdicts: Sequence[Mapping[str, object]], *, logits: bool,
+) -> tuple[list[cslice.SliceVerdict], list[dict[str, object]]]:
+    """The scorer's per-sequence verdicts as one :class:`cslice.SliceVerdict` per slice row
+    that was not dropped, and each row's suite-verdict line.
+
+    Every written slot has exactly one verdict and every excluded slot none; a verdict for
+    anything else is refused. A line carries the choice verdict's letter rows, and under
+    ``logits`` (``--suite-logits``) the span pointer's ``start_logits``/``end_logits`` -- a
+    span verdict without them is refused, as :func:`score_needle` refuses one.
+    """
+    by_slot: dict[tuple[str, str], Mapping[str, object]] = {}
+    for v in scored_verdicts:
+        key = (str(v["row_id"]), str(v["slot_name"]))
+        if key in by_slot:
+            raise SystemExit(f"--composed-slice: {key} was decoded twice")
+        by_slot[key] = v
+    dropped = {c.row_id for c, _ in composed.row_exclusions}
+    stray = sorted(k for k in by_slot if k[0] not in composed.cases or k[0] in dropped)
+    if stray:
+        raise SystemExit(f"--composed-slice: verdicts for no slice row: {stray[:3]}")
+    verdicts: list[cslice.SliceVerdict] = []
+    lines: list[dict[str, object]] = []
+    try:
+        for row_id, case in sorted(composed.cases.items()):
+            if row_id in dropped:
+                continue
+            span_v = by_slot.get((row_id, SPAN_SLOT))
+            choice_v = by_slot.get((row_id, CHOICE_SLOT))
+            verdict = cslice.slice_verdict(
+                case, span=composed.span.get(row_id), span_verdict=span_v,
+                span_excluded=composed.slot_excluded.get((row_id, SPAN_SLOT)),
+                choice_length=composed.choice_length.get(row_id), choice_verdict=choice_v,
+                choice_excluded=composed.slot_excluded.get((row_id, CHOICE_SLOT)),
+            )
+            line = cslice.verdict_line(verdict)
+            if choice_v is not None:
+                line["choice_row_logits"] = choice_v.get("row_logits")
+            if logits and span_v is not None:
+                missing = [k for k in SUITE_LOGIT_KEYS if k not in span_v]
+                if missing:
+                    raise SystemExit(
+                        f"--composed-slice: span verdict {row_id} lacks {', '.join(missing)} "
+                        "under --suite-logits"
+                    )
+                line.update({k: span_v[k] for k in SUITE_LOGIT_KEYS})
+            verdicts.append(verdict)
+            lines.append(line)
+    except cslice.SliceRefusal as exc:
+        raise SystemExit(f"--composed-slice: {exc}") from exc
+    return verdicts, lines
+
+
+def run_composed_slice(
+    args: argparse.Namespace, *, loaded: LoadedModel, reader: ShardReader,
+    composed: ComposedSlice, device: str, ledger: Ledger, reasons_for: Callable[..., list[str]],
+    plan_note: str | None = None,
+) -> tuple[str, tuple[dict[str, object], ...], int]:
+    """The slice on ``loaded``: one decode of every slice sequence, conditions 6 and 8's
+    tables (:func:`cslice.slice_metrics`) on a quick row tagged ``<model tag>-composed-slice``,
+    and its per-row lines. Returns ``(row id, lines, row seed)``.
+
+    The decode is :func:`_decode`'s, the one every gate uses, at T = 1; a logit ensemble's
+    mean log-probabilities go through it unchanged.
+    """
+    step, ft, recipe, seed, meta = loaded
+    model = scored_model(args, ft, meta)
+    decode_at = time.monotonic()
+    scored = _decode(
+        step, composed.plan, composed.labels_for, composed.letter_id,
+        pointer_scores=args.suite_logits,
+    )
+    decode_s = time.monotonic() - decode_at
+    if int(scored["rows_not_decoded"]):  # type: ignore[call-overload]
+        raise SystemExit(
+            f"--composed-slice: {scored['rows_not_decoded']} slice sequences were not decoded "
+            f"(letters without an id: {scored.get('letters_without_id')})"
+        )
+    verdicts, lines = composed_slice_verdicts(
+        composed, scored["verdicts"], logits=args.suite_logits,  # type: ignore[arg-type]
+    )
+    try:
+        metrics = cslice.slice_metrics(
+            verdicts, row_exclusions=composed.row_exclusions, corpus=composed.cases
+        )
+    except cslice.SliceRefusal as exc:
+        raise SystemExit(f"--composed-slice: {exc}") from exc
+    slice_recipe: dict[str, object] = {
+        "tool": "tools/real_ft_run.py",
+        "tag": f"{model.tag}-composed-slice",
+        "device": device,
+        **{k: recipe[k] for k in (*BACKBONE_KEYS, *RECIPE_PIECE_KEYS) if k in recipe},
+        "score_dtype": args.score_dtype,
+        "scored_checkpoint": model.scored_checkpoint,
+        **model.recipe_block(),
+        "shard_hash": reader.header.shard_hash(),
+        "composed_slice": composed.recipe,
+    }
+    reasons = model_reasons(model, device=device, reasons_for=reasons_for)
+    reasons.append(COMPOSED_SLICE_QUICK_REASON)
+    notes = (
+        f"tools/real_ft_run.py --score-plan composed-slice pass of {model.scored_checkpoint} "
+        f"({model.described}), {args.score_dtype} on {device} at T = 1: the report-only "
+        f"composed long-context slice (build row {composed.recipe['build_row']}, shard_hash "
+        f"{str(composed.recipe['shard_hash'])[:16]}), {len(verdicts)} rows decoded the way "
+        "crates/qd-runtime/src/answer.rs decodes them. Fable G5(ii) conditions 6 and 8: span "
+        "top-1 and the needle-hunk hit under refuse_gold and refuse_any with their difference, "
+        "choice top-1 under both_policies, a prediction on a shared token a hit only if every "
+        f"line on it is in the gold hunk; exclusions counted, never misses. {REPORT_ONLY_NOTE}"
+    )
+    recorder = _recorder(
+        ledger, reader=reader, seed=seed, recipe=slice_recipe, run_kind="eval",
+        quick_reasons=reasons, wall_clock_s=decode_s,
+        cost=_cost(
+            device=device, n_gpus=n_gpus_for_device(device), usd_per_hour=args.usd_per_hour,
+            usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
+            cap_s=args.wall_clock_cap_s,
+        ),
+        notes=notes if plan_note is None else f"{notes} {plan_note}",
+    )
+    with recorder:
+        recorder.metric(*model.ft_row_metric())
+        for name, state in metrics.items():
+            recorder.metric(name, state)
+        recorder.noul_rate = NotRun(reason="a composed-slice row decodes no val row")
+    if recorder.row is None:  # pragma: no cover - RunRecorder always writes on exit
+        raise RuntimeError("RunRecorder exited without writing a row")
+    return recorder.row.row_id, tuple(lines), seed
+
+
+#: What every slice row's notes end on.
+REPORT_ONLY_NOTE: Final[str] = (
+    "Report-only: not a gate, no gate's population, never a promotion input."
+)
+
+
 # --- several models in one invocation (--score-plan) ---------------------------------------
 #
 # Fable I diagnostic (2026-10-01): seed 0, 1 and 2, their average and their 3-seed ensemble
@@ -6081,8 +6509,9 @@ def model_reasons(
 
 #: What a plan kind may run on its model. ``gates``: the val pass and every gate, the row
 #: ``--score-checkpoint`` writes. ``ood``: the OOD suite alone, a quick diagnostic row
-#: (:func:`run_ood_diagnostic`) -- never a gate, never a promotion input.
-PLAN_PASSES: Final[tuple[str, ...]] = ("gates", "ood")
+#: (:func:`run_ood_diagnostic`) -- never a gate, never a promotion input. ``composed``: the
+#: report-only composed slice (:func:`run_composed_slice`), likewise a quick diagnostic row.
+PLAN_PASSES: Final[tuple[str, ...]] = ("gates", "ood", "composed")
 #: Kinds one plan may hold. Each loads a model; a bound on fan-out, not a judgement.
 PLAN_MAX_KINDS: Final[int] = 8
 #: Bytes a plan file may hold: a list of kinds, nothing more.
@@ -6192,9 +6621,12 @@ def read_score_plan(path: Path) -> ScorePlan:
     return ScorePlan(path=path, sha256=hashlib.sha256(raw).hexdigest(), kinds=tuple(kinds))
 
 
-def plan_output(path: Path, kind: str) -> Path:
-    """A kind's own output file beside ``path``: ``<stem>-<kind><suffix>``."""
-    return path.with_name(f"{path.stem}-{kind}{path.suffix}")
+def plan_output(path: Path, kind: str, part: str | None = None) -> Path:
+    """A kind's own output file beside ``path``: ``<stem>-<kind><suffix>``, or
+    ``<stem>-<kind>.<part><suffix>`` for a part kept apart from it. A kind name holds no dot
+    (:data:`PLAN_KIND_NAME`), so no kind's file is another kind's part."""
+    middle = kind if part is None else f"{kind}.{part}"
+    return path.with_name(f"{path.stem}-{middle}{path.suffix}")
 
 
 def plan_kind_args(args: argparse.Namespace, kind: PlanKind) -> argparse.Namespace:
@@ -6246,18 +6678,31 @@ def _check_score_plan_flags(args: argparse.Namespace, *, seeds_given: bool) -> S
         raise SystemExit("an 'ood' pass decodes the OOD suite: it needs --ood")
     if args.verdicts_out is not None and not plan.wants("gates"):
         raise SystemExit("--verdicts-out writes val verdicts; no kind of this plan decodes val")
+    if plan.wants("composed") != (args.composed_slice is not None):
+        raise SystemExit(
+            "a 'composed' pass scores the slice --composed-slice names, and --composed-slice is "
+            "read only by one: give both or neither"
+        )
+    if plan.wants("composed") and args.devices[0] == "mps":
+        raise SystemExit(
+            "--score-plan decodes the composed slice (3,099 sequences up to 7,801 tokens) in "
+            "this process, and on MPS the needle-length decode after a val pass ran out of "
+            "memory (run_needle_worker): score the slice on cuda"
+        )
     for kind in plan.kinds:
         try:
             _check_score_checkpoint_flags(plan_kind_args(args, kind))
         except SystemExit as exc:
             raise SystemExit(f"--score-plan kind {kind.name!r}: {exc}") from exc
-        for flag, out in (
-            ("--verdicts-out", args.verdicts_out if "gates" in kind.passes else None),
-            ("--suite-verdicts-out", args.suite_verdicts_out),
+        suite_parts = [None, *([COMPOSED_SLICE_PART] if "composed" in kind.passes else [])]
+        for flag, out, part in (
+            ("--verdicts-out", args.verdicts_out if "gates" in kind.passes else None, None),
+            *(("--suite-verdicts-out", args.suite_verdicts_out, p) for p in suite_parts),
         ):
-            if out is not None and plan_output(out, kind.name).exists():
+            if out is not None and plan_output(out, kind.name, part).exists():
                 raise SystemExit(
-                    f"{flag} of kind {kind.name!r}: {plan_output(out, kind.name)} already exists"
+                    f"{flag} of kind {kind.name!r}: {plan_output(out, kind.name, part)} "
+                    "already exists"
                 )
     return plan
 
@@ -6352,14 +6797,19 @@ def run_score_plan(
     args: argparse.Namespace, plan: ScorePlan, *, reader: ShardReader, val: ValSet,
     device: str, ledger: Ledger, reasons_for: Callable[..., list[str]],
     second_pass: SecondPass, needle_suite: NeedleSuite, ood_suite: OodSuite, suite_seed: int,
+    composed: ComposedSlice | None = None,
 ) -> list[tuple[str, str, str]]:
     """Every kind of ``plan``, in order, over the one set of suites main built: load the
     kind's model, run its passes on it, write its files, free it before the next loads.
 
     The needle suite, when asked for, is decoded in this process: the worker exists for
     MPS (:func:`run_needle_worker`), which :func:`_check_score_plan_flags` refuses here.
-    Returns ``(kind, pass, row id)`` per row written.
+    ``composed`` is the slice a 'composed' pass scores (:func:`open_composed_slice`); its
+    lines go to the kind's ``composed`` part of ``--suite-verdicts-out``, apart from its gate
+    lines. Returns ``(kind, pass, row id)`` per row written.
     """
+    if plan.wants("composed") and composed is None:
+        raise SystemExit("a 'composed' pass needs the slice, and none was opened")
     if plan.wants("ood") and (
         ood_suite.not_run is not None or ood_suite.second_pass is None
         or ood_suite.second_pass.not_run is not None
@@ -6368,7 +6818,7 @@ def run_score_plan(
             "an 'ood' pass needs the OOD suite and its second pass, and they did not build: "
             f"{ood_suite.not_run or (ood_suite.second_pass and ood_suite.second_pass.not_run)}"
         )
-    widths = suite_widths(needle_suite, ood_suite)
+    widths = suite_widths(needle_suite, ood_suite, composed=composed)
     recorded: list[tuple[str, str, str]] = []
     for kind in plan.kinds:
         kind_args = plan_kind_args(args, kind)
@@ -6409,6 +6859,19 @@ def run_score_plan(
                 for v in lines
             )
             recorded.append((kind.name, "ood", row_id))
+        composed_lines: list[dict[str, object]] = []
+        if "composed" in kind.passes:
+            assert composed is not None  # refused above
+            row_id, lines, row_seed = run_composed_slice(
+                kind_args, loaded=loaded, reader=reader, composed=composed, device=device,
+                ledger=ledger, reasons_for=reasons_for, plan_note=note,
+            )
+            composed_lines = [
+                {"eval_row_id": row_id, "seed": int(row_seed), "gate": COMPOSED_SLICE_GATE,
+                 "score_kind": kind.name, **v}
+                for v in lines
+            ]
+            recorded.append((kind.name, "composed", row_id))
         # The model's last reference: the next kind loads into the memory this returns.
         del loaded
         gc.collect()
@@ -6416,9 +6879,15 @@ def run_score_plan(
         if args.verdicts_out is not None and "gates" in kind.passes:
             write_verdicts_jsonl(plan_output(args.verdicts_out, kind.name), verdict_lines)
         if args.suite_verdicts_out is not None:
-            write_suite_verdicts_jsonl(
-                plan_output(args.suite_verdicts_out, kind.name), suite_lines
-            )
+            if "gates" in kind.passes or "ood" in kind.passes:
+                write_suite_verdicts_jsonl(
+                    plan_output(args.suite_verdicts_out, kind.name), suite_lines
+                )
+            if "composed" in kind.passes:
+                write_suite_verdicts_jsonl(
+                    plan_output(args.suite_verdicts_out, kind.name, COMPOSED_SLICE_PART),
+                    composed_lines,
+                )
         print(f"score plan: kind {kind.name} done -> "
               f"{[(p, r) for name, p, r in recorded if name == kind.name]}")
     return recorded
@@ -7083,10 +7552,11 @@ def _check_piece_flags(args: argparse.Namespace) -> None:
         if args.verdicts_out.exists():
             raise SystemExit(f"--verdicts-out {args.verdicts_out} already exists")
     if args.suite_verdicts_out is not None:
-        if not (args.needle or args.ood):
+        if not (args.needle or args.ood or args.composed_slice is not None):
             raise SystemExit(
-                "--suite-verdicts-out writes the needle and OOD suites' raw verdicts; "
-                "without --needle or --ood there are none"
+                "--suite-verdicts-out writes the needle and OOD suites' raw verdicts and the "
+                "composed slice's per-row lines; without --needle, --ood or --composed-slice "
+                "there are none"
             )
         if args.suite_verdicts_out.exists():
             raise SystemExit(f"--suite-verdicts-out {args.suite_verdicts_out} already exists")
@@ -7602,11 +8072,30 @@ def main(argv: list[str] | None = None) -> int:
             "once: {\"kinds\": [{\"name\", \"checkpoints\", \"ft_row_ids\" (not for an "
             "average), \"seeds\", \"passes\"}]}, each kind exactly what --score-checkpoint "
             "and its --ft-row-id/--seeds would name. passes: \"gates\" (the val pass and every "
-            "gate: the --score-checkpoint row) or \"ood\" (the OOD suite alone: a quick "
-            "diagnostic row, tag <kind tag>-ood-diagnostic). One model is loaded per kind and "
-            "freed before the next; --verdicts-out/--suite-verdicts-out are written per kind as "
-            "<stem>-<name><suffix>. Needs --score-val, --real-backbone, --ft-ledger and one "
-            "--devices entry; refuses --score-checkpoint, --ft-row-id and --seeds"
+            "gate: the --score-checkpoint row), \"ood\" (the OOD suite alone: a quick "
+            "diagnostic row, tag <kind tag>-ood-diagnostic) or \"composed\" (the report-only "
+            "composed slice, --composed-slice: a quick row, tag <kind tag>-composed-slice). One "
+            "model is loaded per kind and freed before the next; --verdicts-out/"
+            "--suite-verdicts-out are written per kind as <stem>-<name><suffix>, a composed "
+            "pass's lines as <stem>-<name>.composed<suffix>. Needs --score-val, "
+            "--real-backbone, --ft-ledger and one --devices entry; refuses --score-checkpoint, "
+            "--ft-row-id and --seeds"
+        ),
+    )
+    parser.add_argument(
+        "--composed-slice", type=Path, default=None, metavar="SLICE_OUT",
+        help=(
+            "a --score-plan 'composed' pass's slice: the report-only slice build's --out, "
+            "holding shards/val-report-only-composed. Pinned to build row "
+            f"{COMPOSED_SLICE_ROW[:8]} ({COMPOSED_SLICE_LEDGER.name}) and its shard hash; "
+            "refused unless its header says report_only and refuse-gold"
+        ),
+    )
+    parser.add_argument(
+        "--composed-slice-corpus", type=Path, default=COMPOSED_SLICE_CORPUS,
+        help=(
+            "the slice corpus (manifest.json and examples.jsonl), read by the pipeline's own "
+            "report-only slice loader with --defect-download's licences"
         ),
     )
     parser.add_argument(
@@ -8017,6 +8506,8 @@ def main(argv: list[str] | None = None) -> int:
             "--ft-ledger/--ft-row-id only mean something with --score-checkpoint (or "
             "--score-plan)"
         )
+    if args.composed_slice is not None and score_plan is None:
+        raise SystemExit("--composed-slice is read only by a --score-plan 'composed' pass")
     _check_suite_logits_flags(args)
     if (args.ood_general_record is not None) != args.ood:
         raise SystemExit("--ood and --ood-general-record are given together or not at all")
@@ -8346,6 +8837,19 @@ def main(argv: list[str] | None = None) -> int:
     if score_plan is not None:
         if val_set is None:  # pragma: no cover - _check_score_plan_flags needs --score-val
             raise SystemExit("--score-plan needs --score-val's val set")
+        composed: ComposedSlice | None = None
+        if score_plan.wants("composed"):
+            import real_tokenizer_pipeline as pipeline
+
+            assert args.composed_slice is not None  # _check_score_plan_flags refused otherwise
+            composed = open_composed_slice(
+                args.composed_slice, corpus_dir=args.composed_slice_corpus,
+                download_root=(
+                    pipeline.DEFAULT_DEFECT_DOWNLOAD if args.defect_download is None
+                    else args.defect_download
+                ),
+                repo_root=REPO, config=config, train=reader, letter_id=val_set.letter_id,
+            )
         for kind_name, what, row_id in run_score_plan(
             args, score_plan, reader=reader, val=val_set, device=devices[0],
             ledger=Ledger(args.ledger),
@@ -8354,7 +8858,7 @@ def main(argv: list[str] | None = None) -> int:
                 termination=termination,
             ),
             second_pass=second_pass, needle_suite=needle_suite, ood_suite=ood_suite,
-            suite_seed=config.seed,
+            suite_seed=config.seed, composed=composed,
         ):
             print(f"score plan: {kind_name} {what} row {row_id}")
         return 0
