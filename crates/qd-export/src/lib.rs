@@ -1,0 +1,33 @@
+//! `qd-export` — an averaged checkpoint to the release directory the serving loader reads.
+//!
+//! Plan: phase 6, piece (iii). Input is what `tools/ckpt_average.py` writes: one safetensors file
+//! of `tower.*` (the Qwen3.5-2B text tower as `Qwen3_5TextModel.state_dict()` names it,
+//! `python/qd_train/backbone.py:1000-1054`) and `span_head.*` tensors, plus
+//! `<file>.manifest.json`. Output is the layout **qd-metal's loader** reads, which is a
+//! Hugging Face snapshot's text half:
+//!
+//! | File | Loader | Holds |
+//! | --- | --- | --- |
+//! | `config.json` | `config.rs:87-92` | the base snapshot's, byte for byte |
+//! | `model.safetensors` | `model.rs:870-901` | the 320 `model.language_model.*` tensors, BF16 |
+//! | `tokenizer.json` | `backend.rs:331`, `tokenizer.rs:28-37` | the base snapshot's, pinned |
+//! | `tokenizer_config.json`, `vocab.json`, `merges.txt` | (transformers) | the base snapshot's |
+//! | `span_head.safetensors` | none yet | the span pointer head, F32 |
+//! | `calibration.json` | none yet (the runtime has no file loader) | optional, validated |
+//! | `release_manifest.json` | none | every file's sha256, the source, the identity hashes |
+//!
+//! | Module | Holds |
+//! | --- | --- |
+//! | [`safetensors`] | reader and streaming writer, by hand |
+//! | [`bf16`] | the one cast: round to nearest, ties to even |
+//! | [`layout`] | `config.json` -> the tensor set and shapes the loader reads |
+//! | [`export`] | the refusals, the staging directory, the manifest |
+
+pub mod bf16;
+pub mod export;
+pub mod layout;
+pub mod refusal;
+pub mod safetensors;
+
+pub use export::{export, AllowedExtra, ExportRequest, ExportSummary};
+pub use refusal::{Refusal, RefusalKind};

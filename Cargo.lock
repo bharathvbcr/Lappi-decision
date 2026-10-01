@@ -649,6 +649,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "qd-export"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "qd-metal",
+ "qd-runtime",
+ "serde_json",
+ "sha2",
+ "tessl",
+ "thiserror",
+]
+
+[[package]]
 name = "qd-metal"
 version = "0.1.0"
 dependencies = [
