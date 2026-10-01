@@ -38,13 +38,13 @@ arm A-over0  --code-root $OVER "${A[@]}" --tag A-over0
 echo "=== speed B default kernels start $(date -u +%H:%M:%S)"
 $PY -u $PERF/perf_step.py --code-root $OVER --out $P8K --backbone $BACKBONE --shape B \
   --batch-tokens 35403 --width-min 8001 --width-max 8441 --allow-stale-shards --n-batches 5 \
-  --warmup 2 --steps 8 --rounds 3 --budget-s 240 --results $PERF/bench.jsonl \
+  --warmup 2 --steps 8 --rounds 3 --overlap --budget-s 240 --results $PERF/bench.jsonl \
   --configs off:0 skip:$N > $PERF/logs2/bench-B.log 2>&1
 echo "=== speed B exit $?"; grep '"config"' $PERF/logs2/bench-B.log
 echo "=== memory B3905 default kernels start $(date -u +%H:%M:%S)"
 $PY -u $PERF/perf_step.py --code-root $OVER --out $P8K --backbone $BACKBONE --shape B3905 \
   --batch-tokens 35403 --width-min 3905 --width-max 3905 --allow-stale-shards --n-batches 4 \
-  --warmup 1 --steps 4 --budget-s 150 --results $PERF/bench.jsonl \
+  --warmup 1 --steps 4 --overlap --budget-s 150 --results $PERF/bench.jsonl \
   --configs skip:$N skip:7 skip:8 > $PERF/logs2/bench-B3905.log 2>&1
 echo "=== memory B3905 exit $?"; grep '"config"' $PERF/logs2/bench-B3905.log
 
@@ -63,7 +63,7 @@ $PY $PERF/perf_step.py --summarize $PERF/bench.jsonl
 echo "=== no-mask probe start $(date -u +%H:%M:%S)"
 CUBLAS_WORKSPACE_CONFIG=:4096:8 $PY -u $PERF/perf_step.py --code-root $OVER --out $P8K \
   --backbone $BACKBONE --shape B --batch-tokens 35403 --width-min 8001 --width-max 8441 \
-  --allow-stale-shards --n-batches 5 --warmup 2 --steps 6 --budget-s 170 \
+  --allow-stale-shards --n-batches 5 --warmup 2 --steps 6 --overlap --budget-s 170 \
   --results $PERF/probe-nomask.jsonl --configs off:0+nomask off:0+det+nomask+profile \
   > $PERF/logs2/probe-nomask.log 2>&1
 echo "=== no-mask probe exit $?"; grep '"config"' $PERF/logs2/probe-nomask.log

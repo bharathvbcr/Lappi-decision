@@ -416,11 +416,25 @@ def run_profile(args: argparse.Namespace) -> int:
             for i in order[: args.warmup]:
                 _one_step(step, batches[i], sups[i], 1e-5, torch, on_cuda)
             row["warmup_s"] = round(time.perf_counter() - t_c0, 2)
-            timed = [_one_step(step, batches[i], sups[i], 1e-5, torch, on_cuda)
+            # --overlap: no synchronize after each optimizer step, exactly as trainer._train_loop
+            # runs (its only per-step sync is float(loss)), so the next batch's host work
+            # overlaps the optimizer's kernels; one sync closes the window. Without it, every
+            # step is timed in isolation, which session 1 did and which reads ~13% slower than
+            # the production loop at shape A (0.95 vs J6(b)'s logged 0.83 s/step).
+            if on_cuda:
+                torch.cuda.synchronize()
+            t_loop = time.perf_counter()
+            timed = [_one_step(step, batches[i], sups[i], 1e-5, torch,
+                               on_cuda and not args.overlap)
                      for i in order[args.warmup:]]
+            if on_cuda:
+                torch.cuda.synchronize()
+            loop_wall = time.perf_counter() - t_loop
             pos = sum(int(batches[i].tokens.size) for i in order[args.warmup:])
             real = sum(int(batches[i].lengths.sum()) for i in order[args.warmup:])
-            wall = sum(t["step_s"] for t in timed)
+            wall = loop_wall if args.overlap else sum(t["step_s"] for t in timed)
+            row["timing"] = "overlapped (one sync per window)" if args.overlap else "per-step sync"
+            row["step_s_window_mean"] = round(loop_wall / len(timed), 4)
             est_s["per_step"] = max(est_s.get("per_step", 0.0), wall / len(timed))
             row.update({
                 "status": "ran",
@@ -537,6 +551,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--results", type=Path)
     ap.add_argument("--budget-s", type=float, default=540.0)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--overlap", action="store_true",
+                    help="time like the production loop: no sync after each step")
     ap.add_argument("--rounds", type=int, default=1,
                     help="interleave: every config once per round, this many rounds")
     ap.add_argument("--summarize", type=Path, help="min-of-N over a results file; no GPU")
@@ -570,9 +586,11 @@ def summarize(path: Path) -> int:
                                for r in rs if r.get("status") != "ran"}),
         }
         if ran:
-            best = min(ran, key=lambda r: r["step_s_median"])
+            best = min(ran, key=lambda r: r.get("step_s_window_mean", r["step_s_median"]))
             out.update({
+                "min_step_s_window_mean": best.get("step_s_window_mean"),
                 "min_step_s_median": best["step_s_median"],
+                "timing": sorted({r.get("timing", "per-step sync") for r in ran}),
                 "max_pos_per_s": max(r["pos_per_s"] for r in ran),
                 "pos_per_s_by_round": [r["pos_per_s"] for r in ran],
                 "peak_alloc_gib_max": max(r.get("peak_alloc_gib", 0.0) for r in ran),
