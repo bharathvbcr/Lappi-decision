@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from data_fixtures import use_qd_prep
 
 pytest.importorskip("torch", reason="torch is an optional 'mac' extra, not in .venv")
 
@@ -102,6 +103,7 @@ def _manifest_ids(path: Path) -> list[str]:
 def test_the_rebuild_is_the_pipelines_own_split_general_rows_and_replay_slice_included(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    use_qd_prep(monkeypatch)
     record = _record(tmp_path / "cache")
     out = tmp_path / "out"
     rev = resolve_rev(REPO, PINNED)
@@ -377,9 +379,12 @@ def test_main_refuses_general_options_without_a_record(tmp_path: Path, flags: li
         rft.main(["--out", str(tmp_path), "--rev", "a" * 40, *flags])
 
 
-def test_replay_rows_are_marked_and_never_in_the_gold_train_split(tmp_path: Path) -> None:
+def test_replay_rows_are_marked_and_never_in_the_gold_train_split(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The mirror of the pipeline's own invariant, on the rebuild: every replay-only row
     carries its role, and none of them is in the train split ``main`` gold-trains on."""
+    use_qd_prep(monkeypatch)
     rev = resolve_rev(REPO, PINNED)
     record = _record(tmp_path)
     train, _val = rft.ft_split_rows(commitpackft=None, max_pairs=3, rev=rev,

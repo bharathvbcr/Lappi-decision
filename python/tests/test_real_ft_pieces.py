@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from data_fixtures import use_qd_prep
 
 pytest.importorskip("torch", reason="torch is an optional 'mac' extra, not in .venv")
 
@@ -245,9 +246,11 @@ def test_main_trains_on_exactly_what_ft_split_rows_returns(tmp_path, monkeypatch
                       "general_max_rows": None, "replay_partition": False}]
 
 
-def test_ft_split_rows_is_the_rebuild_main_used_to_inline(tmp_path):
+def test_ft_split_rows_is_the_rebuild_main_used_to_inline(tmp_path, monkeypatch):
     """Characterisation against the pre-extraction inline block in ``main`` (HEAD c65d7da),
-    on this repository's own history at a small ``max_pairs``."""
+    on this repository's own history at a small ``max_pairs``. The rebuild signs in qd-prep
+    and the inline block below in the Python reference, so this is also their parity."""
+    use_qd_prep(monkeypatch)
     import real_tokenizer_pipeline as pipeline
     from repo_git import resolve_rev
 
@@ -316,13 +319,16 @@ def test_defect_download_without_a_corpus_is_refused():
     not (DEFECT_CORPUS / "examples.jsonl").is_file() or not CPFT.is_dir(),
     reason="the qd-mutate corpus or the commitpackft download is not on this host",
 )
-def test_a_defect_class_shard_set_is_relabelled_by_id_from_the_pipelines_own_rows(tmp_path):
+def test_a_defect_class_shard_set_is_relabelled_by_id_from_the_pipelines_own_rows(
+    tmp_path, monkeypatch
+):
     """Against the pipeline's OWN output: build a small shard set with
     real_tokenizer_pipeline.run(--defect-class), then rebuild its labels the way main does
     and pair them to sequences through the writer's sequence index. Every sequence gets
     the label its index names, the letters read off the set are consistent, and without
     --defect-class the rebuild is refused."""
     pytest.importorskip("transformers")
+    use_qd_prep(monkeypatch)
     import real_tokenizer_pipeline as pipeline
     from repo_git import resolve_rev
 

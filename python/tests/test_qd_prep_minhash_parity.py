@@ -16,14 +16,14 @@ tests are SKIPPED with that reason, never passed.
 from __future__ import annotations
 
 import json
-import shutil
+import os
 import struct
-import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
-from data_fixtures import small_corpus, vendored_pair
+from data_fixtures import QD_PREP_BIN_ENV, qd_prep_bin, small_corpus, vendored_pair
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "python"))
@@ -46,17 +46,11 @@ DEFECT_EXAMPLES = REPO / "data" / "pool" / "commitpackft-corpus-v2" / "examples.
 
 @pytest.fixture(scope="module")
 def prep_bin() -> Path:
-    cargo = shutil.which("cargo")
-    if cargo is None:
-        pytest.skip("cargo is not on PATH, so qd-prep could not be built: parity NOT run")
-    done = subprocess.run(
-        [cargo, "build", "--release", "-p", "qd-prep", "--bin", "qd-prep"],
-        cwd=REPO, capture_output=True, text=True, timeout=900, check=False,
-    )
-    assert done.returncode == 0, done.stderr[-3000:]
-    binary = REPO / "target" / "release" / "qd-prep"
-    assert binary.is_file()
-    return binary
+    return qd_prep_bin()
+
+
+def test_the_fixture_and_the_adapter_name_one_variable() -> None:
+    assert QD_PREP_BIN_ENV == pipeline.PREP_BIN_ENV
 
 
 def _reference() -> MinHasher:
@@ -130,6 +124,51 @@ def test_real_defect_corpus_rows_are_signed_like_the_reference(prep_bin: Path) -
         for _, line in zip(range(400), fh, strict=False):
             texts.extend(v for v in json.loads(line).values() if isinstance(v, str) and v)
     assert _assert_parity(prep_bin, texts) > 400
+
+
+#: A/B rounds of the benchmark below; each round runs the reference, then the binary.
+BENCH_ROUNDS = 3
+#: Examples whose ``before``/``after``/``diff`` texts the benchmark signs (~3 texts each).
+BENCH_EXAMPLES = 3000
+
+
+@pytest.mark.skipif(
+    os.environ.get("QD_PREP_BENCH") != "1",
+    reason="the reference-vs-qd-prep benchmark runs only with QD_PREP_BENCH=1 (~1 minute)",
+)
+@pytest.mark.skipif(not DEFECT_EXAMPLES.is_file(), reason=f"{DEFECT_EXAMPLES} is not on disk")
+def test_benchmark_reference_against_qd_prep_interleaved_min_of_n(prep_bin: Path) -> None:
+    """The committed A/B behind the speedup claim: the same real shingle sets, signed by the
+    reference and by the binary in alternating rounds, min of :data:`BENCH_ROUNDS` each.
+    The binary's time includes writing the request, the process and reading the reply.
+
+        QD_PREP_BENCH=1 pytest -s python/tests/test_qd_prep_minhash_parity.py -k benchmark
+    """
+    texts: list[str] = []
+    with DEFECT_EXAMPLES.open(encoding="utf-8") as fh:
+        for _, line in zip(range(BENCH_EXAMPLES), fh, strict=False):
+            example = json.loads(line)
+            texts.extend(str(example[k]) for k in ("before", "after", "diff") if example.get(k))
+    sets = _sets(texts)
+    reference = _reference()
+    a: list[float] = []
+    b: list[float] = []
+    for _ in range(BENCH_ROUNDS):
+        started = time.perf_counter()
+        want = [reference.signature(s) for s in sets]
+        a.append(time.perf_counter() - started)
+        started = time.perf_counter()
+        got = pipeline._prep_signatures(prep_bin, sets, reference)
+        b.append(time.perf_counter() - started)
+        assert got == want
+    print(json.dumps({
+        "benchmark": "minhash_signature", "sets": len(sets),
+        "shingles": sum(len(s) for s in sets), "num_perm": reference.num_perm,
+        "rounds": BENCH_ROUNDS, "reference_s": [round(x, 3) for x in a],
+        "qd_prep_s": [round(x, 3) for x in b], "reference_min_s": round(min(a), 3),
+        "qd_prep_min_s": round(min(b), 3), "speedup_min_over_min": round(min(a) / min(b), 1),
+    }))
+    assert min(b) < min(a)
 
 
 def test_an_empty_set_is_refused_by_the_binary_as_by_the_reference(prep_bin: Path) -> None:

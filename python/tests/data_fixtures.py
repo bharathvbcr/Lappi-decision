@@ -13,6 +13,14 @@ is not duplicated.
 
 from __future__ import annotations
 
+import functools
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
 from qd_data.config import DataConfig
 from qd_data.loaders import ClincRow, CommitPackFtRow, SquadRow
 from qd_data.mixture import LANGUAGE_OPTIONS
@@ -170,3 +178,40 @@ def mutate_row(**over) -> dict:
     }
     base.update(over)
     return base
+
+
+#: ``tools/real_tokenizer_pipeline.PREP_BIN_ENV``, restated so this module imports no tool;
+#: ``test_qd_prep_minhash_parity.py`` asserts the two agree.
+QD_PREP_BIN_ENV = "QD_PREP_BIN"
+_REPO = Path(__file__).resolve().parents[2]
+
+
+@functools.cache
+def qd_prep_bin() -> Path:
+    """The ``qd-prep`` binary MinHash signing runs in, built once per test process.
+
+    The one the environment names when it names one; otherwise ``cargo build --release -p
+    qd-prep`` in this checkout. Without either the calling test is SKIPPED with that reason:
+    a dedupe that could not run is not a dedupe that passed.
+    """
+    named = os.environ.get(QD_PREP_BIN_ENV, "")
+    if named:
+        return Path(named)
+    cargo = shutil.which("cargo")
+    if cargo is None:
+        pytest.skip(f"cargo is not on PATH and {QD_PREP_BIN_ENV} is unset: qd-prep NOT built")
+    done = subprocess.run(
+        [cargo, "build", "--release", "-p", "qd-prep", "--bin", "qd-prep"],
+        cwd=_REPO, capture_output=True, text=True, timeout=900, check=False,
+    )
+    if done.returncode != 0:
+        raise AssertionError(f"cargo build -p qd-prep failed: {done.stderr[-3000:]}")
+    return _REPO / "target" / "release" / "qd-prep"
+
+
+def use_qd_prep(monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Point ``QD_PREP_BIN`` at :func:`qd_prep_bin` for one test; dedupe and split sign
+    there (``real_tokenizer_pipeline.native_minhash``), with no Python fallback."""
+    binary = qd_prep_bin()
+    monkeypatch.setenv(QD_PREP_BIN_ENV, str(binary))
+    return binary
