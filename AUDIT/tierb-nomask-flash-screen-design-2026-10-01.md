@@ -48,6 +48,19 @@
 >
 >   The mechanisms are in `p2_miss_diag.py`/`.out`. The p2_timing precondition is not met, so T1
 >   waits for Fable (HANDOFF/train-step-perf-2026-10-01.md).
+>
+> **Amended again** (Fable, main be20c78, `no_mask.p2_amendment_2`). The statistic, τ and κ are
+> unchanged; what changed:
+> - **Aggregation.** A shape fails only when all four applications, (letter, span) × (first,
+>   all), are conclusive and at least one fails. Otherwise it is held: not_run if any
+>   application is not_run, else inconclusive if any is. The row names its failing applications
+>   in `fail_applications`.
+> - **The δ = 2% target is retired to report-only.** It sits exactly at τ, so each application
+>   is a coin flip by construction. δ 1% (pass ≥ 99%) and δ 3% (fail ≥ 99%) are added at every
+>   configuration.
+> - **The ≤ 12% null bound is kept**, and noise ×5 is added to the grid.
+>
+> The v3 calibration is in `p2_null_sim.py`/`.out`.
 
 **Status:** a draft for the lead to take to Fable. Nothing here is built or queued.
 - The GPU parts are sized to run **after F**.

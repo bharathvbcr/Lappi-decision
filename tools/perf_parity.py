@@ -33,8 +33,15 @@ M_i.
   - noise_j = mean over T of (B_j - mean of the other baselines) / L.
 - **Verdict per (channel, T):** inconclusive if max|noise_j| > tau/kappa (0.02/3); else fail if
   max|dev_i| > tau; else pass.
-- **Aggregation:** a channel is the worst over T, and a shape the worst channel, where worst
-  means fail > not_run > inconclusive > pass. A channel with no live step is not_run.
+- **Aggregation** (amended again by Fable, ``no_mask.p2_amendment_2``). A shape is decided
+  from its four applications, (letter, span) x (first, all):
+  - fail only when every application is conclusive (pass or fail) and at least one fails;
+  - otherwise not_run if any application is not_run, else inconclusive if any is
+    inconclusive, else pass.
+  A channel with no live step is not_run in both of its applications. The channel verdict
+  (worst over T: fail > not_run > inconclusive > pass) is report-only. The row always lists
+  ``fail_applications`` in (letter, span) then (first, all) order, empty when none; on a held
+  shape it is what the human reads first.
 - **Exit codes:** 0 pass, 1 fail, 2 anything else.
 - **The retired per-step rule** (D(t) <= S(t) on >= 90% of steps, unsatisfiable under an
   exchangeable null: P(D <= S) = 1/5 per step) still rides on the row as a report-only profile.
@@ -241,8 +248,11 @@ P2_TERMINATION = "steps_exhausted"
 #: The labelling the rule compares: masked baselines against no-mask candidates.
 P2_BASE_MASK = "padding"
 P2_CAND_MASK = "none"
-#: Worst first: a channel is the worst of its step sets, a shape the worst of its channels.
+#: Worst first: a channel (report-only) is the worst of its two step sets.
 P2_SEVERITY = ("fail", "not_run", "inconclusive", "pass")
+#: The four applications a shape is decided from, in the order ``fail_applications`` lists
+#: them: channel order (letter, span), then step-set order (first, all).
+P2_APPLICATIONS = (("letter", "first"), ("letter", "all"), ("span", "first"), ("span", "all"))
 
 
 def _channel(rows: list[dict[str, Any]], ch: str) -> list[list[float]]:
@@ -251,6 +261,24 @@ def _channel(rows: list[dict[str, Any]], ch: str) -> list[list[float]]:
 
 def _worst(verdicts: list[str]) -> str:
     return min(verdicts, key=P2_SEVERITY.index)
+
+
+def _p2_shape(apps: list[str]) -> str:
+    """A shape's verdict from its four application verdicts (``no_mask.p2_amendment_2``):
+    fail only when every application is conclusive and at least one fails; otherwise not_run
+    if any is not_run, else inconclusive if any is inconclusive, else pass. A fail beside an
+    application that could not resolve tau (or never ran) holds the shape for the human
+    instead of cancelling the outcome run on its own. Fails closed: pass needs four
+    applications that all read pass, and anything unrecognised raises."""
+    if len(apps) != len(P2_APPLICATIONS) or not set(apps) <= set(P2_SEVERITY):
+        raise ValueError(f"a P2 shape takes {len(P2_APPLICATIONS)} verdicts from "
+                         f"{P2_SEVERITY}, got {apps}")
+    if "fail" in apps and set(apps) <= {"pass", "fail"}:
+        return "fail"
+    for held in ("not_run", "inconclusive"):
+        if held in apps:
+            return held
+    return "pass"
 
 
 def _p2_set(b: list[list[float]], m: list[list[float]], steps: list[int]) -> dict[str, Any]:
@@ -308,9 +336,11 @@ def p2_screen(bases: list[dict[str, Any]], cands: list[dict[str, Any]]) -> dict[
 
     Per channel, the live steps are those where any arm is non-zero (a span channel is 0.0 on
     a letter-only batch in every arm, which is evidence of nothing); no live step is
-    ``not_run``. The rule is applied to two step sets, the first live step and all live steps
-    (:func:`_p2_set`); the channel is the worst of the two, the shape the worst channel, worst
-    meaning fail > not_run > inconclusive > pass.
+    ``not_run``, for both of that channel's applications. The rule is applied to two step
+    sets, the first live step and all live steps (:func:`_p2_set`). The channel verdict is the
+    worst of the two (fail > not_run > inconclusive > pass), report-only. The shape is decided
+    from the four applications by :func:`_p2_shape`, and ``fail_applications`` names every
+    failing one in :data:`P2_APPLICATIONS` order, empty when none.
     """
     if len(bases) < P2_MIN_BASELINES:
         raise SystemExit(
@@ -339,7 +369,8 @@ def p2_screen(bases: list[dict[str, Any]], cands: list[dict[str, Any]]) -> dict[
     if wrong:
         raise SystemExit(f"every P2 candidate must train with {P2_CAND_MASK!r}: {wrong}")
     out: dict[str, Any] = {
-        "rule": "campaign/f-j7prime-preregistered.json no_mask.p2_rule (amended 2026-10-01)",
+        "rule": "campaign/f-j7prime-preregistered.json no_mask.p2_rule (amended 2026-10-01; "
+                "shape aggregation per no_mask.p2_amendment_2)",
         "tau": P2_TAU, "kappa": P2_KAPPA,
         "base": [r["tag"] for r in bases], "cand": [r["tag"] for r in cands],
         "train_paths": {r["tag"]: r.get("train_path") for r in arms},
@@ -358,7 +389,11 @@ def p2_screen(bases: list[dict[str, Any]], cands: list[dict[str, Any]]) -> dict[
             "verdict": _worst([s["verdict"] for s in sets.values()]),
             "live_steps": len(live), "sets": sets, "profile": _p2_profile(b, m, live),
         }
-    out["verdict"] = _worst([c["verdict"] for c in out["channels"].values()])
+    apps = {(ch, t): (out["channels"][ch]["sets"][t]["verdict"]
+                      if "sets" in out["channels"][ch] else "not_run")
+            for ch, t in P2_APPLICATIONS}
+    out["fail_applications"] = [[ch, t] for ch, t in P2_APPLICATIONS if apps[ch, t] == "fail"]
+    out["verdict"] = _p2_shape([apps[a] for a in P2_APPLICATIONS])
     return out
 
 

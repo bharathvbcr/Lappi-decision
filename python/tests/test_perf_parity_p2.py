@@ -12,8 +12,17 @@ Per channel and per step set T in {first live step, all live steps}:
 - with tau = 0.02 and kappa = 3: inconclusive if max|noise_j| > tau/kappa; else fail if
   max|dev_i| > tau; else pass.
 
-A channel is the worst over T. A shape is fail > not_run > inconclusive > pass. These tests pin
-the statistic, the ordering, the refusals and what the verdict row records.
+A channel is the worst over T, report-only. A shape is decided from its four applications,
+(letter, span) x (first, all), as amended again by Fable after c18d245's calibration
+(``no_mask.p2_amendment_2``):
+- it is fail only when every application is conclusive (pass or fail) and at least one fails;
+- otherwise it is not_run if any application is not_run, else inconclusive if any is
+  inconclusive, else pass.
+A held shape (inconclusive or not_run) is not cancelled on one application's fail while another
+says the noise is unresolvable. The row always names its failing applications in
+``fail_applications``, in (letter, span) then (first, all) order, empty when none.
+
+These tests pin the statistic, the aggregation, the refusals and what the verdict row records.
 """
 
 from __future__ import annotations
@@ -134,12 +143,14 @@ def test_one_shifted_candidate_among_two_null_ones_fails():
 
 def test_noisy_baselines_are_inconclusive_even_when_the_candidate_is_far_off():
     """noise > tau/kappa is checked first: a screen that cannot resolve tau says so rather
-    than failing (or passing) the candidate on noise."""
+    than failing (or passing) the candidate on noise. The first-step applications (baselines
+    bit-identical there) fail, but the all-steps ones cannot resolve tau, so the shape is held
+    for the human and names the fails it carries."""
     out = pp.p2_screen(_bases(jitter=0.02), _cands(lambda t: 1.10, lambda t: 1.10))
     for ch in ("letter", "span"):
         assert out["channels"][ch]["sets"]["all"]["verdict"] == "inconclusive"
-    assert out["channels"]["letter"]["sets"]["first"]["verdict"] == "fail"
-    assert out["verdict"] == "fail", "the first step (bit-identical baselines) still fails it"
+    assert out["verdict"] == "inconclusive"
+    assert out["fail_applications"] == [["letter", "first"], ["span", "first"]]
 
 
 def test_noisy_baselines_with_a_null_candidate_are_inconclusive_not_fail():
@@ -157,16 +168,58 @@ def test_a_channel_no_arm_exercised_is_not_run_and_the_shape_with_it():
     assert out["verdict"] == "not_run"
 
 
-def test_fail_outranks_not_run_and_not_run_outranks_inconclusive():
+def test_a_held_shape_names_its_fails_and_not_run_outranks_inconclusive():
+    """A letter fail beside a span channel no arm exercised is not a fail: two of the four
+    applications never ran, so the shape is not_run, and it names the fails it carries."""
     zero = (0.0).hex()
     bases = [b | {"span": [zero] * N} for b in _bases()]
     failing = [c | {"span": [zero] * N} for c in _cands(lambda t: 1.05)]
-    assert pp.p2_screen(bases, failing)["verdict"] == "fail"
+    out = pp.p2_screen(bases, failing)
+    assert out["verdict"] == "not_run"
+    assert out["fail_applications"] == [["letter", "first"], ["letter", "all"]]
     noisy = [b | {"span": [zero] * N} for b in _bases(jitter=0.02)]
     null = [c | {"span": [zero] * N} for c in _cands()]
     out = pp.p2_screen(noisy, null)
     assert out["channels"]["letter"]["verdict"] == "inconclusive"
     assert out["verdict"] == "not_run"
+
+
+def _letter_noisy_span_quiet() -> list[dict]:
+    """Baselines whose letter channel is apart by 2% after step 0 (so letter/all cannot
+    resolve tau) while the span channel stays within 1e-4 (every span application resolves)."""
+    quiet = _bases()
+    return [b | {"span": q["span"]} for b, q in zip(_bases(jitter=0.02), quiet, strict=True)]
+
+
+@pytest.mark.parametrize(
+    ("bases", "cands", "verdict", "fails"),
+    [
+        # All four applications conclusive and one fails: the shape fails and names it.
+        pytest.param(_bases, lambda: _cands(lambda t: 1.03 if t == 0 else 1.0),
+                     "fail", [["letter", "first"]], id="all-conclusive-one-fail"),
+        # One fail (span/first) beside one inconclusive (letter/all): held, naming the fail.
+        pytest.param(_letter_noisy_span_quiet,
+                     lambda: _cands(scale_span=lambda t: 1.03 if t == 0 else 1.0),
+                     "inconclusive", [["span", "first"]], id="one-fail-one-inconclusive"),
+        # A pass still carries the list, empty.
+        pytest.param(_bases, _cands, "pass", [], id="pass"),
+    ],
+)
+def test_a_shape_fails_only_when_all_four_applications_are_conclusive(bases, cands, verdict,
+                                                                      fails):
+    out = pp.p2_screen(bases(), cands())
+    apps = {(ch, t): out["channels"][ch]["sets"][t]["verdict"]
+            for ch in ("letter", "span") for t in ("first", "all")}
+    assert [list(k) for k, v in apps.items() if v == "fail"] == fails
+    assert out["verdict"] == verdict
+    assert out["fail_applications"] == fails
+
+
+@pytest.mark.parametrize("apps", [["pass"] * 3, ["pass"] * 5, ["pass", "pass", "pass", "ok"]])
+def test_the_shape_aggregation_refuses_anything_but_four_known_verdicts(apps):
+    """Fail closed: a missing application or an unknown verdict never reads as pass."""
+    with pytest.raises(ValueError, match="takes 4 verdicts"):
+        pp._p2_shape(apps)
 
 
 def test_a_set_whose_mean_baseline_is_not_positive_is_not_run():

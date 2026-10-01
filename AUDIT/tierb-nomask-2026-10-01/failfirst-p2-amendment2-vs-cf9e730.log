@@ -1,0 +1,235 @@
+......F..FFFFFFF......................                                   [100%]
+=================================== FAILURES ===================================
+___ test_noisy_baselines_are_inconclusive_even_when_the_candidate_is_far_off ___
+
+    def test_noisy_baselines_are_inconclusive_even_when_the_candidate_is_far_off():
+        """noise > tau/kappa is checked first: a screen that cannot resolve tau says so rather
+        than failing (or passing) the candidate on noise. The first-step applications (baselines
+        bit-identical there) fail, but the all-steps ones cannot resolve tau, so the shape is held
+        for the human and names the fails it carries."""
+        out = pp.p2_screen(_bases(jitter=0.02), _cands(lambda t: 1.10, lambda t: 1.10))
+        for ch in ("letter", "span"):
+            assert out["channels"][ch]["sets"]["all"]["verdict"] == "inconclusive"
+>       assert out["verdict"] == "inconclusive"
+E       AssertionError: assert 'fail' == 'inconclusive'
+E         
+E         - inconclusive
+E         + fail
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py:152: AssertionError
+_____ test_a_held_shape_names_its_fails_and_not_run_outranks_inconclusive ______
+
+    def test_a_held_shape_names_its_fails_and_not_run_outranks_inconclusive():
+        """A letter fail beside a span channel no arm exercised is not a fail: two of the four
+        applications never ran, so the shape is not_run, and it names the fails it carries."""
+        zero = (0.0).hex()
+        bases = [b | {"span": [zero] * N} for b in _bases()]
+        failing = [c | {"span": [zero] * N} for c in _cands(lambda t: 1.05)]
+        out = pp.p2_screen(bases, failing)
+>       assert out["verdict"] == "not_run"
+E       AssertionError: assert 'fail' == 'not_run'
+E         
+E         - not_run
+E         + fail
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py:178: AssertionError
+_ test_a_shape_fails_only_when_all_four_applications_are_conclusive[all-conclusive-one-fail] _
+
+bases = <function _bases at 0x10af59fe0>
+cands = <function <lambda> at 0x10af5ab90>, verdict = 'fail'
+fails = [['letter', 'first']]
+
+    @pytest.mark.parametrize(
+        ("bases", "cands", "verdict", "fails"),
+        [
+            # All four applications conclusive and one fails: the shape fails and names it.
+            pytest.param(_bases, lambda: _cands(lambda t: 1.03 if t == 0 else 1.0),
+                         "fail", [["letter", "first"]], id="all-conclusive-one-fail"),
+            # One fail (span/first) beside one inconclusive (letter/all): held, naming the fail.
+            pytest.param(_letter_noisy_span_quiet,
+                         lambda: _cands(scale_span=lambda t: 1.03 if t == 0 else 1.0),
+                         "inconclusive", [["span", "first"]], id="one-fail-one-inconclusive"),
+            # A pass still carries the list, empty.
+            pytest.param(_bases, _cands, "pass", [], id="pass"),
+        ],
+    )
+    def test_a_shape_fails_only_when_all_four_applications_are_conclusive(bases, cands, verdict,
+                                                                          fails):
+        out = pp.p2_screen(bases(), cands())
+        apps = {(ch, t): out["channels"][ch]["sets"][t]["verdict"]
+                for ch in ("letter", "span") for t in ("first", "all")}
+        assert [list(k) for k, v in apps.items() if v == "fail"] == fails
+        assert out["verdict"] == verdict
+>       assert out["fail_applications"] == fails
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'fail_applications'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py:215: KeyError
+_ test_a_shape_fails_only_when_all_four_applications_are_conclusive[one-fail-one-inconclusive] _
+
+bases = <function _letter_noisy_span_quiet at 0x10af5aae0>
+cands = <function <lambda> at 0x10af5ac40>, verdict = 'inconclusive'
+fails = [['span', 'first']]
+
+    @pytest.mark.parametrize(
+        ("bases", "cands", "verdict", "fails"),
+        [
+            # All four applications conclusive and one fails: the shape fails and names it.
+            pytest.param(_bases, lambda: _cands(lambda t: 1.03 if t == 0 else 1.0),
+                         "fail", [["letter", "first"]], id="all-conclusive-one-fail"),
+            # One fail (span/first) beside one inconclusive (letter/all): held, naming the fail.
+            pytest.param(_letter_noisy_span_quiet,
+                         lambda: _cands(scale_span=lambda t: 1.03 if t == 0 else 1.0),
+                         "inconclusive", [["span", "first"]], id="one-fail-one-inconclusive"),
+            # A pass still carries the list, empty.
+            pytest.param(_bases, _cands, "pass", [], id="pass"),
+        ],
+    )
+    def test_a_shape_fails_only_when_all_four_applications_are_conclusive(bases, cands, verdict,
+                                                                          fails):
+        out = pp.p2_screen(bases(), cands())
+        apps = {(ch, t): out["channels"][ch]["sets"][t]["verdict"]
+                for ch in ("letter", "span") for t in ("first", "all")}
+        assert [list(k) for k, v in apps.items() if v == "fail"] == fails
+>       assert out["verdict"] == verdict
+E       AssertionError: assert 'fail' == 'inconclusive'
+E         
+E         - inconclusive
+E         + fail
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py:214: AssertionError
+___ test_a_shape_fails_only_when_all_four_applications_are_conclusive[pass] ____
+
+bases = <function _bases at 0x10af59fe0>
+cands = <function _cands at 0x10af5a2a0>, verdict = 'pass', fails = []
+
+    @pytest.mark.parametrize(
+        ("bases", "cands", "verdict", "fails"),
+        [
+            # All four applications conclusive and one fails: the shape fails and names it.
+            pytest.param(_bases, lambda: _cands(lambda t: 1.03 if t == 0 else 1.0),
+                         "fail", [["letter", "first"]], id="all-conclusive-one-fail"),
+            # One fail (span/first) beside one inconclusive (letter/all): held, naming the fail.
+            pytest.param(_letter_noisy_span_quiet,
+                         lambda: _cands(scale_span=lambda t: 1.03 if t == 0 else 1.0),
+                         "inconclusive", [["span", "first"]], id="one-fail-one-inconclusive"),
+            # A pass still carries the list, empty.
+            pytest.param(_bases, _cands, "pass", [], id="pass"),
+        ],
+    )
+    def test_a_shape_fails_only_when_all_four_applications_are_conclusive(bases, cands, verdict,
+                                                                          fails):
+        out = pp.p2_screen(bases(), cands())
+        apps = {(ch, t): out["channels"][ch]["sets"][t]["verdict"]
+                for ch in ("letter", "span") for t in ("first", "all")}
+        assert [list(k) for k, v in apps.items() if v == "fail"] == fails
+        assert out["verdict"] == verdict
+>       assert out["fail_applications"] == fails
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'fail_applications'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py:215: KeyError
+__ test_the_shape_aggregation_refuses_anything_but_four_known_verdicts[apps0] __
+
+apps = ['pass', 'pass', 'pass']
+
+    @pytest.mark.parametrize("apps", [["pass"] * 3, ["pass"] * 5, ["pass", "pass", "pass", "ok"]])
+    def test_the_shape_aggregation_refuses_anything_but_four_known_verdicts(apps):
+        """Fail closed: a missing application or an unknown verdict never reads as pass."""
+        with pytest.raises(ValueError, match="takes 4 verdicts"):
+>           pp._p2_shape(apps)
+            ^^^^^^^^^^^^
+E           AttributeError: module 'perf_parity' has no attribute '_p2_shape'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py:222: AttributeError
+__ test_the_shape_aggregation_refuses_anything_but_four_known_verdicts[apps1] __
+
+apps = ['pass', 'pass', 'pass', 'pass', 'pass']
+
+    @pytest.mark.parametrize("apps", [["pass"] * 3, ["pass"] * 5, ["pass", "pass", "pass", "ok"]])
+    def test_the_shape_aggregation_refuses_anything_but_four_known_verdicts(apps):
+        """Fail closed: a missing application or an unknown verdict never reads as pass."""
+        with pytest.raises(ValueError, match="takes 4 verdicts"):
+>           pp._p2_shape(apps)
+            ^^^^^^^^^^^^
+E           AttributeError: module 'perf_parity' has no attribute '_p2_shape'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py:222: AttributeError
+__ test_the_shape_aggregation_refuses_anything_but_four_known_verdicts[apps2] __
+
+apps = ['pass', 'pass', 'pass', 'ok']
+
+    @pytest.mark.parametrize("apps", [["pass"] * 3, ["pass"] * 5, ["pass", "pass", "pass", "ok"]])
+    def test_the_shape_aggregation_refuses_anything_but_four_known_verdicts(apps):
+        """Fail closed: a missing application or an unknown verdict never reads as pass."""
+        with pytest.raises(ValueError, match="takes 4 verdicts"):
+>           pp._p2_shape(apps)
+            ^^^^^^^^^^^^
+E           AttributeError: module 'perf_parity' has no attribute '_p2_shape'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py:222: AttributeError
+==================================== PASSES ====================================
+_______ test_tau_and_kappa_are_module_constants_and_there_is_no_override _______
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] [--compare FILE:TAG [FILE:TAG ...]] [--p2 FILE]
+                        [--base TAG [TAG ...]] [--cand TAG [TAG ...]]
+                        [--p2-out P2_OUT] [--p2-gate VERDICTS]
+                        [--code-root CODE_ROOT] [--out OUT]
+                        [--backbone BACKBONE] [--batch-tokens BATCH_TOKENS]
+                        [--width-min WIDTH_MIN] [--width-max WIDTH_MAX]
+                        [--n-batches N_BATCHES] [--allow-fewer]
+                        [--passes PASSES] [--seed SEED] [--lr LR]
+                        [--cap-s CAP_S] [--deterministic]
+                        [--checkpoint-skip-layers CHECKPOINT_SKIP_LAYERS]
+                        [--train-attention-mask {padding,none}]
+                        [--min-span-batches MIN_SPAN_BATCHES]
+                        [--allow-stale-shards] [--ledger LEDGER]
+                        [--result RESULT] [--tag TAG] [--dry-run]
+                        [--device DEVICE] [--stand-in]
+python -m pytest: error: unrecognized arguments: --tau 0.05
+__________ test_the_cli_exit_code_reads_pass_fail_and_everything_else __________
+----------------------------- Captured stdout call -----------------------------
+{"base": ["A-mask-1", "A-mask-2", "A-mask-3"], "cand": ["A-none-1", "A-none-2", "A-none-3"], "channels": {"letter": {"live_steps": 10, "profile": {"final_base": [1.09989, 1.1, 1.1001100000000001], "final_cand": [1.1, 1.1, 1.1], "first_step_d_over_max_s": null, "frac_d_le_s": 1.0, "max_d": 0.00018999999999991246, "max_s": 0.0003799999999998249, "median_d": 0.0001500000000000945, "median_s": 0.000300000000000189}, "sets": {"all": {"L": 1.55, "dev": 1.4325458382260084e-17, "dev_i": [1.4325458382260084e-17, 1.4325458382260084e-17, 1.4325458382260084e-17], "first_step": 0, "noise": 0.00013064516129033326, "noise_j": [-0.00013064516129033326, 0.0, 0.00013064516129033326], "steps": 10, "verdict": "pass"}, "first": {"L": 2.0, "dev": 0.0, "dev_i": [0.0, 0.0, 0.0], "first_step": 0, "noise": 0.0, "noise_j": [0.0, 0.0, 0.0], "steps": 1, "verdict": "pass"}}, "verdict": "pass"}, "span": {"live_steps": 10, "profile": {"final_base": [0.549945, 0.55, 0.5500550000000001], "final_cand": [0.55, 0.55, 0.55], "first_step_d_over_max_s": null, "frac_d_le_s": 1.0, "max_d": 9.499999999995623e-05, "max_s": 0.00018999999999991246, "median_d": 7.500000000004725e-05, "median_s": 0.0001500000000000945}, "sets": {"all": {"L": 0.775, "dev": 1.4325458382260084e-17, "dev_i": [1.4325458382260084e-17, 1.4325458382260084e-17, 1.4325458382260084e-17], "first_step": 0, "noise": 0.00013064516129033326, "noise_j": [-0.00013064516129033326, 0.0, 0.00013064516129033326], "steps": 10, "verdict": "pass"}, "first": {"L": 1.0, "dev": 0.0, "dev_i": [0.0, 0.0, 0.0], "first_step": 0, "noise": 0.0, "noise_j": [0.0, 0.0, 0.0], "steps": 1, "verdict": "pass"}}, "verdict": "pass"}}, "kappa": 3, "rule": "campaign/f-j7prime-preregistered.json no_mask.p2_rule (amended 2026-10-01)", "tau": 0.02, "train_paths": {"A-mask-1": {"tag": "A-mask-1", "train_attention_mask": "padding"}, "A-mask-2": {"tag": "A-mask-2", "train_attention_mask": "padding"}, "A-mask-3": {"tag": "A-mask-3", "train_attention_mask": "padding"}, "A-none-1": {"tag": "A-none-1", "train_attention_mask": "none"}, "A-none-2": {"tag": "A-none-2", "train_attention_mask": "none"}, "A-none-3": {"tag": "A-none-3", "train_attention_mask": "none"}}, "verdict": "pass"}
+_______________ test_the_gate_cli_refuses_a_missing_verdict_file _______________
+----------------------------- Captured stdout call -----------------------------
+/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-409/test_the_gate_cli_refuses_a_mi0/nope.jsonl does not exist: P2 has not run, so the outcome run is cancelled
+=========================== short test summary info ============================
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_a_candidate_on_the_baseline_passes_and_the_row_records_the_rule
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_the_first_live_step_set_is_the_first_step_and_all_is_every_live_step
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_a_three_percent_shift_on_every_step_fails
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_a_one_percent_shift_passes
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_a_step_one_only_shift_fails_through_the_first_step_set
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_one_shifted_candidate_among_two_null_ones_fails
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_noisy_baselines_with_a_null_candidate_are_inconclusive_not_fail
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_a_channel_no_arm_exercised_is_not_run_and_the_shape_with_it
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_a_set_whose_mean_baseline_is_not_positive_is_not_run
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_only_live_steps_enter_a_channel
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_arms_the_rule_cannot_compare_are_refused[cand-change0-different batches]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_arms_the_rule_cannot_compare_are_refused[cand-change1-steps]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_arms_the_rule_cannot_compare_are_refused[cand-change2-steps_exhausted]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_arms_the_rule_cannot_compare_are_refused[base-change3-steps_exhausted]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_arms_the_rule_cannot_compare_are_refused[base-change4-baseline]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_arms_the_rule_cannot_compare_are_refused[cand-change5-candidate]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_arms_the_rule_cannot_compare_are_refused[cand-change6-candidate]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_fewer_than_three_baselines_or_no_candidate_is_refused[2-3]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_fewer_than_three_baselines_or_no_candidate_is_refused[3-0]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_tau_and_kappa_are_module_constants_and_there_is_no_override
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_the_cli_exit_code_reads_pass_fail_and_everything_else
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows0-True]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows1-False]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows2-False]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows3-False]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows4-False]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows5-True]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows6-False]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_the_outcome_run_gate_needs_a_p2_pass_at_both_shapes[rows7-False]
+PASSED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_the_gate_cli_refuses_a_missing_verdict_file
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_noisy_baselines_are_inconclusive_even_when_the_candidate_is_far_off
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_a_held_shape_names_its_fails_and_not_run_outranks_inconclusive
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_a_shape_fails_only_when_all_four_applications_are_conclusive[all-conclusive-one-fail]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_a_shape_fails_only_when_all_four_applications_are_conclusive[one-fail-one-inconclusive]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_a_shape_fails_only_when_all_four_applications_are_conclusive[pass]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_the_shape_aggregation_refuses_anything_but_four_known_verdicts[apps0]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_the_shape_aggregation_refuses_anything_but_four_known_verdicts[apps1]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/precf9/t/python/tests/test_perf_parity_p2.py::test_the_shape_aggregation_refuses_anything_but_four_known_verdicts[apps2]
+8 failed, 30 passed in 0.55s

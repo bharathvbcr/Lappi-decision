@@ -218,6 +218,9 @@ Done markers are `/home/ubuntu/perf/nomask-p2-T{1,2}.done` and `/home/ubuntu/per
 
 ## Addendum: the amended P2 rule is implemented, and its calibration misses 3 of 78 checks
 
+*Superseded by the next addendum: Fable ruled on the three misses (amendment 2, main be20c78),
+and v3 of the calibration meets every target.*
+
 **T1 is not ready.** The amended rule is Fable's, on main 1de0a34
 (`campaign/f-j7prime-preregistered.json`: `no_mask.p2_rule`, `p2_rule_retired` and `p2_timing`).
 - I implemented it and ran every calibration target against the implemented function.
@@ -355,3 +358,129 @@ If, and only if, that exits 0 with its `.out` committed on main:
 2. `scp` the bundle and `tools/perf_nomask_p2.sh` to `/home/ubuntu/perf/`.
 3. Run `bash /home/ubuntu/perf/perf_nomask_p2.sh --build <sha>` on the box. That is CPU work: it
    builds the overlay and runs both dry runs.
+
+## Addendum: P2 amendment 2 is implemented, and the v3 calibration meets every target
+
+Fable ruled on the three misses: main be20c78, `campaign/f-j7prime-preregistered.json`
+`no_mask.p2_rule` and `no_mask.p2_amendment_2`.
+- **The strict scope reading stands.** The configuration universe applies to every target.
+- **δ = 2% is retired to report-only.** It sits at τ, so each application is a coin flip by
+  construction. δ 1% (pass ≥ 99%) and δ 3% (fail ≥ 99%) are added.
+- **The ×20 miss was an aggregation defect.** A shape now fails only when all four
+  applications are conclusive. Otherwise it is held, and it names its failing applications.
+- **The ≤ 12% null bound is kept**, and ×5 is added to the grid.
+
+**What changed** (commit b9ba22c on `worktree-agent-a59bae74f0f03844b`, from main be20c78; CPU
+only, nothing queued):
+
+- `tools/perf_parity.py`:
+  - `_p2_shape` decides a shape from its four applications (`P2_APPLICATIONS`, in (letter,
+    span) × (first, all) order): fail only when every application is pass or fail and at least
+    one fails; otherwise not_run if any is not_run, else inconclusive if any is, else pass.
+  - It fails closed. A pass needs four applications that all read pass; a wrong count or an
+    unknown verdict raises.
+  - A channel with no live step counts as not_run in both of its applications.
+  - The row always carries `fail_applications`, e.g. `[["letter", "first"]]`, empty when none.
+  - The channel verdict (worst over T) is report-only now.
+  - The module docstring's Aggregation section is rewritten.
+  - Unchanged: dev_i, noise_j, τ, κ, the per-application verdict, `p2_gate`, the `--p2` exit
+    codes and the CLI.
+- `python/tests/test_perf_parity_p2.py` (38 tests, all passing):
+  - `test_noisy_baselines_are_inconclusive_even_when_the_candidate_is_far_off` now expects
+    `inconclusive` with `fail_applications == [["letter","first"],["span","first"]]`.
+  - The old `test_fail_outranks_not_run_and_not_run_outranks_inconclusive` is now
+    `test_a_held_shape_names_its_fails_and_not_run_outranks_inconclusive`. Its first half
+    expects `not_run` with `[["letter","first"],["letter","all"]]`; its second half is
+    unchanged.
+  - New: `test_a_shape_fails_only_when_all_four_applications_are_conclusive`, with three cases:
+    all four conclusive with one fail → fail, naming it; one fail beside one inconclusive →
+    inconclusive, naming the fail; a pass row carries `[]`.
+  - New: `test_the_shape_aggregation_refuses_anything_but_four_known_verdicts`, with three
+    cases for the fail-closed guard. This test and the guard go beyond the order: they make sure
+    nothing unrecognised reads as pass. The lead may keep or drop them.
+  - The module docstring is updated.
+- Text: the comment block in `tools/perf_nomask_p2.sh`, and the design-doc addendum.
+
+**Fail-first evidence:** `AUDIT/tierb-nomask-2026-10-01/failfirst-p2-amendment2-vs-cf9e730.log`.
+- The amended test file ran against cf9e730's `tools/perf_parity.py`, exported with
+  `git archive`. be20c78 did not touch that file.
+- **8 failed, 30 passed.** The 8 are exactly the two changed tests and the six new cases:
+  - three fail on the old any-fail ordering (`'fail' == 'inconclusive'` / `'not_run'`);
+  - two fail on the missing `fail_applications` (KeyError);
+  - three fail on the missing `_p2_shape`.
+- Every unchanged test passed.
+
+**Calibration v3** (`p2_null_sim.py`/`.out`): **94 of 94 checks met, exit 0**, plus 8
+report-only δ = 2% lines.
+- Every configuration v2 ran keeps v2's seed, so those rows are the same draws judged under the
+  amended aggregation. The new configurations take seeds 77–100.
+- "held+fail" below counts held shapes (inconclusive or not_run) that carried a failing
+  application, out of 1,000.
+
+| target | bound | worst over the 8 configurations | |
+| --- | --- | --- | --- |
+| exchangeable null, v1 noise | pass ≥ 99%, fail 0 | pass ≥ 99.7%, fail 0.0% | met |
+| null ×3 | fail ≤ 12% | fail ≤ 0.1%; held+fail ≤ 1 | met |
+| null ×5 (new) | fail ≤ 12% | fail ≤ 1.5%; held+fail ≤ 13 | met |
+| null ×10 | fail ≤ 12% | fail ≤ 1.7% (v2: 8.0%); held+fail ≤ 80 | met |
+| null ×20 | fail ≤ 12% | fail ≤ 1.8% (v2: 12.1%); held+fail ≤ 121 | met |
+| null ×100 | fail ≤ 12% | fail 0.0%; held+fail ≤ 16 | met |
+| all candidates ×1.005 | pass ≥ 99% | pass ≥ 99.8% | met |
+| all candidates ×1.01 (new) | pass ≥ 99% | pass ≥ 99.7% | met |
+| all candidates ×1.02 | report-only | fail 99.7–100%, except 3v1 noisy: 92.6% (n=100), 91.0% (n=50), as in v2 | — |
+| all candidates ×1.03 (new) | fail ≥ 99% | fail ≥ 99.6% (n=100 3v3 noisy) | met |
+| all candidates ×1.04 | fail ≥ 99% | fail ≥ 99.7% | met |
+| one candidate ×1.04, two null | fail ≥ 99% | fail ≥ 99.8% | met |
+| step 1 only ×1.03, bit-identical | fail ≥ 99% | fail ≥ 99.6% (n=100 3v1) | met |
+| step 1 only ×1.01, bit-identical | pass ≥ 99% | pass ≥ 99.7% | met |
+| Gaussian single application | worst P(fail \| null) ≤ 4.5% | 3v3 3.94% at σ/τ 0.70; 3v1 1.79% at σ/τ 0.75 (unchanged from v2) | met |
+
+**What the amendment did, read off the same draws:**
+- **×20, n=100 3v3 noisy:** v2's 121 fails are now 0 fails and 121 held shapes carrying a
+  failing application. The aggregation change accounts for that row exactly.
+- **The cost:** a real shift is now sometimes held rather than failed, because one all-steps
+  application went inconclusive by chance.
+  - At δ 3%, δ 4%, one ×1.04 and step-1 ×1.03, 0.1–0.4% of trials hold. Every such row that v2
+    also ran (all but δ 3%, which is new) was 100% fail there.
+  - The tightest margins are 99.6% against 99%: δ 3% at n=100 3v3 noisy, and step-1 ×1.03 at
+    n=100 3v1.
+  - A held true shift goes to the human with `fail_applications` set; it is never passed.
+
+**Records kept as they are:**
+- `p2_miss_diag.py`/`.out` stay the record of the v2 misses and were not rerun. That `.out` was
+  produced at c18d245's aggregation. A rerun now would give the same per-application counts
+  but the amended shape verdicts.
+- `p2_perm_sim.py` still runs only against 7ba9df0's `perf_parity.py`.
+
+**Step-1 dev:** not measured. It comes from T1/T2.
+
+**Not run:**
+- the full Python suite (only `test_perf_parity_p2.py`, 38 of 38);
+- anything on a GPU.
+
+**`nomask-p2-ruled`:** not touched. The lead sets it after merging this commit to main.
+
+**The box overlay is rebuilt at b9ba22c** (CPU only, under `/home/ubuntu/perf`):
+- `nomask.bundle` covers `7ed66d7..b9ba22c`; `git bundle verify` passed.
+- `perf_nomask_p2.sh` was copied in; its md5 `7e35707f…` matches the committed file.
+- `perf_nomask_p2.sh --build b9ba22ce8b8461189d5b630182cb5783835a41ca` exited 0:
+  - `overlay-nomask` is at b9ba22c with 0 dirty paths;
+  - the T1 dry run gave 100 batches, 94 of them span-carrying, at widths 137–5,116;
+  - the T2 dry run gave 50 batches, all 50 span-carrying, at widths 7,035, 7,404 and 7,936;
+  - the consumed digests are `c8d6039e…` (T1) and `1636923d…` (T2);
+  - the batch counts, span counts and B widths match what the 46da2a5 build recorded above.
+    Its A widths and digests were not recorded, so those cannot be compared.
+- The overlay's `perf_parity.py --p2-gate` on a missing verdicts file exits 5.
+- `AUDIT/tierb-nomask-2026-10-01/p2_overlay_smoke.py`, copied to `/home/ubuntu/perf`, ran the
+  three aggregation cases against the overlay under the box venv (Python 3.12.3): 3 of 3
+  correct. The committed copy differs from the one that ran only by a removed lint comment.
+- No P2 rows exist yet (`nomask-p2-verdicts.jsonl` and `nomask-p2-T1.jsonl` are absent).
+  `/home/ubuntu/queue/nomask-p2-ruled` is absent, and I left it so.
+
+**First command for the next lane:** the lead merges b9ba22c and the HANDOFF commits after it
+(documentation and the smoke script only; the overlay is at b9ba22c) to main
+and touches `/home/ubuntu/queue/nomask-p2-ruled`. Item 8 then runs, in its gap:
+
+```
+bash /home/ubuntu/perf/perf_nomask_p2.sh T1
+```
