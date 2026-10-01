@@ -296,16 +296,58 @@ class ActivationModel:
     ``attention="math"`` does, and at 34,522 positions that single tensor is 19.07 GB per
     full-attention layer in bf16 -- more than the whole card, six times over. That is not a
     tuning knob; it is the difference between a bucket that trains and one that cannot.
+
+    ``retained_linear_layers`` / ``retained_full_layers`` price **selective** checkpointing:
+    under ``recompute="full"``, that many decoder layers of each kind are NOT checkpointed
+    and keep every saved tensor, on top of the boundaries and the one recomputed layer. Zero
+    of each, the default, is per-layer checkpointing everywhere -- exactly the model every
+    earlier budget used.
     """
 
     recompute: str = "full"
     attention: str = "flash"
+    retained_linear_layers: int = 0
+    retained_full_layers: int = 0
 
     def __post_init__(self) -> None:
         if self.recompute not in ("none", "full"):
             raise ValueError(f"recompute must be 'none' or 'full', got {self.recompute!r}")
         if self.attention not in ("flash", "math"):
             raise ValueError(f"attention must be 'flash' or 'math', got {self.attention!r}")
+        for name in ("retained_linear_layers", "retained_full_layers"):
+            value = getattr(self, name)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(f"{name} must be a non-negative int, got {value!r}")
+        if self.recompute == "none" and (self.retained_linear_layers or self.retained_full_layers):
+            raise ValueError(
+                "retained layers are a statement about which layers are NOT checkpointed, "
+                "and under recompute='none' none is; the pair would price one policy and "
+                "describe another"
+            )
+
+    @property
+    def retained_layers(self) -> int:
+        return self.retained_linear_layers + self.retained_full_layers
+
+    def describe(self) -> str:
+        """``"full"`` / ``"none"`` exactly as before; selective names its retained layers."""
+        if not self.retained_layers:
+            return self.recompute
+        return (
+            f"full-except-{self.retained_linear_layers}-linear-"
+            f"{self.retained_full_layers}-full"
+        )
+
+    def _check_retained(self, m: ModelSpec) -> None:
+        if (
+            self.retained_linear_layers > m.n_linear_attention_layers
+            or self.retained_full_layers > m.n_full_attention_layers
+        ):
+            raise ValueError(
+                f"{self.retained_linear_layers} linear / {self.retained_full_layers} full "
+                f"retained layers exceed {m.name}'s {m.n_linear_attention_layers} / "
+                f"{m.n_full_attention_layers}"
+            )
 
     def linear_layer_elements(self, m: ModelSpec) -> int:
         """One ``linear_attention`` layer's saved elements per token."""
@@ -348,17 +390,29 @@ class ActivationModel:
         # and one layer's activations live at a time while backward recomputes it.
         boundaries = (m.n_layers + 1) * m.hidden_size
         peak = max(self.linear_layer_elements(m), self.full_layer_elements(m))
-        return boundaries + peak
+        # Selective: every retained layer keeps its whole set, all at once. Its boundary is
+        # already counted above, so this over-counts by one hidden vector per retained
+        # layer -- on the side that refuses a run that would have fit, never the other.
+        self._check_retained(m)
+        retained = (
+            self.retained_linear_layers * self.linear_layer_elements(m)
+            + self.retained_full_layers * self.full_layer_elements(m)
+        )
+        return boundaries + peak + retained
 
     def score_matrix_elements(self, m: ModelSpec, *, rows: int, width: int) -> int:
         """The materialised attention matrix, or zero when it is never formed.
 
-        Under ``recompute="full"`` one layer is live at a time; under ``"none"`` every
-        full-attention layer's matrix is retained at once.
+        Under ``recompute="full"`` one layer is live at a time, plus every retained
+        full-attention layer; under ``"none"`` every full-attention layer's matrix is
+        retained at once.
         """
         if self.attention == "flash":
             return 0
-        live_layers = 1 if self.recompute == "full" else m.n_full_attention_layers
+        live_layers = (
+            1 + self.retained_full_layers if self.recompute == "full"
+            else m.n_full_attention_layers
+        )
         return live_layers * rows * m.q_heads * width * width
 
 
@@ -524,7 +578,8 @@ def estimate_step(
     # The recurrent state is [rows, heads, key_dim, value_dim] per linear-attention layer
     # and does not scale with sequence length. Under checkpointing one layer is live.
     live_linear = (
-        1 if acts.recompute == "full" else model.n_linear_attention_layers
+        1 + acts.retained_linear_layers if acts.recompute == "full"
+        else model.n_linear_attention_layers
     ) if model.n_linear_attention_layers else 0
     recurrent_bytes = (
         live_linear
@@ -563,7 +618,7 @@ def estimate_step(
         recurrent_state_bytes=recurrent_bytes,
         loss_head_bytes=loss_head_bytes,
         safety_bytes=safety_bytes,
-        recompute=acts.recompute,
+        recompute=acts.describe(),
         attention=acts.attention,
         safety_fraction=float(safety_fraction),
     )
