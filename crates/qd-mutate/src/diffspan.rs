@@ -236,7 +236,9 @@ impl MultiHunkDiff {
     /// by position:
     ///
     /// * an edit that wrote lines shows when one of the lines it wrote is an added line here — a
-    ///   line `base` does not have at that point. If every line it wrote is one `base` has there,
+    ///   line `base` does not have at that point — or when a change block at the edit removes one
+    ///   of the lines the edit removed (a body gutted to the `return nil` it already ended in).
+    ///   If every line it wrote is one `base` has there and nothing it removed is removed here,
     ///   the edit restored `base` (a `<=` the commit narrowed, widened back) and shows nothing,
     ///   whatever the commit changed beside it;
     /// * an edit that only removed lines shows when a change block touches its deletion point:
@@ -262,16 +264,28 @@ impl MultiHunkDiff {
             return false;
         };
         let mut blocks = self.hunks.iter().flat_map(|h| h.blocks.iter());
-        if new_end > start {
-            // Wrote lines: one of them must be an added line.
-            return blocks.any(|b| b.new_start < new_end && start < b.new_end);
+        if new_end == start {
+            // Only removed lines: the edit sits at deletion point `start`, between after-rows
+            // `start - 1` and `start`. It shows when a change block touches that point -- the
+            // removal itself, or code the commit changed that the removal sits at the edge of,
+            // which is how a bug in new code reaches a reader at all.
+            return blocks.any(|b| b.new_start <= start && start <= b.new_end);
         }
-        // Only removed lines (`src[start..src_end]`): the edit sits at deletion point `start`,
-        // between after-rows `start - 1` and `start`. It shows when a change block touches that
-        // point -- the removal itself, or code the commit changed that the removal sits at the
-        // edge of, which is how a bug in new code reaches a reader at all.
-        debug_assert!(src_end > start, "edited_rows found an edit, so something was removed");
-        blocks.any(|b| b.new_start <= start && start <= b.new_end)
+        // Wrote lines `start..new_end` over `src[start..src_end]`. It shows when one of the
+        // written lines is an added line, or when a change block at the edit removes one of the
+        // lines the edit removed: a stub that replaces a body with the `return nil` the body
+        // already ended in has its one written line aligned with that old line, and what the
+        // reader sees is the body being deleted around it. A written line restoring `base`
+        // beside a commit change removes only the commit's line, which `base` never had.
+        let removed: std::collections::HashSet<&str> = src[start..src_end].iter().copied().collect();
+        blocks.any(|b| {
+            (b.new_start < new_end && start < b.new_end)
+                || (b.new_start <= new_end
+                    && start <= b.new_end
+                    && old
+                        .get(b.old_start..b.old_end)
+                        .is_some_and(|gone| gone.iter().any(|line| removed.contains(line))))
+        })
     }
 }
 
@@ -1068,6 +1082,21 @@ mod tests {
         let d = unified_multi_detailed(base_with_else, after, 3).expect("renders");
         assert!(d.text.contains("-    else:"), "{}", d.text);
         assert!(d.shows_edit(base_with_else, source, after), "{}", d.text);
+    }
+
+    #[test]
+    fn a_body_gutted_to_the_line_it_already_ended_in_shows_as_the_removal_around_it() {
+        // Shaped after commitpackft's nsqhandler.go: the commit turned `publish(); return nil`
+        // into `return publish()`; `stub.default_return` replaces the body with `return nil`.
+        // Myers aligns that one written line with the base's own `return nil`, so it is context
+        // -- and the reader sees the whole body deleted around it, which is the stub.
+        let base = "func f() error {\n\tlock()\n\tpayload()\n\tpublish()\n\n\treturn nil\n}\n";
+        let source = "func f() error {\n\tlock()\n\tpayload()\n\treturn publish()\n}\n";
+        let after = "func f() error {\n\treturn nil\n}\n";
+        let d = unified_multi_detailed(base, after, 3).expect("renders");
+        assert!(!d.text.contains("+\treturn nil"), "aligned as context:\n{}", d.text);
+        assert!(d.text.contains("-\tlock()"), "{}", d.text);
+        assert!(d.shows_edit(base, source, after), "{}", d.text);
     }
 
     #[test]
