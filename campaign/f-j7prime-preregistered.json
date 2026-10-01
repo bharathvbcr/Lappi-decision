@@ -7,7 +7,15 @@
     "a": "ood_abstain total >= 34/180 (the fp32 seed minimum, J4 seed1's diagnostic row 6fcba23d)",
     "b": "8K needle worst bucket >= 0.279, and no 1K/2K/4K length-control worst bucket below the average's 0.895 / 0.767 / 0.426 (1d93b3ee, 0b86fae3)",
     "c": "val_top1.choice >= 0.765 and val_top1.span >= 0.884 (J4 seed minima, f3612f73 / 2f5fe57a)",
-    "if_not": "avg-np is dropped before F's J7'; F's J7' scores avg and ens3 only"
+    "if_not": "avg-np is dropped before F's J7'; F's J7' scores avg and ens3 only",
+    "avg_np_reading": {
+      "recorded": "2026-10-01, Fable (post-F queue ruling, Q5), before J4's avg-np gate row (item 2) exists",
+      "rule": "In (b) and (c) the threshold is the cited row's exact count, not the printed decimal: for (b) the cited row's worst depth bucket as integer n/n_total (1d93b3ee needle_hunk_recall.depth.*: 17/61; 0b86fae3 needle_hunk_recall.control.{1024,2048,4096}.depth.*: 51/57, 46/60, 26/61); for (c) the cited row's val_top1 count (f3612f73 val_top1.choice 8405/10985; 2f5fe57a val_top1.span 6399/7238). Every clause is 'at least': candidate.n * cited.n_total >= cited.n * candidate.n_total, on the candidate's own worst-bucket (or val) fraction, by integer cross-multiplication, never the float value; a tie passes. (a) is unchanged (integer >= 34/180). The decimals 0.279 / 0.895 / 0.767 / 0.426 / 0.765 / 0.884 remain as the rows' three-decimal rendering, report-only; the checker's refusal when a cited row does not round to its decimal stays.",
+      "why": "(b) says 'not below the average's' and (c) says 'J4 seed minima': the quantity pre-registered is the row's, and the rows are cited so it can be recovered exactly. Under the decimal reading the average fails (b) against itself at 8K, 1K and 2K. The row reading is stricter on choice (8404/10985 clears 0.765 and fails the seed minimum), so it is reference-faithful in both directions, not lenient.",
+      "what_changes": "With the suites' fixed bucket sizes (8K 59/61/59/60/61, 1K 57/61/59/64/59, 2K 58/61/60/61/60, 4K 59/59/61/60/61) and val sizes (10985, 7238), exactly four candidate values change verdict: worst bucket 17/61 at 8K, 51/57 at 1K, 46/60 at 2K pass (ties with the average); val_top1.choice 8404/10985 fails. 4K and span have no value on which the readings differ.",
+      "binds_iff": "this amendment is on main, committed by the human, before the written_at of J4's avg-np-score-val row (item 2, expected ~midday UTC 2026-10-02). Otherwise the checker's refusal on a disagreeing clause stands and the human decides from its JSON; the reading is not applied to a row that already existed when it was chosen.",
+      "committed_by": "the lead agent on main, under the human's standing instruction to follow Fable's recommendations (chat, 2026-10-01), at ~21:20 UTC 2026-10-01 while F seed 0 trains and no avg-np row exists; flagged for the human because Fable's binds_iff names the human as committer"
+    }
   },
   "f_candidate": {
     "rule": "unchanged (Fable I): a three-seed artifact, weight average or logit ensemble, or nothing; the human chooses between measured rows under G8",
