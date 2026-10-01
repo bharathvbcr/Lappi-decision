@@ -70,6 +70,60 @@ Both results are logs only, so they cannot be cited as rows yet. The bench has n
   - peak memory footprint 30.78 GB. Adding 16 GB for AdamW's moments gives ≈47 GB of the M5 Pro's 64 GB, so it fits. The Metal working-set ceiling has not been read.
   - **Consequence:** at 452 tok/s, v4's 323.07M positions take ≈198 h per seed, so rung (d)'s "10% of steps" is ≈20 h, not Fable's 3–6 h, which was sized on J1's 74.7M. Rung (d) goes back to Fable for re-sizing. The user's approval covers 3–6 h.
 
+## Rung (d), re-sized by Fable (2026-10-01)
+
+Fable's full text, with every citation, is in `AUDIT/ojas-training-2026-10-01/fable-rung-d-resize.md`. Its gaps are `GAP-OJAS-RUNGD-*`.
+
+**Sizing.**
+- Fable's "10% of steps ≈ 3–6 h" was sized on J1's 74.7M positions.
+- On v4 (row d96409bd: 306,926,895 unpadded positions, 9,683 steps), the approved hours buy ≈2% of the steps. 10% would be ≈20 h.
+- **Rung (d) is therefore 200 optimizer steps of F's recipe, unchanged.** That is 6.34M tokens: ≈3.9 h at the 452 tok/s floor, ≈2.9 h inferred.
+- **Hard cap 21,600 s, with auto-terminate.** The eta rule is checked at step 10. N is fixed before step 0 and never raised on the day.
+- **This fits the user's approved 3–6 h.**
+
+**Recipe and data.**
+- **Batches:** the first 200 batches of `reader.batches(batch_tokens=35403, seed=20260919, epoch=0)`. That is F's own order: the epoch arm plans with the protocol seed, so all F seeds share it.
+- **Schedule:** `LRSchedule(peak_lr=1e-5, total_steps=200, warmup_steps=10, min_lr=1e-6)`.
+- **AdamW (F's):** eps 1e-8 and weight_decay 0.01 on **every** parameter (`optim.py:337-338,403`).
+  - **Not** tessl's default exclusions.
+  - The per-group lr scale is 0.1 for the lower 8 layers plus the embeddings, and needs tessl's `lr_scale`.
+- **Span head:** initialised from `span_head_init-seed0.safetensors` (L-oracle's `QwenDecisionStep(seed=0)`).
+
+**Preconditions.**
+- tessl's working set (0.9 × `recommendedMaxWorkingSetSize`) is ≥ 47 GB. If not, the host-AdamW contingency is costed first, and the moments are never bf16.
+- The Mac is on AC power.
+- GPU exclusivity is agreed.
+- Rungs a–c are green.
+- `lr_scale` has landed.
+- The schedule bit-equality and consumed-digest parity tests are green.
+- Rule 3 is enforced: `shards/train` only, opened through the door.
+
+**Outputs of the Mac window.**
+- the bf16 export (4 GB);
+- the f32 masters (8 GB);
+- the `ft` row in `ledger/mac-ojas-rung-d-<date>.jsonl`, quick ("1 seed, 200 of 9,683 steps, Metal/tessl trainer");
+- a load-and-decode smoke run on ≥ 24 val prompts. It claims no number.
+
+**Scoring on the GH200** after post-F item 10. The Mac's torch-MPS scorer is ≈18× slower. This is the one deviation from ask 7's "on the Mac".
+- **GH200 arms** (quick, ≈$3.5–4.5, ask 5):
+  - **T-bf16:** F's flags plus `--max-steps 200 --train-attention-mask none --deterministic`.
+  - **T-fp32:** needs an additive `--train-dtype fp32`, on the non-master AdamW whose eps/wd must be read first.
+- **Additive flags:** `--max-steps` and `--train-dtype` enter the recipe only when on.
+
+**Pass criteria** (pre-registered, quick):
+0. The consumed digest and the head-init digest are identical across arms. Otherwise the result is `digest_mismatch`.
+1. Per-step loss, tessl vs T-fp32: |Δ| ≤ 0.02 nats for steps 0–49, and EMA(0.9) ≤ 0.05 for steps 50–199. Loose bound against T-bf16: 0.05 / 0.10.
+2. The grad-norm |Δ| is report-only.
+3. Any non-finite loss kills that arm, with no comparison.
+4. Per parameter group, over the f32 masters:
+   - cos(Δ_tessl, Δ_fp32) ≥ cos(Δ_bf16, Δ_fp32);
+   - the norm-ratio bound with +0.01 slack;
+   - a sanity floor of cos ≥ 0.9.
+5. The export loads in `--score-checkpoint`.
+6. Val deltas are ≤ F's across-seed range (report-only until F's rows exist), and the gate verdicts are the same.
+
+**What a green (d) may claim:** "a Rust trainer over canonical tessl trained Lappi for 200 steps of F's recipe on the M5 Pro; its per-step losses and master deltas track torch fp32 within the pre-registered bounds; the campaign scorer scored its export at X (rows …), quick". It may not claim parity with F, a candidate, or any gate verdict.
+
 ## CUDA scoping (L-cuda, merged `226f74f`)
 
 - **Doc:** `AUDIT/ojas-training-2026-10-01/cuda-backend-scoping.md`, plus seven `GAP-L-CUDA-*` records.
