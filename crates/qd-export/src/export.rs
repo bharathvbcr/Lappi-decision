@@ -35,7 +35,7 @@ pub const MANIFEST_FORMAT: &str = "qd-release.v1";
 pub const TOKENIZER_FILES: [&str; 4] = [TOKENIZER_FILE, "tokenizer_config.json", "vocab.json", "merges.txt"];
 
 /// Bound on the small files read whole (config, manifest, tokenizer files, calibration table).
-/// The real `tokenizer.json` is 12.8 MB.
+/// The real `tokenizer.json` is 12,807,196 bytes (`b1485b2f`, measured 2026-10-01).
 pub const MAX_SMALL_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
 /// A source tensor dropped from the release on purpose.

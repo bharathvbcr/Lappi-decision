@@ -158,6 +158,147 @@ fn the_release_loads_through_qd_metal_and_holds_the_bf16_cast_of_every_tensor() 
     assert_eq!(export(&req).unwrap_err().kind, RefusalKind::OutputExists);
 }
 
+/// The real thing at real size, on CPU: the Qwen3.5-2B-Base snapshot's own 320 text tensors,
+/// renamed `tower.*` (as `ckpt_average` names a tower) beside a zero span head, exported at the
+/// 248,320-row vocabulary and read back through qd-metal's CPU load path. The base stores the
+/// 18 GDN layers' `A_log` and `linear_attn.norm.weight` as F32 (measured from its header,
+/// 2026-10-01), so those 36 tensors are rounded; the other 284 are BF16 in the base and must
+/// come back bit-identical to it.
+///
+/// `#[ignore]`d: it needs the 4.5 GB snapshot and writes ~8.5 GB to the temp dir. Run with
+/// `cargo test --release -p qd-export --test roundtrip -- --ignored`.
+#[test]
+#[ignore = "needs the model snapshot and ~9 GB of temp disk"]
+fn snapshot_the_base_weights_export_at_248320_and_load_through_qd_metal() {
+    use qd_export::safetensors::{Dtype, PlannedTensor, SafeTensorsFile, Writer, CHUNK_BYTES};
+
+    let snap = qd_metal::config::resolve_snapshot(None).expect("the Qwen3.5-2B-Base snapshot");
+    let base = SafeTensorsFile::open(&qd_metal::model::weights_file(&snap).unwrap()).unwrap();
+    let layout = Layout::from_config_json(&std::fs::read_to_string(snap.join("config.json")).unwrap()).unwrap();
+    let dir = common::TempDir::new("real");
+
+    // The source: the base's text tensors as tower.*, plus a zero F32 span head.
+    let source = dir.0.join("avg.safetensors");
+    let mut plan: Vec<PlannedTensor> = base
+        .tensors()
+        .iter()
+        .filter_map(|(n, t)| {
+            n.strip_prefix(TEXT_PREFIX).map(|short| PlannedTensor {
+                name: format!("tower.{short}"),
+                dtype: t.dtype,
+                shape: t.shape.clone(),
+            })
+        })
+        .collect();
+    assert_eq!(plan.len(), 320);
+    for (short, shape) in layout.span_head_tensors() {
+        plan.push(PlannedTensor { name: format!("span_head.{short}"), dtype: Dtype::F32, shape });
+    }
+    let n_tensors = plan.len();
+    let mut w = Writer::create(&source, plan).unwrap();
+    let mut buf = vec![0u8; CHUNK_BYTES];
+    for planned in w.order() {
+        w.begin(&planned.name).unwrap();
+        if let Some(short) = planned.name.strip_prefix("tower.") {
+            let info = &base.tensors()[&format!("{TEXT_PREFIX}{short}")];
+            let mut at = 0u64;
+            while at < info.nbytes() {
+                let n = usize::try_from((info.nbytes() - at).min(CHUNK_BYTES as u64)).unwrap();
+                base.read_tensor_range(info, at, &mut buf[..n]).unwrap();
+                w.write(&buf[..n]).unwrap();
+                at += n as u64;
+            }
+        } else {
+            let n: usize = planned.shape.iter().product::<usize>() * 4;
+            w.write(&vec![0u8; n]).unwrap();
+        }
+        w.end().unwrap();
+    }
+    let written = w.finish().unwrap();
+    let manifest = serde_json::json!({
+        "tool": "qd-export roundtrip test (the base weights, renamed)",
+        "vocab_size": 248_320,
+        "ft_row_ids": ["none: the base weights, not a trained tower"],
+        "safetensors_sha256": hex(&written.sha256),
+        "n_tensors": n_tensors,
+    });
+    std::fs::write(dir.0.join("avg.safetensors.manifest.json"), manifest.to_string()).unwrap();
+
+    let out = dir.0.join("release");
+    let summary = export(&qd_export::ExportRequest {
+        source: source.clone(),
+        source_manifest: None,
+        base_snapshot: snap.clone(),
+        tokenizer_sha256: "fe000e3ed39ed12b8d2481d527d44f93c65d37e87645d2dcc80d1bf9d50d2927".into(),
+        expect_vocab_size: 248_320,
+        calibration: None,
+        allow_extra: Vec::new(),
+        out: out.clone(),
+    })
+    .expect("the base weights export");
+    assert_eq!(
+        (summary.rounded, summary.copied),
+        (36, 284),
+        "the GDN A_log and gated-norm weights are the base's only F32 text tensors"
+    );
+    // The release does not need the source any more; free the disk before the read-back.
+    std::fs::remove_file(&source).unwrap();
+
+    let cfg = ModelConfig::load(&out).unwrap();
+    assert_eq!(cfg.vocab, 248_320);
+    let st = SafeTensors::open(&qd_metal::model::weights_file(&out).unwrap()).unwrap();
+    weights::check_text_tensor_set(&st, &cfg).unwrap();
+    let base_m = SafeTensors::open(&qd_metal::model::weights_file(&snap).unwrap()).unwrap();
+
+    let digest_of = |s: &SafeTensors, name: &str| {
+        let info = s.info(name).unwrap().clone();
+        let mut b = vec![0u8; info.nbytes()];
+        s.read_into(name, &mut b).unwrap();
+        (info.dtype, sha256(&b))
+    };
+    let embed = format!("{TEXT_PREFIX}embed_tokens.weight");
+    st.expect(&embed, &[248_320, 2048], &[MetalDtype::Bf16]).unwrap();
+    let norm = format!("{TEXT_PREFIX}norm.weight");
+    let mut digests: Vec<TensorDigest> = vec![(embed.clone(), digest_of(&st, &embed).1), (norm.clone(), digest_of(&st, &norm).1)];
+    for i in 0..cfg.n_layers() {
+        digests.extend(weights::prepare_layer(&st, &cfg, i).unwrap_or_else(|e| panic!("layer {i}: {e}")).digests);
+    }
+    assert_eq!(digests.len(), 320);
+    let mut identical = 0;
+    for (name, d) in &digests {
+        let (base_dtype, base_d) = digest_of(&base_m, name);
+        if base_dtype == MetalDtype::Bf16 {
+            assert_eq!(*d, base_d, "{name}: a BF16 base tensor must come back bit for bit");
+            identical += 1;
+        } else {
+            assert!(
+                name.ends_with("linear_attn.A_log") || name.ends_with("linear_attn.norm.weight"),
+                "{name} is {base_dtype:?} in the base"
+            );
+            // Rounded from F32: it must be the bf16 cast of the base's value, by tessl's rule.
+            let info = base_m.info(name).unwrap().clone();
+            let mut raw = vec![0u8; info.nbytes()];
+            base_m.read_into(name, &mut raw).unwrap();
+            let cast: Vec<u8> = widen(MetalDtype::F32, &raw)
+                .into_iter()
+                .flat_map(|x| tessl::tensor::f32_to_bf16_bits(x).to_le_bytes())
+                .collect();
+            assert_eq!(*d, sha256(&cast), "{name}: not the bf16 cast of the base's F32");
+        }
+    }
+    assert_eq!(identical, 284);
+    assert_eq!(weights::weight_hash(&mut digests), summary.weight_hash);
+
+    let tok = QwenTokenizer::load(&out.join("tokenizer.json")).unwrap();
+    assert_eq!(tok.hash(), "fe000e3ed39ed12b8d2481d527d44f93c65d37e87645d2dcc80d1bf9d50d2927");
+    assert_eq!(std::fs::read(out.join("config.json")).unwrap(), std::fs::read(snap.join("config.json")).unwrap());
+    eprintln!(
+        "real export: weight_hash {}; model.safetensors {} bytes",
+        summary.weight_hash,
+        std::fs::metadata(out.join("model.safetensors")).unwrap().len()
+    );
+}
+
 /// The layout this crate derives for the real 2B config is the set qd-metal reads, name for
 /// name.
 #[test]
@@ -203,7 +344,7 @@ fn the_bf16_cast_is_tessls_on_every_finite_result() {
         check(bits);
         bits = next;
     }
-    assert!(checked > 380_000);
+    assert_eq!(checked, 65_536 * 5 + 65_551);
 }
 
 /// F16 widening agrees with tessl's on all 65,536 halves (NaNs compared as NaN).
