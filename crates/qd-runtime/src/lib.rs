@@ -14,6 +14,7 @@
 //! | [`backend`] | the four operations a model backend must provide |
 //! | [`reference`] | a deterministic reference backend that is **not** a model and says so |
 //! | [`calibration`] | split-conformal sets on calibrated scores — margin, never entropy |
+//! | [`calibration_fit`] | fitting that table from verdicts: temperature, `noul_margin`, `1 - q̂` |
 //! | [`registry`] | the registered route's head files, hash-bound to the backbone |
 //! | [`fixtures`] | the golden wire corpus in `fixtures/wire/` — the executable answer-side seam |
 //! | [`answer`] | "Answering procedure": prefill once, snapshot, readonly slot queries |
@@ -48,6 +49,7 @@ pub mod answer;
 pub mod b64;
 pub mod backend;
 pub mod calibration;
+pub mod calibration_fit;
 pub mod context;
 pub mod fixtures;
 pub mod oneshot;

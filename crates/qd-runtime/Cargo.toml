@@ -21,13 +21,24 @@ path = "src/main.rs"
 name = "qd-margin-probe"
 path = "src/bin/qd_margin_probe.rs"
 
+# Fits the calibration table from a scoring run's verdict files, through `calibration_fit` and
+# `calibration::calibrate`, and writes it as `CalibrationTable`'s own bytes. It installs nothing:
+# which fitted table ships is the human's call (CLAUDE.md rule 2).
+[[bin]]
+name = "qd-calib-fit"
+path = "src/bin/qd_calib_fit.rs"
+
 # No async runtime, no socket crate, no timer crate: `std::os::unix::net`,
 # `Condvar::wait_timeout` and `set_read_timeout` cover the whole server.
 # Adding one would be a new dependency for capability std already has.
 [dependencies]
 base64.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# `float_roundtrip` (no extra crate: the feature is `[]` in serde_json's manifest): the default
+# parser is best-effort and read a fitted conformal cutoff back one ulp off (…b9d0 -> …b9d1), so a
+# `CalibrationTable` loaded from the file `qd-calib-fit` wrote was not the fitted table and its
+# `hash()` was not the file's sha256. `tests/calib_fit_roundtrip.rs` fails without it.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 clap.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
