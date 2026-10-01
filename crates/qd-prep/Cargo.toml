@@ -1,0 +1,23 @@
+[package]
+name = "qd-prep"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "CPU-bound data-preparation loops ported out of Python: MinHash signatures for the ft_splits rebuild."
+
+[lib]
+name = "qd_prep"
+path = "src/lib.rs"
+
+[[bin]]
+name = "qd-prep"
+path = "src/main.rs"
+
+# Nothing beyond what the workspace already declares, and nothing that links C: BLAKE2b is
+# written out here (RFC 7693) because no blake2 crate is in [workspace.dependencies], and the
+# threads are std::thread::scope. The binary is cross-built for the aarch64 box, which has no
+# Rust toolchain, so every dependency added here is one more thing that has to cross-compile.
+[dependencies]
+clap.workspace = true

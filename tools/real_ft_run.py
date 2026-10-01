@@ -2714,8 +2714,11 @@ def ft_splits(
             "pipeline refuses to write a shard set from such a mixture, so this rebuild is "
             f"not the one any shard set was written from: {mixture.prompt_consistency.reason}"
         )
-    report = dedupe(list(mixture.rows), config=config)
-    split_report = split(report, config=config)
+    # Signed by crates/qd-prep (QD_PREP_BIN), byte-identical to qd_data.minhash, which is its
+    # parity oracle (pipeline.native_minhash): the signatures were most of this rebuild's time.
+    with pipeline.native_minhash(mixture.rows, config=config):
+        report = dedupe(list(mixture.rows), config=config)
+        split_report = split(report, config=config)
     if replay_partition:
         split_report, _replay, _partition = pipeline.split_off_replay(
             split_report, seed=config.seed

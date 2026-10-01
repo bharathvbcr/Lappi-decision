@@ -99,6 +99,7 @@ def _manifest_ids(path: Path) -> list[str]:
     return sorted(e["row_id"] for e in json.loads(path.read_text(encoding="utf-8"))["entries"])
 
 
+@pytest.mark.usefixtures("qd_prep")
 def test_the_rebuild_is_the_pipelines_own_split_general_rows_and_replay_slice_included(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -377,6 +378,7 @@ def test_main_refuses_general_options_without_a_record(tmp_path: Path, flags: li
         rft.main(["--out", str(tmp_path), "--rev", "a" * 40, *flags])
 
 
+@pytest.mark.usefixtures("qd_prep")
 def test_replay_rows_are_marked_and_never_in_the_gold_train_split(tmp_path: Path) -> None:
     """The mirror of the pipeline's own invariant, on the rebuild: every replay-only row
     carries its role, and none of them is in the train split ``main`` gold-trains on."""
