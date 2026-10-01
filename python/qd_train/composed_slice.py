@@ -377,29 +377,92 @@ def needle_hunk_hit(case: ComposedCase, lines: Sequence[int]) -> bool:
     return bool(lines) and all(case.hunk_of_context_line(c) == case.gold_hunk for c in lines)
 
 
+#: Every exclusion the slice's ``sequence_index.json`` may carry, as ``(scope, refusal,
+#: marker in its detail, bucket)``. The list is v4's train census under refuse-gold (compose
+#: lane, 2026-10-01), until the slice's own measured list replaces it:
+#:
+#: * ``gold_shares_token``: the gold's line start shares a token -- the collision both
+#:   policies refuse;
+#: * ``nfc_unstable``: a context the tokenizer would normalise, refused under both policies
+#:   and not a collision;
+#: * ``over_max_seq_len``: the whole row, over the slice's 8,192.
+#:
+#: Any exclusion matching none of these, or more than one, refuses the pass.
+EXCLUSION_BUCKETS: Final[tuple[tuple[str, str, str, str], ...]] = (
+    ("slot", "UnencodableGold", "the gold's line start shares token", "gold_shares_token"),
+    ("slot", "UnencodableGold", "the context is not NFC-stable", "nfc_unstable"),
+    ("row", "OverMaxSeqLen", "", "over_max_seq_len"),
+)
+SLOT_EXCLUSIONS: Final[tuple[str, ...]] = tuple(
+    b for scope, _, _, b in EXCLUSION_BUCKETS if scope == "slot"
+)
+ROW_EXCLUSIONS: Final[tuple[str, ...]] = tuple(
+    b for scope, _, _, b in EXCLUSION_BUCKETS if scope == "row"
+)
+
+
+def exclusion_bucket(scope: str, refusal: str, detail: str) -> str:
+    """The one bucket a ``sequence_index.json`` exclusion falls in, or a refusal."""
+    found = [
+        bucket for s, r, marker, bucket in EXCLUSION_BUCKETS
+        if s == scope and r == refusal and marker in detail
+    ]
+    if len(found) != 1:
+        raise SliceRefusal(
+            f"an exclusion (scope {scope!r}, refusal {refusal!r}, {detail[:120]!r}) matches "
+            f"{found or 'no'} known bucket; the slice's exclusions are pinned to "
+            f"{[b for *_, b in EXCLUSION_BUCKETS]}"
+        )
+    return found[0]
+
+
 @dataclass(frozen=True, slots=True)
 class SliceVerdict:
-    """One slice row as decoded: what the tables count."""
+    """One slice row as decoded: what the tables count.
+
+    A slot with no sequence carries the bucket it was excluded under (``*_excluded``) and
+    nothing else: it is counted as excluded, never as a miss. A row excluded whole is not a
+    verdict at all (:func:`slice_metrics`' ``row_exclusions``).
+    """
 
     case: ComposedCase
     #: The longer of the row's sequences, in real tokens: what the model read.
     length_tokens: int
-    #: Whether the span sequence's candidates repeat a token; ``None`` when the row has no
-    #: span sequence (refuse-gold wrote no span slot for it).
+    #: Whether the span sequence's candidates repeat a token; ``None`` without one.
     shared_candidates: bool | None
     span_correct: bool | None
     #: The rendered lines on the predicted start token (``()`` for the abstention); ``None``
     #: without a span sequence.
     predicted_lines: tuple[int, ...] | None
     choice_correct: bool | None
+    span_excluded: str | None = None
+    choice_excluded: str | None = None
+
+    def __post_init__(self) -> None:
+        where = self.case.row_id
+        span_fields = (self.shared_candidates, self.span_correct, self.predicted_lines)
+        for slot, excluded, fields in (
+            ("span", self.span_excluded, span_fields),
+            ("choice", self.choice_excluded, (self.choice_correct,)),
+        ):
+            if excluded is not None and excluded not in SLOT_EXCLUSIONS:
+                raise SliceRefusal(f"{where}: {slot} excluded as {excluded!r}, not a slot bucket")
+            if any(f is None for f in fields) != (excluded is not None) or (
+                excluded is not None and any(f is not None for f in fields)
+            ):
+                raise SliceRefusal(
+                    f"{where}: the {slot} slot is decoded or excluded for a known reason, "
+                    "never neither or both"
+                )
+        if self.span_excluded is not None and self.choice_excluded is not None:
+            raise SliceRefusal(f"{where}: both slots excluded is a row exclusion, not a verdict")
 
     def in_span_population(self, population: str) -> bool:
         """Whether this row's SPAN sequence is in ``population``.
 
-        A row without one -- its gold line's start shares a token, which both policies refuse
-        -- is in neither; it is counted per cell as excluded, never as a miss. The choice slot
-        has no population: a span refusal drops only the span sequence, so both policies write
-        the same choice sequences.
+        A row without one is in neither; it is counted per cell under its exclusion bucket,
+        never as a miss. The choice slot has no population: a span refusal drops only the
+        span sequence, so both policies write the same choice sequences.
         """
         if population == "refuse_gold":
             return self.shared_candidates is not None
@@ -456,7 +519,9 @@ def _order(cut: str, cell: str) -> tuple[int, str]:
     return (order.index(cell) if order and cell in order else len(order or ()), cell)
 
 
-def slice_metrics(verdicts: Sequence[SliceVerdict]) -> dict[str, TriState]:
+def slice_metrics(
+    verdicts: Sequence[SliceVerdict], *, row_exclusions: Sequence[tuple[ComposedCase, str]],
+) -> dict[str, TriState]:
     """Every table, under ``composed.<set>.``.
 
     ``<set>`` is ``val`` (the compose:val rows) or ``diag.seen_filler``/``diag.unseen`` (each
@@ -471,27 +536,57 @@ def slice_metrics(verdicts: Sequence[SliceVerdict]) -> dict[str, TriState]:
     * ``shared_token_predictions``: of those, predictions on a shared token.
 
     ``delta.<cut>.<cell>.{span_top1,hunk_hit}`` is refuse-any's rate minus refuse-gold's,
-    wherever both ran. ``span_excluded.<cut>.<cell>`` counts the rows with no span sequence
-    -- their gold line's start shares a token, which both policies refuse -- excluded, never
-    misses. ``both_policies.<cut>.<cell>.choice_top1`` is the one choice population: a span
-    refusal drops only the span sequence, so both policies write the same choice sequences.
-    ``<population>.span_sequences`` counts each population's sequences.
+    wherever both ran. ``both_policies.<cut>.<cell>.choice_top1`` is the one choice
+    population: a span refusal drops only the span sequence, so both policies write the same
+    choice sequences. ``<population>.span_sequences`` counts each population's sequences.
+
+    Exclusions are counted, never scored as misses:
+    ``{span,choice}_excluded.<bucket>`` per set for every slot bucket (zero included), and per
+    cell (``.<cut>.<cell>``) for the buckets the set has; ``rows_excluded.<bucket>`` per set
+    for the rows ``row_exclusions`` names (no sequence, so no length to cut by). A case named
+    twice, by verdicts or exclusions, is refused.
     """
+    seen: set[str] = set()
+    for case in [v.case for v in verdicts] + [c for c, _ in row_exclusions]:
+        if case.row_id in seen:
+            raise SliceRefusal(f"{case.row_id} is counted twice")
+        seen.add(case.row_id)
+    excluded_rows: dict[str, list[str]] = {}
+    for case, bucket in row_exclusions:
+        if bucket not in ROW_EXCLUSIONS:
+            raise SliceRefusal(f"{case.row_id}: {bucket!r} is not a row exclusion")
+        excluded_rows.setdefault(case.slice_set, []).append(bucket)
     by_set: dict[str, list[SliceVerdict]] = {}
     for v in verdicts:
         by_set.setdefault(v.case.slice_set, []).append(v)
     out: dict[str, TriState] = {}
-    for slice_set in sorted(by_set):
-        rows = by_set[slice_set]
+    for slice_set in sorted(set(by_set) | set(excluded_rows)):
+        rows = by_set.get(slice_set, [])
+        whole = excluded_rows.get(slice_set, [])
+        for bucket in ROW_EXCLUSIONS:
+            out[f"composed.{slice_set}.rows_excluded.{bucket}"] = _count(
+                whole.count(bucket), len(rows) + len(whole),
+                what=f"rows excluded whole ({bucket}): no sequence, so no verdict and no length",
+            )
+        present: list[tuple[str, str]] = []
+        for slot in ("span", "choice"):
+            for bucket in SLOT_EXCLUSIONS:
+                k = sum(1 for v in rows if getattr(v, f"{slot}_excluded") == bucket)
+                out[f"composed.{slice_set}.{slot}_excluded.{bucket}"] = _count(
+                    k, len(rows),
+                    what=f"rows whose {slot} slot was excluded ({bucket}), counted, not misses",
+                )
+                if k:
+                    present.append((slot, bucket))
         cells = sorted({c for v in rows for c in _cells(v)}, key=lambda c: (c[0], _order(*c)))
         for cut, cell in cells:
             inside = [v for v in rows if (cut, cell) in _cells(v)]
-            excluded = sum(1 for v in inside if v.shared_candidates is None)
-            out[f"composed.{slice_set}.span_excluded.{cut}.{cell}"] = _count(
-                excluded, len(inside),
-                what=("rows with no span sequence: the gold line's start shares a token, which "
-                      "both policies refuse; excluded from both span populations, not misses"),
-            )
+            for slot, bucket in present:
+                out[f"composed.{slice_set}.{slot}_excluded.{bucket}.{cut}.{cell}"] = _count(
+                    sum(1 for v in inside if getattr(v, f"{slot}_excluded") == bucket),
+                    len(inside),
+                    what=f"rows whose {slot} slot was excluded ({bucket}), counted, not misses",
+                )
             out[f"composed.{slice_set}.both_policies.{cut}.{cell}.choice_top1"] = _rate(
                 [bool(v.choice_correct) for v in inside if v.choice_correct is not None],
                 what="defect_class verdicts right", population="both_policies",

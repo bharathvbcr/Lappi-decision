@@ -9,6 +9,7 @@ own rows have the same shape (compose lane, 2026-10-01).
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 import sys
 from pathlib import Path
@@ -225,6 +226,11 @@ def test_a_shared_token_is_a_hit_only_if_every_line_on_it_is_in_the_gold_hunk():
 # --- the tables -------------------------------------------------------------------------------
 
 
+def _as(case, k: int):
+    """``case`` under row id ``...-k``: one fixture row standing for several slice rows."""
+    return dataclasses.replace(case, row_id=f"{case.row_id}-{k}")
+
+
 def _verdict(case, *, tokens=3000, shared=False, span=True, lines=None, choice=True):
     return cs.SliceVerdict(
         case=case, length_tokens=tokens, shared_candidates=shared, span_correct=span,
@@ -249,20 +255,21 @@ def test_span_cells_carry_both_populations_and_choice_cells_one():
     off = next(c for c in range(stub.rendered_lines)
                if stub.hunk_of_context_line(c) not in (None, stub.gold_hunk))
     verdicts = [
-        _verdict(stub),                                         # hit, refuse-any
-        _verdict(stub, shared=True, span=False, lines=(off,)),  # miss, shared candidates
-        cs.SliceVerdict(stub, 3000, None, None, None, False),   # no span sequence
-        _verdict(clean, tokens=900),                            # clean: abstained right
-        _verdict(diag, tokens=5000, span=False, lines=()),      # diag: abstained, a miss
+        _verdict(_as(stub, 1)),                                         # hit, refuse-any
+        _verdict(_as(stub, 2), shared=True, span=False, lines=(off,)),  # miss, shared cands
+        cs.SliceVerdict(_as(stub, 3), 3000, None, None, None, False,
+                        span_excluded="gold_shares_token"),             # no span sequence
+        _verdict(clean, tokens=900),                                    # clean: abstained
+        _verdict(diag, tokens=5000, span=False, lines=()),              # diag: a miss
     ]
-    m = cs.slice_metrics(verdicts)
+    m = cs.slice_metrics(verdicts, row_exclusions=())
 
     def at(name):
         return m[f"composed.val.{name}"]
 
-    excluded = at("span_excluded.all.all")
+    excluded = at("span_excluded.gold_shares_token.all.all")
     assert (excluded.value, excluded.n_total) == (1, 4)
-    assert at("span_excluded.depth.clean").value == 0
+    assert at("span_excluded.gold_shares_token.depth.clean").value == 0
     assert at("refuse_gold.span_sequences").value == 3
     assert at("refuse_any.span_sequences").value == 2
     hit_gold, hit_any = at("refuse_gold.all.all.hunk_hit"), at("refuse_any.all.all.hunk_hit")
@@ -295,12 +302,101 @@ def test_a_prediction_on_a_shared_token_is_counted_and_scored_by_condition_8():
     outside = next(c for c in range(stub.rendered_lines)
                    if stub.hunk_of_context_line(c) not in (None, stub.gold_hunk))
     m = cs.slice_metrics([
-        _verdict(stub, shared=True, span=False, lines=tuple(inside[:2])),
-        _verdict(stub, shared=True, span=False, lines=(inside[-1], outside)),
-    ])
+        _verdict(_as(stub, 1), shared=True, span=False, lines=tuple(inside[:2])),
+        _verdict(_as(stub, 2), shared=True, span=False, lines=(inside[-1], outside)),
+    ], row_exclusions=())
     shared = m["composed.val.refuse_gold.all.all.shared_token_predictions"]
     assert (shared.value, shared.n_total) == (2, 2)
     hit = m["composed.val.refuse_gold.all.all.hunk_hit"]
     assert (hit.n, hit.n_total) == (1, 2)
     assert isinstance(m["composed.val.refuse_any.all.all.hunk_hit"], NotRun)
     assert isinstance(m["composed.val.delta.all.all.hunk_hit"], NotRun)
+
+
+# --- exclusions: counted under their own bucket, never misses ----------------------------------
+
+#: Details as qd_train.shards writes them (compose lane's writer): "<where>: <reason>".
+_COLLISION = (
+    "qdm:code.defect_class:compose:val:000007 slot defect_span: the gold's line start shares "
+    "token(s) [41] with line(s) [12]"
+)
+_NFC = (
+    "qdm:code.defect_class:compose:val:000008 slot defect_span: the context is not NFC-stable "
+    "and the tokenizer's NFC normalizer rewrites it"
+)
+
+
+def test_every_exclusion_falls_in_one_known_bucket_or_the_pass_refuses():
+    """The compose lane's v4 census (2026-10-01): gold collisions, NFC-unstable contexts and
+    rows over 8,192. Anything else is unknown until the slice's own list pins it."""
+    assert cs.exclusion_bucket("slot", "UnencodableGold", _COLLISION) == "gold_shares_token"
+    assert cs.exclusion_bucket("slot", "UnencodableGold", _NFC) == "nfc_unstable"
+    assert cs.exclusion_bucket("row", "OverMaxSeqLen", "8,342 tokens > 8,192") == (
+        "over_max_seq_len"
+    )
+    for scope, refusal, detail in (
+        ("slot", "UnencodableGold", "the span is empty"),        # a refusal never measured
+        ("row", "UnencodableGold", _COLLISION),                   # a known detail, wrong scope
+        ("slot", "OverMaxSeqLen", "8,342 tokens > 8,192"),        # a known refusal, wrong scope
+        ("slot", "TokenNotInRemap", _NFC),                        # a known detail, wrong refusal
+    ):
+        with pytest.raises(cs.SliceRefusal, match="known bucket"):
+            cs.exclusion_bucket(scope, refusal, detail)
+    assert cs.SLOT_EXCLUSIONS == ("gold_shares_token", "nfc_unstable")
+    assert cs.ROW_EXCLUSIONS == ("over_max_seq_len",)
+
+
+def test_a_slot_is_decoded_or_excluded_for_a_known_reason_never_neither_or_both():
+    _, stub = _stub()
+    for bad in (
+        dict(shared_candidates=None, span_correct=None, predicted_lines=None),   # neither
+        dict(span_excluded="nfc_unstable"),                                       # both
+        dict(shared_candidates=None, span_correct=None, predicted_lines=None,
+             span_excluded="over_max_seq_len"),                                   # a row bucket
+        dict(choice_correct=None),                                                # choice: neither
+    ):
+        fields = dict(case=stub, length_tokens=3000, shared_candidates=False, span_correct=True,
+                      predicted_lines=(stub.gold_line,), choice_correct=True)
+        with pytest.raises(cs.SliceRefusal):
+            cs.SliceVerdict(**{**fields, **bad})
+    with pytest.raises(cs.SliceRefusal, match="row exclusion"):
+        cs.SliceVerdict(stub, 3000, None, None, None, None, span_excluded="nfc_unstable",
+                        choice_excluded="nfc_unstable")
+
+
+def test_exclusions_are_counted_per_bucket_and_never_scored():
+    """nfc_unstable is not a collision: its own bucket, in neither span population, and not
+    a miss. A row over 8,192 has no sequence, so it is counted per set and cut by nothing."""
+    _, stub = _stub()
+    verdicts = [
+        _verdict(_as(stub, 1)),
+        cs.SliceVerdict(_as(stub, 2), 3000, None, None, None, True,
+                        span_excluded="gold_shares_token"),
+        cs.SliceVerdict(_as(stub, 3), 3000, None, None, None, True, span_excluded="nfc_unstable"),
+        cs.SliceVerdict(_as(stub, 4), 3000, False, False, (), None,
+                        choice_excluded="nfc_unstable"),                 # abstained: a miss
+    ]
+    m = cs.slice_metrics(verdicts, row_exclusions=[(_as(stub, 5), "over_max_seq_len")])
+
+    def at(name):
+        return m[f"composed.val.{name}"]
+
+    assert at("span_excluded.gold_shares_token").value == 1
+    assert at("span_excluded.nfc_unstable").value == 1
+    assert at("span_excluded.nfc_unstable.all.all").n_total == 4
+    assert at("choice_excluded.nfc_unstable").value == 1
+    assert at("choice_excluded.gold_shares_token").value == 0
+    assert "choice_excluded.gold_shares_token.all.all" not in {
+        k.removeprefix("composed.val.") for k in m
+    }, "per-cell counts only for the buckets the set has"
+    rows = at("rows_excluded.over_max_seq_len")
+    assert (rows.value, rows.n_total) == (1, 5)
+    assert at("refuse_gold.span_sequences").value == 2, "two span sequences decoded, two excluded"
+    hit = at("refuse_gold.all.all.hunk_hit")
+    assert (hit.n, hit.n_total) == (1, 2), "the exclusions are not misses"
+    choice = at("both_policies.all.all.choice_top1")
+    assert (choice.n, choice.n_total) == (3, 3)
+    with pytest.raises(cs.SliceRefusal, match="counted twice"):
+        cs.slice_metrics(verdicts, row_exclusions=[(_as(stub, 1), "over_max_seq_len")])
+    with pytest.raises(cs.SliceRefusal, match="not a row exclusion"):
+        cs.slice_metrics(verdicts, row_exclusions=[(_as(stub, 6), "nfc_unstable")])
