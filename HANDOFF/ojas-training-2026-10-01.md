@@ -61,6 +61,28 @@ advice; gap table Q1, parity ladder Q3, lanes Q5). Gap records: `GAP-OJAS-ADVICE
 | L-scorer | `tools/real_ft_run.py` (agent) | the additive Metal-artifact scoring (ask 7) |
 | L-cuda | `AUDIT/ojas-training-2026-10-01/cuda-backend-scoping.md` (agent) | the CUDA backend design and scoping for the GH200 (sm_90, CUDA 12.8, aarch64), no code |
 | L-tessl | canonical tessl (its own session, spawned by the lead) | per-entry AdamW `lr_scale`; `mrope_*` parse and refuse; the rung (a) GPU command list. It runs no GPU work until window (c). |
+| L-ojas-qwen35 | `ojas/ojas-qwen35/` (agent, untracked, standalone `[workspace]`) | the tessl Qwen3.5 step as an ojas provider; not a `Backend` |
+| L-cuda-M0 | `ojas/ojas-qwen35-cuda/` minus the oracle's paths (agent) | `CudaRuntime`, `CudaBuffer`, the NVRTC cache, the K0 plumbing kernels, K1 GEMM via cuBLAS, and the rung-0 smoke binary, cross-built for aarch64 |
+| L-cuda-oracle | `ojas/ojas-qwen35-cuda/tests/{reference,fixtures}/**` and `tests/reference_*.rs` (agent) | float64 host references: GDN at the published rule (a port of tessl's `tests/common/gdn_train.rs`, T ∈ {1, 63, 64, 65, 130}), then K3/K4/K6/K7/K9/K10, then K11 |
+
+**Lane status at 2026-10-01 ~23:30 UTC:**
+
+- **L-data: merged** at `4a5ebda`.
+  - The held-out door works: every held-out case is refused with zero bytes read.
+  - Batch order, consumed digest and supervision are byte-identical to Python.
+  - The v4 counts match row d96409bd.
+- **L-head: merged** at `d5dfc3d`.
+  - The span head passes the Amendment 1 gate on all 9 cases; row `8e447aea` (completed, quick) supersedes `6d6ca078`.
+  - qd-train on main: 28 unit + 20 door + 10 parity + 14 span-head tests pass; 2 opt-in v4 tests are ignored.
+- **L-scorer: merged** at `1651fdf`.
+- **L-ojas-qwen35: done.**
+  - 23 CPU tests pass. The 7 GPU parity tests are **not run**; they wait on a Mac GPU window requested from the coordinator.
+  - Its workspace-member diff was sent to the coordinator.
+- **L-trainer and L-oracle: running.**
+  - L-trainer reports one blocker. tessl has a single lr, so F's two-group recipe cannot run until tessl's per-entry `lr_scale` lands.
+  - The trainer refuses any lr_scale ≠ 1.0, with no workaround.
+- **L-tessl** is the user's pending chip "Add per-entry lr_scale and mrope handling to tessl". It needs a session rooted in tessl, because this harness blocks git in other repos. **It is the one blocker for rung (b)'s two-group arm and for rung (d).**
+- **L-cuda-M0 and L-cuda-oracle: running.**
 
 ## Invariants for every lane
 
