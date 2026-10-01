@@ -10,6 +10,7 @@ to be a silent no-op.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import sys
@@ -251,6 +252,72 @@ def test_a_task_whose_control_cannot_fit_makes_the_gate_not_run(qd_prep: Path) -
     result = ftc.score_against_control(train, val, _verdicts_for(val, [True] * 15), seed=0)
     assert isinstance(result.gate, NotRun)
     assert "fewer than two classes" in result.gate.reason
+
+
+def _with_context(d: RequestDoc, i: int) -> RequestDoc:
+    """A doc the length control can read: a context whose size varies by row."""
+    return dataclasses.replace(d, context="x" * (10 + 3 * (i % 7)))
+
+
+def test_a_family_whose_control_ran_keeps_its_margin_when_another_did_not(
+    qd_prep: Path,
+) -> None:
+    """J4's control rows d597ee7d and 7921ae18 (GH200, 2026-10-01): intent.domain's control
+    did not converge, so the pooled gate was not_run -- rightly -- and the defect_class margin,
+    whose control had converged, was on the row nowhere. Each family's margin is now reported
+    beside the pooled one, on that family's rows against that family's control, not_run only
+    for a family whose control did not run. The pooled gate keeps its meaning (rule 2)."""
+    defect, intent = "code.defect_class/defect_class", "intent.domain/domain"
+    train = [_with_context(_doc(i, "yes" if i % 2 else "no", task=defect), i) for i in range(60)]
+    train += [_with_context(_doc(500 + i, "only", task=intent), i) for i in range(10)]
+    val = [_with_context(_doc(1000 + i, "yes" if i % 2 else "no", task=defect), i)
+           for i in range(40)]
+    val += [_with_context(_doc(2000 + i, "only", task=intent), i) for i in range(5)]
+    verdicts = _verdicts_for(val, [i % 4 != 0 for i in range(45)])
+    result = ftc.score_against_control(train, val, verdicts, seed=0)
+    assert isinstance(result.gate, NotRun) and "fewer than two classes" in result.gate.reason
+
+    ran = result.metrics["paired_margin_vs_linear.choice.code.defect_class"]
+    assert isinstance(ran, Ran), ran
+    # That family's rows against that family's control: by value, exactly as fit_task fits it.
+    top1 = result.metrics[f"linear_control_top1.{defect}"]
+    assert isinstance(top1, Ran) and (top1.detail or "").endswith("labelled by value")
+    alone = ftc.fit_task(
+        defect, train[:60], val[:40], by_slot_name=True, seed=0, max_iter=ftc.DEFAULT_MAX_ITER,
+        dense_budget_bytes=None, max_fit_minutes=None, cache_dir=None, engine=qd_prep,
+    )
+    keys = [ftc.doc_key(d, by_slot_name=True) for d in val[:40]]
+    assert ran == paired_margin_by_key(
+        {k: verdicts.correct[k] for k in keys}, alone.correct, seed=0
+    )
+    not_run = result.metrics["paired_margin_vs_linear.choice.intent.domain"]
+    assert isinstance(not_run, NotRun) and "fewer than two classes" in not_run.reason
+    # The length control's margins, the same way.
+    assert isinstance(result.metrics["paired_margin_vs_length_control"], NotRun)
+    assert isinstance(
+        result.metrics["paired_margin_vs_length_control.choice.code.defect_class"], Ran
+    )
+    assert isinstance(
+        result.metrics["paired_margin_vs_length_control.choice.intent.domain"], NotRun
+    )
+
+
+def test_family_margins_refuse_when_the_verdicts_are_another_population(
+    qd_prep: Path,
+) -> None:
+    """A model row the rebuilt split does not hold belongs to no family, so it would silently
+    drop out of every per-family margin; the margins are not_run instead."""
+    train = [_doc(i, "yes" if i % 2 else "no") for i in range(60)]
+    val = [_doc(1000 + i, "yes" if i % 2 else "no") for i in range(40)]
+    verdicts = _verdicts_for(val, [True] * 40)
+    extra = ("r9999", "slot")
+    verdicts = dataclasses.replace(
+        verdicts, correct={**verdicts.correct, extra: True},
+        kind_of={**verdicts.kind_of, extra: "choice"},
+    )
+    result = ftc.score_against_control(train, val, verdicts, seed=0)
+    family = result.metrics["paired_margin_vs_linear.choice.fam"]
+    assert isinstance(family, NotRun) and "different populations" in family.reason
 
 
 # --- operator holdout -----------------------------------------------------------------

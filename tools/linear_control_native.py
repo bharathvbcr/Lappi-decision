@@ -35,6 +35,15 @@ DENSE operand (a BLAS GEMM) it differs by rounding, as the reference's own two o
 Predictions are made here, from the binary's logits, by the reference's own expression
 (``LinearBaseline._softmax`` then ``argmax``).
 
+## The per-option control
+
+:func:`fit_options` is the same binding for ``qd_train.option_control.OptionScorer`` (Fable H,
+2026-10-01): an option-pairs request (features 3), whose examples are every shown option of
+every row, hashed by the binary as two stacked n-gram blocks, fitted as a two-class scorer and
+selected by the best option of each validation row. The oracle makes every choice here too --
+the rows, the examples, the row carve (``OptionScorer.carve``), the initial weights -- and the
+answers are its own ``best_option`` over the binary's logits.
+
 ## What is checked on every call (no Python fallback)
 
 Without :data:`PREP_BIN_ENV` the caller refuses before fitting anything. A binary that is not an
@@ -55,7 +64,7 @@ import struct
 import subprocess
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -70,6 +79,14 @@ from qd_train.baseline import (  # noqa: E402
     BaselineFit,
     CharNGramHasher,
     LinearBaseline,
+)
+from qd_train.option_control import (  # noqa: E402
+    OptionFit,
+    OptionGridPoint,
+    OptionRow,
+    OptionScorer,
+    best_option,
+    examples,
 )
 
 #: The variable naming the ``qd-prep`` binary; the same one ``real_tokenizer_pipeline``'s
@@ -92,6 +109,7 @@ _LINFIT_REQUEST: Final[bytes] = b"QDPLFIN1"
 _LINFIT_REPLY: Final[bytes] = b"QDPLFOK1"
 _FEATURES_DOCS: Final[int] = 1
 _FEATURES_ROWS: Final[int] = 2
+_FEATURES_PAIRS: Final[int] = 3
 _BUILD: Final[str] = (
     "build it with `cargo build --release -p qd-prep` (target/release/qd-prep) on the Mac, or "
     "cross-build it for the aarch64 box with `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="
@@ -341,7 +359,53 @@ def fit(
         *eval_block,
     ])
     reply, summary = _run(binary, "linfit", request, timeout_s=timeout_s, threads=threads)
+    got = _read_reply(
+        reply, binary, k=k, d=d, grid_in=grid_in, val_total=n_val, n_eval=len(eval_docs),
+        max_iter=model.max_iter,
+    )
 
+    def reference_rows(picks: list[int]) -> CSR:
+        if eval_rows is not None:
+            return eval_rows.select(np.asarray(picks, dtype=np.int64))
+        if not isinstance(hasher, CharNGramHasher):  # pragma: no cover - the branch above
+            raise SystemExit("evaluation rows were neither hashed here nor sent as rows")
+        return hasher.transform([eval_docs[i] for i in picks])
+
+    _check_canaries(binary, reference_rows, got)
+    probabilities = LinearBaseline._softmax(got.logits)
+    predictions = (
+        [classes[i] for i in np.argmax(probabilities, axis=1)] if len(eval_docs) else []
+    )
+    baseline_fit = BaselineFit(
+        weights=got.weights, bias=got.bias, classes=classes, l2=got.grid[got.selected].l2,
+        converged=got.converged, iterations=got.iterations, final_grad_norm=got.grad_norm,
+        loss_history=got.history,
+    )
+    return NativeFit(baseline_fit, got.grid, got.selected, got.logits, predictions, summary)
+
+
+@dataclass(frozen=True)
+class _Reply:
+    """A ``QDPLFOK1`` reply, read and checked against its request."""
+
+    grid: tuple[GridPoint, ...]
+    selected: int
+    converged: bool
+    iterations: int
+    grad_norm: float
+    history: tuple[float, ...]
+    weights: np.ndarray
+    bias: np.ndarray
+    logits: np.ndarray
+
+
+def _read_reply(
+    reply: bytes, binary: Path, *, k: int, d: int, grid_in: tuple[float, ...], val_total: int,
+    n_eval: int, max_iter: int,
+) -> _Reply:
+    """Every field of the reply, refusing one that is not this request's: another shape, a grid
+    that is not the request's or whose validation totals are not ``val_total``, a selection the
+    reference's rule would not make, a count of evaluation rows or iterations it could not be."""
     r = _Reader(reply, binary)
     if r.take(len(_LINFIT_REPLY)) != _LINFIT_REPLY:
         raise SystemExit(f"{binary} wrote a reply that is not a {_LINFIT_REPLY!r} file")
@@ -360,11 +424,11 @@ def fit(
     history = r.array("<f8", n_hist)
     weights = r.array("<f8", d * k).reshape(d, k)
     bias = r.array("<f8", k)
-    (n_eval,) = r.unpack("<Q")
-    logits = r.array("<f8", n_eval * k).reshape(n_eval, k)
+    (got_eval,) = r.unpack("<Q")
+    logits = r.array("<f8", got_eval * k).reshape(got_eval, k)
     r.end()
 
-    if tuple(g.l2 for g in grid) != grid_in or any(g.val_total != n_val for g in grid):
+    if tuple(g.l2 for g in grid) != grid_in or any(g.val_total != val_total for g in grid):
         raise SystemExit(f"{binary} replied a grid that is not the request's: {grid}")
     if selected != _reference_selection(grid):
         raise SystemExit(
@@ -372,46 +436,107 @@ def fit(
             f"but the reference's rule over its own accuracies selects "
             f"{grid[_reference_selection(grid)].l2}"
         )
-    if n_eval != len(eval_docs):
-        raise SystemExit(f"{binary} scored {n_eval} evaluation rows of {len(eval_docs)}")
-    if n_hist != iterations or iterations > model.max_iter:
+    if got_eval != n_eval:
+        raise SystemExit(f"{binary} scored {got_eval} evaluation rows of {n_eval}")
+    if n_hist != iterations or iterations > max_iter:
         raise SystemExit(
             f"{binary} reports {iterations} iterations with {n_hist} losses under a budget of "
-            f"{model.max_iter}"
+            f"{max_iter}"
         )
-    _check_canaries(binary, hasher, eval_docs, eval_rows, weights, bias, logits)
-
-    probabilities = LinearBaseline._softmax(logits)
-    predictions = [classes[i] for i in np.argmax(probabilities, axis=1)] if n_eval else []
-    baseline_fit = BaselineFit(
-        weights=weights, bias=bias, classes=classes, l2=grid[selected].l2,
-        converged=bool(conv_b), iterations=int(iterations), final_grad_norm=float(grad_norm),
-        loss_history=tuple(float(v) for v in history),
+    return _Reply(
+        grid=grid, selected=int(selected), converged=bool(conv_b), iterations=int(iterations),
+        grad_norm=float(grad_norm), history=tuple(float(v) for v in history), weights=weights,
+        bias=bias, logits=logits,
     )
-    return NativeFit(baseline_fit, grid, selected, logits, predictions, summary)
 
 
 def _check_canaries(
-    binary: Path, hasher: object, eval_docs: Sequence[str], eval_rows: CSR | None,
-    weights: np.ndarray, bias: np.ndarray, logits: np.ndarray,
+    binary: Path, reference_rows: Callable[[list[int]], CSR], got: _Reply
 ) -> None:
     """The first and last evaluation rows, featurised and scored by the reference."""
-    n = len(eval_docs)
+    n = got.logits.shape[0]
     picks = sorted(set(range(min(NATIVE_LOGIT_CANARIES, n))) |
                    set(range(max(0, n - NATIVE_LOGIT_CANARIES), n)))
     if not picks:
         return
+    want = reference_rows(picks).matmul(got.weights) + got.bias
     idx = np.asarray(picks, dtype=np.int64)
-    if eval_rows is None:
-        if not isinstance(hasher, CharNGramHasher):  # pragma: no cover - the caller's branch
-            raise SystemExit("evaluation rows were neither hashed here nor sent as rows")
-        rows = hasher.transform([eval_docs[i] for i in picks])
-    else:
-        rows = eval_rows.select(idx)
-    want = rows.matmul(weights) + bias
-    if want.tobytes() != np.ascontiguousarray(logits[idx]).tobytes():
+    if want.tobytes() != np.ascontiguousarray(got.logits[idx]).tobytes():
         raise SystemExit(
             f"{binary}'s logits for evaluation rows {picks} differ from the reference's "
             "featurisation scored with the binary's own weights; its features or its matmul "
             "are not the reference's"
         )
+
+
+@dataclass(frozen=True)
+class NativeOptionFit:
+    """What ``OptionScorer.fit`` would leave in ``fit_``, and the evaluation rows' answers."""
+
+    fit: OptionFit
+    eval_logits: np.ndarray
+    #: Each evaluation row's answer, an index into its shown options (``best_option``).
+    predictions: list[int]
+    summary: str
+
+
+def fit_options(
+    binary: Path,
+    scorer: OptionScorer,
+    rows: Sequence[OptionRow],
+    eval_rows: Sequence[OptionRow],
+    *,
+    timeout_s: float = DEFAULT_FIT_TIMEOUT_S,
+    threads: int | None = None,
+) -> NativeOptionFit:
+    """``scorer.fit(rows)`` and ``scorer.predict(eval_rows)``, by one option-pairs request.
+
+    ``scorer`` makes every choice and is not fitted itself; the caller may install
+    ``NativeOptionFit.fit`` as its ``fit_`` so ``scorer.convergence()`` speaks for the result.
+    """
+    docs, y, sizes = examples(rows)
+    if np.any(sizes < 2):
+        raise ValueError("a row with fewer than two shown options has nothing to choose")
+    # The oracle's row carve, with its refusals: fewer than 4 rows, or no training rows left.
+    val_idx, tr_idx, val_sizes = scorer.carve(sizes)
+    eval_docs, _, eval_sizes = examples(eval_rows)
+    hasher = scorer.features.hasher
+    d, k = scorer.features.dim, 2
+    # _train_once's draw, exactly as the oracle makes it: LinearBaseline(seed=scorer.seed).
+    w0 = np.random.default_rng(scorer.seed).normal(0.0, 0.01, size=(d, k)).astype(np.float64)
+    grid_in = tuple(float(v) for v in scorer.l2_grid)
+    request = b"".join([
+        _LINFIT_REQUEST,
+        struct.pack("<BIII", _FEATURES_PAIRS, hasher.n_min, hasher.n_max, hasher.dim),
+        struct.pack("<IIdd", k, scorer.max_iter, scorer.tol, scorer.lr),
+        struct.pack(f"<I{len(grid_in)}d", len(grid_in), *grid_in),
+        *_docs_block([p for p, _ in docs]),
+        *_docs_block([o for _, o in docs]),
+        np.ascontiguousarray(y, dtype="<u4").tobytes(),
+        np.ascontiguousarray(np.repeat(np.arange(len(sizes)), sizes), dtype="<u4").tobytes(),
+        struct.pack("<Q", len(val_idx)),
+        np.ascontiguousarray(np.concatenate([val_idx, tr_idx]), dtype="<u8").tobytes(),
+        np.ascontiguousarray(w0, dtype="<f8").tobytes(),
+        *_docs_block([p for p, _ in eval_docs]),
+        *_docs_block([o for _, o in eval_docs]),
+    ])
+    reply, summary = _run(binary, "linfit", request, timeout_s=timeout_s, threads=threads)
+    got = _read_reply(
+        reply, binary, k=k, d=d, grid_in=grid_in, val_total=len(val_sizes),
+        n_eval=len(eval_docs), max_iter=scorer.max_iter,
+    )
+    _check_canaries(
+        binary, lambda picks: scorer.features.transform([eval_docs[i] for i in picks]), got
+    )
+    fit = OptionFit(
+        weights=got.weights, bias=got.bias, l2=got.grid[got.selected].l2,
+        converged=got.converged, iterations=got.iterations, final_grad_norm=got.grad_norm,
+        loss_history=got.history,
+        grid=tuple(
+            OptionGridPoint(g.l2, g.val_correct, g.val_total, g.converged, g.iterations,
+                            g.grad_norm)
+            for g in got.grid
+        ),
+        selected=got.selected,
+    )
+    return NativeOptionFit(fit, got.logits, best_option(got.logits, eval_sizes), summary)

@@ -29,7 +29,12 @@
 //! path bit for bit (`python/tests/test_qd_prep_linear_parity.py`). Against the reference's
 //! *dense* operand (a BLAS GEMM, used below `--dense-budget-gb`) it differs by rounding, as the
 //! reference's own two operands already differ (`test_the_fit_is_unchanged_by_densification`).
+//!
+//! The same fit serves the per-option control (`qd_train.option_control.OptionScorer.fit`): a
+//! two-class `_train_once`, with only the grid's accuracy counted differently -- by the best
+//! option of each validation row ([`Selection::BestOption`]) rather than per example.
 
+use std::collections::HashSet;
 use std::sync::Mutex;
 
 use crate::ngram::Csr;
@@ -75,6 +80,18 @@ pub struct GridPoint {
     pub converged: bool,
     pub iterations: u32,
     pub grad_norm: f64,
+}
+
+/// How a grid point's validation accuracy is counted, which is what selects the L2.
+#[derive(Clone, Copy, Debug)]
+pub enum Selection<'g> {
+    /// `LinearBaseline.fit`: an example is correct when `argmax(z)` is its label.
+    Top1,
+    /// `OptionScorer.fit`, for a two-class scorer over each row's shown options. `groups[i]` is
+    /// training example `i`'s row. The validation slice is whole rows, each contiguous in
+    /// `order[..n_val]`; a row is correct when its first example of greatest log-odds
+    /// `z[1] - z[0]` is its one positive, and the accuracy is over rows.
+    BestOption { groups: &'g [u32] },
 }
 
 /// `LinearBaseline.fit`, plus the logits of the documents the caller will score.
@@ -220,6 +237,68 @@ fn logits_row(cols: &[u32], vals: &[f64], w: &[f64], b: &[f64], z: &mut [f64]) {
     for (zc, bc) in z.iter_mut().zip(b) {
         *zc += bc;
     }
+}
+
+/// The validation slice's rows as runs `[start, end)` of `order[..n_val]`, refusing a slice the
+/// reference's row carve could not have drawn: a row split into two runs, a row on both sides of
+/// the carve, or a row without exactly one positive.
+fn validation_rows(
+    groups: &[u32],
+    y: &[u32],
+    order: &[usize],
+    n_val: usize,
+) -> Result<Vec<(usize, usize)>, String> {
+    let (val, tr) = order.split_at(n_val);
+    let mut runs = Vec::new();
+    let mut seen = HashSet::new();
+    let mut start = 0;
+    while start < val.len() {
+        let g = groups[val[start]];
+        let mut end = start + 1;
+        while end < val.len() && groups[val[end]] == g {
+            end += 1;
+        }
+        if !seen.insert(g) {
+            return Err(format!(
+                "option row {g} is split into two runs of the validation slice"
+            ));
+        }
+        runs.push((start, end));
+        start = end;
+    }
+    if let Some(&i) = tr.iter().find(|&&i| seen.contains(&groups[i])) {
+        return Err(format!(
+            "option row {} has options on both sides of the validation carve",
+            groups[i]
+        ));
+    }
+    for &(start, end) in &runs {
+        let positives = val[start..end].iter().filter(|&&i| y[i] == 1).count();
+        if positives != 1 {
+            return Err(format!(
+                "validation row {} has {positives} positive option(s); a row has one gold",
+                groups[val[start]]
+            ));
+        }
+    }
+    Ok(runs)
+}
+
+/// Rows of `runs` whose first option of greatest `z[1] - z[0]` is labelled 1 (numpy's `argmax`
+/// tie rule over the log-odds), for two-class logits `z` laid out `[z0, z1]` per example.
+fn best_option_correct(z: &[f64], y_val: &[u32], runs: &[(usize, usize)]) -> u64 {
+    runs.iter()
+        .filter(|&&(start, end)| {
+            let score = |i: usize| z[2 * i + 1] - z[2 * i];
+            let mut best = start;
+            for i in start + 1..end {
+                if score(i) > score(best) {
+                    best = i;
+                }
+            }
+            y_val[best] == 1
+        })
+        .count() as u64
 }
 
 /// `argmax` with numpy's tie rule: the first of equal maxima.
@@ -475,7 +554,9 @@ fn train_once(
 /// `order` is the reference's `default_rng(seed).permutation(n)` and `n_val` its
 /// `max(1, int(n * val_frac))`: validation is `order[:n_val]`, training `order[n_val:]`, and
 /// both keep that order, as `CSR.select` does. `w0` is `_train_once`'s initial `W`, the same for
-/// every fit because the reference reseeds per call.
+/// every fit because the reference reseeds per call. `selection` says how each grid point's
+/// validation accuracy is counted; [`Selection::BestOption`] counts rows, so its grid points'
+/// `val_total` is the number of validation rows.
 #[allow(clippy::too_many_arguments)]
 pub fn fit(
     x: &Csr,
@@ -485,6 +566,7 @@ pub fn fit(
     w0: &[f64],
     eval_x: &Csr,
     hyper: &Hyper,
+    selection: Selection<'_>,
     threads: usize,
 ) -> Result<Fitted, String> {
     let n = x.n_rows();
@@ -522,6 +604,21 @@ pub fn fit(
     if hyper.l2_grid.is_empty() {
         return Err("an empty L2 grid selects nothing".to_string());
     }
+    // Checked before anything is trained: a malformed carve is refused, not discovered late.
+    let rows = match selection {
+        Selection::Top1 => None,
+        Selection::BestOption { groups } => {
+            if k != 2 {
+                return Err(format!(
+                    "the best-option rule scores a two-class scorer's log-odds; {k} classes"
+                ));
+            }
+            if groups.len() != n {
+                return Err(format!("{n} rows, {} option-row ids", groups.len()));
+            }
+            Some(validation_rows(groups, y, order, n_val)?)
+        }
+    };
     let (val_idx, tr_idx) = order.split_at(n_val);
     let (y_val, y_tr): (Vec<u32>, Vec<u32>) = (
         val_idx.iter().map(|&i| y[i]).collect(),
@@ -543,19 +640,24 @@ pub fn fit(
     for (g, &l2) in hyper.l2_grid.iter().enumerate() {
         let trained = train_once(tr, d, &y_tr, w0, hyper, l2, threads);
         let z = logits(val, &trained.w, &trained.b, threads);
-        let correct = z
-            .chunks_exact(k)
-            .zip(&y_val)
-            .filter(|(row, label)| argmax(row) == **label as usize)
-            .count() as u64;
-        let acc = correct as f64 / n_val as f64;
+        let (correct, total) = match &rows {
+            None => (
+                z.chunks_exact(k)
+                    .zip(&y_val)
+                    .filter(|(row, label)| argmax(row) == **label as usize)
+                    .count() as u64,
+                n_val as u64,
+            ),
+            Some(runs) => (best_option_correct(&z, &y_val, runs), runs.len() as u64),
+        };
+        let acc = correct as f64 / total as f64;
         if best.is_none_or(|(b, _)| acc > b) {
             best = Some((acc, g));
         }
         grid.push(GridPoint {
             l2,
             val_correct: correct,
-            val_total: n_val as u64,
+            val_total: total,
             converged: trained.converged,
             iterations: trained.iterations,
             grad_norm: trained.grad_norm,
@@ -588,6 +690,8 @@ pub fn fit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const TOP1: Selection<'static> = Selection::Top1;
 
     /// A small problem with structure: class = (row % k), with features that mostly say so.
     fn problem(n: usize, d: usize, k: usize) -> (Csr, Vec<u32>, Vec<f64>) {
@@ -644,9 +748,10 @@ mod tests {
         for k in [2usize, 3, 9] {
             let (x, y, w0) = problem(97, 64, k);
             let ord = order(97);
-            let one = fit(&x, &y, &ord, 19, &w0, &x, &hyper(k, 150), 1).expect("fits");
+            let one = fit(&x, &y, &ord, 19, &w0, &x, &hyper(k, 150), TOP1, 1).expect("fits");
             for threads in [2, 3, 5, 18, 64] {
-                let many = fit(&x, &y, &ord, 19, &w0, &x, &hyper(k, 150), threads).expect("fits");
+                let many =
+                    fit(&x, &y, &ord, 19, &w0, &x, &hyper(k, 150), TOP1, threads).expect("fits");
                 assert_eq!(many, one, "k={k}, {threads} threads");
             }
         }
@@ -655,7 +760,7 @@ mod tests {
     #[test]
     fn no_iterations_is_unconverged_at_infinity_like_the_reference() {
         let (x, y, w0) = problem(20, 32, 2);
-        let got = fit(&x, &y, &order(20), 4, &w0, &x, &hyper(2, 0), 4).expect("fits");
+        let got = fit(&x, &y, &order(20), 4, &w0, &x, &hyper(2, 0), TOP1, 4).expect("fits");
         assert!(!got.refit.converged);
         assert_eq!(got.refit.iterations, 0);
         assert!(got.refit.grad_norm.is_infinite());
@@ -668,20 +773,20 @@ mod tests {
         let (x, y, w0) = problem(60, 32, 3);
         let mut h = hyper(3, 5000);
         h.tol = 5e-2;
-        let got = fit(&x, &y, &order(60), 12, &w0, &x, &h, 3).expect("fits");
+        let got = fit(&x, &y, &order(60), 12, &w0, &x, &h, TOP1, 3).expect("fits");
         assert!(got.refit.converged);
         assert!(got.refit.grad_norm < h.tol);
         assert_eq!(got.refit.history.len(), got.refit.iterations as usize);
         // One more iteration's budget changes nothing about a fit that stopped early.
         h.max_iter = got.refit.iterations;
-        let again = fit(&x, &y, &order(60), 12, &w0, &x, &h, 3).expect("fits");
+        let again = fit(&x, &y, &order(60), 12, &w0, &x, &h, TOP1, 3).expect("fits");
         assert_eq!(again.refit, got.refit);
     }
 
     #[test]
     fn selection_keeps_the_first_strictly_best_l2() {
         let (x, y, w0) = problem(80, 48, 2);
-        let got = fit(&x, &y, &order(80), 16, &w0, &x, &hyper(2, 200), 2).expect("fits");
+        let got = fit(&x, &y, &order(80), 16, &w0, &x, &hyper(2, 200), TOP1, 2).expect("fits");
         let best = got
             .grid
             .iter()
@@ -701,24 +806,24 @@ mod tests {
         let (x, y, w0) = problem(20, 32, 2);
         let h = hyper(2, 10);
         assert!(
-            fit(&x, &y, &order(20), 0, &w0, &x, &h, 1).is_err(),
+            fit(&x, &y, &order(20), 0, &w0, &x, &h, TOP1, 1).is_err(),
             "no validation rows"
         );
         assert!(
-            fit(&x, &y, &order(20), 20, &w0, &x, &h, 1).is_err(),
+            fit(&x, &y, &order(20), 20, &w0, &x, &h, TOP1, 1).is_err(),
             "no training rows"
         );
         assert!(
-            fit(&x, &y[..19], &order(20), 4, &w0, &x, &h, 1).is_err(),
+            fit(&x, &y[..19], &order(20), 4, &w0, &x, &h, TOP1, 1).is_err(),
             "labels short"
         );
         assert!(
-            fit(&x, &y, &order(20), 4, &w0[1..], &x, &h, 1).is_err(),
+            fit(&x, &y, &order(20), 4, &w0[1..], &x, &h, TOP1, 1).is_err(),
             "w0 short"
         );
         let mut empty_grid = h.clone();
         empty_grid.l2_grid.clear();
-        assert!(fit(&x, &y, &order(20), 4, &w0, &x, &empty_grid, 1).is_err());
+        assert!(fit(&x, &y, &order(20), 4, &w0, &x, &empty_grid, TOP1, 1).is_err());
     }
 
     #[test]
@@ -745,5 +850,170 @@ mod tests {
                 assert_eq!(vals[at].to_bits(), v.to_bits());
             }
         }
+    }
+
+    /// `n_rows` rows of `per_row` options, row-major: option `j` of row `r` is the positive when
+    /// `j == r % per_row`, and its features mostly say whether it is.
+    fn option_problem(n_rows: usize, per_row: usize, d: usize) -> (Csr, Vec<u32>, Vec<u32>) {
+        let mut indptr = vec![0usize];
+        let (mut indices, mut data, mut y, mut groups) = (vec![], vec![], vec![], vec![]);
+        for r in 0..n_rows {
+            for j in 0..per_row {
+                let positive = j == r % per_row;
+                y.push(u32::from(positive));
+                groups.push(r as u32);
+                let mut cols: Vec<u32> = (0..4)
+                    .map(|t| ((r * 5 + j * 11 + t * 3) % d) as u32)
+                    .collect();
+                // A noisy marker of the positive: present on most positives, few negatives.
+                if positive != (r % 7 == 0) {
+                    cols.push(0);
+                }
+                cols.sort_unstable();
+                cols.dedup();
+                let norm = (cols.len() as f64).sqrt();
+                for c in cols {
+                    indices.push(c);
+                    data.push(1.0 / norm);
+                }
+                indptr.push(indices.len());
+            }
+        }
+        let csr = Csr {
+            n_cols: d,
+            indptr,
+            indices,
+            data,
+        };
+        (csr, y, groups)
+    }
+
+    /// `OptionScorer.carve`'s shape: whole rows, validation rows first, each row's options in
+    /// order. Returns the example order and `n_val` in examples.
+    fn row_carve(n_rows: usize, per_row: usize, n_val_rows: usize) -> (Vec<usize>, usize) {
+        let rows: Vec<usize> = (0..n_rows).map(|i| (i * 13 + 5) % n_rows).collect();
+        let order = rows
+            .iter()
+            .flat_map(|&r| (r * per_row)..(r * per_row + per_row))
+            .collect();
+        (order, n_val_rows * per_row)
+    }
+
+    fn w0(d: usize, k: usize) -> Vec<f64> {
+        (0..d * k)
+            .map(|i| ((i as f64) * 0.618).sin() * 0.01)
+            .collect()
+    }
+
+    #[test]
+    fn best_option_counts_validation_rows_by_their_best_option() {
+        let (x, y, groups) = option_problem(40, 3, 32);
+        let (ord, n_val) = row_carve(40, 3, 8);
+        let w = w0(32, 2);
+        let h = hyper(2, 300);
+        let sel = Selection::BestOption { groups: &groups };
+        let got = fit(&x, &y, &ord, n_val, &w, &x, &h, sel, 2).expect("fits");
+        let (val, tr) = ord.split_at(n_val);
+        let y_tr: Vec<u32> = tr.iter().map(|&i| y[i]).collect();
+        let mut best: Option<(f64, usize)> = None;
+        for (g, point) in got.grid.iter().enumerate() {
+            assert_eq!(point.val_total, 8, "rows, not the {n_val} option examples");
+            // Recounted independently: retrain, then per row the option of greatest log-odds.
+            let trained = train_once(
+                Rows {
+                    csr: &x,
+                    order: Some(tr),
+                },
+                32,
+                &y_tr,
+                &w,
+                &h,
+                point.l2,
+                1,
+            );
+            let z = logits(
+                Rows {
+                    csr: &x,
+                    order: Some(val),
+                },
+                &trained.w,
+                &trained.b,
+                1,
+            );
+            let correct = val
+                .chunks(3)
+                .enumerate()
+                .filter(|(r, opts)| {
+                    let odds: Vec<f64> = (0..3)
+                        .map(|j| z[2 * (r * 3 + j) + 1] - z[2 * (r * 3 + j)])
+                        .collect();
+                    let top = odds.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                    let first = odds.iter().position(|&o| o == top).expect("a max");
+                    y[opts[first]] == 1
+                })
+                .count() as u64;
+            assert_eq!(point.val_correct, correct, "grid point {g}");
+            let acc = correct as f64 / 8.0;
+            if best.is_none_or(|(b, _)| acc > b) {
+                best = Some((acc, g));
+            }
+        }
+        assert_eq!(got.selected, best.expect("a grid").1);
+        assert!(
+            got.grid.iter().any(|p| p.val_correct > 8 / 3),
+            "{:?}",
+            got.grid
+        );
+    }
+
+    #[test]
+    fn best_option_fit_does_not_depend_on_the_thread_count() {
+        let (x, y, groups) = option_problem(31, 4, 48);
+        let (ord, n_val) = row_carve(31, 4, 6);
+        let w = w0(48, 2);
+        let sel = Selection::BestOption { groups: &groups };
+        let one = fit(&x, &y, &ord, n_val, &w, &x, &hyper(2, 120), sel, 1).expect("fits");
+        for threads in [2, 3, 7, 64] {
+            let many =
+                fit(&x, &y, &ord, n_val, &w, &x, &hyper(2, 120), sel, threads).expect("fits");
+            assert_eq!(many, one, "{threads} threads");
+        }
+    }
+
+    #[test]
+    fn a_validation_slice_the_row_carve_could_not_draw_is_refused() {
+        let (x, y, groups) = option_problem(10, 3, 16);
+        let (ord, n_val) = row_carve(10, 3, 2);
+        let w = w0(16, 2);
+        let h = hyper(2, 5);
+        let sel = Selection::BestOption { groups: &groups };
+        assert!(fit(&x, &y, &ord, n_val, &w, &x, &h, sel, 1).is_ok());
+
+        let err = |ord: &[usize], n_val: usize, y: &[u32], groups: &[u32], k: usize| {
+            let sel = Selection::BestOption { groups };
+            let w = w0(16, k);
+            fit(&x, y, ord, n_val, &w, &x, &hyper(k, 5), sel, 1).expect_err("refused")
+        };
+        // A row whose options straddle the carve.
+        assert!(err(&ord, n_val - 1, &y, &groups, 2).contains("both sides"));
+        // A row split into two runs of the validation slice.
+        let mut split = ord.clone();
+        split.swap(1, 4);
+        assert!(err(&split, n_val, &y, &groups, 2).contains("two runs"));
+        // A validation row with two positives, and one with none.
+        let first = ord[0] / 3;
+        let mut two = y.clone();
+        for j in 0..3 {
+            two[first * 3 + j] = u32::from(j < 2);
+        }
+        assert!(err(&ord, n_val, &two, &groups, 2).contains("2 positive"));
+        let mut none = y.clone();
+        for j in 0..3 {
+            none[first * 3 + j] = 0;
+        }
+        assert!(err(&ord, n_val, &none, &groups, 2).contains("0 positive"));
+        // Not a binary scorer; ids for a different number of rows.
+        assert!(err(&ord, n_val, &y, &groups, 3).contains("two-class"));
+        assert!(err(&ord, n_val, &y, &groups[1..], 2).contains("option-row ids"));
     }
 }
