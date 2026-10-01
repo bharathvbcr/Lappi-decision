@@ -130,7 +130,7 @@ restored; `git diff` clean afterwards):
 
 | Run | Tests that fail |
 | --- | --- |
-| 827363b's checker (pre-ruling) with the new tests transplanted (the enumeration ported to its `at_least` signature) | **5 of 26**: `j4s_average_scored_as_avgnp_fails_a_with_b_and_c_passing` (b = "ambiguous", want "pass"), `a_tie_with_the_cited_row_passes...`, `a_choice_between_the_decimal_and_the_seed_minimum_fails_c`, `the_verdict_is_the_rows_and_differs...` ("ambiguous", want "pass"), `the_reading_is_the_preregistrations_own_text`; the other 21 pass |
+| 827363b's checker (pre-ruling) with the new tests transplanted (the enumeration ported to its `at_least` signature) | **5 of 26**: `j4s_average_scored_as_avgnp_fails_a_with_b_and_c_passing` (b = "ambiguous", want "pass"), `a_tie_with_the_cited_row_passes...`, `a_choice_between_the_decimal_and_the_seed_minimum_fails_c`, `the_verdict_is_the_rows_and_differs...` ("ambiguous", want "pass"), `the_reading_is_the_preregistrations_own_text`; the other 21 pass. Four fail on the reading itself; the fifth only because its `reading` field and the `54512e6` pin are new |
 | the printed decimal decides (`Verdict::of(candidate.ge_dec(literal))`) | 4: the J4 stand-in, the tie test, the choice test, the enumeration |
 | both readings must pass (`by_row && ge_dec`) | 3: the J4 stand-in, the tie test, the enumeration |
 | a tie fails (strictly greater) | 4: the J4 stand-in, the tie test, the choice test, the enumeration |
@@ -421,14 +421,30 @@ begun averaging); it must be done before J4's avg-np row is written for the read
     # on the box: confirm none of this chain has started or decided anything
     ls /home/ubuntu/queue | grep -E '^(j7pcpu|j7pavg|s34|j7p|nomaskp2|fslice|j5p|j6f|nomask|tierb2|j6dv4)\.(started|done|position)$'
     ls /home/ubuntu/ledger/post-f-decisions-2026-10-01/ 2>/dev/null
-    #   both print nothing; otherwise stop and look
-    pkill -KILL -f '/home/ubuntu/post-f/box_q_'     # -KILL: no EXIT trap, so no .done is touched
+    #   both print nothing (before f.done); see below if j7pcpu.started is there
+    pkill -KILL -f 'post-f/box_q_[a-z0-9_]+\.sh'   # -KILL: no EXIT trap, so no .done is touched
     # on the Mac (stop first, copy second: bash reads a running script as it goes)
     scp -i $KEY /Users/bharath/qd-campaign/target-aarch64-linux-postf/aarch64-unknown-linux-gnu/release/qd-post-f-rules $BOX:/home/ubuntu/bin/qd-post-f-rules
     scp -i $KEY $WT/campaign/post-f-queue/post_f_common.sh $BOX:/home/ubuntu/post-f/
     # on the box: step 2's sha256sum (cadbdc74…1339) and the seeds34 smoke, then step 3's loop
 
-The relaunched waiters touch their `.queued` again (already there) and wait as before.
+The `pkill` patterns are written so they cannot match their own command line (a bracket class
+or an alternation), so they are safe from an ssh one-liner too. The relaunched waiters touch
+their `.queued` again (already there) and wait as before.
+
+**If `j7pcpu.started` already exists** (redeploy after `f.done`): item 0 has already pinned the
+old binary and is averaging. Leave it running: it never calls `avgnp` and never re-pins, and its
+later `ft-rows` call behaves the same in both binaries. Killing it would leave `j7pavg.done`
+untouched (a rerun refuses its existing outputs), and item 3 would wait forever. Stop and relaunch
+only the other nine:
+
+    pkill -KILL -f 'post-f/box_q_(s34|j7p|nomaskp2|fslice|j5p|j6f|nomask|tierb2|j6dv4)\.sh'
+    for s in s34 j7p nomaskp2 fslice j5p j6f nomask tierb2 j6dv4; do
+      nohup bash /home/ubuntu/post-f/box_q_$s.sh > /home/ubuntu/logs/q-$s.log 2>&1 &
+    done
+
+If any other marker of this chain has `.started`, or a decision JSON other than item 0's own
+(`item0-*.json`) exists, stop and look before killing anything.
 
 ## First command for the next lane
 
