@@ -336,6 +336,7 @@ class MasterWeightAdamW:
         betas: tuple[float, float] = (0.9, DEFAULT_BETA2),
         eps: float = 1e-8,
         weight_decay: float = 0.01,
+        fused: bool = False,
     ) -> None:
         import torch
 
@@ -393,8 +394,14 @@ class MasterWeightAdamW:
                     extra[LR_SCALE_KEY], where=f"group {extra.get('name', '?')!r}"
                 )
             inner_groups.append({**extra, "params": [master_of[id(p)] for p in g["params"]]})
+        # `fused=True` is torch's single-kernel AdamW over the masters: the same update rule,
+        # one launch instead of a dozen foreach passes, and no full-size fp32 temporaries
+        # (measured on the GH200, 2026-10-01: optimizer step 70 -> 40 ms at 4 x 8,441, peak
+        # 42.2 -> 35.2 GiB). Its rounding is not foreach's, so it is a numerics change and
+        # rides in the recipe; `None` is torch's own default, exactly what was built before.
         self._inner = torch.optim.AdamW(
-            inner_groups, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay
+            inner_groups, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+            fused=True if fused else None,
         )
 
     # -- the torch.optim.Optimizer surface the callers actually use ------------------------
@@ -485,8 +492,14 @@ def build_optimizer(
     total_steps: int,
     allow_frozen_moments: bool = False,
     beta2: float = DEFAULT_BETA2,
+    fused: bool = False,
 ) -> Any:
     """The one place that turns an [`qd_train.memory.OptimizerSpec`] into an optimizer.
+
+    ``fused`` builds the master recipe's inner AdamW as torch's fused kernel (see
+    [`MasterWeightAdamW`]). The master recipe only: it is the one every long run uses and
+    the one measured, and a flag that silently did nothing on the other would be recorded
+    as a recipe it did not run.
 
     ``spec`` is the budget's description of the recipe; this returns the thing the budget
     describes. Keeping the two together is the point -- a footprint that does not describe
@@ -531,7 +544,12 @@ def build_optimizer(
     groups = _normalise_groups(params)
     betas = (0.9, beta2)
     if spec.keeps_fp32_master:
-        return MasterWeightAdamW(groups, lr=lr, betas=betas)
+        return MasterWeightAdamW(groups, lr=lr, betas=betas, fused=fused)
+    if fused:
+        raise ValueError(
+            f"fused=True is built for the fp32-master recipe only, and spec {spec.name!r} "
+            "keeps no master. Refusing rather than recording a fused optimizer that is not"
+        )
     if spec.states_per_param != 2:
         raise ValueError(
             f"optimizer spec {spec.name!r} describes {spec.states_per_param} state tensor(s) "

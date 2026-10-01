@@ -102,16 +102,19 @@ def run_arm(args: argparse.Namespace) -> int:
     if args.checkpoint_skip_layers:
         extra["checkpoint_skip_layers"] = args.checkpoint_skip_layers
     ledger = Ledger(args.ledger)
-    torch.cuda.reset_peak_memory_stats()
+    on_cuda = args.device == "cuda"
+    if on_cuda:
+        torch.cuda.reset_peak_memory_stats()
     t0 = time.perf_counter()
     run = real_ft_run._train(
-        reader=reader, plan=plan, passes=args.passes, device="cuda", seed=args.seed,
-        hidden=0, heads=0, lr=args.lr, span_weight=1.0, ledger=ledger, tag=args.tag,
+        reader=reader, plan=plan, passes=args.passes, device=args.device, seed=args.seed,
+        hidden=64, heads=2, lr=args.lr, span_weight=1.0, ledger=ledger, tag=args.tag,
         quick_reasons=[
             f"perf parity arm: {len(plan)} batches x {args.passes} passes on a fixed "
             "subset; a comparison of code paths, not a training run"
         ],
-        backbone=args.backbone, optimizer_recipe="master", deterministic=args.deterministic,
+        backbone=None if args.stand_in else args.backbone,
+        optimizer_recipe="bf16" if args.stand_in else "master", deterministic=args.deterministic,
         attn_implementation="sdpa", n_gpus=1, usd_per_hour=2.29, instance="lambda-1xgh200",
         cap_s=args.cap_s, batch_tokens=args.batch_tokens, **extra,
     )
@@ -144,7 +147,8 @@ def run_arm(args: argparse.Namespace) -> int:
         "train_wall_s": run["wall_clock_s"],
         "steps_per_s": run["steps_per_s"],
         "positions": int(sum(int(b.tokens.size) for b in plan)) * args.passes,
-        "peak_alloc_gib": round(torch.cuda.max_memory_allocated() / 1024**3, 2),
+        "peak_alloc_gib": (round(torch.cuda.max_memory_allocated() / 1024**3, 2)
+                           if on_cuda else None),
     }
     out["pos_per_s"] = round(out["positions"] / float(run["wall_clock_s"]), 1)
     _append(args.result, out)
@@ -214,6 +218,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--result", type=Path)
     ap.add_argument("--tag")
     ap.add_argument("--dry-run", action="store_true", help="stop before the tower loads")
+    ap.add_argument("--device", default="cuda")
+    ap.add_argument("--stand-in", action="store_true",
+                    help="harness smoke only: the one-block stand-in instead of the backbone")
     args = ap.parse_args(argv)
     if args.compare:
         return compare(args.compare)

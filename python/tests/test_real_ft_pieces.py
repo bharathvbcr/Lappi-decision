@@ -36,6 +36,29 @@ def test_a_run_with_every_piece_off_adds_no_recipe_key():
     ) == {}
 
 
+def test_fused_adamw_lands_in_the_recipe_only_when_on():
+    pieces = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
+              "permutation": None, "replay": None}
+    assert rft._recipe_pieces(**pieces, fused_adamw=False) == {}
+    assert rft._recipe_pieces(**pieces, fused_adamw=True) == {"optimizer_fused": True}
+
+
+@pytest.mark.parametrize(
+    ("backbone", "optimizer"), [(None, "master"), (Path("s"), "bf16")],
+)
+def test_fused_adamw_without_the_master_recipe_is_refused(backbone, optimizer):
+    ns = argparse.Namespace(
+        lower_layers_n=0, lower_layers_lr_scale=None, beta2=None, checkpoint_skip_layers=0,
+        fused_adamw=True, optimizer=optimizer,
+        option_permutation_seed=None, tokenizer_json=None, real_backbone=backbone, epoch=False,
+        replay_shards=None, replay_attestation=None, replay_cache=None, replay_weight=None,
+        replay_every=rft.DEFAULT_REPLAY_EVERY, verdicts_out=None, score_val=False,
+        suite_verdicts_out=None, needle=False, ood=False,
+    )
+    with pytest.raises(SystemExit, match="--fused-adamw needs"):
+        rft._check_piece_flags(ns)
+
+
 def test_selective_checkpointing_lands_in_the_recipe_only_when_on():
     pieces = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
               "permutation": None, "replay": None}
@@ -52,6 +75,7 @@ def test_selective_checkpointing_lands_in_the_recipe_only_when_on():
 def test_a_checkpoint_skip_that_would_determine_nothing_is_refused(skip, backbone, match):
     ns = argparse.Namespace(
         lower_layers_n=0, lower_layers_lr_scale=None, beta2=None, checkpoint_skip_layers=skip,
+        fused_adamw=False, optimizer="bf16",
         option_permutation_seed=None, tokenizer_json=None, real_backbone=backbone, epoch=False,
         replay_shards=None, replay_attestation=None, replay_cache=None, replay_weight=None,
         replay_every=rft.DEFAULT_REPLAY_EVERY, verdicts_out=None, score_val=False,
@@ -156,6 +180,7 @@ def test_an_existing_verdicts_file_is_refused_before_anything_runs(tmp_path):
 def test_the_defaults_resolve_to_the_optimizer_every_row_so_far_used():
     ns = argparse.Namespace(
         lower_layers_n=0, lower_layers_lr_scale=None, beta2=None, checkpoint_skip_layers=0,
+        fused_adamw=False, optimizer="bf16",
         option_permutation_seed=None, tokenizer_json=None, real_backbone=None, epoch=False,
         replay_shards=None, replay_attestation=None, replay_cache=None, replay_weight=None,
         replay_every=rft.DEFAULT_REPLAY_EVERY, verdicts_out=None, score_val=False,
