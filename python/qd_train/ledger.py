@@ -1051,6 +1051,9 @@ class Ledger:
                     "are vacuous, not satisfied"
                 )
 
+        units, join_refusals = _promotion_units(candidates)
+        reasons.extend(join_refusals)
+
         seeds = {r.protocol.seed for r in candidates}
         if len(seeds) < 3:
             reasons.append(
@@ -1058,42 +1061,43 @@ class Ledger:
                 "differing only in seed"
             )
 
-        for r in candidates:
+        for r, sups in units:
+            label = r.row_id + "".join(f" + {s.row_id}" for s in sups)
             for gate in REQUIRED_GATES:
-                g = r.gates.get(gate)
+                g = _joined(r.gates.get(gate), [s.gates.get(gate) for s in sups])
                 if g is None:
                     reasons.append(
-                        f"{r.row_id}: gate {gate!r} absent; an absent gate is not a passed gate"
+                        f"{label}: gate {gate!r} absent; an absent gate is not a passed gate"
                     )
                 elif isinstance(g, NotRun):
                     reasons.append(
-                        f"{r.row_id}: gate {gate!r} did not run ({g.reason}); "
+                        f"{label}: gate {gate!r} did not run ({g.reason}); "
                         "this blocks promotion"
                     )
                 elif not g.passed:
                     reasons.append(
-                        f"{r.row_id}: gate {gate!r} ran and FAILED [{g.coverage_str()}]"
+                        f"{label}: gate {gate!r} ran and FAILED [{g.coverage_str()}]"
                     )
                 elif _states_partial_coverage(g):
                     reasons.append(
-                        f"{r.row_id}: gate {gate!r} passed on only {g.coverage_str()} of the "
+                        f"{label}: gate {gate!r} passed on only {g.coverage_str()} of the "
                         "eligible population; a capped sample is not complete coverage "
                         "and does not promote"
                     )
 
             for ctl in REQUIRED_CONTROLS:
-                c = r.controls.get(ctl)
+                c = _joined(r.controls.get(ctl), [s.controls.get(ctl) for s in sups])
                 if c is None:
-                    reasons.append(f"{r.row_id}: control {ctl!r} absent")
+                    reasons.append(f"{label}: control {ctl!r} absent")
                 elif isinstance(c, NotRun):
-                    reasons.append(f"{r.row_id}: control {ctl!r} did not run ({c.reason})")
+                    reasons.append(f"{label}: control {ctl!r} did not run ({c.reason})")
                 elif not c.passed:
                     reasons.append(
-                        f"{r.row_id}: control {ctl!r} ran and FAILED [{c.coverage_str()}]"
+                        f"{label}: control {ctl!r} ran and FAILED [{c.coverage_str()}]"
                     )
                 elif _states_partial_coverage(c):
                     reasons.append(
-                        f"{r.row_id}: control {ctl!r} passed on only {c.coverage_str()} of the "
+                        f"{label}: control {ctl!r} passed on only {c.coverage_str()} of the "
                         "eligible population; a capped sample is not complete coverage "
                         "and does not promote"
                     )
@@ -1120,6 +1124,69 @@ class Ledger:
             ),
             ids,
         )
+
+
+#: The recipe key by which a row says it SUPPLEMENTS an eval row. tools/ft_linear_control.py
+#: measures paired_margin_vs_linear after the eval, from its verdict file, and writes it on
+#: a row of its own -- the ledger is append-only, so the eval row cannot be amended -- naming
+#: the eval row it paired. Approved by the human on 2026-09-30 on a Fable recommendation:
+#: promotion reads an eval row and its supplements as one unit. Before that, the eval row
+#: (margin not_run) and its control row (every other gate not_run) blocked each other, and
+#: no FT seed family could promote at all.
+SUPPLEMENT_KEY: Final[str] = "eval_row_id"
+
+
+def _promotion_units(
+    candidates: list[LedgerRow],
+) -> tuple[list[tuple[LedgerRow, list[LedgerRow]]], list[str]]:
+    """``(units, refusals)``: each non-supplement row with the supplements naming it.
+
+    Refused rather than dropped: a supplement naming a row outside this family (so its
+    evidence would vanish), one at another seed, and one naming another supplement. A
+    refused supplement joins nothing, so whatever it measured stays unmeasured.
+    """
+    by_id = {r.row_id: r for r in candidates}
+    attached: dict[str, list[LedgerRow]] = {}
+    refusals: list[str] = []
+    for r in candidates:
+        named = (r.recipe or {}).get(SUPPLEMENT_KEY)
+        if named is None:
+            continue
+        target = by_id.get(str(named))
+        if target is None:
+            refusals.append(
+                f"{r.row_id}: supplements eval row {named}, which is not in this seed family; "
+                "its measurements join nothing"
+            )
+        elif target.protocol.seed != r.protocol.seed:
+            refusals.append(
+                f"{r.row_id}: supplements {named} at seed {target.protocol.seed}, but is "
+                f"itself seed {r.protocol.seed}"
+            )
+        elif (target.recipe or {}).get(SUPPLEMENT_KEY) is not None:
+            refusals.append(f"{r.row_id}: supplements {named}, which is itself a supplement")
+        else:
+            attached.setdefault(target.row_id, []).append(r)
+    units = [
+        (r, attached.get(r.row_id, []))
+        for r in candidates
+        if (r.recipe or {}).get(SUPPLEMENT_KEY) is None
+    ]
+    return units, refusals
+
+
+def _joined(own: TriState | None, supplied: list[TriState | None]) -> TriState | None:
+    """One state for a unit: what was measured beats what was not, and any measured
+    failure fails it. Two passes join to the one with the weaker coverage, so a capped
+    sample on either side still refuses."""
+    measured = [t for t in (own, *supplied) if isinstance(t, Ran)]
+    if not measured:
+        return own if own is not None else next((t for t in supplied if t is not None), None)
+    failed = [t for t in measured if not t.passed]
+    if failed:
+        return failed[0]
+    partial = [t for t in measured if _states_partial_coverage(t)]
+    return partial[0] if partial else measured[0]
 
 
 def _states_partial_coverage(result: Ran) -> bool:
