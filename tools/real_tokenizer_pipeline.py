@@ -45,13 +45,17 @@ from __future__ import annotations
 
 import argparse
 import collections
+import contextlib
 import dataclasses
 import hashlib
 import json
+import os
+import struct
 import subprocess
 import sys
+import tempfile
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -66,8 +70,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from repo_git import git_bytes, git_text, require_full_sha, resolve_rev, tracked_paths
 
+import qd_data.dedupe as dedupe_module
+import qd_data.split as split_module
 from qd_data.config import DataConfig
-from qd_data.dedupe import dedupe
+from qd_data.dedupe import DedupeReport, dedupe
 from qd_data.defect_class import (
     CHOICE_SLOT as DEFECT_CHOICE_SLOT,
 )
@@ -99,6 +105,7 @@ from qd_data.loaders import (
     read_jsonl,
 )
 from qd_data.manifest import build_manifests
+from qd_data.minhash import MinHasher, shingle
 from qd_data.mixture import build_mixture
 from qd_data.rows import MAX_DEDUPE_TEXT_BYTES, DataRow
 from qd_data.schema import SpanSlot
@@ -1367,6 +1374,212 @@ def split_off_replay(
     return gold, replay, part
 
 
+# -- MinHash through qd-prep ------------------------------------------------------------
+#
+# Profiled on the phase-3 inputs (2026-09-30): 268 s of 626 s were
+# ``qd_data.minhash.MinHasher.signature``, called once per content unit by ``dedupe`` and
+# once per surviving row by ``split``'s cross-split re-derivation. ``crates/qd-prep`` signs
+# them natively. Neither function takes a signer, and ``qd_data`` cannot be edited to give
+# them one without moving every shard header's ``code_fingerprint``, so the seam is the name
+# ``MinHasher`` in those two modules, replaced for exactly the two calls. The Python class
+# stays the reference oracle (``python/tests/test_qd_prep_parity.py``), never a fallback.
+
+#: Where the binary is named when ``--qd-prep`` is not given.
+QD_PREP_ENV = "QD_PREP_BIN"
+#: The request layout this adapter writes (``crates/qd-prep/src/wire.rs``).
+QD_PREP_MINHASH_PROTOCOL = 1
+QD_PREP_REQUEST_MAGIC = b"QDMHIN01"
+QD_PREP_OUTPUT_MAGIC = b"QDMHOUT1"
+#: Bounds on the subprocess: the version probe, and a signing pass (seconds).
+QD_PREP_VERSION_TIMEOUT_S = 60
+QD_PREP_SIGN_TIMEOUT_S = 1800
+QD_PREP_MAX_THREADS = 64
+#: Signatures re-derived by the reference ``MinHasher`` on every run, as a canary.
+QD_PREP_CANARY = 64
+
+
+@dataclass(frozen=True)
+class QdPrep:
+    path: Path
+    version: str
+    sha256: str
+
+
+def resolve_qd_prep(path: Path | None) -> QdPrep:
+    """The ``qd-prep`` binary named by ``path`` or ``$QD_PREP_BIN``, version-checked.
+
+    Refuses when neither names one, when it is not an executable file, or when it does not
+    speak this adapter's protocol. There is no default location and no Python fallback.
+    """
+    raw = str(path) if path is not None else os.environ.get(QD_PREP_ENV, "")
+    if not raw:
+        raise SystemExit(
+            f"MinHash signing runs in crates/qd-prep: pass --qd-prep or set {QD_PREP_ENV}. "
+            "Build it with `cargo build --release -p qd-prep` (or cross-build it for the box); "
+            "the Python signer is the parity oracle, not a fallback."
+        )
+    binary = Path(raw)
+    if not binary.is_file() or not os.access(binary, os.X_OK):
+        raise SystemExit(f"qd-prep: {binary} is not an executable file")
+    probe = subprocess.run(
+        [str(binary), "version"], capture_output=True, text=True, check=False,
+        timeout=QD_PREP_VERSION_TIMEOUT_S,
+    )
+    try:
+        info = json.loads(probe.stdout) if probe.returncode == 0 else None
+    except json.JSONDecodeError:
+        info = None
+    if not isinstance(info, dict) or info.get("name") != "qd-prep" or (
+        info.get("minhash_protocol") != QD_PREP_MINHASH_PROTOCOL
+    ):
+        raise SystemExit(
+            f"qd-prep: {binary} answered `version` with {probe.stdout.strip()[:200]!r} "
+            f"(exit {probe.returncode}, stderr {probe.stderr.strip()[:200]!r}); this adapter "
+            f"speaks minhash protocol {QD_PREP_MINHASH_PROTOCOL}"
+        )
+    return QdPrep(path=binary, version=str(info.get("version")), sha256=_sha256_file(binary))
+
+
+def native_signatures(
+    sets: list[frozenset[bytes]], *, num_perm: int, seed: int, qd_prep: QdPrep,
+    threads: int | None = None,
+) -> list[tuple[int, ...]]:
+    """``MinHasher(num_perm=num_perm, seed=seed).signature(s)`` for every set, from qd-prep."""
+    seed_spelling = str(seed).encode("ascii")
+    parts = [
+        QD_PREP_REQUEST_MAGIC,
+        struct.pack("<II", num_perm, len(seed_spelling)),
+        seed_spelling,
+        struct.pack("<Q", len(sets)),
+    ]
+    for items in sets:
+        ordered = list(items)
+        parts.append(struct.pack(f"<I{len(ordered)}I", len(ordered), *map(len, ordered)))
+        parts.extend(ordered)
+    workers = threads if threads is not None else min(os.cpu_count() or 1, QD_PREP_MAX_THREADS)
+    with tempfile.TemporaryDirectory(prefix="qd-prep-") as scratch:
+        request, answer = Path(scratch) / "request.bin", Path(scratch) / "signatures.bin"
+        request.write_bytes(b"".join(parts))
+        done = subprocess.run(
+            [str(qd_prep.path), "minhash", "--input", str(request), "--output", str(answer),
+             "--threads", str(workers)],
+            capture_output=True, text=True, check=False, timeout=QD_PREP_SIGN_TIMEOUT_S,
+        )
+        if done.returncode != 0 or not answer.is_file():
+            raise SystemExit(
+                f"qd-prep minhash failed (exit {done.returncode}): {done.stderr.strip()[:600]}"
+            )
+        blob = answer.read_bytes()
+    want = 24 + 8 * num_perm * len(sets)
+    if len(blob) != want or blob[:8] != QD_PREP_OUTPUT_MAGIC or struct.unpack_from(
+        "<IIQ", blob, 8
+    ) != (num_perm, 0, len(sets)):
+        raise SystemExit(
+            f"qd-prep minhash returned {len(blob)} bytes with header {blob[:24]!r}; expected "
+            f"{want} bytes of {len(sets)} signatures of {num_perm}"
+        )
+    values = np.frombuffer(blob, dtype="<u8", offset=24).reshape(len(sets), num_perm)
+    # Python ints, not numpy scalars: candidate_pairs calls int.to_bytes on every value.
+    return [tuple(row) for row in values.tolist()]
+
+
+@contextlib.contextmanager
+def _signer_replaced(
+    table: dict[frozenset[bytes], tuple[int, ...]], *, num_perm: int, seed: int
+) -> Iterator[collections.Counter[str]]:
+    """``qd_data.dedupe.MinHasher`` and ``qd_data.split.MinHasher`` answer from ``table``.
+
+    A set the table does not hold refuses rather than being signed in Python; so does a
+    hasher built for another ``(num_perm, seed)``. An empty set raises the reference's own
+    ``ValueError`` -- ``split`` reaches ``signature`` with one where ``dedupe`` refuses first.
+    The yielded counter is how the caller proves the replacement was the code that ran.
+    """
+    calls: collections.Counter[str] = collections.Counter()
+    expected = (num_perm, seed)
+
+    class TableMinHasher:
+        __slots__ = ("num_perm", "seed")
+
+        def __init__(self, *, num_perm: int, seed: int) -> None:
+            if (num_perm, seed) != expected:
+                raise RuntimeError(
+                    f"a MinHasher for num_perm={num_perm}, seed={seed} was asked for; qd-prep "
+                    f"signed for {expected}"
+                )
+            self.num_perm, self.seed = num_perm, seed
+
+        def signature(self, shingles: frozenset[bytes] | set[bytes]) -> tuple[int, ...]:
+            calls["signature"] += 1
+            if not shingles:
+                return MinHasher(num_perm=self.num_perm, seed=self.seed).signature(shingles)
+            sig = table.get(frozenset(shingles))
+            if sig is None:
+                raise RuntimeError(
+                    f"a shingle set of {len(shingles)} item(s) reached signature() that qd-prep "
+                    "never signed; refusing to sign it in Python"
+                )
+            return sig
+
+    saved = (dedupe_module.MinHasher, split_module.MinHasher)
+    dedupe_module.MinHasher = TableMinHasher
+    split_module.MinHasher = TableMinHasher
+    try:
+        yield calls
+    finally:
+        dedupe_module.MinHasher, split_module.MinHasher = saved
+
+
+def dedupe_and_split(
+    rows: list[DataRow], *, config: DataConfig, qd_prep: Path | None
+) -> tuple[DedupeReport, SplitReport, str]:
+    """``qd_data.dedupe.dedupe`` then ``qd_data.split.split``, signed by qd-prep.
+
+    Every distinct ``dedupe_text`` is shingled by the reference ``shingle``, signed natively in
+    one subprocess call, and spot-checked against the reference ``MinHasher``; both functions
+    then run unchanged with ``MinHasher`` answering from that table. Returns the two reports
+    and a note naming the binary, for the run's ledger notes.
+    """
+    prep = resolve_qd_prep(qd_prep)
+    texts = dict.fromkeys(r.dedupe_text for r in rows)
+    sets = list(
+        dict.fromkeys(
+            s for s in (shingle(t, k=config.shingle_size).shingles for t in texts) if s
+        )
+    )
+    sigs = native_signatures(sets, num_perm=config.num_perm, seed=config.seed, qd_prep=prep)
+    reference = MinHasher(num_perm=config.num_perm, seed=config.seed)
+    canary = sorted({i * (len(sets) - 1) // max(QD_PREP_CANARY - 1, 1)
+                     for i in range(QD_PREP_CANARY)}) if sets else []
+    for i in canary:
+        if reference.signature(sets[i]) != sigs[i]:
+            raise SystemExit(
+                f"qd-prep {prep.path} (sha256 {prep.sha256[:16]}) disagrees with "
+                f"qd_data.minhash.MinHasher on set {i} of {len(sets)}; refusing its signatures"
+            )
+    table = dict(zip(sets, sigs, strict=True))
+    with _signer_replaced(table, num_perm=config.num_perm, seed=config.seed) as calls:
+        report = dedupe(rows, config=config)
+        in_dedupe = calls["signature"]
+        split_report = split(report, config=config)
+        in_split = calls["signature"] - in_dedupe
+    # Proof the replacement is what ran: a future qd_data that binds MinHasher some other
+    # way would sign in Python silently, and these counts are where that would show.
+    split_signed = isinstance(split_report.near_duplicate_disjoint, Ran)
+    if in_dedupe != report.n_input_units or in_split not in (
+        (len(report.kept),) if split_signed else (0, len(report.kept))
+    ):
+        raise SystemExit(
+            f"qd-prep's signatures answered {in_dedupe} call(s) in dedupe (expected "
+            f"{report.n_input_units}) and {in_split} in split (expected {len(report.kept)}"
+            f"{'' if split_signed else ' or 0'}); some signing bypassed the replacement"
+        )
+    note = (
+        f"MinHash signed by qd-prep {prep.version} (sha256 {prep.sha256[:16]}): {len(sets)} "
+        f"distinct shingle sets, {len(canary)} re-derived by the reference and equal"
+    )
+    return report, split_report, note
+
+
 def run(
     *,
     out: Path,
@@ -1384,6 +1597,7 @@ def run(
     replay_shards: bool = False,
     repo_history: bool = True,
     vocab: str = VOCAB_FULL,
+    qd_prep: Path | None = None,
 ) -> Measured:
     if vocab not in VOCAB_POLICIES:
         raise SystemExit(f"vocab must be one of {VOCAB_POLICIES}, got {vocab!r}")
@@ -1512,9 +1726,11 @@ def run(
         for code, n in sorted(counts.items(), key=lambda kv: -kv[1]):
             print(f"    refused {source_id} {code}: {n}")
 
-    report = dedupe(list(mixture.rows), config=config)
-    split_report = split(report, config=config)
+    report, split_report, minhash_note = dedupe_and_split(
+        list(mixture.rows), config=config, qd_prep=qd_prep
+    )
     print("\n== stage 2: dedupe + split ==")
+    print(f"  {minhash_note}")
     print(f"  rows in: {len(mixture.rows)}   kept: {len(report.kept)}")
     print(f"  split counts: {split_report.counts()}")
     if defect_class is not None:
@@ -1917,7 +2133,7 @@ def run(
             f"real-tokenizer end-to-end over {code_source}; "
             f"blank_line_runs={blank_line_runs}; {commits_n} commit pairs, "
             f"{spans_n} prose passages; snapshot status="
-            f"{snapshot_status.to_json()['state']}"
+            f"{snapshot_status.to_json()['state']}; {minhash_note}"
         ),
         quick_reason=quick_reason,
     )
@@ -2073,6 +2289,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--qd-prep",
+        type=Path,
+        default=None,
+        help=(
+            f"the qd-prep binary that signs MinHash (crates/qd-prep); defaults to ${QD_PREP_ENV}. "
+            "Required: the Python signer is the parity oracle, not a fallback."
+        ),
+    )
+    parser.add_argument(
         "--instance", default=None,
         help="the priced machine, on a rented box (the row's cost cannot be omitted there)",
     )
@@ -2118,7 +2343,7 @@ def main(argv: list[str] | None = None) -> int:
         "defect_max_rows": args.defect_max_rows, "memo_limit": args.memo_limit,
         "general_record": args.general_record, "general_max_rows": args.general_max_rows,
         "replay_shards": args.replay_shards, "repo_history": args.repo_history,
-        "vocab": args.vocab,
+        "vocab": args.vocab, "qd_prep": args.qd_prep,
     }
     if args.ledger is None:
         run(**run_kwargs)

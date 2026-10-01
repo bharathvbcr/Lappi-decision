@@ -691,6 +691,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "qd-prep"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde_json",
+]
+
+[[package]]
 name = "qd-runtime"
 version = "0.1.0"
 dependencies = [

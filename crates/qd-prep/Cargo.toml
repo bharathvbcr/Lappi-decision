@@ -1,0 +1,28 @@
+[package]
+name = "qd-prep"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Native inner loops for tools/real_tokenizer_pipeline.py: MinHash signatures that agree with qd_data.minhash bit for bit."
+
+[lib]
+name = "qd_prep"
+path = "src/lib.rs"
+
+[[bin]]
+name = "qd-prep"
+path = "src/main.rs"
+
+[[bench]]
+name = "minhash"
+harness = false
+
+# Workspace dependencies only, and no C: the binary is cross-built on the Mac for the
+# aarch64 Linux training box, whose toolchain links nothing but libc. BLAKE2b is written out
+# in `src/blake2b.rs` because the workspace carries no BLAKE2 crate.
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
