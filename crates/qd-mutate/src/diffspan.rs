@@ -209,6 +209,8 @@ pub struct HunkRange {
 pub struct MultiHunkDiff {
     pub text: String,
     pub hunks: Vec<HunkRange>,
+    /// Lines in the after-text, phantom final line included — at least one for any string.
+    pub new_lines: usize,
 }
 
 impl MultiHunkDiff {
@@ -238,7 +240,10 @@ impl MultiHunkDiff {
                 // A pure deletion sits between after-lines `new_start - 1` and `new_start`; it is
                 // at the span when the line it precedes is one of the span's. That is exactly how
                 // the span of a pure-deletion mutation is placed: on the line the deletion joined.
-                first <= b.new_start && b.new_start <= last
+                // A deletion past the last line — the end of a file with no trailing newline —
+                // joined onto that last line, and `span_from_text_diff` clamps it there too.
+                let joined = b.new_start.min(self.new_lines.saturating_sub(1));
+                first <= joined && joined <= last
             }
         })
     }
@@ -290,7 +295,11 @@ pub fn unified_multi_detailed(
     let blocks = change_blocks(&script);
     let hunks = group_hunks(&blocks, context, old.len(), new.len());
     let text = render(&old, &new, &hunks);
-    Ok(MultiHunkDiff { text, hunks })
+    Ok(MultiHunkDiff {
+        text,
+        hunks,
+        new_lines: new.len(),
+    })
 }
 
 /// Map every distinct line to a small integer, so the diff compares integers. Only equality is
@@ -970,6 +979,21 @@ mod tests {
         assert!(!d.shows_change_at(LineSpan::new(4, 4)), "context is not a change");
         assert!(!d.shows_change_at(LineSpan::new(22, 22)), "the line after the join is not");
         assert!(!d.shows_change_at(LineSpan::new(0, 3)), "a malformed span shows nothing");
+    }
+
+    #[test]
+    fn a_deletion_that_ends_a_file_with_no_trailing_newline_shows_at_its_last_line() {
+        // Deleting "\nX" from "a\nb\nX" leaves "a\nb": the deleted line sits past the last line
+        // of `after`, and `span_from_text_diff` clamps the span onto that last line ("b"). The
+        // diff must say a change is shown there, or every such candidate is refused as an
+        // invisible needle.
+        let (before, after) = ("a\nb\nX", "a\nb");
+        let span = span_from_text_diff(before, after).expect("a change");
+        assert_eq!(span, LineSpan::new(2, 2));
+        let d = unified_multi_detailed(before, after, 3).expect("renders");
+        assert!(d.shows_change_at(span), "{d:?}");
+        assert_eq!(d.hunk_containing(span), Some(0));
+        assert!(!d.shows_change_at(LineSpan::new(1, 1)), "the clamp moves onto the last line only");
     }
 
     /// Length of the longest common subsequence, by the textbook O(NM) table.
