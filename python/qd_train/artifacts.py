@@ -338,6 +338,26 @@ class ShardHeader:
     #: **Empty means "written before this field existed"**; `ShardReader` then reports the
     #: set's slot coverage as `NotRun` and exposes no index rather than one it cannot trust.
     sequence_index_hash: str = ""
+    #: What a span slot whose line starts collapse under BPE did when this set was written
+    #: (``qd_train.shards.SPAN_COLLAPSE_POLICIES``). **Empty means refuse-any** -- the only
+    #: rule before this field existed -- for every set but the ones a gap record names:
+    #: GAP-V4-TRAIN-HEADER-OMITS-SPAN-COLLAPSE-POLICY lists train sets written refuse-gold
+    #: before the field, whose recipe is the authority.
+    span_collapse_policy: str = ""
+    #: A report-only set: outside every gate population, scored only by a reader that asks
+    #: for one. Gate paths refuse it (:meth:`require_gate_population`).
+    report_only: bool = False
+
+    def require_gate_population(self, *, where: str) -> None:
+        """Refuse a set that is not a gate population: report-only, or any span rule but
+        refuse-any. Every gate metric reads its val set through this."""
+        if self.report_only or self.span_collapse_policy not in ("", "refuse-any"):
+            raise ShardContractViolation(
+                f"{where}: this shard set is not a gate population (report_only="
+                f"{self.report_only}, span_collapse_policy="
+                f"{self.span_collapse_policy or 'refuse-any'}). A gate scores the population "
+                "it was measured on; a report-only set is read by its own scorer only."
+            )
 
     def __post_init__(self) -> None:
         if self.format != SHARD_FORMAT:
@@ -380,6 +400,15 @@ class ShardHeader:
             raise ShardContractViolation(
                 f"total_tokens {self.total_tokens} < n_sequences {self.n_sequences}: at least "
                 "one sequence is empty"
+            )
+        if self.span_collapse_policy not in ("", "refuse-any", "refuse-gold"):
+            raise ShardContractViolation(
+                f"span_collapse_policy {self.span_collapse_policy!r} is not refuse-any or "
+                "refuse-gold"
+            )
+        if self.report_only and self.split != "val":
+            raise ShardContractViolation(
+                f"report_only on split {self.split!r}: only a val set may be report-only"
             )
 
     def shard_hash(self) -> str:
@@ -424,10 +453,18 @@ class ShardHeader:
                 if self.sequence_index_hash
                 else ()
             ),
+            # Same contract, tagged: absent (refuse-any, not report-only) hashes to nothing,
+            # so every header written before these fields still verifies.
+            *(
+                (b"span_collapse_policy:" + self.span_collapse_policy.encode(),)
+                if self.span_collapse_policy not in ("", "refuse-any")
+                else ()
+            ),
+            *((b"report_only:true",) if self.report_only else ()),
         )
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "format": self.format,
             "split": self.split,
             "data_snapshot_hash": self.data_snapshot_hash,
@@ -444,11 +481,21 @@ class ShardHeader:
             "code_fingerprint": dict(sorted(self.code_fingerprint.items())),
             "corpus_rev": self.corpus_rev,
             "sequence_index_hash": self.sequence_index_hash,
-            "shard_hash": self.shard_hash(),
         }
+        # Only when not the default, so a default set's header.json is byte-shaped as before.
+        if self.span_collapse_policy not in ("", "refuse-any"):
+            out["span_collapse_policy"] = self.span_collapse_policy
+        if self.report_only:
+            out["report_only"] = True
+        out["shard_hash"] = self.shard_hash()
+        return out
 
     @classmethod
     def from_json(cls, raw: dict[str, Any]) -> Self:
+        if not isinstance(raw.get("report_only", False), bool):
+            raise ShardContractViolation(
+                f"report_only is {raw['report_only']!r}; a header states it as a JSON boolean"
+            )
         header = cls(
             split=raw["split"],
             data_snapshot_hash=raw["data_snapshot_hash"],
@@ -468,6 +515,8 @@ class ShardHeader:
             },
             corpus_rev=str(raw.get("corpus_rev", "")),
             sequence_index_hash=str(raw.get("sequence_index_hash", "")),
+            span_collapse_policy=str(raw.get("span_collapse_policy", "")),
+            report_only=raw.get("report_only", False) is True,
         )
         if "shard_hash" in raw and raw["shard_hash"] != header.shard_hash():
             raise ShardContractViolation(

@@ -169,9 +169,10 @@ SPAN_CHECK_NAME: Final[str] = "span_check.json"
 #: What a span slot whose context lines collapse under BPE -- two line starts inside one
 #: token -- does (GAP-S4-LINE-STARTS-COLLAPSE-UNDER-BPE).
 #:
-#: * ``refuse-any`` (the default, and the only policy a val or gate shard set is written
-#:   under): any collapse refuses the slot.
-#: * ``refuse-gold`` (Fable round K, training shards only): the slot is refused only when the
+#: * ``refuse-any`` (the default, and the only policy a gate shard set is written under):
+#:   any collapse refuses the slot.
+#: * ``refuse-gold`` (Fable round K, training shards and the report-only val slice only --
+#:   ``write_shards(report_only=True)``): the slot is refused only when the
 #:   gold's first or last line starts inside a token another line also starts in. Lines that
 #:   collapse elsewhere **share one candidate**: ``candidates`` stays one entry per context
 #:   line, the collapsed lines carry the same token index, and the batch's ``line_starts``
@@ -1449,6 +1450,7 @@ def write_shards(
     max_total_tokens: int = DEFAULT_MAX_TOTAL_TOKENS,
     max_seq_len: int | None = None,
     span_collapse_policy: str = SPAN_COLLAPSE_REFUSE_ANY,
+    report_only: bool = False,
 ) -> ShardHeader:
     """Tokenize a cleared corpus into a shard set and return its header.
 
@@ -1513,8 +1515,12 @@ def write_shards(
     longest sequence as before.
 
     ``span_collapse_policy`` is :data:`SPAN_COLLAPSE_REFUSE_ANY` by default. A caller may pass
-    :data:`SPAN_COLLAPSE_REFUSE_GOLD` for a TRAINING set only. A val or gate set keeps the
-    default, so every gate's span population stays the one it was measured on (rule 2).
+    :data:`SPAN_COLLAPSE_REFUSE_GOLD` for a TRAINING set, or for a val set that is
+    ``report_only`` -- outside every gate population, written refuse-gold so its span slots
+    are the population training reads (Fable round K). A gate val set keeps the default, so
+    every gate's span population stays the one it was measured on (rule 2). Both choices are
+    written into the header and covered by its hash; gate readers refuse a report-only or
+    non-refuse-any header (``ShardHeader.require_gate_population``).
     """
     manifest_path = Path(manifest_path)
     out_dir = Path(out_dir)
@@ -1532,6 +1538,8 @@ def write_shards(
             f"span_collapse_policy must be one of {SPAN_COLLAPSE_POLICIES}, "
             f"got {span_collapse_policy!r}"
         )
+    if not isinstance(report_only, bool):
+        raise ValueError(f"report_only must be a bool, got {report_only!r}")
 
     handle = open_training_data(
         manifest_path,
@@ -1540,12 +1548,23 @@ def write_shards(
         allow_not_run_snapshot=allow_not_run_snapshot,
     )
     manifest = handle.manifest
-    if span_collapse_policy != SPAN_COLLAPSE_REFUSE_ANY and manifest.split != "train":
+    if report_only and (
+        manifest.split != "val" or span_collapse_policy != SPAN_COLLAPSE_REFUSE_GOLD
+    ):
+        raise ShardContractViolation(
+            f"{manifest_path}: report_only is a val set written {SPAN_COLLAPSE_REFUSE_GOLD}; "
+            f"this is the {manifest.split!r} split under {span_collapse_policy}"
+        )
+    if (
+        span_collapse_policy != SPAN_COLLAPSE_REFUSE_ANY
+        and manifest.split != "train"
+        and not report_only
+    ):
         raise ShardContractViolation(
             f"{manifest_path}: span_collapse_policy={span_collapse_policy} is a training-side "
             f"policy, and this is the {manifest.split!r} split. Val and gate sets keep "
             f"{SPAN_COLLAPSE_REFUSE_ANY}, so every gate's span population is the one it was "
-            "measured on (rule 2)."
+            "measured on (rule 2); only a report_only val set may differ."
         )
 
     entry_hashes: dict[str, int] = {}
@@ -1766,6 +1785,11 @@ def write_shards(
         # worse than an absent one -- absent reads NotRun, wrong reads passed=True.
         corpus_rev=corpus_rev,
         sequence_index_hash=hashlib.sha256(index_bytes).hexdigest(),
+        # Empty for refuse-any, so a default set's header and hash are what they were.
+        span_collapse_policy=(
+            "" if span_collapse_policy == SPAN_COLLAPSE_REFUSE_ANY else span_collapse_policy
+        ),
+        report_only=report_only,
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)
