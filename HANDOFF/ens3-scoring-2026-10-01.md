@@ -79,6 +79,10 @@ Lane worktree `agent-a49d73cb7bb3e7dad`, branch `worktree-agent-a49d73cb7bb3e7da
     lines map, the gold-alignment refusal, condition 8's hit rule, and condition 6's tables:
     `composed.<set>.<population>.<cut>.<cell>.*` plus deltas, Wilson CIs, and diag halves as sets
     of their own.
+  - Its parser accepts all 25,000 rows of the compose lane's v4 corpus
+    (`commitpackft-composed-v1`, ids renamed into the slice's space) with 0 refusals. Split:
+    4,102 clean, 10,975 stub, 5,710 logic and 4,213 cosmetic. Every block header and span
+    contract it checks holds corpus-wide.
   - **Blocked:** the decode that feeds it. Compose's commit adding
     `report_only`/`span_collapse_policy` to `ShardHeader` (and its composed-row loader) is not on
     main. Main's `ShardReader` refuses the slice header (its `shard_hash` covers those fields),
@@ -95,6 +99,17 @@ Lane worktree `agent-a49d73cb7bb3e7dad`, branch `worktree-agent-a49d73cb7bb3e7da
 
 Every box command runs from a clean clone that holds `data/pool` (as qd-lane5 does), checked out
 at `eeb1c67`. No ssh from this lane; the lead deploys.
+
+**Prerequisite:** this lane pushes nothing, so `eeb1c67` reaches the box only after the lead pushes
+`worktree-agent-a49d73cb7bb3e7dad`, or sends it some other way.
+
+**Readers checked against plan-mode output:**
+
+- `--verdicts-out` lines carry `score_kind`. `qd-calib-fit` reads each line as an untyped
+  `serde_json::Value` (`crates/qd-runtime/src/bin/qd_calib_fit.rs`) and needs one eval row per
+  file. A per-kind file meets both, so `tools/calib_fit_row.py` takes `verdicts-ens3.jsonl` as it
+  took J7g's.
+- qd-gate-report also tolerates `score_kind`, per the report-metrics lane, which tested it.
 
     cd /home/ubuntu/qd-laneN && git fetch origin && git checkout --detach eeb1c67
     [ -z "$(git status --porcelain)" ] || { echo dirty; exit 3; }
