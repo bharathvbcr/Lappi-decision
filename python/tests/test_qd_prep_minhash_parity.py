@@ -36,7 +36,12 @@ import qd_data.minhash as minhash_module  # noqa: E402
 import qd_data.split as split_module  # noqa: E402
 from qd_data.config import DataConfig  # noqa: E402
 from qd_data.dedupe import dedupe  # noqa: E402
-from qd_data.minhash import DEFAULT_MAX_DOC_BYTES, MinHasher, shingle  # noqa: E402
+from qd_data.minhash import (  # noqa: E402
+    DEFAULT_MAX_DOC_BYTES,
+    MinHasher,
+    ShingleResult,
+    shingle,
+)
 from qd_data.mixture import build_mixture  # noqa: E402
 from qd_data.split import split  # noqa: E402
 
@@ -370,3 +375,154 @@ def test_a_set_outside_the_table_and_an_unread_table_are_refused(
     ):
         pass
     assert dedupe_module.MinHasher is MinHasher and split_module.MinHasher is MinHasher
+
+
+def test_each_distinct_text_is_shingled_once_and_every_decision_is_unchanged(
+    prep_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``dedupe`` shingles every content unit and ``split`` every kept row; with the block's
+    own pass that was three reference passes over the corpus (104 s of the J1-shaped
+    ``ft_splits`` rebuild, GAP-PERF-PRELUDE-J1-REMAINDER-IS-SHINGLE-BANDING-AND-RENDER).
+    Inside the block both read the block's shingles, so the reference ``shingle`` runs once per
+    distinct text, and the decisions are still the ones the reference makes on its own."""
+    rows = _corpus_rows()
+    monkeypatch.delenv(pipeline.PREP_BIN_ENV, raising=False)
+    want_report, want_split = _reports(rows)
+    calls = 0
+
+    def counting(
+        text: str, *, k: int, max_doc_bytes: int = DEFAULT_MAX_DOC_BYTES
+    ) -> ShingleResult:
+        nonlocal calls
+        calls += 1
+        return shingle(text, k=k, max_doc_bytes=max_doc_bytes)
+
+    for module in (minhash_module, dedupe_module, split_module):
+        monkeypatch.setattr(module, "shingle", counting)
+    monkeypatch.setenv(pipeline.PREP_BIN_ENV, str(prep_bin))
+    with pipeline.native_minhash(rows, config=CONFIG):
+        assert dedupe_module.shingle is not counting, "installed while the block runs"
+        got_report, got_split = _reports(rows)
+    assert dedupe_module.shingle is counting and split_module.shingle is counting, "restored"
+    assert calls == len({r.dedupe_text for r in rows}), "once per distinct text"
+    assert want_report.n_dropped_rows > 0, "the corpus must exercise a duplicate"
+    assert got_report == want_report
+    assert got_split.assignments == want_split.assignments
+    assert got_split.rows_by_split == want_split.rows_by_split
+    assert got_split.near_duplicate_disjoint == want_split.near_duplicate_disjoint
+
+
+def test_a_text_outside_the_shingle_table_another_k_and_an_unread_table_are_refused(
+    prep_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rows = _corpus_rows()
+    signed = shingle(rows[0].dedupe_text, k=CONFIG.shingle_size).shingles
+    monkeypatch.setenv(pipeline.PREP_BIN_ENV, str(prep_bin))
+    with (
+        pytest.raises(SystemExit, match="refusing to shingle it in Python"),
+        pipeline.native_minhash(rows, config=CONFIG),
+    ):
+        dedupe_module.shingle("a text no row carries", k=CONFIG.shingle_size)
+    with (
+        pytest.raises(SystemExit, match="the shingle table was built at k="),
+        pipeline.native_minhash(rows, config=CONFIG),
+    ):
+        split_module.shingle(rows[0].dedupe_text, k=CONFIG.shingle_size + 1)
+    with (
+        pytest.raises(SystemExit, match="shingle table was installed and never read"),
+        pipeline.native_minhash(rows, config=CONFIG),
+    ):
+        dedupe_module.MinHasher(num_perm=CONFIG.num_perm, seed=CONFIG.seed).signature(signed)
+    assert dedupe_module.shingle is shingle and split_module.shingle is shingle
+
+
+def test_a_module_that_shingles_through_another_function_is_refused_before_signing(
+    prep_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Restoring ``qd_data.minhash.shingle`` on exit would overwrite whatever the module held,
+    and a table keyed by the reference's results says nothing about another function's."""
+
+    def other(text: str, *, k: int, max_doc_bytes: int = DEFAULT_MAX_DOC_BYTES) -> ShingleResult:
+        return shingle(text, k=k, max_doc_bytes=max_doc_bytes)
+
+    monkeypatch.setattr(split_module, "shingle", other)
+    monkeypatch.setenv(pipeline.PREP_BIN_ENV, str(prep_bin))
+    with (
+        pytest.raises(SystemExit, match=r"qd_data\.split\.MinHasher or \.shingle is not"),
+        pipeline.native_minhash(_corpus_rows(), config=CONFIG),
+    ):
+        raise AssertionError("the block ran over a module it cannot serve")
+    assert split_module.shingle is other and dedupe_module.shingle is shingle
+    assert dedupe_module.MinHasher is MinHasher
+
+
+#: A/B rounds of the shingle-table benchmark; each round runs both arms once.
+SHINGLE_BENCH_ROUNDS = 5
+
+
+@pytest.mark.skipif(
+    os.environ.get("QD_PREP_BENCH") != "1",
+    reason="the shingle-table benchmark runs only with QD_PREP_BENCH=1 (~1 minute)",
+)
+@pytest.mark.skipif(not DEFECT_EXAMPLES.is_file(), reason=f"{DEFECT_EXAMPLES} is not on disk")
+def test_benchmark_shingle_table_interleaved_min_of_n(
+    prep_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The committed A/B behind the shingle table: ``dedupe`` + ``split`` over the whole real
+    defect-class corpus (phase 3's mixture) inside the native block, in alternating rounds, min
+    of :data:`SHINGLE_BENCH_ROUNDS`.
+    Arm ``reshingle`` runs the reference ``shingle`` again at every lookup, as ``dedupe`` and
+    ``split`` did before the table (slightly cheaper than before: the block's own pass is one
+    per distinct text in both arms); arm ``table`` reads the table alone. Both arms include the
+    block's pass, its qd-prep signing and canaries, and every round's decisions are equal.
+
+        QD_PREP_BENCH=1 pytest -s python/tests/test_qd_prep_minhash_parity.py -k shingle_table
+    """
+    from qd_data.dedupe import DedupeReport
+    from qd_data.defect_class import DEFECT_SOURCE_ID, load_defect_rows
+    from qd_data.split import SplitReport
+
+    load = load_defect_rows(
+        DEFECT_EXAMPLES.parent, download_root=REPO / "data" / "pool" / "commitpackft",
+        config=CONFIG, repo_root=REPO,
+    )
+    rows = build_mixture({DEFECT_SOURCE_ID: list(load.rows)}, config=CONFIG).rows
+    monkeypatch.setenv(pipeline.PREP_BIN_ENV, str(prep_bin))
+
+    def stage(*, reshingle: bool) -> tuple[DedupeReport, SplitReport]:
+        with pipeline.native_minhash(rows, config=CONFIG):
+            if reshingle:
+                table = dedupe_module.shingle
+
+                def again(
+                    text: str, *, k: int, max_doc_bytes: int = DEFAULT_MAX_DOC_BYTES
+                ) -> ShingleResult:
+                    shingle(text, k=k, max_doc_bytes=max_doc_bytes)
+                    return table(text, k=k, max_doc_bytes=max_doc_bytes)
+
+                dedupe_module.shingle = again  # type: ignore[attr-defined]
+                split_module.shingle = again  # type: ignore[attr-defined]
+            report = dedupe(list(rows), config=CONFIG)
+            return report, split(report, config=CONFIG)
+
+    a: list[float] = []
+    b: list[float] = []
+    for _ in range(SHINGLE_BENCH_ROUNDS):
+        started = time.perf_counter()
+        want_report, want_split = stage(reshingle=True)
+        a.append(time.perf_counter() - started)
+        started = time.perf_counter()
+        got_report, got_split = stage(reshingle=False)
+        b.append(time.perf_counter() - started)
+        assert got_report == want_report
+        assert got_split.assignments == want_split.assignments
+        assert got_split.near_duplicate_disjoint == want_split.near_duplicate_disjoint
+    assert dedupe_module.shingle is shingle and split_module.shingle is shingle
+    print(json.dumps({
+        "benchmark": "dedupe_split_shingle_table", "rows": len(rows),
+        "distinct_texts": len({r.dedupe_text for r in rows}), "rounds": SHINGLE_BENCH_ROUNDS,
+        "reshingle_s": [round(x, 3) for x in a], "table_s": [round(x, 3) for x in b],
+        "reshingle_min_s": round(min(a), 3), "table_min_s": round(min(b), 3),
+        "speedup_min_over_min": round(min(a) / min(b), 2),
+    }))
+    assert min(b) < min(a)

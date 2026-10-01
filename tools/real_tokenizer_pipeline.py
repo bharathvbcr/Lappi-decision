@@ -1478,10 +1478,18 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
     ``python/tests/test_qd_prep_minhash_parity.py`` holds the byte-for-byte parity on real and
     adversarial rows. There is no Python fallback: without :data:`PREP_BIN_ENV` the block
     refuses before signing anything.
+
+    ``shingle`` is replaced the same way, by the reference's own results. The block shingles
+    each distinct ``dedupe_text`` once to build the table, and ``dedupe`` (every content unit)
+    and ``split`` (every kept row) read those results instead of shingling again. The three
+    passes were 104 s (869,849 calls) of the J1-shaped ``ft_splits`` rebuild's cProfile
+    (GAP-PERF-PRELUDE-J1-REMAINDER-IS-SHINGLE-BANDING-AND-RENDER). ``shingle`` is not ported
+    -- the reference still computes every result -- and a text the table does not hold,
+    another ``k`` or ``max_doc_bytes``, or a table nobody read is a refusal, as for signatures.
     """
     import qd_data.dedupe as dedupe_module
     import qd_data.split as split_module
-    from qd_data.minhash import MinHasher, shingle
+    from qd_data.minhash import DEFAULT_MAX_DOC_BYTES, MinHasher, ShingleResult, shingle
 
     named = os.environ.get(PREP_BIN_ENV, "")
     if not named:
@@ -1491,17 +1499,23 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
         )
     modules = (dedupe_module, split_module)
     for module in modules:
-        if getattr(module, "MinHasher", None) is not MinHasher:
+        if getattr(module, "MinHasher", None) is not MinHasher or (
+            getattr(module, "shingle", None) is not shingle
+        ):
             raise SystemExit(
-                f"{module.__name__}.MinHasher is not qd_data.minhash.MinHasher, so the native "
-                "signatures cannot be installed where that module signs"
+                f"{module.__name__}.MinHasher or .shingle is not qd_data.minhash's, so the "
+                "native tables cannot be installed where that module shingles and signs"
             )
     started = time.perf_counter()
+    shingled: dict[str, ShingleResult] = {}
     index: dict[frozenset[bytes], None] = {}
     for row in rows:
-        shingles = shingle(row.dedupe_text, k=config.shingle_size).shingles
-        if shingles:
-            index.setdefault(shingles, None)
+        if row.dedupe_text in shingled:
+            continue
+        result = shingle(row.dedupe_text, k=config.shingle_size)
+        shingled[row.dedupe_text] = result
+        if result.shingles:
+            index.setdefault(result.shingles, None)
     sets = list(index)
     reference = MinHasher(num_perm=config.num_perm, seed=config.seed)
     table = dict(zip(sets, _prep_signatures(Path(named), sets, reference), strict=True))
@@ -1540,22 +1554,50 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
             asked += 1
             return found
 
+    read = 0
+
+    def table_shingle(
+        text: str, *, k: int, max_doc_bytes: int = DEFAULT_MAX_DOC_BYTES
+    ) -> ShingleResult:
+        """``shingle`` answering from the reference results computed above."""
+        nonlocal read
+        if (k, max_doc_bytes) != (config.shingle_size, DEFAULT_MAX_DOC_BYTES):
+            raise SystemExit(
+                f"asked for shingle(k={k}, max_doc_bytes={max_doc_bytes}) but the shingle table "
+                f"was built at k={config.shingle_size}, max_doc_bytes={DEFAULT_MAX_DOC_BYTES}"
+            )
+        found = shingled.get(text)
+        if found is None:
+            raise SystemExit(
+                f"a {len(text)}-character text was not among the {len(shingled)} the block "
+                "shingled; refusing to shingle it in Python outside the table it signed"
+            )
+        read += 1
+        return found
+
     for module in modules:
         module.MinHasher = NativeMinHasher  # type: ignore[attr-defined]
+        module.shingle = table_shingle  # type: ignore[attr-defined]
     try:
         yield
     finally:
         for module in modules:
             module.MinHasher = MinHasher  # type: ignore[attr-defined]
+            module.shingle = shingle  # type: ignore[attr-defined]
     if table and not asked:
         raise SystemExit(
             "the native MinHash table was installed and never read: qd_data no longer signs "
             "through the name it replaced, so this block measured nothing it claims to"
         )
+    if shingled and not read:
+        raise SystemExit(
+            "the shingle table was installed and never read: qd_data no longer shingles "
+            "through the name it replaced, so its texts were shingled a second time unseen"
+        )
     print(
         f"minhash: {len(table)} distinct sets signed by {named} in {signed_s:.1f} s "
         f"(shingling and canaries included), {asked} lookups, {len(canaries)} canaries equal "
-        "to the reference",
+        f"to the reference; {len(shingled)} distinct texts shingled once, {read} lookups",
         file=sys.stderr, flush=True,
     )
 
