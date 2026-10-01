@@ -226,10 +226,16 @@ Done markers are `/home/ubuntu/perf/nomask-p2-T{1,2}.done` and `/home/ubuntu/per
   changed after the first run.
 - `p2_timing`'s precondition needs every target met with the `.out` committed, and then the box
   overlay rebuilt at that commit. It is **not met**.
-- So the overlay was **not** rebuilt. `/home/ubuntu/perf/overlay-nomask` is still at 46da2a5,
-  which carries the **retired** rule. T1 must not run from it.
+- So the overlay was **not** rebuilt. `/home/ubuntu/perf/overlay-nomask` is still at
+  `46da2a594e7b`, which carries the **retired** rule; I read its `.git/HEAD` on the box after
+  this commit. T1 must not run from it.
+- **The marker `/home/ubuntu/queue/nomask-p2-ruled` must stay unset.** Item 8's waiter
+  (`box_q_nomaskp2.sh`, main 234dc12) only runs T1/T2 when it exists, and it did not exist when I
+  checked. The `perf_nomask_p2.sh T1` command in the queue-builder block above waits on the same
+  precondition.
 
-**What changed** (one commit on this branch, from main 1de0a34, CPU only, nothing queued):
+**What changed** (commit c18d245 on `worktree-agent-a59bae74f0f03844b`, from main 1de0a34; CPU
+only, nothing queued):
 
 - `tools/perf_parity.py`, `p2_screen`, now follows the amended text:
   - the refusals, including the two new labelling ones: every arm must have
@@ -264,6 +270,8 @@ Done markers are `/home/ubuntu/perf/nomask-p2-T{1,2}.done` and `/home/ubuntu/per
   - the CLI exit mapping.
 - `failfirst-p2-amended-vs-1de0a34.log`: the same tests against 1de0a34. **18 failed, 14
   passed.** The extra 9 passes are the `p2_gate` tests, which are unchanged by design.
+- The test file both logs ran is byte-identical to the one committed in c18d245 (checked with
+  `diff`).
 
 **Calibration** (`p2_null_sim.py`/`.out` v2): 1,000 trials per configuration, over n ∈ {100, 50}
 × {3v3, 3v1} × {noisy, bit-identical step 0}, and every configuration applied to every target.
