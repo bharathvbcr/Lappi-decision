@@ -1349,6 +1349,7 @@ def write_shards(
     corpus_rev: str = "",
     max_sequences: int = DEFAULT_MAX_SEQUENCES,
     max_total_tokens: int = DEFAULT_MAX_TOTAL_TOKENS,
+    max_seq_len: int | None = None,
 ) -> ShardHeader:
     """Tokenize a cleared corpus into a shard set and return its header.
 
@@ -1405,6 +1406,12 @@ def write_shards(
     whose ``n`` and ``n_total`` carry *both* numbers, so a partial corpus can never be read
     as a complete one; ``ShardReader.coverage`` surfaces it, and the detail names what
     refused each row. It is never silent and never a substitution.
+
+    ``max_seq_len`` is a hard width: a row any of whose slot sequences is longer is refused
+    whole (``OverMaxSeqLen``), under the same two rules -- the write fails without
+    ``allow_unencodable`` and records the exclusion with it. Never truncated: truncation
+    drops the answer token. ``None`` (the default) caps nothing, and the widest bucket is the
+    longest sequence as before.
     """
     manifest_path = Path(manifest_path)
     out_dir = Path(out_dir)
@@ -1413,6 +1420,10 @@ def write_shards(
             f"max_sequences and max_total_tokens must be positive, got {max_sequences} "
             f"and {max_total_tokens}"
         )
+    if max_seq_len is not None and (
+        not isinstance(max_seq_len, int) or isinstance(max_seq_len, bool) or max_seq_len < 2
+    ):
+        raise ValueError(f"max_seq_len must be an int of at least 2, got {max_seq_len!r}")
 
     handle = open_training_data(
         manifest_path,
@@ -1513,6 +1524,24 @@ def write_shards(
                 (encoded.ids, where, spec.slot_name, spec.slot_kind, encoded.span,
                  encoded.candidates)
             )
+        if max_seq_len is not None and any(int(s[0].size) > max_seq_len for s in staged):
+            longest = max(int(s[0].size) for s in staged)
+            detail = f"{longest} tokens, over max_seq_len={max_seq_len}"
+            if not allow_unencodable:
+                raise ShardContractViolation(
+                    f"{manifest_path}: row {row.row_id!r} is {detail}. Refused rather than "
+                    "truncated: truncation drops the answer token off the end of the example"
+                )
+            excluded.append(f"{row.row_id}: OverMaxSeqLen: {detail}")
+            slot_exclusions.extend(refused_here)
+            slot_exclusions.extend(
+                SlotExclusion(
+                    row_id=row.row_id, slot_name=s[2], scope="row", refusal="OverMaxSeqLen",
+                    detail=detail,
+                )
+                for s in staged
+            )
+            continue
         slot_exclusions.extend(refused_here)
         if not staged:
             # Every slot refused on its own account: the row wrote nothing, so it is a row

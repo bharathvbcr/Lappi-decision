@@ -512,6 +512,72 @@ def test_a_renderer_refusal_without_the_flag_still_refuses_the_whole_write(
     assert not out.exists(), "refused, and nothing was written"
 
 
+def _longest_and_rows_over(snapshot: Snapshot, tmp_path: Path) -> tuple[int, int]:
+    """The longest train sequence, and how many rows hold a sequence of that length."""
+    out = tmp_path / "shards" / "uncapped"
+    header = _write(snapshot, "train", out)
+    reader = ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
+    longest = header.max_seq_len
+    assert reader.sequence_index is not None
+    rows_over = {
+        row_id
+        for (row_id, _slot), n in zip(
+            reader.sequence_index.sequences, reader.lengths(), strict=True
+        )
+        if n == longest
+    }
+    return longest, len(rows_over)
+
+
+def test_a_row_over_max_seq_len_refuses_the_write_rather_than_being_truncated(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """The long-context build's hard width (8,192) is a refusal, never a cut.
+
+    Truncation drops the answer token off the end of the example, so a row past the width
+    cannot be written at all; without ``allow_unencodable`` that is the whole write.
+    """
+    longest, _ = _longest_and_rows_over(snapshot, tmp_path)
+    out = tmp_path / "shards" / "capped"
+    with pytest.raises(ShardContractViolation, match=f"over max_seq_len={longest - 1}"):
+        _write(snapshot, "train", out, max_seq_len=longest - 1)
+    # At the longest length itself nothing is over, and the set is the uncapped one.
+    header = _write(snapshot, "train", tmp_path / "shards" / "at", max_seq_len=longest)
+    assert header.max_seq_len == longest
+
+
+def test_with_the_flag_a_row_over_max_seq_len_is_excluded_whole_and_counted(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    longest, n_over = _longest_and_rows_over(snapshot, tmp_path)
+    rows = snapshot.rows["train"]
+    assert 0 < n_over < len(rows)
+    out = tmp_path / "shards" / "capped"
+    header = _write(snapshot, "train", out, max_seq_len=longest - 1, allow_unencodable=True)
+    assert header.max_seq_len <= longest - 1
+    reader = ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
+    coverage = reader.coverage
+    assert isinstance(coverage, Ran)
+    assert coverage.n == len(rows) - n_over and coverage.n_total == len(rows)
+    assert not coverage.passed
+    assert "OverMaxSeqLen" in (coverage.detail or ""), coverage.detail
+    # Whole rows: no sequence of an excluded row survives, and each exclusion says why.
+    assert reader.sequence_index is not None
+    written = {row_id for row_id, _slot in reader.sequence_index.sequences}
+    assert len(written) == len(rows) - n_over
+    over = [e for e in reader.sequence_index.excluded if e.refusal == "OverMaxSeqLen"]
+    assert {e.row_id for e in over}.isdisjoint(written) and len({e.row_id for e in over}) == n_over
+    assert all(e.scope == "row" for e in over)
+
+
+@pytest.mark.parametrize("bad", [0, 1, -5, True, 2.5])
+def test_a_max_seq_len_that_cannot_hold_a_prompt_and_answer_is_refused(
+    snapshot: Snapshot, tmp_path: Path, bad: object
+) -> None:
+    with pytest.raises(ValueError, match="max_seq_len"):
+        _write(snapshot, "train", tmp_path / "nope", max_seq_len=bad)
+
+
 def test_a_shard_set_records_whether_its_span_mapping_was_decode_verified(
     snapshot: Snapshot, tmp_path: Path
 ) -> None:

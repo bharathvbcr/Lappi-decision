@@ -114,3 +114,42 @@ def test_a_positive_memo_limit_still_refuses_rather_than_evicting() -> None:
     tok.tokenize("a")  # a hit, not a second entry
     with pytest.raises(RuntimeError, match="1-entry bound"):
         tok.tokenize("b")
+
+
+class _CharTok(_FakeTok):
+    """One token per character, and a decode that inverts it."""
+
+    def decode(self, ids: list[int], **_: Any) -> str:
+        return "".join(chr(i) for i in ids)
+
+
+def test_the_census_refuses_a_row_over_max_seq_len_whole_as_the_writer_does() -> None:
+    """``--max-seq-len`` is mirrored in the census, so the row's count matches the shards'.
+
+    A long row is refused whole (both of its slots), named by id, and never truncated; the
+    rows under the width are unaffected.
+    """
+    rows = [_row(i, "stub") for i in range(4)]
+    raw_long = DefectRow(
+        example_id="long:x.py#0", pool_id="long:x.py", repo="o/r", path="x.py", symbol="f",
+        arity=1, language="python", mutation_class="stub", operator="stub.op",
+        diff="@@ -1,2 +1,2 @@\n def f(x):\n-    return x\n+    return " + "9" * 400 + "\n",
+        diff_span=(3, 3), span_refusal=None, licence="mit",
+    )
+    long_row = rewrite_defect_class(raw_long, family_id=DEFECT_FAMILY_ID, index=9,
+                                    config=DataConfig())
+    rows.append(long_row)
+    tok = pipeline.RealTokenizer(tok=_CharTok(), _memo={}, memo_limit=0)
+    free = pipeline.census(rows, tok=tok, config=DataConfig())
+    assert free.rows_out == 5 and not free.refused
+    short_max = max(free.lengths[:8])
+    cap = short_max + 10
+    assert max(free.lengths) > cap, "the long row must be over the cap the short ones fit"
+    capped = pipeline.census(rows, tok=tok, config=DataConfig(), max_seq_len=cap)
+    assert capped.refused == {pipeline.OVER_MAX_SEQ_LEN: 1}
+    assert capped.refused_rows == {long_row.row_id: pipeline.OVER_MAX_SEQ_LEN}
+    assert capped.rows_out == 4 and capped.sequences_out == 8
+    assert max(capped.lengths) <= cap
+    # Its ids were still recorded: the writer encodes before it can measure, so the remap
+    # must cover them.
+    assert long_row.row_id in capped.id_rows

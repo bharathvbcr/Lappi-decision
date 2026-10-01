@@ -757,7 +757,17 @@ class Census:
         self.refused_slot = collections.Counter()
 
 
-def census(rows: list[DataRow], *, tok: RealTokenizer, config: DataConfig) -> Census:
+#: The census's name for ``write_shards``' ``OverMaxSeqLen`` row exclusion.
+OVER_MAX_SEQ_LEN: Final[str] = "over_max_seq_len"
+#: In a composed row's row id: ``qd_data.mixture`` writes ``qdm:<family>:<example id>`` and
+#: ``qd-mutate compose`` names every example ``compose:<split>:<index>``.
+COMPOSED_ROW_MARK: Final[str] = ":compose:"
+
+
+def census(
+    rows: list[DataRow], *, tok: RealTokenizer, config: DataConfig,
+    max_seq_len: int | None = None,
+) -> Census:
     """Mirror ``write_shards``' per-row work and record what every row did.
 
     The order is ``training_texts`` -> ``_tokenize_checked`` -> ``_span_token_positions``,
@@ -766,6 +776,10 @@ def census(rows: list[DataRow], *, tok: RealTokenizer, config: DataConfig) -> Ce
     ids this pass produces. The one thing the mirror adds is that it catches every
     exception rather than only ``UnencodableGold``, which is how a class that kills the
     whole write is told apart from one that is excluded and counted.
+
+    ``max_seq_len`` mirrors the writer's hard width: a row with any sequence longer is
+    refused whole as :data:`OVER_MAX_SEQ_LEN`, after its ids are recorded (the writer, too,
+    encodes before it can measure).
     """
     out = Census()
     for row in rows:
@@ -819,6 +833,15 @@ def census(rows: list[DataRow], *, tok: RealTokenizer, config: DataConfig) -> Ce
             staged_spans += 1 if projected is not None else 0
         for slot_name, name in slot_refused.items():
             out.refused_slots[(row.row_id, slot_name)] = name
+        if max_seq_len is not None and any(int(i.size) > max_seq_len for i in staged_ids):
+            out.refused[OVER_MAX_SEQ_LEN] += 1
+            out.refused_rows[row.row_id] = OVER_MAX_SEQ_LEN
+            out.examples.setdefault(
+                OVER_MAX_SEQ_LEN,
+                f"{row.row_id}: {max(int(i.size) for i in staged_ids)} tokens, over "
+                f"max_seq_len={max_seq_len}",
+            )
+            continue
         if not staged_ids:
             # Every slot refused on its own account: the writer excludes the row too.
             out.refused_rows[row.row_id] = "every_slot_refused"
@@ -1620,9 +1643,12 @@ def run(
     repo_history: bool = True,
     vocab: str = VOCAB_FULL,
     defect_noul: Path | None = None,
+    max_seq_len: int | None = None,
 ) -> Measured:
     if vocab not in VOCAB_POLICIES:
         raise SystemExit(f"vocab must be one of {VOCAB_POLICIES}, got {vocab!r}")
+    if max_seq_len is not None and max_seq_len < 2:
+        raise SystemExit(f"--max-seq-len must be at least 2, got {max_seq_len}")
     if defect_noul is not None and defect_class is None:
         raise SystemExit(
             "--defect-noul needs --defect-class: its rows are code.defect_class rows whose "
@@ -1695,6 +1721,11 @@ def run(
         code_source += (
             f"; {DEFECT_FAMILY_ID} from {defect_class} ({n_main} of "
             f"{load.n_corpus} qd-mutate examples"
+            + (
+                f", of which {load.n_composed} composed rows (qd-mutate compose) after "
+                "their base corpus"
+                if load.n_composed else ""
+            )
             + (", a sha256-ordered sample" if load.capped else "")
             + (
                 f", plus {load.n_noul} noul rows from {defect_noul} {load.noul_by_source}"
@@ -1814,7 +1845,7 @@ def run(
     print(f"  train manifest: {paths['train']} ({len(train_rows)} entries)")
 
     print("\n== stage 3: census (unmodified write_shards work, per row) ==")
-    cen = census(train_rows, tok=tok, config=config)
+    cen = census(train_rows, tok=tok, config=config, max_seq_len=max_seq_len)
     print(f"  rows in: {cen.rows_in}   rows that encoded: {cen.rows_out}   "
           f"sequences: {cen.sequences_out}   span sequences: {cen.span_rows_out}")
     for name, n in sorted(cen.refused.items(), key=lambda kv: (-kv[1], kv[0])):
@@ -1866,7 +1897,7 @@ def run(
     print(f"  padding_waste: {waste.to_json()}")
 
     val_rows = list(split_report.rows_by_split.get("val", ()))
-    val_census = census(val_rows, tok=tok, config=config)
+    val_census = census(val_rows, tok=tok, config=config, max_seq_len=max_seq_len)
     if defect_class is not None:
         print(
             "  val, as written: "
@@ -1875,11 +1906,30 @@ def run(
                 refused_slots=val_census.refused_slots,
             ))
         )
+    if max_seq_len is not None:
+        # The hard width's exclusions, per split, over every row and over the composed rows
+        # alone: Fable round I-5 tightens the compose budget, never the width, when the
+        # composed share passes ~1%.
+        for split_name, rows_, cen_ in (("train", train_rows, cen), ("val", val_rows, val_census)):
+            over = [r for r, why in cen_.refused_rows.items() if why == OVER_MAX_SEQ_LEN]
+            composed_in = sum(1 for r in rows_ if COMPOSED_ROW_MARK in r.row_id)
+            composed_over = sum(1 for r in over if COMPOSED_ROW_MARK in r)
+            extra_metrics[f"over_max_seq_len_{split_name}"] = Ran(
+                passed=True, value=len(over), n=len(over), n_total=len(rows_),
+                detail=f"rows with a sequence over max_seq_len={max_seq_len}, excluded whole",
+            )
+            extra_metrics[f"over_max_seq_len_composed_{split_name}"] = Ran(
+                passed=True, value=composed_over, n=composed_over, n_total=composed_in,
+                detail=f"composed rows ({COMPOSED_ROW_MARK!r} in the row id) of those",
+            )
     # With --val-shards the val rows are part of the written corpus, and the remap policy is
     # "keep every token the written corpus uses" -- so it is counted over them too. val is
     # a TRAINING_SPLITS member; the held-out rows never enter the count (rule 3).
     remap_ids = cen.ids + val_census.ids if val_shards else cen.ids
-    replay_census = census(replay_rows, tok=tok, config=config) if replay_rows else None
+    replay_census = (
+        census(replay_rows, tok=tok, config=config, max_seq_len=max_seq_len)
+        if replay_rows else None
+    )
     if replay_census is not None:
         # The replay set is written under the same remap, so its tokens are kept too.
         remap_ids = remap_ids + replay_census.ids
@@ -1939,7 +1989,8 @@ def run(
             val_census
             if split_name == "val"
             else census(
-                list(split_report.rows_by_split.get(split_name, ())), tok=tok, config=config
+                list(split_report.rows_by_split.get(split_name, ())), tok=tok, config=config,
+                max_seq_len=max_seq_len,
             )
         )
         unseen[split_name] = remap_coverage(
@@ -1973,6 +2024,7 @@ def run(
         # `resolved`, never `rev`: --rev defaults to "HEAD", and "HEAD" in a header compares
         # equal to "HEAD" tomorrow, so it would read as verified while naming no commit.
         corpus_rev=resolved,
+        max_seq_len=max_seq_len,
     )
     print(f"  header: n_sequences={header.n_sequences} total_tokens={header.total_tokens} "
           f"max_seq_len={header.max_seq_len} vocab_size={header.vocab_size}")
@@ -2010,6 +2062,7 @@ def run(
             allow_unencodable=True,
             allow_not_run_snapshot=not_run_snapshot,
             corpus_rev=resolved,
+            max_seq_len=max_seq_len,
         )
         val_reader = ShardReader(val_dir, config=config, repo_root=out)
         val_coverage = val_reader.coverage
@@ -2026,6 +2079,7 @@ def run(
             tokenize=tok.tokenize, token_offsets=tok.offsets, decode=tok.decode,
             config=config, repo_root=out, allow_unencodable=True,
             allow_not_run_snapshot=not_run_snapshot, corpus_rev=resolved, replay=True,
+            max_seq_len=max_seq_len,
         )
         replay_reader = ShardReader(replay_dir, config=config, repo_root=out)
         extra_metrics["replay_shard_slots_written"] = replay_reader.slot_coverage
@@ -2061,6 +2115,7 @@ def run(
         # `resolved`, never `rev`: --rev defaults to "HEAD", and "HEAD" in a header compares
         # equal to "HEAD" tomorrow, so it would read as verified while naming no commit.
         corpus_rev=resolved,
+        max_seq_len=max_seq_len,
     )
     checked = _artifact_digest(shard_dir)
     unchecked = _artifact_digest(undecoded_dir)
@@ -2332,6 +2387,14 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--max-seq-len", type=int, default=None,
+        help=(
+            "a hard width: any row with a sequence longer is excluded whole (never "
+            "truncated), counted in the census and on the row as over_max_seq_len_*. "
+            "Without it the width is the longest sequence, as before"
+        ),
+    )
+    parser.add_argument(
         "--instance", default=None,
         help="the priced machine, on a rented box (the row's cost cannot be omitted there)",
     )
@@ -2378,6 +2441,7 @@ def main(argv: list[str] | None = None) -> int:
         "general_record": args.general_record, "general_max_rows": args.general_max_rows,
         "replay_shards": args.replay_shards, "repo_history": args.repo_history,
         "vocab": args.vocab, "defect_noul": args.defect_noul,
+        "max_seq_len": args.max_seq_len,
     }
     if args.ledger is None:
         run(**run_kwargs)
@@ -2441,6 +2505,9 @@ def main(argv: list[str] | None = None) -> int:
         recipe["general_max_rows"] = args.general_max_rows
     if args.replay_shards:
         recipe["replay_shards"] = True
+    if args.max_seq_len is not None:
+        # Only when used: it decides which rows are written.
+        recipe["max_seq_len"] = args.max_seq_len
     if args.vocab == VOCAB_FULL:
         # Keyed on full, not corpus: every row written before the flag existed used the
         # corpus remap and hashed without this key, so a trimmed set still hashes as before
