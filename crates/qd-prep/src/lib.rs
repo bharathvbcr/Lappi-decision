@@ -8,7 +8,15 @@
 //! - [`minhash`]: `qd_data.minhash.MinHasher.signature`, which was 75% of the
 //!   `tools/real_ft_run.py --score-checkpoint` prelude (two `ft_splits` rebuilds, each signing
 //!   every content unit for dedupe and every row again for the split's cross-check).
+//! - [`ngram`] and [`linfit`]: `qd_train.baseline.CharNGramHasher.transform` and
+//!   `LinearBaseline.fit`, the FT linear control's featurisation and fit, which ran 2.3 h+ on
+//!   ~26 cores for one eval row of the full mixture on the GH200 (2026-10-01) without finishing.
+//!   [`pairwise`] is numpy's summation order, which the fit reproduces.
 
 pub mod blake2b;
+pub mod linfit;
+pub mod linwire;
 pub mod minhash;
+pub mod ngram;
+pub mod pairwise;
 pub mod wire;

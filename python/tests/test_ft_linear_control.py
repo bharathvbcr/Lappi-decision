@@ -216,7 +216,7 @@ def _verdicts_for(val: list[RequestDoc], hits: list[bool], *, span: int = 0) -> 
     )
 
 
-def test_gate_is_the_paired_margin_over_every_letter_row() -> None:
+def test_gate_is_the_paired_margin_over_every_letter_row(qd_prep: Path) -> None:
     train = [_doc(i, "yes" if i % 2 else "no") for i in range(60)]
     val = [_doc(1000 + i, "yes" if i % 2 else "no") for i in range(40)]
     hits = [i % 4 != 0 for i in range(40)]  # the model: 75%
@@ -232,7 +232,7 @@ def test_gate_is_the_paired_margin_over_every_letter_row() -> None:
     assert isinstance(result.metrics["paired_margin_vs_abstain_constant.span"], NotRun)
 
 
-def test_a_task_whose_control_cannot_fit_makes_the_gate_not_run() -> None:
+def test_a_task_whose_control_cannot_fit_makes_the_gate_not_run(qd_prep: Path) -> None:
     """A pooled margin over only the tasks that fitted is a capped sample, not the gate."""
     train = [_doc(i, "yes" if i % 2 else "no") for i in range(40)]
     train += [_doc(500 + i, "only", task="other/slot") for i in range(10)]
@@ -255,7 +255,7 @@ def test_holdout_refuses_to_be_a_silent_no_op() -> None:
         ftc.apply_holdout(tagged, ftc.HoldOut("operator", "stub.panic"))
 
 
-def test_holdout_removes_the_operator_and_reports_own_and_siblings() -> None:
+def test_holdout_removes_the_operator_and_reports_own_and_siblings(qd_prep: Path) -> None:
     def cls(i: int) -> str:
         return "stub" if i % 2 else "logic"
 
@@ -334,7 +334,7 @@ def _split(rows):
 
 
 def test_the_tool_writes_the_gate_as_a_new_eval_row(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qd_prep: Path
 ) -> None:
     rows, config = _rows(80)
     # change_scope is single-class in the fixture, which the control refuses (tested above).
@@ -370,8 +370,126 @@ def test_the_tool_writes_the_gate_as_a_new_eval_row(
     assert isinstance(rows_out[0].gates["paired_margin_vs_linear"], NotRun)
 
 
-def test_the_defect_class_corpus_reaches_the_runs_own_split_function(
+def _tool_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                  calls: list[dict[str, object]] | None = None) -> list[str]:
+    """The argv, ledger and verdicts of ``test_the_tool_writes_the_gate_as_a_new_eval_row``."""
+    rows, config = _rows(80)
+    rows = [r for r in rows if r.family_id == "code.commit_intent"]
+    train, val = _split(rows)
+    val_docs, _ = request_texts(val, seed=config.seed)
+    hits = [i % 3 != 0 for i in range(len(val_docs))]
+    ledger = tmp_path / "ledger.jsonl"
+    eval_id = _eval_row(
+        ledger, choice=(sum(h for d, h in zip(val_docs, hits, strict=True) if d.kind == "choice"),
+                        sum(d.kind == "choice" for d in val_docs)), score=(0, 0),
+    )
+    verdicts = _write_verdicts(tmp_path / "v.jsonl", [
+        {"eval_row_id": eval_id, "seed": 0, "row_id": d.row_id, "kind": d.kind,
+         "correct": h} for d, h in zip(val_docs, hits, strict=True)
+    ])
+    _fake_runner(monkeypatch, train, val, calls=calls)
+    return ["--ledger", str(ledger), "--verdicts", str(verdicts), "--max-pairs", "80",
+            "--rev", REV]
+
+
+def test_the_row_names_the_engine_and_the_bytes_that_fitted_the_control(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qd_prep: Path
+) -> None:
+    """The Python engine wrote no engine key; a row fitted by qd-prep says so, by sha256."""
+    argv = _tool_fixture(tmp_path, monkeypatch)
+    assert ftc.main(argv) == 0
+    recipe = Ledger(tmp_path / "ledger.jsonl").rows()[-1].recipe or {}
+    assert recipe["control_engine"] == "qd-prep linfit"
+    assert recipe["control_engine_sha256"] == hashlib.sha256(qd_prep.read_bytes()).hexdigest()
+
+
+def test_without_the_engine_the_tool_refuses_before_rebuilding_the_split(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No Python fallback, and no split rebuild -- most of a run's wall clock -- for nothing."""
+    calls: list[dict[str, object]] = []
+    argv = _tool_fixture(tmp_path, monkeypatch, calls=calls)
+    monkeypatch.delenv("QD_PREP_BIN", raising=False)
+    with pytest.raises(SystemExit, match="QD_PREP_BIN is unset"):
+        ftc.main(argv)
+    assert calls == []
+    assert len(Ledger(tmp_path / "ledger.jsonl").rows()) == 1  # the eval row alone
+
+
+def test_without_the_engine_nothing_is_scored(monkeypatch: pytest.MonkeyPatch) -> None:
+    train = [_doc(i, "yes" if i % 2 else "no") for i in range(20)]
+    val = [_doc(1000 + i, "yes" if i % 2 else "no") for i in range(6)]
+    monkeypatch.delenv("QD_PREP_BIN", raising=False)
+    with pytest.raises(SystemExit, match="QD_PREP_BIN is unset"):
+        ftc.score_against_control(train, val, _verdicts_for(val, [True] * 6), seed=0)
+
+
+def _task_docs():
+    rows, config = _rows(80)
+    train, val = _split(rows)
+    train_docs, _ = request_texts(train, seed=config.seed)
+    val_docs, _ = request_texts(val, seed=config.seed)
+    return train_docs, val_docs
+
+
+@pytest.mark.parametrize("arm", [ftc.NGRAM_ARM, ftc.LENGTH_ARM], ids=lambda a: a.name)
+def test_every_tasks_control_answers_row_for_row_as_the_python_engine_did(
+    qd_prep: Path, arm: ftc.ControlArm
+) -> None:
+    """Old engine vs new, through the tool's own ``fit_task``: the Python ``LinearBaseline``
+    on its sparse operand (what ``fit_task`` ran before) and qd-prep agree on every val row of
+    every task, and on convergence, iterations and the selected L2."""
+    from qd_train.baseline import LinearBaseline
+
+    train, val = _task_docs()
+    tasks = sorted({d.task for d in val})
+    compared = 0
+    for task in tasks:
+        t_train = [d for d in train if d.task == task]
+        t_val = [d for d in val if d.task == task]
+        got = ftc.fit_task(
+            task, t_train, t_val, by_slot_name=True, seed=0, max_iter=ftc.DEFAULT_MAX_ITER,
+            dense_budget_bytes=0, max_fit_minutes=None, cache_dir=None, engine=qd_prep, arm=arm,
+        )
+        if len({d.value for d in t_train}) < 2:
+            assert isinstance(got.convergence, NotRun)
+            continue
+        reference = LinearBaseline(
+            hasher=arm.make_features(), seed=0, max_iter=ftc.DEFAULT_MAX_ITER,
+            dense_budget_bytes=0,
+        )
+        fit = reference.fit([arm.text_of(d) for d in t_train], [d.value for d in t_train])
+        assert isinstance(got.convergence, Ran) == fit.converged, task
+        if not fit.converged:
+            continue
+        assert got.convergence.detail == reference.convergence().detail  # type: ignore[union-attr]
+        predicted = reference.predict([arm.text_of(d) for d in t_val])
+        want = {ftc.doc_key(d, by_slot_name=True): p == d.value
+                for d, p in zip(t_val, predicted, strict=True)}
+        assert got.correct == want, task
+        compared += 1
+    assert compared >= 1
+
+
+def test_a_native_fit_is_cached_and_read_back_under_the_unchanged_key(
+    tmp_path: Path, qd_prep: Path
+) -> None:
+    """``control_cache`` and ``qd_train.baseline`` are untouched, so the key -- which folds in
+    baseline.py's sha256 -- is the one the Python engine's entries were written under."""
+    train = [_doc(i, "yes" if i % 2 else "no") for i in range(40)]
+    val = [_doc(1000 + i, "yes" if i % 2 else "no") for i in range(12)]
+    kwargs = dict(by_slot_name=True, seed=0, max_iter=ftc.DEFAULT_MAX_ITER,
+                  dense_budget_bytes=None, max_fit_minutes=None, cache_dir=tmp_path,
+                  engine=qd_prep)
+    first = ftc.fit_task("fam/slot", train, val, **kwargs)  # type: ignore[arg-type]
+    second = ftc.fit_task("fam/slot", train, val, **kwargs)  # type: ignore[arg-type]
+    assert (first.cached, second.cached) == (False, True)
+    assert second.correct == first.correct
+    assert len(list(tmp_path.glob("linear-control-*.json"))) == 1
+
+
+def test_the_defect_class_corpus_reaches_the_runs_own_split_function(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qd_prep: Path
 ) -> None:
     """Phase 3's go/no-go scores a model trained on code.defect_class. Without the corpus the
     control rebuilt the split with no defect rows, so the run's verdicts could never pair and
@@ -407,7 +525,7 @@ def test_the_defect_class_corpus_reaches_the_runs_own_split_function(
 
 
 def test_a_set_built_with_noul_rows_is_rebuilt_with_them(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qd_prep: Path
 ) -> None:
     """Phase 4's v3 set (89b619d9) was built with --defect-noul: the noul rows are in its
     train and val splits, so a control that rebuilt the split without them would pair a
@@ -440,7 +558,7 @@ def _scorable(tmp_path: Path) -> tuple[Path, Path, list, list]:
 
 
 def test_a_set_built_without_repository_history_is_rebuilt_without_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qd_prep: Path
 ) -> None:
     """Phase 3 trains on code.defect_class alone (--no-repo-history). The control has
     to rebuild that split, not one with this repository's history added back."""
@@ -454,7 +572,7 @@ def test_a_set_built_without_repository_history_is_rebuilt_without_it(
 
 
 def test_a_general_record_set_is_rebuilt_with_the_record_and_its_replay_partition(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qd_prep: Path
 ) -> None:
     """Phase 4 trains on the full mixture (--general-record, --replay-shards). The control
     has to rebuild that split -- the general families in, the replay-only rows out of the
@@ -476,7 +594,7 @@ def test_a_general_record_set_is_rebuilt_with_the_record_and_its_replay_partitio
 
 
 def test_the_general_row_cap_is_recorded_resolved_not_as_null(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qd_prep: Path
 ) -> None:
     import real_tokenizer_pipeline as pipeline
 
@@ -492,7 +610,7 @@ def test_the_general_row_cap_is_recorded_resolved_not_as_null(
 
 
 def test_a_control_without_a_general_record_hashes_as_before(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qd_prep: Path
 ) -> None:
     ledger, verdicts, train, val = _scorable(tmp_path)
     calls: list[dict[str, object]] = []
@@ -588,7 +706,7 @@ def test_the_iteration_budget_matches_the_rung0_control() -> None:
 
 
 def test_held_out_families_are_refused_before_any_fit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qd_prep: Path
 ) -> None:
     """Rule 3: a control fitted on a held-out family sets the bar with data the model may
     never see. ``code.language_id`` is in DEFAULT_HELD_OUT_FAMILIES."""

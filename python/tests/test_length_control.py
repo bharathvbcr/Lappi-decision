@@ -73,7 +73,7 @@ def test_a_length_only_label_is_learned_by_the_length_control() -> None:
     assert predicted == [d.value for d in val]
 
 
-def test_the_tool_reports_the_length_control_beside_the_ngram_gate() -> None:
+def test_the_tool_reports_the_length_control_beside_the_ngram_gate(qd_prep: Path) -> None:
     train, val = _split()
     keys = [(d.row_id, d.slot_name) for d in val]
     verdicts = ftc.Verdicts(
@@ -91,7 +91,7 @@ def test_the_tool_reports_the_length_control_beside_the_ngram_gate() -> None:
     assert f"linear_control_top1.{TASK}" in result.metrics
 
 
-def test_docs_without_a_context_leave_the_length_control_not_run() -> None:
+def test_docs_without_a_context_leave_the_length_control_not_run(qd_prep: Path) -> None:
     """A RequestDoc built without its context (every caller before this field) must not be
     scored as a zero-length context: that control would be constant and easy to beat."""
     train, val = _split()

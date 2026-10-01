@@ -48,9 +48,19 @@ arm's opponent. Beside the gate it reports the margins the rung-0 report reads: 
 operator's own val rows, on its **siblings** (same task and gold value, other operator --
 the rows that separate "lost the generator" from "the prior moved"), and overall.
 
+## The engine
+
+Both controls -- the n-gram gate's and the length control -- are featurised and fitted by
+``qd-prep linfit`` (``crates/qd-prep``) through :mod:`linear_control_native`, never by
+``qd_train.baseline`` in this process: the Python fit of one full-mixture eval row ran 2.3 h+ on
+the GH200 without finishing. ``qd_train.baseline`` is unchanged and is the parity oracle; on the
+Mac the binary reproduces its sparse operand bit for bit. ``QD_PREP_BIN`` must name the binary
+and is checked before the split is rebuilt; there is no Python fallback. The row's recipe names
+the engine and the sha256 of the binary that ran.
+
 RUN (on the machine that has torch; it imports the FT runner for the split)
 ---
-    /Users/bharath/.venvs/ml/bin/python tools/ft_linear_control.py \\
+    QD_PREP_BIN=<abs path> /Users/bharath/.venvs/ml/bin/python tools/ft_linear_control.py \\
       --ledger ledger/<file>.jsonl --verdicts <verdicts.jsonl> \\
       --commitpackft data/pool/commitpackft --max-pairs 2000 --rev <sha>
 """
@@ -72,6 +82,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
 sys.path.insert(0, str(REPO / "tools"))
 
+import linear_control_native as native  # noqa: E402
 from repo_git import require_full_sha  # noqa: E402
 
 from qd_data.config import DataConfig  # noqa: E402
@@ -369,10 +380,17 @@ def fit_task(
     dense_budget_bytes: int | None,
     max_fit_minutes: float | None,
     cache_dir: Path | None,
+    engine: Path,
     arm: ControlArm = NGRAM_ARM,
 ) -> TaskControl:
     """One task's control, scored on that task's val rows. Never raises for a weak fit:
-    an unconverged or single-class control comes back ``not_run`` with its reason."""
+    an unconverged or single-class control comes back ``not_run`` with its reason.
+
+    The fit runs in ``engine`` (``qd-prep linfit``, :mod:`linear_control_native`); the
+    ``LinearBaseline`` built here supplies every choice the fit makes and speaks for the
+    result through ``convergence()``, but is never fitted in Python. ``dense_budget_bytes``
+    now only prices the ``max_fit_minutes`` projection, which is calibrated on the Python
+    engine and so over-states the native one -- the safe direction for a refusal."""
     val_docs = [arm.text_of(d) for d in val]
     keys = [doc_key(d, by_slot_name=by_slot_name) for d in val]
     classes = sorted({d.value for d in train})
@@ -422,13 +440,20 @@ def fit_task(
     if refusal is not None:
         raise Refused(f"task {task}: {refusal}")
     started = time.monotonic()
-    model.fit(train_docs, train_labels)
+    result = native.fit(
+        engine, model, train_docs, train_labels, val_docs,
+        timeout_s=(
+            native.DEFAULT_FIT_TIMEOUT_S if max_fit_minutes is None else max_fit_minutes * 60
+        ),
+    )
     fitted_s = time.monotonic() - started
+    print(f"task {task} ({arm.name}): {result.summary}", file=sys.stderr, flush=True)
+    model.fit_ = result.fit
     convergence = model.convergence()
     if not (isinstance(convergence, Ran) and convergence.passed):
         reason = convergence.reason if isinstance(convergence, NotRun) else convergence.detail
         return TaskControl(task, {}, convergence, NotRun(reason=reason), fitted_s, False)
-    predicted = model.predict(val_docs)
+    predicted = result.predictions
     hits = [p == d.value for p, d in zip(predicted, val, strict=True)]
     fit = model.fit_
     if fit is None:  # pragma: no cover - convergence() refused an unfitted model above
@@ -474,13 +499,18 @@ def score_against_control(
     max_fit_minutes: float | None = None,
     cache_dir: Path | None = None,
     hold: HoldOut | None = None,
+    engine: Path | None = None,
 ) -> ControlScore:
     """The gate and its supporting metrics. Pure apart from the optional cache.
 
     The gate is the paired margin over every letter row pooled; it is ``not_run`` if any
     task's control did not run, because a pooled margin over the tasks that happened to fit
     would be a capped sample reported as complete coverage.
+
+    ``engine`` is the ``qd-prep`` binary that fits every control; ``None`` reads it from
+    ``QD_PREP_BIN`` and refuses, before anything is fitted, when that is unset.
     """
+    engine = native.prep_binary() if engine is None else engine
     train, removed = apply_holdout(train, hold)
     by_task_train: dict[str, list[RequestDoc]] = {}
     for d in train:
@@ -498,7 +528,7 @@ def score_against_control(
             task, by_task_train.get(task, []), by_task_val[task],
             by_slot_name=verdicts.by_slot_name, seed=seed, max_iter=max_iter,
             dense_budget_bytes=dense_budget_bytes, max_fit_minutes=max_fit_minutes,
-            cache_dir=cache_dir,
+            cache_dir=cache_dir, engine=engine,
         )
         fit_seconds += tc.fitted_s
         metrics[f"linear_control_convergence.{task}"] = tc.convergence
@@ -514,7 +544,7 @@ def score_against_control(
             task, by_task_train.get(task, []), by_task_val[task],
             by_slot_name=verdicts.by_slot_name, seed=seed, max_iter=max_iter,
             dense_budget_bytes=dense_budget_bytes, max_fit_minutes=max_fit_minutes,
-            cache_dir=None, arm=LENGTH_ARM,
+            cache_dir=None, engine=engine, arm=LENGTH_ARM,
         )
         fit_seconds += lc.fitted_s
         metrics[f"length_control_convergence.{task}"] = lc.convergence
@@ -665,8 +695,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--control-cache", type=Path, default=None)
     parser.add_argument("--max-iter", type=int, default=DEFAULT_MAX_ITER)
-    parser.add_argument("--dense-budget-gb", type=float, default=24.0)
-    parser.add_argument("--max-fit-minutes", type=float, default=None)
+    parser.add_argument(
+        "--dense-budget-gb", type=float, default=24.0,
+        help="only prices the --max-fit-minutes projection (calibrated on the Python engine, "
+             "so it over-states the native one); the qd-prep fit's arithmetic is the "
+             "reference's sparse operand's whatever this is",
+    )
+    parser.add_argument(
+        "--max-fit-minutes", type=float, default=None,
+        help="refuse a task whose projected fit exceeds this, and kill a qd-prep fit that runs "
+             f"past it; default: no refusal and a {native.DEFAULT_FIT_TIMEOUT_S / 3600:g} h kill",
+    )
     parser.add_argument("--hold-out-operator", default="")
     parser.add_argument("--operator-key", default="operator")
     args = parser.parse_args(argv)
@@ -708,6 +747,9 @@ def main(argv: list[str] | None = None) -> int:
             "that arm's opponent"
         )
     hold = HoldOut(args.operator_key, args.hold_out_operator) if args.hold_out_operator else None
+    # Before the split rebuild, which is most of a run's wall clock before the first fit: a
+    # control that cannot be fitted is refused while that costs nothing.
+    engine = native.prep_binary()
 
     config = DataConfig()
     train_rows, val_rows = split_rows_function()(
@@ -743,6 +785,12 @@ def main(argv: list[str] | None = None) -> int:
         "repo_history": args.repo_history,
         "defect_class": None if args.defect_class is None else args.defect_class.name,
         "defect_max_rows": args.defect_max_rows,
+        # Which engine fitted the controls, by the bytes that ran. The Python engine wrote no
+        # such key; every row with it was fitted by qd-prep, whose sparse-operand arithmetic is
+        # the reference's (linear_control_native). A cache hit is keyed without the engine, so
+        # a cached task may have been fitted by either (HANDOFF/perf-linear-control-rust-*).
+        "control_engine": native.ENGINE_NAME,
+        "control_engine_sha256": native.engine_sha256(engine),
     }
     if args.general_record is not None:
         # Only when used, so every gate row written before these inputs existed hashes as
@@ -787,6 +835,7 @@ def main(argv: list[str] | None = None) -> int:
             train_docs, val_docs, verdicts, seed=row.protocol.seed, max_iter=args.max_iter,
             dense_budget_bytes=int(args.dense_budget_gb * 1024**3),
             max_fit_minutes=args.max_fit_minutes, cache_dir=args.control_cache, hold=hold,
+            engine=engine,
         )
         recorder.measured(time.monotonic() - started)
         recorder.metric("scored_eval_row_id", Ran(passed=True, value=row.row_id,
