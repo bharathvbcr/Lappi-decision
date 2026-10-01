@@ -35,7 +35,7 @@ from qd_data.defect_class import (
 from qd_data.errors import HeldOutViolation
 from qd_data.mixture import ABSTAINING_FAMILIES, build_mixture, rewrite_defect_class
 from qd_data.render import render
-from qd_data.split import split
+from qd_data.split import assign_repo, split
 from qd_train.mutate_adapter import MUTATION_CLASSES
 from qd_train.shards import training_texts
 from qd_train.tristate import Ran
@@ -384,3 +384,226 @@ def test_permuted_options_move_every_option_and_keep_the_gold(tmp_path: Path) ->
         with_permuted_options(data_row.request, slot_name=CHOICE_SLOT, permutation=(5, 6, 7, 8))
     with pytest.raises(ValueError, match="not a choice slot"):
         with_permuted_options(data_row.request, slot_name=SPAN_SLOT, permutation=(0,))
+
+
+# -- the composed corpus (qd-mutate compose) -------------------------------------------
+
+
+def _repos_in(want: str, n: int) -> list[str]:
+    """``n`` repo names the canonical split puts in ``want`` at the default config."""
+    cfg = DataConfig()
+    out: list[str] = []
+    for i in range(10_000):
+        repo = f"org/c{i}"
+        if assign_repo(
+            repo, seed=cfg.seed, train_fraction=cfg.train_fraction,
+            val_fraction=cfg.val_fraction,
+        ) == want:
+            out.append(repo)
+            if len(out) == n:
+                return out
+    raise AssertionError(f"no {n} repos in {want!r} among 10,000 names")
+
+
+def _block(path: str, body: str) -> str:
+    return f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n{body}"
+
+
+def _composed_row(
+    files: list[dict[str, Any]], *, needle: int | None, index: int = 0, split_name: str = "train"
+) -> dict[str, Any]:
+    """A row in the shape ``qd-mutate compose`` writes: ``files`` in diff order, the needle's
+    block rendered mutated (``DIFF``, whose line 5 is post-image line 3) and every other
+    block pristine (``CLEAN_DIFF``)."""
+    diff, constituents, line = "", [], 1
+    span: dict[str, int] | None = None
+    for k, ex in enumerate(files):
+        block = _block(ex["path"], DIFF if k == needle else CLEAN_DIFF)
+        n = block.count("\n")
+        constituents.append({
+            "pool_id": ex["pool_id"], "repo": ex["repo"], "path": ex["path"],
+            "language": "python", "role": "needle" if k == needle else "filler",
+            "example_id": None, "example_source": None,
+            "first_line": line, "last_line": line + n - 1, "est_tokens": 10,
+        })
+        if k == needle:
+            span = {"start_line": line + 3 + 4, "end_line": line + 3 + 4}
+        diff += block
+        line += n
+    anchor = files[0 if needle is None else needle]
+    row: dict[str, Any] = {
+        "id": f"compose:{split_name}:{index:06d}",
+        "pool_id": anchor["pool_id"], "repo": anchor["repo"], "path": anchor["repo"],
+        "language": "python", "class": "clean" if needle is None else "logic",
+        "silent": False,
+        "function": {"repo": anchor["repo"], "path": anchor["repo"], "symbol": "f", "arity": 1},
+        "after": AFTER, "diff": diff, "hunk_constrained": True, "detail": "", "seed": 0,
+        "tool_version": "0.1.0", "composed": True, "split": split_name, "diff_span": span,
+        "needle_index": needle, "n_files": len(files), "est_tokens": 30,
+        "constituents": constituents,
+    }
+    if needle is not None:
+        row["operator"] = "logic.op"
+        row["span"] = {"start_line": 3, "end_line": 3}
+    return row
+
+
+def _write_composed(
+    tmp_path: Path,
+    base: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+    *,
+    split_params: dict[str, Any] | None = None,
+    base_sha: str | None = None,
+) -> tuple[Path, Path]:
+    """A base corpus at ``data/pool/corpus`` and a composed corpus over it."""
+    corpus, download = _write_corpus(tmp_path, base)
+    base_manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
+    out = corpus.parent / "composed"
+    out.mkdir()
+    ex = out / "examples.jsonl"
+    ex.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    cfg = DataConfig()
+    (out / "manifest.json").write_text(json.dumps({
+        "schema": "qd-compose/v1",
+        "base_corpus": {
+            "name": "corpus",
+            "examples_sha256": base_sha or base_manifest["examples_sha256"],
+        },
+        "split_params": split_params or {
+            "seed": cfg.seed, "train_fraction": cfg.train_fraction,
+            "val_fraction": cfg.val_fraction,
+        },
+        "pool": base_manifest["pool"],
+        "examples_sha256": hashlib.sha256(ex.read_bytes()).hexdigest(),
+        "totals": {"examples": len(rows)},
+    }), encoding="utf-8")
+    return out, download
+
+
+def _base_files() -> dict[str, list[dict[str, Any]]]:
+    """Clean base examples, one file per repo: four train, two val, one held out."""
+    out: dict[str, list[dict[str, Any]]] = {}
+    n = 0
+    for split_name, count in (("train", 4), ("val", 2), ("heldout", 1)):
+        out[split_name] = []
+        for repo in _repos_in(split_name, count):
+            out[split_name].append(_example(n, repo=repo, cls="clean"))
+            n += 1
+    return out
+
+
+def _all(files: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    return [e for group in files.values() for e in group]
+
+
+def test_a_composed_corpus_loads_its_base_then_its_rows_with_the_span_it_carries(
+    tmp_path: Path,
+) -> None:
+    files = _base_files()
+    t = files["train"]
+    mutated = _composed_row([t[0], t[1], t[2]], needle=1, index=0)
+    clean = _composed_row([t[2], t[0], t[3]], needle=None, index=1)
+    corpus, download = _write_composed(tmp_path, _all(files), [mutated, clean])
+    load = _load(tmp_path, corpus, download)
+    assert load.n_composed == 2
+    assert len(load.rows) == len(_all(files)) + 2
+    assert [r.example_id for r in load.rows[-2:]] == [mutated["id"], clean["id"]]
+    row, clean_row = load.rows[-2:]
+    span = mutated["diff_span"]
+    assert row.diff_span == (span["start_line"], span["end_line"])
+    assert clean_row.diff_span is None and clean_row.mutation_class == "clean"
+    # The gold names the needle's mutated line of the rendered context, past every
+    # other file's block.
+    data_row = rewrite_defect_class(row, family_id=DEFECT_FAMILY_ID, index=0, config=DataConfig())
+    gold = next(g for g in data_row.gold if g.slot_name == SPAN_SLOT)
+    assert gold.value == (span["start_line"] + CONTEXT_HEADER_LINES,) * 2
+    lines = data_row.request.context.decode().split("\n")
+    assert lines[gold.value[0] - 1] == "+    return x - a"
+    specs = training_texts(data_row, seed=DataConfig().seed)
+    assert [s.slot_name for s in specs] == [CHOICE_SLOT, SPAN_SLOT]
+
+
+@pytest.mark.parametrize(
+    ("pick", "reason"),
+    [
+        (lambda f: ([f["train"][0], f["val"][0], f["train"][1]], 0),
+         "constituents_span_two_splits"),
+        (lambda f: ([f["train"][0], f["heldout"][0], f["train"][1]], 0),
+         "constituents_span_two_splits"),
+        (lambda f: ([f["heldout"][0], f["train"][0], f["train"][1]], 0), "row_in_heldout"),
+    ],
+)
+def test_a_composed_row_that_crosses_a_split_or_reaches_held_out_refuses_the_corpus(
+    tmp_path: Path,
+    pick: Any,
+    reason: str,
+) -> None:
+    files = _base_files()
+    chosen, needle = pick(files)
+    bad = _composed_row(chosen, needle=needle)
+    corpus, download = _write_composed(tmp_path, _all(files), [bad])
+    with pytest.raises(DefectCorpusError, match=reason):
+        _load(tmp_path, corpus, download)
+
+
+def test_a_composed_row_whose_split_label_disagrees_with_the_run_is_refused(
+    tmp_path: Path,
+) -> None:
+    files = _base_files()
+    t = files["train"]
+    row = _composed_row([t[0], t[1], t[2]], needle=0, split_name="val")
+    corpus, download = _write_composed(tmp_path, _all(files), [row])
+    with pytest.raises(DefectCorpusError, match="row_split_val_is_train_here"):
+        _load(tmp_path, corpus, download)
+
+
+@pytest.mark.parametrize(
+    ("tamper", "message"),
+    [
+        (lambda r: r["diff_span"].update(start_line=r["diff_span"]["start_line"] - 1),
+         "not a '\\+' or context line"),
+        (lambda r: r.update(diff_span={"start_line": 4, "end_line": 4}),
+         "leaves the needle's block"),
+        (lambda r: r.update(diff_span={"start_line": 0, "end_line": 1}), "1-based range"),
+        (lambda r: r["constituents"][1].update(first_line=99), "do not tile"),
+    ],
+)
+def test_a_composed_span_off_the_needle_post_image_line_refuses_the_corpus(
+    tmp_path: Path, tamper: Any, message: str
+) -> None:
+    files = _base_files()
+    t = files["train"]
+    row = _composed_row([t[0], t[1], t[2]], needle=1)
+    tamper(row)
+    corpus, download = _write_composed(tmp_path, _all(files), [row])
+    with pytest.raises(DefectCorpusError, match=message):
+        _load(tmp_path, corpus, download)
+
+
+def test_a_clean_composed_row_with_a_span_refuses_the_corpus(tmp_path: Path) -> None:
+    files = _base_files()
+    t = files["train"]
+    row = _composed_row([t[0], t[1], t[2]], needle=None)
+    row["diff_span"] = {"start_line": 5, "end_line": 5}
+    corpus, download = _write_composed(tmp_path, _all(files), [row])
+    with pytest.raises(DefectCorpusError, match="clean composed row carries a span"):
+        _load(tmp_path, corpus, download)
+
+
+def test_a_corpus_composed_under_another_split_or_over_another_base_is_refused(
+    tmp_path: Path,
+) -> None:
+    files = _base_files()
+    t = files["train"]
+    rows = [_composed_row([t[0], t[1], t[2]], needle=1)]
+    corpus, download = _write_composed(
+        tmp_path / "a", _all(files), rows,
+        split_params={"seed": 1, "train_fraction": 0.9, "val_fraction": 0.05},
+    )
+    with pytest.raises(DefectCorpusError, match="Recompose"):
+        _load(tmp_path / "a", corpus, download)
+    corpus, download = _write_composed(tmp_path / "b", _all(files), rows, base_sha="0" * 64)
+    with pytest.raises(DefectCorpusError, match="was composed from"):
+        _load(tmp_path / "b", corpus, download)
+

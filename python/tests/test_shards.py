@@ -23,6 +23,7 @@ none of this needs torch or transformers -- neither is in the repo venv.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import os
@@ -31,6 +32,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -510,6 +512,279 @@ def test_a_renderer_refusal_without_the_flag_still_refuses_the_whole_write(
     with pytest.raises(ContextTooLargeRefusal):
         _write(snapshot, "train", out, caps=caps)
     assert not out.exists(), "refused, and nothing was written"
+
+
+#: A diff-shaped context with two consecutive blank context lines (" ", " "), the one
+#: pattern behind every collapse measured on the composed corpus (696 of 696).
+_BLANK_PAIR_TEXT = "ctx\n a\n \n \n+b\n c\n"
+#: Its line starts: "ctx", " a", " ", " ", "+b", " c".
+_BLANK_PAIR_LINES = (0, 4, 7, 9, 11, 14)
+
+
+def _blank_pair_tokens(text: str) -> tuple[list[int], list[tuple[int, int]]]:
+    """One token per character, except "\\n \\n " -- the BPE merge -- which is one token
+    (id 1) holding both blank lines' starts."""
+    ids: list[int] = []
+    offs: list[tuple[int, int]] = []
+    i = 0
+    while i < len(text):
+        if text.startswith("\n \n ", i):
+            ids.append(1)
+            offs.append((i, i + 4))
+            i += 4
+        else:
+            ids.append(ord(text[i]))
+            offs.append((i, i + 1))
+            i += 1
+    return ids, offs
+
+
+def _blank_pair_spec(gold: int | None) -> SequenceSpec:
+    return SequenceSpec(
+        slot_name="defect_span",
+        text=_BLANK_PAIR_TEXT,
+        slot_kind=SLOT_SPAN,
+        span_char_starts=None if gold is None else (gold, gold),
+        span_abstains=gold is None,
+        line_char_starts=_BLANK_PAIR_LINES,
+    )
+
+
+def _encode_blank_pair(spec: SequenceSpec, **kw: object) -> shards_module.EncodedSlot:
+    return shards_module.encode_slot(
+        spec,
+        tokenize=lambda t: _blank_pair_tokens(t)[0],
+        remap=byte_remap(),
+        token_offsets=lambda t: _blank_pair_tokens(t)[1],
+        decode=None,
+        where="row r slot defect_span",
+        **kw,  # type: ignore[arg-type]
+    )
+
+
+def test_refuse_gold_keeps_a_span_slot_whose_collapse_misses_the_gold() -> None:
+    """Fable round K: a collapse of two blank context lines no longer costs the slot.
+
+    The gold ("+b") is untouched; the two blank lines share one candidate token index, one
+    entry per line, so the candidate list still has the context's line count.
+    """
+    spec = _blank_pair_spec(gold=11)
+    with pytest.raises(UnencodableGold, match="share one candidate"):
+        _encode_blank_pair(spec)
+    encoded = _encode_blank_pair(
+        spec, span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD
+    )
+    assert encoded.candidates == (0, 4, 6, 6, 8, 11)
+    assert len(encoded.candidates) == len(_BLANK_PAIR_LINES)
+    assert encoded.span == (8, 8)
+    # And an abstaining span row, which has no gold to collide, keeps its slot too.
+    abstain = _encode_blank_pair(
+        _blank_pair_spec(gold=None), span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD
+    )
+    assert abstain.span == (SPAN_ABSTAIN, SPAN_ABSTAIN)
+    assert abstain.candidates == (0, 4, 6, 6, 8, 11)
+
+
+def test_refuse_gold_still_refuses_a_gold_line_inside_a_collapsed_token() -> None:
+    spec = _blank_pair_spec(gold=9)
+    with pytest.raises(UnencodableGold, match="gold's line start shares token"):
+        _encode_blank_pair(spec, span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD)
+    with pytest.raises(ValueError, match="span_collapse_policy"):
+        _encode_blank_pair(spec, span_collapse_policy="share-everything")
+
+
+def test_refuse_gold_is_refused_on_any_split_but_train(snapshot: Snapshot, tmp_path: Path) -> None:
+    """Val and gate sets keep refuse-any, so no gate's span population moves (rule 2)."""
+    with pytest.raises(ShardContractViolation, match="training-side"):
+        _write(
+            snapshot, "val", tmp_path / "val",
+            span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD,
+        )
+    assert not (tmp_path / "val").exists()
+
+
+def test_refuse_gold_without_a_collapse_writes_the_default_set_byte_for_byte(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """Where nothing collapses (byte tokens), the policy changes no byte of the set but the
+    header's record of it: the header names the policy, and nothing else in it moves."""
+    a = _write(snapshot, "train", tmp_path / "a")
+    b = _write(
+        snapshot, "train", tmp_path / "b",
+        span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD,
+    )
+    assert (a.span_collapse_policy, b.span_collapse_policy) == ("", "refuse-gold")
+    assert dataclasses.replace(b, span_collapse_policy="").shard_hash() == a.shard_hash()
+    for name in sorted(p.name for p in (tmp_path / "a").iterdir()):
+        if name == HEADER_NAME:
+            continue
+        assert (tmp_path / "a" / name).read_bytes() == (tmp_path / "b" / name).read_bytes(), name
+
+
+# -- the report-only val set (Fable G5(ii) slice, conditions 1-5) ---------------------------
+
+
+def _report_only(snapshot: Snapshot, out: Path) -> ShardHeader:
+    return _write(
+        snapshot, "val", out, report_only=True,
+        span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD,
+    )
+
+
+def test_a_report_only_val_set_is_written_refuse_gold_and_says_so(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    out = tmp_path / "shards" / "val-report-only-composed"
+    header = _report_only(snapshot, out)
+    assert (header.split, header.report_only, header.span_collapse_policy) == (
+        "val", True, "refuse-gold",
+    )
+    raw = json.loads((out / HEADER_NAME).read_text(encoding="utf-8"))
+    assert (raw["report_only"], raw["span_collapse_policy"]) == (True, "refuse-gold")
+    read = ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
+    assert read.header == header
+    # A gate set's header is shaped as before: neither key, so its hash is what it was.
+    gate = _write(snapshot, "val", tmp_path / "shards" / "val")
+    gate_raw = json.loads((tmp_path / "shards" / "val" / HEADER_NAME).read_text(encoding="utf-8"))
+    assert "report_only" not in gate_raw and "span_collapse_policy" not in gate_raw
+    assert (gate.report_only, gate.span_collapse_policy) == (False, "")
+
+
+@pytest.mark.parametrize(
+    ("split_name", "policy"),
+    [
+        ("train", shards_module.SPAN_COLLAPSE_REFUSE_GOLD),
+        ("val", shards_module.SPAN_COLLAPSE_REFUSE_ANY),
+    ],
+)
+def test_report_only_is_refused_off_val_or_without_refuse_gold(
+    snapshot: Snapshot, tmp_path: Path, split_name: str, policy: str
+) -> None:
+    with pytest.raises(ShardContractViolation, match="report_only is a val set"):
+        _write(
+            snapshot, split_name, tmp_path / "x", report_only=True, span_collapse_policy=policy
+        )
+    assert not (tmp_path / "x").exists()
+
+
+def test_a_gate_reader_refuses_a_report_only_or_refuse_gold_header(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    report = _report_only(snapshot, tmp_path / "r")
+    with pytest.raises(ShardContractViolation, match="not a gate population"):
+        report.require_gate_population(where="r")
+    trained = _write(
+        snapshot, "train", tmp_path / "t",
+        span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD,
+    )
+    with pytest.raises(ShardContractViolation, match="not a gate population"):
+        trained.require_gate_population(where="t")
+    _write(snapshot, "val", tmp_path / "g").require_gate_population(where="g")
+
+
+def test_the_header_round_trips_the_policy_and_report_only(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    header = _report_only(snapshot, tmp_path / "r")
+    again = ShardHeader.from_json(json.loads(json.dumps(header.to_json())))
+    assert again == header and again.shard_hash() == header.shard_hash()
+    with pytest.raises(ShardContractViolation, match="only a val set may be report-only"):
+        dataclasses.replace(header, split="train")
+    with pytest.raises(ShardContractViolation, match="is not refuse-any or refuse-gold"):
+        dataclasses.replace(header, span_collapse_policy="share-everything")
+    raw = header.to_json()
+    raw["report_only"] = "true"
+    with pytest.raises(ShardContractViolation, match="JSON boolean"):
+        ShardHeader.from_json(raw)
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        lambda raw: raw.pop("report_only"),
+        lambda raw: raw.__setitem__("report_only", False),
+        lambda raw: raw.pop("span_collapse_policy"),
+        lambda raw: raw.__setitem__("span_collapse_policy", "refuse-any"),
+    ],
+)
+def test_a_hand_edited_report_only_header_fails_its_shard_hash(
+    snapshot: Snapshot, tmp_path: Path, edit: Any
+) -> None:
+    """Turning a report-only set into a gate-shaped one by editing header.json is refused:
+    both fields are under ``shard_hash``."""
+    out = tmp_path / "r"
+    _report_only(snapshot, out)
+    raw = json.loads((out / HEADER_NAME).read_text(encoding="utf-8"))
+    edit(raw)
+    (out / HEADER_NAME).write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ShardContractViolation, match="modified after it was written"):
+        ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
+
+
+def _longest_and_rows_over(snapshot: Snapshot, tmp_path: Path) -> tuple[int, int]:
+    """The longest train sequence, and how many rows hold a sequence of that length."""
+    out = tmp_path / "shards" / "uncapped"
+    header = _write(snapshot, "train", out)
+    reader = ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
+    longest = header.max_seq_len
+    assert reader.sequence_index is not None
+    rows_over = {
+        row_id
+        for (row_id, _slot), n in zip(
+            reader.sequence_index.sequences, reader.lengths(), strict=True
+        )
+        if n == longest
+    }
+    return longest, len(rows_over)
+
+
+def test_a_row_over_max_seq_len_refuses_the_write_rather_than_being_truncated(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """The long-context build's hard width (8,192) is a refusal, never a cut.
+
+    Truncation drops the answer token off the end of the example, so a row past the width
+    cannot be written at all; without ``allow_unencodable`` that is the whole write.
+    """
+    longest, _ = _longest_and_rows_over(snapshot, tmp_path)
+    out = tmp_path / "shards" / "capped"
+    with pytest.raises(ShardContractViolation, match=f"over max_seq_len={longest - 1}"):
+        _write(snapshot, "train", out, max_seq_len=longest - 1)
+    # At the longest length itself nothing is over, and the set is the uncapped one.
+    header = _write(snapshot, "train", tmp_path / "shards" / "at", max_seq_len=longest)
+    assert header.max_seq_len == longest
+
+
+def test_with_the_flag_a_row_over_max_seq_len_is_excluded_whole_and_counted(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    longest, n_over = _longest_and_rows_over(snapshot, tmp_path)
+    rows = snapshot.rows["train"]
+    assert 0 < n_over < len(rows)
+    out = tmp_path / "shards" / "capped"
+    header = _write(snapshot, "train", out, max_seq_len=longest - 1, allow_unencodable=True)
+    assert header.max_seq_len <= longest - 1
+    reader = ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
+    coverage = reader.coverage
+    assert isinstance(coverage, Ran)
+    assert coverage.n == len(rows) - n_over and coverage.n_total == len(rows)
+    assert not coverage.passed
+    assert "OverMaxSeqLen" in (coverage.detail or ""), coverage.detail
+    # Whole rows: no sequence of an excluded row survives, and each exclusion says why.
+    assert reader.sequence_index is not None
+    written = {row_id for row_id, _slot in reader.sequence_index.sequences}
+    assert len(written) == len(rows) - n_over
+    over = [e for e in reader.sequence_index.excluded if e.refusal == "OverMaxSeqLen"]
+    assert {e.row_id for e in over}.isdisjoint(written) and len({e.row_id for e in over}) == n_over
+    assert all(e.scope == "row" for e in over)
+
+
+@pytest.mark.parametrize("bad", [0, 1, -5, True, 2.5])
+def test_a_max_seq_len_that_cannot_hold_a_prompt_and_answer_is_refused(
+    snapshot: Snapshot, tmp_path: Path, bad: object
+) -> None:
+    with pytest.raises(ValueError, match="max_seq_len"):
+        _write(snapshot, "train", tmp_path / "nope", max_seq_len=bad)
 
 
 def test_a_shard_set_records_whether_its_span_mapping_was_decode_verified(
