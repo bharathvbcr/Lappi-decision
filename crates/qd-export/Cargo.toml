@@ -1,0 +1,42 @@
+[package]
+name = "qd-export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "The release exporter: an averaged tower.*/span_head.* checkpoint -> the directory qd-metal's loader reads, every file hash-bound."
+
+[lib]
+name = "qd_export"
+path = "src/lib.rs"
+
+[[bin]]
+name = "qd-export"
+path = "src/main.rs"
+
+# A crate of its own rather than a bin in an existing one:
+#
+# * not in qd-metal, because tessl links `objc2-metal` unconditionally
+#   (tessl/Cargo.toml:31-59), so nothing that depends on qd-metal builds for the aarch64 Linux
+#   box, and the box is where the averaged checkpoint lives;
+# * not in qd-runtime, whose manifest another lane is editing (the `qd-calib-fit` bin), and
+#   whose own dependencies this would not need to grow.
+#
+# Every dependency is already in the workspace. `qd-runtime` is here for exactly two things:
+# `CalibrationTable`, so a passed-through table is validated by the type the runtime reads it
+# as and recorded under the hash the runtime reports; and `hex`. Nothing here links C.
+[dependencies]
+qd-runtime = { path = "../qd-runtime" }
+clap.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+# Test-only, and the reason the round trip means something: the release is read back by the
+# serving loader's own reader and CPU load path (qd-metal), not by this crate's reader, and the
+# bf16 cast is checked against tessl's. Dev-dependencies are not built for `--bin qd-export`,
+# so the Linux cross-build never sees Metal.
+[dev-dependencies]
+qd-metal = { path = "../qd-metal" }
+tessl = { path = "../../../tessl" }
