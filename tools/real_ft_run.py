@@ -1050,6 +1050,9 @@ def _decode(
                         "kind": "span",
                         "row_id": label.row_id,
                         "slot_name": label.slot_name,
+                        # What the report-only per-family metrics group by
+                        # (``*.family.<family_id>``); nothing a gate reads.
+                        "family_id": label.family_id,
                         "prefix_key": hashlib.sha256(
                             batch.tokens[r, : int(batch.target_index[r]) + 1].tobytes()  # type: ignore[index]
                         ).hexdigest(),
@@ -1096,6 +1099,7 @@ def _decode(
                     "kind": KIND_NAMES[label.slot_kind],
                     "row_id": label.row_id,
                     "slot_name": label.slot_name,
+                    "family_id": label.family_id,
                     "prefix_key": hashlib.sha256(
                         batch.tokens[r, : at + 1].tobytes()
                     ).hexdigest(),
@@ -3278,6 +3282,44 @@ def language_eces(verdicts: Sequence[Mapping[str, object]]) -> dict[str, TriStat
     return states
 
 
+#: Why a ``*.family`` metric is not run over verdicts that carry no ``family_id``.
+NO_FAMILY_REASON: Final[str] = (
+    "carry no family_id: _decode writes the label's family onto every verdict, so these were "
+    "not produced by it and cannot be grouped by family"
+)
+
+
+def family_eces(verdicts: Sequence[Mapping[str, object]]) -> dict[str, TriState]:
+    """``ece.family.{family_id}.{kind}.k{options}``: REPORT-ONLY, never in the ``ece`` gate.
+
+    The same :func:`ece_gate` per slot shape as ``ece.{kind}.k{options}``, over one family's
+    letter rows -- so a family under the sample floor is ``not_run`` with ``ece_gate``'s own
+    reason, and ``passed`` is that metric's bar, as on the per-k and per-language metrics.
+    Per shape because a family can ask over more than one option count (CLINC's
+    within-domain intents), and one ECE over different row counts needs padding, which
+    :func:`letter_distributions` refuses. Rows without a family are ``ece.family``
+    :class:`NotRun`, never dropped. Empty when there are no letter rows at all.
+    """
+    letter_rows = [v for v in verdicts if str(v["kind"]) != "span"]
+    by_family: dict[str, list[Mapping[str, object]]] = {}
+    missing = 0
+    for v in letter_rows:
+        family = v.get("family_id")
+        if isinstance(family, str) and family:
+            by_family.setdefault(family, []).append(v)
+        else:
+            missing += 1
+    states: dict[str, TriState] = {}
+    if missing:
+        states["ece.family"] = NotRun(
+            reason=f"{missing} of {len(letter_rows)} letter rows {NO_FAMILY_REASON}"
+        )
+    for family, rows in sorted(by_family.items()):
+        for key, (probs, gold) in letter_distributions(rows).items():
+            states[f"ece.family.{family}.{key}"] = ece_gate(probs, gold)
+    return states
+
+
 def letter_distributions(
     verdicts: Sequence[Mapping[str, object]],
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
@@ -3328,6 +3370,7 @@ def calibration_states(
     retuning it where nobody looks (the rung-0 call site says the same). The gate aggregates
     every per-k ECE AND every per-language one (:func:`language_eces`), so it is ``not_run``
     while any letter row has no language; every number is recorded as a metric regardless.
+    The per-family ECEs (:func:`family_eces`) are metrics only and never reach the gate.
     """
     verdicts = scored["verdicts"]
     if not isinstance(verdicts, list):
@@ -3341,6 +3384,9 @@ def calibration_states(
     eces.update(language_eces(verdicts))
     metrics.update(eces)
     metrics.update(degenerate)
+    # Into the metrics only: `eces` is what the gate aggregates, and a per-family ECE there
+    # would change the gate's population (rule 2).
+    metrics.update(family_eces(verdicts))
     if not eces:
         eces["ece.lang"] = NotRun(reason="no letter rows were decoded")
     return metrics, aggregate(eces, name="ece"), aggregate(degenerate, name="degenerate_head")
@@ -3410,17 +3456,39 @@ def permutation_agreement(
     passes abstaining is agreement -- the runtime answers ``noul`` either way -- and one
     abstaining is not.
     """
-    first = {
+    first = _choice_verdicts(scored)
+    outcomes = permutation_outcomes(first, second, perms)
+    return permutation_consistency_state(
+        agree=sum(1 for _, agreed in outcomes.values() if agreed), asked=len(outcomes),
+        total=len(first),
+    )
+
+
+def _choice_verdicts(decode: Mapping[str, object]) -> dict[tuple[str, str], dict[str, object]]:
+    """A decode's choice verdicts by ``(row_id, slot_name)``, the key a derangement has."""
+    return {
         (str(v["row_id"]), str(v["slot_name"])): v
-        for v in scored["verdicts"]  # type: ignore[union-attr]
+        for v in decode["verdicts"]  # type: ignore[union-attr]
         if v["kind"] == "choice"
     }
-    again = {
-        (str(v["row_id"]), str(v["slot_name"])): v
-        for v in second["verdicts"]  # type: ignore[union-attr]
-        if v["kind"] == "choice"
-    }
-    agree = asked = 0
+
+
+def permutation_outcomes(
+    first: Mapping[tuple[str, str], Mapping[str, object]],
+    second: Mapping[str, object],
+    perms: Mapping[tuple[str, str], tuple[int, ...]],
+) -> dict[tuple[str, str], tuple[int, bool]]:
+    """Per ASKED first-pass choice row (one with a derangement): the second pass's top row,
+    and whether the two passes agreed.
+
+    The one owner of the agreement rule, so the gate (:func:`permutation_agreement`), the
+    per-family breakdown and ``--verdicts-out`` count the same rows the same way: both
+    passes abstaining is agreement, one abstaining is not, and otherwise the permuted
+    winner must map back (``perm[top2]``) to the first pass's. A row decoded in the first
+    pass and not the second is refused rather than dropped.
+    """
+    again = _choice_verdicts(second)
+    out: dict[tuple[str, str], tuple[int, bool]] = {}
     for key, v in first.items():
         perm = perms.get(key)
         if perm is None:
@@ -3428,15 +3496,100 @@ def permutation_agreement(
         w = again.get(key)
         if w is None:
             raise SystemExit(f"row {key} was decoded in the first pass and not the second")
-        asked += 1
         top1, top2 = int(v["top"]), int(w["top"])  # type: ignore[call-overload]
         abstained1 = top1 == int(v["noul_row"])  # type: ignore[call-overload]
         abstained2 = top2 == int(w["noul_row"])  # type: ignore[call-overload]
-        if abstained1 or abstained2:
-            agree += int(abstained1 and abstained2)
-        elif perm[top2] == top1:
-            agree += 1
-    return permutation_consistency_state(agree=agree, asked=asked, total=len(first))
+        agreed = (
+            (abstained1 and abstained2) if abstained1 or abstained2 else perm[top2] == top1
+        )
+        out[key] = (top2, agreed)
+    return out
+
+
+def annotate_second_pass(
+    scored: Mapping[str, object],
+    second: Mapping[str, object],
+    perms: Mapping[tuple[str, str], tuple[int, ...]],
+) -> None:
+    """Write each asked choice row's second pass onto its FIRST-pass verdict, in place:
+    ``top_permuted`` (the permuted pass's top row, in ITS order), ``permutation_agreed``
+    (:func:`permutation_outcomes`) and ``perm`` (``perm[j]`` is the option first shown at
+    ``j``). What :func:`permutation_family_metrics` and ``--verdicts-out`` read; nothing a
+    gate reads. A row with no derangement gets none of the three: it was never asked.
+    """
+    first = _choice_verdicts(scored)
+    for key, (top2, agreed) in permutation_outcomes(first, second, perms).items():
+        first[key].update(
+            {"top_permuted": top2, "permutation_agreed": agreed, "perm": list(perms[key])}
+        )
+
+
+def permutation_family_metrics(
+    scored: Mapping[str, object], gate: TriState
+) -> dict[str, TriState]:
+    """``permutation_consistency.family.{family_id}``: REPORT-ONLY, never the gate.
+
+    Each family's share of the gate under the gate's own convention -- ``n`` agreeing of
+    ``n_total`` asked -- so the families' ``n`` and ``n_total`` sum to the gate's.
+    ``passed`` is always true: whether the 95% floor applies per family is the human's
+    ruling, and a per-family pass/fail here would be that ruling made where nobody looks.
+    Read from :func:`annotate_second_pass`'s fields. Fails closed without raising: a gate
+    that did not run gives every family its reason, and counts that do not sum to the
+    gate's give one ``permutation_consistency.family`` :class:`NotRun`, never a number.
+    """
+    first = _choice_verdicts(scored)
+    by_family: dict[str, list[Mapping[str, object]]] = {}
+    missing = 0
+    for v in first.values():
+        family = v.get("family_id")
+        if isinstance(family, str) and family:
+            by_family.setdefault(family, []).append(v)
+        else:
+            missing += 1
+    if missing:
+        return {"permutation_consistency.family": NotRun(
+            reason=f"{missing} of {len(first)} choice rows {NO_FAMILY_REASON}"
+        )}
+    if isinstance(gate, NotRun):
+        return {
+            f"permutation_consistency.family.{family}": NotRun(
+                reason=f"the permutation_consistency gate was not run: {gate.reason}"
+            )
+            for family in sorted(by_family)
+        }
+    out: dict[str, TriState] = {}
+    agree_sum = asked_sum = 0
+    for family, rows in sorted(by_family.items()):
+        asked = [v for v in rows if "permutation_agreed" in v]
+        agree = sum(1 for v in asked if v["permutation_agreed"] is True)
+        agree_sum, asked_sum = agree_sum + agree, asked_sum + len(asked)
+        name = f"permutation_consistency.family.{family}"
+        if not asked:
+            out[name] = NotRun(
+                reason=(
+                    f"none of {len(rows)} {family} choice rows had two or more live options, "
+                    "so no derangement exists for this family"
+                )
+            )
+            continue
+        out[name] = Ran(
+            passed=True, value=agree / len(asked), n=agree, n_total=len(asked),
+            detail=(
+                f"{agree} of {len(asked)} {family} choice rows ({agree / len(asked):.1%}) "
+                f"agreed with themselves across the derangement; {len(rows) - len(asked)} "
+                "had fewer than two live options. Reported per family, not the gate: "
+                "permutation_consistency is judged over every family together"
+            ),
+        )
+    if isinstance(gate, Ran) and (gate.n, gate.n_total) != (agree_sum, asked_sum):
+        return {"permutation_consistency.family": NotRun(
+            reason=(
+                f"the families sum to {agree_sum} of {asked_sum} and the gate is {gate.n} of "
+                f"{gate.n_total}: these verdicts do not carry the second pass the gate was "
+                "scored from, so no per-family number is reported"
+            )
+        )}
+    return out
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -3472,17 +3625,24 @@ def score_permutation_consistency(
 
     Returns the gate and the second pass's decode (``None`` when it did not run), which the
     ``ood_abstain`` in-distribution bound reads rather than decoding the val set a third time.
+    The gate is computed first; then each asked row's second pass is written onto its
+    ``scored`` verdict (:func:`annotate_second_pass`) for the per-family metrics and
+    ``--verdicts-out``, which both scoring paths read from ``scored``.
     """
     if second_pass.not_run is not None:
         return NotRun(reason=second_pass.not_run), None
     second = _decode(step, second_pass.batches, second_pass.labels_for, val.letter_id)
-    return permutation_agreement(scored, second, second_pass.perms), second
+    gate = permutation_agreement(scored, second, second_pass.perms)
+    annotate_second_pass(scored, second, second_pass.perms)
+    return gate, second
 
 
 def choice_rule_abstentions(
     first: Mapping[str, object],
     second: Mapping[str, object],
     perms: Mapping[tuple[str, str], tuple[int, ...]],
+    *,
+    gold_noul: bool = False,
 ) -> dict[str, bool]:
     """Per first-pass choice row whose gold is not ``noul``: would the runtime abstain?
 
@@ -3490,6 +3650,10 @@ def choice_rule_abstentions(
     margin: abstain when either pass's top row is ``noul``, or when the permuted pass's
     winner maps back to a different option. A row with no derangement (fewer than two
     options) has no second pass and abstains only on ``noul``. Keyed ``row_id``.
+
+    ``gold_noul=True`` asks the same rule of the complement -- the rows whose gold IS
+    ``noul``, which the in-distribution bound excludes by contract -- for the report-only
+    ``ood_abstain.in_distribution.gold_noul.*`` counts. The gate's call never passes it.
     """
     again = {
         (str(v["row_id"]), str(v["slot_name"])): v
@@ -3498,7 +3662,7 @@ def choice_rule_abstentions(
     }
     out: dict[str, bool] = {}
     for v in first["verdicts"]:  # type: ignore[union-attr]
-        if v["kind"] != "choice" or bool(v["expected_abstain"]):
+        if v["kind"] != "choice" or bool(v["expected_abstain"]) is not gold_noul:
             continue
         key = (str(v["row_id"]), str(v["slot_name"]))
         top1 = int(v["top"])  # type: ignore[call-overload]
@@ -4134,11 +4298,71 @@ def score_ood(
         )
         if indist else NotRun(reason="no val choice row was scored")
     )
+    metrics.update(in_distribution_family_metrics(
+        scored, indist,
+        choice_rule_abstentions(scored, val_second, val_second_pass.perms, gold_noul=True),
+    ))
     gate = ood_gate(
         ood_abstained=sum(ood.values()), ood_total=len(ood),
         in_abstained=in_k, in_total=len(indist),
     )
     return gate, metrics, ood_verdict_lines(suite, first, second, ood)
+
+
+def in_distribution_family_metrics(
+    scored: Mapping[str, object], indist: Mapping[str, bool], gold_noul: Mapping[str, bool],
+) -> dict[str, TriState]:
+    """REPORT-ONLY breakdowns of ``ood_abstain.in_distribution``, never the gate.
+
+    * ``ood_abstain.in_distribution.family.{family_id}``: the runtime rule's abstentions on
+      one family's val choice rows, out of that family's rows in the bound -- the same
+      ``indist`` the gate reads, so the families' ``n`` and ``n_total`` sum to the pooled
+      metric's.
+    * ``ood_abstain.in_distribution.gold_noul.family.{family_id}``: the rows the bound
+      EXCLUDES by contract ("none of whose golds is noul", ``qd_train.ood``), and how many of
+      them the same rule abstains on -- the right answer there. Not in any pooled number.
+
+    Keyed by ``row_id`` like :func:`choice_rule_abstentions`. Every family with a val choice
+    row gets both names; a family with no row on one side is :class:`NotRun` saying so.
+    """
+    family_of: dict[str, object] = {
+        str(v["row_id"]): v.get("family_id")
+        for v in scored["verdicts"]  # type: ignore[union-attr]
+        if v["kind"] == "choice"
+    }
+    out: dict[str, TriState] = {}
+    for prefix, abstentions, what, empty in (
+        ("ood_abstain.in_distribution", indist,
+         "val choice rows the runtime rule would abstain on, of this family's rows in the "
+         "in-distribution bound (reported per family, not the gate)",
+         "every {family} val choice row has a noul gold, which the bound excludes"),
+        ("ood_abstain.in_distribution.gold_noul", gold_noul,
+         "val choice rows whose gold is noul -- excluded from the in-distribution bound by "
+         "its contract -- that the runtime rule abstains on (reported, in no pooled number)",
+         "no {family} val choice row has a noul gold"),
+    ):
+        missing = [r for r in abstentions if not isinstance(family_of.get(r), str)]
+        if missing:
+            out[f"{prefix}.family"] = NotRun(
+                reason=f"{len(missing)} of {len(abstentions)} choice rows {NO_FAMILY_REASON}"
+            )
+            continue
+        by_family: dict[str, list[bool]] = {
+            str(f): [] for f in family_of.values() if isinstance(f, str)
+        }
+        for row_id, abstained in abstentions.items():
+            by_family[str(family_of[row_id])].append(abstained)
+        for family, flags in sorted(by_family.items()):
+            name = f"{prefix}.family.{family}"
+            if not flags:
+                out[name] = NotRun(reason=empty.format(family=family))
+                continue
+            k = sum(flags)
+            out[name] = Ran(
+                passed=True, value=k / len(flags), n=k, n_total=len(flags),
+                detail=f"{k} of {len(flags)}: {what}",
+            )
+    return out
 
 
 def ood_verdict_lines(
@@ -4302,6 +4526,8 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
         recorder.gate("ece", ece)
         recorder.control("degenerate_head", degenerate)
         recorder.gate("permutation_consistency", permutation)
+        for name, state in permutation_family_metrics(scored, permutation).items():
+            recorder.metric(name, state)
         for suite_gate in suite_gates:
             for name, state in suite_gate.metrics.items():
                 recorder.metric(name, state)
@@ -5310,8 +5536,10 @@ def _verdict_lines(
             # What an always-abstaining span head is scored against
             # (ft_linear_control's paired_margin_vs_abstain_constant.span).
             line["expected_abstain"] = bool(v["expected_abstain"])
-        # What a margin or calibration fit reads: the argmax alone cannot be refitted.
-        for key in VERDICT_DISTRIBUTION_KEYS:
+        # What a margin or calibration fit reads: the argmax alone cannot be refitted. And
+        # the family and the permuted pass, from which every per-family metric on the eval
+        # row (permutation_consistency, the in-distribution abstentions, ece) is recomputed.
+        for key in (*VERDICT_DISTRIBUTION_KEYS, *VERDICT_FAMILY_KEYS):
             if key in v:
                 line[key] = v[key]
         out.append(line)
@@ -5322,6 +5550,13 @@ def _verdict_lines(
 #: distribution and where the abstention sits in it.
 VERDICT_DISTRIBUTION_KEYS: Final[tuple[str, ...]] = (
     "noul_row", "rows", "language", "noul_probability", "row_logits",
+)
+
+#: The row's family (``_decode``) and, on a choice row with a derangement, its second pass
+#: (:func:`annotate_second_pass`): ``top_permuted`` in the permuted pass's own order,
+#: ``permutation_agreed``, and ``perm``. Carried only where they were written.
+VERDICT_FAMILY_KEYS: Final[tuple[str, ...]] = (
+    "family_id", "top_permuted", "permutation_agreed", "perm",
 )
 
 
