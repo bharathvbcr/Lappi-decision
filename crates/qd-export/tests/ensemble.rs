@@ -6,6 +6,7 @@
 mod common;
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
 
 use qd_export::{
@@ -606,4 +607,77 @@ fn a_runtime_is_not_built_from_fewer_swapped_or_miscalibrated_members() {
         build(loaded(&w.summaries, &reference)),
         &["ensemble member 0", "calibration_hash"],
     );
+}
+
+// -- the binary ----------------------------------------------------------------------------------
+
+const BIN: &str = env!("CARGO_BIN_EXE_qd-export-ensemble");
+
+fn run(members: &[&Path], widths: &[u64], table: &Path, out: &Path) -> std::process::Output {
+    let mut cmd = Command::new(BIN);
+    for (member, width) in members.iter().zip(widths) {
+        cmd.arg("--member").arg(member);
+        cmd.arg("--trained-width").arg(width.to_string());
+    }
+    // A width without a member: clap pairs nothing, the writer counts.
+    for width in widths.iter().skip(members.len()) {
+        cmd.arg("--trained-width").arg(width.to_string());
+    }
+    cmd.arg("--trained-width-source")
+        .arg(SOURCE)
+        .arg("--calibration")
+        .arg(table)
+        .arg("--out")
+        .arg(out);
+    cmd.output().expect("the binary runs")
+}
+
+#[test]
+fn the_binary_writes_what_the_reader_opens_and_exits_2_on_a_refusal() {
+    let (fixtures, summaries) = members(3);
+    let dir = common::TempDir::new("ensemble-bin");
+    let table = table_file(&dir.0);
+    let paths: Vec<&Path> = fixtures.iter().map(|f| f.out.as_path()).collect();
+
+    let out = dir.0.join("ensemble");
+    let ok = run(&paths, &[WIDTH; 3], &table, &out);
+    let stdout = String::from_utf8(ok.stdout).unwrap();
+    assert_eq!(
+        ok.status.code(),
+        Some(0),
+        "{stdout}{}",
+        String::from_utf8_lossy(&ok.stderr)
+    );
+    let ensemble = Ensemble::open(&out).expect("the binary's ensemble opens");
+    assert!(
+        stdout.contains(&format!("\nweight_hash: {}\n", ensemble.weight_hash())),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("calibration_hash: {}", ensemble_table().hash())),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("trained_width: {WIDTH}")),
+        "{stdout}"
+    );
+    for (i, s) in summaries.iter().enumerate() {
+        assert!(
+            stdout.contains(&format!("member {i} weight_hash: {}", s.weight_hash)),
+            "{stdout}"
+        );
+    }
+
+    for (members, widths) in [(&paths[..1], vec![WIDTH]), (&paths[..2], vec![WIDTH; 3])] {
+        let out = dir.0.join("refused");
+        let refused = run(members, &widths, &table, &out);
+        let stderr = String::from_utf8(refused.stderr).unwrap();
+        assert_eq!(refused.status.code(), Some(2), "{stderr}");
+        assert!(stderr.contains("qd-export-ensemble: refused"), "{stderr}");
+        assert!(
+            !out.exists(),
+            "a refused ensemble left {} behind",
+            out.display()
+        );
+    }
 }
