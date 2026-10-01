@@ -61,7 +61,7 @@ claims rest on the two committed interleaved benchmarks below.
 
 The phase-4 reference is `/Users/bharath/qd-campaign/phase4-fullvocab-2026-09-30`, row
 1af4e762 in `ledger/mac-phase4-fullvocab-shards-2026-09-30.jsonl`. The rows above that name
-this branch were written at HEAD 95984e4 or f164f35 (`-dirty`, which means the untracked ledger file and a `.venv` symlink). `tools/` and `crates/` are byte-identical
+this branch were written at HEAD 95984e4 or f164f35. Each is `-dirty` because of three untracked things: the ledger file, a `.venv` symlink and, for f5664ba2, this handoff's draft. `tools/` and `crates/` are byte-identical
 across 3b5678f..f164f35, and the `code_that_ran` digest c345882 is this branch's tool file.
 
 ### Shard-byte parity
@@ -106,7 +106,11 @@ An earlier run of the shingle-table benchmark gave 6.946 s against 4.997 s (1.39
 was taken while N2 was running, at a load average of about 14, so it is not the cited
 number.
 
-### Profiles (stdlib cProfile, Mac CPU; the dumps are scratch files and were not ledgered)
+### Profiles (stdlib cProfile, Mac CPU; not ledgered)
+
+The summaries are quoted verbatim, with the commands, revisions and load, in
+`AUDIT/perf-pipeline-shards-2026-09-30.md`. The dumps themselves were session scratch
+files.
 
 **Phase 3, pure Python, before the port.** This is main as it stood before bd47939; 626.1 s
 were profiled.
