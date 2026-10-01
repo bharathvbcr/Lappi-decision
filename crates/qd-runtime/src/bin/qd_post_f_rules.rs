@@ -2,16 +2,19 @@
 //! read off ledger rows, plus the two row look-ups that queue's box scripts need to pin the ids
 //! they grep out of F's logs to the ledger.
 //!
-//! The rules are `campaign/f-j7prime-preregistered.json` (committed at 4fd08cf) and, for the
-//! OOD falsifier, `campaign/f-v4-preregistered.json` (3a1796d). The scripts that call this are
-//! `campaign/post-f-queue/*.sh`.
+//! The rules are `campaign/f-j7prime-preregistered.json` (committed at 4fd08cf; Fable's reading
+//! of avg-np's (b) and (c), `avg_np_qualifies_for_f_j7prime.avg_np_reading`, at 54512e6) and,
+//! for the OOD falsifier, `campaign/f-v4-preregistered.json` (3a1796d). The scripts that call
+//! this are `campaign/post-f-queue/*.sh`.
 //!
 //! Decisions (each writes its JSON to `--out` and stderr, and one word to stdout):
 //!
 //! * `avgnp` — (i) does J4's norm-preserving average qualify for F's J7'? Iff all of
-//!   (a) `ood_abstain` total >= 34/180, (b) 8K needle worst bucket >= 0.279 and no 1K/2K/4K
-//!   length-control worst bucket below the average's 0.895 / 0.767 / 0.426, (c)
-//!   `val_top1.choice` >= 0.765 and `val_top1.span` >= 0.884. Words: `qualifies`, `fails`.
+//!   (a) `ood_abstain` total >= 34/180, (b) 8K needle worst bucket at least 1d93b3ee's and no
+//!   1K/2K/4K length-control worst bucket below 0b86fae3's, (c) `val_top1.choice` and
+//!   `val_top1.span` at least J4's seed minima (f3612f73, 2f5fe57a). Printed as 0.279, 0.895 /
+//!   0.767 / 0.426, 0.765 and 0.884; the rows' counts govern (below). Words: `qualifies`,
+//!   `fails`.
 //! * `seeds34` — (ii) do F's three 8K needle worst buckets spread by more than 0.30? Words:
 //!   `fires`, `quiet`.
 //! * `j6f` — (iii) does J6(f) run right after J5'? Iff F's 8K worst bucket is < 0.95 on >= 2 of
@@ -36,17 +39,20 @@
 //! float `value`, so a threshold sitting exactly on a bucket's fraction cannot flip on rounding.
 //! The float is read only to cross-check it against its own counts.
 //!
-//! # Two readings, never a choice between them
+//! # The cited row's count governs (b) and (c)
 //!
 //! (b) and (c) print their thresholds as three-decimal numbers *and* name the rows they were read
-//! from. The decimals are roundings of those rows' fractions, and they straddle them both ways:
-//! 0.279, 0.895 and 0.767 sit above 17/61, 51/57 and 46/60, while 0.765 and 0.884 sit below
-//! 8405/10985 and 6399/7238. So a candidate that ties the cited row passes one reading and fails
-//! the other. Each such comparison is made both ways; a clause whose readings disagree is
-//! `ambiguous`. (i) is the conjunction in Kleene's three-valued logic: it fails if any clause
-//! fails, is refused if any clause is ambiguous and none fails, and qualifies only when every
-//! clause passes under both readings. Choosing a reading would move a threshold (CLAUDE.md
-//! rule 2); the refusal hands the tie to the human.
+//! from. The decimals are roundings of those rows' fractions and do not sit on them (0.279,
+//! 0.895 and 0.767 above 17/61, 51/57 and 46/60; 0.765, 0.426 and 0.884 below 8405/10985, 26/61
+//! and 6399/7238). Fable's reading (54512e6, `avg_np_reading`) settles which governs: the cited
+//! row's exact count. Each part passes iff
+//! `candidate.n * cited.n_total >= cited.n * candidate.n_total`, by integer cross-multiplication
+//! on the candidate's own worst-bucket (or val) fraction, never the float; a tie passes. (a) is
+//! the integer 34/180, one reading. The decimal comparison is still computed and written to the
+//! JSON as `literal.passes`, report-only: it decides nothing. A cited row that no longer rounds
+//! to its printed decimal still refuses, since then the record and its row disagree. With the
+//! suites' fixed sizes the two readings differ on exactly four candidate values (17/61 at 8K,
+//! 51/57 at 1K and 46/60 at 2K pass; 8404/10985 choice fails); a test enumerates every value.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::OpenOptions;
@@ -69,7 +75,7 @@ macro_rules! ensure {
 }
 
 const TOOL: &str = "qd-post-f-rules";
-const PREREG: &str = "campaign/f-j7prime-preregistered.json (4fd08cf)";
+const PREREG: &str = "campaign/f-j7prime-preregistered.json (54512e6)";
 const PREREG_F: &str = "campaign/f-v4-preregistered.json (3a1796d)";
 /// A ledger larger than this is not one this repo writes (`qd-gate-report`'s cap).
 const MAX_LEDGER_BYTES: u64 = 256 * 1024 * 1024;
@@ -598,39 +604,34 @@ fn needle_control(row: &Row, length: u32) -> Result<Worst> {
 enum Verdict {
     Pass,
     Fail,
-    /// The pre-registered decimal and its cited row's exact fraction disagree.
-    Ambiguous,
 }
 
 impl Verdict {
+    fn of(pass: bool) -> Verdict {
+        if pass { Verdict::Pass } else { Verdict::Fail }
+    }
     fn word(self) -> &'static str {
         match self {
             Verdict::Pass => "pass",
             Verdict::Fail => "fail",
-            Verdict::Ambiguous => "ambiguous",
         }
     }
-    /// Kleene's conjunction: any fail fails; else any ambiguity is ambiguous; else pass.
+    /// A clause of several parts passes iff every part passes.
     fn all(parts: &[Verdict]) -> Verdict {
-        if parts.contains(&Verdict::Fail) {
-            Verdict::Fail
-        } else if parts.contains(&Verdict::Ambiguous) {
-            Verdict::Ambiguous
-        } else {
-            Verdict::Pass
-        }
+        Verdict::of(parts.iter().all(|&p| p == Verdict::Pass))
     }
 }
 
-/// `candidate >= threshold`, under the printed decimal and under the cited row's fraction. The
-/// cited fraction must round to the decimal, or the pre-registration and its row disagree.
+/// `candidate >= cited`, exactly (the avg-np reading, 54512e6): the cited row's count is the
+/// threshold and a tie passes. The printed decimal is compared too and reported, deciding
+/// nothing; the cited fraction must still round to it, or the record and its row disagree.
 fn at_least(
     what: &str,
     candidate: Frac,
     literal: Dec,
     cited: Frac,
     cited_row: &str,
-) -> Result<Value> {
+) -> Result<(Verdict, Value)> {
     ensure!(
         cited.rounds_to(literal),
         "{what}: the cited row {cited_row} records {}/{} = {:.6}, which does not print as the \
@@ -640,28 +641,22 @@ fn at_least(
         cited.f64(),
         literal.text
     );
-    let by_literal = candidate.ge_dec(literal);
     let by_row = candidate.ge(cited);
-    let verdict = match (by_literal, by_row) {
-        (true, true) => Verdict::Pass,
-        (false, false) => Verdict::Fail,
-        _ => Verdict::Ambiguous,
-    };
-    Ok(json!({
-        "what": what,
-        "verdict": verdict.word(),
-        "candidate": candidate.json(),
-        "literal": {"threshold": literal.text, "passes": by_literal},
-        "cited_row": {"row_id": cited_row, "threshold": cited.json(), "passes": by_row},
-    }))
-}
-
-fn verdict_of(v: &Value) -> Verdict {
-    match v["verdict"].as_str() {
-        Some("pass") => Verdict::Pass,
-        Some("fail") => Verdict::Fail,
-        _ => Verdict::Ambiguous,
-    }
+    let verdict = Verdict::of(by_row);
+    Ok((
+        verdict,
+        json!({
+            "what": what,
+            "verdict": verdict.word(),
+            "candidate": candidate.json(),
+            "cited_row": {"row_id": cited_row, "threshold": cited.json(), "passes": by_row},
+            "literal": {
+                "threshold": literal.text,
+                "passes": candidate.ge_dec(literal),
+                "role": "report-only: the printed rendering of the cited row; it decides nothing",
+            },
+        }),
+    ))
 }
 
 fn rule_avgnp(inputs: &mut Inputs, j7: &Path, j4: &Path) -> Result<(String, Value)> {
@@ -728,11 +723,7 @@ fn rule_avgnp(inputs: &mut Inputs, j7: &Path, j4: &Path) -> Result<(String, Valu
         gate.id(),
         ood.k
     );
-    let a = if ood.k >= OOD_MIN {
-        Verdict::Pass
-    } else {
-        Verdict::Fail
-    };
+    let a = Verdict::of(ood.k >= OOD_MIN);
     let a_json = json!({
         "verdict": a.word(),
         "rule": format!("ood_abstain total >= {OOD_MIN}/{OOD_TOTAL}"),
@@ -758,7 +749,6 @@ fn rule_avgnp(inputs: &mut Inputs, j7: &Path, j4: &Path) -> Result<(String, Valu
             REF_AVG_CONTROL,
         )?);
     }
-    let b = Verdict::all(&b_parts.iter().map(verdict_of).collect::<Vec<_>>());
 
     // (c): val top-1, choice and span.
     let c_parts = vec![
@@ -777,9 +767,10 @@ fn rule_avgnp(inputs: &mut Inputs, j7: &Path, j4: &Path) -> Result<(String, Valu
             REF_SPAN_MIN,
         )?,
     ];
-    let c = Verdict::all(&c_parts.iter().map(verdict_of).collect::<Vec<_>>());
+    let (b, b_parts): (Vec<Verdict>, Vec<Value>) = b_parts.into_iter().unzip();
+    let (c, c_parts): (Vec<Verdict>, Vec<Value>) = c_parts.into_iter().unzip();
+    let (b, c) = (Verdict::all(&b), Verdict::all(&c));
 
-    let overall = Verdict::all(&[a, b, c]);
     let body = json!({
         "rows": {"avg_np_gate": gate.id(), "avg_np_needle_control": control.id()},
         "clauses": {
@@ -787,17 +778,14 @@ fn rule_avgnp(inputs: &mut Inputs, j7: &Path, j4: &Path) -> Result<(String, Valu
             "b": {"verdict": b.word(), "parts": b_parts},
             "c": {"verdict": c.word(), "parts": c_parts},
         },
-        "logic": "qualifies iff (a), (b) and (c) all pass; Kleene conjunction: any fail fails, \
-                  else any ambiguous clause refuses",
+        "logic": "qualifies iff (a), (b) and (c) all pass",
+        "reading": "(b), (c): each part passes iff candidate.n * cited.n_total >= cited.n * \
+                    candidate.n_total (the cited row's exact count governs; a tie passes; \
+                    the printed decimal is report-only), avg_np_reading at 54512e6",
     });
-    match overall {
+    match Verdict::all(&[a, b, c]) {
         Verdict::Pass => Ok(("qualifies".into(), body)),
         Verdict::Fail => Ok(("fails".into(), body)),
-        Verdict::Ambiguous => Err(format!(
-            "no clause fails, and at least one sits exactly between the pre-registered decimal \
-             and its cited row's fraction (readings disagree); which reading holds is the \
-             human's call (rule 2). Clauses: {body}"
-        )),
     }
 }
 
@@ -1376,6 +1364,32 @@ mod tests {
     }
 
     #[test]
+    fn the_reading_is_the_preregistrations_own_text() {
+        let prereg =
+            std::fs::read_to_string(repo("campaign/f-j7prime-preregistered.json")).unwrap();
+        let reading = &serde_json::from_str::<Value>(&prereg).unwrap()["avg_np_qualifies_for_f_j7prime"]
+            ["avg_np_reading"]["rule"];
+        let reading = reading
+            .as_str()
+            .expect("avg_np_reading.rule in the pre-registration");
+        let ge = "candidate.n * cited.n_total >= cited.n * candidate.n_total";
+        for phrase in [
+            "the threshold is the cited row's exact count, not the printed decimal",
+            ge,
+            "a tie passes",
+            "(a) is unchanged",
+            "report-only",
+            "the checker's refusal when a cited row does not round to its decimal stays",
+        ] {
+            assert!(reading.contains(phrase), "not in avg_np_reading: {phrase}");
+        }
+        // The JSON every avg-np decision writes names the same comparison.
+        let o = avgnp(&avgnp_ledger(passing));
+        assert!(o.json["detail"]["reading"].as_str().unwrap().contains(ge));
+        assert!(PREREG.contains("54512e6"));
+    }
+
+    #[test]
     fn every_decimal_is_the_fraction_its_text_prints() {
         let [(_, c1), (_, c2), (_, c4)] = CONTROL_MIN;
         for d in [
@@ -1399,23 +1413,26 @@ mod tests {
     // --- the J4 rows the brief names ------------------------------------------------------
 
     #[test]
-    fn j4s_average_scored_as_avgnp_fails_a_with_b_ambiguous_and_c_passing() {
+    fn j4s_average_scored_as_avgnp_fails_a_with_b_and_c_passing() {
         let ledger = avgnp_ledger(|_, _| {});
         let o = avgnp(&ledger);
         assert!(!o.refused, "{}", o.json);
         assert_eq!(o.word, "fails");
         assert_eq!(clause(&o, "a"), "fail");
         assert_eq!(o.json["detail"]["clauses"]["a"]["candidate"]["n"], 0);
-        // The average ties itself: 17/61 >= 17/61 by its row, < 0.279 by the decimal.
-        assert_eq!(clause(&o, "b"), "ambiguous");
+        // The average ties itself on every part of (b): 17/61 >= 17/61 by its row, which
+        // governs, though it is below the printed 0.279 (reported, deciding nothing).
+        assert_eq!(clause(&o, "b"), "pass");
         assert_eq!(clause(&o, "c"), "pass");
         let parts = o.json["detail"]["clauses"]["b"]["parts"]
             .as_array()
             .unwrap();
+        assert_eq!(parts.len(), 4);
+        assert!(parts.iter().all(|p| p["verdict"] == "pass"), "{parts:?}");
         assert_eq!(parts[0]["candidate"]["n"], 17);
         assert_eq!(parts[0]["candidate"]["n_total"], 61);
-        assert_eq!(parts[0]["literal"]["passes"], false);
         assert_eq!(parts[0]["cited_row"]["passes"], true);
+        assert_eq!(parts[0]["literal"]["passes"], false);
     }
 
     #[test]
@@ -1617,53 +1634,133 @@ mod tests {
     }
 
     #[test]
-    fn a_tie_with_the_cited_row_where_the_decimals_disagree_refuses() {
-        // (b): 17/61 ties 1d93b3ee and is below 0.279; everything else passes.
-        let ledger = avgnp_ledger(|g, c| {
-            passing(g, c);
+    fn a_tie_with_the_cited_row_passes_where_the_decimal_would_fail_it() {
+        // (b): 17/61 at 8K, 51/57 at 1K and 46/60 at 2K each tie the cited row and sit below
+        // the printed 0.279 / 0.895 / 0.767: the row governs, so each qualifies.
+        let gate_8k = |g: &mut Value, k: u64| {
             set_bucket(
                 g,
                 "gates",
                 "needle_hunk_recall",
                 "needle_hunk_recall.depth.",
                 "80-100%",
-                17,
+                k,
                 61,
+            )
+        };
+        let control = |c: &mut Value, length: u32, label: &str, k: u64, n: u64| {
+            let name = format!("needle_hunk_recall.control.{length}");
+            set_bucket(c, "metrics", &name, &format!("{name}.depth."), label, k, n);
+        };
+        for (what, ledger) in [
+            (
+                "8K 17/61",
+                avgnp_ledger(|g, c| {
+                    passing(g, c);
+                    gate_8k(g, 17);
+                }),
+            ),
+            (
+                "1K 51/57",
+                avgnp_ledger(|g, c| {
+                    passing(g, c);
+                    control(c, 1024, "0-20%", 51, 57);
+                }),
+            ),
+            (
+                "2K 46/60",
+                avgnp_ledger(|g, c| {
+                    passing(g, c);
+                    control(c, 2048, "80-100%", 46, 60);
+                }),
+            ),
+        ] {
+            let o = avgnp(&ledger);
+            assert!(!o.refused, "{what}: {}", o.json);
+            assert_eq!(
+                (o.word.as_str(), clause(&o, "b")),
+                ("qualifies", "pass"),
+                "{what}"
             );
-        });
-        let o = avgnp(&ledger);
-        assert!(o.refused, "{}", o.json);
-        assert!(o.json["refused"].as_str().unwrap().contains("human's call"));
-        // One hit below both readings fails outright.
+        }
+        // One hit below the cited row fails (both renderings agree there).
         let ledger = avgnp_ledger(|g, c| {
             passing(g, c);
-            set_bucket(
-                g,
-                "gates",
-                "needle_hunk_recall",
-                "needle_hunk_recall.depth.",
-                "80-100%",
-                16,
-                61,
-            );
+            gate_8k(g, 16);
         });
         assert_eq!(avgnp(&ledger).word, "fails");
-        // (c): 8404/10985 = 0.76505 clears 0.765 and is below f3612f73's 8405/10985.
+    }
+
+    #[test]
+    fn a_choice_between_the_decimal_and_the_seed_minimum_fails_c() {
+        // (c): 8404/10985 = 0.76505 clears the printed 0.765 but is below f3612f73's
+        // 8405/10985: the row governs, so it fails. 8405 ties it and passes.
         let ledger = avgnp_ledger(|g, c| {
             passing(g, c);
             set_count(g, "metrics", "val_top1.choice", 8404, 10985);
         });
-        assert!(avgnp(&ledger).refused);
+        let o = avgnp(&ledger);
+        assert!(!o.refused, "{}", o.json);
+        assert_eq!((o.word.as_str(), clause(&o, "c")), ("fails", "fail"));
         let ledger = avgnp_ledger(|g, c| {
             passing(g, c);
             set_count(g, "metrics", "val_top1.choice", 8405, 10985);
         });
         assert_eq!(avgnp(&ledger).word, "qualifies");
+        // Span: 6398/7238 is below the row (6399) and below 0.884 (0.884 x 7238 = 6398.39), so
+        // no span value separates the readings; 6399 ties the row and passes.
         let ledger = avgnp_ledger(|g, c| {
             passing(g, c);
             set_count(g, "metrics", "val_top1.span", 6398, 7238);
         });
         assert_eq!(avgnp(&ledger).word, "fails");
+        let ledger = avgnp_ledger(|g, c| {
+            passing(g, c);
+            set_count(g, "metrics", "val_top1.span", 6399, 7238);
+        });
+        assert_eq!(avgnp(&ledger).word, "qualifies");
+    }
+
+    /// Fable's `what_changes` (54512e6), checked by enumeration: over every candidate count the
+    /// suites can produce (8K buckets of 59/61/59/60/61, 1K 57/61/59/64/59, 2K 58/61/60/61/60,
+    /// 4K 59/59/61/60/61; val 10985 and 7238), the verdict is the row reading, and it differs
+    /// from the decimal reading on exactly four values.
+    #[test]
+    fn the_verdict_is_the_rows_and_differs_from_the_decimals_on_exactly_four_values() {
+        let [(_, c1), (_, c2), (_, c4)] = CONTROL_MIN;
+        let clauses: [(&str, Dec, Frac, &[u64]); 6] = [
+            ("8K", NEEDLE_8K_MIN, Frac { k: 17, n: 61 }, &[59, 61, 60]),
+            ("1K", c1, Frac { k: 51, n: 57 }, &[57, 61, 59, 64]),
+            ("2K", c2, Frac { k: 46, n: 60 }, &[58, 61, 60]),
+            ("4K", c4, Frac { k: 26, n: 61 }, &[59, 61, 60]),
+            ("choice", CHOICE_MIN, Frac { k: 8405, n: 10985 }, &[10985]),
+            ("span", SPAN_MIN, Frac { k: 6399, n: 7238 }, &[7238]),
+        ];
+        let mut differ = Vec::new();
+        for (what, literal, cited, sizes) in clauses {
+            for &n in sizes {
+                for k in 0..=n {
+                    let candidate = Frac { k, n };
+                    let (verdict, json) = at_least(what, candidate, literal, cited, "row").unwrap();
+                    let by_row =
+                        u128::from(k) * u128::from(cited.n) >= u128::from(cited.k) * u128::from(n);
+                    assert_eq!(verdict, Verdict::of(by_row), "{what} {k}/{n}");
+                    assert_eq!(json["verdict"], verdict.word());
+                    if json["literal"]["passes"] != by_row {
+                        differ.push(format!("{what} {k}/{n} {}", verdict.word()));
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            differ,
+            [
+                "8K 17/61 pass",
+                "1K 51/57 pass",
+                "2K 46/60 pass",
+                "choice 8404/10985 fail"
+            ]
+        );
     }
 
     #[test]

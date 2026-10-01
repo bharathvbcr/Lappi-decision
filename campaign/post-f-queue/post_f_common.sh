@@ -1,7 +1,8 @@
 # shellcheck shell=bash
 # Sourced by every campaign/post-f-queue/box_q_*.sh on the box: the paths, pins and helpers the
 # queue after run F shares (Fable's post-F ruling, campaign/f-j7prime-preregistered.json at
-# 4fd08cf; its queue is items 0-10). Defines no job and starts nothing.
+# 4fd08cf, with its avg-np reading at 54512e6; its queue is items 0-10). Defines no job and starts
+# nothing.
 #
 # Decisions are never made here or in a script: the three pre-registered rules are
 # qd-post-f-rules subcommands (crates/qd-runtime/src/bin/qd_post_f_rules.rs), pinned by sha256.
@@ -18,7 +19,7 @@ PF=/home/ubuntu/post-f
 DEC=/home/ubuntu/ledger/post-f-decisions-2026-10-01
 RULES=/home/ubuntu/bin/qd-post-f-rules
 # Cross-built on the Mac from this branch (HANDOFF/post-f-queue-2026-10-01.md, "The binary").
-RULES_SHA256=330e681672897a5369a04d5d1fdafdc8b9071e31e44b8d866927c90daa43c98e
+RULES_SHA256=cadbdc74eabdc26a2395bd31cb20eab35152c958025af46ba50ef30365111339
 # AUDIT/j7-avg-ood-diag-2026-10-01/delta_cosine.py at this branch, copied to $PF.
 DELTA_COSINE=$PF/delta_cosine.py
 DELTA_COSINE_SHA256=f4e373a94c87c54759a4a4e382de1349010e18c3d0b646a4c9f376b8dca34961
