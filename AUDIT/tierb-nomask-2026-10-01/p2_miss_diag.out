@@ -1,0 +1,69 @@
+x20 n=100 3v3 noisy step 0 (seed 25)
+  shape verdicts: {'inconclusive': 879, 'fail': 121}
+  trials in which each application failed: letter/first 25, letter/all 40, span/first 43, span/all 15
+  application verdicts (letter/first, letter/all, span/first, span/all) -> shape:
+     741  inconclusive inconclusive inconclusive inconclusive -> inconclusive
+     102  pass         inconclusive inconclusive inconclusive -> inconclusive
+      35  inconclusive inconclusive fail         inconclusive -> fail
+      32  inconclusive fail         inconclusive inconclusive -> fail
+      22  inconclusive pass         inconclusive inconclusive -> inconclusive
+      21  fail         inconclusive inconclusive inconclusive -> fail
+      12  inconclusive inconclusive inconclusive fail         -> fail
+       9  inconclusive inconclusive pass         inconclusive -> inconclusive
+       7  pass         fail         inconclusive inconclusive -> fail
+       6  pass         inconclusive fail         inconclusive -> fail
+       3  pass         pass         inconclusive inconclusive -> inconclusive
+       2  pass         inconclusive inconclusive fail         -> fail
+       2  fail         pass         inconclusive inconclusive -> fail
+       1  fail         pass         inconclusive fail         -> fail
+       1  inconclusive pass         fail         inconclusive -> fail
+       1  fail         inconclusive fail         inconclusive -> fail
+       1  inconclusive fail         pass         inconclusive -> fail
+       1  inconclusive pass         pass         inconclusive -> inconclusive
+       1  pass         inconclusive pass         inconclusive -> inconclusive
+
+delta 2% n=100 3v1 noisy step 0 (seed 51)
+  shape verdicts: {'fail': 926, 'pass': 74}
+  trials in which each application failed: letter/first 508, letter/all 503, span/first 502, span/all 512
+  application verdicts (letter/first, letter/all, span/first, span/all) -> shape:
+      78  fail         fail         fail         fail         -> fail
+      75  fail         pass         pass         fail         -> fail
+      74  pass         pass         pass         pass         -> pass
+      68  pass         fail         fail         fail         -> fail
+      66  pass         fail         fail         pass         -> fail
+      62  fail         pass         fail         fail         -> fail
+      62  fail         fail         fail         pass         -> fail
+      60  fail         pass         pass         pass         -> fail
+      60  pass         pass         pass         fail         -> fail
+      59  pass         fail         pass         pass         -> fail
+      59  fail         fail         pass         fail         -> fail
+      57  fail         pass         fail         pass         -> fail
+      56  pass         fail         pass         fail         -> fail
+      55  fail         fail         pass         pass         -> fail
+      55  pass         pass         fail         pass         -> fail
+      54  pass         pass         fail         fail         -> fail
+
+delta 2% n=50 3v1 noisy step 0 (seed 55)
+  shape verdicts: {'fail': 910, 'pass': 90}
+  trials in which each application failed: letter/first 510, letter/all 476, span/first 483, span/all 462
+  application verdicts (letter/first, letter/all, span/first, span/all) -> shape:
+      90  pass         pass         pass         pass         -> pass
+      75  pass         fail         pass         pass         -> fail
+      70  fail         fail         fail         pass         -> fail
+      66  fail         pass         pass         fail         -> fail
+      66  pass         pass         fail         pass         -> fail
+      65  fail         pass         fail         pass         -> fail
+      64  fail         pass         fail         fail         -> fail
+      63  fail         fail         fail         fail         -> fail
+      62  pass         pass         fail         fail         -> fail
+      61  fail         pass         pass         pass         -> fail
+      61  fail         fail         pass         pass         -> fail
+      60  fail         fail         pass         fail         -> fail
+      54  pass         fail         pass         fail         -> fail
+      50  pass         pass         pass         fail         -> fail
+      50  pass         fail         fail         pass         -> fail
+      43  pass         fail         fail         fail         -> fail
+
+float check, a 2% shift at a noiseless step 0 (the bit-identical delta 2% rows):
+  letter: (2.0 * 1.02 - 2.0) / 2.0 = 0.020000000000000018 > tau: True
+  span: (1.1 * 1.02 - 1.1) / 1.1 = 0.020000000000000018 > tau: True

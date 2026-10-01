@@ -130,26 +130,30 @@ on main 4fd08cf. **No GPU work was done and nothing was queued.**
 - The 8 gate tests from 46da2a5, run against de59c98's `perf_parity.py`: 8 failed, and the 8
   existing P2 tests passed (`failfirst-gate-pre-change.log`).
 
-**The P2 rule as accepted fails a candidate identical to the baseline.** Do not wire item 9's
-cancel until Fable amends the rule.
+**The P2 rule as first accepted failed a candidate identical to the baseline.** Fable has since
+retired it and amended the rule (main 1de0a34); see the last addendum below.
 
-Evidence: `AUDIT/tierb-nomask-2026-10-01/p2_null_sim.py` and its `.out`, a CPU simulation
-against `p2_screen`.
+Evidence: v1 of `AUDIT/tierb-nomask-2026-10-01/p2_null_sim.py`, a CPU simulation against the
+retired `p2_screen` (v1 is in git history at 7ba9df0; the file and its `.out` are now v2).
 - **The setup.** Six exchangeable arms, the same path plus iid noise. Three are labelled baseline,
   three candidate.
 - **The result.** D(t) ≤ S(t) held on a mean of **20.5%** of steps (range 11–36%, 200 trials). With
   one candidate the mean is 50.1%. The ≥ 90% rule passed **0 of 200** null candidates.
-- **The cause is combinatorial.** D is a maximum over 9 cross pairs, S over 3 baseline pairs. For
-  exchangeable arms, the largest of those 12 pairs is a baseline pair only about 1/4 of the time.
-- `--p2` implements the accepted text unchanged. It is pre-registered, and amending it is
-  Fable's call.
-- **A calibrated alternative is not ready.** I tried a role-permutation version
-  (`p2_perm_sim.py`/`.out`). It passes 97% of null candidates, but it also passes 100% of
-  candidates offset by 4σ, because the labelling that swaps baseline and candidate mirrors the
-  true one. A sound rule needs design first. Options for Fable:
-  - per step, compare each candidate's distance to the baseline mean against the baselines'
-    leave-one-out spread;
-  - a permutation test that excludes the complementary labelling.
+- **The cause is exact, and my first figure for it was wrong.** I wrote "about 1/4". Fable
+  corrected it: per step, P(D ≤ S) = C(3,2)/C(6,2) = **1/5**, for any exchangeable noise.
+  - The losses are scalars, so D(t) ≤ S(t) holds exactly when every candidate lies inside the
+    baselines' range. That means the lowest and the highest of the six values are both
+    baselines.
+  - Under exchangeability, the pair {lowest, highest} is uniform over the 15 pairs of arms, and
+    3 of those are baseline pairs.
+  - With one candidate the same count gives C(3,2)/C(4,2) = 1/2. Both match the simulation
+    (20.5% and 50.1%).
+  - My 1/4 counted 3 baseline pairs out of 12 compared pairs, as though the largest distance
+    were uniform over those 12. It isn't.
+- **The permutation alternative fails** (`p2_perm_sim.py`/`.out`, kept as the record of why).
+  It passes 97% of null candidates, but it also passes 100% of candidates offset by 4σ, because
+  the labelling that swaps baseline and candidate mirrors the true one. Fable rejected this
+  direction and the leave-one-out one I proposed alongside it.
 
 **Full suite on the branch:** 3,282 passed, 58 skipped, 2 failed. That run was taken before
 46da2a5; the gate's test file passes 16 of 16 since. The two failures are the same worktree-only
@@ -211,3 +215,135 @@ Results go to:
 - `/home/ubuntu/perf/ledger-tierb-nomask.jsonl`
 
 Done markers are `/home/ubuntu/perf/nomask-p2-T{1,2}.done` and `/home/ubuntu/perf/tierb-nomask.done`.
+
+## Addendum: the amended P2 rule is implemented, and its calibration misses 3 of 78 checks
+
+**T1 is not ready.** The amended rule is Fable's, on main 1de0a34
+(`campaign/f-j7prime-preregistered.json`: `no_mask.p2_rule`, `p2_rule_retired` and `p2_timing`).
+- I implemented it and ran every calibration target against the implemented function.
+- 75 checks are met and **3 are missed**. `p2_null_sim.py` exits 1.
+- Per the instruction, nothing was tuned: no threshold, trial count, seed, noise model or grid
+  changed after the first run.
+- `p2_timing`'s precondition needs every target met with the `.out` committed, and then the box
+  overlay rebuilt at that commit. It is **not met**.
+- So the overlay was **not** rebuilt. `/home/ubuntu/perf/overlay-nomask` is still at 46da2a5,
+  which carries the **retired** rule. T1 must not run from it.
+
+**What changed** (one commit on this branch, from main 1de0a34, CPU only, nothing queued):
+
+- `tools/perf_parity.py`, `p2_screen`, now follows the amended text:
+  - the refusals, including the two new labelling ones: every arm must have
+    `termination == "steps_exhausted"`, baselines must carry `train_attention_mask == "padding"`
+    and candidates `"none"`;
+  - live steps;
+  - per (channel, T ∈ {first live step, all live steps}): bbar, L, dev_i, noise_j, dev and noise;
+  - `inconclusive` if noise > τ/κ, else `fail` if dev > τ, else `pass`;
+  - the worst result over T, then fail > not_run > inconclusive > pass at the shape level.
+- τ = 0.02 and κ = 3 are module constants. There is no flag, env var or `--tau`, and a test
+  rejects `--tau`. `P2_MIN_FRAC` and `min_frac` are retired.
+- The verdict row records:
+  - τ and κ;
+  - per (channel, T): L, every dev_i, every noise_j, dev, noise and the verdict;
+  - each arm's `train_path`;
+  - the report-only per-step profile: median and max of D and S, the fraction D ≤ S, the first
+    step with D > max S, and the final losses.
+- `--p2` exits 0 on pass, 1 on fail and 2 on not_run or inconclusive. The module docstring now
+  describes this.
+- Unchanged: `p2_gate`, `perf_nomask_p2_body.sh`, the arms and the result-row schema.
+- `python/tests/test_perf_parity_p2.py` is rewritten to the amended rule: 32 tests, all of which
+  pass now.
+- Text: the comment block in `tools/perf_nomask_p2.sh`, the addendum in
+  `AUDIT/tierb-nomask-flash-screen-design-2026-10-01.md`, and the 1/5 correction above.
+
+**Fail-first evidence** (`AUDIT/tierb-nomask-2026-10-01/`):
+- `failfirst-p2-amended-vs-de59c98.log`: the new tests against de59c98's `perf_parity.py`.
+  **27 failed, 5 passed.** The 5 cover behaviour the amendment keeps:
+  - the digest refusal;
+  - the steps refusal;
+  - two "fewer than 3 baselines / no candidate" cases;
+  - the CLI exit mapping.
+- `failfirst-p2-amended-vs-1de0a34.log`: the same tests against 1de0a34. **18 failed, 14
+  passed.** The extra 9 passes are the `p2_gate` tests, which are unchanged by design.
+
+**Calibration** (`p2_null_sim.py`/`.out` v2): 1,000 trials per configuration, over n ∈ {100, 50}
+× {3v3, 3v1} × {noisy, bit-identical step 0}, and every configuration applied to every target.
+
+| target | limit | result (worst configuration) | |
+| --- | --- | --- | --- |
+| exchangeable null, v1 noise | pass ≥ 99%, fail 0 | pass ≥ 99.7%, fail 0.0% in all 8 | met |
+| null at noise ×3 | fail ≤ 12% | fail ≤ 0.1% (pass 43–92%, the rest inconclusive) | met |
+| null at noise ×10 | fail ≤ 12% | fail ≤ 8.0% (n=100 3v3 noisy; 92% inconclusive) | met |
+| null at noise ×20 | fail ≤ 12% | **fail 12.1%** at n=100 3v3 noisy (87.9% inconclusive); the other 7 ≤ 11.2% | **missed** |
+| null at noise ×100 | fail ≤ 12% | fail ≤ 1.6% (≥ 98.4% inconclusive) | met |
+| all candidates ×1.005 | pass ≥ 99% | pass ≥ 99.8% | met |
+| all candidates ×1.02 | fail ≥ 95% | 3v3: 99.9–100%; 3v1 bit-identical: 100%; **3v1 noisy: 92.6% (n=100), 91.0% (n=50)** | **missed** |
+| all candidates ×1.04 | fail ≥ 99% | 100% in all 8 | met |
+| one candidate ×1.04, two null | fail ≥ 99% | 100% in all 4 (n=100/50 × noisy/bit-identical) | met |
+| step 1 only, ×1.03, bit-identical | fail ≥ 99% | 100% in all 4 | met |
+| step 1 only, ×1.01, bit-identical | pass ≥ 99% | pass ≥ 99.7% | met |
+| Gaussian single application, worst P(fail \| null) over σ/τ | ≤ 4.5% | 3v3 **3.94%** at σ/τ 0.70; 3v1 1.79% at σ/τ 0.75 (20,000 trials per point, σ/τ 0.05–3.00) | met |
+
+**Why the three misses happen.** `p2_miss_diag.py`/`.out` replays them with the simulation's own
+seeds and reproduces its counts exactly. In each case the cause is the rule text, not the code:
+- **δ = 2% sits exactly at τ.**
+  - With one candidate, each of the four applications (letter/first, letter/all, span/first,
+    span/all) fails in 46–51% of trials.
+  - The shape passes only when all four pass: 7.4% and 9.0% of trials, close to 1/16.
+  - The 3v3 rows reach 99.9–100% through the maximum over 3 candidates (more chances to land
+    above τ), not through margin.
+- **The bit-identical δ = 2% rows "meet" the target through float rounding.**
+  `(1.02·x − x)/x` evaluates to `0.020000000000000018`, just above τ, for both channel levels.
+  So the step-0 application always fails. That is not statistical power: at another loss level,
+  those rows would be coin flips too.
+- **×20 noise, n=100 3v3: 121 fails in 1,000**, against a limit of 120.
+  - Every fail is an `any fail → fail` aggregation over four applications. In 100 of the 121,
+    exactly one application failed and the other three read inconclusive.
+  - The binomial standard error at 1,000 trials is about 1 point. I did not rerun with more
+    trials or other seeds to move it.
+- **A question for Fable, not one I can settle.** The rule attaches the configuration list
+  "(n=100 and n=50, 3v3 and 3v1, with and without bit-identical baseline forwards)" to the null
+  target. The δ targets name no configurations.
+  - The simulation applies every configuration to every target, which is the strict reading.
+    Under it, δ = 2% misses at 3v1.
+  - If the list binds only the null target, 3v1 is out of scope for δ, and only the ×20 miss
+    remains.
+  - Gates are read-only, so I have not chosen between the readings.
+
+**Another observation, within its target.** At ×3 noise, n=100, the null reads inconclusive in
+50–57% of trials. If the box's run-to-run noise is about 3× the v1 model, item 9 would be held for
+the human about half the time.
+
+**Step-1 dev** (p2_timing asks for it whatever it is): not measured. It comes from T1/T2, which
+have not run.
+
+**Two other things to know:**
+- **The harness bug in section 4.** It was found and fixed before the `.out` was committed. As
+  first written, section 4 iterated `CONFIGS[::2]` and so ran noisy step 0 four times under
+  duplicate labels. It now runs n ∈ {100, 50} × {noisy, bit-identical}, using the same seed
+  count, so the other sections' seeds are unchanged. `diff` of the two outputs differs in
+  exactly two lines, section 4's bit-identical rows (both 100% fail). The three misses
+  reproduce digit for digit.
+- **`p2_perm_sim.py` runs only against 7ba9df0's `tools/perf_parity.py`.** It calls the retired
+  `min_frac` argument and reads `frac_d_le_s`. Its committed `.out` is the record. It is left
+  unchanged, as instructed.
+
+**Open:**
+- Fable's call on the three misses: the δ = 2% placement at τ, the 3v1 scope, and the ×20
+  aggregation.
+- GAP-TRAINSTEP-PERF-WORKTREE-HAS-NO-DEVMAP-STORE-GITPULSE-UNTRUSTED still applies.
+  `devmap_impact p2_screen` on the main checkout's index (generation 2965) gave:
+  - the CLI `main` and the test file as callers;
+  - the two simulations only as unresolved namesakes, confirmed by reading them.
+
+**First command for the next lane** (after Fable rules, and after any amended targets are
+committed):
+
+```
+/Users/bharath/.venvs/ml/bin/python AUDIT/tierb-nomask-2026-10-01/p2_null_sim.py
+```
+
+If, and only if, that exits 0 with its `.out` committed on main:
+1. Bundle the commit.
+2. `scp` the bundle and `tools/perf_nomask_p2.sh` to `/home/ubuntu/perf/`.
+3. Run `bash /home/ubuntu/perf/perf_nomask_p2.sh --build <sha>` on the box. That is CPU work: it
+   builds the overlay and runs both dry runs.

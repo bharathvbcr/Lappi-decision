@@ -1,37 +1,167 @@
-"""Null calibration of perf_parity.p2_screen: six EXCHANGEABLE arms (same path, iid noise),
-three labelled baseline and three candidate. What fraction of steps does D(t) <= S(t) hold on,
-and how often does the pre-registered rule (>= 0.9 per channel) pass a candidate that is, by
-construction, the baseline itself?"""
+"""P2 calibration, v2: every target in Fable's amended rule, against the implemented function.
+
+campaign/f-j7prime-preregistered.json ``no_mask.p2_rule`` (amended 2026-10-01) lists the targets
+this simulation must meet before any GPU P2 session. Each one is checked here by calling
+``tools/perf_parity.p2_screen`` itself on synthetic arm rows, never a re-implementation of it.
+A target that is missed is reported with its numbers and the script exits non-zero. Nothing
+is tuned.
+
+v1 of this file (2026-10-01, the retired D(t) <= S(t)-on->=90% rule) found 0 of 200 null
+candidates passing. The cause is exact and distribution-free: per step, P(D <= S) = C(3,2)/C(6,2)
+= 1/5 for six exchangeable arms. v1 put it at "about a quarter"; Fable sharpened it.
+
+The noise model is v1's:
+- letter(t) = 2.0 * 0.98**t + N(0, sigma_t);
+- span(t) = 0.97**t + 0.1 + N(0, sigma_t);
+- sigma_t = 1e-3 * (1 + t/10) * multiplier.
+
+"Bit-identical baseline forwards" means step 0 carries no noise in any arm, as a default-kernel
+forward at the same weights does. Candidates are labelled none and baselines padding, and every
+arm ended steps_exhausted, as the rule's refusals require.
+"""
+
+from __future__ import annotations
+
 import random
-import statistics
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(
-    "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a59bae74f0f03844b/tools"
-)))
-import perf_parity as pp
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tools"))
+
+import perf_parity as pp  # noqa: E402
+
+TRIALS = 1000
+FAILED: list[str] = []
 
 
-def arm(tag, rng, n=100):
-    letter = [2.0 * 0.98**t + rng.gauss(0.0, 1e-3 * (1 + t / 10)) for t in range(n)]
-    span = [1.0 * 0.97**t + 0.1 + rng.gauss(0.0, 1e-3 * (1 + t / 10)) for t in range(n)]
-    return {"tag": tag, "steps": n, "consumed_digest": "c" * 64,
-            "letter": [x.hex() for x in letter], "span": [x.hex() for x in span]}
+def series(rng: random.Random, n: int, mult: float, bitid: bool, scale: float = 1.0,
+           step1_scale: float = 1.0) -> tuple[list[float], list[float]]:
+    letter, span = [], []
+    for t in range(n):
+        sigma = 1e-3 * (1 + t / 10) * mult
+        e1 = 0.0 if (bitid and t == 0) else rng.gauss(0.0, sigma)
+        e2 = 0.0 if (bitid and t == 0) else rng.gauss(0.0, sigma)
+        f = scale * (step1_scale if t == 0 else 1.0)
+        letter.append((2.0 * 0.98**t + e1) * f)
+        span.append((0.97**t + 0.1 + e2) * f)
+    return letter, span
 
 
-def run(n_cand, trials=200):
-    fr, passes = [], 0
-    for k in range(trials):
-        rng = random.Random(k)
-        arms = [arm(f"X{i}", rng) for i in range(3 + n_cand)]
-        out = pp.p2_screen(arms[:3], arms[3:])
-        fr.append(out["channels"]["letter"]["frac_d_le_s"])
-        passes += out["verdict"] == "pass"
-    return statistics.mean(fr), min(fr), max(fr), passes / trials
+def row(tag: str, mask: str, letter: list[float], span: list[float]) -> dict:
+    return {"tag": tag, "steps": len(letter), "consumed_digest": "c" * 64,
+            "termination": "steps_exhausted", "train_attention_mask": mask,
+            "train_path": {"sim": True}, "letter": [x.hex() for x in letter],
+            "span": [x.hex() for x in span]}
 
 
-for n_cand in (3, 1):
-    mean, lo, hi, p = run(n_cand)
-    print(f"null, 3 baselines vs {n_cand} candidate(s): frac D<=S mean {mean:.3f} "
-          f"[{lo:.2f}, {hi:.2f}] over 200 trials; rule passes {p:.1%} of null candidates")
+def trial(rng, *, n, k, bitid, mult=1.0, cand_scale=(), step1_scale=1.0) -> str:
+    """One screen: 3 null baselines; k candidates, candidate i scaled by cand_scale[i]
+    (default 1, the null) and its step 0 by step1_scale."""
+    bases = [row(f"B{j}", "padding", *series(rng, n, mult, bitid)) for j in range(3)]
+    scales = list(cand_scale) + [1.0] * (k - len(cand_scale))
+    cands = [row(f"M{i}", "none", *series(rng, n, mult, bitid, scales[i], step1_scale))
+             for i in range(k)]
+    return pp.p2_screen(bases, cands)["verdict"]
+
+
+def split(seed: int, **kw) -> dict[str, float]:
+    rng = random.Random(seed)
+    counts = {"pass": 0, "fail": 0, "inconclusive": 0, "not_run": 0}
+    for _ in range(TRIALS):
+        counts[trial(rng, **kw)] += 1
+    return {v: c / TRIALS for v, c in counts.items()}
+
+
+def check(name: str, ok: bool, detail: str) -> None:
+    print(f"  [{'MET ' if ok else 'MISS'}] {name}: {detail}", flush=True)
+    if not ok:
+        FAILED.append(f"{name}: {detail}")
+
+
+def fmt(s: dict[str, float]) -> str:
+    return " ".join(f"{k} {v:.1%}" for k, v in s.items())
+
+
+CONFIGS = [(n, k, bitid) for n in (100, 50) for k in (3, 1) for bitid in (False, True)]
+
+
+def label(n, k, bitid) -> str:
+    return f"n={n} 3v{k} {'bit-identical step 0' if bitid else 'noisy step 0'}"
+
+
+def main() -> int:
+    print(f"tau={pp.P2_TAU} kappa={pp.P2_KAPPA}; {TRIALS} trials per configuration\n")
+    seed = 0
+    print("1. exchangeable null at the v1 noise model: pass >= 99%, fail 0")
+    for n, k, bitid in CONFIGS:
+        seed += 1
+        s = split(seed, n=n, k=k, bitid=bitid)
+        check(label(n, k, bitid), s["pass"] >= 0.99 and s["fail"] == 0.0, fmt(s))
+
+    print("\n2. the same null at noise x3, x10, x20, x100: fail <= 12% (split reported)")
+    for mult in (3, 10, 20, 100):
+        for n, k, bitid in CONFIGS:
+            seed += 1
+            s = split(seed, n=n, k=k, bitid=bitid, mult=mult)
+            check(f"x{mult} {label(n, k, bitid)}", s["fail"] <= 0.12, fmt(s))
+
+    print("\n3. all candidates x(1+delta): 0.5% pass >= 99%, 2% fail >= 95%, 4% fail >= 99%")
+    for delta, want, thr in ((0.005, "pass", 0.99), (0.02, "fail", 0.95), (0.04, "fail", 0.99)):
+        for n, k, bitid in CONFIGS:
+            seed += 1
+            s = split(seed, n=n, k=k, bitid=bitid, cand_scale=[1 + delta] * k)
+            check(f"delta {delta:.1%} {label(n, k, bitid)}", s[want] >= thr, fmt(s))
+
+    print("\n4. one candidate x1.04 with two null: fail >= 99%")
+    for n in (100, 50):
+        for bitid in (False, True):
+            seed += 1
+            s = split(seed, n=n, k=3, bitid=bitid, cand_scale=[1.04])
+            check(f"{label(n, 3, bitid)}", s["fail"] >= 0.99, fmt(s))
+
+    print("\n5. step-1-only shift, bit-identical baseline forwards: x1.03 fail >= 99%, "
+          "x1.01 pass >= 99%")
+    for factor, want in ((1.03, "fail"), (1.01, "pass")):
+        for n in (100, 50):
+            for k in (3, 1):
+                seed += 1
+                s = split(seed, n=n, k=k, bitid=True, step1_scale=factor)
+                check(f"x{factor} {label(n, k, True)}", s[want] >= 0.99, fmt(s))
+
+    print("\n6. Gaussian single application, worst case over sigma/tau of P(fail | null) <= 4.5%")
+    print("   (one step, so the first-step and all-steps sets are the same single application;"
+          " letter = 1 + sigma*z in every arm, span constant)")
+    for k in (3, 1):
+        worst = (0.0, 0.0)
+        grid = [round(0.05 * i, 2) for i in range(1, 61)]
+        trials = 20_000
+        for r in grid:
+            rng = random.Random(10_000 + int(r * 100) + 1000 * k)
+            sigma = r * pp.P2_TAU
+            fails = 0
+            for _ in range(trials):
+                bases = [row(f"B{j}", "padding", [1.0 + rng.gauss(0.0, sigma)], [1.0])
+                         for j in range(3)]
+                cands = [row(f"M{i}", "none", [1.0 + rng.gauss(0.0, sigma)], [1.0])
+                         for i in range(k)]
+                fails += pp.p2_screen(bases, cands)["channels"]["letter"]["verdict"] == "fail"
+            p = fails / trials
+            if p > worst[1]:
+                worst = (r, p)
+        check(f"3v{k} worst P(fail|null)", worst[1] <= 0.045,
+              f"{worst[1]:.2%} at sigma/tau = {worst[0]} ({trials} trials per grid point, "
+              f"grid 0.05..3.00 step 0.05)")
+
+    print()
+    if FAILED:
+        print(f"{len(FAILED)} target(s) MISSED -- not tuned, reported:")
+        for f in FAILED:
+            print(f"  {f}")
+        return 1
+    print("every calibration target met")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
