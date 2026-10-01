@@ -112,7 +112,7 @@ def _score(monkeypatch, cases, tops):
 def test_pointing_inside_the_needle_hunk_is_a_hit_whatever_the_end_line(monkeypatch):
     cases = build_suite(target_tokens=1024, cases_per_depth=5, seed=1)
     tops = [(_line_in_hunk(c, c.needle_index), 0) for c in cases]
-    gate, metrics = _score(monkeypatch, cases, tops)
+    gate, metrics, _ = _score(monkeypatch, cases, tops)
     assert isinstance(gate, Ran) and gate.passed and gate.value == 1.0
     assert set(metrics) >= {"needle_hunk_recall.depth.0-20%", "needle_suite_tokens"}
 
@@ -128,20 +128,20 @@ def test_the_next_hunk_an_abstention_and_a_header_line_are_misses(monkeypatch):
             tops.append((999, 999))  # the abstention row
         else:
             tops.append((0, 0))  # the `file:` header
-    gate, metrics = _score(monkeypatch, cases, tops)
+    gate, metrics, _ = _score(monkeypatch, cases, tops)
     assert isinstance(gate, Ran) and gate.value == 0.0 and not gate.passed
     assert "abstained" in metrics["needle_suite_tokens"].detail
 
 
 def test_without_the_flag_the_gate_is_not_run_and_the_recipe_is_untouched():
     suite = rft.NeedleSuite([], [], {}, [], not_run="--needle was not given")
-    gate, metrics = rft.score_needle(None, suite, {})  # type: ignore[arg-type]
+    gate, metrics, lines = rft.score_needle(None, suite, {})  # type: ignore[arg-type]
     assert isinstance(gate, NotRun) and metrics == {}
-    assert rft.needle_gate((gate, metrics), suite).recipe is None, (
+    assert rft.needle_gate((gate, metrics, lines), suite).recipe is None, (
         "a gate that did not run must not move the recipe hash"
     )
     ran = rft.NeedleSuite([], [], {}, [8000], seed=4)
-    recipe = rft.needle_gate((gate, metrics), ran).recipe
+    recipe = rft.needle_gate((gate, metrics, lines), ran).recipe
     assert recipe is not None and recipe["min_recall"] == 0.95 and recipe["suite_seed"] == 4
 
 
@@ -201,9 +201,9 @@ def test_a_workers_predictions_are_scored_without_decoding(monkeypatch):
         raise AssertionError("decoded although the worker's predictions were given")
 
     monkeypatch.setattr(rft, "_decode", never)
-    gate, _ = rft.score_needle(
+    gate, _, _ = rft.score_needle(
         None, _suite(cases), {},  # type: ignore[arg-type]
-        predictions={c.case_id: c.needle_index for c in cases},
+        decoded=rft.NeedleDecoded({c.case_id: c.needle_index for c in cases}),
     )
     assert isinstance(gate, Ran) and gate.value == 1.0
 
@@ -221,17 +221,68 @@ def _worker(monkeypatch, payload, returncode=0):
     monkeypatch.setattr(rft.subprocess, "run", fake_run)
 
 
+def _raw(cases, predictions):
+    return [
+        {**{k: 0 for k in rft.NEEDLE_VERDICT_FIELDS}, "suite": "needle", "case_id": c.case_id,
+         "predicted_hunk": predictions[c.case_id]}
+        for c in cases
+    ]
+
+
+def test_score_needle_keeps_each_cases_raw_pointer(monkeypatch):
+    """2026-09-30: 235 of 300 cases abstained and ~63 missed, and only the hunk index was
+    kept -- so a miss in the adjacent hunk (a mapping defect) and one in a far filler (the
+    model) could not be told apart. The pointer itself is now kept per case."""
+    cases = build_suite(target_tokens=1024, cases_per_depth=2, seed=1)
+    tops = [
+        (999, 999) if i == 0 else (_line_in_hunk(c, c.needle_index), 0)
+        for i, c in enumerate(cases)
+    ]
+    _, _, lines = _score(monkeypatch, cases, tops)
+    assert [v["case_id"] for v in lines] == [c.case_id for c in cases]
+    for v, c, (start, end) in zip(lines, cases, tops, strict=True):
+        assert set(rft.NEEDLE_VERDICT_FIELDS) <= set(v)
+        assert (v["start"], v["end"], v["noul_row"]) == (start, end, 999)
+        assert v["needle_index"] == c.needle_index and v["depth_bucket"] == c.depth_bucket
+    assert lines[0]["abstained"] and lines[0]["predicted_hunk"] is None and not lines[0]["hit"]
+    assert all(v["hit"] and not v["abstained"] for v in lines[1:])
+    gate = rft.needle_gate(_score(monkeypatch, cases, tops), _suite(cases))
+    assert gate.verdicts == lines
+
+
+def test_a_worker_without_matching_raw_verdicts_is_refused(monkeypatch):
+    cases = build_suite(target_tokens=1024, cases_per_depth=1, seed=0)
+    suite = rft.NeedleSuite(cases, [], {}, [1] * len(cases), digest="d" * 64)
+    good = {c.case_id: c.needle_index for c in cases}
+    raw = _raw(cases, good)
+    wrong_hunk = [{**raw[0], "predicted_hunk": None}, *raw[1:]]
+    short = [{k: v for k, v in raw[0].items() if k != "start"}, *raw[1:]]
+    for verdicts, match in (
+        (None, "no raw verdicts"),
+        (raw[1:], "raw verdicts do not name exactly"),
+        (wrong_hunk, "names hunk None and its prediction"),
+        (short, "lacks \\['start'\\]"),
+    ):
+        _worker(monkeypatch, {"digest": "d" * 64, "predictions": good, "verdicts": verdicts})
+        with pytest.raises(SystemExit, match=match):
+            rft.run_needle_worker(["--x"], suite)
+
+
 def test_the_needle_worker_is_trusted_only_for_this_exact_suite(monkeypatch):
     cases = build_suite(target_tokens=1024, cases_per_depth=1, seed=0)
     suite = rft.NeedleSuite(cases, [], {}, [1] * len(cases), digest="d" * 64)
     good = {c.case_id: (None if i % 2 else c.needle_index) for i, c in enumerate(cases)}
-    _worker(monkeypatch, {"digest": "d" * 64, "predictions": good})
-    assert rft.run_needle_worker(["--x"], suite) == good
+    raw = _raw(cases, good)
+    _worker(monkeypatch, {"digest": "d" * 64, "predictions": good, "verdicts": raw})
+    got = rft.run_needle_worker(["--x"], suite)
+    assert got.predictions == good and list(got.verdicts) == raw
     for payload, code, match in (
-        ({"digest": "e" * 64, "predictions": good}, 0, "different suite"),
-        ({"digest": "d" * 64, "predictions": good}, 3, "exited 3"),
-        ({"digest": "d" * 64, "predictions": dict(list(good.items())[1:])}, 0, "exactly"),
-        ({"digest": "d" * 64, "predictions": {**good, cases[0].case_id: "2"}}, 0, "is '2'"),
+        ({"digest": "e" * 64, "predictions": good, "verdicts": raw}, 0, "different suite"),
+        ({"digest": "d" * 64, "predictions": good, "verdicts": raw}, 3, "exited 3"),
+        ({"digest": "d" * 64, "predictions": dict(list(good.items())[1:]), "verdicts": raw},
+         0, "exactly"),
+        ({"digest": "d" * 64, "predictions": {**good, cases[0].case_id: "2"}, "verdicts": raw},
+         0, "is '2'"),
     ):
         _worker(monkeypatch, payload, code)
         with pytest.raises(SystemExit, match=match):

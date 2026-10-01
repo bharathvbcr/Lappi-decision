@@ -133,7 +133,7 @@ def test_score_ood_records_the_margin_half_as_not_run_and_scores_the_rest(monkey
     in_first = {"verdicts": [_v(f"v{i}", 1) for i in range(200)]}
     in_second = {"verdicts": [_v(f"v{i}", PERM.index(1)) for i in range(200)]}
     in_perms = {(f"v{i}", "defect_class"): PERM for i in range(200)}
-    gate, metrics = rft.score_ood(
+    gate, metrics, lines = rft.score_ood(
         None, suite, scored=in_first, val_second=in_second,  # type: ignore[arg-type]
         val_second_pass=rft.SecondPass([], {}, in_perms),
     )
@@ -144,16 +144,79 @@ def test_score_ood_records_the_margin_half_as_not_run_and_scores_the_rest(monkey
     assert metrics["ood_abstain.in_distribution"].value == 0.0
     assert isinstance(gate, Ran) and gate.value == 1.0
     assert not gate.passed, "6 of 6 has a Wilson lower bound (~0.61) under the 0.90 floor"
+    assert [v["case_id"] for v in lines] == [c.case_id for c in cases]
+
+
+def test_score_ood_keeps_both_passes_per_case(monkeypatch):
+    """2026-09-30: the suite failed at 22 of 180 and only the counts survived, so whether a
+    calibrated margin would have abstained on the rest could not be asked of the run. Both
+    passes' distributions are now kept per case."""
+    cases = build_ood_suite(PROSE, per_category=1, seed=0)
+    logits = [[0.1, 2.0, 0.3, 0.2, -1.0]]
+
+    def with_dist(row, top):
+        return {**_v(row, top), "row_logits": logits[0], "noul_probability": 0.05, "rows": 5}
+
+    passes = iter([
+        {"verdicts": [with_dist(c.case_id, 1) for c in cases]},
+        {"verdicts": [with_dist(c.case_id, PERM.index(1) if i else 1)
+                      for i, c in enumerate(cases)]},
+    ])
+    monkeypatch.setattr(rft, "_decode", lambda *a, **k: next(passes))
+    val = rft.ValSet(reader=None, labels=[], plan=[], labels_for={}, letter_id={})  # type: ignore[arg-type]
+    perms = {(c.case_id, "defect_class"): PERM for c in cases}
+    suite = rft.OodSuite(cases, val, rft.SecondPass([], {}, perms))
+    in_perms = {("v0", "defect_class"): PERM}
+    _, _, lines = rft.score_ood(
+        None, suite, scored={"verdicts": [_v("v0", 1)]},  # type: ignore[arg-type]
+        val_second={"verdicts": [_v("v0", PERM.index(1))]},
+        val_second_pass=rft.SecondPass([], {}, in_perms),
+    )
+    assert [v["category"] for v in lines] == [c.category for c in cases]
+    first = lines[0]
+    assert first["abstained"], "the permuted pass named another option"
+    assert (first["top1"], first["top2"], first["perm"]) == (1, 1, list(PERM))
+    assert first["row_logits_1"] == logits[0] and first["row_logits_2"] == logits[0]
+    assert first["noul_probability_1"] == 0.05 and first["rows"] == 5
+    assert not lines[1]["abstained"] and lines[1]["top2"] == PERM.index(1)
+    gate = rft.ood_suite_gate(
+        (Ran(passed=False, value=0.0, n=0, n_total=1), {}, lines), suite
+    )
+    rows = rft.suite_verdict_lines([gate], eval_row_id="e9", seed=1)
+    assert rows[0]["eval_row_id"] == "e9" and rows[0]["gate"] == "ood_abstain"
+    assert rows[0]["seed"] == 1 and rows[0]["case_id"] == cases[0].case_id
+
+
+def test_suite_verdicts_are_written_once_and_refused_over_an_existing_file(tmp_path):
+    import json
+
+    lines = [{"eval_row_id": "e", "seed": 0, "gate": "ood_abstain", "suite": "ood",
+              "case_id": "c1", "row_logits_1": [0.5, 1.5]}]
+    out = tmp_path / "s.jsonl"
+    rft.write_suite_verdicts_jsonl(out, lines)
+    assert [json.loads(x) for x in out.read_text().splitlines()] == lines
+    with pytest.raises(SystemExit, match="--suite-verdicts-out"):
+        rft.write_suite_verdicts_jsonl(out, lines)
+    with pytest.raises(ValueError, match="missing \\['case_id'\\]"):
+        rft.write_suite_verdicts_jsonl(
+            tmp_path / "t.jsonl", [{k: v for k, v in lines[0].items() if k != "case_id"}]
+        )
+
+
+def test_suite_verdicts_out_needs_a_suite(tmp_path):
+    with pytest.raises(SystemExit, match="without --needle or --ood there are none"):
+        rft.main(["--out", str(tmp_path), "--rev", "0" * 40,
+                  "--suite-verdicts-out", str(tmp_path / "s.jsonl")])
 
 
 def test_without_the_flag_the_gate_is_not_run_and_the_recipe_is_untouched():
     suite = rft.OodSuite([], None, None, not_run="--ood was not given")
-    gate, metrics = rft.score_ood(
+    gate, metrics, lines = rft.score_ood(
         None, suite, scored={"verdicts": []}, val_second=None,  # type: ignore[arg-type]
         val_second_pass=rft.SecondPass([], {}, {}),
     )
     assert isinstance(gate, NotRun) and metrics == {}
-    assert rft.ood_suite_gate((gate, metrics), suite).recipe is None
+    assert rft.ood_suite_gate((gate, metrics, lines), suite).recipe is None
 
 
 @pytest.mark.parametrize(

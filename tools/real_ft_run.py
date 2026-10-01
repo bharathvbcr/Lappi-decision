@@ -3626,10 +3626,33 @@ def release_device_cache() -> None:
         torch.cuda.empty_cache()
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class NeedleDecoded:
+    """A decode of the needle suite: what the gate scores, and what it was scored from.
+
+    ``predictions`` is the hunk of each case's predicted start line, ``None`` on abstain --
+    all ``score_suite`` reads. ``verdicts`` keeps the pointer itself per case (start, end,
+    abstention row), which the hunk index throws away: without it a miss cannot be told
+    apart as an adjacent hunk (a mapping defect) or a filler far away (the model).
+    """
+
+    predictions: dict[str, int | None]
+    verdicts: tuple[dict[str, object], ...] = ()
+
+
+#: Fields every raw needle verdict carries; the worker's payload is refused without them.
+NEEDLE_VERDICT_FIELDS: Final[tuple[str, ...]] = (
+    "suite", "case_id", "language", "depth_bucket", "depth_fraction", "needle_index",
+    "n_hunks", "token_length", "start", "end", "noul_row", "rows", "abstained",
+    "predicted_hunk", "hit",
+)
+
+
 def needle_predictions(
     step: RealFtStep, suite: NeedleSuite, letter_id: Mapping[str, int]
-) -> dict[str, int | None]:
-    """Decode the suite: per case, the hunk of the predicted start line, ``None`` on abstain."""
+) -> NeedleDecoded:
+    """Decode the suite: per case, the hunk of the predicted start line (``None`` on
+    abstain), and the raw pointer verdict it came from."""
     bound = getattr(step, "max_width", None)
     widest = max(int(b.tokens.shape[1]) for b in suite.batches)
     if bound is not None and int(bound) < widest:
@@ -3644,31 +3667,41 @@ def needle_predictions(
         verdicts.extend(decoded["verdicts"])  # type: ignore[arg-type]
     by_case = {str(v["row_id"]): v for v in verdicts}
     predictions: dict[str, int | None] = {}
-    for case in suite.cases:
+    raw: list[dict[str, object]] = []
+    for i, case in enumerate(suite.cases):
         v = by_case.get(case.case_id)
         if v is None:
             continue  # score_suite reports a case with no prediction as not_run
         start, end = (int(x) for x in v["top"])  # type: ignore[union-attr]
         noul = int(v["noul_row"])  # type: ignore[call-overload]
-        predictions[case.case_id] = (
-            None if noul in (start, end) else hunk_of_context_line(case, start)
-        )
-    return predictions
+        hunk = None if noul in (start, end) else hunk_of_context_line(case, start)
+        predictions[case.case_id] = hunk
+        raw.append({
+            "suite": "needle", "case_id": case.case_id, "language": case.language,
+            "depth_bucket": case.depth_bucket, "depth_fraction": case.depth_fraction,
+            "needle_index": case.needle_index, "n_hunks": case.n_hunks,
+            "token_length": suite.token_lengths[i], "start": start, "end": end,
+            "noul_row": noul, "rows": v.get("rows"), "abstained": hunk is None,
+            "predicted_hunk": hunk, "hit": hunk == case.needle_index,
+        })
+    return NeedleDecoded(predictions, tuple(raw))
 
 
 def score_needle(
     step: RealFtStep, suite: NeedleSuite, letter_id: Mapping[str, int],
-    *, predictions: Mapping[str, int | None] | None = None,
-) -> tuple[TriState, dict[str, TriState]]:
-    """``needle_hunk_recall`` and its by-depth metrics, under the approved contract.
+    *, decoded: NeedleDecoded | None = None,
+) -> tuple[TriState, dict[str, TriState], tuple[dict[str, object], ...]]:
+    """``needle_hunk_recall``, its by-depth metrics, and the raw per-case verdicts, under
+    the approved contract.
 
-    ``predictions`` are a worker process's (``--needle-predictions-out``); without them the
-    suite is decoded here, with ``step``.
+    ``decoded`` is a worker process's (``--needle-predictions-out``); without it the suite
+    is decoded here, with ``step``.
     """
     if suite.not_run is not None:
-        return NotRun(reason=suite.not_run), {}
-    if predictions is None:
-        predictions = needle_predictions(step, suite, letter_id)
+        return NotRun(reason=suite.not_run), {}, ()
+    if decoded is None:
+        decoded = needle_predictions(step, suite, letter_id)
+    predictions = decoded.predictions
     report, gate = score_suite(suite.cases, dict(predictions), min_recall=NEEDLE_MIN_RECALL)
     metrics: dict[str, TriState] = {}
     for bucket in report.by_depth:
@@ -3688,7 +3721,7 @@ def score_needle(
             "model trained on sequences of at most ~1.1K tokens"
         ),
     ) if lengths else NotRun(reason="the suite is empty")
-    return gate, metrics
+    return gate, metrics, decoded.verdicts
 
 
 #: The needle worker decodes 300 ~8.5K cases at ~6.5 s each on the Mac (2026-09-30 probe),
@@ -3696,7 +3729,7 @@ def score_needle(
 NEEDLE_WORKER_TIMEOUT_S: Final[float] = 2 * 3600.0
 
 
-def run_needle_worker(argv: Sequence[str], suite: NeedleSuite) -> dict[str, int | None]:
+def run_needle_worker(argv: Sequence[str], suite: NeedleSuite) -> NeedleDecoded:
     """Score the needle suite in a fresh process and return its per-case predictions.
 
     A separate process because MPS keeps a compiled graph per distinct input shape that
@@ -3734,7 +3767,21 @@ def run_needle_worker(argv: Sequence[str], suite: NeedleSuite) -> dict[str, int 
     for case_id, hunk in predictions.items():
         if hunk is not None and (not isinstance(hunk, int) or isinstance(hunk, bool)):
             raise SystemExit(f"needle worker prediction for {case_id} is {hunk!r}")
-    return predictions
+    verdicts = payload.get("verdicts")
+    if not isinstance(verdicts, list) or not all(isinstance(v, dict) for v in verdicts):
+        raise SystemExit("the needle worker returned no raw verdicts")
+    if sorted(str(v.get("case_id")) for v in verdicts) != sorted(ids):
+        raise SystemExit("the needle worker's raw verdicts do not name exactly the suite's cases")
+    for v in verdicts:
+        missing = [k for k in NEEDLE_VERDICT_FIELDS if k not in v]
+        if missing:
+            raise SystemExit(f"needle worker verdict {v.get('case_id')} lacks {missing}")
+        if v["predicted_hunk"] != predictions[str(v["case_id"])]:
+            raise SystemExit(
+                f"needle worker verdict {v['case_id']} names hunk {v['predicted_hunk']!r} "
+                f"and its prediction {predictions[str(v['case_id'])]!r}"
+            )
+    return NeedleDecoded(dict(predictions), tuple(verdicts))
 
 
 def needle_recipe(suite: NeedleSuite) -> dict[str, object]:
@@ -3821,8 +3868,10 @@ def prepare_ood(
 def score_ood(
     step: RealFtStep, suite: OodSuite, *, scored: Mapping[str, object],
     val_second: Mapping[str, object] | None, val_second_pass: SecondPass,
-) -> tuple[TriState, dict[str, TriState]]:
-    """``ood_abstain`` and its metrics: the OOD suite's abstentions, and the val set's."""
+) -> tuple[TriState, dict[str, TriState], tuple[dict[str, object], ...]]:
+    """``ood_abstain``, its metrics, and each OOD case's raw verdict: the suite's
+    abstentions and the val set's, and both passes' letter distributions per case -- what
+    a margin or calibration diagnostic reads, and what the counts alone cannot show."""
     margin: TriState = NotRun(
         reason=(
             "the calibrated-margin half of the runtime's abstain rule needs a fitted "
@@ -3830,13 +3879,13 @@ def score_ood(
         )
     )
     if suite.not_run is not None:
-        return NotRun(reason=suite.not_run), {}
+        return NotRun(reason=suite.not_run), {}, ()
     assert suite.val is not None and suite.second_pass is not None  # set whenever it ran
     if suite.second_pass.not_run is not None or val_second is None:
         why = suite.second_pass.not_run or val_second_pass.not_run or "no val second pass"
         return NotRun(reason=f"the permuted second pass did not run: {why}"), {
             "ood_abstain.margin": margin,
-        }
+        }, ()
     first = _decode(step, suite.val.plan, suite.val.labels_for, suite.val.letter_id)
     second = _decode(
         step, suite.second_pass.batches, suite.second_pass.labels_for, suite.val.letter_id
@@ -3866,7 +3915,42 @@ def score_ood(
         ood_abstained=sum(ood.values()), ood_total=len(ood),
         in_abstained=in_k, in_total=len(indist),
     )
-    return gate, metrics
+    return gate, metrics, ood_verdict_lines(suite, first, second, ood)
+
+
+def ood_verdict_lines(
+    suite: OodSuite, first: Mapping[str, object], second: Mapping[str, object],
+    abstained: Mapping[str, bool],
+) -> tuple[dict[str, object], ...]:
+    """One raw verdict per decoded OOD case: both passes' top rows and letter distributions,
+    the derangement between them, and whether the runtime rule abstained."""
+    assert suite.second_pass is not None  # only called once the suite ran
+    passes = [
+        {
+            str(v["row_id"]): v for v in decode["verdicts"]  # type: ignore[union-attr]
+            if v["kind"] == "choice"
+        }
+        for decode in (first, second)
+    ]
+    out: list[dict[str, object]] = []
+    for case in suite.cases:
+        if case.case_id not in abstained:
+            continue
+        one = passes[0][case.case_id]
+        two = passes[1].get(case.case_id)
+        perm = suite.second_pass.perms.get((case.case_id, str(one["slot_name"])))
+        out.append({
+            "suite": "ood", "case_id": case.case_id, "category": case.category,
+            "language": case.language, "abstained": abstained[case.case_id],
+            "top1": one["top"], "top2": None if two is None else two["top"],
+            "noul_row": one["noul_row"], "rows": one.get("rows"),
+            "perm": None if perm is None else list(perm),
+            "noul_probability_1": one.get("noul_probability"),
+            "noul_probability_2": None if two is None else two.get("noul_probability"),
+            "row_logits_1": one.get("row_logits"),
+            "row_logits_2": None if two is None else two.get("row_logits"),
+        })
+    return tuple(out)
 
 
 def suite_widths(needle_suite: NeedleSuite, ood_suite: OodSuite) -> list[int]:
@@ -3900,20 +3984,47 @@ class SuiteGate:
     metrics: Mapping[str, TriState]
     recipe_key: str
     recipe: Mapping[str, object] | None
+    #: The raw per-case verdicts the gate was scored from, for ``--suite-verdicts-out``.
+    verdicts: tuple[dict[str, object], ...] = ()
 
 
-def needle_gate(
-    state_metrics: tuple[TriState, dict[str, TriState]], suite: NeedleSuite
-) -> SuiteGate:
-    return SuiteGate("needle_hunk_recall", state_metrics[0], state_metrics[1], "needle",
-                     None if suite.not_run is not None else needle_recipe(suite))
+SuiteScore = tuple[TriState, dict[str, TriState], tuple[dict[str, object], ...]]
 
 
-def ood_suite_gate(
-    state_metrics: tuple[TriState, dict[str, TriState]], suite: OodSuite
-) -> SuiteGate:
-    return SuiteGate("ood_abstain", state_metrics[0], state_metrics[1], "ood",
-                     None if suite.not_run is not None else ood_recipe(suite))
+def needle_gate(scored: SuiteScore, suite: NeedleSuite) -> SuiteGate:
+    return SuiteGate("needle_hunk_recall", scored[0], scored[1], "needle",
+                     None if suite.not_run is not None else needle_recipe(suite), scored[2])
+
+
+def ood_suite_gate(scored: SuiteScore, suite: OodSuite) -> SuiteGate:
+    return SuiteGate("ood_abstain", scored[0], scored[1], "ood",
+                     None if suite.not_run is not None else ood_recipe(suite), scored[2])
+
+
+def suite_verdict_lines(
+    gates: Sequence[SuiteGate], *, eval_row_id: str, seed: int
+) -> list[dict[str, object]]:
+    """The JSONL lines ``--suite-verdicts-out`` writes for one eval row: every suite gate's
+    raw per-case verdicts, each naming the row and seed it was scored under."""
+    return [
+        {"eval_row_id": eval_row_id, "seed": int(seed), "gate": g.name, **v}
+        for g in gates for v in g.verdicts
+    ]
+
+
+def write_suite_verdicts_jsonl(path: Path, lines: Sequence[Mapping[str, object]]) -> None:
+    """Every line to ``path``, atomically, refusing to overwrite."""
+    from qd_train.replay import ReplayRefusal as _Refusal
+    from qd_train.replay import write_text_atomic
+
+    for i, line in enumerate(lines):
+        missing = [k for k in ("eval_row_id", "seed", "gate", "suite", "case_id") if k not in line]
+        if missing:
+            raise ValueError(f"suite verdict line {i} is missing {missing}")
+    try:
+        write_text_atomic(path, "".join(json.dumps(x, sort_keys=True) + "\n" for x in lines))
+    except _Refusal as exc:
+        raise SystemExit(f"--suite-verdicts-out: {exc}") from exc
 
 
 def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: Ledger,
@@ -4097,7 +4208,7 @@ def _score_checkpoint(
     args: argparse.Namespace, *, reader: ShardReader, val: ValSet, device: str,
     ledger: Ledger, reasons_for: Callable[..., list[str]], second_pass: SecondPass,
     needle_suite: NeedleSuite, ood_suite: OodSuite,
-    needle_predictions_from: Mapping[str, int | None] | None = None,
+    needle_decoded: NeedleDecoded | None = None,
 ) -> tuple[str, dict[str, object], TriState, list[SuiteGate]]:
     """Score a saved epoch checkpoint on the val set.
 
@@ -4131,7 +4242,7 @@ def _score_checkpoint(
     gates = [
         needle_gate(
             score_needle(step, needle_suite, val.letter_id,
-                         predictions=needle_predictions_from),
+                         decoded=needle_decoded),
             needle_suite,
         ),
         ood_suite_gate(
@@ -4228,6 +4339,14 @@ def _check_piece_flags(args: argparse.Namespace) -> None:
             )
         if args.verdicts_out.exists():
             raise SystemExit(f"--verdicts-out {args.verdicts_out} already exists")
+    if args.suite_verdicts_out is not None:
+        if not (args.needle or args.ood):
+            raise SystemExit(
+                "--suite-verdicts-out writes the needle and OOD suites' raw verdicts; "
+                "without --needle or --ood there are none"
+            )
+        if args.suite_verdicts_out.exists():
+            raise SystemExit(f"--suite-verdicts-out {args.suite_verdicts_out} already exists")
 
 
 def _remap_post(reader: ShardReader) -> Any:
@@ -4470,8 +4589,19 @@ def _verdict_lines(
             # What an always-abstaining span head is scored against
             # (ft_linear_control's paired_margin_vs_abstain_constant.span).
             line["expected_abstain"] = bool(v["expected_abstain"])
+        # What a margin or calibration fit reads: the argmax alone cannot be refitted.
+        for key in VERDICT_DISTRIBUTION_KEYS:
+            if key in v:
+                line[key] = v[key]
         out.append(line)
     return out
+
+
+#: Verdict fields ``--verdicts-out`` carries whenever the decoder wrote them: the letter
+#: distribution and where the abstention sits in it.
+VERDICT_DISTRIBUTION_KEYS: Final[tuple[str, ...]] = (
+    "noul_row", "rows", "language", "noul_probability", "row_logits",
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -4869,6 +4999,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--replay-every", type=int, default=DEFAULT_REPLAY_EVERY,
         help=f"one replay micro-batch per N training ones; default {DEFAULT_REPLAY_EVERY}",
+    )
+    parser.add_argument(
+        "--suite-verdicts-out", type=Path, default=None,
+        help=(
+            "with --needle and/or --ood: write every suite case's raw verdict as one JSONL "
+            "line (the needle's pointer and hunk, the OOD case's two passes and letter "
+            "distributions), atomically; refused if the file exists"
+        ),
     )
     parser.add_argument(
         "--verdicts-out", type=Path, default=None,
@@ -5288,14 +5426,20 @@ def main(argv: list[str] | None = None) -> int:
                 args, reader=reader, val=val_set, device=devices[0],
                 eval_widths=suite_widths(needle_suite, ood_suite),
             )
-            predictions = needle_predictions(worker_step, needle_suite, val_set.letter_id)
+            decoded = needle_predictions(worker_step, needle_suite, val_set.letter_id)
             args.needle_predictions_out.write_text(
-                json.dumps({"digest": needle_suite.digest, "predictions": predictions}),
+                json.dumps({
+                    "digest": needle_suite.digest, "predictions": decoded.predictions,
+                    "verdicts": list(decoded.verdicts),
+                }),
                 encoding="utf-8",
             )
-            print(f"needle worker: {len(predictions)} predictions -> {args.needle_predictions_out}")
+            print(
+                f"needle worker: {len(decoded.predictions)} predictions -> "
+                f"{args.needle_predictions_out}"
+            )
             return 0
-        worker_predictions = (
+        worker_decoded = (
             run_needle_worker(raw_argv, needle_suite)
             if needle_suite.not_run is None else None
         )
@@ -5310,7 +5454,7 @@ def main(argv: list[str] | None = None) -> int:
             args, reader=reader, val=val_set, device=devices[0],
             ledger=Ledger(args.ledger), reasons_for=eval_reasons, second_pass=second_pass,
             needle_suite=needle_suite, ood_suite=ood_suite,
-            needle_predictions_from=worker_predictions,
+            needle_decoded=worker_decoded,
         )
         for name, state in score_states(scored, val_set.labels).items():
             print(f"  {name}: {json.dumps(state.to_json())[:300]}")
@@ -5325,6 +5469,12 @@ def main(argv: list[str] | None = None) -> int:
                 _verdict_lines(scored, eval_row_id=score_row_id, seed=int(args.seeds[0])),
             )
             print(f"verdicts -> {args.verdicts_out}")
+        if args.suite_verdicts_out is not None:
+            suite_lines = suite_verdict_lines(
+                suite_gates, eval_row_id=score_row_id, seed=int(args.seeds[0])
+            )
+            write_suite_verdicts_jsonl(args.suite_verdicts_out, suite_lines)
+            print(f"suite verdicts: {len(suite_lines)} lines -> {args.suite_verdicts_out}")
         print(f"score row {score_row_id}")
         return 0
 
@@ -5401,6 +5551,7 @@ def main(argv: list[str] | None = None) -> int:
             f"{replay_plan.weight}, every {replay_plan.every}"
         )
     verdict_lines: list[dict[str, object]] = []
+    suite_lines: list[dict[str, object]] = []
 
 
     ledger = Ledger(args.ledger)
@@ -5625,6 +5776,12 @@ def main(argv: list[str] | None = None) -> int:
                                 scored, eval_row_id=str(run["score_row_id"]), seed=seed
                             )
                         )
+                    if args.suite_verdicts_out is not None:
+                        suite_lines.extend(
+                            suite_verdict_lines(
+                                suite_gates, eval_row_id=str(run["score_row_id"]), seed=seed
+                            )
+                        )
                     for name, state in score_states(scored, val_set.labels).items():
                         print(f"  {device} seed={seed} {name}: {json.dumps(state.to_json())[:300]}")
                     _, ece, degenerate = calibration_states(scored)
@@ -5654,6 +5811,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"verdicts: {len(verdict_lines)} lines -> {args.verdicts_out}")
         else:
             print(f"verdicts: NOT WRITTEN -- no eval row was recorded, {args.verdicts_out} absent")
+    if args.suite_verdicts_out is not None:
+        if suite_lines:
+            write_suite_verdicts_jsonl(args.suite_verdicts_out, suite_lines)
+            print(f"suite verdicts: {len(suite_lines)} lines -> {args.suite_verdicts_out}")
+        else:
+            print(
+                "suite verdicts: NOT WRITTEN -- no suite case was decoded, "
+                f"{args.suite_verdicts_out} absent"
+            )
     report["failures"] = failures
     print(json.dumps(report, indent=2, sort_keys=True, default=str))
     if failures:
