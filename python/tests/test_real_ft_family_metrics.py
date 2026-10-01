@@ -443,7 +443,14 @@ def test_ece_per_family_runs_above_the_floor_says_why_below_it_and_leaves_the_ga
     assert {k: v.to_json() for k, v in metrics.items() if k in old_metrics} == {
         k: v.to_json() for k, v in old_metrics.items()
     }
-    assert set(metrics) - set(old_metrics) == {"ece.family.fa.choice.k2", "ece.family.fb.choice.k2"}
+    # The report-only additions, and nothing else: P2's per-family ECEs, then Fable G's
+    # per-family degenerate_head numbers and pooled / per-language ECE (family_heads,
+    # report_eces). Each is a metric only; the two states above are what promotion reads.
+    assert set(metrics) - set(old_metrics) == {
+        "ece.family.fa.choice.k2", "ece.family.fb.choice.k2",
+        "degenerate_head.family.fa.choice.k2", "degenerate_head.family.fb.choice.k2",
+        "ece.report.pooled", "ece.report.lang.python",
+    }
 
     anonymous, _, _ = rft.calibration_states({"verdicts": _calibrated(None, 5)})
     assert "carry no family_id" in anonymous["ece.family"].reason  # type: ignore[union-attr]
@@ -583,7 +590,10 @@ def test_rule_2_no_gate_state_moves(decodes: Decodes) -> None:
     assert {k: v.to_json() for k, v in metrics.items() if k in old_metrics} == {
         k: v.to_json() for k, v in old_metrics.items()
     }
-    assert all(k.startswith("ece.family.") for k in set(metrics) - set(old_metrics))
+    # Every addition is a named report-only metric (P2's ece.family; Fable G's
+    # degenerate_head.family and ece.report), never a renamed or moved gate input.
+    assert all(k.startswith(("ece.family", "degenerate_head.family", "ece.report."))
+               for k in set(metrics) - set(old_metrics))
 
     families = rft.permutation_family_metrics(scored, gate)
     ran = [s for s in families.values() if isinstance(s, Ran)]
