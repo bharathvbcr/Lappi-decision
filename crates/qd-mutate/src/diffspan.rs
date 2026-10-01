@@ -264,29 +264,49 @@ impl MultiHunkDiff {
             return false;
         };
         let mut blocks = self.hunks.iter().flat_map(|h| h.blocks.iter());
+        // What a block removes from `base` and adds from `after`.
+        let gone = |b: &ChangeBlock| old.get(b.old_start..b.old_end).unwrap_or_default();
+        let came = |b: &ChangeBlock| new.get(b.new_start..b.new_end).unwrap_or_default();
         if new_end == start {
             // Only removed lines: the edit sits at deletion point `start`, between after-rows
             // `start - 1` and `start`. It shows when a change block touches that point -- the
             // removal itself, or code the commit changed that the removal sits at the edge of,
-            // which is how a bug in new code reaches a reader at all.
-            return blocks.any(|b| b.new_start <= start && start <= b.new_end);
+            // which is how a bug in new code reaches a reader at all -- and that block carries
+            // a substantive line. A blank or a lone brace changed at the same point is in nearly
+            // every commit, and on commitpackft three reverted `else` branches were "shown" by
+            // nothing but a deleted blank line beside them.
+            return blocks.any(|b| {
+                b.new_start <= start
+                    && start <= b.new_end
+                    && gone(b).iter().chain(came(b)).any(|line| !is_trivial(line))
+            });
         }
         // Wrote lines `start..new_end` over `src[start..src_end]`. It shows when one of the
         // written lines is an added line, or when a change block at the edit removes one of the
-        // lines the edit removed: a stub that replaces a body with the `return nil` the body
-        // already ended in has its one written line aligned with that old line, and what the
-        // reader sees is the body being deleted around it. A written line restoring `base`
-        // beside a commit change removes only the commit's line, which `base` never had.
-        let removed: std::collections::HashSet<&str> = src[start..src_end].iter().copied().collect();
+        // substantive lines the edit removed: a stub that replaces a body with the `return nil`
+        // the body already ended in has its one written line aligned with that old line, and
+        // what the reader sees is the body being deleted around it. A written line restoring
+        // `base` beside a commit change removes only the commit's line, which `base` never had.
+        let removed: std::collections::HashSet<&str> = src[start..src_end]
+            .iter()
+            .copied()
+            .filter(|line| !is_trivial(line))
+            .collect();
         blocks.any(|b| {
             (b.new_start < new_end && start < b.new_end)
                 || (b.new_start <= new_end
                     && start <= b.new_end
-                    && old
-                        .get(b.old_start..b.old_end)
-                        .is_some_and(|gone| gone.iter().any(|line| removed.contains(line))))
+                    && gone(b).iter().any(|line| removed.contains(line)))
         })
     }
+}
+
+/// A line that carries no content of its own: blank, or nothing but brackets, separators and
+/// whitespace (`}`, `)`, `});`, `],`). Such a line matches between unrelated changes too readily to
+/// count as evidence that a particular edit is the one on the page.
+fn is_trivial(line: &str) -> bool {
+    line.chars()
+        .all(|c| c.is_whitespace() || matches!(c, '{' | '}' | '(' | ')' | '[' | ']' | ';' | ','))
 }
 
 /// The rows an edit from `src` to `new` touched, trimmed from both ends exactly as
@@ -1097,6 +1117,30 @@ mod tests {
         assert!(!d.text.contains("+\treturn nil"), "aligned as context:\n{}", d.text);
         assert!(d.text.contains("-\tlock()"), "{}", d.text);
         assert!(d.shows_edit(base, source, after), "{}", d.text);
+    }
+
+    #[test]
+    fn a_blank_line_the_commit_deleted_beside_a_reverted_else_is_not_the_edit_showing() {
+        // Shaped after commitpackft's pysteps/cascade/interface.py: the commit added an `else`
+        // and dropped the blank line after it; the edit removes the `else`. From the base, the
+        // only change at the deletion point is that blank line.
+        let base = "def f(n):\n    if a:\n        n = low(n)\n\n    try:\n        return m[n]\n";
+        let source =
+            "def f(n):\n    if a:\n        n = low(n)\n    else:\n        raise E()\n    try:\n        \
+             return m[n]\n";
+        let after = "def f(n):\n    if a:\n        n = low(n)\n    try:\n        return m[n]\n";
+        let d = unified_multi_detailed(base, after, 3).expect("renders");
+        assert_eq!(d.text.lines().filter(|l| l.starts_with('-')).collect::<Vec<_>>(), ["-"]);
+        assert!(!d.shows_edit(base, source, after), "{}", d.text);
+        // A substantive change at the same point still counts: the commit also rewrote the line
+        // the `else` follows, so the removal sits at the edge of code it changed. (A change two
+        // rows up, past an unchanged line, does not touch the point and would not.)
+        let base_body = base.replace("n = low(n)", "n = n.lower()");
+        let d = unified_multi_detailed(&base_body, after, 3).expect("renders");
+        assert!(d.shows_edit(&base_body, source, after), "{}", d.text);
+        let base_if = base.replace("if a:", "if b:");
+        let d = unified_multi_detailed(&base_if, after, 3).expect("renders");
+        assert!(!d.shows_edit(&base_if, source, after), "{}", d.text);
     }
 
     #[test]
