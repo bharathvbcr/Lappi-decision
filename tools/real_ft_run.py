@@ -88,11 +88,14 @@ from __future__ import annotations
 
 import argparse
 import collections
+import copy
 import dataclasses
+import gc
 import hashlib
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import time
@@ -483,6 +486,9 @@ DEFAULT_ATTN_IMPLEMENTATION: Final[str] = "sdpa"
 #: interesting is long enough to hide a wiring bug behind a plausible curve.
 MAX_PASSES = 2_000
 MAX_SEEDS = 8
+#: ``--seeds`` when it is not given. Resolved after parsing rather than as argparse's default
+#: so a ``--score-plan`` run can tell "not given" from "given as 0 1 2" and refuse the latter.
+DEFAULT_SEEDS: Final[tuple[int, ...]] = (0, 1, 2)
 
 #: Seconds a single forward+backward probe is given before it is called a refusal. Generous:
 #: the widest real batch is 34,522 positions and `mps` takes 13.6s for the attention alone.
@@ -985,13 +991,157 @@ class RealFtStep:
 # --- reading the trained model the way the runtime does ------------------------------------------
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class BatchReadout:
+    """What one forward pass over one batch hands the decode: per letter row, its scores over
+    the slot's own rows in decode-row order; per span row, its start and end pointer scores
+    over the runtime's rows (:func:`qd_train.heads.serving_scores`, the abstention last).
+
+    One tower's readout holds that tower's raw values (the slice of ``lm_head`` the runtime
+    decodes, and the pointer head's scores); an ensemble's holds the mean of its towers'
+    log-probabilities (:func:`combine_readouts`). The decode reads either the same way.
+    """
+
+    letters: dict[int, torch.Tensor]
+    plan: Any
+    starts: list[torch.Tensor] | None
+    ends: list[torch.Tensor] | None
+    span_index: dict[int, int]
+
+
+def _readout(
+    step: Any, batch: Batch, letter_rows: Mapping[int, Sequence[int]]
+) -> BatchReadout:
+    """One step's forward over ``batch``: ``letter_rows`` maps a batch row to the token ids of
+    the letters it is decoded over, in decode-row order.
+
+    The tensor ops are the ones the decode always ran -- the full-vocabulary head over every
+    position, then indexed -- because a head computed over a subset of positions is not the
+    same GEMM and need not round the same on a GPU. Each row's slice is cloned so the
+    full-vocabulary tensor is freed when this returns.
+    """
+    hidden = step.hidden(batch)
+    letters: dict[int, torch.Tensor] = {}
+    # A batch of span rows reads no letter, and the full-vocabulary head over every position
+    # is the costliest tensor here -- 8 GB in fp32 at the needle suite's 8K tokens. Skipped
+    # only when no row reads it.
+    if letter_rows:
+        logits = step.lm_head(hidden)
+        for r, ids in letter_rows.items():
+            at = int(batch.target_index[r])  # type: ignore[index]
+            letters[r] = logits[r, at, torch.as_tensor(list(ids), device=step.device)].clone()
+        del logits
+    supervision = ft_supervision(batch)
+    plan = starts = ends = None
+    span_index: dict[int, int] = {}
+    if supervision.span is not None:
+        plan = plan_span_batch(supervision.span, device=step.device)
+        start_scores, end_scores = step.span_head(
+            hidden[torch.as_tensor(supervision.span.rows, device=step.device)], plan
+        )
+        starts = serving_scores(start_scores, plan)
+        ends = serving_scores(end_scores, plan)
+        span_index = {int(r): k for k, r in enumerate(supervision.span.rows)}
+    return BatchReadout(letters, plan, starts, ends, span_index)
+
+
+#: How a logit ensemble combines its towers, recorded on every ensemble row. The decode is the
+#: argmax of this mean, the abstention is the noul row winning it, and the second pass reads
+#: the same mean of the permuted batch. Per tower the log-softmax differs from the raw scores
+#: by one constant per row, so the argmax and the softmax over the slot's rows equal those of
+#: the mean of the raw scores: only the reported values (``row_logits``) are log-probabilities.
+ENSEMBLE_COMBINE: Final[str] = (
+    "mean over towers of each tower's log-softmax over the slot's own rows (letters: the "
+    "slice of lm_head at the slot's letters; span: each pointer's serving_scores, abstention "
+    "included), in float64"
+)
+
+
+def combine_readouts(readouts: Sequence[BatchReadout]) -> BatchReadout:
+    """The logit ensemble of several towers' readouts of ONE batch (:data:`ENSEMBLE_COMBINE`).
+
+    Every tower must have read the same rows under the same span plan; anything else is a
+    different batch, and is refused rather than averaged.
+    """
+    if len(readouts) < 2:
+        raise ValueError(f"an ensemble combines two or more towers, got {len(readouts)}")
+    first = readouts[0]
+    for other in readouts[1:]:
+        if set(other.letters) != set(first.letters) or other.span_index != first.span_index:
+            raise ValueError("ensemble towers read different rows of one batch")
+        if (first.plan is None) != (other.plan is None) or (
+            first.plan is not None
+            and not np.array_equal(
+                np.asarray(first.plan.runtime_rows), np.asarray(other.plan.runtime_rows)
+            )
+        ):
+            raise ValueError("ensemble towers planned one batch's span rows differently")
+
+    def mean_log_probs(scores: Sequence[torch.Tensor]) -> torch.Tensor:
+        shapes = {tuple(s.shape) for s in scores}
+        if len(shapes) != 1:
+            raise ValueError(f"ensemble towers scored one row over different row counts {shapes}")
+        return torch.stack(
+            [torch.log_softmax(s.detach().to(torch.float64), dim=-1) for s in scores]
+        ).mean(dim=0)
+
+    letters = {
+        r: mean_log_probs([ro.letters[r] for ro in readouts]) for r in first.letters
+    }
+    starts = ends = None
+    if first.starts is not None and first.ends is not None:
+        starts = [
+            mean_log_probs([ro.starts[k] for ro in readouts])  # type: ignore[index]
+            for k in range(len(first.starts))
+        ]
+        ends = [
+            mean_log_probs([ro.ends[k] for ro in readouts])  # type: ignore[index]
+            for k in range(len(first.ends))
+        ]
+    return BatchReadout(letters, first.plan, starts, ends, dict(first.span_index))
+
+
+class TowerEnsemble:
+    """Several scored towers decoded as one model: a 3-seed LOGIT ensemble.
+
+    Holds the per-seed steps, each loaded with its own checkpoint, on one device. The decode
+    reads every tower's :func:`_readout` of a batch and decodes their
+    :func:`combine_readouts`, so the abstention rule, the permuted second pass, the needle
+    pointer and the OOD rule all see the ensemble's averaged log-probabilities and nothing
+    else. ``max_width`` is the narrowest tower's bound.
+    """
+
+    def __init__(self, steps: Sequence[Any]) -> None:
+        if len(steps) < 2:
+            raise ValueError(f"an ensemble needs two or more towers, got {len(steps)}")
+        devices = {str(s.device) for s in steps}
+        if len(devices) != 1:
+            raise ValueError(f"ensemble towers are on different devices {sorted(devices)}")
+        self.steps = list(steps)
+        self.device = steps[0].device
+        self.max_width = min(int(s.max_width) for s in steps)
+
+    def readout(self, batch: Batch, letter_rows: Mapping[int, Sequence[int]]) -> BatchReadout:
+        return combine_readouts([_readout(s, batch, letter_rows) for s in self.steps])
+
+
+def batch_readout(
+    step: Any, batch: Batch, letter_rows: Mapping[int, Sequence[int]]
+) -> BatchReadout:
+    """``step``'s readout of ``batch``: one tower's, or an ensemble's combined one."""
+    if isinstance(step, TowerEnsemble):
+        return step.readout(batch, letter_rows)
+    return _readout(step, batch, letter_rows)
+
+
 def _decode(
-    step: RealFtStep,
+    step: RealFtStep | TowerEnsemble,
     batches: list[Batch],
     labels_for: dict[int, list[Label]],
     letter_id: dict[str, int],
     *,
     noul_first: bool = False,
+    pointer_scores: bool = False,
 ) -> dict[str, object]:
     """Decode every row of every batch the way ``crates/qd-runtime/src/answer.rs`` does.
 
@@ -1015,37 +1165,44 @@ def _decode(
     raising: until 2026-09-29 this was a bare ``KeyError`` part-way through a paid run.
 
     Never consults the loss. Returns per-row verdicts and the counts.
+
+    ``step`` may be a :class:`TowerEnsemble`: every score below is then the ensemble's mean
+    of per-tower log-probabilities (:func:`combine_readouts`), decoded by the same rules.
+    ``pointer_scores`` adds each span row's ``start_logits``/``end_logits`` (the runtime's
+    rows, the abstention last) to its verdict -- what ``--suite-logits`` writes for the
+    needle suite; off, the verdicts are what they always were.
     """
     verdicts: list[dict[str, object]] = []
     not_decoded: list[str] = []
     letters_without_id: set[str] = set()
     with torch.no_grad():
         for b, batch in enumerate(batches):
-            hidden = step.hidden(batch)
-            # A batch of span rows reads no letter, and the full-vocabulary head over every
-            # position is the costliest tensor here -- 8 GB in fp32 at the needle suite's
-            # 8K tokens. Skipped only when no row could read it; the letter path below
-            # would fail on the None rather than decode without it.
-            logits = (
-                step.lm_head(hidden)
-                if any(label.slot_kind != SLOT_SPAN for label in labels_for[b])
-                else None
-            )
-            supervision = ft_supervision(batch)
-            plan = start_rows = end_rows = None
-            if supervision.span is not None:
-                plan = plan_span_batch(supervision.span, device=step.device)
-                starts, ends = step.span_head(
-                    hidden[torch.as_tensor(supervision.span.rows, device=step.device)], plan
+            # Which letters each letter row is decoded over, decided before the forward pass:
+            # a row offering a letter with no id is counted and never read.
+            ordered_for: dict[int, list[str]] = {}
+            letter_rows: dict[int, list[int]] = {}
+            for r in range(batch.tokens.shape[0]):
+                label = labels_for[b][r]
+                if label.slot_kind == SLOT_SPAN:
+                    continue
+                order = [x for x in label.letters if x != NOUL_LETTER]
+                ordered = (
+                    [NOUL_LETTER, *order] if noul_first else [*order, NOUL_LETTER]
                 )
-                start_rows = serving_scores(starts, plan)
-                end_rows = serving_scores(ends, plan)
-                span_index = {int(r): k for k, r in enumerate(supervision.span.rows)}
+                unknown = [x for x in ordered if x not in letter_id]
+                if unknown:
+                    not_decoded.append(label.row_id)
+                    letters_without_id.update(unknown)
+                    continue
+                ordered_for[r] = ordered
+                letter_rows[r] = [letter_id[x] for x in ordered]
+            readout = batch_readout(step, batch, letter_rows)
+            plan, start_rows, end_rows = readout.plan, readout.starts, readout.ends
             for r in range(batch.tokens.shape[0]):
                 label = labels_for[b][r]
                 if label.slot_kind == SLOT_SPAN:
                     assert plan is not None and start_rows is not None and end_rows is not None
-                    k = span_index[r]
+                    k = readout.span_index[r]
                     n_rows = int(plan.runtime_rows[k])
                     noul_row = n_rows - RESERVED_NOUL_ROWS
                     # The runtime's row count for this context, restated from the head's own
@@ -1062,7 +1219,15 @@ def _decode(
                     top_end = int(end_rows[k].argmax())
                     abstained = top_start == noul_row or top_end == noul_row
                     expected = bool(plan.abstaining[k])
+                    pointer = (
+                        {
+                            "start_logits": start_rows[k].double().tolist(),
+                            "end_logits": end_rows[k].double().tolist(),
+                        }
+                        if pointer_scores else {}
+                    )
                     verdicts.append({
+                        **pointer,
                         "kind": "span",
                         "row_id": label.row_id,
                         "slot_name": label.slot_name,
@@ -1092,22 +1257,14 @@ def _decode(
                         "abstain_correct": abstained == expected,
                     })
                     continue
-                order = [x for x in label.letters if x != NOUL_LETTER]
-                ordered = (
-                    [NOUL_LETTER, *order] if noul_first else [*order, NOUL_LETTER]
-                )
-                unknown = [x for x in ordered if x not in letter_id]
-                if unknown:
-                    not_decoded.append(label.row_id)
-                    letters_without_id.update(unknown)
-                    continue
-                row_tokens = [letter_id[x] for x in ordered]
+                if r not in letter_rows:
+                    continue  # counted in not_decoded above
+                ordered = ordered_for[r]
+                row_tokens = letter_rows[r]
+                row_scores = readout.letters[r]
                 noul_row = len(row_tokens) - RESERVED_NOUL_ROWS
                 at = int(batch.target_index[r])  # type: ignore[index]
-                assert logits is not None  # a letter row in this batch computed them
-                top = int(
-                    logits[r, at, torch.as_tensor(row_tokens, device=step.device)].argmax()
-                )
+                top = int(row_scores.argmax())
                 expected = label.gold_letter == NOUL_LETTER
                 gold_row = ordered.index(label.gold_letter)
                 abstained = top == noul_row
@@ -1132,19 +1289,13 @@ def _decode(
                     "language": label.language,
                     # The mass this model puts on a row it was never supervised at. Softmax
                     # over the slot's own rows, which is what `QueryKind::Letters` decodes.
-                    "noul_probability": float(
-                        torch.softmax(
-                            logits[r, at, torch.as_tensor(row_tokens, device=step.device)],
-                            dim=-1,
-                        )[noul_row]
-                    ),
+                    "noul_probability": float(torch.softmax(row_scores, dim=-1)[noul_row]),
                     # The whole distribution the verdict was an argmax of, in decode-row
                     # order. What `ece` and `degenerate_head` read (letter_distributions),
                     # and what a calibration fit would: the argmax alone is not enough for
-                    # either. bf16 -> fp32 is exact, so this is the same numbers `top` saw.
-                    "row_logits": logits[
-                        r, at, torch.as_tensor(row_tokens, device=step.device)
-                    ].float().tolist(),
+                    # either. bf16/fp32 -> fp64 is exact, so this is the same numbers `top`
+                    # saw -- an ensemble's float64 mean log-probabilities included.
+                    "row_logits": row_scores.double().tolist(),
                 })
 
     by_kind: dict[str, dict[str, float]] = {}
@@ -4127,10 +4278,16 @@ NEEDLE_VERDICT_FIELDS: Final[tuple[str, ...]] = (
 
 
 def needle_predictions(
-    step: RealFtStep, suite: NeedleSuite, letter_id: Mapping[str, int]
+    step: RealFtStep | TowerEnsemble, suite: NeedleSuite, letter_id: Mapping[str, int],
+    *, logits: bool = False,
 ) -> NeedleDecoded:
     """Decode the suite: per case, the hunk of the predicted start line (``None`` on
-    abstain), and the raw pointer verdict it came from."""
+    abstain), and the raw pointer verdict it came from.
+
+    ``logits`` (``--suite-logits``) adds each case's pointer scores over the runtime's rows
+    -- ``start_logits`` and ``end_logits``, the abstention at ``noul_row`` -- to its raw
+    verdict; for an ensemble they are its mean log-probabilities. Off, the verdicts are what
+    they always were."""
     bound = getattr(step, "max_width", None)
     widest = max(int(b.tokens.shape[1]) for b in suite.batches)
     if bound is not None and int(bound) < widest:
@@ -4141,7 +4298,9 @@ def needle_predictions(
     release_device_cache()
     verdicts: list[Mapping[str, object]] = []
     for i, batch in enumerate(suite.batches):
-        decoded = _decode(step, [batch], {0: suite.labels_for[i]}, dict(letter_id))
+        decoded = _decode(
+            step, [batch], {0: suite.labels_for[i]}, dict(letter_id), pointer_scores=logits
+        )
         verdicts.extend(decoded["verdicts"])  # type: ignore[arg-type]
     by_case = {str(v["row_id"]): v for v in verdicts}
     predictions: dict[str, int | None] = {}
@@ -4161,24 +4320,42 @@ def needle_predictions(
             "token_length": suite.token_lengths[i], "start": start, "end": end,
             "noul_row": noul, "rows": v.get("rows"), "abstained": hunk is None,
             "predicted_hunk": hunk, "hit": hunk == case.needle_index,
+            **{k: v[k] for k in SUITE_LOGIT_KEYS if logits and k in v},
         })
     return NeedleDecoded(predictions, tuple(raw))
 
 
+#: What ``--suite-logits`` adds to a needle case's raw verdict: the pointer's scores over
+#: the runtime's rows, the abstention included (at ``noul_row``). An OOD case's line always
+#: carries both passes' letter rows (``row_logits_1``/``row_logits_2``, noul included).
+SUITE_LOGIT_KEYS: Final[tuple[str, ...]] = ("start_logits", "end_logits")
+
+
 def score_needle(
-    step: RealFtStep, suite: NeedleSuite, letter_id: Mapping[str, int],
-    *, decoded: NeedleDecoded | None = None,
+    step: RealFtStep | TowerEnsemble, suite: NeedleSuite, letter_id: Mapping[str, int],
+    *, decoded: NeedleDecoded | None = None, logits: bool = False,
 ) -> tuple[TriState, dict[str, TriState], tuple[dict[str, object], ...]]:
     """``needle_hunk_recall``, its by-depth metrics, and the raw per-case verdicts, under
     the approved contract.
 
     ``decoded`` is a worker process's (``--needle-predictions-out``); without it the suite
-    is decoded here, with ``step``.
+    is decoded here, with ``step`` (and ``logits`` as :func:`needle_predictions` takes it).
+    Under ``logits`` every verdict must carry :data:`SUITE_LOGIT_KEYS`, wherever it was
+    decoded: a line without them would read the same as one never asked for scores.
     """
     if suite.not_run is not None:
         return NotRun(reason=suite.not_run), {}, ()
     if decoded is None:
-        decoded = needle_predictions(step, suite, letter_id)
+        decoded = needle_predictions(step, suite, letter_id, logits=logits)
+    if logits:
+        for v in decoded.verdicts:
+            missing = [k for k in SUITE_LOGIT_KEYS if k not in v]
+            if missing:
+                raise SystemExit(
+                    f"needle verdict {v.get('case_id')} lacks {', '.join(missing)} under "
+                    "--suite-logits: the decode was asked for the pointer scores and returned "
+                    "none, so its suite lines would read as a run that never asked"
+                )
     predictions = decoded.predictions
     report, gate = score_suite(suite.cases, dict(predictions), min_recall=NEEDLE_MIN_RECALL)
     metrics: dict[str, TriState] = {}
@@ -4496,7 +4673,11 @@ def needle_worker_main(
         args, reader=reader, val=plan, device=args.devices[0],
         eval_widths=handoff.eval_widths, suite_seed=config.seed,
     )
-    decoded = needle_predictions(worker_step, handoff.suite, handoff.letter_id)
+    # --suite-logits rides in on the scoring process's own argv; the scores go back in the
+    # verdicts, and score_needle refuses a verdict without them under the flag.
+    decoded = needle_predictions(
+        worker_step, handoff.suite, handoff.letter_id, logits=args.suite_logits
+    )
     args.needle_predictions_out.write_text(
         json.dumps({
             "digest": handoff.suite.digest, "predictions": decoded.predictions,
@@ -4632,39 +4813,29 @@ def run_needle_control(
         args, reader=reader, val=val, device=device, eval_widths=widths,
         suite_seed=config.seed,
     )
-    averaged = meta.get("averaged")
-    # For an average `ft` is its first input's row; _averaged_weights has checked that every
-    # input's row has this shard set and this recipe, which fix the plan's widest batch.
+    # For an average or an ensemble `ft` is its first input's row; the pairing has checked
+    # that every input's row has this shard set and this recipe, which fix the plan's widest
+    # batch.
     plan_width = ft["metrics"].get("corpus.plan_max_width", {}).get("value")
     trained_width = int(plan_width) if isinstance(plan_width, int) else None
     decode_at = time.monotonic()
     metrics: dict[str, TriState] = {}
     lines: list[dict[str, object]] = []
     for n, suite in suites.items():
-        decoded = needle_predictions(step, suite, val.letter_id)
+        decoded = needle_predictions(step, suite, val.letter_id, logits=args.suite_logits)
         metrics.update(needle_control_metrics(n, suite, decoded, trained_width=trained_width))
         lines.extend({**v, "target_tokens": n} for v in decoded.verdicts)
         print(f"  needle control {n}: {metrics[f'needle_hunk_recall.control.{n}'].to_json()}")
     decode_s = time.monotonic() - decode_at
-    if averaged is None:
-        scored_checkpoint = f"{args.score_checkpoint.name}:{meta['sidecar']['digest']}"
-        terminations = [ft["metrics"].get("train.termination", {}).get("value")]
-        ft_rows = f"ft row {ft['row_id']}"
-    else:
-        scored_checkpoint = str(meta["scored_checkpoint"])
-        terminations = list(meta["terminations"])
-        ft_rows = (
-            f"an AVERAGE of seeds {averaged['seeds']} from their {averaged['source']}, ft rows "
-            f"{', '.join(averaged['ft_row_ids'])}, manifest sha256 {averaged['manifest_sha256']}"
-        )
+    model = scored_model(args, ft, meta)
     control_recipe: dict[str, object] = {
         "tool": "tools/real_ft_run.py",
-        "tag": f"{'epoch' if averaged is None else AVERAGED_TAG}-needle-length-control",
+        "tag": f"{model.tag}-needle-length-control",
         "device": device,
         **{k: recipe[k] for k in (*BACKBONE_KEYS, *RECIPE_PIECE_KEYS) if k in recipe},
         "score_dtype": args.score_dtype,
-        "scored_checkpoint": scored_checkpoint,
-        **({} if averaged is None else {"averaged": averaged}),
+        "scored_checkpoint": model.scored_checkpoint,
+        **model.recipe_block(),
         "shard_hash": reader.header.shard_hash(),
         "val_shard_hash": val.reader.header.shard_hash(),
         "needle_control": {
@@ -4673,18 +4844,7 @@ def run_needle_control(
             "suite_seed": config.seed, "gate_suite_digest": gate_suite.digest,
         },
     }
-    reasons: list[str] = []
-    for termination in terminations:
-        for reason in reasons_for(
-            "epoch", device, None if termination is None else str(termination)
-        ):
-            if reason not in reasons:
-                reasons.append(reason)
-    if averaged is not None and int(averaged["n_inputs"]) < MIN_AVERAGED_SEEDS:
-        reasons.append(
-            f"an average of {averaged['n_inputs']} seeds: rule 8 marks fewer than "
-            f"{MIN_AVERAGED_SEEDS} seeds quick"
-        )
+    reasons = model_reasons(model, device=device, reasons_for=reasons_for)
     reasons.append(NEEDLE_CONTROL_QUICK_REASON)
     recorder = _recorder(
         ledger, reader=reader, seed=seed, recipe=control_recipe, run_kind="eval",
@@ -4696,26 +4856,16 @@ def run_needle_control(
         ),
         notes=(
             f"tools/real_ft_run.py --needle-control {','.join(map(str, lengths))} on "
-            f"{scored_checkpoint} ({ft_rows}), {args.score_dtype} "
+            f"{model.scored_checkpoint} ({model.described}), {args.score_dtype} "
             f"on {device}: the needle gate's rule at other lengths, a diagnostic for "
             "GAP-NEEDLE-FAILS-AT-8K-CAUSE-UNRESOLVED. Length and hunk count move together "
             "(fixed filler templates), so this cannot separate them."
         ),
     )
     with recorder:
-        if averaged is None:
-            recorder.metric(
-                "ft_run_row_id",
-                Ran(passed=True, value=ft["row_id"],
-                    detail="the train_ft row whose model this is"),
-            )
-        else:
-            # Not ft_run_row_id: that names ONE row, and shuffled_label_target reads it so.
-            recorder.metric(
-                "ft_run_row_ids",
-                Ran(passed=True, value=",".join(averaged["ft_row_ids"]),
-                    detail="the train_ft rows whose weights were averaged into this model"),
-            )
+        # ft_run_row_ids for an average or an ensemble, never ft_run_row_id: that names ONE
+        # row, and shuffled_label_target reads it so.
+        recorder.metric(*model.ft_row_metric())
         for name, state in metrics.items():
             recorder.metric(name, state)
         recorder.noul_rate = NotRun(reason="a needle length-control row decodes no val row")
@@ -4816,23 +4966,12 @@ def score_ood(
         return NotRun(reason=f"the permuted second pass did not run: {why}"), {
             "ood_abstain.margin": margin,
         }, ()
-    first = _decode(step, suite.val.plan, suite.val.labels_for, suite.val.letter_id)
-    second = _decode(
-        step, suite.second_pass.batches, suite.second_pass.labels_for, suite.val.letter_id
-    )
-    ood = choice_rule_abstentions(first, second, suite.second_pass.perms)
+    first, second, ood = decode_ood(step, suite)
     indist = choice_rule_abstentions(scored, val_second, val_second_pass.perms)
     metrics: dict[str, TriState] = {"ood_abstain.margin": margin}
-    for category in OOD_CATEGORIES:
-        ids = [c.case_id for c in suite.cases if c.category == category and c.case_id in ood]
-        k = sum(1 for i in ids if ood[i])
-        metrics[f"ood_abstain.{category}"] = (
-            Ran(
-                passed=True, value=k / len(ids), n=k, n_total=len(ids),
-                detail=f"abstained on {k} of {len(ids)} {category} cases (reported, not the gate)",
-            )
-            if ids else NotRun(reason=f"no {category} case was decoded")
-        )
+    metrics.update(ood_category_metrics(
+        suite, ood, prefix="ood_abstain", what="(reported, not the gate)"
+    ))
     in_k = sum(indist.values())
     metrics["ood_abstain.in_distribution"] = (
         Ran(
@@ -4850,6 +4989,39 @@ def score_ood(
         in_abstained=in_k, in_total=len(indist),
     )
     return gate, metrics, ood_verdict_lines(suite, first, second, ood)
+
+
+def decode_ood(
+    step: RealFtStep | TowerEnsemble, suite: OodSuite
+) -> tuple[dict[str, object], dict[str, object], dict[str, bool]]:
+    """Both passes over the OOD suite -- as rendered, then deranged -- and the runtime rule's
+    abstention per decoded case. What the ``ood_abstain`` gate and the OOD-only diagnostic
+    (:func:`run_ood_diagnostic`) both decode, by the one rule."""
+    assert suite.val is not None and suite.second_pass is not None  # set whenever it ran
+    first = _decode(step, suite.val.plan, suite.val.labels_for, suite.val.letter_id)
+    second = _decode(
+        step, suite.second_pass.batches, suite.second_pass.labels_for, suite.val.letter_id
+    )
+    return first, second, choice_rule_abstentions(first, second, suite.second_pass.perms)
+
+
+def ood_category_metrics(
+    suite: OodSuite, ood: Mapping[str, bool], *, prefix: str, what: str
+) -> dict[str, TriState]:
+    """``<prefix>.<category>``: the runtime rule's abstentions on each OOD category's decoded
+    cases. The one count the ``ood_abstain`` gate's report and the OOD-only diagnostic make."""
+    metrics: dict[str, TriState] = {}
+    for category in OOD_CATEGORIES:
+        ids = [c.case_id for c in suite.cases if c.category == category and c.case_id in ood]
+        k = sum(1 for i in ids if ood[i])
+        metrics[f"{prefix}.{category}"] = (
+            Ran(
+                passed=True, value=k / len(ids), n=k, n_total=len(ids),
+                detail=f"abstained on {k} of {len(ids)} {category} cases {what}",
+            )
+            if ids else NotRun(reason=f"no {category} case was decoded")
+        )
+    return metrics
 
 
 def in_distribution_family_metrics(
@@ -5038,7 +5210,35 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
         if suite_gate.recipe is not None:
             recipe[suite_gate.recipe_key] = dict(suite_gate.recipe)
     averaged = run.get("averaged")
-    if averaged is None:
+    model = run.get("scored_model")
+    if model is not None and not isinstance(model, ScoredModel):  # pragma: no cover
+        raise TypeError(f"run['scored_model'] is {type(model).__name__}, not a ScoredModel")
+    if model is not None and model.block_key == "ensemble":
+        notes = (
+            f"tools/real_ft_run.py --score-checkpoint of {model.described}, scored in "
+            f"{run['score_dtype']} on {run['device']} at T = 1 on {len(val.reader)} val "
+            "sequences none of them trained on, the way crates/qd-runtime/src/answer.rs "
+            "decodes them, every rule (abstention, the permuted second pass, the needle "
+            "pointer, the OOD rule) applied to the ensemble's averaged log-probabilities. The "
+            "permuted second pass and the needle and OOD suites are built at the protocol seed "
+            f"{run['seed']}, as every per-seed score row's are. " + ENSEMBLE_PROMOTION_NOTE
+        )
+    elif model is not None and model.tag == AVERAGED_NP_TAG:
+        notes = (
+            f"tools/real_ft_run.py --score-checkpoint of {model.described}, "
+            f"{run['scored_checkpoint']}, scored in {run['score_dtype']} on {run['device']} at "
+            f"T = 1 on {len(val.reader)} val sequences none of them trained on, the way "
+            "crates/qd-runtime/src/answer.rs decodes them. "
+            + (
+                "lambda was GIVEN, not derived from the measured c, and this row is quick "
+                "for it. " if model.lambda_chosen else
+                "lambda is a function of the measured c (Fable I-2), never chosen on a gate. "
+            )
+            + "The permuted second pass and the needle and OOD suites are built at the "
+            f"protocol seed {run['seed']}, as every per-seed score row's are. "
+            + AVERAGED_PROMOTION_NOTE
+        )
+    elif averaged is None:
         notes = (
             f"tools/real_ft_run.py --score-val for ft row {run['ft_row_id']} "
             f"({run['device']} seed={run['seed']}): the epoch model decoded on "
@@ -5064,6 +5264,9 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
             f"{averaged['suite_seed']}, as every per-seed score row's are. "
             + AVERAGED_PROMOTION_NOTE
         )
+    plan_note = run.get("plan_note")
+    if plan_note is not None:
+        notes = f"{notes} {plan_note}"
     recorder = _recorder(
         ledger, reader=reader, seed=int(run["seed"]), recipe=recipe, run_kind="eval",
         quick_reasons=quick_reasons,
@@ -5073,19 +5276,16 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
         notes=notes,
     )
     with recorder:
-        if averaged is None:
+        if model is None:
             recorder.metric(
                 "ft_run_row_id",
                 Ran(passed=True, value=run["ft_row_id"],
                     detail="the train_ft row whose model this is"),
             )
         else:
-            # Not ft_run_row_id: that names ONE row, and shuffled_label_target reads it so.
-            recorder.metric(
-                "ft_run_row_ids",
-                Ran(passed=True, value=",".join(averaged["ft_row_ids"]),
-                    detail="the train_ft rows whose weights were averaged into this model"),
-            )
+            # ft_run_row_ids for an average or an ensemble: ft_run_row_id names ONE row, and
+            # shuffled_label_target reads it so.
+            recorder.metric(*model.ft_row_metric())
         for name, state in score_states(scored, val.labels).items():
             recorder.metric(name, state)
         calibration, ece, degenerate = calibration_states(scored)
@@ -5144,8 +5344,10 @@ def _record_score(run: dict[str, object], scored: dict[str, object], *, ledger: 
 #: Keys a ``--score-checkpoint`` run adds to its eval row's recipe -- only then, so every
 #: score row written by a training run keeps the recipe hash it always had. ``averaged`` is
 #: on a scored average's row alone: its seeds, ft rows, manifest sha256 and source.
+#: ``ensemble`` is on a scored logit ensemble's row alone: its seeds, ft rows, each tower's
+#: checkpoint and digests, and how the towers are combined.
 SCORED_CHECKPOINT_KEYS: Final[tuple[str, ...]] = (
-    "score_dtype", "scored_checkpoint", "averaged",
+    "score_dtype", "scored_checkpoint", "averaged", "ensemble",
 )
 
 #: What ``--score-checkpoint`` given this suffix scores: an average ``tools/ckpt_average.py``
@@ -5155,6 +5357,14 @@ AVERAGED_SUFFIX: Final[str] = ".safetensors"
 #: A scored average's run tag; :func:`_record_score` makes its recipe tag ``avg-score-val``,
 #: as an epoch arm's is ``epoch-score-val``.
 AVERAGED_TAG: Final[str] = "avg"
+#: A scored NORM-PRESERVING average's run tag (``ckpt_average.py --norm-preserving``, Fable
+#: I-2): recipe tags ``avg-np-score-val`` and ``avg-np-needle-length-control``.
+AVERAGED_NP_TAG: Final[str] = "avg-np"
+#: Why a norm-preserving average's row is quick when its lambda was not derived from c.
+LAMBDA_CHOSEN_REASON: Final[str] = (
+    "a norm-preserving average whose lambda was given (--lambda-not-derived-from-c), not "
+    "derived from the measured c: a chosen number could have been chosen on a gate"
+)
 #: Rule 8 for an average: fewer inputs than this is a seed shortfall, and the row is quick.
 MIN_AVERAGED_SEEDS: Final[int] = 3
 #: On every scored average's row. Rule 8's seed count and the promotion join are about seed
@@ -5164,10 +5374,174 @@ AVERAGED_PROMOTION_NOTE: Final[str] = (
     "Whether an average can be the promoted artifact is the human's decision; this row "
     "does not make it."
 )
+#: A scored logit ensemble's run tag is this plus its tower count -- ``ens3`` -- and its
+#: recipe tag ``ens3-score-val``. Rule 8 counts its seeds as an average's
+#: (:data:`MIN_AVERAGED_SEEDS`).
+ENSEMBLE_TAG_PREFIX: Final[str] = "ens"
+#: On every scored ensemble's row: what may serve is the human's decision, as for an average.
+ENSEMBLE_PROMOTION_NOTE: Final[str] = (
+    "Whether a logit ensemble can be the promoted artifact is the human's decision; this row "
+    "does not make it, and serving N towers is a runtime change of its own."
+)
 
 
-def _is_average(path: Path) -> bool:
-    return path.suffix == AVERAGED_SUFFIX
+def score_paths(value: Path | Sequence[Path]) -> tuple[Path, ...]:
+    """``--score-checkpoint`` as a tuple: one path (one seed's checkpoint, or an average) or
+    several (the per-seed checkpoints of a logit ensemble)."""
+    if isinstance(value, Path):
+        return (value,)
+    paths = tuple(value)
+    if not paths or not all(isinstance(p, Path) for p in paths):
+        raise SystemExit(f"--score-checkpoint {value!r}: one or more checkpoint paths")
+    return paths
+
+
+def ft_row_ids(value: str | Sequence[str] | None) -> tuple[str, ...]:
+    """``--ft-row-id`` as a tuple: none (an average names its own), one, or one per tower."""
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    return tuple(str(v) for v in value)
+
+
+def _is_average(path: Path | Sequence[Path]) -> bool:
+    paths = score_paths(path)
+    return len(paths) == 1 and paths[0].suffix == AVERAGED_SUFFIX
+
+
+def _is_ensemble(path: Path | Sequence[Path]) -> bool:
+    return len(score_paths(path)) > 1
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ScoredModel:
+    """What a ``--score-checkpoint`` row says about the model it scored -- one owner for the
+    three kinds, so the score row, the needle-control row and the diagnostic rows name a
+    seed's checkpoint, an average and an ensemble the same way.
+
+    ``tag`` is the run tag (``epoch``, ``avg``, ``avg-np``, ``ens3``); ``block_key`` and
+    ``block`` are the recipe's provenance block (``averaged`` or ``ensemble``), absent for
+    one seed's checkpoint, which names its ft row under ``ft_run_row_id`` instead.
+    """
+
+    tag: str
+    scored_checkpoint: str
+    terminations: tuple[str | None, ...]
+    ft_row_ids: tuple[str, ...]
+    block_key: str | None
+    block: Mapping[str, object] | None
+    #: For notes: what the model is, in a phrase.
+    described: str
+    #: A norm-preserving average whose lambda was given rather than derived from c.
+    lambda_chosen: bool = False
+
+    @property
+    def n_inputs(self) -> int:
+        return len(self.ft_row_ids)
+
+    def recipe_block(self) -> dict[str, object]:
+        """``{block_key: block}``, or nothing for one seed's checkpoint."""
+        if self.block_key is None or self.block is None:
+            return {}
+        return {self.block_key: dict(self.block)}
+
+    def ft_row_metric(self) -> tuple[str, TriState]:
+        """``ft_run_row_id`` for one seed's model; ``ft_run_row_ids`` for any other, never
+        the singular -- ``shuffled_label_target`` reads that as ONE row."""
+        if self.block_key is None:
+            return "ft_run_row_id", Ran(
+                passed=True, value=self.ft_row_ids[0],
+                detail="the train_ft row whose model this is",
+            )
+        detail = (
+            "the train_ft rows whose weights were averaged into this model"
+            if self.block_key == "averaged" else
+            "the train_ft rows whose towers this logit ensemble decodes together"
+        )
+        return "ft_run_row_ids", Ran(passed=True, value=",".join(self.ft_row_ids), detail=detail)
+
+    def seed_reasons(self) -> list[str]:
+        """Rule 8 for a several-seed model: fewer than :data:`MIN_AVERAGED_SEEDS` is quick.
+        And a norm-preserving average whose lambda was chosen, not derived from c: a number
+        a person picked could have been picked on a gate."""
+        reasons: list[str] = []
+        if self.block_key is not None and self.n_inputs < MIN_AVERAGED_SEEDS:
+            what = "an average" if self.block_key == "averaged" else "an ensemble"
+            reasons.append(
+                f"{what} of {self.n_inputs} seeds: rule 8 marks fewer than "
+                f"{MIN_AVERAGED_SEEDS} seeds quick"
+            )
+        if self.lambda_chosen:
+            reasons.append(LAMBDA_CHOSEN_REASON)
+        return reasons
+
+
+def scored_model(
+    args: argparse.Namespace, ft: Mapping[str, Any], meta: Mapping[str, Any]
+) -> ScoredModel:
+    """:class:`ScoredModel` for what :func:`_checkpoint_step` loaded."""
+    averaged = meta.get("averaged")
+    ensemble = meta.get("ensemble")
+    if averaged is not None:
+        assert isinstance(averaged, Mapping)  # what _averaged_weights writes
+        norm = averaged.get("norm_preserving")
+        if norm is not None:
+            assert isinstance(norm, Mapping)  # what _averaged_weights writes
+            return ScoredModel(
+                tag=AVERAGED_NP_TAG,
+                scored_checkpoint=str(meta["scored_checkpoint"]),
+                terminations=tuple(meta["terminations"]),
+                ft_row_ids=tuple(averaged["ft_row_ids"]),
+                block_key="averaged", block=averaged,
+                described=(
+                    f"a NORM-PRESERVING AVERAGE of seeds {averaged['seeds']} from their "
+                    f"{averaged['source']} (base {norm['base_snapshot']}, c = {norm['c']:.6f}, "
+                    f"lambda = {norm['lambda']:.6f}"
+                    + ("" if norm["lambda_derived_from_c"] else ", NOT derived from c")
+                    + f"), ft rows {', '.join(averaged['ft_row_ids'])}, manifest sha256 "
+                    f"{averaged['manifest_sha256']}"
+                ),
+                lambda_chosen=not bool(norm["lambda_derived_from_c"]),
+            )
+        return ScoredModel(
+            tag=AVERAGED_TAG,
+            scored_checkpoint=str(meta["scored_checkpoint"]),
+            terminations=tuple(meta["terminations"]),
+            ft_row_ids=tuple(averaged["ft_row_ids"]),
+            block_key="averaged", block=averaged,
+            described=(
+                f"an AVERAGE of seeds {averaged['seeds']} from their {averaged['source']}, "
+                f"ft rows {', '.join(averaged['ft_row_ids'])}, manifest sha256 "
+                f"{averaged['manifest_sha256']}"
+            ),
+        )
+    if ensemble is not None:
+        assert isinstance(ensemble, Mapping)  # what _ensemble_inputs writes
+        return ScoredModel(
+            tag=f"{ENSEMBLE_TAG_PREFIX}{ensemble['n_towers']}",
+            scored_checkpoint=str(meta["scored_checkpoint"]),
+            terminations=tuple(meta["terminations"]),
+            ft_row_ids=tuple(ensemble["ft_row_ids"]),
+            block_key="ensemble", block=ensemble,
+            described=(
+                f"a {ensemble['n_towers']}-tower LOGIT ENSEMBLE of seeds {ensemble['seeds']} "
+                f"(ft rows {', '.join(ensemble['ft_row_ids'])}; towers "
+                + ", ".join(
+                    f"{t['checkpoint']}:{t['sidecar_digest']}" for t in ensemble["towers"]
+                )
+                + f"), combined as the {ensemble['combine']}"
+            ),
+        )
+    path = score_paths(args.score_checkpoint)[0]
+    return ScoredModel(
+        tag="epoch",
+        scored_checkpoint=f"{path.name}:{meta['sidecar']['digest']}",
+        terminations=(ft["metrics"].get("train.termination", {}).get("value"),),
+        ft_row_ids=(str(ft["row_id"]),),
+        block_key=None, block=None,
+        described=f"ft row {ft['row_id']}",
+    )
 
 
 def _ft_row(ledger_path: Path, row_id: str) -> dict[str, Any]:
@@ -5192,10 +5566,14 @@ def _ft_row(ledger_path: Path, row_id: str) -> dict[str, Any]:
     return row
 
 
+#: What :func:`_checkpoint_step` returns: ``(step, ft row, its recipe, seed, meta)``.
+LoadedModel = tuple[Any, dict[str, Any], dict[str, Any], int, dict[str, Any]]
+
+
 def _checkpoint_step(
     args: argparse.Namespace, *, reader: ShardReader, val: ValSet | ValPlan, device: str,
     eval_widths: Sequence[int], suite_seed: int,
-) -> tuple[Any, dict[str, Any], dict[str, Any], int, dict[str, Any]]:
+) -> LoadedModel:
     """``--score-checkpoint``'s weights in a step, every pairing checked before they load.
 
     Returns ``(step, ft row, its recipe, seed, checkpoint meta)``. The one
@@ -5204,28 +5582,86 @@ def _checkpoint_step(
     weights come from and what is checked about them differ, never the step they load into.
 
     ``seed`` is the eval row's protocol seed: the checkpoint's own for one seed's, and
-    ``suite_seed`` -- the protocol seed every suite is built at -- for an average, which is
-    no one seed's model. ``meta['optimizer_step']`` is the schedule the step is built for.
-    ``val`` is read for its plan alone, the batch shapes the step is sized by, so the needle
-    worker passes a :class:`ValPlan` and the scoring process its :class:`ValSet`.
+    ``suite_seed`` -- the protocol seed every suite is built at -- for an average or an
+    ensemble, which is no one seed's model. ``meta['optimizer_step']`` is the schedule the
+    step is built for. ``val`` is read for its plan alone, the batch shapes the step is sized
+    by, so the needle worker passes a :class:`ValPlan` and the scoring process its
+    :class:`ValSet`.
+
+    A logit ensemble (several ``--score-checkpoint`` files) returns a :class:`TowerEnsemble`
+    of one step per tower: every tower is paired with its ft row and every body checked
+    (:func:`_ensemble_inputs`) before any tensor is read, then each tower's weights are read,
+    loaded and dropped in turn.
     """
+    from qd_train.run_control import Checkpoint
+
+    if _is_ensemble(args.score_checkpoint):
+        ft, recipe, seed, meta, paths = _ensemble_inputs(
+            args, reader=reader, suite_seed=suite_seed
+        )
+        towers: list[Any] = []
+        for path, tower in zip(paths, meta["ensemble"]["towers"], strict=True):
+            weights, header = Checkpoint.read_weights(path, subtrees=("tower", "span_head"))
+            if header["payload_digest"] != tower["payload_digest"]:
+                raise SystemExit(
+                    f"{path.name} changed between its pairing and its read (payload_digest "
+                    f"{str(header['payload_digest'])[:16]} vs {tower['payload_digest'][:16]})"
+                )
+            step = _scoring_step(
+                args, reader=reader, val=val, device=device, recipe=recipe, seed=seed,
+                optimizer_step=int(meta["optimizer_step"]), eval_widths=eval_widths,
+            )
+            step.load_weights(weights)
+            del weights
+            towers.append(step)
+        return TowerEnsemble(towers), ft, recipe, seed, meta
     if _is_average(args.score_checkpoint):
         ft, recipe, seed, meta, weights = _averaged_weights(
             args, reader=reader, suite_seed=suite_seed
         )
     else:
         ft, recipe, seed, meta, weights = _seed_weights(args, reader=reader)
+    step = _scoring_step(
+        args, reader=reader, val=val, device=device, recipe=recipe, seed=seed,
+        optimizer_step=int(meta["optimizer_step"]), eval_widths=eval_widths,
+    )
+    step.load_weights(weights)
+    return step, ft, recipe, seed, meta
+
+
+def _scoring_step(
+    args: argparse.Namespace, *, reader: ShardReader, val: ValSet | ValPlan, device: str,
+    recipe: Mapping[str, Any], seed: int, optimizer_step: int, eval_widths: Sequence[int],
+) -> Any:
+    """The step a scored checkpoint's weights load into: the ft row's recipe, built at
+    ``--score-dtype``, bounded by the val plan's widest batch and ``eval_widths``."""
     step, _, _ = _real_step(
         backbone=args.real_backbone, reader=reader, plan=val.plan, device=device,
         dtype=args.score_dtype,
         spec=optimizer_spec(args.score_dtype, str(recipe.get("optimizer_recipe", "bf16"))),
         attn_implementation=str(recipe["attn_implementation"]), seed=seed,
-        lr=float(recipe["lr"]), total_steps=int(meta["optimizer_step"]),
+        lr=float(recipe["lr"]), total_steps=optimizer_step,
         span_weight=float(recipe["span_weight"]),
         width=max(int(b.tokens.shape[1]) for b in val.plan), eval_widths=eval_widths,
     )
-    step.load_weights(weights)
-    return step, ft, recipe, seed, meta
+    return step
+
+
+def _ft_row_mismatches(
+    ft: Mapping[str, Any], *, seed: int, trained_on: str, reader: ShardReader,
+    real_backbone: Path,
+) -> dict[str, tuple[object, object]]:
+    """What in ``ft`` does not describe one seed's epoch checkpoint scored here: its arm, its
+    device, its seed, its shard set and its backbone. Empty when it does."""
+    recipe = ft["recipe"]
+    expected = {
+        "recipe tag": (recipe.get("tag"), "epoch"),
+        "recipe device": (recipe.get("device"), trained_on),
+        "protocol seed": (ft["protocol"]["seed"], seed),
+        "shard_hash": (recipe.get("shard_hash"), reader.header.shard_hash()),
+        "backbone_snapshot": (recipe.get("backbone_snapshot"), real_backbone.name),
+    }
+    return {k: v for k, v in expected.items() if v[0] != v[1]}
 
 
 def _seed_weights(
@@ -5235,36 +5671,189 @@ def _seed_weights(
     the file paired with ``--ft-row-id``'s row before its tower and span head are read."""
     from qd_train.run_control import Checkpoint
 
-    tag, seed, trained_on = _resume_arm(args.score_checkpoint)
+    (path,) = score_paths(args.score_checkpoint)
+    (row_id,) = ft_row_ids(args.ft_row_id)
+    tag, seed, trained_on = _resume_arm(path)
     if tag != "epoch":
-        raise SystemExit(f"{args.score_checkpoint.name}: only an epoch checkpoint is scored")
+        raise SystemExit(f"{path.name}: only an epoch checkpoint is scored")
     if list(args.seeds) != [seed]:
-        raise SystemExit(f"{args.score_checkpoint.name} is seed {seed}; --seeds says {args.seeds}")
-    ft = _ft_row(args.ft_ledger, args.ft_row_id)
+        raise SystemExit(f"{path.name} is seed {seed}; --seeds says {args.seeds}")
+    ft = _ft_row(args.ft_ledger, row_id)
     recipe = ft["recipe"]
-    expected = {
-        "recipe tag": (recipe.get("tag"), "epoch"),
-        "recipe device": (recipe.get("device"), trained_on),
-        "protocol seed": (ft["protocol"]["seed"], seed),
-        "shard_hash": (recipe.get("shard_hash"), reader.header.shard_hash()),
-        "backbone_snapshot": (recipe.get("backbone_snapshot"), args.real_backbone.name),
-    }
-    wrong = {k: v for k, v in expected.items() if v[0] != v[1]}
+    wrong = _ft_row_mismatches(
+        ft, seed=seed, trained_on=trained_on, reader=reader, real_backbone=args.real_backbone
+    )
     if wrong:
         raise SystemExit(
-            f"ft row {ft['row_id']} does not describe {args.score_checkpoint.name} scored "
+            f"ft row {ft['row_id']} does not describe {path.name} scored "
             f"against this shard set and backbone: "
             + "; ".join(f"{k}: row says {a!r}, here {b!r}" for k, (a, b) in wrong.items())
         )
     steps = int(ft["metrics"]["train.optimizer_steps"]["value"])
-    weights, meta = Checkpoint.read_weights(args.score_checkpoint, subtrees=("tower", "span_head"))
+    weights, meta = Checkpoint.read_weights(path, subtrees=("tower", "span_head"))
     if meta["optimizer_step"] != steps or meta["seed"] != seed:
         raise SystemExit(
-            f"{args.score_checkpoint.name} is at optimizer step {meta['optimizer_step']}, seed "
+            f"{path.name} is at optimizer step {meta['optimizer_step']}, seed "
             f"{meta['seed']}; ft row {ft['row_id']} ended at step {steps}, seed {seed}. This "
             "is not the model that row trained."
         )
     return ft, recipe, seed, meta, weights
+
+
+def _one_configuration(rows: Sequence[Mapping[str, Any]], *, what: str) -> int:
+    """Refuse unless ``rows`` are completed, NOT quick, and one configuration at one step;
+    return that step. The check an average and an ensemble both make of their ft rows.
+
+    One configuration: one protocol minus the seed (``recipe_hash``, ``data_snapshot_hash``,
+    ``tokenizer_hash``, ``backbone_commit``), one stored recipe, one
+    ``train.optimizer_steps``.
+    """
+    quick = [str(r["row_id"]) for r in rows if r.get("quick") is not False]
+    if quick:
+        raise SystemExit(
+            f"ft row(s) {quick} of {what} are quick (or do not say they are not): rule 8 "
+            "excludes a quick run from every decision, and a model made of one is no less quick"
+        )
+    ids = [str(r["row_id"]) for r in rows]
+    disagree: list[str] = []
+    for key in ("recipe_hash", "data_snapshot_hash", "tokenizer_hash", "backbone_commit"):
+        values = [r["protocol"].get(key) for r in rows]
+        if len(set(values)) != 1:
+            disagree.append(f"protocol.{key} {dict(zip(ids, values, strict=True))}")
+    steps_by_row = [r["metrics"].get("train.optimizer_steps", {}).get("value") for r in rows]
+    if len(set(steps_by_row)) != 1:
+        disagree.append(f"train.optimizer_steps {dict(zip(ids, steps_by_row, strict=True))}")
+    if any(r["recipe"] != rows[0]["recipe"] for r in rows[1:]):
+        disagree.append("recipe (the stored recipe dicts differ)")
+    if disagree:
+        raise SystemExit(
+            f"the ft rows of {what} are not one configuration at one step: "
+            + "; ".join(disagree)
+        )
+    return int(steps_by_row[0])
+
+
+def _ensemble_inputs(
+    args: argparse.Namespace, *, reader: ShardReader, suite_seed: int
+) -> tuple[dict[str, Any], dict[str, Any], int, dict[str, Any], list[Path]]:
+    """A logit ensemble's ``(first ft row, recipe, protocol seed, meta, tower paths)``, every
+    pairing checked and no tensor read.
+
+    * two or more per-seed epoch checkpoints, no average among them, no file or seed twice;
+    * ``--ft-row-id`` names one ft row per checkpoint, in the same order, each in
+      ``--ft-ledger``, completed and **not quick**, no row twice;
+    * ``--seeds`` is the checkpoints' seeds, in that order;
+    * the rows are one configuration at one step (:func:`_one_configuration`);
+    * row ``i`` describes checkpoint ``i`` as a single seed's score requires
+      (:func:`_ft_row_mismatches`): its arm, device, seed, shard set and backbone;
+    * each checkpoint's JSON body verifies (``payload_digest``), is at the rows' step and at
+      its own seed, and declares a sidecar -- whose digest the row records per tower.
+
+    ``meta['ensemble']`` is what the eval row's recipe records about the ensemble.
+    """
+    from qd_train.run_control import Checkpoint
+
+    paths = list(score_paths(args.score_checkpoint))
+    ids = list(ft_row_ids(args.ft_row_id))
+    if len(paths) < 2:
+        raise SystemExit(
+            f"a logit ensemble is two or more checkpoints, got {len(paths)}: one checkpoint is "
+            "scored as itself"
+        )
+    if any(p.suffix == AVERAGED_SUFFIX for p in paths):
+        raise SystemExit(
+            "a logit ensemble's towers are per-seed epoch checkpoints (.json); an average "
+            "(.safetensors) is scored on its own"
+        )
+    if len({p.resolve() for p in paths}) != len(paths):
+        raise SystemExit("an ensemble names one checkpoint twice; it would count one seed twice")
+    if len(ids) != len(paths):
+        raise SystemExit(
+            f"--ft-row-id names {len(ids)} ft row(s) for {len(paths)} checkpoints: an ensemble "
+            "pairs each checkpoint with its own ft row, in order"
+        )
+    arms: list[tuple[int, str]] = []
+    for path in paths:
+        try:
+            tag, seed, trained_on = _resume_arm(path)
+        except ValueError as exc:
+            raise SystemExit(f"--score-checkpoint {exc}") from exc
+        if tag != "epoch":
+            raise SystemExit(f"{path.name}: only an epoch checkpoint is scored")
+        arms.append((seed, trained_on))
+    seeds = [seed for seed, _ in arms]
+    if len(set(seeds)) != len(seeds):
+        raise SystemExit(
+            f"the ensemble's checkpoints are seeds {seeds}: one seed twice is not "
+            f"{len(seeds)} seeds"
+        )
+    if [int(s) for s in args.seeds] != seeds:
+        raise SystemExit(
+            f"the ensemble's checkpoints are seeds {seeds}, in that order; --seeds says "
+            f"{list(args.seeds)}"
+        )
+    rows: list[dict[str, Any]] = []
+    for path, row_id in zip(paths, ids, strict=True):
+        try:
+            rows.append(_ft_row(args.ft_ledger, row_id))
+        except SystemExit as exc:
+            raise SystemExit(
+                f"the ensemble's tower {path.name} names ft row {row_id}: {exc}"
+            ) from exc
+    full_ids = [str(r["row_id"]) for r in rows]
+    if len(set(full_ids)) != len(full_ids):
+        raise SystemExit(f"the ensemble names ft rows {full_ids}: one row twice")
+    steps = _one_configuration(rows, what=f"the {len(rows)}-tower ensemble")
+    problems: list[str] = []
+    for path, row, (seed, trained_on) in zip(paths, rows, arms, strict=True):
+        wrong = _ft_row_mismatches(
+            row, seed=seed, trained_on=trained_on, reader=reader,
+            real_backbone=args.real_backbone,
+        )
+        if wrong:
+            problems.append(
+                f"ft row {row['row_id']} and {path.name}: "
+                + "; ".join(f"{k}: row says {a!r}, here {b!r}" for k, (a, b) in wrong.items())
+            )
+    if problems:
+        raise SystemExit(
+            "the ensemble's ft rows do not describe its checkpoints scored against this shard "
+            "set and backbone: " + " | ".join(problems)
+        )
+    towers: list[dict[str, object]] = []
+    for path, (seed, _) in zip(paths, arms, strict=True):
+        try:
+            body = Checkpoint.read_body(path)
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"the ensemble's tower {path.name}: {exc}") from exc
+        sidecar = body.get("sidecar")
+        if not isinstance(sidecar, Mapping) or not isinstance(sidecar.get("digest"), str):
+            raise SystemExit(f"{path.name} declares no tensor sidecar, so it carries no tower")
+        if int(body["optimizer_step"]) != steps or int(body["seed"]) != seed:
+            raise SystemExit(
+                f"{path.name} is at optimizer step {body['optimizer_step']}, seed "
+                f"{body['seed']}; its ft row ended at step {steps}, seed {seed}. This is not "
+                "the model that row trained."
+            )
+        towers.append({
+            "checkpoint": path.name, "seed": seed,
+            "sidecar_digest": str(sidecar["digest"]),
+            "payload_digest": str(body["payload_digest"]),
+        })
+    recipe = rows[0]["recipe"]
+    meta = {
+        "optimizer_step": steps,
+        "seed": suite_seed,
+        "scored_checkpoint": ",".join(f"{t['checkpoint']}:{t['sidecar_digest']}" for t in towers),
+        "terminations": [r["metrics"].get("train.termination", {}).get("value") for r in rows],
+        "ensemble": {
+            "seeds": seeds, "ft_row_ids": full_ids, "n_towers": len(towers),
+            "towers": towers, "combine": ENSEMBLE_COMBINE,
+            # As an average's: the eval row's protocol seed and every suite's build seed.
+            "protocol_seed": suite_seed, "suite_seed": suite_seed,
+        },
+    }
+    return rows[0], recipe, suite_seed, meta, paths
 
 
 def _averaged_weights(
@@ -5304,29 +5893,8 @@ def _averaged_weights(
             rows.append(_ft_row(args.ft_ledger, row_id))
         except SystemExit as exc:
             raise SystemExit(f"{path.name}'s manifest names ft row {row_id}: {exc}") from exc
-    quick = [str(r["row_id"]) for r in rows if r.get("quick") is not False]
-    if quick:
-        raise SystemExit(
-            f"ft row(s) {quick} of {path.name} are quick (or do not say they are not): rule 8 "
-            "excludes a quick run from every decision, and an average of one is no less quick"
-        )
     ids = [str(r["row_id"]) for r in rows]
-    disagree: list[str] = []
-    for key in ("recipe_hash", "data_snapshot_hash", "tokenizer_hash", "backbone_commit"):
-        values = [r["protocol"].get(key) for r in rows]
-        if len(set(values)) != 1:
-            disagree.append(f"protocol.{key} {dict(zip(ids, values, strict=True))}")
-    steps_by_row = [r["metrics"].get("train.optimizer_steps", {}).get("value") for r in rows]
-    if len(set(steps_by_row)) != 1:
-        disagree.append(f"train.optimizer_steps {dict(zip(ids, steps_by_row, strict=True))}")
-    if any(r["recipe"] != rows[0]["recipe"] for r in rows[1:]):
-        disagree.append("recipe (the stored recipe dicts differ)")
-    if disagree:
-        raise SystemExit(
-            f"the ft rows {path.name} averages are not one configuration at one step: "
-            + "; ".join(disagree)
-        )
-    steps = int(steps_by_row[0])
+    steps = _one_configuration(rows, what=path.name)
     if manifest.optimizer_step != steps:
         raise SystemExit(
             f"{path.name} averages checkpoints at optimizer step {manifest.optimizer_step}; "
@@ -5359,6 +5927,13 @@ def _averaged_weights(
             f"the ft rows {path.name}'s manifest names do not describe its inputs scored "
             "against this shard set and backbone: " + " | ".join(problems)
         )
+    norm = manifest.norm_preserving
+    if norm is not None and norm["base_snapshot"] != args.real_backbone.name:
+        raise SystemExit(
+            f"{path.name} is a norm-preserving average that moved from the base "
+            f"{norm['base_snapshot']!r}, and it is scored on the backbone "
+            f"{args.real_backbone.name!r}: base + lambda * delta means nothing on another base"
+        )
     try:
         verify_sources(manifest)
         weights = read_average(manifest)
@@ -5384,6 +5959,14 @@ def _averaged_weights(
             # per-seed score row -- prepare_second_pass, prepare_needle and prepare_ood take
             # it, never the run seed.
             "protocol_seed": suite_seed, "suite_seed": suite_seed,
+            # Only on a norm-preserving average (tag avg-np): the numbers its manifest was
+            # made with, so a plain average's recipe is what it always was.
+            **({} if norm is None else {"norm_preserving": {
+                k: norm[k] for k in (
+                    "formula", "c", "pairwise_cosine", "lambda_from_c", "lambda",
+                    "lambda_derived_from_c", "base_snapshot",
+                )
+            }}),
         },
     }
     return rows[0], recipe, suite_seed, meta, weights
@@ -5393,11 +5976,17 @@ def _score_checkpoint(
     args: argparse.Namespace, *, reader: ShardReader, val: ValSet, device: str,
     ledger: Ledger, reasons_for: Callable[..., list[str]], second_pass: SecondPass,
     needle_suite: NeedleSuite, ood_suite: OodSuite, suite_seed: int,
-    needle_decoded: NeedleDecoded | None = None,
+    needle_decoded: NeedleDecoded | None = None, loaded: LoadedModel | None = None,
+    plan_note: str | None = None,
 ) -> tuple[str, dict[str, object], TriState, list[SuiteGate], int]:
     """Score a saved epoch checkpoint, or an average of several, on the val set.
 
     Returns ``(eval row id, scored, permutation_consistency, suite gates, row seed)``.
+
+    ``loaded`` is the model :func:`_checkpoint_step` already loaded for these ``args`` (once
+    per ``--score-plan`` kind, for all its passes); without it this loads it.
+    ``plan_note`` is the plan's sentence for the row's notes -- never its recipe, so a
+    plan's row hashes as the same command's single run does.
 
     Every pairing that could silently score the wrong weights under the wrong row is checked
     before the tower loads: the file's arm, seed and training device against the ft row; the
@@ -5415,13 +6004,15 @@ def _score_checkpoint(
                 f"a suite was built at seed {suite.seed} and this run's suite seed is "
                 f"{suite_seed}; the row would record a seed its suites were not built at"
             )
-    step, ft, recipe, seed, meta = _checkpoint_step(
-        args, reader=reader, val=val, device=device,
-        eval_widths=suite_widths(needle_suite, ood_suite), suite_seed=suite_seed,
-    )
-    averaged = meta.get("averaged")
+    if loaded is None:
+        loaded = _checkpoint_step(
+            args, reader=reader, val=val, device=device,
+            eval_widths=suite_widths(needle_suite, ood_suite), suite_seed=suite_seed,
+        )
+    step, ft, recipe, seed, meta = loaded
+    model = scored_model(args, ft, meta)
     run: dict[str, object] = {
-        "tag": "epoch" if averaged is None else AVERAGED_TAG, "device": device, "seed": seed,
+        "tag": model.tag, "device": device, "seed": seed,
         "cost": _cost(
             device=device, n_gpus=n_gpus_for_device(device), usd_per_hour=args.usd_per_hour,
             usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
@@ -5429,22 +6020,22 @@ def _score_checkpoint(
         ),
         **{k: recipe[k] for k in (*BACKBONE_KEYS, *RECIPE_PIECE_KEYS) if k in recipe},
         "score_dtype": args.score_dtype,
+        "scored_checkpoint": model.scored_checkpoint,
+        **model.recipe_block(),
+        # Read by _record_score for the notes and the ft row metric; not a recipe key.
+        "scored_model": model,
     }
-    if averaged is None:
+    if model.block_key is None:
         run["ft_row_id"] = ft["row_id"]
-        run["scored_checkpoint"] = f"{args.score_checkpoint.name}:{meta['sidecar']['digest']}"
-        terminations = [ft["metrics"].get("train.termination", {}).get("value")]
-    else:
-        run["averaged"] = averaged
-        run["scored_checkpoint"] = meta["scored_checkpoint"]
-        terminations = list(meta["terminations"])
+    if plan_note is not None:
+        run["plan_note"] = plan_note  # read by _record_score for the notes; not a recipe key
     decode_at = time.monotonic()
     scored = _decode(step, val.plan, val.labels_for, val.letter_id)
     permutation, val_second = score_permutation_consistency(step, val, second_pass, scored)
     gates = [
         needle_gate(
             score_needle(step, needle_suite, val.letter_id,
-                         decoded=needle_decoded),
+                         decoded=needle_decoded, logits=args.suite_logits),
             needle_suite,
         ),
         ood_suite_gate(
@@ -5454,23 +6045,382 @@ def _score_checkpoint(
         ),
     ]
     decode_s = time.monotonic() - decode_at
+    row_id = _record_score(
+        run, scored, ledger=ledger, reader=reader, val=val,
+        quick_reasons=model_reasons(model, device=device, reasons_for=reasons_for),
+        decode_s=decode_s, permutation=permutation, suite_gates=gates,
+    )
+    return row_id, scored, permutation, gates, seed
+
+
+def model_reasons(
+    model: ScoredModel, *, device: str, reasons_for: Callable[..., list[str]]
+) -> list[str]:
+    """Every rule-8 reason for a row scoring ``model``: each input's termination (one
+    reason shared by three rows is one reason), and a seed shortfall."""
     reasons: list[str] = []
-    for termination in terminations:
+    for termination in model.terminations:
         for reason in reasons_for(
             "epoch", device, None if termination is None else str(termination)
         ):
             if reason not in reasons:
                 reasons.append(reason)
-    if averaged is not None and int(averaged["n_inputs"]) < MIN_AVERAGED_SEEDS:
-        reasons.append(
-            f"an average of {averaged['n_inputs']} seeds: rule 8 marks fewer than "
-            f"{MIN_AVERAGED_SEEDS} seeds quick"
+    reasons.extend(model.seed_reasons())
+    return reasons
+
+
+# --- several models in one invocation (--score-plan) ---------------------------------------
+#
+# Fable I diagnostic (2026-10-01): seed 0, 1 and 2, their average and their 3-seed ensemble
+# on the OOD suite, and the ensemble's full gate row. Five --score-checkpoint runs would
+# rebuild the same shard set, val set and suites five times (minutes each on the full
+# corpus); a plan builds them once and runs one kind after another, each kind exactly what
+# --score-checkpoint with its --ft-row-id and --seeds would score, checked by the same
+# function (`_check_score_checkpoint_flags`) and paired by the same one (`_checkpoint_step`).
+
+#: What a plan kind may run on its model. ``gates``: the val pass and every gate, the row
+#: ``--score-checkpoint`` writes. ``ood``: the OOD suite alone, a quick diagnostic row
+#: (:func:`run_ood_diagnostic`) -- never a gate, never a promotion input.
+PLAN_PASSES: Final[tuple[str, ...]] = ("gates", "ood")
+#: Kinds one plan may hold. Each loads a model; a bound on fan-out, not a judgement.
+PLAN_MAX_KINDS: Final[int] = 8
+#: Bytes a plan file may hold: a list of kinds, nothing more.
+PLAN_MAX_BYTES: Final[int] = 64 * 1024
+#: A kind's name: it lands in output file names and on every line, so it is plain.
+PLAN_KIND_NAME: Final[re.Pattern[str]] = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
+PLAN_KIND_REQUIRED: Final[frozenset[str]] = frozenset({"name", "checkpoints", "seeds", "passes"})
+PLAN_KIND_KEYS: Final[frozenset[str]] = PLAN_KIND_REQUIRED | {"ft_row_ids"}
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class PlanKind:
+    """One model a plan scores, and which passes it runs on it."""
+
+    name: str
+    checkpoints: tuple[Path, ...]
+    ft_row_ids: tuple[str, ...] | None
+    seeds: tuple[int, ...]
+    passes: tuple[str, ...]
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ScorePlan:
+    """A ``--score-plan`` file, read and checked: its kinds in run order, and its digest."""
+
+    path: Path
+    sha256: str
+    kinds: tuple[PlanKind, ...]
+
+    def wants(self, name: str) -> bool:
+        return any(name in kind.passes for kind in self.kinds)
+
+    def note(self, kind: PlanKind) -> str:
+        """The sentence a kind's rows carry in their notes (never their recipe)."""
+        return (
+            f"Scored as kind {kind.name!r} ({', '.join(kind.passes)}) of --score-plan "
+            f"{self.path.name} (sha256 {self.sha256}): one invocation that built the shard "
+            f"set, val set and suites once for its {len(self.kinds)} kind(s)."
         )
-    row_id = _record_score(
-        run, scored, ledger=ledger, reader=reader, val=val, quick_reasons=reasons,
-        decode_s=decode_s, permutation=permutation, suite_gates=gates,
+
+
+def _plan_strings(value: object, *, what: str, where: str) -> tuple[str, ...]:
+    if not (isinstance(value, list) and 1 <= len(value) <= MAX_SEEDS
+            and all(isinstance(x, str) and x for x in value)):
+        raise SystemExit(f"{where}: {what} is a list of 1 to {MAX_SEEDS} non-empty strings")
+    return tuple(value)
+
+
+def read_score_plan(path: Path) -> ScorePlan:
+    """Read and check a plan, refusing anything it does not define."""
+    where = f"--score-plan {path}"
+    try:
+        size = path.stat().st_size
+        if size > PLAN_MAX_BYTES:
+            raise SystemExit(f"{where}: {size} bytes, more than a plan's {PLAN_MAX_BYTES}")
+        raw = path.read_bytes()
+        body = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"{where}: {exc}") from exc
+    if not isinstance(body, dict) or set(body) != {"kinds"}:
+        raise SystemExit(f"{where}: a plan is an object with one key, 'kinds'")
+    listed = body["kinds"]
+    if not isinstance(listed, list) or not 1 <= len(listed) <= PLAN_MAX_KINDS:
+        raise SystemExit(f"{where}: 'kinds' is a list of 1 to {PLAN_MAX_KINDS} kinds")
+    kinds: list[PlanKind] = []
+    for i, entry in enumerate(listed):
+        at = f"{where} kind {i}"
+        if not isinstance(entry, dict):
+            raise SystemExit(f"{at}: a kind is an object")
+        unknown = sorted(set(entry) - PLAN_KIND_KEYS)
+        missing = sorted(PLAN_KIND_REQUIRED - set(entry))
+        if unknown or missing:
+            raise SystemExit(f"{at}: unknown keys {unknown}, missing keys {missing}")
+        name = entry["name"]
+        if not isinstance(name, str) or PLAN_KIND_NAME.fullmatch(name) is None:
+            raise SystemExit(f"{at}: name {name!r} is not {PLAN_KIND_NAME.pattern}")
+        at = f"{where} kind {name!r}"
+        seeds = entry["seeds"]
+        if not (isinstance(seeds, list) and 1 <= len(seeds) <= MAX_SEEDS
+                and all(isinstance(s, int) and not isinstance(s, bool) for s in seeds)):
+            raise SystemExit(f"{at}: seeds is a list of 1 to {MAX_SEEDS} integers")
+        passes = entry["passes"]
+        if not (isinstance(passes, list) and passes
+                and all(isinstance(p, str) and p in PLAN_PASSES for p in passes)
+                and len(set(passes)) == len(passes)):
+            raise SystemExit(f"{at}: passes is a non-empty list of distinct {list(PLAN_PASSES)}")
+        if "gates" in passes and "ood" in passes:
+            raise SystemExit(
+                f"{at}: 'gates' already decodes the OOD suite (the ood_abstain gate, with the "
+                "in-distribution bound); an 'ood' pass beside it would decode it twice"
+            )
+        kinds.append(PlanKind(
+            name=name,
+            checkpoints=tuple(
+                Path(p) for p in _plan_strings(entry["checkpoints"], what="checkpoints", where=at)
+            ),
+            ft_row_ids=(
+                None if "ft_row_ids" not in entry
+                else _plan_strings(entry["ft_row_ids"], what="ft_row_ids", where=at)
+            ),
+            seeds=tuple(seeds),
+            passes=tuple(passes),
+        ))
+    names = [k.name for k in kinds]
+    if len(set(names)) != len(names):
+        raise SystemExit(f"{where}: kind names repeat: {names}")
+    return ScorePlan(path=path, sha256=hashlib.sha256(raw).hexdigest(), kinds=tuple(kinds))
+
+
+def plan_output(path: Path, kind: str) -> Path:
+    """A kind's own output file beside ``path``: ``<stem>-<kind><suffix>``."""
+    return path.with_name(f"{path.stem}-{kind}{path.suffix}")
+
+
+def plan_kind_args(args: argparse.Namespace, kind: PlanKind) -> argparse.Namespace:
+    """``args`` as ``--score-checkpoint`` with this kind's checkpoints, ft rows and seeds
+    would have parsed them: one checkpoint a Path and one ft row id a str, several lists."""
+    out = copy.copy(args)
+    out.score_checkpoint = (
+        kind.checkpoints[0] if len(kind.checkpoints) == 1 else list(kind.checkpoints)
     )
-    return row_id, scored, permutation, gates, seed
+    out.ft_row_id = (
+        None if kind.ft_row_ids is None
+        else kind.ft_row_ids[0] if len(kind.ft_row_ids) == 1 else list(kind.ft_row_ids)
+    )
+    out.seeds = list(kind.seeds)
+    return out
+
+
+def _check_score_plan_flags(args: argparse.Namespace, *, seeds_given: bool) -> ScorePlan:
+    """Read the plan and refuse, from argv alone, every way it could score nothing, score
+    something twice, or write over an earlier result."""
+    plan = read_score_plan(args.score_plan)
+    clashing = [
+        flag for flag, given in (
+            ("--score-checkpoint", args.score_checkpoint is not None),
+            ("--ft-row-id", args.ft_row_id is not None), ("--seeds", seeds_given),
+            ("--needle-control", args.needle_control is not None),
+            ("--needle-predictions-out", args.needle_predictions_out is not None),
+            ("--epoch", args.epoch), ("--resume-from", args.resume_from is not None),
+        ) if given
+    ]
+    if clashing:
+        raise SystemExit(
+            f"--score-plan names every kind's checkpoints, ft rows and seeds itself and trains "
+            f"nothing; {', '.join(clashing)} would be ignored or contradict it"
+        )
+    if not args.devices or len(args.devices) != 1:
+        raise SystemExit("--score-plan scores on one device: pass exactly one --devices entry")
+    if args.needle and args.devices[0] == "mps":
+        raise SystemExit(
+            "--score-plan decodes the needle suite in this process, and on MPS the needle after "
+            "a val pass ran out of memory (run_needle_worker): score the needle on MPS with "
+            "--score-checkpoint, whose worker process returns that memory"
+        )
+    if args.needle and not plan.wants("gates"):
+        raise SystemExit("--needle is a gate; no kind of this plan runs the 'gates' pass")
+    if args.ood and not (plan.wants("gates") or plan.wants("ood")):
+        raise SystemExit("--ood would build a suite no kind of this plan decodes")
+    if plan.wants("ood") and not args.ood:
+        raise SystemExit("an 'ood' pass decodes the OOD suite: it needs --ood")
+    if args.verdicts_out is not None and not plan.wants("gates"):
+        raise SystemExit("--verdicts-out writes val verdicts; no kind of this plan decodes val")
+    for kind in plan.kinds:
+        try:
+            _check_score_checkpoint_flags(plan_kind_args(args, kind))
+        except SystemExit as exc:
+            raise SystemExit(f"--score-plan kind {kind.name!r}: {exc}") from exc
+        for flag, out in (
+            ("--verdicts-out", args.verdicts_out if "gates" in kind.passes else None),
+            ("--suite-verdicts-out", args.suite_verdicts_out),
+        ):
+            if out is not None and plan_output(out, kind.name).exists():
+                raise SystemExit(
+                    f"{flag} of kind {kind.name!r}: {plan_output(out, kind.name)} already exists"
+                )
+    return plan
+
+
+#: The ``gate`` an OOD diagnostic row's suite-verdict lines carry: not ``ood_abstain``, so
+#: nothing that reads gate lines (qd-gate-report) can count them toward that gate.
+OOD_DIAGNOSTIC_GATE: Final[str] = "ood_abstain.diagnostic"
+#: Rule 8 for an OOD-only diagnostic row, whatever it scores.
+OOD_DIAGNOSTIC_QUICK_REASON: Final[str] = (
+    "an OOD-suite-only diagnostic: no val pass, so no in-distribution bound and no ood_abstain "
+    "gate; a diagnostic row is never a gate row"
+)
+
+
+def run_ood_diagnostic(
+    args: argparse.Namespace, *, loaded: LoadedModel, reader: ShardReader, val: ValSet,
+    device: str, ledger: Ledger, reasons_for: Callable[..., list[str]], ood_suite: OodSuite,
+    suite_seed: int, plan_note: str | None = None,
+) -> tuple[str, tuple[dict[str, object], ...], int]:
+    """The OOD suite alone on ``loaded``: both passes, the runtime rule per case, a quick
+    diagnostic row (tag ``<model tag>-ood-diagnostic``) and its per-case lines.
+
+    Decoded by :func:`decode_ood` and counted by :func:`ood_category_metrics`, as the
+    ``ood_abstain`` gate's report is, under ``ood_diagnostic.*``: no val pass runs, so there
+    is no in-distribution bound and no gate. Returns ``(row id, lines, row seed)``.
+    """
+    if ood_suite.not_run is not None or ood_suite.seed != suite_seed:
+        raise SystemExit(
+            f"the OOD diagnostic needs the OOD suite built at the suite seed {suite_seed}: "
+            f"{ood_suite.not_run or f'it was built at {ood_suite.seed}'}"
+        )
+    assert ood_suite.second_pass is not None  # set whenever the suite ran
+    if ood_suite.second_pass.not_run is not None:
+        raise SystemExit(
+            f"the OOD diagnostic's second pass did not run: {ood_suite.second_pass.not_run}"
+        )
+    step, ft, recipe, seed, meta = loaded
+    model = scored_model(args, ft, meta)
+    decode_at = time.monotonic()
+    first, second, ood = decode_ood(step, ood_suite)
+    decode_s = time.monotonic() - decode_at
+    what = "(an OOD-only diagnostic, no gate)"
+    metrics = ood_category_metrics(ood_suite, ood, prefix="ood_diagnostic", what=what)
+    abstained = sum(ood.values())
+    metrics["ood_diagnostic.all"] = (
+        Ran(passed=True, value=abstained / len(ood), n=abstained, n_total=len(ood),
+            detail=f"abstained on {abstained} of {len(ood)} OOD cases {what}")
+        if ood else NotRun(reason="no OOD case was decoded")
+    )
+    diagnostic_recipe: dict[str, object] = {
+        "tool": "tools/real_ft_run.py",
+        "tag": f"{model.tag}-ood-diagnostic",
+        "device": device,
+        **{k: recipe[k] for k in (*BACKBONE_KEYS, *RECIPE_PIECE_KEYS) if k in recipe},
+        "score_dtype": args.score_dtype,
+        "scored_checkpoint": model.scored_checkpoint,
+        **model.recipe_block(),
+        "shard_hash": reader.header.shard_hash(),
+        "val_shard_hash": val.reader.header.shard_hash(),
+        "ood": ood_recipe(ood_suite),
+    }
+    reasons = model_reasons(model, device=device, reasons_for=reasons_for)
+    reasons.append(OOD_DIAGNOSTIC_QUICK_REASON)
+    notes = (
+        f"tools/real_ft_run.py --score-plan OOD diagnostic of {model.scored_checkpoint} "
+        f"({model.described}), {args.score_dtype} on {device} at T = 1: the OOD suite's two "
+        "passes decoded the way crates/qd-runtime/src/answer.rs decodes them, the runtime "
+        "rule's abstentions counted per category, and each case's letter rows (noul "
+        "included) kept on its suite-verdict line. No val pass and no gate."
+    )
+    recorder = _recorder(
+        ledger, reader=reader, seed=seed, recipe=diagnostic_recipe, run_kind="eval",
+        quick_reasons=reasons, wall_clock_s=decode_s,
+        cost=_cost(
+            device=device, n_gpus=n_gpus_for_device(device), usd_per_hour=args.usd_per_hour,
+            usd_per_gpu_hour=args.usd_per_gpu_hour, instance=args.instance,
+            cap_s=args.wall_clock_cap_s,
+        ),
+        notes=notes if plan_note is None else f"{notes} {plan_note}",
+    )
+    with recorder:
+        recorder.metric(*model.ft_row_metric())
+        for name, state in metrics.items():
+            recorder.metric(name, state)
+        recorder.noul_rate = NotRun(reason="an OOD diagnostic row decodes no val row")
+    if recorder.row is None:  # pragma: no cover - RunRecorder always writes on exit
+        raise RuntimeError("RunRecorder exited without writing a row")
+    return recorder.row.row_id, ood_verdict_lines(ood_suite, first, second, ood), seed
+
+
+def run_score_plan(
+    args: argparse.Namespace, plan: ScorePlan, *, reader: ShardReader, val: ValSet,
+    device: str, ledger: Ledger, reasons_for: Callable[..., list[str]],
+    second_pass: SecondPass, needle_suite: NeedleSuite, ood_suite: OodSuite, suite_seed: int,
+) -> list[tuple[str, str, str]]:
+    """Every kind of ``plan``, in order, over the one set of suites main built: load the
+    kind's model, run its passes on it, write its files, free it before the next loads.
+
+    The needle suite, when asked for, is decoded in this process: the worker exists for
+    MPS (:func:`run_needle_worker`), which :func:`_check_score_plan_flags` refuses here.
+    Returns ``(kind, pass, row id)`` per row written.
+    """
+    if plan.wants("ood") and (
+        ood_suite.not_run is not None or ood_suite.second_pass is None
+        or ood_suite.second_pass.not_run is not None
+    ):
+        raise SystemExit(
+            "an 'ood' pass needs the OOD suite and its second pass, and they did not build: "
+            f"{ood_suite.not_run or (ood_suite.second_pass and ood_suite.second_pass.not_run)}"
+        )
+    widths = suite_widths(needle_suite, ood_suite)
+    recorded: list[tuple[str, str, str]] = []
+    for kind in plan.kinds:
+        kind_args = plan_kind_args(args, kind)
+        note = plan.note(kind)
+        print(f"\nscore plan: kind {kind.name} ({', '.join(kind.passes)})", flush=True)
+        loaded = _checkpoint_step(
+            kind_args, reader=reader, val=val, device=device, eval_widths=widths,
+            suite_seed=suite_seed,
+        )
+        verdict_lines: list[dict[str, object]] = []
+        suite_lines: list[dict[str, object]] = []
+        if "gates" in kind.passes:
+            row_id, scored, _, gates, row_seed = _score_checkpoint(
+                kind_args, reader=reader, val=val, device=device, ledger=ledger,
+                reasons_for=reasons_for, second_pass=second_pass, needle_suite=needle_suite,
+                ood_suite=ood_suite, suite_seed=suite_seed, loaded=loaded, plan_note=note,
+            )
+            verdict_lines = [
+                {**line, "score_kind": kind.name}
+                for line in _verdict_lines(scored, eval_row_id=row_id, seed=row_seed)
+            ]
+            suite_lines.extend(
+                {**line, "score_kind": kind.name}
+                for line in suite_verdict_lines(gates, eval_row_id=row_id, seed=row_seed)
+            )
+            recorded.append((kind.name, "gates", row_id))
+            for g in gates:
+                print(f"  {kind.name} {g.name}: {json.dumps(g.state.to_json())[:300]}")
+        if "ood" in kind.passes:
+            row_id, lines, row_seed = run_ood_diagnostic(
+                kind_args, loaded=loaded, reader=reader, val=val, device=device, ledger=ledger,
+                reasons_for=reasons_for, ood_suite=ood_suite, suite_seed=suite_seed,
+                plan_note=note,
+            )
+            suite_lines.extend(
+                {"eval_row_id": row_id, "seed": int(row_seed), "gate": OOD_DIAGNOSTIC_GATE,
+                 "score_kind": kind.name, **v}
+                for v in lines
+            )
+            recorded.append((kind.name, "ood", row_id))
+        # The model's last reference: the next kind loads into the memory this returns.
+        del loaded
+        gc.collect()
+        release_device_cache()
+        if args.verdicts_out is not None and "gates" in kind.passes:
+            write_verdicts_jsonl(plan_output(args.verdicts_out, kind.name), verdict_lines)
+        if args.suite_verdicts_out is not None:
+            write_suite_verdicts_jsonl(
+                plan_output(args.suite_verdicts_out, kind.name), suite_lines
+            )
+        print(f"score plan: kind {kind.name} done -> "
+              f"{[(p, r) for name, p, r in recorded if name == kind.name]}")
+    return recorded
 
 
 # --- the shuffled-label control (--shuffled-label) -----------------------------------------
@@ -5919,6 +6869,7 @@ def _check_shuffled_label_flags(args: argparse.Namespace, raw_argv: Sequence[str
     clashing = [
         flag for flag, given in (
             ("--score-checkpoint", args.score_checkpoint is not None),
+            ("--score-plan", args.score_plan is not None),
             ("--needle", args.needle), ("--ood", args.ood),
             ("--needle-control", args.needle_control is not None),
             ("--verdicts-out", args.verdicts_out is not None),
@@ -5960,6 +6911,81 @@ def _check_shuffled_label_flags(args: argparse.Namespace, raw_argv: Sequence[str
             "nothing"
         )
     args.span_weight = 0.0
+
+
+def _check_score_checkpoint_flags(args: argparse.Namespace) -> None:
+    """Every refusal a ``--score-checkpoint`` scoring is decidable on from argv: one seed's
+    checkpoint, an average or a logit ensemble, and what each must be paired with. A
+    ``--score-plan`` kind is checked by this same function, on its own namespace."""
+    averaged = _is_average(args.score_checkpoint)
+    ensemble = _is_ensemble(args.score_checkpoint)
+    needed = {
+        "--score-val": args.score_val, "--real-backbone": args.real_backbone,
+        "--ft-ledger": args.ft_ledger, "--devices": args.devices,
+    }
+    if not averaged:
+        needed["--ft-row-id"] = args.ft_row_id
+    absent = [flag for flag, value in needed.items() if not value]
+    if absent:
+        raise SystemExit(f"--score-checkpoint needs {', '.join(absent)}")
+    if averaged and args.ft_row_id is not None:
+        raise SystemExit(
+            "--score-checkpoint of an average (.safetensors) is paired with the ft rows "
+            "its manifest names, one per input; --ft-row-id would name one of them"
+        )
+    if ensemble:
+        towers = score_paths(args.score_checkpoint)
+        if any(p.suffix == AVERAGED_SUFFIX for p in towers):
+            raise SystemExit(
+                "a logit ensemble's towers are per-seed epoch checkpoints (.json); an "
+                "average (.safetensors) is scored on its own"
+            )
+        if len(ft_row_ids(args.ft_row_id)) != len(towers) or len(args.seeds) != len(towers):
+            raise SystemExit(
+                f"a logit ensemble of {len(towers)} checkpoints needs one --ft-row-id and "
+                f"one --seeds entry per checkpoint, in its order; got "
+                f"{len(ft_row_ids(args.ft_row_id))} and {len(args.seeds)}"
+            )
+    elif not averaged and len(ft_row_ids(args.ft_row_id)) != 1:
+        raise SystemExit("one --score-checkpoint is paired with one --ft-row-id")
+    if len(args.devices) != 1 or (not averaged and not ensemble and len(args.seeds) != 1):
+        raise SystemExit(
+            "--score-checkpoint scores one checkpoint on one device: pass exactly one "
+            "--devices entry and the checkpoint's one seed in --seeds"
+        )
+    if averaged and len(args.seeds) < 2:
+        raise SystemExit(
+            "--score-checkpoint of an average needs --seeds to list the average's seeds, "
+            "two or more (J7: --seeds 0 1 2); they are checked against its manifest"
+        )
+    if args.epoch or args.resume_from is not None:
+        raise SystemExit(
+            "--score-checkpoint trains nothing; --epoch and --resume-from would train"
+        )
+
+
+def _check_suite_logits_flags(args: argparse.Namespace) -> None:
+    """``--suite-logits`` is refused wherever it would write nothing or be dropped.
+
+    It is read by every needle decode of a scored checkpoint: in-process for
+    ``--needle-control`` and a ``--score-plan`` gate pass, and in the worker process
+    (:func:`needle_worker_main`) for a single ``--score-checkpoint`` gate row, which gets
+    the flag on the scoring process's own argv and hands the scores back in its verdicts
+    (:func:`score_needle` refuses one without them). The OOD suite's lines carry both
+    passes' letter rows with or without it.
+    """
+    if not args.suite_logits:
+        return
+    if args.score_checkpoint is None and args.score_plan is None:
+        raise SystemExit(
+            "--suite-logits writes a scored checkpoint's per-case scores: it needs "
+            "--score-checkpoint or --score-plan"
+        )
+    if args.suite_verdicts_out is None:
+        raise SystemExit(
+            "--suite-logits adds scores to the --suite-verdicts-out lines; without that file "
+            "they would be decoded and dropped"
+        )
 
 
 def _check_piece_flags(args: argparse.Namespace) -> None:
@@ -6343,7 +7369,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, help="the pipeline's --out directory")
     parser.add_argument("--passes", type=int, default=60)
-    parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
+    parser.add_argument("--seeds", type=int, nargs="+", default=None,
+                        help=f"default: {' '.join(map(str, DEFAULT_SEEDS))}")
     # Pre-registration, beside the seed count it is about. Without these two the row records
     # NotRun rather than nothing, because a sweep that never said what it was looking for
     # must not be indistinguishable from one that looked and found nothing.
@@ -6541,6 +7568,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--score-checkpoint",
         type=Path,
+        nargs="+",
         default=None,
         help=(
             "score a SAVED epoch checkpoint (<tag>-seed<N>-<device>.json, with its sidecar "
@@ -6549,7 +7577,10 @@ def main(argv: list[str] | None = None) -> int:
             "entry, and --ft-ledger/--ft-row-id naming the ft row that wrote it. Or an "
             "AVERAGE: the .safetensors tools/ckpt_average.py wrote, with its .manifest.json "
             "beside it, paired with the ft rows the manifest names (--ft-ledger, no "
-            "--ft-row-id) and scored under --seeds listing the average's seeds"
+            "--ft-row-id) and scored under --seeds listing the average's seeds. Or a LOGIT "
+            "ENSEMBLE: two or more per-seed checkpoints, each paired with its own ft row "
+            "(--ft-row-id, one per checkpoint, in order) under --seeds listing their seeds in "
+            "order; every decode reads the mean of the towers' log-probabilities (tag ens<N>)"
         ),
     )
     parser.add_argument(
@@ -6557,8 +7588,25 @@ def main(argv: list[str] | None = None) -> int:
         help="the ledger holding the ft row(s) that wrote --score-checkpoint",
     )
     parser.add_argument(
-        "--ft-row-id", default=None,
-        help="that ft row's row_id (the full uuid or a unique prefix of it)",
+        "--ft-row-id", nargs="+", default=None,
+        help=(
+            "that ft row's row_id (the full uuid or a unique prefix of it); for an ensemble, "
+            "one per --score-checkpoint, in the same order"
+        ),
+    )
+    parser.add_argument(
+        "--score-plan", type=Path, default=None, metavar="PLAN.json",
+        help=(
+            "score several models in ONE invocation, the shard set, val set and suites built "
+            "once: {\"kinds\": [{\"name\", \"checkpoints\", \"ft_row_ids\" (not for an "
+            "average), \"seeds\", \"passes\"}]}, each kind exactly what --score-checkpoint "
+            "and its --ft-row-id/--seeds would name. passes: \"gates\" (the val pass and every "
+            "gate: the --score-checkpoint row) or \"ood\" (the OOD suite alone: a quick "
+            "diagnostic row, tag <kind tag>-ood-diagnostic). One model is loaded per kind and "
+            "freed before the next; --verdicts-out/--suite-verdicts-out are written per kind as "
+            "<stem>-<name><suffix>. Needs --score-val, --real-backbone, --ft-ledger and one "
+            "--devices entry; refuses --score-checkpoint, --ft-row-id and --seeds"
+        ),
     )
     parser.add_argument(
         "--score-dtype", choices=["fp32", "bf16"], default="fp32",
@@ -6791,6 +7839,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--suite-logits", action="store_true",
+        help=(
+            "with --score-checkpoint and --suite-verdicts-out: each needle line also carries "
+            "the pointer's start_logits/end_logits over the runtime's rows, the abstention "
+            "at noul_row (an ensemble's are its mean log-probabilities). OOD lines carry "
+            "both passes' letter rows, noul included, with or without it"
+        ),
+    )
+    parser.add_argument(
         "--verdicts-out", type=Path, default=None,
         help=(
             "with --score-val: write every val verdict as one JSONL line (eval_row_id, seed, "
@@ -6814,6 +7871,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--probe", help=argparse.SUPPRESS)
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     args = parser.parse_args(argv)
+    seeds_given = args.seeds is not None
+    if not seeds_given:
+        args.seeds = list(DEFAULT_SEEDS)
+    # One --score-checkpoint is a Path and one --ft-row-id a str, as they always were;
+    # several are a logit ensemble's towers and their ft rows, kept as lists.
+    if args.score_checkpoint is not None and len(args.score_checkpoint) == 1:
+        args.score_checkpoint = args.score_checkpoint[0]
+    if args.ft_row_id is not None and len(args.ft_row_id) == 1:
+        args.ft_row_id = args.ft_row_id[0]
     _check_piece_flags(args)
 
     # Resolve the sentinels against the backbone that was actually chosen. --hidden and
@@ -6940,38 +8006,17 @@ def main(argv: list[str] | None = None) -> int:
                 f"--needle-control writes its own diagnostic row and decodes no val row or "
                 f"gate; {', '.join(clashing)} would record nothing"
             )
-    if args.score_checkpoint is not None:
-        averaged = _is_average(args.score_checkpoint)
-        needed = {
-            "--score-val": args.score_val, "--real-backbone": args.real_backbone,
-            "--ft-ledger": args.ft_ledger, "--devices": args.devices,
-        }
-        if not averaged:
-            needed["--ft-row-id"] = args.ft_row_id
-        absent = [flag for flag, value in needed.items() if not value]
-        if absent:
-            raise SystemExit(f"--score-checkpoint needs {', '.join(absent)}")
-        if averaged and args.ft_row_id is not None:
-            raise SystemExit(
-                "--score-checkpoint of an average (.safetensors) is paired with the ft rows "
-                "its manifest names, one per input; --ft-row-id would name one of them"
-            )
-        if len(args.devices) != 1 or (not averaged and len(args.seeds) != 1):
-            raise SystemExit(
-                "--score-checkpoint scores one checkpoint on one device: pass exactly one "
-                "--devices entry and the checkpoint's one seed in --seeds"
-            )
-        if averaged and len(args.seeds) < 2:
-            raise SystemExit(
-                "--score-checkpoint of an average needs --seeds to list the average's seeds, "
-                "two or more (J7: --seeds 0 1 2); they are checked against its manifest"
-            )
-        if args.epoch or args.resume_from is not None:
-            raise SystemExit(
-                "--score-checkpoint trains nothing; --epoch and --resume-from would train"
-            )
+    score_plan: ScorePlan | None = None
+    if args.score_plan is not None:
+        score_plan = _check_score_plan_flags(args, seeds_given=seeds_given)
+    elif args.score_checkpoint is not None:
+        _check_score_checkpoint_flags(args)
     elif args.ft_ledger is not None or args.ft_row_id is not None:
-        raise SystemExit("--ft-ledger/--ft-row-id only mean something with --score-checkpoint")
+        raise SystemExit(
+            "--ft-ledger/--ft-row-id only mean something with --score-checkpoint (or "
+            "--score-plan)"
+        )
+    _check_suite_logits_flags(args)
     if (args.ood_general_record is not None) != args.ood:
         raise SystemExit("--ood and --ood-general-record are given together or not at all")
     if args.ood and not (args.score_val and args.real_backbone is not None):
@@ -6993,7 +8038,8 @@ def main(argv: list[str] | None = None) -> int:
             "--needle scores the model the val pass scores and encodes with the real "
             "tokenizer: it needs --score-val and --real-backbone"
         )
-    if args.score_val and not args.epoch and args.score_checkpoint is None:
+    if (args.score_val and not args.epoch and args.score_checkpoint is None
+            and args.score_plan is None):
         raise SystemExit(
             "--score-val scores the epoch arm's model and --epoch was not passed, so there "
             "would be nothing to score. The memorisation arm trains on a subset of the "
@@ -7293,6 +8339,24 @@ def main(argv: list[str] | None = None) -> int:
             devices.append("mps")
         else:
             print("mps: NOT RUN -- torch.backends.mps.is_available() is False on this host")
+
+    # --score-plan, like --score-checkpoint below, trains nothing: one kind after another over
+    # the suites built above, each written as it finishes.
+    if score_plan is not None:
+        if val_set is None:  # pragma: no cover - _check_score_plan_flags needs --score-val
+            raise SystemExit("--score-plan needs --score-val's val set")
+        for kind_name, what, row_id in run_score_plan(
+            args, score_plan, reader=reader, val=val_set, device=devices[0],
+            ledger=Ledger(args.ledger),
+            reasons_for=lambda tag, device, termination=None: quick_reasons(
+                tag=tag, device=device, real_backbone=True, corpus=corpus,
+                termination=termination,
+            ),
+            second_pass=second_pass, needle_suite=needle_suite, ood_suite=ood_suite,
+            suite_seed=config.seed,
+        ):
+            print(f"score plan: {kind_name} {what} row {row_id}")
+        return 0
 
     # --score-checkpoint trains nothing, so nothing below here runs: the probes, the plans and
     # the arms are all about training. Its eval row is written by `_record_score`, the same

@@ -223,8 +223,30 @@ def test_with_no_letter_rows_neither_the_gate_nor_the_control_claims_to_have_run
 
 
 def test_decode_keeps_the_distribution_its_verdict_was_an_argmax_of() -> None:
-    """``_decode`` needs a trained step to run; the end-to-end check is the stand-in run in
-    the commit message. This pins that the field the two functions above read is written."""
-    import inspect
+    """The field the two functions above read is written, and it is the distribution the
+    verdict's argmax was taken over: the slice of the head at the slot's letters, in decode
+    order, at ``target_index``. Checked on the stand-in step, against its own head."""
+    import numpy as np
+    import torch
 
-    assert '"row_logits": logits[' in inspect.getsource(rft._decode)
+    from qd_data.schema import NOUL_LETTER
+    from qd_train.artifacts import NO_SPAN, SLOT_CHOICE
+    from qd_train.shards import assemble_batch
+
+    batch = assemble_batch(
+        [np.arange(3, 23, dtype=np.int32)], kinds=np.asarray([SLOT_CHOICE]),
+        target_index=np.asarray([18]), spans=np.asarray([[NO_SPAN, NO_SPAN]]),
+        candidates=[()], width=20, bucket=20, index=0,
+    )
+    step = rft.RealFtStep(seed=3, device="cpu", vocab=64, width=32, hidden=8, heads=2,
+                          lr=1e-3, span_weight=1.0)
+    letter_id = {"A": 40, "B": 41, "C": 42, NOUL_LETTER: 50}
+    label = rft.Label(row_id="r0", family_id="code.defect_class", slot_name="defect_class",
+                      slot_kind=SLOT_CHOICE, gold_letter="B",
+                      letters=("A", "B", "C", NOUL_LETTER))
+    (verdict,) = rft._decode(step, [batch], {0: [label]}, letter_id)["verdicts"]
+    with torch.no_grad():
+        expected = step.lm_head(step.hidden(batch))[0, 18, [40, 41, 42, 50]]
+    assert verdict["row_logits"] == expected.double().tolist()
+    assert verdict["top"] == int(expected.argmax()) and verdict["noul_row"] == 3
+    assert verdict["noul_probability"] == pytest.approx(float(torch.softmax(expected, -1)[3]))

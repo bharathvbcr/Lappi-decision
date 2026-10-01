@@ -205,7 +205,10 @@ def test_the_worker_decodes_the_handoff_and_rebuilds_nothing(tmp_path, monkeypat
                     widths=[int(b.tokens.shape[1]) for b in val.plan])
         return "step", {}, {}, 0, {}
 
-    def predictions(step, decoded_suite, letter_id):
+    def predictions(step, decoded_suite, letter_id, *, logits):
+        # Told --suite-logits, which this argv does not pass (test_real_ft_suite_logits
+        # runs the worker with it on).
+        assert logits is False
         assert step == "step" and decoded_suite.digest == suite.digest
         assert rft.batches_digest(decoded_suite.batches) == rft.batches_digest(suite.batches)
         seen["letter_id"] = dict(letter_id)

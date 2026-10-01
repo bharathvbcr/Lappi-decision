@@ -183,9 +183,10 @@ def test_the_suite_is_decoded_one_case_at_a_time_at_one_width(monkeypatch):
     cases = build_suite(target_tokens=1024, cases_per_depth=2, seed=0)
     widths: list[int] = []
 
-    def decode(step, batches, labels_for, letter_id):
+    def decode(step, batches, labels_for, letter_id, *, pointer_scores):
         widths.extend(int(b.tokens.shape[1]) for b in batches)
         assert len(batches) == 1
+        assert pointer_scores is False, "the gate's own decode never asks for pointer scores"
         return {"verdicts": []}
 
     monkeypatch.setattr(rft, "_decode", decode)
@@ -328,10 +329,32 @@ def test_repadding_moves_nothing_but_the_padding():
 
 
 def test_a_span_only_batch_skips_the_vocabulary_head():
-    import inspect
+    """The full-vocabulary head over every position is 8 GB in fp32 at 8K tokens: a batch with
+    no letter row to read never computes it. Checked by behaviour -- a step whose head
+    raises decodes a span-only batch -- not by the spelling of the condition."""
+    import numpy as np
 
-    src = inspect.getsource(rft._decode)
-    assert "if any(label.slot_kind != SLOT_SPAN for label in labels_for[b])" in src
+    from qd_train.artifacts import SLOT_SPAN, SPAN_ABSTAIN
+    from qd_train.shards import assemble_batch
+
+    batch = assemble_batch(
+        [np.arange(10, 30, dtype=np.int32)], kinds=np.asarray([SLOT_SPAN]),
+        target_index=np.asarray([18]), spans=np.asarray([[SPAN_ABSTAIN, SPAN_ABSTAIN]]),
+        candidates=[(0, 4, 9)], width=20, bucket=20, index=0,
+    )
+    step = rft.RealFtStep(seed=0, device="cpu", vocab=64, width=32, hidden=8, heads=2,
+                          lr=1e-3, span_weight=1.0)
+
+    def no_head(hidden):
+        raise AssertionError("a span-only batch computed the vocabulary head")
+
+    step.lm_head = no_head  # type: ignore[assignment,method-assign]
+    label = rft.Label(row_id="r0", family_id="code.defect_class", slot_name="defect_span",
+                      slot_kind=SLOT_SPAN, gold_letter=rft.NOUL_LETTER,
+                      letters=(rft.NOUL_LETTER,))
+    decoded = rft._decode(step, [batch], {0: [label]}, {})
+    (verdict,) = decoded["verdicts"]
+    assert verdict["kind"] == "span" and verdict["noul_row"] == 3
 
 
 # --- --needle-control: the gate's rule at other lengths, on a row of its own -----------------
@@ -444,7 +467,7 @@ def test_a_control_row_is_its_own_quick_family_and_names_no_eval_row(monkeypatch
     monkeypatch.setattr(rft, "_checkpoint_step", lambda *a, **k: (None, ft, {}, 0, meta))
     monkeypatch.setattr(
         rft, "needle_predictions",
-        lambda step, s, letter_id: _decoded(s.cases, hit_every=1, abstain_every=2),
+        lambda step, s, letter_id, **kw: _decoded(s.cases, hit_every=1, abstain_every=2),
     )
     captured: dict[str, object] = {}
 
@@ -473,7 +496,7 @@ def test_a_control_row_is_its_own_quick_family_and_names_no_eval_row(monkeypatch
     args = SimpleNamespace(
         needle_control=(1024,), score_dtype="fp32",
         score_checkpoint=Path("epoch-seed0-cuda.json"), usd_per_hour=2.29,
-        usd_per_gpu_hour=None, instance="gh200", wall_clock_cap_s=600.0,
+        usd_per_gpu_hour=None, instance="gh200", wall_clock_cap_s=600.0, suite_logits=False,
     )
     reader = SimpleNamespace(header=SimpleNamespace(shard_hash=lambda: "s" * 64))
     val = SimpleNamespace(reader=reader, letter_id={})

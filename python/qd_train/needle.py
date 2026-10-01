@@ -137,11 +137,21 @@ class NeedleCase:
 
     @property
     def depth_bucket(self) -> str:
-        edges = ((0.2, "0-20%"), (0.4, "20-40%"), (0.6, "40-60%"), (0.8, "60-80%"))
-        for edge, label in edges:
-            if self.depth_fraction < edge:
-                return label
-        return "80-100%"
+        return depth_bucket_label(self.depth_fraction)
+
+
+#: The depth buckets every needle-style report cuts by, in order.
+DEPTH_BUCKETS: Final[tuple[str, ...]] = ("0-20%", "20-40%", "40-60%", "60-80%", "80-100%")
+
+
+def depth_bucket_label(fraction: float) -> str:
+    """The bucket of a depth fraction in [0, 1]: 0.0 is the very start, 1.0 the very end."""
+    if not 0.0 <= fraction <= 1.0:
+        raise ValueError(f"depth fraction {fraction} is outside [0, 1]")
+    for edge, label in zip((0.2, 0.4, 0.6, 0.8), DEPTH_BUCKETS, strict=False):
+        if fraction < edge:
+            return label
+    return DEPTH_BUCKETS[-1]
 
 
 @dataclass(frozen=True, slots=True)

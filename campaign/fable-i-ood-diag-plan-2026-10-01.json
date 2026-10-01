@@ -1,0 +1,42 @@
+{
+  "kinds": [
+    {
+      "name": "seed0",
+      "checkpoints": ["/home/ubuntu/ckpt/p4-v3/epoch-seed0-cuda.json"],
+      "ft_row_ids": ["80b19a41"],
+      "seeds": [0],
+      "passes": ["ood"]
+    },
+    {
+      "name": "seed1",
+      "checkpoints": ["/home/ubuntu/ckpt/p4-v3/epoch-seed1-cuda.json"],
+      "ft_row_ids": ["9b108fe2"],
+      "seeds": [1],
+      "passes": ["ood"]
+    },
+    {
+      "name": "seed2",
+      "checkpoints": ["/home/ubuntu/ckpt/p4-v3/epoch-seed2-cuda.json"],
+      "ft_row_ids": ["8b600511"],
+      "seeds": [2],
+      "passes": ["ood"]
+    },
+    {
+      "name": "avg",
+      "checkpoints": ["/home/ubuntu/ckpt/p4-v3/avg/epoch-avg-seed012-masters.safetensors"],
+      "seeds": [0, 1, 2],
+      "passes": ["ood"]
+    },
+    {
+      "name": "ens3",
+      "checkpoints": [
+        "/home/ubuntu/ckpt/p4-v3/epoch-seed0-cuda.json",
+        "/home/ubuntu/ckpt/p4-v3/epoch-seed1-cuda.json",
+        "/home/ubuntu/ckpt/p4-v3/epoch-seed2-cuda.json"
+      ],
+      "ft_row_ids": ["80b19a41", "9b108fe2", "8b600511"],
+      "seeds": [0, 1, 2],
+      "passes": ["gates"]
+    }
+  ]
+}
