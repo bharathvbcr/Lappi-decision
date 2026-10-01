@@ -28,6 +28,15 @@ advice; gap table Q1, parity ladder Q3, lanes Q5). Gap records: `GAP-OJAS-ADVICE
 | CUDA (ask 6) | **Start scoping now.** This is CPU-only design work with no GPU time. Fable had advised deferring it. |
 | GH200 comparison arms (ask 5) | Informational: a few dollars, run after post-F item 10, under rule 4's $20. |
 
+**Second round: the CUDA implementation asks** (AskUserQuestion, 2026-10-01, after Fable's ruling in `AUDIT/ojas-training-2026-10-01/fable-cuda-asks.md`):
+
+| Ask | Decision |
+| --- | --- |
+| CUDA home and trait owner (Fable blocks A and 5) | **Fable's layout.** <ul><li>The CUDA provider starts in the standalone sibling crate `ojas/ojas-qwen35-cuda/`, with its own `[workspace]` and no member edit. It writes no file outside that directory.</li><li>The coordinator merges it into `ojas-cuda`/`ojas-kernels` later.</li><li>The step-provider trait is L-trainer's, in Lappi `crates/qd-train`. Lappi adapter crates implement it for `Qwen35Step` and for the CUDA provider.</li><li>The rule-6 clarification is in `CLAUDE.md`.</li></ul> |
+| cudarc and cuBLAS (Fable block B) | **Pin `cuda-12080`, and use cuBLAS.** <ul><li>This overrides Fable's "no cuBLAS" and buys back about 3 days.</li><li>The sibling crate declares cudarc `=0.19.10` with the `cuda-12080` and `cublas` features.</li><li>`ojas-cuda/Cargo.toml:28` is repinned to `cuda-12080` through the coordinator, so there is one pin workspace-wide.</li><li>The bf16-in/f32-out GemmEx combination is still [U]. The rung-0 probe falsifies it, and the hand-written FFMA ExactF32 tier is the fallback.</li></ul> |
+| CUDA target (Fable block C) | **The parity ladder first:** rungs a–d, about 40 days [I]. <ul><li>GDN: port tessl's scan now; it is the on-device oracle. Build fla's chunked form only if the trigger, written before the measurement, fires: K2(i) alone exceeds PyTorch's whole step (1.2–1.9 s per 4×8K) after batching.</li><li>The f64 host oracle uses the published rule, and its fixtures are named `published`.</li><li>Campaign speed (+29–35 days) is decided after rung d.</li><li>Calibration point: M0+M1, about 9 days. If it runs past 2×, re-cut the plan before M2.</li></ul> |
+| GH200 time (Fable block D) | **No insert into the post-F queue.** <ul><li>The ~5 min rung-0 probe (≈$0.08, `flock gpu.lock`) is the first item after post-F item 10, or runs on the next rental.</li><li>The lead may run three read-only commands on the box now, with no lock and no GPU: `nvidia-smi | head -4`, an `ls` of the venv's `nvidia/{cublas,cuda_nvrtc}/lib`, and `ls /usr/local/cuda/lib64 | grep -E 'nvrtc|cublas'`.</li></ul> |
+
 ## Coordination
 
 - **ojas coordinator session** ("Rust/Go ML packages alternative to PyTorch"):
@@ -90,7 +99,11 @@ Fable's full text, with every citation, is in `AUDIT/ojas-training-2026-10-01/fa
 - **Schedule:** `LRSchedule(peak_lr=1e-5, total_steps=200, warmup_steps=10, min_lr=1e-6)`.
 - **AdamW (F's):** eps 1e-8 and weight_decay 0.01 on **every** parameter (`optim.py:337-338,403`).
   - **Not** tessl's default exclusions.
-  - The per-group lr scale is 0.1 for the lower 8 layers plus the embeddings, and needs tessl's `lr_scale`.
+  - The per-group lr scale is 0.1 for decoder layers 0–7 only (`--lower-layers-n 8 --lower-layers-lr-scale 0.1`, `campaign/f-v4-preregistered.json:6`). This needs tessl's `lr_scale`.
+  - **Everything else trains at 1.0** (`python/qd_train/optim.py:288-316`, `layerwise_param_groups`): `embed_tokens` and the tied lm_head, the final norm and the span head.
+  - An earlier draft of this line put the embeddings in the 0.1 group. That was the lead's error, which L-trainer caught by reading the code.
+  - F's optimizer is `--optimizer master`, i.e. fp32 masters and fp32 moments.
+  - tessl's per-entry wd vector is f32, so it holds f32(0.01) = 0.009999999776482582. That is 2.2e-8 relative to torch's 0.01. It is recorded, not approximated around.
 - **Span head:** initialised from `span_head_init-seed0.safetensors` (L-oracle's `QwenDecisionStep(seed=0)`).
 
 **Preconditions.**
