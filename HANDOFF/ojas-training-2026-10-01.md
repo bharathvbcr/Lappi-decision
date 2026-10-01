@@ -57,7 +57,7 @@ advice; gap table Q1, parity ladder Q3, lanes Q5). Gap records: `GAP-OJAS-ADVICE
 - New code is Rust; Python appears only as reference oracles. No new dependencies.
 - The PyTorch GH200 campaign (run F and the post-F queue) is untouched.
 
-## Window (c) on the Mac GPU (22:43–22:53 UTC; released to the ojas coordinator after it)
+## Window (c) on the Mac GPU (~22:33–22:37 UTC by the logs' mtimes; released to the ojas coordinator after it)
 
 Both results are logs only, so they cannot be cited as rows yet. The bench has no shard header, which a protocol needs. The quick `smoke`/`throughput` rows are written once L-trainer's ledger writer lands.
 
