@@ -1,0 +1,235 @@
+{
+ "rounds": 3,
+ "results": [
+  {
+   "stage": "score",
+   "checkout": "/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prepperf-a2fc/before",
+   "prelude_s": 152.09840762500244,
+   "import_s": 0.8636044169979868,
+   "digest": "c44774b56e3e4fc86d43131430e9d4d935a59c602444c83b1f5808c6346c0cfb",
+   "arm": "before",
+   "round": 0
+  },
+  {
+   "stage": "worker",
+   "checkout": "/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prepperf-a2fc/before",
+   "prelude_s": 145.522021124998,
+   "import_s": 0.7092722090019379,
+   "digest": "08477aec3538dbaa6161943ab69e519ba03766fda82189dd7cddd2eaaec4eb62",
+   "arm": "before",
+   "round": 0
+  },
+  {
+   "stage": "train",
+   "checkout": "/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prepperf-a2fc/before",
+   "prelude_s": 151.06277445799788,
+   "import_s": 0.8425772090122337,
+   "digest": "49a27e49b787233f6fce66d35e013e1ecd76db86300953edbcd12b0362e126cf",
+   "arm": "before",
+   "round": 0
+  },
+  {
+   "stage": "score",
+   "checkout": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a2fc031fbd6c204e8",
+   "prelude_s": 77.57789845799562,
+   "import_s": 0.9196617500128923,
+   "digest": "c44774b56e3e4fc86d43131430e9d4d935a59c602444c83b1f5808c6346c0cfb",
+   "arm": "after",
+   "round": 0
+  },
+  {
+   "stage": "worker",
+   "checkout": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a2fc031fbd6c204e8",
+   "prelude_s": 0.9044739170058165,
+   "import_s": 0.796632583005703,
+   "digest": "08477aec3538dbaa6161943ab69e519ba03766fda82189dd7cddd2eaaec4eb62",
+   "arm": "after",
+   "round": 0
+  },
+  {
+   "stage": "train",
+   "checkout": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a2fc031fbd6c204e8",
+   "prelude_s": 105.20163791699451,
+   "import_s": 0.6777835410030093,
+   "digest": "49a27e49b787233f6fce66d35e013e1ecd76db86300953edbcd12b0362e126cf",
+   "arm": "after",
+   "round": 0
+  },
+  {
+   "stage": "score",
+   "checkout": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a2fc031fbd6c204e8",
+   "prelude_s": 82.47854262500186,
+   "import_s": 0.6959733749972656,
+   "digest": "c44774b56e3e4fc86d43131430e9d4d935a59c602444c83b1f5808c6346c0cfb",
+   "arm": "after",
+   "round": 1
+  },
+  {
+   "stage": "worker",
+   "checkout": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a2fc031fbd6c204e8",
+   "prelude_s": 0.7731646669999463,
+   "import_s": 0.5794071659911424,
+   "digest": "08477aec3538dbaa6161943ab69e519ba03766fda82189dd7cddd2eaaec4eb62",
+   "arm": "after",
+   "round": 1
+  },
+  {
+   "stage": "train",
+   "checkout": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a2fc031fbd6c204e8",
+   "prelude_s": 95.71217879200412,
+   "import_s": 0.6493872089922661,
+   "digest": "49a27e49b787233f6fce66d35e013e1ecd76db86300953edbcd12b0362e126cf",
+   "arm": "after",
+   "round": 1
+  },
+  {
+   "stage": "score",
+   "checkout": "/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prepperf-a2fc/before",
+   "prelude_s": 157.40766883300967,
+   "import_s": 0.9408546250051586,
+   "digest": "c44774b56e3e4fc86d43131430e9d4d935a59c602444c83b1f5808c6346c0cfb",
+   "arm": "before",
+   "round": 1
+  },
+  {
+   "stage": "worker",
+   "checkout": "/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prepperf-a2fc/before",
+   "prelude_s": 138.04075900001044,
+   "import_s": 0.6742977080139099,
+   "digest": "08477aec3538dbaa6161943ab69e519ba03766fda82189dd7cddd2eaaec4eb62",
+   "arm": "before",
+   "round": 1
+  },
+  {
+   "stage": "train",
+   "checkout": "/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prepperf-a2fc/before",
+   "prelude_s": 129.8740869579924,
+   "import_s": 0.7064603330072714,
+   "digest": "49a27e49b787233f6fce66d35e013e1ecd76db86300953edbcd12b0362e126cf",
+   "arm": "before",
+   "round": 1
+  },
+  {
+   "stage": "score",
+   "checkout": "/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prepperf-a2fc/before",
+   "prelude_s": 154.29311675000645,
+   "import_s": 0.6131457080045948,
+   "digest": "c44774b56e3e4fc86d43131430e9d4d935a59c602444c83b1f5808c6346c0cfb",
+   "arm": "before",
+   "round": 2
+  },
+  {
+   "stage": "worker",
+   "checkout": "/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prepperf-a2fc/before",
+   "prelude_s": 132.53165433299728,
+   "import_s": 0.5604093340079999,
+   "digest": "08477aec3538dbaa6161943ab69e519ba03766fda82189dd7cddd2eaaec4eb62",
+   "arm": "before",
+   "round": 2
+  },
+  {
+   "stage": "train",
+   "checkout": "/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/prepperf-a2fc/before",
+   "prelude_s": 129.48105100000976,
+   "import_s": 0.7521435410017148,
+   "digest": "49a27e49b787233f6fce66d35e013e1ecd76db86300953edbcd12b0362e126cf",
+   "arm": "before",
+   "round": 2
+  },
+  {
+   "stage": "score",
+   "checkout": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a2fc031fbd6c204e8",
+   "prelude_s": 70.54100429099344,
+   "import_s": 0.7137990839983104,
+   "digest": "c44774b56e3e4fc86d43131430e9d4d935a59c602444c83b1f5808c6346c0cfb",
+   "arm": "after",
+   "round": 2
+  },
+  {
+   "stage": "worker",
+   "checkout": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a2fc031fbd6c204e8",
+   "prelude_s": 0.7853695829981007,
+   "import_s": 0.7029836250003427,
+   "digest": "08477aec3538dbaa6161943ab69e519ba03766fda82189dd7cddd2eaaec4eb62",
+   "arm": "after",
+   "round": 2
+  },
+  {
+   "stage": "train",
+   "checkout": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a2fc031fbd6c204e8",
+   "prelude_s": 96.57515124999918,
+   "import_s": 0.5463002500036964,
+   "digest": "49a27e49b787233f6fce66d35e013e1ecd76db86300953edbcd12b0362e126cf",
+   "arm": "after",
+   "round": 2
+  }
+ ],
+ "summary": {
+  "score": {
+   "before": {
+    "runs_s": [
+     152.1,
+     157.41,
+     154.29
+    ],
+    "min_s": 152.1
+   },
+   "after": {
+    "runs_s": [
+     77.58,
+     82.48,
+     70.54
+    ],
+    "min_s": 70.54
+   },
+   "same_digest": true,
+   "digest": [
+    "c44774b56e3e4fc86d43131430e9d4d935a59c602444c83b1f5808c6346c0cfb"
+   ]
+  },
+  "worker": {
+   "before": {
+    "runs_s": [
+     145.52,
+     138.04,
+     132.53
+    ],
+    "min_s": 132.53
+   },
+   "after": {
+    "runs_s": [
+     0.9,
+     0.77,
+     0.79
+    ],
+    "min_s": 0.77
+   },
+   "same_digest": true,
+   "digest": [
+    "08477aec3538dbaa6161943ab69e519ba03766fda82189dd7cddd2eaaec4eb62"
+   ]
+  },
+  "train": {
+   "before": {
+    "runs_s": [
+     151.06,
+     129.87,
+     129.48
+    ],
+    "min_s": 129.48
+   },
+   "after": {
+    "runs_s": [
+     105.2,
+     95.71,
+     96.58
+    ],
+    "min_s": 95.71
+   },
+   "same_digest": true,
+   "digest": [
+    "49a27e49b787233f6fce66d35e013e1ecd76db86300953edbcd12b0362e126cf"
+   ]
+  }
+ }
+}

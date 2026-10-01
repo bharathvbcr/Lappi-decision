@@ -12,10 +12,14 @@
 //!   `LinearBaseline.fit`, the FT linear control's featurisation and fit, which ran 2.3 h+ on
 //!   ~26 cores for one eval row of the full mixture on the GH200 (2026-10-01) without finishing.
 //!   [`pairwise`] is numpy's summation order, which the fit reproduces.
+//! - [`lsh`]: `qd_data.minhash.candidate_pairs`, the banded-LSH bucketing that dedupe and the
+//!   split's cross-check run over those signatures: 24.6 s of the 78 s rebuild on the Mac
+//!   (one unprofiled run at load ~40).
 
 pub mod blake2b;
 pub mod linfit;
 pub mod linwire;
+pub mod lsh;
 pub mod minhash;
 pub mod ngram;
 pub mod pairwise;

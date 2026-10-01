@@ -95,7 +95,7 @@ from qd_data.config import DataConfig
 from qd_data.errors import QdRefusal
 from qd_data.fingerprint import code_fingerprint
 from qd_data.general import REPLAY_ONLY, REPLAY_ROLE_KEY
-from qd_data.render import DEFAULT_CAPS, M_CTX_END, RenderCaps, render
+from qd_data.render import DEFAULT_CAPS, M_CTX_END, RenderCaps, RenderedPrompt, render
 from qd_data.rows import DataRow, row_content_hash
 from qd_data.schema import NOUL_LETTER, ChoiceSlot, ScoreSlot, Slot, SpanSlot
 
@@ -150,6 +150,7 @@ __all__ = [
     "corpus_contradictions",
     "encode_slot",
     "line_starts",
+    "rendered_training_texts",
     "slot_kind_of",
     "training_texts",
     "write_shards",
@@ -317,20 +318,56 @@ def line_starts(text: str) -> list[int]:
     return list(line_start_indices(text))
 
 
-def _token_index_for_char(offsets: Sequence[tuple[int, int]], char_pos: int, *, where: str) -> int:
-    """The first token whose character span contains ``char_pos``.
+#: Cells (positions x tokens) one comparison block of :func:`_token_indices_for_chars` may
+#: hold: 16M booleans, 16 MiB per mask. A needle case is ~500 line starts over ~8.5K tokens
+#: (~4M cells), so it is one block; the bound only splits a pathological input.
+TOKEN_INDEX_BLOCK_CELLS: Final[int] = 1 << 24
+
+
+def _token_indices_for_chars(
+    offsets: Sequence[tuple[int, int]], char_positions: Sequence[int], *, where: str
+) -> tuple[int, ...]:
+    """For each of ``char_positions``, in order, the first token whose span contains it.
 
     A BPE token can straddle a line boundary -- the token holding the first character of
     line N may also hold the tail of line N-1 -- so "the token at this line start" is the
     token *containing* that character, which is what the pointer head would have to point
-    at. When no token contains it the mapping has failed, and this raises rather than
-    picking a neighbour: a span pointing at the wrong token teaches the model to cite the
-    wrong evidence, and nothing downstream could tell.
+    at. When no token contains one the mapping has failed, and this raises -- naming the
+    first such position in ``char_positions`` order -- rather than picking a neighbour: a
+    span pointing at the wrong token teaches the model to cite the wrong evidence, and
+    nothing downstream could tell.
+
+    "First" is the lowest token index ``i`` with ``start_i <= c < end_i``, whatever the
+    offsets look like: a byte-level BPE gives several tokens the same span (Qwen3.5: "Ṣ" ->
+    (2,3) (2,3) (2,3)), special tokens carry (0, 0), and nothing here assumes the spans are
+    sorted. It is one vectorised comparison of every position against every span, in blocks
+    of at most :data:`TOKEN_INDEX_BLOCK_CELLS`, rather than a Python scan of the offsets per
+    position: that scan was O(lines x tokens) interpreted steps, 18.0 of the 37.4 cProfiled
+    seconds of the ``--needle`` suite's preparation in a phase-4 training prelude (2026-10-01).
+    ``python/tests/test_token_index_for_chars.py`` holds it to the scan it replaced.
     """
-    for i, (start, end) in enumerate(offsets):
-        if start <= char_pos < end:
-            return i
-    raise UnencodableGold(
+    positions = np.asarray(char_positions, dtype=np.int64).reshape(-1)
+    if positions.size == 0:
+        return ()
+    spans = np.asarray(offsets, dtype=np.int64).reshape(-1, 2)
+    if spans.shape[0] == 0:
+        raise _no_token_contains(int(positions[0]), where=where)
+    starts, ends = spans[:, 0][None, :], spans[:, 1][None, :]
+    step = max(1, TOKEN_INDEX_BLOCK_CELLS // spans.shape[0])
+    found = np.empty(positions.size, dtype=np.int64)
+    for lo in range(0, positions.size, step):
+        block = positions[lo : lo + step, None]
+        inside = (starts <= block) & (block < ends)
+        first = inside.argmax(axis=1)
+        hit = inside[np.arange(first.size), first]
+        if not bool(hit.all()):
+            raise _no_token_contains(int(block[int(np.flatnonzero(~hit)[0]), 0]), where=where)
+        found[lo : lo + step] = first
+    return tuple(int(i) for i in found)
+
+
+def _no_token_contains(char_pos: int, *, where: str) -> UnencodableGold:
+    return UnencodableGold(
         f"{where}: character {char_pos} lies in no token's offset span. The tokenizer's "
         "offsets and its ids describe different strings, or the offsets omit this region. "
         "Refused rather than mapped to a neighbouring token."
@@ -398,7 +435,7 @@ class SequenceSpec:
     ``span_char_starts`` is the ``(start, end)`` pair of **character offsets into
     ``text``** at which the gold's first and last evidence lines begin, or ``None`` for a
     non-span row. Characters rather than tokens because the tokenizer has not run yet; the
-    conversion is :func:`_token_index_for_char`, and keeping the two steps apart is what
+    conversion is :func:`_token_indices_for_chars`, and keeping the two steps apart is what
     lets the line arithmetic be tested without a tokenizer at all.
     """
 
@@ -576,6 +613,21 @@ def training_texts(
     bug ``GAP-S4-SPAN-GOLD-HAS-NO-BATCH-CHANNEL`` was opened for; ``slot_kind`` exists so
     that routing is explicit rather than conventional.
     """
+    return rendered_training_texts(row, seed=seed, caps=caps)[1]
+
+
+def rendered_training_texts(
+    row: DataRow, *, seed: int, caps: RenderCaps = DEFAULT_CAPS
+) -> tuple[RenderedPrompt, list[SequenceSpec]]:
+    """:func:`training_texts`, with the one ``render`` it was built from.
+
+    For a caller that needs the rendered slots too -- ``tools/real_ft_run.py``'s ``_labels``
+    reads each slot's ``letter_to_value`` -- so the row is rendered once rather than once
+    there and again here. ``render`` was the largest single cost of relabelling the phase-4
+    train split (258,072 rows, 2026-10-01), and it is a pure function of the request, the
+    caps and the seed, so the second call could only ever return the first's answer.
+    Raises exactly what :func:`training_texts` raises, at the same points.
+    """
     rendered = render(row.request, caps=caps, seed=seed)
     region = rendered.context_region()
     out: list[SequenceSpec] = []
@@ -636,7 +688,7 @@ def training_texts(
         )
     if not out:
         raise UnencodableGold(f"row {row.row_id!r}: the request renders no slots")
-    return out
+    return rendered, out
 
 
 # -- bucketing -------------------------------------------------------------------------
@@ -1115,9 +1167,7 @@ def _span_token_positions(
             "Refused for this slot rather than trusted unverified."
         )
 
-    candidates = tuple(
-        _token_index_for_char(offsets, c, where=where) for c in spec.line_char_starts
-    )
+    candidates = _token_indices_for_chars(offsets, spec.line_char_starts, where=where)
     if len(set(candidates)) != len(candidates):
         raise UnencodableGold(
             f"{where}: {len(candidates)} context lines map to only "
@@ -1140,8 +1190,7 @@ def _span_token_positions(
         return ((SPAN_ABSTAIN, SPAN_ABSTAIN), candidates)
 
     start_char, end_char = spec.span_char_starts
-    start_tok = _token_index_for_char(offsets, start_char, where=where)
-    end_tok = _token_index_for_char(offsets, end_char, where=where)
+    start_tok, end_tok = _token_indices_for_chars(offsets, (start_char, end_char), where=where)
     if start_tok > end_tok:
         raise UnencodableGold(
             f"{where}: the gold's first line maps to token {start_tok} and its last to "
