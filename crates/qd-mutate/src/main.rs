@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 
-use qd_mutate::generate::{Generator, Options};
+use qd_mutate::generate::{DiffShape, Generator, Options};
 use qd_mutate::lang::LangId;
 use qd_mutate::manifest::{sha256_hex, PoolReport};
 use qd_mutate::pool::{self, PoolRecord};
@@ -77,6 +77,11 @@ struct GenerateArgs {
     /// Print the coverage table to stderr when the run finishes.
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     report: bool,
+    /// Emit the v2 diff shape: every diff one hunk, and a mutated example diffed from the
+    /// post-image rather than the pre-image. Without it, diffs come from the pre-image and split
+    /// into one hunk per cluster of changes. Recorded in the manifest as `diff.renderer`.
+    #[arg(long)]
+    single_hunk: bool,
 }
 
 #[derive(clap::Args, Debug)]
@@ -129,6 +134,11 @@ fn generate(args: GenerateArgs) -> Result<()> {
         languages: args.language,
         limit: args.limit,
         max_examples_per_file: args.max_per_file,
+        diff_shape: if args.single_hunk {
+            DiffShape::SingleHunk
+        } else {
+            DiffShape::MultiHunk
+        },
     });
     let mut run = generator.run(&records, report);
 
@@ -249,6 +259,8 @@ fn one(args: OneArgs) -> Result<()> {
         languages: vec![language],
         limit: Some(args.limit),
         max_examples_per_file: args.limit,
+        // A lone file has no pre-image, so either shape diffs it against its own post-image.
+        diff_shape: DiffShape::default(),
     });
     let run = generator.run(
         std::slice::from_ref(&record),

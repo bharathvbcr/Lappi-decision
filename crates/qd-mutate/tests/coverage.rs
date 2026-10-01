@@ -16,7 +16,7 @@
 
 use std::collections::BTreeSet;
 
-use qd_mutate::generate::{Generator, Options, Run};
+use qd_mutate::generate::{DiffShape, Generator, Options, Run};
 use qd_mutate::lang::LangId;
 use qd_mutate::manifest::{LanguageReport, PoolReport};
 use qd_mutate::ops::OpId;
@@ -250,6 +250,7 @@ fn run_language(id: LangId) -> Run {
         languages: vec![id],
         limit: None,
         max_examples_per_file: 8,
+        diff_shape: DiffShape::default(),
     })
     .run(
         &records,
