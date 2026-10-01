@@ -142,6 +142,11 @@ def _record_eval_row(ledger: Ledger, scored: dict[str, object], second: dict[str
                                       n_total=len(verdicts))
     if tamper == "permutation_count" and isinstance(gate, Ran) and gate.n is not None:
         gate = Ran(passed=gate.passed, value=gate.value, n=gate.n - 1, n_total=gate.n_total)
+    if tamper == "report_ece":
+        pooled = metrics["ece.report.pooled"]
+        assert isinstance(pooled, Ran) and isinstance(pooled.value, float)
+        metrics["ece.report.pooled"] = Ran(passed=True, value=pooled.value + 1e-9, n=pooled.n,
+                                           n_total=pooled.n_total)
     with RunRecorder(
         ledger, protocol=Protocol("d" * 64, "t" * 64, "b" * 40, "r" * 64, SEED),
         run_kind="eval", repo=REPO, env=_env(), wall_clock_s=None, cost=None,
@@ -226,6 +231,9 @@ def test_every_number_the_eval_row_records_is_recomputed_and_equal(gate_report_b
            and not name.startswith("ood_abstain.in_distribution.gold_noul")}
     assert ran <= checked, sorted(ran - checked)
     assert "gates.permutation_consistency" in checked
+    # The eval row's own report-only copies (real_ft_run.family_heads / report_eces).
+    assert {"metrics.ece.report.pooled", "metrics.ece.report.lang.none"} <= checked
+    assert any(n.startswith("metrics.degenerate_head.family.") for n in checked)
     assert row["cross_check"]["checked"] == len(checked)
 
 
@@ -328,14 +336,19 @@ def test_the_promotion_population_is_the_records_verbatim(gate_report_bin, tmp_p
         d.gap for d in load_promotion_decisions().open()}
 
 
-def test_numbers_that_disagree_with_their_eval_row_are_refused(gate_report_bin, tmp_path):
+@pytest.mark.parametrize(("tamper", "named"), [
+    ("permutation_count", "gates.permutation_consistency"),
+    ("report_ece", "metrics.ece.report.pooled"),
+])
+def test_numbers_that_disagree_with_their_eval_row_are_refused(gate_report_bin, tmp_path,
+                                                                tamper, named):
     scored, second, perms = _scoring_run(np.random.default_rng(3))
     ledger = Ledger(tmp_path / "eval.jsonl")
-    eval_row_id, _ = _record_eval_row(ledger, scored, second, perms, tamper="permutation_count")
+    eval_row_id, _ = _record_eval_row(ledger, scored, second, perms, tamper=tamper)
     verdicts = _write_verdicts(tmp_path / "v.jsonl", scored, eval_row_id)
     proc, report = _run(gate_report_bin, tmp_path, verdicts, ledger.path)
     assert proc.returncode == 2 and report is None
-    assert "gates.permutation_consistency" in proc.stderr
+    assert named in proc.stderr
     assert "not that row's verdicts" in proc.stderr
 
 

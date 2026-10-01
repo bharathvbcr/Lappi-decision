@@ -3324,6 +3324,96 @@ def family_eces(verdicts: Sequence[Mapping[str, object]]) -> dict[str, TriState]
     return states
 
 
+def family_heads(verdicts: Sequence[Mapping[str, object]]) -> dict[str, TriState]:
+    """``degenerate_head.family.{family_id}.{kind}.k{options}``: REPORT-ONLY, never in the
+    ``degenerate_head`` control (Fable G1, GAP-DEGENERATE-HEAD-FAILS-ON-BINARY-SLOTS-TOO).
+
+    :func:`degenerate_head_check`'s two numbers over one family's rows of one slot shape: mean
+    predictive entropy (the value) and the top predicted row's share. ``passed`` is always
+    true: whether the control's entropy floor and class-share cap apply per family is the
+    human's ruling, and a per-family pass/fail here would be that ruling made where nobody
+    looks. A letter row without a family leaves one ``degenerate_head.family`` NotRun and no
+    per-family number, as ``qd-gate-report`` does. ``qd-gate-report`` recomputes each value.
+    """
+    letter_rows = [v for v in verdicts if str(v["kind"]) != "span"]
+    by_family: dict[str, list[Mapping[str, object]]] = {}
+    missing = 0
+    for v in letter_rows:
+        family = v.get("family_id")
+        if isinstance(family, str) and family:
+            by_family.setdefault(family, []).append(v)
+        else:
+            missing += 1
+    if missing:
+        return {"degenerate_head.family": NotRun(
+            reason=f"{missing} of {len(letter_rows)} letter rows {NO_FAMILY_REASON}"
+        )}
+    states: dict[str, TriState] = {}
+    for family, rows in sorted(by_family.items()):
+        for key, (probs, _) in letter_distributions(rows).items():
+            head = degenerate_head_check(probs)
+            name = f"degenerate_head.family.{family}.{key}"
+            if not isinstance(head, Ran):
+                states[name] = head
+                continue
+            counts = np.bincount(np.argmax(probs, axis=1), minlength=probs.shape[1])
+            share = float(counts.max() / len(probs))
+            states[name] = Ran(
+                passed=True, value=head.value, n=head.n, n_total=head.n_total,
+                detail=(
+                    f"mean predictive entropy {float(head.value):.4f} nats, top predicted "  # type: ignore[arg-type]
+                    f"share {share:.3f}; report-only per family: the control judges each slot "
+                    "shape over every family together, and whether its floor and cap apply "
+                    "per family is the human's ruling"
+                ),
+            )
+    return states
+
+
+def report_eces(verdicts: Sequence[Mapping[str, object]]) -> dict[str, TriState]:
+    """``ece.report.pooled`` and ``ece.report.lang.{language}``, ``none`` for letter rows that
+    carry no language: REPORT-ONLY, never in the ``ece`` gate (Fable G2,
+    GAP-ECE-GATE-IS-NOT-RUN-ON-THE-FULL-MIXTURE).
+
+    ECE by top-1 confidence over letter rows of every slot shape together. Each row's
+    distribution is :func:`letter_distributions`' softmax over its own rows, zero-padded to the
+    widest row: padding moves neither a row's top probability nor its top row, which is all a
+    top-1 ECE reads (a per-shape table would read the padded columns, which is why the gate's
+    inputs refuse it). ``passed`` is always true: the gate's bar is stated, not applied. Rows
+    must already have passed :func:`letter_distributions`, as in :func:`calibration_states`.
+    """
+    letter_rows = [v for v in verdicts if str(v["kind"]) != "span"]
+    by_language: dict[str, list[Mapping[str, object]]] = {}
+    for v in letter_rows:
+        language = v.get("language")
+        by_language.setdefault(
+            language if isinstance(language, str) and language else "none", []
+        ).append(v)
+    groups = [("ece.report.pooled", letter_rows)] + [
+        (f"ece.report.lang.{language}", rows) for language, rows in sorted(by_language.items())
+    ]
+    states: dict[str, TriState] = {}
+    for name, rows in groups:
+        if not rows:
+            continue
+        probs = np.zeros((len(rows), max(int(v["rows"]) for v in rows)))  # type: ignore[call-overload]
+        for i, v in enumerate(rows):
+            z = np.asarray([[float(x) for x in v["row_logits"]]], dtype=np.float64)  # type: ignore[union-attr]
+            z = np.exp(z - z.max(axis=1, keepdims=True))
+            probs[i, : z.shape[1]] = (z / z.sum(axis=1, keepdims=True))[0]
+        state = ece_gate(probs, np.asarray([v["gold_row"] for v in rows], dtype=int))
+        if not isinstance(state, Ran):
+            states[name] = state
+            continue
+        shapes = sorted({f"{v['kind']}.k{int(v['rows']) - RESERVED_NOUL_ROWS}" for v in rows})  # type: ignore[call-overload]
+        states[name] = Ran(
+            passed=True, value=state.value, n=state.n, n_total=state.n_total,
+            detail=(f"{state.detail}; letter rows of slot shapes {shapes} pooled by top-1 "
+                    "confidence; report-only, not the ece gate, whose bar is not applied here"),
+        )
+    return states
+
+
 def letter_distributions(
     verdicts: Sequence[Mapping[str, object]],
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
@@ -3391,6 +3481,10 @@ def calibration_states(
     # Into the metrics only: `eces` is what the gate aggregates, and a per-family ECE there
     # would change the gate's population (rule 2).
     metrics.update(family_eces(verdicts))
+    # Report-only (Fable G1/G2), into the metrics only: they never enter `eces` or
+    # `degenerate`, which are all the gate and the control aggregate.
+    metrics.update(family_heads(verdicts))
+    metrics.update(report_eces(verdicts))
     if not eces:
         eces["ece.lang"] = NotRun(reason="no letter rows were decoded")
     return metrics, aggregate(eces, name="ece"), aggregate(degenerate, name="degenerate_head")
