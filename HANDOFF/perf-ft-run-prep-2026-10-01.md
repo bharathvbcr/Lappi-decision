@@ -65,6 +65,19 @@ commit. The code fingerprint and the v3 shard sets on the box are therefore unaf
 | `GAP-PERF-PREP-GITPULSE-UNTRUSTED-AND-NO-LISTAGENTS` | human | Coordination was done without GitPulse or ListAgents. |
 | `GAP-PERF-PREP-DEVMAP-ANSWERED-FROM-THE-MAIN-CHECKOUT` | agent | DevMap answers came from the main checkout's index, not this worktree's. |
 
+**For whoever merges.**
+
+- **The name `_token_index_for_char` no longer exists in `python/qd_train/shards.py`.**
+  `_span_token_positions` now gets its `candidates` tuple, and its gold `start_tok` / `end_tok`,
+  from `_token_indices_for_chars`.
+  - The compose lane (`a23c0fc7f22b1097c`) planned a `span_collapse_policy` hunk in
+    `_span_token_positions`. It was told by message to consume that tuple as-is.
+  - If its branch still calls `_token_index_for_char(offsets, c, where=where)`, a textual merge
+    will not catch it. Only the tests will, with a `NameError`.
+- **`main` moved the code fingerprint on its own.** At `b5575cc`, `main` has changed
+  `python/qd_data/pool_builder.py` since `73bcf12`. Shard sets fingerprinted before that change
+  are stale on `main` regardless of this lane, which leaves `qd_data` untouched.
+
 **Left on purpose.** The census detail string in `tools/real_tokenizer_pipeline.py`
 (`"accepted by design -- _token_index_for_char takes the token CONTAINING ..."`) still names the
 old function. That string is the detail of a census metric. I infer, without having checked the
