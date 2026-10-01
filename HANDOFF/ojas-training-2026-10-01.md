@@ -70,6 +70,27 @@ Both results are logs only, so they cannot be cited as rows yet. The bench has n
   - peak memory footprint 30.78 GB. Adding 16 GB for AdamW's moments gives ≈47 GB of the M5 Pro's 64 GB, so it fits. The Metal working-set ceiling has not been read.
   - **Consequence:** at 452 tok/s, v4's 323.07M positions take ≈198 h per seed, so rung (d)'s "10% of steps" is ≈20 h, not Fable's 3–6 h, which was sized on J1's 74.7M. Rung (d) goes back to Fable for re-sizing. The user's approval covers 3–6 h.
 
+## CUDA scoping (L-cuda, merged `226f74f`)
+
+- **Doc:** `AUDIT/ojas-training-2026-10-01/cuda-backend-scoping.md`, plus seven `GAP-L-CUDA-*` records.
+- **Recommendation:**
+  - Design (B) first: a whole-step Qwen3.5 provider on CUDA, the counterpart of `ojas-qwen35`.
+  - Design (A), a general CUDA `Backend` over the trait plus T1–T6, is the long-term target. It still lacks about ten Qwen ops, and those are trait edits the coordinator owns.
+- **Effort:**
+  - About 40 specialist days to reach the parity ladder (inferred).
+  - At that point the faithful GDN port is estimated at 5–10× slower than PyTorch, because tessl's GDN kernel walks tokens one at a time.
+  - Campaign speed, which needs fla's chunked GDN on CUDA, costs another 29–35 days.
+- **GPU time:** the post-F queue has no gaps. Only the first two stages (a toolchain smoke test and op-level checks, about 25 min, about $1) are short enough to insert.
+- **Build status:** ojas type-checks and links for aarch64 Linux, but has never run there.
+- **Human asks:**
+  1. Place the kernels and the provider in ojas.
+  2. Insert the ~25 min item into the queue, or wait until after item 10.
+  3. Enable cudarc's `cuda` feature and repin it to `cuda-12080`. That is a coordinator-owned file.
+  4. Enable cudarc's `cublas` feature.
+  5. Settle ojas file ownership and the trait owner.
+  6. Choose the target: the parity ladder now, or campaign speed.
+- The doc was sent to the ojas coordinator for `ojas/docs`.
+
 ## Open
 
 - The coordinator's answer on the `ojas-qwen35` crate and the ojas file split.
