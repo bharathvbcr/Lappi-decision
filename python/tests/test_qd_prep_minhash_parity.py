@@ -36,7 +36,12 @@ import qd_data.minhash as minhash_module  # noqa: E402
 import qd_data.split as split_module  # noqa: E402
 from qd_data.config import DataConfig  # noqa: E402
 from qd_data.dedupe import dedupe  # noqa: E402
-from qd_data.minhash import DEFAULT_MAX_DOC_BYTES, MinHasher, shingle  # noqa: E402
+from qd_data.minhash import (  # noqa: E402
+    DEFAULT_MAX_DOC_BYTES,
+    MinHasher,
+    ShingleResult,
+    shingle,
+)
 from qd_data.mixture import build_mixture  # noqa: E402
 from qd_data.split import split  # noqa: E402
 
@@ -370,3 +375,62 @@ def test_a_set_outside_the_table_and_an_unread_table_are_refused(
     ):
         pass
     assert dedupe_module.MinHasher is MinHasher and split_module.MinHasher is MinHasher
+
+
+def test_each_distinct_text_is_shingled_once_and_every_decision_is_unchanged(
+    prep_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``dedupe`` shingles every content unit and ``split`` every kept row; with the block's
+    own pass that was three reference passes over the corpus (104 s of the J1-shaped
+    ``ft_splits`` rebuild, GAP-PERF-PRELUDE-J1-REMAINDER-IS-SHINGLE-BANDING-AND-RENDER).
+    Inside the block both read the block's shingles, so the reference ``shingle`` runs once per
+    distinct text, and the decisions are still the ones the reference makes on its own."""
+    rows = _corpus_rows()
+    monkeypatch.delenv(pipeline.PREP_BIN_ENV, raising=False)
+    want_report, want_split = _reports(rows)
+    calls = 0
+
+    def counting(
+        text: str, *, k: int, max_doc_bytes: int = DEFAULT_MAX_DOC_BYTES
+    ) -> ShingleResult:
+        nonlocal calls
+        calls += 1
+        return shingle(text, k=k, max_doc_bytes=max_doc_bytes)
+
+    for module in (minhash_module, dedupe_module, split_module):
+        monkeypatch.setattr(module, "shingle", counting)
+    monkeypatch.setenv(pipeline.PREP_BIN_ENV, str(prep_bin))
+    with pipeline.native_minhash(rows, config=CONFIG):
+        assert dedupe_module.shingle is not counting, "installed while the block runs"
+        got_report, got_split = _reports(rows)
+    assert dedupe_module.shingle is counting and split_module.shingle is counting, "restored"
+    assert calls == len({r.dedupe_text for r in rows}), "once per distinct text"
+    assert want_report.n_dropped_rows > 0, "the corpus must exercise a duplicate"
+    assert got_report == want_report
+    assert got_split.assignments == want_split.assignments
+    assert got_split.rows_by_split == want_split.rows_by_split
+    assert got_split.near_duplicate_disjoint == want_split.near_duplicate_disjoint
+
+
+def test_a_text_outside_the_shingle_table_another_k_and_an_unread_table_are_refused(
+    prep_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rows = _corpus_rows()
+    signed = shingle(rows[0].dedupe_text, k=CONFIG.shingle_size).shingles
+    monkeypatch.setenv(pipeline.PREP_BIN_ENV, str(prep_bin))
+    with (
+        pytest.raises(SystemExit, match="refusing to shingle it in Python"),
+        pipeline.native_minhash(rows, config=CONFIG),
+    ):
+        dedupe_module.shingle("a text no row carries", k=CONFIG.shingle_size)
+    with (
+        pytest.raises(SystemExit, match="the shingle table was built at k="),
+        pipeline.native_minhash(rows, config=CONFIG),
+    ):
+        split_module.shingle(rows[0].dedupe_text, k=CONFIG.shingle_size + 1)
+    with (
+        pytest.raises(SystemExit, match="shingle table was installed and never read"),
+        pipeline.native_minhash(rows, config=CONFIG),
+    ):
+        dedupe_module.MinHasher(num_perm=CONFIG.num_perm, seed=CONFIG.seed).signature(signed)
+    assert dedupe_module.shingle is shingle and split_module.shingle is shingle
