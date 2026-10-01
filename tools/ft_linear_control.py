@@ -544,7 +544,11 @@ def score_against_control(
 
     The gate is the paired margin over every letter row pooled; it is ``not_run`` if any
     task's control did not run, because a pooled margin over the tasks that happened to fit
-    would be a capped sample reported as complete coverage.
+    would be a capped sample reported as complete coverage. Beside it -- metrics, never the
+    gate -- each family's margin, ``paired_margin_vs_linear.{kind}.{family}`` and
+    ``paired_margin_vs_length_control.{kind}.{family}``: that family's rows against that
+    family's own control, ``not_run`` only for a family whose control did not run, so one
+    family's unconverged fit cannot hide another's measured margin.
 
     ``engine`` is the ``qd-prep`` binary that fits every control; ``None`` reads it from
     ``QD_PREP_BIN`` and refuses, before anything is fitted, when that is unset.
@@ -608,6 +612,13 @@ def score_against_control(
         keys = [k for k, v in verdicts.kind_of.items() if v == kind]
         if keys and isinstance(gate, Ran):
             metrics[f"{GATE}.{kind}"] = _subset_margin(verdicts.correct, control, keys, seed)
+    # Per family, beside the pooled margins and never instead of them: a pooled not_run must
+    # not hide a family whose control ran (J4's rows d597ee7d/7921ae18 carried no defect_class
+    # margin because intent.domain's control did not converge).
+    metrics.update(_family_margins(GATE, val, verdicts, control, task_states, seed=seed))
+    metrics.update(
+        _family_margins(LENGTH_MARGIN, val, verdicts, length_control, length_states, seed=seed)
+    )
     metrics[f"{GATE}.span"] = NotRun(
         reason=(
             f"{verdicts.span_rows} span row(s) not scored: a pointer's answer is a line "
@@ -618,6 +629,11 @@ def score_against_control(
     if hold is not None:
         metrics.update(_holdout_metrics(val, verdicts, control, hold, seed=seed, gate=gate))
     return ControlScore(gate, metrics, len(train), removed, fit_seconds)
+
+
+def task_family(task: str) -> str:
+    """The family of a ``family_id/slot_name`` task (``RequestDoc.task``)."""
+    return task.rsplit("/", 1)[0]
 
 
 def _population_refusal(val: Sequence[RequestDoc], verdicts: Verdicts) -> str | None:
@@ -637,6 +653,37 @@ def _population_refusal(val: Sequence[RequestDoc], verdicts: Verdicts) -> str | 
         f"in the verdicts, {len(split - set(verdicts.correct))} only in the split), so which "
         "of the model's rows belong to which subset is not known"
     )
+
+
+def _family_margins(
+    prefix: str, val: Sequence[RequestDoc], verdicts: Verdicts, control: Mapping[Key, bool],
+    states: Mapping[str, TriState], *, seed: int,
+) -> dict[str, TriState]:
+    """``{prefix}.{kind}.{family}``: each family's rows of one letter kind against that family's
+    own control (its tasks', fitted as ``fit_task`` fits them), ``not_run`` with the reason
+    when any of the family's controls did not run."""
+    by_family: dict[str, list[RequestDoc]] = {}
+    for d in val:
+        by_family.setdefault(task_family(d.task), []).append(d)
+    refusal = _population_refusal(val, verdicts)
+    out: dict[str, TriState] = {}
+    for family, docs in sorted(by_family.items()):
+        tasks = sorted({d.task for d in docs})
+        ran = aggregate({t: states[t] for t in tasks}, name=f"family {family}'s controls")
+        for kind in LETTER_KIND_NAMES:
+            keys = [doc_key(d, by_slot_name=verdicts.by_slot_name) for d in docs
+                    if d.kind == kind]
+            if not keys:
+                continue
+            name = f"{prefix}.{kind}.{family}"
+            if refusal is not None:
+                out[name] = NotRun(reason=refusal)
+            elif not (isinstance(ran, Ran) and ran.passed):
+                why = ran.reason if isinstance(ran, NotRun) else ran.detail
+                out[name] = NotRun(reason=f"family {family}'s control did not run: {why}")
+            else:
+                out[name] = _subset_margin(verdicts.correct, control, keys, seed)
+    return out
 
 
 def _subset_margin(
