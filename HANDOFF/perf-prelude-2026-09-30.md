@@ -121,6 +121,27 @@ mismatches**. Native took 0.93 s and the reference 60.2 s, in one pass.
   The result is `/Users/bharath/qd-campaign/target-aarch64-linux/aarch64-unknown-linux-gnu/release/qd-prep`.
   Copy it to the box and `export QD_PREP_BIN=<absolute path>` before the campaign driver starts.
 
+## J1 (phase-4 full mixture, 294,988 sequences)
+
+On the Mac CPU, the J1-shaped epoch prelude **with** qd-prep takes 502 s to the first bucket
+probe (one run, `AUDIT` section 7).
+
+- **Covered by this port:** MinHash signing. Qd-prep took 30 s for 241,886 sets. At phase-3's
+  measured cost, J1's 555,870 signatures would take about 640 s in Python. That figure is
+  inferred; the reference arm was not run on J1.
+- **Not covered:** the rest of the prelude. Measured by cProfile of the J1 rebuild:
+
+  | function | s |
+  | --- | ---: |
+  | `candidate_pairs` (LSH banding) | 121 |
+  | `build_mixture`'s consistency render | 107 |
+  | `shingle`, three passes per row | 104 |
+  | `_labels` render | 57 |
+  | `content_disjoint_families` | 15 |
+- **Not measured:** the bucket probes.
+
+See `GAP-PERF-PRELUDE-J1-REMAINDER-IS-SHINGLE-BANDING-AND-RENDER`.
+
 ## What is open
 
 - `GAP-PERF-PRELUDE-TOKEN-INDEX-FOR-CHAR-IS-QUADRATIC`: the next hot spot. It needs a batched

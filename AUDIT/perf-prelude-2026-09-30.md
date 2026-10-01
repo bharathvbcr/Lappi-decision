@@ -130,3 +130,53 @@ DT_NEEDED: ['libgcc_s.so.1', 'libc.so.6']
 ```
 
 The binary was not executed on the box.
+
+## 7. The J1-shaped epoch prelude (phase-4 full mixture, 294,988 sequences), native only
+
+These are inputs shaped like J1, not J1's own argv:
+
+- **Data.** The shard set is `/Users/bharath/qd-campaign/phase4-fullvocab-2026-09-30`, which
+  has 294,988 train sequences. Its recipe is rev d43790d, `--general-record
+  fetch-record-2026-09-29.json` (sha a0841f0d), `--general-max-rows 200000`,
+  `--replay-shards` and `--defect-class`.
+- **Run.** `real_ft_run.main` was given `--epoch --no-memorise --replay-partition --devices
+  cpu`. It stopped at the first bucket probe (`_probe_one`), so the probes, the plan and the
+  tower load are not in this time.
+- **Arms.** Mac CPU, one run, native arm only. The reference arm was not run here.
+
+```
+minhash: 241886 distinct sets signed by .../target/release/qd-prep in 30.1 s (shingling and canaries included), 555870 lookups, 8 canaries equal to the reference
+J1TIMING {"arm": "native", "prelude_to_first_probe_s": 502.08, "phases": {"ft_splits": [424.1, 1], "dedupe": [219.09, 1], "build_mixture": [84.0, 1], "split": [75.36, 1], "_labels": [57.29, 1], "_batch_inventory": [9.22, 1], "general_rows": [3.09, 1], "ShardReader": [2.75, 1], "check_defect_source": [2.39, 1], "corpus_facts": [2.29, 1], "_contradictions": [1.71, 1], "pair_labels": [0.93, 1], "_letter_ids": [0.42, 1], "_inventory": [0.41, 1], "vocab_letter_ids": [0.25, 1]}}
+```
+
+The `dedupe` timer wraps only `qd_data.dedupe.dedupe`. The qd-prep call happens before it,
+inside `ft_splits`.
+
+**Unexplained:** this run timed `dedupe` at 219 s and `split` at 75 s. The profiled run below
+puts them at 87 s and 155 s. I have not explained the difference. Two candidates are
+garbage-collection pauses landing in different phases and the shared machine's load. Their sum
+is 294 s here and 242 s under the profiler.
+
+Next, a cProfile of the same `ft_splits` rebuild with native signing. It covers what is left
+once signing is native. The whole run took 452.4 s under the profiler.
+
+```
+   ncalls  tottime  cumtime  function
+        1    0.766  462.126  real_ft_run.py:2620(ft_splits)
+        1    1.032  165.080  qd_data/mixture.py:1240(build_mixture)
+        1    3.871  155.302  qd_data/split.py:267(split)
+        1    2.476  133.209  qd_data/split.py:419(_cross_split_near_duplicates)
+        2   38.504  121.010  qd_data/minhash.py:320(candidate_pairs)
+        1    0.030  107.025  qd_data/mixture.py:1014(drop_contradictory_prompts)
+   869849   40.500  103.755  qd_data/minhash.py:94(shingle)
+   314045    3.531   94.773  qd_data/render.py:667(render)
+        1    2.524   86.869  qd_data/dedupe.py:245(dedupe)
+  3062529   50.009   76.898  qd_data/render.py:274(_escape)
+        2    1.594   42.940  real_tokenizer_pipeline.py:1457(native_minhash)
+        1   12.804   14.947  qd_data/split.py:345(content_disjoint_families)
+   510524    7.021    7.099  qd_data/minhash.py:196(exact_jaccard)
+```
+
+The reference arm, the probes and the box were not run. Using phase-3's measured cost per
+signature (175 s / 151,812 ≈ 1.15 ms), the 555,870 signatures J1 asks for would take about 640 s
+in Python on this Mac. Qd-prep took 30 s. Both of those figures are inferred, not measured.
