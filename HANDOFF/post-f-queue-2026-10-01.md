@@ -8,6 +8,14 @@ are not touched here. Items 8 and 9 run the no-mask lane's staged box scripts (m
 `tools/perf_nomask_p2.sh`, `tools/perf_tierb_outcome.sh`), which this branch does not carry or
 change; it only names their box paths. Nothing ran on the box or on any GPU; no ssh, no push.
 
+**For the lead to decide before deploying: item 0's start.** The brief says the chain must start
+on `avgnp.done`. Every GPU item does. Item 0 (CPU only, holds no lock) starts on `f.done`,
+because the ruling runs it "parallel to 1-2" and starting it later leaves the GPU idle after
+item 2 while it averages (item 3 needs its `j7pavg.done`). The cost of `f.done`: item 0's
+`ckpt_average` passes (niced; avg-np peaks near 44 GiB RAM, inferred) overlap items 1-2's scoring.
+To start it on `avgnp.done` instead, change line 22 of `campaign/post-f-queue/box_q_j7p_cpu.sh`,
+`until [ -f $Q/f.done ]`, to `avgnp.done` (no other line depends on it).
+
 ## What was measured
 
 **On the box or a GPU: nothing.** Every row below is an existing committed row read on the Mac.
@@ -181,12 +189,8 @@ New ledgers: `gh200-p6-f-j7prime-2026-10-01.jsonl` (item 3), `gh200-f-composed-s
 `gh200-p4-v4-2026-10-01.jsonl` (J5' must: `--shuffled-label` finds its target there).
 
 Choices made here that the ruling did not spell out:
-- **Item 0 starts on `f.done`, not `avgnp.done`; every GPU item starts on `avgnp.done` or later.**
-  Item 0 holds no GPU lock and the ruling runs it "parallel to 1-2"; starting it on `avgnp.done`
-  would leave the GPU idle after item 2 while item 0 averages (item 3 needs `j7pavg.done`). Its
-  two `ckpt_average` passes are niced; avg-np's peak RAM is about 44 GiB (inferred,
-  `HANDOFF/ens3-scoring-2026-10-01.md`). If "the chain starts on avgnp.done" was meant to cover
-  item 0 too, change its one `until [ -f $Q/f.done ]` line to `avgnp.done`.
+- **Item 0 starts on `f.done`, not `avgnp.done`**: the decision for the lead at the top (avg-np's
+  ~44 GiB peak is inferred from `HANDOFF/ens3-scoring-2026-10-01.md`).
 - **Item 8 sits between items 3 and 4** ("a gap after item 3's rows exist"). Each P2 session takes
   the lock itself and releases it between T1 and T2 and for its CPU statistics; item 4 waits on
   `nomaskp2.done`, so nothing else takes the GPU in between. T1's speed benchmark can share the
@@ -234,6 +238,25 @@ together; order read off the recorded calls:
   (seed0-2 + avg5 + ens5) -> 5 -> 6 early -> 9 (`perf_tierb_outcome.sh nomask --run`, after
   "J6(f) took the early slot") -> 7 -> 10.
 
+**The wiring, fail-first.** The dry runs above use instant fakes, so a dropped wait could pass
+them by timing. So the chain was re-run with slow fakes -- each perf script is two 0.6 s stages
+under `gpu.lock` with 0.6 s outside it between and after, the windows a mis-wired waiter would
+take the lock in -- and a throwaway checker asserting that every call of each item precedes
+every call of the next in the order above. Unchanged scripts: **ORDER OK** in quiet without the
+marker, quiet with it, fires with it, and fires with J6(f) polling 1.5 s late. Each wait deleted in
+turn: **ORDER BROKEN** every time.
+
+| Wait deleted | Scenario | What the checker saw |
+| --- | --- | --- |
+| item 4's `wait_queued nomaskp2` | quiet, marker | the slice took the lock between P2's stages (8 -> 4 -> 5 -> 9 -> 8 ...) |
+| item 7's `wait_queued nomask j6f` | quiet, marker | tierb interleaved with item 9 and ran before J6(f) |
+| late J6(f)'s `wait_queued nomask` | quiet, marker | J6(f) ran before item 9 |
+| item 10's `wait_queued ...` | quiet, marker | J6(d)-v4 ran first, before item 3 |
+| item 9's `after_early_j6f` | fires, marker | **not caught** with both polling in phase (J6(f) won the race by timing); with J6(f) polling 1.5 s late, item 9 ran before the early J6(f) |
+
+The last row is why the waits are there: on the box every waiter polls every 30 s at its own
+phase, so without the wait the order would be a race.
+
 **Argv checks:** every `real_ft_run.py` and `ckpt_average.py` call those two runs made (31) went
 through `main()` of a `git archive` of its lane's commit (`a502670` for lane8, `3460afc` for
 lane10), with `resolve_rev` (the first disk read after every argv refusal,
@@ -263,7 +286,8 @@ supports it (`run_needle_control` -> `_checkpoint_step` builds a `TowerEnsemble`
 the ens control in that form; it is not dropped. **Its GPU run is not verified** (no ensemble
 needle control has ever run).
 
-The dry-run harness is throwaway (session scratchpad: `pfq_sim/`, `pfq_argv_check.py`,
+The dry-run harness is throwaway (session scratchpad: `pfq_sim/` incl. `run2.sh` and
+`order_check.py`, `pfq_argv_check.py`,
 `pfq_argv_drive.py`, `pfq_mutate.sh`, `pfq_delta_cosine_parity.py`); nothing of it ships.
 
 ## Not verified
