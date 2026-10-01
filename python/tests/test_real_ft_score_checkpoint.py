@@ -378,7 +378,13 @@ def test_altered_averaged_weights_are_refused(tmp_path):
     [
         (["--seeds", "0", "1", "2", "--ft-row-id", "5eed0000"], "its manifest names"),
         (["--seeds", "0"], "two or more"),
-        (["--seeds", "0", "1", "2", "--needle", "--needle-control", "1024"], "one seed's"),
+        # Fable G (2026-10-01) lets an average take --needle-control; the flags that clash
+        # with it still clash on an average.
+        (["--seeds", "0", "1", "2", "--needle", "--needle-control", "1024", "--ood"],
+         "--ood would record nothing"),
+        (["--seeds", "0", "1", "2", "--needle", "--needle-control", "1024",
+          "--verdicts-out", "/v.jsonl"], "--verdicts-out would record nothing"),
+        (["--seeds", "0", "--needle", "--needle-control", "1024"], "two or more"),
     ],
 )
 def test_average_argv_is_refused_before_anything_loads(tmp_path, extra, match):
@@ -388,6 +394,183 @@ def test_average_argv_is_refused_before_anything_loads(tmp_path, extra, match):
             "--usd-per-hour", "2.29", *extra]
     with pytest.raises(SystemExit, match=match):
         real_ft_run.main(argv)
+
+
+# --- --needle-control on an average (Fable G, 2026-10-01) ----------------------------------
+
+
+def test_average_needle_control_argv_is_accepted(tmp_path, monkeypatch):
+    """An average with --needle-control gets past every argv check: the first thing after
+    them, resolving --rev, is reached."""
+
+    def reached(*a, **k):
+        raise _Reached
+
+    monkeypatch.setattr(real_ft_run, "resolve_rev", reached)
+    with pytest.raises(_Reached):
+        real_ft_run.main([
+            "--out", str(tmp_path), "--rev", "0" * 40, "--score-checkpoint",
+            str(tmp_path / "avg.safetensors"), "--score-val", "--real-backbone", "/x",
+            "--ft-ledger", "/l", "--devices", "cuda", "--instance", "gh200",
+            "--usd-per-hour", "2.29", "--wall-clock-cap-s", "5400", "--seeds", "0", "1", "2",
+            "--needle", "--needle-control", "1024,2048,4096",
+            "--suite-verdicts-out", str(tmp_path / "suite.jsonl"),
+        ])
+
+
+class _CapturedRecorder:
+    """Stands in for ``_recorder``'s RunRecorder: keeps what the row would be written with."""
+
+    def __init__(self, captured: dict[str, object]):
+        self.captured = captured
+        self.row = SimpleNamespace(row_id="control-row")
+        self.noul_rate = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def metric(self, name, state):
+        self.captured.setdefault("metrics", {})[name] = state  # type: ignore[union-attr]
+
+    def gate(self, name, state):
+        raise AssertionError(f"a needle control recorded the gate {name}")
+
+
+def _run_avg_needle_control(monkeypatch, args, *, step_reached=None):
+    """``run_needle_control`` on an average, with ``_averaged_weights``' pairing checks run as
+    written. Only the tower (``_real_step``), the suite build and the decode are stood in
+    for: no GPU, no backbone."""
+    import numpy as np
+    from test_needle_ft_contract import _decoded
+
+    from qd_train.needle import build_suite
+
+    cases = build_suite(target_tokens=1024, cases_per_depth=1, seed=0)
+    suite = real_ft_run.NeedleSuite(
+        cases, [SimpleNamespace(tokens=np.zeros((1, 1088)))] * len(cases), {},
+        [900] * len(cases), digest="a" * 64,
+    )
+    monkeypatch.setattr(real_ft_run, "prepare_needle", lambda *a, **k: suite)
+    monkeypatch.setattr(
+        real_ft_run, "needle_predictions",
+        lambda step, s, letter_id: _decoded(s.cases, hit_every=1, abstain_every=2),
+    )
+    if step_reached is None:
+        def step_reached(**kwargs):
+            return SimpleNamespace(load_weights=lambda weights: None), None, None
+    monkeypatch.setattr(real_ft_run, "_real_step", step_reached)
+    captured: dict[str, object] = {}
+
+    def recorder(ledger, **kw):
+        captured.update(kw)
+        return _CapturedRecorder(captured)
+
+    monkeypatch.setattr(real_ft_run, "_recorder", recorder)
+    monkeypatch.setattr(real_ft_run, "_cost", lambda **k: None)
+    reader = _reader()
+    val = SimpleNamespace(
+        reader=reader, letter_id={}, plan=[SimpleNamespace(tokens=np.zeros((1, 64)))]
+    )
+    result = real_ft_run.run_needle_control(
+        args, reader=reader, val=val, device="cuda", ledger=None,  # type: ignore[arg-type]
+        config=DataConfig(), gate_suite=suite,
+        reasons_for=lambda tag, device, termination=None: [f"{tag} on {device}: {termination}"],
+    )
+    return result, captured, len(cases)
+
+
+def _avg_control_args(avg: Path, ledger: Path, seeds=(0, 1, 2)) -> argparse.Namespace:
+    return argparse.Namespace(
+        **vars(_avg_args(avg, ledger, seeds)), needle_control=(1024, 2048, 4096),
+        usd_per_hour=2.29, usd_per_gpu_hour=None, instance="gh200", wall_clock_cap_s=5400.0,
+    )
+
+
+def test_an_averages_needle_control_row_pairs_with_every_input_ft_row(tmp_path, monkeypatch):
+    """The average's length-control row names the same model the average's score row does:
+    all three ft rows its manifest names (each checked against --ft-ledger by
+    _averaged_weights), its manifest sha256 and its safetensors sha256 -- never one input's
+    ft row -- at the protocol seed, and it stays quick."""
+    avg = _average(tmp_path)
+    ledger = _ledger(tmp_path, *(_avg_row(s) for s in (0, 1, 2)))
+    manifest_file = ckpt_average.manifest_path(avg)
+    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    (row_id, lines, seed), captured, n_cases = _run_avg_needle_control(
+        monkeypatch, _avg_control_args(avg, ledger)
+    )
+    recipe = captured["recipe"]
+    assert row_id == "control-row" and captured["run_kind"] == "eval"
+    assert seed == SUITE_SEED and captured["seed"] == SUITE_SEED
+    assert recipe["tag"] == "avg-needle-length-control"
+    assert recipe["averaged"] == {
+        "seeds": [0, 1, 2], "ft_row_ids": [AVG_IDS[s] for s in (0, 1, 2)],
+        "manifest_sha256": hashlib.sha256(manifest_file.read_bytes()).hexdigest(),
+        "source": "masters", "n_inputs": 3, "protocol_seed": SUITE_SEED,
+        "suite_seed": SUITE_SEED,
+    }
+    assert recipe["scored_checkpoint"] == f"avg.safetensors:{manifest['safetensors_sha256']}"
+    assert recipe["needle_control"]["target_tokens"] == [1024, 2048, 4096]
+    assert "eval_row_id" not in recipe, "a control naming the eval row would join its family"
+    metrics = captured["metrics"]
+    assert metrics["ft_run_row_ids"].value == ",".join(AVG_IDS[s] for s in (0, 1, 2))
+    assert "ft_run_row_id" not in metrics, "that names ONE row; an average is three"
+    assert {f"needle_hunk_recall.control.{n}" for n in (1024, 2048, 4096)} <= set(metrics)
+    reasons = captured["quick_reasons"]
+    assert real_ft_run.NEEDLE_CONTROL_QUICK_REASON in reasons
+    # Every input's termination is read, and one reason shared by three rows is one reason.
+    assert reasons.count("epoch on cuda: steps_exhausted") == 1
+    assert all(AVG_IDS[s] in captured["notes"] for s in (0, 1, 2))
+    assert len(lines) == 3 * n_cases
+
+
+def test_an_average_of_two_seeds_says_so_on_its_needle_control_row(tmp_path, monkeypatch):
+    avg = _average(tmp_path, seeds=(0, 1))
+    ledger = _ledger(tmp_path, *(_avg_row(s) for s in (0, 1)))
+    _, captured, _ = _run_avg_needle_control(
+        monkeypatch, _avg_control_args(avg, ledger, seeds=(0, 1))
+    )
+    assert any("an average of 2 seeds" in r for r in captured["quick_reasons"])
+
+
+@pytest.mark.parametrize(
+    ("case", "match"),
+    [
+        ("missing_row", "0 rows match"),
+        ("quick_row", "quick"),
+        ("rows_out_of_order", "seed"),
+        ("other_seeds", "--seeds"),
+        ("altered_weights", "safetensors_sha256"),
+    ],
+)
+def test_an_averages_needle_control_is_refused_when_it_cannot_be_paired(
+    tmp_path, monkeypatch, case, match
+):
+    """The same refusals as the average's score row, before the tower is built."""
+    rows = {s: _avg_row(s) for s in (0, 1, 2)}
+    ft_ids, seeds = None, (0, 1, 2)
+    if case == "missing_row":
+        del rows[2]
+    elif case == "quick_row":
+        rows[1] = _avg_row(1, quick=True)
+    elif case == "rows_out_of_order":
+        ft_ids = [AVG_IDS[1], AVG_IDS[0], AVG_IDS[2]]
+    elif case == "other_seeds":
+        seeds = (0, 1)
+    avg = _average(tmp_path, ft_ids=ft_ids)
+    if case == "altered_weights":
+        avg.write_bytes(avg.read_bytes() + b" ")
+    ledger = _ledger(tmp_path, *rows.values())
+
+    def never(**kwargs):
+        raise AssertionError("the tower was built for an average that cannot be paired")
+
+    with pytest.raises(SystemExit, match=match):
+        _run_avg_needle_control(
+            monkeypatch, _avg_control_args(avg, ledger, seeds=seeds), step_reached=never
+        )
 
 
 # --- end to end: three tiny master checkpoints, averaged, scored on CPU --------------------
