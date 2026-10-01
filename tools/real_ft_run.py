@@ -6013,8 +6013,14 @@ def _metal_export_weights(
     manifest = _read_metal_manifest(path)
     body = manifest.body
     ft = _ft_row(args.ft_ledger, row_id)
-    if not isinstance(ft.get("recipe"), Mapping):
-        raise SystemExit(f"{where}: ft row {ft['row_id']} records no recipe")
+    protocol = ft.get("protocol")
+    if not isinstance(ft.get("recipe"), Mapping) or not (
+        isinstance(protocol, Mapping) and isinstance(protocol.get("seed"), int)
+    ):
+        raise SystemExit(
+            f"{where}: ft row {ft['row_id']} records no recipe or no protocol seed, so "
+            "nothing in it can be checked against this export"
+        )
     recipe = ft["recipe"]
     problems = [
         f"{k}: row says {a!r}, here {b!r}"

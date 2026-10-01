@@ -222,6 +222,10 @@ def _refusal_case(case: str, tmp_path: Path) -> argparse.Namespace:
         row = _metal_row(steps=STEPS - 1)
     elif case == "row_memorise_tag":
         row = _metal_row(tag="memorise")
+    elif case == "row_no_protocol":
+        row = _metal_row(drop=("protocol",))
+    elif case == "row_no_recipe":
+        row = _metal_row(drop=("recipe",))
     elif case == "average_manifest":
         export_kw = {"from": "masters"}
     elif case == "unknown_source":
@@ -287,6 +291,8 @@ REFUSALS = [
     ("row_other_backbone", "backbone_snapshot"),
     ("row_other_steps", "optimizer step"),
     ("row_memorise_tag", "recipe tag"),
+    ("row_no_protocol", "protocol seed"),
+    ("row_no_recipe", "no recipe"),
     ("average_manifest", "an average's manifest"),
     ("unknown_source", "'from' is 'torch-export'"),
     ("no_source", "'from'"),

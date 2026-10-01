@@ -9,11 +9,15 @@ input only. No gate, threshold, seed rule or verdict logic changed (rule 2).
 No ledger row. Nothing ran on a GPU. Every number below is a pytest or diff result on this Mac's CPU.
 
 - **Fail-first.** `python/tests/test_real_ft_metal_export.py` run against unmodified 6a06bd3 (worktree
-  clean, HEAD `6a06bd3`): **49 failed, 2 passed**. The 2 that pass are characterizations of refusals
+  clean, HEAD `6a06bd3`): **49 failed, 2 passed**. The final file adds the missing-`protocol` and
+  missing-`recipe` refusals. I ran it again with `tools/real_ft_run.py` swapped back to 6a06bd3's
+  bytes, and restored the file afterwards: **51 failed, 2 passed**. The 2 that pass are characterizations of refusals
   that did not change (a Metal export among ensemble towers; a `.json` named `-metal`). At 6a06bd3
   every Metal export took the average route and was refused by `ckpt_average.read_manifest` ("not a
   manifest an average can be scored from") or by argv ("--ft-row-id would name one of them").
-- **After the change.** That file plus `test_real_ft_score_checkpoint.py`: 91 passed.
+- **After the change.** That file plus `test_real_ft_score_checkpoint.py`: 93 passed. Adding the
+  ensemble, score-plan, norm-preserving-average, needle-contract and needle-handoff files gives
+  234 passed.
 - **The torch path is byte-identical.** This was checked by a throwaway differential that was not
   committed. It loaded the 6a06bd3 `real_ft_run.py` and the changed one side by side and scored one
   checkpoint through each `main()`. The checkpoint was a tiny tower with ft row `recipe.device="cuda"`,
@@ -44,7 +48,9 @@ No ledger row. Nothing ran on a GPU. Every number below is a pytest or diff resu
     `model_reasons` adds `provenance_reasons()`.
   - `SCORED_CHECKPOINT_KEYS` gains `trained_by`. The score row's notes have a Metal branch.
   - The `--score-checkpoint` help text is updated.
-- `python/tests/test_real_ft_metal_export.py` (new, 51 tests). `python/tests/test_real_ft_score_checkpoint.py`:
+- `python/tests/test_real_ft_metal_export.py` (new, 53 tests).
+- A follow-up commit refuses an ft row with no `protocol.seed` or no `recipe`, with a message.
+  Before it, a missing `protocol` raised a bare `KeyError`. `python/tests/test_real_ft_score_checkpoint.py`:
   the registry pin gains `"trained_by"`, with a comment. This is the only edit to an existing test.
 
 ## The contract the scorer now enforces
@@ -112,6 +118,12 @@ is quick (<reason>) ...".
   `--score-checkpoint` row does not inherit `quick` from its ft row. `model_reasons` reads only the
   termination, the scoring device and the corpus. Whether `Ledger.promotion_verdict` catches such a
   row is **unverified**.
+- **Shares the seam but did not run** (rule 5): the `--needle` worker subprocess loading a Metal
+  export, the OOD-diagnostic and composed-slice rows, and a `--score-plan` kind run end to end.
+  - All of them go through `_checkpoint_step`, `scored_model`, `recipe_block()` and
+    `model_reasons`.
+  - Only the score row (end to end) and the needle-control row (stubbed tower) were exercised.
+  - A plan kind's argv check was exercised.
 - A Metal export among an ensemble's towers is refused with the average's message ("an average
   (.safetensors) is scored on its own"). The refusal is loud but misleading; it was left as it was.
 
