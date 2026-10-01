@@ -6,7 +6,8 @@ CPU. Nothing ran on MPS or on the GH200.
 ## What was measured
 
 No ledger row was written. These are timings of the prelude, not results of a model, so no row
-is the right place for them. Every number below comes from a command listed at the end.
+is the right place for them. Every number below is quoted verbatim in
+`AUDIT/perf-prelude-2026-09-30.md`.
 
 **Profile.** This is stdlib cProfile over `main()` of `tools/real_ft_run.py` at 63f5b68. It
 runs up to the needle-worker launch, which is where the prelude hands off to `_checkpoint_step`.
@@ -65,12 +66,19 @@ mismatches**. Native took 0.93 s and the reference 60.2 s, in one pass.
 
 ## What changed (commits)
 
-- `32ffa44` adds `crates/qd-prep`, the `native_minhash` adapter, and wiring at the three
-  dedupe/split call sites.
-- `1a92a29` merges main (a151483).
-- `3c90201` points the six dedupe-reaching tests at a built qd-prep, and adds the committed A/B
-  benchmark.
-- The commit that adds this file also adds 4 `GAP-` records.
+- `32ffa44` adds `crates/qd-prep` and the `native_minhash` / `_prep_signatures` adapter in
+  `tools/real_tokenizer_pipeline.py`. It wires the three dedupe/split call sites:
+  `real_ft_run.ft_splits`, `real_tokenizer_pipeline.run` and `mac_zero_shot.main`.
+- `1a92a29` merges main at a151483.
+- `3c90201` points the six dedupe-reaching tests at a built qd-prep and adds the committed A/B
+  benchmark. Its `data_fixtures.use_qd_prep` builder was replaced in `b2afca0`.
+- `85ba1fb` adds this handoff and 4 `GAP-` records.
+- `5a8e1ec` merges main at 10ce63f. The `gaps.jsonl` append conflict was resolved by keeping
+  both sides: main's 596 lines, then this lane's 4.
+- `b2afca0` builds qd-prep through `python/tests/conftest.py` (`qd_prep_bin` / `qd_prep`),
+  next to main's margin-probe fixture.
+- The commit that adds `AUDIT/perf-prelude-2026-09-30.md` holds every number in this file
+  verbatim.
 
 **Languages:**
 
@@ -88,7 +96,8 @@ mismatches**. Native took 0.93 s and the reference 60.2 s, in one pass.
 
 **Behaviour change:**
 
-- `tools/real_ft_run.py` (every mode), `tools/replay_decontam.py`, `tools/ft_linear_control.py`,
+- `tools/real_ft_run.py` (every mode that reaches `ft_splits`; `--probe` returns before it),
+  `tools/replay_decontam.py`, `tools/ft_linear_control.py`,
   `tools/real_tokenizer_pipeline.py` and `tools/mac_zero_shot.py` now **refuse** unless
   `QD_PREP_BIN` names an absolute path to the binary. That binary must also run, exit 0, reply in
   the exact shape, and agree with the reference canaries.
