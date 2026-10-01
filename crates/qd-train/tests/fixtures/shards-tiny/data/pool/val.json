@@ -1,0 +1,449 @@
+{
+  "manifest_format_version": 1,
+  "split": "val",
+  "data_snapshot_hash": "95aa9113232c41898b2a4af0d57bebe8faba7263fa65b82d480b7f61c7419d9c",
+  "n_rows": 9,
+  "config_fingerprint": {
+    "seed": 20260919,
+    "held_out_families": [
+      "code.language_id",
+      "qa.answerability"
+    ],
+    "dedupe_threshold": 0.8,
+    "shingle_size": 5,
+    "num_perm": 128,
+    "train_fraction": 0.9,
+    "val_fraction": 0.05,
+    "admitted_by_human": {}
+  },
+  "admitted_source_ids": [
+    "bigcode/commitpackft",
+    "cais/mmlu",
+    "clinc/clinc_oos",
+    "qd-mutate/commitpackft",
+    "rajpurkar/squad_v2",
+    "tau/commonsense_qa"
+  ],
+  "refused_sources": {
+    "AmazonScience/massive": [
+      "script-only: no data files on the host, and loading scripts fail under datasets>=3.0"
+    ],
+    "PolyAI/banking77": [
+      "script-only: no data files on the host, and loading scripts fail under datasets>=3.0"
+    ],
+    "Tobi-Bueck/customer-support-tickets": [
+      "licence 'cc-by-nc-4.0' is disqualifying (non-commercial); facebook/anli, lmsys/toxic-chat, Tobi-Bueck/customer-support-tickets. Non-commercial is disqualifying, not an edge case"
+    ],
+    "allenai/ai2_arc": [
+      "opt-in: 'allenai/ai2_arc' is off by default and is not in admitted_sources_by_human; share-alike (cc-by-sa-4.0). The plan's replay-licence table flags ARC and does not include it by default; a second share-alike source is a human call"
+    ],
+    "allenai/openbookqa": [
+      "licence 'unknown' needs a human call and is not in admitted_by_human; the source declares no licence. Absence of a licence is absence of permission, not permission. commitpackft emits this value per row"
+    ],
+    "allenai/sciq": [
+      "licence 'cc-by-nc-3.0' is disqualifying (non-commercial); allenai/sciq, which RSI's own replay set includes. Disqualifying"
+    ],
+    "facebook/anli": [
+      "licence 'cc-by-nc-4.0' is disqualifying (non-commercial); facebook/anli, lmsys/toxic-chat, Tobi-Bueck/customer-support-tickets. Non-commercial is disqualifying, not an edge case"
+    ],
+    "google/code_x_glue_cc_defect_detection": [
+      "licence 'c-uda' needs a human call and is not in admitted_by_human; Computational Use of Data Agreement (Devign rehost). Computational use only; not a standard OSS licence"
+    ],
+    "lmsys/toxic-chat": [
+      "licence 'cc-by-nc-4.0' is disqualifying (non-commercial); facebook/anli, lmsys/toxic-chat, Tobi-Bueck/customer-support-tickets. Non-commercial is disqualifying, not an edge case"
+    ],
+    "microsoft/CodeReviewer": [
+      "licence 'unknown' needs a human call and is not in admitted_by_human; the source declares no licence. Absence of a licence is absence of permission, not permission. commitpackft emits this value per row",
+      "not present on the declared host"
+    ],
+    "mteb/stsbenchmark-sts": [
+      "licence 'unknown' needs a human call and is not in admitted_by_human; the source declares no licence. Absence of a licence is absence of permission, not permission. commitpackft emits this value per row"
+    ],
+    "nuprl/AgentPack": [
+      "gated: a human must accept the dataset's terms before any unattended fetch succeeds"
+    ],
+    "nyu-mll/glue": [
+      "licence 'other' needs a human call and is not in admitted_by_human; nyu-mll/glue. The card defers to each upstream task's own terms, so there is no single licence to check. Needs a human call per task"
+    ]
+  },
+  "held_out_families": [
+    "code.language_id",
+    "qa.answerability"
+  ],
+  "licence_histogram": {
+    "cc-by-sa-4.0": 1,
+    "mit": 8
+  },
+  "obligations": {
+    "cc-by-sa-4.0": [
+      "attribution",
+      "share-alike"
+    ],
+    "mit": [
+      "attribution"
+    ]
+  },
+  "host_histogram": {
+    "huggingface": 9
+  },
+  "mixture": {
+    "n_rows": 144,
+    "n_input": {
+      "bigcode/commitpackft": 24,
+      "clinc/clinc_oos": 24,
+      "rajpurkar/squad_v2": 24
+    },
+    "refusals": {
+      "bigcode/commitpackft": {},
+      "clinc/clinc_oos": {},
+      "rajpurkar/squad_v2": {}
+    },
+    "licence_histogram": {
+      "cc-by-3.0": 48,
+      "cc-by-sa-4.0": 24,
+      "mit": 72
+    },
+    "obligations": {
+      "cc-by-3.0": [
+        "attribution"
+      ],
+      "cc-by-sa-4.0": [
+        "attribution",
+        "share-alike"
+      ],
+      "mit": [
+        "attribution"
+      ]
+    },
+    "host_histogram": {
+      "huggingface": 144
+    },
+    "refused_sources": {},
+    "family_coverage": {
+      "code.change_scope": {
+        "state": "ran",
+        "passed": true,
+        "value": 24,
+        "n": 24,
+        "n_total": 24,
+        "detail": "code.change_scope: 24 of 24 bigcode/commitpackft rows became examples"
+      },
+      "code.commit_intent": {
+        "state": "ran",
+        "passed": true,
+        "value": 24,
+        "n": 24,
+        "n_total": 24,
+        "detail": "code.commit_intent: 24 of 24 bigcode/commitpackft rows became examples"
+      },
+      "code.language_id": {
+        "state": "ran",
+        "passed": true,
+        "value": 24,
+        "n": 24,
+        "n_total": 24,
+        "detail": "code.language_id: 24 of 24 bigcode/commitpackft rows became examples"
+      },
+      "intent.classification": {
+        "state": "ran",
+        "passed": true,
+        "value": 24,
+        "n": 24,
+        "n_total": 24,
+        "detail": "intent.classification: 24 of 24 clinc/clinc_oos rows became examples"
+      },
+      "intent.in_scope": {
+        "state": "ran",
+        "passed": true,
+        "value": 24,
+        "n": 24,
+        "n_total": 24,
+        "detail": "intent.in_scope: 24 of 24 clinc/clinc_oos rows became examples"
+      },
+      "qa.answer_span": {
+        "state": "ran",
+        "passed": true,
+        "value": 18,
+        "n": 18,
+        "n_total": 18,
+        "detail": "qa.answer_span: 18 of 18 rajpurkar/squad_v2 rows became examples; 6 rajpurkar/squad_v2 row(s) routed to another family by design"
+      },
+      "qa.answerability": {
+        "state": "ran",
+        "passed": true,
+        "value": 6,
+        "n": 6,
+        "n_total": 6,
+        "detail": "qa.answerability: 6 of 6 rajpurkar/squad_v2 rows became examples; 18 rajpurkar/squad_v2 row(s) routed to another family by design"
+      }
+    },
+    "prompt_consistency": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 144,
+      "n_total": 144,
+      "detail": "144 of 144 rows grouped into 144 distinct rendered prompts; no prompt in the emitted rows carries two different gold answers"
+    },
+    "contradictions": [],
+    "abstention": {
+      "choice": {
+        "state": "ran",
+        "passed": true,
+        "value": 3,
+        "n": 3,
+        "n_total": 102,
+        "detail": "choice: 3 of 102 rows carry a noul gold, from ['intent.classification']"
+      },
+      "score": {
+        "state": "ran",
+        "passed": false,
+        "value": 0,
+        "n": 0,
+        "n_total": 24,
+        "detail": "score: 0 of 24 rows carry a noul gold, so every step trains this channel against the abstain row. Families present: ['code.change_scope']; of those, able to abstain at all: none. No family on this channel can produce one, so this is the corpus's composition rather than a rewriter dropping them."
+      },
+      "span": {
+        "state": "ran",
+        "passed": true,
+        "value": 3,
+        "n": 3,
+        "n_total": 18,
+        "detail": "span: 3 of 18 rows carry a noul gold, from ['qa.answer_span']"
+      }
+    },
+    "status": {
+      "state": "ran",
+      "passed": true,
+      "value": 144,
+      "n": 144,
+      "n_total": 144,
+      "detail": "144 examples built, 0 rows refused across 3 sources; per-family coverage: code.change_scope=24/24, code.commit_intent=24/24, code.language_id=24/24, intent.classification=24/24, intent.in_scope=24/24, qa.answer_span=18/18, qa.answerability=6/6; self-consistency: 144/144 rows grouped, no contradictory prompt in the emitted rows"
+    }
+  },
+  "dedupe": {
+    "n_input_rows": 144,
+    "n_input_units": 72,
+    "n_kept_rows": 144,
+    "n_dropped_rows": 0,
+    "n_dropped_units": 0,
+    "n_cross_repo_pairs": 0,
+    "n_within_repo_pairs": 0,
+    "n_truncated_for_shingling": 0,
+    "threshold": 0.8,
+    "bands": 16,
+    "rows_per_band": 8,
+    "n_candidate_pairs": 0,
+    "n_possible_unit_pairs": 2556,
+    "lsh_per_pair_recall_at_threshold": 0.947049,
+    "clusters": [],
+    "status": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 0,
+      "n_total": 2556,
+      "detail": "0 of 144 rows dropped across 0 content units at Jaccard >= 0.8; 0 confirmed pairs crossed a repo boundary and would have survived a repo-level split alone; 0 confirmed pairs were within one repo and were kept. LSH is a probabilistic candidate generator, not an exhaustive search: banding b=16, r=8 proposes a pair at J=0.8 with probability 0.9470, so 0 of 2556 possible unit pairs were compared exactly and the confirmed-pair counts are a lower bound, not a complete enumeration"
+    }
+  },
+  "split_report": {
+    "counts": {
+      "train": 98,
+      "val": 9,
+      "heldout": 37
+    },
+    "holdout_breakdown": {
+      "natural_repo_holdout": 7,
+      "family_holdout": 30
+    },
+    "repo_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 53,
+      "n_total": 53
+    },
+    "identity_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 72,
+      "n_total": 72
+    },
+    "near_duplicate_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 144,
+      "n_total": 144,
+      "detail": "scanned 144 rows; 96 candidate pairs, 0 of them crossing a repo split, none confirmed at threshold 0.8"
+    },
+    "held_out_families_absent_from_training": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 107,
+      "n_total": 107
+    },
+    "dedupe_status": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 0,
+      "n_total": 2556,
+      "detail": "0 of 144 rows dropped across 0 content units at Jaccard >= 0.8; 0 confirmed pairs crossed a repo boundary and would have survived a repo-level split alone; 0 confirmed pairs were within one repo and were kept. LSH is a probabilistic candidate generator, not an exhaustive search: banding b=16, r=8 proposes a pair at J=0.8 with probability 0.9470, so 0 of 2556 possible unit pairs were compared exactly and the confirmed-pair counts are a lower bound, not a complete enumeration"
+    },
+    "content_disjoint_families": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 24,
+      "n_total": 24
+    },
+    "status": {
+      "state": "ran",
+      "passed": true,
+      "n": 6,
+      "n_total": 6
+    }
+  },
+  "status": {
+    "state": "ran",
+    "passed": true,
+    "n": 3,
+    "n_total": 3
+  },
+  "provenance": {
+    "built_at_utc": "2026-10-01T00:00:00+00:00",
+    "oracle": "tools/qd_train_oracle_shards.py"
+  },
+  "entries": [
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000001:ff64c6f7aaf6",
+      "content_hash": "ffc1b770902a1fced240bf7224cbfa99697ef626f84777252fe643d0e546b8f7",
+      "split": "val",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo1",
+      "identity_key": "org/repo1::src/module_1.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000008:637d3d655372",
+      "content_hash": "e6c39c6fa6b4b5426b2479e3a0cf542ab704425d4fd1354753f0d2af49a25a71",
+      "split": "val",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo1",
+      "identity_key": "org/repo1::src/module_8.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:000000000000000000000000000000000000000f:9eea8272f4eb",
+      "content_hash": "22bf6ea9fa2925ae8b9821de97f0f824cfd8c8a9d1042f550f4452ea45e39f6e",
+      "split": "val",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo1",
+      "identity_key": "org/repo1::src/module_15.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000016:c598129649a0",
+      "content_hash": "b807d0464deb84afb69b220d54f6509d32349b5de48682f21e5334bb7da1fe7a",
+      "split": "val",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo1",
+      "identity_key": "org/repo1::src/module_22.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000001:ff64c6f7aaf6",
+      "content_hash": "128d1d0724f5e4d6fefb570b6500c0622135a98a5c125a0a38fa3db175281bbc",
+      "split": "val",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo1",
+      "identity_key": "org/repo1::src/module_1.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000008:637d3d655372",
+      "content_hash": "ba61563fb948759c87244050d871d5fdd6f403138f3b8d0c3ab6102f832b9ffe",
+      "split": "val",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo1",
+      "identity_key": "org/repo1::src/module_8.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:000000000000000000000000000000000000000f:9eea8272f4eb",
+      "content_hash": "4583ba3676dd18e1bad7a3031693b7dcd1c67cfc2445776339c83fd79e787183",
+      "split": "val",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo1",
+      "identity_key": "org/repo1::src/module_15.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000016:c598129649a0",
+      "content_hash": "9e67db3bf70f7e20f1636c0062665556543cd717464e6677e4ed68960d590f1d",
+      "split": "val",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo1",
+      "identity_key": "org/repo1::src/module_22.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00017",
+      "content_hash": "e817a2f255b7dd4201f49fdc3392b70b8870a0895bb3c31085184fb1b4313c94",
+      "split": "val",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article17-0",
+      "identity_key": "squad-title:Article17-0::q00017",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    }
+  ]
+}

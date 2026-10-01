@@ -1,0 +1,847 @@
+{
+  "manifest_format_version": 1,
+  "split": "heldout",
+  "data_snapshot_hash": "78a3a2611a0feee163ad172a3a7600314c1e5ee959ad1436d6bea10e26d2a869",
+  "n_rows": 37,
+  "config_fingerprint": {
+    "seed": 20260919,
+    "held_out_families": [
+      "code.language_id",
+      "qa.answerability"
+    ],
+    "dedupe_threshold": 0.8,
+    "shingle_size": 5,
+    "num_perm": 128,
+    "train_fraction": 0.9,
+    "val_fraction": 0.05,
+    "admitted_by_human": {}
+  },
+  "admitted_source_ids": [
+    "bigcode/commitpackft",
+    "cais/mmlu",
+    "clinc/clinc_oos",
+    "qd-mutate/commitpackft",
+    "rajpurkar/squad_v2",
+    "tau/commonsense_qa"
+  ],
+  "refused_sources": {
+    "AmazonScience/massive": [
+      "script-only: no data files on the host, and loading scripts fail under datasets>=3.0"
+    ],
+    "PolyAI/banking77": [
+      "script-only: no data files on the host, and loading scripts fail under datasets>=3.0"
+    ],
+    "Tobi-Bueck/customer-support-tickets": [
+      "licence 'cc-by-nc-4.0' is disqualifying (non-commercial); facebook/anli, lmsys/toxic-chat, Tobi-Bueck/customer-support-tickets. Non-commercial is disqualifying, not an edge case"
+    ],
+    "allenai/ai2_arc": [
+      "opt-in: 'allenai/ai2_arc' is off by default and is not in admitted_sources_by_human; share-alike (cc-by-sa-4.0). The plan's replay-licence table flags ARC and does not include it by default; a second share-alike source is a human call"
+    ],
+    "allenai/openbookqa": [
+      "licence 'unknown' needs a human call and is not in admitted_by_human; the source declares no licence. Absence of a licence is absence of permission, not permission. commitpackft emits this value per row"
+    ],
+    "allenai/sciq": [
+      "licence 'cc-by-nc-3.0' is disqualifying (non-commercial); allenai/sciq, which RSI's own replay set includes. Disqualifying"
+    ],
+    "facebook/anli": [
+      "licence 'cc-by-nc-4.0' is disqualifying (non-commercial); facebook/anli, lmsys/toxic-chat, Tobi-Bueck/customer-support-tickets. Non-commercial is disqualifying, not an edge case"
+    ],
+    "google/code_x_glue_cc_defect_detection": [
+      "licence 'c-uda' needs a human call and is not in admitted_by_human; Computational Use of Data Agreement (Devign rehost). Computational use only; not a standard OSS licence"
+    ],
+    "lmsys/toxic-chat": [
+      "licence 'cc-by-nc-4.0' is disqualifying (non-commercial); facebook/anli, lmsys/toxic-chat, Tobi-Bueck/customer-support-tickets. Non-commercial is disqualifying, not an edge case"
+    ],
+    "microsoft/CodeReviewer": [
+      "licence 'unknown' needs a human call and is not in admitted_by_human; the source declares no licence. Absence of a licence is absence of permission, not permission. commitpackft emits this value per row",
+      "not present on the declared host"
+    ],
+    "mteb/stsbenchmark-sts": [
+      "licence 'unknown' needs a human call and is not in admitted_by_human; the source declares no licence. Absence of a licence is absence of permission, not permission. commitpackft emits this value per row"
+    ],
+    "nuprl/AgentPack": [
+      "gated: a human must accept the dataset's terms before any unattended fetch succeeds"
+    ],
+    "nyu-mll/glue": [
+      "licence 'other' needs a human call and is not in admitted_by_human; nyu-mll/glue. The card defers to each upstream task's own terms, so there is no single licence to check. Needs a human call per task"
+    ]
+  },
+  "held_out_families": [
+    "code.language_id",
+    "qa.answerability"
+  ],
+  "licence_histogram": {
+    "cc-by-sa-4.0": 7,
+    "mit": 30
+  },
+  "obligations": {
+    "cc-by-sa-4.0": [
+      "attribution",
+      "share-alike"
+    ],
+    "mit": [
+      "attribution"
+    ]
+  },
+  "host_histogram": {
+    "huggingface": 37
+  },
+  "mixture": {
+    "n_rows": 144,
+    "n_input": {
+      "bigcode/commitpackft": 24,
+      "clinc/clinc_oos": 24,
+      "rajpurkar/squad_v2": 24
+    },
+    "refusals": {
+      "bigcode/commitpackft": {},
+      "clinc/clinc_oos": {},
+      "rajpurkar/squad_v2": {}
+    },
+    "licence_histogram": {
+      "cc-by-3.0": 48,
+      "cc-by-sa-4.0": 24,
+      "mit": 72
+    },
+    "obligations": {
+      "cc-by-3.0": [
+        "attribution"
+      ],
+      "cc-by-sa-4.0": [
+        "attribution",
+        "share-alike"
+      ],
+      "mit": [
+        "attribution"
+      ]
+    },
+    "host_histogram": {
+      "huggingface": 144
+    },
+    "refused_sources": {},
+    "family_coverage": {
+      "code.change_scope": {
+        "state": "ran",
+        "passed": true,
+        "value": 24,
+        "n": 24,
+        "n_total": 24,
+        "detail": "code.change_scope: 24 of 24 bigcode/commitpackft rows became examples"
+      },
+      "code.commit_intent": {
+        "state": "ran",
+        "passed": true,
+        "value": 24,
+        "n": 24,
+        "n_total": 24,
+        "detail": "code.commit_intent: 24 of 24 bigcode/commitpackft rows became examples"
+      },
+      "code.language_id": {
+        "state": "ran",
+        "passed": true,
+        "value": 24,
+        "n": 24,
+        "n_total": 24,
+        "detail": "code.language_id: 24 of 24 bigcode/commitpackft rows became examples"
+      },
+      "intent.classification": {
+        "state": "ran",
+        "passed": true,
+        "value": 24,
+        "n": 24,
+        "n_total": 24,
+        "detail": "intent.classification: 24 of 24 clinc/clinc_oos rows became examples"
+      },
+      "intent.in_scope": {
+        "state": "ran",
+        "passed": true,
+        "value": 24,
+        "n": 24,
+        "n_total": 24,
+        "detail": "intent.in_scope: 24 of 24 clinc/clinc_oos rows became examples"
+      },
+      "qa.answer_span": {
+        "state": "ran",
+        "passed": true,
+        "value": 18,
+        "n": 18,
+        "n_total": 18,
+        "detail": "qa.answer_span: 18 of 18 rajpurkar/squad_v2 rows became examples; 6 rajpurkar/squad_v2 row(s) routed to another family by design"
+      },
+      "qa.answerability": {
+        "state": "ran",
+        "passed": true,
+        "value": 6,
+        "n": 6,
+        "n_total": 6,
+        "detail": "qa.answerability: 6 of 6 rajpurkar/squad_v2 rows became examples; 18 rajpurkar/squad_v2 row(s) routed to another family by design"
+      }
+    },
+    "prompt_consistency": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 144,
+      "n_total": 144,
+      "detail": "144 of 144 rows grouped into 144 distinct rendered prompts; no prompt in the emitted rows carries two different gold answers"
+    },
+    "contradictions": [],
+    "abstention": {
+      "choice": {
+        "state": "ran",
+        "passed": true,
+        "value": 3,
+        "n": 3,
+        "n_total": 102,
+        "detail": "choice: 3 of 102 rows carry a noul gold, from ['intent.classification']"
+      },
+      "score": {
+        "state": "ran",
+        "passed": false,
+        "value": 0,
+        "n": 0,
+        "n_total": 24,
+        "detail": "score: 0 of 24 rows carry a noul gold, so every step trains this channel against the abstain row. Families present: ['code.change_scope']; of those, able to abstain at all: none. No family on this channel can produce one, so this is the corpus's composition rather than a rewriter dropping them."
+      },
+      "span": {
+        "state": "ran",
+        "passed": true,
+        "value": 3,
+        "n": 3,
+        "n_total": 18,
+        "detail": "span: 3 of 18 rows carry a noul gold, from ['qa.answer_span']"
+      }
+    },
+    "status": {
+      "state": "ran",
+      "passed": true,
+      "value": 144,
+      "n": 144,
+      "n_total": 144,
+      "detail": "144 examples built, 0 rows refused across 3 sources; per-family coverage: code.change_scope=24/24, code.commit_intent=24/24, code.language_id=24/24, intent.classification=24/24, intent.in_scope=24/24, qa.answer_span=18/18, qa.answerability=6/6; self-consistency: 144/144 rows grouped, no contradictory prompt in the emitted rows"
+    }
+  },
+  "dedupe": {
+    "n_input_rows": 144,
+    "n_input_units": 72,
+    "n_kept_rows": 144,
+    "n_dropped_rows": 0,
+    "n_dropped_units": 0,
+    "n_cross_repo_pairs": 0,
+    "n_within_repo_pairs": 0,
+    "n_truncated_for_shingling": 0,
+    "threshold": 0.8,
+    "bands": 16,
+    "rows_per_band": 8,
+    "n_candidate_pairs": 0,
+    "n_possible_unit_pairs": 2556,
+    "lsh_per_pair_recall_at_threshold": 0.947049,
+    "clusters": [],
+    "status": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 0,
+      "n_total": 2556,
+      "detail": "0 of 144 rows dropped across 0 content units at Jaccard >= 0.8; 0 confirmed pairs crossed a repo boundary and would have survived a repo-level split alone; 0 confirmed pairs were within one repo and were kept. LSH is a probabilistic candidate generator, not an exhaustive search: banding b=16, r=8 proposes a pair at J=0.8 with probability 0.9470, so 0 of 2556 possible unit pairs were compared exactly and the confirmed-pair counts are a lower bound, not a complete enumeration"
+    }
+  },
+  "split_report": {
+    "counts": {
+      "train": 98,
+      "val": 9,
+      "heldout": 37
+    },
+    "holdout_breakdown": {
+      "natural_repo_holdout": 7,
+      "family_holdout": 30
+    },
+    "repo_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 53,
+      "n_total": 53
+    },
+    "identity_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 72,
+      "n_total": 72
+    },
+    "near_duplicate_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 144,
+      "n_total": 144,
+      "detail": "scanned 144 rows; 96 candidate pairs, 0 of them crossing a repo split, none confirmed at threshold 0.8"
+    },
+    "held_out_families_absent_from_training": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 107,
+      "n_total": 107
+    },
+    "dedupe_status": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 0,
+      "n_total": 2556,
+      "detail": "0 of 144 rows dropped across 0 content units at Jaccard >= 0.8; 0 confirmed pairs crossed a repo boundary and would have survived a repo-level split alone; 0 confirmed pairs were within one repo and were kept. LSH is a probabilistic candidate generator, not an exhaustive search: banding b=16, r=8 proposes a pair at J=0.8 with probability 0.9470, so 0 of 2556 possible unit pairs were compared exactly and the confirmed-pair counts are a lower bound, not a complete enumeration"
+    },
+    "content_disjoint_families": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 24,
+      "n_total": 24
+    },
+    "status": {
+      "state": "ran",
+      "passed": true,
+      "n": 6,
+      "n_total": 6
+    }
+  },
+  "status": {
+    "state": "ran",
+    "passed": true,
+    "n": 3,
+    "n_total": 3
+  },
+  "provenance": {
+    "built_at_utc": "2026-10-01T00:00:00+00:00",
+    "oracle": "tools/qd_train_oracle_shards.py"
+  },
+  "entries": [
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000005:4a9190bf21a8",
+      "content_hash": "45ce7a4004205c946624c9d621dd78fef994599ae00e141bf658e0b1d278d828",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo5",
+      "identity_key": "org/repo5::src/module_5.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:000000000000000000000000000000000000000c:431e2315e3bc",
+      "content_hash": "233ddc3df58ddb0337fbf26e578ba237830f4733268d2be9a0ec23eab4b8f6e2",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo5",
+      "identity_key": "org/repo5::src/module_12.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000013:ed1ead6758fa",
+      "content_hash": "931d9ee599da3777e57351dccf6c418afb7139202e300493d0fede7f20cbac85",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo5",
+      "identity_key": "org/repo5::src/module_19.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000005:4a9190bf21a8",
+      "content_hash": "43a2a688fb5be47b2a78e5e3a3fd86a5113a97ca97c843f9aa1a3453f2b11874",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo5",
+      "identity_key": "org/repo5::src/module_5.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:000000000000000000000000000000000000000c:431e2315e3bc",
+      "content_hash": "ae1461c12cb77bd8dd4135cd9eec14ce0e7808e1969663f54b835865099ff34a",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo5",
+      "identity_key": "org/repo5::src/module_12.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000013:ed1ead6758fa",
+      "content_hash": "b6eeddb4eb94044d06a211f32b51572f7f1ff0326a684658b51e249fb595e002",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo5",
+      "identity_key": "org/repo5::src/module_19.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000000:6978169ea927",
+      "content_hash": "8aa0094f6d7961ef4ec807362957c7b9e5493d982fed912fd0b9535aa73617f5",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo0",
+      "identity_key": "org/repo0::src/module_0.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000001:ff64c6f7aaf6",
+      "content_hash": "4fdcb8357ac2c8128e60468e9e9f9bc6a5e2f4dd81cbb2be19f4748205ab123a",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo1",
+      "identity_key": "org/repo1::src/module_1.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000002:ad596c7d3b7d",
+      "content_hash": "af2bce9afdfc6a77dede35416fccf1ad5ff3dcc42ea09af444b7f8b52a61f9a2",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo2",
+      "identity_key": "org/repo2::src/module_2.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000003:c897d03cb14a",
+      "content_hash": "b9e1fa05b2f889e377bd747da7bc09e30a853fe8098b026925e085fb37d8d93d",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo3",
+      "identity_key": "org/repo3::src/module_3.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000004:6818c8e6a6b9",
+      "content_hash": "d79becae300cb898fded9e15bf81cced88dee5d7cbd26690c9844a78862bb852",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo4",
+      "identity_key": "org/repo4::src/module_4.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000005:4a9190bf21a8",
+      "content_hash": "d960aa76e0ff646afec8c79670cbe4bbec9231d4087badacfa8a41d85df2f212",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo5",
+      "identity_key": "org/repo5::src/module_5.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000006:26c010e03b7b",
+      "content_hash": "142c78616b1a568214ac808bfea69d93e1c3ac4ff1cbdc92e7e4897fe8461fe0",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo6",
+      "identity_key": "org/repo6::src/module_6.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000007:acf0c1c0c7ce",
+      "content_hash": "f8b76f4efa1af116dbb6659e54b9d2fbc3aeba9beaa33884bc3180fc584bfc2b",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo0",
+      "identity_key": "org/repo0::src/module_7.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000008:637d3d655372",
+      "content_hash": "c9dc9be6290c967c7bde1881b132b613baaa9a42cfd9a8f2744598f10029d54b",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo1",
+      "identity_key": "org/repo1::src/module_8.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000009:96f9682a7b90",
+      "content_hash": "51df67a3fe89098b7bff92c4e7c42c94302528a2ea655635ec3f1bf594c6f93c",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo2",
+      "identity_key": "org/repo2::src/module_9.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:000000000000000000000000000000000000000a:a40fb713e031",
+      "content_hash": "cdcf657c72c171f7564bac20cb186a099506ee5019695e38ecb4d26e5150061d",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo3",
+      "identity_key": "org/repo3::src/module_10.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:000000000000000000000000000000000000000b:7d4f7040b55d",
+      "content_hash": "3e9bf24d503c18dfc1d42d05d368ec8c7cd36874e6104c7db49365811f2ce814",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo4",
+      "identity_key": "org/repo4::src/module_11.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:000000000000000000000000000000000000000c:431e2315e3bc",
+      "content_hash": "b2af79b830adb833eb7c24d0b947edbd10b9d32a731330a6e8e64c17978222d4",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo5",
+      "identity_key": "org/repo5::src/module_12.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:000000000000000000000000000000000000000d:64426faa968b",
+      "content_hash": "29cf989827cf763889ad52c1dbeb5f2041dc45008db88fcd9da9d58279ccd8ba",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo6",
+      "identity_key": "org/repo6::src/module_13.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:000000000000000000000000000000000000000e:67956112fca4",
+      "content_hash": "3fe1fecd94fb1bbad55c35ec940ff27d944bfc192e357a20c98d504a92b207df",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo0",
+      "identity_key": "org/repo0::src/module_14.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:000000000000000000000000000000000000000f:9eea8272f4eb",
+      "content_hash": "bfa1eebd76fb1c5794c796a004e68d419d38fab43e3cc1d79a749c8666156bc6",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo1",
+      "identity_key": "org/repo1::src/module_15.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000010:0956f22beeaf",
+      "content_hash": "e87f280aecbe3c991cf51c6f7fbe9d16d3899f9ff5968bcd7495dfe5c9a4be2f",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo2",
+      "identity_key": "org/repo2::src/module_16.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000011:d50257fc0dc6",
+      "content_hash": "ee3f1fcef8a84a2f7e009c21c649c435aec1547c60233e1f386fc67dfdc49275",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo3",
+      "identity_key": "org/repo3::src/module_17.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000012:e9b35157c5db",
+      "content_hash": "27c94a9e8133298629f990f2cb83464f19edbbdf7e1aaadabdae74b35a47de17",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo4",
+      "identity_key": "org/repo4::src/module_18.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000013:ed1ead6758fa",
+      "content_hash": "a31c0fa2b4452507b7e8bb4f6290e997080b520b1a5009d0b200a7dc762fc701",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo5",
+      "identity_key": "org/repo5::src/module_19.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000014:fe9f1ece3ab6",
+      "content_hash": "9f401f861d8952f7401b0cbee0543d2bcf58783ccc62584744d62dd243d08768",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo6",
+      "identity_key": "org/repo6::src/module_20.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000015:c01cacd6a49a",
+      "content_hash": "02dd65bfc7a8a793a5f514e53ecf07a1140c98335ce9c92e1395a5f8757a3e11",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo0",
+      "identity_key": "org/repo0::src/module_21.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000016:c598129649a0",
+      "content_hash": "923da4efc0cfc5c1b447988b1d0afb29db0c999cc10f73a356b6c3a1d3a28929",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo1",
+      "identity_key": "org/repo1::src/module_22.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.language_id:0000000000000000000000000000000000000017:900429b51deb",
+      "content_hash": "897ee7195a6f4cdc84ef76add8c493deba55d358bb8c548c81e3541e630d1d61",
+      "split": "heldout",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.language_id",
+      "repo_key": "org/repo2",
+      "identity_key": "org/repo2::src/module_23.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00023",
+      "content_hash": "11741e46e31c7efcc7676b88b0ff4093ce5f515c80223a3f31100422976cfd8b",
+      "split": "heldout",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article23-0",
+      "identity_key": "squad-title:Article23-0::q00023",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answerability:q00000",
+      "content_hash": "bdeacd0eecf3228fb910f923053f753f452a92589fe2c90ce3fd38d62c1f5b42",
+      "split": "heldout",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answerability",
+      "repo_key": "squad-title:Article0-16",
+      "identity_key": "squad-title:Article0-16::q00000",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answerability:q00004",
+      "content_hash": "1788bb84480f31bd0ab3669d8627618cb6252ca46af30a64273b23d5ed909adb",
+      "split": "heldout",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answerability",
+      "repo_key": "squad-title:Article4-9",
+      "identity_key": "squad-title:Article4-9::q00004",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answerability:q00008",
+      "content_hash": "5eed438086302dd8e494617d464ed679251ae07f4214a995b3a1ed57fb41e757",
+      "split": "heldout",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answerability",
+      "repo_key": "squad-title:Article8-0",
+      "identity_key": "squad-title:Article8-0::q00008",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answerability:q00012",
+      "content_hash": "0b44684fafb98438a162840db322b208443d04359165171b4c376eae035b95f6",
+      "split": "heldout",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answerability",
+      "repo_key": "squad-title:Article12-0",
+      "identity_key": "squad-title:Article12-0::q00012",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answerability:q00016",
+      "content_hash": "b10354f84706c314748c165689b54dcc45521a195403450b98dbc8cfb409f242",
+      "split": "heldout",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answerability",
+      "repo_key": "squad-title:Article16-2",
+      "identity_key": "squad-title:Article16-2::q00016",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answerability:q00020",
+      "content_hash": "9ed78f4bd60eb22b28e43fc85d32dcc36fdfd719d7b9990758f4a2905d2e411c",
+      "split": "heldout",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answerability",
+      "repo_key": "squad-title:Article20-1",
+      "identity_key": "squad-title:Article20-1::q00020",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    }
+  ]
+}
