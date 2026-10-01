@@ -1,0 +1,120 @@
+
+running 20 tests
+test a_configured_held_out_root_is_refused_before_any_byte_is_read_even_through_a_symlink ... FAILED
+test a_deflated_supervision_archive_is_refused_loudly ... ok
+test a_hand_edited_header_fails_its_shard_hash ... ok
+test a_header_declaring_split_heldout_is_refused_before_any_token_byte_is_read ... FAILED
+test a_held_out_shard_path_is_refused_before_any_byte_is_read ... FAILED
+test a_manifest_carrying_a_held_out_family_is_refused_before_any_shard_byte_is_read ... FAILED
+test a_manifest_declaring_split_heldout_is_refused_before_any_shard_byte_is_read ... FAILED
+test a_missing_remap_reads_as_not_run_not_as_matching ... ok
+test a_missing_supervision_archive_is_refused_not_defaulted_to_cpt ... ok
+test a_remap_that_is_not_the_headers_is_refused ... ok
+test a_report_only_set_is_refused_by_the_training_reader_before_any_token_byte ... FAILED
+test a_shard_set_beside_the_wrong_manifest_is_refused_before_any_token_byte ... FAILED
+test a_truncated_token_file_is_refused_at_open ... ok
+test allow_not_run_snapshot_admits_not_run_but_nothing_admits_ran_and_failed ... FAILED
+test an_edited_sequence_index_fails_its_pin ... ok
+test drifted_qd_data_is_refused_unless_read_deliberately ... ok
+test every_door_fixture_gets_pythons_verdict_at_the_same_layer ... FAILED
+test segment_markers_are_exact_so_a_lookalike_directory_is_not_a_holdout ... FAILED
+test the_corpus_revision_is_checked_when_named_and_not_run_when_not ... ok
+test the_held_out_manifest_at_its_real_path_is_refused_by_layer_one ... FAILED
+
+failures:
+
+---- a_configured_held_out_root_is_refused_before_any_byte_is_read_even_through_a_symlink stdout ----
+
+thread 'a_configured_held_out_root_is_refused_before_any_byte_is_read_even_through_a_symlink' (131153466) panicked at crates/qd-train/tests/door.rs:88:9:
+assertion `left == right` failed: 410861 bytes read through /var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-train-test-87693-0-root/quarantine/train
+  left: 410861
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_header_declaring_split_heldout_is_refused_before_any_token_byte_is_read stdout ----
+
+thread 'a_header_declaring_split_heldout_is_refused_before_any_token_byte_is_read' (131153473) panicked at crates/qd-train/tests/door.rs:131:5:
+assertion `left == right` failed: token bytes read from a heldout-split set
+  left: 327496
+ right: 0
+
+---- a_held_out_shard_path_is_refused_before_any_byte_is_read stdout ----
+
+thread 'a_held_out_shard_path_is_refused_before_any_byte_is_read' (131153476) panicked at crates/qd-train/tests/door.rs:60:5:
+assertion `left == right` failed: 410861 bytes were read (327496 of them token bytes) from a shard set under a held_out segment
+  left: 410861
+ right: 0
+
+---- a_manifest_carrying_a_held_out_family_is_refused_before_any_shard_byte_is_read stdout ----
+
+thread 'a_manifest_carrying_a_held_out_family_is_refused_before_any_shard_byte_is_read' (131153479) panicked at crates/qd-train/tests/door.rs:114:5:
+assertion `left == right` failed: shard bytes read behind a held-out family
+  left: 351248
+ right: 0
+
+---- a_manifest_declaring_split_heldout_is_refused_before_any_shard_byte_is_read stdout ----
+
+thread 'a_manifest_declaring_split_heldout_is_refused_before_any_shard_byte_is_read' (131153480) panicked at crates/qd-train/tests/door.rs:101:5:
+assertion `left == right` failed: shard bytes read behind a held-out manifest
+  left: 351248
+ right: 0
+
+---- a_report_only_set_is_refused_by_the_training_reader_before_any_token_byte stdout ----
+
+thread 'a_report_only_set_is_refused_by_the_training_reader_before_any_token_byte' (131153490) panicked at crates/qd-train/tests/door.rs:141:5:
+assertion `left == right` failed
+  left: 50660
+ right: 0
+
+---- a_shard_set_beside_the_wrong_manifest_is_refused_before_any_token_byte stdout ----
+
+thread 'a_shard_set_beside_the_wrong_manifest_is_refused_before_any_token_byte' (131153491) panicked at crates/qd-train/tests/door.rs:152:5:
+assertion `left == right` failed
+  left: 327496
+ right: 0
+
+---- allow_not_run_snapshot_admits_not_run_but_nothing_admits_ran_and_failed stdout ----
+
+thread 'allow_not_run_snapshot_admits_not_run_but_nothing_admits_ran_and_failed' (131153493) panicked at crates/qd-train/tests/door.rs:216:5:
+assertion failed: matches!(failed, Err(DoorError::HeldOut(ref v)) if v.layer ==
+    HeldOutLayer::SnapshotFailed)
+
+---- every_door_fixture_gets_pythons_verdict_at_the_same_layer stdout ----
+
+thread 'every_door_fixture_gets_pythons_verdict_at_the_same_layer' (131153497) panicked at crates/qd-train/tests/door.rs:186:9:
+assertion `left == right` failed: heldout/heldout: Ok(TrainingManifest { path: "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a20a87b9b547b3e3b/crates/qd-train/tests/fixtures/shards-tiny/data/heldout/heldout.json", split: "heldout", data_snapshot_hash: "78a3a2611a0feee163ad172a3a7600314c1e5ee959ad1436d6bea10e26d2a869", row_ids: {"cpft:code.language_id:0000000000000000000000000000000000000007:acf0c1c0c7ce", "cpft:code.language_id:000000000000000000000000000000000000000c:431e2315e3bc", "squad:qa.answer_span:q00023", "cpft:code.language_id:0000000000000000000000000000000000000009:96f9682a7b90", "cpft:code.language_id:0000000000000000000000000000000000000013:ed1ead6758fa", "cpft:code.language_id:0000000000000000000000000000000000000016:c598129649a0", "cpft:code.language_id:0000000000000000000000000000000000000008:637d3d655372", "cpft:code.change_scope:0000000000000000000000000000000000000005:4a9190bf21a8", "cpft:code.language_id:0000000000000000000000000000000000000003:c897d03cb14a", "cpft:code.language_id:0000000000000000000000000000000000000004:6818c8e6a6b9", "squad:qa.answerability:q00016", "cpft:code.language_id:0000000000000000000000000000000000000006:26c010e03b7b", "cpft:code.language_id:0000000000000000000000000000000000000001:ff64c6f7aaf6", "cpft:code.language_id:0000000000000000000000000000000000000012:e9b35157c5db", "cpft:code.language_id:000000000000000000000000000000000000000f:9eea8272f4eb", "cpft:code.language_id:0000000000000000000000000000000000000005:4a9190bf21a8", "cpft:code.language_id:0000000000000000000000000000000000000014:fe9f1ece3ab6", "cpft:code.language_id:0000000000000000000000000000000000000000:6978169ea927", "cpft:code.commit_intent:000000000000000000000000000000000000000c:431e2315e3bc", "cpft:code.language_id:0000000000000000000000000000000000000017:900429b51deb", "cpft:code.commit_intent:0000000000000000000000000000000000000005:4a9190bf21a8", "cpft:code.language_id:000000000000000000000000000000000000000b:7d4f7040b55d", "cpft:code.language_id:000000000000000000000000000000000000000a:a40fb713e031", "cpft:code.language_id:0000000000000000000000000000000000000011:d50257fc0dc6", "cpft:code.change_scope:000000000000000000000000000000000000000c:431e2315e3bc", "squad:qa.answerability:q00000", "cpft:code.language_id:0000000000000000000000000000000000000010:0956f22beeaf", "squad:qa.answerability:q00020", "squad:qa.answerability:q00012", "cpft:code.language_id:000000000000000000000000000000000000000d:64426faa968b", "cpft:code.language_id:0000000000000000000000000000000000000015:c01cacd6a49a", "squad:qa.answerability:q00004", "squad:qa.answerability:q00008", "cpft:code.commit_intent:0000000000000000000000000000000000000013:ed1ead6758fa", "cpft:code.change_scope:0000000000000000000000000000000000000013:ed1ead6758fa", "cpft:code.language_id:000000000000000000000000000000000000000e:67956112fca4", "cpft:code.language_id:0000000000000000000000000000000000000002:ad596c7d3b7d"}, checks: [("path_not_held_out", Ran { passed: true, value: String("/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a20a87b9b547b3e3b/crates/qd-train/tests/fixtures/shards-tiny/data/heldout/heldout.json"), coverage: None, detail: "no configured held-out root and no held-out path marker matched" }), ("manifest_split_trainable", Ran { passed: true, value: String("heldout"), coverage: None, detail: "" }), ("no_held_out_families", Ran { passed: true, value: Null, coverage: Some(Coverage { n: 37, n_total: 37 }), detail: "held-out families: [\"code.language_id\", \"qa.answerability\"]" }), ("snapshot_status", Ran { passed: true, value: Null, coverage: Some(Coverage { n: 3, n_total: 3 }), detail: "" })] })
+  left: true
+ right: false
+
+---- segment_markers_are_exact_so_a_lookalike_directory_is_not_a_holdout stdout ----
+
+thread 'segment_markers_are_exact_so_a_lookalike_directory_is_not_a_holdout' (131153498) panicked at crates/qd-train/tests/door.rs:230:10:
+markers are case-folded: ShardReader { root: "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-train-test-87693-11-lookalike/HeldOut/train", split: "train", n_sequences: 98, .. }
+
+---- the_held_out_manifest_at_its_real_path_is_refused_by_layer_one stdout ----
+
+thread 'the_held_out_manifest_at_its_real_path_is_refused_by_layer_one' (131153505) panicked at crates/qd-train/tests/door.rs:162:10:
+data/heldout is the default held-out root: TrainingManifest { path: "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a20a87b9b547b3e3b/crates/qd-train/tests/fixtures/shards-tiny/data/heldout/heldout.json", split: "heldout", data_snapshot_hash: "78a3a2611a0feee163ad172a3a7600314c1e5ee959ad1436d6bea10e26d2a869", row_ids: {"cpft:code.language_id:0000000000000000000000000000000000000014:fe9f1ece3ab6", "cpft:code.language_id:0000000000000000000000000000000000000015:c01cacd6a49a", "squad:qa.answerability:q00000", "squad:qa.answerability:q00004", "cpft:code.language_id:0000000000000000000000000000000000000010:0956f22beeaf", "cpft:code.language_id:0000000000000000000000000000000000000004:6818c8e6a6b9", "cpft:code.commit_intent:0000000000000000000000000000000000000005:4a9190bf21a8", "cpft:code.language_id:0000000000000000000000000000000000000011:d50257fc0dc6", "cpft:code.language_id:0000000000000000000000000000000000000013:ed1ead6758fa", "cpft:code.commit_intent:000000000000000000000000000000000000000c:431e2315e3bc", "squad:qa.answerability:q00012", "squad:qa.answerability:q00008", "cpft:code.language_id:000000000000000000000000000000000000000d:64426faa968b", "squad:qa.answerability:q00020", "cpft:code.language_id:000000000000000000000000000000000000000e:67956112fca4", "cpft:code.change_scope:0000000000000000000000000000000000000013:ed1ead6758fa", "cpft:code.language_id:0000000000000000000000000000000000000006:26c010e03b7b", "cpft:code.language_id:0000000000000000000000000000000000000002:ad596c7d3b7d", "squad:qa.answerability:q00016", "cpft:code.language_id:0000000000000000000000000000000000000003:c897d03cb14a", "cpft:code.language_id:000000000000000000000000000000000000000f:9eea8272f4eb", "cpft:code.language_id:0000000000000000000000000000000000000016:c598129649a0", "cpft:code.language_id:0000000000000000000000000000000000000017:900429b51deb", "cpft:code.language_id:0000000000000000000000000000000000000005:4a9190bf21a8", "squad:qa.answer_span:q00023", "cpft:code.change_scope:0000000000000000000000000000000000000005:4a9190bf21a8", "cpft:code.language_id:0000000000000000000000000000000000000000:6978169ea927", "cpft:code.language_id:0000000000000000000000000000000000000007:acf0c1c0c7ce", "cpft:code.commit_intent:0000000000000000000000000000000000000013:ed1ead6758fa", "cpft:code.language_id:0000000000000000000000000000000000000008:637d3d655372", "cpft:code.language_id:0000000000000000000000000000000000000001:ff64c6f7aaf6", "cpft:code.language_id:0000000000000000000000000000000000000009:96f9682a7b90", "cpft:code.language_id:000000000000000000000000000000000000000a:a40fb713e031", "cpft:code.language_id:000000000000000000000000000000000000000b:7d4f7040b55d", "cpft:code.language_id:000000000000000000000000000000000000000c:431e2315e3bc", "cpft:code.language_id:0000000000000000000000000000000000000012:e9b35157c5db", "cpft:code.change_scope:000000000000000000000000000000000000000c:431e2315e3bc"}, checks: [("path_not_held_out", Ran { passed: true, value: String("/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a20a87b9b547b3e3b/crates/qd-train/tests/fixtures/shards-tiny/data/heldout/heldout.json"), coverage: None, detail: "no configured held-out root and no held-out path marker matched" }), ("manifest_split_trainable", Ran { passed: true, value: String("heldout"), coverage: None, detail: "" }), ("no_held_out_families", Ran { passed: true, value: Null, coverage: Some(Coverage { n: 37, n_total: 37 }), detail: "held-out families: [\"code.language_id\", \"qa.answerability\"]" }), ("snapshot_status", Ran { passed: true, value: Null, coverage: Some(Coverage { n: 3, n_total: 3 }), detail: "" })] }
+
+
+failures:
+    a_configured_held_out_root_is_refused_before_any_byte_is_read_even_through_a_symlink
+    a_header_declaring_split_heldout_is_refused_before_any_token_byte_is_read
+    a_held_out_shard_path_is_refused_before_any_byte_is_read
+    a_manifest_carrying_a_held_out_family_is_refused_before_any_shard_byte_is_read
+    a_manifest_declaring_split_heldout_is_refused_before_any_shard_byte_is_read
+    a_report_only_set_is_refused_by_the_training_reader_before_any_token_byte
+    a_shard_set_beside_the_wrong_manifest_is_refused_before_any_token_byte
+    allow_not_run_snapshot_admits_not_run_but_nothing_admits_ran_and_failed
+    every_door_fixture_gets_pythons_verdict_at_the_same_layer
+    segment_markers_are_exact_so_a_lookalike_directory_is_not_a_holdout
+    the_held_out_manifest_at_its_real_path_is_refused_by_layer_one
+
+test result: FAILED. 9 passed; 11 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+
+
+--- stderr ---
+   Compiling qd-train v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a20a87b9b547b3e3b/crates/qd-train)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.97s
+     Running tests/door.rs (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a20a87b9b547b3e3b/target/debug/deps/door-c67f5e290d9580d2)
+error: test failed, to rerun pass `-p qd-train --test door`

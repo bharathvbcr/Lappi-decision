@@ -1,0 +1,1712 @@
+{
+  "manifest_format_version": 1,
+  "split": "train",
+  "data_snapshot_hash": "c0182f3075bdce1112a1852664653d30afe7ea2319bfa704be62c93649dd3154",
+  "n_rows": 98,
+  "config_fingerprint": {
+    "seed": 20260919,
+    "held_out_families": [
+      "code.language_id",
+      "qa.answerability"
+    ],
+    "dedupe_threshold": 0.8,
+    "shingle_size": 5,
+    "num_perm": 128,
+    "train_fraction": 0.9,
+    "val_fraction": 0.05,
+    "admitted_by_human": {}
+  },
+  "admitted_source_ids": [
+    "bigcode/commitpackft",
+    "cais/mmlu",
+    "clinc/clinc_oos",
+    "qd-mutate/commitpackft",
+    "rajpurkar/squad_v2",
+    "tau/commonsense_qa"
+  ],
+  "refused_sources": {
+    "AmazonScience/massive": [
+      "script-only: no data files on the host, and loading scripts fail under datasets>=3.0"
+    ],
+    "PolyAI/banking77": [
+      "script-only: no data files on the host, and loading scripts fail under datasets>=3.0"
+    ],
+    "Tobi-Bueck/customer-support-tickets": [
+      "licence 'cc-by-nc-4.0' is disqualifying (non-commercial); facebook/anli, lmsys/toxic-chat, Tobi-Bueck/customer-support-tickets. Non-commercial is disqualifying, not an edge case"
+    ],
+    "allenai/ai2_arc": [
+      "opt-in: 'allenai/ai2_arc' is off by default and is not in admitted_sources_by_human; share-alike (cc-by-sa-4.0). The plan's replay-licence table flags ARC and does not include it by default; a second share-alike source is a human call"
+    ],
+    "allenai/openbookqa": [
+      "licence 'unknown' needs a human call and is not in admitted_by_human; the source declares no licence. Absence of a licence is absence of permission, not permission. commitpackft emits this value per row"
+    ],
+    "allenai/sciq": [
+      "licence 'cc-by-nc-3.0' is disqualifying (non-commercial); allenai/sciq, which RSI's own replay set includes. Disqualifying"
+    ],
+    "facebook/anli": [
+      "licence 'cc-by-nc-4.0' is disqualifying (non-commercial); facebook/anli, lmsys/toxic-chat, Tobi-Bueck/customer-support-tickets. Non-commercial is disqualifying, not an edge case"
+    ],
+    "google/code_x_glue_cc_defect_detection": [
+      "licence 'c-uda' needs a human call and is not in admitted_by_human; Computational Use of Data Agreement (Devign rehost). Computational use only; not a standard OSS licence"
+    ],
+    "lmsys/toxic-chat": [
+      "licence 'cc-by-nc-4.0' is disqualifying (non-commercial); facebook/anli, lmsys/toxic-chat, Tobi-Bueck/customer-support-tickets. Non-commercial is disqualifying, not an edge case"
+    ],
+    "microsoft/CodeReviewer": [
+      "licence 'unknown' needs a human call and is not in admitted_by_human; the source declares no licence. Absence of a licence is absence of permission, not permission. commitpackft emits this value per row",
+      "not present on the declared host"
+    ],
+    "mteb/stsbenchmark-sts": [
+      "licence 'unknown' needs a human call and is not in admitted_by_human; the source declares no licence. Absence of a licence is absence of permission, not permission. commitpackft emits this value per row"
+    ],
+    "nuprl/AgentPack": [
+      "gated: a human must accept the dataset's terms before any unattended fetch succeeds"
+    ],
+    "nyu-mll/glue": [
+      "licence 'other' needs a human call and is not in admitted_by_human; nyu-mll/glue. The card defers to each upstream task's own terms, so there is no single licence to check. Needs a human call per task"
+    ]
+  },
+  "held_out_families": [
+    "code.language_id",
+    "qa.answerability"
+  ],
+  "licence_histogram": {
+    "cc-by-3.0": 48,
+    "cc-by-sa-4.0": 16,
+    "mit": 34
+  },
+  "obligations": {
+    "cc-by-3.0": [
+      "attribution"
+    ],
+    "cc-by-sa-4.0": [
+      "attribution",
+      "share-alike"
+    ],
+    "mit": [
+      "attribution"
+    ]
+  },
+  "host_histogram": {
+    "huggingface": 98
+  },
+  "mixture": {
+    "n_rows": 144,
+    "n_input": {
+      "bigcode/commitpackft": 24,
+      "clinc/clinc_oos": 24,
+      "rajpurkar/squad_v2": 24
+    },
+    "refusals": {
+      "bigcode/commitpackft": {},
+      "clinc/clinc_oos": {},
+      "rajpurkar/squad_v2": {}
+    },
+    "licence_histogram": {
+      "cc-by-3.0": 48,
+      "cc-by-sa-4.0": 24,
+      "mit": 72
+    },
+    "obligations": {
+      "cc-by-3.0": [
+        "attribution"
+      ],
+      "cc-by-sa-4.0": [
+        "attribution",
+        "share-alike"
+      ],
+      "mit": [
+        "attribution"
+      ]
+    },
+    "host_histogram": {
+      "huggingface": 144
+    },
+    "refused_sources": {},
+    "family_coverage": {
+      "code.change_scope": {
+        "state": "ran",
+        "passed": true,
+        "value": 24,
+        "n": 24,
+        "n_total": 24,
+        "detail": "code.change_scope: 24 of 24 bigcode/commitpackft rows became examples"
+      },
+      "code.commit_intent": {
+        "state": "ran",
+        "passed": true,
+        "value": 24,
+        "n": 24,
+        "n_total": 24,
+        "detail": "code.commit_intent: 24 of 24 bigcode/commitpackft rows became examples"
+      },
+      "code.language_id": {
+        "state": "ran",
+        "passed": true,
+        "value": 24,
+        "n": 24,
+        "n_total": 24,
+        "detail": "code.language_id: 24 of 24 bigcode/commitpackft rows became examples"
+      },
+      "intent.classification": {
+        "state": "ran",
+        "passed": true,
+        "value": 24,
+        "n": 24,
+        "n_total": 24,
+        "detail": "intent.classification: 24 of 24 clinc/clinc_oos rows became examples"
+      },
+      "intent.in_scope": {
+        "state": "ran",
+        "passed": true,
+        "value": 24,
+        "n": 24,
+        "n_total": 24,
+        "detail": "intent.in_scope: 24 of 24 clinc/clinc_oos rows became examples"
+      },
+      "qa.answer_span": {
+        "state": "ran",
+        "passed": true,
+        "value": 18,
+        "n": 18,
+        "n_total": 18,
+        "detail": "qa.answer_span: 18 of 18 rajpurkar/squad_v2 rows became examples; 6 rajpurkar/squad_v2 row(s) routed to another family by design"
+      },
+      "qa.answerability": {
+        "state": "ran",
+        "passed": true,
+        "value": 6,
+        "n": 6,
+        "n_total": 6,
+        "detail": "qa.answerability: 6 of 6 rajpurkar/squad_v2 rows became examples; 18 rajpurkar/squad_v2 row(s) routed to another family by design"
+      }
+    },
+    "prompt_consistency": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 144,
+      "n_total": 144,
+      "detail": "144 of 144 rows grouped into 144 distinct rendered prompts; no prompt in the emitted rows carries two different gold answers"
+    },
+    "contradictions": [],
+    "abstention": {
+      "choice": {
+        "state": "ran",
+        "passed": true,
+        "value": 3,
+        "n": 3,
+        "n_total": 102,
+        "detail": "choice: 3 of 102 rows carry a noul gold, from ['intent.classification']"
+      },
+      "score": {
+        "state": "ran",
+        "passed": false,
+        "value": 0,
+        "n": 0,
+        "n_total": 24,
+        "detail": "score: 0 of 24 rows carry a noul gold, so every step trains this channel against the abstain row. Families present: ['code.change_scope']; of those, able to abstain at all: none. No family on this channel can produce one, so this is the corpus's composition rather than a rewriter dropping them."
+      },
+      "span": {
+        "state": "ran",
+        "passed": true,
+        "value": 3,
+        "n": 3,
+        "n_total": 18,
+        "detail": "span: 3 of 18 rows carry a noul gold, from ['qa.answer_span']"
+      }
+    },
+    "status": {
+      "state": "ran",
+      "passed": true,
+      "value": 144,
+      "n": 144,
+      "n_total": 144,
+      "detail": "144 examples built, 0 rows refused across 3 sources; per-family coverage: code.change_scope=24/24, code.commit_intent=24/24, code.language_id=24/24, intent.classification=24/24, intent.in_scope=24/24, qa.answer_span=18/18, qa.answerability=6/6; self-consistency: 144/144 rows grouped, no contradictory prompt in the emitted rows"
+    }
+  },
+  "dedupe": {
+    "n_input_rows": 144,
+    "n_input_units": 72,
+    "n_kept_rows": 144,
+    "n_dropped_rows": 0,
+    "n_dropped_units": 0,
+    "n_cross_repo_pairs": 0,
+    "n_within_repo_pairs": 0,
+    "n_truncated_for_shingling": 0,
+    "threshold": 0.8,
+    "bands": 16,
+    "rows_per_band": 8,
+    "n_candidate_pairs": 0,
+    "n_possible_unit_pairs": 2556,
+    "lsh_per_pair_recall_at_threshold": 0.947049,
+    "clusters": [],
+    "status": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 0,
+      "n_total": 2556,
+      "detail": "0 of 144 rows dropped across 0 content units at Jaccard >= 0.8; 0 confirmed pairs crossed a repo boundary and would have survived a repo-level split alone; 0 confirmed pairs were within one repo and were kept. LSH is a probabilistic candidate generator, not an exhaustive search: banding b=16, r=8 proposes a pair at J=0.8 with probability 0.9470, so 0 of 2556 possible unit pairs were compared exactly and the confirmed-pair counts are a lower bound, not a complete enumeration"
+    }
+  },
+  "split_report": {
+    "counts": {
+      "train": 98,
+      "val": 9,
+      "heldout": 37
+    },
+    "holdout_breakdown": {
+      "natural_repo_holdout": 7,
+      "family_holdout": 30
+    },
+    "repo_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 53,
+      "n_total": 53
+    },
+    "identity_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 72,
+      "n_total": 72
+    },
+    "near_duplicate_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 144,
+      "n_total": 144,
+      "detail": "scanned 144 rows; 96 candidate pairs, 0 of them crossing a repo split, none confirmed at threshold 0.8"
+    },
+    "held_out_families_absent_from_training": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 107,
+      "n_total": 107
+    },
+    "dedupe_status": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 0,
+      "n_total": 2556,
+      "detail": "0 of 144 rows dropped across 0 content units at Jaccard >= 0.8; 0 confirmed pairs crossed a repo boundary and would have survived a repo-level split alone; 0 confirmed pairs were within one repo and were kept. LSH is a probabilistic candidate generator, not an exhaustive search: banding b=16, r=8 proposes a pair at J=0.8 with probability 0.9470, so 0 of 2556 possible unit pairs were compared exactly and the confirmed-pair counts are a lower bound, not a complete enumeration"
+    },
+    "content_disjoint_families": {
+      "state": "ran",
+      "passed": true,
+      "value": 0,
+      "n": 24,
+      "n_total": 24
+    },
+    "status": {
+      "state": "ran",
+      "passed": true,
+      "n": 6,
+      "n_total": 6
+    }
+  },
+  "status": {
+    "state": "not_run",
+    "reason": "dedupe hit its bound (oracle fixture)"
+  },
+  "provenance": {
+    "built_at_utc": "2026-10-01T00:00:00+00:00",
+    "oracle": "tools/qd_train_oracle_shards.py"
+  },
+  "entries": [
+    {
+      "row_id": "clinc:intent.classification:052f723e31130ad4:20",
+      "content_hash": "88d4d1f7537fef3315be794e2f0f87b3bb89fa2ccf5be24ab8286d70e9ef0940",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_020",
+      "identity_key": "clinc-intent:intent_020::052f723e31130ad4",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:0b8f2036abca32c8:18",
+      "content_hash": "60049fd67308722fdc15e342508b7916e780afe5ee05b3caa7fcaa0817ac52b3",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:oos",
+      "identity_key": "clinc-intent:oos::0b8f2036abca32c8",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:40dd2ab12b9c3239:15",
+      "content_hash": "84739212bd806c9c209498eb9cd616c5c186cfb4d89fa82c82a870612890ef50",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_015",
+      "identity_key": "clinc-intent:intent_015::40dd2ab12b9c3239",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:43a764f9c3f24645:22",
+      "content_hash": "dd9f87c1a210cd5add8954e38e1340acfc9bb714e72c9b92adfb57ccc050ff4e",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_022",
+      "identity_key": "clinc-intent:intent_022::43a764f9c3f24645",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:5c95ea5da51b42b1:19",
+      "content_hash": "8fdfe6ec9c59043bf144b269e1ad874ac35736426891503df152092a4a1ba26b",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_019",
+      "identity_key": "clinc-intent:intent_019::5c95ea5da51b42b1",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:5fdd233b7b598ea3:11",
+      "content_hash": "1e0be0585f12d0ed8b09884ad0711b5d7908b3c89dffa1cb956760dd94281562",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_011",
+      "identity_key": "clinc-intent:intent_011::5fdd233b7b598ea3",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:6c2f7724a285d45b:7",
+      "content_hash": "1c26d087a1716ab4ebdcc161f512f9ebcdb58dc8f3fbe974db09a2a65976f283",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_007",
+      "identity_key": "clinc-intent:intent_007::6c2f7724a285d45b",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:7e369cf84bf6f056:14",
+      "content_hash": "facbada9cfa80f7b8302e213f15ada130ab1d00bbafdcafa35133ebcb4499a79",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_014",
+      "identity_key": "clinc-intent:intent_014::7e369cf84bf6f056",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:93e594c743428e72:23",
+      "content_hash": "f7efd84088dc4ac2545151e33711dd90081969be9db738108ee249233189cfcf",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_023",
+      "identity_key": "clinc-intent:intent_023::93e594c743428e72",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:94efb22a997a9c60:16",
+      "content_hash": "f1a29201dc29ccb0c04c899e2c57b852163c2845612c423f20f7743bbcda8d64",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_016",
+      "identity_key": "clinc-intent:intent_016::94efb22a997a9c60",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:974aaeedad8847f3:4",
+      "content_hash": "55a04ea80d7a2e1a1dbff1a54fe7690209cf87e4b413b2ec4e3ca8a0d550ba0d",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_004",
+      "identity_key": "clinc-intent:intent_004::974aaeedad8847f3",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:a0581d2d37169807:6",
+      "content_hash": "e23a0957abc02069a0080a4a280396cd36ebdcf742951a63a14abe67f0c418af",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_006",
+      "identity_key": "clinc-intent:intent_006::a0581d2d37169807",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:a47a7f8284dd3b07:10",
+      "content_hash": "51cdc2f27b8693779f3cb30852cbb3ccf6a65737ec8e4dd9b12471b029258b8e",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_010",
+      "identity_key": "clinc-intent:intent_010::a47a7f8284dd3b07",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:a5581590181fe0cf:17",
+      "content_hash": "033eca277cfd3aa678dee70329bdc5f17476aaa7d6c89feb008af7917f0a9ebe",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_017",
+      "identity_key": "clinc-intent:intent_017::a5581590181fe0cf",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:ab6bd3b48a9e7709:2",
+      "content_hash": "d7ada948716e2ec9b660716e678ca8f2cf1bef19d5659e0126b68d5fd9f24215",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_002",
+      "identity_key": "clinc-intent:intent_002::ab6bd3b48a9e7709",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:bc7d400353432857:21",
+      "content_hash": "5797e2b0bbcb47ec1f69809b73c53593cd0e9e42d49449a5848b50c275ebe181",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_021",
+      "identity_key": "clinc-intent:intent_021::bc7d400353432857",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:c2f9c99f92dc40f3:13",
+      "content_hash": "2faaa142ec5ae603c78368ed48e7ee1aceadd57631f005b8e17d9ec3a035b89b",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_013",
+      "identity_key": "clinc-intent:intent_013::c2f9c99f92dc40f3",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:cef5579e29ddc8dc:1",
+      "content_hash": "919d3b48d535a355b39b88711a79d17c1198fb9ec56997f27f41babd9893e390",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_001",
+      "identity_key": "clinc-intent:intent_001::cef5579e29ddc8dc",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:d4db992f43e7c096:12",
+      "content_hash": "dc5a1192d3602a113aad759f3d395a330717b387d75956f171b3402ddfbd9652",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_012",
+      "identity_key": "clinc-intent:intent_012::d4db992f43e7c096",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:e36936379158e10e:0",
+      "content_hash": "625218c9e50c9b10ec79d9632332680464671a6730caa65367922b15e509706a",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:oos",
+      "identity_key": "clinc-intent:oos::e36936379158e10e",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:ee117a36ca21d936:3",
+      "content_hash": "75b6455aedb7b9c7a10506f84b78b60cd8cf60886bb58350e05d2873e204033d",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_003",
+      "identity_key": "clinc-intent:intent_003::ee117a36ca21d936",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:f799bd8e7c52e613:9",
+      "content_hash": "9f6f11f0d32c28122704fc8fdada84e95f58732baf8c96ec65693c095b734d77",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:oos",
+      "identity_key": "clinc-intent:oos::f799bd8e7c52e613",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:f8217af4b0532eca:8",
+      "content_hash": "cfa85b7329fcf2a630f8d3ac92f8389f568b614bac5dfd336acbde4580230628",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_008",
+      "identity_key": "clinc-intent:intent_008::f8217af4b0532eca",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.classification:f8a6cb94a773e5b3:5",
+      "content_hash": "bc45e01d22ab95bebce712b3ace8f7c0f3e6adb10bcd9153851472fb9128754d",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.classification",
+      "repo_key": "clinc-intent:intent_005",
+      "identity_key": "clinc-intent:intent_005::f8a6cb94a773e5b3",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:052f723e31130ad4:20",
+      "content_hash": "6b8f1817a6104eadc872634ecb9ffae8ad4d3ff35455194631a8a4f2b2b795cb",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_020",
+      "identity_key": "clinc-intent:intent_020::052f723e31130ad4",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:0b8f2036abca32c8:18",
+      "content_hash": "de9517f11ab430aaba3ad238b4f632add37e1cadcf8a9f63b5a53956f4ab3be8",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:oos",
+      "identity_key": "clinc-intent:oos::0b8f2036abca32c8",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:40dd2ab12b9c3239:15",
+      "content_hash": "7cbc97d7a29930d6ced3d40a94c71af48fccd91eda26f6373cbb3b8e887f979d",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_015",
+      "identity_key": "clinc-intent:intent_015::40dd2ab12b9c3239",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:43a764f9c3f24645:22",
+      "content_hash": "c02b1b7b9bd41d1339c4a02974fbf0addc781a96d13aa011a07a1473053cc4eb",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_022",
+      "identity_key": "clinc-intent:intent_022::43a764f9c3f24645",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:5c95ea5da51b42b1:19",
+      "content_hash": "80c395d6e68c3b02a3ade5e27f660584fabe3a55493b4314f49649d3891a5adc",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_019",
+      "identity_key": "clinc-intent:intent_019::5c95ea5da51b42b1",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:5fdd233b7b598ea3:11",
+      "content_hash": "d484ce337ec5c11495777eb53c34ffbb995030cc85c47a22d2f64ef3c5ffd12b",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_011",
+      "identity_key": "clinc-intent:intent_011::5fdd233b7b598ea3",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:6c2f7724a285d45b:7",
+      "content_hash": "517716063a6b8e0fc0ff438d4cacdd2c28d6af2ac183011ef7c303fb472ce9fc",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_007",
+      "identity_key": "clinc-intent:intent_007::6c2f7724a285d45b",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:7e369cf84bf6f056:14",
+      "content_hash": "ef8e917a97ae3bd402bad3f33ce0ec8cb80513efb97a2eb6f822bf34de82933b",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_014",
+      "identity_key": "clinc-intent:intent_014::7e369cf84bf6f056",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:93e594c743428e72:23",
+      "content_hash": "a1fe93011f6ca4366840ff3dd2c07a1bc3d786933bac214ed017a3e842855e1a",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_023",
+      "identity_key": "clinc-intent:intent_023::93e594c743428e72",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:94efb22a997a9c60:16",
+      "content_hash": "eada8f7fccd0eef6f7e79ea9b23b108a74c219d494491b7673c798f1a9e67d7a",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_016",
+      "identity_key": "clinc-intent:intent_016::94efb22a997a9c60",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:974aaeedad8847f3:4",
+      "content_hash": "0b5651c5d861728f4740c83cb84c512162d69fb5c37221116bc9fb09383e9057",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_004",
+      "identity_key": "clinc-intent:intent_004::974aaeedad8847f3",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:a0581d2d37169807:6",
+      "content_hash": "31683df60aa52431f38a4e48fc145e1705642d2ce5f9a45c4b9af9c019816535",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_006",
+      "identity_key": "clinc-intent:intent_006::a0581d2d37169807",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:a47a7f8284dd3b07:10",
+      "content_hash": "5a3b4d4ea7cba982468306e3d4ddeee7abe397dab5393f68be25396f585d40c3",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_010",
+      "identity_key": "clinc-intent:intent_010::a47a7f8284dd3b07",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:a5581590181fe0cf:17",
+      "content_hash": "8890cc45e99deac2a1c0affcce6e9fee372449223cd3ce83dd080277338854f4",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_017",
+      "identity_key": "clinc-intent:intent_017::a5581590181fe0cf",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:ab6bd3b48a9e7709:2",
+      "content_hash": "4b9f96126230ebe253fa3434bd7732fd3c002e1686efb5f8211a878e5bbd401e",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_002",
+      "identity_key": "clinc-intent:intent_002::ab6bd3b48a9e7709",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:bc7d400353432857:21",
+      "content_hash": "3e6b55970d630d156bebeb14af37372a65eb7eaab424684669bdf94816e37ec8",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_021",
+      "identity_key": "clinc-intent:intent_021::bc7d400353432857",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:c2f9c99f92dc40f3:13",
+      "content_hash": "ecfbc5b49b1f0a309b50a5ec10fd83293c190abd655f02d217334db187da2bc0",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_013",
+      "identity_key": "clinc-intent:intent_013::c2f9c99f92dc40f3",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:cef5579e29ddc8dc:1",
+      "content_hash": "823a1554161c3175821acc9a5d692c36fc239efb6a1a115374d8fa705cdea344",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_001",
+      "identity_key": "clinc-intent:intent_001::cef5579e29ddc8dc",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:d4db992f43e7c096:12",
+      "content_hash": "10161259211cedce81f5162be501aac4db7a72a58418cb7e3f6cf71387e889a1",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_012",
+      "identity_key": "clinc-intent:intent_012::d4db992f43e7c096",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:e36936379158e10e:0",
+      "content_hash": "c975566b6d5a23970294787fb43ce3255050780a0c2dda3e7297d369ae51dade",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:oos",
+      "identity_key": "clinc-intent:oos::e36936379158e10e",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:ee117a36ca21d936:3",
+      "content_hash": "488d99bd90e83c4b44455c87d2fc6bd4e6afbbd31edf3c789b5fdecadc526c45",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_003",
+      "identity_key": "clinc-intent:intent_003::ee117a36ca21d936",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:f799bd8e7c52e613:9",
+      "content_hash": "a39d4a81ccb1a37c59c316c1401ea6b2924df2d4ffd8a0cfa3039b2c7dee2adc",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:oos",
+      "identity_key": "clinc-intent:oos::f799bd8e7c52e613",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:f8217af4b0532eca:8",
+      "content_hash": "6ce91703c45ca8dee016b066213a3679ef36e06f3935ca2e7f5f4fc0c31f1a23",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_008",
+      "identity_key": "clinc-intent:intent_008::f8217af4b0532eca",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "clinc:intent.in_scope:f8a6cb94a773e5b3:5",
+      "content_hash": "a2fbe2d27b611f94196600e5d749b9f5a52b148eac2b7541ed0d247282159306",
+      "split": "train",
+      "source_id": "clinc/clinc_oos",
+      "host": "huggingface",
+      "family_id": "intent.in_scope",
+      "repo_key": "clinc-intent:intent_005",
+      "identity_key": "clinc-intent:intent_005::f8a6cb94a773e5b3",
+      "licence_id": "cc-by-3.0",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000000:6978169ea927",
+      "content_hash": "bb060a2676d1dca17dcf66e4f7ea333a2e103828626280534eaa64fae4c19a53",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo0",
+      "identity_key": "org/repo0::src/module_0.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000002:ad596c7d3b7d",
+      "content_hash": "5d7ebee145f5406f2b6b4da36c95ae00f4ed56d1a3be185ff304bf09b0f90221",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo2",
+      "identity_key": "org/repo2::src/module_2.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000003:c897d03cb14a",
+      "content_hash": "602543b30c24a3e65487fb546f661ce4b8780460dd06aa7acab05afa0d202b86",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo3",
+      "identity_key": "org/repo3::src/module_3.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000004:6818c8e6a6b9",
+      "content_hash": "638b6f11fbf42744445e8081779816412dd288a0bc4199491f684512aa736655",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo4",
+      "identity_key": "org/repo4::src/module_4.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000006:26c010e03b7b",
+      "content_hash": "c08c74d3e222d2f1dfb532d77be379e286b7a338cb4871ee1237cf667f8c5671",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo6",
+      "identity_key": "org/repo6::src/module_6.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000007:acf0c1c0c7ce",
+      "content_hash": "322810533f38202cbe7ad5d2d74043bbab049d8142da1bff64cf2b448d8b9dc0",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo0",
+      "identity_key": "org/repo0::src/module_7.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000009:96f9682a7b90",
+      "content_hash": "4356f7f2872a7f32255c8a87ed0de3a16fdde677e2be2cb4b7320db41741bc95",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo2",
+      "identity_key": "org/repo2::src/module_9.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:000000000000000000000000000000000000000a:a40fb713e031",
+      "content_hash": "c24aaae6a142171b760a4df7105999bfcf27b10757c7b71dfcd683d2da7cc42f",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo3",
+      "identity_key": "org/repo3::src/module_10.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:000000000000000000000000000000000000000b:7d4f7040b55d",
+      "content_hash": "51bcbffbbd1d71478a1ffb76e8501870c0909fcbc3560f2a8d30911dcd4ada00",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo4",
+      "identity_key": "org/repo4::src/module_11.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:000000000000000000000000000000000000000d:64426faa968b",
+      "content_hash": "d161539c98f40ec830196746ed86b8b58f5ff92eb6136fa46a02093b613c4877",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo6",
+      "identity_key": "org/repo6::src/module_13.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:000000000000000000000000000000000000000e:67956112fca4",
+      "content_hash": "f861b8e1ee66f935e5d48b13ef5fb16a7eeac8363771b3a35a1c7dec8c45025d",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo0",
+      "identity_key": "org/repo0::src/module_14.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000010:0956f22beeaf",
+      "content_hash": "444ef0310e37257389932775994d4b98bf2a6c7c671d42fd3be24da760915429",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo2",
+      "identity_key": "org/repo2::src/module_16.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000011:d50257fc0dc6",
+      "content_hash": "1bf2571ef039705e55a07660da1b6cb977c72001f7371e11138de0e747bd6cf6",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo3",
+      "identity_key": "org/repo3::src/module_17.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000012:e9b35157c5db",
+      "content_hash": "ac2438f7f4bdabcc9384387f652a3f8e9f6eab26ad588d820743bc5ac4de2563",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo4",
+      "identity_key": "org/repo4::src/module_18.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000014:fe9f1ece3ab6",
+      "content_hash": "1047624fece21b5c982df339a15e3a16ef4843edc73e6111adee4c56f3dc9939",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo6",
+      "identity_key": "org/repo6::src/module_20.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000015:c01cacd6a49a",
+      "content_hash": "aac1a65f051740fda67f0b6b13ba689407d91f492cf10b9cd0d70394d9787e2f",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo0",
+      "identity_key": "org/repo0::src/module_21.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.change_scope:0000000000000000000000000000000000000017:900429b51deb",
+      "content_hash": "8803d27a9e01b5a2d4871a2aac5b695bc7bb8a3d47838f05a3cd872955fc3235",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.change_scope",
+      "repo_key": "org/repo2",
+      "identity_key": "org/repo2::src/module_23.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000000:6978169ea927",
+      "content_hash": "4bc130f073e9901e815d64a826267ea9e2a423bb045ba3998dc351ce65e0c765",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo0",
+      "identity_key": "org/repo0::src/module_0.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000002:ad596c7d3b7d",
+      "content_hash": "2928ad0a3e8c03eb0517d11b78376ea5d4c321bc0dfe138e0614029a9a68dc67",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo2",
+      "identity_key": "org/repo2::src/module_2.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000003:c897d03cb14a",
+      "content_hash": "32302e7c346c8f088bc6c20d5a761fb9fd9ad4457ed78ded692e8f6dee1598c3",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo3",
+      "identity_key": "org/repo3::src/module_3.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000004:6818c8e6a6b9",
+      "content_hash": "ea7bb400ae163692189d5f7752616a88f5ffb779ae92a76e7aa68ea5bd6230e4",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo4",
+      "identity_key": "org/repo4::src/module_4.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000006:26c010e03b7b",
+      "content_hash": "52cc77350aaa7f16088e73c12488553f6c1b60d6a577d8869de3db857274ca40",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo6",
+      "identity_key": "org/repo6::src/module_6.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000007:acf0c1c0c7ce",
+      "content_hash": "240dd8533673b007782f529aa7a82254bdd60ab223c161a2ad4a26b3b8ba9a41",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo0",
+      "identity_key": "org/repo0::src/module_7.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000009:96f9682a7b90",
+      "content_hash": "085cb49db1299931a1aa117f2693d250c920689be4680daeab901861d1edced2",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo2",
+      "identity_key": "org/repo2::src/module_9.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:000000000000000000000000000000000000000a:a40fb713e031",
+      "content_hash": "237b285c05c5d2e3330a9958533fd56d7d2e21c0fec5b43ad147a6a4be8751e1",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo3",
+      "identity_key": "org/repo3::src/module_10.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:000000000000000000000000000000000000000b:7d4f7040b55d",
+      "content_hash": "b88ce562f9a6565c2945ad3d76a64937c6f60f59137cf635508dd3b0d527fccd",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo4",
+      "identity_key": "org/repo4::src/module_11.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:000000000000000000000000000000000000000d:64426faa968b",
+      "content_hash": "7e80bd804622b0413c80a293afcb3cc4ed76c1d66b5211599ffdf98de75c41c4",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo6",
+      "identity_key": "org/repo6::src/module_13.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:000000000000000000000000000000000000000e:67956112fca4",
+      "content_hash": "0c35fd1b92879d052106f02d8a5cad08a8b326f4cee3c8e3da8c4584ed1b6956",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo0",
+      "identity_key": "org/repo0::src/module_14.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000010:0956f22beeaf",
+      "content_hash": "15d653d6a3ef4f96b54f9a3c85e892e8d4685af3672c9468c96c6c4fa878a32f",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo2",
+      "identity_key": "org/repo2::src/module_16.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000011:d50257fc0dc6",
+      "content_hash": "b94233d3a3ababa96a7d7ebff63c7c4c638e8a4713e7cc7d4702993cad18823b",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo3",
+      "identity_key": "org/repo3::src/module_17.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000012:e9b35157c5db",
+      "content_hash": "27e0b657cbcf79260774ad1697ea09c92623959f7d704aaf76d4abac659ce18a",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo4",
+      "identity_key": "org/repo4::src/module_18.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000014:fe9f1ece3ab6",
+      "content_hash": "6af25f26a7aa86a5172ccb3e22832481cf42465e77b6242b74e69de2e71af01c",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo6",
+      "identity_key": "org/repo6::src/module_20.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000015:c01cacd6a49a",
+      "content_hash": "3ced020eb22f1efab94d5d122dd2b3b1f477db432d4314f374ee9895e568fd9b",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo0",
+      "identity_key": "org/repo0::src/module_21.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "cpft:code.commit_intent:0000000000000000000000000000000000000017:900429b51deb",
+      "content_hash": "c44de96a883f7c6c217ef9364e638d4c2a2e334752909bca77347ab3f66f8169",
+      "split": "train",
+      "source_id": "bigcode/commitpackft",
+      "host": "huggingface",
+      "family_id": "code.commit_intent",
+      "repo_key": "org/repo2",
+      "identity_key": "org/repo2::src/module_23.py",
+      "licence_id": "mit",
+      "obligations": [
+        "attribution"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00001",
+      "content_hash": "3466b81ba5391df6bd1e6d91109eeae0802db8b123eda766c401a8d3f85613c5",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article1-2",
+      "identity_key": "squad-title:Article1-2::q00001",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00002",
+      "content_hash": "d73597f9d3ddd50aa5414f2be9bd35b6ad6652b99abd3ce8e53ea02b75599299",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article2-0",
+      "identity_key": "squad-title:Article2-0::q00002",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00003",
+      "content_hash": "468e360c1cc5ef99317ed544d4c8dc57370091cc49dfcbd66fa437255f3a776a",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article3-0",
+      "identity_key": "squad-title:Article3-0::q00003",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00005",
+      "content_hash": "c61b85b929ae92f9ab868e077a69b1078720fcc842e41b3f7e343a7dd3ac7775",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article5-0",
+      "identity_key": "squad-title:Article5-0::q00005",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00006",
+      "content_hash": "5b98048c9678e434cdf5b3e74edf9ed2f6861faebd767c675ac25e988a06963f",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article6-1",
+      "identity_key": "squad-title:Article6-1::q00006",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00007",
+      "content_hash": "fbd254ffb10fc563dc31f74855786b7cefef9286e85cead1ad57f2597c22ecae",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article7-0",
+      "identity_key": "squad-title:Article7-0::q00007",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00009",
+      "content_hash": "3245c9a37a06ebceaf73f9fc1d18fd40c4da474730d2305b5e591cc21f8a36dd",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article9-0",
+      "identity_key": "squad-title:Article9-0::q00009",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00010",
+      "content_hash": "f7558b538ed23d6bae3b07cf7ae45ed81650928c2f25b50f4fff633ddd32bff0",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article10-0",
+      "identity_key": "squad-title:Article10-0::q00010",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00011",
+      "content_hash": "4b14ede59b1dfd1b9ceb763ab698837a8b1ca4c0c42502684c153e1bef79e6aa",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article11-0",
+      "identity_key": "squad-title:Article11-0::q00011",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00013",
+      "content_hash": "fa57f0ef13ee67c17fc3500ad1fb5c8295f220cfaa4ca0f8134035b51255fe49",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article13-0",
+      "identity_key": "squad-title:Article13-0::q00013",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00014",
+      "content_hash": "fb4b932d81ce587ff26cf1545cb9677e957bc1c4199120500ee0eaa24f7b7130",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article14-2",
+      "identity_key": "squad-title:Article14-2::q00014",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00015",
+      "content_hash": "561483510a2b47b3dcffcace522e98f1730ae4d3447f4e970836f6c074f39fe2",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article15-2",
+      "identity_key": "squad-title:Article15-2::q00015",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00018",
+      "content_hash": "f29184e991d4f0f406c18fc9b1ae3340e826ebdc864591acdbad7b345c292d19",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article18-0",
+      "identity_key": "squad-title:Article18-0::q00018",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00019",
+      "content_hash": "b8cdc4d0581a3f8e13243e351c72a9d86b23ced304274067db4154ceadb740af",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article19-0",
+      "identity_key": "squad-title:Article19-0::q00019",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00021",
+      "content_hash": "e32313fe4de8bf888e4afa5db01df42ec0c828a79ffca03f6e314cd5013c6d98",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article21-1",
+      "identity_key": "squad-title:Article21-1::q00021",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    },
+    {
+      "row_id": "squad:qa.answer_span:q00022",
+      "content_hash": "27d2fbc4c726cb323f61e0c9fda7150d060cde7a0ea5f0512a161236a873c77b",
+      "split": "train",
+      "source_id": "rajpurkar/squad_v2",
+      "host": "huggingface",
+      "family_id": "qa.answer_span",
+      "repo_key": "squad-title:Article22-0",
+      "identity_key": "squad-title:Article22-0::q00022",
+      "licence_id": "cc-by-sa-4.0",
+      "obligations": [
+        "attribution",
+        "share-alike"
+      ]
+    }
+  ]
+}

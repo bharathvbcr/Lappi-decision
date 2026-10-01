@@ -65,6 +65,10 @@ These rules override default behaviour. They are copied into every lane prompt.
    reported as **not run**. A number in a report cites a ledger row or is not in the report.
 6. **Nested tessl (`MLSystemsLab/Rust_MLKit/crates/tessl`) is not touched.** All kernel work is on the
    canonical crate at `~/Code/research/tessl`; gemma-metal is repointed by a human later.
+   Rule 6 governs tessl kernel work (canonical, never nested) and keeps Lappi kernel-free. CUDA
+   kernels and the CUDA Qwen3.5 provider live in ojas, because tessl is Metal-bound and builds only
+   on macOS. They start in the standalone sibling crate `ojas/ojas-qwen35-cuda/`. The user decided
+   this on 2026-10-01; see `HANDOFF/ojas-training-2026-10-01.md`.
 7. **Product wiring never emits PASS, `allow`, or discharges a requirement.** Admission only;
    dcverify and the GitPulse hook contract stand.
 8. **`quick` runs cannot promote anything.** Fewer than 3 seeds, a truncated schedule or a subsample
