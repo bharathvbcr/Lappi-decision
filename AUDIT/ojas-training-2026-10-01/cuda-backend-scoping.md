@@ -74,7 +74,7 @@ queue, or wait until after item 10); ojas file ownership with the coordinator; t
 ### 1.1 `ojas-cuda`: a probe, not a backend
 
 - **Feature gate.** `cuda = ["dep:cudarc"]`, off by default [V `ojas/ojas-cuda/Cargo.toml:10-13`].
-- **cudarc pin.** `cudarc = "=0.19.10"` with `default-features = false` and features `std, driver, nvrtc, fallback-dynamic-loading, cuda-13040` [V `Cargo.toml:21-29`]. cuBLAS is deliberately off (the comment on line 20). cudarc is already in ojas's `Cargo.lock` [R `fable-advice.md:36`].
+- **cudarc pin.** `cudarc = "=0.19.10"` with `default-features = false` and features `std, driver, nvrtc, fallback-dynamic-loading, cuda-13040` [V `Cargo.toml:21-29`]. cuBLAS is deliberately off (the comment on line 20). cudarc is already in ojas's `Cargo.lock` [V: the `--locked --offline` cross-check in §1.5 compiled `cudarc v0.19.10` from it; also `fable-advice.md:36`].
 - **What it does.**
   - `CudaDevice::open()` returns `NotCompiled` without the feature [V `ojas-cuda/src/lib.rs:33-37`].
   - With the feature it probes `libcuda`/`libnvrtc` by dlopen, because cudarc panics otherwise (`:86-101`). It opens `CudaContext::new(0)` and launches one affine kernel `y = x*scale + bias` as a self-test (`:45-58`).
