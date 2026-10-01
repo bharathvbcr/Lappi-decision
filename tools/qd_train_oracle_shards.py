@@ -55,7 +55,7 @@ from data_fixtures import small_corpus  # noqa: E402
 from qd_data.config import DataConfig  # noqa: E402
 from qd_data.dedupe import dedupe  # noqa: E402
 from qd_data.errors import HeldOutViolation  # noqa: E402
-from qd_data.manifest import Manifest, ManifestEntry, build_manifests  # noqa: E402
+from qd_data.manifest import Manifest, build_manifests  # noqa: E402
 from qd_data.mixture import build_mixture  # noqa: E402
 from qd_data.schema import canonical_json  # noqa: E402
 from qd_data.split import HELD_OUT, split  # noqa: E402
@@ -79,7 +79,10 @@ CORPUS_N = 24
 SOURCE_VOCAB = 512
 TOKENIZER_HASH = "tokhash-oracle-0123456789abcdef"
 CORPUS_REV = "oracle-rev-0000000000000000000000000000000000"
-PROVENANCE = {"built_at_utc": "2026-10-01T00:00:00+00:00", "oracle": "tools/qd_train_oracle_shards.py"}
+PROVENANCE = {
+    "built_at_utc": "2026-10-01T00:00:00+00:00",
+    "oracle": "tools/qd_train_oracle_shards.py",
+}
 #: The data seed `real_ft_run` orders batches with, and a second one.
 SEEDS = (DataConfig().seed, 7)
 EPOCHS = (0, 1)
@@ -188,7 +191,7 @@ def door_fixtures(out: Path, built: dict[str, Any]) -> dict[str, Any]:
     leak = next(e for e in heldout.entries if e.family_id in config.held_out_families)
     leaked = dataclasses.replace(leak, split="train", row_id=leak.row_id + "-leaked")
     cases["train-with-heldout-family"] = door / "train-with-heldout-family.json"
-    _manifest_with(train, entries=train.entries + (leaked,)).write(
+    _manifest_with(train, entries=(*train.entries, leaked)).write(
         cases["train-with-heldout-family"]
     )
     # Layer 4: a manifest recording a different holdout than the config names.
@@ -250,7 +253,9 @@ def door_fixtures(out: Path, built: dict[str, Any]) -> dict[str, Any]:
     for name, verdict in verdicts.items():
         expect_admitted = name in ("pool/train", "pool/val", "shards/val-report-only")
         if verdict["admitted"] != expect_admitted:
-            raise SystemExit(f"oracle: Python's door did not behave as expected on {name}: {verdict}")
+            raise SystemExit(
+                f"oracle: Python's door did not behave as expected on {name}: {verdict}"
+            )
     return verdicts
 
 
@@ -315,7 +320,9 @@ def rng_intermediates(reader: ShardReader, batch_tokens: int) -> dict[str, Any]:
         "pool": [int(x) for x in ss.pool],
         "generate_state_u64": [int(x) for x in ss.generate_state(4, np.uint64)],
         "random_raw": [int(x) for x in np.random.PCG64(np.random.SeedSequence(big)).random_raw(8)],
-        "permutation_16": [int(x) for x in np.random.default_rng(np.random.SeedSequence(big)).permutation(16)],
+        "permutation_16": [
+            int(x) for x in np.random.default_rng(np.random.SeedSequence(big)).permutation(16)
+        ],
     })
     return {"seed": seed, "epoch": epoch, "batch_tokens": batch_tokens, "streams": streams}
 
@@ -390,17 +397,22 @@ def pyjson_cases() -> dict[str, Any]:
     floats = [0.8, 0.9, 0.05, 1.0, 1e-05, 2.5e-05, 0.0001, 1.5e-07, 1e15, 1e16, 1.2345e16,
               1e22, 9.999999999999999e15, 0.1 + 0.2, 5e-324, 123456789.123, -2.5, -0.0,
               1e100, 1.7976931348623157e308]
+    obj = {"b": [1, 2.5, "é"], "a": {"z": None, "y": True}}
     strings = ["plain", "é ü", "tab\tnl\nquote\"bs\\", "\x01\x1f\x7f", "😀 astral", "ﬆ"]
     return {
         "floats": [{"value": f, "repr": repr(f), "canonical": canonical_json(f)} for f in floats],
         "strings": [
-            {"value": s, "canonical": canonical_json(s), "sorted_default": json.dumps(s, sort_keys=True)}
+            {
+                "value": s,
+                "canonical": canonical_json(s),
+                "sorted_default": json.dumps(s, sort_keys=True),
+            }
             for s in strings
         ],
         "object": {
-            "value": {"b": [1, 2.5, "é"], "a": {"z": None, "y": True}},
-            "canonical": canonical_json({"b": [1, 2.5, "é"], "a": {"z": None, "y": True}}),
-            "sorted_default": json.dumps({"b": [1, 2.5, "é"], "a": {"z": None, "y": True}}, sort_keys=True),
+            "value": obj,
+            "canonical": canonical_json(obj),
+            "sorted_default": json.dumps(obj, sort_keys=True),
         },
     }
 
@@ -440,12 +452,45 @@ def meta(config: DataConfig) -> dict[str, Any]:
     }
 
 
+def v4_digests(out: Path, rev: str) -> None:
+    """Print what `crates/qd-train/tests/v4.rs` pins: the full epoch-0 plan's membership hash
+    (u64-LE bucket then u64-LE rows, per batch) and the consumed digest over its first 8
+    batches, at `batch_tokens = 2 * max_seq_len` and `DataConfig().seed`. Reads, writes nothing."""
+    config = DataConfig()
+    reader = ShardReader(out / "shards" / "train", config=config, repo_root=out, expect_rev=rev)
+    bt = 2 * reader.header.max_seq_len
+    plans = reader._plan(batch_tokens=bt, seed=config.seed, epoch=0)
+    membership = hashlib.sha256()
+    for plan in plans:
+        membership.update(int(plan.bucket).to_bytes(8, "little"))
+        for row in plan.rows:
+            membership.update(int(row).to_bytes(8, "little"))
+    prefix = ConsumedPrefix()
+    for index, batch in enumerate(reader.batches(batch_tokens=bt, seed=config.seed, epoch=0)):
+        if index == 8:
+            break
+        _fold(prefix, batch)
+    print(json.dumps({
+        "sequences": len(reader), "batches": len(plans), "batch_tokens": bt, "seed": config.seed,
+        "membership_sha256": membership.hexdigest(), "consumed_digest_first_8": prefix.hexdigest(),
+    }, indent=1))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--out", type=Path)
     parser.add_argument("--replace", action="store_true",
                         help="delete --out first if it exists (it must be a fixture directory)")
+    parser.add_argument("--v4-out", type=Path,
+                        help="print the v4 plan digests tests/v4.rs pins, for this out dir")
+    parser.add_argument("--v4-rev", default="881ab304f15ea13529002391dda8520c2ea47af4",
+                        help="corpus revision of the v4 set (ledger row d96409bd recipe.rev)")
     args = parser.parse_args()
+    if args.v4_out is not None:
+        v4_digests(args.v4_out.resolve(), args.v4_rev)
+        return
+    if args.out is None:
+        raise SystemExit("--out is required (or --v4-out)")
     out: Path = args.out.resolve()
     if out.exists() and any(out.iterdir()):
         if not args.replace:
