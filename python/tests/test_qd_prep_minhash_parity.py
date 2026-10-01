@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 
 import pytest
-from data_fixtures import QD_PREP_BIN_ENV, qd_prep_bin, small_corpus, vendored_pair
+from data_fixtures import small_corpus, vendored_pair
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "python"))
@@ -44,13 +44,13 @@ CONFIG = DataConfig()
 DEFECT_EXAMPLES = REPO / "data" / "pool" / "commitpackft-corpus-v2" / "examples.jsonl"
 
 
-@pytest.fixture(scope="module")
-def prep_bin() -> Path:
-    return qd_prep_bin()
+@pytest.fixture
+def prep_bin(qd_prep_bin: Path) -> Path:
+    return qd_prep_bin
 
 
 def test_the_fixture_and_the_adapter_name_one_variable() -> None:
-    assert QD_PREP_BIN_ENV == pipeline.PREP_BIN_ENV
+    assert pipeline.PREP_BIN_ENV == "QD_PREP_BIN", "python/tests/conftest.py names it too"
 
 
 def _reference() -> MinHasher:

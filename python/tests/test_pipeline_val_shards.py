@@ -18,7 +18,6 @@ import sys
 from pathlib import Path
 
 import pytest
-from data_fixtures import use_qd_prep
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
@@ -33,15 +32,13 @@ from qd_train.tristate import NotRun, Ran  # noqa: E402
 DOWNLOAD = REPO / "data" / "pool" / "commitpackft"
 
 
-def test_the_val_split_is_written_under_the_remap_the_train_split_uses(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.mark.usefixtures("qd_prep")
+def test_the_val_split_is_written_under_the_remap_the_train_split_uses(tmp_path) -> None:
     pytest.importorskip("transformers")
     if not pipeline.MODEL_REF.exists():
         pytest.skip(f"{pipeline.MODEL} is not in this host's HF cache")
     if not any((DOWNLOAD / f"{lang}.jsonl").exists() for lang in ("go", "python")):
         pytest.skip("the commitpackft download is not on this host; only its manifest is")
-    use_qd_prep(monkeypatch)
 
     measured = pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev="HEAD",
@@ -68,15 +65,13 @@ def test_the_val_split_is_written_under_the_remap_the_train_split_uses(
     assert val.header.remap_hash == train.header.remap_hash, "scored under another remap"
 
 
-def test_the_default_full_vocabulary_writes_every_id_and_counts_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.mark.usefixtures("qd_prep")
+def test_the_default_full_vocabulary_writes_every_id_and_counts_nothing(tmp_path) -> None:
     pytest.importorskip("transformers")
     if not pipeline.MODEL_REF.exists():
         pytest.skip(f"{pipeline.MODEL} is not in this host's HF cache")
     if not any((DOWNLOAD / f"{lang}.jsonl").exists() for lang in ("go", "python")):
         pytest.skip("the commitpackft download is not on this host; only its manifest is")
-    use_qd_prep(monkeypatch)
 
     measured = pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev="HEAD",
