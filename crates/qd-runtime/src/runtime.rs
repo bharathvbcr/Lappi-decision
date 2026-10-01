@@ -25,6 +25,7 @@ use crate::calibration::CalibrationTable;
 use crate::reference::ReferenceBackend;
 use crate::refusal::{BackendError, HashKind, QdError, Refusal};
 use crate::registry::HeadRegistry;
+use crate::release::Release;
 use crate::render::RenderCaps;
 use crate::schema::{DecisionRequest, HashExpectation, Response, Route};
 
@@ -98,6 +99,34 @@ impl Runtime {
             HeadRegistry::new(),
             cfg.caps,
             started.elapsed(),
+        )
+    }
+
+    /// Build around a backend that loaded from `release`, with the release's calibration table.
+    ///
+    /// There is no calibration parameter: the table is the one [`Release::open`] verified against
+    /// the manifest, so the table that calibrates is the one `expect.calibration_hash` can pin.
+    /// The backend must report the tower, tokenizer and calibration hash the release binds
+    /// ([`Release::check_backend`]). A mismatch is [`BackendError::Unavailable`] carrying the
+    /// release refusal: a runtime that cannot be built has nothing to answer with, and the model
+    /// is never asked.
+    pub fn from_release(
+        release: &Release,
+        backend: Arc<dyn DecisionBackend>,
+        registry: HeadRegistry,
+        caps: RenderCaps,
+    ) -> Result<Self, BackendError> {
+        release
+            .check_backend(backend.identity())
+            .map_err(|refusal| BackendError::Unavailable {
+                detail: refusal.to_string(),
+            })?;
+        Self::assemble(
+            backend,
+            release.calibration().clone(),
+            registry,
+            caps,
+            Duration::ZERO,
         )
     }
 
@@ -178,12 +207,18 @@ impl Runtime {
     /// registered caller ships and therefore the thing it can pin. On the generic route it is the
     /// backend's `lm_head`. The registered head's binding to the backbone is a separate check and
     /// runs whether or not the caller pinned anything.
+    ///
+    /// `calibration_hash` is compared with the table this runtime **calibrates with**, not with
+    /// the hash the backend declares: the backend does not own the table, and a pin that passed
+    /// for a table that is not serving would be approval of something unexamined
+    /// (`GAP-RT-CALIBRATION-HASH-PIN-BINDS-THE-BACKEND-NOT-THE-LOADED-TABLE`).
     pub fn check_hashes(
         &self,
         expect: &HashExpectation,
         head_hash: &str,
     ) -> Result<(), Refusal> {
         let identity = self.identity();
+        let calibration_hash = self.calibration.hash();
         let pairs: [(HashKind, &Option<String>, &str); 5] = [
             (
                 HashKind::Tokenizer,
@@ -200,7 +235,7 @@ impl Runtime {
             (
                 HashKind::Calibration,
                 &expect.calibration_hash,
-                &identity.calibration_hash,
+                &calibration_hash,
             ),
         ];
         for (which, pinned, actual) in pairs {

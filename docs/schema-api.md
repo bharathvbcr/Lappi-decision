@@ -175,6 +175,13 @@ to bind a registered head to the task it was fitted against. Tracked as
 `wire_context_crosslang.rs::python_has_no_hash_expectation_and_its_label_set_hash_is_a_different_quantity`
 rather than left as prose.
 
+`calibration_hash` had the same shape on the Rust side. It is compared with the table the runtime
+**calibrates with** (`CalibrationTable::hash`), not with the hash the backend declares; until
+2026-10-01 it was the latter, and a runtime serving a fitted table answered a pin of the reference
+table (`GAP-RT-CALIBRATION-HASH-PIN-BINDS-THE-BACKEND-NOT-THE-LOADED-TABLE`,
+`crates/qd-runtime/tests/calibration_hash_pin.rs`). A runtime built from a release takes its table
+only from the release, verified against `release_manifest.json` (`qd_runtime::release`).
+
 This is the second instance of one shape found in a single audit — `GAP-RT-WIRE-CONTEXT-ENCODING`
 was the first. **One name meaning two things, with both lanes' suites green**, is the failure mode
 this document exists to prevent, and neither instance was caught by either lane testing itself. The

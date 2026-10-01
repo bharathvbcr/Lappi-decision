@@ -7,15 +7,20 @@
 //! # What is bound, and where it is checked
 //!
 //! `release_manifest.json`'s `expected_identity` is the release's one statement of what goes
-//! together: the tower (`weight_hash`), the `config.json` it is served under (`config_sha256`) and
-//! the tokenizer (`tokenizer_hash`). Two halves check it:
+//! together: the tower (`weight_hash`), the `config.json` it is served under (`config_sha256`),
+//! the tokenizer (`tokenizer_hash`) and the calibration table (`calibration_hash`). Two halves
+//! check it:
 //!
 //! * [`Release::open`] reads `config.json` and refuses unless its sha256 is the bound one **and**
 //!   the one `files` records. A same-shaped config from another revision (a different
 //!   `rope_theta`, say) beside the same tower is refused here, before a backend reads it.
-//! * [`Release::check_backend`] refuses a backend whose reported `weight_hash` or
-//!   `tokenizer_hash` is not the bound one. The weight hash is computed by the loader from the
-//!   tensors it actually read, so this is the tower half of the binding.
+//!   It reads `calibration.json` the same way, parses it as the runtime's own
+//!   [`CalibrationTable`], and refuses unless the table's [`CalibrationTable::hash`] is the one
+//!   the manifest binds. A release with no table is refused: there is no fallback to
+//!   [`CalibrationTable::reference`], whose numbers were fitted on nothing.
+//! * [`Release::check_backend`] refuses a backend whose reported `weight_hash`, `tokenizer_hash`
+//!   or `calibration_hash` is not the bound one. The weight hash is computed by the loader from
+//!   the tensors it actually read, so this is the tower half of the binding.
 //!
 //! Nothing here parses `config.json` as a model config: which layouts a kernel runs is the
 //! backend's question. The runtime binds bytes.
@@ -31,6 +36,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::backend::BackendIdentity;
+use crate::calibration::CalibrationTable;
 
 /// The manifest's file name in a release directory.
 pub const MANIFEST_FILE: &str = "release_manifest.json";
@@ -61,7 +67,13 @@ pub enum ReleaseRefusalKind {
     Manifest,
     /// `config.json` is not the config the manifest binds to the tower.
     ConfigMismatch,
-    /// The backend reports a weight or tokenizer hash the manifest does not bind.
+    /// The release carries no calibration table.
+    CalibrationMissing,
+    /// `calibration.json` is not a usable `CalibrationTable`.
+    CalibrationInvalid,
+    /// `calibration.json`'s bytes or its table hash are not the ones the manifest binds.
+    CalibrationMismatch,
+    /// The backend reports a weight, tokenizer or calibration hash the manifest does not bind.
     IdentityMismatch,
     /// A release file could not be read.
     Io,
@@ -72,6 +84,9 @@ impl ReleaseRefusalKind {
         match self {
             ReleaseRefusalKind::Manifest => "manifest",
             ReleaseRefusalKind::ConfigMismatch => "config_mismatch",
+            ReleaseRefusalKind::CalibrationMissing => "calibration_missing",
+            ReleaseRefusalKind::CalibrationInvalid => "calibration_invalid",
+            ReleaseRefusalKind::CalibrationMismatch => "calibration_mismatch",
             ReleaseRefusalKind::IdentityMismatch => "identity_mismatch",
             ReleaseRefusalKind::Io => "io",
         }
@@ -95,13 +110,15 @@ impl ReleaseRefusal {
     }
 }
 
-/// A release directory whose manifest parsed and whose `config.json` is the bound one.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A release directory whose manifest parsed, whose `config.json` is the bound one, and whose
+/// calibration table hashes to the bound table hash.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Release {
     dir: PathBuf,
     config_sha256: String,
     weight_hash: String,
     tokenizer_hash: String,
+    calibration: CalibrationTable,
 }
 
 fn is_hex64(s: &str) -> bool {
@@ -186,9 +203,96 @@ impl Manifest {
     }
 }
 
+/// Read `calibration.json` and refuse unless it is the table the manifest binds.
+///
+/// Three hashes, checked separately because they answer different questions: the file's bytes
+/// against `files` and `calibration.file_sha256` (is this the file that was exported?), and the
+/// parsed table's [`CalibrationTable::hash`] against `calibration.table_hash` and
+/// `expected_identity.calibration_hash` (is this the table a caller's `expect.calibration_hash`
+/// pins?). The bytes' sha256 and the table hash are **not** required to be equal: `qd-export`
+/// accepts a table spelled `1` where the runtime writes `1.0`, so the two can differ for one table.
+fn load_calibration(dir: &Path, manifest: &Manifest) -> Result<CalibrationTable, ReleaseRefusal> {
+    if manifest.doc.get("calibration").is_none_or(Value::is_null) {
+        return Err(ReleaseRefusal::new(
+            ReleaseRefusalKind::CalibrationMissing,
+            format!(
+                "{}: calibration is absent: the release was exported without --calibration. The \
+                 runtime does not fall back to the reference table, which was fitted on nothing",
+                manifest.path.display()
+            ),
+        ));
+    }
+    match manifest
+        .doc
+        .pointer("/calibration/file")
+        .and_then(Value::as_str)
+    {
+        Some(CALIBRATION_FILE) => {}
+        other => {
+            return Err(manifest.refuse(format!(
+                "calibration.file is {other:?}, not {CALIBRATION_FILE:?}"
+            )));
+        }
+    }
+    let recorded_file = manifest.file_sha256(CALIBRATION_FILE)?;
+    let block_file = manifest.hex_at(&["calibration", "file_sha256"])?;
+    if recorded_file != block_file {
+        return Err(manifest.refuse(format!(
+            "files.{CALIBRATION_FILE}.sha256 is {recorded_file} but calibration.file_sha256 is \
+             {block_file}; the manifest disagrees with itself"
+        )));
+    }
+    let bound_table = manifest.hex_at(&["expected_identity", "calibration_hash"])?;
+    let block_table = manifest.hex_at(&["calibration", "table_hash"])?;
+    if bound_table != block_table {
+        return Err(manifest.refuse(format!(
+            "expected_identity.calibration_hash is {bound_table} but calibration.table_hash is \
+             {block_table}; the manifest disagrees with itself"
+        )));
+    }
+
+    let path = dir.join(CALIBRATION_FILE);
+    let bytes = read_bounded(&path, ReleaseRefusalKind::CalibrationMissing)?;
+    let file_sha = crate::hex(&crate::sha256(&bytes));
+    if file_sha != recorded_file {
+        return Err(ReleaseRefusal::new(
+            ReleaseRefusalKind::CalibrationMismatch,
+            format!(
+                "{} has sha256 {file_sha}; the manifest records {recorded_file}. This is not the \
+                 table that was exported",
+                path.display()
+            ),
+        ));
+    }
+    let table: CalibrationTable = serde_json::from_slice(&bytes).map_err(|e| {
+        ReleaseRefusal::new(
+            ReleaseRefusalKind::CalibrationInvalid,
+            format!("{}: not a CalibrationTable: {e}", path.display()),
+        )
+    })?;
+    table.validate().map_err(|e| {
+        ReleaseRefusal::new(
+            ReleaseRefusalKind::CalibrationInvalid,
+            format!("{}: {e}", path.display()),
+        )
+    })?;
+    let table_hash = table.hash();
+    if table_hash != bound_table {
+        return Err(ReleaseRefusal::new(
+            ReleaseRefusalKind::CalibrationMismatch,
+            format!(
+                "{} parses to a table with hash {table_hash}; the manifest binds {bound_table}, \
+                 which is what a caller's expect.calibration_hash pins",
+                path.display()
+            ),
+        ));
+    }
+    Ok(table)
+}
+
 impl Release {
     /// Open `dir`, parse its manifest, and refuse unless `config.json` is the config the
-    /// manifest binds to the tower.
+    /// manifest binds to the tower and `calibration.json` is the table it binds.
     pub fn open(dir: &Path) -> Result<Self, ReleaseRefusal> {
         let path = dir.join(MANIFEST_FILE);
         let bytes = read_bounded(&path, ReleaseRefusalKind::Manifest)?;
@@ -246,25 +350,35 @@ impl Release {
             ));
         }
 
+        let calibration = load_calibration(dir, &manifest)?;
+
         Ok(Self {
             dir: dir.to_path_buf(),
             config_sha256,
             weight_hash,
             tokenizer_hash,
+            calibration,
         })
     }
 
-    /// Refuse a backend that did not load the tower and tokenizer this release binds.
+    /// Refuse a backend that did not load the tower and tokenizer this release binds, or that
+    /// declares a calibration table other than the release's.
     ///
     /// Run on the identity the backend reports **after** it loaded from [`Release::dir`]: the
     /// weight hash is the loader's, computed from the tensors it read.
     pub fn check_backend(&self, identity: &BackendIdentity) -> Result<(), ReleaseRefusal> {
+        let calibration_hash = self.calibration.hash();
         for (what, bound, reported) in [
             ("weight_hash", &self.weight_hash, &identity.weight_hash),
             (
                 "tokenizer_hash",
                 &self.tokenizer_hash,
                 &identity.tokenizer_hash,
+            ),
+            (
+                "calibration_hash",
+                &calibration_hash,
+                &identity.calibration_hash,
             ),
         ] {
             if bound != reported {
@@ -299,5 +413,10 @@ impl Release {
     /// The tokenizer hash the manifest binds.
     pub fn tokenizer_hash(&self) -> &str {
         &self.tokenizer_hash
+    }
+
+    /// The calibration table, verified against the manifest's hashes.
+    pub fn calibration(&self) -> &CalibrationTable {
+        &self.calibration
     }
 }
