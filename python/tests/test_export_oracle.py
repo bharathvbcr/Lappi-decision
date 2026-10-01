@@ -42,6 +42,7 @@ from test_backbone import (  # noqa: E402
     TINY_HIDDEN,
     TINY_VOCAB,
     _ckpt_average,
+    _master_checkpoint,
     _tiny_tower,
     _written_checkpoint,
 )
@@ -153,13 +154,25 @@ def _rows(n: int, seed: int) -> list[tuple[list[int], int]]:
     return rows
 
 
-def _average_and_export(tmp_path: Path, dtype: str) -> tuple[Path, Path, Path]:
-    """Two checkpoints -> ``ckpt_average`` -> ``qd-export``. Returns (avg, base, release)."""
+def _average_and_export(
+    tmp_path: Path, dtype: str, source: str = "tower"
+) -> tuple[Path, Path, Path]:
+    """Two checkpoints -> ``ckpt_average`` -> ``qd-export``. Returns (avg, base, release).
+
+    ``source`` is ``ckpt_average --from``: ``masters`` is J7's average (Fable D1), so the
+    manifest that average writes is the one the exporter must accept. Its inputs are
+    ``test_backbone._master_checkpoint``'s: trained a few steps on batches of their own, since
+    an untrained tower's layers can hold byte-identical tensors (``dt_bias``), whose masters
+    the average rightly refuses to tell apart."""
     exe = _export_bin()
-    a = _checkpoint(tmp_path, seed=1, dtype=dtype)
-    b = _checkpoint(tmp_path, seed=2, dtype=dtype)
+    if source == "masters":
+        a = _master_checkpoint(tmp_path / "s1", seed=1)[0]
+        b = _master_checkpoint(tmp_path / "s2", seed=2)[0]
+    else:
+        a = _checkpoint(tmp_path, seed=1, dtype=dtype)
+        b = _checkpoint(tmp_path, seed=2, dtype=dtype)
     avg = tmp_path / "avg" / "avg.safetensors"
-    argv = [str(a), str(b), "--out", str(avg), "--ft-row-ids", "r1", "r2"]
+    argv = [str(a), str(b), "--out", str(avg), "--ft-row-ids", "r1", "r2", "--from", source]
     assert _ckpt_average().main(argv) == 0
     base = _base_snapshot(tmp_path / "s1" / "snapshot", tmp_path / "base")
     pin = hashlib.sha256((base / "tokenizer.json").read_bytes()).hexdigest()
@@ -204,6 +217,25 @@ def test_transformers_loads_the_rust_export_as_the_tower(tmp_path, dtype):
     want = hashlib.sha256(avg_manifest.read_bytes()).hexdigest()
     assert manifest["source"]["manifest_sha256"] == want
     assert manifest["conversion"]["hidden_size"] == TINY_HIDDEN
+
+
+def test_an_average_of_the_fp32_masters_exports_and_loads_as_the_tower(tmp_path):
+    """J7 averages the masters and exports that file: the two lanes' manifests must meet.
+    The average is cast to bf16 once inside ckpt_average, so the release is its tower bit
+    for bit and the cast costs nothing further."""
+    avg, base, release = _average_and_export(tmp_path, "bf16", source="masters")
+    avg_manifest = json.loads(avg.with_name(avg.name + ".manifest.json").read_text())
+    assert avg_manifest["from"] == "masters"
+
+    report = parity.compare(
+        source=avg, release=release, base_snapshot=base, rows=_rows(6, seed=7), device="cpu"
+    )
+    assert report["weights"]["mismatched"] == [], report["weights"]
+    assert report["logits"]["release_vs_tower_bf16"]["max_abs"] == 0.0
+    assert report["logits"]["release_vs_tower"]["max_abs"] == 0.0
+    assert report["passed"] is True
+    manifest = json.loads((release / "release_manifest.json").read_text())
+    assert manifest["source"]["ft_row_ids"] == ["r1", "r2"]
 
 
 def test_the_oracle_refuses_a_release_that_is_not_the_tower(tmp_path):
