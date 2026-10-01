@@ -14,6 +14,7 @@ commitpackft download, and skips where either is absent. 60 pairs take seconds.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -26,7 +27,7 @@ sys.path.insert(0, str(REPO / "python"))
 import real_tokenizer_pipeline as pipeline  # noqa: E402
 
 from qd_data.config import DataConfig  # noqa: E402
-from qd_train.shards import ShardReader  # noqa: E402
+from qd_train.shards import HEADER_NAME, ShardReader  # noqa: E402
 from qd_train.tristate import NotRun, Ran  # noqa: E402
 
 DOWNLOAD = REPO / "data" / "pool" / "commitpackft"
@@ -94,6 +95,42 @@ def test_the_default_full_vocabulary_writes_every_id_and_counts_nothing(tmp_path
     rows = pipeline.checkpoint_vocab_rows(tokenizer_len=0)
     assert train.header.vocab_size == rows
     assert rows > len(pipeline.RealTokenizer.load(memo_limit=0).tok)
+
+
+@pytest.mark.usefixtures("qd_prep")
+def test_refuse_gold_leaves_the_val_set_byte_identical(tmp_path) -> None:
+    """Fable round K: the narrowed collapse rule is train-side only.
+
+    The same build with and without ``span_collapse_policy=refuse-gold`` writes a val
+    shard set identical in every file but the header's timestamp, so no gate's span
+    population moves (rule 2).
+    """
+    pytest.importorskip("transformers")
+    if not pipeline.MODEL_REF.exists():
+        pytest.skip(f"{pipeline.MODEL} is not in this host's HF cache")
+    if not any((DOWNLOAD / f"{lang}.jsonl").exists() for lang in ("go", "python")):
+        pytest.skip("the commitpackft download is not on this host; only its manifest is")
+
+    outs = {}
+    for policy in ("refuse-any", "refuse-gold"):
+        out = tmp_path / policy
+        pipeline.run(
+            out=out, max_pairs=60, blank_line_runs=False, rev="HEAD",
+            commitpackft=DOWNLOAD, val_shards=True, span_collapse_policy=policy,
+        )
+        outs[policy] = out / "shards" / "val"
+    names = sorted(p.name for p in outs["refuse-any"].iterdir())
+    assert names == sorted(p.name for p in outs["refuse-gold"].iterdir())
+    for name in names:
+        a = (outs["refuse-any"] / name).read_bytes()
+        b = (outs["refuse-gold"] / name).read_bytes()
+        if name == HEADER_NAME:
+            ja, jb = json.loads(a), json.loads(b)
+            ja.pop("created_at", None)
+            jb.pop("created_at", None)
+            assert ja == jb
+        else:
+            assert a == b, name
 
 
 def test_without_the_flag_no_val_set_is_claimed() -> None:

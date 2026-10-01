@@ -51,6 +51,16 @@ whole corpus. :func:`noul_allowlist` runs the same functions for the generator, 
 computes a split itself; its allowlist reads every SQuAD title in order to exclude the
 held-out ones, exactly as the pipeline's own SQuAD routing reads them.
 
+**The composed corpus.** ``qd-mutate compose`` builds PR-shaped rows out of a corpus's own
+examples: 3 or more files under ``diff --git`` headers, one of them (or none, for ``clean``) a
+mutated example. Its manifest names that corpus as ``base_corpus``, and :func:`load_defect_rows`
+reads the base first and appends the composed rows -- so one ``--defect-class`` names both and
+every tool that already takes that flag reads them in one order. A composed row carries its
+span already in the composed diff's coordinates (``diff_span``), because the walk above refuses
+``diff --git`` lines; the loader checks that span against the row's own file blocks instead.
+Its rule-3 check is per constituent: every file's repo is re-split at the run's config, and a
+row whose files are not all in its own split, or are in ``heldout``, refuses the whole corpus.
+
 The imports of ``qd_train.mutate_adapter`` and ``qd_train.data_access`` are local to the
 functions that use them: ``data_access`` imports ``qd_data.manifest``, which imports
 ``qd_data.mixture``, which imports this module.
@@ -76,6 +86,8 @@ from .split import SQUAD_TITLE_FAMILIES, assign_repo, squad_title_family, squad_
 
 __all__ = [
     "CHOICE_SLOT",
+    "COMPOSED_FILE_HEADER_LINES",
+    "COMPOSED_SCHEMA",
     "CONTEXT_HEADER_LINES",
     "DEFECT_CLASSES",
     "DEFECT_FAMILY_ID",
@@ -119,6 +131,12 @@ SPAN_SLOT: Final[str] = "defect_span"
 #: line ``k`` is context line ``k + CONTEXT_HEADER_LINES``. One constant, used by the
 #: rewriter to build the header and to offset the span, so the two cannot disagree.
 CONTEXT_HEADER_LINES: Final[int] = 2
+
+#: ``MANIFEST_SCHEMA`` and ``FILE_HEADER_LINES`` in ``crates/qd-mutate/src/compose.rs``: a
+#: composed corpus's manifest schema, and the ``diff --git`` / ``---`` / ``+++`` lines that open
+#: every file block of a composed row.
+COMPOSED_SCHEMA: Final[str] = "qd-compose/v1"
+COMPOSED_FILE_HEADER_LINES: Final[int] = 3
 
 _DOWNLOAD_LANGUAGES_KEY: Final[str] = "languages"
 
@@ -246,6 +264,9 @@ class DefectLoad:
     #: capped: ``max_rows`` samples the main corpus only, and ``capped`` describes that sample.
     n_noul: int = 0
     noul_by_source: dict[str, int] = field(default_factory=dict)
+    #: Composed rows (``qd-mutate compose``) appended after their base corpus's rows. Never
+    #: capped: ``max_rows`` samples the base corpus. Counted in ``n_corpus`` too.
+    n_composed: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -340,6 +361,107 @@ def _load_pool_ids(pool_path: Path) -> dict[str, str]:
     return out
 
 
+def _composed_diff_span(
+    obj: Mapping[str, Any], *, diff: str, clean: bool
+) -> tuple[int, int] | None:
+    """A composed row's ``diff_span``, checked against the row's own file blocks.
+
+    The generator carried the needle's span into the composed diff and re-verified it on the
+    rendered text; this is the loader's independent check, from the row alone. Each
+    constituent names its block (``first_line`` .. ``last_line``); the blocks must tile the
+    diff and open with their three file headers, and the span must sit in the needle's block
+    body, start and end on a ``+`` or context line, and cross no hunk header. Any failure is a
+    broken corpus, not a row to count, so it raises.
+    """
+    row_id = obj.get("id")
+    raw_span = obj.get("diff_span")
+    if clean:
+        if raw_span is not None or obj.get("needle_index") is not None:
+            raise DefectCorpusError(f"{row_id}: a clean composed row carries a span or a needle")
+        return None
+    if not isinstance(raw_span, Mapping):
+        raise DefectCorpusError(f"{row_id}: a mutated composed row has no diff_span")
+    start, end = raw_span.get("start_line"), raw_span.get("end_line")
+    if not (isinstance(start, int) and isinstance(end, int)) or not 1 <= start <= end:
+        raise DefectCorpusError(f"{row_id}: diff_span {dict(raw_span)} is not a 1-based range")
+    lines = diff.split("\n")
+    if not diff.endswith("\n") or end > len(lines) - 1:
+        raise DefectCorpusError(f"{row_id}: diff_span ends at {end}, past the diff's lines")
+    constituents = obj.get("constituents")
+    if not isinstance(constituents, list) or not constituents:
+        raise DefectCorpusError(f"{row_id}: a composed row names no constituents")
+    expected_first = 1
+    needle: Mapping[str, Any] | None = None
+    for c in constituents:
+        first, last, path = c.get("first_line"), c.get("last_line"), c.get("path")
+        if not (isinstance(first, int) and isinstance(last, int) and isinstance(path, str)):
+            raise DefectCorpusError(f"{row_id}: a constituent without first_line/last_line/path")
+        if first != expected_first or last < first + COMPOSED_FILE_HEADER_LINES:
+            raise DefectCorpusError(f"{row_id}: constituent blocks do not tile the diff")
+        if lines[first - 1 : first + 2] != [
+            f"diff --git a/{path} b/{path}", f"--- a/{path}", f"+++ b/{path}"
+        ]:
+            raise DefectCorpusError(f"{row_id}: the block of {path!r} lacks its file headers")
+        if c.get("role") == "needle":
+            if needle is not None:
+                raise DefectCorpusError(f"{row_id}: two needles in one row")
+            needle = c
+        expected_first = last + 1
+    if expected_first != len(lines):
+        raise DefectCorpusError(f"{row_id}: constituent blocks do not cover the diff")
+    if needle is None:
+        raise DefectCorpusError(f"{row_id}: a mutated composed row has no needle")
+    body_first = int(needle["first_line"]) + COMPOSED_FILE_HEADER_LINES
+    if start < body_first or end > int(needle["last_line"]):
+        raise DefectCorpusError(f"{row_id}: diff_span {start}..{end} leaves the needle's block")
+    if any(lines[n - 1][:1] not in ("+", " ") for n in (start, end)):
+        raise DefectCorpusError(f"{row_id}: a diff_span endpoint is not a '+' or context line")
+    if any(lines[n - 1].startswith("@") for n in range(start, end + 1)):
+        raise DefectCorpusError(f"{row_id}: diff_span crosses a hunk header")
+    return start, end
+
+
+def _composed_violation(
+    obj: Mapping[str, Any],
+    *,
+    pool: Mapping[str, str],
+    licences: Mapping[str, str],
+    config: DataConfig,
+) -> str | None:
+    """Why a composed row may not be read, or ``None``: rule 3 and the licence join, per file.
+
+    The row's split is re-derived from its repo at the run's config, and every constituent's
+    repo must land in that same split, which may not be ``heldout`` -- whatever the generator's
+    split map said. Every constituent must resolve through the pool to a download licence that
+    is admitted, because the row carries all of their code.
+    """
+    if obj.get("composed") is not True:
+        return "not_composed"
+    split = _split_of(str(obj.get("repo")), config)
+    if split == "heldout":
+        return "row_in_heldout"
+    if obj.get("split") != split:
+        return f"row_split_{obj.get('split')}_is_{split}_here"
+    constituents = obj.get("constituents")
+    if not isinstance(constituents, list) or len(constituents) < 2:
+        return "fewer_than_two_constituents"
+    for c in constituents:
+        pid, repo = c.get("pool_id"), c.get("repo")
+        if not isinstance(pid, str) or pid not in pool:
+            return "constituent_not_in_pool"
+        if pool[pid] != repo:
+            return "constituent_repo_disagrees_with_pool"
+        if pid not in licences:
+            return "constituent_without_download_licence"
+        try:
+            admit_licence(licences[pid], config=config.licence, source=f"composed {pid}")
+        except LicenceRefused:
+            return "constituent_licence_not_admitted"
+        if _split_of(str(repo), config) != split:
+            return "constituents_span_two_splits"
+    return None
+
+
 def _parse_one(
     obj: dict[str, Any], *, licence: str
 ) -> DefectRow:
@@ -361,7 +483,9 @@ def _parse_one(
         )
     diff_span: tuple[int, int] | None = None
     span_refusal: str | None = None
-    if ex.span is not None:
+    if obj.get("composed") is True:
+        diff_span = _composed_diff_span(obj, diff=ex.diff.decode("utf-8"), clean=ex.span is None)
+    elif ex.span is not None:
         try:
             diff_span = diff_line_span(
                 ex.diff, start_line=ex.span.start_line, end_line=ex.span.end_line
@@ -412,6 +536,12 @@ def load_defect_rows(
     main corpus's, through :func:`load_noul_rows`'s checks. Appended here rather than by each
     caller, so the pipeline and the FT rebuild cannot put the two in different orders.
 
+    A ``qd-mutate compose`` corpus (manifest schema :data:`COMPOSED_SCHEMA`) names its
+    ``base_corpus``, re-anchored under ``repo_root/data/pool`` like the pool: the base is read
+    first, through this function (``max_rows`` samples it), and the composed rows follow,
+    uncapped, then the noul rows. Every composed row passes :func:`_composed_violation` or the
+    whole corpus is refused.
+
     Every path read goes through ``assert_path_not_held_out`` first (rule 3).
     """
     from qd_train.data_access import assert_path_not_held_out
@@ -426,6 +556,12 @@ def load_defect_rows(
         assert_path_not_held_out(Path(p), config=config, repo_root=Path(repo_root))
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    base: DefectLoad | None = None
+    if manifest.get("schema") == COMPOSED_SCHEMA or "base_corpus" in manifest:
+        base = _load_composed_base(
+            manifest, manifest_path=manifest_path, download_root=Path(download_root),
+            config=config, repo_root=Path(repo_root), max_rows=max_rows,
+        )
     for key in ("examples_sha256", "pool"):
         if key not in manifest:
             raise DefectCorpusError(
@@ -492,7 +628,29 @@ def load_defect_rows(
             f"{examples_path} holds {n_corpus} rows, {manifest_path} records "
             f"{manifest['totals']['examples']}"
         )
-    capped = max_rows is not None and n_corpus > max_rows
+    composed_flags = sorted({obj.get("composed") is True for _, obj in raw})
+    if composed_flags != ([True] if base is not None else [False] if raw else []):
+        raise DefectCorpusError(
+            f"{examples_path}: a composed corpus holds only composed rows and a plain corpus "
+            f"none (found composed={composed_flags}, base_corpus named: {base is not None})"
+        )
+    if base is not None:
+        bad: Counter[str] = Counter()
+        first_bad: list[str] = []
+        for example_id, obj in raw:
+            reason = _composed_violation(obj, pool=pool, licences=licences, config=config)
+            if reason is not None:
+                bad[reason] += 1
+                if len(first_bad) < 5:
+                    first_bad.append(f"{example_id}:{reason}")
+        if bad:
+            raise DefectCorpusError(
+                f"{sum(bad.values())} composed row(s) of {examples_path} cannot be read: "
+                f"{dict(sorted(bad.items()))}; first five {first_bad}. Refusing the whole "
+                "corpus: a row whose files cross a split boundary or reach a held-out repo "
+                "carries that content into training (rule 3)"
+            )
+    capped = max_rows is not None and n_corpus > max_rows and base is None
     if capped:
         raw.sort(key=lambda kv: hashlib.sha256(kv[0].encode("utf-8")).hexdigest())
         raw = raw[:max_rows]
@@ -503,6 +661,12 @@ def load_defect_rows(
             rows.append(_parse_one(obj, licence=licences[str(obj["pool_id"])]))
         except MalformedExample as e:
             raise DefectCorpusError(f"{examples_path}: {example_id}: {e}") from e
+    n_composed = 0
+    if base is not None:
+        n_composed = len(rows)
+        rows = list(base.rows) + rows
+        n_corpus += base.n_corpus
+        capped = base.capped
     noul: NoulLoad | None = None
     if noul_dir is not None:
         noul = _load_noul(
@@ -524,6 +688,60 @@ def load_defect_rows(
         ),
         n_noul=0 if noul is None else len(noul.rows),
         noul_by_source={} if noul is None else dict(noul.by_source),
+        n_composed=n_composed,
+    )
+
+
+def _load_composed_base(
+    manifest: Mapping[str, Any],
+    *,
+    manifest_path: Path,
+    download_root: Path,
+    config: DataConfig,
+    repo_root: Path,
+    max_rows: int | None,
+) -> DefectLoad:
+    """The corpus a composed corpus was built from, read and checked before its rows are.
+
+    The base must be the bytes the composer read (``examples_sha256``), over the same pool,
+    split under this run's config, and must not itself be composed.
+    """
+    if manifest.get("schema") != COMPOSED_SCHEMA:
+        raise DefectCorpusError(
+            f"{manifest_path} names a base_corpus but its schema is {manifest.get('schema')!r}, "
+            f"not {COMPOSED_SCHEMA!r}"
+        )
+    meta = manifest.get("base_corpus")
+    if not isinstance(meta, Mapping) or not isinstance(meta.get("name"), str):
+        raise DefectCorpusError(f"{manifest_path} has no base_corpus name")
+    params = manifest.get("split_params")
+    ours = {
+        "seed": config.seed, "train_fraction": config.train_fraction,
+        "val_fraction": config.val_fraction,
+    }
+    if not isinstance(params, Mapping) or {k: params.get(k) for k in ours} != ours:
+        raise DefectCorpusError(
+            f"{manifest_path} was composed under split {params}, and this run splits under "
+            f"{ours}: a repo that was train there may be val or held out here. Recompose the "
+            "corpus at this run's split."
+        )
+    base_dir = repo_root / "data" / "pool" / Path(str(meta["name"])).name
+    base_manifest = json.loads((base_dir / "manifest.json").read_text(encoding="utf-8"))
+    if "base_corpus" in base_manifest or base_manifest.get("schema") == COMPOSED_SCHEMA:
+        raise DefectCorpusError(f"{base_dir} is itself composed; a base must be a plain corpus")
+    if base_manifest.get("examples_sha256") != meta.get("examples_sha256"):
+        raise DefectCorpusError(
+            f"{base_dir} records examples {base_manifest.get('examples_sha256')}, and "
+            f"{manifest_path} was composed from {meta.get('examples_sha256')}"
+        )
+    pool = manifest.get("pool")
+    if not isinstance(pool, Mapping) or base_manifest.get("pool", {}).get("sha256") != pool.get(
+        "sha256"
+    ):
+        raise DefectCorpusError(f"{manifest_path} and its base {base_dir} name different pools")
+    return load_defect_rows(
+        base_dir, download_root=download_root, config=config, repo_root=repo_root,
+        max_rows=max_rows,
     )
 
 

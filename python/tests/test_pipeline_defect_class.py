@@ -13,6 +13,7 @@ Three things, each of which the first real build over the 50,177-row corpus hit:
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from pathlib import Path
 from typing import Any
@@ -114,3 +115,109 @@ def test_a_positive_memo_limit_still_refuses_rather_than_evicting() -> None:
     tok.tokenize("a")  # a hit, not a second entry
     with pytest.raises(RuntimeError, match="1-entry bound"):
         tok.tokenize("b")
+
+
+COMPOSED = REPO / "data" / "pool" / "commitpackft-composed-v1" / "examples.jsonl"
+BASE = REPO / "data" / "pool" / "commitpackft-corpus-v3" / "examples.jsonl"
+
+
+def test_gold_on_a_collapsing_blank_pair_is_rare_and_pinned() -> None:
+    """How much gold ``refuse-gold`` can still refuse, pinned on the sha-pinned corpora.
+
+    Fable round K's premise was that a gold line is never a blank context line, the pattern
+    behind every collapse measured (696 of 696, two consecutive blank context lines). Read off
+    the real corpora, that is almost but not exactly true:
+    - 120 of 20,898 composed golds, and 159 of 41,504 v3 golds, are a single blank context
+      line;
+    - of those, 16 and 18 sit next to another blank context line, the pair that collapses.
+    ``refuse-gold`` refuses such a gold when it collapses, so it is never trained on as an
+    ambiguous target. This pins the counts, so a corpus that changes them is noticed. Skipped
+    where the git-ignored rows are absent, which is not a pass.
+    """
+    import json
+
+    from qd_data.defect_class import diff_line_span
+    from qd_train.mutate_adapter import (
+        EmptyDiffContext,
+        MalformedExample,
+        PhantomFinalLine,
+        SpanOutsideDiff,
+    )
+
+    if not (COMPOSED.exists() and BASE.exists()):
+        pytest.skip("the composed and v3 corpora's rows are git-ignored and not on this host")
+    for path, sha in ((COMPOSED, "a63563e5"), (BASE, "610bb1f0")):
+        assert hashlib.sha256(path.read_bytes()).hexdigest().startswith(sha), path
+
+    def tally(golds: list[tuple[list[str], int, int]]) -> tuple[int, int, int]:
+        blank = adjacent = 0
+        for lines, start, end in golds:
+            on_blank = [n for n in {start, end} if lines[n - 1] == " "]
+            blank += bool(on_blank)
+            adjacent += any(
+                (n >= 2 and lines[n - 2] == " ") or (n < len(lines) and lines[n] == " ")
+                for n in on_blank
+            )
+        return len(golds), blank, adjacent
+
+    composed: list[tuple[list[str], int, int]] = []
+    for line in COMPOSED.open(encoding="utf-8"):
+        row = json.loads(line)
+        span = row["diff_span"]
+        if span is not None:
+            composed.append((row["diff"].split("\n"), span["start_line"], span["end_line"]))
+    base: list[tuple[list[str], int, int]] = []
+    for line in BASE.open(encoding="utf-8"):
+        row = json.loads(line)
+        if row.get("span") is None:
+            continue
+        try:
+            start, end = diff_line_span(
+                row["diff"].encode("utf-8"), start_line=row["span"]["start_line"],
+                end_line=row["span"]["end_line"],
+            )
+        except (SpanOutsideDiff, MalformedExample, EmptyDiffContext, PhantomFinalLine):
+            # The loader refuses these spans (span_refusal), so they never reach a shard.
+            continue
+        base.append((row["diff"].split("\n"), start, end))
+    assert tally(composed) == (20_898, 120, 16)
+    assert tally(base) == (41_504, 159, 18)
+
+
+class _CharTok(_FakeTok):
+    """One token per character, and a decode that inverts it."""
+
+    def decode(self, ids: list[int], **_: Any) -> str:
+        return "".join(chr(i) for i in ids)
+
+
+def test_the_census_refuses_a_row_over_max_seq_len_whole_as_the_writer_does() -> None:
+    """``--max-seq-len`` is mirrored in the census, so the row's count matches the shards'.
+
+    A long row is refused whole (both of its slots), named by id, and never truncated; the
+    rows under the width are unaffected.
+    """
+    rows = [_row(i, "stub") for i in range(4)]
+    raw_long = DefectRow(
+        example_id="long:x.py#0", pool_id="long:x.py", repo="o/r", path="x.py", symbol="f",
+        arity=1, language="python", mutation_class="stub", operator="stub.op",
+        diff="@@ -1,2 +1,2 @@\n def f(x):\n-    return x\n+    return " + "9" * 400 + "\n",
+        diff_span=(3, 3), span_refusal=None, licence="mit",
+    )
+    long_row = rewrite_defect_class(raw_long, family_id=DEFECT_FAMILY_ID, index=9,
+                                    config=DataConfig())
+    rows.append(long_row)
+    tok = pipeline.RealTokenizer(tok=_CharTok(), _memo={}, memo_limit=0)
+    free = pipeline.census(rows, tok=tok, config=DataConfig())
+    assert free.rows_out == 5 and not free.refused
+    short_max = max(free.lengths[:8])
+    cap = short_max + 10
+    assert max(free.lengths) > cap, "the long row must be over the cap the short ones fit"
+    capped = pipeline.census(rows, tok=tok, config=DataConfig(), max_seq_len=cap)
+    assert capped.refused == {pipeline.OVER_MAX_SEQ_LEN: 1}
+    assert capped.refused_rows == {long_row.row_id: pipeline.OVER_MAX_SEQ_LEN}
+    assert capped.rows_out == 4 and capped.sequences_out == 8
+    assert max(capped.lengths) <= cap
+    # Its ids were still recorded: the writer encodes before it can measure, so the remap
+    # must cover them.
+    assert long_row.row_id in capped.id_rows
