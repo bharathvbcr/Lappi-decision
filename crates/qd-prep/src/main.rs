@@ -60,6 +60,7 @@ enum Command {
 /// `io.output` atomically. `work` returns the reply's bytes and a summary line.
 fn run(
     io: &Io,
+    max_input_bytes: u64,
     work: impl FnOnce(&[u8], usize) -> Result<(Vec<u8>, String), String>,
 ) -> Result<String, String> {
     let (input, output) = (&io.input, &io.output);
@@ -72,11 +73,10 @@ fn run(
     let size = std::fs::metadata(input)
         .map_err(|e| format!("{}: {e}", input.display()))?
         .len();
-    if size > wire::MAX_INPUT_BYTES {
+    if size > max_input_bytes {
         return Err(format!(
-            "{}: {size} bytes; the bound is {}",
+            "{}: {size} bytes; the bound is {max_input_bytes}",
             input.display(),
-            wire::MAX_INPUT_BYTES
         ));
     }
     let buf = std::fs::read(input).map_err(|e| format!("{}: {e}", input.display()))?;
@@ -125,9 +125,11 @@ fn minhash(buf: &[u8], threads: usize) -> Result<(Vec<u8>, String), String> {
 fn main() -> ExitCode {
     let args = Args::parse();
     let result = match &args.command {
-        Command::Minhash(io) => run(io, minhash),
-        Command::Ngrams(io) => run(io, linwire::run_ngrams),
-        Command::Linfit(io) => run(io, linwire::run_linfit),
+        // Each request format has its own bound: a MinHash request carries shingle sets, a
+        // linear-control request the documents themselves (see linwire::MAX_INPUT_BYTES).
+        Command::Minhash(io) => run(io, wire::MAX_INPUT_BYTES, minhash),
+        Command::Ngrams(io) => run(io, linwire::MAX_INPUT_BYTES, linwire::run_ngrams),
+        Command::Linfit(io) => run(io, linwire::MAX_INPUT_BYTES, linwire::run_linfit),
     };
     match result {
         Ok(line) => {

@@ -45,7 +45,15 @@ use std::time::Instant;
 
 use crate::linfit::{self, Fitted, Hyper};
 use crate::ngram::{self, Csr, NGramSpec};
-use crate::wire::{Cursor, MAX_INPUT_BYTES};
+use crate::wire::Cursor;
+
+/// A request past this is refused before it is read. Not [`crate::wire::MAX_INPUT_BYTES`]
+/// (4 GiB, sized for MinHash's shingle sets): a linear-control request carries a task's
+/// documents themselves, and on the full mixture the `knowledge.multiple_choice` task alone
+/// is 5,422,458,422 bytes (J1's eval row 09ff303f on the GH200, 2026-10-01). The shared bound
+/// refused it after six tasks had fitted, which lost the whole control. 32 GiB is six times
+/// that request and a small fraction of the box's 525 GB.
+pub const MAX_INPUT_BYTES: u64 = 32 << 30;
 
 pub const NGRAMS_INPUT_MAGIC: &[u8; 8] = b"QDPNGIN1";
 pub const NGRAMS_OUTPUT_MAGIC: &[u8; 8] = b"QDPNGOK1";
@@ -472,6 +480,18 @@ pub fn encode_linfit(f: &Fitted, n_cols: usize, k: usize) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A runtime test rather than a `const` assertion on purpose: it is the check that fails
+    // against the code that shared the MinHash bound, which a compile error would not report.
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn the_bound_admits_the_measured_mixture_request() {
+        // J1's knowledge.multiple_choice request on the GH200 (2026-10-01): refused at the
+        // MinHash bound, which this module used to share, after six tasks had fitted.
+        const MEASURED_MMLU_REQUEST: u64 = 5_422_458_422;
+        assert!(MAX_INPUT_BYTES >= MEASURED_MMLU_REQUEST);
+        assert!(MAX_INPUT_BYTES > crate::wire::MAX_INPUT_BYTES);
+    }
 
     fn docs_block(docs: &[&str]) -> Vec<u8> {
         let mut v = (docs.len() as u64).to_le_bytes().to_vec();
