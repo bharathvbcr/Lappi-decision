@@ -5,3 +5,5 @@
 //! v4 shards behind the held-out door (CLAUDE.md rule 3), the supervision port, and the span
 //! head. Every number it produces is checked against the PyTorch trainer it replaces, on the
 //! parity ladder in the plan (rungs a-d); rows it writes are `quick` (rule 8).
+
+pub mod span_head;

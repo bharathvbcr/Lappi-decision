@@ -1,0 +1,48 @@
+{
+  "case": "h2048-abstain-duplicate",
+  "description": "the real width, one abstaining row whose query is its ninth line start",
+  "device": "cpu",
+  "dtype": "float32",
+  "dw_encoding": "outer_k1",
+  "head": "python/qd_train/heads.py::SpanPointerHead (plan from plan_span_batch)",
+  "hidden_scale": 0.2326512147755249,
+  "hidden_size": 2048,
+  "n_spans": 1,
+  "oracle": "tools/qd_train_oracle_span_head.py",
+  "reduction": "mean",
+  "reserved_noul_rows": 1,
+  "seq_len": 20,
+  "sha256": {
+    "d_end_proj": "ab9c9f1f4c9e6bb0fd96a97f445677b921aa99e915576c7a45e01b6c05e24b07",
+    "d_start_proj": "7c36a13e8701cff47c43be0b75b57b9a2eb2650ef0c5ab88f5e10fb79b9cdb7a",
+    "end_proj_weight": "ca59ba9f55db8fe9b929b0f25b333029e47da23b99d424548c03dfdde84cdc68",
+    "ref64_d_end_proj": "3fa4a9e84b8df7aac9b2f21af0ce33509a6a34144937a91e73c44feb69ca4ab8",
+    "ref64_d_start_proj": "2306403f6c49f8926924d2f25fafdeb98ab05d892a80ccf5394e8692d19bef1c",
+    "start_proj_weight": "4003f9731623982eaa0a2661f9d15e13b1ff611505fdf420970ab6976b26493c"
+  },
+  "span_weight": 1.0,
+  "torch_f32_vs_f64": {
+    "d_abstain_end": 1.253424275170263e-07,
+    "d_abstain_start": 1.157914201363966e-07,
+    "d_end_proj": 1.6057857175601481e-07,
+    "d_hidden": 1.1925281345901228e-06,
+    "d_start_proj": 1.3127424603655046e-07,
+    "loss": 2.2649839109057205e-07,
+    "scores_end": 1.5644645650213488e-07,
+    "scores_start": 4.2762914874372516e-07
+  },
+  "torch_threads": 1,
+  "versions": {
+    "numpy": "2.5.0",
+    "python": "3.14.7",
+    "torch": "2.12.1"
+  },
+  "weight_generator": {
+    "algorithm": "splitmix64(seed << 40 ^ stream << 32 ^ index) >> 40, centred, times 2^-(23 + shift)",
+    "seed": 108,
+    "shift": 5,
+    "stream_end_proj": 2,
+    "stream_start_proj": 1
+  },
+  "zero_abstain": false
+}
