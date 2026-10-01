@@ -1,0 +1,7 @@
+{"selection": {"scanned": 165, "picked": 5, "scan_wall_s": 0.011, "per_batch_build_ms": 0.069, "span_batches": 0}, "widths": [8441]}
+{"load_s": 18.8, "n_layers": 24, "attn_implementation": "sdpa", "gdn_bound": {"torch_chunk_gated_delta_rule": "fla.ops.gated_delta_rule.chunk.chunk_gated_delta_rule", "causal_conv1d_fn": "causal_conv1d.causal_conv1d_interface.causal_conv1d_fn"}}
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+{"shape": "B", "config": "off:0+nomask", "status": "ran", "pos_per_s": 25703.3, "step_s_median": 1.3012, "acc_s_median": 1.2862, "apply_s_median": 0.015, "peak_alloc_gib": 42.16, "reason": null}
+/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/profiler/profiler.py:217: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+{"shape": "B", "config": "off:0+det+nomask+profile", "status": "ran", "pos_per_s": 23208.1, "step_s_median": 1.4421, "acc_s_median": 1.4031, "apply_s_median": 0.0389, "peak_alloc_gib": 42.17, "reason": null}

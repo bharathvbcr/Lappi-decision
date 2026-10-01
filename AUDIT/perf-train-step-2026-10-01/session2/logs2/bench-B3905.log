@@ -1,0 +1,6 @@
+{"selection": {"scanned": 133, "picked": 4, "scan_wall_s": 0.009, "per_batch_build_ms": 0.068, "span_batches": 0}, "widths": [3905]}
+{"load_s": 18.9, "n_layers": 24, "attn_implementation": "sdpa", "gdn_bound": {"torch_chunk_gated_delta_rule": "fla.ops.gated_delta_rule.chunk.chunk_gated_delta_rule", "causal_conv1d_fn": "causal_conv1d.causal_conv1d_interface.causal_conv1d_fn"}}
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+{"shape": "B3905", "config": "skip:6", "status": "ran", "pos_per_s": 19871.9, "step_s_median": 1.7692, "acc_s_median": 1.754, "apply_s_median": 0.0151, "peak_alloc_gib": 60.03, "reason": null}
+{"shape": "B3905", "config": "skip:7", "status": "ran", "pos_per_s": 20037.9, "step_s_median": 1.7578, "acc_s_median": 1.7428, "apply_s_median": 0.015, "peak_alloc_gib": 64.94, "reason": null}
+{"shape": "B3905", "config": "skip:8", "status": "ran", "pos_per_s": 20156.0, "step_s_median": 1.7485, "acc_s_median": 1.7334, "apply_s_median": 0.0151, "peak_alloc_gib": 69.84, "reason": null}
