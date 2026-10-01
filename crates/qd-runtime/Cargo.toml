@@ -35,6 +35,13 @@ path = "src/bin/qd_calib_fit.rs"
 name = "qd-gate-report"
 path = "src/bin/qd_gate_report.rs"
 
+# The post-F GPU queue's pre-registered decisions (campaign/f-j7prime-preregistered.json), read
+# off ledger rows by the box scripts in campaign/post-f-queue/. It decides which queued job runs,
+# never whether a gate passed (CLAUDE.md rule 2), and refuses rather than defaults.
+[[bin]]
+name = "qd-post-f-rules"
+path = "src/bin/qd_post_f_rules.rs"
+
 # No async runtime, no socket crate, no timer crate: `std::os::unix::net`,
 # `Condvar::wait_timeout` and `set_read_timeout` cover the whole server.
 # Adding one would be a new dependency for capability std already has.
