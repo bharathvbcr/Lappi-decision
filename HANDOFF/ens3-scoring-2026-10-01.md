@@ -57,12 +57,14 @@ Lane worktree `agent-a49d73cb7bb3e7dad`, branch `worktree-agent-a49d73cb7bb3e7da
   - `ShardReader` refuses the drift, so the box commands pin `eeb1c67`.
   - What `eeb1c67` lacks from main: main's report-only per-family metrics on eval rows (`45e2d1d`)
     and the train-step perf flags. Neither touches scoring decisions.
-- **GAP-SUITE-LOGITS-NEEDLE-WORKER-2026-10-01.**
-  - A single `--score-checkpoint` gate row refuses `--suite-logits --needle`, because the needle
-    worker (prep-perf's block) decodes without pointer scores.
-  - Whichever branch merges second adds `logits=args.suite_logits` to the worker's
-    `needle_predictions(...)` call in `main()` and drops the refusal's `--needle` clause.
-  - `--needle-control` and `--score-plan` (in-process, cuda) carry the scores today.
+- **GAP-SUITE-LOGITS-NEEDLE-WORKER-2026-10-01: closed** in the merge of main `f45a646`.
+  - `needle_worker_main` (main's `.npz` handoff path) now decodes with
+    `logits=args.suite_logits`; the flag arrives on the scoring process's own argv. The
+    `--needle` refusal is gone, and `score_needle` refuses any needle verdict that lacks
+    `start_logits`/`end_logits` under the flag, wherever it was decoded.
+  - **Not at `eeb1c67`.** The box commands below are pinned there, where the refusal still
+    stands: on those jobs, needle pointer scores come only from `--needle-control` and
+    `--score-plan` (in-process, cuda).
 - **GAP-ENSEMBLE-ROW-HAS-NO-PROMOTION-KIND-2026-10-01** (human). Neither `promotion_verdict` nor
   `promotion_verdict_avg` judges an `ens3` row. Read from the code.
 - **GAP-ENS3-SCORING-NAVIGATION-2026-10-01.** DevMap answered for main's index only, and GitPulse
@@ -202,8 +204,9 @@ The command is the same as `1d93b3ee`'s, with the avg-np checkpoint swapped in:
       2>&1 | tee /home/ubuntu/logs/avgnp-score.log
 
 - This writes one `avg-np-score-val` row naming the three ft rows. It is quick like the average.
-- `--suite-logits` is left off: with `--needle` on a single gate row it is refused
-  (GAP-SUITE-LOGITS-NEEDLE-WORKER). The OOD lines carry `row_logits_1/2` regardless.
+- `--suite-logits` is left off: at `eeb1c67`, with `--needle` on a single gate row, it is refused
+  (GAP-SUITE-LOGITS-NEEDLE-WORKER-2026-10-01, closed only after `eeb1c67`). The OOD lines carry
+  `row_logits_1/2` regardless.
 - To get needle pointer scores as well, use a one-kind plan,
   `{"kinds":[{"name":"avgnp","checkpoints":[".../epoch-avgnp-seed012-masters.safetensors"],"seeds":[0,1,2],"passes":["gates"]}]}`,
   with `--suite-logits`. The recipe is identical (pinned by the plan oracle test), but the needle

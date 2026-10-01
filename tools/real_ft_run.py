@@ -172,7 +172,7 @@ from torch import nn
 from qd_data.config import DataConfig
 from qd_data.defect_class import DEFECT_FAMILY_ID
 from qd_data.errors import QdRefusal
-from qd_data.render import DEFAULT_CAPS, render, second_pass_permutation
+from qd_data.render import DEFAULT_CAPS, second_pass_permutation
 from qd_data.rows import DataRow
 from qd_data.schema import NOUL_LETTER
 from qd_train.artifacts import (
@@ -182,6 +182,7 @@ from qd_train.artifacts import (
     SLOT_SPAN,
     SPAN_ABSTAIN,
     Batch,
+    ShardContractViolation,
 )
 from qd_train.calibration_fit import ece_gate, letters_key
 from qd_train.eval_harness import (
@@ -248,6 +249,7 @@ from qd_train.shards import (
     assemble_batch,
     corpus_contradictions,
     encode_slot,
+    rendered_training_texts,
     training_texts,
 )
 from qd_train.trainer import (
@@ -536,12 +538,15 @@ def _labels(rows: list[DataRow], *, config: DataConfig) -> tuple[list[Label], li
             # are ordinal and not shuffled) was consistent, while `code.commit_intent`
             # returned gold 'A' as token 32 for 37 rows and token 33 for 31 others. A
             # per-example alphabet read at the wrong seed is exactly the mislabelling
-            # `answer_letter`'s docstring warns about.
-            rendered = render(row.request, caps=DEFAULT_CAPS, seed=config.seed)
+            # `answer_letter`'s docstring warns about. One render serves both the alphabets
+            # and the sequences: `training_texts` rendering the row a second time returned
+            # the same prompt, at the price of the costliest step of relabelling the phase-4
+            # train split (2026-10-01).
+            rendered, specs = rendered_training_texts(row, seed=config.seed, caps=DEFAULT_CAPS)
             by_name = {slot.name: slot for slot in rendered.slots}
             raw_language = row.metadata.get("language")
             language = raw_language if isinstance(raw_language, str) and raw_language else None
-            for spec in training_texts(row, seed=config.seed, caps=DEFAULT_CAPS):
+            for spec in specs:
                 slot = by_name[spec.slot_name]
                 letters = tuple(slot.letter_to_value)
                 # A span row's gold is a pair of line numbers, not a letter, and
@@ -3349,17 +3354,63 @@ def pair_labels(reader: ShardReader, labels: list[Label], *, require_index: bool
     return paired
 
 
-def open_val_set(
-    out: Path, *, config: DataConfig, rev: str, rows: list[DataRow], train: ShardReader,
-    letter_id: dict[str, int], require_index: bool = False,
-) -> ValSet:
-    """Read, relabel and batch the val shard set, refusing anything that would misscore it.
+@dataclasses.dataclass(frozen=True)
+class TrainRelabel:
+    """The train shard set relabelled from the rebuild: what training needs before a tower."""
 
-    Every refusal is decided here, before a tower loads: a val set written under another
-    remap indexes different embedding rows for the same ids, a relabelling that disagrees
-    with ``supervision.npz`` puts every label on the wrong sequence (``_inventory``), and
-    an option letter no set ever used as a gold has no id to decode it with.
+    labels: list[Label]
+    inventory: dict[str, object]
+    #: ``letter -> post-remap id``: read off the train golds by correspondence, then, with a
+    #: tokenizer.json, every option letter read off its vocabulary and cross-checked.
+    letter_id: dict[str, int]
+
+
+def relabel_train(
+    reader: ShardReader, rows: list[DataRow], *, config: DataConfig, require_index: bool,
+    tokenizer_json: Path | None,
+) -> TrainRelabel:
+    """Relabel, pair, inventory and letter the train split against the train shard set.
+
+    Paired by id against the writer's sequence index where the set has one; see
+    :func:`pair_labels` for why a ``--defect-class`` set must. A ``--general-record`` set
+    must too: the writer that built it records one, and the replay partition moves gold rows
+    within the train split, so a reconstructed order is never what such a set is checked
+    against. Every letter a row OFFERS needs an id to be decoded, not only the letters some
+    row has as its gold: with ``tokenizer_json`` the vocabulary supplies them, cross-checked
+    against the gold ids.
     """
+    labels, excluded = _labels(rows, config=config)
+    labels = pair_labels(reader, labels, require_index=require_index)
+    inventory = _inventory(reader, labels, excluded)
+    inventory["contradictions"] = _contradictions(reader, labels)
+    letter_id = _letter_ids(reader, labels)
+    if tokenizer_json is not None:
+        letter_id = vocab_letter_ids(reader, tokenizer_json=tokenizer_json, letter_id=letter_id)
+    return TrainRelabel(labels=labels, inventory=inventory, letter_id=letter_id)
+
+
+def letters_no_val_gold_confirms(val: ValSet, ood: OodSuite) -> list[str]:
+    """Letters a val or OOD row offers -- so may decode to -- that no val row has as its gold.
+
+    A letter's id comes from the tokenizer's vocabulary, and the vocabulary is trusted only
+    because it agrees with the ids the shard sets carry for the letters that ARE golds:
+    ``merge_letter_ids`` (the val golds) and ``vocab_letter_ids`` (the train golds). Without
+    the train relabel, only the val golds confirm it, so a letter offered and never a val
+    gold would be decoded on the vocabulary's word alone. Empty means every offered letter
+    was confirmed by the val set's own correspondence.
+    """
+    offered = {x for label in val.labels if label.slot_kind != SLOT_SPAN for x in label.letters}
+    if ood.val is not None:
+        offered |= {
+            x for label in ood.val.labels if label.slot_kind != SLOT_SPAN for x in label.letters
+        }
+    return sorted(offered - {label.gold_letter for label in val.labels})
+
+
+def open_val_reader(
+    out: Path, *, config: DataConfig, rev: str, train: ShardReader
+) -> ShardReader:
+    """The val shard set's reader, refused unless it is there and shares ``train``'s remap."""
     val_dir = out / "shards" / "val"
     if not (val_dir / HEADER_NAME).exists():
         raise SystemExit(
@@ -3375,6 +3426,41 @@ def open_val_set(
             f"{train.header.remap_hash[:16]}: the same id would name a different embedding "
             "row in the model being scored"
         )
+    return reader
+
+
+def val_plan(reader: ShardReader, *, config: DataConfig) -> list[Batch]:
+    """The val set's batches, in the one order every scoring of it uses: the widest bucket
+    per batch, the protocol seed, epoch 0."""
+    return list(
+        reader.batches(batch_tokens=int(max(reader.header.buckets)), seed=config.seed, epoch=0)
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class ValPlan:
+    """The val set's batches without its labels: all that sizes a scoring step.
+
+    What the needle worker opens (:func:`needle_worker_main`): it decodes the needle suite it
+    is handed, never a val row, so it reads the val set's shapes and not its golds.
+    """
+
+    reader: ShardReader
+    plan: list[Batch]
+
+
+def open_val_set(
+    out: Path, *, config: DataConfig, rev: str, rows: list[DataRow], train: ShardReader,
+    letter_id: dict[str, int], require_index: bool = False,
+) -> ValSet:
+    """Read, relabel and batch the val shard set, refusing anything that would misscore it.
+
+    Every refusal is decided here, before a tower loads: a val set written under another
+    remap indexes different embedding rows for the same ids, a relabelling that disagrees
+    with ``supervision.npz`` puts every label on the wrong sequence (``_inventory``), and
+    an option letter no set ever used as a gold has no id to decode it with.
+    """
+    reader = open_val_reader(out, config=config, rev=rev, train=train)
     labels, excluded = _labels(rows, config=config)
     labels = pair_labels(reader, labels, require_index=require_index)
     _inventory(reader, labels, excluded)
@@ -3392,9 +3478,7 @@ def open_val_set(
             f"val rows offer letter(s) {unknown} with no known token id (never a gold in "
             "either set, and no tokenizer.json given): those rows will not be decoded"
         )
-    plan = list(
-        reader.batches(batch_tokens=int(max(reader.header.buckets)), seed=config.seed, epoch=0)
-    )
+    plan = val_plan(reader, config=config)
     return ValSet(
         reader=reader,
         labels=labels,
@@ -3996,18 +4080,31 @@ def choice_rule_abstentions(
     return out
 
 
+#: Tokenizers :func:`_matching_tokenizer` loaded, by the hash they were checked against. The
+#: needle and OOD suites each asked for one: two loads, 7.9 s under cProfile (2026-10-01).
+_LOADED_TOKENIZERS: dict[str, Any] = {}
+
+
 def _matching_tokenizer(reader: ShardReader, *, what: str) -> Any:
-    """The pipeline's tokenizer, refused unless it hashes to the one ``reader`` was built with."""
+    """The pipeline's tokenizer, refused unless it hashes to the one ``reader`` was built with.
+
+    Loaded once per process and per hash: it is stateless at ``memo_limit=0``, so a second
+    load could only return the first's tokenizer.
+    """
     import real_tokenizer_pipeline as pipeline
 
     if reader.remap is None:
         raise SystemExit(f"{reader.root}: no remap table beside the shards")
-    tok = pipeline.RealTokenizer.load(memo_limit=0)
-    if tok.hash() != reader.header.tokenizer_hash:
-        raise SystemExit(
-            f"the tokenizer loaded for {what} hashes to {tok.hash()[:16]}, not the "
-            f"val set's {reader.header.tokenizer_hash[:16]}: its ids would not be this model's"
-        )
+    want = reader.header.tokenizer_hash
+    tok = _LOADED_TOKENIZERS.get(want)
+    if tok is None:
+        tok = pipeline.RealTokenizer.load(memo_limit=0)
+        if tok.hash() != want:
+            raise SystemExit(
+                f"the tokenizer loaded for {what} hashes to {tok.hash()[:16]}, not the "
+                f"val set's {want[:16]}: its ids would not be this model's"
+            )
+        _LOADED_TOKENIZERS[want] = tok
     return tok
 
 
@@ -4140,13 +4237,9 @@ def prepare_needle(
         labels_for[i] = [label]
         lengths.append(int(encoded.ids.size))
     width = -(-max(lengths) // NEEDLE_WIDTH_MULTIPLE) * NEEDLE_WIDTH_MULTIPLE
-    digest = hashlib.sha256()
-    for case, batch in zip(cases, batches, strict=True):
-        digest.update(case.case_id.encode("utf-8"))
-        digest.update(batch.tokens[0, : int(batch.lengths[0])].astype(np.int64).tobytes())
     return NeedleSuite(
         cases, [_repad(b, width) for b in batches], labels_for, lengths, seed=config.seed,
-        digest=digest.hexdigest(),
+        digest=needle_suite_digest(cases, batches),
     )
 
 
@@ -4247,11 +4340,22 @@ def score_needle(
 
     ``decoded`` is a worker process's (``--needle-predictions-out``); without it the suite
     is decoded here, with ``step`` (and ``logits`` as :func:`needle_predictions` takes it).
+    Under ``logits`` every verdict must carry :data:`SUITE_LOGIT_KEYS`, wherever it was
+    decoded: a line without them would read the same as one never asked for scores.
     """
     if suite.not_run is not None:
         return NotRun(reason=suite.not_run), {}, ()
     if decoded is None:
         decoded = needle_predictions(step, suite, letter_id, logits=logits)
+    if logits:
+        for v in decoded.verdicts:
+            missing = [k for k in SUITE_LOGIT_KEYS if k not in v]
+            if missing:
+                raise SystemExit(
+                    f"needle verdict {v.get('case_id')} lacks {', '.join(missing)} under "
+                    "--suite-logits: the decode was asked for the pointer scores and returned "
+                    "none, so its suite lines would read as a run that never asked"
+                )
     predictions = decoded.predictions
     report, gate = score_suite(suite.cases, dict(predictions), min_recall=NEEDLE_MIN_RECALL)
     metrics: dict[str, TriState] = {}
@@ -4280,23 +4384,230 @@ def score_needle(
 NEEDLE_WORKER_TIMEOUT_S: Final[float] = 2 * 3600.0
 
 
-def run_needle_worker(argv: Sequence[str], suite: NeedleSuite) -> NeedleDecoded:
+#: What the scoring process hands its needle worker (:func:`write_needle_handoff`). A reader
+#: refuses any other value, so a change to what is written is a new format, never a quiet
+#: reinterpretation of the old one.
+NEEDLE_HANDOFF_FORMAT: Final[str] = "qd-needle-handoff/1"
+#: Every field of a :class:`Batch`, in the order :func:`batches_digest` hashes them.
+_BATCH_ARRAYS: Final[tuple[str, ...]] = (
+    "tokens", "lengths", "slot_kind", "target_index", "span_target", "line_starts",
+)
+
+
+def batches_digest(batches: Sequence[Batch]) -> str:
+    """sha256 over every array and integer of every batch, dtypes and shapes included.
+
+    Wider than :class:`NeedleSuite`'s ``digest`` (case ids and unpadded tokens): this covers
+    everything ``_decode`` reads -- the padding, the slot kind, the target index, the span
+    gold and the candidate mask -- so a round trip through a file that changed any of them,
+    even only a dtype, does not hash the same.
+    """
+    digest = hashlib.sha256()
+    for batch in batches:
+        digest.update(f"batch {int(batch.bucket)} {int(batch.index)}\n".encode())
+        for name in _BATCH_ARRAYS:
+            array = getattr(batch, name)
+            if array is None:
+                digest.update(f"{name} none\n".encode())
+                continue
+            array = np.ascontiguousarray(array)
+            digest.update(f"{name} {array.dtype.str} {array.shape}\n".encode())
+            digest.update(array.tobytes())
+    return digest.hexdigest()
+
+
+def needle_suite_digest(cases: Sequence[NeedleCase], batches: Sequence[Batch]) -> str:
+    """:class:`NeedleSuite`'s ``digest``: sha256 over every case id and its unpadded ids."""
+    digest = hashlib.sha256()
+    for case, batch in zip(cases, batches, strict=True):
+        digest.update(case.case_id.encode("utf-8"))
+        digest.update(batch.tokens[0, : int(batch.lengths[0])].astype(np.int64).tobytes())
+    return digest.hexdigest()
+
+
+def _plan_shapes_digest(plan: Sequence[Batch]) -> str:
+    """sha256 over the plan's ``(rows, width)`` per batch, in order: what sizes a step."""
+    shapes = [[int(b.tokens.shape[0]), int(b.tokens.shape[1])] for b in plan]
+    return hashlib.sha256(json.dumps(shapes).encode("utf-8")).hexdigest()
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class NeedleHandoff:
+    """What the needle worker decodes, as the scoring process built and checked it."""
+
+    suite: NeedleSuite
+    letter_id: dict[str, int]
+    eval_widths: list[int]
+
+
+def write_needle_handoff(
+    path: Path, suite: NeedleSuite, *, letter_id: Mapping[str, int],
+    eval_widths: Sequence[int], train: ShardReader, val: ValSet,
+) -> None:
+    """The built needle suite, and what the worker's step is sized by, as one ``.npz``.
+
+    The worker used to rebuild all of it from argv -- the corpus rebuild, the train and val
+    relabels, the second pass, the needle and OOD suites -- a second full prelude, at 100% of
+    one core with the GPU idle (~5 minutes on the GH200 for J7g, 2026-10-01), to decode a
+    suite this process had already built and checked. Now it reads this file instead.
+
+    Written with ``allow_pickle`` off: every batch field as a stacked array (one row per case,
+    one padded width), the cases and their labels as JSON. Recorded beside them: the suite's
+    own ``digest``, :func:`batches_digest` over the batches as built, the train and val shard
+    hashes and the val plan's shapes -- every one of which the worker re-derives and must
+    match before it decodes anything.
+    """
+    if suite.not_run is not None or not suite.cases:
+        raise SystemExit(f"no needle suite to hand over: {suite.not_run or 'it is empty'}")
+    batches = suite.batches
+    widths = {int(b.tokens.shape[1]) for b in batches}
+    if len(batches) != len(suite.cases) or len(widths) != 1 or any(
+        int(b.tokens.shape[0]) != 1 for b in batches
+    ):
+        raise SystemExit(
+            "the needle suite is not one single-row batch per case at one padded width; "
+            "it cannot be handed over as stacked arrays"
+        )
+    present = {name: [getattr(b, name) is not None for b in batches] for name in _BATCH_ARRAYS}
+    if any(len(set(flags)) != 1 for flags in present.values()):
+        raise SystemExit("needle batches disagree about which supervision fields they carry")
+    arrays: dict[str, np.ndarray] = {
+        name: np.concatenate([np.ascontiguousarray(getattr(b, name)) for b in batches])
+        for name, flags in present.items() if flags[0]
+    }
+    labels = [suite.labels_for[i] for i in range(len(suite.cases))]
+    meta = {
+        "format": NEEDLE_HANDOFF_FORMAT,
+        "cases": [dataclasses.asdict(c) for c in suite.cases],
+        "labels": [[dataclasses.asdict(x) for x in group] for group in labels],
+        "token_lengths": [int(n) for n in suite.token_lengths],
+        "seed": int(suite.seed),
+        "digest": suite.digest,
+        "batches_digest": batches_digest(batches),
+        "buckets": [int(b.bucket) for b in batches],
+        "indices": [int(b.index) for b in batches],
+        "letter_id": [[letter, int(i)] for letter, i in letter_id.items()],
+        "eval_widths": [int(w) for w in eval_widths],
+        "train_shard_hash": train.header.shard_hash(),
+        "val_shard_hash": val.reader.header.shard_hash(),
+        "val_plan_shapes": _plan_shapes_digest(val.plan),
+    }
+    arrays["meta"] = np.frombuffer(json.dumps(meta).encode("utf-8"), dtype=np.uint8)
+    with path.open("xb") as fh:
+        np.savez(fh, **arrays)  # type: ignore[arg-type]
+
+
+def read_needle_handoff(
+    path: Path, *, train: ShardReader, val: ValPlan, seed: int
+) -> NeedleHandoff:
+    """:func:`write_needle_handoff`'s file, refused unless everything it records re-derives.
+
+    Re-derived here, from what was read: the suite ``digest`` and :func:`batches_digest`
+    (so the batches decoded are, array for array, the ones the scoring process built), the
+    train and val shard hashes from this process's own readers, the val plan's shapes from
+    this process's own plan, and the seed. What is NOT re-run is the suite's construction and
+    its per-case checks (one candidate per context line, the gold in the needle hunk): they
+    ran once, in the scoring process, before this file was written, which is all they were
+    ever for. The digest check is therefore a round-trip check of the parent's suite, no
+    longer an independent rebuild of it -- and the parent still refuses predictions whose
+    digest is not its own suite's.
+    """
+    try:
+        with np.load(path, allow_pickle=False) as z:
+            arrays = {name: z[name] for name in z.files}
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"needle handoff {path}: unreadable: {exc}") from exc
+    if "meta" not in arrays:
+        raise SystemExit(f"needle handoff {path}: no meta record")
+    meta = json.loads(arrays.pop("meta").tobytes().decode("utf-8"))
+    if meta.get("format") != NEEDLE_HANDOFF_FORMAT:
+        raise SystemExit(
+            f"needle handoff {path}: format {meta.get('format')!r}, not {NEEDLE_HANDOFF_FORMAT!r}"
+        )
+    pinned = {
+        "train shard hash": (meta["train_shard_hash"], train.header.shard_hash()),
+        "val shard hash": (meta["val_shard_hash"], val.reader.header.shard_hash()),
+        "val plan shapes": (meta["val_plan_shapes"], _plan_shapes_digest(val.plan)),
+        "suite seed": (meta["seed"], seed),
+    }
+    wrong = {k: v for k, v in pinned.items() if v[0] != v[1]}
+    if wrong:
+        raise SystemExit(
+            f"needle handoff {path} was written for another run: "
+            + "; ".join(f"{k}: handoff {a!r}, here {b!r}" for k, (a, b) in wrong.items())
+        )
+    cases = [NeedleCase(**c) for c in meta["cases"]]
+    n = len(cases)
+    if set(arrays) - set(_BATCH_ARRAYS) or any(a.shape[0] != n for a in arrays.values()):
+        raise SystemExit(f"needle handoff {path}: arrays {sorted(arrays)} are not one row per case")
+    if not (len(meta["labels"]) == len(meta["buckets"]) == len(meta["indices"])
+            == len(meta["token_lengths"]) == n):
+        raise SystemExit(f"needle handoff {path}: its records do not count {n} cases each")
+    try:
+        batches = [
+            Batch(
+                **{name: (arrays[name][i : i + 1] if name in arrays else None)
+                   for name in _BATCH_ARRAYS},
+                bucket=int(meta["buckets"][i]), index=int(meta["indices"][i]),
+            )
+            for i in range(n)
+        ]
+    except ShardContractViolation as exc:
+        raise SystemExit(f"needle handoff {path}: a case is not a valid batch: {exc}") from exc
+    labels_for = {
+        i: [Label(**{**x, "letters": tuple(x["letters"])}) for x in group]
+        for i, group in enumerate(meta["labels"])
+    }
+    for what, recorded, found in (
+        ("suite digest", meta["digest"], needle_suite_digest(cases, batches)),
+        ("batches digest", meta["batches_digest"], batches_digest(batches)),
+    ):
+        if recorded != found:
+            raise SystemExit(
+                f"needle handoff {path}: its {what} is {str(recorded)[:16]} but what it holds "
+                f"hashes to {found[:16]}; it was not read back as written"
+            )
+    suite = NeedleSuite(
+        cases, batches, labels_for, [int(x) for x in meta["token_lengths"]],
+        seed=int(meta["seed"]), digest=str(meta["digest"]),
+    )
+    return NeedleHandoff(
+        suite=suite,
+        letter_id={str(letter): int(i) for letter, i in meta["letter_id"]},
+        eval_widths=[int(w) for w in meta["eval_widths"]],
+    )
+
+
+def run_needle_worker(
+    argv: Sequence[str], suite: NeedleSuite, *, letter_id: Mapping[str, int],
+    eval_widths: Sequence[int], train: ShardReader, val: ValSet,
+) -> NeedleDecoded:
     """Score the needle suite in a fresh process and return its per-case predictions.
 
     A separate process because MPS keeps a compiled graph per distinct input shape that
     ``torch.mps.empty_cache`` does not release: on 2026-09-30 the val pass left 37.56 GiB of
     such allocations, and the needle pass after it ran out of memory twice (48 GiB cap on
     a 64 GiB Mac), though alone it holds ~18.8 GiB. A process that exits returns all of
-    it. The worker rebuilds the suite from the same argv, and its predictions are refused
-    unless its suite's digest is this one's -- same cases, same ids, byte for byte.
+    it. The worker is handed the suite this process built (:func:`write_needle_handoff`)
+    rather than rebuilding it from argv, and its predictions are refused unless they carry
+    this suite's digest -- same cases, same ids, byte for byte.
     """
     import tempfile
 
     with tempfile.TemporaryDirectory(prefix="qd-needle-worker-") as tmp:
         out = Path(tmp) / "predictions.json"
+        handoff = Path(tmp) / "needle-handoff.npz"
+        write_needle_handoff(
+            handoff, suite, letter_id=letter_id, eval_widths=eval_widths, train=train, val=val,
+        )
         cmd = [sys.executable, str(Path(__file__).resolve()), *argv,
-               "--needle-predictions-out", str(out)]
-        print(f"needle worker: starting {len(suite.cases)} cases in a fresh process", flush=True)
+               "--needle-handoff", str(handoff), "--needle-predictions-out", str(out)]
+        print(
+            f"needle worker: starting {len(suite.cases)} cases in a fresh process, handed the "
+            f"suite this process built ({handoff.stat().st_size} bytes, digest "
+            f"{suite.digest[:16]})",
+            flush=True,
+        )
         try:
             done = subprocess.run(cmd, timeout=NEEDLE_WORKER_TIMEOUT_S, check=False)
         except subprocess.TimeoutExpired as exc:
@@ -4333,6 +4644,49 @@ def run_needle_worker(argv: Sequence[str], suite: NeedleSuite) -> NeedleDecoded:
                 f"and its prediction {predictions[str(v['case_id'])]!r}"
             )
     return NeedleDecoded(dict(predictions), tuple(verdicts))
+
+
+def needle_worker_main(
+    args: argparse.Namespace, *, reader: ShardReader, config: DataConfig, rev: str
+) -> int:
+    """The ``--needle`` worker: decode the handed-over suite and write its predictions.
+
+    Reads only what the decode needs: the train shard set (its remap and shard hash, for the
+    checkpoint's pairing with its ft rows), the val set's batch plan (the shapes the step is
+    sized by -- its labels are never read), and the handoff (:func:`read_needle_handoff`).
+    The corpus rebuild, both relabels, the second pass and both suites are not repeated: the
+    scoring process ran them, with every check they carry, before it wrote the handoff.
+    """
+    if args.devices is None or len(args.devices) != 1:  # main refuses this at argv time
+        raise SystemExit("the needle worker runs on exactly one --devices entry")
+    val_reader = open_val_reader(args.out, config=config, rev=rev, train=reader)
+    plan = ValPlan(val_reader, val_plan(val_reader, config=config))
+    handoff = read_needle_handoff(args.needle_handoff, train=reader, val=plan, seed=config.seed)
+    print(
+        f"needle worker: {len(handoff.suite.cases)} cases read from the scoring process's "
+        f"handoff (digest {handoff.suite.digest[:16]}, re-derived from what was read); the "
+        "corpus rebuild, the relabels and the suite construction were NOT repeated here -- "
+        "the scoring process ran them and their checks before handing the suite over",
+        flush=True,
+    )
+    worker_step, *_ = _checkpoint_step(
+        args, reader=reader, val=plan, device=args.devices[0],
+        eval_widths=handoff.eval_widths, suite_seed=config.seed,
+    )
+    # --suite-logits rides in on the scoring process's own argv; the scores go back in the
+    # verdicts, and score_needle refuses a verdict without them under the flag.
+    decoded = needle_predictions(
+        worker_step, handoff.suite, handoff.letter_id, logits=args.suite_logits
+    )
+    args.needle_predictions_out.write_text(
+        json.dumps({
+            "digest": handoff.suite.digest, "predictions": decoded.predictions,
+            "verdicts": list(decoded.verdicts),
+        }),
+        encoding="utf-8",
+    )
+    print(f"needle worker: {len(decoded.predictions)} predictions -> {args.needle_predictions_out}")
+    return 0
 
 
 def needle_recipe(suite: NeedleSuite) -> dict[str, object]:
@@ -5217,7 +5571,7 @@ LoadedModel = tuple[Any, dict[str, Any], dict[str, Any], int, dict[str, Any]]
 
 
 def _checkpoint_step(
-    args: argparse.Namespace, *, reader: ShardReader, val: ValSet, device: str,
+    args: argparse.Namespace, *, reader: ShardReader, val: ValSet | ValPlan, device: str,
     eval_widths: Sequence[int], suite_seed: int,
 ) -> LoadedModel:
     """``--score-checkpoint``'s weights in a step, every pairing checked before they load.
@@ -5230,12 +5584,14 @@ def _checkpoint_step(
     ``seed`` is the eval row's protocol seed: the checkpoint's own for one seed's, and
     ``suite_seed`` -- the protocol seed every suite is built at -- for an average or an
     ensemble, which is no one seed's model. ``meta['optimizer_step']`` is the schedule the
-    step is built for.
+    step is built for. ``val`` is read for its plan alone, the batch shapes the step is sized
+    by, so the needle worker passes a :class:`ValPlan` and the scoring process its
+    :class:`ValSet`.
 
     A logit ensemble (several ``--score-checkpoint`` files) returns a :class:`TowerEnsemble`
     of one step per tower: every tower is paired with its ft row and every body checked
     (:func:`_ensemble_inputs`) before any tensor is read, then each tower's weights are read,
-    loaded and dropped in turn. Only ``val.plan`` is read here, never the val labels.
+    loaded and dropped in turn.
     """
     from qd_train.run_control import Checkpoint
 
@@ -5274,7 +5630,7 @@ def _checkpoint_step(
 
 
 def _scoring_step(
-    args: argparse.Namespace, *, reader: ShardReader, val: ValSet, device: str,
+    args: argparse.Namespace, *, reader: ShardReader, val: ValSet | ValPlan, device: str,
     recipe: Mapping[str, Any], seed: int, optimizer_step: int, eval_widths: Sequence[int],
 ) -> Any:
     """The step a scored checkpoint's weights load into: the ft row's recipe, built at
@@ -6611,12 +6967,12 @@ def _check_score_checkpoint_flags(args: argparse.Namespace) -> None:
 def _check_suite_logits_flags(args: argparse.Namespace) -> None:
     """``--suite-logits`` is refused wherever it would write nothing or be dropped.
 
-    It is read by the checkpoint scorer's in-process needle decodes -- ``--needle-control``
-    and a ``--score-plan`` gate pass -- and nowhere else: a single ``--score-checkpoint``
-    gate row's needle suite is decoded by the worker process (:func:`run_needle_worker`),
-    whose verdicts carry no pointer scores, so with ``--needle`` there the flag would be
-    accepted and silently lost (GAP-SUITE-LOGITS-NEEDLE-WORKER-2026-10-01). The OOD suite's
-    lines carry both passes' letter rows with or without it.
+    It is read by every needle decode of a scored checkpoint: in-process for
+    ``--needle-control`` and a ``--score-plan`` gate pass, and in the worker process
+    (:func:`needle_worker_main`) for a single ``--score-checkpoint`` gate row, which gets
+    the flag on the scoring process's own argv and hands the scores back in its verdicts
+    (:func:`score_needle` refuses one without them). The OOD suite's lines carry both
+    passes' letter rows with or without it.
     """
     if not args.suite_logits:
         return
@@ -6629,12 +6985,6 @@ def _check_suite_logits_flags(args: argparse.Namespace) -> None:
         raise SystemExit(
             "--suite-logits adds scores to the --suite-verdicts-out lines; without that file "
             "they would be decoded and dropped"
-        )
-    if args.needle and args.needle_control is None and args.score_plan is None:
-        raise SystemExit(
-            "--suite-logits with --needle: the gate row's needle suite is decoded by the "
-            "needle worker process, whose verdicts carry no pointer scores, so the flag would "
-            "be dropped. Pass it with --needle-control, --score-plan or with --ood alone"
         )
 
 
@@ -7299,6 +7649,14 @@ def main(argv: list[str] | None = None) -> int:
             "scoring process starts this itself, in a fresh process (see run_needle_worker)"
         ),
     )
+    parser.add_argument(
+        "--needle-handoff", type=Path, default=None,
+        help=(
+            "internal, with --needle-predictions-out: the needle suite the scoring process "
+            "built, which the worker decodes instead of rebuilding the corpus and the suite "
+            "(see write_needle_handoff)"
+        ),
+    )
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER_PATH)
     parser.add_argument(
         "--optimizer",
@@ -7670,6 +8028,11 @@ def main(argv: list[str] | None = None) -> int:
         args.needle and args.score_checkpoint is not None
     ):
         raise SystemExit("--needle-predictions-out is the --needle worker of --score-checkpoint")
+    if (args.needle_handoff is None) != (args.needle_predictions_out is None):
+        raise SystemExit(
+            "--needle-handoff and --needle-predictions-out are the needle worker's two ends and "
+            "are given together: the worker decodes only a suite the scoring process handed it"
+        )
     if args.needle and not (args.score_val and args.real_backbone is not None):
         raise SystemExit(
             "--needle scores the model the val pass scores and encodes with the real "
@@ -7788,6 +8151,10 @@ def main(argv: list[str] | None = None) -> int:
     # exist without changing how many would have paired every label with the wrong
     # sequence and said nothing.
     reader = ShardReader(shard_dir, config=config, repo_root=args.out, expect_rev=rev)
+    if args.needle_predictions_out is not None:
+        # The --needle worker decodes the suite its scoring process handed it; everything
+        # below builds what that process already built.
+        return needle_worker_main(args, reader=reader, config=config, rev=rev)
 
     check_defect_source(args.out, defect_class=args.defect_class)
     # Before the rebuild, which on the full defect corpus is minutes of work: what the
@@ -7806,23 +8173,24 @@ def main(argv: list[str] | None = None) -> int:
         general_record=args.general_record, general_max_rows=args.general_max_rows,
         replay_partition=args.replay_partition, defect_noul=args.defect_noul,
     )
-    labels, excluded = _labels(train_rows, config=config)
-    # Paired by id against the writer's sequence index where the set has one; see
-    # pair_labels for why a --defect-class set must. A --general-record set must too: the
-    # writer that built it records one, and the replay partition moves gold rows within
-    # the train split, so a reconstructed order is never what this set is checked against.
     require_index = args.defect_class is not None or args.general_record is not None
-    labels = pair_labels(reader, labels, require_index=require_index)
-
-    inventory = _inventory(reader, labels, excluded)
-    inventory["contradictions"] = _contradictions(reader, labels)
-    letter_id = _letter_ids(reader, labels)
-    # Every letter a row OFFERS needs an id to be decoded, not only the letters some row
-    # has as its gold. The vocabulary supplies them, cross-checked against the gold ids.
-    if args.tokenizer_json is not None:
-        letter_id = vocab_letter_ids(
-            reader, tokenizer_json=args.tokenizer_json, letter_id=letter_id
+    # --score-checkpoint trains nothing, and the train split's labels, inventory,
+    # contradictions and epoch plan feed no row it writes: on the phase-4 set they were ~37 s
+    # of a 143 s Mac prelude (one unprofiled run, 2026-10-01), paid with the GPU idle; see
+    # AUDIT/perf-ft-run-prep-2026-10-01.md for the interleaved A/B. What they did for scoring
+    # was confirm the tokenizer's letter ids against the train golds; the val golds confirm
+    # them too (open_val_set's merge_letter_ids), and where some offered letter is a gold
+    # nowhere in val, the train relabel still runs (below) -- so it is skipped only with a
+    # tokenizer.json to read every letter from, and only when nothing rests on it.
+    train_side: TrainRelabel | None = None
+    if args.score_checkpoint is None or args.tokenizer_json is None:
+        train_side = relabel_train(
+            reader, train_rows, config=config, require_index=require_index,
+            tokenizer_json=args.tokenizer_json,
         )
+        letter_id = train_side.letter_id
+    else:
+        letter_id = vocab_letter_ids(reader, tokenizer_json=args.tokenizer_json, letter_id={})
     # Opened before any tower loads, so every way it could misscore is refused on argv's
     # time rather than after an epoch has been paid for.
     val_set: ValSet | None = None
@@ -7868,50 +8236,95 @@ def main(argv: list[str] | None = None) -> int:
             "deranged for the second pass"
             if ood_suite.not_run is None else f"OOD suite: not run -- {ood_suite.not_run}"
         )
+    train_skipped: str | None = None
+    if train_side is None:
+        if val_set is None:  # --score-checkpoint is refused at argv time without --score-val
+            raise SystemExit("--score-checkpoint needs --score-val's val set")
+        unconfirmed = letters_no_val_gold_confirms(val_set, ood_suite)
+        if unconfirmed:
+            print(
+                f"train relabel: run after all -- val or OOD rows offer letter(s) {unconfirmed} "
+                "that no val row has as its gold, so their ids are confirmed against the "
+                "train golds, as before --score-checkpoint skipped them"
+            )
+            train_side = relabel_train(
+                reader, train_rows, config=config, require_index=require_index,
+                tokenizer_json=args.tokenizer_json,
+            )
+            if train_side.letter_id != letter_id:
+                raise SystemExit(
+                    f"the train relabel reads letter ids {train_side.letter_id} and the "
+                    f"vocabulary {letter_id}; one of them is not this shard set's"
+                )
+        else:
+            train_skipped = (
+                "--score-checkpoint trains nothing and no row it writes reads the train "
+                "split's labels, inventory or contradictions; every letter a val or OOD row "
+                f"offers was confirmed against the val golds, and the ids come from "
+                f"{args.tokenizer_json}"
+            )
     batch_tokens, recipe_batch_tokens = _resolve_batch_tokens(
         args.batch_tokens, widest=int(max(reader.header.buckets))
     )
-    batch_info = _batch_inventory(reader, batch_tokens=batch_tokens, seed=config.seed)
+    batch_info = (
+        None if args.score_checkpoint is not None
+        else _batch_inventory(reader, batch_tokens=batch_tokens, seed=config.seed)
+    )
 
     print(f"shard set: {shard_dir}")
-    print(
-        f"  rows in -> out: {inventory['coverage']['n_total']} -> {inventory['coverage']['n']}"
-        f"  ({inventory['excluded_rows']} excluded)  tokens {inventory['tokens']}"
-        f"  vocab {inventory['vocab_size']}"
-    )
-    for name, entry in inventory["per_kind"].items():  # type: ignore[union-attr]
+    if train_side is None:
+        print(f"  train relabel, per-kind inventory and contradictions: NOT RUN -- {train_skipped}")
+    else:
+        inventory = train_side.inventory
         print(
-            f"  {name:7s} n={entry['n']:4d}  len {entry['len_min']}..{entry['len_max']} "
-            f"(mean {entry['len_mean']})  gold is noul: {entry['gold_is_noul']}"
-            + (
-                f"  pointer-abstaining {entry['pointer_abstaining']}/{entry['n']}, "
-                f"candidates {entry['candidates_total']}"
-                if name == "span"
-                else f"  rendered rows {entry['row_widths']}"
-            )
+            f"  rows in -> out: {inventory['coverage']['n_total']} -> "  # type: ignore[index]
+            f"{inventory['coverage']['n']}"  # type: ignore[index]
+            f"  ({inventory['excluded_rows']} excluded)  tokens {inventory['tokens']}"
+            f"  vocab {inventory['vocab_size']}"
         )
-    print(
-        f"  letter rows whose gold is noul: "
-        f"{inventory['letter_rows_whose_gold_is_noul']} of {inventory['letter_rows']}"
-    )
+        for name, entry in inventory["per_kind"].items():  # type: ignore[union-attr]
+            print(
+                f"  {name:7s} n={entry['n']:4d}  len {entry['len_min']}..{entry['len_max']} "
+                f"(mean {entry['len_mean']})  gold is noul: {entry['gold_is_noul']}"
+                + (
+                    f"  pointer-abstaining {entry['pointer_abstaining']}/{entry['n']}, "
+                    f"candidates {entry['candidates_total']}"
+                    if name == "span"
+                    else f"  rendered rows {entry['row_widths']}"
+                )
+            )
+        print(
+            f"  letter rows whose gold is noul: "
+            f"{inventory['letter_rows_whose_gold_is_noul']} of {inventory['letter_rows']}"
+        )
+        contra = inventory["contradictions"]
+        print(
+            f"  prompt-identical rows: {contra['rows_sharing_a_prefix']} of {contra['sequences']};"  # type: ignore[index]
+            f" of those, {contra['contradicting_rows']} rows in "  # type: ignore[index]
+            f"{contra['contradicting_groups']} groups carry DIFFERENT golds "  # type: ignore[index]
+            f"({contra['per_kind']})"  # type: ignore[index]
+        )
     print(f"  letters -> post-remap ids: {letter_id}")
-    contra = inventory["contradictions"]
+    # Read off the reader, which checked them when it opened the set, whichever branch ran.
+    print(f"  padding waste: {reader.padding_waste().to_json()['detail']}")
+    print(f"  span_check: {json.dumps(reader.span_check.to_json())[:180]}")
     print(
-        f"  prompt-identical rows: {contra['rows_sharing_a_prefix']} of {contra['sequences']};"  # type: ignore[index]
-        f" of those, {contra['contradicting_rows']} rows in "  # type: ignore[index]
-        f"{contra['contradicting_groups']} groups carry DIFFERENT golds "  # type: ignore[index]
-        f"({contra['per_kind']})"  # type: ignore[index]
+        "  remap beside the shards: "
+        f"{json.dumps(reader.checks['shard_remap_matches_header'].to_json())[:180]}"
     )
-    print(f"  padding waste: {inventory['padding_waste']['detail']}")
-    print(f"  span_check: {json.dumps(inventory['span_check'])[:180]}")
-    print(f"  remap beside the shards: {json.dumps(inventory['remap_check'])[:180]}")
-    print(
-        f"  epoch at batch_tokens={batch_tokens}: {batch_info['batches']} batches, "
-        f"{batch_info['batches_with_a_span_row']} carry a span row, "
-        f"{batch_info['batches_span_only']} have no letter row; letter-channel chunks "
-        f"{batch_info['letter_channel_live_chunks']} live of "
-        f"{batch_info['letter_channel_total_chunks']}"
-    )
+    if batch_info is None:
+        print(
+            f"  epoch at batch_tokens={batch_tokens}: NOT RUN -- --score-checkpoint trains "
+            "nothing, so no epoch is planned and no device is probed"
+        )
+    else:
+        print(
+            f"  epoch at batch_tokens={batch_tokens}: {batch_info['batches']} batches, "
+            f"{batch_info['batches_with_a_span_row']} carry a span row, "
+            f"{batch_info['batches_span_only']} have no letter row; letter-channel chunks "
+            f"{batch_info['letter_channel_live_chunks']} live of "
+            f"{batch_info['letter_channel_total_chunks']}"
+        )
 
     if args.devices:
         devices = list(args.devices)
@@ -7951,26 +8364,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.score_checkpoint is not None:
         if val_set is None:
             raise SystemExit("--score-checkpoint needs --score-val's val set")
-        if args.needle_predictions_out is not None:
-            # The needle worker: decode the suite in this fresh process and hand the
-            # predictions back. No ledger row; the parent records one row with every gate.
-            worker_step, *_ = _checkpoint_step(
-                args, reader=reader, val=val_set, device=devices[0],
-                eval_widths=suite_widths(needle_suite, ood_suite), suite_seed=config.seed,
-            )
-            decoded = needle_predictions(worker_step, needle_suite, val_set.letter_id)
-            args.needle_predictions_out.write_text(
-                json.dumps({
-                    "digest": needle_suite.digest, "predictions": decoded.predictions,
-                    "verdicts": list(decoded.verdicts),
-                }),
-                encoding="utf-8",
-            )
-            print(
-                f"needle worker: {len(decoded.predictions)} predictions -> "
-                f"{args.needle_predictions_out}"
-            )
-            return 0
         if args.needle_control is not None:
             control_row_id, control_lines, control_seed = run_needle_control(
                 args, reader=reader, val=val_set, device=devices[0], ledger=Ledger(args.ledger),
@@ -7992,7 +8385,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"needle control row {control_row_id}")
             return 0
         worker_decoded = (
-            run_needle_worker(raw_argv, needle_suite)
+            run_needle_worker(
+                raw_argv, needle_suite, letter_id=val_set.letter_id,
+                eval_widths=suite_widths(needle_suite, ood_suite), train=reader, val=val_set,
+            )
             if needle_suite.not_run is None else None
         )
 
@@ -8031,6 +8427,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"suite verdicts: {len(suite_lines)} lines -> {args.suite_verdicts_out}")
         print(f"score row {score_row_id}")
         return 0
+
+    # Only --score-checkpoint, which returned above, skips the train relabel and the plan.
+    if train_side is None or batch_info is None:
+        raise RuntimeError("training reached without the train relabel or the epoch plan")
+    labels, inventory = train_side.labels, train_side.inventory
 
     # Which device can take which bucket, measured out of process. The probe builds the
     # STAND-IN block, not the real tower, so it answers "can this device take this shape"
