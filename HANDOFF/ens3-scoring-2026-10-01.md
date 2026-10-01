@@ -1,7 +1,7 @@
 # HANDOFF: ens3-scoring (Fable I / I-2), 2026-10-01
 
 Lane worktree `agent-a49d73cb7bb3e7dad`, branch `worktree-agent-a49d73cb7bb3e7dad`. It merged main
-`b5575cc` cleanly as `b9e4a1c`. **Run the box commands from `eeb1c67`, not the branch tip** (see
+`b5575cc` cleanly as `b9e4a1c`, and main `f45a646` (prep-perf) as `9238456`. **Run the box commands from `eeb1c67`, not the branch tip** (see
 "Open").
 
 ## What was measured
@@ -42,6 +42,7 @@ Lane worktree `agent-a49d73cb7bb3e7dad`, branch `worktree-agent-a49d73cb7bb3e7da
 | `eeb1c67` | `campaign/fable-i-ood-diag-plan-2026-10-01.json` (the box plan), `AUDIT/.../noul_rank.py` (throwaway analysis) and its J4/J7g output | the committed plan passes every argv check with the box argv |
 | `b9e4a1c` | merge of main `b5575cc` | 450 passed, 1 skipped on the merged tree |
 | `6c24076` | `qd_train/composed_slice.py`, the report-only slice's scoring core (conditions 6 and 8). `needle.depth_bucket_label` is now the one bucket rule. | `test_composed_slice.py`: 20 (the module is new). Swapping condition 8's `all` for `any` fails 2. |
+| `9238456` | merge of main `f45a646` (prep-perf: the needle worker reads the scoring process's suite from an `.npz` handoff). Closes GAP-SUITE-LOGITS-NEEDLE-WORKER-2026-10-01: `needle_worker_main` decodes with `logits=args.suite_logits`, the `--needle` refusal is gone, and `score_needle` refuses a needle verdict without `start_logits`/`end_logits` under the flag. | 5 fail on the pre-fix merged tree (`test_real_ft_suite_logits.py`: the worker test, the refusal test, 2 accepted-argv cases; `test_needle_handoff.py`: the worker stub). Affected set after: 693 passed, 3 skipped, 1 failed (`test_gaps_writer`: asserts the repo dir name, which in a worktree is `agent-a49d73cb7bb3e7dad`) |
 
 - **Size:** +4131 / −265 lines over 14 files (`90e7586..eeb1c67`).
 - **Ruff:** clean.
