@@ -17,26 +17,20 @@ use crate::layout::{Layout, SPAN_PREFIX, TEXT_PREFIX, TOWER_PREFIX};
 use crate::refusal::{Refusal, RefusalKind, Result};
 use crate::safetensors::{sha256_file, Dtype, PlannedTensor, SafeTensorsFile, TensorInfo, Writer, CHUNK_BYTES};
 
-/// The release's file names. The first three are what the loader opens
-/// (`qd-metal/src/config.rs:88`, `model.rs:896`, `backend.rs:331`).
-pub const CONFIG_FILE: &str = "config.json";
-pub const WEIGHTS_FILE: &str = "model.safetensors";
-pub const TOKENIZER_FILE: &str = "tokenizer.json";
-/// The span pointer head. No serving loader reads it yet (`GAP-J7-EXPORT-SPAN-HEAD-UNSERVED`).
-pub const SPAN_HEAD_FILE: &str = "span_head.safetensors";
-pub const CALIBRATION_FILE: &str = "calibration.json";
-pub const MANIFEST_FILE: &str = "release_manifest.json";
-pub const MANIFEST_FORMAT: &str = "qd-release.v1";
+/// The release's file names and manifest format. Owned by the reader, `qd_runtime::release`, so
+/// the writer and the runtime cannot spell a file two ways. The first three are what the loader
+/// opens (`qd-metal/src/config.rs:88`, `model.rs:896`, `backend.rs:331`); no serving loader reads
+/// the span head yet (`GAP-J7-EXPORT-SPAN-HEAD-UNSERVED`).
+pub use qd_runtime::release::{
+    CALIBRATION_FILE, CONFIG_FILE, MANIFEST_FILE, MANIFEST_FORMAT, MAX_SMALL_FILE_BYTES,
+    SPAN_HEAD_FILE, TOKENIZER_FILE, WEIGHTS_FILE,
+};
 
 /// Every tokenizer file copied from the base snapshot. `tokenizer.json` is the one the loader
 /// reads and hashes into the backend's identity (`qd-metal/src/tokenizer.rs:28-37`); the other
 /// three are what `transformers`' tokenizer loads beside it. All four are in the Qwen3.5-2B-Base
 /// snapshot `b1485b2f`, and a snapshot missing one is not that snapshot.
 pub const TOKENIZER_FILES: [&str; 4] = [TOKENIZER_FILE, "tokenizer_config.json", "vocab.json", "merges.txt"];
-
-/// Bound on the small files read whole (config, manifest, tokenizer files, calibration table).
-/// The real `tokenizer.json` is 12,807,196 bytes (`b1485b2f`, measured 2026-10-01).
-pub const MAX_SMALL_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
 /// A source tensor dropped from the release on purpose.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -691,8 +685,13 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
         },
         "dropped_extras": plan.dropped.iter().map(|d| json!({"name": d.name, "reason": d.reason})).collect::<Vec<_>>(),
         "calibration": calibration,
+        // What goes together: this tower, served under this config.json, with this tokenizer.
+        // `qd_runtime::release::Release::open` refuses a config.json whose sha256 is not
+        // `config_sha256`, and `Release::check_backend` a loaded tower whose hash is not
+        // `weight_hash`.
         "expected_identity": {
             "weight_hash": weight_hash,
+            "config_sha256": config_sha,
             "tokenizer_hash": tokenizer_hash,
             "calibration_hash": calibration_hash,
             "not_computed": {

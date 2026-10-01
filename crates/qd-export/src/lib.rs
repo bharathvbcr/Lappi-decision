@@ -14,7 +14,7 @@
 //! | `tokenizer_config.json`, `vocab.json`, `merges.txt` | (transformers) | the base snapshot's |
 //! | `span_head.safetensors` | none yet | the span pointer head, F32 |
 //! | `calibration.json` | none yet (the runtime has no file loader) | optional, validated |
-//! | `release_manifest.json` | none | every file's sha256, the source, the identity hashes |
+//! | `release_manifest.json` | `qd_runtime::release` | every file's sha256, the source, and `expected_identity`: the tower's `weight_hash` bound to `config.json`'s sha256 and the tokenizer's |
 //!
 //! | Module | Holds |
 //! | --- | --- |

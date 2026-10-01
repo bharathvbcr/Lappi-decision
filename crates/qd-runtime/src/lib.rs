@@ -16,6 +16,7 @@
 //! | [`calibration`] | split-conformal sets on calibrated scores — margin, never entropy |
 //! | [`calibration_fit`] | fitting that table from verdicts: temperature, `noul_margin`, `1 - q̂` |
 //! | [`registry`] | the registered route's head files, hash-bound to the backbone |
+//! | [`release`] | the release directory `qd-export` writes, opened and hash-bound at load |
 //! | [`fixtures`] | the golden wire corpus in `fixtures/wire/` — the executable answer-side seam |
 //! | [`answer`] | "Answering procedure": prefill once, snapshot, readonly slot queries |
 //! | [`runtime`] | hash binding, poison/rebuild, degraded |
@@ -56,6 +57,7 @@ pub mod oneshot;
 pub mod reference;
 pub mod refusal;
 pub mod registry;
+pub mod release;
 pub mod render;
 pub mod runtime;
 pub mod schema;
