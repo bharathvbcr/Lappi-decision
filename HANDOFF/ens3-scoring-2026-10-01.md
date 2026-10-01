@@ -41,6 +41,7 @@ Lane worktree `agent-a49d73cb7bb3e7dad`, branch `worktree-agent-a49d73cb7bb3e7da
 | `fe8918d` | `--score-plan PLAN.json`: several kinds in one invocation, with the shard set, val set and suites built once. Pass `gates` is the `--score-checkpoint` row; pass `ood` is a quick `<tag>-ood-diagnostic` row with `ood_diagnostic.*` metrics, no gate, and lines under `gate: ood_abstain.diagnostic`. Each kind is loaded, run, freed, then written to `<stem>-<kind><suffix>`. | `test_real_ft_score_plan.py`: 41, collection fails on `08478ba`. Oracle: each plan kind's row and verdicts equal its single run's; the prelude runs once; the model is unreachable before the next loads. |
 | `eeb1c67` | `campaign/fable-i-ood-diag-plan-2026-10-01.json` (the box plan), `AUDIT/.../noul_rank.py` (throwaway analysis) and its J4/J7g output | the committed plan passes every argv check with the box argv |
 | `b9e4a1c` | merge of main `b5575cc` | 450 passed, 1 skipped on the merged tree |
+| `6c24076` | `qd_train/composed_slice.py`, the report-only slice's scoring core (conditions 6 and 8). `needle.depth_bucket_label` is now the one bucket rule. | `test_composed_slice.py`: 20 (the module is new). Swapping condition 8's `all` for `any` fails 2. |
 
 - **Size:** +4131 / −265 lines over 14 files (`90e7586..eeb1c67`).
 - **Ruff:** clean.
@@ -72,9 +73,23 @@ Lane worktree `agent-a49d73cb7bb3e7dad`, branch `worktree-agent-a49d73cb7bb3e7da
     9 GiB of weights per tower, against about 85 GiB free);
   - avg-np's peak RAM on the real 2B (inferred about 44 GiB: the masters average's about 30 GiB,
     then the float64 means of about 14 GiB plus one tensor per input).
-- **Composed long-context slice (task 4):** not started. The lead ranked it after 1–3. The spec is
-  the compose lane's message: shards at `val-report-only-composed`, `report_only: true` required,
-  both populations, and the shared-token hit rule. Its shards do not exist yet.
+- **Composed long-context slice (task 4): core done, decode blocked.**
+  - The torch-free core is committed as `qd_train/composed_slice.py` (`6c24076`, 20 tests on
+    three real composed rows). It covers case parsing and checks, hunks, the head-row → token →
+    lines map, the gold-alignment refusal, condition 8's hit rule, and condition 6's tables:
+    `composed.<set>.<population>.<cut>.<cell>.*` plus deltas, Wilson CIs, and diag halves as sets
+    of their own.
+  - **Blocked:** the decode that feeds it. Compose's commit adding
+    `report_only`/`span_collapse_policy` to `ShardHeader` (and its composed-row loader) is not on
+    main. Main's `ShardReader` refuses the slice header (its `shard_hash` covers those fields),
+    and the choice labels need that loader. The compose lane lands it after v4's row, the lead
+    merges it, and this lane merges main.
+  - **Then:** a `composed` plan pass, which:
+    - opens `<slice>/shards/val-report-only-composed`, requiring `report_only` true and
+      `span_collapse_policy` refuse-gold, the train remap and the tokenizer;
+    - pairs the `compose:*` sequences with their corpus rows;
+    - decodes one-row batches;
+    - feeds `SliceVerdict`s to `slice_metrics` on a quick `<tag>-composed-slice` row.
 
 ## Box commands
 
