@@ -29,6 +29,7 @@ import re
 import subprocess
 import sys
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -77,14 +78,12 @@ SUITE_SEEDS = (CONFIG.seed, 0, 1, 2, 3)
 REAL_NOUL = REPO / "data" / "pool" / "defect-noul-v1"
 #: v3.1's re-form (``qd-noul-rows generate --forms v2``): same share and thirds, wider forms.
 REAL_NOUL_V2 = REPO / "data" / "pool" / "defect-noul-v2"
-#: v4's (Fable I-2): v2's forms at twice its share, 10% of corpus v3's defect rows.
+#: Fable I-2 at equal thirds: v2's forms at twice its share, 10% of corpus v3's defect rows.
+#: Superseded for v4 by v3b; kept reproducible.
 REAL_NOUL_V3 = REPO / "data" / "pool" / "defect-noul-v3"
-#: Each re-formed corpus (``--forms v2``): the rows per source it was generated at, its share
-#: of corpus v3's defect rows, and the ``--preregistered`` file its manifest records verbatim.
-REFORMED: dict[Path, tuple[int, float, Path]] = {
-    REAL_NOUL_V2: (834, 0.05, REPO / "campaign" / "v31-noul-preregistered.json"),
-    REAL_NOUL_V3: (1668, 0.10, REPO / "campaign" / "v4-noul-preregistered.json"),
-}
+#: v4's: I-2 with the template question decided as option (b) -- paragraphs and questions at
+#: their ceiling, templates at v2's count, scrambled the remainder (``--form-counts``).
+REAL_NOUL_V3B = REPO / "data" / "pool" / "defect-noul-v3b"
 
 
 def _forms(per_source: int) -> dict[tuple[str, str], int]:
@@ -95,6 +94,38 @@ def _forms(per_source: int) -> dict[tuple[str, str], int]:
         (NOUL_SCRAMBLED, "lines"): half, (NOUL_SCRAMBLED, "tokens"): per_source - half,
         (NOUL_UNSEEN_LANGUAGE, "template"): per_source,
     }
+
+
+V3B_MIX = {"paragraph": 1005, "question": 1005, "lines": 1080, "tokens": 1080, "template": 834}
+_SOURCE_OF_FORM = {
+    "paragraph": NOUL_PROSE, "question": NOUL_PROSE, "lines": NOUL_SCRAMBLED,
+    "tokens": NOUL_SCRAMBLED, "template": NOUL_UNSEEN_LANGUAGE,
+}
+
+
+@dataclass(frozen=True)
+class Reformed:
+    """A re-formed corpus (``--forms v2``): its exact count per (source, form), its share of
+    corpus v3's defect rows, the ``--preregistered`` file its manifest records verbatim, and
+    the sizing flags it was generated with."""
+
+    forms: dict[tuple[str, str], int]
+    share: float
+    preregistered: Path
+    sizing: tuple[str, ...]
+
+
+REFORMED: dict[Path, Reformed] = {
+    REAL_NOUL_V2: Reformed(_forms(834), 0.05, REPO / "campaign" / "v31-noul-preregistered.json",
+                           ("--per-source", "834")),
+    REAL_NOUL_V3: Reformed(_forms(1668), 0.10, REPO / "campaign" / "v4-noul-preregistered.json",
+                           ("--per-source", "1668")),
+    REAL_NOUL_V3B: Reformed(
+        {(_SOURCE_OF_FORM[f], f): n for f, n in V3B_MIX.items()}, 0.10,
+        REPO / "campaign" / "v4-noul-v3b-preregistered.json",
+        ("--form-counts", ",".join(f"{f}={n}" for f, n in V3B_MIX.items())),
+    ),
+}
 REAL_DEFECT = REPO / "data" / "pool" / "commitpackft-corpus-v2"
 #: The corpus v2's scrambled rows are made from (and the v3.1 shards' defect corpus).
 REAL_DEFECT_V3 = REPO / "data" / "pool" / "commitpackft-corpus-v3"
@@ -785,20 +816,28 @@ def _real_params(dirs: tuple[Path, ...]) -> list[Any]:
 
 
 #: Every real corpus.
-REAL_CORPORA = _real_params((REAL_NOUL, REAL_NOUL_V2, REAL_NOUL_V3))
+REAL_CORPORA = _real_params((REAL_NOUL, REAL_NOUL_V2, REAL_NOUL_V3, REAL_NOUL_V3B))
 #: The re-formed ones (``--forms v2``).
 REFORMED_CORPORA = _real_params(tuple(REFORMED))
 
 
 @pytest.mark.parametrize("noul", REAL_CORPORA)
-def test_the_real_corpus_loads_in_equal_thirds_of_train_units_and_is_disjoint_from_the_suite(
+def test_the_real_corpus_loads_in_its_recorded_shares_of_train_units_and_is_disjoint_from_the_suite(
     capsys: pytest.CaptureFixture[str], noul: Path,
 ) -> None:
     load = load_noul_rows(noul, download_root=REAL_DOWNLOAD, config=CONFIG,
                           repo_root=REPO)
     manifest = json.loads((noul / "manifest.json").read_text("utf-8"))
-    per = int(manifest["per_source"])
-    assert load.by_source == {s: per for s in NOUL_SOURCES}
+    if "per_source" in manifest:
+        per = int(manifest["per_source"])
+        assert load.by_source == {s: per for s in NOUL_SOURCES}
+    else:
+        # A --form-counts corpus: its sources' shares are the sums of its forms'.
+        want: Counter[str] = Counter()
+        for (source, _), n in REFORMED[noul].forms.items():
+            want[source] += n
+        assert load.by_source == dict(want) == manifest["totals"]["by_source"]
+    total = sum(load.by_source.values())
     rows = _rows(noul)
     mix = build_mixture({DEFECT_SOURCE_ID: load.rows}, config=CONFIG,
                         families=[DEFECT_FAMILY_ID])
@@ -807,7 +846,7 @@ def test_the_real_corpus_loads_in_equal_thirds_of_train_units_and_is_disjoint_fr
     assert len(report.kept) == len(mix.rows)
     splits = split(report, config=CONFIG)
     assert {s: len(v) for s, v in splits.rows_by_split.items()} == {
-        "train": 3 * per, "val": 0, "heldout": 0,
+        "train": total, "val": 0, "heldout": 0,
     }
     worst = _assert_disjoint(rows, require_real_prose=True)
     with capsys.disabled():
@@ -857,23 +896,29 @@ def test_the_real_corpus_is_disjoint_from_the_exact_suite_the_gate_builds(
 def test_reformed_corpus_fills_each_form_exactly_and_records_the_preregistered_bars(
     noul: Path,
 ) -> None:
-    """Fable F2/F3 (v2, 5%) and I-2 (v3, 10%): equal thirds, each third's forms in exact
-    halves, the share of corpus v3's defect rows asked for, no source used twice outside the
-    template units, the scrambled rows drawn from the defect corpus's own train-split diffs,
-    and the pre-registration -- the F3 cost bound among it -- recorded verbatim in the manifest
-    before any run reads the corpus."""
-    per, share, prereg = REFORMED[noul]
+    """Fable F2/F3 (v2, 5%), I-2 (v3, 10%) and I-2 option (b) (v3b, 10%, --form-counts): each
+    form's exact count, the share of corpus v3's defect rows asked for, the mix recorded in the
+    manifest, no source used twice outside the template units, the scrambled rows drawn from
+    the defect corpus's own train-split diffs, and the pre-registration -- the F3 cost bound
+    among it -- recorded verbatim in the manifest before any run reads the corpus."""
+    spec = REFORMED[noul]
     rows = _rows(noul)
     manifest = json.loads((noul / "manifest.json").read_text("utf-8"))
-    assert manifest["per_source"] == per and len(rows) == 3 * per
-    assert Counter((r["noul_source"], r["noul_form"]) for r in rows) == _forms(per)
+    assert Counter((r["noul_source"], r["noul_form"]) for r in rows) == spec.forms
+    assert len(rows) == sum(spec.forms.values()) == manifest["totals"]["examples"]
+    by_form = {f: n for (_, f), n in spec.forms.items()}
+    assert manifest["totals"]["by_form"] == by_form
+    if spec.sizing[0] == "--form-counts":
+        assert manifest["form_counts"] == by_form and "per_source" not in manifest
+    else:
+        assert manifest["per_source"] == int(spec.sizing[1]) and "form_counts" not in manifest
     assert manifest["forms"] == "v2"
     assert manifest["corpus"]["dir"] == REAL_DEFECT_V3.name
     v3 = json.loads((REAL_DEFECT_V3 / "manifest.json").read_text("utf-8"))
     assert manifest["corpus"]["examples_sha256"] == v3["examples_sha256"]
-    assert abs(len(rows) / v3["totals"]["examples"] - share) < 0.001
+    assert abs(len(rows) / v3["totals"]["examples"] - spec.share) < 0.001
     bars = manifest["preregistered"]
-    assert bars == json.loads(prereg.read_text("utf-8"))
+    assert bars == json.loads(spec.preregistered.read_text("utf-8"))
     assert "2%" in bars["defect_class_in_distribution_abstention"]["bound"]
     assert "30/60" in json.dumps(bars["ood_abstain_by_category"])
     # No paragraph, question group or scrambled repo feeds two rows. (Template units carry
@@ -888,8 +933,9 @@ def test_reformed_corpus_fills_each_form_exactly_and_records_the_preregistered_b
                  for q in re.findall(r"[^?]+\?", body(r["diff"]))]
     assert len({q.strip() for q in questions}) == len(questions), "a question used twice"
     scrambled_repos = [r["repo"] for r in rows if r["noul_source"] == NOUL_SCRAMBLED]
-    assert len(set(scrambled_repos)) == len(scrambled_repos) == per
-    assert manifest["totals"]["units_by_source"]["scrambled"] == per
+    n_scrambled = by_form["lines"] + by_form["tokens"]
+    assert len(set(scrambled_repos)) == len(scrambled_repos) == n_scrambled
+    assert manifest["totals"]["units_by_source"]["scrambled"] == n_scrambled
     # Every scrambled row's diff is a permutation of one corpus row's diff from its own pool
     # file: same headers, same body lines (lines form) or same per-line tokens (tokens form).
     by_pool: dict[str, list[str]] = {}
@@ -936,7 +982,7 @@ def test_reformed_corpus_is_disjoint_from_the_general_val_split(
     val = {row.row_id: row.request.context.decode("utf-8") for row in splits["val"]}
     assert val, "the general val split is empty: nothing was compared"
     rows = {r["id"]: r["diff"] for r in _rows(noul)}
-    assert len(rows) == 3 * REFORMED[noul][0]
+    assert len(rows) == sum(REFORMED[noul].forms.values())
     there = decontaminate(rows, {"general_val": val})
     assert sum(there.hits.values()) == 0, there.hit_examples
     assert there.replay_rows_too_short == 0 and there.replay_rows_checked == len(rows)
@@ -962,13 +1008,13 @@ def test_the_real_reformed_corpus_regenerates_byte_for_byte(
     if not ((REAL_NOUL / "allowlist.json").is_file() and GENERAL_RECORD.is_file()
             and (REAL_DEFECT_V3 / "examples.jsonl").is_file()):
         pytest.skip("the allowlist, the general record or corpus v3's rows are not on this host")
-    per, _, prereg = REFORMED[noul]
+    spec = REFORMED[noul]
     squad = next(Path(e["jsonl"]) for e in json.loads(GENERAL_RECORD.read_text("utf-8"))
                  if e["dataset"] == "rajpurkar/squad_v2" and Path(e["jsonl"]).name == "train.jsonl")
     out = tmp_path / noul.name
     done = subprocess.run(
-        [str(noul_rows_bin), "generate", "--forms", "v2", "--per-source", str(per),
-         "--corpus", str(REAL_DEFECT_V3), "--preregistered", str(prereg),
+        [str(noul_rows_bin), "generate", "--forms", "v2", *spec.sizing,
+         "--corpus", str(REAL_DEFECT_V3), "--preregistered", str(spec.preregistered),
          "--allowlist", str(REAL_NOUL / "allowlist.json"), "--squad", str(squad),
          "--pool", str(REPO / "data" / "pool" / "commitpackft-pool-v2.jsonl"),
          "--out", str(out)],

@@ -1,0 +1,185 @@
+{
+  "tool": "qd-noul-rows",
+  "tool_version": "0.1.0",
+  "seed": 0,
+  "seed_derivation": "ChaCha20Rng::from_seed(sha256(seed.to_le_bytes() || 0 || source || 0 || key)); sample order sha256((seed+1).to_le_bytes() || 0 || source || 0 || key)",
+  "split": {
+    "seed": 20260919,
+    "train_fraction": 0.9,
+    "val_fraction": 0.05
+  },
+  "allowlist_sha256": "ee04e0eda61adbdabb8815ddc19e6133ac2c95ba9eefd8e99deadaab931c5554",
+  "squad": {
+    "file": "train.jsonl",
+    "sha256": "6c7bcda5c15b2bc12e76ee22526bb8ff5e2478d4bf5d5b2d3d8de947d70a8515"
+  },
+  "pool": {
+    "path": "commitpackft-pool-v2.jsonl",
+    "sha256": "2cb31231a586baaddc5ec201637f784e1ff5724962df3f777c4de58fbf4fc5d2",
+    "records": 61193
+  },
+  "template_catalogue_sha256": "39be8b0c387e079cb2fe6fd5218b9f752383fdf50859e91219de84958df6a800",
+  "examples_sha256": "b194f14c75e1ac959f3658e0dda6a07ef4c41ff026a416a39dd526a9dfb13a5e",
+  "totals": {
+    "examples": 5004,
+    "by_source": {
+      "prose": 2010,
+      "scrambled": 2160,
+      "unseen-language": 834
+    },
+    "by_language": {
+      "csharp": 139,
+      "elixir": 139,
+      "go": 540,
+      "kotlin": 139,
+      "php": 139,
+      "prose": 2010,
+      "python": 540,
+      "rust": 540,
+      "scala": 139,
+      "shell": 139,
+      "typescript": 540
+    },
+    "by_licence": {
+      "apache-2.0": 1329,
+      "bsd-2-clause": 71,
+      "bsd-3-clause": 178,
+      "cc-by-sa-4.0": 2010,
+      "cc0-1.0": 8,
+      "isc": 21,
+      "mit": 1357,
+      "unlicense": 30
+    },
+    "units_by_source": {
+      "prose": 335,
+      "scrambled": 2160,
+      "unseen-language": 35
+    },
+    "by_form": {
+      "lines": 1080,
+      "paragraph": 1005,
+      "question": 1005,
+      "template": 834,
+      "tokens": 1080
+    }
+  },
+  "licences": {
+    "prose": {
+      "licence": "cc-by-sa-4.0",
+      "basis": "rajpurkar/squad_v2's registered licence (qd_data.sources); share-alike, carried per row"
+    },
+    "scrambled": {
+      "licence": null,
+      "basis": "per row: the corpus row's pool_id -> commitpackft pool -> bigcode/commitpackft download (commit, new_file), as the main defect corpus is joined"
+    },
+    "unseen-language": {
+      "licence": "apache-2.0",
+      "basis": "authored in this repository (crates/qd-mutate/src/noul_rows/templates.rs) and released under its LICENSE, Apache-2.0 -- the workspace licence in Cargo.toml"
+    }
+  },
+  "excluded_by_allowlist": {
+    "prose": {
+      "family:qa.answerability": 71,
+      "split:heldout": 20,
+      "split:val": 16
+    },
+    "scrambled": {
+      "split:heldout": 2821,
+      "split:val": 3004
+    },
+    "unseen-language": {
+      "split:heldout": 3,
+      "split:val": 4
+    }
+  },
+  "skipped": {
+    "prose": {
+      "invisible_format_character": 38,
+      "longer_than_max_chars": 493,
+      "multi_line_paragraph": 51,
+      "question:duplicate_text": 103,
+      "question:fewer_row_words_than_min": 1,
+      "question:fewer_words_than_min": 5,
+      "question:longer_than_max_chars": 5,
+      "shorter_than_min_chars": 373
+    },
+    "scrambled": {
+      "lines:diff_length_out_of_band": 40,
+      "lines:fewer_body_lines_than_min": 3,
+      "lines:line_over_max_chars": 4,
+      "lines:shingle_jaccard_to_original_over_max": 4,
+      "lines:shuffle_moved_too_little": 1,
+      "tokens:diff_length_out_of_band": 66,
+      "tokens:fewer_body_lines_than_min": 7,
+      "tokens:line_over_max_chars": 10,
+      "tokens:shuffle_moved_too_little": 2,
+      "tokens:too_few_shufflable_lines": 43
+    },
+    "unseen-language": {
+      "duplicate_instantiation": 1
+    }
+  },
+  "forms": "v2",
+  "corpus": {
+    "dir": "commitpackft-corpus-v3",
+    "examples_sha256": "610bb1f0f1d86dc23f419001d8670e01418485644bea93e2b33631e5650c62e0",
+    "pool_sha256": "2cb31231a586baaddc5ec201637f784e1ff5724962df3f777c4de58fbf4fc5d2",
+    "examples_read": 49953,
+    "examples_admitted": 45411,
+    "excluded": {
+      "pool_id_not_allowlisted": 4542
+    }
+  },
+  "preregistered": {
+    "decision": "Fable I-2 with the template question decided as option (b): noul at 10% of defect rows (5,004 rows), with prose and scrambled carrying the increase and unseen-language capped at v2's count",
+    "defect_class_in_distribution_abstention": {
+      "bound": "<= 2% on every seed",
+      "j4_on_noul_v1": [
+        "33/2304",
+        "39/2304",
+        "21/2304"
+      ],
+      "kind": "F3: Fable's data-design bound and the cost check on I-2, not a gate"
+    },
+    "form_mix": {
+      "basis": "paragraph and question at their ceiling (3 per title over 335 train titles); template at v2's 834; scrambled the remainder of 5,004, split evenly",
+      "lines": 1080,
+      "paragraph": 1005,
+      "question": 1005,
+      "template": 834,
+      "tokens": 1080
+    },
+    "gates_unchanged": "ood_abstain (Wilson lower >= 0.90 OOD, Wilson upper <= 0.05 in-distribution) is read-only (rule 2)",
+    "next_iteration": "option (c), a second versioned template catalogue, is for the data iteration after F's readout; not started",
+    "ood_abstain_by_category": {
+      "bar": ">= 30/60 on every seed (0, 1, 2), each of prose, scrambled, unseen-language",
+      "j4_on_noul_v1": {
+        "prose": [
+          3,
+          9,
+          2
+        ],
+        "scrambled": [
+          3,
+          4,
+          8
+        ],
+        "unseen-language": [
+          40,
+          20,
+          56
+        ]
+      }
+    },
+    "recorded": "2026-10-01, before defect-noul-v3b was generated and before any v4 (run F) row",
+    "risk": "a noul set designed to span the suite's three forms passes the suite's forms; whether those three categories are the product's OOD definition is a suite question for the human (rule 2)",
+    "why": "J7g (row 1d93b3ee, as relayed by the lead): the masters average of J4's three seeds abstained on 0/180 OOD cases against 46/33/66 per seed. Fable: unseen-language already took at v2's repeat level, and doubling repeats of 35 template shapes buys memorisation -- a narrow, seed-variable feature of the kind that cancelled in the J4 average. Prose (2-9/60) and scrambled (3-8/60) are where the gap is"
+  },
+  "form_counts": {
+    "lines": 1080,
+    "paragraph": 1005,
+    "question": 1005,
+    "template": 834,
+    "tokens": 1080
+  }
+}

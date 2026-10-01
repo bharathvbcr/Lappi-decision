@@ -596,3 +596,80 @@ fn v2_refuses_a_corpus_it_cannot_trust() {
             "{}", String::from_utf8_lossy(&done.stderr));
     assert!(!w.dir.join("d").join("examples.jsonl").exists());
 }
+
+/// `generate --forms v2 --form-counts ...` against this world, with no `--per-source`.
+fn generate_mix(w: &World, out: &Path, counts: &str, extra: &[&str]) -> Output {
+    let mut args = vec![
+        "generate", "--allowlist", w.allowlist.to_str().unwrap(), "--squad",
+        w.squad.to_str().unwrap(), "--pool", w.pool.to_str().unwrap(), "--out",
+        out.to_str().unwrap(), "--forms", "v2", "--corpus", w.corpus.to_str().unwrap(),
+        "--form-counts", counts,
+    ];
+    args.extend_from_slice(extra);
+    run(&args)
+}
+
+#[test]
+fn form_counts_set_each_form_exactly_and_the_manifest_records_the_mix() {
+    // Fable's option (b) for v4: per-form counts instead of equal thirds in exact halves.
+    let w = world("mix");
+    let out = w.dir.join("a");
+    let mix = "paragraph=3,question=5,lines=4,tokens=4,template=2";
+    let done = generate_mix(&w, &out, mix, &[]);
+    assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+    let rows = rows_of(&out);
+    let mut by_form: std::collections::BTreeMap<String, usize> = Default::default();
+    for r in &rows {
+        *by_form.entry(r["noul_form"].as_str().unwrap().to_string()).or_insert(0) += 1;
+    }
+    let want: std::collections::BTreeMap<String, usize> = [
+        ("paragraph", 3), ("question", 5), ("lines", 4), ("tokens", 4), ("template", 2),
+    ].into_iter().map(|(f, k)| (f.to_string(), k)).collect();
+    assert_eq!(by_form, want);
+    let manifest = manifest_of(&out);
+    let recorded: std::collections::BTreeMap<String, usize> =
+        serde_json::from_value(manifest["form_counts"].clone()).expect("the mix is recorded");
+    assert_eq!(recorded, want);
+    assert_eq!(manifest["totals"]["by_form"], manifest["form_counts"]);
+    assert!(manifest.get("per_source").is_none(), "no per-source count was asked for");
+    assert_eq!(manifest["totals"]["by_source"]["prose"], 8);
+    assert_eq!(manifest["totals"]["by_source"]["scrambled"], 8);
+    assert_eq!(manifest["totals"]["by_source"]["unseen-language"], 2);
+    assert_eq!(manifest["totals"]["examples"], 18);
+    let repos: std::collections::BTreeSet<&str> = rows.iter()
+        .filter(|r| r["noul_source"] == "scrambled").map(|r| r["repo"].as_str().unwrap()).collect();
+    assert_eq!(repos.len(), 8, "one repo per scrambled row");
+    // Deterministic, and the same counts spelled in another order are the same mix.
+    let again = w.dir.join("b");
+    let reordered = "template=2,tokens=4,lines=4,question=5,paragraph=3";
+    assert!(generate_mix(&w, &again, reordered, &[]).status.success());
+    for f in ["examples.jsonl", "manifest.json"] {
+        assert_eq!(std::fs::read(out.join(f)).unwrap(), std::fs::read(again.join(f)).unwrap(), "{f}");
+    }
+}
+
+#[test]
+fn form_counts_refuse_a_mix_they_cannot_honour() {
+    let w = world("mixrefusals");
+    let refused = |counts: &str, extra: &[&str], needle: &str| {
+        let out = w.dir.join(format!("x{}", counts.len() + extra.len()));
+        let done = generate_mix(&w, &out, counts, extra);
+        let stderr = String::from_utf8_lossy(&done.stderr).to_string();
+        assert_eq!(done.status.code(), Some(2), "{counts} {extra:?} was accepted");
+        assert!(stderr.contains(needle), "{counts}: {stderr}");
+        assert!(!out.join("examples.jsonl").exists());
+    };
+    refused("paragraph=3,question=5,lines=4,tokens=4", &[], "template");
+    refused("paragraph=3,question=5,lines=4,tokens=4,template=2,essay=1", &[], "essay");
+    refused("paragraph=3,paragraph=4,question=5,lines=4,tokens=4,template=2", &[], "twice");
+    refused("paragraph=0,question=5,lines=4,tokens=4,template=2", &[], "at least 1");
+    refused("paragraph=x,question=5,lines=4,tokens=4,template=2", &[], "paragraph");
+    refused("paragraph=3,question=5,lines=4,tokens=4,template=2", &["--per-source", "4"],
+            "--per-source");
+    // More paragraphs than four titles at two paragraphs each hold.
+    refused("paragraph=9,question=5,lines=4,tokens=4,template=2", &[], "eligible paragraphs");
+    // --form-counts is a v2 input.
+    let done = generate(&w, &w.dir.join("v1"),
+                        &["--form-counts", "paragraph=3,question=5,lines=4,tokens=4,template=2"]);
+    assert_eq!(done.status.code(), Some(2));
+}
