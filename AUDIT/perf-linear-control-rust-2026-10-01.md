@@ -123,6 +123,43 @@ The native run's binary summary lines, verbatim:
     wrote row 43a366d0-e15b-4d68-81c8-dc8b59993206
     133.69 real  1647.46 user  10.48 sys   (/usr/bin/time -l)
 
+The Mac thread scaling quoted in the handoff comes from one scratch run per thread count, on
+3,000 defect prompts (4,702,443 nonzeros, 2,354 iterations), while the Python full run was
+also running:
+
+    fit 62.80 s on 1 thread(s); fit 17.32 s on 6 thread(s); fit 9.39 s on 18 thread(s)
+
+## 6. The native engine against the GH200's own eval rows
+
+These ran on the Mac, against `ledger/gh200-seed0-weights-2026-09-30.jsonl` and
+`box-final-2026-09-30/phase3/verdicts-s{0,1,2}-weights.jsonl`. They wrote scratch ledgers,
+which are not committed; the handoff says why. The summaries are verbatim from
+`target/scratch/ledger_rows.py`, plus the binary's refit lines:
+
+    8095435c eval 6d170b3c  wall 96.56779583299794
+      length_control_top1 1163/2332; linear_control_convergence 9.945408220449172e-05
+      "converged in 845 iterations at l2=0.0001"; linear_control_top1 1977/2332
+      paired_margin_vs_linear.choice 0.15008576329331047 "+0.1501, 95% CI [+0.1359, +0.1651]"
+      n-gram fit 93.93 s; length fit 1.76 s
+    6f932163 eval 60f29b07  wall 90.65052925000055
+      length_control_top1 1163/2332; linear_control_convergence 9.905635742422174e-05
+      "converged in 846 iterations at l2=0.0001"; linear_control_top1 1977/2332
+      paired_margin_vs_linear.choice 0.14965694682675815 "+0.1497, 95% CI [+0.1355, +0.1642]"
+      n-gram fit 88.08 s; length fit 1.75 s
+    79d27778 eval 5c19c0e8  wall 90.85180258299806
+      length_control_top1 1163/2332; linear_control_convergence 9.950334844114837e-05
+      "converged in 847 iterations at l2=0.0001"; linear_control_top1 1977/2332
+      paired_margin_vs_linear.choice 0.14965694682675815 "+0.1497, 95% CI [+0.1355, +0.1642]"
+      n-gram fit 88.24 s; length fit 1.82 s
+
+The box's Python rows for the same eval rows, from `ledger/gh200-seed0-weights-2026-09-30.jsonl`:
+
+    eeda5db4: 845 iterations, 9.944766763795073e-05, 1977/2332, 1163/2332, +0.15008576329331047
+    2b08a357: 846 iterations, 9.905473550717985e-05, 1977/2332, 1163/2332, +0.14965694682675815
+    635c19d9: 847 iterations, 9.950111892916253e-05, 1977/2332, 1163/2332, +0.14965694682675815
+
+## 7. The Python run on eval row `784868b3`
+
 The Python run's lines, verbatim:
 
     paired_margin_vs_linear: Ran(passed=True, value=0.15008576329331047, n=2332, n_total=2332,

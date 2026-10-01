@@ -113,7 +113,11 @@ benchmark.
 
 Eval row `784868b3` (Mac, mps, fp32, phase-3 defect_class: **45,405 train / 2,332 val** letter
 docs, one task), `--defect-class commitpackft-corpus-v2 --no-repo-history --rev be30733`.
-Both rows inherit the eval row's `quick` flag and promote nothing.
+Both rows inherit the eval row's `quick` flag and promote nothing. Both carry `code_commit
+9882bb7…-dirty`:
+
+- the Python row's `code_that_ran` digest was taken at 9882bb7's code, before any edit;
+- the native row ran the working tree that became `8f08c52`, with binary `79affddf…`.
 
 | | Python engine, `bba89379` | qd-prep engine, `43a366d0` | GH200 Python, seed 0 (`eeda5db4`, `3b33c282`) |
 | --- | --- | --- | --- |
@@ -132,6 +136,28 @@ counts, the margin and its bootstrap CI (same seed) are equal, but neither row s
 verdicts and the Python run was not repeated with `--control-cache`. The two wall clocks are
 N=1 each, and the machine was contended: the Python run overlapped my test runs, and the native
 run overlapped the Python run. **They are not the speedup claim.** The committed A/B below is.
+
+**The GH200's own phase-3 eval rows, seeds 0-2.** These are the rows whose Python (OpenBLAS
+dense) controls the box wrote: `eeda5db4`, `2b08a357` and `635c19d9` in
+`ledger/gh200-seed0-weights-2026-09-30.jsonl`. I scored them on the Mac with the native
+engine, using the box's local verdicts (`box-final-2026-09-30/phase3/verdicts-s{0,1,2}-weights
+.jsonl`) and the campaign's argv. Seeds 1 and 2 have their own permutations and W0, so these
+are three independent comparisons:
+
+| seed | GH200 Python: iterations / grad norm | native: iterations / grad norm | top1 n-gram, length (both) | margin, CI (both) |
+| --- | --- | --- | --- | --- |
+| 0 | 845 / 9.944766763795073e-05 | 845 / 9.945408220449172e-05 | 1977/2332, 1163/2332 | +0.15008576329331047 [+0.1359, +0.1651] |
+| 1 | 846 / 9.905473550717985e-05 | 846 / 9.905635742422174e-05 | 1977/2332, 1163/2332 | +0.14965694682675815 [+0.1355, +0.1642] |
+| 2 | 847 / 9.950111892916253e-05 | 847 / 9.950334844114837e-05 | 1977/2332, 1163/2332 | +0.14965694682675815 [+0.1355, +0.1642] |
+
+Every row has L2 1e-4. The native rows' recorded wall clocks are 96.6, 90.7 and 90.9 s on the
+Mac, with n-gram fits of 93.9, 88.1 and 88.2 s. The box's Python rows record 700.8, 691.3 and
+707.7 s. Those are two different machines, so that is not a speedup claim.
+
+The three native rows are **not committed**; their summaries are verbatim in the AUDIT file.
+They would be non-quick supplements of non-quick GH200 eval rows, written from a Mac on a dirty
+tree. Promotion reads an eval row and its supplements as one unit (`SUPPLEMENT_KEY`), so adding
+them to `ledger/` is a decision for a human, not for this lane.
 
 ## Benchmark (committed, interleaved A/B, min of N)
 
@@ -168,9 +194,9 @@ Three things the table does **not** say:
 - The box's slow case is the SPARSE Python operand: above ~49k training docs per task, dense
   does not fit 24 GB. On (ii), Python sparse took 1,231.1 s against 23.2 s native, about 53x,
   but that is a single run, not in the committed A/B.
-- The Mac has 6 performance and 12 efficiency cores, and per iteration the binary's
-  `d*k` pairwise sums run on one thread. I did not measure scaling on the GH200's 72
-  Neoverse cores.
+- The Mac has 6 performance and 12 efficiency cores. Thread scaling there was 62.8 s on 1
+  thread, 17.3 s on 6 and 9.4 s on 18, for one 3,000-doc fit run while the Python full run
+  was also running. I did not measure scaling on the GH200's 72 Neoverse cores.
 - I did not measure on the box, so the GH200 speedup is **unverified**.
 
 ## Tests (all run on this Mac)
@@ -202,6 +228,10 @@ overwritten:
     sha256 af9d3a7625347ae65f7fa25c44d92dfa3ba2dfe969c254ca76abfc721a7887c2
     ELF 64-bit LSB pie executable, ARM aarch64, dynamically linked, /lib/ld-linux-aarch64.so.1
 
+The binary carries the new subcommands. Its bytes hold the request magics `QDPLFIN1`,
+`QDPNGIN1` and `QDPMHIN1`, plus the `linfit` and `ngrams` help strings; I checked with `rg -a`,
+since an aarch64 binary cannot be executed here.
+
 GLIBC requirement: the highest symbol version is **GLIBC_2.34**. I read it with the rustup
 toolchain's `llvm-objdump -T`; the full set is 2.17, 2.18, 2.28, 2.29, 2.30, 2.32, 2.33, 2.34.
 The sysroot is the box's own glibc 2.39. I built it from the source at `8f08c52`: the binary
@@ -227,10 +257,15 @@ time. The Mac build used for every Mac number is
   so I used the main index. GitPulse returned `REPOSITORY_TRUST_REQUIRED` on every facet, and
   `ListAgents` was unavailable.
 - Known cost I did not optimise: per iteration, the pairwise sums over `d*k` (`sum(W*W)` for
-  the loss and `sum(gW*gW)` for the norm) run on one thread. They take ~1 ms at k=4. For a
-  CLINC-sized label space (k~150, 9.8M weights) they would take tens of ms per iteration. The
-  pairwise tree splits at fixed points, so it can be evaluated in parallel without changing a
-  bit.
+  the loss and `sum(gW*gW)` for the norm) run on one thread. I timed one sum of squares on the
+  Mac as min of 20, in a scratch Rust test that I did not commit:
+  - 0.060 ms at 262,144 values (k=4);
+  - 0.149 ms at 655,360 values (k=10);
+  - 1.910 ms at 9,830,400 values (k=150, a CLINC-sized label space).
+
+  That is small next to the 47.6 ms per iteration of the 45k-doc fit. The pairwise tree splits
+  at fixed points, so it can be evaluated in parallel without changing a bit if it ever
+  matters.
 
 ## First command for the next lane
 
