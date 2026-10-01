@@ -20,14 +20,12 @@ and it is never a runtime fallback. Three layers are pinned here:
 from __future__ import annotations
 
 import json
-import shutil
-import subprocess
 import sys
 import time
 from pathlib import Path
 
 import pytest
-from data_fixtures import small_corpus
+from data_fixtures import qd_prep_binary, small_corpus
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
@@ -45,23 +43,13 @@ from qd_data.rows import DataRow, GoldAnswer  # noqa: E402
 from qd_data.schema import ChoiceSlot, Request  # noqa: E402
 from qd_data.split import split  # noqa: E402
 
-CARGO = shutil.which("cargo")
 DEFECT_EXAMPLES = REPO / "data" / "pool" / "commitpackft-corpus-v2" / "examples.jsonl"
 CONFIG = DataConfig()
 
 
 @pytest.fixture(scope="module")
 def binary() -> Path:
-    if CARGO is None:
-        pytest.skip("cargo is not on PATH: qd-prep was not built")
-    subprocess.run(
-        [CARGO, "build", "--quiet", "--manifest-path", str(REPO / "Cargo.toml"),
-         "-p", "qd-prep", "--bin", "qd-prep"],
-        check=True, timeout=900,
-    )
-    built = REPO / "target" / "debug" / "qd-prep"
-    assert built.is_file(), built
-    return built
+    return qd_prep_binary()
 
 
 @pytest.fixture(scope="module")
@@ -281,6 +269,8 @@ def test_the_shipped_path_refuses_without_a_binary(
 def test_the_environment_names_the_binary(
     monkeypatch: pytest.MonkeyPatch, binary: Path
 ) -> None:
+    # data_fixtures.qd_prep_binary reads the same name without importing the tool.
+    assert pipeline.QD_PREP_ENV == "QD_PREP_BIN"
     monkeypatch.setenv(pipeline.QD_PREP_ENV, str(binary))
     assert pipeline.resolve_qd_prep(None).path == binary
 

@@ -22,6 +22,7 @@ sys.path.insert(0, str(REPO / "tools"))
 sys.path.insert(0, str(REPO / "python"))
 
 import real_ft_run as rft  # noqa: E402
+from data_fixtures import qd_prep_binary  # noqa: E402
 
 from qd_data.config import DataConfig  # noqa: E402
 
@@ -332,7 +333,7 @@ def test_a_defect_class_shard_set_is_relabelled_by_id_from_the_pipelines_own_row
     out = tmp_path / "out"
     try:
         pipeline.run(out=out, max_pairs=20, blank_line_runs=False, rev=rev, commitpackft=CPFT,
-                     defect_class=DEFECT_CORPUS, defect_max_rows=40)
+                     defect_class=DEFECT_CORPUS, defect_max_rows=40, qd_prep=qd_prep_binary())
     except OSError as exc:  # pragma: no cover - no cached tokenizer on this host
         pytest.skip(f"the pipeline could not load its tokenizer: {exc}")
     config = DataConfig()

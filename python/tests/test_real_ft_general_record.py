@@ -33,6 +33,7 @@ sys.path.insert(0, str(REPO / "python"))
 
 import real_ft_run as rft  # noqa: E402
 import real_tokenizer_pipeline as pipeline  # noqa: E402
+from data_fixtures import qd_prep_binary  # noqa: E402
 from repo_git import resolve_rev  # noqa: E402
 
 from qd_data.config import DataConfig  # noqa: E402
@@ -113,7 +114,7 @@ def test_the_rebuild_is_the_pipelines_own_split_general_rows_and_replay_slice_in
     monkeypatch.setattr(pipeline, "census", stop)
     with pytest.raises(_ManifestsWritten):
         pipeline.run(out=out, max_pairs=3, blank_line_runs=False, rev=rev,
-                     general_record=record, replay_shards=True)
+                     general_record=record, replay_shards=True, qd_prep=qd_prep_binary())
 
     config = DataConfig()
     splits = rft.ft_splits(commitpackft=None, max_pairs=3, rev=rev, config=config,

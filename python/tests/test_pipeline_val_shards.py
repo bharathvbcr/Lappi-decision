@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from data_fixtures import qd_prep_binary
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
@@ -42,6 +43,7 @@ def test_the_val_split_is_written_under_the_remap_the_train_split_uses(tmp_path)
     measured = pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev="HEAD",
         commitpackft=DOWNLOAD, val_shards=True, vocab=pipeline.VOCAB_CORPUS,
+        qd_prep=qd_prep_binary(),
     )
 
     coverage = measured.metrics["val_shard_coverage"]
@@ -73,7 +75,7 @@ def test_the_default_full_vocabulary_writes_every_id_and_counts_nothing(tmp_path
 
     measured = pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev="HEAD",
-        commitpackft=DOWNLOAD, val_shards=True,
+        commitpackft=DOWNLOAD, val_shards=True, qd_prep=qd_prep_binary(),
     )
 
     vocabulary = measured.metrics["remap_vocabulary"]

@@ -13,12 +13,48 @@ is not duplicated.
 
 from __future__ import annotations
 
+import functools
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
 from qd_data.config import DataConfig
 from qd_data.loaders import ClincRow, CommitPackFtRow, SquadRow
 from qd_data.mixture import LANGUAGE_OPTIONS
 from qd_data.split import squad_title_family
 
 INTENT_VOCABULARY: tuple[str, ...] = tuple(f"intent_{i:03d}" for i in range(40))
+
+REPO = Path(__file__).resolve().parents[2]
+
+
+@functools.cache
+def qd_prep_binary() -> Path:
+    """The ``qd-prep`` binary ``tools/real_tokenizer_pipeline.py`` signs MinHash with.
+
+    ``$QD_PREP_BIN`` (``real_tokenizer_pipeline.QD_PREP_ENV``) when it is set -- the training
+    box has no cargo, and runs a binary cross-built on the Mac -- and otherwise built here,
+    once per session. Skips where neither exists, because the pipeline refuses to run without
+    the binary; it never substitutes the Python signer, which is the parity oracle only.
+    """
+    named = os.environ.get("QD_PREP_BIN")
+    if named:
+        return Path(named)
+    cargo = shutil.which("cargo")
+    if cargo is None:
+        pytest.skip("cargo is not on PATH and QD_PREP_BIN is unset: qd-prep was not built")
+    subprocess.run(
+        [cargo, "build", "--quiet", "--manifest-path", str(REPO / "Cargo.toml"),
+         "-p", "qd-prep", "--bin", "qd-prep"],
+        check=True, timeout=900,
+    )
+    built = REPO / "target" / "debug" / "qd-prep"
+    if not built.is_file():
+        raise FileNotFoundError(f"cargo built qd-prep but {built} is absent")
+    return built
 
 
 def code_body(tag: str, lines: int = 12) -> str:
