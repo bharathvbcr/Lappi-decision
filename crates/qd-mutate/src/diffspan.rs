@@ -236,16 +236,18 @@ impl MultiHunkDiff {
     /// by position:
     ///
     /// * an edit that wrote lines shows when one of the lines it wrote is an added line here — a
-    ///   line `base` does not have at that point;
-    /// * an edit that only removed lines shows when a change block at its deletion point removes
-    ///   at least one of the lines it removed.
+    ///   line `base` does not have at that point. If every line it wrote is one `base` has there,
+    ///   the edit restored `base` (a `<=` the commit narrowed, widened back) and shows nothing,
+    ///   whatever the commit changed beside it;
+    /// * an edit that only removed lines shows when a change block touches its deletion point:
+    ///   the removal itself is on the page, or the removal sits at the edge of code the commit
+    ///   changed — a defect in new code, which on a new file is the only way one can appear. A
+    ///   deletion point with unchanged lines on both sides and nothing removed there is the edit
+    ///   undoing the commit's own addition: nothing shows.
     ///
-    /// Position alone is not enough, and was measured not to be: when the edit undoes the
-    /// commit's own change (removes an `else` the commit added, restores a `<=` it narrowed), the
-    /// edited lines match `base` and show nothing, while the commit's *other* changes can sit right
-    /// beside the span — two commitpackft rows paired a removed `else` with the commit's own
-    /// end-of-file edit. A span over lines the diff shows unchanged is a label over text the reader
-    /// is told did not change.
+    /// The deletion point is the edit's, from `source` and `after`. Taking it from the span
+    /// instead, as the span's line clamped onto the last line at end of file, accepted two
+    /// commitpackft rows whose edit wrote a line `base` already has at a file's end.
     ///
     /// `false` for texts this diff was not rendered from (line counts disagree) and for a `source`
     /// identical to `after`.
@@ -261,17 +263,15 @@ impl MultiHunkDiff {
         };
         let mut blocks = self.hunks.iter().flat_map(|h| h.blocks.iter());
         if new_end > start {
-            blocks.any(|b| b.new_start < new_end && start < b.new_end)
-        } else {
-            let removed = &src[start..src_end];
-            blocks.any(|b| {
-                b.new_start <= start
-                    && start <= b.new_end
-                    && old
-                        .get(b.old_start..b.old_end)
-                        .is_some_and(|gone| gone.iter().any(|line| removed.contains(line)))
-            })
+            // Wrote lines: one of them must be an added line.
+            return blocks.any(|b| b.new_start < new_end && start < b.new_end);
         }
+        // Only removed lines (`src[start..src_end]`): the edit sits at deletion point `start`,
+        // between after-rows `start - 1` and `start`. It shows when a change block touches that
+        // point -- the removal itself, or code the commit changed that the removal sits at the
+        // edge of, which is how a bug in new code reaches a reader at all.
+        debug_assert!(src_end > start, "edited_rows found an edit, so something was removed");
+        blocks.any(|b| b.new_start <= start && start <= b.new_end)
     }
 }
 
@@ -1053,20 +1053,36 @@ mod tests {
     }
 
     #[test]
-    fn a_removed_line_the_commit_added_does_not_show_through_the_commits_eof_edit() {
-        // Measured on commitpackft (django_compat_patcher/patcher.py): the commit added an `else`
-        // branch and dropped the trailing newline; the edit removes the `else`. From the base the
-        // `else` never existed, and the only change at the end is the commit's newline -- which
-        // a positional check took for the edit.
+    fn a_removal_at_the_edge_of_code_the_commit_added_is_a_defect_in_that_code() {
+        // Shaped after commitpackft's django_compat_patcher/patcher.py: the commit wrapped `run()`
+        // in an `if` with an `else`; the edit removes the `else`. From the base the removal
+        // itself cannot show -- the `else` never existed there -- but it borders the `if` the
+        // commit added, which is exactly how a bug in new code reaches a reader.
         let base = "def f():\n    run()\n    return x\n";
         let source = "def f():\n    if a:\n        run()\n    else:\n        warn()\n    return x";
         let after = "def f():\n    if a:\n        run()\n    return x";
         let d = unified_multi_detailed(base, after, 3).expect("renders");
-        assert!(!d.shows_edit(base, source, after), "{}", d.text);
-        // The same removal when the base HAD the `else` is a removal the reader can see.
+        assert!(d.shows_edit(base, source, after), "{}", d.text);
+        // And when the base HAD the `else`, the removal itself is on the page.
         let base_with_else = "def f():\n    if a:\n        run()\n    else:\n        warn()\n    return x\n";
         let d = unified_multi_detailed(base_with_else, after, 3).expect("renders");
+        assert!(d.text.contains("-    else:"), "{}", d.text);
         assert!(d.shows_edit(base_with_else, source, after), "{}", d.text);
+    }
+
+    #[test]
+    fn removing_exactly_what_the_commit_added_shows_nothing_even_beside_its_other_edits() {
+        // The commit inserted two lines between `b` and `c` and, far away, changed `y`; the edit
+        // removes the two lines. From the base, `b` and `c` are untouched neighbours and the
+        // removed lines never existed: the diff shows the `y` change and nothing of the edit.
+        let base = join(&numbered(20));
+        let source = base
+            .replace("line 5\n", "line 5\nNEW one\nNEW two\n")
+            .replace("line 15\n", "line fifteen\n");
+        let after = base.replace("line 15\n", "line fifteen\n");
+        let d = unified_multi_detailed(&base, &after, 3).expect("renders");
+        assert_eq!(d.hunks.len(), 1, "{}", d.text);
+        assert!(!d.shows_edit(&base, &source, &after), "{}", d.text);
     }
 
     #[test]
