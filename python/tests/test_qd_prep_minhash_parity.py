@@ -436,6 +436,26 @@ def test_a_text_outside_the_shingle_table_another_k_and_an_unread_table_are_refu
     assert dedupe_module.shingle is shingle and split_module.shingle is shingle
 
 
+def test_a_module_that_shingles_through_another_function_is_refused_before_signing(
+    prep_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Restoring ``qd_data.minhash.shingle`` on exit would overwrite whatever the module held,
+    and a table keyed by the reference's results says nothing about another function's."""
+
+    def other(text: str, *, k: int, max_doc_bytes: int = DEFAULT_MAX_DOC_BYTES) -> ShingleResult:
+        return shingle(text, k=k, max_doc_bytes=max_doc_bytes)
+
+    monkeypatch.setattr(split_module, "shingle", other)
+    monkeypatch.setenv(pipeline.PREP_BIN_ENV, str(prep_bin))
+    with (
+        pytest.raises(SystemExit, match=r"qd_data\.split\.MinHasher or \.shingle is not"),
+        pipeline.native_minhash(_corpus_rows(), config=CONFIG),
+    ):
+        raise AssertionError("the block ran over a module it cannot serve")
+    assert split_module.shingle is other and dedupe_module.shingle is shingle
+    assert dedupe_module.MinHasher is MinHasher
+
+
 #: A/B rounds of the shingle-table benchmark; each round runs both arms once.
 SHINGLE_BENCH_ROUNDS = 5
 
