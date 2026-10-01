@@ -15,6 +15,12 @@ path = "src/lib.rs"
 name = "qd"
 path = "src/main.rs"
 
+# A diagnostic over a scoring run's verdict files, built on `calibration::calibrate` so its
+# margins are the runtime's own. It installs nothing the runtime reads.
+[[bin]]
+name = "qd-margin-probe"
+path = "src/bin/qd_margin_probe.rs"
+
 # No async runtime, no socket crate, no timer crate: `std::os::unix::net`,
 # `Condvar::wait_timeout` and `set_read_timeout` cover the whole server.
 # Adding one would be a new dependency for capability std already has.
