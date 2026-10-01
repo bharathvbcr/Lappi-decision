@@ -209,16 +209,28 @@ def test_a_workers_predictions_are_scored_without_decoding(monkeypatch):
 
 
 def _worker(monkeypatch, payload, returncode=0):
+    """A worker process that answers ``payload``. The handoff it is given is stubbed here:
+    ``test_needle_handoff.py`` holds what is written and read."""
     import json
 
     def fake_run(cmd, timeout, check):
         assert cmd[-2] == "--needle-predictions-out" and timeout == rft.NEEDLE_WORKER_TIMEOUT_S
+        assert cmd[-4] == "--needle-handoff" and Path(cmd[-3]).is_file()
         Path(cmd[-1]).write_text(json.dumps(payload), encoding="utf-8")
         from types import SimpleNamespace
 
         return SimpleNamespace(returncode=returncode)
 
     monkeypatch.setattr(rft.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        rft, "write_needle_handoff", lambda path, suite, **kw: path.write_bytes(b"handoff")
+    )
+
+
+def _run_worker(suite):
+    return rft.run_needle_worker(
+        ["--x"], suite, letter_id={}, eval_widths=[], train=None, val=None,  # type: ignore[arg-type]
+    )
 
 
 def _raw(cases, predictions):
@@ -265,7 +277,7 @@ def test_a_worker_without_matching_raw_verdicts_is_refused(monkeypatch):
     ):
         _worker(monkeypatch, {"digest": "d" * 64, "predictions": good, "verdicts": verdicts})
         with pytest.raises(SystemExit, match=match):
-            rft.run_needle_worker(["--x"], suite)
+            _run_worker(suite)
 
 
 def test_the_needle_worker_is_trusted_only_for_this_exact_suite(monkeypatch):
@@ -274,7 +286,7 @@ def test_the_needle_worker_is_trusted_only_for_this_exact_suite(monkeypatch):
     good = {c.case_id: (None if i % 2 else c.needle_index) for i, c in enumerate(cases)}
     raw = _raw(cases, good)
     _worker(monkeypatch, {"digest": "d" * 64, "predictions": good, "verdicts": raw})
-    got = rft.run_needle_worker(["--x"], suite)
+    got = _run_worker(suite)
     assert got.predictions == good and list(got.verdicts) == raw
     for payload, code, match in (
         ({"digest": "e" * 64, "predictions": good, "verdicts": raw}, 0, "different suite"),
@@ -286,7 +298,7 @@ def test_the_needle_worker_is_trusted_only_for_this_exact_suite(monkeypatch):
     ):
         _worker(monkeypatch, payload, code)
         with pytest.raises(SystemExit, match=match):
-            rft.run_needle_worker(["--x"], suite)
+            _run_worker(suite)
 
 
 def test_the_worker_flag_only_means_something_as_the_needle_worker(tmp_path):
