@@ -64,6 +64,7 @@ __all__ = [
     "content_disjoint_families",
     "split",
     "squad_title_family",
+    "squad_title_repo_key",
 ]
 
 HELD_OUT: Final[str] = "heldout"
@@ -116,6 +117,18 @@ def squad_title_family(title: str, *, seed: int) -> str:
     return SQUAD_TITLE_FAMILIES[0] if u < SQUAD_ANSWERABILITY_TITLE_FRACTION else (
         SQUAD_TITLE_FAMILIES[1]
     )
+
+
+def squad_title_repo_key(title: str) -> str:
+    """The split unit of every row drawn from one SQuAD article: its ``repo_key``.
+
+    The article, not the question: SQuAD asks many questions of one paragraph, and a
+    row-level split would put questions about one passage on both sides. One spelling,
+    used by ``qd_data.mixture.rewrite_squad`` and by the ``code.defect_class`` noul rows
+    built from the same paragraphs, so the two land in one split and dedupe treats them as
+    one repository's rows rather than as a cross-repo duplicate to drop.
+    """
+    return f"squad-title:{title}"
 
 
 def assign_repo(

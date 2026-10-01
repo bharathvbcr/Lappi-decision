@@ -594,6 +594,30 @@ def test_the_step_satisfies_both_trainer_protocols(tmp_path):
     )
 
 
+def test_only_the_span_channel_off_opt_in_takes_a_zero_span_weight(tmp_path):
+    """``tools/real_ft_run.py --shuffled-label``'s step: weight 0 through ``span_channel_off``
+    and nowhere else, and then a span batch sends the span head no gradient at all -- the
+    real span gold cannot pull the tower toward the defect the choice golds were shuffled
+    away from. The span loss is still computed and logged, unweighted."""
+    tower, _ = _tiny_tower(tmp_path)
+    with pytest.raises(ValueError, match="span_weight must be positive"):
+        QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64, span_weight=0.0)
+    with pytest.raises(ValueError, match=r"takes span_weight 0\.0 exactly"):
+        QwenDecisionStep(
+            tower, seed=0, lr=1e-3, total_steps=1, max_width=64, span_weight=1.0,
+            span_channel_off=True,
+        )
+    step = QwenDecisionStep(
+        tower, seed=0, lr=1e-3, total_steps=1, max_width=64, span_weight=0.0,
+        span_channel_off=True,
+    )
+    batch = _ft_batch(0)
+    total = step.accumulate_span(batch, ft_supervision(batch))
+    grads = [p.grad for p in step.span_head.parameters()]
+    assert grads and all(g is None or float(g.abs().sum()) == 0.0 for g in grads)
+    assert step.span_log[-1] > 0.0 and total == pytest.approx(step.letter_log[-1])
+
+
 def test_a_real_backbone_trains_through_train_ft_and_the_loss_falls(tmp_path):
     """The binding this lane exists to make: real weights driven by the real loop.
 

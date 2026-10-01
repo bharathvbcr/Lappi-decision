@@ -45,16 +45,20 @@ from __future__ import annotations
 
 import argparse
 import collections
+import contextlib
 import dataclasses
 import hashlib
 import json
+import os
+import struct
 import subprocess
 import sys
+import tempfile
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import numpy as np
 
@@ -77,7 +81,7 @@ from qd_data.defect_class import (
     DefectRow,
     load_defect_rows,
 )
-from qd_data.errors import QdRefusal
+from qd_data.errors import NOUL, QdRefusal
 from qd_data.general import (
     CLINC_DOMAINS_COMMIT,
     REPLAY_FAMILIES,
@@ -847,7 +851,9 @@ def defect_balance(
     fam = [r for r in rows if r.family_id == DEFECT_FAMILY_ID]
 
     def label(r: DataRow) -> str:
-        return str(next(g.value for g in r.gold if g.slot_name == DEFECT_CHOICE_SLOT))
+        gold = next(g for g in r.gold if g.slot_name == DEFECT_CHOICE_SLOT)
+        # A noul-corpus row's choice gold is the abstention, whose value is None.
+        return NOUL if gold.is_noul else str(gold.value)
 
     kept = [
         r for r in fam
@@ -1367,6 +1373,193 @@ def split_off_replay(
     return gold, replay, part
 
 
+#: The environment variable naming the ``qd-prep`` binary (``crates/qd-prep``) that
+#: :func:`native_minhash` runs. An absolute path, never searched for: the aarch64 box has no
+#: Rust toolchain, so its binary is cross-built on the Mac and copied there, and which file
+#: runs is the operator's statement rather than this tool's guess.
+PREP_BIN_ENV: Final[str] = "QD_PREP_BIN"
+#: Seconds one ``qd-prep minhash`` call may take. The phase-3 rebuild's ~50k sets take about a
+#: second on the Mac's 18 cores; ten minutes is a hang, not a slow host.
+PREP_TIMEOUT_S: Final[float] = 600.0
+#: Sets re-signed by the Python reference after every native call -- this many from each end
+#: of the request -- and compared bit for bit. A binary whose arithmetic drifted is refused on
+#: the run's own data, not only in the parity test.
+NATIVE_MINHASH_CANARIES: Final[int] = 4
+_PREP_REQUEST_MAGIC: Final[bytes] = b"QDPMHIN1"
+_PREP_REPLY_MAGIC: Final[bytes] = b"QDPMHOK1"
+_PREP_BUILD: Final[str] = (
+    "build it with `cargo build --release -p qd-prep` (target/release/qd-prep) on the Mac, or "
+    "cross-build it for the aarch64 box with `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="
+    "/Users/bharath/qd-campaign/sysroot-aarch64-linux-gnu/link.sh "
+    "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS='-C linker-flavor=gcc' cargo build "
+    "--release -p qd-prep --bin qd-prep --target aarch64-unknown-linux-gnu --target-dir "
+    f"/Users/bharath/qd-campaign/target-aarch64-linux`, and set {PREP_BIN_ENV} to its "
+    "absolute path"
+)
+
+
+def _prep_signatures(
+    binary: Path, sets: list[frozenset[bytes]], reference: Any
+) -> list[tuple[int, ...]]:
+    """``reference.signature(s)`` for every ``s`` in ``sets``, computed by ``qd-prep minhash``.
+
+    ``reference`` is the ``qd_data.minhash.MinHasher`` whose permutation family (``_a``,
+    ``_b``, ``_key``) is handed over as numbers, so the derivation has one owner. Everything
+    about the reply is checked -- magic, permutation count, document count, exact length --
+    and anything else is a refusal: a reply shorter than its request would sign a prefix.
+    """
+    if not binary.is_absolute() or not binary.is_file():
+        raise SystemExit(
+            f"{PREP_BIN_ENV}={binary} is not an absolute path to a file; {_PREP_BUILD}"
+        )
+    k = int(reference.num_perm)
+    key = bytes(reference._key)
+    parts = [
+        _PREP_REQUEST_MAGIC, struct.pack("<II", k, len(key)), key,
+        struct.pack(f"<{k}Q", *reference._a), struct.pack(f"<{k}Q", *reference._b),
+        struct.pack("<Q", len(sets)),
+    ]
+    for shingles in sets:
+        items = list(shingles)
+        parts.append(struct.pack(f"<I{len(items)}I", len(items), *map(len, items)))
+        parts.append(b"".join(items))
+    with tempfile.TemporaryDirectory(prefix="qd-prep-minhash-") as tmp:
+        request, reply_path = Path(tmp) / "request.bin", Path(tmp) / "reply.bin"
+        with request.open("wb") as fh:
+            fh.writelines(parts)
+        cmd = [str(binary), "minhash", "--input", str(request), "--output", str(reply_path)]
+        try:
+            done = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=PREP_TIMEOUT_S, check=False
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise SystemExit(f"{binary} ran past {PREP_TIMEOUT_S:.0f} s and was killed") from exc
+        except OSError as exc:
+            raise SystemExit(
+                f"{binary} could not be run ({exc}) -- built for another platform?; {_PREP_BUILD}"
+            ) from exc
+        if done.returncode != 0:
+            raise SystemExit(
+                f"{binary} minhash exited {done.returncode}: {done.stderr.strip()[-2000:]}"
+            )
+        reply = reply_path.read_bytes()
+    header = len(_PREP_REPLY_MAGIC) + 4 + 8
+    if len(reply) < header or reply[: len(_PREP_REPLY_MAGIC)] != _PREP_REPLY_MAGIC:
+        raise SystemExit(f"{binary} wrote a reply that is not a {_PREP_REPLY_MAGIC!r} file")
+    got_k, got_n = struct.unpack_from("<IQ", reply, len(_PREP_REPLY_MAGIC))
+    if (got_k, got_n) != (k, len(sets)) or len(reply) != header + got_n * got_k * 8:
+        raise SystemExit(
+            f"{binary} replied {got_n} signatures of {got_k} values in {len(reply)} bytes; "
+            f"{len(sets)} of {k} were asked for, so the reply is not this request's"
+        )
+    values = np.frombuffer(reply, dtype="<u8", offset=header).reshape(got_n, got_k)
+    return [tuple(row) for row in values.tolist()]
+
+
+@contextlib.contextmanager
+def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[None]:
+    """Within the block, ``qd_data.dedupe`` and ``qd_data.split`` sign with ``qd-prep``.
+
+    ``MinHasher.signature`` was 346 of the 462 profiled seconds of a ``--score-checkpoint``
+    prelude (cProfile, 2026-09-30): every content unit signed for ``dedupe`` and every row
+    again for ``split``'s cross-check, in arbitrary-precision Python. ``qd_data`` cannot be
+    edited for this -- ``qd_data.fingerprint`` hashes every module of it into each shard set's
+    header, so any edit there marks every existing shard set stale -- so the seam is here: the
+    shingle set of every row's ``dedupe_text`` is computed by the reference ``shingle``, all
+    of them are signed in one ``qd-prep`` call, and ``MinHasher`` in those two modules is
+    replaced, for the duration of the block, by a subclass that answers from that table.
+
+    ``qd_data.minhash.MinHasher.signature`` is now the reference oracle and nothing else: the
+    permutation family is the reference ``MinHasher``'s, an empty set goes to the reference
+    (which refuses it), a set the table does not hold is a refusal rather than a quiet Python
+    signature, the first and last :data:`NATIVE_MINHASH_CANARIES` sets are re-signed by the
+    reference and compared, and a block that never asked for a signature is refused, because
+    then the replacement was not where the signing happens.
+    ``python/tests/test_qd_prep_minhash_parity.py`` holds the byte-for-byte parity on real and
+    adversarial rows. There is no Python fallback: without :data:`PREP_BIN_ENV` the block
+    refuses before signing anything.
+    """
+    import qd_data.dedupe as dedupe_module
+    import qd_data.split as split_module
+    from qd_data.minhash import MinHasher, shingle
+
+    named = os.environ.get(PREP_BIN_ENV, "")
+    if not named:
+        raise SystemExit(
+            f"{PREP_BIN_ENV} is unset. MinHash signing runs in crates/qd-prep; the Python "
+            f"MinHasher is the parity oracle, not a fallback. {_PREP_BUILD}"
+        )
+    modules = (dedupe_module, split_module)
+    for module in modules:
+        if getattr(module, "MinHasher", None) is not MinHasher:
+            raise SystemExit(
+                f"{module.__name__}.MinHasher is not qd_data.minhash.MinHasher, so the native "
+                "signatures cannot be installed where that module signs"
+            )
+    started = time.perf_counter()
+    index: dict[frozenset[bytes], None] = {}
+    for row in rows:
+        shingles = shingle(row.dedupe_text, k=config.shingle_size).shingles
+        if shingles:
+            index.setdefault(shingles, None)
+    sets = list(index)
+    reference = MinHasher(num_perm=config.num_perm, seed=config.seed)
+    table = dict(zip(sets, _prep_signatures(Path(named), sets, reference), strict=True))
+    n = NATIVE_MINHASH_CANARIES
+    canaries = list(dict.fromkeys(sets[:n] + sets[-n:]))
+    for shingles in canaries:
+        if table[shingles] != reference.signature(shingles):
+            raise SystemExit(
+                f"{named} signed a {len(shingles)}-shingle set differently from "
+                "qd_data.minhash.MinHasher; its signatures are not the reference's"
+            )
+    signed_s = time.perf_counter() - started
+    asked = 0
+
+    class NativeMinHasher(MinHasher):
+        """``MinHasher`` answering from the table signed above; refuses anything else."""
+
+        def __init__(self, *, num_perm: int, seed: int) -> None:
+            if (num_perm, seed) != (reference.num_perm, reference.seed):
+                raise SystemExit(
+                    f"asked for a MinHasher(num_perm={num_perm}, seed={seed}) but the native "
+                    f"table was signed at ({reference.num_perm}, {reference.seed})"
+                )
+            super().__init__(num_perm=num_perm, seed=seed)
+
+        def signature(self, shingles: frozenset[bytes] | set[bytes]) -> tuple[int, ...]:
+            nonlocal asked
+            if not shingles:
+                return super().signature(shingles)
+            found = table.get(frozenset(shingles))
+            if found is None:
+                raise SystemExit(
+                    f"a {len(shingles)}-shingle set was not among the {len(table)} signed by "
+                    f"{named}; refusing to sign it in Python behind the binary's back"
+                )
+            asked += 1
+            return found
+
+    for module in modules:
+        module.MinHasher = NativeMinHasher  # type: ignore[attr-defined]
+    try:
+        yield
+    finally:
+        for module in modules:
+            module.MinHasher = MinHasher  # type: ignore[attr-defined]
+    if table and not asked:
+        raise SystemExit(
+            "the native MinHash table was installed and never read: qd_data no longer signs "
+            "through the name it replaced, so this block measured nothing it claims to"
+        )
+    print(
+        f"minhash: {len(table)} distinct sets signed by {named} in {signed_s:.1f} s "
+        f"(shingling and canaries included), {asked} lookups, {len(canaries)} canaries equal "
+        "to the reference",
+        file=sys.stderr, flush=True,
+    )
+
+
 def run(
     *,
     out: Path,
@@ -1384,9 +1577,15 @@ def run(
     replay_shards: bool = False,
     repo_history: bool = True,
     vocab: str = VOCAB_FULL,
+    defect_noul: Path | None = None,
 ) -> Measured:
     if vocab not in VOCAB_POLICIES:
         raise SystemExit(f"vocab must be one of {VOCAB_POLICIES}, got {vocab!r}")
+    if defect_noul is not None and defect_class is None:
+        raise SystemExit(
+            "--defect-noul needs --defect-class: its rows are code.defect_class rows whose "
+            "gold is noul, and a family of only abstentions teaches nothing but abstaining"
+        )
     if replay_shards and general_record is None:
         raise SystemExit(
             "--replay-shards needs --general-record: the replay slice is drawn from the "
@@ -1445,21 +1644,26 @@ def run(
         # pool to a licence refuses the whole load -- see qd_data.defect_class.
         load = load_defect_rows(
             defect_class, download_root=defect_download, config=config, repo_root=REPO,
-            max_rows=defect_max_rows,
+            max_rows=defect_max_rows, noul_dir=defect_noul,
         )
         raw[DEFECT_SOURCE_ID] = list(load.rows)
         if load.capped:
             capped.append(DEFECT_SOURCE_ID)
+        n_main = len(load.rows) - load.n_noul
         code_source += (
-            f"; {DEFECT_FAMILY_ID} from {defect_class} ({len(load.rows)} of "
+            f"; {DEFECT_FAMILY_ID} from {defect_class} ({n_main} of "
             f"{load.n_corpus} qd-mutate examples"
             + (", a sha256-ordered sample" if load.capped else "")
+            + (
+                f", plus {load.n_noul} noul rows from {defect_noul} {load.noul_by_source}"
+                if defect_noul is not None else ""
+            )
             + f"; classes {load.by_class}; span-rebase refusals {load.span_refusals or 'none'})"
         )
         print(
-            f"\n{DEFECT_FAMILY_ID}: {len(load.rows)} of {load.n_corpus} rows, "
-            f"capped={load.capped}, by class {load.by_class}, span-rebase refusals "
-            f"{load.span_refusals or 'none'}"
+            f"\n{DEFECT_FAMILY_ID}: {n_main} of {load.n_corpus} rows, "
+            f"capped={load.capped}, noul rows {load.n_noul} {load.noul_by_source}, by class "
+            f"{load.by_class}, span-rebase refusals {load.span_refusals or 'none'}"
         )
     general: GeneralLoad | None = None
     if general_record is not None:
@@ -1512,8 +1716,9 @@ def run(
         for code, n in sorted(counts.items(), key=lambda kv: -kv[1]):
             print(f"    refused {source_id} {code}: {n}")
 
-    report = dedupe(list(mixture.rows), config=config)
-    split_report = split(report, config=config)
+    with native_minhash(mixture.rows, config=config):
+        report = dedupe(list(mixture.rows), config=config)
+        split_report = split(report, config=config)
     print("\n== stage 2: dedupe + split ==")
     print(f"  rows in: {len(mixture.rows)}   kept: {len(report.kept)}")
     print(f"  split counts: {split_report.counts()}")
@@ -2028,6 +2233,18 @@ def main(argv: list[str] | None = None) -> int:
         help="cap the defect rows at a sha256-ordered sample; a cap that binds is reported",
     )
     parser.add_argument(
+        "--defect-noul",
+        type=Path,
+        default=None,
+        help=(
+            "a qd-noul-rows corpus directory (examples.jsonl + manifest.json, e.g. "
+            "data/pool/defect-noul-v1) whose code.defect_class rows have the gold noul -- "
+            "contexts that are not the model's kind. Needs --defect-class; appended uncapped "
+            "after its rows. Every row's split unit is re-checked to be train; one that is "
+            "not refuses the whole corpus."
+        ),
+    )
+    parser.add_argument(
         "--memo-limit",
         type=int,
         default=MEMO_LIMIT,
@@ -2118,7 +2335,7 @@ def main(argv: list[str] | None = None) -> int:
         "defect_max_rows": args.defect_max_rows, "memo_limit": args.memo_limit,
         "general_record": args.general_record, "general_max_rows": args.general_max_rows,
         "replay_shards": args.replay_shards, "repo_history": args.repo_history,
-        "vocab": args.vocab,
+        "vocab": args.vocab, "defect_noul": args.defect_noul,
     }
     if args.ledger is None:
         run(**run_kwargs)
@@ -2165,6 +2382,14 @@ def main(argv: list[str] | None = None) -> int:
         recipe["defect_download_sha256"] = pool_manifest_shas(args.defect_download)
         if args.defect_max_rows is not None:
             recipe["defect_max_rows"] = args.defect_max_rows
+    if args.defect_noul is not None:
+        # Only when used, so a set built without it hashes as before and one built with it
+        # never shares its recipe_hash. The noul corpus's sha256 names it; load_noul_rows
+        # refuses examples that no longer match the manifest.
+        noul_manifest = json.loads(
+            (args.defect_noul / "manifest.json").read_text(encoding="utf-8")
+        )
+        recipe["defect_noul_examples_sha256"] = str(noul_manifest["examples_sha256"])
     if args.general_record is not None:
         # Only when used. The record's sha256 names the corpus; general_rows() refuses a
         # cache file that no longer matches the record.

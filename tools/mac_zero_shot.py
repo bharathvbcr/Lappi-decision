@@ -125,7 +125,8 @@ def main(argv: list[str] | None = None) -> int:
         {"bigcode/commitpackft": list(commits), "rajpurkar/squad_v2": list(spans)},
         config=config,
     )
-    split_report = split(dedupe(list(mixture.rows), config=config), config=config)
+    with pipeline.native_minhash(mixture.rows, config=config):
+        split_report = split(dedupe(list(mixture.rows), config=config), config=config)
     train_labels, excluded = ft._labels(
         list(split_report.rows_by_split.get("train", ())), config=config
     )

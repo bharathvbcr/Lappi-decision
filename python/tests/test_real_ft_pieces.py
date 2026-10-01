@@ -242,12 +242,15 @@ def test_main_trains_on_exactly_what_ft_split_rows_returns(tmp_path, monkeypatch
                       "config": calls[0]["config"], "defect_class": None,
                       "defect_download": None, "defect_max_rows": None,
                       "repo_history": True, "general_record": None,
-                      "general_max_rows": None, "replay_partition": False}]
+                      "general_max_rows": None, "replay_partition": False,
+                      "defect_noul": None}]
 
 
+@pytest.mark.usefixtures("qd_prep")
 def test_ft_split_rows_is_the_rebuild_main_used_to_inline(tmp_path):
     """Characterisation against the pre-extraction inline block in ``main`` (HEAD c65d7da),
-    on this repository's own history at a small ``max_pairs``."""
+    on this repository's own history at a small ``max_pairs``. The rebuild signs in qd-prep
+    and the inline block below in the Python reference, so this is also their parity."""
     import real_tokenizer_pipeline as pipeline
     from repo_git import resolve_rev
 
@@ -316,6 +319,7 @@ def test_defect_download_without_a_corpus_is_refused():
     not (DEFECT_CORPUS / "examples.jsonl").is_file() or not CPFT.is_dir(),
     reason="the qd-mutate corpus or the commitpackft download is not on this host",
 )
+@pytest.mark.usefixtures("qd_prep")
 def test_a_defect_class_shard_set_is_relabelled_by_id_from_the_pipelines_own_rows(tmp_path):
     """Against the pipeline's OWN output: build a small shard set with
     real_tokenizer_pipeline.run(--defect-class), then rebuild its labels the way main does

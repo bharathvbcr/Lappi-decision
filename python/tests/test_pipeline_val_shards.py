@@ -32,6 +32,7 @@ from qd_train.tristate import NotRun, Ran  # noqa: E402
 DOWNLOAD = REPO / "data" / "pool" / "commitpackft"
 
 
+@pytest.mark.usefixtures("qd_prep")
 def test_the_val_split_is_written_under_the_remap_the_train_split_uses(tmp_path) -> None:
     pytest.importorskip("transformers")
     if not pipeline.MODEL_REF.exists():
@@ -64,6 +65,7 @@ def test_the_val_split_is_written_under_the_remap_the_train_split_uses(tmp_path)
     assert val.header.remap_hash == train.header.remap_hash, "scored under another remap"
 
 
+@pytest.mark.usefixtures("qd_prep")
 def test_the_default_full_vocabulary_writes_every_id_and_counts_nothing(tmp_path) -> None:
     pytest.importorskip("transformers")
     if not pipeline.MODEL_REF.exists():
