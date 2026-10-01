@@ -92,9 +92,14 @@ Lane worktree `agent-a49d73cb7bb3e7dad`, branch `worktree-agent-a49d73cb7bb3e7da
     - refuse_gold and refuse_any are span populations only.
     - The choice slot is one population, `both_policies`, because a span refusal drops only the
       span sequence.
-    - A row whose gold start shares a token is in neither span population. It is counted per cell
-      as `span_excluded`, read from `sequence_index.json` `excluded` (UnencodableGold, "gold's
-      line start shares token"), never as a miss.
+    - A slot with no sequence is in neither span population and is never scored as a miss.
+  - **Exclusions (`2d4ae8e`):** every one in `sequence_index.json` is counted under exactly one
+    bucket (`EXCLUSION_BUCKETS`); any other exclusion refuses the pass.
+    - `gold_shares_token`: slot-scoped, a gold collision;
+    - `nfc_unstable`: slot-scoped, not a collision;
+    - `over_max_seq_len`: the whole row.
+    - The list is v4's train census. The compose lane will send the slice's measured
+      (scope, refusal, detail) counts after the build; re-pin the list to them before scoring.
   - **Then:** a `composed` plan pass, which:
     - opens `<slice>/shards/val-report-only-composed`, requiring `report_only` true and
       `span_collapse_policy` refuse-gold, the train remap and the tokenizer;
