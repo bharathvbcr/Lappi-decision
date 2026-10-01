@@ -21,7 +21,8 @@ use crate::hunk::{self, draw_shape, has_char_in, item_rng, mark_block, order_key
 pub const SOURCE: &str = "scrambled";
 
 /// The languages of the `code.defect_class` corpus: the in-distribution languages, scrambled.
-pub const LANGUAGES: [LangId; 4] = [LangId::Go, LangId::Python, LangId::Rust, LangId::TypeScript];
+/// Owned by `qd-lang`, which the serving runtime's admission check reads too.
+pub const LANGUAGES: [LangId; 4] = qd_lang::DEFECT_CLASS_POOL_LANGUAGES;
 
 /// Window length in lines. The corpus's diffs are 8 / 10 / 16 / 31 lines at the 5th / 50th /
 /// 75th / 90th percentiles; a window draws from that bulk.

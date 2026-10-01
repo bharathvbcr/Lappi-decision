@@ -324,15 +324,22 @@ def _recipe_pieces(
     permutation: ChoicePermutation | None, replay: ReplayPlan | None,
     cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
+    checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
 ) -> dict[str, object]:
     """The recipe keys for whichever ported pieces are on. Empty when none is.
 
     The wall-clock cap, ``--no-memorise`` and ``--batch-tokens`` ride here too, on the same
     terms: named only when they differ from what every earlier row ran under, so those rows
     hash as before. ``batch_tokens`` is ``None`` at the default (the widest bucket), which
-    ``_resolve_batch_tokens`` decides.
+    ``_resolve_batch_tokens`` decides. So does ``--checkpoint-skip-layers``: the policy is
+    already in every recipe as ``gradient_checkpointing``, and a selective one is named
+    beside it only when it is on.
     """
     out: dict[str, object] = {}
+    if fused_adamw:
+        out["optimizer_fused"] = True
+    if checkpoint_skip_layers:
+        out["checkpoint_skip_layers"] = checkpoint_skip_layers
     if cap_s != WALL_CLOCK_CAP_S:
         out["wall_clock_cap_s"] = cap_s
     if no_memorise:
@@ -1928,7 +1935,7 @@ def _real_step(
     spec: OptimizerSpec, attn_implementation: str, seed: int, lr: float, total_steps: int,
     span_weight: float, width: int, lower_layers_n: int = 0, lower_lr_scale: float = 1.0,
     beta2: float = DEFAULT_BETA2, eval_widths: Sequence[int] = (),
-    span_channel_off: bool = False,
+    span_channel_off: bool = False, checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
 ) -> tuple[Any, Any, TriState]:
     """The real tower, remapped to the shard set, budgeted, and wrapped in a step.
 
@@ -1947,6 +1954,7 @@ def _real_step(
     from qd_train.backbone import (
         QwenDecisionStep,
         footprint_at,
+        linear_attention_on_reference_path,
         load_text_tower,
         remap_text_tower,
     )
@@ -1961,7 +1969,20 @@ def _real_step(
         # A real batch's shape; the budget below takes the worst of all of them.
         rows=int(plan[0].tokens.shape[0]),
         width=int(plan[0].tokens.shape[1]),
+        checkpoint_skip_layers=checkpoint_skip_layers,
     )
+    # On CUDA the linear-attention layers must be on fla's kernels. transformers falls back
+    # to its torch reference silently apart from a log line, and puts that path at more
+    # than an order of magnitude slower: a run on it is one that hits its wall-clock cap
+    # having trained a fraction of the plan. CPU and MPS have no fla kernel, so there the
+    # reference path is the only one and is recorded rather than refused.
+    slow = linear_attention_on_reference_path(tower.linear_attention_kernels)
+    if device == "cuda" and "chunk_gated_delta_rule" in slow:
+        raise SystemExit(
+            "linear attention is bound to transformers' torch reference on cuda "
+            f"({tower.linear_attention_kernels}); fla's chunk_gated_delta_rule did not "
+            "import. Refusing rather than training on the slow path."
+        )
     # The shard set's ids are post-remap, so the tied embedding has to be sliced to the
     # same vocabulary or every id indexes a different row than the one it names. The
     # reader's own table is used rather than a second one read from disk here.
@@ -2008,6 +2029,7 @@ def _real_step(
         lower_lr_scale=lower_lr_scale,
         beta2=beta2,
         span_channel_off=span_channel_off,
+        fused_adamw=fused_adamw,
     )
     return step, tower, budget
 
@@ -2030,6 +2052,7 @@ def _train(
     eval_widths: Sequence[int] = (),
     cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
+    checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -2053,7 +2076,18 @@ def _train(
         lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
         permutation=permutation, replay=replay, cap_s=cap_s, no_memorise=no_memorise,
         batch_tokens=batch_tokens, shuffled_label=shuffled_label,
+        checkpoint_skip_layers=checkpoint_skip_layers, fused_adamw=fused_adamw,
     )
+    if checkpoint_skip_layers and backbone is None:
+        raise ValueError(
+            "checkpoint_skip_layers needs the real backbone: the stand-in is one block with "
+            "no checkpointing to be selective about"
+        )
+    if fused_adamw and (backbone is None or optimizer_recipe != "master"):
+        raise ValueError(
+            "fused_adamw is built for the real backbone's fp32-master optimizer only; the "
+            "recipe would record a fused optimizer this run does not build"
+        )
     if permutation is not None and alphabets is None:
         raise ValueError("option permutation needs each plan batch's per-row alphabets")
     recipe: dict[str, object] = {
@@ -2074,6 +2108,16 @@ def _train(
     # value, and -- through that -- in the verdict row's recipe. All three feed a protocol
     # hash, and `_backbone_commit` refuses a recipe that names no backbone at all.
     backbone_keys: dict[str, object] = {}
+    # Which path this row's numbers came off: kernels, determinism, checkpointing policy,
+    # optimizer implementation. A metric, not recipe keys -- recording it must not move the
+    # recipe hash of a run that is otherwise the one every earlier row describes -- and on
+    # every ft row, so two rows are never compared without saying what each ran on.
+    train_path: dict[str, object] = {
+        "deterministic": deterministic,
+        "deterministic_algorithms_enabled": torch.are_deterministic_algorithms_enabled(),
+        "torch": torch.__version__,
+        "compile": "off",
+    }
     budget: TriState = NotRun(
         reason="the stand-in backbone is one block; memory.py budgets the real tower only"
     )
@@ -2088,6 +2132,7 @@ def _train(
             hidden=hidden, heads=heads, lr=lr, span_weight=span_weight, beta2=beta2,
             span_channel_off=shuffled_label is not None,
         )
+        train_path["backbone"] = "stand-in: one causal block, no linear attention"
         # Only meaningful for the stand-in, so only recorded for it: under --real-backbone
         # these determine nothing and would still move recipe_hash.
         backbone_keys["hidden"] = hidden
@@ -2104,6 +2149,19 @@ def _train(
             total_steps=steps, span_weight=span_weight, width=width,
             lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
             eval_widths=eval_widths, span_channel_off=shuffled_label is not None,
+            checkpoint_skip_layers=checkpoint_skip_layers, fused_adamw=fused_adamw,
+        )
+        train_path.update(
+            linear_attention_kernels=dict(tower.linear_attention_kernels),
+            gradient_checkpointing=tower.gradient_checkpointing,
+            checkpoint_skip_layers=list(tower.checkpoint_skip_layers),
+            optimizer=type(step.optimizer).__name__,
+            optimizer_inner_fused=bool(
+                getattr(step.optimizer, "param_groups", [{}])[0].get("fused") or False
+            ),
+            optimizer_inner_foreach=getattr(step.optimizer, "param_groups", [{}])[0].get(
+                "foreach"
+            ),
         )
         # `tower.snapshot.name`, not `str(backbone)`: the directory name is the HF revision
         # (refs/main and the snapshot dir agree), while the absolute path is
@@ -2193,6 +2251,14 @@ def _train(
         ),
     )
     recorder.metric("device_budget", budget)
+    recorder.metric(
+        "train.path",
+        Ran(
+            passed=True,
+            value=json.dumps(train_path, sort_keys=True, separators=(",", ":")),
+            detail="what this row ran on; compare rows only where this agrees or says why not",
+        ),
+    )
 
     supervised = [ft_supervision(b) for b in plan]
     # Per batch as well as over the plan. The per-batch numbers are what each batch's loss
@@ -3475,6 +3541,96 @@ def family_eces(verdicts: Sequence[Mapping[str, object]]) -> dict[str, TriState]
     return states
 
 
+def family_heads(verdicts: Sequence[Mapping[str, object]]) -> dict[str, TriState]:
+    """``degenerate_head.family.{family_id}.{kind}.k{options}``: REPORT-ONLY, never in the
+    ``degenerate_head`` control (Fable G1, GAP-DEGENERATE-HEAD-FAILS-ON-BINARY-SLOTS-TOO).
+
+    :func:`degenerate_head_check`'s two numbers over one family's rows of one slot shape: mean
+    predictive entropy (the value) and the top predicted row's share. ``passed`` is always
+    true: whether the control's entropy floor and class-share cap apply per family is the
+    human's ruling, and a per-family pass/fail here would be that ruling made where nobody
+    looks. A letter row without a family leaves one ``degenerate_head.family`` NotRun and no
+    per-family number, as ``qd-gate-report`` does. ``qd-gate-report`` recomputes each value.
+    """
+    letter_rows = [v for v in verdicts if str(v["kind"]) != "span"]
+    by_family: dict[str, list[Mapping[str, object]]] = {}
+    missing = 0
+    for v in letter_rows:
+        family = v.get("family_id")
+        if isinstance(family, str) and family:
+            by_family.setdefault(family, []).append(v)
+        else:
+            missing += 1
+    if missing:
+        return {"degenerate_head.family": NotRun(
+            reason=f"{missing} of {len(letter_rows)} letter rows {NO_FAMILY_REASON}"
+        )}
+    states: dict[str, TriState] = {}
+    for family, rows in sorted(by_family.items()):
+        for key, (probs, _) in letter_distributions(rows).items():
+            head = degenerate_head_check(probs)
+            name = f"degenerate_head.family.{family}.{key}"
+            if not isinstance(head, Ran):
+                states[name] = head
+                continue
+            counts = np.bincount(np.argmax(probs, axis=1), minlength=probs.shape[1])
+            share = float(counts.max() / len(probs))
+            states[name] = Ran(
+                passed=True, value=head.value, n=head.n, n_total=head.n_total,
+                detail=(
+                    f"mean predictive entropy {float(head.value):.4f} nats, top predicted "  # type: ignore[arg-type]
+                    f"share {share:.3f}; report-only per family: the control judges each slot "
+                    "shape over every family together, and whether its floor and cap apply "
+                    "per family is the human's ruling"
+                ),
+            )
+    return states
+
+
+def report_eces(verdicts: Sequence[Mapping[str, object]]) -> dict[str, TriState]:
+    """``ece.report.pooled`` and ``ece.report.lang.{language}``, ``none`` for letter rows that
+    carry no language: REPORT-ONLY, never in the ``ece`` gate (Fable G2,
+    GAP-ECE-GATE-IS-NOT-RUN-ON-THE-FULL-MIXTURE).
+
+    ECE by top-1 confidence over letter rows of every slot shape together. Each row's
+    distribution is :func:`letter_distributions`' softmax over its own rows, zero-padded to the
+    widest row: padding moves neither a row's top probability nor its top row, which is all a
+    top-1 ECE reads (a per-shape table would read the padded columns, which is why the gate's
+    inputs refuse it). ``passed`` is always true: the gate's bar is stated, not applied. Rows
+    must already have passed :func:`letter_distributions`, as in :func:`calibration_states`.
+    """
+    letter_rows = [v for v in verdicts if str(v["kind"]) != "span"]
+    by_language: dict[str, list[Mapping[str, object]]] = {}
+    for v in letter_rows:
+        language = v.get("language")
+        by_language.setdefault(
+            language if isinstance(language, str) and language else "none", []
+        ).append(v)
+    groups = [("ece.report.pooled", letter_rows)] + [
+        (f"ece.report.lang.{language}", rows) for language, rows in sorted(by_language.items())
+    ]
+    states: dict[str, TriState] = {}
+    for name, rows in groups:
+        if not rows:
+            continue
+        probs = np.zeros((len(rows), max(int(v["rows"]) for v in rows)))  # type: ignore[call-overload]
+        for i, v in enumerate(rows):
+            z = np.asarray([[float(x) for x in v["row_logits"]]], dtype=np.float64)  # type: ignore[union-attr]
+            z = np.exp(z - z.max(axis=1, keepdims=True))
+            probs[i, : z.shape[1]] = (z / z.sum(axis=1, keepdims=True))[0]
+        state = ece_gate(probs, np.asarray([v["gold_row"] for v in rows], dtype=int))
+        if not isinstance(state, Ran):
+            states[name] = state
+            continue
+        shapes = sorted({f"{v['kind']}.k{int(v['rows']) - RESERVED_NOUL_ROWS}" for v in rows})  # type: ignore[call-overload]
+        states[name] = Ran(
+            passed=True, value=state.value, n=state.n, n_total=state.n_total,
+            detail=(f"{state.detail}; letter rows of slot shapes {shapes} pooled by top-1 "
+                    "confidence; report-only, not the ece gate, whose bar is not applied here"),
+        )
+    return states
+
+
 def letter_distributions(
     verdicts: Sequence[Mapping[str, object]],
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
@@ -3542,6 +3698,10 @@ def calibration_states(
     # Into the metrics only: `eces` is what the gate aggregates, and a per-family ECE there
     # would change the gate's population (rule 2).
     metrics.update(family_eces(verdicts))
+    # Report-only (Fable G1/G2), into the metrics only: they never enter `eces` or
+    # `degenerate`, which are all the gate and the control aggregate.
+    metrics.update(family_heads(verdicts))
+    metrics.update(report_eces(verdicts))
     if not eces:
         eces["ece.lang"] = NotRun(reason="no letter rows were decoded")
     return metrics, aggregate(eces, name="ece"), aggregate(degenerate, name="degenerate_head")
@@ -6152,7 +6312,8 @@ def planned_ft_recipe(
             lower_layers_n=args.lower_layers_n, lower_lr_scale=args.lower_layers_lr_scale,
             beta2=args.beta2, permutation=permutation, replay=replay,
             cap_s=args.wall_clock_cap_s, no_memorise=args.no_memorise,
-            batch_tokens=batch_tokens,
+            batch_tokens=batch_tokens, checkpoint_skip_layers=args.checkpoint_skip_layers,
+            fused_adamw=args.fused_adamw,
         ),
     }
     if args.real_backbone is None:
@@ -6481,6 +6642,20 @@ def _check_piece_flags(args: argparse.Namespace) -> None:
     """Refuse, at argv time, every combination of the ported-piece flags that would record a
     value that determined nothing, or run a piece without what it needs. Resolves defaults
     in place (``lower_layers_lr_scale``, ``beta2``, ``tokenizer_json``)."""
+    if args.checkpoint_skip_layers < 0:
+        raise SystemExit(
+            f"--checkpoint-skip-layers must not be negative, got {args.checkpoint_skip_layers}"
+        )
+    if args.checkpoint_skip_layers and args.real_backbone is None:
+        raise SystemExit(
+            "--checkpoint-skip-layers needs --real-backbone: the stand-in is one block with "
+            "no checkpointing to be selective about"
+        )
+    if args.fused_adamw and (args.real_backbone is None or args.optimizer != "master"):
+        raise SystemExit(
+            "--fused-adamw needs --real-backbone and --optimizer master: it fuses the fp32-"
+            "master optimizer's inner AdamW, and on any other recipe it would build nothing"
+        )
     if args.lower_layers_n < 0:
         raise SystemExit(f"--lower-layers-n must not be negative, got {args.lower_layers_n}")
     if args.lower_layers_n:
@@ -7214,6 +7389,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     # --- ported pieces (RSI-Jev MIT @8f34a4f, decider Apache-2.0 @23579f7). All off by
     # default; each lands in the recipe only when on.
+    parser.add_argument(
+        "--fused-adamw", action="store_true",
+        help=(
+            "build the fp32-master optimizer's inner AdamW as torch's fused kernel: one launch "
+            "per step and no full-size fp32 temporaries (GH200 2026-10-01: optimizer step "
+            "70 -> 40 ms and peak -7 GiB at 4 x 8,441). Different rounding from the default "
+            "foreach AdamW, so a numerics change: in the recipe as optimizer_fused. Needs "
+            "--real-backbone and --optimizer master"
+        ),
+    )
+    parser.add_argument(
+        "--checkpoint-skip-layers", type=int, default=0,
+        help=(
+            "selective activation checkpointing: N decoder layers, evenly spaced, run without "
+            "it and keep their activations, saving their recompute. 0 (default) checkpoints "
+            "every layer, as every earlier run did. Read back per layer and priced by the "
+            "device budget; in the recipe only when non-zero. Needs --real-backbone"
+        ),
+    )
     parser.add_argument(
         "--lower-layers-n", type=int, default=0,
         help=(
@@ -8027,6 +8221,7 @@ def main(argv: list[str] | None = None) -> int:
                 lower_layers_n=args.lower_layers_n,
                 lower_lr_scale=args.lower_layers_lr_scale, beta2=args.beta2,
                 cap_s=args.wall_clock_cap_s, batch_tokens=recipe_batch_tokens,
+                checkpoint_skip_layers=args.checkpoint_skip_layers, fused_adamw=args.fused_adamw,
             )
             step = run.pop("_step")
             decode_at = time.monotonic()
@@ -8133,6 +8328,8 @@ def main(argv: list[str] | None = None) -> int:
                     permutation=permutation, alphabets=epoch_alphabets, replay=replay_plan,
                     eval_widths=suite_widths(needle_suite, ood_suite),
                     shuffled_label=None if shuffled is None else SHUFFLED_LABEL_RECIPE,
+                    checkpoint_skip_layers=args.checkpoint_skip_layers,
+                    fused_adamw=args.fused_adamw,
                 )
                 step = run.pop("_step")
                 if shuffled is not None and val_set is not None:

@@ -50,7 +50,7 @@ __all__ = [
     "write_pool",
 ]
 
-#: Mirrors ``language_from_path`` in ``crates/qd-mutate/src/pool.rs``. A file this map does
+#: Mirrors ``language_from_path`` in ``crates/qd-lang/src/lib.rs``. A file this map does
 #: not name is skipped rather than guessed at: qd-mutate would refuse it anyway, and a
 #: record it cannot parse inflates the "files seen, zero examples" column.
 POOL_EXTENSIONS: Final[dict[str, str]] = {
@@ -106,7 +106,7 @@ SKIP_DIRS: Final[frozenset[str]] = frozenset(
 
 
 def language_from_path(path: str) -> str | None:
-    """The language a path names, or ``None``. Mirrors ``pool.rs``."""
+    """The language a path names, or ``None``. Mirrors ``qd_lang::language_from_path``."""
     if path.endswith(DECLARATION_SUFFIX):
         return None
     suffix = Path(path).suffix

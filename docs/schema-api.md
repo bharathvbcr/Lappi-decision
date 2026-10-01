@@ -140,6 +140,7 @@ The runtime **refuses** rather than degrades when:
 | tokenizer / weight / head / label-set hash != build | A swapped tokenizer maps wrong ids silently. Answering would be confidently wrong |
 | `options.len() > 16` | The letter slice holds 16 option rows plus the reserved `noul` row. Dropping an option changes the question |
 | `context` over the configured cap | Truncating moves the answer out of the window without saying so. Line spans would point at the wrong lines |
+| a `code.defect_class` `context` not in the trained shape (`file: <path>`, a blank line, unified-diff hunks whose bodies match their headers): `context_not_unified_diff`; or its file's language not one the pool held: `context_language_not_in_pool` (`crates/qd-runtime/src/admission.rs`) | The model was never shown such a context. An answer would be read from a shape it cannot read, and would look like any other |
 | `slots` empty, or a duplicate slot name | The answer map would be ambiguous |
 | `bins < 2` for `score`, or `bins > 16` | Same 16-letter limit; a 1-bin ordinal is not a question |
 | `schema_version` unknown | Forward-compat guessing is how a field changes meaning silently |
@@ -174,6 +175,20 @@ to bind a registered head to the task it was fitted against. Tracked as
 `GAP-SCHEMA-LABEL-SET-HASH-TWO-MEANINGS`, and asserted by
 `wire_context_crosslang.rs::python_has_no_hash_expectation_and_its_label_set_hash_is_a_different_quantity`
 rather than left as prose.
+
+`calibration_hash` had the same shape on the Rust side. It is compared with the table the runtime
+**calibrates with** (`CalibrationTable::hash`), not with the hash the backend declares; until
+2026-10-01 it was the latter, and a runtime serving a fitted table answered a pin of the reference
+table (`GAP-RT-CALIBRATION-HASH-PIN-BINDS-THE-BACKEND-NOT-THE-LOADED-TABLE`,
+`crates/qd-runtime/tests/calibration_hash_pin.rs`). A runtime built from a release takes its table
+only from the release, verified against `release_manifest.json` (`qd_runtime::release`).
+
+A runtime serving an N-tower ensemble (`Runtime::from_ensemble`, `qd_runtime::ensemble`) reports
+**the ensemble's** `weight_hash`: `ensemble_weight_hash` over the members' weight hashes in
+manifest order, recorded as `expected_identity.weight_hash` in `ensemble_manifest.json`. A pin of
+one member's weight hash is refused by the ensemble, as it should be: the answer is not that
+tower's. `calibration_hash` is the ensemble's table, fitted on the ensemble's decode (the mean of
+the members' row log-softmax, `qd_runtime::release::ENSEMBLE_DECODE`).
 
 This is the second instance of one shape found in a single audit — `GAP-RT-WIRE-CONTEXT-ENCODING`
 was the first. **One name meaning two things, with both lanes' suites green**, is the failure mode

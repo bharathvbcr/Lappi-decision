@@ -1,0 +1,16 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "context_language_not_in_pool",
+    "path": "src/main.c",
+    "language": "unrecognised",
+    "pool": [
+      "go",
+      "python",
+      "rust",
+      "typescript"
+    ]
+  },
+  "message": "context's file `src/main.c` is unrecognised, a language the pool this task was trained on did not hold (it held [\"go\", \"python\", \"rust\", \"typescript\"]); the model was never shown one"
+}

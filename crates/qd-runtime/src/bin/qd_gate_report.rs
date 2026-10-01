@@ -1197,6 +1197,7 @@ fn report_row(file: &VerdictFile, row: &EvalRow, suite: Option<&Vec<SuiteLine>>)
     for (name, state) in ece_checks.drain(..) {
         checks.ece(&name, &state)?;
     }
+    let mut head_checks: Vec<(String, f64, usize)> = Vec::new();
     let head_family = per_family(&fams, missing, total_lines, |f| {
         let mut out = Map::new();
         for (shape, rows) in &by_shape {
@@ -1207,6 +1208,13 @@ fn report_row(file: &VerdictFile, row: &EvalRow, suite: Option<&Vec<SuiteLine>>)
                 .collect();
             if !mine.is_empty() {
                 let mut v = head_value(&mine);
+                if let Some(entropy) = v["value"].as_f64() {
+                    head_checks.push((
+                        format!("degenerate_head.family.{f}.{shape}"),
+                        entropy,
+                        mine.len(),
+                    ));
+                }
                 v["detail"] = json!(format!(
                     "{}; {PER_FAMILY_NOTE}",
                     v["detail"].as_str().unwrap_or("")
@@ -1221,15 +1229,23 @@ fn report_row(file: &VerdictFile, row: &EvalRow, suite: Option<&Vec<SuiteLine>>)
         }
         Value::Object(out)
     });
+    // The eval row's own report-only copies (real_ft_run.family_heads), where it records them.
+    for (name, entropy, n) in head_checks.drain(..) {
+        checks.value("metrics", &name, entropy, Some(n))?;
+    }
 
     // -- G2 ------------------------------------------------------------------------------------
     let pooled_ece = ece_of(&letters)?;
+    // ... and real_ft_run.report_eces' copies of the pooled and per-language ECE.
+    checks.ece("ece.report.pooled", &pooled_ece)?;
     let mut lang_report = Map::new();
     for (language, rows) in &by_language {
+        let state = ece_of(rows)?;
+        checks.ece(&format!("ece.report.lang.{language}"), &state)?;
         lang_report.insert(
             language.clone(),
             ece_value(
-                &ece_of(rows)?,
+                &state,
                 &format!(
                     "pooled across slot shapes {:?} by top-1 confidence; report-only, not the gate",
                     shapes_of(rows)

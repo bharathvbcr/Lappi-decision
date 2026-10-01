@@ -647,3 +647,36 @@ def test_the_bf16_fidelity_check_is_asked_at_the_optimizers_own_beta2() -> None:
         build_optimizer(
             [_bf16_param()], spec=ADAMW_BF16, lr=1e-4, total_steps=100, beta2=0.95
         )
+
+
+# -- fused AdamW over the masters (Tier B: a numerics change, so opt-in and recorded) -------
+
+
+def test_fused_builds_torchs_fused_kernel_over_the_masters_and_default_does_not() -> None:
+    fused = build_optimizer([_bf16_param()], spec=MASTER_SPEC, lr=1e-4, total_steps=100,
+                            fused=True)
+    plain = build_optimizer([_bf16_param()], spec=MASTER_SPEC, lr=1e-4, total_steps=100)
+    assert fused.param_groups[0]["fused"] is True
+    assert not plain.param_groups[0]["fused"], "the default must stay torch's foreach AdamW"
+
+
+def test_fused_tracks_the_default_update_closely_but_is_its_own_recipe() -> None:
+    """Same rule, different rounding: close, which is why it is Tier B and not Tier A."""
+    torch.manual_seed(0)
+    grads = [torch.randn(256) for _ in range(20)]
+    out = []
+    for fused in (False, True):
+        p = torch.nn.Parameter(torch.linspace(-1, 1, 256).to(torch.bfloat16))
+        opt = MasterWeightAdamW([p], lr=1e-3, fused=fused)
+        for g in grads:
+            p.grad = g.to(torch.bfloat16)
+            opt.step()
+            opt.zero_grad(set_to_none=True)
+        out.append(opt._masters[0].detach().clone())
+    assert torch.allclose(out[0], out[1], rtol=0, atol=1e-6)
+
+
+def test_fused_on_a_recipe_without_masters_is_refused() -> None:
+    with pytest.raises(ValueError, match="fp32-master recipe only"):
+        build_optimizer([_bf16_param()], spec=ADAMW_BF16, lr=1e-4, total_steps=100,
+                        fused=True)

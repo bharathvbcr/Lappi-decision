@@ -539,3 +539,52 @@ def test_recompute_none_at_the_widest_bucket_does_not_fit_and_the_budget_says_so
         f"the budget admits {fp.total_bytes / 1024 ** 3:.2f} GiB on a 94.50 GiB device at "
         "recompute='none'; the GH200 OOMed on one row of this shape"
     )
+
+
+# --- selective checkpointing ---------------------------------------------------------------
+
+
+def test_each_retained_layer_adds_exactly_its_own_saved_set():
+    m = QWEN3_5_2B_TEXT
+    full = ActivationModel(recompute="full")
+    part = ActivationModel(recompute="full", retained_linear_layers=2, retained_full_layers=1)
+    assert part.elements_per_token(m) - full.elements_per_token(m) == (
+        2 * full.linear_layer_elements(m) + full.full_layer_elements(m)
+    )
+    assert part.describe() == "full-except-2-linear-1-full"
+    assert full.describe() == "full" and ActivationModel(recompute="none").describe() == "none"
+    fp = estimate_step(m, rows=1, width=8192, activations=part)
+    assert fp.recompute == "full-except-2-linear-1-full"
+    assert fp.activation_bytes > estimate_step(m, rows=1, width=8192).activation_bytes
+
+
+def test_retaining_every_layer_prices_at_least_what_no_checkpointing_does():
+    """Selective with every layer retained is 'none' plus the boundaries -- never less, so
+    a policy that keeps everything is never admitted where 'none' would be refused."""
+    m = QWEN3_5_2B_TEXT
+    every = ActivationModel(
+        recompute="full",
+        retained_linear_layers=m.n_linear_attention_layers,
+        retained_full_layers=m.n_full_attention_layers,
+    )
+    assert every.elements_per_token(m) >= ActivationModel(recompute="none").elements_per_token(m)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"recompute": "none", "retained_linear_layers": 1},
+        {"recompute": "full", "retained_full_layers": -1},
+        {"recompute": "full", "retained_linear_layers": True},
+    ],
+)
+def test_a_retention_that_describes_no_real_policy_is_refused(kwargs):
+    with pytest.raises(ValueError):
+        ActivationModel(**kwargs)
+
+
+def test_more_retained_layers_than_the_model_has_is_refused():
+    m = QWEN3_5_2B_TEXT
+    acts = ActivationModel(recompute="full", retained_full_layers=m.n_full_attention_layers + 1)
+    with pytest.raises(ValueError, match="exceed"):
+        acts.elements_per_token(m)

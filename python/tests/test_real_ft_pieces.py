@@ -36,6 +36,79 @@ def test_a_run_with_every_piece_off_adds_no_recipe_key():
     ) == {}
 
 
+def test_fused_adamw_lands_in_the_recipe_only_when_on():
+    pieces = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
+              "permutation": None, "replay": None}
+    assert rft._recipe_pieces(**pieces, fused_adamw=False) == {}
+    assert rft._recipe_pieces(**pieces, fused_adamw=True) == {"optimizer_fused": True}
+
+
+@pytest.mark.parametrize(
+    ("backbone", "optimizer"), [(None, "master"), (Path("s"), "bf16")],
+)
+def test_fused_adamw_without_the_master_recipe_is_refused(backbone, optimizer):
+    ns = argparse.Namespace(
+        lower_layers_n=0, lower_layers_lr_scale=None, beta2=None, checkpoint_skip_layers=0,
+        fused_adamw=True, optimizer=optimizer,
+        option_permutation_seed=None, tokenizer_json=None, real_backbone=backbone, epoch=False,
+        replay_shards=None, replay_attestation=None, replay_cache=None, replay_weight=None,
+        replay_every=rft.DEFAULT_REPLAY_EVERY, verdicts_out=None, score_val=False,
+        suite_verdicts_out=None, needle=False, ood=False,
+    )
+    with pytest.raises(SystemExit, match="--fused-adamw needs"):
+        rft._check_piece_flags(ns)
+
+
+def test_selective_checkpointing_lands_in_the_recipe_only_when_on():
+    pieces = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
+              "permutation": None, "replay": None}
+    assert rft._recipe_pieces(**pieces, checkpoint_skip_layers=0) == {}
+    assert rft._recipe_pieces(**pieces, checkpoint_skip_layers=6) == {
+        "checkpoint_skip_layers": 6
+    }
+
+
+@pytest.mark.parametrize(
+    ("skip", "backbone", "match"),
+    [(-1, Path("s"), "must not be negative"), (4, None, "needs --real-backbone")],
+)
+def test_a_checkpoint_skip_that_would_determine_nothing_is_refused(skip, backbone, match):
+    ns = argparse.Namespace(
+        lower_layers_n=0, lower_layers_lr_scale=None, beta2=None, checkpoint_skip_layers=skip,
+        fused_adamw=False, optimizer="bf16",
+        option_permutation_seed=None, tokenizer_json=None, real_backbone=backbone, epoch=False,
+        replay_shards=None, replay_attestation=None, replay_cache=None, replay_weight=None,
+        replay_every=rft.DEFAULT_REPLAY_EVERY, verdicts_out=None, score_val=False,
+        suite_verdicts_out=None, needle=False, ood=False,
+    )
+    with pytest.raises(SystemExit, match=match):
+        rft._check_piece_flags(ns)
+
+
+def test_a_cuda_run_whose_linear_attention_fell_back_to_torch_is_refused(monkeypatch):
+    """transformers falls back to its torch reference for chunk_gated_delta_rule with only a
+    log line, and puts that path at >10x slower; on cuda that is a run that hits its cap
+    having trained a fraction of its plan. Refused before the step is built."""
+    from types import SimpleNamespace
+
+    import qd_train.backbone as backbone
+
+    reference = "transformers.models.qwen3_5.modeling_qwen3_5.torch_chunk_gated_delta_rule"
+    monkeypatch.setattr(
+        backbone, "load_text_tower",
+        lambda *a, **k: SimpleNamespace(
+            linear_attention_kernels={"chunk_gated_delta_rule": reference}
+        ),
+    )
+    plan = [SimpleNamespace(tokens=np.zeros((2, 8), dtype=np.int32))]
+    with pytest.raises(SystemExit, match="torch reference on cuda"):
+        rft._real_step(
+            backbone=Path("snapshot"), reader=None, plan=plan, device="cuda", dtype="bf16",
+            spec=rft.ADAMW_BF16, attn_implementation="sdpa", seed=0, lr=1e-5, total_steps=1,
+            span_weight=1.0, width=8,
+        )
+
+
 def test_each_piece_that_is_on_lands_in_the_recipe_under_a_mirrored_key(tmp_path):
     from qd_train.trainer import ChoicePermutation
 
@@ -106,7 +179,8 @@ def test_an_existing_verdicts_file_is_refused_before_anything_runs(tmp_path):
 
 def test_the_defaults_resolve_to_the_optimizer_every_row_so_far_used():
     ns = argparse.Namespace(
-        lower_layers_n=0, lower_layers_lr_scale=None, beta2=None,
+        lower_layers_n=0, lower_layers_lr_scale=None, beta2=None, checkpoint_skip_layers=0,
+        fused_adamw=False, optimizer="bf16",
         option_permutation_seed=None, tokenizer_json=None, real_backbone=None, epoch=False,
         replay_shards=None, replay_attestation=None, replay_cache=None, replay_weight=None,
         replay_every=rft.DEFAULT_REPLAY_EVERY, verdicts_out=None, score_val=False,

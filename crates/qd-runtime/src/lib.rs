@@ -9,13 +9,16 @@
 //! | [`context`] | "`context` crosses the FFI boundary as **bytes and a length**" |
 //! | [`b64`] | the codec behind `context_b64` — RFC 4648, canonical only |
 //! | [`refusal`] | "Refusals — fail closed, never truncate" |
+//! | [`admission`] | a `code.defect_class` context not in the trained diff shape or pool language |
 //! | [`wire`] | the JSON envelope, and the only way to build a validated request |
 //! | [`render`] | `docs/hardening.md` §3 — the context is adversarial by construction |
 //! | [`backend`] | the four operations a model backend must provide |
 //! | [`reference`] | a deterministic reference backend that is **not** a model and says so |
+//! | [`ensemble`] | N towers behind one backend: per-row letter log-probabilities averaged |
 //! | [`calibration`] | split-conformal sets on calibrated scores — margin, never entropy |
 //! | [`calibration_fit`] | fitting that table from verdicts: temperature, `noul_margin`, `1 - q̂` |
 //! | [`registry`] | the registered route's head files, hash-bound to the backbone |
+//! | [`release`] | the release directory `qd-export` writes, opened and hash-bound at load |
 //! | [`fixtures`] | the golden wire corpus in `fixtures/wire/` — the executable answer-side seam |
 //! | [`answer`] | "Answering procedure": prefill once, snapshot, readonly slot queries |
 //! | [`runtime`] | hash binding, poison/rebuild, degraded |
@@ -45,17 +48,20 @@
 //! explicitly enabled and marks every answer it does produce `degraded`. An absent backend is
 //! [`refusal::BackendError::Unavailable`], a typed error — never a plausible letter.
 
+pub mod admission;
 pub mod answer;
 pub mod b64;
 pub mod backend;
 pub mod calibration;
 pub mod calibration_fit;
 pub mod context;
+pub mod ensemble;
 pub mod fixtures;
 pub mod oneshot;
 pub mod reference;
 pub mod refusal;
 pub mod registry;
+pub mod release;
 pub mod render;
 pub mod runtime;
 pub mod schema;

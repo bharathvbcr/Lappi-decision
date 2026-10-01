@@ -30,6 +30,9 @@ pub enum RefusalKind {
     Tokenizer,
     /// The calibration table is not one the runtime would read back unchanged.
     Calibration,
+    /// An ensemble's members are not N distinct, loadable towers that agree on config,
+    /// tokenizer and trained width, or a member's file is not the one its manifest records.
+    Ensemble,
     /// The filesystem failed.
     Io,
 }
