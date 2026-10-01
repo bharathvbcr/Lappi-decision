@@ -231,6 +231,11 @@ def _as(case, k: int):
     return dataclasses.replace(case, row_id=f"{case.row_id}-{k}")
 
 
+def _corpus(verdicts, row_exclusions=()):
+    """The slice corpus that ``verdicts`` and ``row_exclusions`` account for, row for row."""
+    return {c.row_id: c for c in [v.case for v in verdicts] + [c for c, _ in row_exclusions]}
+
+
 def _verdict(case, *, tokens=3000, shared=False, span=True, lines=None, choice=True):
     return cs.SliceVerdict(
         case=case, length_tokens=tokens, shared_candidates=shared, span_correct=span,
@@ -262,7 +267,7 @@ def test_span_cells_carry_both_populations_and_choice_cells_one():
         _verdict(clean, tokens=900),                                    # clean: abstained
         _verdict(diag, tokens=5000, span=False, lines=()),              # diag: a miss
     ]
-    m = cs.slice_metrics(verdicts, row_exclusions=())
+    m = cs.slice_metrics(verdicts, row_exclusions=(), corpus=_corpus(verdicts))
 
     def at(name):
         return m[f"composed.val.{name}"]
@@ -301,10 +306,11 @@ def test_a_prediction_on_a_shared_token_is_counted_and_scored_by_condition_8():
     inside = _inside(stub)
     outside = next(c for c in range(stub.rendered_lines)
                    if stub.hunk_of_context_line(c) not in (None, stub.gold_hunk))
-    m = cs.slice_metrics([
+    verdicts = [
         _verdict(_as(stub, 1), shared=True, span=False, lines=tuple(inside[:2])),
         _verdict(_as(stub, 2), shared=True, span=False, lines=(inside[-1], outside)),
-    ], row_exclusions=())
+    ]
+    m = cs.slice_metrics(verdicts, row_exclusions=(), corpus=_corpus(verdicts))
     shared = m["composed.val.refuse_gold.all.all.shared_token_predictions"]
     assert (shared.value, shared.n_total) == (2, 2)
     hit = m["composed.val.refuse_gold.all.all.hunk_hit"]
@@ -343,7 +349,9 @@ def test_every_exclusion_falls_in_one_known_bucket_or_the_pass_refuses():
         with pytest.raises(cs.SliceRefusal, match="known bucket"):
             cs.exclusion_bucket(scope, refusal, detail)
     assert cs.SLOT_EXCLUSIONS == ("gold_shares_token", "nfc_unstable")
-    assert cs.ROW_EXCLUSIONS == ("over_max_seq_len",)
+    assert cs.ROW_EXCLUSIONS == ("over_max_seq_len", "dropped_before_write")
+    # No index record maps to dropped_before_write: such a row has no record at all.
+    assert "dropped_before_write" not in {bucket for *_, bucket in cs.EXCLUSION_BUCKETS}
 
 
 def test_a_slot_is_decoded_or_excluded_for_a_known_reason_never_neither_or_both():
@@ -376,7 +384,8 @@ def test_exclusions_are_counted_per_bucket_and_never_scored():
         cs.SliceVerdict(_as(stub, 4), 3000, False, False, (), None,
                         choice_excluded="nfc_unstable"),                 # abstained: a miss
     ]
-    m = cs.slice_metrics(verdicts, row_exclusions=[(_as(stub, 5), "over_max_seq_len")])
+    over = [(_as(stub, 5), "over_max_seq_len")]
+    m = cs.slice_metrics(verdicts, row_exclusions=over, corpus=_corpus(verdicts, over))
 
     def at(name):
         return m[f"composed.val.{name}"]
@@ -396,7 +405,59 @@ def test_exclusions_are_counted_per_bucket_and_never_scored():
     assert (hit.n, hit.n_total) == (1, 2), "the exclusions are not misses"
     choice = at("both_policies.all.all.choice_top1")
     assert (choice.n, choice.n_total) == (3, 3)
+    twice = [(_as(stub, 1), "over_max_seq_len")]
     with pytest.raises(cs.SliceRefusal, match="counted twice"):
-        cs.slice_metrics(verdicts, row_exclusions=[(_as(stub, 1), "over_max_seq_len")])
+        cs.slice_metrics(verdicts, row_exclusions=twice, corpus=_corpus(verdicts))
+    slot = [(_as(stub, 6), "nfc_unstable")]
     with pytest.raises(cs.SliceRefusal, match="not a row exclusion"):
-        cs.slice_metrics(verdicts, row_exclusions=[(_as(stub, 6), "nfc_unstable")])
+        cs.slice_metrics(verdicts, row_exclusions=slot, corpus=_corpus(verdicts, slot))
+
+
+def test_a_row_the_index_never_names_is_dropped_before_write_and_never_a_miss():
+    """build_mixture or dedupe can drop a slice row before write_shards sees it: it has no
+    sequence and no exclusion in sequence_index.json (longctx lane, 2026-10-01). It is found
+    by joining the corpus's row ids (``qdm:code.defect_class:<id>``) to the index, counted per
+    set against the corpus's rows under dropped_before_write, and never scored."""
+    _, stub = _stub()
+    corpus = {c.row_id: c for c in (_as(stub, k) for k in range(1, 7))}
+    # A row the index names has a sequence per slot, so its id may repeat.
+    indexed = [_as(stub, k).row_id for k in (1, 1, 2, 3, 4, 5)]
+    dropped = cs.dropped_before_write(corpus, indexed)
+    assert dropped == [(_as(stub, 6), "dropped_before_write")]
+    assert cs.dropped_before_write(corpus, [*indexed, _as(stub, 6).row_id]) == []
+    with pytest.raises(cs.SliceRefusal, match="does not hold"):
+        cs.dropped_before_write(corpus, [*indexed, cs.SHARD_ROW_PREFIX + "compose:val:999999"])
+    with pytest.raises(cs.SliceRefusal, match="does not hold"):
+        # The corpus id without the shard prefix: the join is on the shard row id.
+        cs.dropped_before_write(corpus, [*indexed, _as(stub, 6).row_id.removeprefix(
+            cs.SHARD_ROW_PREFIX)])
+
+    verdicts = [_verdict(_as(stub, k)) for k in (1, 2, 3, 4)]
+    excluded = [(_as(stub, 5), "over_max_seq_len"), *dropped]
+    m = cs.slice_metrics(verdicts, row_exclusions=excluded, corpus=corpus)
+    gone = m["composed.val.rows_excluded.dropped_before_write"]
+    assert (gone.value, gone.n_total) == (1, 6), "counted against the set's corpus rows"
+    assert m["composed.val.rows_excluded.over_max_seq_len"].n_total == 6
+    hit = m["composed.val.refuse_gold.all.all.hunk_hit"]
+    assert (hit.n, hit.n_total) == (4, 4), "a dropped row is not a miss"
+    with pytest.raises(cs.SliceRefusal, match="neither decoded nor excluded"):
+        cs.slice_metrics(verdicts, row_exclusions=excluded[:1], corpus=corpus)
+
+
+def test_every_slice_row_is_counted_once_against_the_corpus():
+    """The row-level form of "decoded or excluded, never neither": every corpus row is one
+    verdict or one row exclusion, and nothing counted is outside the corpus or another parse
+    of one of its rows."""
+    _, stub = _stub()
+    corpus = {c.row_id: c for c in (_as(stub, k) for k in (1, 2, 3))}
+    verdicts = [_verdict(_as(stub, 1)), _verdict(_as(stub, 2))]
+    with pytest.raises(cs.SliceRefusal, match="neither decoded nor excluded"):
+        cs.slice_metrics(verdicts, row_exclusions=(), corpus=corpus)
+    with pytest.raises(cs.SliceRefusal, match="not a slice row"):
+        cs.slice_metrics([*verdicts, _verdict(_as(stub, 3)), _verdict(_as(stub, 4))],
+                         row_exclusions=(), corpus=corpus)
+    other = dataclasses.replace(_as(stub, 3), n_files=stub.n_files + 1)
+    with pytest.raises(cs.SliceRefusal, match="not the corpus's"):
+        cs.slice_metrics([*verdicts, _verdict(other)], row_exclusions=(), corpus=corpus)
+    m = cs.slice_metrics([*verdicts, _verdict(_as(stub, 3))], row_exclusions=(), corpus=corpus)
+    assert m["composed.val.rows_excluded.dropped_before_write"].value == 0

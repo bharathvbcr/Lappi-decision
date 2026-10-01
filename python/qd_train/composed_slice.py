@@ -393,11 +393,17 @@ EXCLUSION_BUCKETS: Final[tuple[tuple[str, str, str, str], ...]] = (
     ("slot", "UnencodableGold", "the context is not NFC-stable", "nfc_unstable"),
     ("row", "OverMaxSeqLen", "", "over_max_seq_len"),
 )
+#: A slice row ``sequence_index.json`` never names, in neither its sequences nor its
+#: exclusions: ``build_mixture`` or dedupe removed it before ``write_shards`` saw it (longctx
+#: lane, 2026-10-01). It has no record to bucket, so it is in no :data:`EXCLUSION_BUCKETS`
+#: entry; :func:`dropped_before_write` finds it by joining the corpus's row ids to the index.
+DROPPED_BEFORE_WRITE: Final[str] = "dropped_before_write"
 SLOT_EXCLUSIONS: Final[tuple[str, ...]] = tuple(
     b for scope, _, _, b in EXCLUSION_BUCKETS if scope == "slot"
 )
-ROW_EXCLUSIONS: Final[tuple[str, ...]] = tuple(
-    b for scope, _, _, b in EXCLUSION_BUCKETS if scope == "row"
+ROW_EXCLUSIONS: Final[tuple[str, ...]] = (
+    *(b for scope, _, _, b in EXCLUSION_BUCKETS if scope == "row"),
+    DROPPED_BEFORE_WRITE,
 )
 
 
@@ -414,6 +420,27 @@ def exclusion_bucket(scope: str, refusal: str, detail: str) -> str:
             f"{[b for *_, b in EXCLUSION_BUCKETS]}"
         )
     return found[0]
+
+
+def dropped_before_write(
+    cases: Mapping[str, ComposedCase], indexed: Iterable[str]
+) -> list[tuple[ComposedCase, str]]:
+    """The slice rows the shard set's ``sequence_index.json`` never names, each as a row
+    exclusion under :data:`DROPPED_BEFORE_WRITE`, in row-id order.
+
+    ``cases`` is :func:`load_cases`' corpus, keyed by shard row id (corpus id ``X`` is
+    ``qdm:code.defect_class:X``). ``indexed`` is every row id the index names, its sequences'
+    and its exclusions' together; an id may repeat, one per slot. An indexed id the corpus
+    does not hold is refused: that index was not written from this slice.
+    """
+    named = set(indexed)
+    stray = sorted(named - set(cases))
+    if stray:
+        raise SliceRefusal(
+            f"the sequence index names {len(stray)} row(s) the slice corpus does not hold "
+            f"(e.g. {stray[:3]}); it is not this slice's index"
+        )
+    return [(cases[r], DROPPED_BEFORE_WRITE) for r in sorted(set(cases) - named)]
 
 
 @dataclass(frozen=True, slots=True)
@@ -521,6 +548,7 @@ def _order(cut: str, cell: str) -> tuple[int, str]:
 
 def slice_metrics(
     verdicts: Sequence[SliceVerdict], *, row_exclusions: Sequence[tuple[ComposedCase, str]],
+    corpus: Mapping[str, ComposedCase],
 ) -> dict[str, TriState]:
     """Every table, under ``composed.<set>.``.
 
@@ -543,14 +571,29 @@ def slice_metrics(
     Exclusions are counted, never scored as misses:
     ``{span,choice}_excluded.<bucket>`` per set for every slot bucket (zero included), and per
     cell (``.<cut>.<cell>``) for the buckets the set has; ``rows_excluded.<bucket>`` per set
-    for the rows ``row_exclusions`` names (no sequence, so no length to cut by). A case named
-    twice, by verdicts or exclusions, is refused.
+    for the rows ``row_exclusions`` names (no sequence, so no length to cut by), a
+    :func:`dropped_before_write` row among them.
+
+    ``corpus`` is the slice's rows (:func:`load_cases`), and every one of them is counted
+    exactly once, as a verdict or a row exclusion, so a set's ``rows_excluded`` count is out
+    of its corpus rows. A corpus row counted nowhere, a case counted twice, and a case that
+    is not the corpus's own row are refused.
     """
     seen: set[str] = set()
     for case in [v.case for v in verdicts] + [c for c, _ in row_exclusions]:
         if case.row_id in seen:
             raise SliceRefusal(f"{case.row_id} is counted twice")
+        if case.row_id not in corpus:
+            raise SliceRefusal(f"{case.row_id} is not a slice row")
+        if corpus[case.row_id] != case:
+            raise SliceRefusal(f"{case.row_id} is counted as a row that is not the corpus's")
         seen.add(case.row_id)
+    uncounted = sorted(set(corpus) - seen)
+    if uncounted:
+        raise SliceRefusal(
+            f"{len(uncounted)} slice row(s) neither decoded nor excluded (e.g. "
+            f"{uncounted[:3]}); a row the index never names is {DROPPED_BEFORE_WRITE}"
+        )
     excluded_rows: dict[str, list[str]] = {}
     for case, bucket in row_exclusions:
         if bucket not in ROW_EXCLUSIONS:

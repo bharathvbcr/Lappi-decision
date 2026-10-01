@@ -103,6 +103,16 @@ Lane worktree `agent-a49d73cb7bb3e7dad`, branch `worktree-agent-a49d73cb7bb3e7da
     - `over_max_seq_len`: the whole row.
     - The list is v4's train census. The compose lane will send the slice's measured
       (scope, refusal, detail) counts after the build; re-pin the list to them before scoring.
+    - `dropped_before_write` (the commit on top of `60bdf62`, per the longctx lane): a slice row
+      that `sequence_index.json` never names, in neither its sequences nor its exclusions,
+      because `build_mixture` or dedupe removed it before `write_shards`. It is row-scoped and
+      counted per set, never as a miss. `dropped_before_write(cases, indexed)` finds it by
+      joining the corpus's row ids (`qdm:code.defect_class:<id>`) to the index, and refuses an
+      indexed id the corpus does not hold. `slice_metrics` now takes `corpus=` and refuses any
+      corpus row counted nowhere, so each set's `rows_excluded.*` is out of its corpus rows.
+    - **At decode:** cross-check the dropped count against the slice build row's
+      `report_only_slice_rows` (n = rows that reached val, n_total = 1,550 rows read), whose
+      difference is the dropped count. If it is nonzero, the longctx lane sends the ids.
   - **Then:** a `composed` plan pass, which:
     - opens `<slice>/shards/val-report-only-composed`, requiring `report_only` true and
       `span_collapse_policy` refuse-gold, the train remap and the tokenizer;
