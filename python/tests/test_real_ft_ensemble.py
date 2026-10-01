@@ -102,8 +102,8 @@ def test_towers_that_read_one_batch_differently_are_refused():
 
 
 def _device_plan(device: str, counts, *, gold=None, requires_grad: bool = False):
-    """A real :class:`SpanPlan` whose tensors live on ``device``, as ``plan_span_batch(...,
-    device=step.device)`` builds it for a tower on the GPU."""
+    """A real :class:`qd_train.heads.SpanPlan` whose tensors live on ``device``, as
+    ``plan_span_batch(..., device=step.device)`` builds it for a tower on the GPU."""
     from qd_train.heads import SpanPlan
 
     k, width = len(counts), max(counts)

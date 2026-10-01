@@ -9,6 +9,7 @@ and the option letters' rows are not.
 import json
 import re
 import sys
+from pathlib import Path
 
 import torch
 from safetensors import safe_open
@@ -28,7 +29,8 @@ NOUL_ID = 57
 OPTION_IDS = list(range(32, 48))
 PAIRS = [(0, 1), (0, 2), (1, 2)]
 
-master_index = json.load(open(AVG + ".manifest.json"))["master_index"]
+with Path(AVG + ".manifest.json").open() as manifest:
+    master_index = json.load(manifest)["master_index"]
 base = safe_open(BASE, "pt")
 seeds = [safe_open(p, "pt") for p in SEEDS]
 
@@ -100,7 +102,10 @@ summary = {
         sum(out[f"row{r}"]["norm"][i] for r in OPTION_IDS) / len(OPTION_IDS) for i in range(3)
     ],
 }
-for group in ["overall", "embed", "embed_without_letters", "mlp", "linear_attn", "self_attn", "norm", "other"]:
+GROUPS = [
+    "overall", "embed", "embed_without_letters", "mlp", "linear_attn", "self_attn", "norm", "other"
+]
+for group in GROUPS:
     if group in out:
         summary[group] = out[group]
 json.dump({"summary": summary, "rows": {k: v for k, v in out.items() if re.match(r"row\d+", k)}},
