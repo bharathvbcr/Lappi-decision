@@ -1,0 +1,23 @@
+{
+  "recorded": "2026-10-01, before defect-noul-v3 was generated and before any v4 run",
+  "decision": "Fable I-2 (2026-10-01): noul at 10% of defect rows instead of 5%, keeping the F2 forms, so noul is a shared feature that survives weight averaging",
+  "why": "J7g (row 1d93b3ee): the masters average of J4's three seeds scored choice 83.2% (seeds 76.5-78.2%) but OOD abstention 0/180 (seeds 46/33/66 of 180). Fable's inferred reading: noul learned from 2,502 rows in one pass points a different way per seed and cancels under averaging",
+  "share": "per_source 1668 (2 x 834), 5,004 rows = 10.02% of corpus v3's 49,953 defect rows; F2 forms in exact halves; unseen-language as built",
+  "defect_class_in_distribution_abstention": {
+    "bound": "<= 2% on every seed (and on the average)",
+    "kind": "F3: Fable's data-design bound and the cost check on I-2, not a gate",
+    "j4_on_noul_v1": ["33/2304", "39/2304", "21/2304"]
+  },
+  "ood_abstain_by_category": {
+    "carried_from": "F2 (campaign/v31-noul-preregistered.json): >= 30/60 on every seed, each of prose, scrambled, unseen-language",
+    "note": "no bar for the averaged model is set here; that is Fable's to set"
+  },
+  "supply": {
+    "paragraph": "834 of 1,005 selectable at 3 per title (13,416 eligible paragraphs over 335 train titles); 227 of 320 titles used at the cap",
+    "question": "834 of 1,005 rows at 3 per title (335 titles)",
+    "lines_and_tokens": "1,668 distinct repos, one row each; the generator also filled 2,010 per source, so this is not at the supply limit",
+    "template": "1,668 instantiations of the same 35 train templates (39-70 rows per template; v2 had 19-35). The doubled count is reached by repeating sources; the honest alternative is a second, versioned template catalogue (new unseen languages and templates, a new allowlist step), which this generator does not have yet"
+  },
+  "gates_unchanged": "ood_abstain (Wilson lower >= 0.90 OOD, Wilson upper <= 0.05 in-distribution) is read-only (rule 2)",
+  "risk": "a noul set designed to span the suite's three forms passes the suite's forms; whether those three categories are the product's OOD definition is a suite question for the human (rule 2)"
+}

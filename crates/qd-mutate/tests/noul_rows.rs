@@ -298,6 +298,12 @@ fn inputs_other_than_the_allowlisted_bytes_are_refused() {
 /// way by `python/tests/test_defect_noul.py` against `data/pool/defect-noul-v1/manifest.json`.
 const V1_EXAMPLES_SHA256: &str = "98853a4e5e6ffc224aa7c38cd66378122005ada4ad554711cbe91b9b73c1bbef";
 const V1_MANIFEST_SHA256: &str = "5b2573791e6a4ba9d83cc27885275e37a88473a12441245e15edc71f793a52dc";
+/// What `--forms v2` wrote for this world at a7c6ee5 (defect-noul-v2's generator, merged): v3.1
+/// was trained on its real output, so a later change that moved these bytes would leave v2
+/// unreproducible. The real corpus is pinned against `data/pool/defect-noul-v2` by
+/// `python/tests/test_defect_noul.py`.
+const V2_EXAMPLES_SHA256: &str = "2ad7bac72e33ec7f005d704a1c77185f6c8d19de1f5b57b42798b3bfb0d2d853";
+const V2_MANIFEST_SHA256: &str = "e930d7103581077a6e837e52c2db65a0d05b8a626c026c0d3709ebc0cfbb67ad";
 
 fn rows_of(out: &Path) -> Vec<serde_json::Value> {
     std::fs::read_to_string(out.join("examples.jsonl"))
@@ -362,6 +368,61 @@ fn v1_output_is_pinned_byte_for_byte_and_is_the_default() {
         assert_eq!(std::fs::read(a.join(f)).unwrap(), std::fs::read(b.join(f)).unwrap(), "{f}");
     }
     assert!(rows_of(&a).iter().all(|r| r.get("noul_form").is_none()));
+}
+
+#[test]
+fn v2_output_is_pinned_byte_for_byte() {
+    let w = world("pin2");
+    let out = w.dir.join("a");
+    let done = generate_v2(&w, &out, &[]);
+    assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+    assert_eq!(sha256(&std::fs::read(out.join("examples.jsonl")).unwrap()), V2_EXAMPLES_SHA256);
+    assert_eq!(sha256(&std::fs::read(out.join("manifest.json")).unwrap()), V2_MANIFEST_SHA256);
+}
+
+#[test]
+fn v2_at_twice_the_share_doubles_every_form_and_repeats_no_source_but_templates() {
+    // noul-v3 is `--forms v2` at twice v2's per-source count (Fable I-2). Every form doubles in
+    // exact halves; paragraphs, question groups and scrambled repos stay one row each, and only
+    // template units carry several rows -- the instantiations the manifest's units count shows.
+    let w = world("double");
+    let out = w.dir.join("a");
+    let n = 2 * PER_SOURCE;
+    let done = generate_n(&w, &out, n, &["--forms", "v2", "--corpus", w.corpus.to_str().unwrap()]);
+    assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+    let rows = rows_of(&out);
+    assert_eq!(rows.len(), 3 * n);
+    let mut by_form: std::collections::BTreeMap<String, usize> = Default::default();
+    let mut sources: std::collections::BTreeSet<String> = Default::default();
+    for r in &rows {
+        let form = r["noul_form"].as_str().unwrap().to_string();
+        *by_form.entry(form.clone()).or_insert(0) += 1;
+        let diff = r["diff"].as_str().unwrap();
+        let text: Vec<&str> = diff.lines().skip(1).flat_map(|l| l[1..].split_whitespace()).collect();
+        let source = match form.as_str() {
+            // A paragraph row's source is the paragraph itself.
+            "paragraph" => format!("paragraph:{}", text.join(" ")),
+            // A question row's source is the paragraph whose questions it holds: the fixture's
+            // questions name it as "<title> section <k>".
+            "question" => {
+                let joined = text.join(" ");
+                let at = joined.find(" section ").expect("a fixture question names its section");
+                let k = &joined[at + 9..at + 10];
+                format!("question:{}:{k}", r["squad_title"].as_str().unwrap())
+            }
+            "lines" | "tokens" => format!("scrambled:{}", r["repo"].as_str().unwrap()),
+            _ => continue,
+        };
+        assert!(sources.insert(source.clone()), "a source repeated: {source}");
+    }
+    let want: std::collections::BTreeMap<String, usize> = [
+        ("paragraph", n / 2), ("question", n - n / 2), ("lines", n / 2), ("tokens", n - n / 2),
+        ("template", n),
+    ].into_iter().map(|(f, k)| (f.to_string(), k)).collect();
+    assert_eq!(by_form, want);
+    let manifest = manifest_of(&out);
+    assert_eq!(manifest["per_source"], n);
+    assert_eq!(manifest["totals"]["units_by_source"]["scrambled"], n, "one repo per row");
 }
 
 #[test]
