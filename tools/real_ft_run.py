@@ -163,6 +163,7 @@ from run_cost import n_gpus_for_device
 from torch import nn
 
 from qd_data.config import DataConfig
+from qd_data.defect_class import DEFECT_FAMILY_ID
 from qd_data.errors import QdRefusal
 from qd_data.render import DEFAULT_CAPS, render, second_pass_permutation
 from qd_data.rows import DataRow
@@ -176,7 +177,12 @@ from qd_train.artifacts import (
     Batch,
 )
 from qd_train.calibration_fit import ece_gate, letters_key
-from qd_train.eval_harness import degenerate_head_check, permutation_consistency_state
+from qd_train.eval_harness import (
+    degenerate_head_check,
+    permutation_consistency_state,
+    permute_within_groups,
+    shuffled_label_control,
+)
 from qd_train.fused_ce import fused_linear_cross_entropy, resolve_chunk_size
 from qd_train.heads import (
     RESERVED_NOUL_ROWS,
@@ -186,8 +192,10 @@ from qd_train.heads import (
 )
 from qd_train.ledger import (
     DEFAULT_LEDGER_PATH,
+    SUPPLEMENT_KEY,
     Environment,
     Ledger,
+    LedgerRow,
     Protocol,
     RunRecorder,
 )
@@ -263,6 +271,9 @@ RECIPE_PIECE_KEYS: Final[tuple[str, ...]] = (
     "wall_clock_cap_s",
     "no_memorise",
     "batch_tokens",
+    # --shuffled-label: so any score row of a model trained on permuted golds -- a
+    # --score-checkpoint of its weights included -- hashes apart from the real model's.
+    "shuffled_label",
 )
 
 #: The wall-clock cap a run here carries when ``--wall-clock-cap-s`` is not given -- the one
@@ -305,7 +316,7 @@ def _recipe_pieces(
     *, lower_layers_n: int, lower_lr_scale: float, beta2: float,
     permutation: ChoicePermutation | None, replay: ReplayPlan | None,
     cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
-    batch_tokens: int | None = None,
+    batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """The recipe keys for whichever ported pieces are on. Empty when none is.
 
@@ -334,6 +345,8 @@ def _recipe_pieces(
         out["replay_weight"] = replay.weight
         out["replay_every"] = replay.every
         out["replay_direction"] = "base_to_model"
+    if shuffled_label is not None:
+        out["shuffled_label"] = dict(shuffled_label)
     return out
 
 
@@ -836,9 +849,15 @@ class RealFtStep:
 
     def __init__(self, *, seed: int, device: str, vocab: int, width: int, hidden: int,
                  heads: int, lr: float, span_weight: float,
-                 beta2: float = DEFAULT_BETA2) -> None:
+                 beta2: float = DEFAULT_BETA2, span_channel_off: bool = False) -> None:
         torch.manual_seed(seed)
-        if not span_weight > 0.0:
+        # The same opt-in `QwenDecisionStep` takes, for the same one caller: --shuffled-label.
+        if span_channel_off:
+            if span_weight != 0.0:
+                raise ValueError(
+                    f"span_channel_off takes span_weight 0.0 exactly, got {span_weight}"
+                )
+        elif not span_weight > 0.0:
             raise ValueError(
                 f"span_weight must be positive, got {span_weight}; zero would train the span "
                 "head on nothing while its loss still appeared in the log"
@@ -1685,7 +1704,8 @@ def device_budget(estimate_bytes: int, device: str) -> TriState:
 
 def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[str, object],
               run_kind: str, quick_reasons: Sequence[str], notes: str,
-              wall_clock_s: float | None, cost: CostEstimate | None) -> RunRecorder:
+              wall_clock_s: float | None, cost: CostEstimate | None,
+              protocol: Protocol | None = None) -> RunRecorder:
     """Both of this tool's row kinds go through here, and they need different answers.
 
     ``None`` from :func:`_train`, whose ``with`` block contains ``train_ft``. A measured
@@ -1697,12 +1717,18 @@ def _recorder(ledger: Ledger, *, reader: ShardReader, seed: int, recipe: dict[st
     ``True`` on every row this tool ever wrote, so nothing the campaign trained could have
     promoted however it ran. An ``ft`` row's truncation is added by the recorder itself, from
     the ``train.termination`` the loop writes inside its block.
+
+    ``protocol`` is given only by a supplement row (:func:`_record_shuffled_label`), which
+    carries the protocol of the eval row it supplements so that it joins that row's seed
+    family; its own settings are in ``recipe``. Every other row hashes its own recipe.
     """
     reasons = [r for r in quick_reasons if r.strip()]
     return RunRecorder(
         ledger,
         entry_point=Path(__file__),
-        protocol=_protocol(reader=reader, seed=seed, recipe=recipe),
+        protocol=(
+            _protocol(reader=reader, seed=seed, recipe=recipe) if protocol is None else protocol
+        ),
         run_kind=run_kind,  # type: ignore[arg-type]
         repo=REPO,
         env=Environment.detect(device=str(recipe["device"])),
@@ -1743,6 +1769,7 @@ def _real_step(
     spec: OptimizerSpec, attn_implementation: str, seed: int, lr: float, total_steps: int,
     span_weight: float, width: int, lower_layers_n: int = 0, lower_lr_scale: float = 1.0,
     beta2: float = DEFAULT_BETA2, eval_widths: Sequence[int] = (),
+    span_channel_off: bool = False,
 ) -> tuple[Any, Any, TriState]:
     """The real tower, remapped to the shard set, budgeted, and wrapped in a step.
 
@@ -1821,6 +1848,7 @@ def _real_step(
         lower_layers_n=lower_layers_n,
         lower_lr_scale=lower_lr_scale,
         beta2=beta2,
+        span_channel_off=span_channel_off,
     )
     return step, tower, budget
 
@@ -1842,7 +1870,7 @@ def _train(
     replay: ReplayPlan | None = None,
     eval_widths: Sequence[int] = (),
     cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
-    batch_tokens: int | None = None,
+    batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -1855,13 +1883,17 @@ def _train(
     ``lower_layers_n``/``lower_lr_scale`` (layer-wise lr, real backbone only), ``beta2``,
     ``permutation`` (with ``alphabets[b]``: plan batch ``b``'s per-row choice letters) and
     ``replay`` (prior_kl toward the base's cached answers).
+
+    ``shuffled_label`` is --shuffled-label's recipe entry: ``plan`` already carries the
+    permuted golds (:func:`apply_shuffled_golds`), and the step is built with its span
+    channel off, which is the only way either step accepts ``span_weight`` 0.
     """
     width = max(int(b.tokens.shape[1]) for b in plan)
     steps = len(plan) * passes
     pieces = _recipe_pieces(
         lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
         permutation=permutation, replay=replay, cap_s=cap_s, no_memorise=no_memorise,
-        batch_tokens=batch_tokens,
+        batch_tokens=batch_tokens, shuffled_label=shuffled_label,
     )
     if permutation is not None and alphabets is None:
         raise ValueError("option permutation needs each plan batch's per-row alphabets")
@@ -1895,6 +1927,7 @@ def _train(
         step: SpanScoringStep = RealFtStep(
             seed=seed, device=device, vocab=int(reader.header.vocab_size), width=width,
             hidden=hidden, heads=heads, lr=lr, span_weight=span_weight, beta2=beta2,
+            span_channel_off=shuffled_label is not None,
         )
         # Only meaningful for the stand-in, so only recorded for it: under --real-backbone
         # these determine nothing and would still move recipe_hash.
@@ -1911,7 +1944,7 @@ def _train(
             spec=spec, attn_implementation=attn_implementation, seed=seed, lr=lr,
             total_steps=steps, span_weight=span_weight, width=width,
             lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
-            eval_widths=eval_widths,
+            eval_widths=eval_widths, span_channel_off=shuffled_label is not None,
         )
         # `tower.snapshot.name`, not `str(backbone)`: the directory name is the HF revision
         # (refs/main and the snapshot dir agree), while the absolute path is
@@ -1973,6 +2006,12 @@ def _train(
         what_ran += (
             f" Option permutation seed {permutation.seed}: {permuted_per_pass} choice rows "
             "re-permuted per pass on top of the shard set's own shuffle."
+        )
+    if shuffled_label is not None:
+        what_ran += (
+            f" SHUFFLED-LABEL CONTROL: {shuffled_label.get('family')} choice golds permuted "
+            f"at seed {seed} and the span channel trained at weight {span_weight}; this row "
+            "is the control's model, not a measurement of the recipe."
         )
     recipe.update(backbone_keys)
     recorder = _recorder(
@@ -4436,6 +4475,494 @@ def _score_checkpoint(
     return row_id, scored, permutation, gates
 
 
+# --- the shuffled-label control (--shuffled-label) -----------------------------------------
+#
+# docs/hardening.md: a model trained on PERMUTED labels must fall to chance, and if it does
+# not, the split leaks. `eval_harness.shuffled_label_control` is that check, used as it is.
+# This arm trains the model it needs -- the target eval row's recipe on its own shard set,
+# with the code.defect_class choice golds permuted -- and records the control on a row that
+# SUPPLEMENTS the target eval row (`ledger.SUPPLEMENT_KEY`), so promotion reads the two as
+# one unit.
+
+#: The family whose split the control tests, and the only one whose golds it permutes or
+#: scores. A phase-3 set is this family alone. In a phase-4 mixture the general families
+#: have holdouts of their own, and permuting their letters too would move the letter
+#: marginal the chance rate is computed from without testing anything about this split.
+SHUFFLED_LABEL_FAMILY: Final[str] = DEFECT_FAMILY_ID
+
+#: What a --shuffled-label ft row's recipe names. The same on every seed, so the control's
+#: ft rows are one seed family of their own; the per-seed facts (the permutation's digest,
+#: how many golds moved) go on the control row, beside the eval row id.
+SHUFFLED_LABEL_RECIPE: Final[Mapping[str, object]] = {
+    "family": SHUFFLED_LABEL_FAMILY,
+    "permuted": "choice gold letters",
+    "groups": "equal option count",
+    "permutation_seed": "the run seed",
+    "span_channel": "off",
+}
+
+#: The ft recipe keys a shuffled run may differ from its target's in: the control's own key
+#: and the span weight it forces to 0. Everything else must be the target's recipe.
+SHUFFLED_LABEL_EXEMPT: Final[frozenset[str]] = frozenset({"shuffled_label", "span_weight"})
+
+#: Ft recipe keys only a loaded tower can state. Compared after training, against the
+#: shuffled run's own ft row, rather than guessed before it.
+TOWER_ONLY_KEYS: Final[frozenset[str]] = frozenset(
+    {"backbone_params", "backbone_vocab", "gradient_checkpointing"}
+)
+
+_ABSENT: Final[str] = "<absent>"
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ShuffledGolds:
+    """Which training sequences --shuffled-label relabels, and to what.
+
+    ``golds`` maps ``(row_id, slot_name)`` to ``(true gold, permuted gold)`` for every choice
+    sequence of ``family``; ``moved`` counts the ones whose gold changed, and ``digest`` is
+    the sha256 of the sorted ``row_id, slot_name, permuted gold`` lines.
+    """
+
+    family: str
+    seed: int
+    golds: Mapping[tuple[str, str], tuple[str, str]]
+    moved: int
+    digest: str
+
+    def recipe(self) -> dict[str, object]:
+        """The control row's account of the permutation: the rule and this seed's draw."""
+        return {
+            **SHUFFLED_LABEL_RECIPE,
+            "permutation_seed": self.seed,
+            "permutation_sha256": self.digest,
+            "rows_permuted": len(self.golds),
+            "rows_moved": self.moved,
+        }
+
+
+def shuffle_choice_golds(labels: Sequence[Label], *, family: str, seed: int) -> ShuffledGolds:
+    """Permute ``family``'s choice gold LETTERS within groups of equal option count.
+
+    Letters, not classes: ``render`` shuffles each row's options per example, so the decode
+    scores a letter, and the chance rate the control compares against is the majority
+    LETTER rate of the scored rows. Permuting classes instead would leave the class prior
+    learnable -- a model answering the commonest class everywhere would beat the letter
+    rate without any leak -- and the control would fail for a reason that is not the split.
+    The draw is :func:`qd_train.eval_harness.permute_within_groups`, rung 0's rule.
+    """
+    picked = [x for x in labels if x.family_id == family and x.slot_kind == SLOT_CHOICE]
+    if not picked:
+        raise SystemExit(
+            f"--shuffled-label: the train set holds no {family} choice sequence to permute"
+        )
+    keys = [(x.row_id, x.slot_name) for x in picked]
+    if len(set(keys)) != len(keys):
+        raise SystemExit("--shuffled-label: two train sequences share one (row_id, slot_name)")
+    groups = [len([letter for letter in x.letters if letter != NOUL_LETTER]) for x in picked]
+    drawn = permute_within_groups([x.gold_letter for x in picked], groups, seed=seed)
+    invalid = [
+        (key, gold) for key, x, gold in zip(keys, picked, drawn, strict=True)
+        if gold not in x.letters
+    ]
+    if invalid:
+        raise SystemExit(
+            f"--shuffled-label: {len(invalid)} permuted gold(s) are letters their row does not "
+            f"offer, first {invalid[:3]}: rows of one option count offer different letters"
+        )
+    golds = {key: (x.gold_letter, gold) for key, x, gold in zip(keys, picked, drawn, strict=True)}
+    lines = "\n".join(f"{r}\t{s}\t{g}" for (r, s), (_, g) in sorted(golds.items()))
+    return ShuffledGolds(
+        family=family, seed=seed, golds=golds,
+        moved=sum(1 for true, new in golds.values() if true != new),
+        digest=hashlib.sha256(lines.encode("utf-8")).hexdigest(),
+    )
+
+
+def apply_shuffled_golds(
+    plan: Sequence[Batch], labels_for: Mapping[int, list[Label]], shuffled: ShuffledGolds,
+    letter_id: Mapping[str, int],
+) -> tuple[list[Batch], int]:
+    """``(plan with each permuted gold written over its answer token, tokens rewritten)``.
+
+    ``ft_supervision`` reads the letter target from ``tokens[r, target_index + 1]``, so that
+    token is the label. Each one is checked to be the TRUE gold's id before it is replaced,
+    and every relabelled sequence must be found in the plan exactly once.
+    """
+    out: list[Batch] = []
+    seen: set[tuple[str, str]] = set()
+    rewritten = 0
+    for b, batch in enumerate(plan):
+        tokens: np.ndarray | None = None
+        for r, label in enumerate(labels_for[b]):
+            key = (label.row_id, label.slot_name)
+            pair = shuffled.golds.get(key)
+            if pair is None:
+                continue
+            if key in seen:
+                raise SystemExit(f"--shuffled-label: {key} is in the plan twice")
+            seen.add(key)
+            true, new = pair
+            if batch.target_index is None:  # pragma: no cover - an FT batch always has it
+                raise SystemExit(f"batch {b} carries no target_index")
+            at = int(batch.target_index[r]) + 1
+            if int(batch.tokens[r, at]) != letter_id[true]:
+                raise SystemExit(
+                    f"--shuffled-label: batch {b} row {r} ({key}) ends in token "
+                    f"{int(batch.tokens[r, at])}, not its gold {true!r} ({letter_id[true]})"
+                )
+            if new == true:
+                continue
+            if tokens is None:
+                tokens = batch.tokens.copy()
+            tokens[r, at] = letter_id[new]
+            rewritten += 1
+        out.append(batch if tokens is None else dataclasses.replace(batch, tokens=tokens))
+    missing = sorted(set(shuffled.golds) - seen)
+    if missing:
+        raise SystemExit(
+            f"--shuffled-label: {len(missing)} relabelled sequence(s) are not in the plan, "
+            f"first {missing[:3]}"
+        )
+    return out, rewritten
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ShuffledLabel:
+    """The control's target (an eval row and the ft row whose model it scored) and golds."""
+
+    eval_row: LedgerRow
+    ft_row: LedgerRow
+    golds: ShuffledGolds
+
+
+def shuffled_label_target(
+    rows: Sequence[LedgerRow], row_id: str, *, seed: int
+) -> tuple[LedgerRow, LedgerRow]:
+    """``(eval row, its ft row)`` for --shuffled-label, or a refusal naming every problem.
+
+    The eval row is the one ``row_id`` names (a unique prefix of 8+ characters): a completed
+    --score-val row of this tool, at this run's seed, that is not itself a supplement --
+    ``ledger._promotion_units`` refuses a supplement of a supplement, and one at another
+    seed. Its ft row is the one its ``ft_run_row_id`` metric names, in the same ledger.
+    """
+    if len(row_id) < 8:
+        raise SystemExit(f"--shuffled-label {row_id!r}: give at least 8 characters of the id")
+    hits = [r for r in rows if r.row_id.startswith(row_id)]
+    if len(hits) != 1:
+        raise SystemExit(f"--shuffled-label {row_id!r} matches {len(hits)} row(s), not 1")
+    row = hits[0]
+    recipe = dict(row.recipe or {})
+    problems: list[str] = []
+    if row.run_kind != "eval" or row.status != "completed":
+        problems.append(f"it is a {row.status} {row.run_kind!r} row, not a completed eval row")
+    if recipe.get("tool") != "tools/real_ft_run.py" or recipe.get("tag") != "epoch-score-val":
+        problems.append(
+            f"its recipe is {recipe.get('tool')!r} tag {recipe.get('tag')!r}, not this "
+            "tool's 'epoch-score-val'"
+        )
+    if SUPPLEMENT_KEY in recipe:
+        problems.append(f"it supplements {recipe[SUPPLEMENT_KEY]}; a supplement joins nothing")
+    if row.protocol.seed != seed:
+        problems.append(f"it is seed {row.protocol.seed} and this run is seed {seed}")
+    ft_ref = row.metrics.get("ft_run_row_id")
+    if not (isinstance(ft_ref, Ran) and isinstance(ft_ref.value, str)):
+        problems.append("it names no ft_run_row_id, so the recipe it scored cannot be read")
+    if problems:
+        raise SystemExit(f"--shuffled-label: eval row {row.row_id}: " + "; ".join(problems))
+    assert isinstance(ft_ref, Ran)  # narrowed by the refusal above
+    ft_hits = [r for r in rows if r.row_id == ft_ref.value]
+    if len(ft_hits) != 1:
+        raise SystemExit(
+            f"--shuffled-label: eval row {row.row_id} scored ft row {ft_ref.value}, which this "
+            f"ledger holds {len(ft_hits)} time(s), not once"
+        )
+    ft = ft_hits[0]
+    ft_recipe = dict(ft.recipe or {})
+    if (ft.run_kind, ft.status, ft_recipe.get("tag")) != ("ft", "completed", "epoch") or (
+        ft.protocol.seed != seed or "shuffled_label" in ft_recipe
+    ):
+        raise SystemExit(
+            f"--shuffled-label: ft row {ft.row_id} is a {ft.status} {ft.run_kind!r} row, tag "
+            f"{ft_recipe.get('tag')!r}, seed {ft.protocol.seed}"
+            + (", itself a shuffled-label model" if "shuffled_label" in ft_recipe else "")
+            + f"; the control needs the completed epoch arm at seed {seed}"
+        )
+    return row, ft
+
+
+def recipe_differences(
+    target: Mapping[str, object], ours: Mapping[str, object], *, skip: frozenset[str]
+) -> list[str]:
+    """Every key outside ``skip`` on which the two recipes differ, absence included."""
+    return [
+        f"{key}: target {target.get(key, _ABSENT)!r}, this run {ours.get(key, _ABSENT)!r}"
+        for key in sorted((set(target) | set(ours)) - skip)
+        if target.get(key, _ABSENT) != ours.get(key, _ABSENT)
+    ]
+
+
+def planned_ft_recipe(
+    args: argparse.Namespace, *, device: str, plan: Sequence[Batch], reader: ShardReader,
+    permutation: ChoicePermutation | None, replay: ReplayPlan | None,
+    batch_tokens: int | None,
+) -> dict[str, object]:
+    """The epoch arm's ft recipe as far as argv and the plan decide it, before any tower loads.
+
+    The keys :func:`_train` writes, minus :data:`TOWER_ONLY_KEYS`, which the post-training
+    check (:func:`check_shuffled_ft_row`) reads off the row actually written.
+    """
+    recipe: dict[str, object] = {
+        "tool": "tools/real_ft_run.py", "tag": "epoch", "device": device, "lr": args.lr,
+        "passes": 1, "batches": len(plan), "width": max(int(b.tokens.shape[1]) for b in plan),
+        "span_weight": args.span_weight, "deterministic": args.deterministic,
+        "shard_hash": reader.header.shard_hash(),
+        **_recipe_pieces(
+            lower_layers_n=args.lower_layers_n, lower_lr_scale=args.lower_layers_lr_scale,
+            beta2=args.beta2, permutation=permutation, replay=replay,
+            cap_s=args.wall_clock_cap_s, no_memorise=args.no_memorise,
+            batch_tokens=batch_tokens,
+        ),
+    }
+    if args.real_backbone is None:
+        recipe.update(hidden=args.hidden, heads=args.heads)
+    else:
+        recipe.update(
+            optimizer_recipe=args.optimizer, backbone_snapshot=args.real_backbone.name,
+            attn_implementation=args.attn_implementation,
+        )
+    return recipe
+
+
+def prepare_shuffled_label(
+    row_id: str, *, rows: Sequence[LedgerRow], reader: ShardReader, val: ValSet,
+    labels: Sequence[Label], seed: int, planned: Mapping[str, object],
+    quick: Sequence[str],
+) -> ShuffledLabel:
+    """Find the target, refuse every way this run would not be its control, draw the golds.
+
+    Decided before any tower loads: the target's identity (:func:`shuffled_label_target`),
+    its shard set, val set and protocol hashes against this run's, its ft recipe against
+    ``planned`` outside :data:`SHUFFLED_LABEL_EXEMPT` and :data:`TOWER_ONLY_KEYS`, and
+    quickness -- a quick row in a seed family blocks the whole family, so a supplement may
+    not be quick where the row it supplements is not.
+    """
+    eval_row, ft_row = shuffled_label_target(rows, row_id, seed=seed)
+    eval_recipe = dict(eval_row.recipe or {})
+    problems = recipe_differences(
+        dict(ft_row.recipe or {}), planned, skip=SHUFFLED_LABEL_EXEMPT | TOWER_ONLY_KEYS
+    )
+    for name, theirs, ours in (
+        ("eval shard_hash", eval_recipe.get("shard_hash"), reader.header.shard_hash()),
+        ("val_shard_hash", eval_recipe.get("val_shard_hash"), val.reader.header.shard_hash()),
+        ("data_snapshot_hash", eval_row.protocol.data_snapshot_hash,
+         reader.header.data_snapshot_hash),
+        ("tokenizer_hash", eval_row.protocol.tokenizer_hash, reader.header.tokenizer_hash),
+    ):
+        if theirs != ours:
+            problems.append(f"{name}: target {theirs!r}, this run {ours!r}")
+    if quick and not eval_row.quick:
+        problems.append(
+            f"this run would be quick ({'; '.join(quick)}) and eval row {eval_row.row_id} is "
+            "not; a quick supplement blocks its whole seed family"
+        )
+    if problems:
+        raise SystemExit(
+            f"--shuffled-label: this run is not eval row {eval_row.row_id}'s control "
+            f"(ft row {ft_row.row_id}) in anything but the shuffle and the span weight:\n  "
+            + "\n  ".join(problems)
+        )
+    return ShuffledLabel(
+        eval_row=eval_row, ft_row=ft_row,
+        golds=shuffle_choice_golds(labels, family=SHUFFLED_LABEL_FAMILY, seed=seed),
+    )
+
+
+def check_shuffled_ft_row(
+    rows: Sequence[LedgerRow], ft_row_id: str, shuffled: ShuffledLabel
+) -> None:
+    """After training: the ft row this run wrote against the target's, every key compared.
+
+    The pre-training check could not see what only the loaded tower states
+    (:data:`TOWER_ONLY_KEYS`, the resolved attention kernel, ``backbone_commit``); this reads
+    them off the row actually written. A mismatch writes no control row.
+    """
+    hits = [r for r in rows if r.row_id == ft_row_id]
+    if len(hits) != 1:
+        raise SystemExit(f"--shuffled-label: this run's ft row {ft_row_id} is not in the ledger")
+    ours, target = hits[0], shuffled.ft_row
+    recipe = dict(ours.recipe or {})
+    problems = recipe_differences(dict(target.recipe or {}), recipe, skip=SHUFFLED_LABEL_EXEMPT)
+    for name in ("backbone_commit", "data_snapshot_hash", "tokenizer_hash"):
+        theirs, mine = getattr(target.protocol, name), getattr(ours.protocol, name)
+        if theirs != mine:
+            problems.append(f"{name}: target {theirs!r}, this run {mine!r}")
+    if recipe.get("span_weight") != 0.0 or recipe.get("shuffled_label") != dict(
+        SHUFFLED_LABEL_RECIPE
+    ):
+        problems.append(
+            f"span_weight {recipe.get('span_weight')!r} and shuffled_label "
+            f"{recipe.get('shuffled_label')!r} are not the control's"
+        )
+    if problems:
+        raise SystemExit(
+            f"--shuffled-label: ft row {ft_row_id} trained something other than ft row "
+            f"{target.row_id} with its golds shuffled, so no control row is written:\n  "
+            + "\n  ".join(problems)
+        )
+
+
+def shuffled_label_state(
+    scored: Mapping[str, object], labels: Sequence[Label], *, family: str
+) -> TriState:
+    """``shuffled_label_control`` over ``family``'s val choice rows, against their REAL golds.
+
+    Chance is the majority gold letter of the rows actually scored, as the harness defines
+    it. A row the decode skipped (a letter with no token id) leaves the denominator short,
+    and the state says so through ``n_total`` rather than passing on a capped sample.
+    """
+    population = {
+        (x.row_id, x.slot_name): x.gold_letter
+        for x in labels if x.family_id == family and x.slot_kind == SLOT_CHOICE
+    }
+    if not population:
+        return NotRun(reason=f"the val set holds no {family} choice row to score")
+    verdicts = scored["verdicts"]
+    if not isinstance(verdicts, list):  # pragma: no cover - _decode's own shape
+        raise TypeError("scored['verdicts'] is not a list")
+    picked = [
+        v for v in verdicts
+        if v.get("kind") == "choice" and (str(v["row_id"]), str(v["slot_name"])) in population
+    ]
+    if not picked:
+        return NotRun(reason=f"none of {len(population)} {family} val choice rows was decoded")
+    correct = sum(1 for v in picked if bool(v["correct"]))
+    state = shuffled_label_control(
+        correct / len(picked),
+        [population[(str(v["row_id"]), str(v["slot_name"]))] for v in picked],
+        n_eval=len(picked),
+    )
+    if isinstance(state, Ran) and len(picked) < len(population):
+        state = dataclasses.replace(
+            state, n_total=len(population),
+            detail=f"{state.detail}; {len(population) - len(picked)} of {len(population)} "
+            "rows were not decoded",
+        )
+    return state
+
+
+def _record_shuffled_label(
+    run: dict[str, object], scored: dict[str, object], *, ledger: Ledger, reader: ShardReader,
+    val: ValSet, shuffled: ShuffledLabel, quick_reasons: Sequence[str], decode_s: float,
+) -> str:
+    """The control row: ``controls.shuffled_label``, supplementing the target eval row.
+
+    The target eval row's PROTOCOL, so it lands in that row's seed family; its own settings
+    in ``recipe``, which names the eval row under ``SUPPLEMENT_KEY``. Nothing else measured
+    is recorded on it: ``ledger._joined`` lets any measured failure fail the unit, and this
+    model's degenerate head is expected -- it is a statement about the shuffled model, not
+    about the target.
+    """
+    target = shuffled.eval_row
+    recipe: dict[str, object] = {
+        "tool": "tools/real_ft_run.py", "tag": "epoch-shuffled-label",
+        SUPPLEMENT_KEY: target.row_id, "device": run["device"],
+        "shuffled_label": shuffled.golds.recipe(),
+        "shuffled_ft_row_id": run["ft_row_id"], "target_ft_row_id": shuffled.ft_row.row_id,
+        "span_weight": run["span_weight"], "shard_hash": reader.header.shard_hash(),
+        "val_shard_hash": val.reader.header.shard_hash(),
+    }
+    recorder = _recorder(
+        ledger, reader=reader, seed=int(run["seed"]), recipe=recipe,
+        run_kind="eval", quick_reasons=quick_reasons,
+        # The decode, not the training run: see _record_verdict.
+        wall_clock_s=decode_s,
+        cost=run["cost"],  # type: ignore[arg-type]
+        protocol=Protocol(**target.protocol.to_json()),
+        notes=(
+            f"tools/real_ft_run.py --shuffled-label for eval row {target.row_id}: ft row "
+            f"{run['ft_row_id']} trained ft row {shuffled.ft_row.row_id}'s recipe with "
+            f"{shuffled.golds.family} choice golds permuted ({shuffled.golds.moved} of "
+            f"{len(shuffled.golds.golds)} moved) and the span channel off; its "
+            f"{shuffled.golds.family} val choice rows decoded the way answer.rs does and "
+            "scored against their REAL golds."
+        ),
+    )
+    with recorder:
+        recorder.metric(
+            "shuffled_ft_row_id",
+            Ran(passed=True, value=run["ft_row_id"],
+                detail="the train_ft row of the shuffled-label model"),
+        )
+        recorder.control(
+            "shuffled_label", shuffled_label_state(scored, val.labels, family=SHUFFLED_LABEL_FAMILY)
+        )
+    if recorder.row is None:  # pragma: no cover - RunRecorder always writes on exit
+        raise RuntimeError("RunRecorder exited without writing a row")
+    return recorder.row.row_id
+
+
+def _check_shuffled_label_flags(args: argparse.Namespace, raw_argv: Sequence[str]) -> None:
+    """Refuse every combination --shuffled-label cannot be the control in, then force the
+    span weight to 0. Called after the ``--span-weight`` guard, which it relaxes for itself."""
+    if args.shuffled_label is None:
+        return
+    absent = [
+        flag for flag, given in (
+            ("--epoch", args.epoch), ("--no-memorise", args.no_memorise),
+            ("--score-val", args.score_val),
+        ) if not given
+    ]
+    if absent:
+        raise SystemExit(
+            f"--shuffled-label trains the epoch arm on permuted golds and scores it on the val "
+            f"set; it needs {', '.join(absent)}"
+        )
+    clashing = [
+        flag for flag, given in (
+            ("--score-checkpoint", args.score_checkpoint is not None),
+            ("--needle", args.needle), ("--ood", args.ood),
+            ("--needle-control", args.needle_control is not None),
+            ("--verdicts-out", args.verdicts_out is not None),
+            ("--suite-verdicts-out", args.suite_verdicts_out is not None),
+        ) if given
+    ]
+    if clashing:
+        raise SystemExit(
+            f"--shuffled-label writes one control row and scores no gate; {', '.join(clashing)} "
+            "would measure the shuffled model as if it were the recipe's"
+        )
+    # A checkpoint is named by (tag, seed, device) alone, so the control's would be
+    # epoch-seed<N>-<device>.json -- the real arm's file, in the directory a mirrored launch
+    # line names, rewritten with the shuffled model's weights. Nothing consumes the control's.
+    saving = [
+        flag for flag, given in (
+            ("--checkpoint-dir", args.checkpoint_dir is not None),
+            ("--checkpoint-every", bool(args.checkpoint_every)),
+            ("--resume-from", args.resume_from is not None),
+        ) if given
+    ]
+    if saving:
+        raise SystemExit(
+            f"--shuffled-label saves and resumes no weights: {', '.join(saving)} would write "
+            "or read epoch-seed<N>-<device>.json, the real epoch arm's checkpoint name"
+        )
+    if len(args.seeds) != 1 or not args.devices or len(args.devices) != 1:
+        raise SystemExit(
+            "--shuffled-label supplements one eval row, which has one seed and one device: "
+            "pass exactly one --seeds and one --devices entry"
+        )
+    # argparse accepts any unique prefix, and "--sp" is unique to --span-weight here.
+    given = [t for t in raw_argv if t.startswith("--sp") and "--span-weight".startswith(
+        t.split("=", 1)[0])]
+    if given:
+        raise SystemExit(
+            "--shuffled-label trains the span channel at weight 0, so the real span gold "
+            "cannot pull the shared tower toward the defect; --span-weight would determine "
+            "nothing"
+        )
+    args.span_weight = 0.0
+
+
 def _check_piece_flags(args: argparse.Namespace) -> None:
     """Refuse, at argv time, every combination of the ported-piece flags that would record a
     value that determined nothing, or run a piece without what it needs. Resolves defaults
@@ -5201,6 +5728,19 @@ def main(argv: list[str] | None = None) -> int:
             "file exists"
         ),
     )
+    parser.add_argument(
+        "--shuffled-label", default=None, metavar="EVAL_ROW_ID",
+        help=(
+            "train the shuffled-label CONTROL for this --score-val eval row (an id or unique "
+            f"prefix, read from --ledger and supplemented there): the epoch arm on the same "
+            f"shard set and recipe as that row's model, with the {DEFECT_FAMILY_ID} choice "
+            "golds permuted within option-count groups at the run's seed and the span channel "
+            "at weight 0, then scored on its val choice rows against the real golds. Writes "
+            "the ft row (its own family) and one eval row carrying controls.shuffled_label "
+            "and recipe.eval_row_id, in the target's seed family. Needs --epoch, "
+            "--no-memorise, --score-val and one --seeds/--devices entry each"
+        ),
+    )
     parser.add_argument("--probe", help=argparse.SUPPRESS)
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     args = parser.parse_args(argv)
@@ -5311,6 +5851,7 @@ def main(argv: list[str] | None = None) -> int:
             f"--span-weight must be positive, got {args.span_weight}; zero would train the "
             "span head on nothing while its loss still appeared in the log"
         )
+    _check_shuffled_label_flags(args, raw_argv)
     if args.needle_control is not None:
         args.needle_control = parse_needle_control(args.needle_control)
         if not (args.needle and args.score_checkpoint is not None):
@@ -5823,6 +6364,32 @@ def main(argv: list[str] | None = None) -> int:
     }
     failures: list[str] = []
 
+    # --shuffled-label, decided before any tower loads. `plan_all` is replaced by the plan
+    # carrying the permuted golds; under --no-memorise nothing else reads it after this.
+    shuffled: ShuffledLabel | None = None
+    if args.shuffled_label is not None:
+        if val_set is None:  # pragma: no cover - _check_shuffled_label_flags needs --score-val
+            raise SystemExit("--shuffled-label needs --score-val's val set")
+        shuffled = prepare_shuffled_label(
+            args.shuffled_label, rows=ledger.rows(), reader=reader, val=val_set, labels=labels,
+            seed=int(args.seeds[0]),
+            planned=planned_ft_recipe(
+                args, device=devices[0], plan=plan_all, reader=reader,
+                permutation=permutation, replay=replay_plan, batch_tokens=recipe_batch_tokens,
+            ),
+            quick=reasons_for("epoch", devices[0]),
+        )
+        plan_all, rewritten = apply_shuffled_golds(
+            plan_all, labels_by_batch_all, shuffled.golds, letter_id
+        )
+        print(
+            f"\nSHUFFLED-LABEL CONTROL for eval row {shuffled.eval_row.row_id} (ft row "
+            f"{shuffled.ft_row.row_id}): {len(shuffled.golds.golds)} {SHUFFLED_LABEL_FAMILY} "
+            f"choice golds permuted at seed {shuffled.golds.seed}, {shuffled.golds.moved} moved "
+            f"({rewritten} answer tokens rewritten), permutation "
+            f"{shuffled.golds.digest[:16]}; span weight {args.span_weight}"
+        )
+
     if args.no_memorise:
         print("\narm 2: NOT RUN -- --no-memorise")
     for device in [] if args.no_memorise else devices:
@@ -5967,9 +6534,23 @@ def main(argv: list[str] | None = None) -> int:
                     lower_lr_scale=args.lower_layers_lr_scale, beta2=args.beta2,
                     permutation=permutation, alphabets=epoch_alphabets, replay=replay_plan,
                     eval_widths=suite_widths(needle_suite, ood_suite),
+                    shuffled_label=None if shuffled is None else SHUFFLED_LABEL_RECIPE,
                 )
                 step = run.pop("_step")
-                if val_set is not None:
+                if shuffled is not None and val_set is not None:
+                    # The control, not a score of the recipe: no _record_score row, whose
+                    # recipe would hash the shuffled model into the real model's family.
+                    check_shuffled_ft_row(ledger.rows(), str(run["ft_row_id"]), shuffled)
+                    decode_at = time.monotonic()
+                    scored = _decode(step, val_set.plan, val_set.labels_for, val_set.letter_id)
+                    decode_s = time.monotonic() - decode_at
+                    run["control_row_id"] = _record_shuffled_label(
+                        run, scored, ledger=ledger, reader=reader, val=val_set,
+                        shuffled=shuffled, decode_s=decode_s,
+                        quick_reasons=reasons_for("epoch", device, str(run["termination"])),
+                    )
+                    print(f"  shuffled-label control row {run['control_row_id']}")
+                if val_set is not None and shuffled is None:
                     decode_at = time.monotonic()
                     scored = _decode(step, val_set.plan, val_set.labels_for, val_set.letter_id)
                     permutation, val_second = score_permutation_consistency(
