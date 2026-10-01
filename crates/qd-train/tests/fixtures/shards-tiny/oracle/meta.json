@@ -1,0 +1,51 @@
+{
+ "batch_tokens": [
+  3192,
+  6385
+ ],
+ "constants": {
+  "CONSUMED_PREFIX_DOMAIN": "qd-consumed-prefix-v1",
+  "MAX_PADDING_WASTE": 0.15,
+  "MAX_POSITIONS_PER_BATCH": 1048576,
+  "MAX_ROWS_PER_BATCH": 4096,
+  "NO_SPAN": -1,
+  "PAD_ID": 0,
+  "REMAP_FORMAT": "qd-remap-v1",
+  "RESERVED_NOUL_ROWS": 1,
+  "SEQUENCE_INDEX_FORMAT": "qd-sequence-index/1",
+  "SHARD_FORMAT": "qd-shard-v1",
+  "SLOT_CHOICE": 1,
+  "SLOT_LM": 0,
+  "SLOT_SCORE": 2,
+  "SLOT_SPAN": 3,
+  "SPAN_ABSTAIN": -2
+ },
+ "corpus_n": 24,
+ "corpus_rev": "oracle-rev-0000000000000000000000000000000000",
+ "data_config": {
+  "held_out_families": [
+   "code.language_id",
+   "qa.answerability"
+  ],
+  "held_out_path_markers": [
+   "heldout",
+   "held_out",
+   "held-out"
+  ],
+  "held_out_roots": [
+   "data/heldout"
+  ],
+  "seed": 20260919
+ },
+ "epochs": [
+  0,
+  1
+ ],
+ "numpy": "2.5.0",
+ "python": "3.14.7",
+ "seeds": [
+  20260919,
+  7
+ ],
+ "tokenizer_hash": "tokhash-oracle-0123456789abcdef"
+}

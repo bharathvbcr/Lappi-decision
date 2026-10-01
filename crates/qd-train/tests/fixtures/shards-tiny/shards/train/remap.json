@@ -1,0 +1,8 @@
+{
+  "format": "qd-remap-v1",
+  "remap_hash": "9987387425bfe442465f610d6ac4ce3b769cc3d0f25d6e812264c91fa19966cc",
+  "source_vocab_size": 512,
+  "special_ids": [],
+  "tokenizer_hash": "tokhash-oracle-0123456789abcdef",
+  "vocab_size": 256
+}
