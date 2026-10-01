@@ -90,7 +90,7 @@ pub fn candidates<'a>(
 
 /// Shuffle the whitespace-separated tokens of `text`, keeping its indentation. `None` when it
 /// has fewer than two distinct tokens, so no order of them differs from this one.
-fn shuffle_tokens(text: &str, rng: &mut ChaCha20Rng) -> Option<String> {
+pub(crate) fn shuffle_tokens(text: &str, rng: &mut ChaCha20Rng) -> Option<String> {
     let indent_len = text.len() - text.trim_start().len();
     let (indent, rest) = text.split_at(indent_len);
     let tokens: Vec<&str> = rest.split_whitespace().collect();

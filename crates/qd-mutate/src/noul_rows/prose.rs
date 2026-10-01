@@ -12,6 +12,7 @@ use std::io::{BufRead, BufReader, Read};
 
 use rand::Rng;
 use rand::seq::IndexedRandom;
+use rand_chacha::ChaCha20Rng;
 use serde::Deserialize;
 
 use crate::hunk::{self, draw_shape, has_char_in, item_rng, mark_block, order_key, Shape};
@@ -182,7 +183,7 @@ fn camel(slug: &str) -> String {
 }
 
 /// Greedy word wrap at `width` characters; a word longer than `width` sits on its own line.
-fn wrap(text: &str, width: usize) -> Vec<String> {
+pub(crate) fn wrap(text: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let mut current = String::new();
     for word in text.split_whitespace() {
@@ -216,13 +217,19 @@ pub fn render(p: &Paragraph, seed: u64) -> (String, String) {
     let start = rng.random_range(0..=n - k);
     let body = mark_block(lines, start, start + k, shape);
     let diff = hunk::render(rng.random_range(1..=400u32), &body);
-    let s = slug(&p.title);
-    let pattern = PATHS.choose(&mut rng).copied().unwrap_or(PATHS[0]);
-    let path = pattern
+    let path = path_for(&p.title, &mut rng);
+    (path, diff)
+}
+
+/// A path for a row of `title`: one of [`PATHS`], drawn from `rng`, filled with its slug. Shared
+/// by the paragraph and question rows, so neither path set is a cue the other lacks.
+pub(crate) fn path_for(title: &str, rng: &mut ChaCha20Rng) -> String {
+    let s = slug(title);
+    let pattern = PATHS.choose(rng).copied().unwrap_or(PATHS[0]);
+    pattern
         .replace("{slug}", &s)
         .replace("{snake}", &s.replace('-', "_"))
-        .replace("{camel}", &camel(&s));
-    (path, diff)
+        .replace("{camel}", &camel(&s))
 }
 
 #[cfg(test)]

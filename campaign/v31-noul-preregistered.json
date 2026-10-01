@@ -1,0 +1,15 @@
+{
+  "recorded": "2026-10-01, before defect-noul-v2 was generated and before any v3.1 run",
+  "decision": "Fable F2/F3 (2026-10-01): the noul rows re-formed at the same 5% share; the lever is form diversity, not share",
+  "ood_abstain_by_category": {
+    "bar": ">= 30/60 on every seed (0, 1, 2), each of prose, scrambled, unseen-language",
+    "j4_on_v1": {"prose": [3, 9, 2], "scrambled": [3, 4, 8], "unseen-language": [40, 20, 56]}
+  },
+  "defect_class_in_distribution_abstention": {
+    "bound": "<= 2% on every seed",
+    "kind": "Fable's data-design bound, not a gate",
+    "j4_on_v1": ["33/2304", "39/2304", "21/2304"]
+  },
+  "gates_unchanged": "ood_abstain (Wilson lower >= 0.90 OOD, Wilson upper <= 0.05 in-distribution) is read-only (rule 2); these bars are design checks beside it, not replacements",
+  "risk": "a noul set designed to span the suite's three forms passes the suite's forms; whether those three categories are the product's OOD definition is a suite question for the human (rule 2)"
+}
