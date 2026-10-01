@@ -290,6 +290,48 @@ one measured on 1000 of 1000. A `PROMOTE` states the weakest coverage it promote
 gates are a single observation with no population, and refusing those would make promotion
 unreachable rather than honest.
 
+### The human decisions record: `docs/promotion-decisions.json`
+
+The questions only a human may answer (rule 2) are **data a human edits**, not code. Every
+verdict reads this file and carries what it read:
+
+- **`promotion_population`** on every `PromotionVerdict`: the val population the gates are
+  judged on, its `families` (`"all"` or a list of family ids), `status` (`open` until a human
+  rules), the `source` it rests on, who decided it and where, and the record's sha256. Nothing
+  in code infers it. Today it is `open`: the gates pool every val family's choice rows, as
+  built (`GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS`).
+- The other open questions: `average_may_promote`, `ece_population`, `degenerate_head_floor`,
+  `privileged_hunk_pass_rule`, `transfer_gate_definition`, each naming its gap.
+
+**Who edits it, and how.** A human, and only a human. To record a ruling, set the question's
+`status` to `"decided"`, set `value` (and `families`, for the population) to what was decided,
+and fill `decided_by`, `decided_on` (`YYYY-MM-DD`) and `decision_ref` (where the ruling is
+written: a HANDOFF section, a gap answer, a message), in a commit of its own whose message
+names the gap. `load_promotion_decisions` refuses a record missing a question, a `decided`
+question without all three of who/when/where, an `open` one with any of them set, and an open
+`average_may_promote` that says yes. A verdict whose record cannot be read refuses: it cannot
+say which population it judged. Changing a gate's code to follow a ruling is a separate change;
+the record is what says the ruling exists.
+
+### The `avg` kind: one average of seeds
+
+`Ledger.promotion_verdict_avg(avg_row_id, input_ledgers=...)`
+(CLI: `verdict --kind avg --row-id AVG --input-ledger FT_LEDGER`) judges one averaged eval row
+(`real_ft_run.py --score-checkpoint AVG.safetensors`, recipe `averaged`). Condition 3 is
+replaced, never dropped:
+
+- the average's **own** gate row, joined with the supplements naming it, passes conditions
+  1, 2, 4, 5, 6 and 7 exactly as one seed's unit does;
+- every input ft row `recipe.averaged.ft_row_ids` names is found, completed, non-quick, and
+  ended by `steps_exhausted` (its full schedule); all share one `recipe_hash`,
+  `data_snapshot_hash`, `tokenizer_hash` and `backbone_commit` (the average's own snapshot
+  among them); and they are at least three distinct seeds, the ones the recipe names;
+- then the human: **every question still `open` in the decisions record refuses**, and so
+  does a recorded no on `average_may_promote`. While any question is open, no average
+  promotes, whatever its gates say
+  (`python/tests/test_promotion_decisions.py::test_an_average_is_not_promotable_under_the_current_decisions`,
+  with its positive control beside it).
+
 ## Chain integrity
 
 `prev_row_hash` chains rows.
