@@ -756,9 +756,14 @@ def test_both_row_kinds_record_what_ran() -> None:
         and node.func.id == "_recorder"
     }
     # run_needle_control (2026-09-30): the --needle-control diagnostic's own eval row.
-    assert writers == {"_train", "_record_verdict", "_record_score", "run_needle_control"}, (
-        "expected the ft, verdict, eval and needle-control rows to come from _recorder, "
-        f"got {sorted(writers)}"
+    # _record_shuffled_label (2026-09-30): the --shuffled-label control row, which carries
+    # the protocol of the eval row it supplements through _recorder's `protocol`.
+    assert writers == {
+        "_train", "_record_verdict", "_record_score", "run_needle_control",
+        "_record_shuffled_label",
+    }, (
+        "expected the ft, verdict, eval, needle-control and shuffled-label control rows to "
+        f"come from _recorder, got {sorted(writers)}"
     )
 
 

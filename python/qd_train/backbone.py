@@ -773,13 +773,24 @@ class QwenDecisionStep:
         lower_layers_n: int = 0,
         lower_lr_scale: float = 1.0,
         beta2: float = DEFAULT_BETA2,
+        span_channel_off: bool = False,
     ) -> None:
         import torch
         from torch import nn
 
         if not lr > 0.0:
             raise ValueError(f"lr must be positive, got {lr}")
-        if not span_weight > 0.0:
+        # `span_channel_off` is the one way to a zero weight, and it takes exactly zero: the
+        # shuffled-label control (tools/real_ft_run.py --shuffled-label) trains on permuted
+        # choice golds and must not let the REAL span gold pull the shared tower toward the
+        # defect. Its row records span_weight 0.0 beside the control's own recipe key, so a
+        # span loss in its log reads as unweighted rather than as trained.
+        if span_channel_off:
+            if span_weight != 0.0:
+                raise ValueError(
+                    f"span_channel_off takes span_weight 0.0 exactly, got {span_weight}"
+                )
+        elif not span_weight > 0.0:
             raise ValueError(
                 f"span_weight must be positive, got {span_weight}; zero would train the span "
                 "head on nothing while its loss still appeared in the log"

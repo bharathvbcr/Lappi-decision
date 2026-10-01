@@ -92,6 +92,7 @@ from qd_train.eval_harness import (  # noqa: E402
     degenerate_head_check,
     paired_margin_test,
     permutation_consistency_state,
+    permute_within_groups,
     shuffled_label_control,
 )
 from qd_train.heads import plan_span_batch, serving_scores  # noqa: E402
@@ -687,19 +688,17 @@ def shuffle_train_labels(decisions: Sequence, *, seed: int) -> list:
     permutation across decisions offering different numbers of options would raise partway
     through -- and would do so only on a corpus where the counts differ, which is not this
     one today and is not a property to rely on silently.
-    """
-    rng = random.Random(seed)
-    by_arity: dict[int, list[int]] = {}
-    for index, decision in enumerate(decisions):
-        by_arity.setdefault(len(decision.options), []).append(index)
 
-    shuffled = list(decisions)
-    for indices in by_arity.values():
-        labels = [decisions[i].gold_option for i in indices]
-        rng.shuffle(labels)
-        for i, label in zip(indices, labels, strict=True):
-            shuffled[i] = dataclasses.replace(decisions[i], gold_option=label)
-    return shuffled
+    The draw is ``eval_harness.permute_within_groups``, which ``tools/real_ft_run.py
+    --shuffled-label`` uses too, so the two controls destroy labels by one rule.
+    """
+    golds = permute_within_groups(
+        [d.gold_option for d in decisions], [len(d.options) for d in decisions], seed=seed
+    )
+    return [
+        dataclasses.replace(decision, gold_option=gold)
+        for decision, gold in zip(decisions, golds, strict=True)
+    ]
 
 
 def majority_baseline(decisions: Sequence) -> tuple[float, str]:

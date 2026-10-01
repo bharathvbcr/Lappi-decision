@@ -14,8 +14,10 @@ because there is no accuracy to read.
 from __future__ import annotations
 
 import math
-from collections.abc import Hashable, Mapping
+import random
+from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import TypeVar
 
 import numpy as np
 
@@ -33,9 +35,12 @@ __all__ = [
     "paired_margin_by_key",
     "paired_margin_test",
     "permutation_consistency_state",
+    "permute_within_groups",
     "shuffled_label_control",
     "split_conformal_threshold",
 ]
+
+_Label = TypeVar("_Label")
 
 # Floors from the plan's "degenerate-head assertion". They are thresholds, and
 # thresholds are read-only to an agent (rule 2): report a failure, never retune.
@@ -184,6 +189,40 @@ def shuffled_label_control(
             + ("" if passed else " -- LEAKAGE: rebuild the split before any other run")
         ),
     )
+
+
+def permute_within_groups(
+    labels: Sequence[_Label], groups: Sequence[Hashable], *, seed: int
+) -> list[_Label]:
+    """``labels`` permuted among the positions that share a group, seeded by ``seed``.
+
+    The training half of :func:`shuffled_label_control`: the model that control measures is
+    trained on these. One owner, so rung 0's byte decider and the FT runner destroy their
+    labels by the same rule.
+
+    A PERMUTATION rather than fresh random labels, because the control compares against the
+    majority-class rate: permuting preserves each group's label distribution exactly, so the
+    bar it is measured against remains the bar that applies.
+
+    Within a group, because a label is only meaningful among positions that offer the same
+    answers -- an option index past another row's option count, or a letter another row
+    does not offer, would be a gold that row cannot have. The caller names the group; this
+    owns the draw: one ``random.Random(seed)``, groups in order of first appearance, one
+    ``shuffle`` per group, so a seed names one permutation on every host.
+    """
+    if len(labels) != len(groups):
+        raise ValueError(f"{len(labels)} labels against {len(groups)} group keys")
+    rng = random.Random(seed)
+    members: dict[Hashable, list[int]] = {}
+    for index, group in enumerate(groups):
+        members.setdefault(group, []).append(index)
+    out = list(labels)
+    for indices in members.values():
+        drawn = [labels[i] for i in indices]
+        rng.shuffle(drawn)
+        for i, label in zip(indices, drawn, strict=True):
+            out[i] = label
+    return out
 
 
 def paired_margin_test(
