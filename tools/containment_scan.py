@@ -4,8 +4,10 @@ Fable's ruling of 2026-10-02 (``AUDIT/fable-optimize-2026-10-02/fable-optimize-r
 Q2 "The rule, end to end"). The scan is Rust (``crates/qd-prep/src/containment.rs``); this
 tool only rebuilds the corpus the way ``real_ft_run.ft_splits`` does -- through
 ``real_ft_run.ft_split_report``, the split before any exclusion or replay draw -- renders
-every row as ``tools/replay_decontam.py`` renders its targets (``row_texts``: ``render`` at
-``seed=None``, then ``qd_train.replay.prompt_content``), and hands the binary one request:
+every row as ``tools/replay_decontam.py`` renders its targets (``render`` at ``seed=None``,
+cut where ``qd_train.replay.prompt_content`` cuts), strips the constant template text
+(``qd_train.containment_strip.strip_template``, v5's rule; the strip and what it removed are
+in the attestation's ``export.template_strip``), and hands the binary one request:
 
 * sources: every ``train`` row of every family, gold or replay-drawn (the replay draw has
   not happened yet), one text per slot, keyed ``row_id#slot``;
@@ -30,7 +32,11 @@ Usage (the corpus flags exactly as the pipeline was given them)::
     QD_PREP_BIN=/abs/qd-prep python tools/containment_scan.py --out-dir DIR \\
         --rev REV [--max-pairs N] [--no-repo-history] [--commitpackft DIR] \\
         [--defect-class DIR --defect-download DIR --defect-max-rows N --defect-noul DIR] \\
-        [--general-record FILE --general-max-rows N] [--request-out FILE] [--threads N]
+        [--general-record FILE --general-max-rows N] [--request-out FILE] [--threads N] \\
+        [--no-template-strip]
+
+``--no-template-strip`` is for measurement only (the pre-strip definition, to report rates
+beside the stripped ones); ``qd_train.exclusions`` refuses a list made with it.
 """
 
 from __future__ import annotations
@@ -52,12 +58,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from linear_control_native import engine_sha256, prep_binary
-from replay_decontam import row_texts
 from repo_git import resolve_rev
 
 from qd_data.config import DataConfig
+from qd_data.errors import QdRefusal
+from qd_data.render import render
 from qd_data.rows import DataRow
 from qd_data.split import HELD_OUT, SplitReport
+from qd_train.containment_strip import PartsRow, slot_parts, strip_template
 from qd_train.exclusions import ATTESTATION_NAME, EXCLUSIONS_NAME, containment_corpus
 from qd_train.replay import DEFAULT_N, DEFAULT_THRESHOLD
 from qd_train.tristate import NotRun, Ran, TriState
@@ -101,33 +109,58 @@ class ScanSpec:
     enforced: bool
 
 
-def _rendered(name: str, rows: Iterable[DataRow]) -> ScanSet:
-    """``rows`` rendered one row at a time through ``replay_decontam.row_texts``, so every
-    slot text is attributed to the row it came from without parsing ``row_id#slot`` back."""
-    out: list[tuple[str, str, str, str]] = []
+def _rendered(rows: Iterable[DataRow]) -> tuple[list[PartsRow], dict[str, str]]:
+    """``(parts rows, {row_id: refusal})``: every slot of every row rendered at ``seed=None``
+    and cut by ``containment_strip.slot_parts`` (which checks its cut against
+    ``prompt_content``), keyed ``row_id#slot`` as ``replay_decontam.row_texts`` keys it. A
+    row ``render`` refuses is counted and skipped, as ``row_texts`` does: ``write_shards``
+    refuses it too, so it is in no shard set."""
+    out: list[PartsRow] = []
     refused: dict[str, str] = {}
     for row in rows:
-        texts, unrenderable = row_texts([row])
-        refused.update(unrenderable)
-        for key, text in texts.items():
-            out.append((key, row.identity_key, row.family_id, text))
-    return ScanSet(name=name, rows=tuple(out), unrenderable=refused)
+        try:
+            rendered = render(row.request, seed=None)
+        except QdRefusal as exc:
+            refused[row.row_id] = f"{type(exc).__name__}: {exc}"[:300]
+            continue
+        for slot in rendered.slots:
+            out.append((f"{row.row_id}#{slot.name}", row.identity_key, row.family_id,
+                        slot.name, slot_parts(rendered.prompt_for(slot.name))))
+    return out, refused
 
 
-def scan_sets(report: SplitReport, *, config: DataConfig) -> list[ScanSet]:
-    """train, val, the repo-disjoint held-out split and one set per task-holdout family."""
+def scan_sets(
+    report: SplitReport, *, config: DataConfig, template_strip: bool = True,
+) -> tuple[list[ScanSet], dict[str, object]]:
+    """``(sets, strip record)``: train, val, the repo-disjoint held-out split and one set per
+    task-holdout family, their texts stripped of constant template text by
+    ``strip_template`` over the union of all of them (``template_strip=False`` only to measure
+    the pre-strip definition). The record is the attestation's ``export.template_strip``."""
     by_split = report.rows_by_split
     heldout = by_split.get(HELD_OUT, ())
-    sets = [
-        _rendered(TRAIN, by_split.get(TRAIN, ())),
-        _rendered(VAL, by_split.get(VAL, ())),
-        _rendered(HELD_OUT, (r for r in heldout if not config.is_held_out_family(r.family_id))),
+    # Each set's rows are materialised in its own iteration: a generator closing over the
+    # loop's ``family`` and consumed after the loop would read the last family for all.
+    chosen: list[tuple[str, tuple[DataRow, ...]]] = [
+        (TRAIN, tuple(by_split.get(TRAIN, ()))),
+        (VAL, tuple(by_split.get(VAL, ()))),
+        (HELD_OUT, tuple(r for r in heldout if not config.is_held_out_family(r.family_id))),
     ]
     for family in config.held_out_families:
-        sets.append(_rendered(
-            f"{HELDOUT_FAMILY_PREFIX}{family}", (r for r in heldout if r.family_id == family)
-        ))
-    return sets
+        chosen.append((f"{HELDOUT_FAMILY_PREFIX}{family}",
+                       tuple(r for r in heldout if r.family_id == family)))
+    parts: dict[str, list[PartsRow]] = {}
+    refused: dict[str, dict[str, str]] = {}
+    for name, rows in chosen:
+        if name in parts:
+            raise SystemExit(f"set {name!r} named twice")
+        parts[name], refused[name] = _rendered(rows)
+    texts, record = strip_template(parts, apply=template_strip)
+    del parts
+    sets = [
+        ScanSet(name=name, rows=tuple(texts.pop(name)), unrenderable=refused[name])
+        for name, _rows in chosen
+    ]
+    return sets, record
 
 
 def scan_specs(sets: Sequence[ScanSet]) -> list[ScanSpec]:
@@ -181,12 +214,19 @@ def _str(fh: BinaryIO, value: str, what: str) -> int:
     return 4 + len(raw)
 
 
-def export_block(sets: Sequence[ScanSet], *, engine: Path) -> dict[str, object]:
-    """What the exporter left out, and which engine scanned: the attestation's ``export``."""
+def export_block(
+    sets: Sequence[ScanSet], *, engine: Path, strip: Mapping[str, object],
+) -> dict[str, object]:
+    """What the exporter left out, which engine scanned, and what the template strip removed
+    (``strip``, :func:`scan_sets`'s record): the attestation's ``export``."""
     return {
         "tool": TOOL,
         "engine_sha256": engine_sha256(engine),
-        "render": "qd_data.render.render(request, seed=None) -> qd_train.replay.prompt_content",
+        "render": (
+            "qd_data.render.render(request, seed=None) -> qd_train.containment_strip.slot_parts "
+            "(== qd_train.replay.prompt_content) -> strip_template"
+        ),
+        "template_strip": dict(strip),
         "unrenderable": {
             s.name: {
                 "n": len(s.unrenderable),
@@ -295,6 +335,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-repo-history", dest="repo_history", action="store_false")
     parser.add_argument("--threads", type=int, default=None)
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
+    parser.add_argument(
+        "--no-template-strip", dest="template_strip", action="store_false",
+        help="measurement only: scan the unstripped prompt_content (the pre-v5 definition); "
+             "the attestation records applied=false and no build accepts its list",
+    )
     args = parser.parse_args(argv)
     from real_tokenizer_pipeline import DEFAULT_MAX_PAIRS
 
@@ -326,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
         defect_noul=args.defect_noul,
     )
     built = time.monotonic()
-    sets = scan_sets(report, config=config)
+    sets, strip = scan_sets(report, config=config, template_strip=args.template_strip)
     rendered = time.monotonic()
     scans = scan_specs(sets)
     # The name ft_splits and the pipeline check an exclusion list against.
@@ -338,12 +383,14 @@ def main(argv: list[str] | None = None) -> int:
     ))
     with request.open("xb") as fh:
         size = write_request(
-            fh, sets, scans, corpus=corpus, export=export_block(sets, engine=engine),
+            fh, sets, scans, corpus=corpus,
+            export=export_block(sets, engine=engine, strip=strip),
             checks=splitter_checks(report),
         )
     exported = time.monotonic()
     print(f"split {report.counts()} in {built - started:.1f} s; rendered "
-          f"{ {s.name: len(s.rows) for s in sets} } slot text(s) in {rendered - built:.1f} s; "
+          f"{ {s.name: len(s.rows) for s in sets} } slot text(s) in {rendered - built:.1f} s "
+          f"(template strip {'applied' if args.template_strip else 'NOT applied'}); "
           f"request {size} bytes -> {request} in {exported - rendered:.1f} s")
     # The rows and their texts are the request's now: released before the binary loads its
     # own copy, so the two peaks do not stack.
