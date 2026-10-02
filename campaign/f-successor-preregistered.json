@@ -43,14 +43,14 @@
     },
     "j6dv4": {
       "what": "J6(d)-v4: F's recipe with --lr 3e-5 --beta2 0.95 in place of --lr 1e-5, seed 0, post-F item 10 (campaign/post-f-queue/box_q_j6dv4.sh)",
-      "rows": "/home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl: the ft row named by --j6dv4-ft-row 0=<id> (from /home/ubuntu/j6d-v4/train.log), its epoch-score-val eval row, its epoch-needle-length-control row, and its letter-control row written by the CPU control waiter box_q_j6ctl.sh (lane task 4; not yet written, GAP-J6-V4-ARMS-HAVE-NO-LINEAR-CONTROL-ROW-2026-10-02)",
+      "rows": "/home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl: the ft row named by --j6dv4-ft-row 0=<id> (from /home/ubuntu/j6d-v4/train.log), its epoch-score-val eval row, and its letter-control row written by the CPU control waiter box_q_j6ctl.sh (lane task 4; not yet written, GAP-J6-V4-ARMS-HAVE-NO-LINEAR-CONTROL-ROW-2026-10-02)",
       "identity": "the ft row is completed, protocol.seed 0, protocol.data_snapshot_hash equal to F's, and its recipe equals F seed 0's ft recipe except lr = 3e-5 and beta2 = 0.95",
       "targets": [
         {"name": "paired_margin_vs_linear.choice.code.defect_class", "row": "letter control", "direction": "higher", "form": "paired_margin"},
         {"name": "val_top1.choice", "row": "eval", "direction": "higher", "form": "count"},
         {"name": "val_top1.span", "row": "eval", "direction": "higher", "form": "count"}
       ],
-      "must_not_lose": "base_must_not_lose, plus: ood_abstain.prose, ood_abstain.scrambled, ood_abstain.unseen-language (eval; higher), needle_hunk_recall.control.1024 / .2048 / .4096 worst depth bucket (needle-control row; higher), ood_abstain.in_distribution.family.code.defect_class (eval; lower)",
+      "must_not_lose": "base_must_not_lose, plus: ood_abstain.prose, ood_abstain.scrambled, ood_abstain.unseen-language (eval; higher), ood_abstain.in_distribution.family.code.defect_class (eval; lower). 'needle' in Fable's J6(d)-v4 list (fable-idle-queue.md:45) is the gate-bearing 8K worst bucket, already in base_must_not_lose; the 1K/2K/4K length controls are J6(f)'s guard only (Fable wrote 'the length controls' at :44 and 'needle' at :45).",
       "reads_margin": true
     }
   },
@@ -66,7 +66,7 @@
     "R2_defect_class_choice_span": "'defect_class choice/span' is read as val_top1.choice and val_top1.span. The eval rows carry no per-family top-1 key (f4feac15's 77 metrics have val_top1.choice, val_top1.span, val_top1.score only); val_top1.choice/span are also the keys Fable names as J6(d)-v4's targets.",
     "R3_all_targets_clear": "an arm wins only if every one of its targets clears. The definition is one verdict over plural 'metrics', and J6(b)'s recorded 'met' cleared both prose and scrambled. For J6(f) this is moot (one target); for J6(d)-v4 the margin, choice and span must all clear.",
     "R4_j6dv4_ood": "J6(d)-v4's 'OOD' is all three categories (prose, scrambled, unseen-language); Fable wrote 'prose/scrambled OOD' for J6(f) and 'OOD' for J6(d)-v4.",
-    "R5_j6dv4_needle": "J6(d)-v4's 'needle' is the 8K worst bucket and the 1K/2K/4K length-control worst buckets. Consequence: F seed 0 is 300/300 at every length (a4f244f0); if seeds 1 and 2 are too, a single length-control miss on J6(d)-v4 blocks it.",
+    "R5_j6dv4_needle": "struck by Fable 2026-10-02: J6(d)-v4's 'needle' is the 8K worst bucket (base_must_not_lose), not the length controls. The original reading made one needle miss in ~900 at ceiling block the arm.",
     "R6_j6dv4_permutation_and_abstention": "'permutation' is permutation_consistency.family.code.defect_class (higher); 'in-distribution abstention' is ood_abstain.in_distribution.family.code.defect_class (lower is better)",
     "R7_strictness": "as in comparison: targets clear strictly beyond max + range; guards lose strictly beyond the bound; ties never fire a target and never lose a guard",
     "R8_arm_identity": "the arms' ft rows are checked against their declared recipe delta (arms.*.identity), so swapped or wrong ft ids refuse rather than name the wrong recipe"
