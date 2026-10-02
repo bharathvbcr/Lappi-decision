@@ -55,7 +55,14 @@ def main() -> int:
                 clinc_oos[fam] += 1
         out["splits"][name] = {
             "by_split_family_source_licence_kind": [
-                {"split": k[0], "family": k[1], "source": k[2], "licence": k[3], "kind": k[4], "rows": v}
+                {
+                    "split": k[0],
+                    "family": k[1],
+                    "source": k[2],
+                    "licence": k[3],
+                    "kind": k[4],
+                    "rows": v,
+                }
                 for k, v in sorted(by.items())
             ],
             "distinct_repo_keys_per_family": {f: len(s) for f, s in sorted(repo_keys.items())},

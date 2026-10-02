@@ -1,0 +1,27 @@
+label: after: L-lint edits on fe1e642, working tree, ruff 0.16.8 (main checkout .venv via symlink)
+gate command: .venv/bin/ruff check --config <worktree>/pyproject.toml <worktree> --output-format concise
+source: AUDIT/lint-2026-10-02/after-concise.txt
+total findings: 31 in 5 files
+
+by file:
+     8  AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py
+     8  AUDIT/prep2-2026-10-02/clinc_oracle.py
+     6  tools/qd_train_oracle_optimizer_table.py
+     5  AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py
+     4  tools/qd_train_oracle_head_digest.py
+
+by rule:
+    21  E501
+     5  E702
+     3  B007
+     2  I001
+
+by file and rule:
+     8  E501    AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py
+     4  E501    AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py
+     1  I001    AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py
+     3  B007    AUDIT/prep2-2026-10-02/clinc_oracle.py
+     5  E702    AUDIT/prep2-2026-10-02/clinc_oracle.py
+     4  E501    tools/qd_train_oracle_head_digest.py
+     5  E501    tools/qd_train_oracle_optimizer_table.py
+     1  I001    tools/qd_train_oracle_optimizer_table.py

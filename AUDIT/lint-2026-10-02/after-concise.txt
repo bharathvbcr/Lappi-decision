@@ -1,0 +1,33 @@
+AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py:79:101: E501 Line too long (106 > 100)
+AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py:86:101: E501 Line too long (101 > 100)
+AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py:87:101: E501 Line too long (101 > 100)
+AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py:88:101: E501 Line too long (113 > 100)
+AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py:95:101: E501 Line too long (101 > 100)
+AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py:118:101: E501 Line too long (129 > 100)
+AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py:153:101: E501 Line too long (118 > 100)
+AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py:179:101: E501 Line too long (121 > 100)
+AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py:89:101: E501 Line too long (102 > 100)
+AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py:170:101: E501 Line too long (107 > 100)
+AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py:466:101: E501 Line too long (103 > 100)
+AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py:492:5: I001 [*] Import block is un-sorted or un-formatted
+AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py:726:101: E501 Line too long (101 > 100)
+AUDIT/prep2-2026-10-02/clinc_oracle.py:34:15: E702 Multiple statements on one line (semicolon)
+AUDIT/prep2-2026-10-02/clinc_oracle.py:37:19: E702 Multiple statements on one line (semicolon)
+AUDIT/prep2-2026-10-02/clinc_oracle.py:37:31: E702 Multiple statements on one line (semicolon)
+AUDIT/prep2-2026-10-02/clinc_oracle.py:64:20: B007 Loop control variable `key` not used within loop body
+AUDIT/prep2-2026-10-02/clinc_oracle.py:76:25: E702 Multiple statements on one line (semicolon)
+AUDIT/prep2-2026-10-02/clinc_oracle.py:77:17: B007 Loop control variable `k` not used within loop body
+AUDIT/prep2-2026-10-02/clinc_oracle.py:84:37: E702 Multiple statements on one line (semicolon)
+AUDIT/prep2-2026-10-02/clinc_oracle.py:118:17: B007 Loop control variable `k` not used within loop body
+tools/qd_train_oracle_head_digest.py:41:101: E501 Line too long (120 > 100)
+tools/qd_train_oracle_head_digest.py:56:101: E501 Line too long (114 > 100)
+tools/qd_train_oracle_head_digest.py:68:101: E501 Line too long (118 > 100)
+tools/qd_train_oracle_head_digest.py:73:101: E501 Line too long (106 > 100)
+tools/qd_train_oracle_optimizer_table.py:27:101: E501 Line too long (127 > 100)
+tools/qd_train_oracle_optimizer_table.py:32:1: I001 [*] Import block is un-sorted or un-formatted
+tools/qd_train_oracle_optimizer_table.py:135:101: E501 Line too long (101 > 100)
+tools/qd_train_oracle_optimizer_table.py:153:101: E501 Line too long (101 > 100)
+tools/qd_train_oracle_optimizer_table.py:162:101: E501 Line too long (107 > 100)
+tools/qd_train_oracle_optimizer_table.py:171:101: E501 Line too long (111 > 100)
+Found 31 errors.
+[*] 2 fixable with the `--fix` option (1 hidden fix can be enabled with the `--unsafe-fixes` option).

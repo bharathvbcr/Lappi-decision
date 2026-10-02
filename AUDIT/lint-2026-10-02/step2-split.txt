@@ -1,0 +1,32 @@
+  left for a hand edit: AUDIT/j6a-rule-2026-10-02/mutations.py:197 (104)
+  left for a hand edit: AUDIT/succ-room-2026-10-02/mutations.py:125 (104)
+  left for a hand edit: AUDIT/v5-plan-2026-10-02/apply_review_amendments.py:289 (101)
+  left for a hand edit: AUDIT/v5-plan-2026-10-02/clinc_oos_rekey.py:5 (102)
+  left for a hand edit: AUDIT/v5-plan-2026-10-02/clinc_oos_rekey.py:79 (109)
+  left for a hand edit: AUDIT/v5-plan-2026-10-02/count_v4_manifests.py:58 (105)
+  left for a hand edit: AUDIT/v5-plan-2026-10-02/own_repo_inventory.py:155 (105)
+  left for a hand edit: AUDIT/v5-plan-2026-10-02/own_repo_inventory.py:203 (104)
+  left for a hand edit: AUDIT/v5-plan-2026-10-02/own_repo_inventory.py:204 (105)
+  left for a hand edit: AUDIT/v5-plan-2026-10-02/own_repo_questions.py:91 (106)
+  left for a hand edit: AUDIT/v5-plan-2026-10-02/v4_token_accounting.py:86 (105)
+  left for a hand edit: AUDIT/v5-plan-2026-10-02/v4_token_accounting.py:91 (104)
+  left for a hand edit: AUDIT/v5-plan-2026-10-02/v4_token_accounting.py:101 (107)
+  left for a hand edit: AUDIT/v5-plan-2026-10-02/v5_accounting.py:57 (104)
+AUDIT/j6a-rule-2026-10-02/mutations.py: 8 splits
+AUDIT/j6g-rule-2026-10-02/append_gaps_staged.py: 18 splits
+AUDIT/post-f-2026-10-02/append_gap_j6a_resolved.py: 4 splits
+AUDIT/prep2-2026-10-02/append_gaps_clinc_ruling.py: 32 splits
+AUDIT/prep2-2026-10-02/apply_clinc_strip_amendment.py: 11 splits
+AUDIT/succ-room-2026-10-02/mutations.py: 4 splits
+AUDIT/v5-plan-2026-10-02/append_gap_own_prose_strike.py: 7 splits
+AUDIT/v5-plan-2026-10-02/append_gaps.py: 36 splits
+AUDIT/v5-plan-2026-10-02/apply_own_prose_strike.py: 2 splits
+AUDIT/v5-plan-2026-10-02/apply_review_amendments.py: 143 splits
+AUDIT/v5-plan-2026-10-02/clinc_oos_rekey.py: 0 splits
+AUDIT/v5-plan-2026-10-02/count_v4_manifests.py: 0 splits
+AUDIT/v5-plan-2026-10-02/own_repo_inventory.py: 0 splits
+AUDIT/v5-plan-2026-10-02/own_repo_questions.py: 0 splits
+AUDIT/v5-plan-2026-10-02/v4_token_accounting.py: 0 splits
+AUDIT/v5-plan-2026-10-02/v5_accounting.py: 0 splits
+AUDIT/v5-rules-2026-10-02/append_gaps.py: 2 splits
+python/tests/test_contrast_rows.py: 0 splits

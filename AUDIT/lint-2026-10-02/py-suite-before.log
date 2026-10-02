@@ -1,0 +1,382 @@
+mac_heavy: 2026-10-02T18:36:21Z 'L-lint: python suite before (fe1e642), needle_handoff ignored' holds the lock (waited 0s); running: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-acecb4138c1349267/.venv/bin/python -m pytest /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-acecb4138c1349267/python/tests -o addopts= --ignore=/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-acecb4138c1349267/python/tests/test_needle_handoff.py
+============================= test session starts ==============================
+platform darwin -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-acecb4138c1349267
+configfile: pyproject.toml
+plugins: cov-7.1.0, hypothesis-6.168.0
+collected 2719 items / 46 skipped
+
+python/tests/test_admission.py ...................................       [  1%]
+python/tests/test_agreement.py .................                         [  1%]
+python/tests/test_artifacts.py ......................................... [  3%]
+.....................................                                    [  4%]
+python/tests/test_baseline_dense_operand.py ..............               [  5%]
+python/tests/test_byte_batch.py ......................s.                 [  6%]
+python/tests/test_byte_context.py ................................       [  7%]
+python/tests/test_calib_fit_parity.py ..................s                [  8%]
+python/tests/test_calib_fit_row.py .......                               [  8%]
+python/tests/test_calibration_fit.py ......................              [  9%]
+python/tests/test_campaign_driver.py ................................... [ 10%]
+..........                                                               [ 10%]
+python/tests/test_cargo_workspace_exclude.py .                           [ 10%]
+python/tests/test_clinc_oos_rekey.py .....                               [ 10%]
+python/tests/test_composed_slice.py ..............................       [ 12%]
+python/tests/test_containment_exclusions.py .s......................s.s  [ 13%]
+python/tests/test_containment_strip.py ......................            [ 13%]
+python/tests/test_context_source.py .............                        [ 14%]
+python/tests/test_contrast_rows.py .....................                 [ 15%]
+python/tests/test_control_cache.py ..................                    [ 15%]
+python/tests/test_control_label_space.py .........                       [ 16%]
+python/tests/test_data_access.py .......................                 [ 16%]
+python/tests/test_declared_dependencies.py ......                        [ 17%]
+python/tests/test_dedupe_split.py ........................               [ 18%]
+python/tests/test_defect_class.py .............................          [ 19%]
+python/tests/test_defect_noul.py .......................ssssssssssssssss [ 20%]
+ssss                                                                     [ 20%]
+python/tests/test_defect_noul_v5.py .................................... [ 22%]
+............                                                             [ 22%]
+python/tests/test_diff_span_mapping.py ...............sss.               [ 23%]
+python/tests/test_eval_harness.py ...........................            [ 24%]
+python/tests/test_fingerprint.py ............                            [ 24%]
+python/tests/test_fit_budget_refusal.py ssssss....ss.                    [ 25%]
+python/tests/test_ft_linear_control.py ................................. [ 26%]
+........s.                                                               [ 26%]
+python/tests/test_gaps_ledger.py ..........                              [ 27%]
+python/tests/test_gaps_writer.py ....................F                   [ 27%]
+python/tests/test_general_families.py .................................. [ 29%]
+............................                                             [ 30%]
+python/tests/test_general_mixture_integration.py .....                   [ 30%]
+python/tests/test_handlabel.py ..................                        [ 30%]
+python/tests/test_handlabel_cli.py ..........                            [ 31%]
+python/tests/test_ledger.py ............................................ [ 32%]
+..........................................................               [ 35%]
+python/tests/test_ledger_arms.py ....................................... [ 36%]
+.......                                                                  [ 36%]
+python/tests/test_ledger_provenance.py ....                              [ 36%]
+python/tests/test_length_control.py ....                                 [ 37%]
+python/tests/test_linfit_step_schedule.py ....                           [ 37%]
+python/tests/test_lint_gate.py ..F............                           [ 37%]
+python/tests/test_loaders.py ................s.                          [ 38%]
+python/tests/test_lock_portability.py .....                              [ 38%]
+python/tests/test_mac_heavy_lock.py ......                               [ 38%]
+python/tests/test_mac_zero_shot_cuda.py ss                               [ 38%]
+python/tests/test_manifest.py .......................                    [ 39%]
+python/tests/test_margin_probe_parity.py ..                              [ 39%]
+python/tests/test_margin_probe_row.py ...                                [ 39%]
+python/tests/test_memory.py .........................................    [ 41%]
+python/tests/test_minhash.py .............................               [ 42%]
+python/tests/test_mixture.py ........................................... [ 44%]
+...............                                                          [ 44%]
+python/tests/test_multi_hunk_rebase.py ...                               [ 44%]
+python/tests/test_mutate_adapter.py .................................... [ 46%]
+........                                                                 [ 46%]
+python/tests/test_needle.py .......................                      [ 47%]
+python/tests/test_operator_holdout_launcher.py .........                 [ 47%]
+python/tests/test_operator_holdout_report.py ..........................  [ 48%]
+python/tests/test_option_control.py ..................                   [ 49%]
+python/tests/test_paired_margin_verdict.py .........                     [ 49%]
+python/tests/test_perf_parity_p2.py .................................... [ 50%]
+..                                                                       [ 50%]
+python/tests/test_pinned_split.py ..                                     [ 50%]
+python/tests/test_pipeline_commitpackft_pool.py .........s               [ 51%]
+python/tests/test_pipeline_corpus.py ....                                [ 51%]
+python/tests/test_pipeline_defect_class.py .....s..                      [ 51%]
+python/tests/test_pipeline_general.py ............                       [ 52%]
+python/tests/test_pipeline_remap_coverage.py .........s                  [ 52%]
+python/tests/test_pipeline_repo_history.py ................              [ 53%]
+python/tests/test_pipeline_report_only_slice.py ...............          [ 53%]
+python/tests/test_pipeline_val_shards.py sss.                            [ 53%]
+python/tests/test_pipeline_vocab.py ...ssss.....                         [ 54%]
+python/tests/test_pool_builder.py ..........................             [ 55%]
+python/tests/test_power.py .........................................     [ 56%]
+python/tests/test_promotion_decisions.py ..............................  [ 57%]
+python/tests/test_prompt_format_v5.py .........................          [ 58%]
+python/tests/test_provenance_on_every_exit.py .......                    [ 59%]
+python/tests/test_qd_data_wire_agreement.py ............................ [ 60%]
+...............................                                          [ 61%]
+python/tests/test_qd_prep_containment_parity.py .......sssss             [ 61%]
+python/tests/test_qd_prep_linear_parity.py .......s....................s [ 62%]
+.......ss                                                                [ 63%]
+python/tests/test_qd_prep_lsh_parity.py ....................s            [ 63%]
+python/tests/test_qd_prep_minhash_parity.py ...ss..s........s            [ 64%]
+python/tests/test_real_ft_mps_watermark.py ss                            [ 64%]
+python/tests/test_real_ft_prep_benchmark.py s                            [ 64%]
+python/tests/test_remap.py .......................................       [ 66%]
+python/tests/test_render.py ............................................ [ 67%]
+......................................                                   [ 69%]
+python/tests/test_replay.py ..........ssssss                             [ 69%]
+python/tests/test_replay_decontam.py ......                              [ 69%]
+python/tests/test_repo_git.py ......................                     [ 70%]
+python/tests/test_row_cost.py .........                                  [ 70%]
+python/tests/test_rule_three_corpus_door.py .......sssssss.              [ 71%]
+python/tests/test_run_control.py ....................................... [ 72%]
+.......................................ssssssss................ssss      [ 75%]
+python/tests/test_schema_mirror.py ..........                            [ 75%]
+python/tests/test_shard_sequence_index.py .........                      [ 76%]
+python/tests/test_shards.py ............................................ [ 77%]
+........................................................................ [ 80%]
+.............                                                            [ 80%]
+python/tests/test_shuffled_label_control.py sssss.ssss.sss.s.s.s.sssss.  [ 81%]
+python/tests/test_span_decode_multibyte.py ....s.                        [ 82%]
+python/tests/test_squad_title_partition.py ......                        [ 82%]
+python/tests/test_stack_gates.py .................                       [ 82%]
+python/tests/test_stress_this_session.py .........................       [ 83%]
+python/tests/test_teacher_letter_records.py .........                    [ 84%]
+python/tests/test_token_index_for_chars.py ..........                    [ 84%]
+python/tests/test_tool_call_sites.py ....................                [ 85%]
+python/tests/test_trainer.py ........................................... [ 86%]
+........ssssss                                                           [ 87%]
+python/tests/test_v5_a7_check.py ..........                              [ 87%]
+python/tests/test_wall_clock.py ............................             [ 88%]
+python/tests/test_wire_answer_parser.py ................................ [ 89%]
+.                                                                        [ 89%]
+python/tests/test_wire_contract_matches_rust.py ............             [ 90%]
+python/tests/test_wire_gap_pins.py .s..........                          [ 90%]
+python/tests/test_wire_golden_corpus.py ...................sssssssssssss [ 92%]
+                                                                         [ 92%]
+python/tests/test_wire_refusal_is_not_noul.py .......................... [ 93%]
+........................................................................ [ 95%]
+.........................................                                [ 97%]
+python/tests/test_wire_schema.py ....................................... [ 98%]
+.....................                                                    [ 99%]
+python/tests/test_wire_values.py .................                       [100%]
+
+=================================== FAILURES ===================================
+______________ test_the_real_ledger_is_not_touched_by_any_of_this ______________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-109/test_the_real_ledger_is_not_to0')
+
+    def test_the_real_ledger_is_not_touched_by_any_of_this(tmp_path: Path) -> None:
+        """Every test above passes an explicit path. This asserts the default is the repo's
+        own file and that nothing here wrote to it -- a test suite that appends to `gaps.jsonl`
+        on every run would be a novel way to corrupt the thing being protected.
+        """
+        from qd_train.gaps import DEFAULT_GAPS_PATH
+    
+        assert DEFAULT_GAPS_PATH.name == "gaps.jsonl"
+>       assert DEFAULT_GAPS_PATH.parent.name in ("qwen-decision", "Lappi-decision")
+E       AssertionError: assert 'agent-acecb4138c1349267' in ('qwen-decision', 'Lappi-decision')
+E        +  where 'agent-acecb4138c1349267' = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-acecb4138c1349267').name
+E        +    where PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-acecb4138c1349267') = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-acecb4138c1349267/gaps.jsonl').parent
+
+python/tests/test_gaps_writer.py:212: AssertionError
+___________________ test_the_repository_has_no_ruff_findings ___________________
+
+    @requires_ruff
+    def test_the_repository_has_no_ruff_findings():
+        """The gate. Fails against the pre-fix tree with 113 findings.
+    
+        Scoped to the whole repo rather than to `python/`: `stack/` and `tools/` are Python
+        too, and a gate scoped so that it cannot fail is the defect this file is about.
+        ruff honours .gitignore, so `.venv/` and the sibling agent worktrees under
+        `.claude/worktrees/` are not scanned.
+        """
+        proc = _ruff("check", "--config", str(PYPROJECT), str(REPO))
+>       assert proc.returncode == 0, (
+            "ruff reports findings:\n"
+            + proc.stdout[-8000:]
+            + "\nRun `make lint` to reproduce, or `ruff check --fix` for the mechanical ones."
+        )
+E       AssertionError: ruff reports findings:
+E           "answer": "No [V, read]. recipe.needle records cases, cases_per_depth, hit_rule, "
+E            |
+E         
+E         I001 [*] Import block is un-sorted or un-formatted
+E           --> python/tests/test_contrast_rows.py:25:1
+E            |
+E         23 |   sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+E         24 |
+E         25 | / from qd_data.config import DataConfig
+E         26 | | from qd_data.dedupe import dedupe
+E         27 | | from qd_data.defect_class import (
+E         28 | |     CHOICE_SLOT,
+E         29 | |     DEFECT_FAMILY_ID,
+E         30 | |     NOUL_COMPOSITE_SCHEMA,
+E         31 | |     NOUL_FORM_KEY,
+E         32 | |     NOUL_ROUTE_CONTRAST,
+E         33 | |     NOUL_ROUTE_KEY,
+E         34 | |     SPAN_SLOT,
+E         35 | |     ContrastSpec,
+E         36 | |     DefectCorpusError,
+E         37 | | )
+E         38 | | from qd_data.general import CSQA_FAMILY, MMLU_FAMILY, rewrite_csqa, rewrite_mmlu
+E         39 | | from qd_data.loaders import CsqaRow, MmluRow
+E         40 | | from qd_data.sources import PINNED_SPLIT_KEY
+E         41 | | from qd_data.split import split
+E         42 | | from qd_train.artifacts import ContrastRows, ShardContractViolation, ShardHeader
+E         43 | | from qd_train.contrast import (
+E         44 | |     CONTRAST_PATHS,
+E         45 | |     ContrastShortfall,
+E         46 | |     apply_contrast,
+E         47 | |     contrast_order_key,
+E         48 | |     contrast_rows_sha256,
+E         49 | |     derive_contrast_rows,
+E         50 | | )
+E         51 | | from qd_train.containment_strip import STRIP_RULE, STRIP_VERSION
+E         52 | | from qd_train.exclusions import ATTESTATION_NAME, EXCLUSIONS_NAME, apply_exclusions
+E         53 | | from qd_train.shards import write_shards
+E         54 | | from qd_train.tristate import NotRun, Ran
+E            | |_________________________________________^
+E         55 |
+E         56 |   CONFIG = DataConfig()
+E            |
+E         help: Organize imports
+E            |
+E         42 | from qd_train.artifacts import ContrastRows, ShardContractViolation, ShardHeader
+E         43 + from qd_train.containment_strip import STRIP_RULE, STRIP_VERSION
+E         44 | from qd_train.contrast import (
+E         --------------------------------------------------------------------------------
+E         51 | )
+E            - from qd_train.containment_strip import STRIP_RULE, STRIP_VERSION
+E         52 | from qd_train.exclusions import ATTESTATION_NAME, EXCLUSIONS_NAME, apply_exclusions
+E            |
+E         
+E         E501 Line too long (120 > 100)
+E           --> tools/qd_train_oracle_head_digest.py:41:101
+E            |
+E         39 |     tensors = {k: v for k, v in load_file(str(args.init)).items() if k.startswith("span_head.")}
+E         40 |     if sorted(tensors) != sorted(
+E         41 |         ["span_head.abstain_end", "span_head.abstain_start", "span_head.end_proj.weight", "span_head.start_proj.weight"]
+E            |                                                                                                     ^^^^^^^^^^^^^^^^^^^^
+E         42 |     ):
+E         43 |         raise SystemExit(f"{args.init}: span_head tensors are {sorted(tensors)}")
+E            |
+E         
+E         E501 Line too long (114 > 100)
+E           --> tools/qd_train_oracle_head_digest.py:56:101
+E            |
+E         54 |     script = Path(__file__).read_bytes()
+E         55 |     out = {
+E         56 |         "what": "run_control._sidecar_digest over the span_head.* TensorRefs of the tiny init (Amendment 2 (iv))",
+E            |                                                                                                     ^^^^^^^^^^^^^^
+E         57 |         "generator": {
+E         58 |             "script": "tools/qd_train_oracle_head_digest.py",
+E            |
+E         
+E         E501 Line too long (118 > 100)
+E           --> tools/qd_train_oracle_head_digest.py:68:101
+E            |
+E         66 |         "hidden_size": int(tensors["span_head.abstain_start"].shape[0]),
+E         67 |         "tensors": {
+E         68 |             name: {"dtype": r.dtype, "shape": list(r.shape), "digest": r.digest()} for name, r in sorted(refs.items())
+E            |                                                                                                     ^^^^^^^^^^^^^^^^^^
+E         69 |         },
+E         70 |         "content_digest": _sidecar_digest(refs),
+E            |
+E         
+E         E501 Line too long (106 > 100)
+E           --> tools/qd_train_oracle_head_digest.py:73:101
+E            |
+E         71 |     }
+E         72 |     args.out.write_text(json.dumps(out, indent=1) + "\n")
+E         73 |     print(f"content_digest {out['content_digest']} over {len(refs)} tensors, hidden {out['hidden_size']}")
+E            |                                                                                                     ^^^^^^
+E         74 |     return 0
+E            |
+E         
+E         E501 Line too long (127 > 100)
+E           --> tools/qd_train_oracle_optimizer_table.py:27:101
+E            |
+E         25 |     PYTHONPATH=python:tools /Users/bharath/.venvs/ml/bin/python \\
+E         26 |         tools/qd_train_oracle_optimizer_table.py \\
+E         27 |         --snapshot ~/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c \\
+E            |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         28 |         --out crates/qd-train/tests/fixtures/optimizer-table-2b.json \\
+E         29 |         --config-out crates/qd-train/tests/fixtures/qwen35-2b-config.json
+E            |
+E         
+E         I001 [*] Import block is un-sorted or un-formatted
+E           --> tools/qd_train_oracle_optimizer_table.py:32:1
+E            |
+E         30 |   """
+E         31 |
+E         32 | / from __future__ import annotations
+E         33 | |
+E         34 | | import argparse
+E         35 | | import hashlib
+E         36 | | import json
+E         37 | | import platform
+E         38 | | import subprocess
+E         39 | | import sys
+E         40 | | from pathlib import Path
+E         41 | |
+E         42 | | import torch
+E         43 | | import transformers
+E         44 | | from transformers import AutoConfig
+E         45 | | from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5TextModel
+E         46 | |
+E         47 | | from qd_train.backbone import text_tensor_index
+E         48 | | from qd_train.heads import SpanPointerHead
+E         49 | | from qd_train.optim import DEFAULT_BETA2, LR_SCALE_KEY, build_optimizer, layerwise_param_groups
+E         50 | | from real_ft_run import optimizer_spec
+E            | |______________________________________^
+E         51 |
+E         52 |   #: F's recipe (campaign/f-v4-preregistered.json), the flags this table depends on.
+E            |
+E         help: Organize imports
+E            |
+E         43 | import transformers
+E         44 + from real_ft_run import optimizer_spec
+E         45 | from transformers import AutoConfig
+E         --------------------------------------------------------------------------------
+E         50 | from qd_train.optim import DEFAULT_BETA2, LR_SCALE_KEY, build_optimizer, layerwise_param_groups
+E            - from real_ft_run import optimizer_spec
+E         51 |
+E            |
+E         
+E         E501 Line too long (101 > 100)
+E            --> tools/qd_train_oracle_optimizer_table.py:135:101
+E             |
+E         133 |     every = tower_names + head_names
+E         134 |     if sorted(table) != sorted(every):
+E         135 |         raise SystemExit(f"the optimizer covers {len(table)} parameters, the model has {len(every)}")
+E             |                                                                                                     ^
+E         136 |
+E         137 |     script = Path(__file__).read_bytes()
+E             |
+E         
+E         E501 Line too long (101 > 100)
+E            --> tools/qd_train_oracle_optimizer_table.py:153:101
+E             |
+E         151 |         },
+E         152 |         "snapshot": args.snapshot.name,
+E         153 |         "config": {"file": args.config_out.name, "sha256": hashlib.sha256(config_bytes).hexdigest()},
+E             |                                                                                                     ^
+E         154 |         "recipe": {
+E         155 |             "lr": F_LR.hex(),
+E             |
+E         
+E         E501 Line too long (107 > 100)
+E            --> tools/qd_train_oracle_optimizer_table.py:162:101
+E             |
+E         160 |             "beta2": DEFAULT_BETA2.hex(),
+E         161 |         },
+E         162 |         "names_checked_against": "backbone.text_tensor_index(snapshot): the model.language_model.* header",
+E             |                                                                                                     ^^^^^^^
+E         163 |         "tower_names": tower_names,
+E         164 |         "tower_shapes": [shapes[n] for n in tower_names],
+E             |
+E         
+E         E501 Line too long (111 > 100)
+E            --> tools/qd_train_oracle_optimizer_table.py:171:101
+E             |
+E         169 |     args.out.write_text(json.dumps(out, indent=1, sort_keys=False) + "\n")
+E         170 |     groups_seen = sorted({str(v["group"]) for v in table.values()})
+E         171 |     print(f"{len(table)} parameters ({len(tower_names)} tower + {len(head_names)} head), groups {groups_seen}")
+E             |                                                                                                     ^^^^^^^^^^^
+E         172 |     return 0
+E             |
+E         
+E         Found 294 errors.
+E         [*] 16 fixable with the `--fix` option (5 hidden fixes can be enabled with the `--unsafe-fixes` option).
+E         
+E         Run `make lint` to reproduce, or `ruff check --fix` for the mechanical ones.
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-acecb4138c1349267/.venv/bi...[*] 16 fixable with the `--fix` option (5 hidden fixes can be enabled with the `--unsafe-fixes` option).\n', stderr='').returncode
+
+python/tests/test_lint_gate.py:117: AssertionError
+=========================== short test summary info ============================
+FAILED python/tests/test_gaps_writer.py::test_the_real_ledger_is_not_touched_by_any_of_this
+FAILED python/tests/test_lint_gate.py::test_the_repository_has_no_ruff_findings
+=========== 2 failed, 2584 passed, 179 skipped in 410.19s (0:06:50) ============
+mac_heavy: 2026-10-02T18:43:11Z 'L-lint: python suite before (fe1e642), needle_handoff ignored' finished with exit 1
