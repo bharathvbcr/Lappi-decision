@@ -1,0 +1,168 @@
+--- verification: gpu_real_2b with the shipped fix (diag switch stripped)
+Fri Oct  2 00:23:35 UTC 2026
+System-wide memory free percentage: 88%
+--- ollama ps
+NAME    ID    SIZE    PROCESSOR    CONTEXT    UNTIL 
+cargo test/bench running: yes
+GPU python process (torch/mlx/webui) running: yes (MLSystemsLab webui_qwen_image_21.py, long-lived, idle at the earlier check)
+   Compiling ojas-qwen35 v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35)
+    Finished `release` profile [optimized] target(s) in 2.35s
+     Running tests/gpu_parity.rs (/Users/bharath/Code/research/ojas/target/release/deps/gpu_parity-fc630c46e50ddac3)
+
+running 1 test
+test gpu_real_2b_single_step_matches_the_transformers_reference ... 2B: loss 3.81034020 vs transformers 3.81016684 (rel 4.55e-5) over 128 tokens
+layers.0.linear_attn.in_proj_qkv.weight: 1.15e-3
+layers.0.linear_attn.in_proj_z.weight: 1.02e-3
+layers.0.linear_attn.in_proj_b.weight: 5.66e-4
+layers.0.linear_attn.in_proj_a.weight: 6.61e-4
+layers.0.linear_attn.out_proj.weight: 7.15e-4
+layers.0.linear_attn.conv1d.weight: 7.12e-4
+layers.0.linear_attn.A_log: 1.23e-3
+layers.0.linear_attn.dt_bias: 1.08e-3
+layers.0.linear_attn.norm.weight: 1.00e-3
+layers.0.mlp.gate_proj.weight: 1.72e-3
+layers.0.mlp.up_proj.weight: 1.05e-3
+layers.0.mlp.down_proj.weight: 6.16e-4
+layers.0.input_layernorm.weight: 1.02e-3
+layers.0.post_attention_layernorm.weight: 1.26e-3
+layers.1.linear_attn.conv1d.weight: 7.51e-4
+layers.1.linear_attn.A_log: 6.39e-4
+layers.1.linear_attn.dt_bias: 3.85e-4
+layers.1.linear_attn.norm.weight: 4.66e-4
+layers.1.input_layernorm.weight: 2.25e-3
+layers.1.post_attention_layernorm.weight: 9.18e-4
+layers.2.linear_attn.conv1d.weight: 1.32e-3
+layers.2.linear_attn.A_log: 1.01e-3
+layers.2.linear_attn.dt_bias: 8.82e-4
+layers.2.linear_attn.norm.weight: 5.48e-4
+layers.2.input_layernorm.weight: 6.93e-4
+layers.2.post_attention_layernorm.weight: 6.26e-4
+layers.3.self_attn.q_proj.weight: 1.10e-3
+layers.3.self_attn.k_proj.weight: 5.54e-4
+layers.3.self_attn.v_proj.weight: 8.13e-4
+layers.3.self_attn.o_proj.weight: 8.45e-4
+layers.3.self_attn.q_norm.weight: 6.84e-4
+layers.3.self_attn.k_norm.weight: 3.73e-4
+layers.3.mlp.gate_proj.weight: 1.10e-3
+layers.3.mlp.up_proj.weight: 7.59e-4
+layers.3.mlp.down_proj.weight: 4.01e-4
+layers.3.input_layernorm.weight: 3.19e-4
+layers.3.post_attention_layernorm.weight: 3.61e-4
+layers.4.linear_attn.conv1d.weight: 8.90e-4
+layers.4.linear_attn.A_log: 8.78e-4
+layers.4.linear_attn.dt_bias: 9.13e-4
+layers.4.linear_attn.norm.weight: 4.86e-4
+layers.4.input_layernorm.weight: 7.49e-4
+layers.4.post_attention_layernorm.weight: 2.28e-4
+layers.5.linear_attn.conv1d.weight: 3.19e-4
+layers.5.linear_attn.A_log: 1.95e-4
+layers.5.linear_attn.dt_bias: 2.53e-4
+layers.5.linear_attn.norm.weight: 6.10e-4
+layers.5.input_layernorm.weight: 8.42e-4
+layers.5.post_attention_layernorm.weight: 1.60e-3
+layers.6.linear_attn.conv1d.weight: 2.51e-4
+layers.6.linear_attn.A_log: 2.69e-4
+layers.6.linear_attn.dt_bias: 2.72e-4
+layers.6.linear_attn.norm.weight: 1.37e-3
+layers.6.input_layernorm.weight: 2.97e-3
+layers.6.post_attention_layernorm.weight: 5.44e-4
+layers.7.self_attn.q_norm.weight: 5.50e-4
+layers.7.self_attn.k_norm.weight: 5.60e-4
+layers.7.input_layernorm.weight: 4.40e-4
+layers.7.post_attention_layernorm.weight: 5.46e-4
+layers.8.linear_attn.conv1d.weight: 6.06e-4
+layers.8.linear_attn.A_log: 2.20e-3
+layers.8.linear_attn.dt_bias: 2.52e-3
+layers.8.linear_attn.norm.weight: 1.33e-3
+layers.8.input_layernorm.weight: 8.97e-4
+layers.8.post_attention_layernorm.weight: 2.95e-3
+layers.9.linear_attn.conv1d.weight: 8.58e-4
+layers.9.linear_attn.A_log: 6.67e-4
+layers.9.linear_attn.dt_bias: 3.23e-4
+layers.9.linear_attn.norm.weight: 4.90e-4
+layers.9.input_layernorm.weight: 1.96e-4
+layers.9.post_attention_layernorm.weight: 8.35e-4
+layers.10.linear_attn.conv1d.weight: 3.73e-4
+layers.10.linear_attn.A_log: 3.86e-4
+layers.10.linear_attn.dt_bias: 3.85e-4
+layers.10.linear_attn.norm.weight: 7.60e-4
+layers.10.input_layernorm.weight: 1.01e-3
+layers.10.post_attention_layernorm.weight: 2.79e-4
+layers.11.self_attn.q_norm.weight: 1.08e-3
+layers.11.self_attn.k_norm.weight: 4.72e-4
+layers.11.input_layernorm.weight: 7.25e-4
+layers.11.post_attention_layernorm.weight: 5.06e-4
+layers.12.linear_attn.conv1d.weight: 1.09e-3
+layers.12.linear_attn.A_log: 3.71e-4
+layers.12.linear_attn.dt_bias: 4.34e-4
+layers.12.linear_attn.norm.weight: 7.83e-4
+layers.12.input_layernorm.weight: 2.67e-4
+layers.12.post_attention_layernorm.weight: 7.54e-4
+layers.13.linear_attn.conv1d.weight: 1.24e-3
+layers.13.linear_attn.A_log: 2.88e-4
+layers.13.linear_attn.dt_bias: 2.25e-4
+layers.13.linear_attn.norm.weight: 8.54e-4
+layers.13.input_layernorm.weight: 1.07e-3
+layers.13.post_attention_layernorm.weight: 2.52e-4
+layers.14.linear_attn.conv1d.weight: 9.65e-4
+layers.14.linear_attn.A_log: 8.64e-4
+layers.14.linear_attn.dt_bias: 9.05e-4
+layers.14.linear_attn.norm.weight: 8.64e-4
+layers.14.input_layernorm.weight: 9.77e-4
+layers.14.post_attention_layernorm.weight: 3.88e-4
+layers.15.self_attn.q_norm.weight: 1.86e-4
+layers.15.self_attn.k_norm.weight: 3.92e-4
+layers.15.input_layernorm.weight: 1.23e-3
+layers.15.post_attention_layernorm.weight: 4.65e-4
+layers.16.linear_attn.conv1d.weight: 1.28e-3
+layers.16.linear_attn.A_log: 2.93e-4
+layers.16.linear_attn.dt_bias: 2.53e-4
+layers.16.linear_attn.norm.weight: 1.50e-3
+layers.16.input_layernorm.weight: 1.24e-3
+layers.16.post_attention_layernorm.weight: 6.73e-4
+layers.17.linear_attn.conv1d.weight: 1.14e-3
+layers.17.linear_attn.A_log: 5.33e-4
+layers.17.linear_attn.dt_bias: 4.86e-4
+layers.17.linear_attn.norm.weight: 6.34e-4
+layers.17.input_layernorm.weight: 1.71e-3
+layers.17.post_attention_layernorm.weight: 5.25e-4
+layers.18.linear_attn.conv1d.weight: 9.94e-4
+layers.18.linear_attn.A_log: 2.42e-4
+layers.18.linear_attn.dt_bias: 2.28e-4
+layers.18.linear_attn.norm.weight: 7.56e-4
+layers.18.input_layernorm.weight: 8.25e-4
+layers.18.post_attention_layernorm.weight: 5.23e-4
+layers.19.self_attn.q_norm.weight: 3.03e-4
+layers.19.self_attn.k_norm.weight: 3.03e-4
+layers.19.input_layernorm.weight: 3.02e-4
+layers.19.post_attention_layernorm.weight: 5.76e-4
+layers.20.linear_attn.conv1d.weight: 3.91e-3
+layers.20.linear_attn.A_log: 1.98e-4
+layers.20.linear_attn.dt_bias: 2.63e-4
+layers.20.linear_attn.norm.weight: 2.67e-3
+layers.20.input_layernorm.weight: 1.87e-3
+layers.20.post_attention_layernorm.weight: 9.92e-4
+layers.21.linear_attn.conv1d.weight: 3.00e-4
+layers.21.linear_attn.A_log: 3.36e-4
+layers.21.linear_attn.dt_bias: 4.30e-4
+layers.21.linear_attn.norm.weight: 4.13e-4
+layers.21.input_layernorm.weight: 1.42e-3
+layers.21.post_attention_layernorm.weight: 1.41e-3
+layers.22.linear_attn.conv1d.weight: 1.21e-3
+layers.22.linear_attn.A_log: 9.74e-4
+layers.22.linear_attn.dt_bias: 7.71e-4
+layers.22.linear_attn.norm.weight: 1.34e-3
+layers.22.input_layernorm.weight: 2.42e-3
+layers.22.post_attention_layernorm.weight: 1.77e-3
+layers.23.self_attn.q_norm.weight: 6.77e-4
+layers.23.self_attn.k_norm.weight: 7.33e-4
+layers.23.input_layernorm.weight: 3.14e-3
+layers.23.post_attention_layernorm.weight: 2.87e-3
+norm.weight: 2.13e-3
+embed_tokens.weight: 3.18e-4
+2B: grad norm 59.976559, clip 0.016673181
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 26.04s
+
+Fri Oct  2 00:24:04 UTC 2026
