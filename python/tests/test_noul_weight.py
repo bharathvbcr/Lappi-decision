@@ -363,3 +363,39 @@ def test_main_records_the_two_keys_and_the_count_and_w1_trains_bit_identically(
         assert _value(four, "train.loss_log_digest") != _value(plain, "train.loss_log_digest")
     else:
         assert _value(four, "train.loss_log_digest") == _value(plain, "train.loss_log_digest")
+
+
+def test_the_option_permutation_moves_no_weighted_position():
+    """v5's C1 may turn --option-permutation-seed on beside --noul-weight. The plan's count
+    (noul_weight_plan) is taken on the unpermuted batches and the step's mask on the
+    permuted ones (_train's source applies the permutation). A noul gold is outside the
+    permutation (trainer.permute_choice_row), so the two masks agree position for position;
+    if they did not, _train's count check would end the run after training. (The toy corpus
+    has no Z-gold row, so this is checked on the batch, not end to end.)"""
+    from qd_train.trainer import ChoicePermutation
+
+    a, b, c, dot, nl, ans = 1, 2, 3, 40, 41, 42
+
+    def row(gold: int) -> np.ndarray:
+        toks = [30, 31, nl]
+        for letter, value in zip((a, b, c), (50, 51, 52), strict=True):
+            toks += [letter, dot, value, nl]
+        toks += [NOUL_ID, dot, 53, nl, ans, gold]
+        return np.asarray(toks, dtype=np.int32)
+
+    seqs = [row(NOUL_ID), row(b), row(NOUL_ID)]  # defect Z, defect B, CLINC Z
+    width = max(s.size for s in seqs)
+    batch = assemble_batch(
+        seqs, kinds=np.asarray([SLOT_CHOICE] * 3),
+        target_index=np.asarray([s.size - 2 for s in seqs]),
+        spans=np.asarray([(NO_SPAN, NO_SPAN)] * 3, dtype=np.int64), candidates=[[], [], []],
+        width=width, bucket=width, index=0,
+    )
+    perm = ChoicePermutation(seed=20260919, letter_ids={"A": a, "B": b, "C": c},
+                             noul_id=NOUL_ID, line_end_ids=frozenset({nl}))
+    permuted, n = perm.apply(batch, [("A", "B", "C")] * 3)
+    assert n == 3 and not np.array_equal(permuted.tokens, batch.tokens), "nothing moved"
+    in_scope = np.asarray([True, True, False])
+    before = noul_weight_mask(ft_supervision(batch), in_scope, NOUL_ID)
+    after = noul_weight_mask(ft_supervision(permuted), in_scope, NOUL_ID)
+    assert before.sum() == 1 and np.array_equal(before, after)
