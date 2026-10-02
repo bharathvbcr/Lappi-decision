@@ -1,0 +1,2205 @@
+{
+ "peak_rss_bytes_darwin": 662454272,
+ "source_files": {
+  "heldout": {
+   "data_snapshot_hash": "116a67c46e030bcffef3bbbd8dbabed7e5763f5bddc28c324df16e4dc72ef7a5",
+   "mixture": {
+    "abstention": {
+     "choice": {
+      "detail": "choice: 9054 of 226141 rows carry a noul gold, from ['code.defect_class', 'intent.classification']",
+      "n": 9054,
+      "n_total": 226141,
+      "passed": true,
+      "state": "ran",
+      "value": 9054
+     },
+     "span": {
+      "detail": "span: 58149 of 197575 rows carry a noul gold, from ['code.defect_class', 'qa.answer_span']",
+      "n": 58149,
+      "n_total": 197575,
+      "passed": true,
+      "state": "ran",
+      "value": 58149
+     }
+    },
+    "contradictions": [
+     {
+      "family_ids": [
+       "qa.answerability"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"answerable\",\"value\":\"no\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"answerable\",\"value\":\"yes\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "081cf2423ecfc593e4fa8baf3cc89c49",
+      "row_ids": [
+       "squad:qa.answerability:57280ae14b864d19001642d3",
+       "squad:qa.answerability:5ad2d01cd7d075001a42a32e"
+      ]
+     },
+     {
+      "family_ids": [
+       "intent.within_domain"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"how_old_are_you\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"where_are_you_from\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "16bbf100a009634861e1ff979d83b1c8",
+      "row_ids": [
+       "clinc:intent.within_domain:d0eaefc2c46f9e68:14018",
+       "clinc:intent.within_domain:d0eaefc2c46f9e68:18949"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "1c5adecc3a07074ffed4244c23314d2a",
+      "row_ids": [
+       "squad:qa.answer_span:56cd97f862d2951400fa676b",
+       "squad:qa.answer_span:5a8dab7cdf8bba001a0f9b5c"
+      ]
+     },
+     {
+      "family_ids": [
+       "intent.within_domain"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"reminder\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"todo_list\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "21de4c561a58b50cf3c13c8b351d296e",
+      "row_ids": [
+       "clinc:intent.within_domain:48151f2275060577:16261",
+       "clinc:intent.within_domain:48151f2275060577:7424"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "3911be86d11bcb3e6e0f541daf10fab4",
+      "row_ids": [
+       "squad:qa.answer_span:57287b322ca10214002da3c0",
+       "squad:qa.answer_span:5ad259fdd7d075001a428e29"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "3e3eb20ad82e8eb57fa26a8dabcbd242",
+      "row_ids": [
+       "squad:qa.answer_span:5729f6063f37b31900478612",
+       "squad:qa.answer_span:5acd409f07355d001abf3a6a"
+      ]
+     },
+     {
+      "family_ids": [
+       "intent.domain"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"domain\",\"value\":\"meta\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"domain\",\"value\":\"small_talk\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "44923737cc915b9f6342c03517b38fcd",
+      "row_ids": [
+       "clinc:intent.domain:9aa7f15e83aa5557:12066",
+       "clinc:intent.domain:9aa7f15e83aa5557:19288"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "473f1978800948e12992d8160e4fe79e",
+      "row_ids": [
+       "squad:qa.answer_span:572722c0708984140094da53",
+       "squad:qa.answer_span:5acf8ff377cf76001a685276"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "4873f2b5d0fe1ef5c377397faee78e6d",
+      "row_ids": [
+       "squad:qa.answer_span:5732befb1d5d2e14009ff89a",
+       "squad:qa.answer_span:5acecee632bba1001ae4b4cc"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "495f62cff985b2ee1ff044b9d3ccf3b0",
+      "row_ids": [
+       "squad:qa.answer_span:570fc6df5ab6b81900390fbf",
+       "squad:qa.answer_span:5ad35d86604f3c001a3fdebb"
+      ]
+     },
+     {
+      "family_ids": [
+       "intent.within_domain"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"change_volume\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"whisper_mode\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "55219b3d2b7cabcf0a255efbdf5495d8",
+      "row_ids": [
+       "clinc:intent.within_domain:8ca385537e6d1f27:11130",
+       "clinc:intent.within_domain:8ca385537e6d1f27:17044"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "62381930afa48415350cc7add0e56705",
+      "row_ids": [
+       "squad:qa.answer_span:5729651f6aef051400154df9",
+       "squad:qa.answer_span:5a3ea2aa5a76c5001a3a83e9"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "6cdcfe5809049ee3599fb04e0720c25b",
+      "row_ids": [
+       "squad:qa.answer_span:5727b5b5ff5b5019007d9317",
+       "squad:qa.answer_span:5a514a03ce860b001aa3fcb6"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answerability"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"answerable\",\"value\":\"no\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"answerable\",\"value\":\"yes\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "6dfd8effcde260dcb5f64ca4c603c70a",
+      "row_ids": [
+       "squad:qa.answerability:572813642ca10214002d9d5e",
+       "squad:qa.answerability:5ad2d351d7d075001a42a3a4"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "80ffd7a3fb074b3616eff3c972628421",
+      "row_ids": [
+       "squad:qa.answer_span:57240b550ba9f01400d97b4c",
+       "squad:qa.answer_span:5ad17a6a645df0001a2d1dd1"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "845f71f56349796bf4f3dc3cb70b3fe8",
+      "row_ids": [
+       "squad:qa.answer_span:57318a93497a881900248ff4",
+       "squad:qa.answer_span:5a7784ed2d6d7f001a4a9ffa"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "8587e842e6bf238a4207aff70db8226d",
+      "row_ids": [
+       "squad:qa.answer_span:572834e44b864d1900164721",
+       "squad:qa.answer_span:5acfbc1277cf76001a685b35"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "85b81d088e1e35069490b5ff4c05b1cb",
+      "row_ids": [
+       "squad:qa.answer_span:5732c3521d5d2e14009ff8a4",
+       "squad:qa.answer_span:5aced07232bba1001ae4b538"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "8d010e9093a5425776a79dece23f8f35",
+      "row_ids": [
+       "squad:qa.answer_span:572700fe708984140094d839",
+       "squad:qa.answer_span:5acf5c7f77cf76001a684c2c"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "9a6b52a34061db12a260553e64e5a1d7",
+      "row_ids": [
+       "squad:qa.answer_span:56fac7ddf34c681400b0c127",
+       "squad:qa.answer_span:5ad3c735604f3c001a3ff03f"
+      ]
+     }
+    ],
+    "family_coverage": {
+     "code.defect_class": {
+      "detail": "code.defect_class: 79957 of 79957 qd-mutate/commitpackft rows became examples",
+      "n": 79957,
+      "n_total": 79957,
+      "passed": true,
+      "state": "ran",
+      "value": 79957
+     },
+     "commonsense.multiple_choice": {
+      "detail": "commonsense.multiple_choice: 10816 of 10962 tau/commonsense_qa rows became examples; refused: duplicate_options=146",
+      "n": 10816,
+      "n_total": 10962,
+      "passed": true,
+      "state": "ran",
+      "value": 10816
+     },
+     "intent.classification": {
+      "detail": "intent.classification: 23850 of 23850 clinc/clinc_oos rows became examples",
+      "n": 23850,
+      "n_total": 23850,
+      "passed": true,
+      "state": "ran",
+      "value": 23850
+     },
+     "intent.domain": {
+      "detail": "intent.domain: 23848 of 23850 clinc/clinc_oos rows became examples; refused: contradictory_prompt=2",
+      "n": 23848,
+      "n_total": 23850,
+      "passed": true,
+      "state": "ran",
+      "value": 23848
+     },
+     "intent.in_scope": {
+      "detail": "intent.in_scope: 23850 of 23850 clinc/clinc_oos rows became examples",
+      "n": 23850,
+      "n_total": 23850,
+      "passed": true,
+      "state": "ran",
+      "value": 23850
+     },
+     "intent.within_domain": {
+      "detail": "intent.within_domain: 23844 of 23850 clinc/clinc_oos rows became examples; refused: contradictory_prompt=6",
+      "n": 23844,
+      "n_total": 23850,
+      "passed": true,
+      "state": "ran",
+      "value": 23844
+     },
+     "knowledge.multiple_choice": {
+      "detail": "knowledge.multiple_choice: 15816 of 15858 cais/mmlu rows became examples; refused: option_too_long=22, duplicate_options=18, invisible_format_characters=2",
+      "n": 15816,
+      "n_total": 15858,
+      "passed": true,
+      "state": "ran",
+      "value": 15816
+     },
+     "qa.answer_span": {
+      "detail": "qa.answer_span: 117618 of 117990 rajpurkar/squad_v2 rows became examples; refused: invisible_format_characters=328, contradictory_prompt=44; 24202 rajpurkar/squad_v2 row(s) routed to another family by design",
+      "n": 117618,
+      "n_total": 117990,
+      "passed": true,
+      "state": "ran",
+      "value": 117618
+     },
+     "qa.answerability": {
+      "detail": "qa.answerability: 24160 of 24202 rajpurkar/squad_v2 rows became examples; refused: invisible_format_characters=28, contradictory_prompt=14; 117990 rajpurkar/squad_v2 row(s) routed to another family by design",
+      "n": 24160,
+      "n_total": 24202,
+      "passed": true,
+      "state": "ran",
+      "value": 24160
+     }
+    },
+    "host_histogram": {
+     "huggingface": 263802,
+     "local": 79957
+    },
+    "licence_histogram": {
+     "apache-2.0": 17688,
+     "bsd-2-clause": 4253,
+     "bsd-3-clause": 12040,
+     "cc-by-3.0": 95392,
+     "cc-by-sa-4.0": 143788,
+     "cc0-1.0": 359,
+     "isc": 727,
+     "mit": 68890,
+     "unlicense": 622
+    },
+    "n_input": {
+     "cais/mmlu": 15858,
+     "clinc/clinc_oos": 23850,
+     "qd-mutate/commitpackft": 79957,
+     "rajpurkar/squad_v2": 142192,
+     "tau/commonsense_qa": 10962
+    },
+    "n_rows": 343759,
+    "obligations": {
+     "apache-2.0": [
+      "attribution"
+     ],
+     "bsd-2-clause": [
+      "attribution"
+     ],
+     "bsd-3-clause": [
+      "attribution"
+     ],
+     "cc-by-3.0": [
+      "attribution"
+     ],
+     "cc-by-sa-4.0": [
+      "attribution",
+      "share-alike"
+     ],
+     "cc0-1.0": [],
+     "isc": [
+      "attribution"
+     ],
+     "mit": [
+      "attribution"
+     ],
+     "unlicense": []
+    },
+    "prompt_consistency": {
+     "detail": "343825 of 343825 rows grouped into 343323 distinct rendered prompts; no prompt in the emitted rows carries two different gold answers; 33 rendered prompt(s) carried more than one gold answer (families ['intent.domain', 'intent.within_domain', 'qa.answer_span', 'qa.answerability']), and all 66 of their rows were dropped as 'contradictory_prompt' with no winner chosen (13 of those groups counted, not named)",
+     "n": 343825,
+     "n_total": 343825,
+     "passed": true,
+     "state": "ran",
+     "value": 33
+    },
+    "refusals": {
+     "cais/mmlu": {
+      "duplicate_options": 18,
+      "invisible_format_characters": 2,
+      "option_too_long": 22
+     },
+     "clinc/clinc_oos": {
+      "contradictory_prompt": 8
+     },
+     "qd-mutate/commitpackft": {},
+     "rajpurkar/squad_v2": {
+      "contradictory_prompt": 58,
+      "invisible_format_characters": 356
+     },
+     "tau/commonsense_qa": {
+      "duplicate_options": 146
+     }
+    },
+    "refused_sources": {},
+    "status": {
+     "detail": "343759 examples built, 610 rows refused across 5 sources; per-family coverage: code.defect_class=79957/79957, commonsense.multiple_choice=10816/10962, intent.classification=23850/23850, intent.domain=23848/23850, intent.in_scope=23850/23850, intent.within_domain=23844/23850, knowledge.multiple_choice=15816/15858, qa.answer_span=117618/117990, qa.answerability=24160/24202; self-consistency: 343825/343825 rows grouped, no contradictory prompt in the emitted rows (66 row(s) of 33 contradictory prompt(s) dropped as 'contradictory_prompt')",
+     "n": 343759,
+     "n_total": 344369,
+     "passed": true,
+     "state": "ran",
+     "value": 343759
+    }
+   },
+   "n_rows": 37705,
+   "path": "/Users/bharath/qd-campaign/phase4-v4-2026-10-01/data/heldout/heldout.json",
+   "rows_listed": 37705,
+   "split_report": {
+    "content_disjoint_families": {
+     "n": 141752,
+     "n_total": 141752,
+     "passed": true,
+     "state": "ran",
+     "value": 0
+    },
+    "counts": {
+     "heldout": 37705,
+     "train": 289142,
+     "val": 16124
+    },
+    "dedupe_status": {
+     "detail": "788 of 343759 rows dropped across 769 content units at Jaccard >= 0.8; 1489 confirmed pairs crossed a repo boundary and would have survived a repo-level split alone; 461417 confirmed pairs were within one repo and were kept. LSH is a probabilistic candidate generator, not an exhaustive search: banding b=16, r=8 proposes a pair at J=0.8 with probability 0.9470, so 550147 of 37016892186 possible unit pairs were compared exactly and the confirmed-pair counts are a lower bound, not a complete enumeration",
+     "n": 550147,
+     "n_total": 37016892186,
+     "passed": true,
+     "state": "ran",
+     "value": 788
+    },
+    "held_out_families_absent_from_training": {
+     "n": 305266,
+     "n_total": 305266,
+     "passed": true,
+     "state": "ran",
+     "value": 0
+    },
+    "holdout_breakdown": {
+     "family_holdout": 24160,
+     "natural_repo_holdout": 13545
+    },
+    "identity_disjoint": {
+     "n": 263965,
+     "n_total": 263965,
+     "passed": true,
+     "state": "ran",
+     "value": 0
+    },
+    "near_duplicate_disjoint": {
+     "detail": "scanned 342971 rows; 702737 candidate pairs, 786 of them crossing a repo split, none confirmed at threshold 0.8",
+     "n": 342971,
+     "n_total": 342971,
+     "passed": true,
+     "state": "ran",
+     "value": 0
+    },
+    "repo_disjoint": {
+     "n": 20545,
+     "n_total": 20545,
+     "passed": true,
+     "state": "ran",
+     "value": 0
+    },
+    "status": {
+     "n": 6,
+     "n_total": 6,
+     "passed": true,
+     "state": "ran"
+    }
+   }
+  },
+  "train": {
+   "data_snapshot_hash": "ea3215c4f36d57f74d291fb94c3fa8724fa5a14a303ea7572aa0dafb2a0933a1",
+   "mixture": {
+    "abstention": {
+     "choice": {
+      "detail": "choice: 9054 of 226141 rows carry a noul gold, from ['code.defect_class', 'intent.classification']",
+      "n": 9054,
+      "n_total": 226141,
+      "passed": true,
+      "state": "ran",
+      "value": 9054
+     },
+     "span": {
+      "detail": "span: 58149 of 197575 rows carry a noul gold, from ['code.defect_class', 'qa.answer_span']",
+      "n": 58149,
+      "n_total": 197575,
+      "passed": true,
+      "state": "ran",
+      "value": 58149
+     }
+    },
+    "contradictions": [
+     {
+      "family_ids": [
+       "qa.answerability"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"answerable\",\"value\":\"no\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"answerable\",\"value\":\"yes\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "081cf2423ecfc593e4fa8baf3cc89c49",
+      "row_ids": [
+       "squad:qa.answerability:57280ae14b864d19001642d3",
+       "squad:qa.answerability:5ad2d01cd7d075001a42a32e"
+      ]
+     },
+     {
+      "family_ids": [
+       "intent.within_domain"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"how_old_are_you\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"where_are_you_from\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "16bbf100a009634861e1ff979d83b1c8",
+      "row_ids": [
+       "clinc:intent.within_domain:d0eaefc2c46f9e68:14018",
+       "clinc:intent.within_domain:d0eaefc2c46f9e68:18949"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "1c5adecc3a07074ffed4244c23314d2a",
+      "row_ids": [
+       "squad:qa.answer_span:56cd97f862d2951400fa676b",
+       "squad:qa.answer_span:5a8dab7cdf8bba001a0f9b5c"
+      ]
+     },
+     {
+      "family_ids": [
+       "intent.within_domain"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"reminder\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"todo_list\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "21de4c561a58b50cf3c13c8b351d296e",
+      "row_ids": [
+       "clinc:intent.within_domain:48151f2275060577:16261",
+       "clinc:intent.within_domain:48151f2275060577:7424"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "3911be86d11bcb3e6e0f541daf10fab4",
+      "row_ids": [
+       "squad:qa.answer_span:57287b322ca10214002da3c0",
+       "squad:qa.answer_span:5ad259fdd7d075001a428e29"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "3e3eb20ad82e8eb57fa26a8dabcbd242",
+      "row_ids": [
+       "squad:qa.answer_span:5729f6063f37b31900478612",
+       "squad:qa.answer_span:5acd409f07355d001abf3a6a"
+      ]
+     },
+     {
+      "family_ids": [
+       "intent.domain"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"domain\",\"value\":\"meta\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"domain\",\"value\":\"small_talk\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "44923737cc915b9f6342c03517b38fcd",
+      "row_ids": [
+       "clinc:intent.domain:9aa7f15e83aa5557:12066",
+       "clinc:intent.domain:9aa7f15e83aa5557:19288"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "473f1978800948e12992d8160e4fe79e",
+      "row_ids": [
+       "squad:qa.answer_span:572722c0708984140094da53",
+       "squad:qa.answer_span:5acf8ff377cf76001a685276"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "4873f2b5d0fe1ef5c377397faee78e6d",
+      "row_ids": [
+       "squad:qa.answer_span:5732befb1d5d2e14009ff89a",
+       "squad:qa.answer_span:5acecee632bba1001ae4b4cc"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "495f62cff985b2ee1ff044b9d3ccf3b0",
+      "row_ids": [
+       "squad:qa.answer_span:570fc6df5ab6b81900390fbf",
+       "squad:qa.answer_span:5ad35d86604f3c001a3fdebb"
+      ]
+     },
+     {
+      "family_ids": [
+       "intent.within_domain"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"change_volume\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"whisper_mode\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "55219b3d2b7cabcf0a255efbdf5495d8",
+      "row_ids": [
+       "clinc:intent.within_domain:8ca385537e6d1f27:11130",
+       "clinc:intent.within_domain:8ca385537e6d1f27:17044"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "62381930afa48415350cc7add0e56705",
+      "row_ids": [
+       "squad:qa.answer_span:5729651f6aef051400154df9",
+       "squad:qa.answer_span:5a3ea2aa5a76c5001a3a83e9"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "6cdcfe5809049ee3599fb04e0720c25b",
+      "row_ids": [
+       "squad:qa.answer_span:5727b5b5ff5b5019007d9317",
+       "squad:qa.answer_span:5a514a03ce860b001aa3fcb6"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answerability"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"answerable\",\"value\":\"no\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"answerable\",\"value\":\"yes\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "6dfd8effcde260dcb5f64ca4c603c70a",
+      "row_ids": [
+       "squad:qa.answerability:572813642ca10214002d9d5e",
+       "squad:qa.answerability:5ad2d351d7d075001a42a3a4"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "80ffd7a3fb074b3616eff3c972628421",
+      "row_ids": [
+       "squad:qa.answer_span:57240b550ba9f01400d97b4c",
+       "squad:qa.answer_span:5ad17a6a645df0001a2d1dd1"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "845f71f56349796bf4f3dc3cb70b3fe8",
+      "row_ids": [
+       "squad:qa.answer_span:57318a93497a881900248ff4",
+       "squad:qa.answer_span:5a7784ed2d6d7f001a4a9ffa"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "8587e842e6bf238a4207aff70db8226d",
+      "row_ids": [
+       "squad:qa.answer_span:572834e44b864d1900164721",
+       "squad:qa.answer_span:5acfbc1277cf76001a685b35"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "85b81d088e1e35069490b5ff4c05b1cb",
+      "row_ids": [
+       "squad:qa.answer_span:5732c3521d5d2e14009ff8a4",
+       "squad:qa.answer_span:5aced07232bba1001ae4b538"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "8d010e9093a5425776a79dece23f8f35",
+      "row_ids": [
+       "squad:qa.answer_span:572700fe708984140094d839",
+       "squad:qa.answer_span:5acf5c7f77cf76001a684c2c"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "9a6b52a34061db12a260553e64e5a1d7",
+      "row_ids": [
+       "squad:qa.answer_span:56fac7ddf34c681400b0c127",
+       "squad:qa.answer_span:5ad3c735604f3c001a3ff03f"
+      ]
+     }
+    ],
+    "family_coverage": {
+     "code.defect_class": {
+      "detail": "code.defect_class: 79957 of 79957 qd-mutate/commitpackft rows became examples",
+      "n": 79957,
+      "n_total": 79957,
+      "passed": true,
+      "state": "ran",
+      "value": 79957
+     },
+     "commonsense.multiple_choice": {
+      "detail": "commonsense.multiple_choice: 10816 of 10962 tau/commonsense_qa rows became examples; refused: duplicate_options=146",
+      "n": 10816,
+      "n_total": 10962,
+      "passed": true,
+      "state": "ran",
+      "value": 10816
+     },
+     "intent.classification": {
+      "detail": "intent.classification: 23850 of 23850 clinc/clinc_oos rows became examples",
+      "n": 23850,
+      "n_total": 23850,
+      "passed": true,
+      "state": "ran",
+      "value": 23850
+     },
+     "intent.domain": {
+      "detail": "intent.domain: 23848 of 23850 clinc/clinc_oos rows became examples; refused: contradictory_prompt=2",
+      "n": 23848,
+      "n_total": 23850,
+      "passed": true,
+      "state": "ran",
+      "value": 23848
+     },
+     "intent.in_scope": {
+      "detail": "intent.in_scope: 23850 of 23850 clinc/clinc_oos rows became examples",
+      "n": 23850,
+      "n_total": 23850,
+      "passed": true,
+      "state": "ran",
+      "value": 23850
+     },
+     "intent.within_domain": {
+      "detail": "intent.within_domain: 23844 of 23850 clinc/clinc_oos rows became examples; refused: contradictory_prompt=6",
+      "n": 23844,
+      "n_total": 23850,
+      "passed": true,
+      "state": "ran",
+      "value": 23844
+     },
+     "knowledge.multiple_choice": {
+      "detail": "knowledge.multiple_choice: 15816 of 15858 cais/mmlu rows became examples; refused: option_too_long=22, duplicate_options=18, invisible_format_characters=2",
+      "n": 15816,
+      "n_total": 15858,
+      "passed": true,
+      "state": "ran",
+      "value": 15816
+     },
+     "qa.answer_span": {
+      "detail": "qa.answer_span: 117618 of 117990 rajpurkar/squad_v2 rows became examples; refused: invisible_format_characters=328, contradictory_prompt=44; 24202 rajpurkar/squad_v2 row(s) routed to another family by design",
+      "n": 117618,
+      "n_total": 117990,
+      "passed": true,
+      "state": "ran",
+      "value": 117618
+     },
+     "qa.answerability": {
+      "detail": "qa.answerability: 24160 of 24202 rajpurkar/squad_v2 rows became examples; refused: invisible_format_characters=28, contradictory_prompt=14; 117990 rajpurkar/squad_v2 row(s) routed to another family by design",
+      "n": 24160,
+      "n_total": 24202,
+      "passed": true,
+      "state": "ran",
+      "value": 24160
+     }
+    },
+    "host_histogram": {
+     "huggingface": 263802,
+     "local": 79957
+    },
+    "licence_histogram": {
+     "apache-2.0": 17688,
+     "bsd-2-clause": 4253,
+     "bsd-3-clause": 12040,
+     "cc-by-3.0": 95392,
+     "cc-by-sa-4.0": 143788,
+     "cc0-1.0": 359,
+     "isc": 727,
+     "mit": 68890,
+     "unlicense": 622
+    },
+    "n_input": {
+     "cais/mmlu": 15858,
+     "clinc/clinc_oos": 23850,
+     "qd-mutate/commitpackft": 79957,
+     "rajpurkar/squad_v2": 142192,
+     "tau/commonsense_qa": 10962
+    },
+    "n_rows": 343759,
+    "obligations": {
+     "apache-2.0": [
+      "attribution"
+     ],
+     "bsd-2-clause": [
+      "attribution"
+     ],
+     "bsd-3-clause": [
+      "attribution"
+     ],
+     "cc-by-3.0": [
+      "attribution"
+     ],
+     "cc-by-sa-4.0": [
+      "attribution",
+      "share-alike"
+     ],
+     "cc0-1.0": [],
+     "isc": [
+      "attribution"
+     ],
+     "mit": [
+      "attribution"
+     ],
+     "unlicense": []
+    },
+    "prompt_consistency": {
+     "detail": "343825 of 343825 rows grouped into 343323 distinct rendered prompts; no prompt in the emitted rows carries two different gold answers; 33 rendered prompt(s) carried more than one gold answer (families ['intent.domain', 'intent.within_domain', 'qa.answer_span', 'qa.answerability']), and all 66 of their rows were dropped as 'contradictory_prompt' with no winner chosen (13 of those groups counted, not named)",
+     "n": 343825,
+     "n_total": 343825,
+     "passed": true,
+     "state": "ran",
+     "value": 33
+    },
+    "refusals": {
+     "cais/mmlu": {
+      "duplicate_options": 18,
+      "invisible_format_characters": 2,
+      "option_too_long": 22
+     },
+     "clinc/clinc_oos": {
+      "contradictory_prompt": 8
+     },
+     "qd-mutate/commitpackft": {},
+     "rajpurkar/squad_v2": {
+      "contradictory_prompt": 58,
+      "invisible_format_characters": 356
+     },
+     "tau/commonsense_qa": {
+      "duplicate_options": 146
+     }
+    },
+    "refused_sources": {},
+    "status": {
+     "detail": "343759 examples built, 610 rows refused across 5 sources; per-family coverage: code.defect_class=79957/79957, commonsense.multiple_choice=10816/10962, intent.classification=23850/23850, intent.domain=23848/23850, intent.in_scope=23850/23850, intent.within_domain=23844/23850, knowledge.multiple_choice=15816/15858, qa.answer_span=117618/117990, qa.answerability=24160/24202; self-consistency: 343825/343825 rows grouped, no contradictory prompt in the emitted rows (66 row(s) of 33 contradictory prompt(s) dropped as 'contradictory_prompt')",
+     "n": 343759,
+     "n_total": 344369,
+     "passed": true,
+     "state": "ran",
+     "value": 343759
+    }
+   },
+   "n_rows": 289142,
+   "path": "/Users/bharath/qd-campaign/phase4-v4-2026-10-01/data/pool/train.json",
+   "rows_listed": 289142,
+   "split_report": {
+    "content_disjoint_families": {
+     "n": 141752,
+     "n_total": 141752,
+     "passed": true,
+     "state": "ran",
+     "value": 0
+    },
+    "counts": {
+     "heldout": 37705,
+     "train": 289142,
+     "val": 16124
+    },
+    "dedupe_status": {
+     "detail": "788 of 343759 rows dropped across 769 content units at Jaccard >= 0.8; 1489 confirmed pairs crossed a repo boundary and would have survived a repo-level split alone; 461417 confirmed pairs were within one repo and were kept. LSH is a probabilistic candidate generator, not an exhaustive search: banding b=16, r=8 proposes a pair at J=0.8 with probability 0.9470, so 550147 of 37016892186 possible unit pairs were compared exactly and the confirmed-pair counts are a lower bound, not a complete enumeration",
+     "n": 550147,
+     "n_total": 37016892186,
+     "passed": true,
+     "state": "ran",
+     "value": 788
+    },
+    "held_out_families_absent_from_training": {
+     "n": 305266,
+     "n_total": 305266,
+     "passed": true,
+     "state": "ran",
+     "value": 0
+    },
+    "holdout_breakdown": {
+     "family_holdout": 24160,
+     "natural_repo_holdout": 13545
+    },
+    "identity_disjoint": {
+     "n": 263965,
+     "n_total": 263965,
+     "passed": true,
+     "state": "ran",
+     "value": 0
+    },
+    "near_duplicate_disjoint": {
+     "detail": "scanned 342971 rows; 702737 candidate pairs, 786 of them crossing a repo split, none confirmed at threshold 0.8",
+     "n": 342971,
+     "n_total": 342971,
+     "passed": true,
+     "state": "ran",
+     "value": 0
+    },
+    "repo_disjoint": {
+     "n": 20545,
+     "n_total": 20545,
+     "passed": true,
+     "state": "ran",
+     "value": 0
+    },
+    "status": {
+     "n": 6,
+     "n_total": 6,
+     "passed": true,
+     "state": "ran"
+    }
+   }
+  },
+  "val": {
+   "data_snapshot_hash": "69d45fd04fad01751b3f102f09041c0ba67176e44725dbeb977d550f4b0abbd4",
+   "mixture": {
+    "abstention": {
+     "choice": {
+      "detail": "choice: 9054 of 226141 rows carry a noul gold, from ['code.defect_class', 'intent.classification']",
+      "n": 9054,
+      "n_total": 226141,
+      "passed": true,
+      "state": "ran",
+      "value": 9054
+     },
+     "span": {
+      "detail": "span: 58149 of 197575 rows carry a noul gold, from ['code.defect_class', 'qa.answer_span']",
+      "n": 58149,
+      "n_total": 197575,
+      "passed": true,
+      "state": "ran",
+      "value": 58149
+     }
+    },
+    "contradictions": [
+     {
+      "family_ids": [
+       "qa.answerability"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"answerable\",\"value\":\"no\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"answerable\",\"value\":\"yes\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "081cf2423ecfc593e4fa8baf3cc89c49",
+      "row_ids": [
+       "squad:qa.answerability:57280ae14b864d19001642d3",
+       "squad:qa.answerability:5ad2d01cd7d075001a42a32e"
+      ]
+     },
+     {
+      "family_ids": [
+       "intent.within_domain"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"how_old_are_you\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"where_are_you_from\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "16bbf100a009634861e1ff979d83b1c8",
+      "row_ids": [
+       "clinc:intent.within_domain:d0eaefc2c46f9e68:14018",
+       "clinc:intent.within_domain:d0eaefc2c46f9e68:18949"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "1c5adecc3a07074ffed4244c23314d2a",
+      "row_ids": [
+       "squad:qa.answer_span:56cd97f862d2951400fa676b",
+       "squad:qa.answer_span:5a8dab7cdf8bba001a0f9b5c"
+      ]
+     },
+     {
+      "family_ids": [
+       "intent.within_domain"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"reminder\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"todo_list\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "21de4c561a58b50cf3c13c8b351d296e",
+      "row_ids": [
+       "clinc:intent.within_domain:48151f2275060577:16261",
+       "clinc:intent.within_domain:48151f2275060577:7424"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "3911be86d11bcb3e6e0f541daf10fab4",
+      "row_ids": [
+       "squad:qa.answer_span:57287b322ca10214002da3c0",
+       "squad:qa.answer_span:5ad259fdd7d075001a428e29"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "3e3eb20ad82e8eb57fa26a8dabcbd242",
+      "row_ids": [
+       "squad:qa.answer_span:5729f6063f37b31900478612",
+       "squad:qa.answer_span:5acd409f07355d001abf3a6a"
+      ]
+     },
+     {
+      "family_ids": [
+       "intent.domain"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"domain\",\"value\":\"meta\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"domain\",\"value\":\"small_talk\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "44923737cc915b9f6342c03517b38fcd",
+      "row_ids": [
+       "clinc:intent.domain:9aa7f15e83aa5557:12066",
+       "clinc:intent.domain:9aa7f15e83aa5557:19288"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "473f1978800948e12992d8160e4fe79e",
+      "row_ids": [
+       "squad:qa.answer_span:572722c0708984140094da53",
+       "squad:qa.answer_span:5acf8ff377cf76001a685276"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "4873f2b5d0fe1ef5c377397faee78e6d",
+      "row_ids": [
+       "squad:qa.answer_span:5732befb1d5d2e14009ff89a",
+       "squad:qa.answer_span:5acecee632bba1001ae4b4cc"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "495f62cff985b2ee1ff044b9d3ccf3b0",
+      "row_ids": [
+       "squad:qa.answer_span:570fc6df5ab6b81900390fbf",
+       "squad:qa.answer_span:5ad35d86604f3c001a3fdebb"
+      ]
+     },
+     {
+      "family_ids": [
+       "intent.within_domain"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"change_volume\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"intent\",\"value\":\"whisper_mode\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "55219b3d2b7cabcf0a255efbdf5495d8",
+      "row_ids": [
+       "clinc:intent.within_domain:8ca385537e6d1f27:11130",
+       "clinc:intent.within_domain:8ca385537e6d1f27:17044"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "62381930afa48415350cc7add0e56705",
+      "row_ids": [
+       "squad:qa.answer_span:5729651f6aef051400154df9",
+       "squad:qa.answer_span:5a3ea2aa5a76c5001a3a83e9"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "6cdcfe5809049ee3599fb04e0720c25b",
+      "row_ids": [
+       "squad:qa.answer_span:5727b5b5ff5b5019007d9317",
+       "squad:qa.answer_span:5a514a03ce860b001aa3fcb6"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answerability"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"answerable\",\"value\":\"no\"}]",
+       "[{\"is_noul\":false,\"slot_name\":\"answerable\",\"value\":\"yes\"}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "6dfd8effcde260dcb5f64ca4c603c70a",
+      "row_ids": [
+       "squad:qa.answerability:572813642ca10214002d9d5e",
+       "squad:qa.answerability:5ad2d351d7d075001a42a3a4"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "80ffd7a3fb074b3616eff3c972628421",
+      "row_ids": [
+       "squad:qa.answer_span:57240b550ba9f01400d97b4c",
+       "squad:qa.answer_span:5ad17a6a645df0001a2d1dd1"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "845f71f56349796bf4f3dc3cb70b3fe8",
+      "row_ids": [
+       "squad:qa.answer_span:57318a93497a881900248ff4",
+       "squad:qa.answer_span:5a7784ed2d6d7f001a4a9ffa"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "8587e842e6bf238a4207aff70db8226d",
+      "row_ids": [
+       "squad:qa.answer_span:572834e44b864d1900164721",
+       "squad:qa.answer_span:5acfbc1277cf76001a685b35"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "85b81d088e1e35069490b5ff4c05b1cb",
+      "row_ids": [
+       "squad:qa.answer_span:5732c3521d5d2e14009ff8a4",
+       "squad:qa.answer_span:5aced07232bba1001ae4b538"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "8d010e9093a5425776a79dece23f8f35",
+      "row_ids": [
+       "squad:qa.answer_span:572700fe708984140094d839",
+       "squad:qa.answer_span:5acf5c7f77cf76001a684c2c"
+      ]
+     },
+     {
+      "family_ids": [
+       "qa.answer_span"
+      ],
+      "golds": [
+       "[{\"is_noul\":false,\"slot_name\":\"evidence\",\"value\":[3,3]}]",
+       "[{\"is_noul\":true,\"slot_name\":\"evidence\",\"value\":null}]"
+      ],
+      "n_golds": 2,
+      "n_rows": 2,
+      "prompt_digest": "9a6b52a34061db12a260553e64e5a1d7",
+      "row_ids": [
+       "squad:qa.answer_span:56fac7ddf34c681400b0c127",
+       "squad:qa.answer_span:5ad3c735604f3c001a3ff03f"
+      ]
+     }
+    ],
+    "family_coverage": {
+     "code.defect_class": {
+      "detail": "code.defect_class: 79957 of 79957 qd-mutate/commitpackft rows became examples",
+      "n": 79957,
+      "n_total": 79957,
+      "passed": true,
+      "state": "ran",
+      "value": 79957
+     },
+     "commonsense.multiple_choice": {
+      "detail": "commonsense.multiple_choice: 10816 of 10962 tau/commonsense_qa rows became examples; refused: duplicate_options=146",
+      "n": 10816,
+      "n_total": 10962,
+      "passed": true,
+      "state": "ran",
+      "value": 10816
+     },
+     "intent.classification": {
+      "detail": "intent.classification: 23850 of 23850 clinc/clinc_oos rows became examples",
+      "n": 23850,
+      "n_total": 23850,
+      "passed": true,
+      "state": "ran",
+      "value": 23850
+     },
+     "intent.domain": {
+      "detail": "intent.domain: 23848 of 23850 clinc/clinc_oos rows became examples; refused: contradictory_prompt=2",
+      "n": 23848,
+      "n_total": 23850,
+      "passed": true,
+      "state": "ran",
+      "value": 23848
+     },
+     "intent.in_scope": {
+      "detail": "intent.in_scope: 23850 of 23850 clinc/clinc_oos rows became examples",
+      "n": 23850,
+      "n_total": 23850,
+      "passed": true,
+      "state": "ran",
+      "value": 23850
+     },
+     "intent.within_domain": {
+      "detail": "intent.within_domain: 23844 of 23850 clinc/clinc_oos rows became examples; refused: contradictory_prompt=6",
+      "n": 23844,
+      "n_total": 23850,
+      "passed": true,
+      "state": "ran",
+      "value": 23844
+     },
+     "knowledge.multiple_choice": {
+      "detail": "knowledge.multiple_choice: 15816 of 15858 cais/mmlu rows became examples; refused: option_too_long=22, duplicate_options=18, invisible_format_characters=2",
+      "n": 15816,
+      "n_total": 15858,
+      "passed": true,
+      "state": "ran",
+      "value": 15816
+     },
+     "qa.answer_span": {
+      "detail": "qa.answer_span: 117618 of 117990 rajpurkar/squad_v2 rows became examples; refused: invisible_format_characters=328, contradictory_prompt=44; 24202 rajpurkar/squad_v2 row(s) routed to another family by design",
+      "n": 117618,
+      "n_total": 117990,
+      "passed": true,
+      "state": "ran",
+      "value": 117618
+     },
+     "qa.answerability": {
+      "detail": "qa.answerability: 24160 of 24202 rajpurkar/squad_v2 rows became examples; refused: invisible_format_characters=28, contradictory_prompt=14; 117990 rajpurkar/squad_v2 row(s) routed to another family by design",
+      "n": 24160,
+      "n_total": 24202,
+      "passed": true,
+      "state": "ran",
+      "value": 24160
+     }
+    },
+    "host_histogram": {
+     "huggingface": 263802,
+     "local": 79957
+    },
+    "licence_histogram": {
+     "apache-2.0": 17688,
+     "bsd-2-clause": 4253,
+     "bsd-3-clause": 12040,
+     "cc-by-3.0": 95392,
+     "cc-by-sa-4.0": 143788,
+     "cc0-1.0": 359,
+     "isc": 727,
+     "mit": 68890,
+     "unlicense": 622
+    },
+    "n_input": {
+     "cais/mmlu": 15858,
+     "clinc/clinc_oos": 23850,
+     "qd-mutate/commitpackft": 79957,
+     "rajpurkar/squad_v2": 142192,
+     "tau/commonsense_qa": 10962
+    },
+    "n_rows": 343759,
+    "obligations": {
+     "apache-2.0": [
+      "attribution"
+     ],
+     "bsd-2-clause": [
+      "attribution"
+     ],
+     "bsd-3-clause": [
+      "attribution"
+     ],
+     "cc-by-3.0": [
+      "attribution"
+     ],
+     "cc-by-sa-4.0": [
+      "attribution",
+      "share-alike"
+     ],
+     "cc0-1.0": [],
+     "isc": [
+      "attribution"
+     ],
+     "mit": [
+      "attribution"
+     ],
+     "unlicense": []
+    },
+    "prompt_consistency": {
+     "detail": "343825 of 343825 rows grouped into 343323 distinct rendered prompts; no prompt in the emitted rows carries two different gold answers; 33 rendered prompt(s) carried more than one gold answer (families ['intent.domain', 'intent.within_domain', 'qa.answer_span', 'qa.answerability']), and all 66 of their rows were dropped as 'contradictory_prompt' with no winner chosen (13 of those groups counted, not named)",
+     "n": 343825,
+     "n_total": 343825,
+     "passed": true,
+     "state": "ran",
+     "value": 33
+    },
+    "refusals": {
+     "cais/mmlu": {
+      "duplicate_options": 18,
+      "invisible_format_characters": 2,
+      "option_too_long": 22
+     },
+     "clinc/clinc_oos": {
+      "contradictory_prompt": 8
+     },
+     "qd-mutate/commitpackft": {},
+     "rajpurkar/squad_v2": {
+      "contradictory_prompt": 58,
+      "invisible_format_characters": 356
+     },
+     "tau/commonsense_qa": {
+      "duplicate_options": 146
+     }
+    },
+    "refused_sources": {},
+    "status": {
+     "detail": "343759 examples built, 610 rows refused across 5 sources; per-family coverage: code.defect_class=79957/79957, commonsense.multiple_choice=10816/10962, intent.classification=23850/23850, intent.domain=23848/23850, intent.in_scope=23850/23850, intent.within_domain=23844/23850, knowledge.multiple_choice=15816/15858, qa.answer_span=117618/117990, qa.answerability=24160/24202; self-consistency: 343825/343825 rows grouped, no contradictory prompt in the emitted rows (66 row(s) of 33 contradictory prompt(s) dropped as 'contradictory_prompt')",
+     "n": 343759,
+     "n_total": 344369,
+     "passed": true,
+     "state": "ran",
+     "value": 343759
+    }
+   },
+   "n_rows": 16124,
+   "path": "/Users/bharath/qd-campaign/phase4-v4-2026-10-01/data/pool/val.json",
+   "rows_listed": 16124,
+   "split_report": {
+    "content_disjoint_families": {
+     "n": 141752,
+     "n_total": 141752,
+     "passed": true,
+     "state": "ran",
+     "value": 0
+    },
+    "counts": {
+     "heldout": 37705,
+     "train": 289142,
+     "val": 16124
+    },
+    "dedupe_status": {
+     "detail": "788 of 343759 rows dropped across 769 content units at Jaccard >= 0.8; 1489 confirmed pairs crossed a repo boundary and would have survived a repo-level split alone; 461417 confirmed pairs were within one repo and were kept. LSH is a probabilistic candidate generator, not an exhaustive search: banding b=16, r=8 proposes a pair at J=0.8 with probability 0.9470, so 550147 of 37016892186 possible unit pairs were compared exactly and the confirmed-pair counts are a lower bound, not a complete enumeration",
+     "n": 550147,
+     "n_total": 37016892186,
+     "passed": true,
+     "state": "ran",
+     "value": 788
+    },
+    "held_out_families_absent_from_training": {
+     "n": 305266,
+     "n_total": 305266,
+     "passed": true,
+     "state": "ran",
+     "value": 0
+    },
+    "holdout_breakdown": {
+     "family_holdout": 24160,
+     "natural_repo_holdout": 13545
+    },
+    "identity_disjoint": {
+     "n": 263965,
+     "n_total": 263965,
+     "passed": true,
+     "state": "ran",
+     "value": 0
+    },
+    "near_duplicate_disjoint": {
+     "detail": "scanned 342971 rows; 702737 candidate pairs, 786 of them crossing a repo split, none confirmed at threshold 0.8",
+     "n": 342971,
+     "n_total": 342971,
+     "passed": true,
+     "state": "ran",
+     "value": 0
+    },
+    "repo_disjoint": {
+     "n": 20545,
+     "n_total": 20545,
+     "passed": true,
+     "state": "ran",
+     "value": 0
+    },
+    "status": {
+     "n": 6,
+     "n_total": 6,
+     "passed": true,
+     "state": "ran"
+    }
+   }
+  }
+ },
+ "splits": {
+  "heldout": {
+   "by_split_family_source_licence_kind": [
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "apache-2.0",
+     "rows": 341,
+     "source": "qd-mutate/commitpackft",
+     "split": "heldout"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "bsd-2-clause",
+     "rows": 129,
+     "source": "qd-mutate/commitpackft",
+     "split": "heldout"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "bsd-3-clause",
+     "rows": 346,
+     "source": "qd-mutate/commitpackft",
+     "split": "heldout"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "cc0-1.0",
+     "rows": 4,
+     "source": "qd-mutate/commitpackft",
+     "split": "heldout"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "isc",
+     "rows": 37,
+     "source": "qd-mutate/commitpackft",
+     "split": "heldout"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "mit",
+     "rows": 1315,
+     "source": "qd-mutate/commitpackft",
+     "split": "heldout"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "unlicense",
+     "rows": 10,
+     "source": "qd-mutate/commitpackft",
+     "split": "heldout"
+    },
+    {
+     "family": "intent.classification",
+     "kind": "-",
+     "licence": "cc-by-3.0",
+     "rows": 1200,
+     "source": "clinc/clinc_oos",
+     "split": "heldout"
+    },
+    {
+     "family": "intent.domain",
+     "kind": "-",
+     "licence": "cc-by-3.0",
+     "rows": 1200,
+     "source": "clinc/clinc_oos",
+     "split": "heldout"
+    },
+    {
+     "family": "intent.in_scope",
+     "kind": "-",
+     "licence": "cc-by-3.0",
+     "rows": 1200,
+     "source": "clinc/clinc_oos",
+     "split": "heldout"
+    },
+    {
+     "family": "intent.within_domain",
+     "kind": "-",
+     "licence": "cc-by-3.0",
+     "rows": 1200,
+     "source": "clinc/clinc_oos",
+     "split": "heldout"
+    },
+    {
+     "family": "qa.answer_span",
+     "kind": "-",
+     "licence": "cc-by-sa-4.0",
+     "rows": 6563,
+     "source": "rajpurkar/squad_v2",
+     "split": "heldout"
+    },
+    {
+     "family": "qa.answerability",
+     "kind": "-",
+     "licence": "cc-by-sa-4.0",
+     "rows": 24160,
+     "source": "rajpurkar/squad_v2",
+     "split": "heldout"
+    }
+   ],
+   "clinc_oos_repo_key_rows_per_family": {},
+   "distinct_repo_keys_per_family": {
+    "code.defect_class": 824,
+    "intent.classification": 8,
+    "intent.domain": 8,
+    "intent.in_scope": 8,
+    "intent.within_domain": 8,
+    "qa.answer_span": 21,
+    "qa.answerability": 79
+   }
+  },
+  "train": {
+   "by_split_family_source_licence_kind": [
+    {
+     "family": "code.defect_class",
+     "kind": "composed",
+     "licence": "apache-2.0",
+     "rows": 5563,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "noul",
+     "licence": "apache-2.0",
+     "rows": 1329,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "apache-2.0",
+     "rows": 9863,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "composed",
+     "licence": "bsd-2-clause",
+     "rows": 1293,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "noul",
+     "licence": "bsd-2-clause",
+     "rows": 71,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "bsd-2-clause",
+     "rows": 2557,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "composed",
+     "licence": "bsd-3-clause",
+     "rows": 3830,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "noul",
+     "licence": "bsd-3-clause",
+     "rows": 178,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "bsd-3-clause",
+     "rows": 7050,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "noul",
+     "licence": "cc-by-sa-4.0",
+     "rows": 2010,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "composed",
+     "licence": "cc0-1.0",
+     "rows": 105,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "noul",
+     "licence": "cc0-1.0",
+     "rows": 8,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "cc0-1.0",
+     "rows": 236,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "composed",
+     "licence": "isc",
+     "rows": 240,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "noul",
+     "licence": "isc",
+     "rows": 21,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "isc",
+     "rows": 407,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "composed",
+     "licence": "mit",
+     "rows": 13751,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "noul",
+     "licence": "mit",
+     "rows": 1357,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "mit",
+     "rows": 24389,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "composed",
+     "licence": "unlicense",
+     "rows": 218,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "noul",
+     "licence": "unlicense",
+     "rows": 30,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "unlicense",
+     "rows": 358,
+     "source": "qd-mutate/commitpackft",
+     "split": "train"
+    },
+    {
+     "family": "commonsense.multiple_choice",
+     "kind": "-",
+     "licence": "mit",
+     "rows": 9619,
+     "source": "tau/commonsense_qa",
+     "split": "train"
+    },
+    {
+     "family": "intent.classification",
+     "kind": "-",
+     "licence": "cc-by-3.0",
+     "rows": 21143,
+     "source": "clinc/clinc_oos",
+     "split": "train"
+    },
+    {
+     "family": "intent.domain",
+     "kind": "-",
+     "licence": "cc-by-3.0",
+     "rows": 21142,
+     "source": "clinc/clinc_oos",
+     "split": "train"
+    },
+    {
+     "family": "intent.in_scope",
+     "kind": "-",
+     "licence": "cc-by-3.0",
+     "rows": 21143,
+     "source": "clinc/clinc_oos",
+     "split": "train"
+    },
+    {
+     "family": "intent.within_domain",
+     "kind": "-",
+     "licence": "cc-by-3.0",
+     "rows": 21141,
+     "source": "clinc/clinc_oos",
+     "split": "train"
+    },
+    {
+     "family": "knowledge.multiple_choice",
+     "kind": "-",
+     "licence": "mit",
+     "rows": 14200,
+     "source": "cais/mmlu",
+     "split": "train"
+    },
+    {
+     "family": "qa.answer_span",
+     "kind": "-",
+     "licence": "cc-by-sa-4.0",
+     "rows": 105890,
+     "source": "rajpurkar/squad_v2",
+     "split": "train"
+    }
+   ],
+   "clinc_oos_repo_key_rows_per_family": {
+    "intent.classification": 1350,
+    "intent.domain": 1350,
+    "intent.in_scope": 1350,
+    "intent.within_domain": 1350
+   },
+   "distinct_repo_keys_per_family": {
+    "code.defect_class": 15567,
+    "commonsense.multiple_choice": 2127,
+    "intent.classification": 133,
+    "intent.domain": 133,
+    "intent.in_scope": 133,
+    "intent.within_domain": 133,
+    "knowledge.multiple_choice": 57,
+    "qa.answer_span": 360
+   }
+  },
+  "val": {
+   "by_split_family_source_licence_kind": [
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "apache-2.0",
+     "rows": 430,
+     "source": "qd-mutate/commitpackft",
+     "split": "val"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "bsd-2-clause",
+     "rows": 176,
+     "source": "qd-mutate/commitpackft",
+     "split": "val"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "bsd-3-clause",
+     "rows": 352,
+     "source": "qd-mutate/commitpackft",
+     "split": "val"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "cc0-1.0",
+     "rows": 3,
+     "source": "qd-mutate/commitpackft",
+     "split": "val"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "isc",
+     "rows": 21,
+     "source": "qd-mutate/commitpackft",
+     "split": "val"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "mit",
+     "rows": 1316,
+     "source": "qd-mutate/commitpackft",
+     "split": "val"
+    },
+    {
+     "family": "code.defect_class",
+     "kind": "single",
+     "licence": "unlicense",
+     "rows": 6,
+     "source": "qd-mutate/commitpackft",
+     "split": "val"
+    },
+    {
+     "family": "commonsense.multiple_choice",
+     "kind": "-",
+     "licence": "mit",
+     "rows": 1197,
+     "source": "tau/commonsense_qa",
+     "split": "val"
+    },
+    {
+     "family": "intent.classification",
+     "kind": "-",
+     "licence": "cc-by-3.0",
+     "rows": 1500,
+     "source": "clinc/clinc_oos",
+     "split": "val"
+    },
+    {
+     "family": "intent.domain",
+     "kind": "-",
+     "licence": "cc-by-3.0",
+     "rows": 1500,
+     "source": "clinc/clinc_oos",
+     "split": "val"
+    },
+    {
+     "family": "intent.in_scope",
+     "kind": "-",
+     "licence": "cc-by-3.0",
+     "rows": 1500,
+     "source": "clinc/clinc_oos",
+     "split": "val"
+    },
+    {
+     "family": "intent.within_domain",
+     "kind": "-",
+     "licence": "cc-by-3.0",
+     "rows": 1499,
+     "source": "clinc/clinc_oos",
+     "split": "val"
+    },
+    {
+     "family": "knowledge.multiple_choice",
+     "kind": "-",
+     "licence": "mit",
+     "rows": 1485,
+     "source": "cais/mmlu",
+     "split": "val"
+    },
+    {
+     "family": "qa.answer_span",
+     "kind": "-",
+     "licence": "cc-by-sa-4.0",
+     "rows": 5139,
+     "source": "rajpurkar/squad_v2",
+     "split": "val"
+    }
+   ],
+   "clinc_oos_repo_key_rows_per_family": {},
+   "distinct_repo_keys_per_family": {
+    "code.defect_class": 849,
+    "commonsense.multiple_choice": 771,
+    "intent.classification": 10,
+    "intent.domain": 10,
+    "intent.in_scope": 10,
+    "intent.within_domain": 10,
+    "knowledge.multiple_choice": 57,
+    "qa.answer_span": 17
+   }
+  }
+ }
+}

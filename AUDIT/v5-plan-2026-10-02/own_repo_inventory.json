@@ -1,0 +1,3190 @@
+{
+ "code_root": "/Users/bharath/Code",
+ "owner": "bharathvbcr",
+ "repos": [
+  {
+   "code_bytes_by_language": {
+    "go": 142630,
+    "python": 4272,
+    "shell": 497
+   },
+   "code_files_by_language": {
+    "go": 19,
+    "python": 1,
+    "shell": 1
+   },
+   "licence_files": [],
+   "other_doc_files": 7,
+   "other_doc_words": 5351,
+   "owner": "other:stridefunding",
+   "prose_paragraph_words": 2067,
+   "prose_paragraphs_ge25w": 37,
+   "readme_count": 1,
+   "readme_words": 1248,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 3,
+     "words": 1248
+    }
+   ],
+   "remotes": [
+    "https://github.com/stridefunding/ai-labs-engineering-ta.git"
+   ],
+   "repo": "/Users/bharath/Code/CodeGit/order-import-service"
+  },
+  {
+   "code_bytes_by_language": {
+    "javascript": 2231,
+    "python": 170726,
+    "rust": 35930,
+    "shell": 3363,
+    "typescript": 1066304
+   },
+   "code_files_by_language": {
+    "javascript": 1,
+    "python": 31,
+    "rust": 4,
+    "shell": 1,
+    "typescript": 168
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 10,
+   "other_doc_words": 9002,
+   "owner": "own",
+   "prose_paragraph_words": 2242,
+   "prose_paragraphs_ge25w": 42,
+   "readme_count": 2,
+   "readme_words": 2674,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 7,
+     "words": 2129
+    },
+    {
+     "path": "semantic_layer/benchmarks/results/README.md",
+     "prose_paragraphs": 8,
+     "words": 545
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/AcademiaTrack"
+   ],
+   "repo": "/Users/bharath/Code/apps/AcademiaTrack"
+  },
+  {
+   "code_bytes_by_language": {
+    "swift": 453872
+   },
+   "code_files_by_language": {
+    "swift": 82
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 4,
+   "other_doc_words": 3172,
+   "owner": "no-remote",
+   "prose_paragraph_words": 1205,
+   "prose_paragraphs_ge25w": 21,
+   "readme_count": 0,
+   "readme_words": 0,
+   "readmes": [],
+   "remotes": [],
+   "repo": "/Users/bharath/Code/apps/AppLock"
+  },
+  {
+   "code_bytes_by_language": {
+    "kotlin": 1012562,
+    "python": 870893,
+    "rust": 526726,
+    "shell": 27387,
+    "typescript": 299060
+   },
+   "code_files_by_language": {
+    "kotlin": 111,
+    "python": 126,
+    "rust": 43,
+    "shell": 5,
+    "typescript": 68
+   },
+   "licence_files": [],
+   "other_doc_files": 102,
+   "other_doc_words": 78806,
+   "owner": "own",
+   "prose_paragraph_words": 28230,
+   "prose_paragraphs_ge25w": 512,
+   "readme_count": 20,
+   "readme_words": 2800,
+   "readmes": [
+    {
+     "path": "KnowledgeBase/README.md",
+     "prose_paragraphs": 1,
+     "words": 45
+    },
+    {
+     "path": "README.md",
+     "prose_paragraphs": 7,
+     "words": 592
+    },
+    {
+     "path": "chronicle-android/README.md",
+     "prose_paragraphs": 10,
+     "words": 557
+    },
+    {
+     "path": "chronicle-pc/README.md",
+     "prose_paragraphs": 8,
+     "words": 515
+    },
+    {
+     "path": "chronicle-pc/desktop/README.md",
+     "prose_paragraphs": 7,
+     "words": 369
+    },
+    {
+     "path": "chronicle-pc/frontend/README.md",
+     "prose_paragraphs": 5,
+     "words": 289
+    },
+    {
+     "path": "demo-vault/10-Work/Meetings/README.md",
+     "prose_paragraphs": 0,
+     "words": 10
+    },
+    {
+     "path": "demo-vault/10-Work/People/README.md",
+     "prose_paragraphs": 0,
+     "words": 10
+    },
+    {
+     "path": "demo-vault/10-Work/Projects/README.md",
+     "prose_paragraphs": 0,
+     "words": 10
+    },
+    {
+     "path": "demo-vault/10-Work/Reference/README.md",
+     "prose_paragraphs": 0,
+     "words": 10
+    },
+    {
+     "path": "demo-vault/10-Work/ResumePoints/README.md",
+     "prose_paragraphs": 0,
+     "words": 40
+    },
+    {
+     "path": "demo-vault/20-Personal/Family/README.md",
+     "prose_paragraphs": 0,
+     "words": 10
+    },
+    {
+     "path": "demo-vault/20-Personal/Finance/README.md",
+     "prose_paragraphs": 0,
+     "words": 10
+    },
+    {
+     "path": "demo-vault/20-Personal/Health/README.md",
+     "prose_paragraphs": 0,
+     "words": 10
+    },
+    {
+     "path": "demo-vault/20-Personal/Home/README.md",
+     "prose_paragraphs": 0,
+     "words": 10
+    },
+    {
+     "path": "demo-vault/20-Personal/Travel/README.md",
+     "prose_paragraphs": 0,
+     "words": 10
+    },
+    {
+     "path": "demo-vault/_staging/README.md",
+     "prose_paragraphs": 1,
+     "words": 54
+    },
+    {
+     "path": "demo-vault/kb/files/README.md",
+     "prose_paragraphs": 0,
+     "words": 10
+    },
+    {
+     "path": "docs/README.md",
+     "prose_paragraphs": 1,
+     "words": 187
+    },
+    {
+     "path": "portfolio/ResumePoints/README.md",
+     "prose_paragraphs": 0,
+     "words": 52
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/Chronicle.git"
+   ],
+   "repo": "/Users/bharath/Code/apps/Chronicle"
+  },
+  {
+   "code_bytes_by_language": {
+    "kotlin": 6651889,
+    "python": 46884,
+    "shell": 9007,
+    "swift": 2191120
+   },
+   "code_files_by_language": {
+    "kotlin": 1020,
+    "python": 3,
+    "shell": 2,
+    "swift": 205
+   },
+   "licence_files": [],
+   "other_doc_files": 41,
+   "other_doc_words": 76696,
+   "owner": "own",
+   "prose_paragraph_words": 29591,
+   "prose_paragraphs_ge25w": 581,
+   "readme_count": 3,
+   "readme_words": 4979,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 5,
+     "words": 2777
+    },
+    {
+     "path": "README_MINIMAL.md",
+     "prose_paragraphs": 0,
+     "words": 412
+    },
+    {
+     "path": "ios/README.md",
+     "prose_paragraphs": 13,
+     "words": 1790
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/ChronosFlow.git"
+   ],
+   "repo": "/Users/bharath/Code/apps/ChronosFlow"
+  },
+  {
+   "code_bytes_by_language": {
+    "kotlin": 1190867,
+    "python": 22728,
+    "shell": 6316,
+    "swift": 1831860
+   },
+   "code_files_by_language": {
+    "kotlin": 133,
+    "python": 4,
+    "shell": 1,
+    "swift": 161
+   },
+   "licence_files": [],
+   "other_doc_files": 8,
+   "other_doc_words": 12294,
+   "owner": "own",
+   "prose_paragraph_words": 1648,
+   "prose_paragraphs_ge25w": 21,
+   "readme_count": 2,
+   "readme_words": 2706,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 3,
+     "words": 1179
+    },
+    {
+     "path": "ios/README.md",
+     "prose_paragraphs": 5,
+     "words": 1527
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/Curio.git"
+   ],
+   "repo": "/Users/bharath/Code/apps/Curio"
+  },
+  {
+   "code_bytes_by_language": {
+    "c": 5059,
+    "javascript": 3177,
+    "objc": 1322,
+    "python": 18974,
+    "shell": 165342,
+    "swift": 8043249
+   },
+   "code_files_by_language": {
+    "c": 1,
+    "javascript": 1,
+    "objc": 1,
+    "python": 2,
+    "shell": 33,
+    "swift": 532
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 44,
+   "other_doc_words": 69733,
+   "owner": "own",
+   "prose_paragraph_words": 35477,
+   "prose_paragraphs_ge25w": 570,
+   "readme_count": 2,
+   "readme_words": 1234,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 8,
+     "words": 852
+    },
+    {
+     "path": "docs/README.md",
+     "prose_paragraphs": 0,
+     "words": 382
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/DevType.git"
+   ],
+   "repo": "/Users/bharath/Code/apps/DevType"
+  },
+  {
+   "code_bytes_by_language": {
+    "c": 6391,
+    "shell": 16774,
+    "swift": 1494095
+   },
+   "code_files_by_language": {
+    "c": 2,
+    "shell": 5,
+    "swift": 158
+   },
+   "licence_files": [],
+   "other_doc_files": 5,
+   "other_doc_words": 15991,
+   "owner": "own",
+   "prose_paragraph_words": 6862,
+   "prose_paragraphs_ge25w": 126,
+   "readme_count": 1,
+   "readme_words": 3097,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 26,
+     "words": 3097
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/M5Blade"
+   ],
+   "repo": "/Users/bharath/Code/apps/M5Blade"
+  },
+  {
+   "code_bytes_by_language": {
+    "kotlin": 1164881,
+    "metal": 4949,
+    "python": 67441,
+    "shell": 851,
+    "swift": 1221964
+   },
+   "code_files_by_language": {
+    "kotlin": 126,
+    "metal": 1,
+    "python": 13,
+    "shell": 1,
+    "swift": 115
+   },
+   "licence_files": [],
+   "other_doc_files": 7,
+   "other_doc_words": 8724,
+   "owner": "own",
+   "prose_paragraph_words": 2886,
+   "prose_paragraphs_ge25w": 50,
+   "readme_count": 3,
+   "readme_words": 2531,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 2,
+     "words": 1009
+    },
+    {
+     "path": "ios/README_iOS.md",
+     "prose_paragraphs": 10,
+     "words": 864
+    },
+    {
+     "path": "semantic/README.md",
+     "prose_paragraphs": 9,
+     "words": 658
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/Meridian.git"
+   ],
+   "repo": "/Users/bharath/Code/apps/Meridian"
+  },
+  {
+   "code_bytes_by_language": {
+    "javascript": 5809,
+    "python": 87020,
+    "rust": 13057,
+    "typescript": 1461850
+   },
+   "code_files_by_language": {
+    "javascript": 3,
+    "python": 19,
+    "rust": 3,
+    "typescript": 180
+   },
+   "licence_files": [],
+   "other_doc_files": 3,
+   "other_doc_words": 2063,
+   "owner": "own",
+   "prose_paragraph_words": 983,
+   "prose_paragraphs_ge25w": 15,
+   "readme_count": 2,
+   "readme_words": 2572,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 5,
+     "words": 1895
+    },
+    {
+     "path": "semantic_layer/README.md",
+     "prose_paragraphs": 2,
+     "words": 677
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/SalEdge.git"
+   ],
+   "repo": "/Users/bharath/Code/apps/SalEdge"
+  },
+  {
+   "code_bytes_by_language": {
+    "kotlin": 1019577
+   },
+   "code_files_by_language": {
+    "kotlin": 143
+   },
+   "licence_files": [],
+   "other_doc_files": 6,
+   "other_doc_words": 10097,
+   "owner": "own",
+   "prose_paragraph_words": 2972,
+   "prose_paragraphs_ge25w": 36,
+   "readme_count": 1,
+   "readme_words": 1204,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 2,
+     "words": 1204
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/TrailBlazer.git"
+   ],
+   "repo": "/Users/bharath/Code/apps/TrailBlazer"
+  },
+  {
+   "code_bytes_by_language": {
+    "python": 157846
+   },
+   "code_files_by_language": {
+    "python": 3
+   },
+   "licence_files": [],
+   "other_doc_files": 1,
+   "other_doc_words": 13655,
+   "owner": "no-remote",
+   "prose_paragraph_words": 6909,
+   "prose_paragraphs_ge25w": 136,
+   "readme_count": 3,
+   "readme_words": 362,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 2,
+     "words": 118
+    },
+    {
+     "path": "output/latex/Two_Page_Resume/README.md",
+     "prose_paragraphs": 1,
+     "words": 29
+    },
+    {
+     "path": "targeted/README.md",
+     "prose_paragraphs": 1,
+     "words": 215
+    }
+   ],
+   "remotes": [],
+   "repo": "/Users/bharath/Code/career/CurriculumVitae"
+  },
+  {
+   "code_bytes_by_language": {
+    "c": 8048,
+    "python": 45558,
+    "rust": 64349,
+    "shell": 16251,
+    "swift": 441183
+   },
+   "code_files_by_language": {
+    "c": 4,
+    "python": 9,
+    "rust": 4,
+    "shell": 6,
+    "swift": 27
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 20,
+   "other_doc_words": 10707,
+   "owner": "other:ahmedkhaleel2004",
+   "prose_paragraph_words": 8603,
+   "prose_paragraphs_ge25w": 153,
+   "readme_count": 2,
+   "readme_words": 1011,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 6,
+     "words": 940
+    },
+    {
+     "path": "tests/provider-pipeline/README.md",
+     "prose_paragraphs": 0,
+     "words": 71
+    }
+   ],
+   "remotes": [
+    "https://github.com/ahmedkhaleel2004/blitztree.git"
+   ],
+   "repo": "/Users/bharath/Code/devtools/Blitztree"
+  },
+  {
+   "code_bytes_by_language": {
+    "c": 363,
+    "cpp": 356,
+    "csharp": 441,
+    "cuda": 421,
+    "dart": 308,
+    "go": 2011763,
+    "java": 431,
+    "javascript": 384,
+    "kotlin": 338,
+    "lua": 295,
+    "metal": 4058,
+    "objc": 344,
+    "php": 355,
+    "python": 623101,
+    "r": 163,
+    "ruby": 241,
+    "rust": 11741926,
+    "scala": 321,
+    "shell": 104304,
+    "sql": 17309,
+    "svelte": 626,
+    "swift": 345,
+    "typescript": 1738,
+    "vue": 511
+   },
+   "code_files_by_language": {
+    "c": 2,
+    "cpp": 2,
+    "csharp": 2,
+    "cuda": 2,
+    "dart": 2,
+    "go": 229,
+    "java": 2,
+    "javascript": 4,
+    "kotlin": 2,
+    "lua": 2,
+    "metal": 3,
+    "objc": 2,
+    "php": 2,
+    "python": 100,
+    "r": 2,
+    "ruby": 2,
+    "rust": 540,
+    "scala": 2,
+    "shell": 18,
+    "sql": 9,
+    "svelte": 3,
+    "swift": 2,
+    "typescript": 8,
+    "vue": 2
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 143,
+   "other_doc_words": 271695,
+   "owner": "own",
+   "prose_paragraph_words": 178467,
+   "prose_paragraphs_ge25w": 2577,
+   "readme_count": 16,
+   "readme_words": 16638,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 14,
+     "words": 1510
+    },
+    {
+     "path": "backend/contracts/README.md",
+     "prose_paragraphs": 10,
+     "words": 651
+    },
+    {
+     "path": "backend/go_orchestrator/devcouncil/README.md",
+     "prose_paragraphs": 0,
+     "words": 138
+    },
+    {
+     "path": "backend/go_orchestrator/testdata/golden/README.md",
+     "prose_paragraphs": 8,
+     "words": 602
+    },
+    {
+     "path": "benchmarks/README.md",
+     "prose_paragraphs": 33,
+     "words": 3370
+    },
+    {
+     "path": "benchmarks/results/competition/README.md",
+     "prose_paragraphs": 8,
+     "words": 589
+    },
+    {
+     "path": "docs/README.md",
+     "prose_paragraphs": 3,
+     "words": 348
+    },
+    {
+     "path": "docs/archive/README.md",
+     "prose_paragraphs": 3,
+     "words": 326
+    },
+    {
+     "path": "docs/devmap/README.md",
+     "prose_paragraphs": 69,
+     "words": 6127
+    },
+    {
+     "path": "examples/README.md",
+     "prose_paragraphs": 0,
+     "words": 125
+    },
+    {
+     "path": "examples/build-week-demo/README.md",
+     "prose_paragraphs": 1,
+     "words": 86
+    },
+    {
+     "path": "examples/todo-api/README.md",
+     "prose_paragraphs": 1,
+     "words": 55
+    },
+    {
+     "path": "rust/README.md",
+     "prose_paragraphs": 30,
+     "words": 2316
+    },
+    {
+     "path": "rust/testdata/fixtures/dead_hardening/README.md",
+     "prose_paragraphs": 1,
+     "words": 99
+    },
+    {
+     "path": "rust/testdata/fixtures/tier_a/hostile/README.md",
+     "prose_paragraphs": 1,
+     "words": 64
+    },
+    {
+     "path": "tests/unit/README.md",
+     "prose_paragraphs": 3,
+     "words": 232
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/DevCouncil.git"
+   ],
+   "repo": "/Users/bharath/Code/devtools/DevCouncil"
+  },
+  {
+   "code_bytes_by_language": {
+    "javascript": 22166,
+    "python": 34537,
+    "rust": 2412692,
+    "shell": 10183,
+    "typescript": 4048798
+   },
+   "code_files_by_language": {
+    "javascript": 2,
+    "python": 6,
+    "rust": 83,
+    "shell": 5,
+    "typescript": 445
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 49,
+   "other_doc_words": 28357,
+   "owner": "own",
+   "prose_paragraph_words": 14909,
+   "prose_paragraphs_ge25w": 255,
+   "readme_count": 5,
+   "readme_words": 3900,
+   "readmes": [
+    {
+     "path": "README.ja.md",
+     "prose_paragraphs": 1,
+     "words": 639
+    },
+    {
+     "path": "README.ko.md",
+     "prose_paragraphs": 1,
+     "words": 641
+    },
+    {
+     "path": "README.md",
+     "prose_paragraphs": 13,
+     "words": 1714
+    },
+    {
+     "path": "README.zh-CN.md",
+     "prose_paragraphs": 1,
+     "words": 454
+    },
+    {
+     "path": "apps/desktop/src-tauri/binaries/README.md",
+     "prose_paragraphs": 9,
+     "words": 452
+    }
+   ],
+   "remotes": [
+    "https://github.com/delibae/claude-prism.git",
+    "https://github.com/bharathvbcr/DevPrism.git"
+   ],
+   "repo": "/Users/bharath/Code/devtools/DevPrism"
+  },
+  {
+   "code_bytes_by_language": {
+    "c": 31584,
+    "go": 6420,
+    "javascript": 193486,
+    "kotlin": 104794,
+    "python": 66060,
+    "rust": 17901643,
+    "shell": 5454,
+    "sql": 9842,
+    "svelte": 2577023,
+    "swift": 44354,
+    "typescript": 7069679
+   },
+   "code_files_by_language": {
+    "c": 5,
+    "go": 8,
+    "javascript": 20,
+    "kotlin": 33,
+    "python": 24,
+    "rust": 853,
+    "shell": 8,
+    "sql": 7,
+    "svelte": 165,
+    "swift": 12,
+    "typescript": 921
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 89,
+   "other_doc_words": 265705,
+   "owner": "own",
+   "prose_paragraph_words": 118412,
+   "prose_paragraphs_ge25w": 1147,
+   "readme_count": 17,
+   "readme_words": 12409,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 17,
+     "words": 1601
+    },
+    {
+     "path": "contracts/README.md",
+     "prose_paragraphs": 10,
+     "words": 651
+    },
+    {
+     "path": "docs/README.md",
+     "prose_paragraphs": 5,
+     "words": 541
+    },
+    {
+     "path": "docs/archive/README.md",
+     "prose_paragraphs": 3,
+     "words": 304
+    },
+    {
+     "path": "harness/README.md",
+     "prose_paragraphs": 58,
+     "words": 4039
+    },
+    {
+     "path": "src-tauri/framework/README.md",
+     "prose_paragraphs": 9,
+     "words": 940
+    },
+    {
+     "path": "src-tauri/framework/javascriptcore-rs/README.md",
+     "prose_paragraphs": 0,
+     "words": 23
+    },
+    {
+     "path": "src-tauri/framework/libappindicator/README.md",
+     "prose_paragraphs": 1,
+     "words": 60
+    },
+    {
+     "path": "src-tauri/framework/muda/README.md",
+     "prose_paragraphs": 3,
+     "words": 688
+    },
+    {
+     "path": "src-tauri/framework/notify/README.md",
+     "prose_paragraphs": 4,
+     "words": 435
+    },
+    {
+     "path": "src-tauri/framework/tao/README.md",
+     "prose_paragraphs": 3,
+     "words": 378
+    },
+    {
+     "path": "src-tauri/framework/tauri-runtime-wry/README.md",
+     "prose_paragraphs": 7,
+     "words": 408
+    },
+    {
+     "path": "src-tauri/framework/tauri-runtime/README.md",
+     "prose_paragraphs": 7,
+     "words": 397
+    },
+    {
+     "path": "src-tauri/framework/tauri/README.md",
+     "prose_paragraphs": 5,
+     "words": 476
+    },
+    {
+     "path": "src-tauri/framework/tauri/mobile/ios-api/README.md",
+     "prose_paragraphs": 0,
+     "words": 4
+    },
+    {
+     "path": "src-tauri/framework/webkit2gtk/README.md",
+     "prose_paragraphs": 1,
+     "words": 72
+    },
+    {
+     "path": "src-tauri/framework/wry/README.md",
+     "prose_paragraphs": 7,
+     "words": 1392
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/GitPulse.git"
+   ],
+   "repo": "/Users/bharath/Code/devtools/GitPulse"
+  },
+  {
+   "code_bytes_by_language": {
+    "go": 361776,
+    "rust": 260315
+   },
+   "code_files_by_language": {
+    "go": 63,
+    "rust": 14
+   },
+   "licence_files": [],
+   "other_doc_files": 12,
+   "other_doc_words": 10702,
+   "owner": "own",
+   "prose_paragraph_words": 11985,
+   "prose_paragraphs_ge25w": 158,
+   "readme_count": 10,
+   "readme_words": 5684,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 19,
+     "words": 1633
+    },
+    {
+     "path": "cmd/qualify/README.md",
+     "prose_paragraphs": 10,
+     "words": 753
+    },
+    {
+     "path": "desktop/README.md",
+     "prose_paragraphs": 10,
+     "words": 727
+    },
+    {
+     "path": "evidence/README.md",
+     "prose_paragraphs": 5,
+     "words": 968
+    },
+    {
+     "path": "evidence/examples/linux-balance/README.md",
+     "prose_paragraphs": 5,
+     "words": 284
+    },
+    {
+     "path": "evidence/examples/macos-input-counter-refusal/README.md",
+     "prose_paragraphs": 2,
+     "words": 90
+    },
+    {
+     "path": "evidence/examples/macos-pinned-balance/README.md",
+     "prose_paragraphs": 2,
+     "words": 91
+    },
+    {
+     "path": "evidence/examples/macos-visual-no-grant/README.md",
+     "prose_paragraphs": 5,
+     "words": 279
+    },
+    {
+     "path": "evidence/guard-partition/README.md",
+     "prose_paragraphs": 7,
+     "words": 478
+    },
+    {
+     "path": "evidence/multi-tenant-drift/README.md",
+     "prose_paragraphs": 5,
+     "words": 381
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/Jarvis.git"
+   ],
+   "repo": "/Users/bharath/Code/devtools/Jarvis"
+  },
+  {
+   "code_bytes_by_language": {
+    "go": 2486581,
+    "javascript": 1347,
+    "python": 102595,
+    "rust": 819133,
+    "shell": 6773,
+    "typescript": 3558746
+   },
+   "code_files_by_language": {
+    "go": 236,
+    "javascript": 2,
+    "python": 27,
+    "rust": 57,
+    "shell": 5,
+    "typescript": 485
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 32,
+   "other_doc_words": 22598,
+   "owner": "own",
+   "prose_paragraph_words": 14860,
+   "prose_paragraphs_ge25w": 245,
+   "readme_count": 4,
+   "readme_words": 5900,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 32,
+     "words": 4382
+    },
+    {
+     "path": "liquitask-agentd/README.md",
+     "prose_paragraphs": 8,
+     "words": 864
+    },
+    {
+     "path": "semantic_layer/README.md",
+     "prose_paragraphs": 4,
+     "words": 556
+    },
+    {
+     "path": "src-tauri/binaries/README.md",
+     "prose_paragraphs": 1,
+     "words": 98
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/LiquiTask.git"
+   ],
+   "repo": "/Users/bharath/Code/devtools/LiquiTask"
+  },
+  {
+   "code_bytes_by_language": {
+    "go": 10386732,
+    "javascript": 7271,
+    "shell": 35476,
+    "sql": 535115,
+    "typescript": 8556102
+   },
+   "code_files_by_language": {
+    "go": 783,
+    "javascript": 7,
+    "shell": 9,
+    "sql": 410,
+    "typescript": 1441
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 195,
+   "other_doc_words": 145606,
+   "owner": "other:multica-ai",
+   "prose_paragraph_words": 45307,
+   "prose_paragraphs_ge25w": 933,
+   "readme_count": 4,
+   "readme_words": 3452,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 13,
+     "words": 1343
+    },
+    {
+     "path": "README.zh-CN.md",
+     "prose_paragraphs": 3,
+     "words": 488
+    },
+    {
+     "path": "apps/mobile/README.md",
+     "prose_paragraphs": 9,
+     "words": 912
+    },
+    {
+     "path": "server/pkg/composio/README.md",
+     "prose_paragraphs": 4,
+     "words": 709
+    }
+   ],
+   "remotes": [
+    "https://github.com/multica-ai/multica.git"
+   ],
+   "repo": "/Users/bharath/Code/devtools/LiquiTask/vendor/multica-ref"
+  },
+  {
+   "code_bytes_by_language": {
+    "c": 906,
+    "go": 4668439,
+    "python": 921927,
+    "rust": 263176,
+    "shell": 114769
+   },
+   "code_files_by_language": {
+    "c": 2,
+    "go": 451,
+    "python": 121,
+    "rust": 14,
+    "shell": 13
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 81,
+   "other_doc_words": 149006,
+   "owner": "own",
+   "prose_paragraph_words": 76032,
+   "prose_paragraphs_ge25w": 1062,
+   "readme_count": 11,
+   "readme_words": 11078,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 16,
+     "words": 3287
+    },
+    {
+     "path": "bench/README.md",
+     "prose_paragraphs": 19,
+     "words": 2056
+    },
+    {
+     "path": "bench/paper/README.md",
+     "prose_paragraphs": 17,
+     "words": 1077
+    },
+    {
+     "path": "bench/paper/archives/README.md",
+     "prose_paragraphs": 2,
+     "words": 133
+    },
+    {
+     "path": "bench/paper/workshop/README.md",
+     "prose_paragraphs": 8,
+     "words": 637
+    },
+    {
+     "path": "bench/results/live-gemini/workspace/README.md",
+     "prose_paragraphs": 0,
+     "words": 20
+    },
+    {
+     "path": "contracts/README.md",
+     "prose_paragraphs": 10,
+     "words": 651
+    },
+    {
+     "path": "crates/README.md",
+     "prose_paragraphs": 2,
+     "words": 130
+    },
+    {
+     "path": "docs/README.md",
+     "prose_paragraphs": 5,
+     "words": 917
+    },
+    {
+     "path": "native/README.md",
+     "prose_paragraphs": 10,
+     "words": 1794
+    },
+    {
+     "path": "native/crates/desktop-linux/README.md",
+     "prose_paragraphs": 5,
+     "words": 376
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/Manvi.git"
+   ],
+   "repo": "/Users/bharath/Code/devtools/Manvi"
+  },
+  {
+   "code_bytes_by_language": {
+    "c": 23963,
+    "javascript": 1050,
+    "python": 378083,
+    "rust": 754300,
+    "shell": 34139,
+    "swift": 4815722
+   },
+   "code_files_by_language": {
+    "c": 1,
+    "javascript": 1,
+    "python": 13,
+    "rust": 37,
+    "shell": 3,
+    "swift": 233
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 18,
+   "other_doc_words": 30713,
+   "owner": "own",
+   "prose_paragraph_words": 25078,
+   "prose_paragraphs_ge25w": 334,
+   "readme_count": 4,
+   "readme_words": 1693,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 7,
+     "words": 739
+    },
+    {
+     "path": "docs/README.md",
+     "prose_paragraphs": 3,
+     "words": 257
+    },
+    {
+     "path": "docs/releases/README.md",
+     "prose_paragraphs": 2,
+     "words": 136
+    },
+    {
+     "path": "website/README.md",
+     "prose_paragraphs": 12,
+     "words": 561
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/MarkDev.git"
+   ],
+   "repo": "/Users/bharath/Code/devtools/MarkDev"
+  },
+  {
+   "code_bytes_by_language": {
+    "shell": 67732,
+    "swift": 1412049
+   },
+   "code_files_by_language": {
+    "shell": 4,
+    "swift": 56
+   },
+   "licence_files": [],
+   "other_doc_files": 3,
+   "other_doc_words": 4593,
+   "owner": "no-remote",
+   "prose_paragraph_words": 3203,
+   "prose_paragraphs_ge25w": 54,
+   "readme_count": 1,
+   "readme_words": 1249,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 7,
+     "words": 1249
+    }
+   ],
+   "remotes": [],
+   "repo": "/Users/bharath/Code/devtools/Strait"
+  },
+  {
+   "code_bytes_by_language": {
+    "c": 7633,
+    "go": 591725,
+    "rust": 494590,
+    "shell": 17598
+   },
+   "code_files_by_language": {
+    "c": 1,
+    "go": 71,
+    "rust": 47,
+    "shell": 2
+   },
+   "licence_files": [
+    "LICENSE",
+    "LICENSE-APACHE",
+    "LICENSE-MIT"
+   ],
+   "other_doc_files": 17,
+   "other_doc_words": 46479,
+   "owner": "own",
+   "prose_paragraph_words": 21309,
+   "prose_paragraphs_ge25w": 264,
+   "readme_count": 3,
+   "readme_words": 5048,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 28,
+     "words": 3207
+    },
+    {
+     "path": "bench/results/linux-amd64-vm/README.md",
+     "prose_paragraphs": 19,
+     "words": 1404
+    },
+    {
+     "path": "bench/seed/README.md",
+     "prose_paragraphs": 5,
+     "words": 437
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/gusset.git"
+   ],
+   "repo": "/Users/bharath/Code/devtools/gusset"
+  },
+  {
+   "code_bytes_by_language": {
+    "go": 283600,
+    "python": 3996,
+    "shell": 9007
+   },
+   "code_files_by_language": {
+    "go": 23,
+    "python": 1,
+    "shell": 5
+   },
+   "licence_files": [],
+   "other_doc_files": 0,
+   "other_doc_words": 0,
+   "owner": "no-remote",
+   "prose_paragraph_words": 740,
+   "prose_paragraphs_ge25w": 12,
+   "readme_count": 1,
+   "readme_words": 2231,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 12,
+     "words": 2231
+    }
+   ],
+   "remotes": [],
+   "repo": "/Users/bharath/Code/n8n-email-engine"
+  },
+  {
+   "code_bytes_by_language": {
+    "python": 3083925,
+    "rust": 3309469,
+    "shell": 116183
+   },
+   "code_files_by_language": {
+    "python": 297,
+    "rust": 181,
+    "shell": 29
+   },
+   "licence_files": [
+    "LICENSE-APACHE",
+    "LICENSE-MIT"
+   ],
+   "other_doc_files": 619,
+   "other_doc_words": 610263,
+   "owner": "own",
+   "prose_paragraph_words": 230833,
+   "prose_paragraphs_ge25w": 4145,
+   "readme_count": 18,
+   "readme_words": 7698,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 5,
+     "words": 2087
+    },
+    {
+     "path": "data/shd/README.md",
+     "prose_paragraphs": 1,
+     "words": 448
+    },
+    {
+     "path": "docs/archive/genesis/README.md",
+     "prose_paragraphs": 2,
+     "words": 321
+    },
+    {
+     "path": "results/shd_instrument_v3/reference-cache/SNN-delays/README.md",
+     "prose_paragraphs": 3,
+     "words": 327
+    },
+    {
+     "path": "results/shd_instrument_v3/reference-worktrees/clean-seed-5170001/README.md",
+     "prose_paragraphs": 3,
+     "words": 327
+    },
+    {
+     "path": "results/shd_instrument_v3/reference-worktrees/clean-seed-5170002/README.md",
+     "prose_paragraphs": 3,
+     "words": 327
+    },
+    {
+     "path": "results/shd_instrument_v3/reference-worktrees/clean-seed-5170003/README.md",
+     "prose_paragraphs": 3,
+     "words": 327
+    },
+    {
+     "path": "results/shd_instrument_v3/reference-worktrees/historical-seed-5170001/README.md",
+     "prose_paragraphs": 3,
+     "words": 327
+    },
+    {
+     "path": "results/shd_instrument_v3/reference-worktrees/historical-seed-5170002/README.md",
+     "prose_paragraphs": 3,
+     "words": 327
+    },
+    {
+     "path": "results/shd_instrument_v3/reference-worktrees/historical-seed-5170003/README.md",
+     "prose_paragraphs": 3,
+     "words": 327
+    },
+    {
+     "path": "results/shd_instrument_v4/reference-cache/SNN-delays/README.md",
+     "prose_paragraphs": 3,
+     "words": 327
+    },
+    {
+     "path": "results/shd_instrument_v4/reference-worktrees/clean-seed-5170001/README.md",
+     "prose_paragraphs": 3,
+     "words": 327
+    },
+    {
+     "path": "results/shd_instrument_v4/reference-worktrees/clean-seed-5170002/README.md",
+     "prose_paragraphs": 3,
+     "words": 327
+    },
+    {
+     "path": "results/shd_instrument_v4/reference-worktrees/clean-seed-5170003/README.md",
+     "prose_paragraphs": 3,
+     "words": 327
+    },
+    {
+     "path": "results/shd_instrument_v4/reference-worktrees/historical-seed-5170001/README.md",
+     "prose_paragraphs": 3,
+     "words": 327
+    },
+    {
+     "path": "results/shd_instrument_v4/reference-worktrees/historical-seed-5170002/README.md",
+     "prose_paragraphs": 3,
+     "words": 327
+    },
+    {
+     "path": "results/shd_instrument_v4/reference-worktrees/historical-seed-5170003/README.md",
+     "prose_paragraphs": 3,
+     "words": 327
+    },
+    {
+     "path": "scripts/azure/README.md",
+     "prose_paragraphs": 3,
+     "words": 264
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/Brain-Inspired_Neural_Network.git"
+   ],
+   "repo": "/Users/bharath/Code/research/BINN"
+  },
+  {
+   "code_bytes_by_language": {
+    "python": 614383,
+    "shell": 2984
+   },
+   "code_files_by_language": {
+    "python": 56,
+    "shell": 1
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 34,
+   "other_doc_words": 29242,
+   "owner": "own",
+   "prose_paragraph_words": 13085,
+   "prose_paragraphs_ge25w": 217,
+   "readme_count": 5,
+   "readme_words": 7641,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 29,
+     "words": 5684
+    },
+    {
+     "path": "data/sample_data/README.md",
+     "prose_paragraphs": 5,
+     "words": 567
+    },
+    {
+     "path": "flash_boltz_native/README.md",
+     "prose_paragraphs": 4,
+     "words": 313
+    },
+    {
+     "path": "hard_mode/README_HARD_MODE.md",
+     "prose_paragraphs": 4,
+     "words": 431
+    },
+    {
+     "path": "hotdepot_pce/README.md",
+     "prose_paragraphs": 3,
+     "words": 646
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/GenoThermal_Targeting.git"
+   ],
+   "repo": "/Users/bharath/Code/research/GenoThermalTargeting"
+  },
+  {
+   "code_bytes_by_language": {
+    "python": 5902422,
+    "rust": 2826803,
+    "shell": 179421
+   },
+   "code_files_by_language": {
+    "python": 277,
+    "rust": 167,
+    "shell": 46
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 135,
+   "other_doc_words": 312394,
+   "owner": "own",
+   "prose_paragraph_words": 207295,
+   "prose_paragraphs_ge25w": 2914,
+   "readme_count": 2,
+   "readme_words": 4148,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 12,
+     "words": 1373
+    },
+    {
+     "path": "stack/README.md",
+     "prose_paragraphs": 32,
+     "words": 2775
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/Lappi-decision.git"
+   ],
+   "repo": "/Users/bharath/Code/research/Lappi-decision"
+  },
+  {
+   "code_bytes_by_language": {
+    "c": 10256,
+    "cpp": 2485,
+    "cuda": 78174,
+    "metal": 507000,
+    "python": 2751688,
+    "rust": 3483787,
+    "shell": 279275,
+    "swift": 5256
+   },
+   "code_files_by_language": {
+    "c": 5,
+    "cpp": 1,
+    "cuda": 1,
+    "metal": 53,
+    "python": 137,
+    "rust": 141,
+    "shell": 88,
+    "swift": 1
+   },
+   "licence_files": [
+    "LICENSE",
+    "LICENSE-APACHE",
+    "LICENSE-MIT"
+   ],
+   "other_doc_files": 140,
+   "other_doc_words": 274669,
+   "owner": "own",
+   "prose_paragraph_words": 179023,
+   "prose_paragraphs_ge25w": 2667,
+   "readme_count": 20,
+   "readme_words": 38012,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 15,
+     "words": 3816
+    },
+    {
+     "path": "Rust_MLKit/README.md",
+     "prose_paragraphs": 6,
+     "words": 757
+    },
+    {
+     "path": "Rust_MLKit/arch_01_gated_value_resid/README.md",
+     "prose_paragraphs": 1,
+     "words": 319
+    },
+    {
+     "path": "Rust_MLKit/arch_02_value_resid/README.md",
+     "prose_paragraphs": 3,
+     "words": 311
+    },
+    {
+     "path": "Rust_MLKit/arch_02_value_resid/burn-port/README.md",
+     "prose_paragraphs": 10,
+     "words": 1375
+    },
+    {
+     "path": "Rust_MLKit/arch_02_value_resid/metal-native/README.md",
+     "prose_paragraphs": 31,
+     "words": 3067
+    },
+    {
+     "path": "Rust_MLKit/arch_02_value_resid/metal-native/golden/README.md",
+     "prose_paragraphs": 2,
+     "words": 282
+    },
+    {
+     "path": "Rust_MLKit/arch_02_value_resid/mlx-baseline/README.md",
+     "prose_paragraphs": 3,
+     "words": 322
+    },
+    {
+     "path": "Rust_MLKit/arch_03_aprdh_adaptive/README.md",
+     "prose_paragraphs": 3,
+     "words": 512
+    },
+    {
+     "path": "Rust_MLKit/crates/sparsl/README.md",
+     "prose_paragraphs": 51,
+     "words": 5739
+    },
+    {
+     "path": "Rust_MLKit/crates/sparsl/assets/README.md",
+     "prose_paragraphs": 5,
+     "words": 376
+    },
+    {
+     "path": "Rust_MLKit/crates/tessl/README.md",
+     "prose_paragraphs": 87,
+     "words": 11798
+    },
+    {
+     "path": "Rust_MLKit/docs/README.md",
+     "prose_paragraphs": 2,
+     "words": 288
+    },
+    {
+     "path": "Rust_MLKit/gemma-metal/README.md",
+     "prose_paragraphs": 0,
+     "words": 463
+    },
+    {
+     "path": "Rust_MLKit/gemma-metal/bench/README.md",
+     "prose_paragraphs": 1,
+     "words": 182
+    },
+    {
+     "path": "docs/architecture-review-2026-09-04/README.md",
+     "prose_paragraphs": 23,
+     "words": 2605
+    },
+    {
+     "path": "docs/architecture-review-2026-09-04/evidence/README.md",
+     "prose_paragraphs": 9,
+     "words": 744
+    },
+    {
+     "path": "docs/gpu-tuning-2026-09-05/evidence/README.md",
+     "prose_paragraphs": 1,
+     "words": 163
+    },
+    {
+     "path": "docs/gpu-tuning-2026-09-05/patches/README.md",
+     "prose_paragraphs": 6,
+     "words": 489
+    },
+    {
+     "path": "nanolab/README.md",
+     "prose_paragraphs": 38,
+     "words": 4404
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/MachineLearning.git"
+   ],
+   "repo": "/Users/bharath/Code/research/MLSystemsLab"
+  },
+  {
+   "code_bytes_by_language": {
+    "c": 13462,
+    "cpp": 5132,
+    "cuda": 30020,
+    "python": 3029227,
+    "shell": 19117
+   },
+   "code_files_by_language": {
+    "c": 4,
+    "cpp": 4,
+    "cuda": 4,
+    "python": 412,
+    "shell": 7
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 0,
+   "other_doc_words": 0,
+   "owner": "other:stepfun-ai",
+   "prose_paragraph_words": 1669,
+   "prose_paragraphs_ge25w": 30,
+   "readme_count": 9,
+   "readme_words": 13211,
+   "readmes": [
+    {
+     "path": "README-MACOS.md",
+     "prose_paragraphs": 4,
+     "words": 542
+    },
+    {
+     "path": "README.md",
+     "prose_paragraphs": 5,
+     "words": 4956
+    },
+    {
+     "path": "Step-Audio-EditX/README.md",
+     "prose_paragraphs": 6,
+     "words": 4265
+    },
+    {
+     "path": "Step-Audio-Tokenizer/README.md",
+     "prose_paragraphs": 2,
+     "words": 111
+    },
+    {
+     "path": "Step-Audio-Tokenizer/dengcunqin/speech_paraformer-large_asr_nat-zh-cantonese-en-16k-vocab8501-online/README.md",
+     "prose_paragraphs": 1,
+     "words": 394
+    },
+    {
+     "path": "metal_native/README.md",
+     "prose_paragraphs": 6,
+     "words": 662
+    },
+    {
+     "path": "quantization/README.md",
+     "prose_paragraphs": 1,
+     "words": 477
+    },
+    {
+     "path": "scripts/ReadMe.md",
+     "prose_paragraphs": 4,
+     "words": 1188
+    },
+    {
+     "path": "scripts/ReadMe_zh.md",
+     "prose_paragraphs": 1,
+     "words": 616
+    }
+   ],
+   "remotes": [
+    "https://github.com/stepfun-ai/Step-Audio-EditX.git"
+   ],
+   "repo": "/Users/bharath/Code/research/MLSystemsLab/Step-Audio-EditX"
+  },
+  {
+   "code_bytes_by_language": {
+    "python": 456708,
+    "shell": 55
+   },
+   "code_files_by_language": {
+    "python": 15,
+    "shell": 1
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 0,
+   "other_doc_words": 0,
+   "owner": "other:KellerJordan",
+   "prose_paragraph_words": 0,
+   "prose_paragraphs_ge25w": 0,
+   "readme_count": 0,
+   "readme_words": 0,
+   "readmes": [],
+   "remotes": [
+    "https://github.com/KellerJordan/modded-nanogpt.git"
+   ],
+   "repo": "/Users/bharath/Code/research/MLSystemsLab/modded-nanogpt"
+  },
+  {
+   "code_bytes_by_language": {
+    "python": 1252943,
+    "shell": 2489
+   },
+   "code_files_by_language": {
+    "python": 116,
+    "shell": 2
+   },
+   "licence_files": [],
+   "other_doc_files": 12,
+   "other_doc_words": 10720,
+   "owner": "own",
+   "prose_paragraph_words": 4959,
+   "prose_paragraphs_ge25w": 93,
+   "readme_count": 7,
+   "readme_words": 6627,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 19,
+     "words": 2992
+    },
+    {
+     "path": "timesfm/README.md",
+     "prose_paragraphs": 3,
+     "words": 433
+    },
+    {
+     "path": "timesfm/timesfm-forecasting/examples/global-temperature/README.md",
+     "prose_paragraphs": 2,
+     "words": 423
+    },
+    {
+     "path": "timesfm/v1/README.md",
+     "prose_paragraphs": 13,
+     "words": 1754
+    },
+    {
+     "path": "timesfm/v1/experiments/extended_benchmarks/README.md",
+     "prose_paragraphs": 6,
+     "words": 398
+    },
+    {
+     "path": "timesfm/v1/experiments/long_horizon_benchmarks/README.md",
+     "prose_paragraphs": 3,
+     "words": 356
+    },
+    {
+     "path": "timesfm/v1/peft/README.md",
+     "prose_paragraphs": 3,
+     "words": 271
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/Stress_Project.git"
+   ],
+   "repo": "/Users/bharath/Code/research/StressProject"
+  },
+  {
+   "code_bytes_by_language": {
+    "python": 568084
+   },
+   "code_files_by_language": {
+    "python": 55
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 8,
+   "other_doc_words": 17949,
+   "owner": "other:Shanghua-Gao",
+   "prose_paragraph_words": 13527,
+   "prose_paragraphs_ge25w": 216,
+   "readme_count": 3,
+   "readme_words": 4062,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 20,
+     "words": 1813
+    },
+    {
+     "path": "rsijev/README.md",
+     "prose_paragraphs": 13,
+     "words": 1204
+    },
+    {
+     "path": "serve/README.md",
+     "prose_paragraphs": 9,
+     "words": 1045
+    }
+   ],
+   "remotes": [
+    "https://github.com/Shanghua-Gao/RSI-Jev"
+   ],
+   "repo": "/Users/bharath/Code/research/external/RSI-Jev"
+  },
+  {
+   "code_bytes_by_language": {
+    "python": 817914,
+    "shell": 3799
+   },
+   "code_files_by_language": {
+    "python": 109,
+    "shell": 4
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 14,
+   "other_doc_words": 40761,
+   "owner": "other:Mapika",
+   "prose_paragraph_words": 33911,
+   "prose_paragraphs_ge25w": 329,
+   "readme_count": 2,
+   "readme_words": 4297,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 26,
+     "words": 4024
+    },
+    {
+     "path": "moe/README.md",
+     "prose_paragraphs": 2,
+     "words": 273
+    }
+   ],
+   "remotes": [
+    "https://github.com/Mapika/decider"
+   ],
+   "repo": "/Users/bharath/Code/research/external/decider"
+  },
+  {
+   "code_bytes_by_language": {
+    "go": 184510,
+    "javascript": 1343709,
+    "metal": 149264,
+    "python": 632039,
+    "rust": 18248712,
+    "shell": 82158
+   },
+   "code_files_by_language": {
+    "go": 10,
+    "javascript": 205,
+    "metal": 6,
+    "python": 69,
+    "rust": 1172,
+    "shell": 59
+   },
+   "licence_files": [
+    "LICENSE",
+    "LICENSE-APACHE",
+    "LICENSE-MIT"
+   ],
+   "other_doc_files": 101,
+   "other_doc_words": 129312,
+   "owner": "no-remote",
+   "prose_paragraph_words": 57203,
+   "prose_paragraphs_ge25w": 817,
+   "readme_count": 64,
+   "readme_words": 50208,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 5,
+     "words": 3526
+    },
+    {
+     "path": "bench/README.md",
+     "prose_paragraphs": 5,
+     "words": 1084
+    },
+    {
+     "path": "go/README.md",
+     "prose_paragraphs": 2,
+     "words": 774
+    },
+    {
+     "path": "ojas-autograd/README.md",
+     "prose_paragraphs": 0,
+     "words": 381
+    },
+    {
+     "path": "ojas-capi/README.md",
+     "prose_paragraphs": 4,
+     "words": 872
+    },
+    {
+     "path": "ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 775
+    },
+    {
+     "path": "ojas-cuda/README.md",
+     "prose_paragraphs": 0,
+     "words": 182
+    },
+    {
+     "path": "ojas-data/README.md",
+     "prose_paragraphs": 1,
+     "words": 367
+    },
+    {
+     "path": "ojas-device/README.md",
+     "prose_paragraphs": 0,
+     "words": 253
+    },
+    {
+     "path": "ojas-gusset-engine/README.md",
+     "prose_paragraphs": 0,
+     "words": 241
+    },
+    {
+     "path": "ojas-hip/README.md",
+     "prose_paragraphs": 0,
+     "words": 164
+    },
+    {
+     "path": "ojas-infer/README.md",
+     "prose_paragraphs": 9,
+     "words": 941
+    },
+    {
+     "path": "ojas-io/README.md",
+     "prose_paragraphs": 0,
+     "words": 324
+    },
+    {
+     "path": "ojas-kernels/README.md",
+     "prose_paragraphs": 1,
+     "words": 546
+    },
+    {
+     "path": "ojas-metal/README.md",
+     "prose_paragraphs": 4,
+     "words": 1181
+    },
+    {
+     "path": "ojas-oracle/README.md",
+     "prose_paragraphs": 16,
+     "words": 1561
+    },
+    {
+     "path": "ojas-qwen35-cuda/README.md",
+     "prose_paragraphs": 24,
+     "words": 2300
+    },
+    {
+     "path": "ojas-qwen35/README.md",
+     "prose_paragraphs": 22,
+     "words": 1588
+    },
+    {
+     "path": "ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    },
+    {
+     "path": "ojas-wgpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 966
+    },
+    {
+     "path": "target-baseline/core-stage/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/baseline/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/baseline/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 473
+    },
+    {
+     "path": "target-matmul/baseline/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 485
+    },
+    {
+     "path": "target-matmul/before-stage/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/before-stage/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 635
+    },
+    {
+     "path": "target-matmul/before-stage/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    },
+    {
+     "path": "target-matmul/fa-stage/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/fa-stage/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 493
+    },
+    {
+     "path": "target-matmul/fa-stage/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    },
+    {
+     "path": "target-matmul/ff-full/README.md",
+     "prose_paragraphs": 5,
+     "words": 3526
+    },
+    {
+     "path": "target-matmul/ff-full/bench/README.md",
+     "prose_paragraphs": 5,
+     "words": 1084
+    },
+    {
+     "path": "target-matmul/ff-full/go/README.md",
+     "prose_paragraphs": 2,
+     "words": 774
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-autograd/README.md",
+     "prose_paragraphs": 0,
+     "words": 381
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-capi/README.md",
+     "prose_paragraphs": 4,
+     "words": 872
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 775
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-cuda/README.md",
+     "prose_paragraphs": 0,
+     "words": 182
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-data/README.md",
+     "prose_paragraphs": 1,
+     "words": 367
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-device/README.md",
+     "prose_paragraphs": 0,
+     "words": 253
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-gusset-engine/README.md",
+     "prose_paragraphs": 0,
+     "words": 241
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-hip/README.md",
+     "prose_paragraphs": 0,
+     "words": 164
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-infer/README.md",
+     "prose_paragraphs": 9,
+     "words": 941
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-io/README.md",
+     "prose_paragraphs": 0,
+     "words": 324
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-kernels/README.md",
+     "prose_paragraphs": 1,
+     "words": 546
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-metal/README.md",
+     "prose_paragraphs": 4,
+     "words": 1181
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-oracle/README.md",
+     "prose_paragraphs": 16,
+     "words": 1561
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-qwen35-cuda/README.md",
+     "prose_paragraphs": 24,
+     "words": 2300
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-qwen35/README.md",
+     "prose_paragraphs": 22,
+     "words": 1588
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-wgpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 966
+    },
+    {
+     "path": "target-matmul/ff-stage/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/ff-stage/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 775
+    },
+    {
+     "path": "target-matmul/ff-stage/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    },
+    {
+     "path": "target-matmul/s2-before/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/s2-before/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 635
+    },
+    {
+     "path": "target-matmul/s2-before/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    },
+    {
+     "path": "target-matmul/s2-stage/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/s2-stage/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 775
+    },
+    {
+     "path": "target-matmul/s2-stage/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    },
+    {
+     "path": "target-matmul/ts-stage/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/ts-stage/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 493
+    },
+    {
+     "path": "target-matmul/ts-stage/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    }
+   ],
+   "remotes": [],
+   "repo": "/Users/bharath/Code/research/firebrand"
+  },
+  {
+   "code_bytes_by_language": {
+    "go": 184510,
+    "javascript": 1343709,
+    "metal": 149264,
+    "python": 632039,
+    "rust": 18248712,
+    "shell": 82158
+   },
+   "code_files_by_language": {
+    "go": 10,
+    "javascript": 205,
+    "metal": 6,
+    "python": 69,
+    "rust": 1172,
+    "shell": 59
+   },
+   "licence_files": [
+    "LICENSE",
+    "LICENSE-APACHE",
+    "LICENSE-MIT"
+   ],
+   "other_doc_files": 101,
+   "other_doc_words": 129312,
+   "owner": "no-remote",
+   "prose_paragraph_words": 57203,
+   "prose_paragraphs_ge25w": 817,
+   "readme_count": 64,
+   "readme_words": 50208,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 5,
+     "words": 3526
+    },
+    {
+     "path": "bench/README.md",
+     "prose_paragraphs": 5,
+     "words": 1084
+    },
+    {
+     "path": "go/README.md",
+     "prose_paragraphs": 2,
+     "words": 774
+    },
+    {
+     "path": "ojas-autograd/README.md",
+     "prose_paragraphs": 0,
+     "words": 381
+    },
+    {
+     "path": "ojas-capi/README.md",
+     "prose_paragraphs": 4,
+     "words": 872
+    },
+    {
+     "path": "ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 775
+    },
+    {
+     "path": "ojas-cuda/README.md",
+     "prose_paragraphs": 0,
+     "words": 182
+    },
+    {
+     "path": "ojas-data/README.md",
+     "prose_paragraphs": 1,
+     "words": 367
+    },
+    {
+     "path": "ojas-device/README.md",
+     "prose_paragraphs": 0,
+     "words": 253
+    },
+    {
+     "path": "ojas-gusset-engine/README.md",
+     "prose_paragraphs": 0,
+     "words": 241
+    },
+    {
+     "path": "ojas-hip/README.md",
+     "prose_paragraphs": 0,
+     "words": 164
+    },
+    {
+     "path": "ojas-infer/README.md",
+     "prose_paragraphs": 9,
+     "words": 941
+    },
+    {
+     "path": "ojas-io/README.md",
+     "prose_paragraphs": 0,
+     "words": 324
+    },
+    {
+     "path": "ojas-kernels/README.md",
+     "prose_paragraphs": 1,
+     "words": 546
+    },
+    {
+     "path": "ojas-metal/README.md",
+     "prose_paragraphs": 4,
+     "words": 1181
+    },
+    {
+     "path": "ojas-oracle/README.md",
+     "prose_paragraphs": 16,
+     "words": 1561
+    },
+    {
+     "path": "ojas-qwen35-cuda/README.md",
+     "prose_paragraphs": 24,
+     "words": 2300
+    },
+    {
+     "path": "ojas-qwen35/README.md",
+     "prose_paragraphs": 22,
+     "words": 1588
+    },
+    {
+     "path": "ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    },
+    {
+     "path": "ojas-wgpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 966
+    },
+    {
+     "path": "target-baseline/core-stage/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/baseline/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/baseline/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 473
+    },
+    {
+     "path": "target-matmul/baseline/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 485
+    },
+    {
+     "path": "target-matmul/before-stage/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/before-stage/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 635
+    },
+    {
+     "path": "target-matmul/before-stage/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    },
+    {
+     "path": "target-matmul/fa-stage/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/fa-stage/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 493
+    },
+    {
+     "path": "target-matmul/fa-stage/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    },
+    {
+     "path": "target-matmul/ff-full/README.md",
+     "prose_paragraphs": 5,
+     "words": 3526
+    },
+    {
+     "path": "target-matmul/ff-full/bench/README.md",
+     "prose_paragraphs": 5,
+     "words": 1084
+    },
+    {
+     "path": "target-matmul/ff-full/go/README.md",
+     "prose_paragraphs": 2,
+     "words": 774
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-autograd/README.md",
+     "prose_paragraphs": 0,
+     "words": 381
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-capi/README.md",
+     "prose_paragraphs": 4,
+     "words": 872
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 775
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-cuda/README.md",
+     "prose_paragraphs": 0,
+     "words": 182
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-data/README.md",
+     "prose_paragraphs": 1,
+     "words": 367
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-device/README.md",
+     "prose_paragraphs": 0,
+     "words": 253
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-gusset-engine/README.md",
+     "prose_paragraphs": 0,
+     "words": 241
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-hip/README.md",
+     "prose_paragraphs": 0,
+     "words": 164
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-infer/README.md",
+     "prose_paragraphs": 9,
+     "words": 941
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-io/README.md",
+     "prose_paragraphs": 0,
+     "words": 324
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-kernels/README.md",
+     "prose_paragraphs": 1,
+     "words": 546
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-metal/README.md",
+     "prose_paragraphs": 4,
+     "words": 1181
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-oracle/README.md",
+     "prose_paragraphs": 16,
+     "words": 1561
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-qwen35-cuda/README.md",
+     "prose_paragraphs": 24,
+     "words": 2300
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-qwen35/README.md",
+     "prose_paragraphs": 22,
+     "words": 1588
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    },
+    {
+     "path": "target-matmul/ff-full/ojas-wgpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 966
+    },
+    {
+     "path": "target-matmul/ff-stage/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/ff-stage/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 775
+    },
+    {
+     "path": "target-matmul/ff-stage/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    },
+    {
+     "path": "target-matmul/s2-before/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/s2-before/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 635
+    },
+    {
+     "path": "target-matmul/s2-before/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    },
+    {
+     "path": "target-matmul/s2-stage/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/s2-stage/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 775
+    },
+    {
+     "path": "target-matmul/s2-stage/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    },
+    {
+     "path": "target-matmul/ts-stage/ojas-core/README.md",
+     "prose_paragraphs": 1,
+     "words": 548
+    },
+    {
+     "path": "target-matmul/ts-stage/ojas-cpu/README.md",
+     "prose_paragraphs": 1,
+     "words": 493
+    },
+    {
+     "path": "target-matmul/ts-stage/ojas-simd/README.md",
+     "prose_paragraphs": 1,
+     "words": 489
+    }
+   ],
+   "remotes": [],
+   "repo": "/Users/bharath/Code/research/ojas"
+  },
+  {
+   "code_bytes_by_language": {
+    "c": 12258,
+    "cpp": 27312,
+    "metal": 419672,
+    "python": 266038,
+    "rust": 2044903,
+    "shell": 7230
+   },
+   "code_files_by_language": {
+    "c": 5,
+    "cpp": 2,
+    "metal": 31,
+    "python": 18,
+    "rust": 84,
+    "shell": 3
+   },
+   "licence_files": [
+    "LICENSE-APACHE",
+    "LICENSE-MIT"
+   ],
+   "other_doc_files": 6,
+   "other_doc_words": 27332,
+   "owner": "own",
+   "prose_paragraph_words": 23684,
+   "prose_paragraphs_ge25w": 242,
+   "readme_count": 5,
+   "readme_words": 7003,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 15,
+     "words": 4566
+    },
+    {
+     "path": "assets/README.md",
+     "prose_paragraphs": 3,
+     "words": 271
+    },
+    {
+     "path": "assets/concepts/README.md",
+     "prose_paragraphs": 3,
+     "words": 240
+    },
+    {
+     "path": "python/README.md",
+     "prose_paragraphs": 12,
+     "words": 1081
+    },
+    {
+     "path": "tools/msl_emu/README.md",
+     "prose_paragraphs": 6,
+     "words": 845
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/tessl.git"
+   ],
+   "repo": "/Users/bharath/Code/research/tessl"
+  },
+  {
+   "code_bytes_by_language": {
+    "go": 23391681,
+    "javascript": 1777551,
+    "python": 3518481,
+    "rust": 1322828,
+    "shell": 158129,
+    "sql": 76814,
+    "typescript": 12705845
+   },
+   "code_files_by_language": {
+    "go": 2139,
+    "javascript": 143,
+    "python": 287,
+    "rust": 33,
+    "shell": 40,
+    "sql": 32,
+    "typescript": 1449
+   },
+   "licence_files": [],
+   "other_doc_files": 296,
+   "other_doc_words": 526309,
+   "owner": "own",
+   "prose_paragraph_words": 192831,
+   "prose_paragraphs_ge25w": 3207,
+   "readme_count": 34,
+   "readme_words": 23533,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 23,
+     "words": 4520
+    },
+    {
+     "path": "artifacts/literature_scoreboard/README.md",
+     "prose_paragraphs": 0,
+     "words": 89
+    },
+    {
+     "path": "artifacts/prm_rewards/README.md",
+     "prose_paragraphs": 7,
+     "words": 587
+    },
+    {
+     "path": "artifacts/scholarwisdom_gold_set/README.md",
+     "prose_paragraphs": 1,
+     "words": 456
+    },
+    {
+     "path": "backend/go_orchestrator/README.md",
+     "prose_paragraphs": 4,
+     "words": 1030
+    },
+    {
+     "path": "backend/go_orchestrator/internal/evidence/citations/testdata/seamfixtures/README.md",
+     "prose_paragraphs": 2,
+     "words": 69
+    },
+    {
+     "path": "backend/python_sidecar/README.md",
+     "prose_paragraphs": 0,
+     "words": 1088
+    },
+    {
+     "path": "backend/python_sidecar/manuscript_orchestrator/README.md",
+     "prose_paragraphs": 11,
+     "words": 1505
+    },
+    {
+     "path": "backend/rust_gateway/README.md",
+     "prose_paragraphs": 1,
+     "words": 416
+    },
+    {
+     "path": "browser-extension/README.md",
+     "prose_paragraphs": 0,
+     "words": 186
+    },
+    {
+     "path": "browser-extension/icons/README.md",
+     "prose_paragraphs": 2,
+     "words": 181
+    },
+    {
+     "path": "docs/README.md",
+     "prose_paragraphs": 0,
+     "words": 491
+    },
+    {
+     "path": "docs/archive/README.md",
+     "prose_paragraphs": 1,
+     "words": 319
+    },
+    {
+     "path": "docs/archive/completed/README.md",
+     "prose_paragraphs": 0,
+     "words": 82
+    },
+    {
+     "path": "docs/archive/completed/plans/README.md",
+     "prose_paragraphs": 1,
+     "words": 740
+    },
+    {
+     "path": "docs/archive/historical/README.md",
+     "prose_paragraphs": 0,
+     "words": 84
+    },
+    {
+     "path": "docs/archive/migration_snapshots/README.md",
+     "prose_paragraphs": 1,
+     "words": 200
+    },
+    {
+     "path": "docs/business/README.md",
+     "prose_paragraphs": 0,
+     "words": 235
+    },
+    {
+     "path": "docs/business/funding/README.md",
+     "prose_paragraphs": 0,
+     "words": 58
+    },
+    {
+     "path": "docs/business/hiring/README.md",
+     "prose_paragraphs": 0,
+     "words": 105
+    },
+    {
+     "path": "docs/business/marketing/README.md",
+     "prose_paragraphs": 4,
+     "words": 616
+    },
+    {
+     "path": "docs/business/product/README.md",
+     "prose_paragraphs": 0,
+     "words": 118
+    },
+    {
+     "path": "docs/business/strategy/README.md",
+     "prose_paragraphs": 0,
+     "words": 156
+    },
+    {
+     "path": "docs/dev/README.md",
+     "prose_paragraphs": 1,
+     "words": 496
+    },
+    {
+     "path": "docs/dev/plans/README.md",
+     "prose_paragraphs": 0,
+     "words": 325
+    },
+    {
+     "path": "docs/dev/plans/active/README.md",
+     "prose_paragraphs": 1,
+     "words": 400
+    },
+    {
+     "path": "docs/dev/plans/active/handoffs/README.md",
+     "prose_paragraphs": 2,
+     "words": 394
+    },
+    {
+     "path": "docs/ops/README.md",
+     "prose_paragraphs": 0,
+     "words": 148
+    },
+    {
+     "path": "infra/aws-ci/README.md",
+     "prose_paragraphs": 27,
+     "words": 2277
+    },
+    {
+     "path": "migrations/README.md",
+     "prose_paragraphs": 20,
+     "words": 1432
+    },
+    {
+     "path": "plugins/scholarlm/README.md",
+     "prose_paragraphs": 19,
+     "words": 1691
+    },
+    {
+     "path": "scripts/README.md",
+     "prose_paragraphs": 0,
+     "words": 621
+    },
+    {
+     "path": "scripts/local_model/README.md",
+     "prose_paragraphs": 12,
+     "words": 1051
+    },
+    {
+     "path": "tools/voiceover/README.md",
+     "prose_paragraphs": 19,
+     "words": 1367
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/ScholarLM.git"
+   ],
+   "repo": "/Users/bharath/Code/scholarlm"
+  },
+  {
+   "code_bytes_by_language": {
+    "go": 8807303,
+    "python": 1250017,
+    "shell": 12177
+   },
+   "code_files_by_language": {
+    "go": 884,
+    "python": 118,
+    "shell": 5
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 18,
+   "other_doc_words": 9389,
+   "owner": "own",
+   "prose_paragraph_words": 3057,
+   "prose_paragraphs_ge25w": 64,
+   "readme_count": 4,
+   "readme_words": 3051,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 6,
+     "words": 1563
+    },
+    {
+     "path": "adapters/scholarlm/README.md",
+     "prose_paragraphs": 3,
+     "words": 124
+    },
+    {
+     "path": "orchestrator/README.md",
+     "prose_paragraphs": 1,
+     "words": 440
+    },
+    {
+     "path": "sidecar/README.md",
+     "prose_paragraphs": 0,
+     "words": 924
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/WisDev.git"
+   ],
+   "repo": "/Users/bharath/Code/scholarlm/wisdev-arc"
+  },
+  {
+   "code_bytes_by_language": {},
+   "code_files_by_language": {},
+   "licence_files": [],
+   "other_doc_files": 9,
+   "other_doc_words": 8071,
+   "owner": "own",
+   "prose_paragraph_words": 2880,
+   "prose_paragraphs_ge25w": 47,
+   "readme_count": 3,
+   "readme_words": 2436,
+   "readmes": [
+    {
+     "path": "Docs/passive_greenhouse_extended_visual_plan/README.md",
+     "prose_paragraphs": 8,
+     "words": 566
+    },
+    {
+     "path": "Docs/tirupati_passive_greenhouse_visual_blueprint/README.md",
+     "prose_paragraphs": 2,
+     "words": 413
+    },
+    {
+     "path": "README.md",
+     "prose_paragraphs": 7,
+     "words": 1457
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/BlueberryFarming.git"
+   ],
+   "repo": "/Users/bharath/Code/web/BlueberryFarming"
+  },
+  {
+   "code_bytes_by_language": {
+    "javascript": 346298,
+    "python": 214856,
+    "shell": 6498
+   },
+   "code_files_by_language": {
+    "javascript": 9,
+    "python": 11,
+    "shell": 4
+   },
+   "licence_files": [],
+   "other_doc_files": 9,
+   "other_doc_words": 29100,
+   "owner": "own",
+   "prose_paragraph_words": 22659,
+   "prose_paragraphs_ge25w": 304,
+   "readme_count": 2,
+   "readme_words": 2145,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 22,
+     "words": 1933
+    },
+    {
+     "path": "archive/retired-calibrator-20260916/README.md",
+     "prose_paragraphs": 4,
+     "words": 212
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/LAPPI.git"
+   ],
+   "repo": "/Users/bharath/Code/web/Lappi-BDay"
+  },
+  {
+   "code_bytes_by_language": {
+    "javascript": 1966142,
+    "typescript": 8428
+   },
+   "code_files_by_language": {
+    "javascript": 201,
+    "typescript": 2
+   },
+   "licence_files": [],
+   "other_doc_files": 43,
+   "other_doc_words": 41763,
+   "owner": "own",
+   "prose_paragraph_words": 5439,
+   "prose_paragraphs_ge25w": 91,
+   "readme_count": 2,
+   "readme_words": 4158,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 7,
+     "words": 3319
+    },
+    {
+     "path": "public/ScholarLM/README.md",
+     "prose_paragraphs": 1,
+     "words": 839
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/Portfolio-VBCR.git"
+   ],
+   "repo": "/Users/bharath/Code/web/Portfolio"
+  },
+  {
+   "code_bytes_by_language": {
+    "typescript": 310410
+   },
+   "code_files_by_language": {
+    "typescript": 83
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 0,
+   "other_doc_words": 0,
+   "owner": "own",
+   "prose_paragraph_words": 63,
+   "prose_paragraphs_ge25w": 1,
+   "readme_count": 1,
+   "readme_words": 633,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 1,
+     "words": 633
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/Void.git"
+   ],
+   "repo": "/Users/bharath/Code/web/Void"
+  },
+  {
+   "code_bytes_by_language": {
+    "javascript": 3940,
+    "typescript": 281871
+   },
+   "code_files_by_language": {
+    "javascript": 3,
+    "typescript": 50
+   },
+   "licence_files": [
+    "LICENSE"
+   ],
+   "other_doc_files": 4,
+   "other_doc_words": 1117,
+   "owner": "own",
+   "prose_paragraph_words": 493,
+   "prose_paragraphs_ge25w": 14,
+   "readme_count": 1,
+   "readme_words": 840,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 6,
+     "words": 840
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/Whimsical-Love.git"
+   ],
+   "repo": "/Users/bharath/Code/web/WhimsicalLove"
+  },
+  {
+   "code_bytes_by_language": {
+    "python": 20511
+   },
+   "code_files_by_language": {
+    "python": 2
+   },
+   "licence_files": [],
+   "other_doc_files": 0,
+   "other_doc_words": 0,
+   "owner": "own",
+   "prose_paragraph_words": 4336,
+   "prose_paragraphs_ge25w": 6,
+   "readme_count": 1,
+   "readme_words": 5939,
+   "readmes": [
+    {
+     "path": "README.md",
+     "prose_paragraphs": 6,
+     "words": 5939
+    }
+   ],
+   "remotes": [
+    "https://github.com/bharathvbcr/bharathvbcr.git"
+   ],
+   "repo": "/Users/bharath/Code/web/bharathvbcr"
+  }
+ ],
+ "totals": {
+  "no-remote:code_files:go": 43,
+  "no-remote:code_files:javascript": 410,
+  "no-remote:code_files:metal": 12,
+  "no-remote:code_files:python": 142,
+  "no-remote:code_files:rust": 2344,
+  "no-remote:code_files:shell": 127,
+  "no-remote:code_files:swift": 138,
+  "no-remote:other_doc_files": 210,
+  "no-remote:prose_paragraph_words": 126463,
+  "no-remote:prose_paragraphs_ge25w": 1857,
+  "no-remote:readme_words": 104258,
+  "no-remote:readmes": 133,
+  "no-remote:repos": 6,
+  "other:code_files:c": 8,
+  "other:code_files:cpp": 4,
+  "other:code_files:cuda": 4,
+  "other:code_files:go": 802,
+  "other:code_files:javascript": 7,
+  "other:code_files:python": 601,
+  "other:code_files:rust": 4,
+  "other:code_files:shell": 28,
+  "other:code_files:sql": 410,
+  "other:code_files:swift": 27,
+  "other:code_files:typescript": 1441,
+  "other:other_doc_files": 244,
+  "other:prose_paragraph_words": 105084,
+  "other:prose_paragraphs_ge25w": 1698,
+  "other:readme_words": 27281,
+  "other:readmes": 21,
+  "other:repos": 7,
+  "own:code_files:c": 24,
+  "own:code_files:cpp": 5,
+  "own:code_files:csharp": 2,
+  "own:code_files:cuda": 3,
+  "own:code_files:dart": 2,
+  "own:code_files:go": 4081,
+  "own:code_files:java": 2,
+  "own:code_files:javascript": 390,
+  "own:code_files:kotlin": 1568,
+  "own:code_files:lua": 2,
+  "own:code_files:metal": 88,
+  "own:code_files:objc": 3,
+  "own:code_files:php": 2,
+  "own:code_files:python": 1808,
+  "own:code_files:r": 2,
+  "own:code_files:ruby": 2,
+  "own:code_files:rust": 2301,
+  "own:code_files:scala": 2,
+  "own:code_files:shell": 320,
+  "own:code_files:sql": 48,
+  "own:code_files:svelte": 168,
+  "own:code_files:swift": 1419,
+  "own:code_files:typescript": 3859,
+  "own:code_files:vue": 2,
+  "own:other_doc_files": 1992,
+  "own:prose_paragraph_words": 1462580,
+  "own:prose_paragraphs_ge25w": 22007,
+  "own:readme_words": 200011,
+  "own:readmes": 211,
+  "own:repos": 31
+ }
+}

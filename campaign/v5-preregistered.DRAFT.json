@@ -1,0 +1,204 @@
+{
+  "draft": "NOT BINDING. This is lane L-v5plan's draft for Fable's review. The DRAFT suffix keeps it from binding: no checker, waiter or lane may read it as a rule. It binds only when Fable's review is applied by commit, the file is renamed to campaign/v5-preregistered.json on main, and that commit lands before the written_at of v5 seed 0's ft row (binds_iff).",
+  "recorded": "2026-10-02, before any v5 build, shard set, code change or ledger row exists anywhere. Nothing was trained, built, downloaded or run on the box by this lane. The counts below were measured on the Mac from F's v4 manifests and shards (/Users/bharath/qd-campaign/phase4-v4-2026-10-01), the cached general fetch (~/.cache/qd-decision/general) and the local repositories under /Users/bharath/Code; scripts and outputs are in AUDIT/v5-plan-2026-10-02/.",
+  "decision": "v5 as Fable ruled it (AUDIT/fable-optimize-2026-10-02/fable-optimize-ruling.md Q2 'The rule, end to end' and 'Other defects'; AUDIT/fable-optimize-2026-10-02/fable-improve-and-mac-inference-ruling.md Q1(b) and Q1(d)) and as the human decided it (AUDIT/fable-optimize-2026-10-02/human-decisions.md items 2-9). It is a training plan and its reading rules. It moves no gate threshold or population except the two the human approved: the CLINC oos re-key (item 2) and the 8K needle suite resize (item 3). Nothing promotes on it (rule 8 and the human's promotion decisions stand).",
+  "launch": {
+    "rule": "No v5 GPU job launches until the human says yes to the final cost and timeline (human-decisions.md item 4: 'Plan it; ask before launch'). The noul-weight arm launches only with v5 (item 6). Every v5 run's cap prices above $20 (32,400 s x $2.29/h = $20.61), so rule 4's yes is also needed per the 2026-10-01 lifting.",
+    "projected_cost_usd": {
+      "basis": "Fable Q1(d): F seed $10.68 (train 973cd4e3 $10.19 + eval f4feac15 $0.37 + needle control a4f244f0 $0.12); $11-12 per seed at 9-10k composition; $8-9 with no-mask; +$0.6 eval/controls and +$0.5 trajectory scoring per seed.",
+      "check": "AUDIT/v5-plan-2026-10-02/v5_accounting.json (inferred): v5 positions per epoch 375.0M = 1.161 x F's 323.07M (v4_token_accounting.json), so 11,241 steps and 18,602 s of train per seed at F's 1.655 s/step: $11.83. Per v5 or arm seed with eval, controls and trajectory: $12.93. Per J5' seed (train + score-val): $12.20.",
+      "v5_seeds_0_2": 38.80,
+      "j5prime_x3": 36.60,
+      "noul_weight_x3": 38.80,
+      "total": 114.20,
+      "if_seeds_3_4": 25.87,
+      "if_nomask_enters": "total $92.90 at -20% train time, $71.60 at -40% (Fable's -20-40% [I])",
+      "caps_total": "9 runs x 32,400 s + 6 needle controls x 5,400 s + 6 trajectory blocks x 3,600 s = 345,600 s = 96 h = $219.84"
+    },
+    "projected_gpu_hours": {
+      "total": 49.9,
+      "if_seeds_3_4": 11.3,
+      "slot": "one GH200, after the current idle queue fsucc -> j5pp -> j6a -> j6g -> STOP; v5 seeds 0-2, then seeds 3-4 iff the spread rule fires, then J5' x3, then the noul-weight arm x3, each holding /home/ubuntu/queue/gpu.lock"
+    }
+  },
+  "data": {
+    "base": "v4 as built in ledger/mac-phase4-v4-shards-2026-10-01.jsonl row d96409bd (code_commit 881ab304, data_snapshot_hash ea3215c4..., train shard 8bcf56ad..., val shard ef06ab99...): train 289,142 / val 16,124 / held-out 37,705 rows; 363,950 train sequences, 306,926,895 tokens, 323,073,710 positions at bucket width (5.00% padding), max width 7,936.",
+    "sources": [
+      {"source": "qd-mutate/commitpackft single-file defect rows (corpus v3)", "rows_v4_train": 44860, "rows_v5_train": "44,860 before v5 exclusions", "licence": "per-row permissive (mit 24,389, apache-2.0 9,863, bsd-3-clause 7,050, bsd-2-clause 2,557, isc 407, unlicense 358, cc0-1.0 236)", "feeds": "code.defect_class: choice k4 (stub/logic/cosmetic/clean) + span", "local": true},
+      {"source": "qd-mutate compose (composed multi-file rows)", "rows_v4_train": 25000, "rows_v5_train": 25000, "change": "length band stretched: --min-tokens 850 --max-tokens 9100 --hard-max-tokens 9400 (estimate units; v4 was 850/7300/7450 and measured real 0.9k-7.9k), real ~0.9k-9.9k, uniform target; built as data/pool/commitpackft-composed-v2; --val-rows 0 as v4", "licence": "as its constituents (v3 rows)", "feeds": "code.defect_class: choice k4 + span (2 sequences per row)", "local": true},
+      {"source": "defect-noul-v3b (v4's noul rows, unchanged)", "rows_v4_train": 5004, "rows_v5_train": 5004, "detail": "prose 2,010 (SQuAD paragraph 1,005 + question 1,005, cc-by-sa-4.0), scrambled 2,160, unseen-language 834 template rows (csharp, elixir, kotlin, php, scala, shell)", "feeds": "code.defect_class choice gold Z + span abstain", "local": true},
+      {"source": "prose-noul (i): own-repo prose (new)", "rows_v5_train": "2,000 target, 1,500 floor after exclusions", "supply": "31 repos whose .git/config remote names github owner bharathvbcr (own_repo_inventory.json): 211 READMEs (200,011 words), 1,992 other Markdown/reST files, 22,007 prose paragraphs of >= 25 words; 592 distinct question sentences (6-60 words) in their docs (own_repo_questions.json); this repo's own commit bodies: 630 non-merge commits, 487 with >= 10 words of body, 1,656 body paragraphs >= 25 words, 7 questions. Commit bodies of the other 30 repos: not measured (GAP-L-V5PLAN-OWN-REPO-COMMIT-BODIES-NOT-MEASURED-2026-10-02). Issue text: not local (needs GitHub network reads); not needed at this supply and not used.", "form": "question form: every distinct question sentence (~599); paragraph form: the remainder (~1,401), at most 150 rows per repo so no repo dominates. Context = the text, path drawn from the source file's own repo-relative path (README.md, docs/*.md, COMMIT_MSG for commit bodies), never 'notes.txt' (the OOD suite's prose path, python/qd_train/ood.py:168).", "exclusions_by_default": "the lane defaults (not a human question): no-remote repos (6, ownership not readable from a remote); personal-content repos CurriculumVitae, Lappi-BDay, WhimsicalLove, web/bharathvbcr; third-party repos and nested vendored trees (LiquiTask/vendor/multica-ref, external/*, MLSystemsLab/{modded-nanogpt,Step-Audio-EditX}, Blitztree, CodeGit/order-import-service).", "licence": "owner-granted (the human's 2026-09-28 approval: own repositories usable for training, docs/train-plan-2026-09-28.md:229-231); registered as a new source in python/qd_data/sources.py with licence owner-granted", "feeds": "code.defect_class choice gold Z + span abstain", "split": "pinned to train: metadata[PINNED_SPLIT_KEY] = 'train' (python/qd_data/split.py:294-324); repo_key 'own-prose:<repo>'", "local": true},
+      {"source": "prose-noul (ii): MMLU/CSQA train contrast rows (new)", "rows_v5_train": "2,000 target (1,200 MMLU + 800 CSQA, ~ their train ratio 14,200:9,619), 1,500 floor after exclusions", "supply": "MMLU train (test+dev) 14,200 and CSQA train 9,619 rows in v4 train, minus E_val's 1,195 identity keys (MMLU 1,117, CSQA 78): 22,624 eligible twins", "form": "the twin's question text as the context of a code.defect_class request with gold Z, beside the twin's own letter-gold row (human-decisions.md item 5 (ii)); question form by nature", "licence": "mit (cais/mmlu, tau/commonsense_qa)", "feeds": "code.defect_class choice gold Z + span abstain", "split": "inherits the twin's repo_key and pinned split (both sources pin train, python/qd_data/sources.py:193,216), so dedupe treats twin and contrast as one repo's rows and neither can land in val or held-out", "local": true},
+      {"source": "general families (cais/mmlu, tau/commonsense_qa, clinc/clinc_oos plus, rajpurkar/squad_v2), record a0841f0d...", "rows_v4_train": "knowledge.multiple_choice 14,200; commonsense.multiple_choice 9,619; intent.{classification 21,143, domain 21,142, in_scope 21,143, within_domain 21,141}; qa.answer_span 105,890", "rows_v5_train": "minus the CLINC re-key's 4 x 134 = 536 rows and the containment exclusions (>= 1,196 MMLU/CSQA rows)", "licence": "mit / mit / cc-by-3.0 / cc-by-sa-4.0", "local": true, "more_rows_available": "nearly none: MMLU 14,327 upstream train rows -> 14,200 used, CSQA 9,741 -> 9,619, SQuAD 142,192 across splits -> 141,752 in v4's three splits; --general-max-rows 200000 does not bind (192,862 rows in the record). 'Train on more data' adds nothing here."}
+    ],
+    "clinc_oos_rekey": {
+      "decision": "human-decisions.md item 2; GAP-CLINC-OOS-ONE-REPO-KEY-ONE-SPLIT-2026-10-02. v4 keys every CLINC row by intent (python/qd_data/mixture.py:471, python/qd_data/general.py:418), so all 1,350 oos utterances (upstream train 250, validation 100, test 1,000) share repo key 'clinc-intent:oos', which assign_repo puts in train.",
+      "candidate_key": "clinc-oos:{blake2b-8(utterance.strip())} (the digest rewrite_clinc already computes for identity); repo_key per utterance, in-scope intents unchanged",
+      "effect_at_seed_20260919": "oos utterances: train 1,216, val 72, held-out 62 (AUDIT/v5-plan-2026-10-02/clinc_oos_rekey.json, assign_repo imported read-only). In-scope intents keep 133/10/8 repo keys across train/val/held-out (v4's manifest counts reproduce). Per CLINC family: val 1,500 -> 1,572 (within_domain 1,499 -> 1,571), held-out 1,200 -> 1,262, train -134. intent.in_scope val gains its first 72 'no' golds; intent.{classification, domain, within_domain} val gain 72 gold-noul rows each, so ood_abstain.in_distribution.gold_noul.family.* (not_run on F) runs on v5. CLINC Z-gold train rows: 4,050 -> 3,648.",
+      "not_modelled": "MinHash dedupe (Jaccard >= 0.8, before the split) may drop a few near-duplicate oos utterances once they no longer share a repo key; v4 dropped 8 CLINC rows as contradictions. The build's own counts are the record.",
+      "amendment": "the build lane's actual key spelling and the resulting per-split counts are pinned under amendments_pending; a different spelling gives different counts"
+    },
+    "decontamination": {
+      "rule": "Fable Q2 'The rule, end to end', unchanged: keys (i) exact identity_key/content_hash equality across splits, (ii) word 8-gram containment >= 0.5 of the target row's n-grams over rendered prompt_content, blake2b-64 (python/qd_train/replay.py:169-233), (iii) MinHash Jaccard >= 0.8. Every v5 train row of every family, gold or added, is a source; targets are (a) every val row of every family: refuse-on-hit, exclude the train row; (b) the repo-disjoint held-out splits of trainable families: exclude; the two task-holdout families (code.language_id, qa.answerability): report per (source family, held-out family), enforce nothing, named unenforced in the attestation (GAP-PORTED-HELDOUT-FAMILY-CONTENT-OVERLAPS-TRAIN); val x held-out reported.",
+      "tool": "qd-prep containment + attestation v2 + tools/real_tokenizer_pipeline.py --exclude-identity-keys, lane L-prep (in flight; worktree agent-ae3fa4a2291e83af6 at d554702 holds crates/qd-prep/src/containment.rs). Not redone here.",
+      "measured_lower_bound": "E_val (L-replay gold-side, /Users/bharath/qd-campaign/replay-v4-2026-10-02/gold-side/summary.json): 1,196 MMLU/CSQA train keys (row#slot) = 1,195 distinct identity keys (MMLU 1,117, CSQA 78) hit val; 0 hit held-out. Code, CLINC and SQuAD rows were never scanned as sources (GAP-E-VAL-SOURCES-ARE-MMLU-CSQA-ONLY-2026-10-02), so v5's exclusion count is >= 1,196 and otherwise unknown.",
+      "refuse": "a build whose attestation v2 is not clean on enforced targets is refused; the recipe and shard header carry exclusions_sha256"
+    },
+    "max_seq_len": 10240,
+    "not_added": {
+      "own_repo_code_for_defect_class": "not added. code.defect_class already meets its gates on F seed 0 (top-1 95.7%, margin +0.379, permutation 99.4%, in-dist abstention 0.56%, ECE 0.021; Fable Q3). Own-repo files enter qd-mutate only as unconstrained whole files with no pre-image (crates/qd-mutate/src/pool.rs:1-80: no clean class, hunk_constrained false), and repo-hashed own repos would land ~5% each in defect_class val and held-out, which is a promotion-population change (rule 2). Supply if ever wanted: go 4,081, python 1,808, rust 2,301, typescript 3,859 own files (own_repo_inventory.json).",
+      "more_general_rows": "exhausted (data.sources, general families)",
+      "replay": "not in v5. J6(a)'s outcome 'feeds the next re-plan only' (campaign/j6a-preregistered.json); adding --replay-shards later is a rebuild (split_off_replay moves MMLU/CSQA rows) and forbids no-mask (GAP-REPLAY-ARMS-CANNOT-TAKE-NO-MASK-2026-10-02).",
+      "unseen_language": "no change to v3b's 834 template rows unless the human answers open question G6 (below)"
+    },
+    "projected_totals": {
+      "label": "inferred, AUDIT/v5-plan-2026-10-02/v5_accounting.json; before MinHash dedupe and before containment exclusions beyond E_val's 1,196",
+      "train_rows": 291410,
+      "letter_rows": 185520,
+      "z_gold_letter_rows": "12,652 = defect noul 9,004 (v3b 5,004 + 4,000 new) + CLINC 3 x 1,216; 6.82% of letter rows (v4: 9,054, 4.94%)",
+      "prose_noul_rows": "6,010 = 2,010 + 4,000; 3.24% of letter rows (v4: 2,010, 1.10%)",
+      "prose_question_form": "~3,604 = SQuAD 1,005 + own-repo ~599 + contrast 2,000",
+      "composed_length_target": "uniform over ~0.9k-9.9k real tokens (8 x 1k bins of ~2,800 rows each, vs v4's ~3,800 per bin to 7k and 1,898 in 7-8k); no row over 10,240",
+      "tokens_per_epoch": "~356.3M tokens, ~375.0M positions at v4's 5.0% padding (1.161 x v4); ~11,240 steps at --batch-tokens 35403"
+    }
+  },
+  "format": {
+    "decision": "human-decisions.md item 8: context before the question. The minimal reading is taken: only the question moves. Task and route stay before the context, so N questions with one task over one context share every byte through <|qd_context_end|>.",
+    "layout_v5": "<|qd_begin|>\\n<|qd_prompt_format|>2\\n<|qd_schema_version|>1\\n<|qd_task|>T\\n<|qd_route|>R\\n<|qd_context_begin|>\\nC\\n<|qd_context_end|>\\n<|qd_question|>Q\\n then each slot suffix unchanged (crates/qd-runtime/src/render.rs:645-765).",
+    "layout_v4": "<|qd_begin|>, <|qd_schema_version|>1, task, route, question, context (render.rs:524-546; python/qd_data/render.py:716-725).",
+    "version_marker": "a new structural marker M_FORMAT = '<|qd_prompt_format|>' (shape <|qd_...|>, so the one escape rule covers it) and PROMPT_FORMAT = 2 in both renderers, added to MARKERS in both; a v4 prompt has no such line. The wire schema_version stays 1: callers send the same requests.",
+    "refusal_both_ways": {
+      "serving": "crates/qd-runtime/src/release.rs: MANIFEST_FORMAT 'qd-release.v1' -> 'qd-release.v2' and expected_identity.prompt_format required and equal to render::PROMPT_FORMAT. A v5 runtime refuses every v4 release (no prompt_format, v1 format); a v4-era runtime refuses a v5 release by format. qd-export writes prompt_format read from the checkpoint's recipe (absent = 1), never the current constant, so a v4 checkpoint exported after the change is stamped 1 and refused, not mislabelled.",
+      "training": "python/qd_train/artifacts.py ShardHeader.prompt_format, serialized only when != 1 so v4 header hashes do not move (the span_collapse_policy precedent, GAP-V4-TRAIN-HEADER-OMITS-SPAN-COLLAPSE-POLICY); the shard reader refuses a header whose prompt_format differs from render.PROMPT_FORMAT. The qd_data code fingerprint in every shard header (render.py is in it) already refuses v4 shards under v5 code."
+    },
+    "prefix_sharing": "Within one request nothing changes for qd-metal: the rendered prefix still ends where the slot suffixes begin (now with the question as its last line), every slot and its deranged pass continue read-only from that one snapshot (crates/qd-metal/src/model.rs:34-39), and no qd-metal file changes for v5. Across questions over one context the bytes through <|qd_context_end|>\\n become identical, so a serving lane can snapshot there and run each question as part of its slots' continuations (question line + slot suffix, tens of tokens recomputed per continuation; no concat_kv copy, which would cost ~24 KB per prefix position per question [I]). That needs a shared-prefix offset on RenderedPrompt, a snapshot cache keyed by its digest and a tokenization-additivity test at the new split (the '|>\\n' | '<|qd_question|>' boundary is the same class as today's prefix|suffix boundary [I]). It is post-v5 serving work (GAP-RT-QUESTION-BEFORE-CONTEXT-BLOCKS-CROSS-QUESTION-PREFIX-CACHE-2026-10-02 keeps its serving half) and waits for the foreign qd-metal/qd-runtime edits to land.",
+    "expected_cost_report_only": "The span pointer scores line-start hidden states. Under causal attention those states no longer see the question (GAP-V5-CONTEXT-FIRST-LINE-STARTS-DO-NOT-SEE-THE-QUESTION-2026-10-02). qa.answer_span and the needle suite are the span consumers; val_top1.span may fall. Report-only, no kill criterion; it is one reason v5 is never read against F.",
+    "freeze": "python/qd_data/render.py, crates/qd-runtime/src/render.rs, crates/qd-runtime/src/release.rs and crates/qd-export land together in the v5 build commit, after the last v4 reader on main has run (render_contract's goldens need both renderers in one commit, and main's qd-runtime would refuse F's export the moment render.rs lands). The readers to clear first: L-metal's ledger/mac-qd-metal-2026-10-02.jsonl rows against the v4 export, any J7'/ens3 export or scoring built from a main checkout, and the excluded re-score for F seeds 1-2 if rebuilt from main (GAP-V5-FORMAT-CHANGE-REFUSES-V4-EXPORT-ON-MAIN-2026-10-02).",
+    "tests_required": "both renderers' goldens regenerated for format 2 (crates/qd-runtime/tests/render_contract.rs:24-53 GOLDEN_PREFIX, python/tests/test_render.py); a test that prompt_content(v5 render) == prompt_content(v4 render) on a fixture (python/qd_train/replay.py:83-112 appends question, context, options by marker position, so the containment n-grams should not move [I]); release refusal tests both ways; a shard-header refusal test; each failing on the pre-change code."
+  },
+  "recipe": {
+    "base": "F's ft recipe as row 973cd4e3 records it: --optimizer master --lr 1e-5 --epoch --no-memorise --batch-tokens 35403 --lower-layers-n 8 --lower-layers-lr-scale 0.1 --checkpoint-skip-layers 6, default (non-deterministic) kernels, sdpa, span_weight 1.0, --wall-clock-cap-s 32400, --score-val --needle --ood --ood-general-record REC, then the needle control (--needle-control 1024,2048,4096 --score-dtype fp32, cap 5,400 s) and the CPU letter and option controls (box_f_controls.sh's form). If fsucc fired (campaign/f-successor-preregistered.json), the base is the F-prime recipe that fired instead (conditional C3).",
+    "added": [
+      {"flag": "--checkpoint-every 1000 plus step-tagged retention of the tower and span head", "why": "Fable Q1(b) item 2 (GAP-F-NO-INTERMEDIATE-CHECKPOINTS-FOR-TRAJECTORY-2026-10-02)", "code": "needed: --checkpoint-every rewrites one file per (tag, seed) in place (tools/real_ft_run.py:8700-8714), and --score-checkpoint requires --score-val (help at :8862-8880). New: a retention flag keeping <tag>-seed<N>-<device>-step<S> tower + span-head copies (no optimizer state), and an OOD-only checkpoint scoring mode (GAP-V5-CHECKPOINT-RETENTION-AND-OOD-ONLY-SCORING-NEED-CODE-2026-10-02)", "disk": "measured: a full checkpoint is ~25 GB (F's seed directory; tower 3.51 GiB + masters 7.04 GiB + two AdamW moments; HANDOFF/rungd-flags-2026-10-02.md:261, HANDOFF/j7-avg-scoring-2026-10-01.md:129); tower-only copies ~3.5 GiB x 11 per seed ~ 39 GiB; 6 seeds ~ 232 GiB (+77 with seeds 3-4); the box root had 3.6 TB free (rungd handoff, re-verify before launch). Fable's '10 x 8 GB' is not reproduced by any measured size [U].", "scoring": "after each seed's eval, holding gpu.lock: the 180-case OOD suite on every retained checkpoint and the final one, written as report-only eval rows tagged trajectory-ood in the seed's ledger; ~$0.5 per seed (Fable)", "kind": "report-only, no pre-registration needed (Fable)"},
+      {"flag": "--min-lr 0", "why": "Fable Q1(b) (GAP-SCHEDULE-MIN-LR-HARDCODED-LR-OVER-10-2026-10-02): the cosine floor is hard-coded lr/10 in tools/real_ft_run.py:1875 and crates/qd-train/src/schedule.rs:94-96", "code": "a --min-lr flag in tools/real_ft_run.py feeding python/qd_train/run_control.py LRSchedule (which already takes min_lr, :310-391); recipe key min_lr recorded only when given; LrSchedule::real_ft gains the floor in crates/qd-train/src/schedule.rs; parity by the existing bit-exact oracle (crates/qd-train/tests/schedule_oracle.rs) with a min_lr = 0 case dumped by tools/qd_train_oracle_trainer.py, and the trainer-oracle.json pin updated in crates/qd-train/tests/fixture_pins.rs in the same change. With --lower-layers-lr-scale 0.1 the lower layers' floor is 0 too."},
+      {"flag": "--max-seq-len 10240", "where": "the build (tools/real_tokenizer_pipeline.py:3119 exists); the trainer's width follows the shard buckets. Peak memory at --batch-tokens 35403 was 61.6 of 97.9 GiB on F (Fable Q1(a)); wider rows at fixed batch tokens are expected to fit [I]; the Mac prelude prints the plan's widths."}
+    ],
+    "conditionals": [
+      {"id": "C1", "flag": "--option-permutation-seed 20260919", "on_iff": "`qd-post-f-rules j6g` prints 'wins' on J6(g)'s ft and epoch-score-val rows in /home/ubuntu/ledger/gh200-j6g-v4-2026-10-02.jsonl under campaign/j6g-preregistered.json. 'quiet' or 'refused' leaves it off. J6(g) runs before v5 in the queue, and the flag is argv only (no rebuild), so it is decided at launch.", "check": "v5's Mac prelude prints the 'Option permutation seed ... choice rows re-permuted' line on the real v5 plan and refuses no row (j6g_prelude_mac.py's form)"},
+      {"id": "C2a", "flag": "--train-attention-mask none", "on_iff": "both P2 shapes' latest verdict is pass (campaign/f-j7prime-preregistered.json no_mask.p2_rule) AND the no-mask outcome run passes (AUDIT/tierb-nomask-flash-screen-design-2026-10-01.md:155-170: eval row inside the phase-3 envelope, paired margin CI overlapping eeda5db4's, all-gates matching 58fd1532). Either missing, held or failed leaves it off. Compatible with v5 because v5 has no --replay-shards."},
+      {"id": "C2b", "flag": "--fused-adamw", "on_iff": "its Tier-B phase-3 outcome run (post-F item 7, campaign/post-f-queue/box_q_tierb2.sh -> tools/perf_tierb_outcome.sh fused) passes its pre-registered rule [the rule text is in the perf lane's scripts; not re-read here, U]. Independent of C2a."},
+      {"id": "C3", "flags": "--lower-layers-n 8 --lower-layers-lr-scale 0.1 (and the F-prime recipe delta)", "rule": "v5's base is the F-prime recipe iff qd-post-f-rules successor (campaign/f-successor-preregistered.json) printed fires:j6f or fires:j6dv4: fires:j6f drops both lower-layer flags; fires:j6dv4 takes --lr 3e-5 --beta2 0.95. Otherwise the flags are kept, except under reading R4.", "deciding_rows": "the fsucc decision JSON in /home/ubuntu/idle-decisions-2026-10-02/ and $Q/fsucc.word; J6(f)'s and seeds 3-4's prose counts are tabulated beside it"}
+    ]
+  },
+  "seeds": {
+    "v5": "0, 1, 2; one ft row and one completed epoch-score-val eval row each, quick false (three seeds, full schedule, no subsample)",
+    "seeds_3_4": "if v5's three 8K needle worst buckets (on the rebuilt suite) spread by more than 0.30, seeds 3 and 4 run in v5's form before J5'; checked by qd-post-f-rules seeds34 against v5's ledger. They are never part of the arm envelope.",
+    "ledger": "/home/ubuntu/ledger/gh200-v5-<date>.jsonl (v5, seeds 3-4, J5', trajectory rows) and /home/ubuntu/ledger/gh200-v5-noulw-<date>.jsonl (the arm)"
+  },
+  "j5prime": {
+    "what": "J5': --shuffled-label x 3 on v5's exact path, in campaign/f-successor-preregistered.json follow_on_j5pp's form: for SEED in 0 1 2, TARGET = qd-post-f-rules eval-row --ledger <v5 ledger> --ft-row SEED=<v5 ft row>; tools/real_ft_run.py <v5 split> <v5 recipe flags, conditionals as v5 ran them> --seeds SEED --score-val --shuffled-label TARGET --wall-clock-cap-s 32400, holding gpu.lock. No checkpoint retention, no needle or OOD scoring.",
+    "why": "Fable Q1(d) item 4; without it v5 is not a candidate (as for F').",
+    "runs_iff": "v5 wrote three completed ft rows"
+  },
+  "arm_noul_weight": {
+    "decision": "human-decisions.md item 6 ('Yes, 3 seeds in v5'); Fable Q1(b) third remedy: the only recipe lever on the prose ratio; three seeds because the OOD quantity is bimodal per seed (GAP-OOD-PROSE-ABSTENTION-BIMODAL-ACROSS-SEEDS-2026-10-02).",
+    "what": "v5's recipe plus --noul-weight 4, seeds 0, 1, 2, after J5'.",
+    "flag": "--noul-weight w multiplies the cross-entropy at every supervised letter position whose target is the noul letter (Z), in every family; the letter loss stays a mean over supervised positions (sum of w_i * ce_i over the count of supervised positions), so w is a pure multiplier on a Z-gold row's pull and every other row's pull is unchanged; the span channel's abstain row is not weighted. New code in python/qd_train/fused_ce.py (a per-position weight) and python/qd_train/backbone.py (_letter_loss); recipe key noul_weight recorded only when given; refused with w <= 0 or non-finite.",
+    "w": {
+      "value": 4,
+      "why": "Fable's range is 3-5. v5 carries 6,010 prose-noul rows against the 22,624 MMLU/CSQA letter rows they compete with after E_val's exclusions (v5_accounting.json): parity needs w >= 22,624 / 6,010 = 3.76. 4 is the smallest value in the range that reaches parity (24,040 vs 22,624); 3 stays below it (18,030); 5 adds in-distribution risk with no parity argument. On question form alone (~3,604 rows) w = 4 gives 14,416 vs 22,624."
+    },
+    "launch_condition": "decided from v5 seeds 0-2's eval rows before any arm GPU time: the arm runs only if at least one target has room (comparison.room). If neither has room, the lead brings the human the rows and the arm does not run without a new yes.",
+    "envelope": "v5 seeds 0, 1 and 2 only (never seeds 3-4, never F): per seed, the completed ft row and its one completed epoch-score-val eval row; per metric min and max over the three seeds.",
+    "arm_rows": "the arm's three ft rows (seeds 0, 1, 2) and each one's one completed epoch-score-val eval row, from the arm ledger only; a second eval row for an arm ft row refuses.",
+    "identity": {
+      "ft_rows": "completed; protocol.seed 0, 1, 2 once each; quick false; recipe.tag 'epoch'; code_commit equal to v5's; protocol.data_snapshot_hash and recipe.shard_hash equal to v5's (no data delta); recipe equal to v5's ft recipe of the same seed except exactly one added key, noul_weight = 4.0. Any other difference refuses.",
+      "eval_rows": "tag epoch-score-val; metrics.ft_run_row_id = the arm ft row; recipe.val_shard_hash, recipe.needle and recipe.ood equal to v5 seed 0's eval row."
+    },
+    "declared_data_delta": "None.",
+    "confounds": "Only the loss weight differs from v5, seed for seed; kernels are non-deterministic, so pairs are not bit-identical and the comparison is seed counts and envelopes, never per-seed pairs.",
+    "comparison": {
+      "targets_form": "seed_holds. A seed holds a category iff its count is at least half: 2 * n >= n_total (>= 30/60, the F2 bar of campaign/v4-noul-v3b-preregistered.json). A target clears iff all three arm seeds hold AND the arm holds on strictly more seeds than v5's envelope does.",
+      "room": "a target has room iff v5 holds on at most 2 of its 3 seeds; with 3 of 3 it cannot clear (cannot_clear). Decided from the envelope alone, before the arm's rows are read. If exactly one target has no room it is read as a guard instead (the arm must hold on 3 of 3 seeds too) and the decision rests on the other target; if neither has room the arm does not launch (launch_condition), and any rows that exist anyway read 'refused'.",
+      "guards_form": "strict envelope, as campaign/f-successor-preregistered.json comparison.guard_loses, with the arm's worst seed as the candidate: higher-better loses iff the arm's minimum < v5's minimum; lower-better loses iff the arm's maximum > v5's maximum; ties never lose. Counts on the integers n / n_total by i128 cross-multiplication (the float only cross-checked); ECE on the recorded f64.",
+      "absolute_guard": "F3 (campaign/v4-noul-v3b-preregistered.json defect_class_in_distribution_abstention, 'the cost check'): on every arm seed ood_abstain.in_distribution.family.code.defect_class has 50 * n <= n_total (<= 46/2304 at v5's expected 2,304 defect_class val slots); one seed over it loses."
+    },
+    "targets": [
+      {"name": "ood_abstain.prose", "direction": "higher", "form": "seed_holds", "f_seed0_for_reference_only": "54/60"},
+      {"name": "ood_abstain.unseen-language", "direction": "higher", "form": "seed_holds", "f_seed0_for_reference_only": "20/60"}
+    ],
+    "guards": [
+      {"name": "val_top1.choice", "direction": "higher", "form": "count"},
+      {"name": "val_top1.span", "direction": "higher", "form": "count"},
+      {"name": "permutation_consistency.family.code.defect_class", "direction": "higher", "form": "count"},
+      {"name": "ece.family.code.defect_class.choice.k4", "direction": "lower", "form": "f64"},
+      {"name": "needle_8k_worst_bucket", "direction": "higher", "form": "needle_worst_bucket (campaign/f-successor-preregistered.json comparison.needle_worst_bucket), on the rebuilt suite"},
+      {"name": "ood_abstain.scrambled", "direction": "higher", "form": "count"},
+      {"name": "ood_abstain.in_distribution.family.code.defect_class", "direction": "lower", "form": "count, plus absolute_guard"},
+      {"name": "ood_abstain.in_distribution", "direction": "lower", "form": "count (pooled)"}
+    ],
+    "report_only": [
+      "per seed and pooled over seeds: ood_abstain.{prose, unseen-language, scrambled} counts for the arm and v5, and the median Z-vs-top gap on non-abstained prose cases from the suite verdicts (Fable Q1(a)'s readout)",
+      "ood_abstain.in_distribution.family.* for every family, and ood_abstain.in_distribution.gold_noul.family.intent.{classification, domain, within_domain} (first run on v5)",
+      "permutation_consistency.family.* and ece.family.* for the general families",
+      "both-noul in-distribution rows per CLINC family (GAP-F-SEED1-BOTH-NOUL-ROWS-ON-CLINC-FAMILIES-2026-10-02)",
+      "the trajectory-ood rows per retained checkpoint, arm and v5",
+      "the Z-gold letter positions the prelude counts under the weight (expected ~12,652 rows' worth)"
+    ],
+    "outcomes": {
+      "words": ["wins", "quiet", "refused"],
+      "wins": "every target with room clears and no guard (including the absolute guard and any no-room target read as a guard) loses. Feeds the next re-plan only.",
+      "quiet": "every required row and metric was read, at least one target had room, and the arm does not win.",
+      "refused": "a required row is missing, doubled or not completed; a required metric is absent or not run; a recorded value disagrees with its own counts; an identity or comparability check fails; or no target has room. Never quiet."
+    },
+    "checker": "a qd-post-f-rules v5-noulw subcommand (crates/qd-runtime/src/bin/qd_post_f_rules.rs), reusing the successor's count arithmetic, with this block's identity, seed_holds and room. It exists before the arm's rows are read; the binding JSON wins any disagreement and a disagreement refuses."
+  },
+  "comparability": {
+    "rule": "No v5 number is read against F's envelope, and no F number against v5's. v5's arms read against v5 seeds 0-2. Side-by-side F/v5 tables are descriptive only.",
+    "not_comparable_population_or_suite": [
+      "every metric over the CLINC families (intent.classification, intent.domain, intent.in_scope, intent.within_domain), val and held-out: the oos re-key changes both populations (human item 2)",
+      "every pooled metric that includes CLINC rows: val_top1.choice, ece pooled and ece.choice.k{2,10,15,16}, permutation_consistency (pooled gate), ood_abstain.in_distribution (pooled), degenerate_head pooled",
+      "ood_abstain.prose: route (ii) puts the suite's own form, MMLU/CSQA questions under code.defect_class, into training, so the category is near-in-distribution by form for v5 (human item 5)",
+      "needle_hunk_recall (8K gate and depth buckets) and needle_suite_tokens: the suite is rebuilt to 8,192 real tokens (human item 3)",
+      "the 1K/2K/4K needle length controls, under reading R2 (resized by the same real-token rule)"
+    ],
+    "same_rows_but_confounded": "code.defect_class (val 2,304 slots), knowledge/commonsense multiple choice, qa.answer_span, ood_abstain.scrambled and ood_abstain.unseen-language are the same rows or cases, but every prompt is re-rendered context-first, the recipe changed (min-lr 0, the 9-10k compose, +4,000 noul rows, the conditionals) and the containment scan removed train rows that F trained on. Their F-vs-v5 differences are not attributable to any one change. For MMLU/CSQA, F's excluded view (tag gate-report-excluded, HANDOFF/rescore-excluded-2026-10-02.md) is the closest F reading, because v5 trains on no E_val row.",
+    "f_rows": "F's rows stand as measured on F's suites and populations; nothing here re-scores them."
+  },
+  "gate_suite_change": {
+    "what": "The 8K needle suite is rebuilt so every case measures to the 8,192-token target in real tokens (human-decisions.md item 3: 'Resize test to 8,192'; GAP-NEEDLE-SUITE-EXCEEDS-TRAINED-WIDTH-2026-10-02). This is a human-approved gate-suite change, effective for runs scored after the rebuilt suite is committed, starting with v5. NEEDLE_MIN_RECALL 0.95, NEEDLE_CASES_PER_DEPTH 60, NEEDLE_TARGET_TOKENS 8192 and the hit rule are unchanged (python/qd_train/needle.py:386-393); no agent moves them (rule 2).",
+    "today": "build_suite sizes by len(text) // 3 (python/qd_train/needle.py:210-218, :254); the eval row's needle_suite_tokens is the real encoded span-sequence length (tools/real_ft_run.py:4674, :4805-4813): F seed 0 300 cases, median 8,473 (f4feac15).",
+    "code": "build_suite takes a real-token measure of the rendered span sequence, supplied by its caller (tools/real_ft_run.py:4645), and the suite digest changes with it; lands in the v5 build commit with the format change so that no main-based scoring of a v4 model picks it up by accident."
+  },
+  "readings": {
+    "status": "The lane's readings where the rulings leave a choice. Fable may strike or amend any of them in review; after the rename, Fable or the human may amend by commit before v5 seed 0's ft row's written_at.",
+    "R1_needle_real_tokens": "'8,192 real tokens' is read as the quantity the eval row already records: every case's encoded span sequence (prompt plus span-slot suffix, the real Qwen tokenizer, v5's format) is at most 8,192 tokens, grown by whole filler hunks while the next would still fit, so each case lands in (8,192 - largest filler hunk, 8,192]. The needle is inserted before measuring.",
+    "R2_length_controls": "the 1K/2K/4K length controls (report-only since F) are resized by the same real-token rule, so every needle length in v5 means real tokens. They are not comparable to F's controls.",
+    "R3_prose_noul_counts": "2,000 own-repo + 2,000 contrast rows (floor 1,500 each after exclusions) is the lane's split of Fable's '>= 3,000, question form favoured' under the human's 'Both'. If either route falls below its floor after containment, the build refuses rather than topping up from the other route.",
+    "R4_lower_layers": "beyond C3, v5 also drops the lower-layer flags iff J6(f) holds prose (>= 30/60) AND fewer than half of the with-flag v4 seeds run (F seeds 0-2, plus 3-4 if run) hold prose. Otherwise kept: Fable's 2-of-3 vs 0-of-3 table leans keep.",
+    "R5_noul_weight_scope": "the weight applies to Z-gold letter positions in every family, as Fable wrote 'on Z-gold letter rows'; CLINC's 3,648 Z-gold rows are weighted too, which is why the pooled in-distribution abstention is a guard.",
+    "R6_arm_form": "seed_holds for the targets and the arm's worst seed for the guards are the lane's adaptation of the one-seed j6a/j6g form to three seeds per side; Fable may replace it."
+  },
+  "amendments_pending": [
+    "v5 build commit sha; train-manifest hash (data_snapshot_hash); train, val and held-out manifest hashes; train and val shard hashes; remap hash",
+    "the CLINC oos key spelling and its per-split counts (expected 1,216 / 72 / 62 under the candidate key)",
+    "attestation v2 sha256, exclusions_sha256, exclusion count per source family and target set",
+    "defect-noul-v3c and own-prose-v1 examples sha256, row counts per route and form after exclusions; composed-v2 examples sha256 and length-bin counts",
+    "defect_class val slots written (expected 2,304, unchanged from v4) and no own-prose or contrast row in val or held-out",
+    "the rebuilt needle suite's digest, min/median/max needle_suite_tokens",
+    "C1, C2a, C2b, C3 and R4 as decided, with the deciding row ids",
+    "v5's recipe hash and the Mac prelude's printed batches and width"
+  ],
+  "build_order": [
+    "0. Prerequisites: L-prep merged (containment, attestation v2, --exclude-identity-keys); L-j6g's checker subcommand merged; the last v4 readers on main done (format.freeze).",
+    "1. The v5 build commit on main: the python/qd_data edits (render.py, general.py, mixture.py, sources.py, defect_class.py), the Rust renderer, release and export changes, needle.py, the noul-v3c and own-prose-v1 and composed-v2 manifests.",
+    "2. Build on the Mac (CPU): tools/real_tokenizer_pipeline.py with v5's argv (--max-seq-len 10240, --defect-class composed-v2, --defect-noul defect-noul-v3c, --general-record a0841f0d..., --general-max-rows 200000, --vocab full, --val-shards, --span-collapse-policy refuse-gold, --no-repo-history, --rev <build commit>).",
+    "3. Decontam: qd-prep containment over the rendered rows (L-prep's request form); exclusions.txt; rebuild with --exclude-identity-keys.",
+    "4. Attestation: v2 clean on enforced targets; the build's ledger row (ledger/mac-v5-shards-<date>.jsonl) records exclusions_sha256 and the attestation's sha256.",
+    "5. Mac prelude (j6g_prelude_mac.py's form) on the real v5 plan: PRELUDE OK, batches and widths, the noul-weight position count, the permutation line iff C1.",
+    "6. rsync to the box: shards/train, shards/val, data/pool/{train,val}.json, the corpora examples; never data/heldout/heldout.json and never the containment request or its pair list (both carry held-out text; rule 3).",
+    "7. Box queue after j6g -> STOP, on the human's yes: v5 s0-s2 -> seeds 3-4 iff spread -> J5' x3 -> noul-weight x3."
+  ],
+  "binds_iff": "after Fable's review is applied and the file is renamed to campaign/v5-preregistered.json on main, before the written_at of v5 seed 0's ft row; the noul-weight arm's block binds before the written_at of the arm's first eval row. Otherwise the rule is not applied to a row that already existed, and the human decides from the rows.",
+  "committed_by": "lane L-v5plan (a Claude agent in worktree agent-aebccb7350fcc159c, branch worktree-agent-aebccb7350fcc159c, fast-forwarded to main 276a475 before anything was read), 2026-10-02, for the lead to put to Fable. Not merged, not pushed."
+}
