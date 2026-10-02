@@ -25,13 +25,15 @@
 //!   over an empty directory. The state goes into its [`STATE_DIR`] child.
 //!
 //! **Read-back on the 2B.** `read_parameters` and `save_state` stage a whole f32 table on the
-//! device. On the 2B, after a backward, that has faulted (`MTL4CommandQueueErrorTimeout`): the
+//! device. On the 2B, after a backward, that faulted (`MTL4CommandQueueErrorTimeout`): the
 //! allocation reached 52.44 GB against a recommended working set of 51.54 GB (AUDIT
-//! `ojas-qwen35-gpu-diag-*`, main 991dd67). The ojas-qwen35 source this crate builds against
-//! now synchronizes before staging and refuses a staging that would pass the working set. That
-//! fix has not been run by this lane. Until the 2B read-back is shown to pass, the lead's
-//! ruling stands: treat `read_*` on the 2B as broken. A refusal there fails the run loudly
-//! after training, before any row is written.
+//! `ojas-qwen35-gpu-diag-*`, main 991dd67).
+//! - The ojas-qwen35 source this crate builds against now synchronizes before staging. It also
+//!   refuses a staging that would pass the working set.
+//! - `GAP-OJAS-QWEN35-2B-READ-GRADIENTS-METAL-FAULT-2026-10-01` is resolved: the full 2B test
+//!   passed in the lead-cleared window.
+//! - This lane has not run a 2B read-back through this adapter.
+//! - A refusal at the read-back fails the run loudly after training, before any row is written.
 
 use std::fs;
 use std::path::{Path, PathBuf};
