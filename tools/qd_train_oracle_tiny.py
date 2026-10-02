@@ -225,7 +225,17 @@ def write_snapshot(dirpath: Path, layers: int, hidden: int = HIDDEN) -> dict[str
     model = Qwen3_5TextModel(text).float()
     reinit(model, torch.Generator().manual_seed(INIT_SEED))
     dirpath.mkdir(parents=True, exist_ok=True)
-    Qwen3_5Config(text_config=text.to_dict()).save_pretrained(dirpath)
+    # The composite config's own tie_word_embeddings defaults to False in transformers
+    # (configuration_qwen3_5.py, Qwen3_5Config), whatever text_config says. Taken from the text
+    # config, so config.json cannot say "untied" over a tower that is tied by construction
+    # (QwenDecisionStep's logits are against the embedding) and whose numbers are tied-head
+    # numbers. ojas-qwen35's reader refuses a false flag at either level.
+    full = Qwen3_5Config(
+        text_config=text.to_dict(), tie_word_embeddings=bool(text.tie_word_embeddings)
+    )
+    if not (full.tie_word_embeddings and full.text_config.tie_word_embeddings):
+        raise SystemExit("config.json would describe an untied head over a tied tower")
+    full.save_pretrained(dirpath)
     tensors = {
         f"{TEXT_PREFIX}{k}": v.detach().to(torch.bfloat16).contiguous()
         for k, v in model.state_dict().items()

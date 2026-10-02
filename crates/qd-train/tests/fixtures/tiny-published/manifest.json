@@ -3,7 +3,7 @@
  "rule": "published",
  "generator": {
   "script": "tools/qd_train_oracle_tiny.py",
-  "script_sha256": "794fb128ea868799e1ab410beb294396a19bd29dcf09f2d9e5d8571be1c88ac1",
+  "script_sha256": "5c77464b097cfaf10dffeb736e7808cbb9faab9d25f2002e52854aee1393e1aa",
   "argv": [
    "--out",
    "crates/qd-train/tests/fixtures/tiny-published"
@@ -16,7 +16,7 @@
   "device": "cpu",
   "torch_threads": 1,
   "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
-  "git_head": "152628cefe9d72597f3ee907cd257f87853d99b6"
+  "git_head": "50a0af4db2aaa88dad30bd74201484925eb96ed4"
  },
  "seeds": {
   "protocol_seed": 0,
@@ -1341,8 +1341,8 @@
    "sha256": "3fb0e02a0f20da03317c5c98dcc533501ca151fecc8a5bf6506e454fd4310760"
   },
   "config.json": {
-   "bytes": 1626,
-   "sha256": "99f26f628bff4ee89b9dc263b6f1a28546145d648426cba2ced5daf5d9c0223e"
+   "bytes": 1625,
+   "sha256": "94238eda8c7a24abcb2515793cf0cd6f9d92a7652a15c312a23d3faaf1059521"
   },
   "fp32/final.safetensors": {
    "bytes": 1491608,
@@ -1479,7 +1479,7 @@
    "final_weights": true
   },
   "clip_active_steps_equal": true,
-  "seconds": 2.192561375006335
+  "seconds": 2.2099572499864735
  },
  "independent_check_kernel_diverse": {
   "how": "IndependentStep (this script): one unpadded sequence at a time through the same tower, the tied head's logits and torch cross_entropy written out for the letter, the pointer scores written out for the span head, targets read off the stored sequences (not ft_supervision/plan_span_batch); the reference's optimizer, clip and schedule. Kernels NOT shared with the reference: attention 'eager' (the reference runs sdpa, flash backend), GDN 'recurrent' (torch_recurrent_gated_delta_rule, token by token; the reference runs torch_chunk_gated_delta_rule), both at the published rule",
@@ -1521,7 +1521,7 @@
    "final_weights": true
   },
   "clip_active_steps_equal": true,
-  "seconds": 5.096091665996937
+  "seconds": 5.282983625002089
  },
  "independent_check_fp32_clip150": {
   "how": "IndependentStep (this script): one unpadded sequence at a time through the same tower, the tied head's logits and torch cross_entropy written out for the letter, the pointer scores written out for the span head, targets read off the stored sequences (not ft_supervision/plan_span_batch); the reference's optimizer, clip and schedule. Same GDN and attention kernels as the reference: it isolates padding, batching and loss-reduction order, not the kernels",
@@ -1557,7 +1557,7 @@
    "final_weights": true
   },
   "clip_active_steps_equal": true,
-  "seconds": 2.4073827910033287
+  "seconds": 2.2958493330079364
  },
  "repeat_equality_fp32": {
   "how": "a second process (subprocess of this script, --arms fp32,fp32_clip150) regenerating the snapshot, batches and runs from the seeds; same thread count. Compared: each arm's value digests and the bytes of every file both runs wrote",
@@ -2011,5 +2011,5 @@
    }
   }
  },
- "total_bytes_excluding_manifest": 6754244
+ "total_bytes_excluding_manifest": 6754243
 }
