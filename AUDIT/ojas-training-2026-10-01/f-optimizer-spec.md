@@ -4,7 +4,10 @@ Closes `GAP-OJAS-ADVICE-F-ADAMW-EPS-WD-UNREAD-2026-10-01` (fable-advice.md Q1 ro
 weight decay: not read"). Labels: **[V]** read at file:line or measured by a command this lane
 ran; **[I]** inferred from read code; **[U]** not verified.
 
-Sources: Lappi at main `6a06bd3` (this worktree, fast-forwarded before reading); torch 2.12.1 at
+Sources: Lappi at main `6a06bd3` (this worktree, fast-forwarded before reading), with
+`tools/real_ft_run.py` line numbers moved to the file after the merge of main `85caea1`
+(the only cited source that merge changed; every moved line checked to hold the same
+text); torch 2.12.1 at
 `/Users/bharath/.venvs/ml/lib/python3.14/site-packages/torch` (cited as `torch/...`); canonical
 tessl at `~/Code/research/tessl`, HEAD `cf65d9d` [V `git log -1`]. Whether the cited tessl files
 are among tessl's ~20 dirty files is **[U]**: the harness refused `git -C` on that tree and
@@ -23,13 +26,13 @@ F's flags: `--optimizer master --lr 1e-5 --epoch --no-memorise --batch-tokens 35
 
 | Fact | Value in F | Evidence |
 | --- | --- | --- |
-| Optimizer class (bf16 tower, `master`) | `qd_train.optim.MasterWeightAdamW`: fp32 masters of the bf16 tower, `torch.optim.AdamW` over the masters | [V `real_ft_run.py:1984-1988` `optimizer_spec("bf16","master")` -> `keeps_fp32_master=True`; `optim.py:546-547`] |
+| Optimizer class (bf16 tower, `master`) | `qd_train.optim.MasterWeightAdamW`: fp32 masters of the bf16 tower, `torch.optim.AdamW` over the masters | [V `real_ft_run.py:1994-1998` `optimizer_spec("bf16","master")` -> `keeps_fp32_master=True`; `optim.py:546-547`] |
 | Builder call | `MasterWeightAdamW(groups, lr=lr, betas=(0.9, beta2), fused=fused)`: **eps and weight_decay not passed** | [V `optim.py:545-547`] |
 | eps | **1e-8** (MasterWeightAdamW's default, passed to the inner AdamW) | [V `optim.py:337`, `optim.py:402-405`] |
 | weight decay | **0.01** (MasterWeightAdamW's default) | [V `optim.py:338`, `optim.py:402-405`] |
 | weight decay coverage | **every parameter**: no group carries a `weight_decay` key, so all take the constructor's 0.01 -- norms (zero-centred `w`, decayed toward 0 = scale 1), `dt_bias`, `A_log`, `conv1d`, the tied embedding/head, and the span head (both projections and both abstain vectors) | [V groups built at `optim.py:313-316` carry only `params`, `lr_scale`, `name`; `_normalise_groups` keeps keys `optim.py:197-199`; inner groups copy extra keys `optim.py:389-396`]; measured: all 59 entries of the tiny tower + head at 0.01 [V manifest `per_parameter`] |
 | The non-master path (fp32 tower, `ADAMW_FP32`; or `bf16` recipe) | `torch.optim.AdamW(groups, lr=lr, betas=betas)`: torch defaults eps 1e-8, weight_decay 1e-2, same coverage | [V `optim.py:604`; `torch/optim/adamw.py:27` `weight_decay: float = 1e-2`; `torch/optim/adam.py:40` `eps: float = 1e-8`] |
-| betas | `(0.9, 0.999)`: F passes no `--beta2`, so `DEFAULT_BETA2` | [V `optim.py:63`, `optim.py:545`; `real_ft_run.py:7540-7541`] |
+| betas | `(0.9, 0.999)`: F passes no `--beta2`, so `DEFAULT_BETA2` | [V `optim.py:63`, `optim.py:545`; `real_ft_run.py:7835-7836`] |
 | amsgrad / maximize / capturable | off (torch defaults; not passed) | [V `optim.py:402-405`; manifest `arms.*.optimizer.groups`] |
 | fused | off: F has no `--fused-adamw`, so `fused=None` | [V flags above; `optim.py:404`] |
 | Update dispatch | CPU: single-tensor path (`_default_to_fused_or_foreach` -> `(False, False)`, measured on this host) [V manifest `torch_dispatch_on_this_host`]. CUDA (F on the GH200): foreach [I from `torch/optim/adam.py:935-945` + `torch/optim/optimizer.py:161-180`; not measured on the box] |
@@ -47,7 +50,7 @@ F's flags: `--optimizer master --lr 1e-5 --epoch --no-memorise --batch-tokens 35
 - Refusals: `lower_layers_n < 1`, a non-int, an empty lower group, `n` past the deepest layer, an
   empty base group, a non-finite or non-positive scale [V `optim.py:274-312`, `:211-221`].
 - `--lower-layers-lr-scale` defaults to RSI's 0.1 when `--lower-layers-n` is given [V
-  `real_ft_run.py:314`, `:7526-7535`].
+  `real_ft_run.py:324`, `:7821-7830`].
 - The group `lr` is `lr_at(step) * lr_scale`, written every step by `apply_lr` [V
   `optim.py:224-242`, called at `backbone.py:1190`; at construction `optim.py:392-395`].
 - **Because decay is `1 - group_lr * wd`, the lower layers also decay at 0.1x** [V by the two
@@ -60,7 +63,7 @@ F's flags: `--optimizer master --lr 1e-5 --epoch --no-memorise --batch-tokens 35
 - `self.parameters()` is the tower's parameters then the span head's: **norm over tower + head**
   [V `backbone.py:1052-1053`].
 - `max_grad_norm` = 1.0: the default, and `_real_step` does not pass it [V `backbone.py:927`;
-  `real_ft_run.py:2077-2093`].
+  `real_ft_run.py:2087-2103`].
 - `clip_grad_norm_` = `get_total_norm` + `clip_grads_with_norm_` [V `torch/nn/utils/clip_grad.py:198-199,230-232`]:
   per-tensor 2-norms grouped by (device, dtype) (`_foreach_norm`, or `vector_norm` per tensor),
   stacked, 2-norm of the stack [V `:95,102,106`]; `coef = max_norm / (total + 1e-6)`, clamped at
@@ -76,22 +79,22 @@ F's flags: `--optimizer master --lr 1e-5 --epoch --no-memorise --batch-tokens 35
 ### Schedule
 
 - `LRSchedule(peak_lr=lr, total_steps=steps, warmup_steps=max(1, steps // 20), min_lr=lr / 10)`,
-  `grad_accum=1` [V `real_ft_run.py:1822-1828`]. Fable's row 12 wrote `steps//20`; the code is
+  `grad_accum=1` [V `real_ft_run.py:1832-1838`]. Fable's row 12 wrote `steps//20`; the code is
   `max(1, steps//20)`, which differs for runs under 20 steps (warmup 1, not 0).
 - `lr_at(step)`, 0-based: `peak * (step + 1) / warmup` while `step < warmup`; else
   `min + (peak - min) * 0.5 * (1 + cos(pi * (step - warmup) / (total - warmup)))`; raises at
   `step >= total` [V `run_control.py:353-375`].
 - The loop calls `lr_at(optimizer_step)` then `apply(lr=...)`, `optimizer_step` from 0 [V
-  `trainer.py:749,856-857,866`]. `steps = len(plan) * passes` [V `real_ft_run.py:2135`].
+  `trainer.py:749,856-857,866`]. `steps = len(plan) * passes` [V `real_ft_run.py:2145`].
 - At F's lr, `min_lr` is `1e-5 / 10 = 1.0000000000000002e-06` in f64 [V manifest
   `recipe.schedule`]; a Rust port must compute `lr / 10.0` in f64, not write `1e-6`.
 
 ### What each step's gradient is the gradient of
 
 - One batch per optimizer step (`grad_accum=1`), one `loss.backward()` per batch with no extra
-  scaling [V `backbone.py:1153,1182`; `real_ft_run.py:1828`].
+  scaling [V `backbone.py:1153,1182`; `real_ft_run.py:1838`].
 - `total = letter + span_weight * span` (letter absent on a span-only batch) [V
-  `backbone.py:1176-1181`]; `span_weight` 1.0 [V `real_ft_run.py:7914`]. `letter` = mean
+  `backbone.py:1176-1181`]; `span_weight` 1.0 [V `real_ft_run.py:8209`]. `letter` = mean
   full-vocabulary CE over the batch's supervised positions (`target_index` of non-span rows) [V
   `fused_ce.py:323`; `trainer.py:424-425`]; `span` = (sum of start CE + end CE) / (2 * span rows)
   [V `heads.py:400-406`]. In tessl's sequence-at-a-time bank this is a per-row scale of
