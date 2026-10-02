@@ -1738,8 +1738,42 @@ def general_rows(record: Path, *, max_rows_per_file: int = DEFAULT_GENERAL_MAX_R
     )
 
 
+#: What ``tools/replay_decontam.py --hits-out`` names as its writer (its ``HITS_TOOL``). Spelled
+#: here rather than imported: that tool imports ``real_ft_run``, and this one stays light.
+REPLAY_HITS_TOOL: Final[str] = "tools/replay_decontam.py --hits-out"
+
+
+def read_replay_exclude(path: Path) -> frozenset[str]:
+    """The identity keys a ``--hits-out`` hit list names, for ``--replay-exclude``.
+
+    Refused unless the file is such a list, and unless its ``identity_keys`` are exactly the
+    keys its pairs carry: a hand-edited list is not the decontamination's finding.
+    """
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"--replay-exclude {path}: unreadable ({exc})") from exc
+    if not isinstance(raw, dict) or raw.get("tool") != REPLAY_HITS_TOOL:
+        raise SystemExit(
+            f"--replay-exclude {path} is not a hit list written by {REPLAY_HITS_TOOL!r}"
+        )
+    keys = raw.get("identity_keys")
+    pairs = raw.get("pairs")
+    if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys) or not isinstance(
+        pairs, list
+    ):
+        raise SystemExit(f"--replay-exclude {path}: identity_keys and pairs must be lists")
+    from_pairs = {str(p["identity_key"]) for p in pairs}
+    if set(keys) != from_pairs or len(keys) != len(set(keys)):
+        raise SystemExit(
+            f"--replay-exclude {path}: its identity_keys ({len(keys)}) and the keys its pairs "
+            f"carry ({len(from_pairs)}) disagree; refusing a list its own pairs do not support"
+        )
+    return frozenset(keys)
+
+
 def split_off_replay(
-    split_report: SplitReport, *, seed: int
+    split_report: SplitReport, *, seed: int, exclude: frozenset[str] = frozenset()
 ) -> tuple[SplitReport, SplitReport, ReplayPartition]:
     """``(gold_report, replay_report, partition)``: the replay slice as its own split report.
 
@@ -1748,10 +1782,29 @@ def split_off_replay(
     gold-trained and replay-trained is the case the partition exists to prevent -- and
     become a train-only report of their own, so each gets its own manifest and its own
     shard set (``write_shards(replay=True)``). val and held-out are untouched.
+
+    ``exclude`` (``--replay-exclude``) names identity keys the decontamination found in the
+    replay slice. They go to ``partition.excluded_rows``: neither replayed nor gold-trained.
+    Only replay-drawn keys are accepted -- the J6(a) plan's option (a) -- so the gold train
+    is exactly the one without ``exclude``, which ``tools/real_ft_run.py``'s
+    ``--replay-partition`` rebuild (this function, called without it) reproduces. A key the
+    draw puts on the gold side is refused: excluding it would change the gold train.
     """
     train = list(split_report.rows_by_split.get("train", ()))
     general_train = [r for r in train if r.family_id in REPLAY_FAMILIES]
     part = partition_replay(general_train, seed=seed)
+    if exclude:
+        gold_side = sorted(exclude & {r.identity_key for r in part.gold_rows})
+        if gold_side:
+            raise SystemExit(
+                f"--replay-exclude names {len(gold_side)} key(s) this build draws as gold, "
+                f"first {gold_side[:3]}: only replay-drawn rows may be excluded, or the gold "
+                "train would differ from the one the trainer's --replay-partition rebuilds"
+            )
+        plain_gold = part.gold_rows
+        part = partition_replay(general_train, seed=seed, contaminated_identity_keys=exclude)
+        if part.gold_rows != plain_gold:
+            raise SystemExit("--replay-exclude moved a gold row; the partition is not keyed")
     drawn = {r.row_id for r in general_train}
     gold_train = tuple(r for r in train if r.row_id not in drawn) + part.gold_rows
     gold = dataclasses.replace(
@@ -2203,6 +2256,7 @@ def run(
     span_collapse_policy: str = SPAN_COLLAPSE_REFUSE_ANY,
     report_only_slice: Path | None = None,
     gate_set: Path | None = None,
+    replay_exclude: Path | None = None,
 ) -> Measured:
     """Build, measure and write one shard set, and return what was measured.
 
@@ -2213,6 +2267,14 @@ def run(
     under. The train set it also writes is the base-corpus sample the pipeline needs to
     measure, not a training set.
     """
+    if replay_exclude is not None and not replay_shards:
+        raise SystemExit(
+            "--replay-exclude needs --replay-shards: it removes rows from the replay slice, "
+            "and without one there is nothing to remove them from"
+        )
+    exclude_keys = (
+        read_replay_exclude(replay_exclude) if replay_exclude is not None else frozenset()
+    )
     if vocab not in VOCAB_POLICIES:
         raise SystemExit(f"vocab must be one of {VOCAB_POLICIES}, got {vocab!r}")
     if max_seq_len is not None and max_seq_len < 2:
@@ -2440,15 +2502,21 @@ def run(
     replay_report: SplitReport | None = None
     if replay_shards:
         split_report, replay_report, partition = split_off_replay(
-            split_report, seed=config.seed
+            split_report, seed=config.seed, exclude=exclude_keys
         )
         drawn = sum(sum(c.values()) for c in partition.counts().values())
+        excluded_note = (
+            f" {len(partition.excluded_rows)} replay-drawn row(s) excluded by --replay-exclude "
+            f"({replay_exclude}, {len(exclude_keys)} identity key(s)): neither replayed nor "
+            "gold-trained."
+            if replay_exclude is not None else ""
+        )
         extra_metrics["replay_partition"] = Ran(
             passed=True, value=len(partition.replay_rows), n=len(partition.replay_rows),
             n_total=drawn,
             detail=(
                 f"replay-only rows drawn from the replay families' train rows at "
-                f"fraction {partition.fraction}: {partition.counts()}. Not yet "
+                f"fraction {partition.fraction}: {partition.counts()}.{excluded_note} Not yet "
                 "decontaminated: tools/replay_decontam.py attests the replay set."
             ),
         )
@@ -3106,6 +3174,14 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--replay-exclude", type=Path, default=None,
+        help=(
+            "a hit list written by tools/replay_decontam.py --hits-out: its identity keys "
+            "leave the replay slice for excluded_rows (neither replayed nor gold-trained). "
+            "Replay-drawn keys only, so the gold train is unchanged. Needs --replay-shards."
+        ),
+    )
+    parser.add_argument(
         "--vocab",
         choices=VOCAB_POLICIES,
         default=VOCAB_FULL,
@@ -3166,6 +3242,11 @@ def main(argv: list[str] | None = None) -> int:
         help="the cap the row's cost estimate is priced from, on a rented box",
     )
     args = parser.parse_args(argv)
+    if args.replay_exclude is not None and not args.replay_shards:
+        raise SystemExit(
+            "--replay-exclude needs --replay-shards: it removes rows from the replay slice, "
+            "and without one there is nothing to remove them from"
+        )
     # `--max-pairs` bounds what `base_sources` reads from history or samples from the
     # download. With neither in play it would determine nothing and still land in the
     # recipe, which feeds recipe_hash.
@@ -3203,6 +3284,7 @@ def main(argv: list[str] | None = None) -> int:
         "max_seq_len": args.max_seq_len,
         "span_collapse_policy": args.span_collapse_policy or SPAN_COLLAPSE_REFUSE_ANY,
         "report_only_slice": args.report_only_slice, "gate_set": args.gate_set,
+        "replay_exclude": args.replay_exclude,
     }
     if args.ledger is None:
         run(**run_kwargs)
@@ -3266,6 +3348,11 @@ def main(argv: list[str] | None = None) -> int:
         recipe["general_max_rows"] = args.general_max_rows
     if args.replay_shards:
         recipe["replay_shards"] = True
+    if args.replay_exclude is not None:
+        # Only when used: the hit list decides which replay rows are written.
+        recipe["replay_exclude_sha256"] = hashlib.sha256(
+            args.replay_exclude.read_bytes()
+        ).hexdigest()
     if args.max_seq_len is not None:
         # Only when used: it decides which rows are written.
         recipe["max_seq_len"] = args.max_seq_len

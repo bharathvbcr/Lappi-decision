@@ -132,6 +132,80 @@ def test_the_replay_slice_leaves_the_gold_train_split_and_nothing_else_moves() -
     assert len(part.replay_rows) == len(replay_rows)
 
 
+def _mmlu_report() -> Any:
+    config = DataConfig()
+    rows = [
+        MmluRow(subject=f"s{i % 7}", question=f"What follows {i}?",
+                choices=(str(i), str(i + 1), str(i + 2), str(i + 3)), answer_index=0,
+                upstream_split="test")
+        for i in range(300)
+    ]
+    mixture = build_mixture({"cais/mmlu": rows}, config=config)
+    return split(dedupe(list(mixture.rows), config=config), config=config), config
+
+
+def test_replay_exclude_drops_only_the_named_replay_rows_and_the_gold_train_is_unchanged() -> None:
+    """Option (a) of the J6(a) plan: the decontam's hit rows leave the replay slice for
+    ``excluded_rows``; no other row moves, so the gold train is exactly the plain
+    --replay-shards build's, which real_ft_run's --replay-partition rebuild reproduces."""
+    report, config = _mmlu_report()
+    gold0, replay0, _ = pipeline.split_off_replay(report, seed=config.seed)
+    drawn = sorted(r.identity_key for r in replay0.rows_by_split["train"])
+    hit = frozenset(drawn[:3])
+    gold1, replay1, part1 = pipeline.split_off_replay(report, seed=config.seed, exclude=hit)
+    assert gold1.rows_by_split["train"] == gold0.rows_by_split["train"]
+    assert {r.identity_key for r in replay1.rows_by_split["train"]} == set(drawn) - hit
+    assert {r.identity_key for r in part1.excluded_rows} == hit
+    assert part1.counts()[MMLU_FAMILY]["excluded"] == 3
+    for name in ("val", "heldout"):
+        assert gold1.rows_by_split[name] == report.rows_by_split[name]
+
+
+def test_replay_exclude_refuses_a_key_the_build_draws_as_gold() -> None:
+    """Excluding a gold-drawn row would change the gold train, which the trainer's rebuild
+    at a502670 would then not match (its pair_labels refuses strays)."""
+    report, config = _mmlu_report()
+    _, _, part0 = pipeline.split_off_replay(report, seed=config.seed)
+    gold_key = part0.gold_rows[0].identity_key
+    with pytest.raises(SystemExit, match="this build draws as gold"):
+        pipeline.split_off_replay(report, seed=config.seed, exclude=frozenset({gold_key}))
+
+
+def _hits_file(tmp_path: Path, keys: list[str], *, tool: str | None = None) -> Path:
+    import replay_decontam
+
+    path = tmp_path / "hits.json"
+    body = {
+        "tool": replay_decontam.HITS_TOOL if tool is None else tool, "version": 1,
+        "identity_keys": keys,
+        "pairs": [{"identity_key": k, "row_id": k, "sequence": i} for i, k in enumerate(keys)],
+    }
+    path.write_text(json.dumps(body), encoding="utf-8")
+    return path
+
+
+def test_a_replay_exclude_file_is_read_from_the_decontam_hit_list(tmp_path: Path) -> None:
+    assert pipeline.read_replay_exclude(_hits_file(tmp_path, ["k1", "k2"])) == frozenset(
+        {"k1", "k2"}
+    )
+    with pytest.raises(SystemExit, match="not a hit list"):
+        pipeline.read_replay_exclude(_hits_file(tmp_path, ["k1"], tool="something else"))
+    bad = _hits_file(tmp_path, ["k1"])
+    raw = json.loads(bad.read_text(encoding="utf-8"))
+    raw["identity_keys"] = ["k1", "k9"]
+    bad.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(SystemExit, match="disagree"):
+        pipeline.read_replay_exclude(bad)
+
+
+def test_replay_exclude_without_replay_shards_is_refused(tmp_path: Path) -> None:
+    hits = _hits_file(tmp_path, ["k1"])
+    with pytest.raises(SystemExit, match="--replay-exclude needs --replay-shards"):
+        pipeline.main(["--out", str(tmp_path / "out"), "--no-repo-history",
+                       "--general-record", str(tmp_path / "rec.json"),
+                       "--replay-exclude", str(hits)])
+
+
 class _StubTokenizer:
     """Enough of ``RealTokenizer`` for ``run`` to reach stage 1; nothing is tokenized."""
 
