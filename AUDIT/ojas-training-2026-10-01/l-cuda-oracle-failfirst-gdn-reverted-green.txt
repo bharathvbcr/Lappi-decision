@@ -1,0 +1,23 @@
+   Compiling ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running tests/reference_gdn_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_gdn_published-ca6ff0ba9c1dfe5e)
+
+running 8 tests
+test published_reference_refuses_a_misshapen_gate - should panic ... ok
+test published_reference_refuses_an_empty_sequence - should panic ... ok
+test published_reference_refuses_a_non_finite_operand - should panic ... ok
+test published_checkpoint_c_is_the_state_after_the_first_64c_tokens ... ok
+test published_recurrence_reproduces_the_published_corpus ... ok
+test the_repo_rule_does_not_reproduce_the_published_corpus ... ok
+test published_corpus_is_tessls_bytes_and_every_file_names_the_published_rule ... ok
+test published_backward_matches_central_differences_across_checkpoints ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.86s
+
+     Running tests/reference_gdn_published_vs_tessl.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_gdn_published_vs_tessl-8d9d37ce1830f69f)
+
+running 1 test
+test published_reference_matches_tessls_gdn_train_f64_at_the_chunk_edges ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.54s
+
