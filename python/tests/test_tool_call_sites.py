@@ -692,6 +692,10 @@ _SPELLINGS = {
     # Added 2026-10-01 with the tool's first rows (676e6498.. in mac-gate-report): the
     # calib-fit binding's spelling, which it copies, from the start.
     "gate_report_row.py": {"sort_keys": True, "separators": (",", ":")},
+    # Pinned 2026-10-02 (lane L-v5-train). The trainer oracle hashes the recipe of the ledger
+    # row it writes into crates/qd-train's fixture the way real_ft_run does, because the Rust
+    # ledger writer must reproduce real_ft_run's rows; it writes no ledger of its own.
+    "qd_train_oracle_trainer.py": {"sort_keys": True, "separators": (",", ":")},
 }
 
 
@@ -828,7 +832,8 @@ def test_the_two_spellings_really_do_disagree() -> None:
     # Three and three until remap_parity_real.py joined the loose side on its first row
     # (2026-09-22), margin_probe_row.py joined the tight side on its first row
     # (2026-09-30), calib_fit_row.py joined it before its first row (2026-10-01), and
-    # gate_report_row.py with its first rows (2026-10-01); pinned exactly, so a tool moving
-    # sides still fails here.
+    # gate_report_row.py with its first rows (2026-10-01), and qd_train_oracle_trainer.py,
+    # pinned on the tight side 2026-10-02, the spelling it always used; pinned exactly, so a
+    # tool moving sides still fails here.
     assert sorted(digests.values()).count(loose) == 4, digests
-    assert sorted(digests.values()).count(tight) == 6, digests
+    assert sorted(digests.values()).count(tight) == 7, digests

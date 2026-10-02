@@ -112,6 +112,7 @@ class _FusedLinearCE(torch.autograd.Function):
         chunk_size: int,
         scale: float,
         need_grad: bool,
+        weights: torch.Tensor | None,
     ) -> torch.Tensor:
         n_positions, hidden_size = hidden.shape
         vocab_size = weight.shape[0]
@@ -172,7 +173,18 @@ class _FusedLinearCE(torch.autograd.Function):
 
             lse = torch.logsumexp(logits, dim=-1, keepdim=True)
             picked = logits.gather(1, target_c)
-            loss_sum += torch.where(mask_c, lse - picked, torch.zeros_like(picked)).sum()
+            per_position = torch.where(mask_c, lse - picked, torch.zeros_like(picked))
+            # The per-position weight, when there is one, multiplies each position's term and
+            # its gradient row; without one no op runs, so the unweighted path is the code
+            # every row before the weight trained on. A weight of exactly 1.0 is an IEEE
+            # identity on both, so an all-ones weight is bit-identical to none.
+            weight_c = (
+                None if weights is None
+                else weights[start:stop].to(compute_dtype).unsqueeze(1)
+            )
+            if weight_c is not None:
+                per_position = per_position * weight_c
+            loss_sum += per_position.sum()
 
             if need_grad:
                 # dL/dlogits for the *summed* loss: softmax(logits) - onehot(target).
@@ -182,6 +194,8 @@ class _FusedLinearCE(torch.autograd.Function):
                     1, target_c, torch.full_like(target_c, -1, dtype=probs.dtype)
                 )
                 probs.mul_(mask_c)
+                if weight_c is not None:
+                    probs.mul_(weight_c)
                 probs.mul_(scale)
                 assert grad_hidden is not None and grad_weight is not None
                 grad_hidden[start:stop] = torch.matmul(probs.to(weight.dtype), weight)
@@ -216,6 +230,7 @@ class _FusedLinearCE(torch.autograd.Function):
             None,
             None,
             None,
+            None,
         )
 
 
@@ -226,6 +241,7 @@ def _validate(
     mask: torch.Tensor | None,
     bias: torch.Tensor | None,
     reduction: str,
+    weights: torch.Tensor | None = None,
 ) -> None:
     if hidden.dim() not in (2, 3):
         raise ValueError(f"hidden must be [N, H] or [B, L, H], got {tuple(hidden.shape)}")
@@ -252,6 +268,19 @@ def _validate(
         raise ValueError(f"bias must be [V={weight.shape[0]}], got {tuple(bias.shape)}")
     if reduction not in _REDUCTIONS:
         raise ValueError(f"reduction must be one of {sorted(_REDUCTIONS)}, got {reduction!r}")
+    if weights is not None:
+        if tuple(weights.shape) != tuple(targets.shape):
+            raise ValueError(
+                f"weights must match targets {tuple(targets.shape)}, got {tuple(weights.shape)}"
+            )
+        if not weights.dtype.is_floating_point:
+            raise ValueError(f"weights must be floating point, got {weights.dtype}")
+        if not bool(torch.isfinite(weights).all()) or bool((weights < 0).any()):
+            raise ValueError(
+                "weights must be finite and non-negative at every position: a weight is a "
+                "multiplier on a position's cross-entropy, and a NaN, an infinity or a "
+                "negative one is not a multiplier any objective here means"
+            )
 
 
 def fused_linear_cross_entropy(
@@ -263,6 +292,7 @@ def fused_linear_cross_entropy(
     bias: torch.Tensor | None = None,
     chunk_size: int | None = None,
     reduction: Literal["mean", "sum"] = "mean",
+    weights: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Cross-entropy of ``hidden @ weight.T`` against ``targets``, chunked over positions.
 
@@ -276,6 +306,12 @@ def fused_linear_cross_entropy(
         bias: ``[V]`` or ``None``.
         chunk_size: positions per chunk. ``None`` derives one from [`TARGET_LOGIT_BYTES`].
         reduction: ``"mean"`` over supervised positions, or ``"sum"``.
+        weights: ``[N]`` or ``[B, L]`` floating, finite and non-negative -- a multiplier on
+            each position's cross-entropy and on its gradient. ``"mean"`` stays a division
+            by the COUNT of supervised positions, not by the sum of their weights: the
+            weight is a pure multiplier on its positions' pull, and the loss's mass rises
+            with it (``--noul-weight``, v5's ``arm_noul_weight``). ``None`` runs no
+            weighting op at all.
 
     Returns:
         A scalar tensor. Differentiable with respect to ``hidden``, ``weight`` and ``bias``.
@@ -286,7 +322,7 @@ def fused_linear_cross_entropy(
             reporting it as a zero loss would let a batch that trained on nothing look like
             a batch that fit perfectly.
     """
-    _validate(hidden, weight, targets, mask, bias, reduction)
+    _validate(hidden, weight, targets, mask, bias, reduction, weights)
 
     hidden_size = hidden.shape[-1]
     vocab_size = weight.shape[0]
@@ -325,8 +361,10 @@ def fused_linear_cross_entropy(
         hidden.requires_grad or weight.requires_grad or (bias is not None and bias.requires_grad)
     )
 
+    flat_weights = None if weights is None else weights.reshape(-1)
     return _FusedLinearCE.apply(
-        flat_hidden, weight, bias, safe_targets, flat_mask, resolved_chunk, scale, need_grad
+        flat_hidden, weight, bias, safe_targets, flat_mask, resolved_chunk, scale, need_grad,
+        flat_weights,
     )
 
 
@@ -338,6 +376,7 @@ def naive_linear_cross_entropy(
     mask: torch.Tensor | None = None,
     bias: torch.Tensor | None = None,
     reduction: Literal["mean", "sum"] = "mean",
+    weights: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """The reference: materialize ``[B, L, V]`` and call the stock cross-entropy.
 
@@ -346,7 +385,7 @@ def naive_linear_cross_entropy(
     meaningful against a reference that is *this* reference -- a test that compares the fused
     path against a second hand-written reduction is comparing two of our own opinions.
     """
-    _validate(hidden, weight, targets, mask, bias, reduction)
+    _validate(hidden, weight, targets, mask, bias, reduction, weights)
 
     flat_hidden = hidden.reshape(-1, hidden.shape[-1])
     flat_targets = targets.reshape(-1).to(torch.int64)
@@ -368,5 +407,7 @@ def naive_linear_cross_entropy(
         torch.where(flat_mask, flat_targets, torch.zeros_like(flat_targets)),
         reduction="none",
     )
+    if weights is not None:
+        per_position = per_position * weights.reshape(-1).to(per_position.dtype)
     total = (per_position * flat_mask).sum()
     return total / n_supervised if reduction == "mean" else total

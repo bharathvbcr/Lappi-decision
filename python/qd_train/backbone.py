@@ -125,10 +125,12 @@ __all__ = [
     "TEXT_PREFIX",
     "BackboneContractViolation",
     "GradientCheckpointingDisabled",
+    "NoulWeight",
     "QwenDecisionStep",
     "TextTower",
     "footprint_at",
     "load_text_tower",
+    "noul_weight_mask",
     "remap_text_tower",
     "revive_tensors",
     "saved_activation_bytes",
@@ -897,6 +899,96 @@ def _group_recipe(group: Mapping[str, Any]) -> tuple[Any, ...]:
     )
 
 
+def noul_weight_mask(
+    supervision: Supervision, rows_in_scope: np.ndarray, noul_id: int
+) -> np.ndarray:
+    """``bool[B, L-1]``: the letter positions ``--noul-weight`` multiplies.
+
+    A position is weighted when the letter channel supervises it, its target is the noul
+    letter, and its row is in the weight's scope (``rows_in_scope[r]``: the row's family is
+    ``code.defect_class``, reading R5). The one owner of the rule: the step weights exactly
+    these positions and ``tools/real_ft_run.noul_weight_plan`` counts exactly these. A span
+    row is never one -- ``ft_supervision`` keeps span rows out of the letter mask, so the
+    span channel's abstain row is not weighted by construction.
+    """
+    rows = np.asarray(rows_in_scope)
+    if rows.dtype != np.bool_ or rows.shape != (supervision.mask.shape[0],):
+        raise BackboneContractViolation(
+            f"rows_in_scope must be bool[{supervision.mask.shape[0]}], one flag per row, got "
+            f"{rows.dtype}{list(rows.shape)}"
+        )
+    return supervision.mask & (supervision.targets == int(noul_id)) & rows[:, None]
+
+
+@dataclass(frozen=True, slots=True)
+class NoulWeight:
+    """``--noul-weight``: the letter cross-entropy at noul-gold positions of in-scope rows,
+    multiplied by ``weight`` (v5's ``arm_noul_weight``; scope ``code.defect_class``, R5).
+
+    ``rows_by_index`` maps a batch's ``index`` as the training loop sees it to which of its
+    rows are in scope -- built by ``tools/real_ft_run._train`` with the same enumeration its
+    batch source re-indexes with. A batch it does not know is refused, never trained
+    unweighted: an unknown index means the plan and the loop disagree about the data.
+
+    The letter loss stays ``sum(w_i * ce_i)`` over the count of supervised positions
+    (``fused_linear_cross_entropy``'s ``weights``), so ``weight`` is a pure multiplier on
+    those rows' pull and every other row's pull is unchanged; the loss's mass rises with it
+    and is not renormalised.
+    """
+
+    weight: float
+    scope: str
+    noul_id: int
+    rows_by_index: Mapping[int, np.ndarray]
+
+    def __post_init__(self) -> None:
+        w = self.weight
+        if isinstance(w, bool) or not isinstance(w, (int, float)) or not (
+            np.isfinite(w) and w > 0.0
+        ):
+            raise ValueError(
+                f"the noul weight must be finite and positive, got {w!r}: zero or less would "
+                "remove or invert the pull of the rows it names"
+            )
+        if not isinstance(self.scope, str) or not self.scope:
+            raise ValueError(f"the noul weight's scope must be a family id, got {self.scope!r}")
+
+    def positions(self, batch: Batch, supervision: Supervision) -> np.ndarray:
+        """``bool[B, L-1]``: the positions of ``batch`` this weight multiplies."""
+        rows = self.rows_by_index.get(int(batch.index))
+        if rows is None:
+            raise BackboneContractViolation(
+                f"--noul-weight has no scope for batch index {batch.index}: the plan it was "
+                "built from and the batches the loop is training on disagree. Training it "
+                "unweighted would drop the weight from part of the run without a trace."
+            )
+        n = int(batch.tokens.shape[0])
+        if np.asarray(rows).shape != (n,):
+            raise BackboneContractViolation(
+                f"--noul-weight's scope for batch index {batch.index} names "
+                f"{np.asarray(rows).shape[0] if np.asarray(rows).ndim else 0} rows and the batch "
+                f"has {n} rows"
+            )
+        return noul_weight_mask(supervision, rows, self.noul_id)
+
+    def position_weights(self, batch: Batch, supervision: Supervision) -> np.ndarray | None:
+        """``float64[B, L-1]`` per-position weights, or ``None`` when no position of this
+        batch is weighted -- the unweighted cross-entropy, run exactly as without the flag."""
+        return self.weights_for(self.positions(batch, supervision))
+
+    def weights_for(self, mask: np.ndarray) -> np.ndarray | None:
+        """:meth:`position_weights` for a mask :meth:`positions` already computed."""
+        if not mask.any():
+            return None
+        out = np.ones(mask.shape, dtype=np.float64)
+        out[mask] = float(self.weight)
+        return out
+
+    def to_json(self) -> dict[str, Any]:
+        """What a checkpoint records about the weight, so a resume cannot change it."""
+        return {"weight": float(self.weight), "scope": self.scope}
+
+
 class QwenDecisionStep:
     """A [`qd_train.trainer.SpanScoringStep`] over the real text tower.
 
@@ -933,6 +1025,7 @@ class QwenDecisionStep:
         span_channel_off: bool = False,
         fused_adamw: bool = False,
         train_attention_mask: str = "padding",
+        noul_weight: NoulWeight | None = None,
     ) -> None:
         import torch
         from torch import nn
@@ -1048,6 +1141,11 @@ class QwenDecisionStep:
         #: the letter and nothing about *where*.
         self.letter_log: list[float] = []
         self.span_log: list[float] = []
+        #: ``--noul-weight`` (v5 ``arm_noul_weight``): ``None`` is every run before it, and
+        #: runs no weighting op. ``noul_weighted_positions`` counts the letter positions it
+        #: actually multiplied, which the caller checks against the plan's count.
+        self.noul_weight = noul_weight
+        self.noul_weighted_positions = 0
 
     def parameters(self) -> list[torch.nn.Parameter]:
         return [*self.tower.model.parameters(), *self.span_head.parameters()]
@@ -1122,9 +1220,16 @@ class QwenDecisionStep:
         )
 
     def _letter_loss(
-        self, hidden: torch.Tensor, supervision: Supervision
+        self, hidden: torch.Tensor, supervision: Supervision,
+        *, weights: np.ndarray | None = None,
     ) -> torch.Tensor | None:
-        """``None`` when the batch is all-span: its letter channel is legitimately empty."""
+        """``None`` when the batch is all-span: its letter channel is legitimately empty.
+
+        ``weights`` is the per-position weight of a training batch (:meth:`_noul_weights`);
+        without it this is the unweighted cross-entropy, which is what the post-training
+        floor comparison (``tools/real_ft_run._evaluate``) measures on purpose: a floor is
+        an entropy of the gold letter, and a weighted loss is not comparable to it.
+        """
         if supervision.n_supervised == 0:
             return None
         torch = self._torch
@@ -1136,7 +1241,17 @@ class QwenDecisionStep:
                 supervision.targets.astype(np.int64), device=weight.device
             ),
             mask=torch.as_tensor(supervision.mask.copy(), device=weight.device),
+            weights=None if weights is None else torch.as_tensor(weights, device=weight.device),
         )
+
+    def _noul_weights(self, batch: Batch, supervision: Supervision) -> np.ndarray | None:
+        """This training batch's per-position weights under ``--noul-weight``, or ``None``
+        (no flag, or no weighted position in the batch: the unweighted path either way)."""
+        if self.noul_weight is None or supervision.n_supervised == 0:
+            return None
+        mask = self.noul_weight.positions(batch, supervision)
+        self.noul_weighted_positions += int(mask.sum())
+        return self.noul_weight.weights_for(mask)
 
     # -- TrainStep -------------------------------------------------------------------------
 
@@ -1145,6 +1260,7 @@ class QwenDecisionStep:
             loss = self._letter_loss(
                 self.hidden(batch, padding_mask=self.train_attention_mask == "padding"),
                 supervision,
+                weights=self._noul_weights(batch, supervision),
             )
             if loss is None:  # pragma: no cover - `_refuse_unsupervised_rows` refuses first
                 raise RuntimeError(
@@ -1173,7 +1289,11 @@ class QwenDecisionStep:
             # bits of mantissa, and the abstain row competes with every line in it. The
             # head's own parameters are float32 for the same reason -- see __init__.
             span_loss = self.span_head.loss(hidden[rows].float(), plan)
-            letter = self._letter_loss(hidden, supervision)
+            # The span rows are outside the letter mask, so no weight reaches the span
+            # channel or its abstain row; only this batch's letter rows can be weighted.
+            letter = self._letter_loss(
+                hidden, supervision, weights=self._noul_weights(batch, supervision)
+            )
             total = (
                 self.span_weight * span_loss
                 if letter is None
@@ -1258,6 +1378,10 @@ class QwenDecisionStep:
             },
             "span_weight": self.span_weight,
             "vocab_size": self.tower.vocab_size,
+            # Only under --noul-weight, so every other checkpoint body is what it was. A
+            # resume compares it (load_state): the weight is part of the objective, and the
+            # trainer's own resume checks (seed, schedule, consumed digest) cannot see it.
+            **({} if self.noul_weight is None else {"noul_weight": self.noul_weight.to_json()}),
         }
 
     #: Where ``torch.optim.Optimizer.state_dict()`` keys a dict by parameter INDEX rather
@@ -1374,9 +1498,20 @@ class QwenDecisionStep:
         # resuming it into a bare step would silently drop the replay term mid-run -- the
         # training source's consumed_digest never sees replay batches, so no other check
         # would notice.
+        # --noul-weight is part of the objective: a checkpoint taken with it resumes only into
+        # a step built with the same weight and scope, and one taken without it only into a
+        # step without it. Checked before the unexpected-key refusal so the message names it.
+        theirs_noul = state.get("noul_weight")
+        mine_noul = None if self.noul_weight is None else self.noul_weight.to_json()
+        if theirs_noul != mine_noul:
+            raise BackboneContractViolation(
+                f"the checkpoint's noul_weight is {theirs_noul!r} and this step's is "
+                f"{mine_noul!r}. Resuming would train the rest of the run on a different "
+                "letter objective than the part before the checkpoint."
+            )
         unexpected = set(state) - {
             "tower", "span_head", "span_weight", "vocab_size", "optimizer", "micro_batches",
-            "channel_log",
+            "channel_log", *(() if mine_noul is None else ("noul_weight",)),
         }
         if unexpected:
             raise BackboneContractViolation(

@@ -102,7 +102,10 @@ import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
+
+if TYPE_CHECKING:  # pragma: no cover - typing only: qd_train.backbone is imported lazily
+    from qd_train.backbone import NoulWeight
 
 # Inline for the reason tools/bpe_line_start_collapse.py states: ruff's E402 exemption
 # covers `sys.path` modification before the imports, but an ordinary assignment in between
@@ -322,7 +325,17 @@ RECIPE_PIECE_KEYS: Final[tuple[str, ...]] = (
     # exclusions.txt whose train rows the set and this rebuild left out, read off the train
     # header that check_exclusion_source checked against the flag.
     "exclusions_sha256",
+    # --min-lr (v5 recipe.added[1]): the cosine floor, when given instead of lr / 10.
+    "min_lr",
+    # --noul-weight (v5 arm_noul_weight): the weight and the family it is scoped to.
+    "noul_weight",
+    "noul_weight_scope",
 )
+
+#: ``--noul-weight``'s scope (v5 reading R5): the weight multiplies noul-gold letter positions
+#: of ``code.defect_class`` rows only. CLINC's Z-gold rows and every other family stay
+#: unweighted, so the arm is not confounded with CLINC in-distribution effects.
+NOUL_WEIGHT_SCOPE: Final[str] = DEFECT_FAMILY_ID
 
 #: The dtypes ``--train-dtype`` trains the real tower in. ``bf16`` is every row so far and adds
 #: no recipe key; ``fp32`` is rung (d)'s tight reference arm, T-fp32.
@@ -373,6 +386,111 @@ class ReplayPlan:
     attestation_sha256: str
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class NoulWeightPlan:
+    """``--noul-weight`` over one arm's plan, decided before any tower loads.
+
+    ``rows[b]`` says which rows of plan batch ``b`` are in :data:`NOUL_WEIGHT_SCOPE`; the
+    per-batch counts are the positions the step will weight (``backbone.noul_weight_mask``,
+    the one owner of the rule) and the letter positions it supervises, per pass. The Mac
+    prelude reads :attr:`weighted_positions` off the epoch arm's plan, which ``main`` builds
+    before ``Ledger(args.ledger)``.
+    """
+
+    weight: float
+    scope: str
+    noul_id: int
+    rows: tuple[np.ndarray, ...]
+    per_batch_weighted: tuple[int, ...]
+    per_batch_supervised: tuple[int, ...]
+
+    @property
+    def weighted_positions(self) -> int:
+        """Letter positions weighted per pass: in-scope rows whose gold is the noul letter."""
+        return sum(self.per_batch_weighted)
+
+    @property
+    def supervised_positions(self) -> int:
+        """Letter positions supervised per pass, the count the letter loss is divided by."""
+        return sum(self.per_batch_supervised)
+
+    @property
+    def weight_mass_ratio(self) -> float | None:
+        """``sum(w_i) / N`` over the supervised letter positions of one pass: how far the
+        letter loss's mass rises (recorded, not renormalised). ``None`` with no letter
+        position, where the ratio is 0/0."""
+        n = self.supervised_positions
+        if not n:
+            return None
+        return (n + (self.weight - 1.0) * self.weighted_positions) / n
+
+    def recipe(self) -> dict[str, object]:
+        return _recipe_pieces(
+            lower_layers_n=0, lower_lr_scale=1.0, beta2=DEFAULT_BETA2, permutation=None,
+            replay=None, noul_weight=self.weight,
+        )
+
+    def cut(self, n: int) -> NoulWeightPlan:
+        """The plan's first ``n`` batches (``--max-steps``)."""
+        if not 1 <= n <= len(self.rows):
+            raise ValueError(f"cannot cut a {len(self.rows)}-batch noul weight plan to {n}")
+        return dataclasses.replace(
+            self, rows=self.rows[:n], per_batch_weighted=self.per_batch_weighted[:n],
+            per_batch_supervised=self.per_batch_supervised[:n],
+        )
+
+    def by_index(self, passes: int) -> dict[int, np.ndarray]:
+        """Scope rows keyed by ``Batch.index`` as ``_train``'s source re-indexes the plan:
+        one running index over ``passes`` repetitions of it."""
+        out: dict[int, np.ndarray] = {}
+        index = 0
+        for _ in range(passes):
+            for rows in self.rows:
+                out[index] = rows
+                index += 1
+        return out
+
+
+def noul_weight_plan(
+    plan: Sequence[Batch], labels_for: Mapping[int, list[Label]], *, weight: float,
+    letter_id: Mapping[str, int],
+) -> NoulWeightPlan:
+    """``--noul-weight``'s rows and counts over ``plan`` (one arm's), before a tower loads.
+
+    A row is in scope when its label's family is :data:`NOUL_WEIGHT_SCOPE`; a position is
+    weighted by ``backbone.noul_weight_mask``. Refused when a batch's labels do not name one
+    label per row, since the scope would then be read off the wrong rows.
+    """
+    from qd_train.backbone import noul_weight_mask
+
+    if NOUL_LETTER not in letter_id:
+        raise ValueError(
+            f"--noul-weight: the noul letter {NOUL_LETTER!r} has no token id in {letter_id}"
+        )
+    noul_id = int(letter_id[NOUL_LETTER])
+    rows: list[np.ndarray] = []
+    weighted: list[int] = []
+    supervised: list[int] = []
+    for b, batch in enumerate(plan):
+        labels = labels_for.get(b)
+        n = int(batch.tokens.shape[0])
+        if labels is None or len(labels) != n:
+            raise ValueError(
+                f"--noul-weight: plan batch {b} has {n} rows and "
+                f"{'no' if labels is None else len(labels)} labels; the scope is read off one "
+                "label per row"
+            )
+        in_scope = np.asarray([label.family_id == NOUL_WEIGHT_SCOPE for label in labels])
+        sup = ft_supervision(batch)
+        rows.append(in_scope)
+        weighted.append(int(noul_weight_mask(sup, in_scope, noul_id).sum()))
+        supervised.append(int(sup.n_supervised))
+    return NoulWeightPlan(
+        weight=float(weight), scope=NOUL_WEIGHT_SCOPE, noul_id=noul_id, rows=tuple(rows),
+        per_batch_weighted=tuple(weighted), per_batch_supervised=tuple(supervised),
+    )
+
+
 def _recipe_pieces(
     *, lower_layers_n: int, lower_lr_scale: float, beta2: float,
     permutation: ChoicePermutation | None, replay: ReplayPlan | None,
@@ -381,7 +499,8 @@ def _recipe_pieces(
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
     train_attention_mask: str = "padding", max_steps: int | None = None,
     train_dtype: str = "bf16", span_head_init: Mapping[str, str] | None = None,
-    exclusions_sha256: str = "",
+    exclusions_sha256: str = "", min_lr: float | None = None,
+    noul_weight: float | None = None,
 ) -> dict[str, object]:
     """The recipe keys for whichever ported pieces are on. Empty when none is.
 
@@ -400,6 +519,13 @@ def _recipe_pieces(
 
     ``exclusions_sha256`` is the train header's (``--exclude-identity-keys``): ``""``, every
     row so far, adds no key.
+
+    ``min_lr`` is ``--min-lr``: ``None`` (the floor ``lr / 10`` every row so far trained on)
+    adds no key; any given value is recorded, ``lr / 10`` included, because it was given.
+
+    ``noul_weight`` is ``--noul-weight``: ``None`` adds no key; given, it adds exactly two,
+    ``noul_weight`` and ``noul_weight_scope`` -- the arm's identity
+    (``arm_noul_weight.identity``) is v5's recipe plus these two.
     """
     if train_attention_mask not in TRAIN_ATTENTION_MASKS:
         raise ValueError(
@@ -409,6 +535,11 @@ def _recipe_pieces(
     if train_dtype not in TRAIN_DTYPES:
         raise ValueError(f"train_dtype must be one of {TRAIN_DTYPES}, got {train_dtype!r}")
     out: dict[str, object] = {}
+    if noul_weight is not None:
+        out["noul_weight"] = noul_weight
+        out["noul_weight_scope"] = NOUL_WEIGHT_SCOPE
+    if min_lr is not None:
+        out["min_lr"] = min_lr
     if exclusions_sha256:
         out["exclusions_sha256"] = exclusions_sha256
     if max_steps is not None:
@@ -1598,8 +1729,11 @@ class CheckpointSink:
         written = ckpt.write(self.target)
         took = time.monotonic() - t0
         self.last_step = int(ckpt.optimizer_step)
+        # `<stem>.*`: the JSON and its `<stem>.<digest>` sidecar (Checkpoint.sidecar_path).
+        # `<stem>*` also matched the --retain-tower-every snapshots beside it,
+        # `<stem>-step<S>.json` and their sidecars, and priced them as this checkpoint.
         payload = sum(
-            p.stat().st_size for p in written.parent.glob(f"{written.stem}*") if p.is_file()
+            p.stat().st_size for p in written.parent.glob(f"{written.stem}.*") if p.is_file()
         )
         print(
             f"  checkpoint: step {ckpt.optimizer_step} -> {written} "
@@ -1644,6 +1778,13 @@ def _resume_arm(path: Path) -> tuple[str, int, str]:
             f"{path.name}: a checkpoint written by this tool ends in .json, and its sidecar "
             "is found from that name"
         )
+    _, sep, last = path.stem.rpartition("-")
+    if sep and last.startswith("step") and last[4:].isdigit():
+        raise ValueError(
+            f"{path.name}: a --retain-tower-every snapshot (tower and span head, no optimizer "
+            "state), not a resume checkpoint. Nothing resumes from one; one --score-checkpoint "
+            "scores it on its own"
+        )
     parts = path.stem.rsplit("-", 2)
     if len(parts) != 3:
         raise ValueError(
@@ -1664,6 +1805,184 @@ def _resume_arm(path: Path) -> tuple[str, int, str]:
             "this checkpoint was taken at cannot be read off it"
         )
     return tag, int(seed_part[4:]), device
+
+
+# --- --retain-tower-every: the trajectory's snapshots (v5 recipe.added[0]) -----------------------
+
+#: What a retained snapshot's ``model_state`` keeps: the weights ``QwenDecisionStep.load_weights``
+#: needs and nothing a resume would. No optimizer state, so ``load_state`` refuses it and
+#: ``_resume_arm`` refuses its name: a snapshot is a model to score, never a resume point.
+SNAPSHOT_KEYS: Final[tuple[str, ...]] = ("tower", "span_head", "span_weight", "vocab_size")
+
+
+def _snapshot_name(tag: str, seed: int, device: str, step: int) -> str:
+    """``<tag>-seed<N>-<device>-step<S>.json``: one file per retained optimizer step, beside
+    the cell's one resume checkpoint (:func:`_checkpoint_name`), never over it."""
+    if isinstance(step, bool) or not isinstance(step, int) or step < 1:
+        raise ValueError(f"a snapshot is taken after an optimizer step >= 1, got {step!r}")
+    return f"{_checkpoint_name(tag, seed, device).removesuffix('.json')}-step{step}.json"
+
+
+def _snapshot_arm(path: Path) -> tuple[str, int, str, int] | None:
+    """``(tag, seed, device, step)`` of a retained snapshot's name; ``None`` for a name with
+    no ``-step<S>`` part (a resume checkpoint's), and a refusal for one that has it malformed.
+    The inverse of :func:`_snapshot_name`."""
+    if path.suffix != ".json":
+        return None
+    base, sep, step_part = path.stem.rpartition("-")
+    if not sep or not step_part.startswith("step"):
+        return None
+    if not step_part[4:].isdigit() or int(step_part[4:]) < 1:
+        raise ValueError(
+            f"{path.name}: {step_part!r} is not 'step' followed by an optimizer step >= 1"
+        )
+    tag, seed, device = _resume_arm(path.with_name(f"{base}.json"))
+    return tag, seed, device, int(step_part[4:])
+
+
+def _checkpoint_interval(checkpoint_every: int, retain_every: int) -> int:
+    """How often ``train_ft`` must hand over a checkpoint: ``--checkpoint-every``'s interval
+    alone, as always, unless ``--retain-tower-every`` is on -- then the gcd of the two (or
+    the retention interval alone), so every boundary of either is a call."""
+    if not retain_every:
+        return checkpoint_every
+    return math.gcd(checkpoint_every, retain_every) if checkpoint_every else retain_every
+
+
+def retention_resume_problem(
+    resume_step: int, *, checkpoint_every: int, retain_every: int
+) -> str | None:
+    """Why a resume from ``resume_step`` would miss retention boundaries, or ``None``.
+
+    ``train_ft`` counts checkpoint boundaries from the step it resumes at, and snapshots are
+    taken at absolute multiples of ``retain_every``. Those coincide exactly when the resume
+    step is a multiple of the interval :func:`_checkpoint_interval` hands the loop."""
+    if not retain_every:
+        return None
+    interval = _checkpoint_interval(checkpoint_every, retain_every)
+    if resume_step % interval:
+        return (
+            f"--resume-from is at optimizer step {resume_step}, not a multiple of the "
+            f"checkpoint interval {interval} (--checkpoint-every {checkpoint_every}, "
+            f"--retain-tower-every {retain_every}): the loop counts boundaries from the resume "
+            f"step, so the snapshots at multiples of {retain_every} would be skipped"
+        )
+    return None
+
+
+def existing_snapshots(directory: Path, tag: str, seed: int, device: str) -> dict[int, Path]:
+    """The cell's snapshots already in ``directory``, by step."""
+    stem = _checkpoint_name(tag, seed, device).removesuffix(".json")
+    out: dict[int, Path] = {}
+    for path in sorted(directory.glob(f"{stem}-step*.json")) if directory.is_dir() else ():
+        parsed = _snapshot_arm(path)
+        if parsed is not None and parsed[:3] == (tag, seed, device):
+            out[parsed[3]] = path
+    return out
+
+
+def snapshot_clash(
+    directory: Path, tag: str, seed: int, device: str, *, first_step: int
+) -> str | None:
+    """Why a run of this cell from ``first_step`` would write over snapshots already in
+    ``directory``, or ``None``. ``Checkpoint.write`` replaces a file atomically and silently,
+    and kernels that are not deterministic put other weights under the same name."""
+    clash = sorted(
+        s for s in existing_snapshots(directory, tag, seed, device) if s > first_step
+    )
+    if not clash:
+        return None
+    return (
+        f"{directory} already holds {len(clash)} {tag} seed {seed} {device} snapshot(s) past "
+        f"step {first_step} (first: step {clash[0]}); this run would write over them. Move "
+        "them, or use another --checkpoint-dir"
+    )
+
+
+class RetainingSink:
+    """``train_ft``'s ``on_checkpoint`` under ``--retain-tower-every N``.
+
+    The loop calls it at every multiple of :func:`_checkpoint_interval` after the step it
+    started from, with the full ``Checkpoint`` it built. Two independent things happen:
+
+    * at a ``--checkpoint-every`` boundary (counted from the start step, as
+      ``RunControl.should_checkpoint`` counts them) the resume checkpoint is written exactly
+      as :class:`CheckpointSink` always wrote it;
+    * at an optimizer step that is a multiple of N, a snapshot: the loop's own checkpoint with
+      ``model_state`` cut to :data:`SNAPSHOT_KEYS` -- position, schedule, loss log and
+      consumed digest are the loop's, so it is a ``Checkpoint`` that ``read_weights`` and
+      ``ckpt_average.py`` read like any other -- at ``<tag>-seed<N>-<device>-step<S>.json``.
+
+    :meth:`final` writes the resume checkpoint's final form as :class:`CheckpointSink` does
+    and the final step's snapshot unless the loop already took it.
+
+    Cost [not measured]: the loop builds its checkpoint from the step's full ``state()`` --
+    weights plus the optimizer's fp32 masters and moments -- at every interval boundary, and
+    this sink keeps only the weights. On the 2B that is a ~25 GB host copy per retained
+    step; the alternative would need a weights-only hook in ``qd_train.trainer``.
+    """
+
+    def __init__(
+        self, *, directory: Path, tag: str, seed: int, device: str, retain_every: int,
+        full: CheckpointSink | None, full_every: int, first_step: int,
+    ) -> None:
+        if retain_every < 1:
+            raise ValueError(f"retain_every must be >= 1, got {retain_every}")
+        if (full is None) != (full_every == 0):
+            raise ValueError("a resume checkpoint sink and its interval are given together")
+        self.directory = directory
+        self.tag, self.seed, self.device = tag, seed, device
+        self.retain_every = retain_every
+        self.full = full
+        self.full_every = full_every
+        self.first_step = first_step
+        self.written: list[int] = []
+
+    def __call__(self, ckpt: Any) -> None:
+        step = int(ckpt.optimizer_step)
+        if self.full is not None and (step - self.first_step) % self.full_every == 0:
+            self.full(ckpt)
+        if step % self.retain_every == 0:
+            self._snapshot(ckpt)
+
+    def final(self, ckpt: Any) -> None:
+        if self.full is not None:
+            self.full.final(ckpt)
+        step = int(ckpt.optimizer_step)
+        if step > self.first_step and step not in self.written:
+            self._snapshot(ckpt)
+
+    def _snapshot(self, ckpt: Any) -> None:
+        from qd_train.run_control import Checkpoint
+
+        missing = [k for k in SNAPSHOT_KEYS if k not in ckpt.model_state]
+        if missing:
+            raise ValueError(
+                f"a snapshot needs {list(SNAPSHOT_KEYS)} from the step's state and it has no "
+                f"{missing}: only QwenDecisionStep.state writes a tower"
+            )
+        step = int(ckpt.optimizer_step)
+        snapshot = Checkpoint(
+            position=ckpt.position, optimizer_step=step, seed=ckpt.seed,
+            schedule=ckpt.schedule, loss_log=ckpt.loss_log,
+            consumed_digest=ckpt.consumed_digest,
+            model_state={k: ckpt.model_state[k] for k in SNAPSHOT_KEYS},
+        )
+        target = self.directory / _snapshot_name(self.tag, self.seed, self.device, step)
+        t0 = time.monotonic()
+        written = snapshot.write(target)
+        took = time.monotonic() - t0
+        # `<stem>.*` is the JSON and its `<stem>.<digest>` sidecar, and not step 20's files
+        # when this is step 2 (Checkpoint.sidecar_path).
+        payload = sum(
+            p.stat().st_size for p in written.parent.glob(f"{written.stem}.*") if p.is_file()
+        )
+        self.written.append(step)
+        print(
+            f"  snapshot: step {step} -> {written} ({payload / (1 << 30):.2f} GiB in "
+            f"{took:.1f}s; tower and span head, no optimizer state)",
+            flush=True,
+        )
 
 
 def _channel_balance(run: Mapping[str, object]) -> TriState:
@@ -1849,9 +2168,13 @@ def _control(
     steps: int, *, device: str, lr: float, checkpoint_every: int = 0,
     n_gpus: int | None = None, usd_per_hour: float | None = None,
     usd_per_gpu_hour: float | None = None, instance: str | None = None,
-    approved_by: str = "", cap_s: float = WALL_CLOCK_CAP_S,
+    approved_by: str = "", cap_s: float = WALL_CLOCK_CAP_S, min_lr: float | None = None,
 ) -> RunControl:
     """The cap, the schedule and the price of a local run.
+
+    The schedule's floor is ``lr / 10`` unless ``min_lr`` (``--min-lr``) is given; every run
+    before v5 trained on ``lr / 10``. ``LRSchedule`` refuses a floor that is negative,
+    non-finite or above ``lr``; ``main`` refuses the same at argv time.
 
     ``usd_per_hour=0.0`` with ``n_gpus=0`` is a measured fact about a Mac that is already
     bought, not a way around rule 4: a rented machine sets a real rate here and
@@ -1884,7 +2207,8 @@ def _control(
     )
     return RunControl(
         schedule=LRSchedule(
-            peak_lr=lr, total_steps=steps, warmup_steps=max(1, steps // 20), min_lr=lr / 10
+            peak_lr=lr, total_steps=steps, warmup_steps=max(1, steps // 20),
+            min_lr=lr / 10 if min_lr is None else min_lr,
         ),
         cap=cap,
         cost=cost,
@@ -2261,9 +2585,11 @@ def _real_step(
     span_weight: float, width: int, lower_layers_n: int = 0, lower_lr_scale: float = 1.0,
     beta2: float = DEFAULT_BETA2, eval_widths: Sequence[int] = (),
     span_channel_off: bool = False, checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
-    train_attention_mask: str = "padding",
+    train_attention_mask: str = "padding", noul_weight: NoulWeight | None = None,
 ) -> tuple[Any, Any, TriState]:
     """The real tower, remapped to the shard set, budgeted, and wrapped in a step.
+
+    ``noul_weight`` is ``--noul-weight``'s, for a training step only.
 
     ``eval_widths`` are the widths of batches the step will only DECODE -- the needle
     suite's ~8K cases. They raise the step's ``max_width`` bound and nothing else: the
@@ -2357,6 +2683,7 @@ def _real_step(
         span_channel_off=span_channel_off,
         fused_adamw=fused_adamw,
         train_attention_mask=train_attention_mask,
+        noul_weight=noul_weight,
     )
     return step, tower, budget
 
@@ -2382,7 +2709,8 @@ def _train(
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
     train_attention_mask: str = "padding", max_steps: int | None = None,
     train_dtype: str = "bf16", span_head_init: SpanHeadInit | None = None,
-    record_span_head_init_digest: bool = False,
+    record_span_head_init_digest: bool = False, min_lr: float | None = None,
+    noul_weight: NoulWeightPlan | None = None, retain_tower_every: int = 0,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -2414,7 +2742,22 @@ def _train(
     * ``record_span_head_init_digest`` (``--span-head-init-digest``): the head's content
       digest before step 0, as the metric ``train.span_head_init_digest``. A recording
       option -- no recipe key, no hash moves -- and on whenever ``span_head_init`` is.
+
+    v5's pieces: ``min_lr`` (``--min-lr``, the schedule's floor) and ``noul_weight``
+    (``--noul-weight``, real backbone only): :func:`noul_weight_plan` over exactly this
+    ``plan``, cut with it under ``max_steps``; its count goes on the row as metrics and is
+    checked against what the step weighted when the schedule ran out.
+
+    ``retain_tower_every`` (``--retain-tower-every``, real backbone and ``checkpoint_dir``):
+    a tower-and-span-head snapshot at every Nth optimizer step and the final one
+    (:class:`RetainingSink`); it moves no recipe key and leaves ``checkpoint_every``'s
+    resume checkpoint exactly as it was.
     """
+    if noul_weight is not None and len(noul_weight.rows) != len(plan):
+        raise ValueError(
+            f"the noul weight plan covers {len(noul_weight.rows)} batches and this arm's plan "
+            f"{len(plan)}: it was built for another plan"
+        )
     if max_steps is not None:
         if passes != 1:
             raise ValueError(
@@ -2428,6 +2771,8 @@ def _train(
                 "schedule over a run that cut nothing, or ran past its own plan"
             )
         plan = plan[:max_steps]
+        if noul_weight is not None:
+            noul_weight = noul_weight.cut(max_steps)
     width = max(int(b.tokens.shape[1]) for b in plan)
     steps = len(plan) * passes
     record_head_digest = record_span_head_init_digest or span_head_init is not None
@@ -2447,6 +2792,37 @@ def _train(
             "train_attention_mask needs the real backbone: the stand-in has no SDPA layer to "
             "switch, so a recipe naming the switch would describe nothing that ran"
         )
+    if noul_weight is not None and backbone is None:
+        raise ValueError(
+            "noul_weight needs the real backbone: the stand-in's letter loss has no "
+            "per-position weight, so a recipe naming one would describe nothing that ran"
+        )
+    if retain_tower_every < 0:
+        raise ValueError(f"retain_tower_every must not be negative, got {retain_tower_every}")
+    if retain_tower_every and (backbone is None or checkpoint_dir is None):
+        raise ValueError(
+            "retain_tower_every needs the real backbone and a checkpoint_dir: only "
+            "QwenDecisionStep.state carries a tower, and a snapshot needs somewhere to go"
+        )
+    retain_first_step = 0
+    if retain_tower_every:
+        assert checkpoint_dir is not None  # refused just above
+        if resume_from is not None:
+            resumed_at = getattr(resume_from, "optimizer_step", None)
+            if isinstance(resumed_at, bool) or not isinstance(resumed_at, int):
+                raise ValueError("resume_from carries no optimizer_step to align snapshots to")
+            retain_first_step = resumed_at
+        problem = retention_resume_problem(
+            retain_first_step, checkpoint_every=checkpoint_every,
+            retain_every=retain_tower_every,
+        )
+        if problem is not None:
+            raise ValueError(problem)
+        clash = snapshot_clash(
+            checkpoint_dir, tag, seed, device, first_step=retain_first_step
+        )
+        if clash is not None:
+            raise ValueError(clash)
     if fused_adamw and (backbone is None or optimizer_recipe != "master"):
         raise ValueError(
             "fused_adamw is built for the real backbone's fp32-master optimizer only; the "
@@ -2464,7 +2840,8 @@ def _train(
         train_attention_mask=train_attention_mask, max_steps=max_steps,
         train_dtype=train_dtype,
         span_head_init=None if span_head_init is None else span_head_init.recipe(),
-        exclusions_sha256=reader.header.exclusions_sha256,
+        exclusions_sha256=reader.header.exclusions_sha256, min_lr=min_lr,
+        noul_weight=None if noul_weight is None else noul_weight.weight,
     )
     recipe: dict[str, object] = {
         "tool": "tools/real_ft_run.py", "tag": tag, "device": device,
@@ -2521,6 +2898,15 @@ def _train(
         # bf16 unless --train-dtype says fp32; optimizer_spec("fp32", recipe) is ADAMW_FP32
         # for either recipe -- an fp32 parameter is its own master.
         spec = optimizer_spec(train_dtype, optimizer_recipe)
+        step_noul: NoulWeight | None = None
+        if noul_weight is not None:
+            from qd_train.backbone import NoulWeight
+
+            # Keyed by the index source() below gives each batch: the same enumeration.
+            step_noul = NoulWeight(
+                weight=noul_weight.weight, scope=noul_weight.scope,
+                noul_id=noul_weight.noul_id, rows_by_index=noul_weight.by_index(passes),
+            )
         step, tower, budget = _real_step(
             backbone=backbone, reader=reader, plan=plan, device=device, dtype=train_dtype,
             spec=spec, attn_implementation=attn_implementation, seed=seed, lr=lr,
@@ -2528,7 +2914,7 @@ def _train(
             lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
             eval_widths=eval_widths, span_channel_off=shuffled_label is not None,
             checkpoint_skip_layers=checkpoint_skip_layers, fused_adamw=fused_adamw,
-            train_attention_mask=train_attention_mask,
+            train_attention_mask=train_attention_mask, noul_weight=step_noul,
         )
         if train_dtype == "fp32":
             # Read off what was BUILT, before step 0: rung (d)'s T-fp32 is a reference only
@@ -2598,6 +2984,14 @@ def _train(
         what_ran += (
             f" --max-steps {max_steps}: the first {max_steps} batches of the epoch's order, "
             f"under the recipe's schedule recomputed over {max_steps} steps."
+        )
+    if noul_weight is not None:
+        what_ran += (
+            f" --noul-weight {noul_weight.weight:g}: the letter cross-entropy at "
+            f"{noul_weight.weighted_positions} of {noul_weight.supervised_positions} "
+            f"supervised letter positions per pass ({noul_weight.scope} rows whose gold is "
+            f"{NOUL_LETTER}) multiplied by it; every other position, CLINC's Z golds "
+            "included, and the span channel unweighted; not renormalised."
         )
     head_digest = span_head_digest(step) if record_head_digest else None
     if not isinstance(step, SpanScoringStep):  # pragma: no cover - the protocol is structural
@@ -2694,6 +3088,49 @@ def _train(
             detail="what this row ran on; compare rows only where this agrees or says why not",
         ),
     )
+    if noul_weight is not None:
+        # Metrics, not recipe keys: the two recipe keys are the arm's whole identity.
+        recorder.metric(
+            "train.noul_weight.positions",
+            Ran(
+                passed=True, value=noul_weight.weighted_positions,
+                n=noul_weight.weighted_positions, n_total=noul_weight.supervised_positions,
+                detail=(
+                    f"supervised letter positions per pass of this plan whose row is "
+                    f"{noul_weight.scope} and whose gold is {NOUL_LETTER}, each weighted "
+                    f"{noul_weight.weight:g} (backbone.noul_weight_mask), of the supervised "
+                    f"letter positions per pass; {passes} pass(es)"
+                ),
+            ),
+        )
+        ratio = noul_weight.weight_mass_ratio
+        recorder.metric(
+            "train.noul_weight.mass_ratio",
+            Ran(
+                passed=True, value=ratio,
+                detail=(
+                    "sum of the letter positions' weights over their count, per pass: how "
+                    "far the letter loss's mass rises under the weight. The loss stays "
+                    "sum(w_i * ce_i) over the supervised count -- recorded, not renormalised"
+                ),
+            )
+            if ratio is not None
+            else NotRun(reason="the plan supervises no letter position, so the ratio is 0/0"),
+        )
+    if retain_tower_every:
+        # A metric, not a recipe key: retention changes what is kept, not what is trained.
+        recorder.metric(
+            "train.retain_tower_every",
+            Ran(
+                passed=True, value=retain_tower_every,
+                detail=(
+                    f"tower and span-head snapshots, no optimizer state, after every optimizer "
+                    f"step that is a multiple of {retain_tower_every} and after the final step, "
+                    f"as {_checkpoint_name(tag, seed, device).removesuffix('.json')}-step<S>.json "
+                    "beside the resume checkpoint"
+                ),
+            ),
+        )
 
     supervised = [ft_supervision(b) for b in plan]
     # Per batch as well as over the plan. The per-batch numbers are what each batch's loss
@@ -2812,19 +3249,29 @@ def _train(
     # rename, fsync the directory), so the previous checkpoint is readable right up to the
     # instant the new one replaces it. Keeping a series would be a retention policy, and
     # this is a resume point rather than a history.
-    on_checkpoint = None
+    on_checkpoint: CheckpointSink | RetainingSink | None = None
     if checkpoint_every and checkpoint_dir is not None:
         on_checkpoint = CheckpointSink(checkpoint_dir / _checkpoint_name(tag, seed, device))
+    if retain_tower_every:
+        assert checkpoint_dir is not None  # refused at the top of this function
+        on_checkpoint = RetainingSink(
+            directory=checkpoint_dir, tag=tag, seed=seed, device=device,
+            retain_every=retain_tower_every, full=on_checkpoint,
+            full_every=checkpoint_every if on_checkpoint is not None else 0,
+            # The resume step validated at the top of this function (0 for a fresh run).
+            first_step=retain_first_step,
+        )
 
     result = train_ft(
         source(),
         epoch=0,
         step=train_step,
         control=_control(
-            steps, device=device, lr=lr, checkpoint_every=checkpoint_every,
+            steps, device=device, lr=lr,
+            checkpoint_every=_checkpoint_interval(checkpoint_every, retain_tower_every),
             n_gpus=n_gpus, usd_per_hour=usd_per_hour,
             usd_per_gpu_hour=usd_per_gpu_hour, instance=instance,
-            approved_by=approved_by, cap_s=cap_s,
+            approved_by=approved_by, cap_s=cap_s, min_lr=min_lr,
         ),
         recorder=recorder,
         on_checkpoint=on_checkpoint,
@@ -2837,6 +3284,23 @@ def _train(
     wall = time.monotonic() - started
     if on_checkpoint is not None:
         on_checkpoint.final(result.checkpoint)
+    if noul_weight is not None:
+        weighted = int(getattr(step, "noul_weighted_positions", -1))
+        expected = noul_weight.weighted_positions * passes
+        print(
+            f"  noul weight: {weighted} letter position(s) weighted {noul_weight.weight:g} "
+            f"in this process; the plan counts {expected} over {passes} pass(es)",
+            flush=True,
+        )
+        # A run that ended early (cap) or started late (resume) weighted a part of the plan;
+        # one that ran its whole schedule from step 0 must have weighted exactly the plan.
+        if (resume_from is None and result.termination == "steps_exhausted"
+                and weighted != expected):
+            raise SystemExit(
+                f"--noul-weight: the step weighted {weighted} letter positions and the plan "
+                f"counts {expected}. Row {result.row_id} records the plan's count over a run "
+                "that did not weight it; treat that row as not describing its model."
+            )
     losses = result.loss_log.losses()
     letter = [x for x in step.letter_log if x > 0.0]
     spans = [x for x in step.span_log if x > 0.0]
@@ -6332,12 +6796,27 @@ def _seed_weights(
     args: argparse.Namespace, *, reader: ShardReader
 ) -> tuple[dict[str, Any], dict[str, Any], int, dict[str, Any], dict[str, Any]]:
     """One seed's ``<tag>-seed<N>-<device>.json``: ``(ft row, recipe, seed, meta, weights)``,
-    the file paired with ``--ft-row-id``'s row before its tower and span head are read."""
+    the file paired with ``--ft-row-id``'s row before its tower and span head are read.
+
+    Or one of that run's ``--retain-tower-every`` snapshots, ``<tag>-seed<N>-<device>-
+    step<S>.json``, paired with the same row: the step ``S`` in its name must be the one in
+    its body and no later than the row's last, and its schedule the row's. Only the final
+    step's snapshot is the model the row trained, so only it is scored for a val or gate row;
+    an earlier one only by the OOD-only trajectory row (:func:`_ood_only`).
+    """
     from qd_train.run_control import Checkpoint
 
     (path,) = score_paths(args.score_checkpoint)
     (row_id,) = ft_row_ids(args.ft_row_id)
-    tag, seed, trained_on = _resume_arm(path)
+    try:
+        snapshot = _snapshot_arm(path)
+        if snapshot is None:
+            tag, seed, trained_on = _resume_arm(path)
+            at_step: int | None = None
+        else:
+            tag, seed, trained_on, at_step = snapshot
+    except ValueError as exc:
+        raise SystemExit(f"--score-checkpoint {exc}") from exc
     if tag != "epoch":
         raise SystemExit(f"{path.name}: only an epoch checkpoint is scored")
     if list(args.seeds) != [seed]:
@@ -6354,14 +6833,56 @@ def _seed_weights(
             + "; ".join(f"{k}: row says {a!r}, here {b!r}" for k, (a, b) in wrong.items())
         )
     steps = int(ft["metrics"]["train.optimizer_steps"]["value"])
+    if at_step is not None and at_step > steps:
+        raise SystemExit(
+            f"{path.name} is a snapshot after optimizer step {at_step}; ft row {ft['row_id']} "
+            f"ended at step {steps}, so it is not that run's"
+        )
+    if at_step is not None and at_step != steps and not _ood_only(args):
+        raise SystemExit(
+            f"{path.name} is the snapshot after optimizer step {at_step} of the {steps} ft row "
+            f"{ft['row_id']} ran: not the model that row trained, so it scores no val or gate "
+            "row (the OOD-only trajectory row, --ood without --score-val, scores it)"
+        )
     weights, meta = Checkpoint.read_weights(path, subtrees=("tower", "span_head"))
-    if meta["optimizer_step"] != steps or meta["seed"] != seed:
+    expected_step = steps if at_step is None else at_step
+    if meta["optimizer_step"] != expected_step or meta["seed"] != seed:
         raise SystemExit(
             f"{path.name} is at optimizer step {meta['optimizer_step']}, seed "
-            f"{meta['seed']}; ft row {ft['row_id']} ended at step {steps}, seed {seed}. This "
-            "is not the model that row trained."
+            f"{meta['seed']}; " + (
+                f"ft row {ft['row_id']} ended at step {steps}, seed {seed}. This is not the "
+                "model that row trained."
+                if at_step is None else
+                f"its name says step {at_step}, and the row is seed {seed}. A snapshot whose "
+                "body is not the step its name says is not one this tool wrote."
+            )
         )
+    if at_step is not None:
+        problem = snapshot_schedule_problem(meta["schedule"], recipe)
+        if problem is not None:
+            raise SystemExit(f"{path.name} against ft row {ft['row_id']}: {problem}")
     return ft, recipe, seed, meta, weights
+
+
+def snapshot_schedule_problem(
+    schedule: Mapping[str, Any], recipe: Mapping[str, Any]
+) -> str | None:
+    """Why a snapshot's ``schedule`` is not the one ``recipe``'s run trained under, or
+    ``None``. The run's peak is ``recipe['lr']``, its floor ``recipe['min_lr']`` when
+    ``--min-lr`` was given and ``lr / 10`` otherwise (``_control``), and its length
+    ``batches * passes`` -- the planned schedule, which a capped run did not finish."""
+    lr = float(recipe["lr"])
+    expected = {
+        "peak_lr": lr,
+        "min_lr": float(recipe["min_lr"]) if "min_lr" in recipe else lr / 10,
+        "total_steps": int(recipe["batches"]) * int(recipe["passes"]),
+    }
+    wrong = {k: (schedule.get(k), v) for k, v in expected.items() if schedule.get(k) != v}
+    if not wrong:
+        return None
+    return "its schedule is not the row's: " + "; ".join(
+        f"{k} {a!r} in the snapshot, {b!r} by the row" for k, (a, b) in wrong.items()
+    )
 
 
 def _metal_export_seed(path: Path) -> int:
@@ -7534,19 +8055,80 @@ OOD_DIAGNOSTIC_QUICK_REASON: Final[str] = (
     "an OOD-suite-only diagnostic: no val pass, so no in-distribution bound and no ood_abstain "
     "gate; a diagnostic row is never a gate row"
 )
+#: The tag of an OOD-only trajectory row (``--score-checkpoint`` without ``--score-val``,
+#: v5's trajectory reading). Never ``epoch-score-val`` or any other tag a gate or rule reads
+#: an eval row by (qd-post-f-rules selects rows by tag; qd-gate-report and
+#: gate_report_row.py by the row id they are given).
+OOD_TRAJECTORY_TAG: Final[str] = "trajectory-ood"
+#: Its suite-verdict lines' ``gate``: not ``ood_abstain``, as for the diagnostic.
+OOD_TRAJECTORY_GATE: Final[str] = "ood_abstain.trajectory"
+#: Rule 8 for a trajectory row: report-only by construction.
+OOD_TRAJECTORY_QUICK_REASON: Final[str] = (
+    "an OOD-suite-only trajectory point (--score-checkpoint without --score-val): one "
+    "optimizer step of a run, report-only; no val pass, so no in-distribution bound and no "
+    "ood_abstain gate"
+)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class OodOnlyRow:
+    """What an OOD-suite-only row is: the plan's diagnostic or the trajectory point.
+
+    ``tag`` is formatted with the scored model's tag; ``prefix`` names the per-category
+    metrics (``<prefix>.<category>`` and ``<prefix>.all``); ``checkpoint_step`` adds the
+    ``checkpoint_step`` metric, the optimizer step the weights were taken after.
+    """
+
+    tag: str
+    prefix: str
+    what: str
+    quick_reason: str
+    gate: str
+    describes: str
+    checkpoint_step: bool
+
+
+#: ``--score-plan``'s ``ood`` pass. Its rows are what they were before trajectories existed.
+OOD_DIAGNOSTIC_ROW: Final[OodOnlyRow] = OodOnlyRow(
+    tag="{model}-ood-diagnostic", prefix="ood_diagnostic",
+    what="(an OOD-only diagnostic, no gate)", quick_reason=OOD_DIAGNOSTIC_QUICK_REASON,
+    gate=OOD_DIAGNOSTIC_GATE, describes="--score-plan OOD diagnostic", checkpoint_step=False,
+)
+#: ``--score-checkpoint`` without ``--score-val``. Its metrics are ``ood_abstain.<category>``
+#: because the v5 pre-registration's report-only reading names ``ood_abstain.prose`` on
+#: ``trajectory-ood`` rows; the tag, the quick flag and the absent gate keep every reader
+#: that selects gate rows off it.
+OOD_TRAJECTORY_ROW: Final[OodOnlyRow] = OodOnlyRow(
+    tag=OOD_TRAJECTORY_TAG, prefix="ood_abstain",
+    what="(a trajectory point, report-only, no gate)",
+    quick_reason=OOD_TRAJECTORY_QUICK_REASON, gate=OOD_TRAJECTORY_GATE,
+    describes="--score-checkpoint OOD-only trajectory point", checkpoint_step=True,
+)
+
+
+def _ood_only(args: argparse.Namespace) -> bool:
+    """``--score-checkpoint`` with ``--ood`` and without ``--score-val``: the trajectory row,
+    the OOD suite alone on one model. A ``--score-plan`` kind is never one (its passes say
+    what it decodes), and every other scoring mode still needs ``--score-val``."""
+    return (
+        not args.score_val and args.score_checkpoint is not None
+        and args.score_plan is None and bool(args.ood)
+    )
 
 
 def run_ood_diagnostic(
     args: argparse.Namespace, *, loaded: LoadedModel, reader: ShardReader, val: ValSet,
     device: str, ledger: Ledger, reasons_for: Callable[..., list[str]], ood_suite: OodSuite,
-    suite_seed: int, plan_note: str | None = None,
+    suite_seed: int, plan_note: str | None = None, row: OodOnlyRow = OOD_DIAGNOSTIC_ROW,
 ) -> tuple[str, tuple[dict[str, object], ...], int]:
     """The OOD suite alone on ``loaded``: both passes, the runtime rule per case, a quick
-    diagnostic row (tag ``<model tag>-ood-diagnostic``) and its per-case lines.
+    row and its per-case lines -- ``row`` says which: the plan's diagnostic (tag
+    ``<model tag>-ood-diagnostic``, metrics ``ood_diagnostic.*``) or a trajectory point
+    (tag ``trajectory-ood``, metrics ``ood_abstain.*`` and ``checkpoint_step``).
 
     Decoded by :func:`decode_ood` and counted by :func:`ood_category_metrics`, as the
-    ``ood_abstain`` gate's report is, under ``ood_diagnostic.*``: no val pass runs, so there
-    is no in-distribution bound and no gate. Returns ``(row id, lines, row seed)``.
+    ``ood_abstain`` gate's report is: no val pass runs, so there is no in-distribution bound
+    and no gate. Returns ``(row id, lines, row seed)``.
     """
     if ood_suite.not_run is not None or ood_suite.seed != suite_seed:
         raise SystemExit(
@@ -7563,17 +8145,28 @@ def run_ood_diagnostic(
     decode_at = time.monotonic()
     first, second, ood = decode_ood(step, ood_suite)
     decode_s = time.monotonic() - decode_at
-    what = "(an OOD-only diagnostic, no gate)"
-    metrics = ood_category_metrics(ood_suite, ood, prefix="ood_diagnostic", what=what)
+    what = row.what
+    metrics = ood_category_metrics(ood_suite, ood, prefix=row.prefix, what=what)
     abstained = sum(ood.values())
-    metrics["ood_diagnostic.all"] = (
+    metrics[f"{row.prefix}.all"] = (
         Ran(passed=True, value=abstained / len(ood), n=abstained, n_total=len(ood),
             detail=f"abstained on {abstained} of {len(ood)} OOD cases {what}")
         if ood else NotRun(reason="no OOD case was decoded")
     )
+    # Read only for the row that records it: a diagnostic's meta need not carry it.
+    at_step = int(meta["optimizer_step"]) if row.checkpoint_step else None
+    if row.checkpoint_step:
+        metrics["checkpoint_step"] = Ran(
+            passed=True, value=at_step,
+            detail=(
+                f"the optimizer step {model.scored_checkpoint} was taken after (a "
+                "--retain-tower-every snapshot's step, the run's last for its final "
+                "checkpoint, an average's for its inputs')"
+            ),
+        )
     diagnostic_recipe: dict[str, object] = {
         "tool": "tools/real_ft_run.py",
-        "tag": f"{model.tag}-ood-diagnostic",
+        "tag": row.tag.format(model=model.tag),
         "device": device,
         **{k: recipe[k] for k in (*BACKBONE_KEYS, *RECIPE_PIECE_KEYS) if k in recipe},
         "score_dtype": args.score_dtype,
@@ -7584,10 +8177,11 @@ def run_ood_diagnostic(
         "ood": ood_recipe(ood_suite),
     }
     reasons = model_reasons(model, device=device, reasons_for=reasons_for)
-    reasons.append(OOD_DIAGNOSTIC_QUICK_REASON)
+    reasons.append(row.quick_reason)
     notes = (
-        f"tools/real_ft_run.py --score-plan OOD diagnostic of {model.scored_checkpoint} "
-        f"({model.described}), {args.score_dtype} on {device} at T = 1: the OOD suite's two "
+        f"tools/real_ft_run.py {row.describes} of {model.scored_checkpoint} "
+        + (f"after optimizer step {at_step} " if row.checkpoint_step else "")
+        + f"({model.described}), {args.score_dtype} on {device} at T = 1: the OOD suite's two "
         "passes decoded the way crates/qd-runtime/src/answer.rs decodes them, the runtime "
         "rule's abstentions counted per category, and each case's letter rows (noul "
         "included) kept on its suite-verdict line. No val pass and no gate."
@@ -7959,7 +8553,8 @@ def planned_ft_recipe(
             cap_s=args.wall_clock_cap_s, no_memorise=args.no_memorise,
             batch_tokens=batch_tokens, checkpoint_skip_layers=args.checkpoint_skip_layers,
             fused_adamw=args.fused_adamw, train_attention_mask=args.train_attention_mask,
-            exclusions_sha256=reader.header.exclusions_sha256,
+            exclusions_sha256=reader.header.exclusions_sha256, min_lr=args.min_lr,
+            noul_weight=args.noul_weight,
         ),
     }
     if args.real_backbone is None:
@@ -8178,6 +8773,7 @@ def _check_shuffled_label_flags(args: argparse.Namespace, raw_argv: Sequence[str
         flag for flag, given in (
             ("--checkpoint-dir", args.checkpoint_dir is not None),
             ("--checkpoint-every", bool(args.checkpoint_every)),
+            ("--retain-tower-every", bool(args.retain_tower_every)),
             ("--resume-from", args.resume_from is not None),
         ) if given
     ]
@@ -8209,8 +8805,10 @@ def _check_score_checkpoint_flags(args: argparse.Namespace) -> None:
     ``--score-plan`` kind is checked by this same function, on its own namespace."""
     averaged = _is_average(args.score_checkpoint)
     ensemble = _is_ensemble(args.score_checkpoint)
+    ood_only = _ood_only(args)
     needed = {
-        "--score-val": args.score_val, "--real-backbone": args.real_backbone,
+        # Every mode but the OOD-only trajectory row (--ood without --score-val).
+        "--score-val": args.score_val or ood_only, "--real-backbone": args.real_backbone,
         "--ft-ledger": args.ft_ledger, "--devices": args.devices,
     }
     if not averaged:
@@ -8222,6 +8820,12 @@ def _check_score_checkpoint_flags(args: argparse.Namespace) -> None:
         raise SystemExit(
             "--score-checkpoint of an average (.safetensors) is paired with the ft rows "
             "its manifest names, one per input; --ft-row-id would name one of them"
+        )
+    if ensemble and ood_only:
+        raise SystemExit(
+            "--score-checkpoint without --score-val is the OOD-only trajectory row of one model "
+            "(a snapshot, a checkpoint or an average); a logit ensemble is scored with "
+            "--score-val"
         )
     if ensemble:
         towers = score_paths(args.score_checkpoint)
@@ -8794,6 +9398,17 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--retain-tower-every", type=int, default=0, metavar="N",
+        help=(
+            "v5 recipe.added[0]: keep the tower and span head (no optimizer state) after every "
+            "optimizer step that is a multiple of N and after the final step, as "
+            "<tag>-seed<N>-<device>-step<S>.json in --checkpoint-dir beside the one resume "
+            "checkpoint. Independent of --checkpoint-every, which still decides the resume "
+            "point; --score-checkpoint scores a snapshot. 0, the default, keeps none. No "
+            "recipe key: it changes what is kept, not what is trained"
+        ),
+    )
+    parser.add_argument(
         "--resume-from", type=Path, default=None,
         help=(
             "a checkpoint written by --checkpoint-dir. The schedule, seed and epoch must "
@@ -8814,6 +9429,24 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             f"default {STANDIN_LR:g} for the stand-in, {REAL_BACKBONE_LR:g} for "
             "--real-backbone. The stand-in's rate on pretrained weights destroys them."
+        ),
+    )
+    parser.add_argument(
+        "--min-lr", type=float, default=None,
+        help=(
+            "the cosine schedule's floor (v5: 0). Default: lr / 10, the floor every run "
+            "before v5 trained on, which adds no recipe key; any given value is recorded as "
+            "min_lr. Must be finite, >= 0 and <= --lr. Layer-wise lower layers scale it too"
+        ),
+    )
+    parser.add_argument(
+        "--noul-weight", type=float, default=None, metavar="W",
+        help=(
+            "v5 arm_noul_weight: multiply the letter cross-entropy by W at every supervised "
+            f"letter position whose gold is the noul letter in a {NOUL_WEIGHT_SCOPE} row "
+            "(CLINC's Z golds, every other family and the span channel unweighted); the "
+            "loss stays sum(w_i ce_i) over the supervised count. Recipe keys noul_weight and "
+            "noul_weight_scope only when given. Finite and > 0; needs --real-backbone"
         ),
     )
     parser.add_argument(
@@ -8966,7 +9599,12 @@ def main(argv: list[str] | None = None) -> int:
             "Or a METAL EXPORT: epoch-seed<N>-metal.safetensors, one seed's weights the Rust "
             "trainer (crates/qd-train) exported, with its .manifest.json beside it, paired "
             "with the ft row it wrote (--ft-ledger/--ft-row-id) under its one --seeds; every "
-            "row it is scored into records recipe.trained_by"
+            "row it is scored into records recipe.trained_by. A --retain-tower-every "
+            "SNAPSHOT (<tag>-seed<N>-<device>-step<S>.json) is paired like its run's "
+            "checkpoint; with --score-val only the final step's. With --ood and WITHOUT "
+            "--score-val: the OOD-only TRAJECTORY row, the 180-case OOD suite alone on one "
+            "model (a snapshot at any step, a checkpoint or an average), tagged "
+            "trajectory-ood with metrics.checkpoint_step, quick and report-only, no gate"
         ),
     )
     parser.add_argument(
@@ -9376,18 +10014,59 @@ def main(argv: list[str] | None = None) -> int:
         args.hidden = STANDIN_HIDDEN if args.hidden is None else args.hidden
         args.heads = STANDIN_HEADS if args.heads is None else args.heads
         args.lr = STANDIN_LR if args.lr is None else args.lr
+    # After --lr resolves: LRSchedule refuses these too, but per arm inside _train, after the
+    # shard set is read and the tower loaded.
+    if args.min_lr is not None:
+        if not (math.isfinite(args.min_lr) and args.min_lr >= 0.0):
+            raise SystemExit(
+                f"--min-lr must be finite and non-negative, got {args.min_lr!r}: it is the "
+                "floor the cosine decays to"
+            )
+        if args.min_lr > args.lr:
+            raise SystemExit(
+                f"--min-lr {args.min_lr:g} exceeds the peak --lr {args.lr:g}: the schedule "
+                "would decay upwards"
+            )
+    if args.noul_weight is not None:
+        if not (math.isfinite(args.noul_weight) and args.noul_weight > 0.0):
+            raise SystemExit(
+                f"--noul-weight must be finite and positive, got {args.noul_weight!r}: zero or "
+                "less would remove or invert the pull of the rows it names"
+            )
+        if args.real_backbone is None:
+            raise SystemExit(
+                "--noul-weight needs --real-backbone: the stand-in's letter loss has no "
+                "per-position weight"
+            )
+        if args.score_checkpoint is not None or args.score_plan is not None:
+            raise SystemExit(
+                "--noul-weight weights a training objective; --score-checkpoint and "
+                "--score-plan train nothing"
+            )
+        if args.shuffled_label is not None:
+            raise SystemExit(
+                "--noul-weight with --shuffled-label: the control permutes the very golds the "
+                "weight selects, and no pre-registration asks for that control"
+            )
 
     # Checkpointing is refused on the STAND-IN branch, and that is not a limitation being
     # worked around -- it is the whole point. `RealFtStep.load_state` raises by design
     # ("a checkpoint it cannot restore would be a silent lie"), so a stand-in run that
     # wrote one would produce a file that looks like a resume point and is not. Only
     # `QwenDecisionStep` carries the optimizer state a resume needs.
-    if (args.checkpoint_every or args.checkpoint_dir) and args.real_backbone is None:
+    if args.retain_tower_every < 0:
         raise SystemExit(
-            "--checkpoint-every/--checkpoint-dir need --real-backbone: the stand-in step "
-            "does not implement load_state, so a checkpoint written from it could never be "
-            "resumed. Writing one anyway would put a file on disk that looks like a resume "
-            "point and is not, which is the failure RealFtStep.load_state raises to prevent."
+            f"--retain-tower-every must not be negative, got {args.retain_tower_every}"
+        )
+    if (
+        args.checkpoint_every or args.checkpoint_dir or args.retain_tower_every
+    ) and args.real_backbone is None:
+        raise SystemExit(
+            "--checkpoint-every/--checkpoint-dir/--retain-tower-every need --real-backbone: "
+            "the stand-in step does not implement load_state, so a checkpoint written from it "
+            "could never be resumed. Writing one anyway would put a file on disk that looks "
+            "like a resume point and is not, which is the failure RealFtStep.load_state "
+            "raises to prevent."
         )
     if args.checkpoint_every and args.checkpoint_dir is None:
         raise SystemExit(
@@ -9395,14 +10074,27 @@ def main(argv: list[str] | None = None) -> int:
             "--checkpoint-dir, so there is nowhere to write. A run that believes it is "
             "checkpointing and is not is worse than one that knows it is not."
         )
-    if args.checkpoint_dir is not None and not args.checkpoint_every:
+    if args.retain_tower_every and args.checkpoint_dir is None:
         raise SystemExit(
-            "--checkpoint-dir was given without --checkpoint-every, so the loop would never "
-            "call on_checkpoint and the directory would stay empty. Pass both, or neither."
+            f"--retain-tower-every {args.retain_tower_every} was given without "
+            "--checkpoint-dir, so there is nowhere to keep the snapshots"
+        )
+    if args.checkpoint_dir is not None and not (args.checkpoint_every or args.retain_tower_every):
+        raise SystemExit(
+            "--checkpoint-dir was given without --checkpoint-every or --retain-tower-every, so "
+            "the loop would never call on_checkpoint and the directory would stay empty. Pass "
+            "both, or neither."
         )
     if args.checkpoint_every < 0:
         raise SystemExit(
             f"--checkpoint-every must not be negative, got {args.checkpoint_every}"
+        )
+    if args.retain_tower_every and (
+        args.score_checkpoint is not None or args.score_plan is not None
+    ):
+        raise SystemExit(
+            "--retain-tower-every keeps a training run's snapshots; --score-checkpoint and "
+            "--score-plan train nothing"
         )
     resume_cell: tuple[str, int, str] | None = None
     if args.resume_from is not None:
@@ -9484,10 +10176,14 @@ def main(argv: list[str] | None = None) -> int:
     _check_suite_logits_flags(args)
     if (args.ood_general_record is not None) != args.ood:
         raise SystemExit("--ood and --ood-general-record are given together or not at all")
-    if args.ood and not (args.score_val and args.real_backbone is not None):
+    # --score-checkpoint with --ood and without --score-val is the OOD-only trajectory row:
+    # the OOD suite alone, report-only. Every other --ood needs the val pass it is bounded by.
+    ood_only = _ood_only(args)
+    if args.ood and not ((args.score_val or ood_only) and args.real_backbone is not None):
         raise SystemExit(
             "--ood scores the model the val pass scores and encodes with the real "
-            "tokenizer: it needs --score-val and --real-backbone"
+            "tokenizer: it needs --score-val and --real-backbone (or, for the OOD-only "
+            "trajectory row, --score-checkpoint and --real-backbone)"
         )
     if args.needle_predictions_out is not None and not (
         args.needle and args.score_checkpoint is not None
@@ -9664,7 +10360,9 @@ def main(argv: list[str] | None = None) -> int:
     second_pass = SecondPass([], {}, {}, not_run="no val set: --score-val was not given")
     needle_suite = NeedleSuite([], [], {}, [], not_run="no val set: --score-val was not given")
     ood_suite = OodSuite([], None, None, not_run="no val set: --score-val was not given")
-    if args.score_val:
+    if args.score_val or ood_only:
+        # The OOD-only trajectory row opens the val set too, decoding none of it: the OOD
+        # suite is encoded against its reader and the step is sized by its plan.
         val_set = open_val_set(
             args.out, config=config, rev=rev,
             rows=list(val_rows),
@@ -9674,10 +10372,15 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"val set: {len(val_set.reader)} sequences in {len(val_set.plan)} batches, "
             f"remap {val_set.reader.header.remap_hash[:16]} (the train set's)"
+            + (" -- opened for the OOD suite, not decoded" if ood_only else "")
         )
-        second_pass = prepare_second_pass(
-            val_set, reader=val_set.reader, tokenizer_json=args.tokenizer_json,
-            seed=config.seed,
+        second_pass = (
+            SecondPass([], {}, {}, not_run="the OOD-only trajectory row decodes no val row")
+            if ood_only else
+            prepare_second_pass(
+                val_set, reader=val_set.reader, tokenizer_json=args.tokenizer_json,
+                seed=config.seed,
+            )
         )
         print(
             f"permutation second pass: {len(second_pass.perms)} choice rows deranged in "
@@ -9864,6 +10567,31 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"suite verdicts: {len(control_lines)} lines -> {args.suite_verdicts_out}")
             print(f"needle control row {control_row_id}")
             return 0
+        if ood_only:
+            loaded = _checkpoint_step(
+                args, reader=reader, val=val_set, device=devices[0],
+                eval_widths=suite_widths(needle_suite, ood_suite), suite_seed=config.seed,
+            )
+            trajectory_row_id, trajectory_lines, trajectory_seed = run_ood_diagnostic(
+                args, loaded=loaded, reader=reader, val=val_set, device=devices[0],
+                ledger=Ledger(args.ledger),
+                reasons_for=lambda tag, device, termination=None: quick_reasons(
+                    tag=tag, device=device, real_backbone=True, corpus=corpus,
+                    termination=termination,
+                ),
+                ood_suite=ood_suite, suite_seed=config.seed, row=OOD_TRAJECTORY_ROW,
+            )
+            if args.suite_verdicts_out is not None:
+                write_suite_verdicts_jsonl(
+                    args.suite_verdicts_out,
+                    [{"eval_row_id": trajectory_row_id, "seed": int(trajectory_seed),
+                      "gate": OOD_TRAJECTORY_GATE, **v} for v in trajectory_lines],
+                )
+                print(
+                    f"suite verdicts: {len(trajectory_lines)} lines -> {args.suite_verdicts_out}"
+                )
+            print(f"trajectory row {trajectory_row_id}")
+            return 0
         worker_decoded = (
             run_needle_worker(
                 raw_argv, needle_suite, letter_id=val_set.letter_id,
@@ -9985,6 +10713,34 @@ def main(argv: list[str] | None = None) -> int:
             f"(attestation {replay_plan.attestation_sha256[:16]}), weight "
             f"{replay_plan.weight}, every {replay_plan.every}"
         )
+    # --noul-weight over each arm's plan, before Ledger(args.ledger): the Mac prelude takes
+    # these from main's frame there and prints the weighted-position count.
+    noul_epoch: NoulWeightPlan | None = None
+    noul_memorise: NoulWeightPlan | None = None
+    if args.noul_weight is not None:
+        try:
+            if args.epoch:
+                noul_epoch = noul_weight_plan(
+                    plan_all, labels_by_batch_all, weight=args.noul_weight, letter_id=letter_id
+                )
+            if not args.no_memorise:
+                noul_memorise = noul_weight_plan(
+                    plan_small, labels_small, weight=args.noul_weight, letter_id=letter_id
+                )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        for arm, nw in (("epoch", noul_epoch), ("memorise", noul_memorise)):
+            if nw is None:
+                continue
+            ratio = nw.weight_mass_ratio
+            print(
+                f"noul weight {nw.weight:g} ({nw.scope}) on the {arm} plan: "
+                f"{nw.weighted_positions} of {nw.supervised_positions} supervised letter "
+                f"positions per pass are {nw.scope} rows whose gold is {NOUL_LETTER}; letter "
+                "weight mass x"
+                + ("n/a" if ratio is None else f"{ratio:.4f}")
+                + " (not renormalised)"
+            )
     verdict_lines: list[dict[str, object]] = []
     suite_lines: list[dict[str, object]] = []
 
@@ -10003,6 +10759,33 @@ def main(argv: list[str] | None = None) -> int:
             f"{resume_checkpoint.optimizer_step}, batch index "
             f"{resume_checkpoint.position.index}, seed {resume_checkpoint.seed}"
         )
+    if args.retain_tower_every:
+        # Both decided here, before any tower loads, for every cell this run will train;
+        # _train refuses the same two again for its own cell.
+        assert args.checkpoint_dir is not None  # refused at argv time
+        if resume_checkpoint is not None:
+            problem = retention_resume_problem(
+                int(resume_checkpoint.optimizer_step), checkpoint_every=args.checkpoint_every,
+                retain_every=args.retain_tower_every,
+            )
+            if problem is not None:
+                raise SystemExit(problem)
+        planned_tags = [
+            tag for tag, on in (("memorise", not args.no_memorise), ("epoch", args.epoch)) if on
+        ]
+        for tag in planned_tags:
+            for device in devices:
+                for seed in args.seeds:
+                    resumed = resume_checkpoint is not None and resume_cell == (tag, seed, device)
+                    clash = snapshot_clash(
+                        args.checkpoint_dir, tag, seed, device,
+                        first_step=(
+                            int(resume_checkpoint.optimizer_step)
+                            if resumed and resume_checkpoint is not None else 0
+                        ),
+                    )
+                    if clash is not None:
+                        raise SystemExit(f"--retain-tower-every: {clash}")
     # What the backbone actually was, in the ledger's own words. Branching here and not only
     # in `notes` is the whole point: a row written for a --real-backbone run used to say it
     # ran "a randomly-initialised 128x4 single block", interpolating --hidden and --heads,
@@ -10107,7 +10890,8 @@ def main(argv: list[str] | None = None) -> int:
                 checkpoint_skip_layers=args.checkpoint_skip_layers, fused_adamw=args.fused_adamw,
                 train_attention_mask=args.train_attention_mask,
                 train_dtype=args.train_dtype, span_head_init=span_head_init,
-                record_span_head_init_digest=args.span_head_init_digest,
+                record_span_head_init_digest=args.span_head_init_digest, min_lr=args.min_lr,
+                noul_weight=noul_memorise, retain_tower_every=args.retain_tower_every,
             )
             step = run.pop("_step")
             decode_at = time.monotonic()
@@ -10220,6 +11004,8 @@ def main(argv: list[str] | None = None) -> int:
                     max_steps=args.max_steps, train_dtype=args.train_dtype,
                     span_head_init=span_head_init,
                     record_span_head_init_digest=args.span_head_init_digest,
+                    min_lr=args.min_lr, noul_weight=noul_epoch,
+                    retain_tower_every=args.retain_tower_every,
                 )
                 step = run.pop("_step")
                 if shuffled is not None and val_set is not None:
