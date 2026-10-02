@@ -10,6 +10,19 @@ paths the brief assigned this lane: `tests/reference/**`, `tests/reference_*.rs`
 Nothing in ojas is committed by this lane (the brief forbids git in ojas); the ojas coordinator owns that.
 On resume after the usage-limit stop, `tests/` did not exist: no partial write had landed.
 
+## Files written in ojas (all uncommitted there, by the brief's rule; the coordinator adopts them)
+
+Everything below is under `ojas-qwen35-cuda/tests/`.
+
+- `reference/`, 14 files: `mod.rs` and 13 modules.
+  - References: `gdn_published`, `gates`, `conv1d`, `norms`, `attn_pieces`, `embed`, `ce`, `adamw`.
+  - Helpers: `npy`, `sha256`, `rng`, `fd`, `goldens`.
+- 5 test targets: `reference_gdn_published.rs`, `reference_gdn_published_vs_tessl.rs`,
+  `reference_goldens_published.rs`, `reference_kernels.rs`, `reference_adamw.rs`.
+- `fixtures/gdn/`, 108 files: tessl's published corpus, copied byte-identical, with its `SHA256SUMS` and `MANIFEST`.
+- `fixtures/qwen35/`, 7 files: tessl's six `qwen35_rope_*` plus this lane's `qwen35_rope_SHA256SUMS`.
+- `fixtures/gen_goldens.py` and `fixtures/goldens/`: 194 files, which are 193 goldens plus `manifest.json`.
+
 ## What was measured
 
 Raw outputs are in `AUDIT/ojas-training-2026-10-01/`:
@@ -18,8 +31,10 @@ Raw outputs are in `AUDIT/ojas-training-2026-10-01/`:
   exit 0, no warnings (rust/clippy 1.98);
 - `l-cuda-oracle-failfirst-*.txt`: the fail-first runs.
 
-Tests: **31 tests in 5 targets, all pass**: `reference_gdn_published` 8, `reference_gdn_published_vs_tessl`
-1, `reference_goldens_published` 3, `reference_kernels` 15, `reference_adamw` 4. L-cuda-M0's 62 unit
+Tests: **33 tests in 5 targets, all pass**: `reference_gdn_published` 8, `reference_gdn_published_vs_tessl`
+2, `reference_goldens_published` 3, `reference_kernels` 16, `reference_adamw` 4. The in-process comparison target is
+pinned in-test to tessl `tests/common/gdn_train.rs` sha256 `dc455ac9…` (via `include_bytes!`), and the six copied
+`qwen35_rope_*` files to `tests/fixtures/qwen35/qwen35_rope_SHA256SUMS`, so neither comparison target can move silently. L-cuda-M0's 62 unit
 tests still pass alongside. Every target finishes in under 10 s in debug (`--test-threads=1`; measured 0.0-9.2 s across runs).
 
 ### Grades
@@ -110,6 +125,14 @@ Each run used a temporary edit. The edit was reverted, and the suite then ran gr
   - 1e-4 of max for GDN (`tessl/tests/gdn_train.rs:241`) and for the row-local ops (`qwen35_bwd.rs:58`);
   - 1e-5 abs + 1e-5 rel on the CE loss (`cross_entropy.rs:185`).
 - K6: take the RoPE angle from the host, or use tessl's 4e-3 bound (`GAP-L-CUDA-ORACLE-ROPE-DEVICE-POW-2026-10-01`).
+- K11 has **no `grad_scale` field**. A caller applying `clip_grad_norm_`'s coefficient scales the
+  gradient tensors in place before `adamw_step_f64`, as torch does to `.grad`. tessl does it in f32
+  before its step (`tessl/tests/qwen35_adamw.rs:89-94`). `grad_sq_norm_f64` is the squared norm that
+  coefficient is computed from.
+- **Rule 9 and K3:** the gate goldens are named `gates_*`, without `published`. The gates sit
+  upstream of the state update, which is where the published and repo rules differ. tessl's
+  `tests/gdn_gates.rs` and `tests/qwen35_bwd.rs::gdn_gates_forward_and_backward_match` name them
+  the same way. Recorded so the lead can rule on it rather than discover it.
 - Not written by this lane, being outside its brief:
   - K0, K1 (GEMM), K5 (attention core) and K8 (swiglu, residual) references;
   - the whole-step reference against tessl's `qwen35_train/` fixture (§5.2).

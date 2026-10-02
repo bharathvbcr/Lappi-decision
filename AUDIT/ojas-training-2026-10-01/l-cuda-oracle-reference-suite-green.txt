@@ -17,7 +17,7 @@ test budget::tests::reservations_count_and_release_on_drop ... ok
 test check::tests::a_not_run_or_panicked_check_never_makes_the_whole_pass ... ok
 test check::tests::bit_diffs_count_nan_payloads_and_length_differences ... ok
 test check::tests::panic_payloads_become_text ... 
-thread 'check::tests::panic_payloads_become_text' (138872889) panicked at src/check.rs:301:50:
+thread 'check::tests::panic_payloads_become_text' (141579930) panicked at src/check.rs:301:50:
 Missing symbol cublasGemmEx
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 ok
@@ -99,7 +99,7 @@ K11 step 5 grad_sq_norm: 2.990e-16 of max|golden| 4.7535e1 (bound 1e-13)
 K11 step 5 params: 0.000e0 of max|golden| 9.7382e-1 (bound 1e-13)
 ok
 test k11_adamw_refuses_a_zero_lr_scale - should panic ... 
-thread 'k11_adamw_refuses_a_zero_lr_scale' (138874325) panicked at tests/reference/adamw.rs:137:9:
+thread 'k11_adamw_refuses_a_zero_lr_scale' (141579992) panicked at tests/reference/adamw.rs:137:9:
 adamw: lr_scale[1] = 0
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 ok
@@ -161,28 +161,29 @@ published L8191 (T=8191): max err 1.776e-15, 2.448e-16 of max|golden| 7.2570
 published corpus: worst 2.448e-16 on L8191 over 13 cases (bound 1e-12)
 ok
 test published_reference_refuses_a_misshapen_gate - should panic ... 
-thread 'published_reference_refuses_a_misshapen_gate' (138875352) panicked at tests/reference/gdn_published.rs:145:13:
+thread 'published_reference_refuses_a_misshapen_gate' (141581969) panicked at tests/reference/gdn_published.rs:145:13:
 assertion `left == right` failed: gdn_published: g has 3 elements, want 2 for Shape { b: 1, t: 2, h: 1, dk: 2, dv: 2 }
   left: 3
  right: 2
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 ok
 test published_reference_refuses_a_non_finite_operand - should panic ... 
-thread 'published_reference_refuses_a_non_finite_operand' (138875353) panicked at tests/reference/gdn_published.rs:183:9:
+thread 'published_reference_refuses_a_non_finite_operand' (141581970) panicked at tests/reference/gdn_published.rs:183:9:
 gdn_published: v[1] is not finite: NaN
 ok
 test published_reference_refuses_an_empty_sequence - should panic ... 
-thread 'published_reference_refuses_an_empty_sequence' (138875354) panicked at tests/reference/gdn_published.rs:110:9:
+thread 'published_reference_refuses_an_empty_sequence' (141581971) panicked at tests/reference/gdn_published.rs:110:9:
 gdn_published: every dimension must be non-zero, got Shape { b: 1, t: 0, h: 1, dk: 4, dv: 2 }
 ok
 test the_repo_rule_does_not_reproduce_the_published_corpus ... smallest repo-vs-published divergence (T>1): 1.448e-1
 ok
 
-test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.25s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.15s
 
      Running tests/reference_gdn_published_vs_tessl.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_gdn_published_vs_tessl-8d9d37ce1830f69f)
 
-running 1 test
+running 2 tests
+test published_comparison_target_is_the_pinned_tessl_file ... ok
 test published_reference_matches_tessls_gdn_train_f64_at_the_chunk_edges ... published T=1 s0=false dfin=false o: 0.000e0 of max|tessl|, bit-identical: true
 published T=1 s0=false dfin=false final state: 0.000e0 of max|tessl|, bit-identical: true
 published T=1 s0=false dfin=false dq: 0.000e0 of max|tessl|, bit-identical: true
@@ -226,7 +227,7 @@ published T=130 s0=true dfin=true ds0: 0.000e0 of max|tessl|, bit-identical: tru
 published vs tessl in process: worst 0.000e0 (bound 1e-12), all bit-identical: true
 ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.14s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.83s
 
      Running tests/reference_goldens_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_goldens_published-8be5690964fcf167)
 
@@ -277,11 +278,11 @@ published vs transformers golden: worst 2.228e-15 (bound 1e-10)
 ok
 test sha256_matches_the_fips_180_4_vectors ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
 
      Running tests/reference_kernels.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_kernels-832438b77d9d6ca3)
 
-running 15 tests
+running 16 tests
 test k10_cross_entropy_rows_gradients_are_the_derivative ... K10 Mean dh: worst relative error vs central differences 1.53e-10 (bound 1e-7)
 K10 Mean dW: worst relative error vs central differences 3.14e-10 (bound 1e-7)
 K10 Sum dh: worst relative error vs central differences 3.54e-10 (bound 1e-7)
@@ -356,6 +357,7 @@ K6 gate dgate: worst relative error vs central differences 8.58e-11 (bound 1e-7)
 ok
 test k6_rope_angle_is_transformers_f32_angle ... K6 angle: 320/320 bit-identical to transformers' f32 angle, worst 0.00 ulp
 ok
+test k6_transformers_rope_fixture_is_pinned ... ok
 test k7_rms_norm_backwards_are_the_derivative ... K7 rms dx: worst relative error vs central differences 2.89e-10 (bound 1e-7)
 K7 rms dw: worst relative error vs central differences 1.07e-10 (bound 1e-7)
 K7 gated dx: worst relative error vs central differences 2.11e-10 (bound 1e-7)
@@ -381,12 +383,12 @@ test k9_embedding_matches_the_torch_golden ... K9 y: 0.000e0 of max|golden| 9.98
 K9 dtable: 0.000e0 of max|golden| 2.1639e0 (bound 1e-13)
 ok
 test k9_embedding_refuses_an_out_of_range_id - should panic ... 
-thread 'k9_embedding_refuses_an_out_of_range_id' (138877229) panicked at tests/reference/embed.rs:14:9:
+thread 'k9_embedding_refuses_an_out_of_range_id' (141587181) panicked at tests/reference/embed.rs:14:9:
 embed: ids[1] = 4 is not below vocab 4
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 ok
 
-test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
 
      Running tests/runtime_refusal.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/runtime_refusal-52188fbade0964b3)
 
