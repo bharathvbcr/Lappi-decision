@@ -7,16 +7,20 @@ all 23,819 v4 MMLU/CSQA rows, because the 09-29 exclusion was never wired into a
 val rows (E_val) held out, and over E_val alone. It is report-only: no threshold, gate or
 population moves (rule 2).
 
-**F seed 0 is re-scored** (row `e663248b`, below). The run used L-replay's E_val at
-`/Users/bharath/qd-campaign/replay-v4-2026-10-02/gold-side/e-val.txt`: sha256
-`e933ea3010ba136f3a5cf6d007ac2642fddef43ef9d74c14ca4d9faebcecb45c`, 215 keys (183 MMLU, 32 CSQA,
-all slot `answer`). Seeds 1 and 2 follow when their verdict files land on the box
+**F seeds 0 and 1 are re-scored** (rows `e663248b` and `9e521e77`, below). Both runs used
+L-replay's E_val at `/Users/bharath/qd-campaign/replay-v4-2026-10-02/gold-side/e-val.txt`:
+sha256 `e933ea3010ba136f3a5cf6d007ac2642fddef43ef9d74c14ca4d9faebcecb45c`, 215 keys (183 MMLU,
+32 CSQA, all slot `answer`). Seed 2 follows when its verdict files land on the box
 (`GAP-RESCORE-EXCLUDED-NOT-YET-RUN-2026-10-02`).
 
 ## What was measured
 
-Ledger `ledger/mac-rescore-excluded-2026-10-02.jsonl`, row
-**`e663248b-0532-412f-addf-a48fa6cf86ba`** (chain verifies, 1 row):
+Both rows are in ledger `ledger/mac-rescore-excluded-2026-10-02.jsonl`, whose chain verifies
+with 2 rows.
+
+### Seed 0
+
+Row **`e663248b-0532-412f-addf-a48fa6cf86ba`**:
 - `quick`, report-only, tag `gate-report-excluded`;
 - `code_commit` `026473290d5a18097095885432bc4d9a4364c1ec`, clean: this lane's HEAD, run from a
   clean detached worktree;
@@ -74,6 +78,81 @@ the `only` share a binomial SE of about 0.036, so these within-family gaps are i
 That is family composition, not memorisation (inferred): E_val sits in the two weakest families.
 No failing gate passes either way.
 
+### Seed 1
+
+Row **`9e521e77-8e50-4fb8-ab37-92770a198f2c`**:
+- `quick`, report-only, tag `gate-report-excluded`;
+- chained to `e663248b`;
+- the same `code_commit` (`0264732`, clean), binary sha256 (`ec88665f…`) and E_val sha256 as
+  seed 0.
+
+It re-reads F seed 1's eval row `aeca8d69-4733-4593-92de-2073021ed684` (ft row `95fa4854…`) from
+files pulled read-only from the box at 05:28 UTC (local mtimes). Each is sha256-equal to the box's
+copy:
+- `verdicts-s1.jsonl` `04ea658a…` (8,269,462 bytes);
+- `suite-verdicts-s1.jsonl` `94a76fe3…`;
+- the box ledger `00bf2152…` (7 lines).
+
+The box ledger only grew: its first 65,082 bytes hash to seed 0's pull, `abb48449…`. That pull is
+kept as `box/gh200-p4-v4-2026-10-01.s0-pull.jsonl`.
+
+Checks:
+- All 18223 verdict lines name `aeca8d69` and seed 1, and all 10985 letter lines carry
+  `row_logits`. The suite file holds only `needle_hunk_recall` (300) and `ood_abstain` (180).
+- Step 6 printed val hash `69d45fd0…`, verdict keys 18223, E_val keys 215 and absent 0, so the
+  default refuse path ran, with no allow flag.
+- The binary recomputed 65 of the eval row's own numbers equal, with none left uncompared.
+- The `full` values were also checked by hand against `aeca8d69`. Pooled permutation 10211/10985
+  is the gate's value, which fails. Knowledge permutation is 1146/1485 and in-distribution
+  abstention 339/1485; commonsense is 1070/1197 and 127/1197. `val_top1.choice` is 9124/10985.
+
+F seed 1, three views (count / n). All verified, read off row `9e521e77` by a script, not by hand:
+
+| Population | Metric | full | excluded (not in E_val) | only (E_val) |
+| --- | --- | --- | --- | --- |
+| knowledge.multiple_choice (MMLU) | top-1 | 925/1485 = 0.6229 | 824/1302 = 0.6329 | 101/183 = 0.5519 |
+| | permutation agreement | 1146/1485 = 0.7717 | 1006/1302 = 0.7727 | 140/183 = 0.7650 |
+| | in-distribution abstention | 339/1485 = 0.2283 | 296/1302 = 0.2273 | 43/183 = 0.2350 |
+| | ECE choice.k4 | 0.0327 | 0.0326 | 0.0712 (183 rows) |
+| | last option (k4) predicted sigma | -2.553 | -1.848 | -2.295 |
+| commonsense.multiple_choice (CSQA) | top-1 | 921/1197 = 0.7694 | 895/1165 = 0.7682 | 26/32 = 0.8125 |
+| | permutation agreement | 1070/1197 = 0.8939 | 1041/1165 = 0.8936 | 29/32 = 0.9062 |
+| | in-distribution abstention | 127/1197 = 0.1061 | 124/1165 = 0.1064 | 3/32 = 0.0938 |
+| | ECE choice.k5 | 0.0258 | 0.0279 | not_run (32 < 100) |
+| | last option (k5) predicted sigma | +1.129 | +1.222 | -0.453 |
+| pooled, every family | top-1 choice (`val_top1.choice`) | 9124/10985 = 0.8306 | 8997/10770 = 0.8354 | 127/215 = 0.5907 |
+| | permutation agreement (the gate's population) | 10211/10985 = 0.9295 | 10042/10770 = 0.9324 | 169/215 = 0.7860 |
+| | in-distribution abstention (the gate's half) | 923/10985 = 0.0840 | 877/10770 = 0.0814 | 46/215 = 0.2140 |
+| | ECE choice.k4 (defect_class + MMLU) | 0.0174 (3789) | 0.0166 (3606) | 0.0712 (183) |
+
+CSQA's `only` predicted sigma, -0.453, equals seed 0's. That is not a stale value. It comes from
+counts: 5 of 32 predicted against 6 of 32 gold on both seeds. The mean-probability sigma, which
+is continuous, differs (-0.448 on seed 0, -0.554 on seed 1).
+
+Reading. This is report-only, and a quick row decides nothing (rule 8).
+
+**Within a family, holding E_val out again moves little, except MMLU top-1.**
+- MMLU top-1 rises 0.0100 and CSQA's falls 0.0012.
+- MMLU permutation rises 0.0010 and CSQA's falls 0.0003.
+- MMLU abstention falls 0.0010 and CSQA's rises 0.0003.
+
+**The E_val rows are again not answered better than their family, now on both seeds.**
+- MMLU's E_val top-1 is 0.5519, against 0.6329 for the rest. The difference is -0.0810, about 2.1
+  SE of the difference; seed 0's was -0.0282, 0.7 SE.
+- CSQA's E_val top-1 is 0.8125 against 0.7682 (+0.6 SE over 32 rows; seed 0 was +1.3 SE).
+- These are normal-approximation z values (inferred, not tested), with no correction for the
+  many comparisons in these tables.
+- Fable's "contamination can only flatter" (Q6) is not borne out for MMLU top-1 on either seed.
+
+**MMLU's ECE on E_val alone is 0.0712 over 183 rows (seed 0: 0.0979).** Both are above the ece
+gate's 0.05 bar, which is stated, not applied. CSQA's is `not_run` again, at 32 rows.
+
+**Pooled, holding E_val out RAISES the pooled gates' values again.**
+- Permutation goes 0.9295 to 0.9324, still under the 95% bar.
+- In-distribution abstention goes 0.0840 to 0.0814, still over the 5% bar.
+
+No failing gate passes either way.
+
 ## What changed
 
 | Commit | What |
@@ -84,7 +163,8 @@ No failing gate passes either way.
 | `0264732` | Runbook step 4 checks the suite file's gates, because `qd-gate-report` refuses an unknown suite gate. This is the `code_commit` of row `e663248b`, and `build-wt` / `run-wt` stay at it for seeds 1 and 2. |
 | `0e00e9b` | F seed 0's row `e663248b` in `ledger/mac-rescore-excluded-2026-10-02.jsonl`, plus this file's measured section. |
 | `d68a5c3` | Runbook step 6 becomes one `jq` that writes no file. The harness refuses a redirect outside the project root, which the seed-0 run hit. |
-| this commit | Two gap updates: `GAP-RESCORE-EXCLUDED-NOT-YET-RUN-2026-10-02` (seed 0 done) and `GAP-RESCORE-ONLY-VIEW-ECE-NEEDS-100-ROWS-2026-10-02` (resolved with residual, 183/32). Also this table, and step 6 no longer names a file it does not write. |
+| `ffc6e6d` | Two gap updates: `GAP-RESCORE-EXCLUDED-NOT-YET-RUN-2026-10-02` (seed 0 done) and `GAP-RESCORE-ONLY-VIEW-ECE-NEEDS-100-ROWS-2026-10-02` (resolved with residual, 183/32). Also this table, and step 6 no longer names a file it does not write. |
+| this commit | F seed 1's row `9e521e77` in `ledger/mac-rescore-excluded-2026-10-02.jsonl`, the Seed 1 section above, and gap updates for seed 1. Three runbook fixes. Step 9's prefix check is now `head -c \| shasum`: macOS `cmp -n N` exits 1 with "EOF" when the shorter file is exactly N bytes, so it failed on a true prefix during the seed-1 run. Step 9 also copies into the lane's own checkout, not main's. Step 3 keeps the previous seed's ledger pull. |
 
 ### The flag's semantics
 
@@ -163,11 +243,12 @@ and `test_gate_report_row.py`. It missed `test_gate_report_parity.py` and the co
 
 ## What is open
 
-- `GAP-RESCORE-EXCLUDED-NOT-YET-RUN-2026-10-02`: seed 0 is done (row `e663248b`). Seeds 1 and 2
-  wait for their verdict files on the box, then run the runbook below.
-- `GAP-RESCORE-ONLY-VIEW-ECE-NEEDS-100-ROWS-2026-10-02`: resolved with residual. On seed 0,
-  MMLU's `only` view has 183 rows and its ECE ran (0.0979). CSQA's has 32 rows and its ECE is
-  `not_run`: not measured, which is not the same as calibrated.
+- `GAP-RESCORE-EXCLUDED-NOT-YET-RUN-2026-10-02`: seeds 0 and 1 are done (rows `e663248b` and
+  `9e521e77`). Seed 2 waits for its verdict files on the box (about 10:30 UTC), then runs the
+  runbook below.
+- `GAP-RESCORE-ONLY-VIEW-ECE-NEEDS-100-ROWS-2026-10-02`: resolved with residual. On seeds 0 and
+  1, MMLU's `only` view has 183 rows and its ECE ran (0.0979 and 0.0712). CSQA's has 32 rows and
+  its ECE is `not_run`: not measured, which is not the same as calibrated.
 - `GAP-RESCORE-ABSENT-KEYS-UNDECIDABLE-FROM-VERDICTS-2026-10-02`: resolved with residual; the
   residual is step 6's pre-check.
 - `GAP-RESCORE-NAVIGATION-2026-10-02`: what DevMap, GitPulse and ListAgents could not answer.
@@ -180,7 +261,9 @@ The rows are report-only, `quick` and on CPU at $0. Run them once E_val exists, 
 whose eval row exists:
 - seed 0 is `f4feac15-db49-4159-bb9b-695866c855cc`, from ft row `973cd4e3…`
   (`ledger/gh200-p4-v4-2026-10-01.jsonl`, verified);
-- seeds 1 and 2 were due on the box at about 05 and 11 UTC.
+- seed 1 is `aeca8d69-4733-4593-92de-2073021ed684`, from ft row `95fa4854…`; its files landed on
+  the box at 05:25 UTC;
+- seed 2 is due at about 10:30 UTC.
 
 Everything is written under `/Users/bharath/qd-campaign/rescore-excluded-2026-10-02/`, outside
 any checkout. The harness blocks `cd`, `git -C` and redirects into variable paths, so every
@@ -238,6 +321,11 @@ The test must print 12 passed. The row records the binary's sha256 as `recipe.bi
   cross-check then compares fewer numbers, and the row says how many.
 - **Timing.** Pull the ledger after the seed's eval row is written. A torn last line is refused,
   never read.
+- **The previous seed's ledger pull.** The ledger's name has no seed in it, so the `scp` above
+  overwrites the previous seed's pull. Before pulling, keep that copy. Seed 1's run kept seed 0's
+  as `.s0-pull.jsonl`; for seed 2, run
+  `cp -p …/box/gh200-p4-v4-2026-10-01.jsonl …/box/gh200-p4-v4-2026-10-01.s1-pull.jsonl`.
+  Afterwards, check that its bytes are a prefix of the new pull, by hash as in step 9.
 - Pass only this box copy as `--eval-ledger`. The row must appear exactly once.
 
 ### 4. Find the seed's eval row and check its verdicts
@@ -345,13 +433,24 @@ decides nothing.
 ### 9. Land the ledger, then clean up
 
     PYTHONPATH=/Users/bharath/qd-campaign/rescore-excluded-2026-10-02/run-wt/python /Users/bharath/.venvs/ml/bin/python -m qd_train.ledger verify --ledger /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/mac-rescore-excluded-2026-10-02.jsonl
-    cp /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/mac-rescore-excluded-2026-10-02.jsonl /Users/bharath/Code/research/Lappi-decision/ledger/mac-rescore-excluded-2026-10-02.jsonl
+    cp /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/mac-rescore-excluded-2026-10-02.jsonl <your checkout>/ledger/mac-rescore-excluded-2026-10-02.jsonl
 
-Commit `ledger/mac-rescore-excluded-2026-10-02.jsonl` by explicit path.
+`<your checkout>` is the checkout of the branch that will carry the row: for this lane, its
+worktree `/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ab8fcc502a43caacc`.
+It is never main's checkout while another lane may be working there. Commit
+`ledger/mac-rescore-excluded-2026-10-02.jsonl` by explicit path.
 
 For a later seed, append to the same outside ledger, `verify`, and copy again. The file only
-grows: check that the committed copy is a byte prefix of the new one before replacing it, with
-`cmp -n <committed size> <committed copy> <new copy>`.
+grows, so before replacing the committed copy, check that it is a byte prefix of the new one.
+These two hashes must be equal:
+
+    stat -f %z <committed copy>
+    shasum -a 256 <committed copy>
+    head -c <that size> /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/mac-rescore-excluded-2026-10-02.jsonl | shasum -a 256
+
+Do not use `cmp -n <size>`. On this Mac it exits 1 with "EOF on <shorter file>" when the shorter
+file is exactly `<size>` bytes and the other is longer: it fails on a true prefix. That
+happened on the seed-1 run.
 
 When all seeds are in:
 
