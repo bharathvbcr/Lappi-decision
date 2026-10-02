@@ -73,6 +73,7 @@ fn info() -> ManifestInfo {
         loss_log_digest: "cd".repeat(32),
         consumed_digest: "ef".repeat(32),
         head_init_digest: Some("01".repeat(32)),
+        prompt_format: 1,
     }
 }
 
@@ -156,6 +157,49 @@ fn the_export_is_the_scorers_metal_artifact_bf16_tower_f32_head_and_its_manifest
     let mm: serde_json::Value = serde_json::from_slice(&std::fs::read(manifest_path(&m2.weights)).unwrap()).unwrap();
     assert_eq!(mm["from"], MASTERS_SOURCE);
     assert_ne!(mm["from"], EXPORT_SOURCE);
+    std::fs::remove_dir_all(&d).unwrap();
+}
+
+/// The keys the manifest carried before `prompt_format` existed: what a format-1 export must
+/// still write, key for key, so its bytes and `manifest_sha256` do not move.
+const V4_MANIFEST_KEYS: [&str; 22] = [
+    "consumed_digest", "device", "from", "ft_row_id", "head_init_digest", "loss_log_digest", "method",
+    "n_tensors", "operands", "optimizer_step", "provider", "recipe_hash", "resumable", "safetensors_sha256",
+    "schedule", "seed", "span_weight", "tensor_sources", "tool", "trainer", "vocab_size", "why_not_resumable",
+];
+
+/// qd-export stamps the release's `expected_identity.prompt_format` from this manifest's
+/// top-level `prompt_format` and reads an absent key as 1. So a format-2 run's export must say 2
+/// (as a JSON integer), and a format-1 run's must stay what it was.
+#[test]
+fn the_manifest_states_a_prompt_format_other_than_1_and_a_format_1_manifest_is_unchanged() {
+    let l = layout();
+    let tower = values(&l.text_tensors().unwrap(), 0.0);
+    let head = values(&l.span_head_tensors(), 1.0);
+    let read = |p: &std::path::Path| -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(manifest_path(p)).unwrap()).unwrap()
+    };
+
+    let d = dir("prompt-format-2");
+    let v5 = ManifestInfo { prompt_format: 2, ..info() };
+    for precision in [Precision::Bf16, Precision::F32Masters] {
+        let s = export(&d, &named(&tower), &named(&head), Some(&l), &v5, precision).unwrap();
+        let m = read(&s.weights);
+        assert!(m["prompt_format"].is_u64() && m["prompt_format"] == 2, "{precision:?}: {}", m["prompt_format"]);
+    }
+    std::fs::remove_dir_all(&d).unwrap();
+
+    let d = dir("prompt-format-1");
+    let s = export(&d, &named(&tower), &named(&head), Some(&l), &info(), Precision::Bf16).unwrap();
+    let m = read(&s.weights);
+    let keys: Vec<&str> = m.as_object().unwrap().keys().map(String::as_str).collect();
+    assert_eq!(keys, V4_MANIFEST_KEYS, "format 1 writes no prompt_format and nothing else new");
+    std::fs::remove_dir_all(&d).unwrap();
+
+    let d = dir("prompt-format-0");
+    let r = export(&d, &named(&tower), &named(&head), Some(&l), &ManifestInfo { prompt_format: 0, ..info() }, Precision::Bf16);
+    assert!(matches!(r, Err(ExportError::Refused(ref m)) if m.contains("prompt_format")), "{r:?}");
+    assert_eq!(std::fs::read_dir(&d).unwrap().count(), 0, "the refusal leaves nothing behind");
     std::fs::remove_dir_all(&d).unwrap();
 }
 

@@ -245,7 +245,7 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         optimizer_groups: "single".into(),
         train_attention_mask: "padding".into(),
         deterministic: false,
-        extra: Default::default(),
+        extra: ledger::prompt_format_extra(header.prompt_format),
     };
     let protocol = Protocol::for_recipe(&recipe, &header.data_snapshot_hash, &header.tokenizer_hash, a.seed)
         .map_err(failed("the protocol"))?;
@@ -264,6 +264,7 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
         loss_log_digest: result.loss_log_digest().map_err(failed("the loss log digest"))?,
         consumed_digest: result.consumed_digest.clone(),
         head_init_digest: Some(head_sha.clone()),
+        prompt_format: header.prompt_format,
     };
     let scored = export::export(&a.out, &tower, &head_tensors, Some(&layout), &info, Precision::Bf16)
         .map_err(failed("the bf16 export"))?;

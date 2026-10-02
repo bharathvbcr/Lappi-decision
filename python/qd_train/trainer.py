@@ -689,8 +689,11 @@ def _train(
         if resume_from.seed != seed:
             raise TrainerContractViolation(
                 f"checkpoint was taken at seed {resume_from.seed} but this run's protocol seed "
-                f"is {seed}. The batch order is a function of the seed, so this would resume "
-                "into a different sequence of batches."
+                f"is {seed}. The seed fixes the training stream and, where the caller plans "
+                "with it (tools/real_ft_run.py --batch-order seed), the batch order, so this "
+                "would resume a different run, possibly into a different sequence of batches. "
+                "The batch order itself is guarded by the consumed-digest check below, "
+                "whatever seed planned it."
             )
         if resume_from.position.epoch != epoch:
             raise TrainerContractViolation(
@@ -934,6 +937,17 @@ def _train_loop(
             else Ran(passed=False, value=None, detail="no optimizer step completed"),
         )
         recorder.metric("train.loss_log_digest", Ran(passed=True, value=log.digest()))
+        # The final checkpoint's: what identifies the batch order this run consumed (an index
+        # identifies a position within an order, not the order -- artifacts.Batch). Fable's
+        # seed-order ruling (AUDIT/post-f-2026-10-02/fable-seed-order-ruling.md section 1):
+        # F's four seeds were found to share one order only by reading their checkpoints.
+        recorder.metric(
+            "train.consumed_digest",
+            Ran(
+                passed=True, value=checkpoint.consumed_digest,
+                detail="the final checkpoint's consumed_digest: the order of the batches consumed",
+            ),
+        )
 
     return TrainResult(
         objective=objective.name,

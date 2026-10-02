@@ -12,7 +12,8 @@
 //!   ([`EXPORT_SOURCE`]), `trainer` ([`METAL_TRAINER`]), `device` ([`METAL_DEVICE`]), `seed`,
 //!   `optimizer_step`, `ft_row_id`, `vocab_size` (ints, never bools), `span_weight` (a number),
 //!   `safetensors_sha256` (lowercase hex) and `n_tensors`. Further keys are provenance the scorer
-//!   does not read, and are kept;
+//!   does not read, and are kept -- among them `prompt_format`, the train shard set's layout,
+//!   written only when it is not 1: qd-export stamps the release from it and reads absent as 1;
 //! * the file holds only `tower.*` and `span_head.*`, `n_tensors` of them, hashing to
 //!   `safetensors_sha256`; `vocab_size` is the tower's own row count (`load_weights` refuses a
 //!   different remap), so it must equal `embed_tokens.weight`'s rows.
@@ -118,6 +119,12 @@ pub struct ManifestInfo {
     pub consumed_digest: String,
     /// sha256 of the span head's initial-weights file, when it was read from one.
     pub head_init_digest: Option<String>,
+    /// The prompt layout the run trained on: the train shard header's `prompt_format`
+    /// (`ShardHeader.prompt_format`, 1 when the header has none). qd-export stamps the release's
+    /// `expected_identity.prompt_format` from this manifest's top-level `prompt_format` and reads
+    /// an absent key as 1, so the manifest carries it only when it is not 1 -- a v4 export's
+    /// manifest, and the sha256 the scorer records it by, do not move.
+    pub prompt_format: u64,
 }
 
 /// What [`export`] wrote.
@@ -176,6 +183,9 @@ impl ManifestInfo {
         }
         if self.vocab_size == 0 {
             return refuse("vocab_size 0");
+        }
+        if self.prompt_format == 0 {
+            return refuse("prompt_format 0: a format is 1 or more, and qd-export refuses 0");
         }
         if !(self.span_weight.is_finite() && self.span_weight > 0.0) {
             return refuse(format!("span_weight {} must be positive and finite", self.span_weight));
@@ -319,7 +329,7 @@ pub fn export(
             "one run's f32 master weights at its last optimizer step, as they are (for the master-delta comparison; never scored)",
         ),
     };
-    let body = obj([
+    let mut pairs = vec![
         ("from", Value::from(source)),
         ("trainer", Value::from(info.trainer.as_str())),
         ("device", Value::from(info.device.as_str())),
@@ -345,7 +355,11 @@ pub fn export(
         ("consumed_digest", Value::from(info.consumed_digest.as_str())),
         ("head_init_digest", info.head_init_digest.as_deref().map_or(Value::Null, Value::from)),
         ("tensor_sources", obj(sources)?),
-    ])?;
+    ];
+    if info.prompt_format != 1 {
+        pairs.push(("prompt_format", Value::from(info.prompt_format)));
+    }
+    let body = obj(pairs)?;
     let text = dumps(&body, CANONICAL)? + "\n";
     let tmp = manifest.with_file_name(format!(
         ".{}.partial",
