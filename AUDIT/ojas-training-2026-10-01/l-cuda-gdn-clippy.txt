@@ -1,0 +1,13 @@
+== 2026-10-02T01:13Z cargo clippy --offline --all-targets --features cuda --manifest-path .../ojas-qwen35-cuda/Cargo.toml --target-dir <scratchpad>/clippy-target -- -D warnings  (fresh target dir)
+    Checking cfg-if v1.0.5
+   Compiling cudarc v0.19.10
+    Checking ojas-core v0.1.0 (/Users/bharath/Code/research/ojas/ojas-core)
+    Checking libloading v0.9.0
+    Checking ojas-io v0.1.0 (/Users/bharath/Code/research/ojas/ojas-io)
+    Checking ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.04s
+exit 0
+== cargo clippy --offline --all-targets --target-dir <same> -- -D warnings  (no cuda feature)
+    Checking ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.67s
+exit 0

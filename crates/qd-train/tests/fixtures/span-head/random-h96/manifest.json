@@ -1,0 +1,48 @@
+{
+  "case": "random-h96",
+  "description": "randomised plans, three rows, span_weight 0.5",
+  "device": "cpu",
+  "dtype": "float32",
+  "dw_encoding": "npy",
+  "head": "python/qd_train/heads.py::SpanPointerHead (plan from plan_span_batch)",
+  "hidden_scale": 0.537284965911771,
+  "hidden_size": 96,
+  "n_spans": 3,
+  "oracle": "tools/qd_train_oracle_span_head.py",
+  "reduction": "mean",
+  "reserved_noul_rows": 1,
+  "seq_len": 40,
+  "sha256": {
+    "d_end_proj": "6d7d53a81e265475b528b0c01fb4ef122485c3994e4c182aad42f657eabaf5f6",
+    "d_start_proj": "ccec1368e9ef32b1e151a5fe7eb9ea789c70a14e7401f66fa9f9bf4e85ded6eb",
+    "end_proj_weight": "0027833642b0b73be96d3d8c8cb2e73406ea83b3125c1a4552390ccfb9811b99",
+    "ref64_d_end_proj": "1695b74a4d5775a30cd767df061fa6f164c345a415ad095a36765db1a140597e",
+    "ref64_d_start_proj": "3d33f214cc8384c37d5d42a53cc5db4053b78c4d9c0040291e5d86d8daca788c",
+    "start_proj_weight": "0937d0cfa257cac623c9ef78a61bde954cc19f2a8f59ca197c3d895a411478a4"
+  },
+  "span_weight": 0.5,
+  "torch_f32_vs_f64": {
+    "d_abstain_end": 2.694503933525565e-07,
+    "d_abstain_start": 2.990855074339759e-07,
+    "d_end_proj": 2.0195849295784333e-07,
+    "d_hidden": 3.339127085350291e-07,
+    "d_start_proj": 2.754697495938631e-07,
+    "loss": 8.667138957252159e-08,
+    "scores_end": 1.6483987494725818e-07,
+    "scores_start": 2.495769281329734e-07
+  },
+  "torch_threads": 1,
+  "versions": {
+    "numpy": "2.5.0",
+    "python": "3.14.7",
+    "torch": "2.12.1"
+  },
+  "weight_generator": {
+    "algorithm": "splitmix64(seed << 40 ^ stream << 32 ^ index) >> 40, centred, times 2^-(23 + shift)",
+    "seed": 102,
+    "shift": 3,
+    "stream_end_proj": 2,
+    "stream_start_proj": 1
+  },
+  "zero_abstain": false
+}

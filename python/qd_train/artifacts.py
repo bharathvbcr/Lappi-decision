@@ -66,6 +66,7 @@ import numpy as np
 
 from qd_data.config import SPLITS, DataConfig
 from qd_data.fingerprint import code_fingerprint, describe_drift
+from qd_data.render import PROMPT_FORMAT
 
 from .data_access import assert_path_not_held_out
 from .tristate import NotRun, Ran, TriState
@@ -82,6 +83,7 @@ __all__ = [
     "SPAN_ABSTAIN",
     "TOKEN_DTYPE",
     "Batch",
+    "ContrastRows",
     "RemapTable",
     "ShardContractViolation",
     "ShardHeader",
@@ -292,6 +294,48 @@ class RemapTable:
 
 
 @dataclass(frozen=True, slots=True)
+class ContrastRows:
+    """The v5 contrast rows a train set carries (``qd_train.contrast``).
+
+    ``code.defect_class`` rows whose context is a surviving MMLU/CSQA train twin's question
+    and whose gold is the abstention, derived after dedupe, split and the decontamination
+    exclusion and never a dedupe or split unit (campaign/v5-preregistered.DRAFT.json
+    ``data.sources[4].amended``). ``count`` rows were added; ``sha256`` covers their row ids
+    and content hashes in write order; ``seed`` is the draw order's seed.
+    """
+
+    count: int
+    sha256: str
+    seed: int
+
+    def __post_init__(self) -> None:
+        if isinstance(self.count, bool) or not isinstance(self.count, int) or self.count <= 0:
+            raise ShardContractViolation(
+                f"contrast_rows.count {self.count!r} is not a positive int: a set that "
+                "carries no contrast row names none"
+            )
+        if len(self.sha256) != 64 or any(c not in "0123456789abcdef" for c in self.sha256):
+            raise ShardContractViolation(
+                f"contrast_rows.sha256 {self.sha256!r} is not a lower-case sha256"
+            )
+        if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
+            raise ShardContractViolation(
+                f"contrast_rows.seed {self.seed!r} is not a non-negative int"
+            )
+
+    def to_json(self) -> dict[str, Any]:
+        return {"count": self.count, "sha256": self.sha256, "seed": self.seed}
+
+    @classmethod
+    def from_json(cls, raw: object) -> Self:
+        if not isinstance(raw, dict) or set(raw) != {"count", "sha256", "seed"}:
+            raise ShardContractViolation(
+                f"contrast_rows is {raw!r}; a header states it as {{count, sha256, seed}}"
+            )
+        return cls(count=raw["count"], sha256=raw["sha256"], seed=raw["seed"])
+
+
+@dataclass(frozen=True, slots=True)
 class ShardHeader:
     """What a set of token shards is, and what it was built from.
 
@@ -330,6 +374,69 @@ class ShardHeader:
     #: **Empty means "written before this field existed", not "matches"**, exactly as for
     #: `code_fingerprint`.
     corpus_rev: str = ""
+    #: sha256 of the bytes of `qd_train.shards.SEQUENCE_INDEX_NAME`: which `(row_id,
+    #: slot_name)` each written sequence is, in write order, and which were excluded and
+    #: why. Pinned here so the index cannot be swapped for another set's -- a consumer that
+    #: pairs labels to sequences by id is only as right as the file it pairs them from.
+    #:
+    #: **Empty means "written before this field existed"**; `ShardReader` then reports the
+    #: set's slot coverage as `NotRun` and exposes no index rather than one it cannot trust.
+    sequence_index_hash: str = ""
+    #: What a span slot whose line starts collapse under BPE did when this set was written
+    #: (``qd_train.shards.SPAN_COLLAPSE_POLICIES``). **Empty means refuse-any** -- the only
+    #: rule before this field existed -- for every set but the ones a gap record names:
+    #: GAP-V4-TRAIN-HEADER-OMITS-SPAN-COLLAPSE-POLICY lists train sets written refuse-gold
+    #: before the field, whose recipe is the authority.
+    span_collapse_policy: str = ""
+    #: A report-only set: outside every gate population, scored only by a reader that asks
+    #: for one. Gate paths refuse it (:meth:`require_gate_population`).
+    report_only: bool = False
+    #: sha256 of the ``exclusions.txt`` (``qd-prep containment``) whose identity keys left the
+    #: train split before this set was written (``qd_train.exclusions.apply_exclusions``):
+    #: Fable's v5 decontamination rule. **Empty means no exclusion was applied**, which is
+    #: every set written before the field existed; a trainer whose rebuild applies a list
+    #: refuses a set that names none, and the reverse (``tools/real_ft_run.py``).
+    exclusions_sha256: str = ""
+    #: The v5 contrast rows this train set carries (:class:`ContrastRows`). **None means the
+    #: set carries none**, which is every set written before the field existed.
+    contrast_rows: ContrastRows | None = None
+    #: The prompt layout every sequence in this set was rendered in
+    #: (``qd_data.render.PROMPT_FORMAT``; the writer stamps the renderer's). **1 means format
+    #: 1**, the question before the context, which is every set written before the field
+    #: existed: it is serialised and hashed only when it is not 1, so their headers still
+    #: verify (the ``span_collapse_policy`` precedent). :meth:`require_prompt_format` is the
+    #: reader's refusal of a set rendered in another format than the code reading it.
+    prompt_format: int = 1
+
+    def require_gate_population(self, *, where: str) -> None:
+        """Refuse a set that is not a gate population: report-only, or any span rule but
+        refuse-any. Every gate metric reads its val set through this."""
+        if self.report_only or self.span_collapse_policy not in ("", "refuse-any"):
+            raise ShardContractViolation(
+                f"{where}: this shard set is not a gate population (report_only="
+                f"{self.report_only}, span_collapse_policy="
+                f"{self.span_collapse_policy or 'refuse-any'}). A gate scores the population "
+                "it was measured on; a report-only set is read by its own scorer only."
+            )
+
+    def require_prompt_format(self, *, where: str) -> None:
+        """Refuse a set whose sequences were rendered in another prompt format than the one
+        ``qd_data.render`` writes now.
+
+        A model trained or scored on these tokens would see one layout here and another from
+        every prompt the current code renders -- the needle and OOD suites, serving -- and no
+        loss curve shows it. :func:`assert_shard_trainable`'s ``code_fingerprint`` check
+        usually refuses the same set too (``render.py`` is in the fingerprint), but it is
+        ``NotRun`` on a header without a fingerprint and waived by ``allow_stale_code``; this
+        is the format itself, and nothing waives it.
+        """
+        if self.prompt_format != PROMPT_FORMAT:
+            raise ShardContractViolation(
+                f"{where}: this shard set was rendered in prompt_format {self.prompt_format}, "
+                f"and qd_data.render writes prompt_format {PROMPT_FORMAT}. Its sequences are "
+                "another layout than every prompt this code renders; rebuild the set with this "
+                "code, or read it with the code that wrote it."
+            )
 
     def __post_init__(self) -> None:
         if self.format != SHARD_FORMAT:
@@ -373,6 +480,39 @@ class ShardHeader:
                 f"total_tokens {self.total_tokens} < n_sequences {self.n_sequences}: at least "
                 "one sequence is empty"
             )
+        if self.span_collapse_policy not in ("", "refuse-any", "refuse-gold"):
+            raise ShardContractViolation(
+                f"span_collapse_policy {self.span_collapse_policy!r} is not refuse-any or "
+                "refuse-gold"
+            )
+        if self.report_only and self.split != "val":
+            raise ShardContractViolation(
+                f"report_only on split {self.split!r}: only a val set may be report-only"
+            )
+        if self.exclusions_sha256 and (
+            len(self.exclusions_sha256) != 64
+            or any(c not in "0123456789abcdef" for c in self.exclusions_sha256)
+        ):
+            raise ShardContractViolation(
+                f"exclusions_sha256 {self.exclusions_sha256!r} is not a lower-case sha256"
+            )
+        if self.exclusions_sha256 and self.split != "train":
+            raise ShardContractViolation(
+                f"exclusions_sha256 on split {self.split!r}: the exclusion removes train rows "
+                "only, so only a train set (gold or replay) names it"
+            )
+        if self.contrast_rows is not None and self.split != "train":
+            raise ShardContractViolation(
+                f"contrast_rows on split {self.split!r}: contrast rows are train rows only"
+            )
+        if (
+            isinstance(self.prompt_format, bool)
+            or not isinstance(self.prompt_format, int)
+            or self.prompt_format < 1
+        ):
+            raise ShardContractViolation(
+                f"prompt_format {self.prompt_format!r} is not a positive int"
+            )
 
     def shard_hash(self) -> str:
         return _sha256_hex(
@@ -408,10 +548,50 @@ class ShardHeader:
             # contributing nothing when empty so every header written before this field
             # still verifies against the hash it was written with.
             *((self.corpus_rev.encode(),) if self.corpus_rev else ()),
+            # Same contract again. Tagged, unlike the two above: it is a hex digest that
+            # sits after an optional field, and an untagged digest in that position could
+            # be read as the field before it by a header that omits one of them.
+            *(
+                (b"sequence_index_hash:" + self.sequence_index_hash.encode(),)
+                if self.sequence_index_hash
+                else ()
+            ),
+            # Same contract, tagged: absent (refuse-any, not report-only) hashes to nothing,
+            # so every header written before these fields still verifies.
+            *(
+                (b"span_collapse_policy:" + self.span_collapse_policy.encode(),)
+                if self.span_collapse_policy not in ("", "refuse-any")
+                else ()
+            ),
+            *((b"report_only:true",) if self.report_only else ()),
+            # Same contract, tagged: absent (no exclusion) hashes to nothing, so every header
+            # written before the field still verifies.
+            *(
+                (b"exclusions_sha256:" + self.exclusions_sha256.encode(),)
+                if self.exclusions_sha256
+                else ()
+            ),
+            # Same contract, tagged: absent (no contrast rows) hashes to nothing, so every
+            # header written before the field still verifies.
+            *(
+                (
+                    b"contrast_rows:"
+                    + json.dumps(self.contrast_rows.to_json(), sort_keys=True).encode(),
+                )
+                if self.contrast_rows is not None
+                else ()
+            ),
+            # Same contract, tagged: format 1 (every set written before the field) hashes to
+            # nothing, so every v4 header still verifies against the hash it was written with.
+            *(
+                (b"prompt_format:" + str(self.prompt_format).encode(),)
+                if self.prompt_format != 1
+                else ()
+            ),
         )
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "format": self.format,
             "split": self.split,
             "data_snapshot_hash": self.data_snapshot_hash,
@@ -427,11 +607,35 @@ class ShardHeader:
             "created_at": self.created_at or datetime.now(UTC).isoformat(),
             "code_fingerprint": dict(sorted(self.code_fingerprint.items())),
             "corpus_rev": self.corpus_rev,
-            "shard_hash": self.shard_hash(),
+            "sequence_index_hash": self.sequence_index_hash,
         }
+        # Only when not the default, so a default set's header.json is byte-shaped as before.
+        if self.span_collapse_policy not in ("", "refuse-any"):
+            out["span_collapse_policy"] = self.span_collapse_policy
+        if self.report_only:
+            out["report_only"] = True
+        if self.exclusions_sha256:
+            out["exclusions_sha256"] = self.exclusions_sha256
+        if self.contrast_rows is not None:
+            out["contrast_rows"] = self.contrast_rows.to_json()
+        if self.prompt_format != 1:
+            out["prompt_format"] = self.prompt_format
+        out["shard_hash"] = self.shard_hash()
+        return out
 
     @classmethod
     def from_json(cls, raw: dict[str, Any]) -> Self:
+        if not isinstance(raw.get("report_only", False), bool):
+            raise ShardContractViolation(
+                f"report_only is {raw['report_only']!r}; a header states it as a JSON boolean"
+            )
+        prompt_format = raw.get("prompt_format", 1)
+        if isinstance(prompt_format, bool) or not isinstance(prompt_format, int):
+            # Not coerced: `int("2")`, `int(2.0)` and `int(True)` would each read a header
+            # that does not state a format as one that does.
+            raise ShardContractViolation(
+                f"prompt_format is {prompt_format!r}; a header states it as a JSON integer"
+            )
         header = cls(
             split=raw["split"],
             data_snapshot_hash=raw["data_snapshot_hash"],
@@ -450,6 +654,14 @@ class ShardHeader:
                 str(k): str(v) for k, v in (raw.get("code_fingerprint") or {}).items()
             },
             corpus_rev=str(raw.get("corpus_rev", "")),
+            sequence_index_hash=str(raw.get("sequence_index_hash", "")),
+            span_collapse_policy=str(raw.get("span_collapse_policy", "")),
+            report_only=raw.get("report_only", False) is True,
+            exclusions_sha256=str(raw.get("exclusions_sha256", "")),
+            contrast_rows=(
+                ContrastRows.from_json(raw["contrast_rows"]) if "contrast_rows" in raw else None
+            ),
+            prompt_format=prompt_format,
         )
         if "shard_hash" in raw and raw["shard_hash"] != header.shard_hash():
             raise ShardContractViolation(

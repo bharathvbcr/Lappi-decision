@@ -1,0 +1,22 @@
+L-cuda-small formatting evidence, 2026-10-01, after landing in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda
+
+1. cargo fmt --check --manifest-path /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/Cargo.toml -- -l
+   stdout/stderr: (empty, no file listed)
+2. cargo fmt --check --manifest-path /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/Cargo.toml; echo "cargo-fmt-check-exit=$?"
+   cargo-fmt-check-exit=0
+3. rustfmt --check --edition 2021 -l over the 21 L-cuda-small files
+   (src/{small_common,small_common_cuda,small_smoke,rmsnorm,rmsnorm_cuda,gates_published,
+   gates_published_cuda,conv1d,conv1d_cuda,qk_norm_rope,qk_norm_rope_cuda,embed,embed_cuda,
+   ce_rows,ce_rows_cuda}.rs and tests/device_k{3_gates_published,4_conv1d,6_qk_norm_rope,
+   7_rmsnorm,9_embed,10_ce_rows}.rs; rustfmt also descends into tests/device_small_common/mod.rs
+   and tests/reference/*), each path given literally on the command line
+   stdout: (empty, no file listed); my-files-rustfmt-exit=0
+
+Only check modes were run in the shared crate (no `cargo fmt`, no `rustfmt` without --check).
+The files were formatted with `rustfmt --edition 2021 <file>` in the lane's private copy
+before landing; `diff -rq` of tests/reference against ojas showed rustfmt left the
+oracle's files unchanged.
+
+An earlier `rustfmt --check -l` over the private copy (synced from ojas at ~20:40) listed
+src/k8_plan.rs, src/k8_smoke.rs and src/tiny_fixture_published.rs (L-cuda-M1's, in flight);
+by the time of check 1-2 above those were clean in ojas. Not this lane's files; untouched.

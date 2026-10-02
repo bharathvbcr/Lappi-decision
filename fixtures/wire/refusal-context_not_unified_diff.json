@@ -1,0 +1,11 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "context_not_unified_diff",
+    "line": 1,
+    "expected": "a `file: <path>` header line",
+    "found": "\"What is the capital of France?\""
+  },
+  "message": "context is not a unified diff in the shape this task was trained on: at line 1, expected a `file: <path>` header line, found \"What is the capital of France?\". The model was never shown such a context, so its answer would be read from a shape it cannot read"
+}

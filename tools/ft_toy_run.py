@@ -141,6 +141,7 @@ from qd_train.ledger import (
     Protocol,
     RunRecorder,
 )
+from qd_train.optim import apply_lr
 from qd_train.run_control import CostEstimate, LRSchedule, RunControl, WallClockCap
 from qd_train.trainer import SpanScoringStep, ft_supervision, train_ft
 from qd_train.tristate import NotRun, Ran
@@ -335,8 +336,8 @@ class ToyFtStep:
         return float(total.item())
 
     def apply(self, *, lr: float) -> None:
-        for group in self.optimizer.param_groups:
-            group["lr"] = lr
+        # `qd_train.optim.apply_lr`, the one writer of group["lr"]; see its docstring.
+        apply_lr(self.optimizer, lr)
         self.optimizer.step()
         self.optimizer.zero_grad(set_to_none=True)
 

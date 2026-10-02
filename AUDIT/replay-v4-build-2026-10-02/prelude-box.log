@@ -1,0 +1,59 @@
+minhash: 271627 distinct sets signed by /home/ubuntu/bin/qd-prep-m1 in 43.3 s (shingling and canaries included), 615063 lookups, 8 canaries equal to the reference; 271737 distinct texts shingled once, 615063 lookups
+lsh: 2 candidate-pair searches banded by /home/ubuntu/bin/qd-prep-m1 in 9.2 s (canaries included), 1252884 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+val set: 18223 sequences in 6115 batches, remap e7d0890c547b4381 (the train set's)
+permutation second pass: 10985 choice rows deranged in 3985 batches (seed 20260919)
+needle suite: 300 cases, real tokens 7577..8821
+minhash: 16829 distinct sets signed by /home/ubuntu/bin/qd-prep-m1 in 0.6 s (shingling and canaries included), 51794 lookups, 8 canaries equal to the reference; 16829 distinct texts shingled once, 51794 lookups
+lsh: 2 candidate-pair searches banded by /home/ubuntu/bin/qd-prep-m1 in 0.2 s (canaries included), 68533 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+OOD suite: 180 cases, 180 deranged for the second pass
+shard set: /home/ubuntu/phase4-v4-replay-2026-10-02/shards/train
+  rows in -> out: 285574 -> 285574  (0 excluded)  tokens 306247234  vocab 248320
+  choice  n=179684  len 124..7936 (mean 822.8)  gold is noul: 9054  rendered rows [3, 5, 6, 11, 16, 17]
+  span    n=180698  len 148..7920 (mean 876.7)  gold is noul: 180698  pointer-abstaining 53342/180698, candidates 13366989
+  letter rows whose gold is noul: 9054 of 179684
+  prompt-identical rows: 316 of 360382; of those, 0 rows in 0 groups carry DIFFERENT golds ({})
+  letters -> post-remap ids: {'A': 32, 'B': 33, 'C': 34, 'D': 35, 'E': 36, 'F': 37, 'G': 38, 'H': 39, 'I': 40, 'J': 41, 'K': 42, 'L': 43, 'M': 44, 'N': 45, 'O': 46, 'P': 47, 'Z': 57}
+  padding waste: 16078769 padding of 322326003 positions (4.99%) over 360382 sequences; gate is <= 15%. buckets=[137, 172, 207, 240, 268, 298, 333, 376, 430, 501, 590, 688, 819, 962, 1243, 1610, 1983, 2362, 2749, 3134, 3520, 3907, 4301, 4715, 5116, 5534, 5933, 6330, 6686, 7035, 7404, 7936]
+  span_check: {"state": "ran", "passed": true, "value": 180698, "n": 180698, "n_total": 180698, "detail": "every span sequence's gold positions and full candidate set were checked against tokeni
+  remap beside the shards: {"state": "ran", "passed": true, "value": "e7d0890c547b43811f93e50dc0e582ba35eb2e75706ee0ad27186d6a89d502ab", "n": 248320, "n_total": 248320, "detail": "/home/ubuntu/phase4-v4-repl
+  epoch at batch_tokens=35403: 9661 batches, 9428 carry a span row, 151 have no letter row; letter-channel chunks 179520 live of 2389594
+devices: ['cuda'] (from --devices; auto-detection skipped)
+
+feasibility, one forward+backward per bucket width, in a subprocess:
+  (a 128x4 stand-in, NOT the real tower: this establishes the device and the shape, not that the real model fits)
+  cuda bucket 0 (258 x 137): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 1 (205 x 172): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 2 (171 x 207): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 3 (147 x 240): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 4 (132 x 268): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 5 (118 x 298): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 6 (106 x 333): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 7 (94 x 376): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 8 (82 x 430): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 9 (70 x 501): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 10 (60 x 590): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 11 (51 x 688): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 12 (43 x 819): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 13 (36 x 962): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 14 (28 x 1243): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 15 (21 x 1610): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 16 (17 x 1983): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 17 (14 x 2362): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 18 (12 x 2749): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 19 (11 x 3134): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 20 (10 x 3520): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 21 (9 x 3907): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 22 (8 x 4301): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 23 (7 x 4715): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 24 (6 x 5116): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 25 (6 x 5534): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 26 (5 x 5933): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 27 (5 x 6330): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 28 (5 x 6686): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 29 (5 x 7035): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 30 (4 x 7404): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+  cuda bucket 31 (4 x 7936): REFUSED exit 1: File "/home/ubuntu/qd-venv/lib/python3.12/site-packages/torch/cuda/__init__.py", line 424, in _lazy_init | torch._C._cuda_init() | RuntimeError: No CUDA GPUs are available
+
+arm 2 plan: every real batch at most 5383 wide -> 5888 of 9661 batches, 341878 of 360382 sequences, slot kinds ['choice', 'span'] of ['choice', 'span']
+replay: 99 batches from /home/ubuntu/phase4-v4-replay-2026-10-02/shards/replay (attestation dc69ffce43b5af2a), weight 1.0, every 6
+PRELUDE OK in 328 s: prelude complete; stopped at Ledger(/home/ubuntu/scratch/l-replay-prelude/prelude-ledger.jsonl) after _replay_plan

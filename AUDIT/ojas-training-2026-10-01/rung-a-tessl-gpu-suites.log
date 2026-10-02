@@ -1,0 +1,126 @@
+    Finished `release` profile [optimized] target(s) in 0.03s
+     Running tests/attn_train.rs (/Users/bharath/Code/research/tessl/target/release/deps/attn_train-9f25ab4476d85e82)
+
+running 4 tests
+test randomized_shapes_stress ... ok
+test reference_backward_is_the_derivative ... ok
+test training_attention_matches_the_reference ... ok
+test training_attention_refuses_bad_calls ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+
+     Running tests/cross_entropy.rs (/Users/bharath/Code/research/tessl/target/release/deps/cross_entropy-3980f69199931cc0)
+
+running 6 tests
+test bf16_operands_match_the_reference_on_the_rounded_operands ... ok
+test matches_the_f64_reference_across_the_chunk_walk ... ok
+test matches_the_reference_at_the_real_vocabulary_and_hidden_width ... ok
+test rejects_what_it_cannot_compute ... ok
+test the_running_log_sum_exp_survives_large_and_late_maxima ... ok
+test the_workspace_is_bounded_by_rows_and_chunk_not_vocabulary ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.21s
+
+     Running tests/gdn_fixtures.rs (/Users/bharath/Code/research/tessl/target/release/deps/gdn_fixtures-b6fab5e952b1d303)
+
+running 11 tests
+test an_unsupported_dtype_is_still_refused_and_named ... ok
+test every_case_ships_both_a_chunked_output_and_an_f64_reference ... ok
+test every_manifest_declares_the_clamps_the_reference_applies ... ok
+test f32_and_i64_survive_a_round_trip_through_the_reader ... ok
+test published_rule_is_declared_by_every_fixture_and_the_manifest ... ok
+test the_alpha_clamp_changes_the_answer_on_the_case_built_to_probe_it ... ok
+test the_chunked_output_agrees_with_the_f64_sequential_reference ... ok
+test the_f64_reference_is_not_silently_narrowed_to_f32 ... ok
+test the_f64_sequential_reference_loads ... ok
+test the_repo_rule_is_a_different_operator_and_does_not_reproduce_the_golden ... ok
+test the_rust_f64_reference_reproduces_the_published_golden ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/gdn_train.rs (/Users/bharath/Code/research/tessl/target/release/deps/gdn_train-b826a1c0c5e0fe80)
+
+running 5 tests
+test the_host_refuses_what_the_kernels_cannot_run ... ok
+test the_kernels_match_the_reference_across_chunk_edges ... ok
+test the_kernels_match_the_reference_at_qwen35_2b_heads ... ok
+test the_reference_backward_is_the_derivative_of_its_forward ... ok
+test the_reference_forward_is_the_transformers_recurrence ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+
+     Running tests/qwen35_adamw.rs (/Users/bharath/Code/research/tessl/target/release/deps/qwen35_adamw-342649ba23f1080b)
+
+running 8 tests
+test a_checkpointed_run_resumes_bit_for_bit ... ok
+test a_grad_scale_is_clip_grad_norms_coefficient ... ok
+test adamw_step_at_u64_max_does_not_wrap_to_zero ... ok
+test eps_sits_outside_the_bias_correction ... ok
+test qwen35_adamw_zero_grad_step_keeps_its_bits ... ok
+test refusals_move_nothing ... ok
+test steps_match_torch_adamw_in_f64 ... ok
+test the_default_decay_mask_is_transformers_trainers ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.72s
+
+     Running tests/qwen35_bwd.rs (/Users/bharath/Code/research/tessl/target/release/deps/qwen35_bwd-916285fa125311d7)
+
+running 20 tests
+test conv_backward_matches_across_batch_rows_blocks_and_widths ... ok
+test conv_backward_refuses_bad_layouts ... ok
+test conv_reference_backward_is_the_derivative ... ok
+test copy_cols_moves_exactly_its_window ... ok
+test embedding_backward_adds_each_ids_rows ... ok
+test embedding_backward_refuses_bad_ids_and_layouts ... ok
+test gate_reference_backward_is_the_derivative ... ok
+test gated_rms_norm_backward_matches_in_the_model_layout ... ok
+test gated_rms_norm_reference_backward_is_the_derivative ... ok
+test gdn_gates_forward_and_backward_match ... ok
+test gdn_gates_refuse_bad_layouts ... ok
+test qk_norm_rope_backward_matches_across_blocks_and_layouts ... ok
+test qk_norm_rope_backward_refuses_bad_layouts ... ok
+test qk_norm_rope_reference_backward_is_the_derivative ... ok
+test randomized_shapes_stress ... ok
+test rms_norm_backward_matches_across_blocks_and_widths ... ok
+test rms_norm_reference_backward_is_the_derivative ... ok
+test scatter_add_rows_adds_each_row_at_its_position ... ok
+test swiglu_and_gate_backward_match ... ok
+test the_backward_entry_points_refuse_bad_layouts ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.84s
+
+     Running tests/qwen35_train.rs (/Users/bharath/Code/research/tessl/target/release/deps/qwen35_train-ee16ca5aaa947180)
+
+running 11 tests
+test a_bank_holds_a_steps_gradients_and_accumulates_the_next ... ok
+test a_loss_outside_tessl_flows_back_through_the_hidden_states ... ok
+test a_step_that_scores_nothing_accumulates_like_any_other ... ok
+test deep_tiny_step_matches_transformers ... ignored
+test real_2b_step_matches_transformers ... ignored
+test real_2b_step_on_bf16_operands_stays_near_transformers ... ignored
+test supervised_rows_are_the_causal_loss_restricted ... ok
+test supervised_rows_refuse_bad_selections ... ok
+test tiny_step_matches_transformers_autograd ... ok
+test tiny_step_on_bf16_operands_stays_near_transformers ... ok
+test train_step_refuses_what_it_does_not_implement ... ok
+
+test result: ok. 8 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 7.20s
+
+       25.13 real         2.20 user         1.86 sys
+           802537472  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              115422  page reclaims
+                 107  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   1  signals received
+                 304  voluntary context switches
+               64782  involuntary context switches
+           355639040  instructions retired
+           199794080  cycles elapsed
+            11600592  peak memory footprint

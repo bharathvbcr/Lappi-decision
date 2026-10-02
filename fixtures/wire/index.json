@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "count": 58,
+  "count": 60,
   "by_status": {
     "error": 12,
     "ok": 8,
-    "refused": 38
+    "refused": 40
   },
   "entries": [
     {
@@ -12,8 +12,8 @@
       "status": "ok",
       "note": "The contract's own example request, answered: one slot of every kind in one envelope. Note the five envelope keys — status, schema_version, backend, degraded, slots — where docs/schema-api.md's example showed only two.",
       "request": {
-        "context_b64": "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgewogICAgdG9kbyEoKQp9Cg==",
-        "context_len": 46,
+        "context_b64": "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgeyAvLyA2CiAgICB0b2RvISgpCn0K",
+        "context_len": 51,
         "question": "Does this diff implement what the commit message claims?",
         "route": "generic",
         "schema_version": 1,
@@ -71,8 +71,8 @@
       "status": "ok",
       "note": "A single `score` slot. Its value is a 1-based ordinal bin as a JSON number, and its conformal set is a list of bins.",
       "request": {
-        "context_b64": "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgewogICAgdG9kbyEoKQp9Cg==",
-        "context_len": 46,
+        "context_b64": "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgeyAvLyA2CiAgICB0b2RvISgpCn0K",
+        "context_len": 51,
         "question": "Does this diff implement what the commit message claims?",
         "route": "generic",
         "schema_version": 1,
@@ -91,8 +91,8 @@
       "status": "ok",
       "note": "A single `span` slot over a four-line context. Its value is {start_line, end_line}, 1-based and inclusive, and its conformal_set is null — a span has no conformal set.",
       "request": {
-        "context_b64": "YWxwaGEKYmV0YQpnYW1tYQpkZWx0YQo=",
-        "context_len": 23,
+        "context_b64": "YWxwaGEgMgpiZXRhCmdhbW1hCmRlbHRhCg==",
+        "context_len": 25,
         "question": "Does this diff implement what the commit message claims?",
         "route": "generic",
         "schema_version": 1,
@@ -296,6 +296,18 @@
       "status": "refused",
       "kind": "context_not_utf8",
       "note": "Refusal `context_not_utf8`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: context is not valid UTF-8: the first invalid sequence is at byte offset 2 and is 1 byte(s) long. The renderer refuses rather than substituting U+FFFD, because a replacement character is exactly the silent rewrite that carrying `context` as bytes exists to prevent"
+    },
+    {
+      "file": "refusal-context_not_unified_diff.json",
+      "status": "refused",
+      "kind": "context_not_unified_diff",
+      "note": "Refusal `context_not_unified_diff`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: context is not a unified diff in the shape this task was trained on: at line 1, expected a `file: <path>` header line, found \"What is the capital of France?\". The model was never shown such a context, so its answer would be read from a shape it cannot read"
+    },
+    {
+      "file": "refusal-context_language_not_in_pool.json",
+      "status": "refused",
+      "kind": "context_language_not_in_pool",
+      "note": "Refusal `context_language_not_in_pool`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: context's file `src/main.c` is unrecognised, a language the pool this task was trained on did not hold (it held [\"go\", \"python\", \"rust\", \"typescript\"]); the model was never shown one"
     },
     {
       "file": "refusal-rendered_prompt_over_cap.json",

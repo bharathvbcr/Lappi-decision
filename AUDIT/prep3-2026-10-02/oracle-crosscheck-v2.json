@@ -1,0 +1,89 @@
+[
+ {
+  "request": "/Users/bharath/qd-campaign/prep3-2026-10-02/scan-p01-v2.request.bin",
+  "train_keys": 246,
+  "val": {
+   "keys": 12,
+   "too_short_keys": 4,
+   "train_keys_hit_utterance_only": 0,
+   "pairs": 0,
+   "too_short_with_exact_train_match": 0,
+   "any_key_with_exact_train_match": 0,
+   "too_short_contained_as_word_subsequence_of_a_train_utterance": 0,
+   "examples_subsequence": []
+  },
+  "heldout": {
+   "keys": 9,
+   "too_short_keys": 2,
+   "train_keys_hit_utterance_only": 0,
+   "pairs": 0,
+   "too_short_with_exact_train_match": 0,
+   "any_key_with_exact_train_match": 0,
+   "too_short_contained_as_word_subsequence_of_a_train_utterance": 0,
+   "examples_subsequence": []
+  },
+  "clinc_keys_excluded_utterance_only": 0,
+  "rate": 0.0,
+  "domain_text_equals_in_scope_text": true,
+  "train_too_short_keys": 102,
+  "examples_hits": []
+ },
+ {
+  "request": "/Users/bharath/qd-campaign/prep3-2026-10-02/scan-p02-v2.request.bin",
+  "train_keys": 464,
+  "val": {
+   "keys": 32,
+   "too_short_keys": 9,
+   "train_keys_hit_utterance_only": 0,
+   "pairs": 0,
+   "too_short_with_exact_train_match": 0,
+   "any_key_with_exact_train_match": 0,
+   "too_short_contained_as_word_subsequence_of_a_train_utterance": 0,
+   "examples_subsequence": []
+  },
+  "heldout": {
+   "keys": 16,
+   "too_short_keys": 7,
+   "train_keys_hit_utterance_only": 0,
+   "pairs": 0,
+   "too_short_with_exact_train_match": 0,
+   "any_key_with_exact_train_match": 0,
+   "too_short_contained_as_word_subsequence_of_a_train_utterance": 0,
+   "examples_subsequence": []
+  },
+  "clinc_keys_excluded_utterance_only": 0,
+  "rate": 0.0,
+  "domain_text_equals_in_scope_text": true,
+  "train_too_short_keys": 197,
+  "examples_hits": []
+ },
+ {
+  "request": "/Users/bharath/qd-campaign/prep3-2026-10-02/scan-p05-v2.request.bin",
+  "train_keys": 1089,
+  "val": {
+   "keys": 69,
+   "too_short_keys": 21,
+   "train_keys_hit_utterance_only": 0,
+   "pairs": 0,
+   "too_short_with_exact_train_match": 0,
+   "any_key_with_exact_train_match": 0,
+   "too_short_contained_as_word_subsequence_of_a_train_utterance": 0,
+   "examples_subsequence": []
+  },
+  "heldout": {
+   "keys": 64,
+   "too_short_keys": 34,
+   "train_keys_hit_utterance_only": 0,
+   "pairs": 0,
+   "too_short_with_exact_train_match": 0,
+   "any_key_with_exact_train_match": 0,
+   "too_short_contained_as_word_subsequence_of_a_train_utterance": 0,
+   "examples_subsequence": []
+  },
+  "clinc_keys_excluded_utterance_only": 0,
+  "rate": 0.0,
+  "domain_text_equals_in_scope_text": true,
+  "train_too_short_keys": 451,
+  "examples_hits": []
+ }
+]

@@ -1,0 +1,2 @@
+    Checking ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.30s

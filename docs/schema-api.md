@@ -140,6 +140,7 @@ The runtime **refuses** rather than degrades when:
 | tokenizer / weight / head / label-set hash != build | A swapped tokenizer maps wrong ids silently. Answering would be confidently wrong |
 | `options.len() > 16` | The letter slice holds 16 option rows plus the reserved `noul` row. Dropping an option changes the question |
 | `context` over the configured cap | Truncating moves the answer out of the window without saying so. Line spans would point at the wrong lines |
+| a `code.defect_class` `context` not in the trained shape (`file: <path>`, a blank line, unified-diff hunks whose bodies match their headers): `context_not_unified_diff`; or its file's language not one the pool held: `context_language_not_in_pool` (`crates/qd-runtime/src/admission.rs`) | The model was never shown such a context. An answer would be read from a shape it cannot read, and would look like any other |
 | `slots` empty, or a duplicate slot name | The answer map would be ambiguous |
 | `bins < 2` for `score`, or `bins > 16` | Same 16-letter limit; a 1-bin ordinal is not a question |
 | `schema_version` unknown | Forward-compat guessing is how a field changes meaning silently |
@@ -175,6 +176,20 @@ to bind a registered head to the task it was fitted against. Tracked as
 `wire_context_crosslang.rs::python_has_no_hash_expectation_and_its_label_set_hash_is_a_different_quantity`
 rather than left as prose.
 
+`calibration_hash` had the same shape on the Rust side. It is compared with the table the runtime
+**calibrates with** (`CalibrationTable::hash`), not with the hash the backend declares; until
+2026-10-01 it was the latter, and a runtime serving a fitted table answered a pin of the reference
+table (`GAP-RT-CALIBRATION-HASH-PIN-BINDS-THE-BACKEND-NOT-THE-LOADED-TABLE`,
+`crates/qd-runtime/tests/calibration_hash_pin.rs`). A runtime built from a release takes its table
+only from the release, verified against `release_manifest.json` (`qd_runtime::release`).
+
+A runtime serving an N-tower ensemble (`Runtime::from_ensemble`, `qd_runtime::ensemble`) reports
+**the ensemble's** `weight_hash`: `ensemble_weight_hash` over the members' weight hashes in
+manifest order, recorded as `expected_identity.weight_hash` in `ensemble_manifest.json`. A pin of
+one member's weight hash is refused by the ensemble, as it should be: the answer is not that
+tower's. `calibration_hash` is the ensemble's table, fitted on the ensemble's decode (the mean of
+the members' row log-softmax, `qd_runtime::release::ENSEMBLE_DECODE`).
+
 This is the second instance of one shape found in a single audit — `GAP-RT-WIRE-CONTEXT-ENCODING`
 was the first. **One name meaning two things, with both lanes' suites green**, is the failure mode
 this document exists to prevent, and neither instance was caught by either lane testing itself. The
@@ -205,6 +220,15 @@ Comparison is the default deliberately. A corpus that regenerates on every run r
 code currently does and can never disagree with it, which is not a gate. The generator is
 `crates/qd-runtime/src/fixtures.rs`; `tests/wire_fixtures.rs` also asserts the corpus covers **every**
 variant of both error enums, so a new variant fails a test rather than quietly going unexported.
+
+The answer fixtures are produced by the reference backend, whose answers are a function of the
+rendered prompt's bytes, so a change to the prompt (prompt format 2 was one) re-rolls them. Each
+answer fixture's intended shape -- which slots answer, which abstain, whether it is degraded -- is
+therefore pinned by name in `fixtures.rs`'s `tests::every_answer_fixture_shows_its_intended_shape`:
+a re-roll that loses an answered or an abstained shape fails there, and the fix is a new fixture
+input, not a new expected shape. Under format 2 the three-slot example and the score-only fixture
+read `fn add(a: i32, b: i32) -> i32 { // 6` as their first context line, and the span fixture
+`alpha 2`; the search that chose them is `AUDIT/v5-fmt-2026-10-02/fixture_search.py`.
 
 **Both halves exist.** `python/qd_wire/` is an independent parser for the answer side, and
 `python/tests/test_wire_golden_corpus.py` reads this corpus and re-derives every claim below from
@@ -313,7 +337,8 @@ more). That is unchanged and still tracked as `GAP-XLANG-REFUSAL-VOCABULARIES`.
 
 ## Answering procedure
 
-1. Prefill the context **once**.
+1. Render the request's prefix in **prompt format 2** (below) and prefill it **once**. The prefix
+   is everything through the question line; each slot's suffix starts after it.
 2. **Snapshot** the recurrent GDN state and the attention KV.
 3. Answer each slot as a 1-token query **from the snapshot**. Never write back — the `readonly` flag
    on the decode kernel (K2) is the slot-isolation mechanism, one flag instead of a mask kernel.
@@ -339,6 +364,45 @@ more). That is unchanged and still tracked as `GAP-XLANG-REFUSAL-VOCABULARIES`.
 
 Step 4 is why permutation consistency (>= 95%) is a training gate and not only a runtime check: a
 model that fails it makes the second pass fire constantly and the abstain rate blows the cap.
+
+### The prompt the model sees: format 2
+
+One renderer per lane writes it, byte for byte the same: `python/qd_data/render.py` for training
+and `crates/qd-runtime/src/render.rs` for serving. Prompt format 2 (v5) puts the context **before**
+the question:
+
+```text
+<|qd_begin|>
+<|qd_prompt_format|>2
+<|qd_schema_version|>1
+<|qd_task|>T
+<|qd_route|>R
+<|qd_context_begin|>
+C
+<|qd_context_end|>
+<|qd_question|>Q
+```
+
+Then, for each slot, its suffix: `<|qd_slot|>`, `<|qd_type|>`, the option block with the reserved
+`Z. noul` row last, and `<|qd_answer|>`, the position the one-token query is answered from.
+
+- **Only the question moved.** Format 1 (v4) had no format line and rendered the question line
+  between the route and the context. Task and route stay ahead of the context, so N questions with
+  one task over one context share every byte through `<|qd_context_end|>`. The slot suffixes did
+  not change.
+- **The format is not the wire version.** The request's `schema_version` stays 1, so callers send
+  the same requests. The format is a property of the *model*: what it was trained on.
+- **Every marker has the shape `<|qd_...|>`, the format line's included**, so the one escape rule
+  covers it. A context or question carrying `<|qd_prompt_format|>` or `<|qd_question|>` is
+  rendered as text (`<\|...`), and the renderer's own lines stay the only markers.
+- **A model is never served another format than it was trained on.** The release manifest
+  (`qd-release.v2`) binds `expected_identity.prompt_format`, and `qd_runtime::release` refuses a
+  release whose format is not `render::PROMPT_FORMAT` (a v4 release, `qd-release.v1`, is refused
+  by its format, and a v4-era runtime refuses a `qd-release.v2` one). `qd-export` stamps the format
+  from the checkpoint's source manifest (`<avg>.manifest.json` `prompt_format`, an integer; absent
+  means 1), never from its own constant, so a v4 checkpoint exported now is refused, not
+  mislabelled. The shard header records the format its sequences were rendered in
+  (`ShardHeader.prompt_format`), and the shard reader refuses a set of another format.
 
 ### How many decodes each slot kind costs
 

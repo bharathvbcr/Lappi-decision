@@ -1,0 +1,8 @@
+{
+  "detail": "every span sequence's gold positions and full candidate set were checked against tokenizer.decode: each checked token decodes to the characters its offsets claim, the ids round-trip to the text the spans were measured against, and every recorded candidate is a line start of that decoded text",
+  "n": 1,
+  "n_total": 1,
+  "passed": true,
+  "state": "ran",
+  "value": 1
+}

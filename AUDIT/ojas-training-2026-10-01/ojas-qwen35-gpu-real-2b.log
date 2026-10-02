@@ -1,0 +1,52 @@
+warning: function `replace_file` is never used
+  --> ojas-io/src/replace.rs:19:15
+   |
+19 | pub(crate) fn replace_file(path: &Path, bytes: &[u8]) -> Result<(), IoError> {
+   |               ^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `file_len` is never read
+   --> ojas-io/src/safetensors.rs:551:5
+    |
+541 | pub struct SafeTensorsWriter<W: Write> {
+    |            ----------------- field in this struct
+...
+551 |     file_len: u64,
+    |     ^^^^^^^^
+
+warning: associated items `new`, `file_len`, and `remaining` are never used
+   --> ojas-io/src/safetensors.rs:557:12
+    |
+555 | impl<W: Write> SafeTensorsWriter<W> {
+    | ----------------------------------- associated items in this implementation
+556 |     /// Validate the layout and write the header to `out`.
+557 |     pub fn new(
+    |            ^^^
+...
+585 |     pub fn file_len(&self) -> u64 {
+    |            ^^^^^^^^
+...
+590 |     pub fn remaining(&self) -> u64 {
+    |            ^^^^^^^^^
+
+warning: `ojas-io` (lib) generated 3 warnings
+    Finished `release` profile [optimized] target(s) in 0.03s
+     Running tests/gpu_parity.rs (/Users/bharath/Code/research/ojas/target/release/deps/gpu_parity-fc630c46e50ddac3)
+
+running 1 test
+test gpu_real_2b_single_step_matches_the_transformers_reference ... 2B: loss 3.81034020 vs transformers 3.81016684 (rel 4.55e-5) over 128 tokens
+
+thread 'gpu_real_2b_single_step_matches_the_transformers_reference' (131890370) panicked at ojas-qwen35/tests/gpu_parity.rs:604:55:
+called `Result::unwrap()` on an `Err` value: Tessl { op: "read_gradients", detail: "Qwen35Model::read_gradients: embed_tokens.weight: Metal 4 command buffer fault: The operation couldn’t be completed. (MTL4CommandQueueErrorDomain error 1.)" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    gpu_real_2b_single_step_matches_the_transformers_reference
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 25.24s
+
+error: test failed, to rerun pass `-p ojas-qwen35 --test gpu_parity`

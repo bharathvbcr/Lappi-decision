@@ -419,8 +419,14 @@ NOT_WRAPPING = {
         "cpu and mps rather than inventing one"
     ),
     ("real_tokenizer_pipeline.py", "work_s"): (
-        "tokenises on whatever machine it is run on with `cost=None`, which the recorder "
-        "accepts only on a local device and refuses on anything billed by the hour"
+        "re-argued 2026-09-30, when it gained --usd-per-hour: the GH200 hour-0 build wrote "
+        "its shards and could not write its row, because a cuda row cannot omit its cost. "
+        "Its row's protocol hashes the corpus run() returns, so the recorder cannot open "
+        "before the work. On a rented box it runs as a campaign_driver unit: the driver's "
+        "state records every attempt's exit code and wall clock, a unit that writes fewer "
+        "rows than it expects fails and stops the campaign, and the campaign's own "
+        "CostEstimate prices the instance for its whole cap -- so a kill loses this row, "
+        "never the spend. On a Mac it is priced at zero (cost=None)"
     ),
     ("rung0_linear_control.py", "time.monotonic() - work_t0"): (
         "fits a linear control on `Environment.detect(device=\"cpu\")` with `cost=None`; "
@@ -435,6 +441,9 @@ WRAPPING = {
     ("real_ft_run.py", "None"),
     ("ft_toy_run.py", "None"),
     ("ledger.py", "None"),
+    # The FT linear control's fit is CPU work on whatever box runs it -- billed with the
+    # instance during a campaign -- so its recorder wraps the fit.
+    ("ft_linear_control.py", "None"),
 }
 
 
@@ -586,18 +595,26 @@ def test_the_only_billed_work_outside_a_block_is_the_verdict_decode() -> None:
     """The claim the inventory above rests on, checked against the source rather than
     carried in a comment.
 
-    Three of the five `NOT_WRAPPING` entries claim they cannot be billed. Two of those are
-    checkable here: `real_tokenizer_pipeline.py` and `rung0_linear_control.py` both pass
-    `cost=None`, which `RunRecorder.__init__` accepts only when the device is in
-    `CostEstimate.LOCAL_DEVICES` and refuses otherwise -- so they cannot silently start
-    pricing a rented machine. `rung0_toy_run.py` reaches its rate through
+    Two of the five `NOT_WRAPPING` entries claim they cannot be billed, and are checkable
+    here: `rung0_linear_control.py` passes `cost=None`, which `RunRecorder.__init__` accepts
+    only when the device is in `CostEstimate.LOCAL_DEVICES` -- so it cannot silently start
+    pricing a rented machine -- and `rung0_toy_run.py` reaches its rate through
     `CostEstimate.for_device` with no rate argument, which refuses anything but cpu and
-    mps.
+    mps. `real_tokenizer_pipeline.py` IS billed on a rented box since 2026-09-30; its entry
+    was re-argued then, and what is checked of it is that it prices only through
+    `for_device`.
 
     If one of them gains a `--usd-per-hour`, this fails and the entry in `NOT_WRAPPING`
     has to be re-argued rather than inherited.
     """
-    for name in ("real_tokenizer_pipeline.py", "rung0_linear_control.py"):
+    # real_tokenizer_pipeline.py took a rate on 2026-09-30 and its NOT_WRAPPING entry was
+    # re-argued then; what is checked of it now is that a rented row is priced only through
+    # CostEstimate.for_device, and a local one only by leaving the cost out.
+    pipeline_src = (TOOLS / "real_tokenizer_pipeline.py").read_text(encoding="utf-8")
+    assert "cost=_pipeline_cost(env.device, args)" in pipeline_src
+    assert "if kind in CostEstimate.LOCAL_DEVICES:\n        return None" in pipeline_src
+    assert "return CostEstimate.for_device(" in pipeline_src
+    for name in ("rung0_linear_control.py",):
         source = (TOOLS / name).read_text(encoding="utf-8")
         assert "cost=None" in source, (
             f"{name} no longer passes cost=None, so its NOT_WRAPPING entry -- which says "
@@ -667,6 +684,18 @@ _SPELLINGS = {
     "real_ft_run.py": {"sort_keys": True, "separators": (",", ":")},
     "rung0_toy_run.py": {"sort_keys": True, "separators": (",", ":")},
     "ft_toy_run.py": {"sort_keys": True, "separators": (",", ":")},
+    # Added 2026-09-30 with the tool's first row (19d28ec3): its spelling from the start.
+    "margin_probe_row.py": {"sort_keys": True, "separators": (",", ":")},
+    # Added 2026-10-01 before the tool's first row: the margin probe's spelling, which it
+    # copies, from the start.
+    "calib_fit_row.py": {"sort_keys": True, "separators": (",", ":")},
+    # Added 2026-10-01 with the tool's first rows (676e6498.. in mac-gate-report): the
+    # calib-fit binding's spelling, which it copies, from the start.
+    "gate_report_row.py": {"sort_keys": True, "separators": (",", ":")},
+    # Pinned 2026-10-02 (lane L-v5-train). The trainer oracle hashes the recipe of the ledger
+    # row it writes into crates/qd-train's fixture the way real_ft_run does, because the Rust
+    # ledger writer must reproduce real_ft_run's rows; it writes no ledger of its own.
+    "qd_train_oracle_trainer.py": {"sort_keys": True, "separators": (",", ":")},
 }
 
 
@@ -801,6 +830,10 @@ def test_the_two_spellings_really_do_disagree() -> None:
     assert distinct == {loose, tight}
     # Several tools on each side, which is the split worth knowing: it is not one outlier.
     # Three and three until remap_parity_real.py joined the loose side on its first row
-    # (2026-09-22); pinned exactly, so a tool moving sides still fails here.
+    # (2026-09-22), margin_probe_row.py joined the tight side on its first row
+    # (2026-09-30), calib_fit_row.py joined it before its first row (2026-10-01), and
+    # gate_report_row.py with its first rows (2026-10-01), and qd_train_oracle_trainer.py,
+    # pinned on the tight side 2026-10-02, the spelling it always used; pinned exactly, so a
+    # tool moving sides still fails here.
     assert sorted(digests.values()).count(loose) == 4, digests
-    assert sorted(digests.values()).count(tight) == 3, digests
+    assert sorted(digests.values()).count(tight) == 7, digests

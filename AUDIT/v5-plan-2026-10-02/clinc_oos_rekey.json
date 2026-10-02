@@ -1,0 +1,37 @@
+{
+ "candidate_key": "clinc-oos:{blake2b-8(utterance.strip())}",
+ "fetch_dir": "/Users/bharath/.cache/qd-decision/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec",
+ "intent_repo_keys_by_split_including_oos": {
+  "heldout": 8,
+  "train": 133,
+  "val": 10
+ },
+ "oos_exact_duplicate_utterances": 0,
+ "oos_rekeyed_split": {
+  "heldout": 62,
+  "train": 1216,
+  "val": 72
+ },
+ "oos_rekeyed_split_by_upstream_file": {
+  "test->heldout": 42,
+  "test->train": 911,
+  "test->val": 47,
+  "train->heldout": 15,
+  "train->train": 220,
+  "train->val": 15,
+  "validation->heldout": 5,
+  "validation->train": 85,
+  "validation->val": 10
+ },
+ "oos_utterances": 1350,
+ "seed": 20260919,
+ "upstream_rows": {
+  "test:in_scope": 4500,
+  "test:oos": 1000,
+  "train:in_scope": 15000,
+  "train:oos": 250,
+  "validation:in_scope": 3000,
+  "validation:oos": 100
+ },
+ "v4_oos_repo_key_split": "train"
+}

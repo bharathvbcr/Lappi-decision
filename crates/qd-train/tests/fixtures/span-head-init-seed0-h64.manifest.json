@@ -1,0 +1,80 @@
+{
+ "what": "the span head QwenDecisionStep(seed=0) initialises at hidden 64: ojas plan Q3 Amendment 2 (iv). The Rust trainer loads the file by path, recomputes sha256 and content_digest, and refuses to start on a mismatch",
+ "file": {
+  "path": "crates/qd-train/tests/fixtures/span-head-init-seed0-h64.safetensors",
+  "tracked": true,
+  "bytes": 33624,
+  "sha256": "3c1cdbb7e181386605fa4756f676351a5682a59ddc4fc4dcbfbbffb5689555b0",
+  "safetensors_metadata": null
+ },
+ "content_digest": {
+  "value": "81bd953e1f27e8e2b703264df663f15f239327c9523d3e85973687009db471d6",
+  "formula": "run_control._sidecar_digest over run_control.TensorRef.digest of each tensor: per tensor sha256(b'qd-tensor-ref-v1' || u32be(len(dtype)) || dtype ascii || u32be(ndim) || u64be(each axis) || u64be(nbytes) || little-endian data); over the set sha256(b'qd-checkpoint-sidecar-v1' || u64be(count) || for each name in sorted order: u64be(len(name utf-8)) || name || the 32 raw digest bytes)",
+  "names": "span_head.*",
+  "dtype": "float32",
+  "source": "python/qd_train/run_control.py _TENSOR_REF_DOMAIN, TensorRef.digest, _SIDECAR_DOMAIN, _sidecar_digest"
+ },
+ "tensors": {
+  "span_head.abstain_end": {
+   "dtype": "float32",
+   "shape": [
+    64
+   ],
+   "nbytes": 256,
+   "digest": "4b74feba3255bc0ecf52d3fb78856c35d0ddd965fdd7d1c1274e3fb05953317e"
+  },
+  "span_head.abstain_start": {
+   "dtype": "float32",
+   "shape": [
+    64
+   ],
+   "nbytes": 256,
+   "digest": "4b74feba3255bc0ecf52d3fb78856c35d0ddd965fdd7d1c1274e3fb05953317e"
+  },
+  "span_head.end_proj.weight": {
+   "dtype": "float32",
+   "shape": [
+    64,
+    64
+   ],
+   "nbytes": 16384,
+   "digest": "04a1e85b22d31ecad6bc6355fe15a1d7ef198267bd15f47758348b5fd765cb41"
+  },
+  "span_head.start_proj.weight": {
+   "dtype": "float32",
+   "shape": [
+    64,
+    64
+   ],
+   "nbytes": 16384,
+   "digest": "ceacb030deb855d9a8773785c3d7e777c59b063895e4ff3e8a455471414974f3"
+  }
+ },
+ "construction": {
+  "path": "python/qd_train/backbone.py:983-1000: torch.manual_seed(seed), then SpanPointerHead(tower.hidden_size) built on the CPU and moved to float32",
+  "seed": 0,
+  "hidden": 64,
+  "stand_in_tower": "tiny Qwen3.5 family (tools/qd_train_oracle_tiny.py), 2 layers, hidden 64; only its hidden size reaches the head",
+  "checks": {
+   "bf16_master_tower_equals_fp32_tower": true,
+   "step_equals_direct_manual_seed_then_SpanPointerHead": true,
+   "content_digest_from_file_equals_in_memory": true
+  },
+  "default_device_or_dtype_set_anywhere": "no call to torch.set_default_device or torch.set_default_dtype in tools/real_ft_run.py or python/qd_train (rg, 2026-10-01; the one torch.device context there is the 'meta' skeleton at backbone.py:559, before the step), so a CUDA run's head is drawn on the CPU too [inferred: no CUDA host here]"
+ },
+ "compared_with": {
+  "file": "crates/qd-train/tests/fixtures/tiny-published/init.safetensors",
+  "sha256": "9d4b47d5ee67327aef6bb810f391200d0da6eac6f38142461e44dd53baad7c3e",
+  "span_head_tensors_bit_identical": true
+ },
+ "generator": {
+  "script": "tools/qd_train_oracle_span_head_init.py",
+  "script_sha256": "3bee35a9bc3a915768c1f5d44b3df88f57cd0e5bcc505d1954dfa047d2ffaa56",
+  "command": "PYTHONPATH=python /Users/bharath/.venvs/ml/bin/python tools/qd_train_oracle_span_head_init.py --hidden 64 --seed 0 --out crates/qd-train/tests/fixtures/span-head-init-seed0-h64.safetensors --manifest crates/qd-train/tests/fixtures/span-head-init-seed0-h64.manifest.json --compare-with crates/qd-train/tests/fixtures/tiny-published/init.safetensors",
+  "git_head": "fd5fe80f6fbe6d3e635b87a25f3e93982db9c3d8",
+  "python": "3.14.7",
+  "torch": "2.12.1",
+  "safetensors": "0.8.0",
+  "device": "cpu"
+ }
+}

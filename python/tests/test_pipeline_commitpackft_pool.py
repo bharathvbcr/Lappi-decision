@@ -132,9 +132,16 @@ def test_the_ft_runner_relabels_through_the_same_function() -> None:
     3364 sequences" -- with no way to run it. Pinned at the source because exercising
     ``main`` needs a shard set on disk and a torch install; the wiring is the claim."""
     source = (REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8")
-    assert "pipeline.code_rows(" in source
+    # Since 2026-09-29 through `base_sources`, the pipeline's one owner of "which code and span
+    # rows", which `run` calls too and which reads the code rows through `code_rows`.
+    assert "pipeline.base_sources(" in source
     assert "commitpackft=args.commitpackft" in source
     assert "pipeline.commit_rows(" not in source
+    assert "pipeline.code_rows(" not in source, "a second, direct read would bypass the owner"
+    import inspect
+
+    assert "code_rows(" in inspect.getsource(pipeline.base_sources)
+    assert "base_sources(" in inspect.getsource(pipeline.run)
 
 
 def test_the_row_carries_the_reason_the_run_measured(tmp_path, monkeypatch) -> None:
@@ -161,6 +168,8 @@ def test_the_row_carries_the_reason_the_run_measured(tmp_path, monkeypatch) -> N
     assert pipeline.main([
         "--out", str(tmp_path / "out"), "--max-pairs", "4",
         "--commitpackft", str(root), "--ledger", str(ledger),
+        # A ledger row names its corpus revision by full sha (HEAD is refused).
+        "--rev", "0632f693d3b765b726499e7b4bf19c67959b75cb",
     ]) == 0
     row = json.loads(ledger.read_text(encoding="utf-8").splitlines()[0])
     assert row["quick"] is True

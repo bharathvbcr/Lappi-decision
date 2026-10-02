@@ -114,6 +114,17 @@ LICENCE_POLICY: Final[dict[str, LicencePolicy]] = {
                 "the obligation is carried per row so the model card can state it"
             ),
         ),
+        # -- the repository owner's own text --------------------------------
+        _p(
+            "owner-granted", _A,
+            note=(
+                "the human's own repositories, approved for training, eval and commit data "
+                "on 2026-09-28 (docs/train-plan-2026-09-28.md, Human decisions). Carried only "
+                "by rows of qd_data.sources.OWN_REPOS_SOURCE_ID that survive v5's own-prose "
+                "provenance rules (Fable's v5 review section 2.9); it covers text the owner "
+                "authored, not text hosted in their repositories"
+            ),
+        ),
         # -- copyleft / non-standard / absent: default-deny --------------
         _p(
             "agpl-3.0", _H, "share-alike", "network-use-disclosure",
@@ -154,11 +165,17 @@ LICENCE_POLICY: Final[dict[str, LicencePolicy]] = {
         # -- non-commercial: never admissible ----------------------------
         _p(
             "cc-by-nc-4.0", _D, "attribution", "non-commercial",
-            note="facebook/anli. Non-commercial is disqualifying, not an edge case",
+            note=(
+                "facebook/anli, lmsys/toxic-chat, Tobi-Bueck/customer-support-tickets. "
+                "Non-commercial is disqualifying, not an edge case"
+            ),
         ),
         _p("cc-by-nc-sa-4.0", _D, "attribution", "non-commercial", "share-alike"),
         _p("cc-by-nc-nd-4.0", _D, "attribution", "non-commercial", "no-derivatives"),
-        _p("cc-by-nc-3.0", _D, "attribution", "non-commercial"),
+        _p(
+            "cc-by-nc-3.0", _D, "attribution", "non-commercial",
+            note="allenai/sciq, which RSI's own replay set includes. Disqualifying",
+        ),
     )
 }
 
@@ -231,8 +248,23 @@ class LicenceConfig:
     """
 
     admitted_by_human: dict[str, str] = field(default_factory=dict)
+    #: Source ids a human has opted in to, each with its justification. For a source
+    #: whose licence tier is ``ALLOW`` but which is still off by default -- the case
+    #: is ``allenai/ai2_arc``: ``cc-by-sa-4.0`` is admitted for ``rajpurkar/squad_v2``,
+    #: so the tier cannot be the switch, and a second share-alike source in an
+    #: Apache-2.0 model's pool is a decision, not a filter default. Keyed by source,
+    #: never by licence, so opting one in cannot silently admit another.
+    admitted_sources_by_human: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        for source_id, why in self.admitted_sources_by_human.items():
+            if not isinstance(source_id, str) or not source_id.strip():
+                raise ValueError(f"source opt-in names no source: {source_id!r}")
+            if not isinstance(why, str) or not why.strip():
+                raise ValueError(
+                    f"source opt-in {source_id!r} carries no justification. An opt-in "
+                    "without a recorded reason cannot be distinguished from an accident."
+                )
         for lic, why in self.admitted_by_human.items():
             key = normalise_licence(lic)
             if not isinstance(why, str) or not why.strip():
@@ -254,6 +286,11 @@ class LicenceConfig:
         return normalise_licence(licence_id) in {
             normalise_licence(k) for k in self.admitted_by_human
         }
+
+    def admits_source(self, source_id: str) -> bool:
+        """Exact match on the source id. No normalisation: ids are case-sensitive
+        upstream, and a fuzzy match is how opting in one source admits another."""
+        return source_id in self.admitted_sources_by_human
 
 
 DEFAULT_LICENCE_CONFIG: Final[LicenceConfig] = LicenceConfig()

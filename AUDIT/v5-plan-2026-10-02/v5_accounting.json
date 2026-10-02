@@ -1,0 +1,91 @@
+{
+ "rows": {
+  "v4_train_rows": 289142,
+  "v4_letter_rows": 183252,
+  "v4_z_gold_letter_rows": 9054,
+  "v4_z_share": 0.049407373452950036,
+  "v4_prose_noul": 2010,
+  "v4_prose_share": 0.010968502390151267,
+  "clinc_rows_leaving_train": 536,
+  "clinc_val_rows_added_per_family": 72,
+  "clinc_heldout_rows_added_per_family": 62,
+  "e_val_exclusions_lower_bound": {
+   "train_keys_row_slot": 1196,
+   "identity_keys": 1195,
+   "identity_keys_by_family": {
+    "knowledge.multiple_choice": 1117,
+    "commonsense.multiple_choice": 78
+   }
+  },
+  "added_noul": {
+   "own_repo_prose": 2000,
+   "mmlu_csqa_contrast": 2000
+  },
+  "v5_train_rows": 291410,
+  "v5_letter_rows": 185520,
+  "v5_z_gold_letter_rows": 12652,
+  "v5_z_share": 0.06819749892194911,
+  "v5_prose_noul": 6010,
+  "v5_prose_share": 0.03239542906425183,
+  "v5_prose_question_form_target": 3604,
+  "mmlu_csqa_train_after_e_val": 22624,
+  "noul_weight_parity_w": 3.7643926788685524
+ },
+ "cost": {
+  "rate_usd_per_h": 2.29,
+  "positions_ratio_v5_over_v4": 1.1608491525117601,
+  "v5_tokens_per_epoch": 356295825.943816,
+  "v5_positions_per_epoch": 375039842.4523302,
+  "v5_steps": 11240.502343771373,
+  "v5_train_s_per_seed": 18601.611771437772,
+  "v5_train_usd_per_seed": 11.832691932386806,
+  "v5_seed_usd_incl_eval_controls_trajectory": 12.932691932386806,
+  "j5prime_usd_per_seed": 12.200364154609028,
+  "plan": {
+   "v5_seeds_0_2": 3,
+   "j5prime": 3,
+   "noul_weight": 3
+  },
+  "total_usd": 114.19724405814793,
+  "total_gpu_h": 49.86779216513009,
+  "conditional_seeds34_usd": 25.865383864773612,
+  "conditional_seeds34_h": 11.294927451866206,
+  "with_nomask_minus_20pct": {
+   "train_usd_per_seed": 9.466153545909446,
+   "seed_usd": 10.566153545909446,
+   "j5_usd": 9.833825768131668,
+   "total_usd": 92.89839857985169,
+   "total_h": 40.56698627941121,
+   "seeds34_usd": 21.13230709181889,
+   "seeds34_h": 9.228081699484232
+  },
+  "with_nomask_minus_40pct": {
+   "train_usd_per_seed": 7.0996151594320835,
+   "seed_usd": 8.199615159432083,
+   "j5_usd": 7.467287381654306,
+   "total_usd": 71.59955310155541,
+   "total_h": 31.26618039369232,
+   "seeds34_usd": 16.399230318864166,
+   "seeds34_h": 7.161235947102256
+  },
+  "caps": {
+   "train_cap_s_per_run": 32400,
+   "runs": 9,
+   "needle_control_cap_s": 5400,
+   "needle_controls": 6,
+   "trajectory_cap_s_per_seed": 3600,
+   "trajectory_seeds": 6
+  },
+  "cap_total_s": 345600,
+  "cap_total_usd": 219.84,
+  "fable_basis": {
+   "f_seed_usd": 10.68,
+   "v5_train_usd_per_seed": "11-12",
+   "nomask_train_usd": "8-9",
+   "per_seed_extra_usd": 1.1,
+   "three_seeds_plus_j5": "about 70",
+   "seeds34": "+24",
+   "noul_weight_arm": "+34"
+  }
+ }
+}

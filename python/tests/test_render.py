@@ -147,6 +147,50 @@ def test_every_training_prompt_shape_is_reachable_from_the_wire() -> None:
         assert trained.prompt_for("verdict") == served.prompt_for("verdict")
 
 
+#: The format-2 prefix of the sample request ``crates/qd-runtime/tests/render_contract.rs``
+#: renders (``common::sample_request``). The same bytes are that file's ``GOLDEN_PREFIX``,
+#: so the two lanes are pinned to one string: a drift on either side fails in that lane.
+#: Format 2 (v5, ``campaign/v5-preregistered.DRAFT.json`` ``format.layout_v5``): the
+#: ``<|qd_prompt_format|>2`` line follows ``<|qd_begin|>``, and the question line follows
+#: ``<|qd_context_end|>``. Task and route stay ahead of the context.
+GOLDEN_FORMAT_2_PREFIX = (
+    "<|qd_begin|>\n"
+    "<|qd_prompt_format|>2\n"
+    "<|qd_schema_version|>1\n"
+    "<|qd_task|>devcouncil.verdict\n"
+    "<|qd_route|>generic\n"
+    "<|qd_context_begin|>\n"
+    "fn add(a: i32, b: i32) -> i32 {\n    todo!()\n}\n\n"
+    "<|qd_context_end|>\n"
+    "<|qd_question|>Does this diff implement what the commit message claims?\n"
+)
+
+
+def test_the_prefix_is_the_format_2_layout_byte_for_byte() -> None:
+    """The golden the Rust lane pins too. The slot suffixes are format 1's, unchanged."""
+    request = Request(
+        task="devcouncil.verdict",
+        context=b"fn add(a: i32, b: i32) -> i32 {\n    todo!()\n}\n",
+        question="Does this diff implement what the commit message claims?",
+        slots=(
+            ChoiceSlot(name="verdict", options=("stub", "logic", "cosmetic", "clean")),
+            ScoreSlot(name="severity", bins=5),
+            SpanSlot(name="evidence"),
+        ),
+    )
+    rendered = render_for_serving(request.to_wire())
+    assert rendered.prefix == GOLDEN_FORMAT_2_PREFIX
+    assert [s.suffix for s in rendered.slots] == [
+        "<|qd_slot|>verdict\n<|qd_type|>choice\n<|qd_options_begin|>\n"
+        "A. stub\nB. logic\nC. cosmetic\nD. clean\nZ. noul\n<|qd_options_end|>\n<|qd_answer|>",
+        "<|qd_slot|>severity\n<|qd_type|>score\n<|qd_options_begin|>\n"
+        "A. 1\nB. 2\nC. 3\nD. 4\nE. 5\nZ. noul\n<|qd_options_end|>\n<|qd_answer|>",
+        "<|qd_slot|>evidence\n<|qd_type|>span\n<|qd_options_begin|>\n"
+        "Z. noul\n<|qd_options_end|>\n<|qd_answer|>",
+    ]
+    assert render(request, seed=None).prefix == GOLDEN_FORMAT_2_PREFIX
+
+
 def test_shuffle_is_reproducible_across_calls_and_is_a_real_permutation() -> None:
     options = tuple(f"opt{i}" for i in range(8))
     a, perm_a = shuffle_options(options, seed=5, example_id="x", slot_name="s")
@@ -676,3 +720,30 @@ def test_a_bidi_override_still_round_trips_through_the_unchanged_escapers() -> N
         assert ch in escape_inline(text)
         assert unescape(escape_block(text)) == text
         assert unescape(escape_inline(text)) == text
+
+
+# -- the second-pass permutation, owned here ---------------------------------------------
+
+
+def test_render_owns_the_second_pass_and_defect_class_reexports_it() -> None:
+    """GAP-A3-SECOND-PASS-PERMUTATION-NOT-WIRED-INTO-RENDER: one implementation, in the
+    module that owns option order. The pinned value was drawn by the defect_class copy
+    before the move, so it also pins that the stream did not change."""
+    from qd_data import defect_class
+    from qd_data.render import second_pass_permutation
+
+    assert defect_class.second_pass_permutation is second_pass_permutation
+    assert second_pass_permutation(
+        4, seed=0, example_id="qdm:code.defect_class:" + "0" * 40 + ":x.py#0",
+        slot_name="defect_class",
+    ) == (3, 0, 1, 2)
+
+
+@settings(max_examples=200)
+@given(st.integers(2, 12), st.integers(0, 2**31), st.text(max_size=12))
+def test_the_second_pass_is_always_a_derangement(n: int, seed: int, example_id: str) -> None:
+    from qd_data.render import second_pass_permutation
+
+    perm = second_pass_permutation(n, seed=seed, example_id=example_id, slot_name="s")
+    assert sorted(perm) == list(range(n))
+    assert all(perm[k] != k for k in range(n))

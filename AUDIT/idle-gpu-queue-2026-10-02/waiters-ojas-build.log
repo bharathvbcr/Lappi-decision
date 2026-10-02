@@ -1,0 +1,548 @@
+== lane L-waiters: one aarch64 cross-build of ojas-qwen35-cuda for the idle queue's cudadev
+== built 2026-10-02 ~02:30 UTC (artifact mtimes 21:30 CDT); this log written 2026-10-02T02:58:01Z
+== no git was run in ojas; sources were only read (rg --files, shasum)
+
+== commands (from the Lappi worktree; --locked --offline, NEW target dir)
+CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=/Users/bharath/qd-campaign/sysroot-aarch64-linux-gnu/link.sh CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C linker-flavor=gcc" cargo build --offline --locked --release --manifest-path /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/Cargo.toml --target aarch64-unknown-linux-gnu --features cuda --bin runga --target-dir /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle
+  -> Finished `release` profile [optimized] target(s) in 6.07s
+(same env) cargo test --offline --locked --release --no-run --manifest-path /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/Cargo.toml --target aarch64-unknown-linux-gnu --features cuda --target-dir /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle
+  -> exit=0; executables:
+  Executable unittests src/lib.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/ojas_qwen35_cuda-f376521f00ab582a)
+  Executable unittests src/bin/rung0.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/rung0-56e5448a0d28eb5b)
+  Executable unittests src/bin/runga.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/runga-f0b1bfca70b9212b)
+  Executable tests/device_gdn_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_gdn_published-4ae28ca271858f42)
+  Executable tests/device_gdn_published_mirror.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_gdn_published_mirror-eddc2adfc09331dd)
+  Executable tests/device_k0.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k0-beee810a26824ccf)
+  Executable tests/device_k1.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k1-e0cd3e87185d920b)
+  Executable tests/device_k10_ce_rows.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k10_ce_rows-a5ced68f78e78122)
+  Executable tests/device_k11.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k11-a91063d54a01db67)
+  Executable tests/device_k3_gates_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k3_gates_published-e0e9795d254ed675)
+  Executable tests/device_k4_conv1d.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k4_conv1d-748b11fa0d68887c)
+  Executable tests/device_k6_qk_norm_rope.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k6_qk_norm_rope-00c1ad1cc5efdcc9)
+  Executable tests/device_k7_rmsnorm.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k7_rmsnorm-7e04614e3c9fbae5)
+  Executable tests/device_k8.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k8-ee452f644a37c50c)
+  Executable tests/device_k9_embed.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k9_embed-f53e30d1a601e180)
+  Executable tests/fixture_pins.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/fixture_pins-c298cc7220dfb458)
+  Executable tests/fmt_boundary.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/fmt_boundary-ae66269026c96c83)
+  Executable tests/reference_adamw.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/reference_adamw-415188a45490616b)
+  Executable tests/reference_gdn_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/reference_gdn_published-42c4bd0cedd5b021)
+  Executable tests/reference_gdn_published_vs_tessl.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/reference_gdn_published_vs_tessl-53dcdea604af8263)
+  Executable tests/reference_goldens_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/reference_goldens_published-97c98cb0f4e021ec)
+  Executable tests/reference_k11_host.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/reference_k11_host-6925d75ca16bc5ca)
+  Executable tests/reference_kernels.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/reference_kernels-32e6a1e34921b938)
+  Executable tests/runtime_refusal.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/runtime_refusal-9206ce58b2085e4b)
+
+== toolchain
+rustc 1.98.0 (88d9e12ae 2026-08-18)
+cargo 1.98.0 (797e8a9bc 2026-08-05)
+93e78e26b0df7be7e755517b497f2a6e4ad82bfa7b784112b3c90399043c73e8  /Users/bharath/qd-campaign/sysroot-aarch64-linux-gnu/link.sh
+
+== the twelve binaries cudadev runs (sha256), this build
+bb3276e7a42ae3d0e20171ed78e0df537f2581d8f144d22b8b6c054a0814c805  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/runga
+b10542091a32f9bf293d1cefd36d754221115f5ed88386c1b2e3f970fa9820a6  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k0-beee810a26824ccf
+9546b2df0da4334ab735673885b9812a9f02ca4021172b60fb4c1f6b9eaa93bd  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k1-e0cd3e87185d920b
+75f05d3a42c7964fc0143dc5149a02d37b2af04aaca3f7ea271cefcdb8074ff1  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k8-ee452f644a37c50c
+bc65b3bca3c48f1814185fc74859e6c623cffceda5bf3f9736d9b8b82c72ad90  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k11-a91063d54a01db67
+fd4e1e2410b2b8ae11176aa0b3d3f75a469b48fb0c8a4387c7f17fe27819bfbb  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k3_gates_published-e0e9795d254ed675
+eb12cb197f5d259a4b3bf79396f247f431c222461afbdb8191a763bf70e4b666  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k4_conv1d-748b11fa0d68887c
+03a641f055494f8c68bb1f8eb320906fe892010e59fe3ac2375037f5498611fe  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k6_qk_norm_rope-00c1ad1cc5efdcc9
+c56c71146f7af183c3af1a3252e51818705d1a61e24d0eef7cdfc3440bd095e2  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k7_rmsnorm-7e04614e3c9fbae5
+363a21f68eefd664cf72bb8af6ce78be8a43b4fa99ff0ad4d9b0f4d1053f6d8b  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k9_embed-f53e30d1a601e180
+54c8755464b913adb407c74c52ebfb6d421da0e39e844af34cba61950a5c707e  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_k10_ce_rows-a5ced68f78e78122
+97034105198442010a12661228442197a9d20a3eb7685480e239daebdb8f4f28  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-idle/aarch64-unknown-linux-gnu/release/deps/device_gdn_published-4ae28ca271858f42
+
+== the same files in L-cuda-M1's target dir (its runga build, 2026-10-02 02:01 UTC): byte-identical
+bb3276e7a42ae3d0e20171ed78e0df537f2581d8f144d22b8b6c054a0814c805  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-m1/aarch64-unknown-linux-gnu/release/runga
+b10542091a32f9bf293d1cefd36d754221115f5ed88386c1b2e3f970fa9820a6  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-m1/aarch64-unknown-linux-gnu/release/deps/device_k0-beee810a26824ccf
+9546b2df0da4334ab735673885b9812a9f02ca4021172b60fb4c1f6b9eaa93bd  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-m1/aarch64-unknown-linux-gnu/release/deps/device_k1-e0cd3e87185d920b
+75f05d3a42c7964fc0143dc5149a02d37b2af04aaca3f7ea271cefcdb8074ff1  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-m1/aarch64-unknown-linux-gnu/release/deps/device_k8-ee452f644a37c50c
+bc65b3bca3c48f1814185fc74859e6c623cffceda5bf3f9736d9b8b82c72ad90  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-m1/aarch64-unknown-linux-gnu/release/deps/device_k11-a91063d54a01db67
+fd4e1e2410b2b8ae11176aa0b3d3f75a469b48fb0c8a4387c7f17fe27819bfbb  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-m1/aarch64-unknown-linux-gnu/release/deps/device_k3_gates_published-e0e9795d254ed675
+eb12cb197f5d259a4b3bf79396f247f431c222461afbdb8191a763bf70e4b666  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-m1/aarch64-unknown-linux-gnu/release/deps/device_k4_conv1d-748b11fa0d68887c
+03a641f055494f8c68bb1f8eb320906fe892010e59fe3ac2375037f5498611fe  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-m1/aarch64-unknown-linux-gnu/release/deps/device_k6_qk_norm_rope-00c1ad1cc5efdcc9
+c56c71146f7af183c3af1a3252e51818705d1a61e24d0eef7cdfc3440bd095e2  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-m1/aarch64-unknown-linux-gnu/release/deps/device_k7_rmsnorm-7e04614e3c9fbae5
+363a21f68eefd664cf72bb8af6ce78be8a43b4fa99ff0ad4d9b0f4d1053f6d8b  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-m1/aarch64-unknown-linux-gnu/release/deps/device_k9_embed-f53e30d1a601e180
+54c8755464b913adb407c74c52ebfb6d421da0e39e844af34cba61950a5c707e  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-m1/aarch64-unknown-linux-gnu/release/deps/device_k10_ce_rows-a5ced68f78e78122
+97034105198442010a12661228442197a9d20a3eb7685480e239daebdb8f4f28  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-m1/aarch64-unknown-linux-gnu/release/deps/device_gdn_published-4ae28ca271858f42
+
+== the HANDOFF-listed binaries this build supersedes (different, earlier source states)
+M0 device_k0 e038f76dbc832b06661b1f208d4fb54b7dc533fb7038082d1e2c530e53e5374d, device_k1 ce9e0a928f3152007e35e18498bc7eb62bd821d267845c5b45b0576577f4aa41 (HANDOFF/ojas-l-cuda-m0-2026-10-01.md:185-186)
+gdn device_gdn_published f0e88668a89f5665043c1f71b0faf480c7b69edd207e6a55952c4a5735cbefb0 (HANDOFF/ojas-l-cuda-gdn-2026-10-01.md:218)
+small's six: c0347031.., 52677e36.., 2fe43121.., 27d83682.., 2632615d.., 5d202810.. (HANDOFF/ojas-l-cuda-small-2026-10-01.md:182-187)
+M1 device_k8 75f05d3a.., device_k11 bc65b3bc.., runga bb3276e7.. (HANDOFF/ojas-l-cuda-m1-2026-10-01.md:261-266): identical to this build
+
+== Cargo.lock (unchanged by the build: --locked)
+MD5 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/Cargo.lock) = 2c7ce4f0a22bfc10cfbec855c7c4d216
+
+== source state: every build input's sha256, hashed BEFORE the build; re-hashed AFTER: identical (cmp)
+before == after: SOURCES_UNCHANGED_DURING_BUILD
+
+== against the 116 inputs L-cuda-M1 recorded at its runga build (AUDIT/ojas-training-2026-10-01/l-cuda-m1-cross-build.txt)
+M1 recorded 116 inputs; now 463 hashed
+identical 116; changed 0; absent now 0; not in M1's list 347
+(the 347 inputs M1 did not list are all under ojas-qwen35-cuda/tests/fixtures/, pinned in-tree by their own SHA256SUMS)
+
+== the hashed inputs (     463 files: ojas-io and ojas-core Cargo.toml + src/, ojas-qwen35-cuda Cargo.toml, Cargo.lock, src/, tests/ incl. fixtures)
+f70f0ce106f3056c08d2e15543cd335358cb674103034aba4e3f00a36c22aabc  /Users/bharath/Code/research/ojas/ojas-io/Cargo.toml
+c7afefb3f3f8f8d3bb8b7090ea755bfc3b37378d4f94296292ce88b078006dfd  /Users/bharath/Code/research/ojas/ojas-io/src/checkpoint.rs
+a0d37cd0867bcb98eaa2531033186d49d302d10e5009231d3d9b4f33c1768842  /Users/bharath/Code/research/ojas/ojas-io/src/error.rs
+6c8e6e18df3847ff54627fb32641c33ea6adfdb487cb5107cd57837644a3ac45  /Users/bharath/Code/research/ojas/ojas-io/src/half.rs
+9548df3ae535cec0a3f307f59ddb53812f1ebad5225d151f9eb40d094dd13069  /Users/bharath/Code/research/ojas/ojas-io/src/json.rs
+ec948c0690660f7ce1e7f0b322ef8442197c57a2fca2eb9c9ca1280f9a438d31  /Users/bharath/Code/research/ojas/ojas-io/src/lib.rs
+f41d8491442013557681f299802b47c80f55d1c3c43bb8e352a485e2edcce8b1  /Users/bharath/Code/research/ojas/ojas-io/src/open.rs
+43d332a84d7aa6c7a81c56217fdb0cbd094d21d0ae2a410d5037784432bb1364  /Users/bharath/Code/research/ojas/ojas-io/src/posread.rs
+bad85981abc1a955a649b1484754e23d6b787120dda85ec53524c1616d96b392  /Users/bharath/Code/research/ojas/ojas-io/src/replace.rs
+a5439dd128cafc5f9f161f817f8dbc836e596887b47a93f714ff30f84e21479e  /Users/bharath/Code/research/ojas/ojas-io/src/safetensors.rs
+a0ed06dfbe2b0951b9cd70444b4259fae6046a6850c38e1ca8b457711603cd72  /Users/bharath/Code/research/ojas/ojas-io/src/test_util.rs
+bf5a8db61ff2189b72d5b06c3ef96a796aaa67ffe467ffce644a0eae5ff72d1c  /Users/bharath/Code/research/ojas/ojas-core/Cargo.toml
+5259728caf1be368a8c544e2cebf66b55329b8798d7ad493c3f4871199ab3a10  /Users/bharath/Code/research/ojas/ojas-core/src/backend.rs
+ad4d76ead7844436c5ecd04ef485b7177dbf89ae38b48c0d20d439b2a5c11663  /Users/bharath/Code/research/ojas/ojas-core/src/budget.rs
+f51bdb85fa4f76ae3f896a1239c8d0ca07391f497b059bd367c6141788a24466  /Users/bharath/Code/research/ojas/ojas-core/src/checkpoint.rs
+c0a79e26ddae297742f5959e50c41ae75a0ec96a6f5f251fe3e5a7332edd2731  /Users/bharath/Code/research/ojas/ojas-core/src/dtype.rs
+56990f70b93a310ab7e67b7970a3cf4d1db295732acce350928376100e26e22b  /Users/bharath/Code/research/ojas/ojas-core/src/error.rs
+2d1dd7d2a1777100542e9d6d0cb9e9d18c30ef3efb4ab04d8bfcda8f0cee1fbc  /Users/bharath/Code/research/ojas/ojas-core/src/lib.rs
+464b2643c8e8f97d300c634d36bdbe7cb924b192a727ecfaf6267bb0758039da  /Users/bharath/Code/research/ojas/ojas-core/src/limits.rs
+9c0a079d128292b516f49b0d504aebc3205ae8e65aa4aa83e4c9cabea788df57  /Users/bharath/Code/research/ojas/ojas-core/src/shapes.rs
+c8700ecef36495f8d7f6db81a18d69209d5544e14051ce8a2f0183dd82cb9e85  /Users/bharath/Code/research/ojas/ojas-core/src/tensor.rs
+64f019ca3d20017cf86ce0a5fc9074a647bf1bad45ec115d5ad607324258e2c5  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/Cargo.toml
+bd1b8d9f6646072b296d45cfd0bc25a58f9d95f0c2342a251578c7a9b35c7ab3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/Cargo.lock
+88efccb8b30b36c0ba633f145423ebb6568e7fda977cde006f00033261403e72  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/bf16.rs
+1191975b3eb0ee8569347e52ee10990931bcee7d5be7f9a1437beed6a2855826  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/bin/rung0.rs
+6e1f72597ed4dd43511e479d60fd1224975bc11dbd024f510384066cc59ff57a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/bin/runga.rs
+15744a43a21053c9ba5b182ef8aeda3d1402f4da0610560840a4ab17bd4757ca  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/budget.rs
+fee042b9debb29334bd24f07ff5976f3e008f5c120758aef9c53ff19f95dcc3a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/buffer.rs
+811c0a5df39217c51fd8244681c361454e8bb4a6365a40064e90cf7eb69423f2  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/ce_rows.rs
+9d2ec2fe1f78430435cba4deacf7bbd9f968cfb22af2f8ec996079df93a319bd  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/ce_rows_cuda.rs
+7d75798d166fd4baf1e740fb51e45adc385928228e36c4671a1bc0764c19da2a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/check.rs
+f11af1f9492daea973f90cb273061335cbb21e8fd7052b308b6fb9a3f57c38aa  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/conv1d.rs
+c0057ff697fc740a8853247523c451878d4bcdd5ecd0b3df1bcbacfcd8adf48c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/conv1d_cuda.rs
+bf2facc4a43fed636ceedcb2cabbe1ffbe620853af5dd6fb32254a7038466658  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/embed.rs
+1bc307e8ae48ac72b65a1c614dd7486b0513625c0b89b9778fee596259aaeaa8  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/embed_cuda.rs
+0f06d50a99bdd518ae184fb8cea5d7f489c479ebc43ed5d92e81b0f25a971a13  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/error.rs
+14c95645796eb22495bd127e25b00ca9bb21853608b51d2c01a19c90f7f2c572  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gates_published.rs
+c2c4d56e2e02d7df49c6ecd57de59fd59367f039721a89fd4124f0e4428db9fa  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gates_published_cuda.rs
+a82799cfdf7d0bc4087cf25ddba184e111ea24dfe4de7ea883327eecbc5a2a95  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gdn.rs
+ed89e4ffecda85258c83b19e9411d5d692874639a0859dfc2357c3b4f46d065b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gdn_host.rs
+b09fb0d153dc452498c820861c9c1aa59a030667bb2aff0e878dce9e1e81493c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gdn_kernels.rs
+2d4d0977d26683673d1902ec6a633e90f263b49f0e672c1f488ef1b814e4d6f3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gdn_plan.rs
+b01f2ecf74a01faa92b45c86f0ec67d1cd8b0dca901a476b3b31b71a7c1a851a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gdn_smoke.rs
+2a5571470f569e30ea2dad3da6b2f98dd012e4dc6c9da671dcdff2c8c044e7db  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gemm.rs
+c035aff44d972522a0df463c25504ae5e221c60584c9e712d08c852748463e41  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gemm_plan.rs
+0b95193c2c29a45a0e5b9379a929e7aaad0bb05da4f2f816e63c7aa8c5ee5c2c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/geometry.rs
+0e52736a710a879aa2f34f66ebc388f7d8ada7bc229fada95b12cb6fdb31e928  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/host_ref.rs
+53b9f0e13b2462fb909d5b3919a083b22e6fc14be57dce0f96fc3c52d518286e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/inputs.rs
+856b4bf3fe77dff377a23d8c3c83418ed2bb6b0ecd2600c4c818445d59352c57  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/json.rs
+d0abdbf06286e9cc6330623f47cf509b793374ec7514217b1e99a0e44d223bf2  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k0.rs
+c598ba1642cda40c9edc8dcf16cf42618b272e5aac867e2fad4a8f3c9e215be2  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k0_plan.rs
+c969a3e969f20587f730b9b71ea679f90f3dba4efce98940b86fc160755e1455  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k11.rs
+0f5858cc6137e248a785325d8e4d0fc5b14547efa02c0c28f2bb3d755d007d4e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k11_golden.rs
+fdd2ef809e33aa2f7c0477542ce53cf37118a0ebe755e08e9a55767f5b5e7e43  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k11_host.rs
+06c2cf308909c9b99356c5b0ffc14bc4ea37a007cb0eadb7464da28b4c9f9dec  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k11_kernels.rs
+75ee057dc7827fcbeae1f63bae8fbda2a34a2a24489104973be6feba0e30c05e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k11_smoke.rs
+163600bd82776eddc2d8502c1533a4a33836c8b066518298fab589cb37f6410f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k8.rs
+21edeca7d5369ad1d26b1301ee2a181c2d5cab3c96dfaaa15e42f0169a549547  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k8_act.rs
+2373887f34c1da66a3956d0cbd7c976ba96e95cc74307a9724cec51feccc76cb  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k8_kernels.rs
+7ab9538b2248230cade9daff21bf537fbcdea519108503d02572d373553ae4d3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k8_plan.rs
+8330a36d1dc93d64ad39c6083471bbba7e0072b4c29e7dc9a841e94b441a6e4b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k8_smoke.rs
+e64ea8ab0d4eae2cda515572a659b8f6253a2d356fcc9c49a92666e61e63a738  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/kernels.rs
+85870c8dedbd47db63c5bd0b08dc84c46a6b2ef4e25d2e26ccb711c365aca553  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/lib.rs
+54d278cfaacbc73ec2c8fa1ba21e6be03804a45a6aa3b0a5f720e9ed57421cf1  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/libprobe.rs
+c32dca0ffb19d2bfb644c9d38e26c1a5cf79ff8b31cd9f06ddf72fae66150feb  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/npy.rs
+76e03ced473d013e56de7307a4b015deb50b4800cac58a264af91bdb4263a320  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/nvrtc_cache.rs
+a3c1bfd98701674ec6efa57bc30aa337220fa17c04f02d337a61a61f5f624c6c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/qk_norm_rope.rs
+0413e880a9f9316723feaa35c301b717d7902171130c06bf23a9b079d2e765b3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/qk_norm_rope_cuda.rs
+ce3e35599a6e8d797a4206f0e356c3ebbaa87045c136eafd044274115ef5f39b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/report_cli.rs
+3d5ea37f070917399c8a1f5501397188c3b8cc59e9b77c72d8cb7da60d5d781d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/rmsnorm.rs
+9ba117b87dffea6e020b34994a20db77279315ef4c8164b88ec9eb29d8b93cc4  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/rmsnorm_cuda.rs
+55795f4d01f5949405704fd976dca15453267fe322eb495782120045c2609472  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/rung0_cli.rs
+751879b97e8e86f6087f0591995442b425e6798d0fad965a8af09d863311d703  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/runtime.rs
+0bafe5aac7a326f3d167dbb3c22eaa88823b2a07984ad7374b2e835dd88a0a70  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/small_common.rs
+65c4e834f8731d519574244546ef301644a0f8ef45ec13bbb22e2d4a7b3b7e93  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/small_common_cuda.rs
+749e19c7e35b9d939a11b740c51b2640aa7e43ad4df15154f9905e419c7aba88  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/small_smoke.rs
+4bf1365d5243cdd46352454b422a0665e317ea89e6ad7ee1fc2194b770a1eeca  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/smoke.rs
+7d9d877a65a2cb25f84d0d912c9c924369eb81bf677af4d7b460496bf4642551  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/tiny_fixture_published.rs
+65bf611644f5f37e581d726564ac3eb5c3920f1430c26ba9d7249507fe53bd0a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_gdn_published.rs
+86a4c6754305beaa2e781f698cbfee38be968c8f9551807a00518e10ebf8895e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_gdn_published_common/mod.rs
+727b88ef05b2ba09f693a1fc3d7c02d586d61bfdfc5a13a5125ebb417f83e6b0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_gdn_published_mirror.rs
+b839371c28e28c31fb6f7c1fab448280db530322ad0fdbc8a9067e1c7fefea62  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k0.rs
+3e16d3805b641bda57d7577c96735a9d1d953a525df5aac130169a1a3b38d55a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k1.rs
+4052d075b2ced7ce20cdf78bdeefffe77a9bb21d3c84775cc1a43c6a60f17a33  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k10_ce_rows.rs
+6d19c371a0cbc333d7b92bfe761a6a2b04ee52485344ec7d7b02224792cd3bdb  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k11.rs
+af59f7d8475f7ecd41970d5922d08ad38e4635c9dbcf45614011a8d5f9ce74af  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k3_gates_published.rs
+ab2d116ae0bfb2f564b0bf56771935ecb83c9f51d73d2db4b374f209d9903345  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k4_conv1d.rs
+342eaab405b928b2ca1555016b2e79ee303455a9221ae4e9c4e28b14c1fce15f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k6_qk_norm_rope.rs
+8cecb2e15e6f86b3cb424e321418a0cc86ead485145cefa074cbbb777b72eb57  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k7_rmsnorm.rs
+69ccea959bf0e13d710aa7ad2e3362013738b27c7335e576f8454372d5d7f706  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k8.rs
+aa0683c0297ce436d464e8ee848cc84861ce95bed9409c489bc94248a5aaa82b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k9_embed.rs
+fa497922fa12a5196a5a176961a173405062393131777725a2a619e9634c0d2c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_small_common/mod.rs
+16552833a6432dcff7c6fec45f0e322fe6ed939f360d4d7a94d4403898fba8a4  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixture_pins.rs
+c797c9eecfb8ea912faa7146a71638b88ea2116e472a69168b80d5d656f53cb8  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/adamw_decay_sensitive/golden.safetensors
+e0bff4265359c271e452cda49d08ee0422fb3ac795ce2089faf49d39a57d28aa  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/adamw_decay_sensitive/inputs.safetensors
+39882d3b5ad7ef1f3bcf013019ab544f0228068d2e16ae98b08ec185ff2cfe8e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/adamw_decay_sensitive/manifest.json
+c037a462a0d4b6d1bc47946df8dfa63472cf488392c5ac076830e3d9a3c52a38  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/adamw_decay_sensitive/preregistration.json
+3e3830cec5d510f6aa3544a99698ecc535e0209f433f502dd87b4ff6591693e1  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/adamw_decay_sensitive/table.json
+4aa44433c883d768b2a335dcebb02b04164464cbcd0ce45f929f98dedd2f07d8  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1000_alpha.npy
+f9b858ffd8ff8fdb0d57f5265900c9104bedc0f317a7133af6e585a438a0e34c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1000_beta.npy
+d2439e31c2d8cbeb93056fc1712168f9f8a64f6ca3904dfe024dd5651d01bce2  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1000_k.npy
+9443e76e4d1f6373c4b39fdc0019ffa0672a914eab680f36cec5dd953c1a5ef6  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1000_meta.json
+dec44cdc82b1ed4336604dc678cac7f85407e92802ebe7644f8629a5fddd1fcc  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1000_q.npy
+aa6ab74fdd137d0b6e0193cf3e154788cd0605ed3d901b1f21d4e5fa6f75931a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1000_v.npy
+88e537df51cc167568665bd742e68b89c9fc6acb7f112afb3ba4d6aa58fa5105  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1000_y_chunked.npy
+361261d97d24397a6113b8747624066590f8eae0272f79edff1e548a4326835e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1000_y_seq_f64.npy
+1dd6e844c0716bccea949b2b420b3520e9245609db98bfc224967562be7bf50e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127_alpha.npy
+8d87126782be9fe7c55bbe5f89fdec4872e6c0e9cf6318e550261935a84a8a56  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127_beta.npy
+a552c064f84adb58f49d403e4efd10fc20ca4291d1b848b8b2d35ada51319654  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127_k.npy
+560df7054369fe7975df17523e21a1c277065c2085ddf7391e399be260140a9e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127_meta.json
+cabd5456f427fa3dd195e049ce349d8ec980cd48e8270ba5b1885dbe4163955d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127_q.npy
+6e533f39c62a3a9cc351adb1a1b9fb0db2a14834eaea2cd8ed37f6310eff8767  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127_v.npy
+3113583e020db83254beeb875e931a62710a42b98d4467cbbabe73ba12142b31  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127_y_chunked.npy
+4761c3f279272e67d21946ae541e8479cb2616a5452b06b3b79958fdbd6b8d73  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127_y_seq_f64.npy
+1dd6e844c0716bccea949b2b420b3520e9245609db98bfc224967562be7bf50e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c16_alpha.npy
+8d87126782be9fe7c55bbe5f89fdec4872e6c0e9cf6318e550261935a84a8a56  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c16_beta.npy
+a552c064f84adb58f49d403e4efd10fc20ca4291d1b848b8b2d35ada51319654  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c16_k.npy
+acc592b28dda75d46c6110cf12690fcc4043187afd1bb9c984701443b9c4a645  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c16_meta.json
+cabd5456f427fa3dd195e049ce349d8ec980cd48e8270ba5b1885dbe4163955d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c16_q.npy
+6e533f39c62a3a9cc351adb1a1b9fb0db2a14834eaea2cd8ed37f6310eff8767  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c16_v.npy
+12c335e1ef1847ef7bf1331fd79432f3207c6304ccde8dd17a679c2b93bd2103  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c16_y_chunked.npy
+4761c3f279272e67d21946ae541e8479cb2616a5452b06b3b79958fdbd6b8d73  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c16_y_seq_f64.npy
+1dd6e844c0716bccea949b2b420b3520e9245609db98bfc224967562be7bf50e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c64_alpha.npy
+8d87126782be9fe7c55bbe5f89fdec4872e6c0e9cf6318e550261935a84a8a56  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c64_beta.npy
+a552c064f84adb58f49d403e4efd10fc20ca4291d1b848b8b2d35ada51319654  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c64_k.npy
+4ca24d5afb63a21a5d83daa04fb3fd0708ce02194baba4fe6486e8c800fababe  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c64_meta.json
+cabd5456f427fa3dd195e049ce349d8ec980cd48e8270ba5b1885dbe4163955d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c64_q.npy
+6e533f39c62a3a9cc351adb1a1b9fb0db2a14834eaea2cd8ed37f6310eff8767  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c64_v.npy
+92b40f98fec0aecc8d03d8300f54328ab945d9cce9beb5c43a3576a4749e67ba  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c64_y_chunked.npy
+4761c3f279272e67d21946ae541e8479cb2616a5452b06b3b79958fdbd6b8d73  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L127c64_y_seq_f64.npy
+62f306901100d92d061656d62811fc712f05994d688966a7beb8a2119596b798  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_alpha.npy
+75435478fe718a96fc41053097499f477d16f3578999a9a9960d1dec926723e7  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_beta.npy
+7a8fc31860d107c956027f9656e43c06f59c44f80f1ed6333c67859c639c0874  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_gqa_kv3_alpha.npy
+d11c8e86a957a33ab7ac19d33c083494cd95c22bfa04a323a495835964086587  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_gqa_kv3_beta.npy
+e01acf8e0ac9dc635dedc9aef8b7238bcfd598adc729daef7bfb82f374197e7c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_gqa_kv3_k.npy
+50a10d561a9829fe91b668fd8a120cfa78f18e17a6cf73160471b7e591663bd4  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_gqa_kv3_k_narrow.npy
+62ec281d1dd32e02333698010aa3b56e25cf1bc67d3c98ee63d0517c91db1f3d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_gqa_kv3_meta.json
+7ccbaadc86c27af6b886da402efca7f4a12419194fffd1f466f68ad2bacff54c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_gqa_kv3_q.npy
+715cb13eb7f701223eb3fc00a151416d8e48d8458af94ee4aba3015404d33c4c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_gqa_kv3_v.npy
+8cb28e5cdaeb003aa5132b8e7566b73979aa7e969715a0a57177a25a4c329e57  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_gqa_kv3_y_chunked.npy
+abb53f59ddf3677b376840dd0db64acd7f164df51ab421483b1cb4a4dddb4203  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_gqa_kv3_y_seq_f64.npy
+e5179a310f90cca134ccd4062e8806243671d98a6af5f7ad87ea538101da78bd  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_k.npy
+0d9faa461cc739b9ab94c8b87f40491574ee72e33e0e49de4f0656459af6819b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_meta.json
+96a870c295797c312a8170665ebeffcf065d1490bdccb70dee3129a3b349ab76  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_q.npy
+b5e1977771eeb23f41ac51b825556bb5acd8fac2412bf74cb208469c9847dc79  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_v.npy
+8054ec49c7004582d40e5cc81eca5c2bb4271ce0919db5d1402bf2ba98caa981  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_y_chunked.npy
+4db5ec7300eb5fe0f4ebd6de615525073309b11203657b414e41b791d0a326c2  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L129_y_seq_f64.npy
+7ed61190754c672744412abaa8876f75708d30f8bb9b2df33b76eec420cd1df1  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1_alpha.npy
+f1edc22177c77b953facbfb65de6b4ee819939e7d304de4dd5d5cda7b3db01c3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1_beta.npy
+72e099424134d523c75ecf789fbf50fa33d89acbeb716e5afe00216ec1cd8709  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1_k.npy
+d9b001ec5f613931ef118d4154e8b13c36180757b086f5dbec6084ef9edb6b86  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1_meta.json
+16a25389697eab6e7ea4ab0fc3b10e27ee6d726b309c0dd9d477c3b575e4568f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1_q.npy
+fc77b6bf02772b1a98bf08f18719dc7005c1c17414836b1cd923d96d9e8b3e41  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1_v.npy
+578ac39cd1ea38469b0236f24776436f01ed7bb813389f3aaad0523ae612d84d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1_y_chunked.npy
+33441ce5d97564da7cfadf91ede6d6411b5a75d789871f719a3a1cad987867da  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L1_y_seq_f64.npy
+6a652c2fe4200fb2306d339bb38048abe09bab7989a243dbbb8ab060d62aa884  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L63_alpha.npy
+e50e2334963f0f70ef38b7671172e035e2ee009e6098c283b4c12fbb23d53fc0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L63_beta.npy
+31efa780eb210113cce36aca5d6bd5193bdb4ec7cc1ed660cfcb8749212be6a7  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L63_k.npy
+9d2a3dc63eb764e2a178e10a2f0927e5b5e461458f3f98e50f80189209e4b8c6  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L63_meta.json
+1fdf35b303c3c82e1365a18f951ed40d892acc23c18dd1b8ce10e09c90d53c5d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L63_q.npy
+8b54cf7168cde04a0d6b75d92e38cbb0ab8defa903c4d1e61de9af175f8d2f6a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L63_v.npy
+37250e2f47d490b2598e219060764f7a77f5ba22649f748b023a5a58da4b8a80  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L63_y_chunked.npy
+87975440f7f3769fda8ace6b308cb4091083289441d9dc2b9004f5da07ca854f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L63_y_seq_f64.npy
+0109ee130999148f7533233fbbc34a808ed0fb9f395d6ad192d67fd2d5347eb9  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_alpha.npy
+9a346d707d212e5a19a3b26474c8254989063e9aa9e486d2928f373035361e80  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_beta.npy
+20a89f4020e4b270b6ec1ca9b4ed4043ff9ea9399d6015f57dda1c0777836d8e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_gqa_kv2_alpha.npy
+e717c23f973abde1163248d7d37fc3c199424db10b0e9a2658668bcbf0f39a8f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_gqa_kv2_beta.npy
+b57d29b63f3cd1da917f7acec54ca50f221524b634ea096320c5ec61dce9aac2  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_gqa_kv2_k.npy
+410d32b365d0f99e7a22a331c612550d757595206005babe4ce82ad0c6bd1b96  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_gqa_kv2_k_narrow.npy
+338e5d11d8b75978b5b8b1f8820b73f10f76e874320513441c1c25ec77d595aa  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_gqa_kv2_meta.json
+62edf17d983e5246f15bc9292e66e78981db7f730d386d3444e282767b349e99  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_gqa_kv2_q.npy
+743ef9d7c7743239ff3447570e0fb886b26eab8e76666b8c2d17abaee6825edb  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_gqa_kv2_v.npy
+b270821c6e11c68f28afa4a5765c97e81fba9ac72765e3d74635667449248dd1  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_gqa_kv2_y_chunked.npy
+d63c1b2aae2fa8135314961c697c2e2e19bf3a87fe827bbacea48fac060ca97a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_gqa_kv2_y_seq_f64.npy
+59177aca56e3ba1ba9fa6c9c0b805e633ab66d782744a7308dad6d56ab34ee58  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_k.npy
+ba0cceaec61d676e401a087659be453645651c4ccf0f691224cbee7085deadc7  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_meta.json
+06e4110903eb78f0b89c6c5a98890d5593136847d35ac6ebd65c7591c75460cc  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_q.npy
+a47879a77c0bb381a4e69480afe9ec745efe7e4639bf1fb31a65e1f5cadd5c7c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_v.npy
+a508cf7b0098105955fcd7252cac09db19dddcf0991c0eb1774f830d95028cd3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_y_chunked.npy
+fb3eb135f359ec831ba26b04549070e7fe48a73f839577847ee54e43e5440d53  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L64_y_seq_f64.npy
+ce659bb7d8c73ef2e7b18bf5101446410d576838cd601d89d33f1e2fc84318b6  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_alpha.npy
+6f24cf3d6f46cc6bf26da8367783ca198d27f38e30344ccbd0a14f5ad4715941  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_beta.npy
+3c380d47740a990266f4472f4787e057ff74cbdb8aef14ba835e784af37690b5  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_k.npy
+c73bbe3a7ef1dc1fcad5ecf6d9be09fb98d315e51f5d0989f84290352ddb3702  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_meta.json
+b4142c7149351b8596f7abc7e165ac9e913dac32ca3306b383d029f90a389570  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_q.npy
+44cccbe188d5308ee0fa6afeebf0b7a420ccc16293d4e3cba9c77865c789cce8  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_tinyalpha_alpha.npy
+99b51bd3879afcba2f8089a6a186448addf61eb31165568a2a0f6174a3101d62  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_tinyalpha_beta.npy
+45331b9b9d1702581079f49577d12244140363da04ab5495573cb7595dfc5a9a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_tinyalpha_k.npy
+5d72b963655fa858ac655b36ca3f3794de15a1b393b8d93d9a20b8e5b5b06583  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_tinyalpha_meta.json
+2433b80f9fe9e16251f4c87dd020f84f9258ba96b1c9a744845d874495eaf983  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_tinyalpha_q.npy
+75856b21a0c3e66bd78baea625522c006a10556a4538254d8b27e426e6a94534  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_tinyalpha_v.npy
+90cae4f93509288700e71c1af1baea7a9c0bfac656fffed1caf232302f68e29c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_tinyalpha_y_chunked.npy
+6abf4909ba3501b5cd8c1c7d4543981fed23b25381d4bd689ff445061b517e25  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_tinyalpha_y_seq_f64.npy
+04cafca9524e2a1ed47e95cab5dc4293cfd1993c8fa1a85ff546cf2e540b316e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_v.npy
+57891d18a01d993a9e0d2bc05fffb7459c67390a4537ef5b2171984c915cffc1  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_y_chunked.npy
+9e1440d7590966c15ccbbe25ba805ddacf5c17b5f32b02daf214f4e64d50e08d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L65_y_seq_f64.npy
+f5e46efa4f1b42b06bd803132afbe17246bd0f752e1255d68e821e0a30fa0a28  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L8191_alpha.npy
+6f1ce02625a84a6b6102178fb9c3c665fbb314bca852e35ca70e77e207793473  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L8191_beta.npy
+e29391762ac278dc7ea2f4135b8b6330bb175f2db899d5d45ac1312432358989  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L8191_k.npy
+297539d51cb4ba0dc4fb27a8f4e88742014d34dfd0f7bcca7435ca7f023d0711  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L8191_meta.json
+ea6eeef7f5afbb7a1bd28fdfe2b888a809d8776bca5adca7fe5e9a25fbb7b13d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L8191_q.npy
+1a439fb6107d5b24e14764215939e59ac8f9ee1729236db6e47e19ca7195f9ca  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L8191_v.npy
+e8e8b30e34b1de7014ee9ba6447dc0752ab88ca16c669aa203a74a7a0c505680  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L8191_y_chunked.npy
+66a2d651eb42c3b66b3218a33d56a2738a6e90058d11a1eaba8b52f9b209b9c0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_L8191_y_seq_f64.npy
+92b2b5780fc8b72b02df723a3e11c767bbfdacf49d0e200b7a920d7965f5bbdc  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_MANIFEST.json
+d6dd08013a6a01f7f066f85cd9de4db2b0651878613ed98e9c551dd5883f3450  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gdn/gdn_published_SHA256SUMS
+99588cd127eb596e8572b1c1f73f6b7ef03e3c0e3ef833ea18858fbb99b373e0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/gen_goldens.py
+7368e863b8e808bc7262fa6e977515e279441571675c38f2d176ad94b5b24a2d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/adamw_f_grad_sq_norm.npy
+fc455c4827fd38931bce1516b9398679efb66453563391dc5b6acbe970b62e10  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/adamw_f_grads.npy
+05abaf7db9ce286ef45bd675c72c25e8a3240859f05e3aed70068f85cafc60d7  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/adamw_f_hyper.npy
+309c1a7add87ca0831b4fc5937797a0b11ff630e8aa91ea46b935a4f4ff1023b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/adamw_f_lr_scale.npy
+f6fc7de1b112f42319dd82814e2f075f7cc3b27cbc2136179803871c2f0911b0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/adamw_f_names.txt
+5b5ba8f32dd2ea325dfe0f66787fcb54dfc6121615ae6bd953e79d06cf7a27a3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/adamw_f_p0.npy
+4af6d5a6629b201ed98526d51c7e40aa73410add111f4e2f2536768090453eec  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/adamw_f_params.npy
+0f650461b8085da288dd2791eaf73da83d1acab9dc6532452d40136c6aee0f41  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/adamw_f_sizes.npy
+3840207829b6ffb8e8e4ad661674963a0db5a289a14e1a74d76017bf35c7d70d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/adamw_f_weight_decay.npy
+80d3c40fa1ba896fbae1a9d9f670b6d601e94dee4e1da36d93c2367a4e01b7fd  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/attn_output_gate_dgate.npy
+7832eccd02ebff93ade619f47e020a897fd95ff407ef09bbf61ae01d7b29022c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/attn_output_gate_do.npy
+e0f3257b2737c2e3e56c0febbf901da142b260e7ef2d7f881bbc4bb7496d6cc2  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/attn_output_gate_dy.npy
+64d62278200eb2d03bd7ed6d8f6de076bf58f70b13b4369e2bfd7fdd1bbf2033  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/attn_output_gate_gate.npy
+17343d1ee4569be37a242ebddaf944af4918cd73a0e05f0622f6d346cbf2b938  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/attn_output_gate_o.npy
+3fa547c7c3172beabb8c203ee9022ea86d3aff2552047508b5e2f90fe552d82b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/attn_output_gate_y.npy
+fbbe4edb360afca328f6e16127ce422589022493a3c82375a994f142c10fbce1  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c0_dh.npy
+c8560742cf912a5629e04f384ab144d520f601ea3fa69011976ce57cc5c87b8e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c0_dw.npy
+654bf6efc01920daf1516f530d502a2ac882e499bafcdb02be1c4e24190f7eea  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c0_h.npy
+261ba47c82e6930dd4f7d1e88793c29ac53f5c30313acea3c49b299bcccb9bd2  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c0_loss.npy
+058ed1af08f50a32e2cb98cbbb19eecceef4dc41cdf992e9b66977606b43c494  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c0_per_row.npy
+a7cb97dcc6e85ec6b905dd3382ac5fbb1a00dade77136b651efb7eb428ba49d7  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c0_rows.npy
+23dd9625d24644656662ca7303243396e67b51e057569add945ffb4505059573  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c0_scale.npy
+c191f05f46ae095731d1bb038c265fae2c23233db357a87c19aee807d78f1a37  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c0_targets.npy
+4d3072aa844c8d384531295d1e513965f2856e1dec6f04a62f72bbce4353b348  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c0_w.npy
+d31bce473483974fe27e89556dc5f0b4328327e856da7b2e1c4a40ea40d9dbcf  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c1_dh.npy
+e57c465eed6c5dbd11c6d992bb59a7b22209d6e70bd62b6b675cf9dedf1e1ffc  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c1_dw.npy
+55cd585a570d24dcae9893cfd08337d52583619e4705fa391d9d299c4371b517  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c1_h.npy
+bbca0718512dedd3f9cd4cf143466e3dd58dcb8c62c447e326c733c163ccb998  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c1_loss.npy
+285048b0f5e39eee10b5ec63cdb67ad7714b03fedc893a1484c2abd5266ef20a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c1_per_row.npy
+a7cb97dcc6e85ec6b905dd3382ac5fbb1a00dade77136b651efb7eb428ba49d7  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c1_rows.npy
+80504b3a1b89bdbe631fd7494cd696249b41742603c613d32196e6dfabf68f7f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c1_scale.npy
+c191f05f46ae095731d1bb038c265fae2c23233db357a87c19aee807d78f1a37  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c1_targets.npy
+501cf0a82006f8421a22c076f850eaca2ffbc70bc2ff4533a8d2dbb68505556b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c1_w.npy
+2fb624de0ae45e43c9945efaff988ace6bbaf1d48515606f69c188cba45a6f34  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c2_dh.npy
+bce39993f0f19b75937491e41576ac981c6861d3bfdfd9b10a578a095c665ba9  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c2_dw.npy
+7be50745fc23a66f925a1cf17c1dbd1adb531cc188f08e6e2a3586c723aeb009  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c2_h.npy
+853cbbfcde8cdbb3b38acec17d95a2643c0851829bb03840f8fae1f1b3f11387  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c2_loss.npy
+010a6938afe85e20a7041b52c9074689f72e375818302f6c01cd6509b1938305  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c2_per_row.npy
+a7cb97dcc6e85ec6b905dd3382ac5fbb1a00dade77136b651efb7eb428ba49d7  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c2_rows.npy
+23dd9625d24644656662ca7303243396e67b51e057569add945ffb4505059573  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c2_scale.npy
+c191f05f46ae095731d1bb038c265fae2c23233db357a87c19aee807d78f1a37  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c2_targets.npy
+065777ec5e8c9b84f382a300090c0894ea4c42901b1eaf51f80cdf31c15abb7d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/ce_rows_c2_w.npy
+0019ea4e0cb8f219f9e19aeadd7cc8d8d728e841eb6a7ad03616d7cbffd18b97  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c0_dw.npy
+db6a9f1ee51613699f034036e5351deafa34e89b0e8141d2c83ff0a08d69044b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c0_dx.npy
+4465930fe009d4de4456f2ab6adb4ce42717dfc9cd701855411cd13d3c7f16c6  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c0_dy.npy
+0aec8130e7d5517c495d03a02f9a3bf881237efd9309db09f974d65363282dff  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c0_w.npy
+333e9974b839f2230c971f08a6228da17d53163d0a381a8456b73f1f340bd711  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c0_x.npy
+311ae944e265cafa99eee1ddfa32d967b112d3ff6ebeeae3d2a987a0d3816a74  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c0_y.npy
+5f1dab664a7249652ff94c9bd84e3f1b9698a6de980e437db0bf92f09d010d31  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c1_dw.npy
+f8dbdd7b5a049712574d001d9659f1a32011164a13b16c1027811dbda44875d4  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c1_dx.npy
+5c4d329a276070394736fe19aef7306c9a81e008cfe9be92ce6826f0e61b5767  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c1_dy.npy
+3a1f808256719389071fa4b160596a5773a2908005b9d68ac3c7f8b8c826d08d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c1_w.npy
+0fdf4d268015c78d658bd6fcb74dafa92e2a1ee9e10e31ab1abcb1cff673786e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c1_x.npy
+5ba03064104b8f0d6cc28bfc2ceb73b21cc82fc5968c2b5493eecec341200f8b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c1_y.npy
+edd5fdde12e98628c6fc1aefa9b4258ce5144bd577e4b41da6a46c680dd1d087  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c2_dw.npy
+fdde99e1c177f97d5159a4ee56899cab321a1648dd5bc17831f5161853d54a2d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c2_dx.npy
+0fae24bba4fdc70ab638f8566103be29a4eb4ce587a303005f03d9080ce14def  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c2_dy.npy
+bb361a76a2c4df525f81f8ed13d8c53d079efccb5089b38aa9baad93094bf396  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c2_w.npy
+058bd867954e3f91a6bfbcbaccc06b64c33f427392414646f98e139f80a34aef  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c2_x.npy
+acc594c48d4126e8650242cf1a10f3ec23520725a086300d02dd9b58953b1091  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/conv1d_silu_c2_y.npy
+974d18046743cf9e6e8940a5c1a107a2bccccd411b6324e90f7ec9a8b145e118  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/embed_dtable.npy
+329d0c8252c56fee9debbd7a4a9434bb23570b57daec372349a2c88a17ede34f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/embed_dy.npy
+7e380c622c326287007ad70a2823feeadf299ae670e9849d471ffee3891095f7  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/embed_ids.npy
+a971bc0b702dfb4c6a36bcaac182d517d8a626a3ce334ce1d9db16b065b94a64  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/embed_table.npy
+62e762511c0fcaf6ae0b92b6e388e1f248d72e6932171ac86c0a2656abd114fd  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/embed_y.npy
+0a6fd073f10887bde5320a3f375259da8a053916cd39b5c09e4a420564d3f47f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c0_dw.npy
+86aa6f7ef18c4a35ac52bf52f0f043002b345f3c28563d31633df3b63ead9a33  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c0_dx.npy
+42b2dc26386e60425e079807219e57635536d9feaa2f28dfb51168d9fff8d920  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c0_dy.npy
+d708e461c953a4092f889192bacdeb368bdeb58fc3b6a17793e2ecbd1eb2cc0c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c0_dz.npy
+fb7cee2b48b0c3b75e6629efb0a220d683d5ade3bf48a62fcb8753084749daac  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c0_w.npy
+f45cc3ae71e97da1a741381cc155aeefeec2edca1994a9481b05b96b1034f905  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c0_x.npy
+c360628c4f350bfa920fa2b283fb1ac9e56bea93217447c421379b619fd0093b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c0_y.npy
+6b26c5cbcb35e63b16dd3ad6d4ef993136c7a0cf4d9e103c90049ff2e5bcee8c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c0_z.npy
+4488c9726d111fd1bfc6e6f4487476de644e353757de3fd6e521c4ffbafc6420  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c1_dw.npy
+3609fe016350a5f1208346c105a86234fbb54c898dbb048ae2e2559007fd553a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c1_dx.npy
+ff381215f074caa3ce1a935105dff05b6baca8e6b0c721394533897fe67a4836  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c1_dy.npy
+7421db79d010035b7cf08278887a157fb02c90d1985df0ee410d93a2e076cb5a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c1_dz.npy
+c96aa8a2c71ce2ba1261c4430363b4e8bfae32ba3796c273e5251453cf00e5c7  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c1_w.npy
+ce8be6356ed509b454b50632df4accb96f39e786d3f3edcaf2e954d214dd6658  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c1_x.npy
+0192bb6bb9834db7f2077814276e1c563385b1fffc9b67fe946bbcccacf99961  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c1_y.npy
+d0eae1a8a6ecfab01ffde6f53f12236ee6766ff32bd5c68a3f540b0490c74a2f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gated_rms_norm_c1_z.npy
+e4e96dda450bef42bd3b7055f7f83938c58fcf091914840e4f474ffcf2aa6ed2  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gates_published_a.npy
+78b67aa9c7b1fb27c1887c1d1b06e2068d06f6725d872795ef6ab35fa58afe59  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gates_published_a_log.npy
+45a195fed56c387bf0e6de79894a8332e51d14d006d973d989b8cbe7fb1ccf6a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gates_published_b.npy
+5702152c9743d057a8c71895bec188bbac78104cd7d5c47e55fbe412cc4f9fb9  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gates_published_beta.npy
+615329967309601f7ef91382318fd602a43443cbfc62ca69122b4921fdeea904  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gates_published_da.npy
+2a015f3d721e60807d5a8f512a5df574d57314442ad3f44b89321295dd8dd2cd  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gates_published_da_log.npy
+58ab60e743fcbfd6b8fe8876e46a344709a5452720cc6a80a1f3730535190a74  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gates_published_db.npy
+3a09a9e41df5f052f69d6d170d31f1c2c379e522b07419b2b92a9f6e4993f59d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gates_published_dbeta.npy
+1d6a38930b33e5106e8d41f76e1f2d8b95adc129ac5a89ef9e9ba0a7ad672b40  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gates_published_ddt_bias.npy
+853061b2903ca2b37365068a82929b991207bd65c307e732c5774d11a8b09790  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gates_published_dg.npy
+d3499050a697e48a6c98573a3c005bb9406c8e7ee87dc815eb07fff697d59e8c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gates_published_dt_bias.npy
+e495d78df9683b09f526e03b3cf1d633d221abeae11cc270dd5d2abeba8e9c7c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gates_published_g.npy
+05ab21786d94724e30933a2eb1f5f44756774117fad92c8c70a48061c52c0591  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_beta.npy
+387e7abe58ef3b40b960dca18ba44b891a18afa84b2842e9622911bbc4ad1d50  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_d_o.npy
+a49988367e5480fa564c771d825fe0400ae87b192e77043c05891a1f3ebec1ce  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_dbeta.npy
+e3ccf24c5b672cec6f7fe5be8da43937d538d03ff70d5b72bb4a3a4679c8d795  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_dfin.npy
+1e52b60523057315f14682fe010e222d7a83d8f0cc3452b2d750d6440ecc3fe7  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_dg.npy
+8243abf9bdbb92666db98d888ac938eaae3468777b66055c46783492fbec74a0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_dk.npy
+d8951713fdf88c89bfdcd2b0eb69558b04f410a3cd10d9c9bdff89428ee65e02  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_dq.npy
+e6b8e4a80f1beef7c56e2e2d3abe9aa0d5c50bc3a68ab5a0a396c4e21e407f48  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_ds0.npy
+646571a5f3aee92efd0e8844a1b7410e920ef6751049eac9bcb7f80cff32e6a7  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_dv.npy
+e1bdcc8c266bffd1b58662b7ad4d06d76dc0c79b0c3a3814ae9df8e0f71e98d1  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_fin.npy
+abe87854368f03fbdea50f83b935c08c81366280291326d62dd694de03f83423  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_g.npy
+b6d5e09f6d023713cbde4ffe3949dcaca24da193aa94a5a835e8e9f07b7c0be0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_k.npy
+1cc077ffaac98f9cede6b80118e46e33b07212dc81d657920a870305b4309a9e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_o.npy
+870771844ece79c26156055b8788544c453d6352a0fcf4019b04ba4bd6893402  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_q.npy
+ceaa7d65dc3f087d1b002bd30d7dc5afaba79f20390e350b2cec9a190f90fd4c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_s0.npy
+bfc8c73af80611c1003af6cde0822fe2e50e22dac4e87bc93e603112d0cbdc8b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T130_v.npy
+fbb315f0941d47770e1d3f1d0db3bde340dc762b541169b10a7280596b200310  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_beta.npy
+7e2ba001daf64847e8cf607bde2e9387e4708cda80ca9565e07582a2e06730db  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_d_o.npy
+7855e995b7d98ad9f626133f13cf4ceb3e359e459cfce10b2275d2503727dda8  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_dbeta.npy
+ff0beb40af669c0231b9321c00c76be041bd18e1808fb103780d39b6b5b51ff9  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_dfin.npy
+002d74994f20e5290bcd685457476da25fce87098e444947ad08e1bfe5980cdc  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_dg.npy
+a5f0c4fe7318ba96b2f6c898dfe6fc5be2247852e763adf60600a1c69142dfa1  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_dk.npy
+f37b1d7d3922d9a3399dc89eb9566f750ce11b5cb158ff8b24a7ebe519d8b5c5  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_dq.npy
+7dcc086b87c62184a3e5a6e45c88cd73490b63d8c8b395144ffee0797b708271  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_ds0.npy
+a1eb2c0d1b2f48e0e2ae7b508413ec32e02ecfca6d5e18f86f765b3944091fdc  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_dv.npy
+7244889ce5b489ecd6998620d23883b1b5aa7719b70e4e8a880ebbe7bd7993f5  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_fin.npy
+000895d5c3fe6e760cb3751e2a51d758c5280c09a6d5c88272c5e1cab60b28d2  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_g.npy
+c20033cebf97f8b61f17a4d862ed76890aac499cdb03c72f65d5c8ef4a75473b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_k.npy
+a1463a87622bc2abf90721537e8f948a40b835ab36d7550dbdf887ade868a9ae  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_o.npy
+3737377c221a751caf4ab5b3093ffe4456114ea618ed8abca14d12bb93aff7c9  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_q.npy
+4adab3c43475d1c8022669328c4e6b36e352d39c1c267ea230ae349fc07a876e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_s0.npy
+7bf3e118e000a73fdcc9c39b52ba09a60987def2b62f7780413dfc49a998f9c0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T1_v.npy
+0a9cd6d3bebb9277bfd64317994a88188a60a4a8a470b0943915d4eacb7825f0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_beta.npy
+901807825286f870640d2eee9c0ca89598385ccae474f34602576b4dae5fa5eb  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_d_o.npy
+f751348b69c17b2b8dbffdfa6bf0fc77b0135af6789de7acc16d9c7e8e9451c0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_dbeta.npy
+435423a4ca7a3f45cee7a720980d286a4813f040fe20785028e8fda69c09afb7  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_dfin.npy
+60a0e550bc9deba0cdccb73cbd59e08317b84289d0df40f02ec9e07d1ed465ca  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_dg.npy
+9750cbe1419b9f895b06b247e6c1f58d94b2d99241ea4f9f835edd4fadb5675c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_dk.npy
+01de6aaa2ed36e6d3d41c59c30997d4e351b403c0ef61ecd97a8012b85cb534a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_dq.npy
+a52b434956fc831d81a847ae1bb774a4c37b203a1ffac5f33b19b0ad21373397  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_ds0.npy
+5ac06d9fd3bb4cb5bfdc37085ab9f3815d9c0d3614a74f1bf49fe4c78f998c5f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_dv.npy
+ca1044f50f414bd04a09880fa23c47ab9782f703f2b1a2c5edc0e935fa98cbc6  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_fin.npy
+796b414c9677d628bfd0d2a96c19e627b409c7556fb406bb25bd50bf3c0d31a8  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_g.npy
+af49b172e5d955a0158593c30f0ef74d5b5a659bc1d32f02c4f1b022db4ac415  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_k.npy
+8b37aa990c9291636814828a4d49e83b143ad0ee8bee7fbfd0703d9f04361303  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_o.npy
+114790a4fdd00ee2b94ebc1241f16ebfa7c79f048814fda09e3983d0ab658165  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_q.npy
+0c89c6339c5ac3f5ce8ba59159c3122196fa200b8dfa74ce596589d78c66fcf0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_s0.npy
+c8d0149a91757b5aaa3a07bd53d67f8bbf2461bbe11d81d0fe04346a5ed0cc14  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T63_v.npy
+4f13007e4298737fa2be5553ffe9202a8463defafa8e182fe08f3e97ebc0579b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_beta.npy
+666caa979359e4280a308688971de6e385fc151396e2e1d1a9a3b7721b0528e0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_d_o.npy
+a18e23dbed979a89ef8fddc25fd18ec82d3bf8cfd504ed927f74d7f81ab2fd49  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_dbeta.npy
+a2c47ef003d1dfb65d7cb1691e9cf9877e73fc49c63e327169f229d3c3d1b66e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_dfin.npy
+e1a5245ddf2760e0093c3f11f20db8237f2a05d9d7cda77fb242bab92604086e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_dg.npy
+ac34130986eb7cda0940fe86a69b91c077eaf8c40c8ebec5b920ecd75c68d9f5  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_dk.npy
+7d491f2fc9183680a109b0c50b376aad69ffa679496f34a20379becdbaa96cf0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_dq.npy
+340b406deaa8cb24636fcbe3bd4d93eb16e4fe8d129614c38886071b533398fb  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_ds0.npy
+e84b5d87b8963937e84d47309740cbe69c677f4f2ed28aa19105fb051120ee83  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_dv.npy
+11fd41ddeb0ee9dfc3f443058e39ed82d0899ece75bd9f0a4e4ee7e62372112b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_fin.npy
+1a04d9cd36771ae427eb74a03bd7c5e6d4ae31f63a3ba3af77fb31687f5e0af1  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_g.npy
+6dd5e4635a44f00f2a61edfa95e5fb26b887e1fb3c6d78c5b17f26d13d9615b7  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_k.npy
+df65cb00fe4268da854d01e97073ff3afcbb75994122aa1e8ad7f9cf9bbcbe74  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_o.npy
+b08a4982a6d601e6758686554738cf0f1b683353cc2cb725c787dbeb0472cd00  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_q.npy
+f5a5884bbc2dca8deab2563a2c1d3d83d72e893935c63a81bdcfe58c1cbf9cb0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_s0.npy
+dd8629071487654f109523361cc8c4c3858fb5eebf19eb21f9eae1836b732c57  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T64_v.npy
+982da439944e27ce482c3f0141788d344ee7e05b21a4938c1fb9e4ea74b5ce5f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_beta.npy
+588e850569470724073c71339eff6d28e41ce716061b69160b017743313c73c4  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_d_o.npy
+c82e2bff8bd92c45e4b10898c4294f2c4098f7475bc6c9609b47a47ded4a2434  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_dbeta.npy
+5b82d3539705a1a87ed91923f1bc428cca0481281cfd0bf9a8d4a635d9830dd0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_dfin.npy
+3343d402149d7d627e0ef0c51896bf160503e2db4fb460d91ddd90b6933a7d04  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_dg.npy
+02c2d42a774081c9f7f9f80844af12eb02b7602f3f21cea49f256832db162af5  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_dk.npy
+501f63eaad153225f87aaa8e9f61043cff7c09255ec55f3c0792b7fc41bc1711  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_dq.npy
+2504a25ad7f3b129b36f681e0a8e76a9fe083ac8f4a70c8c1697fe837d54159d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_ds0.npy
+7cec756bdb8b0c3d4a3e8bdd8985aaa61e606bd4682b8017c7ef52e9cdfb03a5  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_dv.npy
+8e1272fde66a2567170d811253c95d7bfb2753bbb27f33daca32c9ec37a41f9d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_fin.npy
+18c56052734ab08231a6df3b0d90c7ccab19fac41232bf3e958276e1621d2837  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_g.npy
+3588345a6643a5dfd97ae6369ba8f96213b9a3d4ed9b4f64786c87d765a0f4b8  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_k.npy
+337a31e7b1772858cb4ee2c7a013873bcbceac848e2050153f4375e0307c8544  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_o.npy
+320948a915d51b7482f6821c4e90398196eb19e30447073784f206dcbae62d14  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_q.npy
+91191842bff4ea5d19a4ff18475e4104569080c00d968fe785e7578e7df92ebe  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_s0.npy
+51ca8aafbd685fa7a26ab770c541b7733be76b4d78b28f7b4bca0aed9bf04d5e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/gdn_published_train_T65_v.npy
+c103db61bc60c49cdbb988143f523194eed6847ffb54a4b60dfc86f40d5b9187  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/manifest.json
+eb0a262e2b1d169a20f49ffd06c7500559e166b91e5b62427fcbbd3fa3f92e33  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/qk_norm_rope_angle_f32.npy
+52edcc3914bb0bb6828a7ee23fbda91e3236754168d6169892804750135d05f1  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/qk_norm_rope_dw.npy
+1b0bc9749c5ff00d76c6d77c1e0cfe27decbc5ea5eda667cc0def2d4a2f31720  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/qk_norm_rope_dx.npy
+3c734a1ebc94e2d89e70a000b51924cd001611c53779c7fcfe02b38802a379ed  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/qk_norm_rope_dy.npy
+8dd9b5135f04480d2d00eba72bd462b72a8a6c12d489b05397e97f8fa11c649c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/qk_norm_rope_positions.npy
+8bbec3c609bb6442525f5a402d5f93a2103cfdf918ef34f52f76ed047e57784a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/qk_norm_rope_w.npy
+f3976dc18c9c8dda272eed05bf9d9df0fb561ffeb7997d9fc3a32fb43a7d9786  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/qk_norm_rope_x.npy
+83627db3b165236e52d5b96c4fd42fb2780d406f68c9a102eba22fecf373d9c3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/qk_norm_rope_y.npy
+8574f62e090c88404f9e2c2f7bb051ffa301d95ef24dc750b95531d11ad3e23b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/rms_norm_c0_dw.npy
+59144c86660ecf85e3ac64d82a3d333d9dac1d7e176971c3593d7cde8dee2c21  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/rms_norm_c0_dx.npy
+3f6a89b3f97186e7feac8102f142655035a9f99fb6c435ad798cc5fe6b67135a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/rms_norm_c0_dy.npy
+76cb1d9320b648f96e3a10b00f9b1face9f9e010bbc76e7104675c0f1bf5c450  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/rms_norm_c0_w.npy
+29dcbb1889cca7006ea36415e5d941da990e37f88b6509e8c6bb7e8cb935456b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/rms_norm_c0_x.npy
+7eefd6dabb11f48a201610146c836b9546d07579c0735b89988e78d9bf4e27c3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/rms_norm_c0_y.npy
+3031b4d931e809a7c03bcbf268687fcd5535b4a3822b718185ba79275a780a9e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/rms_norm_c1_dw.npy
+6a194892418bd397ffc9bda4ee1ce2b01b4e9f1a4975ca64aa46b7f39037c804  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/rms_norm_c1_dx.npy
+841be2aee41e904e66ea14cf9790f0399daf90758c571797b7700be8dbf5eecb  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/rms_norm_c1_dy.npy
+428402af13266b6b1bee2f96f554c6ff8edc2940a25d96bea61a1e5a8f7c3135  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/rms_norm_c1_w.npy
+49ad4c0a3a856bda54b9d0571538ce5f91af3571a47d3b0ced1830e2bdc9f165  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/rms_norm_c1_x.npy
+81f3fb9e7a5d4505fd4ad9fb68183bdc4aa8098ea47c750818a1cb45669c2682  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/goldens/rms_norm_c1_y.npy
+1188d089bef03cba61a5405ab6afaa933418927d607832a266154781df2f23f5  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35/qwen35_rope_SHA256SUMS
+ab71d6d34a065d3afb8e0c8f27e871f4d6033efb18eb5b65b7c5a62adc064535  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35/qwen35_rope_k_in.npy
+4183d8f9ddb49807bac34ac7c3fc8e135fa0b8b83b2fe96ba8f591f99ddc284f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35/qwen35_rope_k_norm_w.npy
+36cc8e8a5b135a9ec7b7c172d0b02e26d5a3ac77b6d6922761381ac0f8995dee  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35/qwen35_rope_k_out.npy
+d86d53f102e7787b32fd6c0a6e2a94ad893c49be192a4e7884947d65aafffcca  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35/qwen35_rope_q_in.npy
+0e2b442d393f4d9f84fca45fe57b35e45fcb09a21f02e9ed0aaca5f20bde1950  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35/qwen35_rope_q_norm_w.npy
+c99468869ed56948a99b9b9cf551937e2c45fb95f1c263756fb1a8375976875c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35/qwen35_rope_q_out.npy
+a98b5260d4c469f07d892c8e9d424ddce7cb998b5d3f789155bc269ca2861cba  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/config.json
+28a1352ff06190bbff68564047586417d591876ac5e19cb797a4017bb4915a4e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.embed_tokens.weight.npy
+c056a0f17c00e0be7694b2b1b4d834c0f928e4950da89e40ada09ddc27519396  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.0.input_layernorm.weight.npy
+939b96cbec4b008a4e0eeee85ff6627ef590dc5d267974dbd047c790d9422e9b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.0.linear_attn.A_log.npy
+b1fd4aeed19a4b3cbdc6619e5aa8ca2c3503fc91c2cced56fa7a6b11679514d0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.0.linear_attn.conv1d.weight.npy
+6eda2186ecc291dfe6e5bfa11f4cbd4baff7f020ac662ec2a5b5ba324d6c821b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.0.linear_attn.dt_bias.npy
+cef535993c311d623f54a61c036e540567d8eddccc09342c67c6e9147c04cbdb  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.0.linear_attn.in_proj_a.weight.npy
+5967e2966f929fa7c0d2a5be0b282795a6a3e2aca26e0d3c4e3d6e5f0a54f523  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.0.linear_attn.in_proj_b.weight.npy
+24550928c02b7ad84f2fc92e468a789d5ce443d056a7f200e28a3f2f09dd8130  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.0.linear_attn.in_proj_qkv.weight.npy
+4ab08c5b228640184425884baecf8ef18411748c74ef3f141d7fd468bc75df57  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.0.linear_attn.in_proj_z.weight.npy
+90cf4be15245d944fd049bb5faeb81b2f62c719ac6181b0c6edd302753a5bb28  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.0.linear_attn.norm.weight.npy
+d49d3069657112629d354101b3bf1352d6cccd513729bad3b2190b50e61c18a1  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.0.linear_attn.out_proj.weight.npy
+0f0728e49e5985c98fa56b884d6efceae8449fa4e43acbc3429831d90c438c85  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.0.mlp.down_proj.weight.npy
+cfcf7664e2128280551017015daa25ec72576b254ff0c4bf6852d286c2d06e42  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.0.mlp.gate_proj.weight.npy
+e8cfb1a5bc5fa8f15a94fb444924e0d05f12a7f0317f1b41f137f736d7313578  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.0.mlp.up_proj.weight.npy
+6125bc4109fd9fc9b31a0f66ae0a461f28f9a8944263ae2c8902254f05896600  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.0.post_attention_layernorm.weight.npy
+49f65f184c5830b293f7ef2aad953bc9ad64ce834d4245dd936b2368f8194aae  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.1.input_layernorm.weight.npy
+377dc852a0f16ae251e21b32042f2037c9d9297532ba1813605424934b1e7466  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.1.mlp.down_proj.weight.npy
+766cc454abc45ea03d2d113496061d55b68b22d033975be5d22014a570cbd695  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.1.mlp.gate_proj.weight.npy
+482f41615f724904e891eba50dbb45c0ca99035f63cce3cac78942f47b953bbd  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.1.mlp.up_proj.weight.npy
+17da412d258f549531db027c510aa32602bb86d2fdd2f31f16140cdcc6b872e1  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.1.post_attention_layernorm.weight.npy
+ec9fc3f58c8b2a14399d0399b52efc2b60f5bfe2a0a8ad07f080bdf103ffc48f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.1.self_attn.k_norm.weight.npy
+c1897e14d00e17b6ea6c8cc088faee2311c6f400ecef8fdf7e2b803c469d4950  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.1.self_attn.k_proj.weight.npy
+f09faca233ed547295ead001814c2b28c085956f09ada1e58dd980f8a8f3244d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.1.self_attn.o_proj.weight.npy
+e68486c3806d900612c0597a526d728727f35872abd40c502fc6131feaff1168  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.1.self_attn.q_norm.weight.npy
+97f04ecb98565856d6c62f6f312bfd3d2dbe68a4b65358db6ceff056eb739ee4  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.1.self_attn.q_proj.weight.npy
+aed5bc12a71ada27eba9c19ec55073696d83c833bfcb1e6c34019a2c1d4df0b1  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.layers.1.self_attn.v_proj.weight.npy
+5510a5006a8f7a69d1b6a8702cebdb19fee307078e5bcb16b05d3e2f6e7481d5  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/grad.model.norm.weight.npy
+3f535c53c333d2942164f79d6fdfe9f456d222eb9fafae82286c754e6894a15e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/ids.npy
+df0f54208f70f199274571c19391f388ba754acc87f0d68db52623312218bac4  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/loss.npy
+23b9cac9a29621b08c268d4739741007605bef5588618c2f7d95e71a044cb200  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published/model.safetensors
+f0b3b116e4be95348479098d1c76734609312b7056e2dc0188f396d5e347a2f6  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/qwen35_train_published_SHA256SUMS
+dc455ac993c29e8b34f4300c427aca55ff33ce437f9b67f78a454930eca98656  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/tessl/gdn_train_published.rs
+35ca3c82b0102b3050ade92c76706e40741e74ee42a224eb29fea95dfa1a504d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fmt_boundary.rs
+53b2ff3618a68f2631d098ae43ae7c04ddfeca1076584d3a1dd1cf1b5d5b1288  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/adamw.rs
+2dd6167c2e1acfc15693f70a26fcb5c3a0473d2976154282dafe7efb1f43af79  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/attn_pieces.rs
+e5e6bc5f3d8462bba5ce049065a29a12cab033655e2fc2d4f9d7a838c5437b33  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/ce.rs
+0ddfcf4f8e3a5e01d6da653efa55c98f8ff70eec404bcbe5067dc57e1a14d5cf  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/conv1d.rs
+f94a433522c8ee7abcbc90a98d14ed570ccb01604610196b8945a137d5565549  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/embed.rs
+9839c545e33b0956e2cd90ec461cc37aed4fa3f7fe5e599af5959e1db4da2dfe  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/fd.rs
+3ec3666a06023cf14577c2034ce16c111033988cde5398a2f3fc9ede22325869  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/gates_published.rs
+172580f0562951c3205b02d6b74aa7565bdc6a8a5d1e628b3293b06c197fdd39  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/gdn_published.rs
+812f3fb53ba9abeb3b521449a2adcc7070ba89fcc0cc0c26352f96f827068f48  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/goldens.rs
+d2052bd1a32438852404d38441d1facb1c99611d67e0a02d9e68734ed63eb96e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/mod.rs
+851799ff058637b65b88cb20e33ac116f0b911d96bb3a99e0b4642b2b9013296  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/norms.rs
+5cd6f26bc09828c4c9eb685b40572ccb8585ff8363dbbe88355e3cf20f6d4a5b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/npy.rs
+49dc46551ca1b825b8ed6249af693024ddc69ab80d8392ecdcddd516a45988d6  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/rng.rs
+d89cd8f10193baf1b44efb39dcda858a8accbc17bcc4266133ef5e6134038057  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/sha256.rs
+9309d44d3c707bd44cee85ea185051784bb68ef6995c400df76f9a916e82c2fb  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_adamw.rs
+b7868e4c663ef7e57b3aeee7cc21d12bbd55b7e7a1e7090fae2254288e431240  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_gdn_published.rs
+f82e6a29c2a7159a4bc340d119d4b05580df7f53958e1a27258a2ca1d234ace7  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_gdn_published_vs_tessl.rs
+c77fee90ea9ef267d52d1aae6e029861c5c859de0f3b711c6b50d6a68ec32cdd  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_goldens_published.rs
+53729edb6605a951170641b73a66121a0d9a4e0c42c90acdc4fd3901b35fdd94  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_k11_host.rs
+69d5dcc51180e0eb550ad9c3b166d1f8cfa9b3b4b2780511e1aa72596279e36f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_kernels.rs
+03b22b3dfd5a3eb53e3666b0fcdcec55b1b3b37eb092a80fb33cc9f28d8bf9c8  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/runtime_refusal.rs

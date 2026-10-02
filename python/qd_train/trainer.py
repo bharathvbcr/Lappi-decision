@@ -138,7 +138,10 @@ __all__ = [
     "CPT",
     "FT",
     "MAX_BATCHES_PER_CALL",
+    "ChoicePermutation",
     "Objective",
+    "PermutationRefusal",
+    "Progress",
     "SpanScoringStep",
     "SpanSupervision",
     "Supervision",
@@ -147,6 +150,9 @@ __all__ = [
     "TrainerContractViolation",
     "cpt_supervision",
     "ft_supervision",
+    "locate_option_lines",
+    "newline_terminated_ids",
+    "permute_choice_row",
     "train_cpt",
     "train_ft",
 ]
@@ -155,6 +161,13 @@ __all__ = [
 #: already bounds a well-behaved source (``RunControl.max_micro_batches``); this bounds a
 #: source that yields for ever while the schedule waits for steps that never complete.
 MAX_BATCHES_PER_CALL: Final[int] = 10_000_000
+
+#: What a training step's forward may attend with (``QwenDecisionStep.train_attention_mask``,
+#: ``real_ft_run --train-attention-mask``). ``"padding"`` -- the mask from ``Batch.lengths``
+#: -- is every row so far; ``"none"`` (``is_causal`` only) is the Tier-B candidate of Fable's
+#: no-mask ruling (campaign/f-j7prime-preregistered.json ``no_mask``). Here rather than in
+#: ``backbone`` so the argv layer can name it without importing the tower's dependencies.
+TRAIN_ATTENTION_MASKS: Final[tuple[str, ...]] = ("padding", "none")
 
 
 class TrainerContractViolation(Exception):
@@ -552,6 +565,24 @@ class TrainResult:
         return self.padded_positions / self.total_positions if self.total_positions else 0.0
 
 
+@dataclass(frozen=True, slots=True)
+class Progress:
+    """Where a live loop is, handed to ``on_progress`` after every optimizer step.
+
+    Counts are cumulative over this call; ``elapsed_s`` is ``RunControl.elapsed_s()``, the
+    clock the cap is checked on. The loop reports and never throttles: a caller that prints
+    decides how often, so a slow sink costs the run nothing it did not choose.
+    """
+
+    optimizer_step: int
+    total_steps: int
+    micro_batches: int
+    supervised_tokens: int
+    total_positions: int
+    elapsed_s: float
+    loss: float
+
+
 # --- the loop ------------------------------------------------------------------------------
 
 
@@ -630,6 +661,7 @@ def _train(
     on_checkpoint: Callable[[Checkpoint], None] | None = None,
     resume_from: Checkpoint | None = None,
     max_batches: int = MAX_BATCHES_PER_CALL,
+    on_progress: Callable[[Progress], None] | None = None,
 ) -> TrainResult:
     """The mechanics both objectives share. The objective itself arrives as a value."""
     if not isinstance(epoch, int) or isinstance(epoch, bool):
@@ -677,6 +709,43 @@ def _train(
         first_step = resume_from.optimizer_step
         log = resume_from.loss_log.snapshot()
 
+    control.start()
+    # Disarmed on every way out. `start()` arms a watchdog when the control carries an
+    # auto_terminate, and nothing else ever called `stop()`: after this function returned,
+    # the thread kept polling the cap of a run that had finished, and would fire the
+    # terminate action -- a hard exit -- in the middle of whatever the process did next: the
+    # next seed's arm, or scoring the model this run just trained.
+    try:
+        return _train_loop(
+            batches, objective=objective, epoch=epoch, step=step, control=control,
+            recorder=recorder, on_checkpoint=on_checkpoint, resume_from=resume_from,
+            on_progress=on_progress, max_batches=max_batches, seed=seed,
+            start_index=start_index,
+            first_step=first_step, log=log, consumed=consumed,
+        )
+    finally:
+        control.stop()
+
+
+def _train_loop(
+    batches: Iterable[Batch],
+    *,
+    objective: Objective,
+    epoch: int,
+    step: TrainStep,
+    control: RunControl,
+    recorder: RunRecorder,
+    on_checkpoint: Callable[[Checkpoint], None] | None,
+    resume_from: Checkpoint | None,
+    on_progress: Callable[[Progress], None] | None,
+    max_batches: int,
+    seed: int,
+    start_index: int,
+    first_step: int,
+    log: LossLog,
+    consumed: ConsumedPrefix,
+) -> TrainResult:
+    """The loop ``_train`` runs between ``control.start()`` and ``control.stop()``."""
     optimizer_step = first_step
     micro_batches = 0
     supervised_tokens = 0
@@ -688,7 +757,6 @@ def _train(
 
     group = AccumulationGroup(control, violation=TrainerContractViolation)
 
-    control.start()
     with recorder:
         recorder.metric(
             "train.projected_usd_at_cap",
@@ -796,6 +864,18 @@ def _train(
                 )
             )
             optimizer_step += 1
+            if on_progress is not None:
+                on_progress(
+                    Progress(
+                        optimizer_step=optimizer_step,
+                        total_steps=control.total_steps,
+                        micro_batches=micro_batches,
+                        supervised_tokens=supervised_tokens,
+                        total_positions=total_positions,
+                        elapsed_s=control.elapsed_s(),
+                        loss=group_loss,
+                    )
+                )
 
             if on_checkpoint is not None and control.should_checkpoint(optimizer_step - first_step):
                 on_checkpoint(
@@ -882,6 +962,7 @@ def train_cpt(
     on_checkpoint: Callable[[Checkpoint], None] | None = None,
     resume_from: Checkpoint | None = None,
     max_batches: int = MAX_BATCHES_PER_CALL,
+    on_progress: Callable[[Progress], None] | None = None,
 ) -> TrainResult:
     """Continued pre-training: next-token prediction over every real token of every row.
 
@@ -899,6 +980,7 @@ def train_cpt(
         on_checkpoint=on_checkpoint,
         resume_from=resume_from,
         max_batches=max_batches,
+        on_progress=on_progress,
     )
 
 
@@ -912,6 +994,7 @@ def train_ft(
     on_checkpoint: Callable[[Checkpoint], None] | None = None,
     resume_from: Checkpoint | None = None,
     max_batches: int = MAX_BATCHES_PER_CALL,
+    on_progress: Callable[[Progress], None] | None = None,
 ) -> TrainResult:
     """Fine-tuning: one supervised position per row, the single answer token at its end.
 
@@ -929,4 +1012,271 @@ def train_ft(
         on_checkpoint=on_checkpoint,
         resume_from=resume_from,
         max_batches=max_batches,
+        on_progress=on_progress,
     )
+
+
+# --- option permutation at train time ---------------------------------------------------
+#
+# The idea is RSI-Jev's (``rsijev/encode.py:72-80,201-221``, MIT, Copyright (c) 2026 Shanghua
+# Gao, @8f34a4f): present a choice question's options in a different order each time it is
+# seen, and keep the gold on the option rather than on the position. Their code permutes
+# before tokenizing and un-permutes the logits; nothing of it is copied here, because this
+# trainer never sees text. ``qd_data.render.shuffle_options`` already shuffles once per
+# example at shard-write time, so every pass over a shard set sees that ONE order. This is
+# the second, per-pass permutation, done on the token rows the reader hands over.
+#
+# **Why a token-space swap is exact, and what it rests on.** A choice slot renders its options
+# as lines ``"<L>. <value>\n"`` (``qd_data.render._render_option_lines``) followed by
+# ``"Z. noul\n"``, as the last thing before the answer, and ``escape_inline`` guarantees no
+# value contains a newline. Under Qwen's byte-level pre-tokenizer a letter can only share a
+# pre-token with a preceding non-letter, non-digit, non-newline character, so a letter at
+# the start of a line always begins a pre-token, and the ``"."`` after it begins the next.
+# Each option line therefore starts at a token boundary on its letter, and the tokens from
+# there to the next line's letter are exactly that option's ``". value\n"``, whatever the
+# value's last character merged with. Swapping those spans and leaving the letters where
+# they are is the token sequence of the same prompt rendered with the options reordered.
+#
+# A bare letter followed by ``"."`` is NOT enough to find a line: a value ``"1B. trick"``
+# tokenizes ``"1", "B", "."`` because a digit is its own pre-token -- measured against the
+# real tokenizer, and it is what the first version of this search matched. What makes a
+# position a line start is that the token before it ENDS IN A NEWLINE, and since no value
+# contains one, inside the option block that holds for the line starts and nothing else.
+# Which ids end in a newline is a fact about the vocabulary, not the row, so the caller
+# supplies it (``newline_terminated_ids``). Both claims are checked against the real Qwen
+# tokenizer by ``python/tests/test_trainer.py``, not asserted from this paragraph.
+
+
+class PermutationRefusal(TrainerContractViolation):
+    """A choice row whose option lines could not be located exactly.
+
+    A refusal rather than a skip: failing to find the structure on one row means the
+    tokenization assumption above is wrong for this shard set, and then every row that DID
+    match is suspect too.
+    """
+
+
+#: Bounds the backward search for the option block. A choice slot is at most 17 lines of at
+#: most ``RenderCaps.max_option_bytes`` (512) bytes; 16 * 1024 tokens is far past any of it.
+MAX_OPTION_BLOCK_TOKENS: Final[int] = 16_384
+
+#: How a byte-level BPE vocabulary spells the newline byte (GPT-2's byte-to-unicode table).
+_BYTE_LEVEL_NEWLINE: Final[str] = "Ċ"
+
+
+def newline_terminated_ids(vocab: Mapping[str, int]) -> frozenset[int]:
+    """The ids of every byte-level token whose last byte is a newline.
+
+    ``vocab`` is a ``tokenizer.json``'s ``model.vocab`` (token string -> id). Read off the
+    vocabulary rather than guessed from a row, because the line end before an option can be
+    ``"\n"``, ``")\n"``, ``").\n"`` or ``"|>\n"`` -- measured -- and the set of such tokens is the
+    tokenizer's, not the corpus's.
+    """
+    ids = frozenset(int(i) for tok, i in vocab.items() if tok.endswith(_BYTE_LEVEL_NEWLINE))
+    if not ids:
+        raise PermutationRefusal(
+            "no token in this vocabulary ends in the byte-level newline; it is not a "
+            "byte-level BPE vocabulary and the option-line search does not apply to it"
+        )
+    return ids
+
+
+def locate_option_lines(
+    row: np.ndarray,
+    *,
+    answer_at: int,
+    letter_ids: tuple[int, ...],
+    noul_id: int,
+    line_end_ids: frozenset[int],
+) -> tuple[int, ...]:
+    """Token positions of the option lines' letters, ``A..`` then ``noul``, in order.
+
+    ``letter_ids`` are this row's named options' letter ids in rendered order (``A, B, ...``,
+    without ``noul``). A line start is a letter whose predecessor is in ``line_end_ids`` and
+    whose successor is the ``noul`` line's separator (the ``"."``). Searched backwards from
+    the answer, because the option block is the last thing rendered and a context can hold
+    lines of its own that start ``A.``.
+    """
+    if len(letter_ids) < 2:
+        raise PermutationRefusal(
+            f"a choice row with {len(letter_ids)} named option(s) has nothing to permute"
+        )
+    if len(set(letter_ids)) != len(letter_ids) or noul_id in letter_ids:
+        raise PermutationRefusal(f"letter ids {letter_ids} (noul {noul_id}) are not distinct")
+    floor = max(1, answer_at - MAX_OPTION_BLOCK_TOKENS)
+
+    def line_start(q: int, letter: int) -> bool:
+        return int(row[q]) == letter and int(row[q - 1]) in line_end_ids
+
+    z = next((p for p in range(answer_at - 2, floor - 1, -1) if line_start(p, noul_id)), None)
+    if z is None:
+        raise PermutationRefusal(
+            f"no noul letter (id {noul_id}) at a line start within "
+            f"{MAX_OPTION_BLOCK_TOKENS} tokens before the answer at {answer_at}"
+        )
+    dot = int(row[z + 1])
+    positions = [z]
+    upper = z
+    for letter in reversed(letter_ids):
+        p = next(
+            (
+                q for q in range(upper - 2, floor - 1, -1)
+                if line_start(q, letter) and int(row[q + 1]) == dot
+            ),
+            None,
+        )
+        if p is None:
+            raise PermutationRefusal(
+                f"option letter id {letter} at a line start and followed by the noul line's "
+                f"separator {dot} was not found before position {upper}"
+            )
+        positions.append(p)
+        upper = p
+    positions.reverse()
+    return tuple(positions)
+
+
+def permute_choice_row(
+    row: np.ndarray,
+    *,
+    answer_at: int,
+    letter_ids: tuple[int, ...],
+    noul_id: int,
+    line_end_ids: frozenset[int],
+    perm: tuple[int, ...],
+) -> np.ndarray:
+    """``row`` with its options shown in order ``perm`` and its gold moved with them.
+
+    ``perm[j]`` is the ORIGINAL option shown at new position ``j`` -- RSI's
+    ``option_permutation`` convention, "presented position -> canonical option index".
+    Letters stay where they are; the ``". value\\n"`` spans move. A gold on option ``k``
+    becomes the letter at ``perm.index(k)``; a ``noul`` gold is unchanged. The length is
+    unchanged, so ``target_index`` still names the answer.
+    """
+    m = len(letter_ids)
+    if sorted(perm) != list(range(m)):
+        raise PermutationRefusal(f"{perm} is not a permutation of range({m})")
+    gold = int(row[answer_at])
+    if gold == noul_id:
+        new_gold = gold
+    elif gold in letter_ids:
+        new_gold = letter_ids[perm.index(letter_ids.index(gold))]
+    else:
+        raise PermutationRefusal(
+            f"the gold token {gold} is neither one of this row's option letters "
+            f"{letter_ids} nor noul {noul_id}"
+        )
+    starts = locate_option_lines(
+        row, answer_at=answer_at, letter_ids=letter_ids, noul_id=noul_id,
+        line_end_ids=line_end_ids,
+    )
+    spans = [row[starts[k] + 1 : starts[k + 1]] for k in range(m)]
+    body = np.concatenate(
+        [
+            np.concatenate([np.asarray([letter_ids[j]], dtype=row.dtype), spans[perm[j]]])
+            for j in range(m)
+        ]
+    )
+    out = row.copy()
+    out[starts[0] : starts[m]] = body
+    out[answer_at] = new_gold
+    return out
+
+
+@dataclass(frozen=True, slots=True)
+class ChoicePermutation:
+    """The per-pass option permutation, as a recipe: a seed and the letters' token ids.
+
+    ``letter_ids`` maps a letter (``"A"``..``"P"``) to its post-remap token id and ``noul_id``
+    is ``Z``'s, all post-remap; ``line_end_ids`` is [`newline_terminated_ids`] mapped the same
+    way. The permutation of batch ``index`` row ``r`` is a pure function of
+    ``(seed, index, r)`` through ``qd_data.render.DeterministicRng`` -- the stream the
+    renderer's own shuffle uses -- so a resumed run regenerates the batches it skipped
+    exactly, and ``Checkpoint.consumed_digest`` still matches.
+    """
+
+    seed: int
+    letter_ids: Mapping[str, int]
+    noul_id: int
+    line_end_ids: frozenset[int]
+
+    def permutation(self, index: int, row: int, m: int) -> tuple[int, ...]:
+        from qd_data.render import DeterministicRng
+
+        return DeterministicRng(
+            "qd_train.trainer.ChoicePermutation.v1", self.seed, index, row
+        ).permutation(m)
+
+    def apply(
+        self,
+        batch: Batch,
+        alphabets: list[tuple[str, ...] | None],
+        *,
+        permutation_for: Callable[[int, int, int], tuple[int, ...]] | None = None,
+    ) -> tuple[Batch, int]:
+        """``(batch with every choice row permuted, rows permuted)``.
+
+        ``alphabets[r]`` is row ``r``'s named option letters in rendered order (``noul``
+        excluded) for a ``SLOT_CHOICE`` row, and ``None`` for any other: score bins are
+        ordinal and never shuffled (``qd_data.render.shuffle_options``), and a span row has
+        no named option. A mismatch between the two is a refusal.
+
+        ``permutation_for(index, row, m)`` replaces :meth:`permutation` as the source of each
+        row's order -- the eval's second pass draws a derangement per example, where training
+        draws a uniform shuffle per pass -- and every refusal here applies to it unchanged.
+        """
+        draw = self.permutation if permutation_for is None else permutation_for
+        from .artifacts import SLOT_CHOICE
+
+        if batch.slot_kind is None or batch.target_index is None:
+            raise PermutationRefusal("option permutation applies to FT batches only")
+        if len(alphabets) != batch.tokens.shape[0]:
+            raise PermutationRefusal(
+                f"{len(alphabets)} alphabets for a batch of {batch.tokens.shape[0]} rows"
+            )
+        tokens = batch.tokens.copy()
+        permuted = 0
+        for r, letters in enumerate(alphabets):
+            is_choice = int(batch.slot_kind[r]) == SLOT_CHOICE
+            if is_choice != (letters is not None):
+                raise PermutationRefusal(
+                    f"batch {batch.index} row {r}: slot_kind {int(batch.slot_kind[r])} "
+                    f"with alphabet {letters}"
+                )
+            if letters is None:
+                continue
+            unknown = [x for x in letters if x not in self.letter_ids]
+            if unknown:
+                raise PermutationRefusal(
+                    f"batch {batch.index} row {r}: letters {unknown} have no known token id "
+                    f"(known: {sorted(self.letter_ids)}). Permuting without them would move "
+                    "a line whose letter was never located."
+                )
+            if batch.line_starts is not None and bool(batch.line_starts[r].any()):
+                raise PermutationRefusal(
+                    f"batch {batch.index} row {r}: a choice row carrying line-start "
+                    "candidates, whose positions this permutation would move"
+                )
+            answer_at = int(batch.target_index[r]) + 1
+            if answer_at != int(batch.lengths[r]) - 1:
+                raise PermutationRefusal(
+                    f"batch {batch.index} row {r}: the answer is at {answer_at}, not the "
+                    f"last real token {int(batch.lengths[r]) - 1}"
+                )
+            ids = tuple(self.letter_ids[x] for x in letters)
+            tokens[r] = permute_choice_row(
+                tokens[r],
+                answer_at=answer_at,
+                letter_ids=ids,
+                noul_id=self.noul_id,
+                line_end_ids=self.line_end_ids,
+                perm=draw(batch.index, r, len(ids)),
+            )
+            permuted += 1
+        return _replace_tokens(batch, tokens), permuted
+
+
+def _replace_tokens(batch: Batch, tokens: np.ndarray) -> Batch:
+    import dataclasses
+
+    return dataclasses.replace(batch, tokens=tokens)

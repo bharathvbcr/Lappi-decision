@@ -1,0 +1,183 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/device_k10_ce_rows.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k10_ce_rows-a096ba9fe0cbd7cd)
+
+running 2 tests
+test the_embedded_goldens_are_l_cuda_oracles_pinned_bytes ... ok
+test the_mirror_matches_the_one_pass_reference_whatever_the_chunk_and_operands ... pass mirror ce_rows_c0 chunk 7 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.679e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c0 chunk 7 exact_f32 dh: max |err| 1.425e-8 at 45 = 2.296e-7 of max|ref| 6.2094e-2; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 7 exact_f32 dW: max |err| 2.089e-8 at 11 = 8.585e-8 of max|ref| 2.4336e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 7 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 2.300e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c0 chunk 7 bf16 dh: max |err| 8.345e-5 at 22 = 1.346e-3 of max|ref| 6.2013e-2; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 7 bf16 dW: max |err| 2.439e-4 at 2044 = 1.002e-3 of max|ref| 2.4348e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 64 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.681e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c0 chunk 64 exact_f32 dh: max |err| 1.791e-8 at 10 = 2.885e-7 of max|ref| 6.2094e-2; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 64 exact_f32 dW: max |err| 1.482e-8 at 13 = 6.089e-8 of max|ref| 2.4336e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 64 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 8.327e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c0 chunk 64 bf16 dh: max |err| 8.346e-5 at 22 = 1.346e-3 of max|ref| 6.2013e-2; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 64 bf16 dW: max |err| 2.439e-4 at 2044 = 1.002e-3 of max|ref| 2.4348e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 300 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 7.439e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c0 chunk 300 exact_f32 dh: max |err| 3.801e-8 at 2 = 6.122e-7 of max|ref| 6.2094e-2; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 300 exact_f32 dW: max |err| 2.089e-8 at 11 = 8.585e-8 of max|ref| 2.4336e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 300 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.158e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c0 chunk 300 bf16 dh: max |err| 8.347e-5 at 22 = 1.346e-3 of max|ref| 6.2013e-2; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 300 bf16 dW: max |err| 2.439e-4 at 2044 = 1.002e-3 of max|ref| 2.4348e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 7 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.773e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c1 chunk 7 exact_f32 dh: max |err| 7.038e-8 at 14 = 3.988e-7 of max|ref| 1.7650e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 7 exact_f32 dW: max |err| 1.110e-7 at 8 = 1.627e-7 of max|ref| 6.8243e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 7 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.991e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c1 chunk 7 bf16 dh: max |err| 3.235e-4 at 40 = 1.831e-3 of max|ref| 1.7667e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 7 bf16 dW: max |err| 1.363e-3 at 2055 = 2.001e-3 of max|ref| 6.8140e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 64 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 9.300e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c1 chunk 64 exact_f32 dh: max |err| 4.695e-8 at 40 = 2.660e-7 of max|ref| 1.7650e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 64 exact_f32 dW: max |err| 1.110e-7 at 8 = 1.627e-7 of max|ref| 6.8243e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 64 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 3.633e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c1 chunk 64 bf16 dh: max |err| 3.235e-4 at 40 = 1.831e-3 of max|ref| 1.7667e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 64 bf16 dW: max |err| 1.363e-3 at 2055 = 2.001e-3 of max|ref| 6.8140e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 300 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 3.784e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c1 chunk 300 exact_f32 dh: max |err| 1.233e-7 at 14 = 6.988e-7 of max|ref| 1.7650e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 300 exact_f32 dW: max |err| 1.110e-7 at 8 = 1.627e-7 of max|ref| 6.8243e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 300 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 8.355e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c1 chunk 300 bf16 dh: max |err| 3.235e-4 at 40 = 1.831e-3 of max|ref| 1.7667e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 300 bf16 dW: max |err| 1.363e-3 at 2055 = 2.001e-3 of max|ref| 6.8140e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 7 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 3.482e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c2 chunk 7 exact_f32 dh: max |err| 5.928e-7 at 55 = 4.259e-8 of max|ref| 1.3918e1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 7 exact_f32 dW: max |err| 2.152e-8 at 4791 = 4.746e-8 of max|ref| 4.5329e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 7 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 2.743e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c2 chunk 7 bf16 dh: max |err| 9.554e-5 at 8 = 6.874e-6 of max|ref| 1.3900e1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 7 bf16 dW: max |err| 3.660e-4 at 6 = 8.077e-4 of max|ref| 4.5312e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 64 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 3.482e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c2 chunk 64 exact_f32 dh: max |err| 8.646e-7 at 54 = 6.212e-8 of max|ref| 1.3918e1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 64 exact_f32 dW: max |err| 2.152e-8 at 4791 = 4.746e-8 of max|ref| 4.5329e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 64 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 2.035e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c2 chunk 64 bf16 dh: max |err| 9.555e-5 at 8 = 6.874e-6 of max|ref| 1.3900e1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 64 bf16 dW: max |err| 3.660e-4 at 6 = 8.077e-4 of max|ref| 4.5312e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 300 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 3.482e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c2 chunk 300 exact_f32 dh: max |err| 4.726e-7 at 62 = 3.396e-8 of max|ref| 1.3918e1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 300 exact_f32 dW: max |err| 2.152e-8 at 4791 = 4.746e-8 of max|ref| 4.5329e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 300 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 2.035e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c2 chunk 300 bf16 dh: max |err| 9.555e-5 at 8 = 6.874e-6 of max|ref| 1.3900e1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 300 bf16 dW: max |err| 3.660e-4 at 6 = 8.077e-4 of max|ref| 4.5312e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror v16384_h32_n4 chunk 8192 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 6.627e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror v16384_h32_n4 chunk 8192 exact_f32 dh: max |err| 6.243e-8 at 74 = 1.019e-6 of max|ref| 6.1252e-2; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror v16384_h32_n4 chunk 8192 exact_f32 dW: max |err| 1.366e-8 at 236311 = 5.539e-8 of max|ref| 2.4661e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror v248320_h16_n3 chunk 8192 exact_f32 loss: 3 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 5.921e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror v248320_h16_n3 chunk 8192 exact_f32 dh: max |err| 8.233e-8 at 32 = 1.089e-6 of max|ref| 7.5611e-2; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror v248320_h16_n3 chunk 8192 exact_f32 dW: max |err| 3.434e-8 at 126881 = 1.075e-7 of max|ref| 3.1951e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.05s
+
+     Running tests/device_k3_gates_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k3_gates_published-5fe7196d4967b3f9)
+
+running 3 tests
+test the_embedded_published_goldens_are_l_cuda_oracles_pinned_bytes ... ok
+test the_published_mirror_matches_the_reference_at_the_2b_heads_with_extremes ... pass mirror published 300x16 g: max |err| 5.054e-6 at 4784 = 4.665e-8 of max|ref| 1.0834e2; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror published 300x16 beta: max |err| 8.835e-8 at 3204 = 8.835e-8 of max|ref| 9.9999e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror published 300x16 da: max |err| 2.189e-7 at 3189 = 1.290e-7 of max|ref| 1.6975e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror published 300x16 db: max |err| 8.806e-8 at 3204 = 3.538e-7 of max|ref| 2.4888e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror published 300x16 dA_log: max |err| 5.981e-5 at 9 = 4.237e-7 of max|ref| 1.4114e2; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror published 300x16 ddt_bias: max |err| 4.228e-6 at 9 = 5.301e-7 of max|ref| 7.9756e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+ok
+test the_published_mirror_matches_the_reference_on_the_torch_golden ... pass mirror published golden g: max |err| 1.742e-6 at 117 = 2.548e-8 of max|ref| 6.8375e1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror published golden beta: max |err| 7.110e-8 at 42 = 7.129e-8 of max|ref| 9.9730e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror published golden da: max |err| 8.318e-8 at 71 = 8.020e-8 of max|ref| 1.0372e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror published golden db: max |err| 4.523e-8 at 18 = 1.945e-7 of max|ref| 2.3253e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror published golden dA_log: max |err| 5.931e-7 at 1 = 9.965e-9 of max|ref| 5.9520e1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror published golden ddt_bias: max |err| 4.912e-7 at 1 = 2.103e-7 of max|ref| 2.3360e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/device_k4_conv1d.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k4_conv1d-f9a5ef18d78027e2)
+
+running 3 tests
+test the_embedded_goldens_are_l_cuda_oracles_pinned_bytes ... ok
+test the_mirror_matches_the_reference_at_the_2b_channels_and_kernel_width_2 ... pass mirror b1_t300_c6144_k4 y: worst |err| / (abs + rel|ref|) = 7.037e-2 at 540561; max |err| 4.858e-7; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror b1_t300_c6144_k4 dx: max |err| 2.043e-7 at 1007171 = 1.247e-7 of max|ref| 1.6383e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror b1_t300_c6144_k4 dw: max |err| 1.374e-5 at 19068 = 4.868e-7 of max|ref| 2.8221e1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror b3_t37_c40_k2 y: worst |err| / (abs + rel|ref|) = 2.178e-2 at 1095; max |err| 1.696e-7; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror b3_t37_c40_k2 dx: max |err| 6.495e-8 at 3669 = 8.648e-8 of max|ref| 7.5104e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror b3_t37_c40_k2 dw: max |err| 2.644e-6 at 58 = 2.871e-7 of max|ref| 9.2093e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+ok
+test the_mirror_matches_the_reference_on_the_torch_goldens ... pass mirror conv1d_silu_c0 y: worst |err| / (abs + rel|ref|) = 2.379e-2 at 44; max |err| 2.130e-7; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror conv1d_silu_c0 dx: max |err| 9.419e-8 at 93 = 6.715e-8 of max|ref| 1.4026e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror conv1d_silu_c0 dw: max |err| 5.065e-7 at 12 = 8.132e-8 of max|ref| 6.2280e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror conv1d_silu_c1 y: worst |err| / (abs + rel|ref|) = 8.723e-3 at 26; max |err| 9.657e-8; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror conv1d_silu_c1 dx: max |err| 2.571e-8 at 11 = 4.973e-8 of max|ref| 5.1701e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror conv1d_silu_c1 dw: max |err| 3.474e-8 at 7 = 6.536e-8 of max|ref| 5.3147e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror conv1d_silu_c2 y: worst |err| / (abs + rel|ref|) = 4.759e-2 at 391; max |err| 5.099e-7; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror conv1d_silu_c2 dx: max |err| 2.720e-7 at 133 = 1.509e-7 of max|ref| 1.8028e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror conv1d_silu_c2 dw: max |err| 1.518e-6 at 10 = 1.751e-7 of max|ref| 8.6690e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.58s
+
+     Running tests/device_k6_qk_norm_rope.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k6_qk_norm_rope-e0afa5f34f25e1a9)
+
+running 4 tests
+test the_embedded_goldens_are_l_cuda_oracles_pinned_bytes ... ok
+test the_gate_mirror_matches_the_reference_on_the_torch_golden ... pass mirror output gate golden y: worst |err| / (abs + rel|ref|) = 1.370e-2 at 758; max |err| 8.026e-8; bound 1e-7 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1617); 0 non-finite
+pass mirror output gate golden do: max |err| 8.454e-8 at 91 = 8.650e-8 of max|ref| 9.7731e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror output gate golden dgate: max |err| 6.629e-8 at 91 = 2.781e-7 of max|ref| 2.3834e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+ok
+test the_qk_mirror_matches_the_reference_at_the_2b_head_layout ... pass mirror qk_norm_rope 2x40 q: worst |err| / (abs + rel|ref|) = 2.957e-2 at 138043; max |err| 5.913e-7; bound 2e-5 + 0e0|ref| (tessl/tests/qwen35_kernels.rs:1556,1562); 0 non-finite
+pass mirror qk_norm_rope 2x40 k: worst |err| / (abs + rel|ref|) = 2.835e-2 at 8470; max |err| 5.670e-7; bound 2e-5 + 0e0|ref| (tessl/tests/qwen35_kernels.rs:1556,1562); 0 non-finite
+pass mirror qk_norm_rope 2x40 dq into dp: max |err| 3.186e-7 at 52272 = 1.808e-7 of max|ref| 1.7624e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror qk_norm_rope 2x40 dk into dp: max |err| 2.904e-7 at 10023 = 1.862e-7 of max|ref| 1.5599e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror qk_norm_rope 2x40 dq_norm_w: max |err| 5.447e-6 at 29 = 9.482e-8 of max|ref| 5.7442e1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror qk_norm_rope 2x40 dk_norm_w: max |err| 3.581e-6 at 241 = 1.757e-7 of max|ref| 2.0378e1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+ok
+test the_qk_mirror_matches_the_reference_on_the_golden_rows_at_positions_up_to_20001 ... pass mirror qk_norm_rope golden q: worst |err| / (abs + rel|ref|) = 1.627e-2 at 5120293; max |err| 3.255e-7; bound 2e-5 + 0e0|ref| (tessl/tests/qwen35_kernels.rs:1556,1562); 0 non-finite
+pass mirror qk_norm_rope golden k: worst |err| / (abs + rel|ref|) = 1.627e-2 at 5120293; max |err| 3.255e-7; bound 2e-5 + 0e0|ref| (tessl/tests/qwen35_kernels.rs:1556,1562); 0 non-finite
+pass mirror qk_norm_rope golden dq into dp: max |err| 1.897e-7 at 5120275 = 1.465e-7 of max|ref| 1.2947e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror qk_norm_rope golden dk into dp: max |err| 1.897e-7 at 5120275 = 1.465e-7 of max|ref| 1.2947e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror qk_norm_rope golden dq_norm_w: max |err| 4.216e-7 at 134 = 7.040e-8 of max|ref| 5.9880e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror qk_norm_rope golden dk_norm_w: max |err| 5.721e-7 at 221 = 9.554e-8 of max|ref| 5.9880e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.37s
+
+     Running tests/device_k7_rmsnorm.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k7_rmsnorm-ccadc1b8929f8a39)
+
+running 3 tests
+test the_embedded_goldens_are_l_cuda_oracles_pinned_bytes ... ok
+test the_mirrors_match_the_reference_at_the_2b_shapes_in_fused_windows ... pass mirror rms_norm 70x2048 y: worst |err| / (abs + rel|ref|) = 2.203e-2 at 96212; max |err| 4.619e-7; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror rms_norm 70x2048 dx: max |err| 1.633e-7 at 76664 = 1.854e-7 of max|ref| 8.8047e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror rms_norm 70x2048 dw: max |err| 2.984e-6 at 1456 = 1.753e-7 of max|ref| 1.7021e1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated 9x16x128 y: worst |err| / (abs + rel|ref|) = 2.627e-2 at 14743; max |err| 9.296e-7; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror gated 9x16x128 dx: max |err| 5.409e-7 at 4107 = 1.745e-7 of max|ref| 3.0990e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated 9x16x128 dz: max |err| 3.071e-7 at 14589 = 1.903e-7 of max|ref| 1.6143e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated 9x16x128 dw: max |err| 4.226e-6 at 87 = 1.452e-7 of max|ref| 2.9099e1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+ok
+test the_mirrors_match_the_reference_on_the_torch_goldens ... pass mirror rms_norm_c0 y: worst |err| / (abs + rel|ref|) = 1.614e-2 at 166; max |err| 3.055e-7; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror rms_norm_c0 dx: max |err| 1.365e-7 at 153 = 1.653e-7 of max|ref| 8.2539e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror rms_norm_c0 dw: max |err| 3.072e-7 at 29 = 8.129e-8 of max|ref| 3.7795e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror rms_norm_c1 y: worst |err| / (abs + rel|ref|) = 2.069e-2 at 5901; max |err| 4.715e-7; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror rms_norm_c1 dx: max |err| 1.579e-7 at 5091 = 1.833e-7 of max|ref| 8.6167e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror rms_norm_c1 dw: max |err| 3.502e-7 at 819 = 1.082e-7 of max|ref| 3.2366e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated_rms_norm_c0 y: worst |err| / (abs + rel|ref|) = 2.199e-2 at 1533; max |err| 3.711e-7; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror gated_rms_norm_c0 dx: max |err| 8.182e-7 at 1187 = 2.366e-7 of max|ref| 3.4579e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated_rms_norm_c0 dz: max |err| 2.154e-7 at 1534 = 1.448e-7 of max|ref| 1.4869e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated_rms_norm_c0 dw: max |err| 5.217e-7 at 11 = 5.821e-8 of max|ref| 8.9612e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated_rms_norm_c1 y: worst |err| / (abs + rel|ref|) = 1.399e-2 at 12; max |err| 9.623e-8; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror gated_rms_norm_c1 dx: max |err| 2.311e-7 at 17 = 8.208e-8 of max|ref| 2.8153e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated_rms_norm_c1 dz: max |err| 6.561e-8 at 7 = 9.895e-8 of max|ref| 6.6302e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated_rms_norm_c1 dw: max |err| 1.923e-7 at 12 = 8.207e-8 of max|ref| 2.3435e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/device_k9_embed.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k9_embed-8099ff598f70e517)
+
+running 3 tests
+test the_embedded_goldens_are_l_cuda_oracles_pinned_bytes ... ok
+test the_mirror_matches_the_reference_at_the_2b_hidden_size ... pass mirror embed 600x1000x2048 dW: max |err| 3.544e-7 at 1135193 = 8.412e-8 of max|ref| 4.2127e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+ok
+test the_mirror_matches_the_reference_on_the_torch_golden ... pass mirror embed golden dW: max |err| 5.960e-8 at 63 = 2.870e-8 of max|ref| 2.0767e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+

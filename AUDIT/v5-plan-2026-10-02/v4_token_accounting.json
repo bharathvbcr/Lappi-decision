@@ -1,0 +1,152 @@
+{
+ "measured_v4": {
+  "shard_dir": "/Users/bharath/qd-campaign/phase4-v4-2026-10-01/shards/train",
+  "buckets": [
+   137,
+   172,
+   207,
+   240,
+   268,
+   298,
+   333,
+   376,
+   430,
+   501,
+   590,
+   688,
+   819,
+   962,
+   1243,
+   1610,
+   1983,
+   2362,
+   2749,
+   3134,
+   3520,
+   3907,
+   4301,
+   4715,
+   5116,
+   5534,
+   5933,
+   6330,
+   6686,
+   7035,
+   7404,
+   7936
+  ],
+  "by_category": {
+   "commonsense.multiple_choice": {
+    "sequences": 9619,
+    "tokens": 1478908,
+    "positions": 1660591,
+    "rows": 9619
+   },
+   "defect.composed": {
+    "sequences": 49962,
+    "tokens": 212349761,
+    "positions": 221857118,
+    "rows": 25000
+   },
+   "defect.noul": {
+    "sequences": 10008,
+    "tokens": 3115708,
+    "positions": 3339036,
+    "rows": 5004
+   },
+   "defect.qdm": {
+    "sequences": 89702,
+    "tokens": 41454362,
+    "positions": 44716853,
+    "rows": 44860
+   },
+   "intent.classification": {
+    "sequences": 21143,
+    "tokens": 4265938,
+    "positions": 4478274,
+    "rows": 21143
+   },
+   "intent.domain": {
+    "sequences": 21142,
+    "tokens": 3553774,
+    "positions": 3719374,
+    "rows": 21142
+   },
+   "intent.in_scope": {
+    "sequences": 21143,
+    "tokens": 2792789,
+    "positions": 2957316,
+    "rows": 21143
+   },
+   "intent.within_domain": {
+    "sequences": 21141,
+    "tokens": 4223851,
+    "positions": 4494690,
+    "rows": 21141
+   },
+   "knowledge.multiple_choice": {
+    "sequences": 14200,
+    "tokens": 3044446,
+    "positions": 3318112,
+    "rows": 14200
+   },
+   "qa.answer_span": {
+    "sequences": 105890,
+    "tokens": 30647358,
+    "positions": 32532346,
+    "rows": 105890
+   }
+  },
+  "total": {
+   "sequences": 363950,
+   "tokens": 306926895,
+   "positions": 323073710
+  },
+  "padding_share": 0.04997873395517083,
+  "composed_sequence_length_hist_1k": {
+   "00000": 142,
+   "01000": 7746,
+   "02000": 7633,
+   "03000": 7528,
+   "04000": 7512,
+   "05000": 7599,
+   "06000": 7921,
+   "07000": 3881
+  }
+ },
+ "projected_v5": {
+  "label": "inferred: v4 measurements scaled by the plan's declared deltas",
+  "composed": {
+   "v4_rows": 25000,
+   "v4_sequences_per_row": 1.99848,
+   "v4_mean_tokens_per_sequence": 4250.225391297386,
+   "v4_real_band": [
+    900,
+    7936
+   ],
+   "v5_real_band": [
+    900,
+    9900
+   ],
+   "length_stretch_factor": 1.2222725215029424,
+   "v5_rows": 25000,
+   "v5_tokens": 259549277.81801715
+  },
+  "non_composed_v4_tokens": 94577134,
+  "non_composed_v4_sequences": 313988,
+  "added_noul": {
+   "rows": 4000,
+   "tokens": 2490573.9408473223,
+   "v4_noul_rows": 5004,
+   "v4_noul_categories": [
+    "defect.noul"
+   ]
+  },
+  "clinc_rekey_tokens_delta": -94033.09335572136,
+  "e_val_exclusion_tokens_delta_lower_bound": -227126.7216927663,
+  "v5_tokens_per_epoch": 356295825.943816,
+  "v5_positions_per_epoch_at_v4_padding": 375039842.4523302,
+  "ratio_to_v4_positions": 1.1608491525117601,
+  "v5_steps_at_f_positions_per_step": 11240.502343771373
+ }
+}

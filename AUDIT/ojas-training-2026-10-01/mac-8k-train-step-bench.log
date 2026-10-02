@@ -1,0 +1,35 @@
+device: Apple M5 Pro
+T = 2048: gate passed (12 ops wrote finite outputs)
+op                        ms / call
+gdn_train forward             7.452
+gdn_train backward           24.357
+attn_train forward            3.700
+attn_train backward          18.046
+cross-entropy + grads      1189.217
+rms_norm_bwd                  3.696
+gated_rms_norm_bwd            3.997
+swiglu_bwd                    2.213
+conv1d_silu_bwd               6.762
+attn_qk_norm_rope_bwd         4.752
+gdn_gates_bwd                 4.715
+embed_rows_bwd                1.865
+GDN core, forward + backward: 31.81 ms per layer; attention core: 21.75 ms per layer
+train_step, T = 8192: 18.141 s (452 tokens/s), loss 14.1156
+      100.53 real        12.96 user        11.84 sys
+         25713295360  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             8607319  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                 108  voluntary context switches
+              106960  involuntary context switches
+        169349149385  instructions retired
+        105274341624  cycles elapsed
+         30784164432  peak memory footprint

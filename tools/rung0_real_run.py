@@ -86,8 +86,13 @@ from qd_train.byte_train import Rung0Model, Rung0Step, train_rung0  # noqa: E402
 from qd_train.calibration_fit import ece_gate  # noqa: E402
 from qd_train.control_cache import control_key, load_control, store_control  # noqa: E402
 from qd_train.eval_harness import (  # noqa: E402
+    PERMUTATION_CONSISTENCY_FLOOR as PERMUTATION_CONSISTENCY_FLOOR,
+)
+from qd_train.eval_harness import (  # noqa: E402
     degenerate_head_check,
     paired_margin_test,
+    permutation_consistency_state,
+    permute_within_groups,
     shuffled_label_control,
 )
 from qd_train.heads import plan_span_batch, serving_scores  # noqa: E402
@@ -683,19 +688,17 @@ def shuffle_train_labels(decisions: Sequence, *, seed: int) -> list:
     permutation across decisions offering different numbers of options would raise partway
     through -- and would do so only on a corpus where the counts differ, which is not this
     one today and is not a property to rely on silently.
-    """
-    rng = random.Random(seed)
-    by_arity: dict[int, list[int]] = {}
-    for index, decision in enumerate(decisions):
-        by_arity.setdefault(len(decision.options), []).append(index)
 
-    shuffled = list(decisions)
-    for indices in by_arity.values():
-        labels = [decisions[i].gold_option for i in indices]
-        rng.shuffle(labels)
-        for i, label in zip(indices, labels, strict=True):
-            shuffled[i] = dataclasses.replace(decisions[i], gold_option=label)
-    return shuffled
+    The draw is ``eval_harness.permute_within_groups``, which ``tools/real_ft_run.py
+    --shuffled-label`` uses too, so the two controls destroy labels by one rule.
+    """
+    golds = permute_within_groups(
+        [d.gold_option for d in decisions], [len(d.options) for d in decisions], seed=seed
+    )
+    return [
+        dataclasses.replace(decision, gold_option=gold)
+        for decision, gold in zip(decisions, golds, strict=True)
+    ]
 
 
 def majority_baseline(decisions: Sequence) -> tuple[float, str]:
@@ -873,10 +876,9 @@ def sattolo_permutation(n: int, *, seed_text: str) -> list[int]:
     return items
 
 
-#: The gate from `docs/schema-api.md`: "permutation consistency (>= 95%) is a training gate
-#: and not only a runtime check: a model that fails it makes the second pass fire constantly
-#: and the abstain rate blows the cap." A threshold from the plan, read-only to an agent.
-PERMUTATION_CONSISTENCY_FLOOR: Final[float] = 0.95
+#: `PERMUTATION_CONSISTENCY_FLOOR`, the plan's 95%, is imported above and re-exported: it is
+#: owned by `qd_train.eval_harness` now that the FT eval gates on it too, and
+#: `test_shuffled_label_control.py` has always read it from here.
 
 
 #: The linear control's iteration budget, which must match `rung0_linear_control`'s.
@@ -885,8 +887,8 @@ PERMUTATION_CONSISTENCY_FLOOR: Final[float] = 0.95
 #: drift. Above the library default of 500, which does NOT converge on this corpus -- and
 #: an unconverged control is refused, so the budget is what makes the gate reachable at
 #: all. The ITERATION BUDGET moves, never the tolerance: the tolerance is what makes the
-#: control worth beating.
-LINEAR_CONTROL_MAX_ITER: Final[int] = 6_000
+#: control worth beating. 8,000 since 2026-10-02, with the step halving past 6,000.
+LINEAR_CONTROL_MAX_ITER: Final[int] = 8_000
 
 #: The linear control is fitted once per sweep, on CPU, with the GPU doing nothing. On the
 #: rung-0 corpus that is 38s and unremarkable. On the commitpackft corpus it projects to
@@ -975,27 +977,7 @@ def permutation_consistency(
                 if second[i] < len(perm) and perm[second[i]] == first[i]:
                     agree += 1
     model.train()
-
-    if asked == 0:
-        return NotRun(
-            reason=(
-                f"no row of {total} had two or more live options, so no derangement exists "
-                "and permutation consistency was not measured on anything"
-            )
-        )
-    rate = agree / asked
-    return Ran(
-        passed=rate >= PERMUTATION_CONSISTENCY_FLOOR,
-        value=rate,
-        n=agree,
-        n_total=asked,
-        detail=(
-            f"the choice head agreed with itself across a derangement on {agree} of "
-            f"{asked} rows ({rate:.1%}) against a {PERMUTATION_CONSISTENCY_FLOOR:.0%} "
-            f"floor; {total - asked} row(s) had fewer than two live options and were "
-            "excluded rather than counted as agreeing"
-        ),
-    )
+    return permutation_consistency_state(agree=agree, asked=asked, total=total)
 
 
 def quick_reason_for(

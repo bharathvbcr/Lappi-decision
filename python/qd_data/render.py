@@ -94,6 +94,7 @@ __all__ = [
     "INVISIBLE_FORMAT_CHARS",
     "INVISIBLE_FORMAT_RANGES",
     "MARKERS",
+    "PROMPT_FORMAT",
     "DeterministicRng",
     "RenderCaps",
     "RenderedPrompt",
@@ -103,6 +104,7 @@ __all__ = [
     "first_invisible_format_char",
     "render",
     "render_for_serving",
+    "second_pass_permutation",
     "shuffle_options",
     "unescape",
 ]
@@ -112,6 +114,7 @@ __all__ = [
 # what lets a single escape rule protect the format and the tokenizer at once.
 
 M_BEGIN: Final[str] = "<|qd_begin|>"
+M_FORMAT: Final[str] = "<|qd_prompt_format|>"
 M_VERSION: Final[str] = "<|qd_schema_version|>"
 M_TASK: Final[str] = "<|qd_task|>"
 M_ROUTE: Final[str] = "<|qd_route|>"
@@ -125,9 +128,25 @@ M_OPT_END: Final[str] = "<|qd_options_end|>"
 M_ANSWER: Final[str] = "<|qd_answer|>"
 
 MARKERS: Final[tuple[str, ...]] = (
-    M_BEGIN, M_VERSION, M_TASK, M_ROUTE, M_QUESTION, M_CTX_BEGIN, M_CTX_END,
+    M_BEGIN, M_FORMAT, M_VERSION, M_TASK, M_ROUTE, M_QUESTION, M_CTX_BEGIN, M_CTX_END,
     M_SLOT, M_TYPE, M_OPT_BEGIN, M_OPT_END, M_ANSWER,
 )
+
+#: The prompt layout this renderer writes, stated in every prompt on the ``M_FORMAT`` line.
+#:
+#: Format 2 (v5, ``campaign/v5-preregistered.DRAFT.json`` ``format.*``) puts the question
+#: line **after** the context: begin, format, schema version, task, route, the context block,
+#: then the question, then the slot suffix. Format 1 (v4) had no format line and rendered the
+#: question between the route and the context. Only the question moved, so N questions over
+#: one context share every byte through ``<|qd_context_end|>``.
+#:
+#: It is not the wire ``schema_version``, which stays 1: callers send the same requests. It
+#: is what a model was trained on, so everything that pairs a model with prompts refuses a
+#: mismatch: ``qd_train.artifacts.ShardHeader.prompt_format`` (the shard reader), the
+#: release manifest's ``expected_identity.prompt_format`` (``crates/qd-runtime/src/release.rs``)
+#: and the trainer's recipe. ``crates/qd-runtime/src/render.rs`` carries the same number,
+#: pinned by ``python/tests/test_prompt_format_v5.py``.
+PROMPT_FORMAT: Final[int] = 2
 
 #: The escape sentinel. Chosen so that escaping is a pure ASCII transform that
 #: never touches a multi-byte sequence, and so ``unescape`` is a single scan.
@@ -426,6 +445,47 @@ class DeterministicRng:
             idx[i], idx[j] = idx[j], idx[i]
         return tuple(idx)
 
+    def cyclic_permutation(self, n: int) -> tuple[int, ...]:
+        """Sattolo: uniform over the ``(n-1)!`` cyclic permutations, so a derangement.
+
+        One character from :meth:`permutation` -- ``below(i)``, not ``below(i + 1)`` -- and
+        that character is the difference between a shuffle with fixed points and one where
+        every option moves. The same algorithm as qd-runtime's
+        ``CounterRng::cyclic_permutation``; the *stream* is not the same (blake2b here,
+        sha256 there), so equal inputs do not give equal outputs across the two.
+        """
+        if n < 2:
+            raise ValueError(f"a derangement needs at least 2 items, got {n}")
+        idx = list(range(n))
+        for i in range(n - 1, 0, -1):
+            j = self.below(i)
+            idx[i], idx[j] = idx[j], idx[i]
+        return tuple(idx)
+
+
+def second_pass_permutation(
+    n: int, *, seed: int, example_id: str, slot_name: str
+) -> tuple[int, ...]:
+    """The permutation a choice slot's second pass presents its options in: a derangement.
+
+    ``permutation_consistency`` asks whether the head gives the same *answer* when the
+    options move; ``docs/schema-api.md`` requires every option to move, which a uniform
+    shuffle does not guarantee. This module owns option order (:func:`shuffle_options` is the
+    first pass), so it owns the second pass too.
+
+    The domain string is the one ``qd_data.defect_class`` introduced it under, kept so the
+    stream -- and every permutation drawn before it moved here -- is unchanged.
+
+    **Not** ``render::second_pass_permutation`` in qd-runtime: that seeds a sha256
+    ``CounterRng`` from ``request.digest()`` and the slot name, and this seeds blake2b from
+    ``(seed, example_id, slot_name)``. Same algorithm, different stream, so the training gate
+    and the served check draw different derangements for one request. Recorded as
+    ``GAP-A3-SECOND-PASS-PERMUTATION-NOT-WIRED-INTO-RENDER``; parity is not claimed.
+    """
+    return DeterministicRng(
+        "qd_data.defect_class.second_pass.v1", seed, example_id, slot_name
+    ).cyclic_permutation(n)
+
 
 def shuffle_options(
     options: tuple[str, ...] | list[str],
@@ -671,15 +731,17 @@ def render(
             detail="refused rather than truncated",
         )
 
+    # Prompt format 2 (see `PROMPT_FORMAT`): the question line follows the context.
     prefix = (
         f"{M_BEGIN}\n"
+        f"{M_FORMAT}{PROMPT_FORMAT}\n"
         f"{M_VERSION}{request.schema_version}\n"
         f"{M_TASK}{escape_inline(request.task)}\n"
         f"{M_ROUTE}{request.route}\n"
-        f"{M_QUESTION}{escape_inline(request.question)}\n"
         f"{M_CTX_BEGIN}\n"
         f"{escape_block(ctx_text)}\n"
         f"{M_CTX_END}\n"
+        f"{M_QUESTION}{escape_inline(request.question)}\n"
     )
 
     slots = tuple(

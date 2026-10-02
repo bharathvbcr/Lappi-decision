@@ -1,0 +1,88 @@
+source crates/qd-runtime/src/bin/qd_post_f_rules.rs sha256 441cfad8f912f47e55c7f31f251fa3b1b2d5378ee2df4d42bf19bd2399c13615
+command: cargo test -p qd-runtime --bin qd-post-f-rules
+
+[unmutated] exit 0: test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+M1 R7 target tie fires (higher: > -> >=): exit 101: test result: FAILED. 46 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+    FAILED a_target_at_exactly_max_plus_range_does_not_fire_and_one_hit_more_does
+    FAILED exact_forms_with_unequal_denominators_and_signed_margins
+    FAILED j6f_cannot_fire_when_twice_max_minus_min_reaches_1
+
+M2 R7 target tie fires (lower: > -> >=): exit 101: test result: FAILED. 48 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+    FAILED exact_forms_with_unequal_denominators_and_signed_margins
+
+M3 R7 guard at its bound loses (higher): exit 101: test result: FAILED. 37 passed; 12 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED a_guard_at_its_bound_holds_and_one_count_past_it_loses
+    FAILED a_length_control_miss_blocks_j6f_and_not_j6dv4
+    FAILED a_target_at_exactly_max_plus_range_does_not_fire_and_one_hit_more_does
+    FAILED both_arms_winning_refuses_and_keeps_both_verdicts
+    FAILED exact_forms_with_unequal_denominators_and_signed_margins
+    FAILED j6b_against_j4_fires_on_the_real_rows
+    FAILED j6dv4_needs_no_needle_control_row_and_j6f_does
+    FAILED j6f_alone_fires_and_j6dv4_alone_fires
+    FAILED j6f_cannot_fire_when_twice_max_minus_min_reaches_1
+    FAILED letter_control_rows_are_selected_by_the_per_family_key
+    FAILED the_envelope_is_fs_seeds_0_1_2_only
+    FAILED unseen_language_guards_j6dv4_and_not_j6f
+
+M4 R7 guard at its bound loses (lower): exit 101: test result: FAILED. 47 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+    FAILED a_guard_at_its_bound_holds_and_one_count_past_it_loses
+    FAILED exact_forms_with_unequal_denominators_and_signed_margins
+
+M5 R3 any target suffices: exit 101: test result: FAILED. 46 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+    FAILED a_target_at_exactly_max_plus_range_does_not_fire_and_one_hit_more_does
+    FAILED exact_forms_with_unequal_denominators_and_signed_margins
+    FAILED j6dv4_needs_every_target_to_clear
+
+M6 both arms winning picks J6(f) instead of refusing: exit 101: test result: FAILED. 48 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+    FAILED both_arms_winning_refuses_and_keeps_both_verdicts
+
+M7 R4 struck: no unseen-language guard on J6(d)-v4: exit 101: test result: FAILED. 48 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+    FAILED unseen_language_guards_j6dv4_and_not_j6f
+
+M8 R5 as first registered (controls guard J6(d)-v4), i.e. the amendment not applied: exit 101: test result: FAILED. 46 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+    FAILED a_length_control_miss_blocks_j6f_and_not_j6dv4
+    FAILED j6dv4_needs_no_needle_control_row_and_j6f_does
+    FAILED the_successor_rule_is_the_preregistrations_own_text
+
+M9 R5 amendment half-applied: J6(d)-v4 still requires its needle-control row: exit 101: test result: FAILED. 46 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED j6b_against_j4_fires_on_the_real_rows
+    FAILED j6b_against_j4_without_its_flags_is_refused_by_the_identity_check
+    FAILED j6dv4_needs_no_needle_control_row_and_j6f_does
+
+M10 R1 struck: per-arm guards only, no base list: exit 101: test result: FAILED. 44 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED a_guard_at_its_bound_holds_and_one_count_past_it_loses
+    FAILED a_length_control_miss_blocks_j6f_and_not_j6dv4
+    FAILED a_missing_metric_refuses_even_when_an_arm_would_fire
+    FAILED a_not_run_metric_or_a_row_that_did_not_complete_refuses
+    FAILED j6b_against_j4_fires_on_the_real_rows
+
+M11 envelope pin: any three seeds: exit 101: test result: FAILED. 48 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+    FAILED the_envelope_is_fs_seeds_0_1_2_only
+
+M12 R8 arm identity not checked: exit 101: test result: FAILED. 47 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED j6b_against_j4_without_its_flags_is_refused_by_the_identity_check
+    FAILED swapped_or_wrong_arm_rows_refuse
+
+M13 margin integer-grid check removed: exit 101: test result: FAILED. 48 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+    FAILED a_margin_off_its_integer_grid_refuses
+
+M14 letter-control row selected without the per-family key: exit 101: test result: FAILED. 48 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+    FAILED letter_control_rows_are_selected_by_the_per_family_key
+
+M15 an arm whose rows cannot be read counts as not winning (missing -> quiet): exit 101: test result: FAILED. 46 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+    FAILED a_missing_arm_letter_control_row_refuses_even_when_j6f_alone_would_fire
+    FAILED a_not_run_metric_or_a_row_that_did_not_complete_refuses
+    FAILED j6dv4_needs_no_needle_control_row_and_j6f_does
+
+M16 ECE direction flipped (higher is better): exit 101: test result: FAILED. 48 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+    FAILED a_guard_at_its_bound_holds_and_one_count_past_it_loses
+
+M17 in-distribution abstention direction flipped: exit 101: test result: FAILED. 48 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED a_guard_at_its_bound_holds_and_one_count_past_it_loses
+
+M18 eval comparability (val set / suites) not checked: exit 101: test result: FAILED. 48 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED swapped_or_wrong_arm_rows_refuse
+
+[restored, sha256 441cfad8f912f47e55c7f31f251fa3b1b2d5378ee2df4d42bf19bd2399c13615, equal: True] exit 0: test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+mutations caught: 18 of 18

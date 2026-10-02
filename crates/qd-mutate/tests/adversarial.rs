@@ -16,7 +16,7 @@
 use std::collections::BTreeSet;
 
 use qd_mutate::diffspan::span_from_text_diff;
-use qd_mutate::generate::{Generator, Options, Run};
+use qd_mutate::generate::{DiffShape, Generator, Options, Run};
 use qd_mutate::lang::LangId;
 use qd_mutate::manifest::PoolReport;
 use qd_mutate::ops::MutationClass;
@@ -48,6 +48,7 @@ fn run_over(source: &str, extension: &str, copies: usize) -> Run {
         limit: None,
         languages: Vec::new(),
         max_examples_per_file: 8,
+        diff_shape: DiffShape::default(),
     })
     .run(&records, pool_report());
     check_every_example(&run);
@@ -642,6 +643,7 @@ fn run_raw(source: &str, extension: &str) -> Run {
         limit: None,
         languages: vec![LangId::Rust],
         max_examples_per_file: 8,
+        diff_shape: DiffShape::default(),
     })
     .run(std::slice::from_ref(&record), pool_report())
 }
@@ -867,6 +869,7 @@ fn every_language_refuses_a_file_with_error_nodes() {
             limit: None,
             languages: vec![id],
             max_examples_per_file: 8,
+            diff_shape: DiffShape::default(),
         })
         .run(std::slice::from_ref(&record), pool_report());
         assert!(

@@ -16,27 +16,71 @@ model and corrupts the one gate that decides the program. So:
 Implemented on numpy rather than scikit-learn to avoid adding a dependency. The
 optimizer is Adam with an explicit convergence criterion; see `LOGISTIC_NOTE` in the
 handoff for the argument that this is not weaker than sklearn's lbfgs for this
-problem, and for the check that was run to establish it.
+problem, and for the check that was run to establish it. Its step size is constant for
+the first `LR_CONSTANT_ITERS` iterations and halves every `LR_HALVING_PERIOD` after
+(`step_size`): at a constant step, Adam can settle into a limit cycle a converged fit never
+leaves (F seed 0's intent.domain control, HANDOFF/prep-containment-2026-10-02.md).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Final, Literal, Protocol
 
 import numpy as np
 
+from qd_data.errors import QdRefusal
+from qd_data.render import DEFAULT_CAPS, RenderCaps, render
+from qd_data.rows import DataRow
+
+from .artifacts import SLOT_CHOICE, SLOT_SCORE, line_start_indices
 from .mutate_adapter import MUTATION_CLASSES
+from .shards import UnencodableGold, answer_letter, training_texts
 from .tristate import NotRun, Ran, TriState
 
 __all__ = [
     "CSR",
     "DENSE_OPERAND_BUDGET_BYTES",
+    "LETTER_KINDS",
+    "LR_CONSTANT_ITERS",
+    "LR_HALVING_PERIOD",
     "BaselineFit",
     "CharNGramHasher",
+    "ContextLengthFeatures",
     "DenseOperand",
+    "Featurizer",
+    "LabelSpace",
     "LinearBaseline",
+    "RequestDoc",
     "context_texts",
+    "control_label",
+    "control_label_space",
+    "fit_budget_refusal",
+    "request_texts",
+    "step_size",
 ]
+
+#: ``_train_once``'s step-size schedule, fixed here and in ``crates/qd-prep/src/linfit.rs``
+#: (whose parity test crosses it). For the first ``LR_CONSTANT_ITERS`` iterations the step
+#: is ``lr``, as it always was: every fit that converges within the 6,000-iteration budget
+#: the controls ran under until 2026-10-02 is unchanged bit for bit. From then on it halves
+#: every ``LR_HALVING_PERIOD`` iterations. Adam at a constant step can settle into a limit
+#: cycle -- F seed 0's intent.domain control (c89b89a1) oscillated with its loss flat and its
+#: grad norm near 1e-2 from about iteration 1,000 to 6,000 -- and a cycle's amplitude scales
+#: with the step, so a shrinking step lets the fit reach the tolerance. The tolerance itself
+#: never moves: it is what makes the control worth beating.
+LR_CONSTANT_ITERS: Final[int] = 6_000
+LR_HALVING_PERIOD: Final[int] = 500
+
+
+def step_size(lr: float, it: int) -> float:
+    """Adam's step at 1-based iteration ``it``: ``lr``, then halved every
+    :data:`LR_HALVING_PERIOD` iterations past :data:`LR_CONSTANT_ITERS`. ``0.5 ** n`` is a
+    power of two, so the product is ``lr`` scaled exactly, as the Rust engine computes it."""
+    if it <= LR_CONSTANT_ITERS:
+        return lr
+    return lr * 0.5 ** ((it - LR_CONSTANT_ITERS - 1) // LR_HALVING_PERIOD + 1)
 
 
 def context_texts(decisions) -> tuple[list[str], list[str]]:
@@ -64,6 +108,205 @@ def context_texts(decisions) -> tuple[list[str], list[str]]:
         docs.append(bytes(d.context.ids).decode("utf-8", errors="replace"))
         labels.append(MUTATION_CLASSES[d.gold_option])
     return docs, labels
+
+
+def fit_budget_refusal(projected_s: float, max_fit_minutes: float | None) -> str | None:
+    """The refusal to print and exit on, or ``None`` when the fit may start.
+
+    This module already knew how long the fit would take -- ``projected_fit_seconds`` is
+    computed and printed one line before the fit begins -- and did nothing with it. A
+    caller that wrapped the fit in a shorter ``timeout`` therefore got the worst of both:
+    the box saturated for the length of the cap, the process killed before it converged,
+    and nothing written to the cache. The arm that reads the cache then reports
+    ``paired_margin_vs_linear: not_run`` exactly as it would have if the fit had never
+    been launched, so the wasted hour leaves no trace distinguishing it from doing nothing.
+
+    That already happened once in this repository -- 5fd0ea8, *"The linear control could
+    not finish inside the cap it was launched under"*.
+
+    So the projection becomes a precondition rather than a progress message. Refusing
+    costs the caller nothing it would otherwise have had, and it turns a silent hour into
+    an immediate, legible error naming both numbers.
+
+    **The projection is a worst-case bound, and the cap must be read against it as one.**
+    ``projected_fit_seconds`` prices ``max_iter`` iterations. The optimiser stops at ``tol``
+    instead, usually far earlier: measured 2026-09-22 on 37,385 training documents, the
+    projection was 101.4 minutes and the fit converged in 443 iterations and **345.7s** --
+    an overshoot of 17.6x. Six sibling fits landed between 204.2s and 351.7s against the
+    same projection.
+
+    Two things follow, and the second is easy to get backwards. A cap must be set above the
+    PROJECTION, not above observed times, or this refuses fits that would have finished
+    comfortably -- a 60-minute cap would reject a six-minute fit. And a projection must
+    never be quoted as a cost: doing that turned a $0.91 job into a documented $22 one and
+    routed it to a human as a spending decision it did not need to be.
+
+    ``None`` for ``max_fit_minutes`` means the caller accepts any duration, which is the
+    right default for an interactive fit that owns its own terminal.
+    """
+    if max_fit_minutes is None:
+        return None
+    if projected_s <= max_fit_minutes * 60:
+        return None
+    return (
+        f"refusing to start: the fit projects to {projected_s / 60:.1f} minute(s) but "
+        f"--max-fit-minutes is {max_fit_minutes:g}. It would be killed before it "
+        "converged and NOTHING would be cached, which the arm that reads this cache "
+        "cannot tell apart from a fit that was never launched.\n"
+        "Raise the caller's cap above the projection, or fit a smaller training set. "
+        "Do not lower --max-iter to fit inside the cap: that weakens the opponent the "
+        "model is measured against, which is a promotion decision and not this tool's."
+    )
+
+
+#: The slot kinds the linear control can stand opposite: the letter channel. A span slot's
+#: answer is a pair of line numbers chosen by the pointer head, which a bag of n-grams has no
+#: way to produce, so it is excluded by name rather than scored as a constant.
+LETTER_KINDS: dict[int, str] = {SLOT_CHOICE: "choice", SLOT_SCORE: "score"}
+
+
+@dataclass(frozen=True, slots=True)
+class RequestDoc:
+    """One letter slot of one FT row, as the linear control sees it.
+
+    ``text`` is ``render(...).prompt_for(slot)`` -- the prefix and the slot's suffix, which is
+    every byte the model conditions on for that slot's answer. ``value`` is the gold VALUE,
+    ``letter`` the gold letter in this rendering, and ``offered`` every ``(letter, value)``
+    pair the rendering shows, noul included. Which of ``value`` and ``letter`` the control is
+    labelled by is a per-task decision, :func:`control_label_space`; either way correctness
+    is the same question the model's ``top == gold_row`` answers, because on one row the
+    letter and the value name the same option.
+    """
+
+    row_id: str
+    slot_name: str
+    kind: str
+    #: ``family_id/slot_name``: the task. One control per task, because a ``change_scope``
+    #: bin is not a candidate answer to ``commit_intent``.
+    task: str
+    text: str
+    value: str
+    letter: str
+    offered: tuple[tuple[str, str], ...]
+    metadata: Mapping[str, str] = field(default_factory=dict)
+    #: ``row.request.context`` alone -- what :class:`ContextLengthFeatures` measures. Empty
+    #: for a doc built without it, which the length control reports as not run rather than
+    #: scoring as a zero-length context. ``str`` or ``bytes``, as the request carries it.
+    context: str | bytes = ""
+
+
+def request_texts(
+    rows: Iterable[DataRow], *, seed: int, caps: RenderCaps = DEFAULT_CAPS
+) -> tuple[list[RequestDoc], list[str]]:
+    """``(docs, excluded)``: every letter slot of every row, rendered the way FT renders it.
+
+    The FT counterpart of :func:`context_texts`, and here for the same reason: the paired
+    margin depends on there being exactly one rendering of the control's input. The row
+    admission is the writer's -- ``training_texts`` raises ``UnencodableGold`` or a
+    ``QdRefusal`` for exactly the rows ``write_shards`` drops, and a row dropped there has no
+    model verdict to pair with -- so the same ``except`` drops it here and names it.
+
+    ``seed`` must be the ``DataConfig.seed`` the shards were written at. Rendered at any
+    other seed the choice options come out in a different order and the prompt text is not
+    the one the model read.
+    """
+    docs: list[RequestDoc] = []
+    excluded: list[str] = []
+    for row in sorted(rows, key=lambda r: r.row_id):
+        staged: list[RequestDoc] = []
+        try:
+            rendered = render(row.request, caps=caps, seed=seed)
+            for spec in training_texts(row, seed=seed, caps=caps):
+                kind = LETTER_KINDS.get(spec.slot_kind)
+                if kind is None:
+                    continue
+                slot = rendered.slot(spec.slot_name)
+                letter = answer_letter(row, spec.slot_name, slot.letter_to_value)
+                staged.append(
+                    RequestDoc(
+                        row_id=row.row_id,
+                        slot_name=spec.slot_name,
+                        kind=kind,
+                        task=f"{row.family_id}/{spec.slot_name}",
+                        text=rendered.prompt_for(spec.slot_name),
+                        value=slot.letter_to_value[letter],
+                        letter=letter,
+                        offered=tuple(slot.letter_to_value.items()),
+                        metadata=dict(row.metadata),
+                        context=row.request.context,
+                    )
+                )
+        except (UnencodableGold, QdRefusal) as exc:
+            excluded.append(f"{row.row_id}: {type(exc).__name__}: {exc}")
+            continue
+        docs.extend(staged)
+    return docs, excluded
+
+
+#: What a task's control is labelled by. See :func:`control_label_space`.
+LabelSpace = Literal["value", "letter"]
+
+
+def control_label_space(train: Sequence[RequestDoc], val: Sequence[RequestDoc]) -> LabelSpace:
+    """``"value"`` when every row of the task offers one option set, else ``"letter"``.
+
+    The control is a classifier over one class set, so its labels have to mean the same
+    thing on every row. Which label does depends on where the options come from:
+
+    * **One option set on every row** (``code.defect_class``'s classes, yes/no, a score's
+      bins, CLINC's domains). The value is the class. The letter is not: ``qd_data.render``
+      shuffles a choice slot's options per example, so ``'A'`` names a different class on
+      every row, and a control asked to predict it from n-grams would be an artificially
+      weak opponent -- which manufactures a win.
+    * **The row's own options** (CommonsenseQA, MMLU, CLINC's sampled and per-domain intent
+      sets). The value is not a class: it is one of THIS question's options, so values barely
+      recur across rows (k=4,956 on 9,619 CSQA train rows, k=12,080 on 14,200 MMLU rows, on
+      the 2026-09-29 general record without the replay partition), and where the split is by
+      label -- CLINC's ``repo_key`` is the intent -- no val gold is a training class at all
+      (0/1,500 on ``intent.classification``). A control over those classes
+      cannot answer the question it is scored on; J1's CSQA control selected its L2 at
+      4/1635 on a five-way task. The letter is the one label every row shares, and the
+      model answers in letters.
+
+    Decided from the option sets the rows OFFER -- the prompt -- never from their golds, so
+    no val label is read to configure the control. A train split that offers one set while
+    val offers another is refused: the control's classes would not cover what val asks, and
+    that is a split defect to fix, not a label space to guess. So is a doc without its
+    rendering's options, or docs from more than one task.
+    """
+    docs = [*train, *val]
+    tasks = sorted({d.task for d in docs})
+    if len(tasks) > 1:
+        raise ValueError(f"a control's label space is one task's; these docs span {tasks}")
+    bare = [d.row_id for d in docs if not d.offered or not d.letter]
+    if bare:
+        raise ValueError(
+            f"{len(bare)} doc(s) carry no rendering (no offered options or gold letter), "
+            f"first {bare[:3]}: build them with request_texts, which records what the model "
+            "was shown"
+        )
+    train_sets = {frozenset(v for _, v in d.offered) for d in train}
+    val_sets = {frozenset(v for _, v in d.offered) for d in val}
+    if len(train_sets | val_sets) == 1:
+        return "value"
+    if len(train_sets) == 1:
+        (fixed,) = train_sets
+        differing = sorted(sorted(s) for s in val_sets if s != fixed)
+        raise ValueError(
+            f"task {tasks[0]}: every training row offers the option set {sorted(fixed)} and "
+            f"{len(differing)} val option set(s) differ from it, first {differing[0]}; the "
+            "control's classes would not cover what val asks"
+        )
+    return "letter"
+
+
+def control_label(doc: RequestDoc, space: LabelSpace) -> str:
+    """``doc``'s label in ``space``: its gold value, or its gold letter in this rendering."""
+    if space == "value":
+        return doc.value
+    if space == "letter":
+        return doc.letter
+    raise ValueError(f"unknown label space {space!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,6 +460,12 @@ class CharNGramHasher:
             raise ValueError(f"dim must be a power of two >= 16, got {dim}")
         self.n_min, self.n_max, self.dim = n_min, n_max, dim
 
+    def nnz_bound(self, docs: list[str]) -> int:
+        """An upper bound on ``transform(docs)``'s nonzeros: at most one column per n-gram,
+        and at most ``dim`` per document. High is the safe direction for a fit-time guard."""
+        orders = self.n_max - self.n_min + 1
+        return sum(min(orders * len(doc), self.dim) for doc in docs)
+
     def _hash(self, gram: str) -> int:
         # FNV-1a, 64-bit. Stable across processes and platforms, unlike hash(),
         # which is salted per interpreter and would make features irreproducible.
@@ -263,6 +512,59 @@ class CharNGramHasher:
         )
 
 
+class Featurizer(Protocol):
+    """What ``LinearBaseline`` needs from a feature map: a width, a transform, and a bound on
+    the transform's nonzeros for ``projected_fit_seconds``."""
+
+    dim: int
+
+    def transform(self, docs: list[str]) -> CSR: ...
+
+    def nnz_bound(self, docs: list[str]) -> int: ...
+
+
+class ContextLengthFeatures:
+    """The context's size and nothing else: a control for labels that length predicts.
+
+    ``GAP-A3-CLEAN-DIFFS-ARE-LONGER-THAN-MUTATION-DIFFS``: in ``code.defect_class`` a clean
+    row is a real commit's diff and a mutated row one synthetic edit, so clean diffs are
+    longer (p50 739 bytes against 286-410) and a model can beat the majority rate by reading
+    size alone. Fitted by :class:`LinearBaseline` exactly as the n-gram control is -- same
+    L2 grid, same convergence check -- on these five dense features of the CONTEXT (not the
+    rendered prompt, whose fixed scaffolding would only add a constant):
+
+    ``b = log2(1 + utf8 bytes) / 20`` and ``l = log2(1 + lines) / 16`` -- lines by
+    :func:`qd_train.artifacts.line_start_indices`, the system's one line rule -- then
+    ``b, l, b*b, l*l, b*l``. The quadratic terms let a linear model put a class in a middle
+    band of length rather than only at one end, which is the stronger opponent. The fixed
+    scales keep every feature near ``[0, 1]`` without fitting a normaliser on anything.
+    """
+
+    dim: int = 5
+
+    def features(self, doc: str | bytes) -> tuple[float, float, float, float, float]:
+        # A request context is str or bytes; bytes are counted on UTF-8 either way, and
+        # line_start_indices counts the same lines in both (a newline is one byte, one char).
+        raw = doc.encode("utf-8") if isinstance(doc, str) else bytes(doc)
+        b = float(np.log2(1 + len(raw))) / 20.0
+        lines = float(np.log2(1 + len(line_start_indices(raw)))) / 16.0
+        return (b, lines, b * b, lines * lines, b * lines)
+
+    def nnz_bound(self, docs: Sequence[str | bytes]) -> int:
+        return len(docs) * self.dim
+
+    def transform(self, docs: Sequence[str | bytes]) -> CSR:
+        n = len(docs)
+        data = np.asarray([v for doc in docs for v in self.features(doc)], dtype=np.float64)
+        return CSR(
+            indptr=np.arange(0, n * self.dim + 1, self.dim, dtype=np.int64),
+            indices=np.tile(np.arange(self.dim, dtype=np.int64), n),
+            data=data,
+            rows=np.repeat(np.arange(n), self.dim),
+            shape=(n, self.dim),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class BaselineFit:
     weights: np.ndarray
@@ -281,7 +583,7 @@ class LinearBaseline:
     def __init__(
         self,
         *,
-        hasher: CharNGramHasher | None = None,
+        hasher: Featurizer | None = None,
         l2_grid: tuple[float, ...] = (1e-4, 1e-3, 1e-2, 1e-1),
         max_iter: int = 500,
         tol: float = 1e-4,
@@ -289,7 +591,7 @@ class LinearBaseline:
         seed: int = 0,
         dense_budget_bytes: int | None = None,
     ) -> None:
-        self.hasher = hasher or CharNGramHasher()
+        self.hasher: Featurizer = hasher or CharNGramHasher()
         self.l2_grid = l2_grid
         self.max_iter = max_iter
         self.tol = tol
@@ -340,6 +642,7 @@ class LinearBaseline:
                 converged = True
                 break
 
+            lr = step_size(self.lr, it)
             for p, g, m, v in ((W, gW, mW, vW), (b, gb, mb, vb)):
                 m *= b1
                 m += (1 - b1) * g
@@ -347,7 +650,7 @@ class LinearBaseline:
                 v += (1 - b2) * (g * g)
                 mhat = m / (1 - b1**it)
                 vhat = v / (1 - b2**it)
-                p -= self.lr * mhat / (np.sqrt(vhat) + eps)
+                p -= lr * mhat / (np.sqrt(vhat) + eps)
 
         return W, b, converged, it, grad_norm, history
 
@@ -370,10 +673,9 @@ class LinearBaseline:
         and fixable, but it will not admit one that is not, which is the failure that
         burns a run.
         """
-        orders = self.hasher.n_max - self.hasher.n_min + 1
         d = self.hasher.dim
         n = len(docs)
-        nnz = sum(min(orders * len(doc), d) for doc in docs)
+        nnz = self.hasher.nnz_bound(docs)
         limit = (
             DENSE_OPERAND_BUDGET_BYTES
             if self.dense_budget_bytes is None

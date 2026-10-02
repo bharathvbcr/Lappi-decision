@@ -303,18 +303,47 @@ def test_more_buckets_never_wastes_more_than_fewer(lengths) -> None:
     assert fine <= coarse + 1e-12, f"32 buckets wasted {fine:.4%} against 8's {coarse:.4%}"
 
 
+def _brute_force_min_padding(lengths: list[int], n_buckets: int) -> int:
+    """Padded positions of the best partition, by the plain O(k m^2) programme."""
+    values = sorted(set(lengths))
+    count = {v: lengths.count(v) for v in values}
+    m = len(values)
+    inf = float("inf")
+    best = [[inf] * (m + 1) for _ in range(n_buckets + 1)]
+    best[0][0] = 0
+    for k in range(1, n_buckets + 1):
+        for j in range(1, m + 1):
+            for i in range(j):
+                if best[k - 1][i] == inf:
+                    continue
+                pad = sum(count[values[t]] * (values[j - 1] - values[t]) for t in range(i, j))
+                best[k][j] = min(best[k][j], best[k - 1][i] + pad)
+    return int(min(best[k][m] for k in range(1, n_buckets + 1)))
+
+
+@settings(max_examples=60, suppress_health_check=[HealthCheck.too_slow])
+@given(
+    st.lists(st.integers(1, 5_000), min_size=1, max_size=40),
+    st.integers(1, 6),
+)
+def test_the_partition_is_the_exact_minimum(lengths, n_buckets) -> None:
+    """``choose_buckets`` claims an exact optimum, via a divide-and-conquer shortcut that is
+    only valid because the bucket cost is Monge. Checked against the plain programme."""
+    buckets = choose_buckets(lengths, n_buckets=n_buckets)
+    assert len(buckets) <= n_buckets and buckets[-1] == max(lengths)
+    padded = sum(buckets[bucket_for(n, buckets)] - n for n in lengths)
+    assert padded == _brute_force_min_padding(lengths, n_buckets)
+
+
 def test_the_default_is_an_improvement_and_not_a_guarantee() -> None:
-    """The honest bound on this session's bucketing change, pinned so it is not overclaimed.
+    """The honest bound on the bucketing, pinned so it is not overclaimed.
 
-    Raising the default from 8 to 32 was measured on ONE distribution, where it took the
-    waste from 25.66% to 6.56%. Over synthetic corpora it is a large improvement on
-    realistic shapes and no help at all against a six-order-of-magnitude spread -- quantile
-    bucketing cannot place a boundary between a 161k-token row and a 1.18M-token one
-    because there is nothing between them.
-
-    This reproduces the realistic shape at a fixed seed and asserts the RELATIVE claim,
-    which is the one that is actually true: 32 fails the gate strictly less often than 8.
-    It deliberately does not assert that 32 always passes, because it does not.
+    Under the equal-count quantile rule 32 buckets failed ~41% of these corpora, and this
+    test asserted ``fail32 > 0`` to keep exercising that. The rule is now the exact
+    minimum-padding partition, which fails 0 of these 300 -- so that assertion pinned a
+    limitation of the old rule, not a property of the corpora, and is replaced by the
+    claim that is still true: an optimal placement is not a guarantee at a small budget.
+    32 still fails strictly less often than 8.
     """
     import random
 
@@ -332,9 +361,9 @@ def test_the_default_is_an_improvement_and_not_a_guarantee() -> None:
         f"32 buckets failed the gate {fail32}/{trials} times against 8's {fail8}/{trials}; "
         "the default was raised on the claim that it fails strictly less often"
     )
-    assert fail32 > 0, (
-        "32 buckets cleared the gate on every one of these corpora, which would mean this "
-        "test has stopped exercising the hard shapes -- the measured rate was ~41%"
+    assert fail8 > 0, (
+        "8 buckets cleared the gate on every one of these corpora, so this test has stopped "
+        "exercising a budget at which an optimal placement still fails (measured 294/300)"
     )
 
 

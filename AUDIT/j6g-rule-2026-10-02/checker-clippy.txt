@@ -1,0 +1,2 @@
+    Checking qd-runtime v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ac4d7b78c70988467/crates/qd-runtime)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.28s

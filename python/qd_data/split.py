@@ -50,14 +50,21 @@ from .config import SPLITS, DataConfig
 from .dedupe import DedupeReport
 from .minhash import MinHasher, candidate_pairs, choose_bands, exact_jaccard, shingle
 from .rows import DataRow
+from .sources import PINNED_SPLIT_KEY
 
 __all__ = [
+    "CONTENT_DISJOINT_FAMILIES",
     "HELD_OUT",
+    "SQUAD_ANSWERABILITY_TITLE_FRACTION",
+    "SQUAD_TITLE_FAMILIES",
     "TRAINING_SPLITS",
     "SplitAssignment",
     "SplitReport",
     "assign_repo",
+    "content_disjoint_families",
     "split",
+    "squad_title_family",
+    "squad_title_repo_key",
 ]
 
 HELD_OUT: Final[str] = "heldout"
@@ -65,6 +72,63 @@ HELD_OUT: Final[str] = "heldout"
 #: The splits a training process may read. ``val`` is a training-time split: it
 #: selects hyperparameters, so it is not held out in the sense rule 3 means.
 TRAINING_SPLITS: Final[frozenset[str]] = frozenset({"train", "val"})
+
+
+#: SQuAD v2 feeds two families: ``qa.answerability`` (held out) and ``qa.answer_span``
+#: (trained). Over the same rows, a span gold is ``noul`` exactly when the question is
+#: unanswerable, so training span on a question's context teaches the held-out family's
+#: answer for that context (GAP-DATA-SQUAD-SPAN-NOUL-LEAKS-HELD-OUT-ANSWERABILITY). User
+#: decision 2026-09-29, option (a): partition SQuAD by ARTICLE TITLE, so each family draws
+#: from its own titles and no title, passage, question or identity feeds both.
+SQUAD_TITLE_FAMILIES: Final[tuple[str, str]] = ("qa.answerability", "qa.answer_span")
+
+#: Share of SQuAD titles that go to ``qa.answerability``. The held-out family only has to
+#: measure abstention, so it takes the smaller share and the trained span family keeps most
+#: titles. A choice, not a measurement; moving it re-partitions the held-out set, which
+#: rule 2 permits only by a human decision.
+SQUAD_ANSWERABILITY_TITLE_FRACTION: Final[float] = 0.2
+
+#: Families that must share no content: no ``repo_key``, ``identity_key`` or context in
+#: common. The general rule (module docstring) lets a held-out family overlap training
+#: content; these are the exceptions where the overlap carries the held-out label.
+CONTENT_DISJOINT_FAMILIES: Final[tuple[frozenset[str], ...]] = (
+    frozenset(SQUAD_TITLE_FAMILIES),
+)
+
+
+def _unit_interval(material: str) -> float:
+    digest = hashlib.blake2b(material.encode(), digest_size=8).digest()
+    # Uniform in [0, 1) with 53 bits of resolution, the mantissa of a float64.
+    return (int.from_bytes(digest, "big") >> 11) / float(1 << 53)
+
+
+def squad_title_family(title: str, *, seed: int) -> str:
+    """Which of :data:`SQUAD_TITLE_FAMILIES` may draw from this SQuAD article title.
+
+    A keyed hash of the title, like :func:`assign_repo`: a pure function of
+    ``(title, seed)``, so adding articles never moves an existing one between families.
+    """
+    if not title.strip():
+        raise ValueError(
+            "empty SQuAD title: the partition unit is the article, and a row without one "
+            "cannot be kept out of the other family"
+        )
+    u = _unit_interval(f"qd_data.split.squad_title_family.v1|{seed}|{title}")
+    return SQUAD_TITLE_FAMILIES[0] if u < SQUAD_ANSWERABILITY_TITLE_FRACTION else (
+        SQUAD_TITLE_FAMILIES[1]
+    )
+
+
+def squad_title_repo_key(title: str) -> str:
+    """The split unit of every row drawn from one SQuAD article: its ``repo_key``.
+
+    The article, not the question: SQuAD asks many questions of one paragraph, and a
+    row-level split would put questions about one passage on both sides. One spelling,
+    used by ``qd_data.mixture.rewrite_squad`` and by the ``code.defect_class`` noul rows
+    built from the same paragraphs, so the two land in one split and dedupe treats them as
+    one repository's rows rather than as a cross-repo duplicate to drop.
+    """
+    return f"squad-title:{title}"
 
 
 def assign_repo(
@@ -84,10 +148,7 @@ def assign_repo(
         raise ValueError(
             f"train ({train_fraction}) + val ({val_fraction}) leaves no held-out repos"
         )
-    material = f"qd_data.split.v1|{seed}|{repo_key}".encode()
-    digest = hashlib.blake2b(material, digest_size=8).digest()
-    # Uniform in [0, 1) with 53 bits of resolution, the mantissa of a float64.
-    u = (int.from_bytes(digest, "big") >> 11) / float(1 << 53)
+    u = _unit_interval(f"qd_data.split.v1|{seed}|{repo_key}")
     if u < train_fraction:
         return "train"
     if u < train_fraction + val_fraction:
@@ -130,6 +191,8 @@ class SplitReport:
     near_duplicate_disjoint: TriState
     held_out_families_absent_from_training: TriState
     dedupe_status: TriState
+    #: :data:`CONTENT_DISJOINT_FAMILIES` share no repo_key, identity_key or context.
+    content_disjoint_families: TriState
 
     @property
     def status(self) -> TriState:
@@ -146,6 +209,13 @@ class SplitReport:
                 "near_duplicate_disjoint": self.near_duplicate_disjoint,
                 "held_out_families_absent_from_training": (
                     self.held_out_families_absent_from_training
+                ),
+                # Only when it ran: its NotRun means no group had two families present,
+                # i.e. nothing that could share content -- not a check that failed to run.
+                **(
+                    {"content_disjoint_families": self.content_disjoint_families}
+                    if isinstance(self.content_disjoint_families, Ran)
+                    else {}
                 ),
             },
             name="split",
@@ -175,6 +245,7 @@ class SplitReport:
                 self.held_out_families_absent_from_training.to_json()
             ),
             "dedupe_status": self.dedupe_status.to_json(),
+            "content_disjoint_families": self.content_disjoint_families.to_json(),
             "status": self.status.to_json(),
         }
 
@@ -220,11 +291,26 @@ def split(
     rows = report.kept
     assignments: list[SplitAssignment] = []
     for row in rows:
-        repo_split = assign_repo(
-            row.repo_key,
-            seed=config.seed,
-            train_fraction=config.train_fraction,
-            val_fraction=config.val_fraction,
+        # A source that pins splits (``Source.pinned_splits``, e.g. cais/mmlu: test and dev
+        # train, validation val) decides the content boundary by its upstream split, not by
+        # the repo hash -- hashing MMLU validation subjects into train is the bug this closes.
+        # The pinned split is part of such a row's repo_key, so repo-disjointness still holds
+        # by construction; a value outside SPLITS is refused loudly, never defaulted.
+        pinned = row.metadata.get(PINNED_SPLIT_KEY)
+        if pinned is not None and pinned not in SPLITS:
+            raise ValueError(
+                f"{row.row_id}: metadata[{PINNED_SPLIT_KEY!r}] is {pinned!r}, which is not one "
+                f"of {SPLITS}"
+            )
+        repo_split = (
+            pinned
+            if pinned is not None
+            else assign_repo(
+                row.repo_key,
+                seed=config.seed,
+                train_fraction=config.train_fraction,
+                val_fraction=config.val_fraction,
+            )
         )
         held_by_family = config.is_held_out_family(row.family_id)
         assignments.append(
@@ -265,6 +351,50 @@ def split(
         near_duplicate_disjoint=nd_ok,
         held_out_families_absent_from_training=fam_ok,
         dedupe_status=report.status,
+        content_disjoint_families=content_disjoint_families(rows),
+    )
+
+
+def content_disjoint_families(rows: tuple[DataRow, ...] | list[DataRow]) -> TriState:
+    """No :data:`CONTENT_DISJOINT_FAMILIES` group shares a repo_key, identity_key or context.
+
+    ``NotRun`` when no group has rows from two or more of its families: disjointness
+    between families that are not both present was not tested, and saying it passed would
+    be the vacuous kind of pass.
+    """
+    tested = 0
+    shared: list[str] = []
+    for group in CONTENT_DISJOINT_FAMILIES:
+        members = [r for r in rows if r.family_id in group]
+        if len({r.family_id for r in members}) < 2:
+            continue
+        tested += len(members)
+        for label, key in (
+            ("repo_key", lambda r: r.repo_key),
+            ("identity_key", lambda r: r.identity_key),
+            ("context", lambda r: r.request.context),
+        ):
+            families_of: dict[object, set[str]] = {}
+            for r in members:
+                families_of.setdefault(key(r), set()).add(r.family_id)
+            both = [k for k, f in families_of.items() if len(f) > 1]
+            if both:
+                shared.append(
+                    f"{sorted(group)} share {len(both)} {label}(s), e.g. {str(both[0])[:80]!r}"
+                )
+    if not tested:
+        return NotRun(
+            reason=(
+                "no content-disjoint family group had rows from two of its families, so "
+                "their disjointness was not tested"
+            )
+        )
+    return Ran(
+        passed=not shared,
+        value=len(shared),
+        n=tested,
+        n_total=tested,
+        detail="; ".join(shared),
     )
 
 

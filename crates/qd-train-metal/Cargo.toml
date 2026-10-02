@@ -1,0 +1,38 @@
+[package]
+name = "qd-train-metal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Lappi's fine-tune on Apple silicon: qd-train's loop driving ojas-qwen35's Qwen3.5 step over canonical tessl, through the shard door, into the scorer's Metal export and a mac-ojas ledger row."
+
+# The adapter half of the Rust trainer (L-trainer). `qd-train` stays portable (no tessl); this
+# crate implements its `StepProvider` for ojas-qwen35's `Qwen35Step`, so ojas never depends on
+# Lappi. The argument parser and the remap check are portable and tested on any host; the
+# provider and the run exist only on macOS, where tessl builds.
+
+[lib]
+name = "qd_train_metal"
+path = "src/lib.rs"
+
+[[bin]]
+name = "qd-train-metal"
+path = "src/main.rs"
+
+[dependencies]
+qd-train = { path = "../qd-train" }
+# The export's `Layout` (the tensor set config.json implies), the same crate qd-train exports
+# through.
+qd-export = { path = "../qd-export" }
+serde_json = { workspace = true }
+
+# Path dependencies only, no registry crates. ojas-qwen35 depends on tessl at `../../tessl`
+# from its own manifest, which is the canonical `~/Code/research/tessl` that qd-metal and
+# qd-export also name (`../../../tessl` from theirs): tessl declares `links = "tessl"`, so one
+# build must see exactly one tessl source. In a worktree under `.claude/worktrees/` both paths
+# go through the local `ojas` and `tessl` symlinks there (never committed). ojas-qwen35 is
+# empty off macOS, so these are target-gated like the code that uses them.
+[target.'cfg(target_os = "macos")'.dependencies]
+ojas-qwen35 = { path = "../../../ojas/ojas-qwen35" }
+ojas-core = { path = "../../../ojas/ojas-core" }

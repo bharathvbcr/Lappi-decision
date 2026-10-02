@@ -1,0 +1,3 @@
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+  progress A-base cuda seed=0: step 1/50 elapsed 2s 1.59s/step 10133 pos/s eta 78s loss 242.4131 peak 42.3GiB
+{"tag": "A-base", "steps": 50, "loss_log_digest": "de620beed25c9d3b05a14a12f649328029e76c9ea7c3dcef62cf20e5edd0badd", "consumed_digest": "985196898403bf5a2954743a2347f63d85d8f533388ff18e42ba9bac1508d56f", "pos_per_s": 15194.3, "peak_alloc_gib": 42.29, "termination": "steps_exhausted"}

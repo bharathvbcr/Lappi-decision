@@ -755,8 +755,17 @@ def test_both_row_kinds_record_what_ran() -> None:
         and isinstance(node.func, ast.Name)
         and node.func.id == "_recorder"
     }
-    assert writers == {"_train", "_record_verdict", "_record_score"}, (
-        f"expected the ft, verdict and eval rows to come from _recorder, got {sorted(writers)}"
+    # run_needle_control (2026-09-30): the --needle-control diagnostic's own eval row.
+    # _record_shuffled_label (2026-09-30): the --shuffled-label control row, which carries
+    # the protocol of the eval row it supplements through _recorder's `protocol`.
+    # run_ood_diagnostic (2026-10-01): a --score-plan kind's OOD-only diagnostic row.
+    # run_composed_slice (2026-10-01): a --score-plan kind's report-only composed-slice row.
+    assert writers == {
+        "_train", "_record_verdict", "_record_score", "run_needle_control",
+        "_record_shuffled_label", "run_ood_diagnostic", "run_composed_slice",
+    }, (
+        "expected the ft, verdict, eval, needle-control, shuffled-label control, OOD "
+        f"diagnostic and composed-slice rows to come from _recorder, got {sorted(writers)}"
     )
 
 

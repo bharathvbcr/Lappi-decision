@@ -154,6 +154,44 @@ pub struct Totals {
     pub mutation_did_not_parse: u64,
 }
 
+/// How the emitted diffs were rendered, and what shape they came out in.
+///
+/// The hunk count is the thing a "which hunk is the defect in" task reads, so it is measured on
+/// the output rather than assumed from the renderer: every v2 diff had exactly one `@@` header,
+/// which is why a needle gate scored on it had nothing to choose between.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiffReport {
+    /// `multi_hunk` (`diffspan::unified_multi`, from the pre-image) or `single_hunk`
+    /// (`diffspan::unified`, the v2 shape). Empty only in a manifest written before this existed.
+    pub renderer: String,
+    /// Lines of unchanged context around each change.
+    pub context: usize,
+    /// `@@` headers per emitted diff -> examples. `0` is an empty diff.
+    pub hunks_per_diff: BTreeMap<usize, u64>,
+    /// The same histogram split by class. A hunk count that differs between `clean` and the
+    /// mutated classes is a shape a model can read the label off without reading the change.
+    pub hunks_per_diff_by_class: BTreeMap<String, BTreeMap<usize, u64>>,
+    /// Mutated examples whose pool record carried no pre-image, so the diff runs from the
+    /// post-image to the mutated text -- the injected edit and nothing else, the v2 pairing.
+    pub mutated_without_prior: u64,
+    /// Clean examples whose pool record carried no pre-image, emitted with an empty diff.
+    pub clean_without_prior: u64,
+}
+
+impl DiffReport {
+    /// Record one emitted example's diff.
+    pub fn note_diff(&mut self, class: &str, diff: &str) {
+        let hunks = diff.lines().filter(|l| l.starts_with("@@ ")).count();
+        *self.hunks_per_diff.entry(hunks).or_insert(0) += 1;
+        *self
+            .hunks_per_diff_by_class
+            .entry(class.to_string())
+            .or_default()
+            .entry(hunks)
+            .or_insert(0) += 1;
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
     pub tool_version: String,
@@ -165,6 +203,10 @@ pub struct Manifest {
     /// Digest of the emitted JSONL, byte for byte. Filled in once the output is written.
     pub examples_sha256: String,
     pub totals: Totals,
+    /// `serde(default)` so a manifest written before diffs were measured still reads -- as an
+    /// empty report with no renderer named, which is what that run recorded.
+    #[serde(default)]
+    pub diff: DiffReport,
     pub languages: Vec<LanguageReport>,
     /// Every refusal in the run, by key. The per-language tables must agree with this; they are
     /// kept separately so a disagreement is visible rather than impossible.
@@ -224,6 +266,7 @@ impl Manifest {
             pool,
             examples_sha256: String::new(),
             totals: Totals::default(),
+            diff: DiffReport::default(),
             languages,
             refusals: BTreeMap::new(),
         }
@@ -341,6 +384,20 @@ impl Manifest {
             self.totals.outside_hunk,
             self.totals.examples_without_hunk_constraint,
         ));
+        let histogram: Vec<String> = self
+            .diff
+            .hunks_per_diff
+            .iter()
+            .map(|(hunks, n)| format!("{hunks}:{n}"))
+            .collect();
+        out.push_str(&format!(
+            "diff {} (context {})  hunks-per-diff {}  without-prior mutated {} clean {}\n",
+            self.diff.renderer,
+            self.diff.context,
+            histogram.join(" "),
+            self.diff.mutated_without_prior,
+            self.diff.clean_without_prior,
+        ));
         for report in &self.languages {
             out.push_str(&format!(
                 "\n[{}] formatter={} files={} refused={} bodies={} (nested {}) examples={} \
@@ -409,6 +466,8 @@ fn operator_of(refusal: &Refusal) -> Option<String> {
         | Refusal::SpanDisagreement { operator, .. }
         | Refusal::CosmeticNotPreserving { operator, .. }
         | Refusal::NoTextualChange { operator }
+        | Refusal::NeedleNotInDiff { operator, .. }
+        | Refusal::NeedleSplitAcrossHunks { operator, .. }
         | Refusal::MutationDidNotParse { operator, .. } => Some(operator.clone()),
         Refusal::NoFormatter { operator, .. } => Some(operator.clone()),
         _ => None,

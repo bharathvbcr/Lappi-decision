@@ -94,6 +94,22 @@ def test_a_missing_val_set_is_refused_with_the_command_that_builds_one(tmp_path)
         )
 
 
+def test_a_report_only_val_set_is_refused_before_it_is_scored(tmp_path) -> None:
+    """Fable slice condition 4: the gate path fails closed on a report-only header, before
+    the remap, the labels or a tower are touched."""
+    from test_shards import _report_only, _snapshot
+
+    from qd_train.artifacts import ShardContractViolation
+
+    snap = _snapshot(tmp_path)
+    _report_only(snap, tmp_path / "shards" / "val")
+    with pytest.raises(ShardContractViolation, match="not a gate population"):
+        rft.open_val_set(
+            tmp_path, config=DataConfig(), rev="HEAD", rows=[], train=None,  # type: ignore[arg-type]
+            letter_id={},
+        )
+
+
 def test_score_val_without_the_epoch_arm_is_refused_before_anything_loads(tmp_path) -> None:
     with pytest.raises(SystemExit, match="--epoch was not passed"):
         rft.main(["--out", str(tmp_path), "--score-val"])
@@ -142,6 +158,61 @@ def test_the_ece_gate_does_not_pass_on_the_per_k_half_of_its_breakdown() -> None
     assert "no language" in ece.reason
 
 
+def _calibrated(language: str | None, n: int, start: int = 0) -> list[dict[str, object]]:
+    rows = [
+        _letter("choice", [40.0, 0.0, 0.0] if i % 2 else [0.0, 40.0, 0.0], 0 if i % 2 else 1, i)
+        for i in range(start, start + n)
+    ]
+    for v in rows:
+        v["language"] = language
+    return rows
+
+
+def test_with_every_row_in_a_language_the_ece_gate_runs_per_language() -> None:
+    """GAP-FT-ECE-HAS-NO-LANGUAGE-TO-SPLIT-BY: code.defect_class rows carry a language, so
+    the per-language half is computable and the gate is judged on both halves."""
+    verdicts = _calibrated("python", 120) + _calibrated("go", 120, start=120)
+    metrics, ece, _ = rft.calibration_states({"verdicts": verdicts})
+    for lang in ("python", "go"):
+        got = metrics[f"ece.lang.{lang}"]
+        assert isinstance(got, Ran) and got.passed and got.n == 120
+    assert "ece.lang" not in metrics
+    assert isinstance(ece, Ran) and ece.passed
+
+
+def test_one_language_failing_fails_the_gate_the_pooled_number_would_hide() -> None:
+    """Calibrated python, over-confident wrong go: a pooled ECE averages the two."""
+    wrong = _calibrated("go", 120, start=120)
+    for v in wrong:
+        v["gold_row"] = 2
+    metrics, ece, _ = rft.calibration_states({"verdicts": _calibrated("python", 120) + wrong})
+    assert metrics["ece.lang.python"].passed and not metrics["ece.lang.go"].passed
+    assert isinstance(ece, Ran) and ece.passed is False
+
+
+def test_rows_without_a_language_keep_the_gate_not_run_beside_those_with_one() -> None:
+    verdicts = _calibrated("python", 120) + _calibrated(None, 5, start=120)
+    metrics, ece, _ = rft.calibration_states({"verdicts": verdicts})
+    assert isinstance(metrics["ece.lang.python"], Ran)
+    assert isinstance(ece, NotRun) and "5 of 125 letter rows" in ece.reason
+
+
+def test_a_language_spanning_two_slot_shapes_is_not_pooled() -> None:
+    verdicts = [
+        *_calibrated("rust", 120),
+        {**_letter("choice", [0.0, 9.0, 0.0, 0.0], 1, 999), "language": "rust"},
+    ]
+    got = rft.language_eces(verdicts)["ece.lang.rust"]
+    assert isinstance(got, NotRun) and "span slot shapes" in got.reason
+
+
+def test_labels_carry_the_rows_language_and_decode_copies_it_onto_the_verdict() -> None:
+    import inspect
+
+    assert '"language": label.language,' in inspect.getsource(rft._decode)
+    assert 'row.metadata.get("language")' in inspect.getsource(rft._labels)
+
+
 def test_a_group_under_the_sample_floor_is_not_run_rather_than_a_small_ece() -> None:
     metrics, _, _ = rft.calibration_states(
         {"verdicts": [_letter("score", [1.0, 0.0, 0.0, 0.0], 0, i) for i in range(30)]}
@@ -168,8 +239,30 @@ def test_with_no_letter_rows_neither_the_gate_nor_the_control_claims_to_have_run
 
 
 def test_decode_keeps_the_distribution_its_verdict_was_an_argmax_of() -> None:
-    """``_decode`` needs a trained step to run; the end-to-end check is the stand-in run in
-    the commit message. This pins that the field the two functions above read is written."""
-    import inspect
+    """The field the two functions above read is written, and it is the distribution the
+    verdict's argmax was taken over: the slice of the head at the slot's letters, in decode
+    order, at ``target_index``. Checked on the stand-in step, against its own head."""
+    import numpy as np
+    import torch
 
-    assert '"row_logits": logits[' in inspect.getsource(rft._decode)
+    from qd_data.schema import NOUL_LETTER
+    from qd_train.artifacts import NO_SPAN, SLOT_CHOICE
+    from qd_train.shards import assemble_batch
+
+    batch = assemble_batch(
+        [np.arange(3, 23, dtype=np.int32)], kinds=np.asarray([SLOT_CHOICE]),
+        target_index=np.asarray([18]), spans=np.asarray([[NO_SPAN, NO_SPAN]]),
+        candidates=[()], width=20, bucket=20, index=0,
+    )
+    step = rft.RealFtStep(seed=3, device="cpu", vocab=64, width=32, hidden=8, heads=2,
+                          lr=1e-3, span_weight=1.0)
+    letter_id = {"A": 40, "B": 41, "C": 42, NOUL_LETTER: 50}
+    label = rft.Label(row_id="r0", family_id="code.defect_class", slot_name="defect_class",
+                      slot_kind=SLOT_CHOICE, gold_letter="B",
+                      letters=("A", "B", "C", NOUL_LETTER))
+    (verdict,) = rft._decode(step, [batch], {0: [label]}, letter_id)["verdicts"]
+    with torch.no_grad():
+        expected = step.lm_head(step.hidden(batch))[0, 18, [40, 41, 42, 50]]
+    assert verdict["row_logits"] == expected.double().tolist()
+    assert verdict["top"] == int(expected.argmax()) and verdict["noul_row"] == 3
+    assert verdict["noul_probability"] == pytest.approx(float(torch.softmax(expected, -1)[3]))

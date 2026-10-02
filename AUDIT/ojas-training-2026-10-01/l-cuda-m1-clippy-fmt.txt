@@ -1,0 +1,15 @@
+== date
+Fri Oct  2 02:01:13 UTC 2026
+== cargo clippy --offline --all-targets --features cuda -- -D warnings (fresh target dir)
+    Checking ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.78s
+clippy cuda exit=0
+== cargo clippy --offline --all-targets -- -D warnings (fresh target dir)
+    Checking ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.68s
+clippy host exit=0
+== cargo fmt --check (check only; never cargo fmt)
+cargo fmt --check exit=0
+== rustfmt --check on every .rs file in the crate, one at a time
+DIFF /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/tessl/gdn_train_published.rs
+rustfmt --check: 93 files, 1 with a diff

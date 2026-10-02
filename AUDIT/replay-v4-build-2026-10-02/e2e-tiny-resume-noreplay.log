@@ -1,0 +1,92 @@
+minhash: 1146 distinct sets signed by /Users/bharath/qd-campaign/target-replay-a502670/release/qd-prep in 0.1 s (shingling and canaries included), 2292 lookups, 8 canaries equal to the reference; 1146 distinct texts shingled once, 2292 lookups
+lsh: 2 candidate-pair searches banded by /Users/bharath/qd-campaign/target-replay-a502670/release/qd-prep in 0.1 s (canaries included), 10 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+shard set: /Users/bharath/qd-campaign/replay-v4-2026-10-02/e2e/out-plain/shards/train
+  rows in -> out: 826 -> 826  (0 excluded)  tokens 137506  vocab 248320
+  choice  n= 826  len 137..283 (mean 166.5)  gold is noul: 0  rendered rows [5, 6]
+  letter rows whose gold is noul: 0 of 826
+  prompt-identical rows: 0 of 826; of those, 0 rows in 0 groups carry DIFFERENT golds ({})
+  letters -> post-remap ids: {'A': 32, 'B': 33, 'C': 34, 'D': 35, 'E': 36, 'F': 37, 'G': 38, 'H': 39, 'I': 40, 'J': 41, 'K': 42, 'L': 43, 'M': 44, 'N': 45, 'O': 46, 'P': 47, 'Z': 57}
+  padding waste: 598 padding of 138104 positions (0.43%) over 826 sequences; gate is <= 15%. buckets=[142, 145, 147, 149, 151, 153, 154, 156, 157, 158, 160, 161, 163, 166, 169, 172, 174, 176, 181, 184, 187, 190, 193, 198, 201, 205, 210, 215, 223, 231, 246, 283]
+  span_check: {"state": "not_run", "reason": "this shard set holds no SLOT_SPAN sequences, so there was no line-to-token mapping to verify. 0 of 0 verified is not a pass."}
+  remap beside the shards: {"state": "ran", "passed": true, "value": "e7d0890c547b43811f93e50dc0e582ba35eb2e75706ee0ad27186d6a89d502ab", "n": 248320, "n_total": 248320, "detail": "/Users/bharath/qd-campaign/
+  epoch at batch_tokens=283: 826 batches, 0 carry a span row, 0 have no letter row; letter-channel chunks 826 live of 1655
+devices: ['cpu'] (from --devices; auto-detection skipped)
+
+feasibility, one forward+backward per bucket width, in a subprocess:
+  (a 128x4 stand-in, NOT the real tower: this establishes the device and the shape, not that the real model fits)
+  cpu bucket 0 (1 x 142): ok 1.325s
+  cpu bucket 1 (1 x 145): ok 1.602s
+  cpu bucket 2 (1 x 147): ok 1.67s
+  cpu bucket 3 (1 x 149): ok 1.26s
+  cpu bucket 4 (1 x 151): ok 1.457s
+  cpu bucket 5 (1 x 153): ok 1.346s
+  cpu bucket 6 (1 x 154): ok 1.403s
+  cpu bucket 7 (1 x 156): ok 1.429s
+  cpu bucket 8 (1 x 157): ok 1.426s
+  cpu bucket 9 (1 x 158): ok 1.444s
+  cpu bucket 10 (1 x 160): ok 1.427s
+  cpu bucket 11 (1 x 161): ok 1.324s
+  cpu bucket 12 (1 x 163): ok 1.33s
+  cpu bucket 13 (1 x 166): ok 1.482s
+  cpu bucket 14 (1 x 169): ok 1.35s
+  cpu bucket 15 (1 x 172): ok 1.322s
+  cpu bucket 16 (1 x 174): ok 1.408s
+  cpu bucket 17 (1 x 176): ok 1.215s
+  cpu bucket 18 (1 x 181): ok 1.243s
+  cpu bucket 19 (1 x 184): ok 1.4s
+  cpu bucket 20 (1 x 187): ok 1.212s
+  cpu bucket 21 (1 x 190): ok 1.209s
+  cpu bucket 22 (1 x 193): ok 1.15s
+  cpu bucket 23 (1 x 198): ok 1.095s
+  cpu bucket 24 (1 x 201): ok 1.087s
+  cpu bucket 25 (1 x 205): ok 1.096s
+  cpu bucket 26 (1 x 210): ok 1.124s
+  cpu bucket 27 (1 x 215): ok 1.099s
+  cpu bucket 28 (1 x 223): ok 1.102s
+  cpu bucket 29 (1 x 231): ok 1.034s
+  cpu bucket 30 (1 x 246): ok 1.07s
+  cpu bucket 31 (1 x 283): ok 1.295s
+
+arm 2 plan: every real batch at most 5383 wide -> 826 of 826 batches, 826 of 826 sequences, slot kinds ['choice'] of ['choice']
+resume: /Users/bharath/qd-campaign/replay-v4-2026-10-02/e2e/tiny-ckpt/epoch-seed0-cpu.json at optimizer step 826, batch index 826, seed 0
+
+arm 2: NOT RUN -- --no-memorise
+[ERROR] `loss` is part of Qwen3_5CausalLMOutputWithPast.__init__'s signature, but not documented. Make sure to add it to the docstring of the function in /Users/bharath/.venvs/ml/lib/python3.14/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py.
+[ERROR] `logits` is part of Qwen3_5CausalLMOutputWithPast.__init__'s signature, but not documented. Make sure to add it to the docstring of the function in /Users/bharath/.venvs/ml/lib/python3.14/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py.
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+Traceback (most recent call last):
+  File "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-aec48b6b66c6635c1/target/scratch/run_tiny.py", line 45, in <module>
+    runpy.run_path(script, run_name="__main__")
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen runpy>", line 294, in run_path
+  File "<frozen runpy>", line 98, in _run_module_code
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/l-replay-a502670/tools/real_ft_run.py", line 8864, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/l-replay-a502670/tools/real_ft_run.py", line 8706, in main
+    run = _train(
+        reader=reader, plan=plan_all, passes=1, device=device, seed=seed,
+    ...<25 lines>...
+        fused_adamw=args.fused_adamw,
+    )
+  File "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/l-replay-a502670/tools/real_ft_run.py", line 2389, in _train
+    result = train_ft(
+        source(),
+    ...<14 lines>...
+        ),
+    )
+  File "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/l-replay-a502670/python/qd_train/trainer.py", line 998, in train_ft
+    return _train(
+        batches,
+    ...<8 lines>...
+        on_progress=on_progress,
+    )
+  File "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/l-replay-a502670/python/qd_train/trainer.py", line 700, in _train
+    step.load_state(resume_from.model_state)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/l-replay-a502670/python/qd_train/backbone.py", line 1341, in load_state
+    raise BackboneContractViolation(
+    ...<4 lines>...
+    )
+qd_train.backbone.BackboneContractViolation: this checkpoint state carries ['replay'], which QwenDecisionStep.state never writes. It was taken under a wrapper (e.g. replay) this run does not have; resuming it here would continue a different objective without saying so.

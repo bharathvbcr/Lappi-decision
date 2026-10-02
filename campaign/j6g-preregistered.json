@@ -1,0 +1,68 @@
+{
+  "recorded": "2026-10-02 ~05:00 UTC, before any J6(g) row exists: no J6(g) run, waiter, checker or ledger exists anywhere. The box ledger /home/ubuntu/ledger/gh200-p4-v4-2026-10-01.jsonl holds six rows, checked read-only at 04:57 UTC. Five are F seed 0's: ft 973cd4e3, eval f4feac15, needle control a4f244f0, letter control c89b89a1, option control 4e8ec654. The sixth is F seed 1's ft row 95fa4854, completed and written at 04:17:18 UTC. F seed 1's eval is running; F seed 2 has not started.",
+  "decision": "Fable (2026-10-02, optimize/decontaminate/improve ruling, Q1(b) and Q3; AUDIT/fable-optimize-2026-10-02/fable-optimize-ruling.md). This is J6(g)'s reading rule: F plus train-time option permutation, on v4, seed 0, quick. It is not a gate and moves no gate (rule 2). Nothing promotes on it (rule 8): one seed, quick by construction. 'wins' feeds the next re-plan only and starts nothing automatically.",
+  "launch": "Prepared now. It launches only after the human says yes to the rental hours (about 5 h on the GH200 beyond the idle queue). Fable: 'the hours are the human's, the dollars are under the standing yes'. Expected cost: about $11 on the ledger-row basis (F seed 0's ft row 973cd4e3 records cost_usd 10.19), under the single-GPU per-run cap of $20.61 (campaign/post-f-queue/post_f_common.sh:69-70).",
+  "win_definition_source": {
+    "file": "campaign/j6a-preregistered.json (win_definition_source), itself campaign/f-v4-preregistered.json:13 (j6b_evidence.win_definition)",
+    "substitution": "F's three seeds' rows in place of J4's, and J6(g)'s one seed-0 run in place of J6(b)'s. Measured on the metrics option permutation is meant to move (targets below). No gate-bearing defect_class metric, and no other guard below, may leave F's envelope in the wrong direction."
+  },
+  "envelope": "Exactly campaign/f-successor-preregistered.json's envelope. That means F seeds 0, 1 and 2 only, never seeds 3-4. Per seed: the completed ft row and its one completed epoch-score-val eval row, giving min, max and range per metric. No needle-control or letter-control row is required.",
+  "comparison": "Exactly campaign/f-successor-preregistered.json's comparison as amended at 56d74cf: target_clears (strict, R7); its Room clause (R9_room, decided from the envelope alone); guard_loses (strict); count forms on the integers n / n_total (i128); and ECE compared on the recorded f64 (lower is better). Every target must clear (as campaign/j6a-preregistered.json comparison, R3).",
+  "arm": {
+    "what": "J6(g): F's recipe (campaign/f-v4-preregistered.json recipe.flags, as F seed 0's ft row 973cd4e3 records it) plus --option-permutation-seed 20260919, seed 0. Run by tools/real_ft_run.py at a502670 from box lane qd-lane8, which is untouched, on F's own data (no data change). Idle-queue item j6g, appended after j6a: rung0 -> cudadev -> rungd -> fsucc -> j5pp -> j6a -> j6g -> STOP. Its waiter waits for j5pp.done and then for j6a if j6a is queued; it does not wait on j6a.done alone, because j6a.queued is absent while j6a's pins are UNSET.",
+    "ledger": "/home/ubuntu/ledger/gh200-j6g-v4-2026-10-02.jsonl",
+    "option_permutation": {
+      "seed": 20260919,
+      "what": "An exact token-space swap of option spans per pass (python/qd_train/trainer.py:1019-1047 per Fable; placement at a502670 to be verified by the lane before the waiter is staged). It adds no compute, and row lengths are unchanged.",
+      "why": "Fable Q1(b)/Q3: train-time option permutation is OFF in F (973cd4e3's recipe has no option_permutation_seed). It is the cheapest lever on permutation_consistency, and through the abstain rule on in-distribution abstention, for the two general families (GAP-F-TRAINS-WITHOUT-OPTION-PERMUTATION-2026-10-02).",
+      "stop_gate": "Before the waiter is staged, a Mac prelude in f_prelude_box.py's form, at a502670 on the real v4 plan, must print the 'Option permutation seed ... choice rows re-permuted' line. It must refuse no row (no PermutationRefusal). If a502670 validates option blocks only lazily during training and not before it, J6(g) is not staged and the lead re-plans. Fable: the only real-tower run of the flag so far is the 09-29 memorise smoke 246249ed, never an epoch."
+    },
+    "identity": {
+      "ft_row": "completed; protocol.seed 0; recipe.tag 'epoch'; code_commit a5026707b6e3e57c253be32003ba32420f2d78e2 (as F's 973cd4e3); quick true (one seed, by construction); protocol.data_snapshot_hash equal to F's ea3215c4f36d57f74d291fb94c3fa8724fa5a14a303ea7572aa0dafb2a0933a1.",
+      "recipe": "Equal to F seed 0's ft recipe (973cd4e3), including shard_hash, batches (9683) and width (7936), except exactly one added key: option_permutation_seed = 20260919. Any other difference refuses.",
+      "eval_row": "tag epoch-score-val; metrics.ft_run_row_id = the J6(g) ft row; recipe.val_shard_hash = ef06ab99eef107dd608424c80117b81b3986ce5ea827d2d4f47f990d960b1bc5 (F's); recipe.needle and recipe.ood equal F seed 0's eval row f4feac15 (as campaign/f-successor-preregistered.json comparison.comparability)."
+    },
+    "declared_data_delta": "None. J6(g) trains on F's v4 train set and is scored on F's val set; arm_identity holds unchanged. Any data difference refuses.",
+    "confounds": "J6(g) differs from F in one way: the per-pass option order of choice rows. Training order of rows is F seed 0's, under the same keyed draw. The val set keeps its 215 E_val keys (183 MMLU, 32 CSQA), exactly as F's does, so the contamination caveat applies to J6(g) and F alike. The excluded re-score companion reading (report_only) carries it.",
+    "targets": [
+      {"name": "permutation_consistency.family.knowledge.multiple_choice", "direction": "higher", "form": "count", "f_seed0": "1168/1485"},
+      {"name": "permutation_consistency.family.commonsense.multiple_choice", "direction": "higher", "form": "count", "f_seed0": "1053/1197"},
+      {"name": "ood_abstain.in_distribution.family.knowledge.multiple_choice", "direction": "lower", "form": "count", "f_seed0": "317/1485"},
+      {"name": "ood_abstain.in_distribution.family.commonsense.multiple_choice", "direction": "lower", "form": "count", "f_seed0": "144/1197"}
+    ],
+    "guards": [
+      {"name": "val_top1.choice", "direction": "higher", "form": "count", "f_seed0": "9130/10985"},
+      {"name": "val_top1.span", "direction": "higher", "form": "count", "f_seed0": "6529/7238"},
+      {"name": "permutation_consistency.family.code.defect_class", "direction": "higher", "form": "count", "f_seed0": "2291/2304"},
+      {"name": "ece.family.code.defect_class.choice.k4", "direction": "lower", "form": "f64", "f_seed0": "0.02070706058909458"},
+      {"name": "needle_8k_worst_bucket", "direction": "higher", "form": "needle_worst_bucket (campaign/f-successor-preregistered.json comparison.needle_worst_bucket)", "f_seed0": "40/61"},
+      {"name": "ood_abstain.in_distribution.family.code.defect_class", "direction": "lower", "form": "count", "f_seed0": "13/2304"},
+      {"name": "ood_abstain.prose", "direction": "higher", "form": "count", "f_seed0": "54/60"},
+      {"name": "ood_abstain.scrambled", "direction": "higher", "form": "count", "f_seed0": "58/60"},
+      {"name": "ood_abstain.unseen-language", "direction": "higher", "form": "count", "f_seed0": "20/60"}
+    ],
+    "report_only": [
+      "The same-quantity note (GAP-ABSTAIN-GATE-IN-DIST-EQUALS-PERMUTATION-DISAGREEMENT-2026-10-02). On F seed 0, each general family's in-distribution abstentions equal its derangement disagreements (317 and 144), so the four targets are two quantities there. On J6(g), permutation may create rows where both passes answer noul, so the abstention targets are then a real second reading. Report per family: J6(g)'s disagreements, its both-noul rows, and their sum against its abstentions.",
+      "ece.family.knowledge.multiple_choice.choice.k4 (F seed 0: 0.04887944109270696)",
+      "ece.family.commonsense.multiple_choice.choice.k5 (F seed 0: 0.02780782118368005)",
+      "MMLU's last-option bias: qd-gate-report's g3 classes[last option].predicted.deviation_sigma on the k4 slot of knowledge.multiple_choice (crates/qd-runtime/src/bin/qd_gate_report.rs:860-873), reported for F's seeds and J6(g) through tools/gate_report_row.py",
+      "paired_margin_vs_linear.choice.{knowledge,commonsense}.multiple_choice, if a letter-control row is run for J6(g)",
+      "The excluded re-score companion reading. J6(g) and F seeds 0-2 are recomputed over MMLU/CSQA val rows outside E_val, and over E_val alone, by qd-gate-report --exclude-rows. These are written as tag gate-report-excluded, never epoch-score-val."
+    ]
+  },
+  "readings": {
+    "status": "These are the lead's readings where Fable's text leaves a choice, fixed here before any J6(g) row exists. Fable or the human may strike or amend any of them by commit before J6(g)'s eval row's written_at.",
+    "R1_recipe_keys": "No data change, so recipe.batches and recipe.width are compared to F's (9683, 7936) like every other key. If a502670 records any key beyond option_permutation_seed when the flag is on, the lane reports it. The lead then amends arm.identity.recipe by commit before the waiter is staged, and until that amendment exists the checker refuses.",
+    "R2_ledger": "J6(g)'s ft and eval rows are read from arm.ledger only. A second completed epoch-score-val row for the J6(g) ft row refuses (as the successor's row_selection does).",
+    "R3_order_after_j6a": "J6(g) runs after j6a whatever fsucc reads. fsucc, j5pp and j6a decide F's successor and the replay ablation; J6(g) is read against F's envelope only, and neither outcome changes that comparison. If fsucc fires, J6(g) still runs after j5pp, and the human's rental decision covers the extra hours either way."
+  },
+  "outcomes": {
+    "words": ["wins", "quiet", "refused"],
+    "wins": "every target clears and no guard loses. It feeds the next re-plan only.",
+    "quiet": "every required row and metric was read, every target had room, and J6(g) does not win (a target did not clear, or a guard lost).",
+    "refused": "One of two cases. (a) A required row is missing, doubled or not completed; a required metric is absent or did not run; a recorded value disagrees with its own counts; or an identity, data or comparability check fails. (b) A target has no room under R9_room (cannot_clear). Neither case is ever read as quiet."
+  },
+  "checker": "A qd-post-f-rules j6g subcommand (crates/qd-runtime/src/bin/qd_post_f_rules.rs). It reuses the successor's count arithmetic and Room, with this file's identity (F's data, one added recipe key). It must exist before J6(g)'s rows are read. This JSON is what binds; the checker implements it, and a disagreement between them refuses.",
+  "binds_iff": "This file is on main before the written_at of J6(g)'s epoch-score-val eval row in arm.ledger. If not, the rule is not applied to a row that already existed when it was chosen, and the human decides from the rows.",
+  "committed_by": "the lead (Claude, main checkout), 2026-10-02, from Fable's ruling text (AUDIT/fable-optimize-2026-10-02/fable-optimize-ruling.md, Q1(b) and Q3, 'J6(g) pre-registration'), under the human's standing instruction to follow Fable's recommendations. Targets, guards and seed-0 values are copied from campaign/j6a-preregistered.json, which the lead checked against f4feac15 in ledger/gh200-p4-v4-2026-10-01.jsonl."
+}

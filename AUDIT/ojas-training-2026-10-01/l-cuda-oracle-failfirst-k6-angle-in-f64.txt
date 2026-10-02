@@ -1,0 +1,28 @@
+   Compiling ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.11s
+     Running tests/reference_kernels.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_kernels-832438b77d9d6ca3)
+
+running 5 tests
+test k6_norm_rope_backward_is_the_derivative ... ok
+test k6_norm_rope_matches_tessls_transformers_fixture_at_position_20000 ... FAILED
+test k6_norm_rope_matches_the_torch_golden_given_the_angle ... ok
+test k6_output_gate_matches_the_torch_golden_and_its_derivative ... ok
+test k6_rope_angle_is_transformers_f32_angle ... ok
+
+failures:
+
+---- k6_norm_rope_matches_tessls_transformers_fixture_at_position_20000 stdout ----
+
+thread 'k6_norm_rope_matches_tessls_transformers_fixture_at_position_20000' (137486424) panicked at tests/reference_kernels.rs:137:17:
+q t0 h0 [1]: 4.343e-5
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    k6_norm_rope_matches_tessls_transformers_fixture_at_position_20000
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--test reference_kernels`
+error: 1 target failed:
+    `--test reference_kernels`

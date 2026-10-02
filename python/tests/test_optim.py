@@ -514,3 +514,169 @@ def inspect_signature_params(fn) -> set[str]:
     import inspect
 
     return set(inspect.signature(fn).parameters)
+
+
+# -- layer-wise lr: one writer of group["lr"], honoured by every driver ---------------------
+
+
+def _two_group_optimizer(params: list[torch.nn.Parameter]) -> torch.optim.AdamW:
+    """The first tensor at 0.1x, the rest at 1.0x -- the shape `layerwise_param_groups`
+    builds, without needing a tower whose names carry ``layers.<i>.``."""
+    return torch.optim.AdamW(
+        [
+            {"params": params[:1], "lr_scale": 0.1, "name": "base_lower"},
+            {"params": params[1:], "lr_scale": 1.0, "name": "base"},
+        ],
+        lr=1.0,
+    )
+
+
+def _driver_step(which: str) -> object:
+    tools = Path(__file__).resolve().parents[2] / "tools"
+    if str(tools) not in sys.path:
+        sys.path.insert(0, str(tools))
+    if which == "Rung0Step":
+        from qd_train.byte_train import Rung0Model, Rung0Step
+
+        return Rung0Step(Rung0Model())
+    if which == "RealFtStep":
+        from real_ft_run import RealFtStep
+
+        return RealFtStep(seed=0, device="cpu", vocab=32, width=8, hidden=16, heads=2,
+                          lr=1e-3, span_weight=1.0)
+    from ft_toy_run import ToyFtStep
+
+    return ToyFtStep(seed=0, device="cpu")
+
+
+@pytest.mark.parametrize("which", ["Rung0Step", "RealFtStep", "ToyFtStep"])
+def test_every_driver_applies_the_schedule_times_the_groups_lr_scale(which: str) -> None:
+    """The defect: each driver wrote ``group["lr"] = lr`` into every group, so a group built
+    at 0.1x trained at 1x from its first step. Pre-fix this read 1e-3 for the scaled group
+    at all three of these drivers (``QwenDecisionStep`` is pinned in test_backbone.py)."""
+    step = _driver_step(which)
+    params = list(step.optimizer.param_groups[0]["params"])  # type: ignore[attr-defined]
+    step.optimizer = _two_group_optimizer(params)  # type: ignore[attr-defined]
+    step.apply(lr=1e-3)  # type: ignore[attr-defined]
+    lower, base = step.optimizer.param_groups  # type: ignore[attr-defined]
+    assert lower["lr"] == pytest.approx(1e-4), f"{which} ignored lr_scale"
+    assert base["lr"] == pytest.approx(1e-3), which
+
+
+def test_apply_lr_refuses_a_non_positive_rate_and_a_bad_scale() -> None:
+    from qd_train.optim import apply_lr
+
+    opt = _two_group_optimizer(
+        [torch.nn.Parameter(torch.zeros(2)), torch.nn.Parameter(torch.zeros(2))]
+    )
+    for bad in (0.0, -1e-3, float("nan")):
+        with pytest.raises(ValueError, match="lr must be positive and finite"):
+            apply_lr(opt, bad)
+    opt.param_groups[0]["lr_scale"] = 0.0
+    with pytest.raises(ValueError, match="lr_scale must be finite and positive"):
+        apply_lr(opt, 1e-3)
+
+
+def test_layerwise_groups_follow_rsi_s_rule_and_refuse_an_empty_split() -> None:
+    from qd_train.optim import layerwise_param_groups
+
+    names = [f"layers.{i}.mlp.weight" for i in range(4)] + ["norm.weight", "embed_tokens.weight"]
+    named = [(n, torch.nn.Parameter(torch.zeros(2))) for n in names]
+    extra = [torch.nn.Parameter(torch.zeros(2))]
+    base, lower = layerwise_param_groups(
+        named, lower_layers_n=2, lower_lr_scale=0.1, extra=extra
+    )
+    assert lower["lr_scale"] == 0.1 and base["lr_scale"] == 1.0
+    assert [id(p) for p in lower["params"]] == [id(named[0][1]), id(named[1][1])]
+    assert len(base["params"]) == 5  # layers 2,3 + norm + embed + the span head
+    with pytest.raises(ValueError, match="matched no trainable parameter"):
+        layerwise_param_groups(
+            [("norm.weight", named[4][1])], lower_layers_n=2, lower_lr_scale=0.1
+        )
+    with pytest.raises(ValueError, match="deepest layer is 3"):
+        layerwise_param_groups(named, lower_layers_n=5, lower_lr_scale=0.1)
+    with pytest.raises(ValueError, match="at least 1"):
+        layerwise_param_groups(named, lower_layers_n=0, lower_lr_scale=0.1)
+
+
+def test_build_optimizer_carries_group_scales_into_both_recipes() -> None:
+    from qd_train.optim import apply_lr, build_optimizer
+
+    for spec, dtype in ((ADAMW_FP32, torch.float32), (MASTER_SPEC, torch.bfloat16)):
+        a = torch.nn.Parameter(torch.zeros(4, dtype=dtype))
+        b = torch.nn.Parameter(torch.zeros(4, dtype=dtype))
+        opt = build_optimizer(
+            [{"params": [a], "lr_scale": 0.1}, {"params": [b], "lr_scale": 1.0}],
+            spec=spec, lr=1e-3, total_steps=10,
+        )
+        assert [g["lr"] for g in opt.param_groups] == pytest.approx([1e-4, 1e-3]), spec.name
+        apply_lr(opt, 2e-3)
+        assert [g["lr"] for g in opt.param_groups] == pytest.approx([2e-4, 2e-3]), spec.name
+
+
+# -- beta2 as a parameter, and the fidelity check asked at the beta2 actually used -----------
+
+
+def test_beta2_reaches_both_optimizers_and_defaults_to_torch_s_value() -> None:
+    from qd_train.optim import DEFAULT_BETA2, build_optimizer
+
+    assert DEFAULT_BETA2 == 0.999
+    fp32 = build_optimizer(
+        [torch.nn.Parameter(torch.zeros(4))], spec=ADAMW_FP32, lr=1e-3, total_steps=10
+    )
+    assert fp32.param_groups[0]["betas"] == (0.9, 0.999)
+    for spec, p in (
+        (ADAMW_FP32, torch.nn.Parameter(torch.zeros(4))),
+        (MASTER_SPEC, _bf16_param()),
+    ):
+        opt = build_optimizer([p], spec=spec, lr=1e-3, total_steps=10, beta2=0.95)
+        assert opt.param_groups[0]["betas"] == (0.9, 0.95), spec.name
+
+
+def test_the_bf16_fidelity_check_is_asked_at_the_optimizers_own_beta2() -> None:
+    """bf16 at 0.95 settles 1.95% low after 64 steps -- measured by ``moment_settling`` on
+    this host -- against 50% low after 384 at 0.999. So a 100-step bf16 run is admitted at
+    0.999 and refused at 0.95. Before beta2 was a parameter the check could only ever ask
+    0.999's question, whatever optimizer it was guarding."""
+    from qd_train.optim import build_optimizer, moment_settling
+
+    s = moment_settling(dtype=torch.bfloat16, beta2=0.95)
+    assert s.settled_at_step == 64 and not s.is_faithful
+    build_optimizer([_bf16_param()], spec=ADAMW_BF16, lr=1e-4, total_steps=100)
+    with pytest.raises(ValueError, match=r"beta2=0\.95"):
+        build_optimizer(
+            [_bf16_param()], spec=ADAMW_BF16, lr=1e-4, total_steps=100, beta2=0.95
+        )
+
+
+# -- fused AdamW over the masters (Tier B: a numerics change, so opt-in and recorded) -------
+
+
+def test_fused_builds_torchs_fused_kernel_over_the_masters_and_default_does_not() -> None:
+    fused = build_optimizer([_bf16_param()], spec=MASTER_SPEC, lr=1e-4, total_steps=100,
+                            fused=True)
+    plain = build_optimizer([_bf16_param()], spec=MASTER_SPEC, lr=1e-4, total_steps=100)
+    assert fused.param_groups[0]["fused"] is True
+    assert not plain.param_groups[0]["fused"], "the default must stay torch's foreach AdamW"
+
+
+def test_fused_tracks_the_default_update_closely_but_is_its_own_recipe() -> None:
+    """Same rule, different rounding: close, which is why it is Tier B and not Tier A."""
+    torch.manual_seed(0)
+    grads = [torch.randn(256) for _ in range(20)]
+    out = []
+    for fused in (False, True):
+        p = torch.nn.Parameter(torch.linspace(-1, 1, 256).to(torch.bfloat16))
+        opt = MasterWeightAdamW([p], lr=1e-3, fused=fused)
+        for g in grads:
+            p.grad = g.to(torch.bfloat16)
+            opt.step()
+            opt.zero_grad(set_to_none=True)
+        out.append(opt._masters[0].detach().clone())
+    assert torch.allclose(out[0], out[1], rtol=0, atol=1e-6)
+
+
+def test_fused_on_a_recipe_without_masters_is_refused() -> None:
+    with pytest.raises(ValueError, match="fp32-master recipe only"):
+        build_optimizer([_bf16_param()], spec=ADAMW_BF16, lr=1e-4, total_steps=100,
+                        fused=True)

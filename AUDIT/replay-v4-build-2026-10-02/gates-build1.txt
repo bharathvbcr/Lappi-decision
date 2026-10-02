@@ -1,0 +1,36 @@
+PASS  val shard_hash: ef06ab99eef107dd608424c80117b81b3986ce5ea827d2d4f47f990d960b1bc5
+PASS  val manifest data_snapshot_hash: 69d45fd04fad01751b3f102f09041c0ba67176e44725dbeb977d550f4b0abbd4
+PASS  held-out manifest data_snapshot_hash == v4's: 116a67c46e030bcffef3bbbd8dbabed7e5763f5bddc28c324df16e4dc72ef7a5 vs v4 116a67c46e030bcffef3bbbd8dbabed7e5763f5bddc28c324df16e4dc72ef7a5
+PASS  train remap_hash: e7d0890c547b43811f93e50dc0e582ba35eb2e75706ee0ad27186d6a89d502ab
+PASS  val remap_hash: e7d0890c547b43811f93e50dc0e582ba35eb2e75706ee0ad27186d6a89d502ab
+PASS  replay remap_hash: e7d0890c547b43811f93e50dc0e582ba35eb2e75706ee0ad27186d6a89d502ab
+PASS  replay manifest data_snapshot_hash: 19a772846da4b759cf6509dca9be642bf8d01ddccb2015e8215f42532946ba84
+PASS  replay manifest rows: 3568
+PASS  every drawn replay row is a v4 train row: 0 not
+PASS  train.json == v4 train minus the 3,568 drawn row_ids (row_id, content_hash): 285574 entries; diff 0
+PASS  train rows == 285,574: 285574
+PASS  train manifest hash differs from F's ea3215c4: 895d393b632aa417250578b04e22a559985f5145a98ad59c81907a75a6f7097a
+PASS  recipe keys shared with d96409bd are equal: differ: []
+PASS  recipe rev: 881ab304f15ea13529002391dda8520c2ea47af4
+PASS  recipe adds only the replay keys: added ['replay_shards'], removed []
+{
+  "ledger_row": "da3da869-b0b2-4084-a710-5cafaf9a269e",
+  "code_commit": "e571065cbb8042b9c84d4c0d6650706b9a765311-dirty",
+  "status": "completed",
+  "wall_clock_s": 5774.283057458015,
+  "recipe_hash": "cbcf5c7041ecd50452f1a8a6ec4a091558d736504ded40c5671bebf06553d160",
+  "protocol_data_snapshot_hash": "895d393b632aa417250578b04e22a559985f5145a98ad59c81907a75a6f7097a",
+  "train_manifest_hash": "895d393b632aa417250578b04e22a559985f5145a98ad59c81907a75a6f7097a",
+  "train_shard_hash": "be617e7e3261b6e96a9f5eeb160e125066234548643ae29558a9a12728f94ff1",
+  "train_sequences": 360382,
+  "replay_shard_hash": "ca7a73740288a998c449118ec529e151d6766048ed8aa640b8503860c97f6e95",
+  "replay_sequences": 3568,
+  "replay_manifest_hash": "19a772846da4b759cf6509dca9be642bf8d01ddccb2015e8215f42532946ba84",
+  "replay_rows": 3568,
+  "val_shard_hash": "ef06ab99eef107dd608424c80117b81b3986ce5ea827d2d4f47f990d960b1bc5",
+  "recipe_added": [
+    "replay_shards"
+  ],
+  "ledger_sha256": "ead1d570dd712e7407c36014e5206a606b9ee68012c38540283e126d9ea16416"
+}
+GATES: ALL PASS

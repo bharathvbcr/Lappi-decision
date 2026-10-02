@@ -1,0 +1,26 @@
+   Compiling ojas-qwen35-cuda v0.1.0 (/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/ojascopy/ojas-qwen35-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.36s
+     Running tests/fmt_boundary.rs (/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/ojascopy/target-host/debug/deps/fmt_boundary-3495279ca47460b6)
+
+running 4 tests
+test the_pre_fix_tessl_include_is_flagged ... ok
+test the_scanner_reads_path_attributes_the_way_rustc_writes_them ... ok
+test an_unresolvable_or_escaping_path_is_reported ... ok
+test no_path_attribute_in_this_crate_leaves_the_crate ... FAILED
+
+failures:
+
+---- no_path_attribute_in_this_crate_leaves_the_crate stdout ----
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/ojascopy/ojas-qwen35-cuda/tests/reference_gdn_published_vs_tessl.rs: #[path = "../../../tessl/tests/common/gdn_train.rs"] resolves to /private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/tessl/tests/common/gdn_train.rs, outside the crate
+
+thread 'no_path_attribute_in_this_crate_leaves_the_crate' (142125310) panicked at tests/fmt_boundary.rs:135:5:
+1 of 1 #[path] attributes leave the crate: cargo fmt would format files outside it
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    no_path_attribute_in_this_crate_leaves_the_crate
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--test fmt_boundary`

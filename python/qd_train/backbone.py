@@ -89,6 +89,8 @@ path this module never reads would be a check that cannot fire, which is worse t
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
 import json
 import struct
 import warnings
@@ -111,9 +113,9 @@ from .memory import (
     StepFootprint,
     estimate_step,
 )
-from .optim import build_optimizer
+from .optim import DEFAULT_BETA2, apply_lr, build_optimizer, layerwise_param_groups
 from .remap import RemapApplication, apply_remap_to_model
-from .trainer import Supervision
+from .trainer import TRAIN_ATTENTION_MASKS, Supervision
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import torch
@@ -123,10 +125,14 @@ __all__ = [
     "TEXT_PREFIX",
     "BackboneContractViolation",
     "GradientCheckpointingDisabled",
+    "NoulWeight",
     "QwenDecisionStep",
     "TextTower",
+    "footprint_at",
     "load_text_tower",
+    "noul_weight_mask",
     "remap_text_tower",
+    "revive_tensors",
     "saved_activation_bytes",
     "text_tensor_index",
 ]
@@ -254,6 +260,15 @@ class TextTower:
     optimizer: OptimizerSpec
     footprint: StepFootprint
     remap: RemapApplication | None = None
+    #: Decoder layers that run WITHOUT activation checkpointing although
+    #: ``gradient_checkpointing`` is on -- selective checkpointing, read back off the layers.
+    #: Empty, the default, is every layer checkpointed: the policy every earlier run used.
+    checkpoint_skip_layers: tuple[int, ...] = ()
+    #: The kernels the linear-attention layers actually bound, read off transformers' own
+    #: dispatch rather than assumed: fla's Triton ``chunk_gated_delta_rule`` or the torch
+    #: reference fallback, which transformers itself puts at more than an order of magnitude
+    #: slower. A row that does not say which ran cannot be compared with one that does.
+    linear_attention_kernels: Mapping[str, str] = dataclasses.field(default_factory=dict)
 
     @property
     def lm_head_weight(self) -> torch.Tensor:
@@ -278,10 +293,68 @@ class TextTower:
             "footprint_total_bytes": self.footprint.total_bytes,
             "footprint_provenance": self.footprint.provenance,
             "remap": None if self.remap is None else self.remap.to_json(),
+            "linear_attention_kernels": dict(self.linear_attention_kernels),
+            # Only when on, so a tower checkpointed everywhere describes itself as before.
+            **(
+                {"checkpoint_skip_layers": list(self.checkpoint_skip_layers)}
+                if self.checkpoint_skip_layers else {}
+            ),
         }
 
 
-def _verify_checkpointing_took(model: Any, *, enabled: bool) -> None:
+def _evenly_spaced(n: int, pool: list[int]) -> list[int]:
+    """``n`` of ``pool``: the centre of each of ``n`` equal strata."""
+    return [pool[(2 * i + 1) * len(pool) // (2 * n)] for i in range(n)] if n else []
+
+
+def uncheckpointed_layers(n_skip: int, layer_types: list[str]) -> tuple[int, ...]:
+    """The ``n_skip`` decoder layers selective checkpointing leaves un-checkpointed.
+
+    Full-attention layers first, then linear-attention layers, each evenly spaced within its
+    kind -- a pure function of ``n_skip`` and the config's ``layer_types``, so a recipe that
+    records ``n_skip`` names the layers too. Full-attention first because that is where the
+    recompute is dearest per byte kept: measured on the GH200 at 4 x 8,441 tokens
+    (2026-10-01, tools/perf_step.py), leaving a full-attention layer un-checkpointed saved
+    about 31 ms/step for 4.3 GiB, a linear-attention layer about 10 ms for 3.5 GiB.
+    """
+    if not isinstance(n_skip, int) or isinstance(n_skip, bool) or n_skip < 0:
+        raise ValueError(f"n_skip must be a non-negative int, got {n_skip!r}")
+    if n_skip > len(layer_types):
+        raise ValueError(f"cannot skip {n_skip} of {len(layer_types)} layers")
+    full = [i for i, t in enumerate(layer_types) if t == "full_attention"]
+    rest = [i for i, t in enumerate(layer_types) if t != "full_attention"]
+    if n_skip <= len(full):
+        return tuple(sorted(_evenly_spaced(n_skip, full)))
+    return tuple(sorted(full + _evenly_spaced(n_skip - len(full), rest)))
+
+
+def activation_model(
+    *, gradient_checkpointing: bool, skip_layers: tuple[int, ...], layer_types: list[str]
+) -> ActivationModel:
+    """The one place a tower's checkpointing policy becomes ``memory.ActivationModel``."""
+    if not gradient_checkpointing:
+        if skip_layers:
+            raise BackboneContractViolation(
+                "checkpoint_skip_layers names layers to leave un-checkpointed, and with "
+                "gradient_checkpointing off every layer already is; refusing the pair"
+            )
+        return ActivationModel(recompute="none")
+    kinds = [layer_types[i] for i in skip_layers]
+    unknown = sorted({k for k in kinds} - {"linear_attention", "full_attention"})
+    if unknown:
+        raise BackboneContractViolation(
+            f"layer kind(s) {unknown} have no activation model; the budget cannot price them"
+        )
+    return ActivationModel(
+        recompute="full",
+        retained_linear_layers=kinds.count("linear_attention"),
+        retained_full_layers=kinds.count("full_attention"),
+    )
+
+
+def _verify_checkpointing_took(
+    model: Any, *, enabled: bool, skip_layers: tuple[int, ...] = ()
+) -> None:
     """Read the flag back off every decoder layer. Refuse a request that did not take.
 
     transformers 5.12.1 implements checkpointing in ``GradientCheckpointingLayer.__call__``,
@@ -297,14 +370,24 @@ def _verify_checkpointing_took(model: Any, *, enabled: bool) -> None:
             "took effect cannot be read back. Refusing: an unverified checkpointing flag is "
             "the one that costs a rented card."
         )
+    skip = set(skip_layers)
+    out_of_range = sorted(i for i in skip if not 0 <= i < len(layers))
+    if out_of_range:
+        raise BackboneContractViolation(
+            f"checkpoint_skip_layers {out_of_range} name no layer of {len(layers)}"
+        )
+    # Per layer: a selective request is verified layer by layer, so one that reached the
+    # wrong layers fails here exactly as one that reached none does.
     disagreed = [
-        i for i, layer in enumerate(layers) if bool(layer.gradient_checkpointing) != enabled
+        i for i, layer in enumerate(layers)
+        if bool(layer.gradient_checkpointing) != (enabled and i not in skip)
     ]
     if disagreed:
         raise BackboneContractViolation(
-            f"gradient_checkpointing was requested {enabled} but layer(s) "
-            f"{disagreed[:16]} of {len(layers)} report "
-            f"{not enabled}. transformers implements this through "
+            f"gradient_checkpointing was requested {enabled} "
+            f"(un-checkpointed: {sorted(skip)}) but layer(s) "
+            f"{disagreed[:16]} of {len(layers)} report the opposite. "
+            "transformers implements this through "
             "GradientCheckpointingLayer.__call__, which Qwen3_5DecoderLayer inherits rather "
             "than defines; a version that changed that would fail exactly here. The flag was "
             "not believed, which is why this is an error and not a log line."
@@ -364,6 +447,7 @@ def load_text_tower(
     width: int = 34_522,
     spec: ModelSpec = QWEN3_5_2B_TEXT,
     config_overrides: Mapping[str, Any] | None = None,
+    checkpoint_skip_layers: int = 0,
 ) -> TextTower:
     """Build the text tower from ``snapshot`` and load exactly its 320 text tensors.
 
@@ -390,6 +474,13 @@ def load_text_tower(
         rows, width: the batch shape the returned ``footprint`` describes. The default width
             is the widest real bucket, so a caller that supplies neither gets the arithmetic
             for the case that actually binds rather than for a comfortable one.
+        checkpoint_skip_layers: selective checkpointing. With ``gradient_checkpointing``
+            on, this many decoder layers ([`uncheckpointed_layers`]) run without it and keep
+            their activations, buying back their recompute for memory the budget prices
+            (``memory.ActivationModel.retained_*_layers``). Every layer's flag is read back,
+            as for the all-or-nothing case. ``0``, the default, checkpoints every layer.
+            Recompute replays the same kernels on the same inputs, so under
+            ``torch.use_deterministic_algorithms`` the trajectory is unchanged by this.
         config_overrides: applied to the text config before construction. Present so a test
             can build a tiny tower through this same function; a production caller passes
             nothing.
@@ -524,10 +615,23 @@ def load_text_tower(
             GradientCheckpointingDisabled,
             stacklevel=2,
         )
-    _verify_checkpointing_took(model, enabled=gradient_checkpointing)
+    skip_layers = uncheckpointed_layers(checkpoint_skip_layers, list(text_config.layer_types))
+    if skip_layers and not gradient_checkpointing:
+        raise BackboneContractViolation(
+            f"checkpoint_skip_layers={checkpoint_skip_layers} needs gradient_checkpointing "
+            "on: it names the layers to leave out of a checkpointed stack"
+        )
+    for i in skip_layers:
+        # GradientCheckpointingLayer.__call__ checkpoints iff `self.gradient_checkpointing
+        # and self.training`; the flag is per layer, and it is read back below.
+        model.layers[i].gradient_checkpointing = False
+    _verify_checkpointing_took(
+        model, enabled=gradient_checkpointing, skip_layers=skip_layers
+    )
 
     embedding = model.get_input_embeddings().weight
     _verify_spec_describes(spec, model=model, config=text_config)
+    layer_types = list(text_config.layer_types)
     footprint = estimate_step(
         spec,
         rows=rows,
@@ -536,8 +640,10 @@ def load_text_tower(
         param_dtype=dtype,
         grad_dtype=dtype,
         activation_dtype=dtype,
-        activations=ActivationModel(
-            recompute="full" if gradient_checkpointing else "none"
+        activations=activation_model(
+            gradient_checkpointing=gradient_checkpointing,
+            skip_layers=skip_layers,
+            layer_types=layer_types,
         ),
         vocab_size=int(embedding.shape[0]),
     )
@@ -556,10 +662,100 @@ def load_text_tower(
         device=str(device),
         optimizer=optimizer,
         footprint=footprint,
+        checkpoint_skip_layers=skip_layers,
+        linear_attention_kernels=linear_attention_kernels(model),
     )
 
 
+#: The linear-attention kernels, by the name a ``Qwen3_5GatedDeltaNet`` holds each under in
+#: transformers 5.12 (an instance attribute, ``None`` when the package did not import), and
+#: the module-level function transformers 5.17 dispatches through instead
+#: (``use_kernel_func_from_hub_with_fallback``, which binds the optimised package's
+#: function at import and the module's own torch reference otherwise).
+_LINEAR_ATTENTION_KERNELS: Final = (
+    ("chunk_gated_delta_rule", "torch_chunk_gated_delta_rule"),
+    ("recurrent_gated_delta_rule", "torch_recurrent_gated_delta_rule"),
+    ("causal_conv1d_fn", "causal_conv1d_fn"),
+    ("causal_conv1d_update", "causal_conv1d_update"),
+)
+_REFERENCE_PREFIX: Final = "transformers.models.qwen3_5.modeling_qwen3_5."
+
+
+def _bound_name(fn: Any) -> str:
+    """The function ``fn`` actually runs: through a 5.17 dispatch wrapper to what it bound."""
+    if fn is None:
+        # 5.12 sets the attribute to None when the package did not import, and then runs
+        # its own torch code inline -- the reference path, said as such.
+        return f"{_REFERENCE_PREFIX}<inline torch fallback>"
+    code = getattr(fn, "__code__", None)
+    cells = dict(zip(getattr(code, "co_freevars", ()), getattr(fn, "__closure__", None) or (),
+                     strict=False))
+    if "implementation" in cells:
+        fn = cells["implementation"].cell_contents
+    return f"{getattr(fn, '__module__', '?')}.{getattr(fn, '__qualname__', '?')}"
+
+
+def linear_attention_kernels(model: Any) -> dict[str, str]:
+    """``{kernel: the function that runs}``, read off the loaded model and transformers.
+
+    The layer's own attribute when it has one (5.12), else the module's dispatch binding
+    (5.17). A version that does neither yields ``"unreadable: ..."`` for that kernel rather
+    than a guess, so a row says it does not know instead of claiming fla.
+    """
+    try:
+        from transformers.models.qwen3_5 import modeling_qwen3_5 as mq
+    except ImportError as exc:  # pragma: no cover - load_text_tower imported it already
+        return {"modeling_qwen3_5": f"unreadable: {exc}"}
+    layer = next(
+        (getattr(lyr, "linear_attn", None) for lyr in getattr(model, "layers", ())
+         if getattr(lyr, "linear_attn", None) is not None),
+        None,
+    )
+    out: dict[str, str] = {}
+    for attr, module_fn in _LINEAR_ATTENTION_KERNELS:
+        if layer is not None and hasattr(layer, attr):
+            out[attr] = _bound_name(getattr(layer, attr))
+        elif hasattr(mq, module_fn):
+            out[attr] = _bound_name(getattr(mq, module_fn))
+        else:
+            out[attr] = "unreadable: neither the layer nor modeling_qwen3_5 names it"
+    return out
+
+
+def linear_attention_on_reference_path(kernels: Mapping[str, str]) -> list[str]:
+    """The kernels bound to transformers' own torch reference, not an optimised package."""
+    return sorted(name for name, bound in kernels.items() if bound.startswith(_REFERENCE_PREFIX))
+
+
 # --- the remap ------------------------------------------------------------------------------
+
+
+def footprint_at(
+    tower: TextTower, *, rows: int, width: int, vocab_size: int | None = None
+) -> StepFootprint:
+    """``estimate_step`` for this tower at a ``rows x width`` batch.
+
+    The one place a loaded tower's step is priced, so a caller budgeting several batch
+    shapes uses the arithmetic the load recorded. ``vocab_size`` defaults to the tower's own.
+    """
+    return estimate_step(
+        tower.spec,
+        rows=rows,
+        width=width,
+        # The tower's own optimizer spec, carried rather than reconstructed: rebuilding it
+        # from the footprint's byte totals would hardcode AdamW's two fp32 states and
+        # silently re-budget an SGD run as an AdamW one.
+        optimizer=tower.optimizer,
+        param_dtype=tower.dtype,
+        grad_dtype=tower.dtype,
+        activation_dtype=tower.dtype,
+        activations=activation_model(
+            gradient_checkpointing=tower.gradient_checkpointing,
+            skip_layers=tower.checkpoint_skip_layers,
+            layer_types=list(tower.model.config.layer_types),
+        ),
+        vocab_size=tower.vocab_size if vocab_size is None else vocab_size,
+    )
 
 
 def remap_text_tower(tower: TextTower, remap: RemapTable) -> TextTower:
@@ -616,37 +812,16 @@ def remap_text_tower(tower: TextTower, remap: RemapTable) -> TextTower:
             "have drifted."
         )
 
-    footprint = estimate_step(
-        tower.spec,
-        rows=tower.footprint.rows,
-        width=tower.footprint.width,
-        # The tower's own optimizer spec, carried rather than reconstructed: rebuilding it
-        # from the footprint's byte totals would hardcode AdamW's two fp32 states and
-        # silently re-budget an SGD run as an AdamW one.
-        optimizer=tower.optimizer,
-        param_dtype=tower.dtype,
-        grad_dtype=tower.dtype,
-        activation_dtype=tower.dtype,
-        activations=ActivationModel(
-            recompute="full" if tower.gradient_checkpointing else "none"
-        ),
+    footprint = footprint_at(
+        tower, rows=tower.footprint.rows, width=tower.footprint.width,
         vocab_size=application.new_vocab_size,
     )
-    return TextTower(
-        model=tower.model,
-        snapshot=tower.snapshot,
-        spec=tower.spec,
-        n_tensors_loaded=tower.n_tensors_loaded,
+    # `replace`, so every field the remap does not touch -- attention kernel, checkpointing
+    # policy, the linear-attention binding -- is carried rather than re-listed. A field list
+    # spelled out here silently dropped any field added after it was written.
+    return dataclasses.replace(
+        tower,
         vocab_size=application.new_vocab_size,
-        hidden_size=tower.hidden_size,
-        gradient_checkpointing=tower.gradient_checkpointing,
-        dtype=tower.dtype,
-        device=tower.device,
-        # Carried, not re-derived: the remap slices the tied embedding and touches nothing
-        # about attention, and asking the config again here would re-read a value this
-        # function cannot have changed.
-        attn_implementation=tower.attn_implementation,
-        optimizer=tower.optimizer,
         footprint=footprint,
         remap=application,
     )
@@ -689,6 +864,131 @@ def saved_activation_bytes(
 # --- the step ---------------------------------------------------------------------------------
 
 
+def revive_tensors(entries: Mapping[str, Any], *, where: str) -> dict[str, Any]:
+    """A checkpoint's ``{name: TensorRef}`` as ``{name: torch.Tensor}``, byte for byte.
+
+    The one place a saved tensor becomes a torch tensor, for both [`QwenDecisionStep.load_state`]
+    (resume) and [`QwenDecisionStep.load_weights`] (evaluation).
+    """
+    import torch
+
+    from .run_control import TensorRef
+
+    out: dict[str, Any] = {}
+    for name, ref in entries.items():
+        if not isinstance(ref, TensorRef):
+            raise BackboneContractViolation(
+                f"{where}[{name!r}] is a {type(ref).__name__}, not a TensorRef. A "
+                "checkpoint body that lost its tensors on the way through is not a "
+                "checkpoint with fewer tensors."
+            )
+        dtype = getattr(torch, ref.dtype)
+        out[name] = (
+            torch.frombuffer(bytearray(ref.data), dtype=dtype).reshape(ref.shape).clone()
+        )
+    return out
+
+
+def _group_recipe(group: Mapping[str, Any]) -> tuple[Any, ...]:
+    """What of a parameter group is recipe rather than state: betas, lr_scale, name."""
+    betas = group.get("betas")
+    return (
+        None if betas is None else tuple(float(b) for b in betas),
+        float(group.get("lr_scale", 1.0)),
+        group.get("name"),
+    )
+
+
+def noul_weight_mask(
+    supervision: Supervision, rows_in_scope: np.ndarray, noul_id: int
+) -> np.ndarray:
+    """``bool[B, L-1]``: the letter positions ``--noul-weight`` multiplies.
+
+    A position is weighted when the letter channel supervises it, its target is the noul
+    letter, and its row is in the weight's scope (``rows_in_scope[r]``: the row's family is
+    ``code.defect_class``, reading R5). The one owner of the rule: the step weights exactly
+    these positions and ``tools/real_ft_run.noul_weight_plan`` counts exactly these. A span
+    row is never one -- ``ft_supervision`` keeps span rows out of the letter mask, so the
+    span channel's abstain row is not weighted by construction.
+    """
+    rows = np.asarray(rows_in_scope)
+    if rows.dtype != np.bool_ or rows.shape != (supervision.mask.shape[0],):
+        raise BackboneContractViolation(
+            f"rows_in_scope must be bool[{supervision.mask.shape[0]}], one flag per row, got "
+            f"{rows.dtype}{list(rows.shape)}"
+        )
+    return supervision.mask & (supervision.targets == int(noul_id)) & rows[:, None]
+
+
+@dataclass(frozen=True, slots=True)
+class NoulWeight:
+    """``--noul-weight``: the letter cross-entropy at noul-gold positions of in-scope rows,
+    multiplied by ``weight`` (v5's ``arm_noul_weight``; scope ``code.defect_class``, R5).
+
+    ``rows_by_index`` maps a batch's ``index`` as the training loop sees it to which of its
+    rows are in scope -- built by ``tools/real_ft_run._train`` with the same enumeration its
+    batch source re-indexes with. A batch it does not know is refused, never trained
+    unweighted: an unknown index means the plan and the loop disagree about the data.
+
+    The letter loss stays ``sum(w_i * ce_i)`` over the count of supervised positions
+    (``fused_linear_cross_entropy``'s ``weights``), so ``weight`` is a pure multiplier on
+    those rows' pull and every other row's pull is unchanged; the loss's mass rises with it
+    and is not renormalised.
+    """
+
+    weight: float
+    scope: str
+    noul_id: int
+    rows_by_index: Mapping[int, np.ndarray]
+
+    def __post_init__(self) -> None:
+        w = self.weight
+        if isinstance(w, bool) or not isinstance(w, (int, float)) or not (
+            np.isfinite(w) and w > 0.0
+        ):
+            raise ValueError(
+                f"the noul weight must be finite and positive, got {w!r}: zero or less would "
+                "remove or invert the pull of the rows it names"
+            )
+        if not isinstance(self.scope, str) or not self.scope:
+            raise ValueError(f"the noul weight's scope must be a family id, got {self.scope!r}")
+
+    def positions(self, batch: Batch, supervision: Supervision) -> np.ndarray:
+        """``bool[B, L-1]``: the positions of ``batch`` this weight multiplies."""
+        rows = self.rows_by_index.get(int(batch.index))
+        if rows is None:
+            raise BackboneContractViolation(
+                f"--noul-weight has no scope for batch index {batch.index}: the plan it was "
+                "built from and the batches the loop is training on disagree. Training it "
+                "unweighted would drop the weight from part of the run without a trace."
+            )
+        n = int(batch.tokens.shape[0])
+        if np.asarray(rows).shape != (n,):
+            raise BackboneContractViolation(
+                f"--noul-weight's scope for batch index {batch.index} names "
+                f"{np.asarray(rows).shape[0] if np.asarray(rows).ndim else 0} rows and the batch "
+                f"has {n} rows"
+            )
+        return noul_weight_mask(supervision, rows, self.noul_id)
+
+    def position_weights(self, batch: Batch, supervision: Supervision) -> np.ndarray | None:
+        """``float64[B, L-1]`` per-position weights, or ``None`` when no position of this
+        batch is weighted -- the unweighted cross-entropy, run exactly as without the flag."""
+        return self.weights_for(self.positions(batch, supervision))
+
+    def weights_for(self, mask: np.ndarray) -> np.ndarray | None:
+        """:meth:`position_weights` for a mask :meth:`positions` already computed."""
+        if not mask.any():
+            return None
+        out = np.ones(mask.shape, dtype=np.float64)
+        out[mask] = float(self.weight)
+        return out
+
+    def to_json(self) -> dict[str, Any]:
+        """What a checkpoint records about the weight, so a resume cannot change it."""
+        return {"weight": float(self.weight), "scope": self.scope}
+
+
 class QwenDecisionStep:
     """A [`qd_train.trainer.SpanScoringStep`] over the real text tower.
 
@@ -719,13 +1019,36 @@ class QwenDecisionStep:
         max_grad_norm: float = 1.0,
         max_width: int = 34_522,
         allow_frozen_moments: bool = False,
+        lower_layers_n: int = 0,
+        lower_lr_scale: float = 1.0,
+        beta2: float = DEFAULT_BETA2,
+        span_channel_off: bool = False,
+        fused_adamw: bool = False,
+        train_attention_mask: str = "padding",
+        noul_weight: NoulWeight | None = None,
     ) -> None:
         import torch
         from torch import nn
 
+        if train_attention_mask not in TRAIN_ATTENTION_MASKS:
+            raise ValueError(
+                f"train_attention_mask must be one of {TRAIN_ATTENTION_MASKS}, got "
+                f"{train_attention_mask!r}"
+            )
+
         if not lr > 0.0:
             raise ValueError(f"lr must be positive, got {lr}")
-        if not span_weight > 0.0:
+        # `span_channel_off` is the one way to a zero weight, and it takes exactly zero: the
+        # shuffled-label control (tools/real_ft_run.py --shuffled-label) trains on permuted
+        # choice golds and must not let the REAL span gold pull the shared tower toward the
+        # defect. Its row records span_weight 0.0 beside the control's own recipe key, so a
+        # span loss in its log reads as unweighted rather than as trained.
+        if span_channel_off:
+            if span_weight != 0.0:
+                raise ValueError(
+                    f"span_channel_off takes span_weight 0.0 exactly, got {span_weight}"
+                )
+        elif not span_weight > 0.0:
             raise ValueError(
                 f"span_weight must be positive, got {span_weight}; zero would train the span "
                 "head on nothing while its loss still appeared in the log"
@@ -757,8 +1080,12 @@ class QwenDecisionStep:
         self.span_weight = float(span_weight)
         self.max_grad_norm = float(max_grad_norm)
         self.max_width = int(max_width)
+        #: What the TRAINING forward attends with: ``"padding"`` (the mask from
+        #: ``Batch.lengths``, every row so far) or ``"none"`` (``is_causal`` only, on SDPA's
+        #: flash backend alone -- see :meth:`training_attention`). Scoring always masks.
+        self.train_attention_mask = train_attention_mask
         # float32, deliberately, even when the tower is bf16: the head is two [H, H]
-        # projections and two [H] vectors -- 16.8 MB at H=2048, against a 2.8 GB tower --
+        # projections and two [H] vectors -- 33.57 MB at H=2048, against a 2.8 GB tower --
         # and its loss is a softmax over a candidate set that can run to hundreds of lines.
         # Computing that logsumexp with 8 bits of mantissa is where the abstain row stops
         # being a genuine competitor. `accumulate_span` casts `hidden` to match.
@@ -778,30 +1105,65 @@ class QwenDecisionStep:
         # this optimizer is fit for this run: a bf16 second moment is correct for 383 steps
         # and broken for 384, and the step that knows the dtype has never been the one that
         # knows the schedule. Passing it here is what closes that gap.
+        #
+        # `lower_layers_n > 0` is the layer-wise split (RSI-Jev fit.py; see
+        # `qd_train.optim.layerwise_param_groups`): the tower's first `lower_layers_n`
+        # decoder layers train at `lower_lr_scale` times the schedule. Zero, the default,
+        # builds exactly the single-group optimizer this class always built.
+        if lower_layers_n < 0:
+            raise ValueError(f"lower_layers_n must not be negative, got {lower_layers_n}")
+        if not lower_layers_n and lower_lr_scale != 1.0:
+            raise ValueError(
+                f"lower_lr_scale={lower_lr_scale} was given with lower_layers_n=0, so it "
+                "would scale no layer while a recipe recorded it"
+            )
+        params: list[Any] = (
+            layerwise_param_groups(
+                tower.model.named_parameters(),
+                lower_layers_n=lower_layers_n,
+                lower_lr_scale=lower_lr_scale,
+                extra=self.span_head.parameters(),
+            )
+            if lower_layers_n
+            else list(self.parameters())
+        )
         self.optimizer = build_optimizer(
-            list(self.parameters()),
+            params,
             spec=tower.optimizer,
             lr=lr,
             total_steps=total_steps,
             allow_frozen_moments=allow_frozen_moments,
+            beta2=beta2,
+            fused=fused_adamw,
         )
         #: Component losses per micro-batch. ``TrainResult.loss_log`` carries the combined
         #: number only, and a falling total with a flat span term is a model that learned
         #: the letter and nothing about *where*.
         self.letter_log: list[float] = []
         self.span_log: list[float] = []
+        #: ``--noul-weight`` (v5 ``arm_noul_weight``): ``None`` is every run before it, and
+        #: runs no weighting op. ``noul_weighted_positions`` counts the letter positions it
+        #: actually multiplied, which the caller checks against the plan's count.
+        self.noul_weight = noul_weight
+        self.noul_weighted_positions = 0
 
     def parameters(self) -> list[torch.nn.Parameter]:
         return [*self.tower.model.parameters(), *self.span_head.parameters()]
 
     # -- forward ---------------------------------------------------------------------------
 
-    def hidden(self, batch: Batch) -> torch.Tensor:
+    def hidden(self, batch: Batch, *, padding_mask: bool = True) -> torch.Tensor:
         """``[B, L, H]`` -- the tower's last hidden state for this batch.
 
         The attention mask comes from ``Batch.lengths`` rather than from a padding-token
         comparison: a padding id that also occurs in real text would make the second method
         mask real positions, and ``lengths`` is the channel that states the answer.
+
+        ``padding_mask=False`` is the training forward under ``train_attention_mask="none"``
+        and nothing else: every scoring caller (``_decode``, ``_evaluate``, replay's prior)
+        takes the default. Batches are right-padded and attention and the GDN recurrence are
+        causal, so a real position never reads a pad either way; what changes is the SDPA
+        kernel (an explicit mask rules flash out), which is why it is a Tier-B switch.
         """
         torch = self._torch
         width = int(batch.tokens.shape[1])
@@ -812,6 +1174,8 @@ class QwenDecisionStep:
             )
         weight = self.tower.lm_head_weight
         ids = torch.as_tensor(batch.tokens.astype(np.int64), device=weight.device)
+        if not padding_mask:
+            return self.tower.model(input_ids=ids, attention_mask=None).last_hidden_state
         lengths = torch.as_tensor(
             np.asarray(batch.lengths).astype(np.int64), device=weight.device
         )
@@ -820,6 +1184,22 @@ class QwenDecisionStep:
         ).to(torch.int64)
         out = self.tower.model(input_ids=ids, attention_mask=mask)
         return out.last_hidden_state
+
+    def training_attention(self) -> contextlib.AbstractContextManager[None]:
+        """The context a training forward AND its backward run in.
+
+        ``"padding"``: no restriction, exactly as every row so far. ``"none"``: SDPA's flash
+        backend only. On CUDA an explicit mask rules flash out, so a shape flash cannot take
+        then raises rather than quietly running on mem-efficient -- the speed (and the kernel
+        the Tier-B screen measured) is the whole point of the switch, and a silent fallback
+        would record ``none`` over a run that did not get it. The backward is inside too,
+        because gradient checkpointing recomputes the forward there.
+        """
+        if self.train_attention_mask == "padding":
+            return contextlib.nullcontext()
+        from torch.nn.attention import SDPBackend, sdpa_kernel
+
+        return sdpa_kernel([SDPBackend.FLASH_ATTENTION])
 
     def lm_head(self, hidden: torch.Tensor) -> torch.Tensor:
         """``[..., V]`` logits from ``[..., H]`` hidden states, against the tied embedding.
@@ -840,9 +1220,16 @@ class QwenDecisionStep:
         )
 
     def _letter_loss(
-        self, hidden: torch.Tensor, supervision: Supervision
+        self, hidden: torch.Tensor, supervision: Supervision,
+        *, weights: np.ndarray | None = None,
     ) -> torch.Tensor | None:
-        """``None`` when the batch is all-span: its letter channel is legitimately empty."""
+        """``None`` when the batch is all-span: its letter channel is legitimately empty.
+
+        ``weights`` is the per-position weight of a training batch (:meth:`_noul_weights`);
+        without it this is the unweighted cross-entropy, which is what the post-training
+        floor comparison (``tools/real_ft_run._evaluate``) measures on purpose: a floor is
+        an entropy of the gold letter, and a weighted loss is not comparable to it.
+        """
         if supervision.n_supervised == 0:
             return None
         torch = self._torch
@@ -854,17 +1241,32 @@ class QwenDecisionStep:
                 supervision.targets.astype(np.int64), device=weight.device
             ),
             mask=torch.as_tensor(supervision.mask.copy(), device=weight.device),
+            weights=None if weights is None else torch.as_tensor(weights, device=weight.device),
         )
+
+    def _noul_weights(self, batch: Batch, supervision: Supervision) -> np.ndarray | None:
+        """This training batch's per-position weights under ``--noul-weight``, or ``None``
+        (no flag, or no weighted position in the batch: the unweighted path either way)."""
+        if self.noul_weight is None or supervision.n_supervised == 0:
+            return None
+        mask = self.noul_weight.positions(batch, supervision)
+        self.noul_weighted_positions += int(mask.sum())
+        return self.noul_weight.weights_for(mask)
 
     # -- TrainStep -------------------------------------------------------------------------
 
     def accumulate(self, batch: Batch, supervision: Supervision) -> float:
-        loss = self._letter_loss(self.hidden(batch), supervision)
-        if loss is None:  # pragma: no cover - `_refuse_unsupervised_rows` refuses this first
-            raise RuntimeError(
-                "a span-free batch reached accumulate with no supervised token"
+        with self.training_attention():
+            loss = self._letter_loss(
+                self.hidden(batch, padding_mask=self.train_attention_mask == "padding"),
+                supervision,
+                weights=self._noul_weights(batch, supervision),
             )
-        loss.backward()
+            if loss is None:  # pragma: no cover - `_refuse_unsupervised_rows` refuses first
+                raise RuntimeError(
+                    "a span-free batch reached accumulate with no supervised token"
+                )
+            loss.backward()
         value = float(loss.detach())
         self.letter_log.append(value)
         self.span_log.append(0.0)
@@ -877,31 +1279,35 @@ class QwenDecisionStep:
                 "accumulate_span was handed a supervision with no span channel"
             )
         torch = self._torch
-        hidden = self.hidden(batch)
-        plan = plan_span_batch(span, device=hidden.device)
-        rows = torch.as_tensor(span.rows.astype(np.int64), device=hidden.device)
-        # float32 for the pointer softmax. The head's scores are a bilinear form over
-        # hidden states and its loss is a cross-entropy over a candidate set that can run
-        # to hundreds of lines; in bf16 the logsumexp of that is computed with 8 bits of
-        # mantissa, and the abstain row competes with every line in it. The head's own
-        # parameters are float32 for the same reason -- see __init__.
-        span_loss = self.span_head.loss(hidden[rows].float(), plan)
-        letter = self._letter_loss(hidden, supervision)
-        total = (
-            self.span_weight * span_loss
-            if letter is None
-            else letter + self.span_weight * span_loss
-        )
-        total.backward()
+        with self.training_attention():
+            hidden = self.hidden(batch, padding_mask=self.train_attention_mask == "padding")
+            plan = plan_span_batch(span, device=hidden.device)
+            rows = torch.as_tensor(span.rows.astype(np.int64), device=hidden.device)
+            # float32 for the pointer softmax. The head's scores are a bilinear form over
+            # hidden states and its loss is a cross-entropy over a candidate set that can
+            # run to hundreds of lines; in bf16 the logsumexp of that is computed with 8
+            # bits of mantissa, and the abstain row competes with every line in it. The
+            # head's own parameters are float32 for the same reason -- see __init__.
+            span_loss = self.span_head.loss(hidden[rows].float(), plan)
+            # The span rows are outside the letter mask, so no weight reaches the span
+            # channel or its abstain row; only this batch's letter rows can be weighted.
+            letter = self._letter_loss(
+                hidden, supervision, weights=self._noul_weights(batch, supervision)
+            )
+            total = (
+                self.span_weight * span_loss
+                if letter is None
+                else letter + self.span_weight * span_loss
+            )
+            total.backward()
         self.letter_log.append(0.0 if letter is None else float(letter.detach()))
         self.span_log.append(float(span_loss.detach()))
         return float(total.detach())
 
     def apply(self, *, lr: float) -> None:
-        if not lr > 0.0:
-            raise ValueError(f"lr must be positive, got {lr}")
-        for group in self.optimizer.param_groups:
-            group["lr"] = lr
+        # `apply_lr` rather than `group["lr"] = lr`, which flattened a layer-wise split back
+        # to one rate at the first step. It refuses a non-positive lr, as this did.
+        apply_lr(self.optimizer, lr)
         # Bounded before the step: an unclipped gradient is how a run ends with NaN
         # parameters and a loss log that stops rather than says why.
         self._nn.utils.clip_grad_norm_(self.parameters(), self.max_grad_norm)
@@ -962,8 +1368,20 @@ class QwenDecisionStep:
             # diverged from the uninterrupted 12 at 5 of 12 losses.
             "optimizer": self._optimizer_refs(),
             "micro_batches": len(self.letter_log),
+            # Both channels, per micro-batch, as float.hex -- the same exact encoding
+            # `run_control.LossLog` uses for the combined loss beside them in the checkpoint
+            # body. The ledger row carries only the combined log's digest, so without these
+            # a later run could match on the total and never be compared channel by channel.
+            "channel_log": {
+                "letter": [float(x).hex() for x in self.letter_log],
+                "span": [float(x).hex() for x in self.span_log],
+            },
             "span_weight": self.span_weight,
             "vocab_size": self.tower.vocab_size,
+            # Only under --noul-weight, so every other checkpoint body is what it was. A
+            # resume compares it (load_state): the weight is part of the objective, and the
+            # trainer's own resume checks (seed, schedule, consumed digest) cannot see it.
+            **({} if self.noul_weight is None else {"noul_weight": self.noul_weight.to_json()}),
         }
 
     #: Where ``torch.optim.Optimizer.state_dict()`` keys a dict by parameter INDEX rather
@@ -1029,12 +1447,40 @@ class QwenDecisionStep:
 
         return convert(body, numeric_keys=False)
 
+    def load_weights(self, state: Mapping[str, Any]) -> None:
+        """Restore only the trained weights -- ``tower`` and ``span_head`` -- for evaluation.
+
+        What [`Checkpoint.read_weights`] returns: no optimizer state, so this step can be
+        scored and cannot be resumed. The tensors are cast to this step's own dtype by
+        ``load_state_dict``, which is how a bf16-trained checkpoint is scored in fp32.
+        ``vocab_size`` and ``span_weight`` must match: a different remap renumbers every row,
+        and a different span weight is a different trained objective than the one named.
+        """
+        missing = {"tower", "span_head", "span_weight", "vocab_size"} - set(state)
+        if missing:
+            raise BackboneContractViolation(
+                f"these weights are missing {sorted(missing)}; they were not read from a "
+                "checkpoint QwenDecisionStep.state wrote"
+            )
+        if int(state["vocab_size"]) != self.tower.vocab_size:
+            raise BackboneContractViolation(
+                f"the checkpoint was written at vocab_size={state['vocab_size']} and this "
+                f"tower is {self.tower.vocab_size}. A different remap renumbers every row."
+            )
+        if float(state["span_weight"]) != float(self.span_weight):
+            raise BackboneContractViolation(
+                f"the checkpoint was trained at span_weight={state['span_weight']} and this "
+                f"step was built with {self.span_weight}; pass the weight it was trained with"
+            )
+        self.tower.model.load_state_dict(
+            revive_tensors(state["tower"], where="tower"), strict=True
+        )
+        self.span_head.load_state_dict(
+            revive_tensors(state["span_head"], where="span_head"), strict=True
+        )
+
     def load_state(self, state: Mapping[str, Any]) -> None:
         """Revive what [`state`] produced. The digests were already checked by ``Checkpoint``."""
-        import torch
-
-        from .run_control import TensorRef
-
         missing = {"tower", "span_head", "span_weight", "vocab_size", "optimizer"} - set(
             state
         )
@@ -1046,39 +1492,82 @@ class QwenDecisionStep:
                 "loads without complaint and resumes a run whose moments are zero, which "
                 "looks like a working resume and is not one."
             )
+        # Unexpected keys are refused too, not ignored. `state` writes exactly the six keys
+        # checked here, and anything else was written by a wrapper this step is not inside:
+        # a checkpoint taken under `qd_train.replay.PriorKLReplay` carries "replay", and
+        # resuming it into a bare step would silently drop the replay term mid-run -- the
+        # training source's consumed_digest never sees replay batches, so no other check
+        # would notice.
+        # --noul-weight is part of the objective: a checkpoint taken with it resumes only into
+        # a step built with the same weight and scope, and one taken without it only into a
+        # step without it. Checked before the unexpected-key refusal so the message names it.
+        theirs_noul = state.get("noul_weight")
+        mine_noul = None if self.noul_weight is None else self.noul_weight.to_json()
+        if theirs_noul != mine_noul:
+            raise BackboneContractViolation(
+                f"the checkpoint's noul_weight is {theirs_noul!r} and this step's is "
+                f"{mine_noul!r}. Resuming would train the rest of the run on a different "
+                "letter objective than the part before the checkpoint."
+            )
+        unexpected = set(state) - {
+            "tower", "span_head", "span_weight", "vocab_size", "optimizer", "micro_batches",
+            "channel_log", *(() if mine_noul is None else ("noul_weight",)),
+        }
+        if unexpected:
+            raise BackboneContractViolation(
+                f"this checkpoint state carries {sorted(unexpected)}, which "
+                "QwenDecisionStep.state never writes. It was taken under a wrapper (e.g. "
+                "replay) this run does not have; resuming it here would continue a different "
+                "objective without saying so."
+            )
+        # The optimizer's own recipe, checked before anything is loaded. torch's
+        # `load_state_dict` overwrites each group's hyperparameters with the saved ones, so a
+        # checkpoint taken at beta2=0.95 or with a layer-wise split, resumed by a run built
+        # without them, would silently train on the checkpoint's recipe while the ledger row
+        # recorded this run's.
+        revived_optimizer = self._revive_optimizer(state["optimizer"])
+        saved_groups = (revived_optimizer.get("inner") or revived_optimizer).get("param_groups")
+        mine = [_group_recipe(g) for g in self.optimizer.param_groups]
+        theirs = [_group_recipe(g) for g in saved_groups or []]
+        if mine != theirs:
+            raise BackboneContractViolation(
+                f"the checkpoint's optimizer groups are {theirs} and this step's are {mine} "
+                "(betas, lr_scale, name). Resuming would train on the checkpoint's recipe "
+                "under this run's ledger row; pass the flags the checkpoint was taken with."
+            )
         if int(state["vocab_size"]) != self.tower.vocab_size:
             raise BackboneContractViolation(
                 f"the checkpoint was written at vocab_size={state['vocab_size']} and this "
                 f"tower is {self.tower.vocab_size}. A different remap renumbers every row."
             )
 
-        def revive(entries: Mapping[str, Any], *, where: str) -> dict[str, Any]:
-            out: dict[str, Any] = {}
-            for name, ref in entries.items():
-                if not isinstance(ref, TensorRef):
-                    raise BackboneContractViolation(
-                        f"{where}[{name!r}] is a {type(ref).__name__}, not a TensorRef. A "
-                        "checkpoint body that lost its tensors on the way through is not a "
-                        "checkpoint with fewer tensors."
-                    )
-                dtype = getattr(torch, ref.dtype)
-                out[name] = (
-                    torch.frombuffer(bytearray(ref.data), dtype=dtype)
-                    .reshape(ref.shape)
-                    .clone()
-                )
-            return out
-
         self.tower.model.load_state_dict(
-            revive(state["tower"], where="tower"), strict=True
+            revive_tensors(state["tower"], where="tower"), strict=True
         )
         self.span_head.load_state_dict(
-            revive(state["span_head"], where="span_head"), strict=True
+            revive_tensors(state["span_head"], where="span_head"), strict=True
         )
         # After the parameters, never before: `torch.optim.Optimizer.load_state_dict` casts
         # each restored state tensor to the dtype and device of the parameter it belongs to,
         # so loading it against parameters that are about to be replaced would cast against
         # the wrong ones. The two halves are also restored together or not at all --
         # `MasterWeightAdamW.load_state_dict` refuses a partial state for the same reason.
-        self.optimizer.load_state_dict(self._revive_optimizer(state["optimizer"]))
+        self.optimizer.load_state_dict(revived_optimizer)
         self.span_weight = float(state["span_weight"])
+        # Optional on the way in: checkpoints written before the channel log existed
+        # resume as they always did, with the logs starting empty. One that carries it
+        # continues it, so a resumed run's checkpoint holds the whole trajectory.
+        channel_log = state.get("channel_log")
+        if channel_log is not None:
+            letter = [float.fromhex(x) for x in channel_log["letter"]]
+            span = [float.fromhex(x) for x in channel_log["span"]]
+            if len(letter) != len(span) or (
+                "micro_batches" in state and len(letter) != int(state["micro_batches"])
+            ):
+                raise BackboneContractViolation(
+                    f"the checkpoint's channel log has {len(letter)} letter and {len(span)} "
+                    f"span entries for {state.get('micro_batches')} micro-batches; the two "
+                    "logs are parallel by construction, so this one was not written by state()"
+                )
+            self.letter_log = letter
+            self.span_log = span

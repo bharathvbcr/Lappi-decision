@@ -23,6 +23,7 @@ none of this needs torch or transformers -- neither is in the repo venv.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import os
@@ -31,6 +32,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -177,8 +179,12 @@ class Snapshot:
 @pytest.fixture
 def snapshot(tmp_path: Path) -> Snapshot:
     """A written snapshot plus the rows behind it, the way the pipeline hands them over."""
+    return _snapshot(tmp_path)
+
+
+def _snapshot(tmp_path: Path, *, families: Sequence[str] | None = None) -> Snapshot:
     config = DataConfig()
-    mixture = build_mixture(small_corpus(24), config=config)
+    mixture = build_mixture(small_corpus(24), config=config, families=families)
     report = dedupe(list(mixture.rows), config=config)
     split_report = split(report, config=config)
     manifests = build_manifests(
@@ -402,10 +408,16 @@ def test_an_abstaining_span_is_encoded_not_refused(snapshot: Snapshot) -> None:
 def test_the_whole_corpus_encodes_with_no_escape_hatch(
     reader: ShardReader, snapshot: Snapshot
 ) -> None:
-    """106/106. If this ever drops, that is a finding, not a reason to pass a flag."""
+    """98/98. If this ever drops, that is a finding, not a reason to pass a flag.
+
+    It did drop, from 106, on 2026-09-29, and the finding is the SQuAD title partition (user
+    decision, GAP-DATA-SQUAD-SPAN-NOUL-LEAKS-HELD-OUT-ANSWERABILITY): the fixture's SQuAD
+    rows now carry one title each and a quarter go to the held-out answerability family,
+    so fewer SQuAD rows reach train. Every row that does still encodes, which is the claim.
+    """
     coverage = reader.coverage
     assert isinstance(coverage, Ran)
-    assert coverage.n == coverage.n_total == len(snapshot.rows["train"]) == 106
+    assert coverage.n == coverage.n_total == len(snapshot.rows["train"]) == 98
     assert coverage.passed and coverage.is_complete_coverage
 
 
@@ -427,11 +439,11 @@ def test_an_unencodable_row_is_still_counted_in_coverage_never_dropped_quietly(
         buckets=[2],
         allow_unencodable=True,
     )
-    assert header.n_sequences < 106, "the span rows could not be written"
+    assert header.n_sequences < 98, "the span rows could not be written"
     reader = ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
     coverage = reader.coverage
     assert isinstance(coverage, Ran)
-    assert coverage.n is not None and coverage.n < coverage.n_total == 106
+    assert coverage.n is not None and coverage.n < coverage.n_total == 98
     assert not coverage.passed and not coverage.is_complete_coverage
 
 
@@ -500,6 +512,279 @@ def test_a_renderer_refusal_without_the_flag_still_refuses_the_whole_write(
     with pytest.raises(ContextTooLargeRefusal):
         _write(snapshot, "train", out, caps=caps)
     assert not out.exists(), "refused, and nothing was written"
+
+
+#: A diff-shaped context with two consecutive blank context lines (" ", " "), the one
+#: pattern behind every collapse measured on the composed corpus (696 of 696).
+_BLANK_PAIR_TEXT = "ctx\n a\n \n \n+b\n c\n"
+#: Its line starts: "ctx", " a", " ", " ", "+b", " c".
+_BLANK_PAIR_LINES = (0, 4, 7, 9, 11, 14)
+
+
+def _blank_pair_tokens(text: str) -> tuple[list[int], list[tuple[int, int]]]:
+    """One token per character, except "\\n \\n " -- the BPE merge -- which is one token
+    (id 1) holding both blank lines' starts."""
+    ids: list[int] = []
+    offs: list[tuple[int, int]] = []
+    i = 0
+    while i < len(text):
+        if text.startswith("\n \n ", i):
+            ids.append(1)
+            offs.append((i, i + 4))
+            i += 4
+        else:
+            ids.append(ord(text[i]))
+            offs.append((i, i + 1))
+            i += 1
+    return ids, offs
+
+
+def _blank_pair_spec(gold: int | None) -> SequenceSpec:
+    return SequenceSpec(
+        slot_name="defect_span",
+        text=_BLANK_PAIR_TEXT,
+        slot_kind=SLOT_SPAN,
+        span_char_starts=None if gold is None else (gold, gold),
+        span_abstains=gold is None,
+        line_char_starts=_BLANK_PAIR_LINES,
+    )
+
+
+def _encode_blank_pair(spec: SequenceSpec, **kw: object) -> shards_module.EncodedSlot:
+    return shards_module.encode_slot(
+        spec,
+        tokenize=lambda t: _blank_pair_tokens(t)[0],
+        remap=byte_remap(),
+        token_offsets=lambda t: _blank_pair_tokens(t)[1],
+        decode=None,
+        where="row r slot defect_span",
+        **kw,  # type: ignore[arg-type]
+    )
+
+
+def test_refuse_gold_keeps_a_span_slot_whose_collapse_misses_the_gold() -> None:
+    """Fable round K: a collapse of two blank context lines no longer costs the slot.
+
+    The gold ("+b") is untouched; the two blank lines share one candidate token index, one
+    entry per line, so the candidate list still has the context's line count.
+    """
+    spec = _blank_pair_spec(gold=11)
+    with pytest.raises(UnencodableGold, match="share one candidate"):
+        _encode_blank_pair(spec)
+    encoded = _encode_blank_pair(
+        spec, span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD
+    )
+    assert encoded.candidates == (0, 4, 6, 6, 8, 11)
+    assert len(encoded.candidates) == len(_BLANK_PAIR_LINES)
+    assert encoded.span == (8, 8)
+    # And an abstaining span row, which has no gold to collide, keeps its slot too.
+    abstain = _encode_blank_pair(
+        _blank_pair_spec(gold=None), span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD
+    )
+    assert abstain.span == (SPAN_ABSTAIN, SPAN_ABSTAIN)
+    assert abstain.candidates == (0, 4, 6, 6, 8, 11)
+
+
+def test_refuse_gold_still_refuses_a_gold_line_inside_a_collapsed_token() -> None:
+    spec = _blank_pair_spec(gold=9)
+    with pytest.raises(UnencodableGold, match="gold's line start shares token"):
+        _encode_blank_pair(spec, span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD)
+    with pytest.raises(ValueError, match="span_collapse_policy"):
+        _encode_blank_pair(spec, span_collapse_policy="share-everything")
+
+
+def test_refuse_gold_is_refused_on_any_split_but_train(snapshot: Snapshot, tmp_path: Path) -> None:
+    """Val and gate sets keep refuse-any, so no gate's span population moves (rule 2)."""
+    with pytest.raises(ShardContractViolation, match="training-side"):
+        _write(
+            snapshot, "val", tmp_path / "val",
+            span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD,
+        )
+    assert not (tmp_path / "val").exists()
+
+
+def test_refuse_gold_without_a_collapse_writes_the_default_set_byte_for_byte(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """Where nothing collapses (byte tokens), the policy changes no byte of the set but the
+    header's record of it: the header names the policy, and nothing else in it moves."""
+    a = _write(snapshot, "train", tmp_path / "a")
+    b = _write(
+        snapshot, "train", tmp_path / "b",
+        span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD,
+    )
+    assert (a.span_collapse_policy, b.span_collapse_policy) == ("", "refuse-gold")
+    assert dataclasses.replace(b, span_collapse_policy="").shard_hash() == a.shard_hash()
+    for name in sorted(p.name for p in (tmp_path / "a").iterdir()):
+        if name == HEADER_NAME:
+            continue
+        assert (tmp_path / "a" / name).read_bytes() == (tmp_path / "b" / name).read_bytes(), name
+
+
+# -- the report-only val set (Fable G5(ii) slice, conditions 1-5) ---------------------------
+
+
+def _report_only(snapshot: Snapshot, out: Path) -> ShardHeader:
+    return _write(
+        snapshot, "val", out, report_only=True,
+        span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD,
+    )
+
+
+def test_a_report_only_val_set_is_written_refuse_gold_and_says_so(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    out = tmp_path / "shards" / "val-report-only-composed"
+    header = _report_only(snapshot, out)
+    assert (header.split, header.report_only, header.span_collapse_policy) == (
+        "val", True, "refuse-gold",
+    )
+    raw = json.loads((out / HEADER_NAME).read_text(encoding="utf-8"))
+    assert (raw["report_only"], raw["span_collapse_policy"]) == (True, "refuse-gold")
+    read = ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
+    assert read.header == header
+    # A gate set's header is shaped as before: neither key, so its hash is what it was.
+    gate = _write(snapshot, "val", tmp_path / "shards" / "val")
+    gate_raw = json.loads((tmp_path / "shards" / "val" / HEADER_NAME).read_text(encoding="utf-8"))
+    assert "report_only" not in gate_raw and "span_collapse_policy" not in gate_raw
+    assert (gate.report_only, gate.span_collapse_policy) == (False, "")
+
+
+@pytest.mark.parametrize(
+    ("split_name", "policy"),
+    [
+        ("train", shards_module.SPAN_COLLAPSE_REFUSE_GOLD),
+        ("val", shards_module.SPAN_COLLAPSE_REFUSE_ANY),
+    ],
+)
+def test_report_only_is_refused_off_val_or_without_refuse_gold(
+    snapshot: Snapshot, tmp_path: Path, split_name: str, policy: str
+) -> None:
+    with pytest.raises(ShardContractViolation, match="report_only is a val set"):
+        _write(
+            snapshot, split_name, tmp_path / "x", report_only=True, span_collapse_policy=policy
+        )
+    assert not (tmp_path / "x").exists()
+
+
+def test_a_gate_reader_refuses_a_report_only_or_refuse_gold_header(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    report = _report_only(snapshot, tmp_path / "r")
+    with pytest.raises(ShardContractViolation, match="not a gate population"):
+        report.require_gate_population(where="r")
+    trained = _write(
+        snapshot, "train", tmp_path / "t",
+        span_collapse_policy=shards_module.SPAN_COLLAPSE_REFUSE_GOLD,
+    )
+    with pytest.raises(ShardContractViolation, match="not a gate population"):
+        trained.require_gate_population(where="t")
+    _write(snapshot, "val", tmp_path / "g").require_gate_population(where="g")
+
+
+def test_the_header_round_trips_the_policy_and_report_only(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    header = _report_only(snapshot, tmp_path / "r")
+    again = ShardHeader.from_json(json.loads(json.dumps(header.to_json())))
+    assert again == header and again.shard_hash() == header.shard_hash()
+    with pytest.raises(ShardContractViolation, match="only a val set may be report-only"):
+        dataclasses.replace(header, split="train")
+    with pytest.raises(ShardContractViolation, match="is not refuse-any or refuse-gold"):
+        dataclasses.replace(header, span_collapse_policy="share-everything")
+    raw = header.to_json()
+    raw["report_only"] = "true"
+    with pytest.raises(ShardContractViolation, match="JSON boolean"):
+        ShardHeader.from_json(raw)
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        lambda raw: raw.pop("report_only"),
+        lambda raw: raw.__setitem__("report_only", False),
+        lambda raw: raw.pop("span_collapse_policy"),
+        lambda raw: raw.__setitem__("span_collapse_policy", "refuse-any"),
+    ],
+)
+def test_a_hand_edited_report_only_header_fails_its_shard_hash(
+    snapshot: Snapshot, tmp_path: Path, edit: Any
+) -> None:
+    """Turning a report-only set into a gate-shaped one by editing header.json is refused:
+    both fields are under ``shard_hash``."""
+    out = tmp_path / "r"
+    _report_only(snapshot, out)
+    raw = json.loads((out / HEADER_NAME).read_text(encoding="utf-8"))
+    edit(raw)
+    (out / HEADER_NAME).write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ShardContractViolation, match="modified after it was written"):
+        ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
+
+
+def _longest_and_rows_over(snapshot: Snapshot, tmp_path: Path) -> tuple[int, int]:
+    """The longest train sequence, and how many rows hold a sequence of that length."""
+    out = tmp_path / "shards" / "uncapped"
+    header = _write(snapshot, "train", out)
+    reader = ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
+    longest = header.max_seq_len
+    assert reader.sequence_index is not None
+    rows_over = {
+        row_id
+        for (row_id, _slot), n in zip(
+            reader.sequence_index.sequences, reader.lengths(), strict=True
+        )
+        if n == longest
+    }
+    return longest, len(rows_over)
+
+
+def test_a_row_over_max_seq_len_refuses_the_write_rather_than_being_truncated(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    """The long-context build's hard width (8,192) is a refusal, never a cut.
+
+    Truncation drops the answer token off the end of the example, so a row past the width
+    cannot be written at all; without ``allow_unencodable`` that is the whole write.
+    """
+    longest, _ = _longest_and_rows_over(snapshot, tmp_path)
+    out = tmp_path / "shards" / "capped"
+    with pytest.raises(ShardContractViolation, match=f"over max_seq_len={longest - 1}"):
+        _write(snapshot, "train", out, max_seq_len=longest - 1)
+    # At the longest length itself nothing is over, and the set is the uncapped one.
+    header = _write(snapshot, "train", tmp_path / "shards" / "at", max_seq_len=longest)
+    assert header.max_seq_len == longest
+
+
+def test_with_the_flag_a_row_over_max_seq_len_is_excluded_whole_and_counted(
+    snapshot: Snapshot, tmp_path: Path
+) -> None:
+    longest, n_over = _longest_and_rows_over(snapshot, tmp_path)
+    rows = snapshot.rows["train"]
+    assert 0 < n_over < len(rows)
+    out = tmp_path / "shards" / "capped"
+    header = _write(snapshot, "train", out, max_seq_len=longest - 1, allow_unencodable=True)
+    assert header.max_seq_len <= longest - 1
+    reader = ShardReader(out, config=snapshot.config, repo_root=snapshot.root)
+    coverage = reader.coverage
+    assert isinstance(coverage, Ran)
+    assert coverage.n == len(rows) - n_over and coverage.n_total == len(rows)
+    assert not coverage.passed
+    assert "OverMaxSeqLen" in (coverage.detail or ""), coverage.detail
+    # Whole rows: no sequence of an excluded row survives, and each exclusion says why.
+    assert reader.sequence_index is not None
+    written = {row_id for row_id, _slot in reader.sequence_index.sequences}
+    assert len(written) == len(rows) - n_over
+    over = [e for e in reader.sequence_index.excluded if e.refusal == "OverMaxSeqLen"]
+    assert {e.row_id for e in over}.isdisjoint(written) and len({e.row_id for e in over}) == n_over
+    assert all(e.scope == "row" for e in over)
+
+
+@pytest.mark.parametrize("bad", [0, 1, -5, True, 2.5])
+def test_a_max_seq_len_that_cannot_hold_a_prompt_and_answer_is_refused(
+    snapshot: Snapshot, tmp_path: Path, bad: object
+) -> None:
+    with pytest.raises(ValueError, match="max_seq_len"):
+        _write(snapshot, "train", tmp_path / "nope", max_seq_len=bad)
 
 
 def test_a_shard_set_records_whether_its_span_mapping_was_decode_verified(
@@ -634,16 +919,33 @@ def test_a_missing_span_check_reads_as_not_run_not_as_verified(
     assert not hasattr(fresh.span_check, "passed")
 
 
-def test_a_split_with_no_span_rows_reports_the_span_check_as_not_run(
-    snapshot: Snapshot, tmp_path: Path
-) -> None:
+def test_a_split_with_no_span_rows_reports_the_span_check_as_not_run(tmp_path: Path) -> None:
     """0 of 0 verified is not a pass.
 
     ``artifacts.padding_waste`` refuses to score an empty shard set for the same reason,
     and ``all([])`` being ``True`` is that trap one level down. A span check reported as
     passed over a set with no span in it would make the strongest statement this writer can
     make about spans available to every set that has none.
+
+    The corpus is built without the span family rather than relying on which split the
+    fixture's SQuAD titles hash to: since the title partition (2026-09-29) they land in val.
     """
+    from qd_data.general import CLINC_TWO_STAGE_FAMILIES
+    from qd_data.sources import TASK_FAMILIES
+
+    sources = set(small_corpus(24))
+    # The two-stage CLINC families need a domain map this fixture does not carry; named
+    # without one they fail closed (no_clinc_domain_map), which is not this test's subject.
+    two_stage = {f.family_id for f in CLINC_TWO_STAGE_FAMILIES}
+    snapshot = _snapshot(
+        tmp_path,
+        families=[
+            f.family_id for f in TASK_FAMILIES.values()
+            if f.source_id in sources
+            and f.family_id != "qa.answer_span"
+            and f.family_id not in two_stage
+        ],
+    )
     rows = snapshot.rows["val"]
     assert rows and not any(
         isinstance(slot, SpanSlot) for r in rows for slot in r.request.slots
@@ -1298,7 +1600,9 @@ def test_a_span_row_carries_gold_token_positions(snapshot: Snapshot) -> None:
         for r in snapshot.rows["train"]
         if r.family_id == "qa.answer_span" and not r.gold[0].is_noul
     ]
-    assert len(pointing) == 19, "the fixture's pointing span rows"
+    # 13 since the SQuAD title partition moved a quarter of the fixture's questions to the
+    # held-out answerability family (2026-09-29); it was 19.
+    assert len(pointing) == 13, "the fixture's pointing span rows"
 
     for row in pointing:
         spec = training_texts(row, seed=snapshot.config.seed)[0]
@@ -1396,7 +1700,7 @@ def test_the_gold_producers_line_numbers_index_this_line_grid(snapshot: Snapshot
         grid = line_start_indices(context)
         assert 1 <= gold_start <= gold_end <= len(grid), row.row_id
         checked += 1
-    assert checked == 19
+    assert checked == 13  # was 19 before the SQuAD title partition (2026-09-29)
 
 
 # -- the decoded-text check: the one that does not consult the offsets it checks --------
@@ -1414,7 +1718,7 @@ def test_the_whole_train_split_passes_the_decode_check(
     runs it; what the next test establishes is that it would bite when one does.
     """
     header = _write(snapshot, "train", tmp_path / "decoded", decode=byte_decode)
-    assert header.n_sequences == 106
+    assert header.n_sequences == 98
 
 
 def test_a_token_that_does_not_decode_to_its_claimed_characters_is_refused(
@@ -1466,7 +1770,7 @@ def test_a_recorded_line_start_that_is_not_one_in_the_decoded_text_is_refused(
     assert "GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED" in message
 
     # The control. Same corpus, same tokenizer, no decode -- and it writes cleanly.
-    assert _write(snapshot, "train", tmp_path / "unchecked").n_sequences == 106
+    assert _write(snapshot, "train", tmp_path / "unchecked").n_sequences == 98
 
 
 def test_ids_that_do_not_round_trip_to_their_text_are_refused(
@@ -1557,7 +1861,9 @@ def test_span_rows_carry_positions_or_abstain_and_others_carry_no_span(
         pointing += int(real.sum())
         assert np.all(starts[real] >= 0) and np.all(starts[real] <= ends[real])
         assert np.all(ends[real] < batch.lengths[is_span][real])
-    assert (pointing, abstaining) == (19, 5), "all 24 span rows, none dropped"
+    # All 16 span rows (was 24: a quarter of the fixture's SQuAD questions now feed the
+    # held-out answerability family under the title partition, 2026-09-29).
+    assert (pointing, abstaining) == (13, 3), "all 16 span rows, none dropped"
 
 
 def test_every_span_batch_carries_the_pointer_heads_candidate_set(
@@ -1601,7 +1907,7 @@ def test_a_span_gold_always_lands_on_a_candidate(reader: ShardReader) -> None:
             assert batch.line_starts[r, start], "gold start is not a line-start token"
             assert batch.line_starts[r, end], "gold end is not a line-start token"
             checked += 1
-    assert checked == 19
+    assert checked == 13  # was 19 before the SQuAD title partition (2026-09-29)
 
 
 def test_the_candidate_set_is_the_contexts_line_starts(
@@ -1786,7 +2092,7 @@ def test_the_trainer_accepts_these_batches_and_routes_spans_to_the_pointer_head(
                 batch.target_index[is_span].astype(np.int64),  # type: ignore[index]
             )
             assert np.all(supervision.span.start <= supervision.span.end)
-    assert span_rows_seen == 24, "19 pointing + 5 abstaining"
+    assert span_rows_seen == 16, "13 pointing + 3 abstaining (title partition, 2026-09-29)"
 
 
 def test_to_json_carries_the_checks_the_coverage_and_the_gate(reader: ShardReader) -> None:
@@ -1796,7 +2102,9 @@ def test_to_json_carries_the_checks_the_coverage_and_the_gate(reader: ShardReade
     assert payload["checks"]["shard_split_trainable"]["passed"] is True
     assert payload["checks"]["shard_not_packed"]["passed"] is True
     assert payload["padding_waste"]["state"] == "ran"
-    assert payload["coverage"]["n_total"] == payload["coverage"]["n"] == 106
+    assert payload["coverage"]["n_total"] == payload["coverage"]["n"] == 98
+    # The slot record rides beside row coverage: every (row, slot) of this corpus encodes.
+    assert payload["slot_coverage"]["n_total"] == payload["slot_coverage"]["n"] == 98
     # The `reader` fixture writes without decode=, so this set's span mapping was never
     # checked against decoded text -- and a ledger row built from this payload has to say
     # so rather than being silent about it.
@@ -2037,17 +2345,50 @@ def test_the_default_bucketing_clears_the_padding_gate_on_the_set_that_failed_it
     )
 
 
-def test_the_old_default_of_eight_buckets_is_what_failed_and_still_would() -> None:
+def test_the_measured_set_is_hard_enough_that_a_small_budget_still_fails() -> None:
     """The contrast, pinned. Without this the test above could be passing because the
-    distribution is easy rather than because the default changed."""
+    distribution is easy rather than because the bucketing is right.
+
+    This pinned ``n_buckets=8`` failing at 25.66% -- the GH200 run's number under the
+    equal-count quantile rule. That rule is gone (see ``choose_buckets``), and the exact
+    minimum-padding partition clears the gate at 8 on this set (13.35%), so "8 fails" was a
+    fact about the old rule, not about the distribution. What stays true of the
+    distribution: even an optimal placement of 4 boundaries wastes 30.00%, so the set is not
+    one any bucketing passes by default.
+    """
     lengths = _measured_lengths()
-    old = padding_waste(lengths, choose_buckets(lengths, n_buckets=8))
-    assert isinstance(old, Ran)
-    assert not old.passed
-    assert old.value == pytest.approx(0.2566, abs=5e-5), (
-        f"n_buckets=8 now wastes {old.value:.4%}; the failing GH200 run measured 25.66%, so "
-        "either the distribution artifact or padding_waste has changed underneath this test"
+    small = padding_waste(lengths, choose_buckets(lengths, n_buckets=4))
+    assert isinstance(small, Ran)
+    assert not small.passed
+    assert small.value == pytest.approx(0.2999690, abs=5e-6), (
+        f"n_buckets=4 now wastes {small.value:.4%}; measured 30.00% on 2026-09-29, so the "
+        "distribution artifact, padding_waste or the partition has changed underneath this"
     )
+    eight = padding_waste(lengths, choose_buckets(lengths, n_buckets=8))
+    assert isinstance(eight, Ran)
+    assert eight.value == pytest.approx(0.133457, abs=5e-6)
+
+
+def _defect_build_lengths() -> list[int]:
+    """The 78,643 train lengths of the first ``code.defect_class`` build (ledger 8f8558a9)."""
+    payload = json.loads(
+        (REPO_ROOT / "AUDIT" / "shard-lengths-2026-09-29.json").read_text(encoding="utf-8")
+    )
+    lengths = [int(n) for n in payload["lengths"]]
+    assert len(lengths) == payload["n_sequences"] == 78_643
+    assert max(lengths) == 37_098
+    return lengths
+
+
+def test_the_default_bucketing_clears_the_gate_on_the_defect_build_that_failed_it() -> None:
+    """74.47% under the quantile rule: its last bucket ran from 713 tokens to 37,098 and
+    held 2,449 sequences, every one padded to the maximum. The gate is read-only; the
+    bucketing was wrong. The exact minimum-padding partition gives 4.79%."""
+    lengths = _defect_build_lengths()
+    state = padding_waste(lengths, choose_buckets(lengths))
+    assert isinstance(state, Ran)
+    assert state.passed, f"{state.value:.2%} against a gate of {MAX_PADDING_WASTE:.0%}"
+    assert state.value == pytest.approx(0.047889, abs=5e-6)
 
 
 def test_more_buckets_never_orphans_a_sequence() -> None:

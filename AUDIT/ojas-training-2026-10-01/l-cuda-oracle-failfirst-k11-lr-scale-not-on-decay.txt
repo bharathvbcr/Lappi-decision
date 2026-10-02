@@ -1,0 +1,29 @@
+   Compiling ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+     Running tests/reference_adamw.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_adamw-3e964bed516e9811)
+
+running 4 tests
+test k11_adamw_matches_torch_over_fs_groups_for_five_steps ... FAILED
+test k11_adamw_refuses_a_zero_lr_scale - should panic ... ok
+test k11_lower_layer_split_is_lappis_layerwise_param_groups ... ok
+test k11_torch_lerp_switches_form_at_one_half ... ok
+
+failures:
+
+---- k11_adamw_matches_torch_over_fs_groups_for_five_steps stdout ----
+K11 step 1 grad_sq_norm: 0.000e0 of max|golden| 4.2032e1 (bound 1e-13)
+K11 step 1 params: 9.000e-8 of max|golden| 9.7381e-1 (bound 1e-13)
+
+thread 'k11_adamw_matches_torch_over_fs_groups_for_five_steps' (137479263) panicked at tests/reference/goldens.rs:130:5:
+K11 step 1 params: max err 8.764e-8 at 73 (got -0.9738142879752767 want -0.9738143756184813), 9.000e-8 of max|golden|, over 1e-13
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    k11_adamw_matches_torch_over_fs_groups_for_five_steps
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--test reference_adamw`
+error: 1 target failed:
+    `--test reference_adamw`

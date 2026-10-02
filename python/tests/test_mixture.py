@@ -26,18 +26,20 @@ from data_fixtures import (
     commitpackft_row,
     small_corpus,
     squad_row,
+    squad_title_for,
     vendored_pair,
 )
 
 from qd_data.config import DataConfig
 from qd_data.dedupe import dedupe
-from qd_data.errors import HeldOutViolation, LicenceRefused
+from qd_data.errors import LicenceRefused
 from qd_data.licences import LicenceConfig
 from qd_data.loaders import ClincRow, CommitPackFtRow, SourceUnavailableRefusal, SquadRow
 from qd_data.manifest import Manifest, build_manifests
 from qd_data.mixture import (
     ABSTAINING_FAMILIES,
     CHANGE_SCOPE_BIN_EDGES,
+    CONTRADICTORY_PROMPT,
     LANGUAGE_OPTIONS,
     MAX_NAMED_GOLDS,
     MAX_NAMED_ROW_IDS,
@@ -617,7 +619,7 @@ def test_ordinary_non_ascii_text_is_not_swept_up_by_the_invisible_check() -> Non
 # mixture reported ``Ran(passed=True)``, 608 rows in and 608 out.
 
 
-def _contradictory_squad_pair() -> list[SquadRow]:
+def _contradictory_squad_pair(title: str) -> list[SquadRow]:
     """Two rows, one question, two golds -- the shape that measured ln 2.
 
     The qids differ because ``row_id`` is built from them and ``dedupe`` refuses a
@@ -634,40 +636,51 @@ def _contradictory_squad_pair() -> list[SquadRow]:
     needle = "Rule two says"
     return [
         SquadRow(
-            qid="q-answerable", title="Rules", context=passage, question=question,
+            qid="q-answerable", title=title, context=passage, question=question,
             answers=(needle,), answer_starts=(passage.index(needle),), is_impossible=False,
         ),
         SquadRow(
-            qid="q-unanswerable", title="Rules", context=passage, question=question,
+            qid="q-unanswerable", title=title, context=passage, question=question,
             answers=(), answer_starts=(), is_impossible=True,
         ),
     ]
 
 
-def test_two_rows_with_one_prompt_and_two_golds_are_refused() -> None:
-    """The test that fails against the pre-fix code, which accepted this corpus.
+def _both_contradictory_pairs() -> list[SquadRow]:
+    """The pair once per SQuAD family, each under a title routed to that family: SQuAD is
+    partitioned by article title (user decision 2026-09-29), so one title cannot feed both."""
+    return [
+        *_contradictory_squad_pair(squad_title_for("qa.answer_span", stem="Rules")),
+        *_contradictory_squad_pair(squad_title_for("qa.answerability", stem="Rules")),
+    ]
+
+
+def test_two_rows_with_one_prompt_and_two_golds_are_both_dropped_and_counted() -> None:
+    """A prompt that carries two golds loses every row, counted; no winner is chosen.
 
     Both rows are individually valid, both render, both encode, both pass every
-    per-row check in the lane. The mixture must still refuse: a causal model
-    conditions on the prompt and nothing else, so it cannot answer better than
-    chance on the pair however long it is trained.
+    per-row check in the lane -- and a causal model conditions on the prompt and
+    nothing else, so it cannot answer better than chance on the pair however long it
+    is trained. Until 2026-09-29 the mixture kept both rows and refused the whole
+    corpus. Retired then: the approved SQuAD v2 cache holds 29 such pairs upstream
+    and CLINC 4, and refusing 315k rows over 33 duplicates is the wrong remedy. The
+    group is named, so which rows collided is still legible.
     """
     mixture = build_mixture(
-        {"rajpurkar/squad_v2": _contradictory_squad_pair()}, config=DataConfig()
+        {"rajpurkar/squad_v2": _both_contradictory_pairs()}, config=DataConfig()
     )
-    assert len(_by_family(mixture.rows, "qa.answer_span")) == 2, (
-        "both rows are individually valid and must still be built -- the defect is "
-        "the pair, and a refusal that dropped a row would hide which two collided"
-    )
+    assert mixture.rows == (), "no row of a contradictory prompt survives"
+    assert mixture.refusals["rajpurkar/squad_v2"] == {CONTRADICTORY_PROMPT: 4}
 
     consistency = mixture.prompt_consistency
     assert isinstance(consistency, Ran)
-    assert not consistency.passed
+    assert consistency.passed, "the verdict is on the rows emitted, and none contradict"
     # One raw pair, but two families are built from it, so two rendered prompts each
     # carry two golds: the span pair that measured ln 2, and the yes/no
     # answerability pair behind the same words.
     assert consistency.value == 2
     assert (consistency.n, consistency.n_total) == (4, 4)
+    assert "all 4 of their rows were dropped" in consistency.detail
 
     by_family = {c.family_ids: c for c in mixture.contradictions}
     assert set(by_family) == {("qa.answer_span",), ("qa.answerability",)}
@@ -681,22 +694,73 @@ def test_two_rows_with_one_prompt_and_two_golds_are_refused() -> None:
     assert len(span_group.golds) == 2, "the two golds are named, not merely counted"
     assert any('"is_noul":true' in g for g in span_group.golds)
 
+    # Every row of both families went, so both families produced nothing: the corpus is
+    # NotRun for that, not passed -- a family emptied by the drop is still uncovered.
     status = mixture.status
-    assert isinstance(status, Ran) and not status.passed, (
-        "fail closed: open_training_data refuses ran/passed=false as well as not_run"
+    assert isinstance(status, NotRun)
+    assert "the consistency drop (4 row(s) of 2 contradictory prompt(s)" in status.reason
+
+
+def test_a_three_row_group_loses_all_three_rather_than_keeping_the_majority() -> None:
+    """Two rows agreeing is not evidence that the third is wrong; nothing picks a winner."""
+    pair = _contradictory_squad_pair(squad_title_for("qa.answer_span", stem="Three"))
+    answerable = pair[0]
+    third = SquadRow(
+        qid="q-answerable-again", title=answerable.title, context=answerable.context,
+        question=answerable.question, answers=answerable.answers,
+        answer_starts=answerable.answer_starts, is_impossible=False,
     )
-    assert "not self-consistent" in status.detail
-    assert "squad:qa.answer" in status.detail
+    keep = squad_row(7, family="qa.answer_span")
+    mixture = build_mixture(
+        {"rajpurkar/squad_v2": [*pair, third, keep]}, config=DataConfig(),
+        families=["qa.answer_span"],
+    )
+    assert [r.row_id for r in mixture.rows] == [f"squad:qa.answer_span:{keep.qid}"]
+    assert mixture.refusals["rajpurkar/squad_v2"] == {CONTRADICTORY_PROMPT: 3}
+    (group,) = mixture.contradictions
+    assert (group.n_rows, group.n_golds) == (3, 2)
+    coverage = mixture.family_coverage["qa.answer_span"]
+    assert isinstance(coverage, Ran) and (coverage.n, coverage.n_total) == (1, 4)
+    assert isinstance(mixture.status, Ran) and mixture.status.passed
 
 
-def test_the_contradictory_corpus_is_refused_at_the_training_door(tmp_path: Path) -> None:
-    """End to end: the verdict has to reach the thing that opens the data.
+def test_one_clinc_utterance_under_two_intents_is_dropped() -> None:
+    """The CLINC shape measured on the approved cache: "what is on my to do list" is
+    filed under two intents. The letter channel loses the pair the way the span one does.
 
-    A finding that stops at ``MixtureResult`` is a finding nobody reads. The
-    mixture's status aggregates into every split's manifest, and
-    ``open_training_data`` refuses ``ran, passed=false`` with no override -- so the
-    corpus is written, legible and untrainable, which is the combination that was
-    missing.
+    It collides on ``intent.domain``, whose option list is the fixed domain set: two
+    intents in different domains behind one utterance are one prompt with two golds.
+    ``intent.classification`` samples its distractors per row, so the same pair renders
+    two different option lists there and is correctly not grouped.
+    """
+    from qd_data.general import CLINC_DOMAIN_FAMILY, ClincDomainMap
+
+    vocab = sorted(set(INTENT_VOCABULARY))
+    q = len(vocab) // 4
+    domains = {f"d{k}": tuple(vocab[k * q:(k + 1) * q]) for k in range(4)}
+    domain_of = {i: d for d, intents in domains.items() for i in intents}
+    rows = [r for r in (clinc_row(i) for i in range(1, 25)) if r.intent in domain_of]
+    other = next(i for i in domain_of if domain_of[i] != domain_of[rows[0].intent])
+    twin = ClincRow(utterance=rows[0].utterance, intent=other, is_oos=False)
+    mixture = build_mixture(
+        {"clinc/clinc_oos": [*rows, twin]}, config=DataConfig(),
+        families=[CLINC_DOMAIN_FAMILY], clinc_domain_map=ClincDomainMap(domains=domains),
+    )
+    assert len(mixture.rows) == len(rows) + 1 - 2
+    assert mixture.refusals["clinc/clinc_oos"] == {CONTRADICTORY_PROMPT: 2}
+    (group,) = mixture.contradictions
+    assert group.family_ids == (CLINC_DOMAIN_FAMILY,)
+    assert (group.n_rows, group.n_golds) == (2, 2)
+
+
+def test_the_dropped_groups_reach_the_manifest_and_the_rest_reaches_training(
+    tmp_path: Path,
+) -> None:
+    """End to end: the drop has to be legible where a reader finds it.
+
+    Until 2026-09-29 the same corpus was refused at ``open_training_data`` (the whole
+    corpus, over one pair). Now the pair is dropped before the split, the corpus opens,
+    no split holds either row, and the manifest names the groups and the count.
     """
     config = DataConfig()
     # A corpus rich enough that every *other* stage reports a clean `Ran` -- a
@@ -708,7 +772,7 @@ def test_the_contradictory_corpus_is_refused_at_the_training_door(tmp_path: Path
     # fall on.
     corpus = small_corpus(24)
     corpus["bigcode/commitpackft"] += list(vendored_pair())
-    corpus["rajpurkar/squad_v2"] += _contradictory_squad_pair()
+    corpus["rajpurkar/squad_v2"] += _both_contradictory_pairs()
     mixture = build_mixture(corpus, config=config)
     report = dedupe(list(mixture.rows), config=config)
     manifests = build_manifests(
@@ -718,24 +782,19 @@ def test_the_contradictory_corpus_is_refused_at_the_training_door(tmp_path: Path
     path = tmp_path / "train.json"
     manifests["train"].write(path)
 
-    with pytest.raises(HeldOutViolation) as excinfo:
-        open_training_data(path, config=config, repo_root=tmp_path)
-    assert "ran, passed=false" in str(excinfo.value.actual)
-    # `aggregate` keeps the failing input's *label* and drops its detail, so the
-    # refusal says which stage failed and the file says why. Both halves are asserted
-    # rather than assumed: GAP-DATA-AGGREGATE-DROPS-THE-FAILING-DETAIL.
-    assert "failing inputs: mixture" in str(excinfo.value)
-
-    # And the escape hatch for "could not be checked" does not open this door.
-    with pytest.raises(HeldOutViolation):
-        open_training_data(
-            path, config=config, repo_root=tmp_path, allow_not_run_snapshot=True
-        )
+    # The rest of the corpus reaches training: the pair no longer vetoes it.
+    open_training_data(path, config=config, repo_root=tmp_path)
+    bad = {
+        "squad:qa.answer_span:q-answerable", "squad:qa.answer_span:q-unanswerable",
+        "squad:qa.answerability:q-answerable", "squad:qa.answerability:q-unanswerable",
+    }
+    for name, manifest in manifests.items():
+        assert not bad & {e.row_id for e in manifest.entries}, name
 
     # The groups survive the round trip through the file, which is where a reader
     # who was not present for the run has to find them.
     written = Manifest.read(path)
-    assert "not self-consistent" in written.mixture_json["status"]["detail"]
+    assert written.mixture_json["refusals"]["rajpurkar/squad_v2"][CONTRADICTORY_PROMPT] == 4
     recorded = written.mixture_json["contradictions"]
     assert [c["n_rows"] for c in recorded] == [2, 2]
     assert all(len(c["golds"]) == 2 for c in recorded)
@@ -763,20 +822,25 @@ def test_an_unanswerable_row_beside_an_answerable_one_is_not_refused() -> None:
         "Rule two says the ledger row is written before the claim.\n"
         "Rule three is unrelated and concerns formatting."
     )
+    # SQuAD is partitioned by article title between its two families (user decision
+    # 2026-09-29, qd_data.split.squad_title_family), so a title feeds one family only.
+    span_title = squad_title_for("qa.answer_span", stem="Rules")
     needle = "Rule two says"
     rows = [
         SquadRow(
-            qid="q-answerable", title="Rules", context=passage,
+            qid="q-answerable", title=span_title, context=passage,
             question="Which line states the rule?", answers=(needle,),
             answer_starts=(passage.index(needle),), is_impossible=False,
         ),
         SquadRow(
-            qid="q-unanswerable", title="Rules", context=passage,
+            qid="q-unanswerable", title=span_title, context=passage,
             question="Which line names the author of the rule?", answers=(),
             answer_starts=(), is_impossible=True,
         ),
     ]
-    mixture = build_mixture({"rajpurkar/squad_v2": rows}, config=DataConfig())
+    mixture = build_mixture(
+        {"rajpurkar/squad_v2": rows}, config=DataConfig(), families=["qa.answer_span"]
+    )
 
     assert not mixture.contradictions
     consistency = mixture.prompt_consistency
@@ -800,12 +864,15 @@ def test_two_identical_rows_with_the_same_gold_are_a_duplicate_not_a_contradicti
     needle = "Only line one"
     rows = [
         SquadRow(
-            qid=f"q-{i}", title="Dup", context=passage, question="Which line matters?",
+            qid=f"q-{i}", title=squad_title_for("qa.answer_span", stem="Dup"),
+            context=passage, question="Which line matters?",
             answers=(needle,), answer_starts=(passage.index(needle),), is_impossible=False,
         )
         for i in range(2)
     ]
-    mixture = build_mixture({"rajpurkar/squad_v2": rows}, config=DataConfig())
+    mixture = build_mixture(
+        {"rajpurkar/squad_v2": rows}, config=DataConfig(), families=["qa.answer_span"]
+    )
     assert not mixture.contradictions
     assert isinstance(mixture.status, Ran) and mixture.status.passed
 
@@ -828,9 +895,10 @@ def test_a_contradiction_is_found_on_the_letter_channel_too() -> None:
         {"bigcode/commitpackft": [a, b]}, config=DataConfig(),
         families=["code.language_id"],
     )
-    assert len(mixture.rows) == 2
+    assert mixture.rows == (), "both rows of the language pair are dropped (2026-09-29)"
+    assert mixture.refusals["bigcode/commitpackft"] == {CONTRADICTORY_PROMPT: 2}
     consistency = mixture.prompt_consistency
-    assert isinstance(consistency, Ran) and not consistency.passed
+    assert isinstance(consistency, Ran) and consistency.passed and consistency.value == 1
     (group,) = mixture.contradictions
     assert group.family_ids == ("code.language_id",)
     assert {'"value":"Python"' in g for g in group.golds} == {True, False}
@@ -843,13 +911,15 @@ def test_the_consistency_pass_is_bounded_and_says_so_rather_than_grinding() -> N
     a subsample, which is this very defect one level up.
     """
     mixture = build_mixture(
-        {"rajpurkar/squad_v2": _contradictory_squad_pair()},
+        {"rajpurkar/squad_v2": _both_contradictory_pairs()},
         config=DataConfig(), max_consistency_rows=1,
     )
     consistency = mixture.prompt_consistency
     assert isinstance(consistency, NotRun)
     assert "bounded at 1" in consistency.reason
     assert not mixture.contradictions
+    assert len(mixture.rows) == 4, "nothing was grouped, so nothing may be dropped"
+    assert CONTRADICTORY_PROMPT not in mixture.refusals["rajpurkar/squad_v2"]
     assert isinstance(mixture.status, NotRun), (
         "an unchecked corpus is not a clean one; the training door refuses not_run"
     )
@@ -896,7 +966,10 @@ def test_the_letter_channels_report_their_abstention_supply() -> None:
     gold, while 45 of 90 span rows did."""
     no_clinc = {
         "bigcode/commitpackft": [commitpackft_row(i) for i in range(6)],
-        "rajpurkar/squad_v2": [squad_row(i) for i in range(6)],
+        "rajpurkar/squad_v2": [
+            squad_row(i, family="qa.answerability" if i % 2 else "qa.answer_span")
+            for i in range(6)
+        ],
     }
     mixture = build_mixture(no_clinc, config=DataConfig())
     abstention = mixture.abstention
@@ -920,13 +993,14 @@ def test_the_letter_channels_report_their_abstention_supply() -> None:
     )
 
 
-def test_clinc_out_of_scope_is_the_only_letter_family_that_can_abstain() -> None:
+def test_clinc_is_the_only_letter_family_that_abstains_without_a_separate_corpus() -> None:
     """The structural half of the finding, checked by execution rather than asserted.
 
-    Four of the five letter families assign a value on every branch, so no corpus of
-    them can ever teach abstention on a letter. Only ``intent.classification`` can,
-    and only from CLINC's out-of-scope rows -- which is why a corpus built without
-    ``clinc/clinc_oos`` has zero abstaining letter rows however large it is.
+    Four of the five letter families assign a value on every branch of their own
+    sources. ``intent.classification`` abstains from CLINC's out-of-scope rows -- which
+    is why a corpus built without ``clinc/clinc_oos`` has zero abstaining letter rows
+    from its own families however large it is. ``code.defect_class`` abstains on its
+    class only over the separately loaded noul corpus, which this corpus does not hold.
     """
     mixture = build_mixture(small_corpus(18), config=DataConfig())
     letter_noul = {
@@ -936,7 +1010,15 @@ def test_clinc_out_of_scope_is_the_only_letter_family_that_can_abstain() -> None
         and isinstance(r.request.slots[0], (ChoiceSlot, ScoreSlot))
     }
     assert letter_noul == {"intent.classification"}
-    assert set(ABSTAINING_FAMILIES) == {"intent.classification", "qa.answer_span"}
+    # code.defect_class joined the roster with its span slot, and since the noul corpus
+    # (2026-09-30) abstains on its class too -- but only over that corpus's rows, which
+    # this corpus does not hold, so the execution above still finds CLINC alone.
+    assert set(ABSTAINING_FAMILIES) == {
+        "intent.classification", "qa.answer_span", "code.defect_class"
+    }
+    assert [f for f, ch in ABSTAINING_FAMILIES.items() if "choice" in ch] == [
+        "intent.classification", "code.defect_class"
+    ]
 
     choice = mixture.abstention["choice"]
     assert isinstance(choice, Ran) and choice.passed
@@ -959,17 +1041,18 @@ def test_a_named_group_shows_both_sides_of_the_disagreement_and_bounds_its_paylo
     words = ("Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot")
     passage = "\n".join(f"{w} is on its own line." for w in words)
     question = "Which line matters?"
+    wide = squad_title_for("qa.answer_span", stem="Wide")
 
     def answerable(i: int) -> SquadRow:
         word = words[i % len(words)]
         return SquadRow(
-            qid=f"q{i:03d}", title="Wide", context=passage, question=question,
+            qid=f"q{i:03d}", title=wide, context=passage, question=question,
             answers=(word,), answer_starts=(passage.index(word),), is_impossible=False,
         )
 
     rows = [
         SquadRow(
-            qid="q000", title="Wide", context=passage, question=question,
+            qid="q000", title=wide, context=passage, question=question,
             answers=(), answer_starts=(), is_impossible=True,
         ),
         *(answerable(i) for i in range(1, 12)),
@@ -985,10 +1068,12 @@ def test_a_named_group_shows_both_sides_of_the_disagreement_and_bounds_its_paylo
     assert len(group.row_ids) == MAX_NAMED_ROW_IDS < group.n_rows
     assert len(group.golds) == MAX_NAMED_GOLDS < group.n_golds
 
-    # The witness rule: the named rows span the disagreement rather than one side.
+    # The witness rule: the named rows span the disagreement rather than one side. The
+    # group's rows are dropped, so which one abstains is read off the input.
+    assert mixture.rows == ()
     named = set(group.row_ids)
-    abstaining = {r.row_id for r in mixture.rows if r.gold[0].is_noul}
-    answering = {r.row_id for r in mixture.rows} - abstaining
+    abstaining = {f"squad:qa.answer_span:{r.qid}" for r in rows if r.is_impossible}
+    answering = {f"squad:qa.answer_span:{r.qid}" for r in rows} - abstaining
     assert named & abstaining, "no abstaining row was named"
     assert named & answering, "no answering row was named"
     assert len(named) == len(group.row_ids), "the named ids are distinct"

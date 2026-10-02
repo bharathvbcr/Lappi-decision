@@ -1,0 +1,160 @@
+{
+  "recorded": "2026-10-02 ~01:30 UTC, before any J6(f)-v4 or J6(d)-v4 row exists in /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (the file does not exist on the box at 01:13 UTC) and before F seed 1 or 2 has any row (seed 1 at step 3,017/9,683 at 01:13 UTC); the only F rows that exist are seed 0's: ft 973cd4e3, eval f4feac15, needle control a4f244f0, letter control c89b89a1, option control 4e8ec654",
+  "decision": "Fable (2026-10-02, idle-GPU queue ruling, Q1 item 1 and lane tasks 1 and 3; AUDIT/idle-gpu-queue-2026-10-02/fable-idle-queue.md:41-55, :124-130). F' (fsucc) is a conditional three-seed successor of F on a winning v4 ablation. This rule picks a recipe; it is not a gate and moves no gate (rule 2). Nothing promotes on it (rule 8): the J6 arms are one seed each, and F' is the non-quick run the rule may start.",
+  "win_definition_source": {
+    "file": "campaign/f-v4-preregistered.json:13 (j6b_evidence.win_definition)",
+    "text": "J6(b) wins if, on the metrics the flag was meant to move, its one seed lands outside J4's three-seed envelope in the right direction by more than J4's own seed range, and no gate-bearing metric of the promotion population (defect_class choice/span, defect_class permutation, defect_class ECE, needle) lands outside the envelope in the wrong direction. It loses if prose or scrambled abstention sits inside J4's envelope (<= 9/60, <= 8/60), or any defect_class gate metric falls below J4's seed minimum.",
+    "substitution": "F's three seeds' rows in place of J4's; applied separately to each arm, with the arm's one seed-0 run in place of J6(b)'s"
+  },
+  "envelope": {
+    "rows": "F seeds 0, 1 and 2 in /home/ubuntu/ledger/gh200-p4-v4-2026-10-01.jsonl: per seed, the completed ft row (ids from /home/ubuntu/p4-v4/train-s<N>.log), the one completed epoch-score-val eval row scored from it, the one completed epoch-needle-length-control eval row scored from it, and the one letter-control row of that eval row (row selection below)",
+    "pin": "The envelope is F seeds 0, 1 and 2 only: the pre-registered F (campaign/f-v4-preregistered.json recipe.flags, 'seeds 0, 1, 2'). Seeds 3 and 4, if post-F rule (ii) (qd-post-f-rules seeds34) adds them, are NOT part of the envelope. The checker takes exactly --ft-row 0=, 1=, 2= in that order and refuses any other seed set. Pinned by the lead (brief to lane L-succ, 2026-10-02).",
+    "per_metric": "min and max over the three seeds; range = max - min",
+    "identity": "the three ft rows are completed, quick: false, tag epoch, protocol.seed as given, and share protocol.recipe_hash and protocol.data_snapshot_hash (one configuration, as qd-post-f-rules ft-rows checks)"
+  },
+  "comparison": {
+    "target_clears": "higher-better: candidate - max > max - min; lower-better: min - candidate > max - min. Strict: a candidate at exactly max + range (min - range) does not clear. Room (Fable 2026-10-02, R9_room): the comparison is decidable only when the envelope leaves the bound room to clear. Higher-better, bound U (1 for counts and the paired margin): if 2*max - min >= U (counts: 2*g*f - e*h >= f*h), no candidate can clear. Lower-better, bound L (0 for counts): if 2*min - max <= L (counts: 2*e*h <= g*f), likewise. Decided from the envelope alone, before the arm's rows are read. A target with no room is 'cannot-clear' and refuses the decision (outcomes.refused (c)); it is never read as a target that was examined and did not clear.",
+    "guard_loses": "higher-better: candidate < min; lower-better: candidate > max. Strict: a candidate equal to the bound is inside the envelope and does not lose.",
+    "counts": "metrics recorded as n / n_total are compared on the integers, never the float value (the float is read only to cross-check it against its own counts, and a disagreement refuses). For candidate c = a/b, min = e/f, max = g/h: clears (higher-better) iff a*f*h + e*b*h > 2*g*b*f; clears (lower-better) iff 2*e*b*h > a*f*h + g*b*f; loses (higher-better) iff a*f < e*b; loses (lower-better) iff a*h > g*b. Exact i128 arithmetic.",
+    "needle_worst_bucket": "the minimum of the five depth buckets (needle_hunk_recall.depth.{0-20%,20-40%,40-60%,60-80%,80-100%}, or needle_hunk_recall.control.<L>.depth.* on the length-control row) as an exact fraction, cross-checked against the gate's (or control's) recorded value, exactly as qd-post-f-rules needle_worst does; then compared as a count",
+    "paired_margin": "paired_margin_vs_linear.choice.code.defect_class records value = mean(model_correct - control_correct) over n_total rows (python/qd_train/eval_harness.py:252-253, paired_margin_test), so value * n_total is an integer m in [-n_total, n_total]. The checker recovers m, refuses unless m / n_total reproduces the recorded value, and compares the signed fractions m / n_total by the count forms above. F seed 0: 873/2304 = 0.37890625 (c89b89a1).",
+    "ece": "ece.family.code.defect_class.choice.k4 is a float with no count (n = n_total = 2304 is the row count). It is compared on the recorded f64, lower is better, and is a guard only (no arm targets it)."
+  },
+  "base_must_not_lose": {
+    "from": "the win definition's 'gate-bearing metric of the promotion population (defect_class choice/span, defect_class permutation, defect_class ECE, needle)'",
+    "metrics": [
+      {"name": "val_top1.choice", "row": "eval", "direction": "higher", "form": "count"},
+      {"name": "val_top1.span", "row": "eval", "direction": "higher", "form": "count"},
+      {"name": "permutation_consistency.family.code.defect_class", "row": "eval", "direction": "higher", "form": "count"},
+      {"name": "ece.family.code.defect_class.choice.k4", "row": "eval", "direction": "lower", "form": "f64"},
+      {"name": "needle_8k_worst_bucket", "row": "eval", "keys": "gates.needle_hunk_recall, needle_hunk_recall.depth.*", "direction": "higher", "form": "needle_worst_bucket"}
+    ]
+  },
+  "arms": {
+    "j6f": {
+      "what": "J6(f): F's recipe minus --lower-layers-n 8 --lower-layers-lr-scale 0.1 (no layer-wise LR), seed 0, post-F item 6 (campaign/post-f-queue/box_q_j6f.sh)",
+      "rows": "/home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl: the ft row named by --j6f-ft-row 0=<id> (from /home/ubuntu/j6f-v4/train.log), its epoch-score-val eval row and its epoch-needle-length-control row",
+      "identity": "the ft row is completed, protocol.seed 0, protocol.data_snapshot_hash equal to F's, and its recipe equals F seed 0's ft recipe except that lower_layers_n and lower_lr_scale are absent (tools/real_ft_run.py at a502670, _recipe_pieces, records them only when on)",
+      "targets": [
+        {"name": "needle_8k_worst_bucket", "direction": "higher", "why": "Fable: 'the 8K needle worst bucket alone, because 1K/2K/4K sit at 300/300 with no room to improve'"}
+      ],
+      "must_not_lose": "base_must_not_lose, plus: needle_hunk_recall.control.1024 / .2048 / .4096 worst depth bucket (needle-control row; higher), ood_abstain.prose (higher), ood_abstain.scrambled (higher)",
+      "reads_margin": false
+    },
+    "j6dv4": {
+      "what": "J6(d)-v4: F's recipe with --lr 3e-5 --beta2 0.95 in place of --lr 1e-5, seed 0, post-F item 10 (campaign/post-f-queue/box_q_j6dv4.sh)",
+      "rows": "/home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl: the ft row named by --j6dv4-ft-row 0=<id> (from /home/ubuntu/j6d-v4/train.log), its epoch-score-val eval row, and its letter-control row written by the CPU control waiter box_q_j6ctl.sh (lane task 4; not yet written, GAP-J6-V4-ARMS-HAVE-NO-LINEAR-CONTROL-ROW-2026-10-02)",
+      "identity": "the ft row is completed, protocol.seed 0, protocol.data_snapshot_hash equal to F's, and its recipe equals F seed 0's ft recipe except lr = 3e-5 and beta2 = 0.95",
+      "targets": [
+        {"name": "paired_margin_vs_linear.choice.code.defect_class", "row": "letter control", "direction": "higher", "form": "paired_margin"},
+        {"name": "val_top1.choice", "row": "eval", "direction": "higher", "form": "count"},
+        {"name": "val_top1.span", "row": "eval", "direction": "higher", "form": "count"}
+      ],
+      "must_not_lose": "base_must_not_lose, plus: ood_abstain.prose, ood_abstain.scrambled, ood_abstain.unseen-language (eval; higher), ood_abstain.in_distribution.family.code.defect_class (eval; lower). 'needle' in Fable's J6(d)-v4 list (fable-idle-queue.md:45) is the gate-bearing 8K worst bucket, already in base_must_not_lose; the 1K/2K/4K length controls are J6(f)'s guard only (Fable wrote 'the length controls' at :44 and 'needle' at :45).",
+      "reads_margin": true
+    }
+  },
+  "row_selection": {
+    "eval": "the one completed run_kind eval row tagged epoch-score-val whose protocol.seed is the seed and whose metrics.ft_run_row_id.value is the ft row (qd-post-f-rules eval_row_of); none or two refuses",
+    "needle_control": "the one completed eval row tagged epoch-needle-length-control, same seed and ft_run_row_id; none or two refuses (J4's ledger holds two per seed, which is why this is pinned)",
+    "letter_control": "the one completed eval row whose metrics.scored_eval_row_id.value is the eval row's id AND which carries metrics.paired_margin_vs_linear.choice.code.defect_class; none or two refuses. J4's ledger shows why the key is part of the selection: per eval row it holds an older letter-control row without per-family margins (d597ee7d, 7921ae18, 113f082a) and the per-family one (0277eeae, d9772160, c8242a80). The report-only option-control row (4e8ec654 for F seed 0) records linear_option_control.scored_eval_row_id, not scored_eval_row_id, and is never selected. The arms' letter-control rows are looked for in the arm ledger.",
+    "comparability": "every eval row (envelope and arm) has the same recipe.val_shard_hash, recipe.needle and recipe.ood as F seed 0's eval row; every letter-control row has the same recipe as F seed 0's letter-control row except recipe.eval_row_id, which must be its own eval row's id"
+  },
+  "readings": {
+    "status": "the lane's readings where Fable's text leaves a choice, fixed here before any row they apply to exists; the lead may strike or amend any of them by commit before the J6(f)-v4 eval row's written_at (binds_iff)",
+    "R1_must_not_lose_is_a_union": "each arm's must-not-lose set is the win definition's gate-bearing list (base_must_not_lose) plus Fable's per-arm list. This is the only reading under which ece.family.code.defect_class.choice.k4, which the brief's key list names, is read at all: it is in neither arm's per-arm text.",
+    "R2_defect_class_choice_span": "'defect_class choice/span' is read as val_top1.choice and val_top1.span. The eval rows carry no per-family top-1 key (f4feac15's 77 metrics have val_top1.choice, val_top1.span, val_top1.score only); val_top1.choice/span are also the keys Fable names as J6(d)-v4's targets.",
+    "R3_all_targets_clear": "an arm wins only if every one of its targets clears. The definition is one verdict over plural 'metrics', and J6(b)'s recorded 'met' cleared both prose and scrambled. For J6(f) this is moot (one target); for J6(d)-v4 the margin, choice and span must all clear.",
+    "R4_j6dv4_ood": "J6(d)-v4's 'OOD' is all three categories (prose, scrambled, unseen-language); Fable wrote 'prose/scrambled OOD' for J6(f) and 'OOD' for J6(d)-v4.",
+    "R5_j6dv4_needle": "struck by Fable 2026-10-02: J6(d)-v4's 'needle' is the 8K worst bucket (base_must_not_lose), not the length controls. The original reading made one needle miss in ~900 at ceiling block the arm.",
+    "R6_j6dv4_permutation_and_abstention": "'permutation' is permutation_consistency.family.code.defect_class (higher); 'in-distribution abstention' is ood_abstain.in_distribution.family.code.defect_class (lower is better)",
+    "R7_strictness": "as in comparison: targets clear strictly beyond max + range; guards lose strictly beyond the bound; ties never fire a target and never lose a guard",
+    "R8_arm_identity": "the arms' ft rows are checked against their declared recipe delta (arms.*.identity), so swapped or wrong ft ids refuse rather than name the wrong recipe",
+    "R9_room": "Fable 2026-10-02 (AUDIT/idle-gpu-queue-2026-10-02/fable-j6f-room.md) withdraws GAP-SUCC-J6F-CANNOT-FIRE-WHEN-2MAX-MINUS-MIN-REACHES-1-2026-10-02's 'consequence, not fixed'. The block is 2*max - min >= 1 = spread >= 1 - max; it does not coincide with rule (ii)'s spread > 0.30 (46/61, 31/61: spread 0.246, 2*max - min = 1, 61/61 ties and does not clear) and holds at any spread when a seed is at 61/61. The comparison is unchanged; the checker refuses instead of printing quiet. Amended by the lead on main before F seed 1 or 2 has any row; the only envelope value known is F seed 0's 40/61, which was in this file at registration."
+  },
+  "outcomes": {
+    "words": ["fires:j6f", "fires:j6dv4", "quiet", "refused"],
+    "fires:j6f": "J6(f) wins and J6(d)-v4 does not: F' runs J6(f)'s recipe",
+    "fires:j6dv4": "J6(d)-v4 wins and J6(f) does not: F' runs J6(d)-v4's recipe",
+    "quiet": "both arms were evaluated on every required row and metric and neither wins: no F'; Fable Q2 then re-plans from J7''s avg / ens3 / avg-np rows",
+    "refused": "(a) both arms win (they cannot win on the same metric: their targets are disjoint): the human decides; two one-seed wins are never combined into an untested recipe; or (b) any required row is missing, doubled or not completed, any required metric is absent or not ran, a recorded value disagrees with its own counts, or an identity or comparability check fails. Never quiet in case (b), including when one arm would win on its own, since a both-win cannot then be ruled out. Or (c) (Fable 2026-10-02, R9_room) a target of either arm cannot clear because the envelope leaves it no room (comparison.target_clears, Room). The JSON carries cannot_clear: [{arm, target, max, min, bound}] and refused_because names them. Never quiet and never fires:<other arm> in case (c): a target that could not be examined is not one that was examined and missed, and a both-win cannot be ruled out (CLAUDE.md: a check that could not run must never report the same result as one that ran and passed).",
+    "exit_codes": "0 with the word on stdout for fires:j6f, fires:j6dv4, quiet; 3 with 'refused' on stdout for every refusal; the JSON (per-arm detail, every input ledger's sha256) is written to --out and stderr in every case",
+    "waiter_note": "campaign/post-f-queue/post_f_common.sh rule() accepts only fires|quiet|qualifies|fails and maps every other word to refused. The fsucc waiter must accept fires:j6f and fires:j6dv4 explicitly, or a correct firing reads as a refusal on the box."
+  },
+  "checker": {
+    "command": "qd-post-f-rules successor --f-ledger <F ledger> --ft-row 0=<id> --ft-row 1=<id> --ft-row 2=<id> --arm-ledger <J6 v4 ledger> --j6f-ft-row 0=<id> --j6dv4-ft-row 0=<id> --out <new path>",
+    "source": "crates/qd-runtime/src/bin/qd_post_f_rules.rs (successor subcommand)",
+    "deploy": "cross-built for aarch64 and installed by the lead under a NEW path, /home/ubuntu/bin/qd-post-f-rules-succ, with its own sha256 pin in the fsucc waiter (recorded in HANDOFF/succ-rule-2026-10-02.md). /home/ubuntu/bin/qd-post-f-rules and RULES_SHA256=cadbdc74... in post_f_common.sh, which the running post-F waiters check, are not replaced or changed."
+  },
+  "key_verification_f_seed0": {
+    "ledger": "/home/ubuntu/ledger/gh200-p4-v4-2026-10-01.jsonl, scp'd read-only at 2026-10-02 01:13 UTC, sha256 abb48449d8ecbc814a8877ff35f56352f53c7098b8f9d61ae3fc934f85c34b91, 5 rows",
+    "ft_973cd4e3": "973cd4e3-e0d2-4ff8-8588-b761cb842b75: ft, completed, quick false, tag epoch, seed 0, recipe_hash fb7810a5..., data_snapshot_hash ea3215c4...; recipe has lr 1e-05, lower_layers_n 8, lower_lr_scale 0.1, checkpoint_skip_layers 6, batch_tokens 35403, no beta2 key",
+    "eval_f4feac15": {
+      "row": "f4feac15-db49-4159-bb9b-695866c855cc: eval, completed, epoch-score-val, seed 0, metrics.ft_run_row_id 973cd4e3, recipe.val_shard_hash ef06ab99...",
+      "gates.needle_hunk_recall": "ran, value 0.6557 = 40/61, its worst depth bucket",
+      "needle_hunk_recall.depth.*": "0-20% 59/59, 20-40% 61/61, 40-60% 57/59, 60-80% 51/60, 80-100% 40/61 (all ran)",
+      "ood_abstain.prose": "ran, 54/60",
+      "ood_abstain.scrambled": "ran, 58/60",
+      "ood_abstain.unseen-language": "ran, 20/60",
+      "permutation_consistency.family.code.defect_class": "ran, 2291/2304",
+      "ood_abstain.in_distribution.family.code.defect_class": "ran, 13/2304",
+      "ece.family.code.defect_class.choice.k4": "ran, value 0.02070706058909458 (n 2304); gates.ece is not_run (ece.lang: 8681 letter rows carry no language), and the rule reads the metric, not the gate",
+      "val_top1.choice": "ran, 9130/10985",
+      "val_top1.span": "ran, 6529/7238"
+    },
+    "needle_control_a4f244f0": {
+      "row": "a4f244f0-436a-4338-b483-7380096a8422: eval, completed, epoch-needle-length-control, seed 0, metrics.ft_run_row_id 973cd4e3",
+      "needle_hunk_recall.control.1024": "ran, 1.0; depth 57/57, 61/61, 59/59, 64/64, 59/59",
+      "needle_hunk_recall.control.2048": "ran, 1.0; depth 58/58, 61/61, 60/60, 61/61, 60/60",
+      "needle_hunk_recall.control.4096": "ran, 1.0; depth 59/59, 59/59, 61/61, 60/60, 61/61"
+    },
+    "letter_control_c89b89a1": {
+      "row": "c89b89a1-7b88-4a30-b582-110ae55cd00a: eval, completed, tools/ft_linear_control.py, seed 0, recipe.eval_row_id f4feac15, metrics.scored_eval_row_id f4feac15",
+      "paired_margin_vs_linear.choice.code.defect_class": "ran, n 2304, value 0.37890625 = 873/2304; gates.paired_margin_vs_linear is not_run (intent.domain's control did not converge), and the rule reads the per-family metric, not the gate"
+    },
+    "option_control_4e8ec654": "4e8ec654-b749-4fab-a75b-66b83bd999fe: report-only option control; carries linear_option_control.scored_eval_row_id, not scored_eval_row_id, so it is not selected"
+  },
+  "replay_check": {
+    "what": "the definition must reproduce J6(b)'s recorded verdict ('met: yes', f-v4-preregistered.json j6b_evidence.met) when run on the real rows; a test in the checker asserts it prints fires",
+    "arm": "J6(b): ft 3fa33161, eval f4958492 in ledger/gh200-j6-ablations-2026-10-01.jsonl (sha256 4a32bc0a9b6bf72a7ffa517c71546001d03ad2e588af9e7f8824b00aeb75099b, byte-identical to the box's); identity delta lower_layers_n = 8, lower_lr_scale = 0.1 against J4 seed 0's ft recipe, same data_snapshot_hash 1a90a4a2...",
+    "envelope": "J4: ft 80b19a41 / 9b108fe2 / 8b600511, eval 2f5fe57a / f3612f73 / 02cf5ff4 in ledger/gh200-p4-v3-2026-10-01.jsonl (sha256 69a5c281776f1467fd3a64a9a42a78d7b9791816be7c3e96fad0f2fc5c31d02f, byte-identical to the box's)",
+    "targets": "ood_abstain.prose and ood_abstain.scrambled (what --lower-layers-n / --lower-layers-lr-scale was meant to move, per j6b_evidence.met)",
+    "must_not_lose": "base_must_not_lose",
+    "expected": "fires: prose 44 > 9 + (9 - 2); scrambled 51 > 8 + (8 - 3); choice 9123/10985 >= 8405/10985; span 6559/7238 >= 6399/7238; defect_class permutation 2287/2304 >= 2265/2304; defect_class ECE 0.0141 <= 0.0202; 8K worst 0/59 ties J4's minimum 0/59 (inside)"
+  },
+  "f_prime_recipe": {
+    "form": "box_q_f.sh's argv (the box's /home/ubuntu/box_q_f.sh) with one change, seeds 0 1 2 in order, from /home/ubuntu/qd-lane8 at a502670 (clean, as lane() in post_f_common.sh checks), with --checkpoint-skip-layers 6 as F ran (f.ckpt-skip) and its own checkpoint directory, output directory and ledger",
+    "fsucc_j6f": {
+      "change": "drop --lower-layers-n 8 --lower-layers-lr-scale 0.1",
+      "recipe_flags": "--optimizer master --lr 1e-5 --epoch --no-memorise --batch-tokens 35403 --checkpoint-skip-layers 6",
+      "checkpoint_dir": "/home/ubuntu/ckpt/fsucc-j6f",
+      "out_dir": "/home/ubuntu/fsucc-j6f",
+      "ledger": "/home/ubuntu/ledger/gh200-fsucc-j6f-2026-10-02.jsonl"
+    },
+    "fsucc_j6dv4": {
+      "change": "--lr 3e-5 --beta2 0.95 in place of --lr 1e-5",
+      "recipe_flags": "--optimizer master --lr 3e-5 --beta2 0.95 --epoch --no-memorise --batch-tokens 35403 --lower-layers-n 8 --lower-layers-lr-scale 0.1 --checkpoint-skip-layers 6",
+      "checkpoint_dir": "/home/ubuntu/ckpt/fsucc-j6dv4",
+      "out_dir": "/home/ubuntu/fsucc-j6dv4",
+      "ledger": "/home/ubuntu/ledger/gh200-fsucc-j6dv4-2026-10-02.jsonl"
+    },
+    "per_seed": "tools/real_ft_run.py F_SPLIT <recipe_flags> --devices cuda --seeds SEED --checkpoint-dir <checkpoint_dir> --checkpoint-every 100000 --score-val --needle --ood --ood-general-record REC --verdicts-out <out_dir>/verdicts-sSEED.jsonl --suite-verdicts-out <out_dir>/suite-verdicts-sSEED.jsonl --wall-clock-cap-s 32400 --instance lambda-1xgh200 --usd-per-hour 2.29 --ledger <ledger> --approved-by <HUMAN_YES, F' seed SEED>; then box_q_f.sh's needle-control block on <checkpoint_dir>/epoch-seedSEED-cuda.json (--score-val --needle --needle-control 1024,2048,4096 --score-dtype fp32 --ft-ledger <ledger> --ft-row-id <its ft row> --wall-clock-cap-s 5400 --ledger <ledger>); then box_f_controls.sh's two CPU blocks (qd-lane10 at 3460afc, qd-prep-m1 sha256 9ccaf5aa..., nice -n 10: the letter control, then --option-control) on <out_dir>/verdicts-sSEED.jsonl into <ledger>",
+    "not_quick": "three seeds, full schedule, no subsample: quick false (rule 8)",
+    "queue": "Fable Q2: rung0.done -> cudadev -> rungd -> fsucc -> j5pp -> j6a -> STOP; fsucc also waits on j6ctl.done and '=== F controls all done' in /home/ubuntu/logs/q-fcontrols.log, and holds /home/ubuntu/queue/gpu.lock"
+  },
+  "caps": {
+    "train": "3 x 32,400 s (each seed $20.61 at $2.29/h, single-GPU, under the human's 2026-10-01 yes recorded as HUMAN_YES in post_f_common.sh:69-70)",
+    "needle_control": "3 x 5,400 s",
+    "total_cap": "113,400 s = 31.5 h, $72.14 at $2.29/h",
+    "expected": "about 17-18 h, about $40 on the wall-clock basis (Fable Q1; F seed 0 took about 5.8 h: ft 973cd4e3 16,024 s, eval f4feac15 578 s, needle control a4f244f0 187 s)",
+    "controls": "CPU only, no GPU cost"
+  },
+  "follow_on_j5pp": {
+    "what": "J5'': --shuffled-label x 3 on F', in campaign/post-f-queue/box_q_j5p.sh's form. Without it F' is not a candidate (Fable Q1).",
+    "form": "for SEED in 0 1 2: TARGET = qd-post-f-rules eval-row --ledger <F' ledger> --ft-row SEED=<F' ft row of SEED>; tools/real_ft_run.py F_SPLIT <the firing arm's recipe_flags> --devices cuda --seeds SEED --score-val --wall-clock-cap-s 32400 COST --ledger <F' ledger> --approved-by <HUMAN_YES, J5'' seed SEED> --shuffled-label TARGET, from qd-lane8 at a502670, holding gpu.lock",
+    "runs_iff": "fsucc wrote three completed F' ft rows (Fable Q2)",
+    "caps": "3 x 32,400 s = 27 h, $61.83; expected about 14.5 h, about $33 (Fable Q1, inferred)"
+  },
+  "binds_iff": "this file is on main before the written_at of J6(f)-v4's epoch-score-val eval row (post-F item 6) in /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl. Otherwise the rule is not applied to a row that already existed when it was chosen, and the human decides from the rows.",
+  "committed_by": "lane L-succ (a Claude agent in worktree agent-a11389c33abac2b64, branch worktree-agent-a11389c33abac2b64, based on main e21066c), 2026-10-02, in its own commit before any checker code, under the lead's brief and the human's standing instruction to follow Fable's recommendations; for the lead to merge to main"
+}

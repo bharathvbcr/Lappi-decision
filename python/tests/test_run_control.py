@@ -1785,3 +1785,73 @@ def test_a_single_gpu_run_under_the_threshold_still_needs_no_approval() -> None:
     assert cost.projected_usd == pytest.approx(1.49)
     assert cost.projected_usd < APPROVAL_FREE_USD
     assert not cost.requires_human_approval
+
+
+# --- Checkpoint.read_weights: the evaluation read, without the optimizer ----------------
+
+
+def _weights_checkpoint(tmp_path: Path) -> Path:
+    pytest.importorskip("safetensors")
+    state = {
+        "tower": {
+            "a.weight": TensorRef(
+                dtype="float32", shape=(2,), data=_bytes_for("float32", [0x3F800000, 0x40000000])
+            ),
+            "b.weight": TensorRef(
+                dtype="bfloat16", shape=(2,), data=_bytes_for("bfloat16", [0x3F80, 0x4000])
+            ),
+        },
+        "span_head": {
+            "p": TensorRef(dtype="float32", shape=(1,), data=_bytes_for("float32", [0x3F800000]))
+        },
+        "optimizer": {"m": TensorRef(dtype="float32", shape=(3,), data=bytes(12))},
+        "span_weight": 1.0,
+        "vocab_size": 7,
+    }
+    path = tmp_path / "epoch-seed0-cuda.json"
+    _checkpoint(model_state=state).write(path)
+    return path
+
+
+def test_read_weights_returns_only_the_named_subtrees_byte_for_byte(tmp_path):
+    path = _weights_checkpoint(tmp_path)
+    subset, meta = Checkpoint.read_weights(path, subtrees=("tower", "span_head"))
+    full = Checkpoint.read(path)
+    assert set(subset) == {"tower", "span_head", "span_weight", "vocab_size"}
+    for tree in ("tower", "span_head"):
+        assert {k: (v.dtype, v.shape, v.data) for k, v in subset[tree].items()} == {
+            k: (v.dtype, v.shape, v.data) for k, v in full.model_state[tree].items()
+        }
+    assert subset["span_weight"] == 1.0 and subset["vocab_size"] == 7
+    assert meta["optimizer_step"] == full.optimizer_step and meta["seed"] == full.seed
+
+
+def test_read_weights_refuses_an_edited_body(tmp_path):
+    path = _weights_checkpoint(tmp_path)
+    raw = json.loads(path.read_text())
+    raw["model_state"]["span_weight"] = 2.0
+    path.write_text(json.dumps(raw))
+    with pytest.raises(ValueError, match="payload_digest"):
+        Checkpoint.read_weights(path, subtrees=("tower",))
+
+
+def test_read_weights_refuses_a_tensor_whose_bytes_changed(tmp_path):
+    path = _weights_checkpoint(tmp_path)
+    raw = json.loads(path.read_text())
+    sidecar = Checkpoint.sidecar_path(path, raw["sidecar"]["digest"])
+    blob = bytearray(sidecar.read_bytes())
+    n = struct.unpack("<Q", bytes(blob[:8]))[0]
+    header = json.loads(bytes(blob[8 : 8 + n]))
+    start = 8 + n + header["model_state['tower']['a.weight']"]["data_offsets"][0]
+    blob[start] ^= 0x01
+    sidecar.write_bytes(bytes(blob))
+    with pytest.raises(ValueError, match="hashes to"):
+        Checkpoint.read_weights(path, subtrees=("tower",))
+
+
+def test_read_weights_refuses_a_subtree_the_checkpoint_does_not_have(tmp_path):
+    path = _weights_checkpoint(tmp_path)
+    with pytest.raises(ValueError, match="has no"):
+        Checkpoint.read_weights(path, subtrees=("tower", "no_such_head"))
+    with pytest.raises(ValueError, match="at least one"):
+        Checkpoint.read_weights(path, subtrees=())

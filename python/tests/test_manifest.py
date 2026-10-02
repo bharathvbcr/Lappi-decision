@@ -211,7 +211,8 @@ def test_every_manifest_carries_the_whole_refusal_report() -> None:
     assert any("cc-by-nc-4.0" in r for r in manifest.refused_sources["facebook/anli"])
     assert "nuprl/AgentPack" in manifest.refused_sources
     assert manifest.admitted_source_ids == (
-        "bigcode/commitpackft", "clinc/clinc_oos", "rajpurkar/squad_v2",
+        "bharathvbcr/own-repositories", "bigcode/commitpackft", "cais/mmlu", "clinc/clinc_oos",
+        "qd-mutate/commitpackft", "rajpurkar/squad_v2", "tau/commonsense_qa",
     )
 
 

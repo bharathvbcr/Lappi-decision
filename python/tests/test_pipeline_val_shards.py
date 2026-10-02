@@ -14,6 +14,7 @@ commitpackft download, and skips where either is absent. 60 pairs take seconds.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -26,12 +27,13 @@ sys.path.insert(0, str(REPO / "python"))
 import real_tokenizer_pipeline as pipeline  # noqa: E402
 
 from qd_data.config import DataConfig  # noqa: E402
-from qd_train.shards import ShardReader  # noqa: E402
+from qd_train.shards import HEADER_NAME, ShardReader  # noqa: E402
 from qd_train.tristate import NotRun, Ran  # noqa: E402
 
 DOWNLOAD = REPO / "data" / "pool" / "commitpackft"
 
 
+@pytest.mark.usefixtures("qd_prep")
 def test_the_val_split_is_written_under_the_remap_the_train_split_uses(tmp_path) -> None:
     pytest.importorskip("transformers")
     if not pipeline.MODEL_REF.exists():
@@ -41,7 +43,7 @@ def test_the_val_split_is_written_under_the_remap_the_train_split_uses(tmp_path)
 
     measured = pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev="HEAD",
-        commitpackft=DOWNLOAD, val_shards=True,
+        commitpackft=DOWNLOAD, val_shards=True, vocab=pipeline.VOCAB_CORPUS,
     )
 
     coverage = measured.metrics["val_shard_coverage"]
@@ -62,6 +64,73 @@ def test_the_val_split_is_written_under_the_remap_the_train_split_uses(tmp_path)
     assert val.header.split == "val"
     assert val.header.vocab_size == train.header.vocab_size
     assert val.header.remap_hash == train.header.remap_hash, "scored under another remap"
+
+
+@pytest.mark.usefixtures("qd_prep")
+def test_the_default_full_vocabulary_writes_every_id_and_counts_nothing(tmp_path) -> None:
+    pytest.importorskip("transformers")
+    if not pipeline.MODEL_REF.exists():
+        pytest.skip(f"{pipeline.MODEL} is not in this host's HF cache")
+    if not any((DOWNLOAD / f"{lang}.jsonl").exists() for lang in ("go", "python")):
+        pytest.skip("the commitpackft download is not on this host; only its manifest is")
+
+    measured = pipeline.run(
+        out=tmp_path, max_pairs=60, blank_line_runs=False, rev="HEAD",
+        commitpackft=DOWNLOAD, val_shards=True,
+    )
+
+    vocabulary = measured.metrics["remap_vocabulary"]
+    assert isinstance(vocabulary, Ran) and vocabulary.value == vocabulary.n_total
+    # Every row encodes by construction, so a coverage count would measure nothing.
+    for name in ("remap_covers_val_rows", "remap_covers_heldout_rows",
+                 "remap_byte_fallback_heldout_tokens"):
+        got = measured.metrics[name]
+        assert isinstance(got, NotRun) and "--vocab full" in got.reason, (name, got)
+    train = ShardReader(
+        tmp_path / "shards" / "train", config=DataConfig(), repo_root=tmp_path
+    )
+    assert train.header.vocab_size == vocabulary.n_total
+    # Every embedding row of the checkpoint, including the padding past the tokenizer, so the
+    # trained tower keeps the shape its config.json states.
+    rows = pipeline.checkpoint_vocab_rows(tokenizer_len=0)
+    assert train.header.vocab_size == rows
+    assert rows > len(pipeline.RealTokenizer.load(memo_limit=0).tok)
+
+
+@pytest.mark.usefixtures("qd_prep")
+def test_refuse_gold_leaves_the_val_set_byte_identical(tmp_path) -> None:
+    """Fable round K: the narrowed collapse rule is train-side only.
+
+    The same build with and without ``span_collapse_policy=refuse-gold`` writes a val
+    shard set identical in every file but the header's timestamp, so no gate's span
+    population moves (rule 2).
+    """
+    pytest.importorskip("transformers")
+    if not pipeline.MODEL_REF.exists():
+        pytest.skip(f"{pipeline.MODEL} is not in this host's HF cache")
+    if not any((DOWNLOAD / f"{lang}.jsonl").exists() for lang in ("go", "python")):
+        pytest.skip("the commitpackft download is not on this host; only its manifest is")
+
+    outs = {}
+    for policy in ("refuse-any", "refuse-gold"):
+        out = tmp_path / policy
+        pipeline.run(
+            out=out, max_pairs=60, blank_line_runs=False, rev="HEAD",
+            commitpackft=DOWNLOAD, val_shards=True, span_collapse_policy=policy,
+        )
+        outs[policy] = out / "shards" / "val"
+    names = sorted(p.name for p in outs["refuse-any"].iterdir())
+    assert names == sorted(p.name for p in outs["refuse-gold"].iterdir())
+    for name in names:
+        a = (outs["refuse-any"] / name).read_bytes()
+        b = (outs["refuse-gold"] / name).read_bytes()
+        if name == HEADER_NAME:
+            ja, jb = json.loads(a), json.loads(b)
+            ja.pop("created_at", None)
+            jb.pop("created_at", None)
+            assert ja == jb
+        else:
+            assert a == b, name
 
 
 def test_without_the_flag_no_val_set_is_claimed() -> None:

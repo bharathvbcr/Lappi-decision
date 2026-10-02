@@ -1,0 +1,410 @@
+{
+  "schema": "qd-compose/v1",
+  "tool_version": "0.1.0",
+  "seed": 0,
+  "seed_derivation": "ChaCha20Rng::from_seed(sha256(seed.to_le_bytes() || b\"compose\\0\" || split))",
+  "mode": "report_only",
+  "base_corpus": {
+    "name": "commitpackft-corpus-v3",
+    "examples_sha256": "610bb1f0f1d86dc23f419001d8670e01418485644bea93e2b33631e5650c62e0"
+  },
+  "aux_corpus": {
+    "name": "commitpackft-compose-aux-v1",
+    "examples_sha256": "d8374f88d80e61ef223d934e5683377f24561afa14a7c59a31c5dad0a0b164f1"
+  },
+  "aux_pool_sha256": "5e20daba72dd096c4ef3e1a37010f4148df98c4e904c3b431c2647bb883de175",
+  "pool": {
+    "path": "data/pool/commitpackft-pool-v2.jsonl",
+    "sha256": "2cb31231a586baaddc5ec201637f784e1ff5724962df3f777c4de58fbf4fc5d2",
+    "records": 61193
+  },
+  "split_map": {
+    "file": "commitpackft-pool-v2.split-map.json",
+    "sha256": "f5621909c5f46e1ad46ed04f5040f92a768cb14c3860520284427123274ac6cd"
+  },
+  "split_params": {
+    "seed": 20260919,
+    "train_fraction": 0.9,
+    "val_fraction": 0.05
+  },
+  "options": {
+    "seed": 0,
+    "train_rows": 0,
+    "val_rows": 1250,
+    "min_tokens": 850,
+    "max_tokens": 7300,
+    "hard_max_tokens": 7450,
+    "min_files": 3,
+    "max_files": 48,
+    "clean_permille": 169,
+    "max_share_permille": 400,
+    "tolerance_permille": 100,
+    "max_row_bytes": 1048576,
+    "floor_uses": 10,
+    "soft_max_uses": 30,
+    "max_filler_uses": 40,
+    "diag_rows": 300
+  },
+  "symmetric_roles": "Every composed file is the needle (rendered mutated) in exactly one row and pristine in its other appearances, so file novelty does not predict the needle. This drops, within train and for the composed family only, generate.rs's rule that a function never appears both mutated and clean. That rule's stated purpose (generate.rs, 'Split safety') is that both forms land on one side of the split, which still holds: both forms of a file are its repo's, and assign_repo splits by repo. qd_train.mutate_adapter.contrastive_pairs already keeps both forms on one side. The base corpus's single-file rows are unchanged (Fable round I, 2026-10-01).",
+  "token_estimate": {
+    "method": "pre-tokenizer piece count (compose::proxy_pieces) x tokens_per_piece",
+    "tokens_per_piece": 0.902,
+    "calibration": "median exact/proxy over 20,000 sums of 8 commitpackft-corpus-v3 diffs, Qwen3.5-2B-Base tokenizer: p0.1 0.829, p50 0.902, p99.9 0.975 (2026-10-01). A budget; the pipeline's exact count is the length of record"
+  },
+  "examples_sha256": "f3c8c60c439d6c18d257cf2a03463d764360a8c00dd334d9e9569c2d1689659a",
+  "totals": {
+    "examples": 1550,
+    "by_split": {
+      "val": 1550
+    },
+    "by_class": {
+      "clean": 185,
+      "cosmetic": 266,
+      "logic": 374,
+      "stub": 725
+    }
+  },
+  "prepare_refusals": {
+    "file_duplicate_pristine_in_split": 412,
+    "file_exact_twin_across_splits": 131,
+    "file_language_unrecognised": 130,
+    "file_no_mutated_rendering": 30996,
+    "file_no_pristine_change": 2
+  },
+  "heldout_records_skipped": 2816,
+  "clean_diff_parity_checked": 8449,
+  "splits": {
+    "train": {
+      "rows": 0,
+      "by_class": {},
+      "files_available": 25330,
+      "files_with_base_rendering": 20298,
+      "files_with_aux_rendering_only": 5032,
+      "files_used": 0,
+      "file_slots": 0,
+      "needle_rate": {
+        "files": 0,
+        "files_with_min_appearances": 0,
+        "min_appearances": 0,
+        "rate_min": 0.0,
+        "rate_median": 0.0,
+        "rate_max": 0.0,
+        "violations": 0,
+        "appearances_min": 0,
+        "appearances_median": 0,
+        "appearances_max": 0,
+        "files_below_floor": 0,
+        "share_below_floor": 0.0,
+        "appearances_histogram": {}
+      },
+      "needle_sources": {},
+      "file_est_histogram": {
+        "00000-01000": 25328,
+        "01000-02000": 2
+      },
+      "length_est_histogram": {},
+      "files_per_row": {},
+      "needle_index_depth": {},
+      "needle_line_depth": {},
+      "languages_needle": {},
+      "languages_filler_slots": {},
+      "spans_with_interior_removed_lines": 0,
+      "est_tokens_total": 0,
+      "attempts_refused": {}
+    },
+    "val": {
+      "rows": 1250,
+      "by_class": {
+        "clean": 185,
+        "cosmetic": 215,
+        "logic": 294,
+        "stub": 556
+      },
+      "files_available": 1376,
+      "files_with_base_rendering": 1094,
+      "files_with_aux_rendering_only": 282,
+      "files_used": 1065,
+      "file_slots": 20458,
+      "needle_rate": {
+        "files": 1065,
+        "files_with_min_appearances": 1065,
+        "min_appearances": 5,
+        "rate_min": 0.03333333333333333,
+        "rate_median": 0.043478260869565216,
+        "rate_max": 0.125,
+        "violations": 0,
+        "appearances_min": 8,
+        "appearances_median": 23,
+        "appearances_max": 30,
+        "files_below_floor": 151,
+        "share_below_floor": 0.14178403755868543,
+        "appearances_histogram": {
+          "8": 9,
+          "9": 142,
+          "10": 64,
+          "11": 70,
+          "12": 40,
+          "13": 27,
+          "14": 22,
+          "15": 21,
+          "16": 25,
+          "17": 25,
+          "18": 24,
+          "19": 17,
+          "20": 11,
+          "21": 11,
+          "22": 23,
+          "23": 26,
+          "24": 46,
+          "25": 109,
+          "26": 270,
+          "27": 74,
+          "28": 3,
+          "29": 2,
+          "30": 4
+        }
+      },
+      "needle_sources": {
+        "aux": 213,
+        "base": 852
+      },
+      "file_est_histogram": {
+        "00000-01000": 1376
+      },
+      "length_est_histogram": {
+        "00000-01000": 30,
+        "01000-02000": 167,
+        "02000-03000": 185,
+        "03000-04000": 203,
+        "04000-05000": 176,
+        "05000-06000": 201,
+        "06000-07000": 190,
+        "07000-08000": 98
+      },
+      "files_per_row": {
+        "3": 8,
+        "4": 51,
+        "5": 51,
+        "6": 57,
+        "7": 53,
+        "8": 66,
+        "9": 61,
+        "10": 55,
+        "11": 73,
+        "12": 60,
+        "13": 42,
+        "14": 42,
+        "15": 52,
+        "16": 30,
+        "17": 50,
+        "18": 46,
+        "19": 40,
+        "20": 40,
+        "21": 36,
+        "22": 31,
+        "23": 36,
+        "24": 23,
+        "25": 27,
+        "26": 28,
+        "27": 22,
+        "28": 22,
+        "29": 14,
+        "30": 19,
+        "31": 10,
+        "32": 11,
+        "33": 17,
+        "34": 14,
+        "35": 21,
+        "36": 7,
+        "37": 7,
+        "38": 7,
+        "39": 5,
+        "40": 8,
+        "41": 1,
+        "42": 3,
+        "44": 1,
+        "45": 2,
+        "46": 1
+      },
+      "needle_index_depth": {
+        "0-20%": 224,
+        "20-40%": 207,
+        "40-60%": 192,
+        "60-80%": 189,
+        "80-100%": 253
+      },
+      "needle_line_depth": {
+        "0-20%": 196,
+        "20-40%": 223,
+        "40-60%": 203,
+        "60-80%": 207,
+        "80-100%": 236
+      },
+      "languages_needle": {
+        "go": 101,
+        "python": 843,
+        "rust": 60,
+        "typescript": 61
+      },
+      "languages_filler_slots": {
+        "go": 2202,
+        "python": 15049,
+        "rust": 959,
+        "typescript": 1183
+      },
+      "spans_with_interior_removed_lines": 36,
+      "est_tokens_total": 5278702,
+      "attempts_refused": {
+        "no_file_in_window": 872,
+        "over_hard_max_tokens": 223,
+        "slot_window_empty": 5
+      }
+    }
+  },
+  "diag": {
+    "train_corpus": {
+      "name": "commitpackft-composed-v1",
+      "examples_sha256": "a63563e5190aa413c579a911b560e105267c4829da460fb03d02289ab0d075a8"
+    },
+    "rows": 300,
+    "seen_filler": 150,
+    "unseen": 150,
+    "seen_candidates": 7770,
+    "unseen_candidates": 311,
+    "min_train_filler_appearances": 5,
+    "needle_train_appearances": {
+      "7": 9,
+      "8": 32,
+      "9": 17,
+      "10": 10,
+      "11": 10,
+      "12": 5,
+      "13": 6,
+      "14": 8,
+      "15": 5,
+      "16": 6,
+      "17": 4,
+      "18": 1,
+      "19": 2,
+      "20": 3,
+      "21": 4,
+      "22": 4,
+      "23": 9,
+      "24": 13,
+      "25": 2
+    },
+    "report": {
+      "rows": 300,
+      "by_class": {
+        "cosmetic": 51,
+        "logic": 80,
+        "stub": 169
+      },
+      "files_available": 0,
+      "files_with_base_rendering": 0,
+      "files_with_aux_rendering_only": 0,
+      "files_used": 0,
+      "file_slots": 0,
+      "needle_rate": {
+        "files": 0,
+        "files_with_min_appearances": 0,
+        "min_appearances": 0,
+        "rate_min": 0.0,
+        "rate_median": 0.0,
+        "rate_max": 0.0,
+        "violations": 0,
+        "appearances_min": 0,
+        "appearances_median": 0,
+        "appearances_max": 0,
+        "files_below_floor": 0,
+        "share_below_floor": 0.0,
+        "appearances_histogram": {}
+      },
+      "needle_sources": {},
+      "file_est_histogram": {},
+      "length_est_histogram": {
+        "00000-01000": 3,
+        "01000-02000": 64,
+        "02000-03000": 47,
+        "03000-04000": 37,
+        "04000-05000": 37,
+        "05000-06000": 39,
+        "06000-07000": 48,
+        "07000-08000": 25
+      },
+      "files_per_row": {
+        "3": 3,
+        "4": 10,
+        "5": 10,
+        "6": 19,
+        "7": 13,
+        "8": 13,
+        "9": 17,
+        "10": 9,
+        "11": 14,
+        "12": 21,
+        "13": 12,
+        "14": 10,
+        "15": 15,
+        "16": 14,
+        "17": 14,
+        "18": 5,
+        "19": 4,
+        "20": 7,
+        "21": 6,
+        "22": 7,
+        "23": 2,
+        "24": 4,
+        "25": 9,
+        "26": 9,
+        "27": 7,
+        "28": 3,
+        "29": 1,
+        "30": 8,
+        "31": 4,
+        "32": 5,
+        "33": 9,
+        "34": 1,
+        "35": 5,
+        "36": 2,
+        "37": 2,
+        "39": 3,
+        "40": 1,
+        "44": 2
+      },
+      "needle_index_depth": {
+        "0-20%": 55,
+        "20-40%": 57,
+        "40-60%": 50,
+        "60-80%": 70,
+        "80-100%": 68
+      },
+      "needle_line_depth": {
+        "0-20%": 40,
+        "20-40%": 66,
+        "40-60%": 59,
+        "60-80%": 76,
+        "80-100%": 59
+      },
+      "languages_needle": {
+        "go": 21,
+        "python": 252,
+        "rust": 12,
+        "typescript": 15
+      },
+      "languages_filler_slots": {
+        "go": 556,
+        "python": 3587,
+        "rust": 227,
+        "typescript": 280
+      },
+      "spans_with_interior_removed_lines": 6,
+      "est_tokens_total": 1231088,
+      "attempts_refused": {
+        "no_file_in_window": 165,
+        "over_hard_max_tokens": 12,
+        "slot_window_empty": 2
+      }
+    }
+  }
+}

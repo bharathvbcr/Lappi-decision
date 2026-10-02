@@ -1,0 +1,57 @@
+   Compiling qd-runtime v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a11389c33abac2b64/crates/qd-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.96s
+     Running unittests src/bin/qd_post_f_rules.rs (target/debug/deps/qd_post_f_rules-bd20bf07533940cc)
+
+running 49 tests
+test tests::a_category_not_out_of_60_refuses ... ok
+test tests::a_gate_value_that_is_not_its_worst_bucket_refuses ... ok
+test tests::a_not_run_metric_refuses ... ok
+test tests::a_missing_arm_letter_control_row_refuses_even_when_j6f_alone_would_fire ... ok
+test tests::a_missing_or_doubled_eval_row_refuses ... ok
+test tests::a_malformed_line_refuses_even_a_half_written_last_one ... ok
+test tests::every_decimal_is_the_fraction_its_text_prints ... ok
+test tests::a_missing_metric_refuses_even_when_an_arm_would_fire ... ok
+test tests::a_margin_off_its_integer_grid_refuses ... ok
+test tests::a_spread_of_exactly_0_30_is_quiet_and_one_hit_more_fires ... ok
+test tests::every_constant_is_the_preregistrations_own_text ... ok
+test tests::ft_row_arguments_are_full_ids ... ok
+test tests::every_key_the_rule_reads_is_on_f_seed_0s_real_rows ... ok
+test tests::an_envelope_seed_that_is_quick_or_off_recipe_refuses ... ok
+test tests::both_arms_winning_refuses_and_keeps_both_verdicts ... ok
+test tests::a_not_run_metric_or_a_row_that_did_not_complete_refuses ... ok
+test tests::a_missing_avgnp_control_row_refuses_even_when_a_fails ... ok
+test tests::ft_rows_refuse_a_quick_row_another_recipe_or_a_wrong_seed ... ok
+test tests::exact_forms_with_unequal_denominators_and_signed_margins ... ok
+test tests::a_target_at_exactly_max_plus_range_does_not_fire_and_one_hit_more_does ... ok
+test tests::j4_fires_j6f_on_the_needle_and_on_both_falsifiers ... ok
+test tests::avgnp_qualifies_one_hit_above_the_average_everywhere ... ok
+test tests::j4s_seeds_spread_by_0_75_so_seeds_3_and_4_fire ... ok
+test tests::avgnp_needs_34_ood_abstentions_not_33 ... ok
+test tests::j6dv4_needs_no_needle_control_row_and_j6f_does ... ok
+test tests::j6b_against_j4_without_its_flags_is_refused_by_the_identity_check ... ok
+test tests::j6f_counts_a_seed_below_0_95_never_one_at_it_and_needs_two ... ok
+test tests::seeds_other_than_fs_three_refuse ... ok
+test tests::j6f_fires_on_prose_at_9_and_scrambled_at_8_and_not_one_above ... ok
+test tests::quiet_when_both_arms_sit_inside_the_envelope ... ok
+test tests::j6dv4_needs_every_target_to_clear ... ok
+test tests::j6b_against_j4_fires_on_the_real_rows ... ok
+test tests::a_cited_row_that_no_longer_prints_as_its_decimal_refuses ... ok
+test tests::the_successor_rule_is_the_preregistrations_own_text ... ok
+test tests::a_guard_at_its_bound_holds_and_one_count_past_it_loses ... ok
+test tests::the_envelope_is_fs_seeds_0_1_2_only ... ok
+test tests::a_length_control_miss_blocks_j6f_and_not_j6dv4 ... ok
+test tests::j6f_alone_fires_and_j6dv4_alone_fires ... ok
+test tests::letter_control_rows_are_selected_by_the_per_family_key ... ok
+test tests::j4s_average_scored_as_avgnp_fails_a_with_b_and_c_passing ... ok
+test tests::j6f_cannot_fire_when_twice_max_minus_min_reaches_1 ... ok
+test tests::j4s_ft_rows_average_and_their_eval_rows_resolve ... ok
+test tests::swapped_or_wrong_arm_rows_refuse ... ok
+test tests::unseen_language_guards_j6dv4_and_not_j6f ... ok
+test tests::the_reading_is_the_preregistrations_own_text ... ok
+test tests::a_length_control_below_the_average_at_any_length_fails_b ... ok
+test tests::a_tie_with_the_cited_row_passes_where_the_decimal_would_fail_it ... ok
+test tests::a_choice_between_the_decimal_and_the_seed_minimum_fails_c ... ok
+test tests::the_verdict_is_the_rows_and_differs_from_the_decimals_on_exactly_four_values ... ok
+
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+

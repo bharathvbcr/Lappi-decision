@@ -1,0 +1,79 @@
+minhash: 271627 distinct sets signed by /Users/bharath/qd-campaign/target-j6g-prelude-a502670/release/qd-prep in 32.1 s (shingling and canaries included), 615063 lookups, 8 canaries equal to the reference; 271737 distinct texts shingled once, 615063 lookups
+lsh: 2 candidate-pair searches banded by /Users/bharath/qd-campaign/target-j6g-prelude-a502670/release/qd-prep in 4.1 s (canaries included), 1252884 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+val set: 18223 sequences in 6115 batches, remap e7d0890c547b4381 (the train set's)
+permutation second pass: 10985 choice rows deranged in 3985 batches (seed 20260919)
+needle suite: 300 cases, real tokens 7577..8821
+minhash: 16829 distinct sets signed by /Users/bharath/qd-campaign/target-j6g-prelude-a502670/release/qd-prep in 0.6 s (shingling and canaries included), 51794 lookups, 8 canaries equal to the reference; 16829 distinct texts shingled once, 51794 lookups
+lsh: 2 candidate-pair searches banded by /Users/bharath/qd-campaign/target-j6g-prelude-a502670/release/qd-prep in 0.4 s (canaries included), 68533 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+OOD suite: 180 cases, 180 deranged for the second pass
+shard set: /Users/bharath/qd-campaign/phase4-v4-2026-10-01/shards/train
+  rows in -> out: 289142 -> 289142  (0 excluded)  tokens 306926895  vocab 248320
+  choice  n=183252  len 124..7936 (mean 810.4)  gold is noul: 9054  rendered rows [3, 5, 6, 11, 16, 17]
+  span    n=180698  len 148..7920 (mean 876.7)  gold is noul: 180698  pointer-abstaining 53342/180698, candidates 13366989
+  letter rows whose gold is noul: 9054 of 183252
+  prompt-identical rows: 316 of 363950; of those, 0 rows in 0 groups carry DIFFERENT golds ({})
+  letters -> post-remap ids: {'A': 32, 'B': 33, 'C': 34, 'D': 35, 'E': 36, 'F': 37, 'G': 38, 'H': 39, 'I': 40, 'J': 41, 'K': 42, 'L': 43, 'M': 44, 'N': 45, 'O': 46, 'P': 47, 'Z': 57}
+  padding waste: 16146815 padding of 323073710 positions (5.00%) over 363950 sequences; gate is <= 15%. buckets=[137, 172, 207, 240, 268, 298, 333, 376, 430, 501, 590, 688, 819, 962, 1243, 1610, 1983, 2362, 2749, 3134, 3520, 3907, 4301, 4715, 5116, 5534, 5933, 6330, 6686, 7035, 7404, 7936]
+  span_check: {"state": "ran", "passed": true, "value": 180698, "n": 180698, "n_total": 180698, "detail": "every span sequence's gold positions and full candidate set were checked against tokeni
+  remap beside the shards: {"state": "ran", "passed": true, "value": "e7d0890c547b43811f93e50dc0e582ba35eb2e75706ee0ad27186d6a89d502ab", "n": 248320, "n_total": 248320, "detail": "/Users/bharath/qd-campaign/
+  epoch at batch_tokens=35403: 9683 batches, 9449 carry a span row, 152 have no letter row; letter-channel chunks 183097 live of 2395113
+devices: ['mps'] (from --devices; auto-detection skipped)
+
+feasibility, one forward+backward per bucket width, in a subprocess:
+  (a 128x4 stand-in, NOT the real tower: this establishes the device and the shape, not that the real model fits)
+  mps bucket 0 (258 x 137): ok 1.372s
+  mps bucket 1 (205 x 172): ok 1.016s
+  mps bucket 2 (171 x 207): ok 1.005s
+  mps bucket 3 (147 x 240): ok 1.084s
+  mps bucket 4 (132 x 268): ok 0.986s
+  mps bucket 5 (118 x 298): ok 0.992s
+  mps bucket 6 (106 x 333): ok 1.042s
+  mps bucket 7 (94 x 376): ok 1.014s
+  mps bucket 8 (82 x 430): ok 1.006s
+  mps bucket 9 (70 x 501): ok 1.031s
+  mps bucket 10 (60 x 590): ok 1.027s
+  mps bucket 11 (51 x 688): ok 1.157s
+  mps bucket 12 (43 x 819): ok 1.166s
+  mps bucket 13 (36 x 962): ok 1.048s
+  mps bucket 14 (28 x 1243): ok 0.999s
+  mps bucket 15 (21 x 1610): ok 1.086s
+  mps bucket 16 (17 x 1983): ok 1.159s
+  mps bucket 17 (14 x 2362): ok 1.19s
+  mps bucket 18 (12 x 2749): ok 1.25s
+  mps bucket 19 (11 x 3134): ok 1.406s
+  mps bucket 20 (10 x 3520): ok 1.428s
+  mps bucket 21 (9 x 3907): ok 1.264s
+  mps bucket 22 (8 x 4301): ok 1.281s
+  mps bucket 23 (7 x 4715): ok 1.323s
+  mps bucket 24 (6 x 5116): ok 1.317s
+  mps bucket 25 (6 x 5534): ok 1.502s
+  mps bucket 26 (5 x 5933): ok 1.329s
+  mps bucket 27 (5 x 6330): ok 1.443s
+  mps bucket 28 (5 x 6686): ok 1.558s
+  mps bucket 29 (5 x 7035): ok 1.719s
+  mps bucket 30 (4 x 7404): ok 1.408s
+  mps bucket 31 (4 x 7936): ok 1.434s
+
+arm 2 plan: every real batch at most 5383 wide -> 5910 of 9683 batches, 345446 of 363950 sequences, slot kinds ['choice', 'span'] of ['choice', 'span']
+main reached Ledger(args.ledger) in 215 s
+Option permutation seed 20260919: 183252 choice rows re-permuted per pass on top of the shard set's own shuffle.
+RECORD /Users/bharath/qd-campaign/j6g-prelude-2026-10-02/j6g-prelude-record.json sha256 ef17d56ccc0ef0c4190b2c72f924aa672ddc523ceaaf2ebde6fb48b4f83294fc
+PRELUDE OK in 219 s
+      219.56 real       199.41 user        22.20 sys
+         20190789632  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             4114245  page reclaims
+               88212  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+               12233  voluntary context switches
+              333309  involuntary context switches
+       3807388841358  instructions retired
+        734353406005  cycles elapsed
+         15441277192  peak memory footprint

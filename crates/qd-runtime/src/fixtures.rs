@@ -159,6 +159,22 @@ fn request(context: &[u8], slots: Value, route: &str) -> Value {
 
 const SAMPLE_CONTEXT: &[u8] = b"fn add(a: i32, b: i32) -> i32 {\n    todo!()\n}\n";
 
+/// [`SAMPLE_CONTEXT`] with ` // 6` on its first line, for the fixtures that show answered slots.
+///
+/// The reference backend's answers are a function of the rendered prompt's bytes
+/// (`reference.rs`'s prefill seeds from the prefix digest), so prompt format 2 re-rolled every
+/// answer fixture, and over [`SAMPLE_CONTEXT`] all of them abstained. `6` is the first suffix that
+/// shows the format-1 corpus's shapes again -- verdict and severity answered, evidence abstained
+/// in the three-slot example, severity answered alone -- found by the deterministic search in
+/// `AUDIT/v5-fmt-2026-10-02/fixture_search.py` (its output beside it). The question is unchanged:
+/// `docs/schema-api.md` quotes it. `tests::every_answer_fixture_shows_its_intended_shape` is what
+/// fails if a later render change re-rolls these again.
+const ANSWERED_SAMPLE_CONTEXT: &[u8] = b"fn add(a: i32, b: i32) -> i32 { // 6\n    todo!()\n}\n";
+
+/// The span fixture's four-line context, ` 2` on its first line: the first suffix under which the
+/// `span` slot answers under prompt format 2 (same search, same record).
+const SPAN_CONTEXT: &[u8] = b"alpha 2\nbeta\ngamma\ndelta\n";
+
 /// A head bound to the reference backend's backbone, with rows for `verdict`.
 fn registered_registry() -> HeadRegistry {
     let backbone = ReferenceBackend::new(true).identity().weight_hash.clone();
@@ -222,7 +238,7 @@ fn answer_fixtures() -> Result<Vec<WireFixture>, String> {
          Note the five envelope keys — status, schema_version, backend, degraded, slots — where \
          docs/schema-api.md's example showed only two.",
         request(
-            SAMPLE_CONTEXT,
+            ANSWERED_SAMPLE_CONTEXT,
             json!([
                 {"name": "verdict", "type": "choice",
                  "options": ["stub", "logic", "cosmetic", "clean"]},
@@ -252,7 +268,7 @@ fn answer_fixtures() -> Result<Vec<WireFixture>, String> {
         "A single `score` slot. Its value is a 1-based ordinal bin as a JSON number, and its \
          conformal set is a list of bins.",
         request(
-            SAMPLE_CONTEXT,
+            ANSWERED_SAMPLE_CONTEXT,
             json!([{"name": "severity", "type": "score", "bins": 5}]),
             "generic",
         ),
@@ -264,7 +280,7 @@ fn answer_fixtures() -> Result<Vec<WireFixture>, String> {
         "A single `span` slot over a four-line context. Its value is {start_line, end_line}, \
          1-based and inclusive, and its conformal_set is null — a span has no conformal set.",
         request(
-            b"alpha\nbeta\ngamma\ndelta\n",
+            SPAN_CONTEXT,
             json!([{"name": "evidence", "type": "span"}]),
             "generic",
         ),
@@ -466,6 +482,19 @@ pub fn all_refusals() -> Vec<Refusal> {
         Refusal::ContextNotUtf8 {
             offset: 2,
             invalid_len: 1,
+        },
+        Refusal::ContextNotUnifiedDiff {
+            line: 1,
+            expected: "a `file: <path>` header line".into(),
+            found: "\"What is the capital of France?\"".into(),
+        },
+        Refusal::ContextLanguageNotInPool {
+            path: "src/main.c".into(),
+            language: "unrecognised".into(),
+            pool: qd_lang::DEFECT_CLASS_POOL_LANGUAGES
+                .iter()
+                .map(|lang| lang.as_str().to_string())
+                .collect(),
         },
         Refusal::RenderedPromptOverCap {
             cap: 802_816,
@@ -801,5 +830,139 @@ pub fn check_corpus(dir: &Path) -> CorpusCheck {
         CorpusCheck::Matches { files: files.len() }
     } else {
         CorpusCheck::Differs { problems }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What one slot of an answer fixture shows.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Shape {
+        Answered,
+        Abstained,
+    }
+    use Shape::{Abstained, Answered};
+
+    /// One row of [`INTENDED`]: the answer file, whether its envelope is degraded, and each
+    /// slot's shape by name.
+    type Intended = (&'static str, bool, &'static [(&'static str, Shape)]);
+
+    /// Each answer fixture's intended shape, by file: whether the envelope is degraded, and each
+    /// slot's shape. This is the corpus's matrix at 92e1c74 (prompt format 1).
+    ///
+    /// # Why it is pinned
+    ///
+    /// The reference backend's answers are a function of the rendered prompt's bytes, so a change
+    /// to the renderer re-rolls every answer fixture. Prompt format 2 re-rolled them all to
+    /// abstentions: the corpus kept its keys and its envelopes and lost every degraded-but-answered
+    /// slot, with `check_corpus` and every structural test still green. This is what says so.
+    /// A render change that re-rolls a fixture to another shape fails here, and the fix is a new
+    /// fixture input, not a new row in this table.
+    const INTENDED: &[Intended] = &[
+        (
+            "answer-example-three-slots.json",
+            true,
+            &[
+                ("evidence", Abstained),
+                ("severity", Answered),
+                ("verdict", Answered),
+            ],
+        ),
+        ("answer-choice-only.json", true, &[("verdict", Abstained)]),
+        ("answer-score-only.json", true, &[("severity", Answered)]),
+        ("answer-span-only.json", true, &[("evidence", Answered)]),
+        ("answer-max-options.json", true, &[("verdict", Abstained)]),
+        ("answer-registered-route.json", true, &[("verdict", Abstained)]),
+        (
+            "answer-all-slots-abstained.json",
+            true,
+            &[
+                ("evidence", Abstained),
+                ("severity", Abstained),
+                ("verdict", Abstained),
+            ],
+        ),
+        (
+            "answer-not-degraded.json",
+            false,
+            &[
+                ("evidence", Answered),
+                ("severity", Answered),
+                ("verdict", Answered),
+            ],
+        ),
+    ];
+
+    /// Every answer fixture names its slots `verdict` (choice), `severity` (score) and `evidence`
+    /// (span); an answered slot's value must be that kind's.
+    fn value_matches_slot(name: &str, value: &SlotValue) -> bool {
+        matches!(
+            (name, value),
+            ("verdict", SlotValue::Choice(_))
+                | ("severity", SlotValue::Score(_))
+                | ("evidence", SlotValue::Span(_))
+        )
+    }
+
+    #[test]
+    fn every_answer_fixture_shows_its_intended_shape() {
+        let corpus = corpus().expect("the corpus generates");
+        let answers: Vec<&WireFixture> = corpus.iter().filter(|f| f.status == "ok").collect();
+        let named: BTreeSet<&str> = INTENDED.iter().map(|(file, _, _)| *file).collect();
+        let produced: BTreeSet<&str> = answers.iter().map(|f| f.file.as_str()).collect();
+        assert_eq!(
+            produced, named,
+            "every answer fixture declares its intended shape here, and every declared one exists"
+        );
+        for fixture in answers {
+            let Some((_, degraded, slots)) = INTENDED.iter().find(|(f, _, _)| *f == fixture.file)
+            else {
+                panic!("{} declares no intended shape", fixture.file);
+            };
+            let Response::Ok(envelope) = &fixture.response else {
+                panic!("{} is not an answer", fixture.file);
+            };
+            assert_eq!(envelope.degraded, *degraded, "{}: envelope degraded", fixture.file);
+            let got: Vec<(&str, Shape)> = envelope
+                .slots
+                .iter()
+                .map(|(name, answer)| {
+                    assert_eq!(answer.degraded, *degraded, "{}: {name} degraded", fixture.file);
+                    match &answer.value {
+                        Some(value) => {
+                            assert!(!answer.noul, "{}: {name} has a value and noul", fixture.file);
+                            assert!(
+                                value_matches_slot(name, value),
+                                "{}: {name} answered with {value:?}",
+                                fixture.file
+                            );
+                            (name.as_str(), Answered)
+                        }
+                        None => {
+                            assert!(answer.noul, "{}: {name} has no value and no noul", fixture.file);
+                            (name.as_str(), Abstained)
+                        }
+                    }
+                })
+                .collect();
+            assert_eq!(got, *slots, "{}: the slot shapes moved", fixture.file);
+        }
+    }
+
+    /// The table itself keeps the coverage: every slot kind answered and abstained under a
+    /// degraded backend, and answered under a model one.
+    #[test]
+    fn the_intended_shapes_cover_every_slot_kind_answered_and_abstained() {
+        for name in ["verdict", "severity", "evidence"] {
+            for (degraded, shape) in [(true, Answered), (true, Abstained), (false, Answered)] {
+                assert!(
+                    INTENDED.iter().any(|(_, d, slots)| *d == degraded
+                        && slots.iter().any(|(n, s)| *n == name && *s == shape)),
+                    "no answer fixture shows {name} {shape:?} with degraded={degraded}"
+                );
+            }
+        }
     }
 }

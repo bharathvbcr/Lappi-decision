@@ -31,7 +31,34 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-__all__ = ["git_bytes", "git_text", "resolve_rev", "tracked_paths"]
+__all__ = ["git_bytes", "git_text", "require_full_sha", "resolve_rev", "tracked_paths"]
+
+_HEX = frozenset("0123456789abcdef")
+
+
+def require_full_sha(rev: str, *, flag: str = "--rev") -> str:
+    """``rev`` itself, if it is a full 40-character lowercase commit sha; else a refusal.
+
+    :func:`resolve_rev` makes a *header* safe: it stores the commit a name pointed at. It
+    does not make a *command* reproducible. ``--rev HEAD`` in a campaign config, a ledger
+    recipe or a handoff names a different corpus after every commit to this worktree, and
+    the 2026-09-29 smoke measured what that costs: the rebuild ``3e577d0b`` was built at
+    ``HEAD``, picked up that day's commits as 23-37k-token rows, and had to be superseded.
+    So a run that writes a ledger row takes the sha, not a name for it -- an abbreviation
+    is refused too, because an abbreviation can become ambiguous as history grows.
+
+    Pure: no git call. The caller still resolves the sha with :func:`resolve_rev`, which is
+    what proves the commit exists.
+    """
+    if len(rev) != 40 or not set(rev) <= _HEX:
+        raise ValueError(
+            f"{flag} {rev!r} is not a full 40-character commit sha. A run that writes a "
+            "ledger row must name its corpus revision exactly: a branch, tag, HEAD or an "
+            "abbreviation is a different commit (or an ambiguous one) later, so the same "
+            "command would rebuild a different corpus. Pass the full sha, e.g. "
+            "`git rev-parse HEAD`."
+        )
+    return rev
 
 
 def git_text(repo: Path, *args: str) -> str:

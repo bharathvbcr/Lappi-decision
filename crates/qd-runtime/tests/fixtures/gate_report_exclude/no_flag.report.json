@@ -1,0 +1,1207 @@
+{
+  "eval_rows": [
+    {
+      "cross_check": {
+        "checked": 4,
+        "names": [
+          "metrics.val_rows_decoded",
+          "metrics.val_top1.choice",
+          "metrics.val_top1.span",
+          "gates.permutation_consistency"
+        ],
+        "not_checked": [
+          {
+            "name": "metrics.permutation_consistency.family.code.defect_class",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.permutation_consistency.family.commonsense.multiple_choice",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.permutation_consistency.family.knowledge.multiple_choice",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ood_abstain.in_distribution",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ood_abstain.in_distribution.family.code.defect_class",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ood_abstain.in_distribution.family.commonsense.multiple_choice",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ood_abstain.in_distribution.family.knowledge.multiple_choice",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.needle_hunk_recall.depth.0-4k",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.needle_hunk_recall.depth.4k-8k",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "gates.needle_hunk_recall",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ood_abstain.prose",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ood_abstain.scrambled",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "gates.ood_abstain",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ece.choice.k4",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.degenerate_head.choice.k4",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ece.choice.k5",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.degenerate_head.choice.k5",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ece.lang.go",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ece.lang.python",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ece.family.code.defect_class.choice.k4",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ece.family.commonsense.multiple_choice.choice.k5",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ece.family.knowledge.multiple_choice.choice.k4",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.degenerate_head.family.code.defect_class.choice.k4",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.degenerate_head.family.commonsense.multiple_choice.choice.k5",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.degenerate_head.family.knowledge.multiple_choice.choice.k4",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ece.report.pooled",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ece.report.lang.go",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ece.report.lang.none",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.ece.report.lang.python",
+            "why": "absent on the eval row"
+          }
+        ]
+      },
+      "eval_row_id": "fixture-eval-row-seed-7",
+      "families": [
+        "code.defect_class",
+        "commonsense.multiple_choice",
+        "knowledge.multiple_choice",
+        "qa.answer_span"
+      ],
+      "g1": {
+        "accuracy": {
+          "per_family": {
+            "code.defect_class": {
+              "choice": {
+                "detail": "report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                "n": 92,
+                "n_total": 150,
+                "state": "ran",
+                "value": 0.6133333333333333
+              }
+            },
+            "commonsense.multiple_choice": {
+              "choice": {
+                "detail": "report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                "n": 101,
+                "n_total": 160,
+                "state": "ran",
+                "value": 0.63125
+              }
+            },
+            "knowledge.multiple_choice": {
+              "choice": {
+                "detail": "report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                "n": 122,
+                "n_total": 200,
+                "state": "ran",
+                "value": 0.61
+              }
+            },
+            "qa.answer_span": {
+              "span": {
+                "detail": "report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                "n": 25,
+                "n_total": 40,
+                "state": "ran",
+                "value": 0.625
+              }
+            }
+          },
+          "pooled": {
+            "choice": {
+              "detail": "choice rows decoded to the gold (val_top1.choice)",
+              "n": 315,
+              "n_total": 510,
+              "state": "ran",
+              "value": 0.6176470588235294
+            },
+            "score": {
+              "reason": "the verdicts hold no score row",
+              "state": "not_run"
+            },
+            "span": {
+              "detail": "span rows decoded to the gold (val_top1.span)",
+              "n": 25,
+              "n_total": 40,
+              "state": "ran",
+              "value": 0.625
+            }
+          }
+        },
+        "controls": {
+          "degenerate_head": {
+            "per_family": {
+              "code.defect_class": {
+                "choice.k4": {
+                  "detail": "mean predictive entropy 1.0184 nats (floor 0.15, stated not applied); top predicted row 1 takes 0.287 (cap 0.95, stated not applied); report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                  "n": 150,
+                  "n_total": 150,
+                  "state": "ran",
+                  "top_predicted_share": 0.2866666666666667,
+                  "value": 1.0183831896569444
+                }
+              },
+              "commonsense.multiple_choice": {
+                "choice.k5": {
+                  "detail": "mean predictive entropy 1.0907 nats (floor 0.15, stated not applied); top predicted row 0 takes 0.194 (cap 0.95, stated not applied); report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                  "n": 160,
+                  "n_total": 160,
+                  "state": "ran",
+                  "top_predicted_share": 0.19375,
+                  "value": 1.090715667587339
+                }
+              },
+              "knowledge.multiple_choice": {
+                "choice.k4": {
+                  "detail": "mean predictive entropy 0.9192 nats (floor 0.15, stated not applied); top predicted row 3 takes 0.435 (cap 0.95, stated not applied); report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                  "n": 200,
+                  "n_total": 200,
+                  "state": "ran",
+                  "top_predicted_share": 0.435,
+                  "value": 0.9192014104419528
+                }
+              },
+              "qa.answer_span": {
+                "reason": "no letter row in this family: the control reads letter distributions only",
+                "state": "not_run"
+              }
+            },
+            "pooled": {
+              "population": "every letter row, per slot shape (the control as built)",
+              "recomputed_from_the_verdicts": {
+                "degenerate_head.choice.k4": {
+                  "detail": "mean predictive entropy 0.9617 nats (floor 0.15, stated not applied); top predicted row 3 takes 0.326 (cap 0.95, stated not applied)",
+                  "n": 350,
+                  "n_total": 350,
+                  "state": "ran",
+                  "top_predicted_share": 0.32571428571428573,
+                  "value": 0.9617078872483779
+                },
+                "degenerate_head.choice.k5": {
+                  "detail": "mean predictive entropy 1.0907 nats (floor 0.15, stated not applied); top predicted row 0 takes 0.194 (cap 0.95, stated not applied)",
+                  "n": 160,
+                  "n_total": 160,
+                  "state": "ran",
+                  "top_predicted_share": 0.19375,
+                  "value": 1.090715667587339
+                }
+              },
+              "recorded_on_the_eval_row": null
+            }
+          },
+          "privileged_hunk": {
+            "per_family": {
+              "code.defect_class": {
+                "reason": "not specified: GAP-PRIVILEGED-HUNK-IS-NEARLY-VACUOUS-ON-COMMITPACKFT",
+                "state": "not_run"
+              },
+              "commonsense.multiple_choice": {
+                "reason": "not specified: GAP-PRIVILEGED-HUNK-IS-NEARLY-VACUOUS-ON-COMMITPACKFT",
+                "state": "not_run"
+              },
+              "knowledge.multiple_choice": {
+                "reason": "not specified: GAP-PRIVILEGED-HUNK-IS-NEARLY-VACUOUS-ON-COMMITPACKFT",
+                "state": "not_run"
+              },
+              "qa.answer_span": {
+                "reason": "not specified: GAP-PRIVILEGED-HUNK-IS-NEARLY-VACUOUS-ON-COMMITPACKFT",
+                "state": "not_run"
+              }
+            },
+            "pooled": {
+              "population": "not defined",
+              "recomputed_from_the_verdicts": {
+                "reason": "not specified",
+                "state": "not_run"
+              },
+              "recorded_on_the_eval_row": null
+            }
+          },
+          "shuffled_label": {
+            "per_family": {
+              "code.defect_class": {
+                "reason": "measured on a supplement row by real_ft_run.py --shuffled-label, from its own data; a verdict file holds no per-family input for it",
+                "state": "not_run"
+              },
+              "commonsense.multiple_choice": {
+                "reason": "measured on a supplement row by real_ft_run.py --shuffled-label, from its own data; a verdict file holds no per-family input for it",
+                "state": "not_run"
+              },
+              "knowledge.multiple_choice": {
+                "reason": "measured on a supplement row by real_ft_run.py --shuffled-label, from its own data; a verdict file holds no per-family input for it",
+                "state": "not_run"
+              },
+              "qa.answer_span": {
+                "reason": "measured on a supplement row by real_ft_run.py --shuffled-label, from its own data; a verdict file holds no per-family input for it",
+                "state": "not_run"
+              }
+            },
+            "pooled": {
+              "population": "the shuffled-label model's val rows",
+              "recomputed_from_the_verdicts": {
+                "reason": "a supplement row's control; not in a verdict file",
+                "state": "not_run"
+              },
+              "recorded_on_the_eval_row": null
+            }
+          },
+          "transfer_gate": {
+            "per_family": {
+              "code.defect_class": {
+                "reason": "not specified: GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA",
+                "state": "not_run"
+              },
+              "commonsense.multiple_choice": {
+                "reason": "not specified: GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA",
+                "state": "not_run"
+              },
+              "knowledge.multiple_choice": {
+                "reason": "not specified: GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA",
+                "state": "not_run"
+              },
+              "qa.answer_span": {
+                "reason": "not specified: GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA",
+                "state": "not_run"
+              }
+            },
+            "pooled": {
+              "population": "not defined",
+              "recomputed_from_the_verdicts": {
+                "reason": "not specified",
+                "state": "not_run"
+              },
+              "recorded_on_the_eval_row": null
+            }
+          }
+        },
+        "gates": {
+          "ece": {
+            "per_family": {
+              "code.defect_class": {
+                "choice.k4": {
+                  "detail": "ECE 0.1248 over 150 rows, 11 of 15 bins carried mass (the ece gate's bar, 0.05, stated not applied); report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                  "n": 150,
+                  "n_total": 150,
+                  "state": "ran",
+                  "value": 0.12483428152388121
+                }
+              },
+              "commonsense.multiple_choice": {
+                "choice.k5": {
+                  "detail": "ECE 0.1124 over 160 rows, 12 of 15 bins carried mass (the ece gate's bar, 0.05, stated not applied); report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                  "n": 160,
+                  "n_total": 160,
+                  "state": "ran",
+                  "value": 0.11235306386517672
+                }
+              },
+              "knowledge.multiple_choice": {
+                "choice.k4": {
+                  "detail": "ECE 0.0739 over 200 rows, 11 of 15 bins carried mass (the ece gate's bar, 0.05, stated not applied); report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                  "n": 200,
+                  "n_total": 200,
+                  "state": "ran",
+                  "value": 0.07394952815764819
+                }
+              },
+              "qa.answer_span": {
+                "reason": "no letter row in this family: ECE reads letter distributions only",
+                "state": "not_run"
+              }
+            },
+            "pooled": {
+              "population": "every letter row, per slot shape and per language (the gate as built)",
+              "recomputed_from_the_verdicts": {
+                "ece.choice.k4": {
+                  "detail": "ECE 0.0495 over 350 rows, 11 of 15 bins carried mass (the ece gate's bar, 0.05, stated not applied); one slot shape: a gate input",
+                  "n": 350,
+                  "n_total": 350,
+                  "state": "ran",
+                  "value": 0.049544843850909494
+                },
+                "ece.choice.k5": {
+                  "detail": "ECE 0.1124 over 160 rows, 12 of 15 bins carried mass (the ece gate's bar, 0.05, stated not applied); one slot shape: a gate input",
+                  "n": 160,
+                  "n_total": 160,
+                  "state": "ran",
+                  "value": 0.11235306386517672
+                }
+              },
+              "recorded_on_the_eval_row": null
+            }
+          },
+          "needle_hunk_recall": {
+            "per_family": {
+              "code.defect_class": {
+                "reason": "the needle suite's cases are generated haystacks, not val rows, and carry no val family",
+                "state": "not_run"
+              },
+              "commonsense.multiple_choice": {
+                "reason": "the needle suite's cases are generated haystacks, not val rows, and carry no val family",
+                "state": "not_run"
+              },
+              "knowledge.multiple_choice": {
+                "reason": "the needle suite's cases are generated haystacks, not val rows, and carry no val family",
+                "state": "not_run"
+              },
+              "qa.answer_span": {
+                "reason": "the needle suite's cases are generated haystacks, not val rows, and carry no val family",
+                "state": "not_run"
+              }
+            },
+            "pooled": {
+              "population": "the needle suite's cases",
+              "recomputed_from_the_verdicts": {
+                "by_depth": {
+                  "0-4k": {
+                    "detail": "needle recall in this depth bucket",
+                    "n": 5,
+                    "n_total": 6,
+                    "state": "ran",
+                    "value": 0.8333333333333334
+                  },
+                  "4k-8k": {
+                    "detail": "needle recall in this depth bucket",
+                    "n": 4,
+                    "n_total": 6,
+                    "state": "ran",
+                    "value": 0.6666666666666666
+                  },
+                  "worst_bucket": "4k-8k"
+                },
+                "note": "recomputed from the suite verdicts"
+              },
+              "recorded_on_the_eval_row": null
+            }
+          },
+          "ood_abstain": {
+            "per_family": {
+              "code.defect_class": {
+                "in_distribution": {
+                  "detail": "report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                  "n": 42,
+                  "n_total": 141,
+                  "state": "ran",
+                  "value": 0.2978723404255319
+                },
+                "ood_suite": {
+                  "reason": "the OOD suite's cases are generated, carry a category and no val family",
+                  "state": "not_run"
+                }
+              },
+              "commonsense.multiple_choice": {
+                "in_distribution": {
+                  "detail": "report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                  "n": 43,
+                  "n_total": 160,
+                  "state": "ran",
+                  "value": 0.26875
+                },
+                "ood_suite": {
+                  "reason": "the OOD suite's cases are generated, carry a category and no val family",
+                  "state": "not_run"
+                }
+              },
+              "knowledge.multiple_choice": {
+                "in_distribution": {
+                  "detail": "report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                  "n": 43,
+                  "n_total": 200,
+                  "state": "ran",
+                  "value": 0.215
+                },
+                "ood_suite": {
+                  "reason": "the OOD suite's cases are generated, carry a category and no val family",
+                  "state": "not_run"
+                }
+              },
+              "qa.answer_span": {
+                "in_distribution": {
+                  "reason": "no choice row of this family is in the in-distribution bound",
+                  "state": "not_run"
+                },
+                "ood_suite": {
+                  "reason": "the OOD suite's cases are generated, carry a category and no val family",
+                  "state": "not_run"
+                }
+              }
+            },
+            "pooled": {
+              "population": "OOD suite cases, and every val family's choice rows whose gold is not noul (the gate as built)",
+              "recomputed_from_the_verdicts": {
+                "in_distribution": {
+                  "detail": "val choice rows, gold not noul, the runtime rule would abstain on",
+                  "n": 128,
+                  "n_total": 501,
+                  "state": "ran",
+                  "value": 0.2554890219560878
+                },
+                "note": "recomputed from the suite verdicts",
+                "ood_suite": {
+                  "prose": {
+                    "detail": "OOD cases the runtime rule abstained on",
+                    "n": 6,
+                    "n_total": 6,
+                    "state": "ran",
+                    "value": 1.0
+                  },
+                  "scrambled": {
+                    "detail": "OOD cases the runtime rule abstained on",
+                    "n": 5,
+                    "n_total": 6,
+                    "state": "ran",
+                    "value": 0.8333333333333334
+                  }
+                }
+              },
+              "recorded_on_the_eval_row": null
+            }
+          },
+          "paired_margin_vs_linear": {
+            "per_family": {
+              "code.defect_class": {
+                "reason": "measured on a supplement row by tools/ft_linear_control.py, from its own data; a verdict file holds no per-family input for it",
+                "state": "not_run"
+              },
+              "commonsense.multiple_choice": {
+                "reason": "measured on a supplement row by tools/ft_linear_control.py, from its own data; a verdict file holds no per-family input for it",
+                "state": "not_run"
+              },
+              "knowledge.multiple_choice": {
+                "reason": "measured on a supplement row by tools/ft_linear_control.py, from its own data; a verdict file holds no per-family input for it",
+                "state": "not_run"
+              },
+              "qa.answer_span": {
+                "reason": "measured on a supplement row by tools/ft_linear_control.py, from its own data; a verdict file holds no per-family input for it",
+                "state": "not_run"
+              }
+            },
+            "pooled": {
+              "population": "the linear control's paired rows",
+              "recomputed_from_the_verdicts": {
+                "reason": "a supplement row's gate; not in a verdict file",
+                "state": "not_run"
+              },
+              "recorded_on_the_eval_row": null
+            }
+          },
+          "permutation_consistency": {
+            "per_family": {
+              "code.defect_class": {
+                "detail": "report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                "n": 113,
+                "n_total": 150,
+                "state": "ran",
+                "value": 0.7533333333333333
+              },
+              "commonsense.multiple_choice": {
+                "detail": "report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                "n": 121,
+                "n_total": 160,
+                "state": "ran",
+                "value": 0.75625
+              },
+              "knowledge.multiple_choice": {
+                "detail": "report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)",
+                "n": 163,
+                "n_total": 200,
+                "state": "ran",
+                "value": 0.815
+              },
+              "qa.answer_span": {
+                "reason": "no choice row in this family: the gate reads choice rows only",
+                "state": "not_run"
+              }
+            },
+            "pooled": {
+              "population": "every val family's choice rows, pooled (the gate as built)",
+              "recomputed_from_the_verdicts": {
+                "detail": "asked choice rows that agreed with themselves across the derangement",
+                "n": 397,
+                "n_total": 510,
+                "state": "ran",
+                "value": 0.7784313725490196
+              },
+              "recorded_on_the_eval_row": {
+                "n": 397,
+                "n_total": 510,
+                "passed": true,
+                "state": "ran",
+                "value": 0.7784313725490196
+              }
+            }
+          }
+        },
+        "note": "pooled = the gate's population and its recorded verdict; per family is report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)"
+      },
+      "g2": {
+        "by_language": {
+          "go": {
+            "reason": "ECE needs at least 100 examples to be meaningful; got 75. A binned calibration error over a small sample measures the binning.",
+            "state": "not_run"
+          },
+          "none": {
+            "detail": "ECE 0.0622 over 360 rows, 12 of 15 bins carried mass (the ece gate's bar, 0.05, stated not applied); pooled across slot shapes [\"choice.k4\", \"choice.k5\"] by top-1 confidence; report-only, not the gate",
+            "n": 360,
+            "n_total": 360,
+            "state": "ran",
+            "value": 0.062231321132303216
+          },
+          "python": {
+            "reason": "ECE needs at least 100 examples to be meaningful; got 75. A binned calibration error over a small sample measures the binning.",
+            "state": "not_run"
+          }
+        },
+        "note": "report-only: the ece gate is unchanged and still reads per shape and per language",
+        "pooled_all_letter_rows": {
+          "detail": "ECE 0.0581 over 510 rows, 12 of 15 bins carried mass (the ece gate's bar, 0.05, stated not applied); every letter row, pooled across slot shapes [\"choice.k4\", \"choice.k5\"] by top-1 confidence; report-only, not the gate",
+          "n": 510,
+          "n_total": 510,
+          "state": "ran",
+          "value": 0.05808046637850482
+        }
+      },
+      "g3": {
+        "note": "report-only: the degenerate_head control is unchanged; sigma is the binomial standard error under the gold marginal",
+        "slots": {
+          "choice.k4": {
+            "all": {
+              "accuracy": {
+                "detail": "top row of the distribution equals the gold row",
+                "n": 214,
+                "n_total": 350,
+                "state": "ran",
+                "value": 0.6114285714285714
+              },
+              "classes": [
+                {
+                  "gold": {
+                    "count": 76,
+                    "share": 0.21714285714285714
+                  },
+                  "label": "option 0",
+                  "mean_probability": {
+                    "deviation_sigma": {
+                      "detail": "(0.2093 - 0.2171) / sigma, sigma = sqrt(g(1-g)/n) = 0.02204",
+                      "n": 350,
+                      "n_total": 350,
+                      "state": "ran",
+                      "value": -0.35738253767110584
+                    },
+                    "value": 0.20926671873649907
+                  },
+                  "predicted": {
+                    "count": 71,
+                    "deviation_sigma": {
+                      "detail": "(0.2029 - 0.2171) / sigma, sigma = sqrt(g(1-g)/n) = 0.02204",
+                      "n": 350,
+                      "n_total": 350,
+                      "state": "ran",
+                      "value": -0.6482192872272945
+                    },
+                    "share": 0.20285714285714285
+                  },
+                  "row": 0
+                },
+                {
+                  "gold": {
+                    "count": 86,
+                    "share": 0.24571428571428572
+                  },
+                  "label": "option 1",
+                  "mean_probability": {
+                    "deviation_sigma": {
+                      "detail": "(0.1949 - 0.2457) / sigma, sigma = sqrt(g(1-g)/n) = 0.02301",
+                      "n": 350,
+                      "n_total": 350,
+                      "state": "ran",
+                      "value": -2.2063628340527974
+                    },
+                    "value": 0.1949420771051082
+                  },
+                  "predicted": {
+                    "count": 73,
+                    "deviation_sigma": {
+                      "detail": "(0.2086 - 0.2457) / sigma, sigma = sqrt(g(1-g)/n) = 0.02301",
+                      "n": 350,
+                      "n_total": 350,
+                      "state": "ran",
+                      "value": -1.6140841967571837
+                    },
+                    "share": 0.20857142857142857
+                  },
+                  "row": 1
+                },
+                {
+                  "gold": {
+                    "count": 86,
+                    "share": 0.24571428571428572
+                  },
+                  "label": "option 2",
+                  "mean_probability": {
+                    "deviation_sigma": {
+                      "detail": "(0.1965 - 0.2457) / sigma, sigma = sqrt(g(1-g)/n) = 0.02301",
+                      "n": 350,
+                      "n_total": 350,
+                      "state": "ran",
+                      "value": -2.1406073825684255
+                    },
+                    "value": 0.19645522328778872
+                  },
+                  "predicted": {
+                    "count": 64,
+                    "deviation_sigma": {
+                      "detail": "(0.1829 - 0.2457) / sigma, sigma = sqrt(g(1-g)/n) = 0.02301",
+                      "n": 350,
+                      "n_total": 350,
+                      "state": "ran",
+                      "value": -2.731527102204465
+                    },
+                    "share": 0.18285714285714286
+                  },
+                  "row": 2
+                },
+                {
+                  "gold": {
+                    "count": 93,
+                    "share": 0.26571428571428574
+                  },
+                  "label": "option 3",
+                  "mean_probability": {
+                    "deviation_sigma": {
+                      "detail": "(0.3153 - 0.2657) / sigma, sigma = sqrt(g(1-g)/n) = 0.02361",
+                      "n": 350,
+                      "n_total": 350,
+                      "state": "ran",
+                      "value": 2.1000382635016464
+                    },
+                    "value": 0.3152973287778183
+                  },
+                  "predicted": {
+                    "count": 114,
+                    "deviation_sigma": {
+                      "detail": "(0.3257 - 0.2657) / sigma, sigma = sqrt(g(1-g)/n) = 0.02361",
+                      "n": 350,
+                      "n_total": 350,
+                      "state": "ran",
+                      "value": 2.5412376495054456
+                    },
+                    "share": 0.32571428571428573
+                  },
+                  "row": 3
+                },
+                {
+                  "gold": {
+                    "count": 9,
+                    "share": 0.025714285714285714
+                  },
+                  "label": "noul",
+                  "mean_probability": {
+                    "deviation_sigma": {
+                      "detail": "(0.0840 - 0.0257) / sigma, sigma = sqrt(g(1-g)/n) = 0.00846",
+                      "n": 350,
+                      "n_total": 350,
+                      "state": "ran",
+                      "value": 6.893720188919378
+                    },
+                    "value": 0.0840386520927857
+                  },
+                  "predicted": {
+                    "count": 28,
+                    "deviation_sigma": {
+                      "detail": "(0.0800 - 0.0257) / sigma, sigma = sqrt(g(1-g)/n) = 0.00846",
+                      "n": 350,
+                      "n_total": 350,
+                      "state": "ran",
+                      "value": 6.416366739635762
+                    },
+                    "share": 0.08
+                  },
+                  "row": 4
+                }
+              ],
+              "decoded_correct": {
+                "detail": "the verdict's own `correct`, as answer.rs decoded it",
+                "n": 214,
+                "n_total": 350,
+                "state": "ran",
+                "value": 0.6114285714285714
+              },
+              "entropy_floor_stated": 0.15,
+              "majority_class_rate": {
+                "detail": "gold row 3 is the most common gold",
+                "n": 93,
+                "n_total": 350,
+                "state": "ran",
+                "value": 0.26571428571428574
+              },
+              "max_class_share_stated": 0.95,
+              "mean_entropy": 0.9617078872483779,
+              "n": 350,
+              "top_predicted_row": 3,
+              "top_predicted_share": 0.32571428571428573
+            },
+            "per_family": {
+              "code.defect_class": {
+                "accuracy": {
+                  "detail": "top row of the distribution equals the gold row",
+                  "n": 92,
+                  "n_total": 150,
+                  "state": "ran",
+                  "value": 0.6133333333333333
+                },
+                "classes": [
+                  {
+                    "gold": {
+                      "count": 39,
+                      "share": 0.26
+                    },
+                    "label": "option 0",
+                    "mean_probability": {
+                      "deviation_sigma": {
+                        "detail": "(0.2455 - 0.2600) / sigma, sigma = sqrt(g(1-g)/n) = 0.03581",
+                        "n": 150,
+                        "n_total": 150,
+                        "state": "ran",
+                        "value": -0.40468028445569526
+                      },
+                      "value": 0.24550664429989563
+                    },
+                    "predicted": {
+                      "count": 36,
+                      "deviation_sigma": {
+                        "detail": "(0.2400 - 0.2600) / sigma, sigma = sqrt(g(1-g)/n) = 0.03581",
+                        "n": 150,
+                        "n_total": 150,
+                        "state": "ran",
+                        "value": -0.5584355932874555
+                      },
+                      "share": 0.24
+                    },
+                    "row": 0
+                  },
+                  {
+                    "gold": {
+                      "count": 36,
+                      "share": 0.24
+                    },
+                    "label": "option 1",
+                    "mean_probability": {
+                      "deviation_sigma": {
+                        "detail": "(0.2259 - 0.2400) / sigma, sigma = sqrt(g(1-g)/n) = 0.03487",
+                        "n": 150,
+                        "n_total": 150,
+                        "state": "ran",
+                        "value": -0.40314611431505637
+                      },
+                      "value": 0.22594181462575658
+                    },
+                    "predicted": {
+                      "count": 43,
+                      "deviation_sigma": {
+                        "detail": "(0.2867 - 0.2400) / sigma, sigma = sqrt(g(1-g)/n) = 0.03487",
+                        "n": 150,
+                        "n_total": 150,
+                        "state": "ran",
+                        "value": 1.3382584475782777
+                      },
+                      "share": 0.2866666666666667
+                    },
+                    "row": 1
+                  },
+                  {
+                    "gold": {
+                      "count": 30,
+                      "share": 0.2
+                    },
+                    "label": "option 2",
+                    "mean_probability": {
+                      "deviation_sigma": {
+                        "detail": "(0.1927 - 0.2000) / sigma, sigma = sqrt(g(1-g)/n) = 0.03266",
+                        "n": 150,
+                        "n_total": 150,
+                        "state": "ran",
+                        "value": -0.22248413030909192
+                      },
+                      "value": 0.19273369873167792
+                    },
+                    "predicted": {
+                      "count": 27,
+                      "deviation_sigma": {
+                        "detail": "(0.1800 - 0.2000) / sigma, sigma = sqrt(g(1-g)/n) = 0.03266",
+                        "n": 150,
+                        "n_total": 150,
+                        "state": "ran",
+                        "value": -0.612372435695795
+                      },
+                      "share": 0.18
+                    },
+                    "row": 2
+                  },
+                  {
+                    "gold": {
+                      "count": 36,
+                      "share": 0.24
+                    },
+                    "label": "option 3",
+                    "mean_probability": {
+                      "deviation_sigma": {
+                        "detail": "(0.2245 - 0.2400) / sigma, sigma = sqrt(g(1-g)/n) = 0.03487",
+                        "n": 150,
+                        "n_total": 150,
+                        "state": "ran",
+                        "value": -0.44592193644080524
+                      },
+                      "value": 0.2244501707387725
+                    },
+                    "predicted": {
+                      "count": 27,
+                      "deviation_sigma": {
+                        "detail": "(0.1800 - 0.2400) / sigma, sigma = sqrt(g(1-g)/n) = 0.03487",
+                        "n": 150,
+                        "n_total": 150,
+                        "state": "ran",
+                        "value": -1.7206180040292132
+                      },
+                      "share": 0.18
+                    },
+                    "row": 3
+                  },
+                  {
+                    "gold": {
+                      "count": 9,
+                      "share": 0.06
+                    },
+                    "label": "noul",
+                    "mean_probability": {
+                      "deviation_sigma": {
+                        "detail": "(0.1114 - 0.0600) / sigma, sigma = sqrt(g(1-g)/n) = 0.01939",
+                        "n": 150,
+                        "n_total": 150,
+                        "state": "ran",
+                        "value": 2.649085393155215
+                      },
+                      "value": 0.1113676716038974
+                    },
+                    "predicted": {
+                      "count": 17,
+                      "deviation_sigma": {
+                        "detail": "(0.1133 - 0.0600) / sigma, sigma = sqrt(g(1-g)/n) = 0.01939",
+                        "n": 150,
+                        "n_total": 150,
+                        "state": "ran",
+                        "value": 2.750456656690116
+                      },
+                      "share": 0.11333333333333333
+                    },
+                    "row": 4
+                  }
+                ],
+                "decoded_correct": {
+                  "detail": "the verdict's own `correct`, as answer.rs decoded it",
+                  "n": 92,
+                  "n_total": 150,
+                  "state": "ran",
+                  "value": 0.6133333333333333
+                },
+                "entropy_floor_stated": 0.15,
+                "majority_class_rate": {
+                  "detail": "gold row 0 is the most common gold",
+                  "n": 39,
+                  "n_total": 150,
+                  "state": "ran",
+                  "value": 0.26
+                },
+                "max_class_share_stated": 0.95,
+                "mean_entropy": 1.0183831896569444,
+                "n": 150,
+                "top_predicted_row": 1,
+                "top_predicted_share": 0.2866666666666667
+              },
+              "knowledge.multiple_choice": {
+                "accuracy": {
+                  "detail": "top row of the distribution equals the gold row",
+                  "n": 122,
+                  "n_total": 200,
+                  "state": "ran",
+                  "value": 0.61
+                },
+                "classes": [
+                  {
+                    "gold": {
+                      "count": 37,
+                      "share": 0.185
+                    },
+                    "label": "option 0",
+                    "mean_probability": {
+                      "deviation_sigma": {
+                        "detail": "(0.1821 - 0.1850) / sigma, sigma = sqrt(g(1-g)/n) = 0.02746",
+                        "n": 200,
+                        "n_total": 200,
+                        "state": "ran",
+                        "value": -0.10610220818771679
+                      },
+                      "value": 0.18208677456395173
+                    },
+                    "predicted": {
+                      "count": 35,
+                      "deviation_sigma": {
+                        "detail": "(0.1750 - 0.1850) / sigma, sigma = sqrt(g(1-g)/n) = 0.02746",
+                        "n": 200,
+                        "n_total": 200,
+                        "state": "ran",
+                        "value": -0.36420871133008587
+                      },
+                      "share": 0.175
+                    },
+                    "row": 0
+                  },
+                  {
+                    "gold": {
+                      "count": 50,
+                      "share": 0.25
+                    },
+                    "label": "option 1",
+                    "mean_probability": {
+                      "deviation_sigma": {
+                        "detail": "(0.1717 - 0.2500) / sigma, sigma = sqrt(g(1-g)/n) = 0.03062",
+                        "n": 200,
+                        "n_total": 200,
+                        "state": "ran",
+                        "value": -2.557519622724453
+                      },
+                      "value": 0.17169227396462186
+                    },
+                    "predicted": {
+                      "count": 30,
+                      "deviation_sigma": {
+                        "detail": "(0.1500 - 0.2500) / sigma, sigma = sqrt(g(1-g)/n) = 0.03062",
+                        "n": 200,
+                        "n_total": 200,
+                        "state": "ran",
+                        "value": -3.2659863237109046
+                      },
+                      "share": 0.15
+                    },
+                    "row": 1
+                  },
+                  {
+                    "gold": {
+                      "count": 56,
+                      "share": 0.28
+                    },
+                    "label": "option 2",
+                    "mean_probability": {
+                      "deviation_sigma": {
+                        "detail": "(0.1992 - 0.2800) / sigma, sigma = sqrt(g(1-g)/n) = 0.03175",
+                        "n": 200,
+                        "n_total": 200,
+                        "state": "ran",
+                        "value": -2.5435003709977932
+                      },
+                      "value": 0.1992463667048718
+                    },
+                    "predicted": {
+                      "count": 37,
+                      "deviation_sigma": {
+                        "detail": "(0.1850 - 0.2800) / sigma, sigma = sqrt(g(1-g)/n) = 0.03175",
+                        "n": 200,
+                        "n_total": 200,
+                        "state": "ran",
+                        "value": -2.992218744656383
+                      },
+                      "share": 0.185
+                    },
+                    "row": 2
+                  },
+                  {
+                    "gold": {
+                      "count": 57,
+                      "share": 0.285
+                    },
+                    "label": "option 3",
+                    "mean_probability": {
+                      "deviation_sigma": {
+                        "detail": "(0.3834 - 0.2850) / sigma, sigma = sqrt(g(1-g)/n) = 0.03192",
+                        "n": 200,
+                        "n_total": 200,
+                        "state": "ran",
+                        "value": 3.0837483702379336
+                      },
+                      "value": 0.38343269730710267
+                    },
+                    "predicted": {
+                      "count": 87,
+                      "deviation_sigma": {
+                        "detail": "(0.4350 - 0.2850) / sigma, sigma = sqrt(g(1-g)/n) = 0.03192",
+                        "n": 200,
+                        "n_total": 200,
+                        "state": "ran",
+                        "value": 4.699274409727189
+                      },
+                      "share": 0.435
+                    },
+                    "row": 3
+                  },
+                  {
+                    "gold": {
+                      "count": 0,
+                      "share": 0.0
+                    },
+                    "label": "noul",
+                    "mean_probability": {
+                      "deviation_sigma": {
+                        "reason": "the gold share of this row is 0: its binomial standard error sqrt(g(1-g)/n) is 0, so a deviation in standard errors is undefined",
+                        "state": "not_run"
+                      },
+                      "value": 0.06354188745945194
+                    },
+                    "predicted": {
+                      "count": 11,
+                      "deviation_sigma": {
+                        "reason": "the gold share of this row is 0: its binomial standard error sqrt(g(1-g)/n) is 0, so a deviation in standard errors is undefined",
+                        "state": "not_run"
+                      },
+                      "share": 0.055
+                    },
+                    "row": 4
+                  }
+                ],
+                "decoded_correct": {
+                  "detail": "the verdict's own `correct`, as answer.rs decoded it",
+                  "n": 122,
+                  "n_total": 200,
+                  "state": "ran",
+                  "value": 0.61
+                },
+                "entropy_floor_stated": 0.15,
+                "majority_class_rate": {
+                  "detail": "gold row 3 is the most common gold",
+                  "n": 57,
+                  "n_total": 200,
+                  "state": "ran",
+                  "value": 0.285
+                },
+                "max_class_share_stated": 0.95,
+                "mean_entropy": 0.9192014104419528,
+                "n": 200,
+                "top_predicted_row": 3,
+                "top_predicted_share": 0.435
+              }
+            }
+          }
+        }
+      },
+      "ledger": "eval.jsonl",
+      "seed": 7,
+      "verdicts": {
+        "letter_rows": 510,
+        "lines": 550,
+        "path": "verdicts.jsonl",
+        "sha256": "f00744e868c00a8d1947832616f4ab120a9f8afd88175bd23826b6a1a1b715c6",
+        "span_rows": 40
+      }
+    }
+  ],
+  "open_human_decisions": [
+    {
+      "gap": "fixture-gap-ece",
+      "name": "ece_population"
+    },
+    {
+      "gap": "fixture-gap-population",
+      "name": "promotion_population"
+    }
+  ],
+  "promotion_population": {
+    "decided_by": null,
+    "decided_on": null,
+    "decision_ref": null,
+    "families": [
+      "code.defect_class"
+    ],
+    "gap": "fixture-gap-population",
+    "record": "decisions.json",
+    "record_sha256": "38bdb57a69dffef69c1e5f274c17602fa9ca19bb0012a8dd264299b6f9f3235c",
+    "source": "this test's decisions record",
+    "status": "open",
+    "value": "fixture population"
+  },
+  "report_only": "nothing here is a gate, moves a threshold or changes a population (CLAUDE.md rule 2)",
+  "suite_verdicts": [
+    {
+      "lines": 24,
+      "path": "suite.jsonl",
+      "sha256": "aad69e541a86614c7b3930e4ba0b5e0af26c6496b3e7434ca2893791bb6669d6"
+    }
+  ],
+  "tool": "qd-gate-report"
+}

@@ -38,6 +38,7 @@ from qd_train.run_control import (
     WallClockCap,
 )
 from qd_train.trainer import (
+    Progress,
     SpanScoringStep,
     SpanSupervision,
     TrainerContractViolation,
@@ -650,6 +651,37 @@ def test_the_wall_clock_cap_terminates_the_run_and_the_row_is_still_written(tmp_
     assert rows[0].wall_clock_s >= 0.0
 
 
+def _armed_control(fired: list[str], **over) -> RunControl:
+    """A control whose watchdog is armed: auto_terminate records instead of exiting."""
+    return _control(auto_terminate=fired.append, **over)
+
+
+def test_the_watchdog_is_disarmed_when_the_loop_returns(tmp_path):
+    """``start()`` arms a watchdog; nothing called ``stop()``. A finished run's thread kept
+    polling its cap, and in a process that goes on to train the next seed or score the
+    model it would fire the terminate action -- a hard exit -- mid-way through that."""
+    fired: list[str] = []
+    control = _armed_control(fired, total_steps=4)
+    train_cpt(batches_for(7, 0, n=8), epoch=0, step=TinyStep(), control=control,
+              recorder=_recorder(tmp_path))
+    assert control._disarm is not None and control._disarm.is_set()
+    assert fired == []
+
+
+def test_the_watchdog_is_disarmed_when_the_loop_raises(tmp_path):
+    class NanStep(TinyStep):
+        def accumulate(self, batch, supervision) -> float:
+            super().accumulate(batch, supervision)
+            return float("nan")
+
+    fired: list[str] = []
+    control = _armed_control(fired, total_steps=4)
+    with pytest.raises(TrainerContractViolation, match="non-finite loss"):
+        train_cpt(batches_for(7, 0, n=4), epoch=0, step=NanStep(), control=control,
+                  recorder=_recorder(tmp_path))
+    assert control._disarm is not None and control._disarm.is_set()
+
+
 def test_the_ledger_row_carries_the_capped_cost_estimate(tmp_path):
     rec = _recorder(tmp_path)
     result = train_cpt(
@@ -744,6 +776,29 @@ def test_checkpoints_are_taken_at_the_configured_interval(tmp_path):
     )
     assert [c.optimizer_step for c in taken] == [3, 6, 9]
     assert [c.position.index for c in taken] == [3, 6, 9]
+
+
+def test_progress_is_reported_after_every_optimizer_step(tmp_path):
+    """The GH200 hour-0 throughput run of 2026-09-30 trained for 25 minutes with an empty
+    log: nothing inside the loop said where it was, so the only live signal was nvidia-smi."""
+    seen: list[Progress] = []
+    step = TinyStep()
+    result = train_cpt(
+        batches_for(7, 0, n=20),
+        epoch=0,
+        step=step,
+        control=_control(total_steps=5, clock=StepClock(step, seconds_per_step=2.0)),
+        recorder=_recorder(tmp_path),
+        on_progress=seen.append,
+    )
+    assert [p.optimizer_step for p in seen] == [1, 2, 3, 4, 5]
+    assert all(p.total_steps == 5 for p in seen)
+    assert [p.elapsed_s for p in seen] == [2.0, 4.0, 6.0, 8.0, 10.0]
+    assert tuple(p.loss for p in seen) == tuple(result.loss_log.losses())
+    last = seen[-1]
+    assert (last.micro_batches, last.total_positions, last.supervised_tokens) == (
+        result.micro_batches, result.total_positions, result.supervised_tokens
+    )
 
 
 def test_resuming_under_a_different_seed_is_refused(tmp_path):
@@ -895,3 +950,256 @@ def test_the_checkpoint_json_is_the_two_integers_plus_what_cannot_be_recomputed(
     assert raw["seed"] == 7
     assert raw["optimizer_step"] == 3
     assert raw["loss_digest"] == first.loss_log.digest()
+
+
+# --- option permutation at train time -------------------------------------------------------
+#
+# Token ids in the synthetic rows: 1 = "A", 2 = "B", 3 = "C", 9 = "Z" (noul), 5 = ".",
+# 6 = "\n", 40+ = value tokens, 7 = the answer marker's last token.
+
+A, B, C, Z, DOT, NL, ANS = 1, 2, 3, 9, 5, 6, 7
+LINE_ENDS = frozenset({NL})
+
+
+def _permute(row, letter_ids, perm):
+    from qd_train.trainer import permute_choice_row
+
+    return permute_choice_row(
+        row, answer_at=len(row) - 1, letter_ids=letter_ids, noul_id=Z,
+        line_end_ids=LINE_ENDS, perm=perm,
+    )
+
+
+def _choice_row(values: list[list[int]], gold: int, *, prefix: list[int] | None = None):
+    toks = list(prefix or [30, 31, NL])
+    for letter, value in zip((A, B, C), values, strict=False):
+        toks += [letter, DOT, *value, NL]
+    toks += [Z, DOT, 44, NL, 45, NL, ANS, gold]
+    return np.asarray(toks, dtype=np.int32)
+
+
+def test_permuting_moves_each_value_to_its_new_letter_and_the_gold_with_it():
+
+    row = _choice_row([[40], [41, 42], [43]], gold=B)
+    out = _permute(row, (A, B, C), (2, 0, 1))
+    # New order shows original options C, A, B; the gold was B (index 1) -> now at C.
+    assert out.tolist() == _choice_row([[43], [40], [41, 42]], gold=C).tolist()
+    assert len(out) == len(row)
+
+
+def test_a_noul_gold_stays_noul_and_the_identity_changes_nothing():
+
+    row = _choice_row([[40], [41]], gold=Z)
+    same = _permute(row, (A, B), (0, 1))
+    assert same.tolist() == row.tolist()
+    swapped = _permute(row, (A, B), (1, 0))
+    assert swapped[-1] == Z and swapped.tolist() == _choice_row([[41], [40]], gold=Z).tolist()
+
+
+def test_lines_in_the_context_that_look_like_options_are_not_the_option_block():
+    """The search runs backwards from the answer, so a context line ``A. ...`` is never
+    mistaken for the block that ends the prompt."""
+
+    prefix = [A, DOT, 50, NL, B, DOT, 51, NL]
+    row = _choice_row([[40], [41]], gold=A, prefix=prefix)
+    out = _permute(row, (A, B), (1, 0))
+    assert out.tolist() == _choice_row([[41], [40]], gold=B, prefix=prefix).tolist()
+
+
+def test_a_letter_and_dot_inside_a_value_is_not_a_line_start():
+    """``"1B. trick"`` tokenizes ``"1", "B", "."`` under Qwen -- measured. The first version
+    of the search matched that inner ``B`` and cut option B's line in the wrong place; a
+    line start needs a newline-terminated predecessor, which no value can supply."""
+    from qd_train.trainer import permute_choice_row
+
+    digit = 48
+    row = _choice_row([[40], [digit, B, DOT, 41], [43]], gold=B)
+    out = permute_choice_row(
+        row, answer_at=len(row) - 1, letter_ids=(A, B, C), noul_id=Z,
+        line_end_ids=LINE_ENDS, perm=(1, 2, 0),
+    )
+    assert out.tolist() == _choice_row([[digit, B, DOT, 41], [43], [40]], gold=A).tolist()
+
+
+def test_newline_terminated_ids_read_the_byte_level_newline_off_the_vocabulary():
+    from qd_train.trainer import PermutationRefusal, newline_terminated_ids
+
+    vocab = {"Ċ": 198, ")Ċ": 8, "|>Ċ": 29, "A": 32, "ĊA": 5}
+    assert newline_terminated_ids(vocab) == frozenset({198, 8, 29})
+    with pytest.raises(PermutationRefusal, match="not a byte-level BPE"):
+        newline_terminated_ids({"a": 1})
+
+
+def test_a_row_whose_structure_is_not_found_is_refused_not_skipped():
+    from qd_train.trainer import PermutationRefusal, permute_choice_row
+
+    row = _choice_row([[40], [41]], gold=A)
+    with pytest.raises(PermutationRefusal, match="option letter id 3"):
+        _permute(row, (A, B, C), (0, 1, 2))
+    with pytest.raises(PermutationRefusal, match="neither"):
+        permute_choice_row(
+            _choice_row([[40], [41]], gold=40), answer_at=len(row) - 1,
+            letter_ids=(A, B), noul_id=Z, line_end_ids=LINE_ENDS, perm=(1, 0),
+        )
+    with pytest.raises(PermutationRefusal, match="not a permutation"):
+        _permute(row, (A, B), (0, 0))
+
+
+def test_the_batch_permutation_is_a_pure_function_of_seed_index_and_row():
+    """Resume regenerates skipped batches, so the permutation may not depend on anything
+    else -- in particular not on call order."""
+    from qd_train.trainer import ChoicePermutation
+
+    rows = [_choice_row([[40], [41], [43]], gold=A), _choice_row([[40], [41], [43]], gold=C)]
+    width = max(len(r) for r in rows) + 2
+    tokens = np.zeros((2, width), dtype=np.int32)
+    for i, r in enumerate(rows):
+        tokens[i, : len(r)] = r
+    lengths = np.asarray([len(r) for r in rows])
+    batch = Batch(
+        tokens=tokens, lengths=lengths, bucket=width, index=4,
+        slot_kind=np.asarray([SLOT_CHOICE, SLOT_CHOICE]),
+        target_index=lengths - 2,
+    )
+    spec = ChoicePermutation(
+        seed=3, letter_ids={"A": A, "B": B, "C": C}, noul_id=Z, line_end_ids=LINE_ENDS
+    )
+    alphabets: list[tuple[str, ...] | None] = [("A", "B", "C"), ("A", "B", "C")]
+    first, n = spec.apply(batch, alphabets)
+    again, _ = spec.apply(batch, alphabets)
+    assert n == 2 and np.array_equal(first.tokens, again.tokens)
+    assert np.array_equal(batch.tokens, tokens), "the input batch was mutated"
+    others = {
+        ChoicePermutation(seed=s, letter_ids=spec.letter_ids, noul_id=Z, line_end_ids=LINE_ENDS)
+        .apply(batch, alphabets)[0].tokens.tobytes()
+        for s in range(12)
+    }
+    assert len(others) > 1, "the seed does not reach the permutation"
+
+
+def test_an_injected_permutation_source_replaces_the_shuffle_and_keeps_every_refusal():
+    """The eval's second pass draws a derangement per example, not the per-pass shuffle.
+    ``permutation_for`` is how, and it must go through the same checks: a source that
+    skipped them could move a line whose letter was never located."""
+    from qd_train.trainer import ChoicePermutation, PermutationRefusal
+
+    row = _choice_row([[40], [41], [43]], gold=A)
+    batch = Batch(
+        tokens=row[None, :].copy(), lengths=np.asarray([len(row)]), bucket=len(row),
+        index=7, slot_kind=np.asarray([SLOT_CHOICE]), target_index=np.asarray([len(row) - 2]),
+    )
+    spec = ChoicePermutation(
+        seed=0, letter_ids={"A": A, "B": B, "C": C}, noul_id=Z, line_end_ids=LINE_ENDS
+    )
+    asked: list[tuple[int, int, int]] = []
+
+    def source(index: int, r: int, m: int) -> tuple[int, ...]:
+        asked.append((index, r, m))
+        return (1, 2, 0)
+
+    out, n = spec.apply(batch, [("A", "B", "C")], permutation_for=source)
+    assert n == 1 and asked == [(7, 0, 3)]
+    assert out.tokens[0].tolist() == _permute(row, (A, B, C), (1, 2, 0)).tolist()
+    with pytest.raises(PermutationRefusal, match="not a permutation"):
+        spec.apply(batch, [("A", "B", "C")], permutation_for=lambda *_: (0, 0, 1))
+    with pytest.raises(PermutationRefusal, match="slot_kind"):
+        spec.apply(batch, [None], permutation_for=source)
+
+
+def test_a_choice_row_whose_letter_has_no_known_id_refuses_the_batch():
+    from qd_train.trainer import ChoicePermutation, PermutationRefusal
+
+    row = _choice_row([[40], [41], [43]], gold=A)
+    batch = Batch(
+        tokens=row[None, :].copy(), lengths=np.asarray([len(row)]), bucket=len(row),
+        index=0, slot_kind=np.asarray([SLOT_CHOICE]), target_index=np.asarray([len(row) - 2]),
+    )
+    spec = ChoicePermutation(seed=0, letter_ids={"A": A, "B": B}, noul_id=Z, line_end_ids=LINE_ENDS)
+    with pytest.raises(PermutationRefusal, match="no known token id"):
+        spec.apply(batch, [("A", "B", "C")])
+    with pytest.raises(PermutationRefusal, match="slot_kind"):
+        spec.apply(batch, [None])
+
+
+def _qwen_tokenizer():
+    tokenizers = pytest.importorskip("tokenizers", reason="the tokenizers package is absent")
+    snapshots = Path.home() / ".cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots"
+    files = sorted(snapshots.glob("*/tokenizer.json")) if snapshots.is_dir() else []
+    if not files:
+        pytest.skip(f"no Qwen3.5-2B-Base tokenizer.json under {snapshots}")
+    return tokenizers.Tokenizer.from_file(str(files[0]))
+
+
+ADVERSARIAL_OPTIONS: tuple[tuple[str, ...], ...] = (
+    ("yes", "no"),
+    ("stub", "logic", "cosmetic", "clean"),
+    ("f(x)", "g(y).", "42", "1B. trick"),
+    ("naïve — dash", "trailing space ", " leading", "A. nested"),
+    ("line\nbreak", "tab\there", "x = [1, 2]", "emoji 🙂", "Z. noul"),
+    tuple(f"opt{i}" for i in range(16)),
+)
+
+
+@pytest.mark.parametrize("options", ADVERSARIAL_OPTIONS)
+def test_the_token_swap_equals_tokenizing_the_reordered_prompt_with_the_real_tokenizer(
+    options,
+):
+    """The claim the whole transform rests on, against the real Qwen tokenizer: for every
+    permutation tried, swapping the option spans in token space gives exactly the tokens of
+    the same prompt rendered with the options in the new order. Contexts carry their own
+    ``A.``/``B.`` lines so the backward search is exercised as well."""
+    from qd_data.render import M_OPT_BEGIN, DeterministicRng, escape_inline, render
+    from qd_data.schema import NOUL_LETTER, OPTION_LETTERS, ChoiceSlot, Request
+    from qd_train.trainer import newline_terminated_ids, permute_choice_row
+
+    tok = _qwen_tokenizer()
+    line_ends = newline_terminated_ids(tok.get_vocab())
+
+    def ids(text: str) -> list[int]:
+        return tok.encode(text, add_special_tokens=False).ids
+
+    letter_id = {}
+    for letter in (*OPTION_LETTERS, NOUL_LETTER):
+        single = ids(letter)
+        assert len(single) == 1, f"{letter!r} is {single}, not one token"
+        letter_id[letter] = single[0]
+    contexts = (
+        "def f():\n    return 1\n",
+        "A. a line that looks like an option\nB. another one\nZ. and a noul\n",
+        "x" * 300 + "\n1B. digit then letter\n",
+    )
+    checked = 0
+    for c, context in enumerate(contexts):
+        request = Request(
+            task="devcouncil.verdict", context=context.encode("utf-8"),
+            question="Which one?", slots=(ChoiceSlot(name="verdict", options=options),),
+            example_id=f"ex-{c}",
+        )
+        rendered = render(request, seed=11)
+        slot = rendered.slot("verdict")
+        letters = tuple(x for x in slot.letter_to_value if x != NOUL_LETTER)
+        values = [slot.letter_to_value[x] for x in letters]
+        prompt = rendered.prompt_for("verdict")
+        block = "".join(f"{x}. {escape_inline(v)}\n" for x, v in zip(letters, values, strict=True))
+        assert prompt.count(M_OPT_BEGIN + "\n" + block) == 1
+        for g, gold in enumerate((*letters[:2], NOUL_LETTER)):
+            for trial in range(4):
+                perm = DeterministicRng("test", c, g, trial).permutation(len(letters))
+                row = np.asarray(ids(prompt + gold), dtype=np.int32)
+                out = permute_choice_row(
+                    row, answer_at=len(row) - 1,
+                    letter_ids=tuple(letter_id[x] for x in letters),
+                    noul_id=letter_id[NOUL_LETTER], line_end_ids=line_ends, perm=perm,
+                )
+                new_block = "".join(
+                    f"{letters[j]}. {escape_inline(values[perm[j]])}\n"
+                    for j in range(len(letters))
+                )
+                new_gold = gold if gold == NOUL_LETTER else letters[perm.index(letters.index(gold))]
+                expected = ids(
+                    prompt.replace(M_OPT_BEGIN + "\n" + block, M_OPT_BEGIN + "\n" + new_block)
+                    + new_gold
+                )
+                assert out.tolist() == expected, (options, context[:20], gold, perm)
+                checked += 1
+    assert checked == len(contexts) * 3 * 4

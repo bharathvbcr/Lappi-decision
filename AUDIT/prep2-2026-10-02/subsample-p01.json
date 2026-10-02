@@ -1,0 +1,102 @@
+{
+  "fraction": 0.01,
+  "rule": "keep a line iff int.from_bytes(sha256(line.rstrip(b'\\n'))[:8], 'big') < fraction * 2**64",
+  "general": [
+    {
+      "src": "/Users/bharath/.cache/qd-decision/general/cais__mmlu/c30699e8356da336a370243923dbaf21066bb9fe/test.jsonl",
+      "dest": "/Users/bharath/qd-campaign/prep2-2026-10-02/sub-p01/general/cais__mmlu/c30699e8356da336a370243923dbaf21066bb9fe/test.jsonl",
+      "read": 14042,
+      "kept": 125,
+      "sha256": "0ba623b5b076158de83a600b6f871264b50316114c869351cad33fb7ad62dbed"
+    },
+    {
+      "src": "/Users/bharath/.cache/qd-decision/general/cais__mmlu/c30699e8356da336a370243923dbaf21066bb9fe/dev.jsonl",
+      "dest": "/Users/bharath/qd-campaign/prep2-2026-10-02/sub-p01/general/cais__mmlu/c30699e8356da336a370243923dbaf21066bb9fe/dev.jsonl",
+      "read": 285,
+      "kept": 3,
+      "sha256": "de83276c38e56048ec28938071abc91ad2dd6d6d93399944d9de4aa9dd8451d0"
+    },
+    {
+      "src": "/Users/bharath/.cache/qd-decision/general/cais__mmlu/c30699e8356da336a370243923dbaf21066bb9fe/validation.jsonl",
+      "dest": "/Users/bharath/qd-campaign/prep2-2026-10-02/sub-p01/general/cais__mmlu/c30699e8356da336a370243923dbaf21066bb9fe/validation.jsonl",
+      "read": 1531,
+      "kept": 20,
+      "sha256": "dc99f20c6fa89304635e92a17611f3729977e866ef590c48dc4a83545efa3b55"
+    },
+    {
+      "src": "/Users/bharath/.cache/qd-decision/general/tau__commonsense_qa/94630fe30dad47192a8546eb75f094926d47e155/train.jsonl",
+      "dest": "/Users/bharath/qd-campaign/prep2-2026-10-02/sub-p01/general/tau__commonsense_qa/94630fe30dad47192a8546eb75f094926d47e155/train.jsonl",
+      "read": 9741,
+      "kept": 78,
+      "sha256": "b8945bb1cc04527bcbed344bf741d9d21c1f4612b96dce213d68a09db60b6d88"
+    },
+    {
+      "src": "/Users/bharath/.cache/qd-decision/general/tau__commonsense_qa/94630fe30dad47192a8546eb75f094926d47e155/validation.jsonl",
+      "dest": "/Users/bharath/qd-campaign/prep2-2026-10-02/sub-p01/general/tau__commonsense_qa/94630fe30dad47192a8546eb75f094926d47e155/validation.jsonl",
+      "read": 1221,
+      "kept": 7,
+      "sha256": "643d7fb24adac957872588976c75b7160b790afb82c0bb8fa599e96ff81c8e3d"
+    },
+    {
+      "src": "/Users/bharath/.cache/qd-decision/general/tau__commonsense_qa/94630fe30dad47192a8546eb75f094926d47e155/test.jsonl",
+      "dest": "/Users/bharath/qd-campaign/prep2-2026-10-02/sub-p01/general/tau__commonsense_qa/94630fe30dad47192a8546eb75f094926d47e155/test.jsonl",
+      "read": 1140,
+      "kept": 11,
+      "sha256": "717a78878a383f0df381eb1cac1d3d511f91d1a7db704dae5973c9b44cf5d5c4"
+    },
+    {
+      "src": "/Users/bharath/.cache/qd-decision/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec/train.jsonl",
+      "dest": "/Users/bharath/qd-campaign/prep2-2026-10-02/sub-p01/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec/train.jsonl",
+      "read": 15250,
+      "kept": 175,
+      "sha256": "34fae9afe44046cf8dae173fa13cd3cee021eef6d80f0f26fbbfdbdfdf5f4d93"
+    },
+    {
+      "src": "/Users/bharath/.cache/qd-decision/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec/validation.jsonl",
+      "dest": "/Users/bharath/qd-campaign/prep2-2026-10-02/sub-p01/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec/validation.jsonl",
+      "read": 3100,
+      "kept": 36,
+      "sha256": "56c2fc7f270197c88fb1e571185cbe97887ed2c37eb43c26db2f9ee1d0c4c8b9"
+    },
+    {
+      "src": "/Users/bharath/.cache/qd-decision/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec/test.jsonl",
+      "dest": "/Users/bharath/qd-campaign/prep2-2026-10-02/sub-p01/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec/test.jsonl",
+      "read": 5500,
+      "kept": 56,
+      "sha256": "85efc2a809409abe66fc6be93eceefba957c466f0a25b57ad767886d5dd6988d"
+    },
+    {
+      "src": "/Users/bharath/.cache/qd-decision/general/rajpurkar__squad_v2/3ffb306f725f7d2ce8394bc1873b24868140c412/train.jsonl",
+      "dest": "/Users/bharath/qd-campaign/prep2-2026-10-02/sub-p01/general/rajpurkar__squad_v2/3ffb306f725f7d2ce8394bc1873b24868140c412/train.jsonl",
+      "read": 130319,
+      "kept": 1360,
+      "sha256": "28b015ed31972ac7908cc8950427599dbff1e48f8d8632c08cf2bab8367ce16e"
+    },
+    {
+      "src": "/Users/bharath/.cache/qd-decision/general/rajpurkar__squad_v2/3ffb306f725f7d2ce8394bc1873b24868140c412/validation.jsonl",
+      "dest": "/Users/bharath/qd-campaign/prep2-2026-10-02/sub-p01/general/rajpurkar__squad_v2/3ffb306f725f7d2ce8394bc1873b24868140c412/validation.jsonl",
+      "read": 11873,
+      "kept": 100,
+      "sha256": "06ac519c165a26164ce85712e5e3b91b74b4e7442cc0b98db4f510ae31c5c536"
+    }
+  ],
+  "commitpackft-composed-v1": {
+    "src": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0e2b899a046463/data/pool/commitpackft-composed-v1/examples.jsonl",
+    "dest": "/Users/bharath/qd-campaign/prep2-2026-10-02/sub-p01/commitpackft-composed-v1/examples.jsonl",
+    "read": 25000,
+    "kept": 251,
+    "sha256": "08b2f53713134173993744690a8b754379334091aeebf729cb5fe867f58770e5"
+  },
+  "defect-noul-v3b": {
+    "src": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0e2b899a046463/data/pool/defect-noul-v3b/examples.jsonl",
+    "dest": "/Users/bharath/qd-campaign/prep2-2026-10-02/sub-p01/defect-noul-v3b/examples.jsonl",
+    "read": 5004,
+    "kept": 55,
+    "sha256": "ac23a340ecb37d8a136c6e54fe04f8f905f1ea528a93bb7bdc2351ddc8290e68"
+  },
+  "base": {
+    "dir": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0e2b899a046463/data/pool/commitpackft-corpus-v3",
+    "examples": 49953,
+    "defect_max_rows": 500
+  }
+}

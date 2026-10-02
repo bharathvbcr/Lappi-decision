@@ -34,7 +34,7 @@ import types
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Final, Literal, Self
 
@@ -44,15 +44,21 @@ from .run_control import CostEstimate, WallClockCap
 from .tristate import NotRun, Ran, TriState, parse_tristate
 
 __all__ = [
+    "DEFAULT_DECISIONS_PATH",
     "DEFAULT_LEDGER_PATH",
     "NON_PROMOTING_RUN_KINDS",
     "NOT_APPLICABLE",
+    "REQUIRED_DECISIONS",
+    "DecisionsRecordError",
     "ForkBranch",
     "ForkPoint",
+    "HumanDecision",
     "Ledger",
     "LedgerChainError",
     "LedgerForkError",
     "LedgerRow",
+    "PromotionDecisions",
+    "PromotionPopulation",
     "PromotionVerdict",
     "Protocol",
     "RunRecorder",
@@ -60,6 +66,7 @@ __all__ = [
     "SuiteFailure",
     "SuiteOutcome",
     "find_forks",
+    "load_promotion_decisions",
     "main",
     "parse_cargo_test_output",
     "parse_command",
@@ -151,6 +158,214 @@ REQUIRED_CONTROLS: tuple[str, ...] = (
     "degenerate_head",
     "transfer_gate",
 )
+
+# The open promotion questions only a human may answer (rule 2), as DATA a human edits.
+# Nothing in code chooses a value here: the verdict reads the record and says what it read,
+# with the file's sha256, so "which population was this judged on" is never an inference.
+# docs/ledger-schema.md, section Promotion, documents the file and who edits it.
+DEFAULT_DECISIONS_PATH = REPO_ROOT / "docs" / "promotion-decisions.json"
+DECISIONS_SCHEMA: Final[str] = "qd.promotion-decisions.v1"
+#: Every question the record must answer. A record missing one is refused, never read as
+#: "no question here": an absent question is not a settled one.
+REQUIRED_DECISIONS: tuple[str, ...] = (
+    "promotion_population",
+    "average_may_promote",
+    "ece_population",
+    "degenerate_head_floor",
+    "privileged_hunk_pass_rule",
+    "transfer_gate_definition",
+)
+#: A decisions record is a page of JSON; anything larger is not one.
+MAX_DECISIONS_BYTES: Final[int] = 1 << 20
+_DECISION_STATUSES: frozenset[str] = frozenset({"open", "decided"})
+_DECIDER_FIELDS: tuple[str, ...] = ("decided_by", "decided_on", "decision_ref")
+
+
+class DecisionsRecordError(ValueError):
+    """The human decisions record is missing or does not say what it must."""
+
+
+@dataclass(frozen=True, slots=True)
+class HumanDecision:
+    """One question in the record, and what (if anything) a human has ruled on it."""
+
+    name: str
+    question: str
+    gap: str
+    status: str
+    value: object
+    source: str
+    decided_by: str | None
+    decided_on: str | None
+    decision_ref: str | None
+    #: ``promotion_population`` only: ``"all"`` or the family ids the population holds.
+    families: str | tuple[str, ...] | None = None
+
+    def describe(self) -> str:
+        return f"{self.name} ({self.gap}): {self.question}"
+
+
+@dataclass(frozen=True, slots=True)
+class PromotionPopulation:
+    """The val population promotion is judged on, exactly as the record states it.
+
+    ``status == "open"`` means no human has ruled and ``value`` is the population as built,
+    cited in ``source``; ``"decided"`` carries who decided, when, and where it is written.
+    """
+
+    value: str
+    families: str | tuple[str, ...]
+    status: str
+    gap: str
+    source: str
+    decided_by: str | None
+    decided_on: str | None
+    decision_ref: str | None
+    record: str
+    record_sha256: str
+
+    def describe(self) -> str:
+        families = self.families if isinstance(self.families, str) else ", ".join(self.families)
+        who = (
+            f"decided by {self.decided_by} on {self.decided_on} ({self.decision_ref})"
+            if self.status == "decided" else f"open ({self.gap}); as built: {self.source}"
+        )
+        return (
+            f"{self.value} [families: {families}] -- {who}; record {self.record} "
+            f"sha256 {self.record_sha256[:16]}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PromotionDecisions:
+    """The whole record: every question by name, and the file it was read from."""
+
+    path: Path
+    sha256: str
+    decisions: Mapping[str, HumanDecision]
+
+    @property
+    def population(self) -> PromotionPopulation:
+        d = self.decisions["promotion_population"]
+        if d.families is None:  # pragma: no cover - _parse_decision always sets it here
+            raise DecisionsRecordError(f"{self.path}: promotion_population has no families")
+        return PromotionPopulation(
+            value=str(d.value), families=d.families, status=d.status, gap=d.gap,
+            source=d.source, decided_by=d.decided_by, decided_on=d.decided_on,
+            decision_ref=d.decision_ref, record=str(self.path), record_sha256=self.sha256,
+        )
+
+    def open(self) -> list[HumanDecision]:
+        return [d for _, d in sorted(self.decisions.items()) if d.status == "open"]
+
+
+def _decision_text(entry: Mapping[str, object], key: str, where: str) -> str:
+    value = entry.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise DecisionsRecordError(f"{where}: {key!r} must be a non-empty string")
+    return value
+
+
+def _parse_decision(name: str, entry: object, where: str) -> HumanDecision:
+    if not isinstance(entry, dict):
+        raise DecisionsRecordError(f"{where}: not a JSON object")
+    question = _decision_text(entry, "question", where)
+    gap = _decision_text(entry, "gap", where)
+    if not gap.startswith("GAP-"):
+        raise DecisionsRecordError(f"{where}: gap {gap!r} is not a GAP- id")
+    status = entry.get("status")
+    if status not in _DECISION_STATUSES:
+        raise DecisionsRecordError(
+            f"{where}: status {status!r} is not one of {sorted(_DECISION_STATUSES)}"
+        )
+    source = _decision_text(entry, "source", where)
+    if "value" not in entry:
+        raise DecisionsRecordError(f"{where}: no 'value'")
+    deciders: dict[str, str | None] = {}
+    for key in _DECIDER_FIELDS:
+        if status == "decided":
+            deciders[key] = _decision_text(entry, key, where)
+        elif entry.get(key) is not None:
+            raise DecisionsRecordError(
+                f"{where}: status is 'open' but {key!r} is set; a ruling is recorded by "
+                "setting status to 'decided', not by filling the fields of an open question"
+            )
+        else:
+            deciders[key] = None
+    if deciders["decided_on"] is not None:
+        try:
+            date.fromisoformat(deciders["decided_on"])
+        except ValueError as exc:
+            raise DecisionsRecordError(
+                f"{where}: decided_on {deciders['decided_on']!r} is not YYYY-MM-DD"
+            ) from exc
+    value = entry["value"]
+    families: str | tuple[str, ...] | None = None
+    if name == "promotion_population":
+        if not isinstance(value, str) or not value.strip():
+            raise DecisionsRecordError(f"{where}: 'value' must name the population")
+        stated = entry.get("families")
+        if stated == "all":
+            families = "all"
+        elif (isinstance(stated, list) and stated
+              and all(isinstance(f, str) and f for f in stated)):
+            families = tuple(stated)
+        else:
+            raise DecisionsRecordError(
+                f"{where}: 'families' must be \"all\" or a non-empty list of family ids, "
+                f"got {stated!r}"
+            )
+    if name == "average_may_promote":
+        if not isinstance(value, bool):
+            raise DecisionsRecordError(f"{where}: 'value' must be true or false")
+        if status == "open" and value:
+            raise DecisionsRecordError(
+                f"{where}: an open question cannot carry a yes; set status to 'decided' "
+                "with who decided, when and where"
+            )
+    return HumanDecision(
+        name=name, question=question, gap=gap, status=str(status), value=value,
+        source=source, decided_by=deciders["decided_by"], decided_on=deciders["decided_on"],
+        decision_ref=deciders["decision_ref"], families=families,
+    )
+
+
+def load_promotion_decisions(path: Path | None = None) -> PromotionDecisions:
+    """Read and validate the human decisions record, or raise :class:`DecisionsRecordError`.
+
+    Validates shape only. Whether a ruling is right is the human's; whether it is RECORDED --
+    a decided question names who, when and where -- is what this checks, so a half-filled
+    edit is refused rather than read as a decision.
+    """
+    target = DEFAULT_DECISIONS_PATH if path is None else Path(path)
+    try:
+        size = target.stat().st_size
+        if size > MAX_DECISIONS_BYTES:
+            raise DecisionsRecordError(f"{target}: {size} bytes is not a decisions record")
+        raw = target.read_bytes()
+    except OSError as exc:
+        raise DecisionsRecordError(f"{target}: {exc}") from exc
+    try:
+        record = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DecisionsRecordError(f"{target}: not JSON: {exc}") from exc
+    if not isinstance(record, dict) or record.get("schema") != DECISIONS_SCHEMA:
+        raise DecisionsRecordError(f"{target}: schema is not {DECISIONS_SCHEMA!r}")
+    entries = record.get("decisions")
+    if not isinstance(entries, dict):
+        raise DecisionsRecordError(f"{target}: no 'decisions' object")
+    missing = [name for name in REQUIRED_DECISIONS if name not in entries]
+    if missing:
+        raise DecisionsRecordError(
+            f"{target}: no entry for {missing}; an absent question is not a settled one"
+        )
+    decisions = {
+        str(name): _parse_decision(str(name), entry, f"{target} decisions.{name}")
+        for name, entry in entries.items()
+    }
+    return PromotionDecisions(
+        path=target, sha256=hashlib.sha256(raw).hexdigest(), decisions=decisions
+    )
 
 
 class LedgerChainError(RuntimeError):
@@ -872,11 +1087,26 @@ class PromotionVerdict:
     promoted: bool
     reasons: tuple[str, ...]
     rows: tuple[str, ...]
+    #: The val population the gates were judged on, as the human decisions record states it
+    #: (``docs/promotion-decisions.json``) -- read, never inferred. ``None`` only when the
+    #: record could not be read, and then the verdict refuses saying so.
+    promotion_population: PromotionPopulation | None = None
+    #: ``"seeds"``: three rows differing only in seed. ``"avg"``: one average's eval row and
+    #: the seeds it averaged (:meth:`Ledger.promotion_verdict_avg`).
+    kind: str = "seeds"
 
     def __str__(self) -> str:
         head = "PROMOTE" if self.promoted else "REFUSED"
+        if self.kind != "seeds":
+            head = f"{head} [{self.kind}]"
+        population = (
+            "  promotion_population: "
+            + (self.promotion_population.describe() if self.promotion_population is not None
+               else "UNKNOWN: the promotion decisions record could not be read")
+        )
         body = "\n".join(f"  - {r}" for r in self.reasons)
-        return f"{head} ({len(self.rows)} row(s))\n{body}" if body else head
+        return (f"{head} ({len(self.rows)} row(s))\n{population}"
+                + (f"\n{body}" if body else ""))
 
 
 def _git_commit(repo: Path) -> str:
@@ -1000,7 +1230,9 @@ class Ledger:
 
     # -- promotion -------------------------------------------------------
 
-    def promotion_verdict(self, seed_family: str) -> PromotionVerdict:
+    def promotion_verdict(
+        self, seed_family: str, *, decisions_path: Path | None = None
+    ) -> PromotionVerdict:
         """May the rows sharing this seed family promote a decision?
 
         Every condition in docs/ledger-schema.md, each refusal itemized.
@@ -1010,116 +1242,410 @@ class Ledger:
         Condition 7 is coverage. A gate or control that states `n`/`n_total` and saw
         fewer than all eligible items refuses, rather than promoting on a capped
         sample. Unstated coverage (`n is None`) is not treated as partial.
+
+        The verdict carries ``promotion_population`` as the human decisions record states it
+        (``docs/promotion-decisions.json``, or ``decisions_path``). A record that cannot be
+        read refuses: a verdict that cannot say which population it judged does not promote.
         """
+        _, population, record_refusal = _read_decisions(decisions_path)
         candidates = [r for r in self.rows() if r.protocol.hash_without_seed() == seed_family]
         ids = tuple(r.row_id for r in candidates)
         reasons: list[str] = []
 
         if not candidates:
-            return PromotionVerdict(False, (f"no rows for seed family {seed_family}",), ())
+            return PromotionVerdict(
+                False, (f"no rows for seed family {seed_family}", *record_refusal), (),
+                population,
+            )
 
         for r in candidates:
-            if r.status != "completed":
-                reasons.append(f"{r.row_id}: status is {r.status!r}, not 'completed'")
-            if r.quick:
-                reasons.append(
-                    f"{r.row_id}: marked quick ({r.quick_reason}); quick runs cannot promote"
-                )
-            # Rule 8's "truncated schedule", derived rather than taken on trust. A run the
-            # cap stopped did not finish its schedule, whatever `quick` says about it.
-            termination = r.metrics.get("train.termination")
-            if termination is not None and termination.value == "wall_clock_cap":
-                reasons.append(
-                    f"{r.row_id}: train.termination is 'wall_clock_cap'; the wall-clock cap "
-                    "stopped this run before its schedule finished, which rule 8 calls a "
-                    "truncated schedule. quick runs cannot promote, and this is one whether "
-                    f"or not the row says so (quick={r.quick})"
-                )
-            elif termination is None and r.run_kind in TRAINING_RUN_KINDS:
-                reasons.append(
-                    f"{r.row_id}: run_kind {r.run_kind!r} trains, but the row carries no "
-                    "train.termination; a run that does not say how it ended cannot be "
-                    "shown to have finished its schedule, and an absent answer is not a "
-                    "passed one"
-                )
-            if r.run_kind in NON_PROMOTING_RUN_KINDS:
-                # Stated on the run kind, not inferred from empty gates. A build
-                # row's gates are vacuous rather than failed, and a conjunction
-                # over vacuous inputs is the shape that quietly comes out true.
-                reasons.append(
-                    f"{r.row_id}: run_kind {r.run_kind!r} never promotes a decision; its gates "
-                    "are vacuous, not satisfied"
-                )
+            reasons.extend(_row_refusals(r))
+
+        units, join_refusals = _promotion_units(candidates)
+        reasons.extend(join_refusals)
 
         seeds = {r.protocol.seed for r in candidates}
-        if len(seeds) < 3:
+        if len(seeds) < PROMOTION_MIN_SEEDS:
             reasons.append(
                 f"{len(seeds)} distinct seed(s) {sorted(seeds)}; promotion needs three rows "
                 "differing only in seed"
             )
 
-        for r in candidates:
-            for gate in REQUIRED_GATES:
-                g = r.gates.get(gate)
-                if g is None:
-                    reasons.append(
-                        f"{r.row_id}: gate {gate!r} absent; an absent gate is not a passed gate"
-                    )
-                elif isinstance(g, NotRun):
-                    reasons.append(
-                        f"{r.row_id}: gate {gate!r} did not run ({g.reason}); "
-                        "this blocks promotion"
-                    )
-                elif not g.passed:
-                    reasons.append(
-                        f"{r.row_id}: gate {gate!r} ran and FAILED [{g.coverage_str()}]"
-                    )
-                elif _states_partial_coverage(g):
-                    reasons.append(
-                        f"{r.row_id}: gate {gate!r} passed on only {g.coverage_str()} of the "
-                        "eligible population; a capped sample is not complete coverage "
-                        "and does not promote"
-                    )
-
-            for ctl in REQUIRED_CONTROLS:
-                c = r.controls.get(ctl)
-                if c is None:
-                    reasons.append(f"{r.row_id}: control {ctl!r} absent")
-                elif isinstance(c, NotRun):
-                    reasons.append(f"{r.row_id}: control {ctl!r} did not run ({c.reason})")
-                elif not c.passed:
-                    reasons.append(
-                        f"{r.row_id}: control {ctl!r} ran and FAILED [{c.coverage_str()}]"
-                    )
-                elif _states_partial_coverage(c):
-                    reasons.append(
-                        f"{r.row_id}: control {ctl!r} passed on only {c.coverage_str()} of the "
-                        "eligible population; a capped sample is not complete coverage "
-                        "and does not promote"
-                    )
+        reasons.extend(_unit_refusals(units))
+        reasons.extend(record_refusal)
 
         if reasons:
-            return PromotionVerdict(False, tuple(reasons), ids)
-        stated = [
-            t
-            for r in candidates
-            for t in (*r.gates.values(), *r.controls.values())
-            if isinstance(t, Ran) and t.n is not None
-        ]
-        coverage = (
-            min(stated, key=lambda t: (t.n or 0) / (t.n_total or 1)).coverage_str()
-            if stated
-            else "coverage unstated"
-        )
+            return PromotionVerdict(False, tuple(reasons), ids, population)
         return PromotionVerdict(
             True,
             (
                 f"{len(candidates)} completed rows, seeds {sorted(seeds)}, "
                 "every gate and control ran and passed at complete coverage "
-                f"(weakest stated: {coverage})",
+                f"(weakest stated: {_weakest_coverage(candidates)})",
             ),
             ids,
+            population,
         )
+
+    def promotion_verdict_avg(
+        self, avg_row_id: str, *, input_ledgers: Sequence[Ledger] = (),
+        decisions_path: Path | None = None,
+    ) -> PromotionVerdict:
+        """May this AVERAGE of seeds' weights promote a decision? The ``avg`` kind.
+
+        An average is one eval row (``real_ft_run.py --score-checkpoint AVG.safetensors``,
+        recipe ``averaged``), not three rows differing in seed, so condition 3 is replaced --
+        never dropped -- by checks on what it averaged:
+
+        * its OWN full gate row: every required gate and control on the average's eval row,
+          joined with the supplements naming it, ran and passed at complete coverage, under
+          the same rules as one seed's unit (:func:`_unit_refusals`);
+        * its inputs, the ft rows ``recipe.averaged.ft_row_ids`` names, read from this ledger
+          and ``input_ledgers``: each completed, non-quick, and ended by ``steps_exhausted``
+          (a full schedule); all of one ``recipe_hash``, ``data_snapshot_hash``,
+          ``tokenizer_hash`` and ``backbone_commit``, the average's own snapshot among them;
+          at least :data:`PROMOTION_MIN_SEEDS` distinct seeds, the ones the recipe names.
+
+        Then the human: every question the decisions record still holds ``open`` refuses, and
+        so does a recorded "no" on ``average_may_promote``. Whether an average can stand in
+        for its seeds is the human's (rule 2), so no state of the ledger alone promotes one.
+        """
+        decisions, population, record_refusal = _read_decisions(decisions_path)
+        rows = self.rows()
+        found = [r for r in rows if r.row_id == avg_row_id]
+        if len(found) != 1:
+            return PromotionVerdict(
+                False,
+                (f"{len(found)} rows in {self.path} have id {avg_row_id!r}, not 1",
+                 *record_refusal),
+                (), population, "avg",
+            )
+        avg = found[0]
+        averaged = (avg.recipe or {}).get(AVERAGED_RECIPE_KEY)
+        if avg.run_kind != "eval" or not isinstance(averaged, Mapping):
+            what = (f"is run_kind {avg.run_kind!r}, not 'eval'" if avg.run_kind != "eval"
+                    else f"recipe carries no {AVERAGED_RECIPE_KEY!r} block")
+            return PromotionVerdict(
+                False,
+                (f"{avg.row_id}: {what}; only an eval row real_ft_run.py --score-checkpoint "
+                 "wrote for an average is an avg candidate", *record_refusal),
+                (avg.row_id,), population, "avg",
+            )
+        ft_row_ids = averaged.get("ft_row_ids")
+        named_seeds = averaged.get("seeds")
+        if not (isinstance(ft_row_ids, list) and ft_row_ids
+                and all(isinstance(x, str) and x for x in ft_row_ids)
+                and isinstance(named_seeds, list)
+                and all(isinstance(s, int) for s in named_seeds)):
+            return PromotionVerdict(
+                False,
+                (f"{avg.row_id}: recipe.{AVERAGED_RECIPE_KEY} does not list its ft_row_ids and "
+                 "seeds; an average whose inputs cannot be named cannot be shown clean",
+                 *record_refusal),
+                (avg.row_id,), population, "avg",
+            )
+
+        reasons: list[str] = list(_row_refusals(avg))
+        pool: dict[str, LedgerRow] = {}
+        for led in (self, *input_ledgers):
+            for r in led.rows():
+                pool.setdefault(r.row_id, r)
+        read_from = ", ".join(str(led.path) for led in (self, *input_ledgers))
+        inputs: list[LedgerRow] = []
+        for row_id in ft_row_ids:
+            r = pool.get(row_id)
+            if r is None:
+                reasons.append(
+                    f"input ft row {row_id} is in none of the ledgers read ({read_from}); an "
+                    "input that cannot be read cannot be shown to be a clean seed"
+                )
+                continue
+            inputs.append(r)
+            reasons.extend(_input_refusals(r))
+        if inputs:
+            for name in ("recipe_hash", "data_snapshot_hash", "tokenizer_hash",
+                         "backbone_commit"):
+                values = {getattr(r.protocol, name) for r in inputs}
+                if len(values) != 1:
+                    reasons.append(
+                        f"the inputs span {len(values)} {name} values; an average promotes "
+                        "only over seeds of one recipe and one data snapshot"
+                    )
+                elif name != "recipe_hash" and getattr(avg.protocol, name) not in values:
+                    reasons.append(
+                        f"{avg.row_id}: {name} {getattr(avg.protocol, name)} is not its "
+                        f"inputs' {next(iter(values))}; the average was scored on other data "
+                        "than its seeds trained on"
+                    )
+            seeds = sorted({r.protocol.seed for r in inputs})
+            if len(seeds) != len(inputs):
+                reasons.append(
+                    f"{len(inputs)} inputs hold only {len(seeds)} distinct seed(s) {seeds}; "
+                    "one seed averaged twice is not two seeds"
+                )
+            if len(seeds) < PROMOTION_MIN_SEEDS:
+                reasons.append(
+                    f"{len(seeds)} distinct seed(s) {seeds} among the inputs; an average "
+                    f"promotes only over at least {PROMOTION_MIN_SEEDS}"
+                )
+            if len(inputs) == len(ft_row_ids) and sorted(named_seeds) != seeds:
+                reasons.append(
+                    f"{avg.row_id}: recipe.{AVERAGED_RECIPE_KEY} names seeds "
+                    f"{sorted(named_seeds)}; its inputs are seeds {seeds}"
+                )
+
+        supplements = [
+            r for r in rows if (r.recipe or {}).get(SUPPLEMENT_KEY) == avg.row_id
+        ]
+        for s in supplements:
+            reasons.extend(_row_refusals(s))
+        units, join_refusals = _promotion_units([avg, *supplements])
+        reasons.extend(join_refusals)
+        reasons.extend(_unit_refusals(units))
+
+        reasons.extend(record_refusal)
+        verdict_on_averages = ""
+        if decisions is not None:
+            for d in decisions.open():
+                reasons.append(
+                    f"open human decision {d.describe()} -- recorded in {decisions.path}; "
+                    "until a human decides it, no average promotes"
+                )
+            ruling = decisions.decisions["average_may_promote"]
+            if ruling.status == "decided" and ruling.value is False:
+                reasons.append(
+                    "the human decided that an average may not be the promoted artifact "
+                    f"(average_may_promote, {ruling.gap}, ref: {ruling.decision_ref})"
+                )
+            verdict_on_averages = f"average_may_promote decided yes ({ruling.decision_ref})"
+
+        ids = (avg.row_id, *(s.row_id for s in supplements), *(r.row_id for r in inputs))
+        if reasons:
+            return PromotionVerdict(False, tuple(reasons), ids, population, "avg")
+        return PromotionVerdict(
+            True,
+            (
+                f"{avg.row_id}: an average of seeds {sorted(named_seeds)} (ft rows "
+                f"{', '.join(ft_row_ids)}), each completed, non-quick and run to its full "
+                "schedule on one recipe and data snapshot; every gate and control on the "
+                "average's own row ran and passed at complete coverage (weakest stated: "
+                f"{_weakest_coverage([avg, *supplements])}); every human decision is recorded "
+                f"and {verdict_on_averages}",
+            ),
+            ids,
+            population,
+            "avg",
+        )
+
+
+#: Rule 8's seed count: promotion reads at least this many seeds, as three rows differing only
+#: in seed or as the inputs of one average.
+PROMOTION_MIN_SEEDS: Final[int] = 3
+#: The recipe key an averaged eval row carries (real_ft_run.py ``SCORED_CHECKPOINT_KEYS``):
+#: its seeds, ft rows, manifest sha256 and source.
+AVERAGED_RECIPE_KEY: Final[str] = "averaged"
+
+
+def _read_decisions(
+    path: Path | None,
+) -> tuple[PromotionDecisions | None, PromotionPopulation | None, tuple[str, ...]]:
+    """The decisions record, its population, and the refusal when it cannot be read."""
+    try:
+        decisions = load_promotion_decisions(path)
+    except DecisionsRecordError as exc:
+        return None, None, (
+            f"the promotion decisions record could not be read ({exc}); a verdict that cannot "
+            "say which population it judged does not promote",
+        )
+    return decisions, decisions.population, ()
+
+
+def _row_refusals(r: LedgerRow) -> list[str]:
+    """Conditions 1, 2, 6 and rule 8's truncated schedule, on one row."""
+    reasons: list[str] = []
+    if r.status != "completed":
+        reasons.append(f"{r.row_id}: status is {r.status!r}, not 'completed'")
+    if r.quick:
+        reasons.append(
+            f"{r.row_id}: marked quick ({r.quick_reason}); quick runs cannot promote"
+        )
+    # Rule 8's "truncated schedule", derived rather than taken on trust. A run the
+    # cap stopped did not finish its schedule, whatever `quick` says about it.
+    termination = r.metrics.get("train.termination")
+    if termination is not None and termination.value == "wall_clock_cap":
+        reasons.append(
+            f"{r.row_id}: train.termination is 'wall_clock_cap'; the wall-clock cap "
+            "stopped this run before its schedule finished, which rule 8 calls a "
+            "truncated schedule. quick runs cannot promote, and this is one whether "
+            f"or not the row says so (quick={r.quick})"
+        )
+    elif termination is None and r.run_kind in TRAINING_RUN_KINDS:
+        reasons.append(
+            f"{r.row_id}: run_kind {r.run_kind!r} trains, but the row carries no "
+            "train.termination; a run that does not say how it ended cannot be "
+            "shown to have finished its schedule, and an absent answer is not a "
+            "passed one"
+        )
+    if r.run_kind in NON_PROMOTING_RUN_KINDS:
+        # Stated on the run kind, not inferred from empty gates. A build
+        # row's gates are vacuous rather than failed, and a conjunction
+        # over vacuous inputs is the shape that quietly comes out true.
+        reasons.append(
+            f"{r.row_id}: run_kind {r.run_kind!r} never promotes a decision; its gates "
+            "are vacuous, not satisfied"
+        )
+    return reasons
+
+
+def _input_refusals(r: LedgerRow) -> list[str]:
+    """An average's input must be a non-quick ft row that ran its whole schedule."""
+    reasons: list[str] = []
+    if r.run_kind != "ft":
+        reasons.append(f"input {r.row_id} is run_kind {r.run_kind!r}, not 'ft'")
+    if r.status != "completed":
+        reasons.append(f"input {r.row_id}: status is {r.status!r}, not 'completed'")
+    if r.quick:
+        reasons.append(
+            f"input {r.row_id} is quick ({r.quick_reason}); a quick run cannot be an "
+            "average's input"
+        )
+    termination = r.metrics.get("train.termination")
+    if termination is None:
+        reasons.append(
+            f"input {r.row_id} carries no train.termination; a run that does not say how it "
+            "ended cannot be shown to have run its full schedule"
+        )
+    elif termination.value != "steps_exhausted":
+        reasons.append(
+            f"input {r.row_id}: train.termination is {termination.value!r}, not "
+            "'steps_exhausted'; it did not run its full schedule"
+        )
+    return reasons
+
+
+def _unit_refusals(units: list[tuple[LedgerRow, list[LedgerRow]]]) -> list[str]:
+    """Conditions 4, 5 and 7 on each unit: every gate and control, joined, ran and passed
+    at complete coverage."""
+    reasons: list[str] = []
+    for r, sups in units:
+        label = r.row_id + "".join(f" + {s.row_id}" for s in sups)
+        for gate in REQUIRED_GATES:
+            g = _joined(r.gates.get(gate), [s.gates.get(gate) for s in sups])
+            if g is None:
+                reasons.append(
+                    f"{label}: gate {gate!r} absent; an absent gate is not a passed gate"
+                )
+            elif isinstance(g, NotRun):
+                reasons.append(
+                    f"{label}: gate {gate!r} did not run ({g.reason}); "
+                    "this blocks promotion"
+                )
+            elif not g.passed:
+                reasons.append(
+                    f"{label}: gate {gate!r} ran and FAILED [{g.coverage_str()}]"
+                )
+            elif _states_partial_coverage(g):
+                reasons.append(
+                    f"{label}: gate {gate!r} passed on only {g.coverage_str()} of the "
+                    "eligible population; a capped sample is not complete coverage "
+                    "and does not promote"
+                )
+
+        for ctl in REQUIRED_CONTROLS:
+            c = _joined(r.controls.get(ctl), [s.controls.get(ctl) for s in sups])
+            if c is None:
+                reasons.append(f"{label}: control {ctl!r} absent")
+            elif isinstance(c, NotRun):
+                reasons.append(f"{label}: control {ctl!r} did not run ({c.reason})")
+            elif not c.passed:
+                reasons.append(
+                    f"{label}: control {ctl!r} ran and FAILED [{c.coverage_str()}]"
+                )
+            elif _states_partial_coverage(c):
+                reasons.append(
+                    f"{label}: control {ctl!r} passed on only {c.coverage_str()} of the "
+                    "eligible population; a capped sample is not complete coverage "
+                    "and does not promote"
+                )
+    return reasons
+
+
+def _weakest_coverage(rows: Sequence[LedgerRow]) -> str:
+    """The weakest stated coverage among the rows' gates and controls, for a PROMOTE."""
+    stated = [
+        t
+        for r in rows
+        for t in (*r.gates.values(), *r.controls.values())
+        if isinstance(t, Ran) and t.n is not None
+    ]
+    return (
+        min(stated, key=lambda t: (t.n or 0) / (t.n_total or 1)).coverage_str()
+        if stated
+        else "coverage unstated"
+    )
+
+
+#: The recipe key by which a row says it SUPPLEMENTS an eval row. tools/ft_linear_control.py
+#: measures paired_margin_vs_linear after the eval, from its verdict file, and writes it on
+#: a row of its own -- the ledger is append-only, so the eval row cannot be amended -- naming
+#: the eval row it paired. Approved by the human on 2026-09-30 on a Fable recommendation:
+#: promotion reads an eval row and its supplements as one unit. Before that, the eval row
+#: (margin not_run) and its control row (every other gate not_run) blocked each other, and
+#: no FT seed family could promote at all.
+SUPPLEMENT_KEY: Final[str] = "eval_row_id"
+
+
+def _promotion_units(
+    candidates: list[LedgerRow],
+) -> tuple[list[tuple[LedgerRow, list[LedgerRow]]], list[str]]:
+    """``(units, refusals)``: each non-supplement row with the supplements naming it.
+
+    Refused rather than dropped: a supplement naming a row outside this family (so its
+    evidence would vanish), one at another seed, and one naming another supplement. A
+    refused supplement joins nothing, so whatever it measured stays unmeasured.
+    """
+    by_id = {r.row_id: r for r in candidates}
+    attached: dict[str, list[LedgerRow]] = {}
+    refusals: list[str] = []
+    for r in candidates:
+        named = (r.recipe or {}).get(SUPPLEMENT_KEY)
+        if named is None:
+            continue
+        target = by_id.get(str(named))
+        if target is None:
+            refusals.append(
+                f"{r.row_id}: supplements eval row {named}, which is not in this seed family; "
+                "its measurements join nothing"
+            )
+        elif target.protocol.seed != r.protocol.seed:
+            refusals.append(
+                f"{r.row_id}: supplements {named} at seed {target.protocol.seed}, but is "
+                f"itself seed {r.protocol.seed}"
+            )
+        elif (target.recipe or {}).get(SUPPLEMENT_KEY) is not None:
+            refusals.append(f"{r.row_id}: supplements {named}, which is itself a supplement")
+        else:
+            attached.setdefault(target.row_id, []).append(r)
+    units = [
+        (r, attached.get(r.row_id, []))
+        for r in candidates
+        if (r.recipe or {}).get(SUPPLEMENT_KEY) is None
+    ]
+    return units, refusals
+
+
+def _joined(own: TriState | None, supplied: list[TriState | None]) -> TriState | None:
+    """One state for a unit: what was measured beats what was not, and any measured
+    failure fails it. Two passes join to the one with the weaker coverage, so a capped
+    sample on either side still refuses."""
+    measured = [t for t in (own, *supplied) if isinstance(t, Ran)]
+    if not measured:
+        return own if own is not None else next((t for t in supplied if t is not None), None)
+    failed = [t for t in measured if not t.passed]
+    if failed:
+        return failed[0]
+    partial = [t for t in measured if _states_partial_coverage(t)]
+    return partial[0] if partial else measured[0]
 
 
 def _states_partial_coverage(result: Ran) -> bool:
@@ -1316,6 +1842,37 @@ class RunRecorder:
                 ctl, NotRun(reason=f"control {ctl!r} was never evaluated by this run")
             )
 
+    def _quick_if_truncated(self) -> None:
+        """Rule 8's "truncated schedule", from the row's own evidence, at the moment it is written.
+
+        A training loop's recorder is built BEFORE the loop runs -- it has to be, to write a
+        row for a run that dies -- so the caller cannot know yet whether the schedule will
+        finish, and the flag it passes can only say what was known at launch. The loop
+        records ``train.termination`` inside the block, so this is the first point at which
+        the answer exists. ``promotion_verdict`` already derives the same fact at read time;
+        this puts it in the row as well, so every reader of ``quick`` sees it and the
+        campaign's go/no-go (which reads ``quick``) cannot promote a capped run.
+
+        Only ever sets ``quick``; it never clears it (rule 2). Anything but a ``Ran``
+        ``steps_exhausted`` counts as truncated -- a ``NotRun`` termination is a schedule
+        nobody can show finished. A training row with no termination at all is left to
+        ``promotion_verdict``, which already refuses it, and to ``status``.
+        """
+        if self.run_kind not in TRAINING_RUN_KINDS:
+            return
+        termination = self.metrics.get("train.termination")
+        if termination is None:
+            return
+        if isinstance(termination, Ran) and termination.value == "steps_exhausted":
+            return
+        said = termination.value if isinstance(termination, Ran) else "not_run"
+        reason = (
+            f"train.termination is {said!r}, not 'steps_exhausted': the schedule did not run "
+            "to its end, which rule 8 calls a truncated schedule"
+        )
+        self.quick = True
+        self.quick_reason = f"{self.quick_reason}; {reason}" if self.quick_reason else reason
+
     # -- lifecycle -------------------------------------------------------
 
     def _on_signal(self, signum: int, frame: types.FrameType | None) -> None:
@@ -1370,6 +1927,7 @@ class RunRecorder:
         if self.row is not None:
             return
         self._fill_unreported()
+        self._quick_if_truncated()
         # `self.wall_clock_s` is the caller saying it measured the run itself. Only the
         # caller can know: a recorder entered after the work times the reporting, not the
         # run, and cannot tell the difference from the inside.
@@ -1982,6 +2540,20 @@ def _cmd_show(args: argparse.Namespace) -> int:
 
 def _cmd_verdict(args: argparse.Namespace) -> int:
     ledger = Ledger(args.ledger)
+    if args.kind == "avg":
+        if args.row_id is None:
+            print("--kind avg needs --row-id: the average's own eval row", file=sys.stderr)
+            return 2
+        verdict = ledger.promotion_verdict_avg(
+            args.row_id, input_ledgers=[Ledger(p) for p in args.input_ledger],
+            decisions_path=args.decisions,
+        )
+        print(str(verdict))
+        return 0 if verdict.promoted else 1
+    if args.input_ledger:
+        print("--input-ledger is for --kind avg: a seed family is read from --ledger",
+              file=sys.stderr)
+        return 2
     family = args.seed_family
     if family is None:
         match = [r for r in ledger.rows() if r.row_id == args.row_id]
@@ -1989,7 +2561,7 @@ def _cmd_verdict(args: argparse.Namespace) -> int:
             print(f"no row {args.row_id!r} in {ledger.path}", file=sys.stderr)
             return 1
         family = match[0].protocol.hash_without_seed()
-    verdict = ledger.promotion_verdict(family)
+    verdict = ledger.promotion_verdict(family, decisions_path=args.decisions)
     print(str(verdict))
     return 0 if verdict.promoted else 1
 
@@ -2056,7 +2628,23 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     group = verdict.add_mutually_exclusive_group(required=True)
     group.add_argument("--seed-family", default=None, help="protocol hash without seed")
-    group.add_argument("--row-id", default=None, help="use this row's seed family")
+    group.add_argument(
+        "--row-id", default=None,
+        help="use this row's seed family; with --kind avg, the average's own eval row",
+    )
+    verdict.add_argument(
+        "--kind", choices=("seeds", "avg"), default="seeds",
+        help="seeds: three rows differing only in seed (default); avg: one averaged eval row "
+        "and the ft rows it averaged",
+    )
+    verdict.add_argument(
+        "--input-ledger", type=Path, action="append", default=[],
+        help="--kind avg: a ledger holding the averaged ft rows; repeatable",
+    )
+    verdict.add_argument(
+        "--decisions", type=Path, default=None,
+        help="the human decisions record (default: docs/promotion-decisions.json)",
+    )
     verdict.set_defaults(func=_cmd_verdict)
 
     return parser

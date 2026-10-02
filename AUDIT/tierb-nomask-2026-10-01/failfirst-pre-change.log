@@ -1,0 +1,554 @@
+........................................................................ [ 53%]
+.FFFFFF.............FFFF.F..................E..s.......FFFFFFFF          [100%]
+==================================== ERRORS ====================================
+___ ERROR at setup of test_ft_split_rows_is_the_rebuild_main_used_to_inline ____
+
+    @pytest.fixture(scope="session")
+    def qd_prep_bin() -> Path:
+        """``qd-prep``, which MinHash signing runs in: the one ``QD_PREP_BIN`` names, else built
+        once per session (release) from this checkout. Without either, SKIPPED with the reason --
+        a dedupe that could not run is not a dedupe that passed."""
+        named = os.environ.get(QD_PREP_BIN_ENV, "")
+        if named:
+            return Path(named)
+        if CARGO is None:
+            pytest.skip(f"cargo is not on PATH and {QD_PREP_BIN_ENV} is unset: qd-prep was not built")
+>       subprocess.run(
+            [CARGO, "build", "--quiet", "--release", "--manifest-path", str(REPO / "Cargo.toml"),
+             "-p", "qd-prep", "--bin", "qd-prep"],
+            check=True, timeout=900,
+        )
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/conftest.py:93: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = 900, check = True
+popenargs = (['/Users/bharath/.cargo/bin/cargo', 'build', '--quiet', '--release', '--manifest-path', '/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/Cargo.toml', ...],)
+kwargs = {}
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output & stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+>               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['/Users/bharath/.cargo/bin/cargo', 'build', '--quiet', '--release', '--manifest-path', '/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/Cargo.toml', '-p', 'qd-prep', '--bin', 'qd-prep']' returned non-zero exit status 101.
+
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py:578: CalledProcessError
+---------------------------- Captured stderr setup -----------------------------
+error: manifest path `/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/Cargo.toml` does not exist
+=================================== FAILURES ===================================
+_ test_train_attention_mask_none_trains_without_the_mask_on_the_flash_backend_only[False] _
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-386/test_train_attention_mask_none0')
+span = False
+
+    @pytest.mark.parametrize("span", [False, True])
+    def test_train_attention_mask_none_trains_without_the_mask_on_the_flash_backend_only(
+        tmp_path, span
+    ):
+        """`--train-attention-mask none`: the TRAINING forward gets no mask (`is_causal`), and the
+        forward and its checkpoint recompute run with flash as the only SDPA backend, so on CUDA
+        a shape flash cannot take raises instead of falling back to mem-efficient. Both entry
+        points, the letter-only and the span batch."""
+        tower, _ = _tiny_tower(tmp_path, gradient_checkpointing=True)
+>       step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64,
+                                train_attention_mask="none")
+E       TypeError: QwenDecisionStep.__init__() got an unexpected keyword argument 'train_attention_mask'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_backbone.py:1901: TypeError
+_ test_train_attention_mask_none_trains_without_the_mask_on_the_flash_backend_only[True] _
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-386/test_train_attention_mask_none1')
+span = True
+
+    @pytest.mark.parametrize("span", [False, True])
+    def test_train_attention_mask_none_trains_without_the_mask_on_the_flash_backend_only(
+        tmp_path, span
+    ):
+        """`--train-attention-mask none`: the TRAINING forward gets no mask (`is_causal`), and the
+        forward and its checkpoint recompute run with flash as the only SDPA backend, so on CUDA
+        a shape flash cannot take raises instead of falling back to mem-efficient. Both entry
+        points, the letter-only and the span batch."""
+        tower, _ = _tiny_tower(tmp_path, gradient_checkpointing=True)
+>       step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64,
+                                train_attention_mask="none")
+E       TypeError: QwenDecisionStep.__init__() got an unexpected keyword argument 'train_attention_mask'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_backbone.py:1901: TypeError
+__ test_scoring_through_hidden_keeps_the_mask_under_train_attention_mask_none __
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-386/test_scoring_through_hidden_ke0')
+
+    def test_scoring_through_hidden_keeps_the_mask_under_train_attention_mask_none(tmp_path):
+        """`hidden()` is shared with `_decode`, `_evaluate` and replay; the switch is training-only,
+        so a scored row changes for one reason only -- the trained weights."""
+        tower, _ = _tiny_tower(tmp_path)
+>       step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64,
+                                train_attention_mask="none")
+E       TypeError: QwenDecisionStep.__init__() got an unexpected keyword argument 'train_attention_mask'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_backbone.py:1927: TypeError
+_______ test_the_default_trains_with_the_padding_mask_and_every_backend ________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-386/test_the_default_trains_with_t0')
+
+    def test_the_default_trains_with_the_padding_mask_and_every_backend(tmp_path):
+        tower, _ = _tiny_tower(tmp_path, gradient_checkpointing=True)
+        step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64)
+>       assert step.train_attention_mask == "padding"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'QwenDecisionStep' object has no attribute 'train_attention_mask'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_backbone.py:1939: AttributeError
+_______________ test_an_unknown_train_attention_mask_is_refused ________________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-386/test_an_unknown_train_attentio0')
+
+    def test_an_unknown_train_attention_mask_is_refused(tmp_path):
+        tower, _ = _tiny_tower(tmp_path)
+        with pytest.raises(ValueError, match="train_attention_mask"):
+>           QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64,
+                             train_attention_mask="causal")
+E           TypeError: QwenDecisionStep.__init__() got an unexpected keyword argument 'train_attention_mask'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_backbone.py:1951: TypeError
+__ test_dropping_the_mask_leaves_real_positions_unchanged_and_moves_only_pads __
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-386/test_dropping_the_mask_leaves_0')
+
+    def test_dropping_the_mask_leaves_real_positions_unchanged_and_moves_only_pads(tmp_path):
+        """Why the switch is admissible at all: batches are right-padded and attention and the
+        GDN recurrence are causal, so no real position reads a pad. Real positions' hidden states
+        agree; pad positions are free to differ. (CPU only -- on CUDA the kernel itself changes,
+        which is what makes this Tier B.)"""
+        tower, _ = _tiny_tower(tmp_path)
+>       step = QwenDecisionStep(tower, seed=0, lr=1e-3, total_steps=1, max_width=64,
+                                train_attention_mask="none")
+E       TypeError: QwenDecisionStep.__init__() got an unexpected keyword argument 'train_attention_mask'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_backbone.py:1961: TypeError
+___ test_every_recipe_piece_key_is_mirrored_into_the_verdict_and_score_rows ____
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-386/test_every_recipe_piece_key_is0')
+
+    def test_every_recipe_piece_key_is_mirrored_into_the_verdict_and_score_rows(tmp_path):
+        """`_train` puts every piece into the ft recipe, and the verdict, eval and score rows
+        mirror ``(*BACKBONE_KEYS, *RECIPE_PIECE_KEYS)`` off it -- so a piece key missing from
+        RECIPE_PIECE_KEYS is on the ft row and silently absent from every row scored after it.
+        --checkpoint-skip-layers and --fused-adamw were, until this test: an F run with skip 6
+        named it on its ft row only, and a fused (Tier-B) model's eval rows did not say fused."""
+        from qd_train.trainer import ChoicePermutation
+    
+        replay = rft.ReplayPlan(
+            batches=[], shard_hash="s" * 64, cache_path=tmp_path / "c.npz", letter_ids=(1, 2),
+            weight=0.1, every=6, attestation_sha256="a" * 64,
+        )
+>       pieces = rft._recipe_pieces(
+            lower_layers_n=8, lower_lr_scale=0.1, beta2=0.95,
+            permutation=ChoicePermutation(seed=5, letter_ids={}, noul_id=0,
+                                          line_end_ids=frozenset()),
+            replay=replay, cap_s=32_400.0, no_memorise=True, batch_tokens=35_403,
+            shuffled_label={"family": "code.defect_class"},
+            checkpoint_skip_layers=6, fused_adamw=True, train_attention_mask="none",
+        )
+E       TypeError: _recipe_pieces() got an unexpected keyword argument 'train_attention_mask'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_real_ft_pieces.py:146: TypeError
+_______ test_training_without_the_mask_lands_in_the_recipe_only_when_on ________
+
+    def test_training_without_the_mask_lands_in_the_recipe_only_when_on():
+        """The padding mask is what every row so far trained with, so it adds nothing; dropping
+        it is a Tier-B change and names itself on the ft row and every row scored after it."""
+        pieces = {"lower_layers_n": 0, "lower_lr_scale": 1.0, "beta2": rft.DEFAULT_BETA2,
+                  "permutation": None, "replay": None}
+>       assert rft._recipe_pieces(**pieces, train_attention_mask="padding") == {}
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: _recipe_pieces() got an unexpected keyword argument 'train_attention_mask'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_real_ft_pieces.py:167: TypeError
+____________ test_train_refuses_the_no_mask_switch_on_the_stand_in _____________
+
+    def test_train_refuses_the_no_mask_switch_on_the_stand_in():
+        """The stand-in has no SDPA layer to switch; a recipe saying 'none' would name nothing."""
+        from types import SimpleNamespace
+    
+        with pytest.raises(ValueError, match="train_attention_mask needs the real backbone"):
+>           rft._train(
+                reader=None, plan=[SimpleNamespace(tokens=np.zeros((1, 4), dtype=np.int32))],
+                passes=1, device="cpu", seed=0, hidden=8, heads=1, lr=1e-3, span_weight=1.0,
+                ledger=None, tag="t", quick_reasons=(), train_attention_mask="none",
+            )
+E           TypeError: _train() got an unexpected keyword argument 'train_attention_mask'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_real_ft_pieces.py:180: TypeError
+_________ test_the_no_mask_switch_with_replay_is_refused_at_argv_time __________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-386/test_the_no_mask_switch_with_r0')
+
+    def test_the_no_mask_switch_with_replay_is_refused_at_argv_time(tmp_path):
+        """Replay's KL term runs its own forward through `hidden()`, which keeps the mask, so the
+        switch would cover only part of training while the recipe claimed all of it."""
+>       with pytest.raises(SystemExit, match="--replay-shards"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: '--replay-shards'
+E         Actual message: '2'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_real_ft_pieces.py:190: AssertionError
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] [--out OUT] [--passes PASSES]
+                        [--seeds SEEDS [SEEDS ...]] [--prior-sd PRIOR_SD]
+                        [--target-difference TARGET_DIFFERENCE]
+                        [--span-weight SPAN_WEIGHT]
+                        [--checkpoint-dir CHECKPOINT_DIR]
+                        [--checkpoint-every CHECKPOINT_EVERY]
+                        [--resume-from RESUME_FROM] [--hidden HIDDEN]
+                        [--heads HEADS] [--lr LR] [--max-width MAX_WIDTH]
+                        [--max-pairs MAX_PAIRS] [--no-repo-history]
+                        [--rev REV] [--commitpackft COMMITPACKFT]
+                        [--defect-class DEFECT_CLASS]
+                        [--defect-download DEFECT_DOWNLOAD]
+                        [--defect-max-rows DEFECT_MAX_ROWS]
+                        [--defect-noul DEFECT_NOUL]
+                        [--general-record GENERAL_RECORD]
+                        [--general-max-rows GENERAL_MAX_ROWS]
+                        [--replay-partition] [--epoch] [--no-memorise]
+                        [--wall-clock-cap-s WALL_CLOCK_CAP_S]
+                        [--batch-tokens BATCH_TOKENS] [--score-val]
+                        [--score-checkpoint SCORE_CHECKPOINT [SCORE_CHECKPOINT ...]]
+                        [--ft-ledger FT_LEDGER]
+                        [--ft-row-id FT_ROW_ID [FT_ROW_ID ...]]
+                        [--score-plan PLAN.json] [--composed-slice SLICE_OUT]
+                        [--composed-slice-corpus COMPOSED_SLICE_CORPUS]
+                        [--score-dtype {fp32,bf16}] [--needle] [--ood]
+                        [--ood-general-record OOD_GENERAL_RECORD]
+                        [--needle-predictions-out NEEDLE_PREDICTIONS_OUT]
+                        [--needle-handoff NEEDLE_HANDOFF] [--ledger LEDGER]
+                        [--optimizer {bf16,master}]
+                        [--real-backbone REAL_BACKBONE]
+                        [--devices {cpu,cuda,mps} [{cpu,cuda,mps} ...]]
+                        [--instance INSTANCE] [--usd-per-hour USD_PER_HOUR]
+                        [--usd-per-gpu-hour USD_PER_GPU_HOUR]
+                        [--approved-by APPROVED_BY]
+                        [--attn-implementation ATTN_IMPLEMENTATION]
+                        [--deterministic] [--fused-adamw]
+                        [--checkpoint-skip-layers CHECKPOINT_SKIP_LAYERS]
+                        [--lower-layers-n LOWER_LAYERS_N]
+                        [--lower-layers-lr-scale LOWER_LAYERS_LR_SCALE]
+                        [--beta2 BETA2]
+                        [--option-permutation-seed OPTION_PERMUTATION_SEED]
+                        [--tokenizer-json TOKENIZER_JSON]
+                        [--replay-shards REPLAY_SHARDS]
+                        [--replay-attestation REPLAY_ATTESTATION]
+                        [--replay-cache REPLAY_CACHE]
+                        [--replay-weight REPLAY_WEIGHT]
+                        [--replay-every REPLAY_EVERY]
+                        [--needle-control TOKENS,TOKENS,...]
+                        [--suite-verdicts-out SUITE_VERDICTS_OUT]
+                        [--suite-logits] [--verdicts-out VERDICTS_OUT]
+                        [--shuffled-label EVAL_ROW_ID]
+python -m pytest: error: unrecognized arguments: --train-attention-mask none
+_ test_piece_flags_that_would_determine_nothing_are_refused_at_argv_time[flags1---train-attention-mask none needs --real-backbone] _
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-386/test_piece_flags_that_would_de1')
+flags = ['--train-attention-mask', 'none']
+match = '--train-attention-mask none needs --real-backbone'
+
+    @pytest.mark.parametrize(
+        ("flags", "match"),
+        [
+            (["--lower-layers-n", "8"], "needs --real-backbone"),
+            (["--train-attention-mask", "none"], "--train-attention-mask none needs --real-backbone"),
+            (["--lower-layers-lr-scale", "0.1"], "scales no layer"),
+            (["--beta2", "1.5"], r"\(0, 1\)"),
+            (["--option-permutation-seed", "1"], "epoch arm only"),
+            (["--option-permutation-seed", "1", "--epoch"], "needs the tokenizer.json"),
+            (["--tokenizer-json", "x.json"], "does not exist"),
+            (["--replay-weight", "0.1"], "without --replay-shards"),
+            (["--replay-every", "3"], "without --replay-shards"),
+            (["--replay-shards", "d"], "needs --replay-attestation"),
+            (["--verdicts-out", "v.jsonl"], "--score-val"),
+        ],
+    )
+    def test_piece_flags_that_would_determine_nothing_are_refused_at_argv_time(
+        tmp_path, flags, match
+    ):
+>       with pytest.raises(SystemExit, match=match):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: '--train-attention-mask none needs --real-backbone'
+E         Actual message: '2'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_real_ft_pieces.py:217: AssertionError
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] [--out OUT] [--passes PASSES]
+                        [--seeds SEEDS [SEEDS ...]] [--prior-sd PRIOR_SD]
+                        [--target-difference TARGET_DIFFERENCE]
+                        [--span-weight SPAN_WEIGHT]
+                        [--checkpoint-dir CHECKPOINT_DIR]
+                        [--checkpoint-every CHECKPOINT_EVERY]
+                        [--resume-from RESUME_FROM] [--hidden HIDDEN]
+                        [--heads HEADS] [--lr LR] [--max-width MAX_WIDTH]
+                        [--max-pairs MAX_PAIRS] [--no-repo-history]
+                        [--rev REV] [--commitpackft COMMITPACKFT]
+                        [--defect-class DEFECT_CLASS]
+                        [--defect-download DEFECT_DOWNLOAD]
+                        [--defect-max-rows DEFECT_MAX_ROWS]
+                        [--defect-noul DEFECT_NOUL]
+                        [--general-record GENERAL_RECORD]
+                        [--general-max-rows GENERAL_MAX_ROWS]
+                        [--replay-partition] [--epoch] [--no-memorise]
+                        [--wall-clock-cap-s WALL_CLOCK_CAP_S]
+                        [--batch-tokens BATCH_TOKENS] [--score-val]
+                        [--score-checkpoint SCORE_CHECKPOINT [SCORE_CHECKPOINT ...]]
+                        [--ft-ledger FT_LEDGER]
+                        [--ft-row-id FT_ROW_ID [FT_ROW_ID ...]]
+                        [--score-plan PLAN.json] [--composed-slice SLICE_OUT]
+                        [--composed-slice-corpus COMPOSED_SLICE_CORPUS]
+                        [--score-dtype {fp32,bf16}] [--needle] [--ood]
+                        [--ood-general-record OOD_GENERAL_RECORD]
+                        [--needle-predictions-out NEEDLE_PREDICTIONS_OUT]
+                        [--needle-handoff NEEDLE_HANDOFF] [--ledger LEDGER]
+                        [--optimizer {bf16,master}]
+                        [--real-backbone REAL_BACKBONE]
+                        [--devices {cpu,cuda,mps} [{cpu,cuda,mps} ...]]
+                        [--instance INSTANCE] [--usd-per-hour USD_PER_HOUR]
+                        [--usd-per-gpu-hour USD_PER_GPU_HOUR]
+                        [--approved-by APPROVED_BY]
+                        [--attn-implementation ATTN_IMPLEMENTATION]
+                        [--deterministic] [--fused-adamw]
+                        [--checkpoint-skip-layers CHECKPOINT_SKIP_LAYERS]
+                        [--lower-layers-n LOWER_LAYERS_N]
+                        [--lower-layers-lr-scale LOWER_LAYERS_LR_SCALE]
+                        [--beta2 BETA2]
+                        [--option-permutation-seed OPTION_PERMUTATION_SEED]
+                        [--tokenizer-json TOKENIZER_JSON]
+                        [--replay-shards REPLAY_SHARDS]
+                        [--replay-attestation REPLAY_ATTESTATION]
+                        [--replay-cache REPLAY_CACHE]
+                        [--replay-weight REPLAY_WEIGHT]
+                        [--replay-every REPLAY_EVERY]
+                        [--needle-control TOKENS,TOKENS,...]
+                        [--suite-verdicts-out SUITE_VERDICTS_OUT]
+                        [--suite-logits] [--verdicts-out VERDICTS_OUT]
+                        [--shuffled-label EVAL_ROW_ID]
+python -m pytest: error: unrecognized arguments: --train-attention-mask none
+_______ test_a_candidate_inside_the_baseline_spread_passes_both_channels _______
+
+    def test_a_candidate_inside_the_baseline_spread_passes_both_channels():
+        bases = _bases()
+        # Each candidate sits on a baseline from step 1 on; step 0 differs (S(0) == 0).
+        cands = [
+            _arm(f"M{k}", [2.0 + 1e-6 if t == 0 else 2.0 - 0.1 * t + 0.001 * k * t for t in range(10)],
+                 [1.0 + 1e-6 if t == 0 else 1.0 - 0.05 * t + 0.002 * k * t for t in range(10)])
+            for k in range(3)
+        ]
+>       out = pp.p2_screen(bases, cands)
+              ^^^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_screen'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py:50: AttributeError
+___________ test_a_candidate_outside_the_spread_fails_and_says_where ___________
+
+    def test_a_candidate_outside_the_spread_fails_and_says_where():
+        bases = _bases()
+        cands = [_arm(f"M{k}", [2.0 - 0.1 * t + 0.05 * t for t in range(10)],
+                      [1.0 - 0.05 * t + 0.002 * k * t for t in range(10)]) for k in range(3)]
+>       out = pp.p2_screen(bases, cands)
+              ^^^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_screen'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py:64: AttributeError
+_ test_a_channel_no_arm_ever_exercised_is_not_run_and_the_shape_does_not_pass __
+
+    def test_a_channel_no_arm_ever_exercised_is_not_run_and_the_shape_does_not_pass():
+        bases = [_arm(f"B{k}", [2.0 - 0.1 * t + 0.001 * k * t for t in range(5)], [0.0] * 5)
+                 for k in range(3)]
+        cands = [_arm(f"M{k}", [2.0 - 0.1 * t + 0.001 * k * t for t in range(5)], [0.0] * 5)
+                 for k in range(3)]
+>       out = pp.p2_screen(bases, cands)
+              ^^^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_screen'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py:77: AttributeError
+_________________ test_only_live_steps_count_toward_a_channel __________________
+
+    def test_only_live_steps_count_toward_a_channel():
+        """A span channel is 0.0 on every arm at a letter-only batch; those steps are not
+        evidence either way, so they do not pad the fraction."""
+        span = [0.0, 0.9, 0.0, 0.8]
+        bases = [_arm(f"B{k}", [2.0, 1.9, 1.8, 1.7], [x + 0.01 * k if x else 0.0 for x in span])
+                 for k in range(3)]
+        cands = [_arm(f"M{k}", [2.0, 1.9, 1.8, 1.7], [x + 0.5 if x else 0.0 for x in span])
+                 for k in range(3)]
+>       out = pp.p2_screen(bases, cands)
+              ^^^^^^^^^^^^
+E       AttributeError: module 'perf_parity' has no attribute 'p2_screen'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py:91: AttributeError
+_ test_arms_over_different_batches_or_lengths_are_refused[change0-different batches] _
+
+change = {'consumed_digest': 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'}
+match = 'different batches'
+
+    @pytest.mark.parametrize(
+        ("change", "match"),
+        [
+            ({"consumed_digest": "d" * 64}, "different batches"),
+            ({"letter": [(1.0).hex()] * 9, "steps": 9}, "steps"),
+        ],
+    )
+    def test_arms_over_different_batches_or_lengths_are_refused(change, match):
+        bases = _bases()
+        cands = [{**_bases()[0], "tag": "M0", **change}, {**_bases()[1], "tag": "M1"},
+                 {**_bases()[2], "tag": "M2"}]
+        with pytest.raises(SystemExit, match=match):
+>           pp.p2_screen(bases, cands)
+            ^^^^^^^^^^^^
+E           AttributeError: module 'perf_parity' has no attribute 'p2_screen'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py:108: AttributeError
+____ test_arms_over_different_batches_or_lengths_are_refused[change1-steps] ____
+
+change = {'letter': ['0x1.0000000000000p+0', '0x1.0000000000000p+0', '0x1.0000000000000p+0', '0x1.0000000000000p+0', '0x1.0000000000000p+0', '0x1.0000000000000p+0', ...], 'steps': 9}
+match = 'steps'
+
+    @pytest.mark.parametrize(
+        ("change", "match"),
+        [
+            ({"consumed_digest": "d" * 64}, "different batches"),
+            ({"letter": [(1.0).hex()] * 9, "steps": 9}, "steps"),
+        ],
+    )
+    def test_arms_over_different_batches_or_lengths_are_refused(change, match):
+        bases = _bases()
+        cands = [{**_bases()[0], "tag": "M0", **change}, {**_bases()[1], "tag": "M1"},
+                 {**_bases()[2], "tag": "M2"}]
+        with pytest.raises(SystemExit, match=match):
+>           pp.p2_screen(bases, cands)
+            ^^^^^^^^^^^^
+E           AttributeError: module 'perf_parity' has no attribute 'p2_screen'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py:108: AttributeError
+_______ test_fewer_than_three_baselines_or_no_candidate_is_refused[2-3] ________
+
+n_base = 2, n_cand = 3
+
+    @pytest.mark.parametrize(("n_base", "n_cand"), [(2, 3), (3, 0)])
+    def test_fewer_than_three_baselines_or_no_candidate_is_refused(n_base, n_cand):
+        """Fable: the spread is measured on >= 3 baseline repeats."""
+        bases = _bases()[:n_base]
+        cands = [{**b, "tag": f"M{i}"} for i, b in enumerate(_bases()[:n_cand])]
+        with pytest.raises(SystemExit, match=r"baseline|candidate"):
+>           pp.p2_screen(bases, cands)
+            ^^^^^^^^^^^^
+E           AttributeError: module 'perf_parity' has no attribute 'p2_screen'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py:117: AttributeError
+_______ test_fewer_than_three_baselines_or_no_candidate_is_refused[3-0] ________
+
+n_base = 3, n_cand = 0
+
+    @pytest.mark.parametrize(("n_base", "n_cand"), [(2, 3), (3, 0)])
+    def test_fewer_than_three_baselines_or_no_candidate_is_refused(n_base, n_cand):
+        """Fable: the spread is measured on >= 3 baseline repeats."""
+        bases = _bases()[:n_base]
+        cands = [{**b, "tag": f"M{i}"} for i, b in enumerate(_bases()[:n_cand])]
+        with pytest.raises(SystemExit, match=r"baseline|candidate"):
+>           pp.p2_screen(bases, cands)
+            ^^^^^^^^^^^^
+E           AttributeError: module 'perf_parity' has no attribute 'p2_screen'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py:117: AttributeError
+=============================== warnings summary ===============================
+python/tests/test_backbone.py::test_the_real_checkpoints_text_keys_are_a_bijection_with_the_text_model_class
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+python/tests/test_backbone.py::test_the_real_checkpoints_text_keys_are_a_bijection_with_the_text_model_class
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_backbone.py::test_train_attention_mask_none_trains_without_the_mask_on_the_flash_backend_only[False]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_backbone.py::test_train_attention_mask_none_trains_without_the_mask_on_the_flash_backend_only[True]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_backbone.py::test_scoring_through_hidden_keeps_the_mask_under_train_attention_mask_none
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_backbone.py::test_the_default_trains_with_the_padding_mask_and_every_backend
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_backbone.py::test_an_unknown_train_attention_mask_is_refused
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_backbone.py::test_dropping_the_mask_leaves_real_positions_unchanged_and_moves_only_pads
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_real_ft_pieces.py::test_every_recipe_piece_key_is_mirrored_into_the_verdict_and_score_rows
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_real_ft_pieces.py::test_training_without_the_mask_lands_in_the_recipe_only_when_on
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_real_ft_pieces.py::test_train_refuses_the_no_mask_switch_on_the_stand_in
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_real_ft_pieces.py::test_the_no_mask_switch_with_replay_is_refused_at_argv_time
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_real_ft_pieces.py::test_piece_flags_that_would_determine_nothing_are_refused_at_argv_time[flags1---train-attention-mask none needs --real-backbone]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py::test_a_candidate_inside_the_baseline_spread_passes_both_channels
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py::test_a_candidate_outside_the_spread_fails_and_says_where
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py::test_a_channel_no_arm_ever_exercised_is_not_run_and_the_shape_does_not_pass
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py::test_only_live_steps_count_toward_a_channel
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py::test_arms_over_different_batches_or_lengths_are_refused[change0-different batches]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py::test_arms_over_different_batches_or_lengths_are_refused[change1-steps]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py::test_fewer_than_three_baselines_or_no_candidate_is_refused[2-3]
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre4fd/t/python/tests/test_perf_parity_p2.py::test_fewer_than_three_baselines_or_no_candidate_is_refused[3-0]
+19 failed, 114 passed, 1 skipped, 2 warnings, 1 error in 19.96s
+<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

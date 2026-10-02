@@ -1,0 +1,48 @@
+{
+  "case": "many-candidates",
+  "description": "300 candidates beside a 5-candidate abstaining row (ragged by far more than one)",
+  "device": "cpu",
+  "dtype": "float32",
+  "dw_encoding": "npy",
+  "head": "python/qd_train/heads.py::SpanPointerHead (plan from plan_span_batch)",
+  "hidden_scale": 0.9306048591020996,
+  "hidden_size": 8,
+  "n_spans": 2,
+  "oracle": "tools/qd_train_oracle_span_head.py",
+  "reduction": "mean",
+  "reserved_noul_rows": 1,
+  "seq_len": 400,
+  "sha256": {
+    "d_end_proj": "c8f68c240083423d85b2cb42b402b9dbb4340f96d2df13d8a43a817e6f0bba69",
+    "d_start_proj": "95cfaa2a7ae016472bfe2e14d6366f837a2b70053478fb2877398ef0216e00c8",
+    "end_proj_weight": "3012b6c68b6e6ba4c191e8ce8e2a6654fddf8beef1a040496abd2d2dc61f4e8b",
+    "ref64_d_end_proj": "491d6da25d5e7700bf5438dd78f39236a667ae7841b2ac6f08bafc7c2dc889fe",
+    "ref64_d_start_proj": "d8556bfab2b9624341ca940d78fa2bf7f61db72bb835fe1db008ad47b7054cc3",
+    "start_proj_weight": "fe6fc7cc0428c7bc35802d069a1978a73648fcc64db69b75f24d6f2268eb8854"
+  },
+  "span_weight": 1.0,
+  "torch_f32_vs_f64": {
+    "d_abstain_end": 7.17683821198669e-08,
+    "d_abstain_start": 6.456394034838162e-08,
+    "d_end_proj": 8.480711711919187e-08,
+    "d_hidden": 1.6269557781764005e-07,
+    "d_start_proj": 1.4802416642941185e-07,
+    "loss": 3.686966210302904e-08,
+    "scores_end": 9.592084505822357e-08,
+    "scores_start": 9.689290885968041e-08
+  },
+  "torch_threads": 1,
+  "versions": {
+    "numpy": "2.5.0",
+    "python": "3.14.7",
+    "torch": "2.12.1"
+  },
+  "weight_generator": {
+    "algorithm": "splitmix64(seed << 40 ^ stream << 32 ^ index) >> 40, centred, times 2^-(23 + shift)",
+    "seed": 106,
+    "shift": 1,
+    "stream_end_proj": 2,
+    "stream_start_proj": 1
+  },
+  "zero_abstain": false
+}

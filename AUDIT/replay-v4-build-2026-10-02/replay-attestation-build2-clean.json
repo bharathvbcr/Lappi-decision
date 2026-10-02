@@ -1,0 +1,51 @@
+{
+  "clean": true,
+  "corpus": {
+    "commitpackft": null,
+    "defect_class": "commitpackft-composed-v1",
+    "defect_max_rows": null,
+    "defect_noul_examples_sha256": "b194f14c75e1ac959f3658e0dda6a07ef4c41ff026a416a39dd526a9dfb13a5e",
+    "general_max_rows": 200000,
+    "general_record_sha256": "a0841f0d9990bbc0fa8c46ad559e0c33d2f1bedbd2b5e9e30454d4c1d6ba5555",
+    "max_pairs": 400,
+    "repo_history": false,
+    "rev": "881ab304f15ea13529002391dda8520c2ea47af4"
+  },
+  "hit_examples": [],
+  "hits": {
+    "heldout": 0,
+    "val": 0
+  },
+  "n": 8,
+  "replay_rows_checked": 3383,
+  "replay_rows_too_short": 0,
+  "replay_rows_total": 3383,
+  "replay_shard_hash": "290f69a48a44f15018dc8a52deb4655502182cfa9d14cf84b4f00cd4cddb7cea",
+  "targets": {
+    "heldout": {
+      "digest": "f909fe808a9859e03a6276befbd178a73f9a00fa3f13c589c41fa0cd3bd9895b",
+      "rows": 39887,
+      "rows_indexed": 39887,
+      "rows_too_short": 0
+    },
+    "val": {
+      "digest": "bfb4df11061628220ba85b59d0eb2999cf1a2f5549ab9d6afe27d45f3911d3cd",
+      "rows": 18428,
+      "rows_indexed": 18428,
+      "rows_too_short": 0
+    }
+  },
+  "threshold": 0.5,
+  "tool": "tools/replay_decontam.py",
+  "unrenderable_targets": {
+    "heldout": {
+      "n": 0,
+      "rows": {}
+    },
+    "val": {
+      "n": 0,
+      "rows": {}
+    }
+  },
+  "version": 1
+}

@@ -1,0 +1,148 @@
+......FFFF                                                               [100%]
+=================================== FAILURES ===================================
+________ test_the_excluded_row_cites_e_val_and_carries_the_three_views _________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-487/test_the_excluded_row_cites_e_0')
+gate_report_bin = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ab8fcc502a43caacc/target/debug/qd-gate-report')
+
+    def test_the_excluded_row_cites_e_val_and_carries_the_three_views(tmp_path, gate_report_bin):
+        eval_ledger, verdicts, eval_row_id = _fixture(tmp_path)
+        e_val, keys = _e_val(tmp_path, verdicts)
+        out = tmp_path / "out.jsonl"
+>       assert grr.main([*_argv(gate_report_bin, tmp_path, verdicts, eval_ledger, out),
+                         "--exclude-rows", str(e_val)]) == 0
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre-wt/python/tests/test_gate_report_row.py:178: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre-wt/tools/gate_report_row.py:277: in main
+    args = parser.parse_args(argv)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2012: in parse_args
+    self.error(msg)
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2785: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='python -m pytest', usage=None, description='Record a ``qd-gate-report`` run as a ledger row of its own (rule 5).', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = 'python -m pytest: error: unrecognized arguments: --exclude-rows /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-487/test_the_excluded_row_cites_e_0/e_val.txt\n'
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2772: SystemExit
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] --bin BIN --verdicts VERDICTS
+                        [--suite-verdicts SUITE_VERDICTS]
+                        --eval-ledger EVAL_LEDGER [--decisions DECISIONS]
+                        --ledger LEDGER --out-json OUT_JSON
+python -m pytest: error: unrecognized arguments: --exclude-rows /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-487/test_the_excluded_row_cites_e_0/e_val.txt
+________ test_absent_keys_refuse_unless_allowed_and_are_then_on_the_row ________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-487/test_absent_keys_refuse_unless0')
+gate_report_bin = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ab8fcc502a43caacc/target/debug/qd-gate-report')
+
+    def test_absent_keys_refuse_unless_allowed_and_are_then_on_the_row(tmp_path, gate_report_bin):
+        eval_ledger, verdicts, _ = _fixture(tmp_path)
+        missing = f"{KNOWLEDGE}:99999#answer"
+        e_val, keys = _e_val(tmp_path, verdicts, missing)
+        refused_ledger = tmp_path / "refused.jsonl"
+        with pytest.raises(Refused, match="name no verdict line"):
+>           grr.main([*_argv(gate_report_bin, tmp_path, verdicts, eval_ledger, refused_ledger),
+                      "--exclude-rows", str(e_val)])
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre-wt/python/tests/test_gate_report_row.py:229: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre-wt/tools/gate_report_row.py:277: in main
+    args = parser.parse_args(argv)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2012: in parse_args
+    self.error(msg)
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2785: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='python -m pytest', usage=None, description='Record a ``qd-gate-report`` run as a ledger row of its own (rule 5).', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = 'python -m pytest: error: unrecognized arguments: --exclude-rows /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-487/test_absent_keys_refuse_unless0/e_val.txt\n'
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2772: SystemExit
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] --bin BIN --verdicts VERDICTS
+                        [--suite-verdicts SUITE_VERDICTS]
+                        --eval-ledger EVAL_LEDGER [--decisions DECISIONS]
+                        --ledger LEDGER --out-json OUT_JSON
+python -m pytest: error: unrecognized arguments: --exclude-rows /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-487/test_absent_keys_refuse_unless0/e_val.txt
+______________ test_an_allow_flag_without_exclude_rows_is_refused ______________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-487/test_an_allow_flag_without_exc0')
+gate_report_bin = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ab8fcc502a43caacc/target/debug/qd-gate-report')
+
+    def test_an_allow_flag_without_exclude_rows_is_refused(tmp_path, gate_report_bin):
+        eval_ledger, verdicts, _ = _fixture(tmp_path)
+>       with pytest.raises(SystemExit, match="qualify --exclude-rows"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'qualify --exclude-rows'
+E         Actual message: '2'
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre-wt/python/tests/test_gate_report_row.py:249: AssertionError
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] --bin BIN --verdicts VERDICTS
+                        [--suite-verdicts SUITE_VERDICTS]
+                        --eval-ledger EVAL_LEDGER [--decisions DECISIONS]
+                        --ledger LEDGER --out-json OUT_JSON
+python -m pytest: error: unrecognized arguments: --allow-absent-exclude-rows
+____________ test_the_excluded_row_never_joins_the_eval_rows_family ____________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-487/test_the_excluded_row_never_jo0')
+gate_report_bin = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ab8fcc502a43caacc/target/debug/qd-gate-report')
+
+    def test_the_excluded_row_never_joins_the_eval_rows_family(tmp_path, gate_report_bin):
+        eval_ledger, verdicts, eval_row_id = _fixture(tmp_path)
+        e_val, _ = _e_val(tmp_path, verdicts)
+>       assert grr.main([*_argv(gate_report_bin, tmp_path, verdicts, eval_ledger, eval_ledger),
+                         "--exclude-rows", str(e_val)]) == 0
+
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre-wt/python/tests/test_gate_report_row.py:258: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre-wt/tools/gate_report_row.py:277: in main
+    args = parser.parse_args(argv)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2012: in parse_args
+    self.error(msg)
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2785: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='python -m pytest', usage=None, description='Record a ``qd-gate-report`` run as a ledger row of its own (rule 5).', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = 'python -m pytest: error: unrecognized arguments: --exclude-rows /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-487/test_the_excluded_row_never_jo0/e_val.txt\n'
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2772: SystemExit
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] --bin BIN --verdicts VERDICTS
+                        [--suite-verdicts SUITE_VERDICTS]
+                        --eval-ledger EVAL_LEDGER [--decisions DECISIONS]
+                        --ledger LEDGER --out-json OUT_JSON
+python -m pytest: error: unrecognized arguments: --exclude-rows /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-487/test_the_excluded_row_never_jo0/e_val.txt
+=========================== short test summary info ============================
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre-wt/python/tests/test_gate_report_row.py::test_the_excluded_row_cites_e_val_and_carries_the_three_views
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre-wt/python/tests/test_gate_report_row.py::test_absent_keys_refuse_unless_allowed_and_are_then_on_the_row
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre-wt/python/tests/test_gate_report_row.py::test_an_allow_flag_without_exclude_rows_is_refused
+FAILED ../../../../../../../../private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/pre-wt/python/tests/test_gate_report_row.py::test_the_excluded_row_never_joins_the_eval_rows_family

@@ -1,0 +1,1146 @@
+{
+ "buckets": [
+  363,
+  364,
+  471,
+  474,
+  567,
+  568,
+  1452,
+  1503,
+  1544,
+  1545,
+  1595,
+  1596
+ ],
+ "candidates": [
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [
+   165,
+   198,
+   199,
+   243,
+   301
+  ],
+  [
+   165,
+   198,
+   199,
+   243,
+   301
+  ],
+  [
+   165,
+   198,
+   199,
+   243,
+   301
+  ],
+  [
+   165,
+   198,
+   199,
+   243,
+   301
+  ],
+  [
+   165,
+   198,
+   199,
+   243,
+   301
+  ],
+  [
+   165,
+   198,
+   199,
+   243,
+   301
+  ],
+  [
+   165,
+   198,
+   199,
+   243,
+   301
+  ],
+  [
+   165,
+   199,
+   200,
+   245,
+   304
+  ],
+  [
+   165,
+   199,
+   200,
+   245,
+   304
+  ],
+  [
+   165,
+   199,
+   200,
+   245,
+   304
+  ],
+  [
+   165,
+   199,
+   200,
+   245,
+   304
+  ],
+  [
+   165,
+   199,
+   200,
+   245,
+   304
+  ],
+  [
+   165,
+   199,
+   200,
+   245,
+   304
+  ],
+  [
+   165,
+   199,
+   200,
+   245,
+   304
+  ],
+  [
+   165,
+   199,
+   200,
+   245,
+   304
+  ],
+  [
+   165,
+   199,
+   200,
+   245,
+   304
+  ]
+ ],
+ "lengths": [
+  568,
+  568,
+  568,
+  568,
+  568,
+  568,
+  567,
+  568,
+  568,
+  568,
+  567,
+  567,
+  568,
+  568,
+  567,
+  568,
+  568,
+  567,
+  568,
+  567,
+  567,
+  567,
+  567,
+  567,
+  364,
+  364,
+  364,
+  364,
+  364,
+  364,
+  363,
+  364,
+  364,
+  364,
+  363,
+  363,
+  364,
+  364,
+  363,
+  364,
+  364,
+  363,
+  364,
+  363,
+  363,
+  363,
+  363,
+  363,
+  1452,
+  1452,
+  1452,
+  1452,
+  1452,
+  1452,
+  1452,
+  1503,
+  1503,
+  1503,
+  1503,
+  1503,
+  1503,
+  1503,
+  1503,
+  1503,
+  1503,
+  1544,
+  1545,
+  1545,
+  1544,
+  1544,
+  1544,
+  1544,
+  1596,
+  1596,
+  1596,
+  1596,
+  1596,
+  1596,
+  1596,
+  1596,
+  1596,
+  1595,
+  471,
+  471,
+  471,
+  471,
+  471,
+  471,
+  471,
+  474,
+  474,
+  474,
+  474,
+  474,
+  474,
+  474,
+  474,
+  474
+ ],
+ "max_seq_len": 1596,
+ "n_sequences": 98,
+ "sequence_sha256": [
+  "48200c51c960da939191f509a0cdccf343299bcd25fd9a7c9e5102872f455808",
+  "334e95809a19faabc8553f8ac66b93ed2fd7a56f448619af93c63f52a21475c3",
+  "ae59ff17f6c18ed4205b33dfdc6e8a93ccf5bee952d46c4de3620bc4541caf9c",
+  "0595c10637bbcb9ab3296e538937c75535a48a941afd7a80995daeb50275c09c",
+  "76ec78276fe5400c46a1b16d9e9a9a7fa641259465a925140d63a164d3df737e",
+  "8d2fa1c708caee85963cbc912937b671026986b8ffff276fe3cbd9f329d6d159",
+  "493b0456aef11ada6db958b31e288b8f4281ffb2cbfaa77a9a929e93dcee17c1",
+  "6ba3000ad1adc358021f71a0bb81aaaa3ff91efb02ba75c3dd5257d6e72e0d40",
+  "8856ecd2237db372830cb4e1ef526322d917541cf71e3ea11c8b40fcf5ba0c3a",
+  "06281ec31b2657b06bcadf8a0fa0fb2e589a930254146d8e8075a0a4124fb571",
+  "1c0b65623ed7e1f2b13b9fa204b3d4193763e2695ab50b2fb1707a3352ef3d7f",
+  "f7a5f345713481a3e137c298c0292ebbe99bd59cc7288105c29de175a0571ea7",
+  "e60a42085a4dfa5f1f4da20b5a9682b5fd332bae920ec906abea07e0f1a91707",
+  "180987304979cf97cb58802da9dc7785fdfae04dbd9ca01dc11f2385629d5f49",
+  "6c41db450636f428cd90d659b73a4e499c4cd504c923af1320fb8f14da77f2a9",
+  "2bb83f6720629123b96164085a5ef1496ac7b15280a57317056401f8c812a2f6",
+  "c8ef17f90f01d74b8db3803629a71023e0c9be479282eeae245714b833d39e93",
+  "4ebbf1e4b4e03ad8a9a7a4ee066c5d6e217372fb797bd87e0f49822dd5f7cfc6",
+  "c72b7751e94b0925a9eb2bb325ded99170de62a3d5f5e8af7dfa6c23dba5068c",
+  "95ce19656c53be9133d4ff573b053168143985d5548a0bd7b50c7c6ec856f76d",
+  "1734ca09a025f9339dc40039be43249bf31b1d477447ad56794f2808ab85a918",
+  "050440405bd12f4b288f21b5160c0d3137732bd9ecc5e922f73103828994af13",
+  "8109fe08bf466335c73714365594d63e28d31dba2fe213f674c0051a7af4e95a",
+  "e8d0f076017bdac02500c051832f17180e2dffcf7abffdd9fabc5c336dc1ed91",
+  "134bbe836c156abbf5a701034efd4d06557fe5b740f8c187e326516d35e8ad30",
+  "8030972137d439069c1169e9d15f132553057d9bdbbbe3dd03754f7b86caf374",
+  "411f86f32781e062e5928625d163bc6949211c19f7de6cc0c67de8e4fb14cb13",
+  "fd7c931b665c7108b4f767c505c422146c42c80b31a59f252ec04fb5ef024158",
+  "e7c7cf0bf8af7a180a1a0a1e253f893d7d78ce777960e5a96b2f058af5e33127",
+  "bf6902a048bbd2ead1da1c00e4d2a410c7d50ae7146df180ca1da6412963ffcb",
+  "66566a2277b77eb2f600073d58045bf382b701c344829a74ab77ac783d9fbd9c",
+  "2e0d90ca7200e9d43fd9046e570d6a25bdc74e12539970a912ca45926bf50a03",
+  "4fe3ad38181569801e9b4b3fd4ddd0c95404dc6cbbdb7819f8d310dc134dc791",
+  "7593e28bfbe20c601d865593ebe62e5c13cd0225eed7b366c29715fa10903e29",
+  "3dd0724d0787a22ae339d1503aba97daaf73bb5896b4ebe3ac5d3446ffc9317c",
+  "e74817029b15d933f95bdb80194dfb81eff2a06932b6c849335a9160484c53a5",
+  "879c508435bf8be8b73fd3a9c6f71612b224d1578c4f6a6c5972e03293f72018",
+  "4ccba195f4b3a61ed14272ba4ecec97ad94779f5e2c5da1ea45ebd0d9ab232d9",
+  "c3735454d843dcfe39bf062cbd7d43cb03eaf1aafc3455c8e97ee0b36f8da3cc",
+  "ea03ea5fb1405a25065afe845ca32152d6ef04775e0ee4d7a435c1e42f96e407",
+  "ae7b2e143e64fc5451a3616e849d79691e81eeb1d123c19b003082ed86bcf16c",
+  "4792e4f71d3fe8efb7c9b2e84ee3b03d79b9283abdf9019fdbc1736b221069ad",
+  "4f7c905cbb3aedb01e92e61eabea7362cd522598d7165765e949184cbd4f94a2",
+  "5ef1a21b506741077c567bac440790131b6485b53019f8a166a77a9fec5c2162",
+  "d73aba54d9ed25c0e0b6b59f181f1eb30b68e8f6518ee65769eb29d11149df3b",
+  "6955fac82741ebcc0027e1321ab56f1f1a1e5dce5fc3fc33ea42f75b891d07ae",
+  "a9229ad23479119380b48fdac4a94749fb8d9bc7a5882e0a12f95bfe4b915187",
+  "938f01645164b8bc89a32df5a4346e307f592818f9627abd3bf6dd0a1741bcf3",
+  "d9695af4b149a2f74c1e541a64f5734e88b66757f7ff32eba9b2fd3fe63f3a14",
+  "cb0cb7775d1cbf184eee5dd425ae7e7290cd9538d2cf43591937f767b620088c",
+  "b0c5e7ee4d3445b0163776962fbeb58ec75c9a2064a32021b2613c777b685715",
+  "938d2aa0c058a818c094b5bdfe38ee24e11c68b8e87b076779fddd551f2b6a9e",
+  "d7265bee77e5908c83a4f2285456dc452c8e33cd27b2f74f16f3ff893ed78858",
+  "0868fb892167668e1c531025fb191bbb1b0aa9948469a815b71c92ee31414357",
+  "502f4b82c61a3ec566e1a1fea4dec12358a6e71504be08f72661fdbc6cee9aa5",
+  "eb7d2c9f445d1563f143faa854503c4efc1bc8cb194d0cd6d8d94b443284f07f",
+  "2d612d0f7c73acdaa97779526ab6c56eff87a88f9fb0b8039d99ac7c8ab431c1",
+  "fdbbf29e22c2c4ea2bef3c8e2506310b49323f58dee9ffdccf837ea1cb2cab51",
+  "30ab88727272fb90e545ecc5f07255cc9bb9daa3559cb780abbd70b9177e9f5b",
+  "cc0a680bc57ba552e0d431eee92c704f358cf1aa4600d4d93c51acb48889e62d",
+  "664dc6a86fd15e0d7c48105d9a6010936148b46c0ac9475fc0347f4749c40f0a",
+  "0bc83e13e13bdf2be0e45aaf77efc17be0cf34d2b81573520d21b0aea820e850",
+  "52bc42ca38eadb2e171da7cbcc855777cce945d1a4e81ebad79da4db0774ca19",
+  "91d7b4d2e4a0b4575ccfad187167e1c1e6bfed1a7b41d4f03cafca026172fec1",
+  "9b1fdb95bbf741bf5fd570a5f19c58b01567c199026c49b192fcf5b546862263",
+  "48afbc290348864d9a1bea27576d6dafeec8a4d651b17d030e68b013e83f025e",
+  "c5d773a6589572c1153d552cd7ca1b557160b255eb0e3fcab15b539bc2f0c6de",
+  "ca1996aa01a2277f87ac0fde97a58953738bda40abcfc6b99f391f273333fcee",
+  "5fa0cb927c503227167dfe1f1459e6b418e9fc37aefdf0e3a252142fee5b2c55",
+  "fe5246690afb4914a281f68e67f91fe3b05e33a7d425fca98185f8f76432db09",
+  "cae94d007794f9b46ab783fa0c9c22547b2361ad13750f1885df908545ad7bcc",
+  "83d99483c575a4d5b253d1d9126a366c420c218e665f26565f6fa413966bcbe2",
+  "3d84e1ae3c07dc2b38d2284a84b4e54146fea61b35d2c94f366232b8e85cd0a7",
+  "c97e9293112346474954c63facb885446aca8cd6b8bb636eeac43d4771a5c6e9",
+  "ca60d68076068989b961f0f6368d9e86190dcae0dee0249a5aa14cc2dc4f44fe",
+  "cf38510da4d7c2594bdf13b1ae1e48243040ef95b17a2633874e413d7c251d2b",
+  "702e9b2fdfefa202707299e459201acb87e0139f6abbac6453624bb3d6ebb432",
+  "dbe9b18d604af1c8f5c756578e81212113014c2c37a1015481dab3e28aae6d3d",
+  "af94beb2b87275b6d5712a97ecdf4b35a4019a259b2a981a818ade9ce3274d6c",
+  "4987179993ee888340e4274f2a0251ebfbd12bd6bfda8886fa6ddaab36149c10",
+  "34c73ff8295825ebeae684fce1a3ffbbd67baf072dc4ea1b916da88f09ddf2b2",
+  "47789539b649828c613b0dfc207909567f689a56d411df62d3d66bab4d50d339",
+  "0cd4612c6cf6ce57dc40af3c16189042e0420428d17847745c21d126c91b5e07",
+  "57af7b6ca2aaa8332853018d20c0ddc9621a3d5df6319a8df3c803b4ef254410",
+  "8eb6caeffa3909c5d38c211db585ebd130a9c9a279a74b20d5842abc5f38c063",
+  "2db937c52ad94071632758a5f3ce389a874474117d249cfd39f89b50ddee678c",
+  "b78198b6179aef669d0e7a5115e46205ff56bb99219cbcfb569b44285cf44c4f",
+  "5a88b77402022f7f5cfd0afb0b8e62fe2356da7fa0e34604984bf9e5e75c68b5",
+  "96ae99e1c7c3c14414f8b32667c1dcaf1aa3d7e1835ad5be9fc279efbfdaa891",
+  "08984e2e9cfb648987b20bd53060db2af2413d2a29cd0ef410e23d6ad6edf173",
+  "418e51288948953d6b87b37f6c05145dd59d96b15c394c4d9832fa3412fd7c10",
+  "55f8914648facfea5ae71f6c34c122b031392b3c5eeb15cb0aa6ea1bd1a2f87c",
+  "246ddac297805a1551a6f11fea550e7a925337e439f2315ca9c0691242993567",
+  "bba2842ed4495f0b1d4c93bc940d9f2f18579a5df956bd07bfaa760a7781da70",
+  "a96154b08593e74d1fb0826ba779d740642e39bbf1304bd7fc9d283ccc7e2d28",
+  "ec39354467e3cf05925a7e47d735b6230c844d5c96cf834ca6a6cf6bcb2e8b23",
+  "b777703dbb4f932e3e44ccfaa1ad7956672668c5d817a0b81363eb60c11106fd",
+  "852ead0416696f579d0cce2ea941d8f7010c9235b0306bcf7bebd36e7042eefb"
+ ],
+ "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+ "slot_kind": [
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3
+ ],
+ "span_target": [
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1
+  ],
+  [
+   243,
+   243
+  ],
+  [
+   243,
+   243
+  ],
+  [
+   243,
+   243
+  ],
+  [
+   -2,
+   -2
+  ],
+  [
+   243,
+   243
+  ],
+  [
+   243,
+   243
+  ],
+  [
+   243,
+   243
+  ],
+  [
+   -2,
+   -2
+  ],
+  [
+   245,
+   245
+  ],
+  [
+   245,
+   245
+  ],
+  [
+   245,
+   245
+  ],
+  [
+   -2,
+   -2
+  ],
+  [
+   245,
+   245
+  ],
+  [
+   245,
+   245
+  ],
+  [
+   245,
+   245
+  ],
+  [
+   245,
+   245
+  ]
+ ],
+ "target_index": [
+  566,
+  566,
+  566,
+  566,
+  566,
+  566,
+  565,
+  566,
+  566,
+  566,
+  565,
+  565,
+  566,
+  566,
+  565,
+  566,
+  566,
+  565,
+  566,
+  565,
+  565,
+  565,
+  565,
+  565,
+  362,
+  362,
+  362,
+  362,
+  362,
+  362,
+  361,
+  362,
+  362,
+  362,
+  361,
+  361,
+  362,
+  362,
+  361,
+  362,
+  362,
+  361,
+  362,
+  361,
+  361,
+  361,
+  361,
+  361,
+  1450,
+  1450,
+  1450,
+  1450,
+  1450,
+  1450,
+  1450,
+  1501,
+  1501,
+  1501,
+  1501,
+  1501,
+  1501,
+  1501,
+  1501,
+  1501,
+  1501,
+  1542,
+  1543,
+  1543,
+  1542,
+  1542,
+  1542,
+  1542,
+  1594,
+  1594,
+  1594,
+  1594,
+  1594,
+  1594,
+  1594,
+  1594,
+  1594,
+  1593,
+  469,
+  469,
+  469,
+  469,
+  469,
+  469,
+  469,
+  472,
+  472,
+  472,
+  472,
+  472,
+  472,
+  472,
+  472,
+  472
+ ],
+ "to_json": {
+  "checks": {
+   "held_out_families_configured": {
+    "detail": "['code.language_id', 'qa.answerability']",
+    "passed": true,
+    "state": "ran",
+    "value": 2
+   },
+   "shard_code_current": {
+    "detail": "18 qd_data module(s) hash as they did when this shard set was written",
+    "passed": true,
+    "state": "ran",
+    "value": 18
+   },
+   "shard_not_packed": {
+    "detail": "SAFETY-2: packing is unsupported for the hybrid; the header cannot be constructed with packed=True",
+    "passed": true,
+    "state": "ran",
+    "value": false
+   },
+   "shard_path_not_held_out": {
+    "passed": true,
+    "state": "ran",
+    "value": "<fixture>/shards/train"
+   },
+   "shard_provenance_pinned": {
+    "detail": "data_snapshot_hash=c0182f3075bdce11\u2026 tokenizer_hash=tokhash-oracle-0\u2026 remap_hash=9987387425bfe442\u2026",
+    "passed": true,
+    "state": "ran",
+    "value": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2"
+   },
+   "shard_remap_matches_header": {
+    "detail": "<fixture>/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-oracle-0\u2026",
+    "n": 256,
+    "n_total": 512,
+    "passed": true,
+    "state": "ran",
+    "value": "9987387425bfe442465f610d6ac4ce3b769cc3d0f25d6e812264c91fa19966cc"
+   },
+   "shard_rev_matches": {
+    "detail": "this shard set was built from oracle-rev-0000000000000000000000000000000000, which is the revision this run reads its labels at",
+    "passed": true,
+    "state": "ran",
+    "value": "oracle-rev-0000000000000000000000000000000000"
+   },
+   "shard_split_trainable": {
+    "passed": true,
+    "state": "ran",
+    "value": "train"
+   }
+  },
+  "coverage": {
+   "detail": "every row in the manifest was tokenized into the shard set",
+   "n": 98,
+   "n_total": 98,
+   "passed": true,
+   "state": "ran",
+   "value": 98
+  },
+  "header": {
+   "buckets": [
+    363,
+    364,
+    471,
+    474,
+    567,
+    568,
+    1452,
+    1503,
+    1544,
+    1545,
+    1595,
+    1596
+   ],
+   "code_fingerprint": {
+    "__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "config.py": "5cee1b28a678df679a7a525260fd0c0804e71fb25d263b9957c0049b662b9c3d",
+    "dedupe.py": "2862e7a1fdde2e65616c0cafccd89bf54faa31dce030c67873c717456c21795a",
+    "defect_class.py": "b5e3cf4e751859b9210358693ae76d4beac2c829539ada1e8e9e21dea8a0012c",
+    "errors.py": "625c9e8c0b3e21044b1575b1f2a55e62e101009e3f6cfb194d2657c417517318",
+    "fingerprint.py": "226a18ad2a00e7185cf926f46be467c216162f9fcacced261a3c56d4affd8764",
+    "general.py": "3de47c283124391e9de5479aaa86109305fc7a1917a90c2690c2b9bf634a65c9",
+    "licences.py": "6b0e524cc6ae82a61b3102599e75f494f5cdb81d072662efb60f5470e5bc9b51",
+    "loaders.py": "867736373210eb76b75012f64a5df03b56e27f8d5903cdd7451476d60da31199",
+    "manifest.py": "eb68870d33f4a3bf06c3880f0728f2fe6f71d3df7fbfc049a46218891fd5fe6e",
+    "minhash.py": "c7d4ababaf71a3b1633548ea90c35675be079930b67aca3dc53d7fa7638a1bfa",
+    "mixture.py": "5592c315089943eb7a14f6763d71a9f2c55d5b706e4cc24e772e25df8c10e320",
+    "pool_builder.py": "9b00d781997a673915f2de422c905b56e593ed8352eaf7c0fc8e178738bea3a4",
+    "render.py": "be01486b70f06bc46c5c3382b2d7fe0c43fc29399e1e16485c248cc03ed60eda",
+    "rows.py": "a34aa98d75ee58e21e08d1ead12100c8d82e57335b692ce7ccb29dd747f308fb",
+    "schema.py": "966f8ffe24a645a6fa4d88389b7a9f75569a8d5771861b4f7de4f40c392cdbe1",
+    "sources.py": "98e2766ad0c8301a1eb397ea3580e2379c02095a18e7813b20a07332a196c108",
+    "split.py": "d555b4892a415e1092c502a0ceddb822d5284eb550b632b95d982c9dea02458a"
+   },
+   "corpus_rev": "oracle-rev-0000000000000000000000000000000000",
+   "created_at": "2026-10-01T22:53:38.364923+00:00",
+   "data_snapshot_hash": "c0182f3075bdce1112a1852664653d30afe7ea2319bfa704be62c93649dd3154",
+   "dtype": "uint32",
+   "format": "qd-shard-v1",
+   "max_seq_len": 1596,
+   "n_sequences": 98,
+   "packed": false,
+   "remap_hash": "9987387425bfe442465f610d6ac4ce3b769cc3d0f25d6e812264c91fa19966cc",
+   "sequence_index_hash": "d7c05ec5b38ce6025ffdb0e1732dddb1d7d44f2552eebd0504a8cf32a9f95f15",
+   "shard_hash": "57d1bb0c3fa8f2278e52572dba5a360b98e1a1869a8bef116b02bb21c343d8d2",
+   "split": "train",
+   "tokenizer_hash": "tokhash-oracle-0123456789abcdef",
+   "total_tokens": 81874,
+   "vocab_size": 256
+  },
+  "padding_waste": {
+   "detail": "0 padding of 81874 positions (0.00%) over 98 sequences; gate is <= 15%. buckets=[363, 364, 471, 474, 567, 568, 1452, 1503, 1544, 1545, 1595, 1596]",
+   "n": 98,
+   "n_total": 98,
+   "passed": true,
+   "state": "ran",
+   "value": 0.0
+  },
+  "root": "<fixture>/shards/train",
+  "slot_coverage": {
+   "detail": "98 of 98 (row, slot) sequence(s) written; excluded 0 slot(s) on their own account and 0 slot(s) of rows refused whole, over 98 row(s) offered",
+   "n": 98,
+   "n_total": 98,
+   "passed": true,
+   "state": "ran",
+   "value": 98
+  },
+  "span_check": {
+   "detail": "every span sequence's gold positions and full candidate set were checked against tokenizer.decode: each checked token decodes to the characters its offsets claim, the ids round-trip to the text the spans were measured against, and every recorded candidate is a line start of that decoded text",
+   "n": 16,
+   "n_total": 16,
+   "passed": true,
+   "state": "ran",
+   "value": 16
+  }
+ },
+ "total_tokens": 81874
+}

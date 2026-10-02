@@ -1,0 +1,152 @@
+{
+  "decision": "refused",
+  "detail": {
+    "cannot_clear": [],
+    "envelope": {
+      "pin": "F seeds 0, 1 and 2 only (the pre-registered F); seeds added by post-F rule (ii) are not part of the envelope",
+      "seeds": [
+        {
+          "eval_row": "f4feac15-db49-4159-bb9b-695866c855cc",
+          "ft_row": "973cd4e3-e0d2-4ff8-8588-b761cb842b75",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 0
+        },
+        {
+          "eval_row": "00000000-0000-4000-8000-0000000000e1",
+          "ft_row": "00000000-0000-4000-8000-0000000000f1",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 1
+        },
+        {
+          "eval_row": "00000000-0000-4000-8000-0000000000e2",
+          "ft_row": "00000000-0000-4000-8000-0000000000f2",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 2
+        }
+      ]
+    },
+    "preregistration_sha256": "8df45d23fa8e85df2cd69c3d0640cdd74ea7160df82eb0255e925ded57878a25",
+    "refused_because": [
+      "(a) arm j6g ft row 973cd4e3-e0d2-4ff8-8588-b761cb842b75: quick is false, but J6(g) is one seed and quick by construction; recipe.option_permutation_seed is absent, not the pre-registered 20260919: J6(g)'s one added key (arm.identity.recipe)"
+    ],
+    "room": [
+      {
+        "arm": "j6g",
+        "bound": {
+          "n": 1,
+          "n_total": 1,
+          "name": "U",
+          "value": 1.0
+        },
+        "direction": "higher",
+        "max": {
+          "n": 1168,
+          "n_total": 1485,
+          "value": 0.7865319865319865
+        },
+        "min": {
+          "n": 1168,
+          "n_total": 1485,
+          "value": 0.7865319865319865
+        },
+        "room": true,
+        "target": "permutation_consistency.family.knowledge.multiple_choice"
+      },
+      {
+        "arm": "j6g",
+        "bound": {
+          "n": 1,
+          "n_total": 1,
+          "name": "U",
+          "value": 1.0
+        },
+        "direction": "higher",
+        "max": {
+          "n": 1053,
+          "n_total": 1197,
+          "value": 0.8796992481203008
+        },
+        "min": {
+          "n": 1053,
+          "n_total": 1197,
+          "value": 0.8796992481203008
+        },
+        "room": true,
+        "target": "permutation_consistency.family.commonsense.multiple_choice"
+      },
+      {
+        "arm": "j6g",
+        "bound": {
+          "n": 0,
+          "n_total": 1,
+          "name": "L",
+          "value": 0.0
+        },
+        "direction": "lower",
+        "max": {
+          "n": 317,
+          "n_total": 1485,
+          "value": 0.21346801346801347
+        },
+        "min": {
+          "n": 317,
+          "n_total": 1485,
+          "value": 0.21346801346801347
+        },
+        "room": true,
+        "target": "ood_abstain.in_distribution.family.knowledge.multiple_choice"
+      },
+      {
+        "arm": "j6g",
+        "bound": {
+          "n": 0,
+          "n_total": 1,
+          "name": "L",
+          "value": 0.0
+        },
+        "direction": "lower",
+        "max": {
+          "n": 144,
+          "n_total": 1197,
+          "value": 0.12030075187969924
+        },
+        "min": {
+          "n": 144,
+          "n_total": 1197,
+          "value": 0.12030075187969924
+        },
+        "room": true,
+        "target": "ood_abstain.in_distribution.family.commonsense.multiple_choice"
+      }
+    ],
+    "rule": "J6(g) wins iff every target (MMLU / CSQA permutation consistency, higher; MMLU / CSQA in-distribution abstention, lower) lands outside F's three-seed envelope in the right direction by more than F's own seed range, and no guard lands outside it in the wrong direction (campaign/j6g-preregistered.json, as campaign/j6a-preregistered.json and f-v4-preregistered.json:13). A target the envelope leaves no room to clear refuses the decision (R9_room). 'wins' feeds the next re-plan only.",
+    "then": "no reading; the human decides from the rows"
+  },
+  "inputs": [
+    {
+      "bytes": 11382,
+      "path": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ac4d7b78c70988467/campaign/j6g-preregistered.json",
+      "role": "preregistration",
+      "sha256": "8df45d23fa8e85df2cd69c3d0640cdd74ea7160df82eb0255e925ded57878a25"
+    },
+    {
+      "bytes": 99219,
+      "path": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ac4d7b78c70988467/target/j6g/inputs/f-env-cloned.jsonl",
+      "rows": 6,
+      "sha256": "0f6e95a2116268654d2aee1764c885ac54ef9a4d71bc73850441767b71e1a9d7"
+    },
+    {
+      "bytes": 33073,
+      "path": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ac4d7b78c70988467/target/j6g/inputs/arm-f-seed0.jsonl",
+      "rows": 2,
+      "sha256": "b3ba5921853f200e9be2678762a222c3a169e3ee562a6ae56468ba320e2accbe"
+    }
+  ],
+  "preregistration": "campaign/j6g-preregistered.json (dec48d8)",
+  "refused": "(a) arm j6g ft row 973cd4e3-e0d2-4ff8-8588-b761cb842b75: quick is false, but J6(g) is one seed and quick by construction; recipe.option_permutation_seed is absent, not the pre-registered 20260919: J6(g)'s one added key (arm.identity.recipe)",
+  "rule": "j6g_option_permutation",
+  "tool": "qd-post-f-rules"
+}

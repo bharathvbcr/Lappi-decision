@@ -1,0 +1,61 @@
+=== lock held at 17:29:58
+2 MiB, 0 %
+=== arm B-base start 17:29:58
+=== arm B-base exit 0
+  progress B-base cuda seed=0: step 21/50 elapsed 65s 3.08s/step 9909 pos/s eta 89s loss 1.4527 peak 42.2GiB
+  progress B-base cuda seed=0: step 41/50 elapsed 126s 3.06s/step 9943 pos/s eta 28s loss 1.2678 peak 42.2GiB
+{"tag": "B-base", "steps": 50, "loss_log_digest": "0ec7f81e2a3023f966a78bb11839808126155fb2ef3a25b54c8a3e484a41db5d", "consumed_digest": "aab3a90426d48ba290a2d9e4d72945bf2244c333b79f70d1a92796cec532307d", "pos_per_s": 9326.0, "peak_alloc_gib": 42.16, "termination": "steps_exhausted"}
+=== arm B-skip6 start 17:33:07
+=== arm B-skip6 exit 0
+  progress B-skip6 cuda seed=0: step 22/50 elapsed 64s 2.92s/step 10508 pos/s eta 82s loss 0.5539 peak 60.5GiB
+  progress B-skip6 cuda seed=0: step 43/50 elapsed 125s 2.91s/step 10539 pos/s eta 20s loss 1.0350 peak 60.5GiB
+{"tag": "B-skip6", "steps": 50, "loss_log_digest": "0ec7f81e2a3023f966a78bb11839808126155fb2ef3a25b54c8a3e484a41db5d", "consumed_digest": "aab3a90426d48ba290a2d9e4d72945bf2244c333b79f70d1a92796cec532307d", "pos_per_s": 9817.1, "peak_alloc_gib": 60.5, "termination": "steps_exhausted"}
+=== arm A-base start 17:36:07
+=== arm A-base exit 0
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+  progress A-base cuda seed=0: step 1/50 elapsed 2s 1.59s/step 10133 pos/s eta 78s loss 242.4131 peak 42.3GiB
+{"tag": "A-base", "steps": 50, "loss_log_digest": "de620beed25c9d3b05a14a12f649328029e76c9ea7c3dcef62cf20e5edd0badd", "consumed_digest": "985196898403bf5a2954743a2347f63d85d8f533388ff18e42ba9bac1508d56f", "pos_per_s": 15194.3, "peak_alloc_gib": 42.29, "termination": "steps_exhausted"}
+=== arm A-skip6 start 17:37:34
+=== arm A-skip6 exit 0
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+  progress A-skip6 cuda seed=0: step 1/50 elapsed 2s 1.51s/step 10613 pos/s eta 74s loss 242.4131 peak 42.3GiB
+{"tag": "A-skip6", "steps": 50, "loss_log_digest": "de620beed25c9d3b05a14a12f649328029e76c9ea7c3dcef62cf20e5edd0badd", "consumed_digest": "985196898403bf5a2954743a2347f63d85d8f533388ff18e42ba9bac1508d56f", "pos_per_s": 15676.5, "peak_alloc_gib": 42.8, "termination": "steps_exhausted"}
+=== arm A-over0 start 17:39:00
+=== arm A-over0 exit 0
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+  progress A-over0 cuda seed=0: step 1/50 elapsed 2s 1.59s/step 10098 pos/s eta 78s loss 242.4131 peak 42.3GiB
+{"tag": "A-over0", "steps": 50, "loss_log_digest": "de620beed25c9d3b05a14a12f649328029e76c9ea7c3dcef62cf20e5edd0badd", "consumed_digest": "985196898403bf5a2954743a2347f63d85d8f533388ff18e42ba9bac1508d56f", "pos_per_s": 15174.9, "peak_alloc_gib": 42.29, "termination": "steps_exhausted"}
+=== speed B default kernels start 17:40:27
+=== speed B exit 0
+{"shape": "B", "config": "off:0", "status": "ran", "pos_per_s": 15280.0, "step_s_median": 2.188, "acc_s_median": 2.1732, "apply_s_median": 0.0148, "peak_alloc_gib": 42.16, "reason": null}
+{"shape": "B", "config": "skip:6", "status": "ran", "pos_per_s": 16542.7, "step_s_median": 2.0221, "acc_s_median": 2.007, "apply_s_median": 0.015, "peak_alloc_gib": 60.51, "reason": null}
+{"shape": "B", "config": "off:0", "status": "ran", "pos_per_s": 15269.1, "step_s_median": 2.1915, "acc_s_median": 2.1765, "apply_s_median": 0.0149, "peak_alloc_gib": 42.16, "reason": null}
+{"shape": "B", "config": "skip:6", "status": "ran", "pos_per_s": 16533.9, "step_s_median": 2.0199, "acc_s_median": 2.0048, "apply_s_median": 0.0149, "peak_alloc_gib": 60.51, "reason": null}
+{"shape": "B", "config": "off:0", "status": "ran", "pos_per_s": 15236.9, "step_s_median": 2.1951, "acc_s_median": 2.18, "apply_s_median": 0.015, "peak_alloc_gib": 42.16, "reason": null}
+{"shape": "B", "config": "skip:6", "status": "ran", "pos_per_s": 16521.6, "step_s_median": 2.0235, "acc_s_median": 2.0085, "apply_s_median": 0.0149, "peak_alloc_gib": 60.51, "reason": null}
+=== memory B3905 default kernels start 17:42:47
+=== memory B3905 exit 0
+{"shape": "B3905", "config": "skip:6", "status": "ran", "pos_per_s": 19871.9, "step_s_median": 1.7692, "acc_s_median": 1.754, "apply_s_median": 0.0151, "peak_alloc_gib": 60.03, "reason": null}
+{"shape": "B3905", "config": "skip:7", "status": "ran", "pos_per_s": 20037.9, "step_s_median": 1.7578, "acc_s_median": 1.7428, "apply_s_median": 0.015, "peak_alloc_gib": 64.94, "reason": null}
+{"shape": "B3905", "config": "skip:8", "status": "ran", "pos_per_s": 20156.0, "step_s_median": 1.7485, "acc_s_median": 1.7334, "apply_s_median": 0.0151, "peak_alloc_gib": 69.84, "reason": null}
+=== arm A-base2 start 17:43:36
+=== arm A-base2 exit 0
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+  progress A-base2 cuda seed=0: step 1/50 elapsed 2s 1.60s/step 10076 pos/s eta 78s loss 242.4131 peak 42.3GiB
+{"tag": "A-base2", "steps": 50, "loss_log_digest": "de620beed25c9d3b05a14a12f649328029e76c9ea7c3dcef62cf20e5edd0badd", "consumed_digest": "985196898403bf5a2954743a2347f63d85d8f533388ff18e42ba9bac1508d56f", "pos_per_s": 15197.7, "peak_alloc_gib": 42.29, "termination": "steps_exhausted"}
+=== compare 17:45:03
+{"base": "B-base", "consumed_digest_identical": true, "identical": true, "letter_first_diff_step": null, "letter_identical": true, "letter_max_abs_dev": 0.0, "loss_log_digest_identical": true, "other": "B-skip6", "peak_alloc_gib": {"B-base": 42.16, "B-skip6": 60.5}, "pos_per_s": {"B-base": 9326.0, "B-skip6": 9817.1}, "span_first_diff_step": null, "span_identical": true, "span_max_abs_dev": 0.0, "steps_identical": true}
+{"base": "A-base", "consumed_digest_identical": true, "identical": true, "letter_first_diff_step": null, "letter_identical": true, "letter_max_abs_dev": 0.0, "loss_log_digest_identical": true, "other": "A-skip6", "peak_alloc_gib": {"A-base": 42.29, "A-skip6": 42.8}, "pos_per_s": {"A-base": 15194.3, "A-skip6": 15676.5}, "span_first_diff_step": null, "span_identical": true, "span_max_abs_dev": 0.0, "steps_identical": true}
+{"base": "A-base", "consumed_digest_identical": true, "identical": true, "letter_first_diff_step": null, "letter_identical": true, "letter_max_abs_dev": 0.0, "loss_log_digest_identical": true, "other": "A-over0", "peak_alloc_gib": {"A-base": 42.29, "A-over0": 42.29}, "pos_per_s": {"A-base": 15194.3, "A-over0": 15174.9}, "span_first_diff_step": null, "span_identical": true, "span_max_abs_dev": 0.0, "steps_identical": true}
+{"base": "A-base", "consumed_digest_identical": true, "identical": true, "letter_first_diff_step": null, "letter_identical": true, "letter_max_abs_dev": 0.0, "loss_log_digest_identical": true, "other": "A-base2", "peak_alloc_gib": {"A-base": 42.29, "A-base2": 42.29}, "pos_per_s": {"A-base": 15194.3, "A-base2": 15197.7}, "span_first_diff_step": null, "span_identical": true, "span_max_abs_dev": 0.0, "steps_identical": true}
+{"config": "off:0", "deterministic": [false], "max_pos_per_s": 15280.0, "min_step_s_median": 2.188, "min_step_s_window_mean": 1.9335, "not_ran": [], "peak_alloc_gib_max": 42.16, "pos_per_s_by_round": [15280.0, 15269.1, 15236.9], "rounds": 3, "rounds_ran": 3, "shape": "B", "timing": ["overlapped (one sync per window)"]}
+{"config": "skip:6", "deterministic": [false], "max_pos_per_s": 16542.7, "min_step_s_median": 2.0221, "min_step_s_window_mean": 1.7859, "not_ran": [], "peak_alloc_gib_max": 60.51, "pos_per_s_by_round": [16542.7, 16533.9, 16521.6], "rounds": 3, "rounds_ran": 3, "shape": "B", "timing": ["overlapped (one sync per window)"]}
+{"config": "skip:6", "deterministic": [false], "max_pos_per_s": 19871.9, "min_step_s_median": 1.7692, "min_step_s_window_mean": 1.5721, "not_ran": [], "peak_alloc_gib_max": 60.03, "pos_per_s_by_round": [19871.9], "rounds": 1, "rounds_ran": 1, "shape": "B3905", "timing": ["overlapped (one sync per window)"]}
+{"config": "skip:7", "deterministic": [false], "max_pos_per_s": 20037.9, "min_step_s_median": 1.7578, "min_step_s_window_mean": 1.559, "not_ran": [], "peak_alloc_gib_max": 64.94, "pos_per_s_by_round": [20037.9], "rounds": 1, "rounds_ran": 1, "shape": "B3905", "timing": ["overlapped (one sync per window)"]}
+{"config": "skip:8", "deterministic": [false], "max_pos_per_s": 20156.0, "min_step_s_median": 1.7485, "min_step_s_window_mean": 1.5499, "not_ran": [], "peak_alloc_gib_max": 69.84, "pos_per_s_by_round": [20156.0], "rounds": 1, "rounds_ran": 1, "shape": "B3905", "timing": ["overlapped (one sync per window)"]}
+=== no-mask probe start 17:45:03
+=== no-mask probe exit 0
+{"shape": "B", "config": "off:0+nomask", "status": "ran", "pos_per_s": 25703.3, "step_s_median": 1.3012, "acc_s_median": 1.2862, "apply_s_median": 0.015, "peak_alloc_gib": 42.16, "reason": null}
+{"shape": "B", "config": "off:0+det+nomask+profile", "status": "ran", "pos_per_s": 23208.1, "step_s_median": 1.4421, "acc_s_median": 1.4031, "apply_s_median": 0.0389, "peak_alloc_gib": 42.17, "reason": null}
+=== session 2 done (exit 0) at 17:46:04
+=== perf session 2 done (exit 0)

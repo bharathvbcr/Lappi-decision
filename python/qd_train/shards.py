@@ -81,6 +81,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import unicodedata
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -90,9 +92,18 @@ from typing import Any, Final
 import numpy as np
 
 from qd_data.config import DataConfig
+from qd_data.defect_class import NOUL_ROUTE_CONTRAST, NOUL_ROUTE_KEY
 from qd_data.errors import QdRefusal
 from qd_data.fingerprint import code_fingerprint
-from qd_data.render import DEFAULT_CAPS, M_CTX_END, RenderCaps, render
+from qd_data.general import REPLAY_ONLY, REPLAY_ROLE_KEY
+from qd_data.render import (
+    DEFAULT_CAPS,
+    M_CTX_END,
+    PROMPT_FORMAT,
+    RenderCaps,
+    RenderedPrompt,
+    render,
+)
 from qd_data.rows import DataRow, row_content_hash
 from qd_data.schema import NOUL_LETTER, ChoiceSlot, ScoreSlot, Slot, SpanSlot
 
@@ -104,6 +115,7 @@ from .artifacts import (
     SPAN_ABSTAIN,
     TOKEN_DTYPE,
     Batch,
+    ContrastRows,
     RemapTable,
     ShardContractViolation,
     ShardHeader,
@@ -121,24 +133,36 @@ __all__ = [
     "COVERAGE_NAME",
     "DEFAULT_MAX_SEQUENCES",
     "DEFAULT_MAX_TOTAL_TOKENS",
+    "GOLD_ROLE",
     "HEADER_NAME",
     "MAX_POSITIONS_PER_BATCH",
     "MAX_ROWS_PER_BATCH",
     "OFFSETS_NAME",
     "PAD_ID",
     "REMAP_NAME",
+    "SEQUENCE_INDEX_FORMAT",
+    "SEQUENCE_INDEX_NAME",
     "SPAN_CHECK_NAME",
+    "SPAN_COLLAPSE_POLICIES",
+    "SPAN_COLLAPSE_REFUSE_ANY",
+    "SPAN_COLLAPSE_REFUSE_GOLD",
     "SUPERVISION_NAME",
     "TOKENS_NAME",
     "Decode",
+    "EncodedSlot",
+    "SequenceIndex",
     "SequenceSpec",
     "ShardReader",
+    "SlotExclusion",
     "TokenOffsets",
     "UnencodableGold",
     "answer_letter",
+    "assemble_batch",
     "choose_buckets",
     "corpus_contradictions",
+    "encode_slot",
     "line_starts",
+    "rendered_training_texts",
     "slot_kind_of",
     "training_texts",
     "write_shards",
@@ -150,11 +174,58 @@ OFFSETS_NAME: Final[str] = "offsets.npy"
 COVERAGE_NAME: Final[str] = "coverage.json"
 SUPERVISION_NAME: Final[str] = "supervision.npz"
 SPAN_CHECK_NAME: Final[str] = "span_check.json"
+
+#: What a span slot whose context lines collapse under BPE -- two line starts inside one
+#: token -- does (GAP-S4-LINE-STARTS-COLLAPSE-UNDER-BPE).
+#:
+#: * ``refuse-any`` (the default, and the only policy a gate shard set is written under):
+#:   any collapse refuses the slot.
+#: * ``refuse-gold`` (Fable round K, training shards and the report-only val slice only --
+#:   ``write_shards(report_only=True)``): the slot is refused only when the
+#:   gold's first or last line starts inside a token another line also starts in. Lines that
+#:   collapse elsewhere **share one candidate**: ``candidates`` stays one entry per context
+#:   line, the collapsed lines carry the same token index, and the batch's ``line_starts``
+#:   mask -- a set of positions -- holds that token once. Measured on 300 composed rows,
+#:   every collapse (696 of 696) was two consecutive blank context lines. A defect gold
+#:   sits on such a pair in 16 of 20,898 composed and 18 of 41,504 v3 mutated rows
+#:   (``test_pipeline_defect_class.py`` pins the counts); when the pair collapses, the
+#:   slot is refused. The runtime's span candidates must build line start -> token with this same
+#:   rule for a model trained under it (a requirement on G9(a)).
+SPAN_COLLAPSE_REFUSE_ANY: Final[str] = "refuse-any"
+SPAN_COLLAPSE_REFUSE_GOLD: Final[str] = "refuse-gold"
+SPAN_COLLAPSE_POLICIES: Final[tuple[str, ...]] = (
+    SPAN_COLLAPSE_REFUSE_ANY,
+    SPAN_COLLAPSE_REFUSE_GOLD,
+)
+
 #: The self-consistency report :func:`corpus_contradictions` produces, written beside the
 #: shards. It exists as a file so that "the corpus was checked" is a recorded artifact
 #: rather than the absence of an exception: a set written by an older writer has no such
 #: file, and that is a different state from a set whose check ran and found nothing.
 CONTRADICTION_NAME: Final[str] = "contradictions.json"
+
+#: Which ``(row_id, slot_name)`` each written sequence is, in write order, and every
+#: ``(row_id, slot_name)`` that was excluded, with its scope and refusal. The contract a
+#: consumer pairs labels to sequences by; ``coverage.json``'s free-text ``detail`` is a
+#: human summary and not parseable as one. Written atomically, and its sha256 is pinned in
+#: the header as ``sequence_index_hash``, which ``shard_hash`` covers. Schema:
+#:
+#: * ``format``: :data:`SEQUENCE_INDEX_FORMAT`;
+#: * ``rows_in``: rows offered to the writer;
+#: * ``role``: ``"gold"`` or ``"replay_only"`` -- see ``write_shards(replay=)``;
+#: * ``sequences``: one ``{"row_id", "slot_name", "slot_kind"}`` per sequence, where list
+#:   position ``i`` is sequence ``i`` of ``tokens.u32`` / ``supervision.npz``;
+#: * ``excluded``: one ``{"row_id", "slot_name", "scope", "refusal", "detail"}`` per slot
+#:   that produced no sequence. ``scope`` is ``"row"`` when the whole row was refused before
+#:   any slot was tokenized (``render`` refused it, or its gold names no option) and
+#:   ``"slot"`` when only that slot's sequence was refused. ``refusal`` is the exception's
+#:   class name; ``detail`` its message.
+#:
+#: Every ``(row_id, slot_name)`` the rows offer is in exactly one of the two lists.
+SEQUENCE_INDEX_NAME: Final[str] = "sequence_index.json"
+SEQUENCE_INDEX_FORMAT: Final[str] = "qd-sequence-index/1"
+#: The ``role`` of a shard set whose rows are trained against their gold.
+GOLD_ROLE: Final[str] = "gold"
 
 #: Stem of the remap this set's ids were written under. ``RemapTable.write`` appends
 #: ``.npz`` and ``.json``, so the two files are ``remap.npz`` and ``remap.json``.
@@ -283,20 +354,56 @@ def line_starts(text: str) -> list[int]:
     return list(line_start_indices(text))
 
 
-def _token_index_for_char(offsets: Sequence[tuple[int, int]], char_pos: int, *, where: str) -> int:
-    """The first token whose character span contains ``char_pos``.
+#: Cells (positions x tokens) one comparison block of :func:`_token_indices_for_chars` may
+#: hold: 16M booleans, 16 MiB per mask. A needle case is ~500 line starts over ~8.5K tokens
+#: (~4M cells), so it is one block; the bound only splits a pathological input.
+TOKEN_INDEX_BLOCK_CELLS: Final[int] = 1 << 24
+
+
+def _token_indices_for_chars(
+    offsets: Sequence[tuple[int, int]], char_positions: Sequence[int], *, where: str
+) -> tuple[int, ...]:
+    """For each of ``char_positions``, in order, the first token whose span contains it.
 
     A BPE token can straddle a line boundary -- the token holding the first character of
     line N may also hold the tail of line N-1 -- so "the token at this line start" is the
     token *containing* that character, which is what the pointer head would have to point
-    at. When no token contains it the mapping has failed, and this raises rather than
-    picking a neighbour: a span pointing at the wrong token teaches the model to cite the
-    wrong evidence, and nothing downstream could tell.
+    at. When no token contains one the mapping has failed, and this raises -- naming the
+    first such position in ``char_positions`` order -- rather than picking a neighbour: a
+    span pointing at the wrong token teaches the model to cite the wrong evidence, and
+    nothing downstream could tell.
+
+    "First" is the lowest token index ``i`` with ``start_i <= c < end_i``, whatever the
+    offsets look like: a byte-level BPE gives several tokens the same span (Qwen3.5: "Ṣ" ->
+    (2,3) (2,3) (2,3)), special tokens carry (0, 0), and nothing here assumes the spans are
+    sorted. It is one vectorised comparison of every position against every span, in blocks
+    of at most :data:`TOKEN_INDEX_BLOCK_CELLS`, rather than a Python scan of the offsets per
+    position: that scan was O(lines x tokens) interpreted steps, 18.0 of the 37.4 cProfiled
+    seconds of the ``--needle`` suite's preparation in a phase-4 training prelude (2026-10-01).
+    ``python/tests/test_token_index_for_chars.py`` holds it to the scan it replaced.
     """
-    for i, (start, end) in enumerate(offsets):
-        if start <= char_pos < end:
-            return i
-    raise UnencodableGold(
+    positions = np.asarray(char_positions, dtype=np.int64).reshape(-1)
+    if positions.size == 0:
+        return ()
+    spans = np.asarray(offsets, dtype=np.int64).reshape(-1, 2)
+    if spans.shape[0] == 0:
+        raise _no_token_contains(int(positions[0]), where=where)
+    starts, ends = spans[:, 0][None, :], spans[:, 1][None, :]
+    step = max(1, TOKEN_INDEX_BLOCK_CELLS // spans.shape[0])
+    found = np.empty(positions.size, dtype=np.int64)
+    for lo in range(0, positions.size, step):
+        block = positions[lo : lo + step, None]
+        inside = (starts <= block) & (block < ends)
+        first = inside.argmax(axis=1)
+        hit = inside[np.arange(first.size), first]
+        if not bool(hit.all()):
+            raise _no_token_contains(int(block[int(np.flatnonzero(~hit)[0]), 0]), where=where)
+        found[lo : lo + step] = first
+    return tuple(int(i) for i in found)
+
+
+def _no_token_contains(char_pos: int, *, where: str) -> UnencodableGold:
+    return UnencodableGold(
         f"{where}: character {char_pos} lies in no token's offset span. The tokenizer's "
         "offsets and its ids describe different strings, or the offsets omit this region. "
         "Refused rather than mapped to a neighbouring token."
@@ -364,7 +471,7 @@ class SequenceSpec:
     ``span_char_starts`` is the ``(start, end)`` pair of **character offsets into
     ``text``** at which the gold's first and last evidence lines begin, or ``None`` for a
     non-span row. Characters rather than tokens because the tokenizer has not run yet; the
-    conversion is :func:`_token_index_for_char`, and keeping the two steps apart is what
+    conversion is :func:`_token_indices_for_chars`, and keeping the two steps apart is what
     lets the line arithmetic be tested without a tokenizer at all.
     """
 
@@ -380,6 +487,104 @@ class SequenceSpec:
     #: Set for every span row, ``None`` otherwise. The gold in ``span_char_starts`` is drawn
     #: from this same list, so the two cannot disagree about where a line begins.
     line_char_starts: tuple[int, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SlotExclusion:
+    """One ``(row_id, slot_name)`` that produced no sequence, and why. See
+    :data:`SEQUENCE_INDEX_NAME` for what ``scope`` distinguishes."""
+
+    row_id: str
+    slot_name: str
+    scope: str
+    refusal: str
+    detail: str
+
+    def to_json(self) -> dict[str, str]:
+        return {
+            "row_id": self.row_id,
+            "slot_name": self.slot_name,
+            "scope": self.scope,
+            "refusal": self.refusal,
+            "detail": self.detail,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SequenceIndex:
+    """The parsed :data:`SEQUENCE_INDEX_NAME`: sequence ``i`` is ``sequences[i]``."""
+
+    rows_in: int
+    #: :data:`GOLD_ROLE` or ``qd_data.general.REPLAY_ONLY``: which kind of shard
+    #: set this is. Pinned with the index, so a replay set cannot be read as a gold one.
+    role: str
+    sequences: tuple[tuple[str, str], ...]
+    slot_kinds: tuple[int, ...]
+    excluded: tuple[SlotExclusion, ...]
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "format": SEQUENCE_INDEX_FORMAT,
+            "rows_in": self.rows_in,
+            "role": self.role,
+            "sequences": [
+                {"row_id": row_id, "slot_name": slot_name, "slot_kind": kind}
+                for (row_id, slot_name), kind in zip(
+                    self.sequences, self.slot_kinds, strict=True
+                )
+            ],
+            "excluded": [e.to_json() for e in self.excluded],
+        }
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any], *, where: str) -> SequenceIndex:
+        """Parse and refuse anything that is not exactly the schema, naming the fault."""
+        if raw.get("format") != SEQUENCE_INDEX_FORMAT:
+            raise ShardContractViolation(
+                f"{where}: format {raw.get('format')!r}, expected {SEQUENCE_INDEX_FORMAT!r}"
+            )
+        try:
+            sequences = tuple((str(s["row_id"]), str(s["slot_name"])) for s in raw["sequences"])
+            kinds = tuple(int(s["slot_kind"]) for s in raw["sequences"])
+            excluded = tuple(
+                SlotExclusion(
+                    row_id=str(e["row_id"]), slot_name=str(e["slot_name"]),
+                    scope=str(e["scope"]), refusal=str(e["refusal"]), detail=str(e["detail"]),
+                )
+                for e in raw["excluded"]
+            )
+            rows_in = int(raw["rows_in"])
+            role = str(raw["role"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ShardContractViolation(f"{where}: malformed sequence index: {exc!r}") from exc
+        bad_scope = sorted({e.scope for e in excluded} - {"row", "slot"})
+        if bad_scope:
+            raise ShardContractViolation(f"{where}: unknown exclusion scope(s) {bad_scope}")
+        keys = list(sequences) + [(e.row_id, e.slot_name) for e in excluded]
+        if len(set(keys)) != len(keys):
+            dup = next(k for k in keys if keys.count(k) > 1)
+            raise ShardContractViolation(
+                f"{where}: (row_id, slot_name) {dup!r} appears more than once across the "
+                "written and excluded lists, so a label paired by it would be ambiguous"
+            )
+        if role not in (GOLD_ROLE, REPLAY_ONLY):
+            raise ShardContractViolation(
+                f"{where}: role {role!r} is not {GOLD_ROLE!r} or {REPLAY_ONLY!r}"
+            )
+        return cls(
+            rows_in=rows_in, role=role, sequences=sequences, slot_kinds=kinds,
+            excluded=excluded,
+        )
+
+
+def _write_bytes_atomically(path: Path, payload: bytes) -> None:
+    """Write-then-rename in the same directory, fsynced, so a reader sees all or nothing."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    with tmp.open("wb") as fh:
+        fh.write(payload)
+        fh.flush()
+        os.fsync(fh.fileno())
+    tmp.replace(path)
 
 
 def _context_line_chars(row: DataRow, prefix: str, region: str) -> list[int]:
@@ -444,6 +649,21 @@ def training_texts(
     bug ``GAP-S4-SPAN-GOLD-HAS-NO-BATCH-CHANNEL`` was opened for; ``slot_kind`` exists so
     that routing is explicit rather than conventional.
     """
+    return rendered_training_texts(row, seed=seed, caps=caps)[1]
+
+
+def rendered_training_texts(
+    row: DataRow, *, seed: int, caps: RenderCaps = DEFAULT_CAPS
+) -> tuple[RenderedPrompt, list[SequenceSpec]]:
+    """:func:`training_texts`, with the one ``render`` it was built from.
+
+    For a caller that needs the rendered slots too -- ``tools/real_ft_run.py``'s ``_labels``
+    reads each slot's ``letter_to_value`` -- so the row is rendered once rather than once
+    there and again here. ``render`` was the largest single cost of relabelling the phase-4
+    train split (258,072 rows, 2026-10-01), and it is a pure function of the request, the
+    caps and the seed, so the second call could only ever return the first's answer.
+    Raises exactly what :func:`training_texts` raises, at the same points.
+    """
     rendered = render(row.request, caps=caps, seed=seed)
     region = rendered.context_region()
     out: list[SequenceSpec] = []
@@ -504,73 +724,76 @@ def training_texts(
         )
     if not out:
         raise UnencodableGold(f"row {row.row_id!r}: the request renders no slots")
-    return out
+    return rendered, out
 
 
 # -- bucketing -------------------------------------------------------------------------
 
 
 def choose_buckets(lengths: Sequence[int], *, n_buckets: int = 32) -> tuple[int, ...]:
-    """Bucket boundaries drawn from an observed length distribution.
+    """Bucket boundaries that minimise padded positions over an observed length distribution.
 
-    Equal-count quantiles rather than equal-width bins: padding waste is driven by the
-    *mass* of sequences sitting far below their bucket's ceiling, so the boundaries belong
-    where the sequences are. The largest boundary is always the longest sequence, because
-    ``bucket_for`` refuses a length that fits no bucket and ``ShardHeader`` refuses a
-    largest bucket below ``max_seq_len`` -- a sequence with nowhere to go must be a loud
-    write-time refusal, never a quiet truncation at read time.
+    Every sequence is padded to its bucket's boundary (``ShardReader.batches`` pads to the
+    full width, and :func:`qd_train.artifacts.padding_waste` charges exactly that), so the
+    padding a boundary set costs is ``sum(boundary(n) - n)``. This returns the set of at
+    most ``n_buckets`` boundaries for which that sum is smallest -- an exact optimum, not a
+    heuristic, computed by :func:`_min_padding_boundaries`. The largest boundary is always
+    the longest sequence, because ``bucket_for`` refuses a length that fits no bucket and
+    ``ShardHeader`` refuses a largest bucket below ``max_seq_len`` -- a sequence with
+    nowhere to go must be a loud write-time refusal, never a quiet truncation at read time.
 
     This picks *boundaries*; it does not touch the gate. ``MAX_PADDING_WASTE`` is read-only
     (rule 2), and lowering waste by bucketing better is the work the gate exists to demand.
 
-    ## Why 32 and not 8
+    ## Why not equal-count quantiles
 
-    The default was 8, and on the 341-sequence train set of the GH200 runs it produced
-    **25.66% padding waste against a 15% gate** -- a failing gate whose only legitimate fix
-    is fewer wasted positions. Measured over that set's real length distribution (min 320,
-    median 6971, max 34522; ``AUDIT/shard-lengths-2026-09-20.json``):
+    This used to place boundaries at 32 equal-count quantiles, on the argument that waste
+    is driven by where the sequences' *mass* sits. That holds for a unimodal body and fails
+    on a tail: the last quantile bucket runs from the p96.9 length to the maximum, and every
+    sequence in it pads to the maximum. The first ``code.defect_class`` build
+    (ledger row 8f8558a9, ``AUDIT/shard-lengths-2026-09-29.json``: 78,643 sequences, median
+    236 tokens, p99 908, max 37,098) put its 2,449 sequences above 713 tokens -- 494 of them
+    this repository's own history at 2k-37k tokens -- into one bucket padded to 37,098, and
+    wasted **74.47%** of all positions against the 15% gate. More quantiles do not reach
+    it: at 64 the same set still wasted 57.37%, because a quantile boundary follows the
+    count, and the tail is too few sequences to earn a boundary of its own.
 
-    | ``n_buckets`` | waste | batches | rows/batch | ragged rows |
+    Measured, quantile against minimum-padding, same ``n_buckets``:
+
+    | set | 8 | 16 | 32 | 64 |
     | --- | --- | --- | --- | --- |
-    | 8 | 25.66% | 111 | 3.1 | 0% |
-    | 16 | 13.64% | 114 | 3.0 | 0% |
-    | **32** | **6.56%** | **115** | **3.0** | **0%** |
-    | 48 | 4.76% | 125 | 2.7 | 13% |
-    | 64 | 3.43% | 127 | 2.7 | 17% |
+    | 2026-09-29 defect build, quantile | 92.51% | 85.87% | 74.47% | 57.37% |
+    | 2026-09-29 defect build, min-padding | 19.66% | 9.85% | **4.79%** | 2.23% |
+    | 2026-09-20 GH200 set (341 seqs), quantile | 25.66% | 13.64% | 6.56% | 3.43% |
+    | 2026-09-20 GH200 set, min-padding | 13.35% | 6.43% | 2.65% | 0.92% |
 
-    Waste falls monotonically, which is the shape to distrust -- so the cost was measured on
-    the axis that pays for it. ``ShardReader._plan`` chunks a bucket into batches of
-    ``min(batch_tokens // width, MAX_ROWS_PER_BATCH)``, and ``batch_tokens`` is the longest
-    sequence, which does not move with ``n_buckets``. So more boundaries thin each bucket's
-    membership against an unchanged row ceiling, and the bill arrives in each bucket's last
-    chunk. Up to 32 that bill is zero; past it, a sixth of the rows sit in batches under a
-    tenth of their permitted size.
+    ## Why 32
 
-    16 also clears the gate, at 1.36 points of margin. 32 clears it at 8.44 with the same
-    batch count, which is why it is the default: a bar cleared by a rounding error is one
-    corpus revision away from failing again.
+    The default was raised from 8 to 32 on the GH200 set, where the cost of more boundaries
+    was measured on the axis that pays for it: ``ShardReader._plan`` chunks a bucket into
+    batches of ``min(batch_tokens // width, MAX_ROWS_PER_BATCH)``, so more boundaries thin
+    each bucket's membership and the bill arrives in each bucket's last, partly-filled
+    chunk. That trade is unchanged by how the boundaries are placed, and 32 is kept.
 
-    ## What 32 does NOT promise
+    ## What it does NOT promise
 
-    It is fitted to a distribution, and it is not a universal guarantee. Measured over 2,000
-    synthetic corpora per shape, asking how often the gate still fails:
+    Optimal for a given ``n_buckets`` is not "under the gate". The GH200 set at 4 boundaries
+    wastes 30.00% even optimally. At 32, no shape measured on 2026-09-29 failed -- 200
+    corpora each of lognormal 1-1M tokens (100-800 rows, worst 3.92%), lognormal 200-35k
+    (2-50 rows, worst 0.32%) and log-uniform 1-1M (2,000 rows, worst 5.21%), and 0 of the
+    300 lognormal corpora the quantile rule failed 122 times -- but that is measurement,
+    not a bound: a corpus with more than 32 distinct lengths of comparable token mass
+    spread over many octaves must share buckets between lengths far apart. Such a corpus
+    fails the gate by being that corpus; the remedy is the corpus or a larger
+    ``n_buckets`` at the call site, never a lower bar. Two properties do hold for every
+    input and are tested: more boundaries never waste more (the optimum over a larger
+    budget includes the smaller one's), and no row is orphaned (the maximum is always a
+    boundary).
 
-    | corpus shape | fails at 8 | fails at 32 | worst at 32 |
-    | --- | --- | --- | --- |
-    | lognormal, 200-35k tokens, 100-800 rows | 100% | 41.3% | 26.15% |
-    | lognormal, 1-1M tokens, 100-800 rows | 100% | 97.8% | 88.42% |
-    | lognormal, 200-35k tokens, 2-50 rows | 79.2% | 10.2% | 27.74% |
-
-    So the change is a large improvement on realistic shapes and no help at all against a
-    six-order-of-magnitude spread, where quantile bucketing cannot place a boundary between
-    a 161k-token row and a 1.18M-token one because there is nothing between them. A corpus
-    like that fails the gate by being that corpus, and the fix is the corpus or a larger
-    ``n_buckets`` at the call site, never a lower bar.
-
-    Two properties DO hold universally, and are tested rather than asserted: over 4,000
-    adversarial distributions across six shapes, 32 never wasted more than 8 (0 monotonicity
-    violations) and never orphaned a row (0). Those are the two ways raising the default
-    could have made things worse, and neither happens.
+    What it costs in batches, at ``batch_tokens`` = the longest sequence: on the defect
+    build 878 batches (89.6 rows each) against 2,632 at 2 boundaries, 0.02% of rows in a
+    bucket's under-tenth-full last chunk; on the GH200 set 108 batches (3.2 rows each)
+    against the quantile rule's 115.
     """
     if not lengths:
         raise ValueError(
@@ -583,10 +806,68 @@ def choose_buckets(lengths: Sequence[int], *, n_buckets: int = 32) -> tuple[int,
     values = np.asarray(sorted(int(n) for n in lengths), dtype=np.int64)
     if int(values[0]) <= 0:
         raise ValueError(f"every length must be positive, got {int(values[0])}")
+    distinct, counts = np.unique(values, return_counts=True)
+    return _min_padding_boundaries(distinct, counts, n_buckets)
 
-    quantiles = np.quantile(values, np.linspace(0.0, 1.0, n_buckets + 1)[1:])
-    boundaries = sorted({int(np.ceil(q)) for q in quantiles} | {int(values[-1])})
-    return tuple(boundaries)
+
+def _min_padding_boundaries(
+    distinct: np.ndarray, counts: np.ndarray, n_buckets: int
+) -> tuple[int, ...]:
+    """The at-most-``n_buckets`` boundary set minimising total padding, exactly.
+
+    With the distinct lengths ``v_1 < ... < v_m`` and prefix counts ``C`` and sums ``S``,
+    a bucket holding ``v_{i+1}..v_j`` has boundary ``v_j`` (a boundary strictly between
+    two distinct lengths only adds padding) and costs ``v_j (C_j - C_i) - (S_j - S_i)``.
+    That cost is Monge -- ``cost(a,d) + cost(b,c) - cost(a,c) - cost(b,d) =
+    (v_d - v_c)(C_b - C_a) >= 0`` for ``a <= b <= c <= d`` -- so the optimal split point
+    is monotone in ``j`` and each layer of the dynamic programme is solved by divide and
+    conquer in ``O(m log m)``, ``O(n_buckets m log m)`` overall. Integer arithmetic
+    throughout, and ties go to the smallest split point, so the same lengths always give
+    the same boundaries -- a header pins them.
+    """
+    m = int(distinct.size)
+    if m <= n_buckets:
+        return tuple(int(v) for v in distinct)
+    v = distinct.astype(np.int64)
+    c = np.concatenate(([0], np.cumsum(counts, dtype=np.int64)))
+    s = np.concatenate(([0], np.cumsum(v * counts, dtype=np.int64)))
+    # Larger than any real cost (at most max_len * n_sequences, bounded by the writer's
+    # DEFAULT_MAX_TOTAL_TOKENS-scale inputs) and far enough from int64's ceiling that one
+    # more cost added to it cannot overflow.
+    unreachable = np.int64(1 << 62)
+    prev = np.full(m + 1, unreachable, dtype=np.int64)
+    prev[0] = 0
+    splits: list[np.ndarray] = []
+    for _ in range(n_buckets):
+        cur = np.full(m + 1, unreachable, dtype=np.int64)
+        arg = np.zeros(m + 1, dtype=np.int64)
+        # (lo, hi, opt_lo, opt_hi) over j in [lo, hi]; an explicit stack, not recursion.
+        stack = [(1, m, 0, m - 1)]
+        while stack:
+            lo, hi, opt_lo, opt_hi = stack.pop()
+            if lo > hi:
+                continue
+            mid = (lo + hi) // 2
+            top = min(mid - 1, opt_hi)
+            cand = np.arange(opt_lo, top + 1)
+            cost = prev[cand] + v[mid - 1] * (c[mid] - c[cand]) - (s[mid] - s[cand])
+            k = int(np.argmin(cost))
+            cur[mid] = cost[k]
+            arg[mid] = opt_lo + k
+            stack.append((lo, mid - 1, opt_lo, int(arg[mid])))
+            stack.append((mid + 1, hi, int(arg[mid]), opt_hi))
+        splits.append(arg)
+        prev = cur
+    boundaries: list[int] = []
+    j = m
+    for arg in reversed(splits):
+        if j == 0:
+            break
+        boundaries.append(int(v[j - 1]))
+        j = int(arg[j])
+    if j != 0:  # pragma: no cover - the programme always reaches the empty prefix
+        raise AssertionError(f"bucket partition ended at distinct length {j}, not 0")
+    return tuple(sorted(boundaries))
 
 
 # -- the writer ------------------------------------------------------------------------
@@ -627,6 +908,102 @@ def _tokenize_checked(
     return ids
 
 
+@dataclass(frozen=True, slots=True)
+class EncodedSlot:
+    """One slot's sequence as the writer stores it: post-remap ids and span supervision.
+
+    ``span`` is ``(NO_SPAN, NO_SPAN)`` and ``candidates`` empty for a letter slot; a span
+    slot carries its gold token positions (or ``SPAN_ABSTAIN`` twice) and its line starts.
+    """
+
+    ids: np.ndarray
+    slot_kind: int
+    span: tuple[int, int]
+    candidates: tuple[int, ...]
+
+
+def encode_slot(
+    spec: SequenceSpec,
+    *,
+    tokenize: Callable[[str], list[int]],
+    remap: RemapTable,
+    token_offsets: TokenOffsets | None,
+    decode: Decode | None,
+    where: str,
+    span_collapse_policy: str = SPAN_COLLAPSE_REFUSE_ANY,
+) -> EncodedSlot:
+    """Tokenize, remap and project one slot's sequence -- the writer's only way to do it.
+
+    Public so an eval that builds sequences the shard writer never saw (the needle suite)
+    encodes them through the same checks rather than a second copy of them. Raises
+    :class:`UnencodableGold` when the span cannot be placed in this tokenization; the
+    writer decides whether that excludes the slot or aborts.
+    """
+    ids = _tokenize_checked(tokenize, spec.text, where=where)
+    # Not caught: RemapTable.encode raises on an id the remap dropped, and that exception
+    # is the S2<->S4 cross-lane check firing. Substituting a token here would turn a
+    # coverage bug into a training example that teaches the wrong thing, and the only
+    # symptom would be slightly worse loss.
+    new_ids = remap.encode(ids)
+    if int(new_ids.min()) < 0:
+        raise ShardContractViolation(
+            f"{where}: the remap produced a negative id, which cannot be stored as {TOKEN_DTYPE}"
+        )
+    projected = _span_token_positions(
+        spec, ids, token_offsets=token_offsets, decode=decode, where=where,
+        span_collapse_policy=span_collapse_policy,
+    )
+    if projected is None:
+        if spec.slot_kind == SLOT_SPAN:
+            raise ShardContractViolation(
+                f"{where}: a SLOT_SPAN row reached the writer with no candidates"
+            )
+        return EncodedSlot(new_ids, spec.slot_kind, (NO_SPAN, NO_SPAN), ())
+    return EncodedSlot(new_ids, spec.slot_kind, projected[0], projected[1])
+
+
+def assemble_batch(
+    sequences: Sequence[np.ndarray],
+    *,
+    kinds: np.ndarray,
+    target_index: np.ndarray,
+    spans: np.ndarray,
+    candidates: Sequence[Sequence[int] | np.ndarray],
+    width: int,
+    bucket: int,
+    index: int,
+) -> Batch:
+    """One padded batch from its sequences and their supervision, one row per sequence.
+
+    The only place a ``Batch`` is put together from stored sequences: the shard reader and
+    the needle suite both come through here. ``span_target`` and ``line_starts`` are passed
+    only when a span row is present, because ``Batch`` refuses either on a batch with
+    nothing to point.
+    """
+    n = len(sequences)
+    tokens = np.full((n, width), PAD_ID, dtype=np.int32)
+    lengths = np.zeros(n, dtype=np.int64)
+    for r, seq in enumerate(sequences):
+        tokens[r, : seq.size] = seq
+        lengths[r] = seq.size
+    has_span = bool((kinds == SLOT_SPAN).any())
+    mask: np.ndarray | None = None
+    if has_span:
+        mask = np.zeros((n, width), dtype=np.bool_)
+        for r, cands in enumerate(candidates):
+            mask[r, np.asarray(cands, dtype=np.int64)] = True
+    return Batch(
+        tokens=tokens,
+        lengths=lengths,
+        bucket=bucket,
+        index=index,
+        slot_kind=kinds,
+        target_index=target_index,
+        span_target=spans if has_span else None,
+        line_starts=mask,
+    )
+
+
 def _assert_spans_decode_to_their_text(
     spec: SequenceSpec,
     ids: Sequence[int],
@@ -648,9 +1025,14 @@ def _assert_spans_decode_to_their_text(
     Asking the tokenizer to *decode* breaks that circle, because the answer comes from the
     tokenizer's vocabulary rather than from the offsets under test. Three statements:
 
-    1. **Each checked token decodes to exactly the characters its offsets claim.** A
-       tokenizer whose ``return_offsets_mapping`` describes a normalised copy of the text
-       satisfies every length and reach check in this module and fails here.
+    1. **Each checked token's run decodes to exactly the characters its offsets claim.**
+       The run is the token plus the tokens after it that start inside its claimed span:
+       the byte pieces of a character a byte-level BPE split, which each claim the whole
+       character and decode alone to U+FFFD. For a token its successor does not overlap
+       -- the ordinary case -- the run is that one token. A tokenizer whose
+       ``return_offsets_mapping`` describes a normalised copy of the text satisfies every
+       length and reach check in this module and fails here
+       (``test_span_decode_multibyte.py``).
     2. **The ids round-trip to the text they were produced from.** Not implied by (1):
        HuggingFace's ``decode`` applies ``clean_up_tokenization_spaces`` over a *sequence*,
        so a tokenizer can be honest token by token and still not reproduce the text.
@@ -677,8 +1059,22 @@ def _assert_spans_decode_to_their_text(
                 f"{where}: position {pos} is outside the {len(ids)} token(s) to decode"
             )
         first, last = offsets[pos]
+        # A byte-level BPE splits a multi-byte character into several tokens that each
+        # claim the whole character (Qwen3.5: "Ṣ" -> (2,3) (2,3) (2,3); merged into a
+        # preceding space -> (19,21) (20,21) (20,21)). One byte of it decodes to U+FFFD, so
+        # the unit compared is the run of tokens that start inside the span claimed so far.
+        # A token that starts at or past its predecessor's end -- every token of a
+        # tokenizer that splits on character boundaries -- ends the run at length one.
+        run_end = pos + 1
+        while (
+            run_end < len(ids)
+            and first <= offsets[run_end][0] < last
+            and offsets[run_end][1] > offsets[run_end][0]
+        ):
+            last = max(last, offsets[run_end][1])
+            run_end += 1
         claimed = text[first:last]
-        piece = decode([int(ids[pos])])
+        piece = decode([int(i) for i in ids[pos:run_end]])
         if not isinstance(piece, str):
             raise ShardContractViolation(
                 f"{where}: decode returned {type(piece).__name__}, not str"
@@ -727,8 +1123,12 @@ def _span_token_positions(
     token_offsets: TokenOffsets | None,
     decode: Decode | None = None,
     where: str,
+    span_collapse_policy: str = SPAN_COLLAPSE_REFUSE_ANY,
 ) -> tuple[tuple[int, int], tuple[int, ...]] | None:
     """``((start, end), candidates)`` in token positions, or ``None`` for a non-span row.
+
+    ``span_collapse_policy`` decides what collapsed line starts do; see
+    :data:`SPAN_COLLAPSE_REFUSE_ANY` and :data:`SPAN_COLLAPSE_REFUSE_GOLD`.
 
     Both come off the *same* offset mapping, and the gold is one of the candidates by
     construction -- the character offsets it was built from are entries of
@@ -790,11 +1190,33 @@ def _span_token_positions(
             "text, so they describe a different string than the one tokenized -- a "
             "normalised copy, most likely. Every line start would map to a wrong token."
         )
+    # A text the tokenizer itself rewrites: Qwen3.5's normalizer is NFC, and a character
+    # NFC changes (Bengali U+09DF, a composition exclusion, decomposes) makes the ids decode
+    # to a different string than the one the offsets index. The offsets are aligned to the
+    # original, but nothing can then check them against decoded text, so the slot is refused
+    # here, counted, rather than reaching the decode check below -- which still aborts the
+    # write for any other mismatch, the tokenizer-wiring fault it exists for. Only text that
+    # is not itself NFC-stable can take this exit, so an NFC-stable text never does.
+    if (
+        decode is not None
+        and not unicodedata.is_normalized("NFC", spec.text)
+        and decode([int(i) for i in ids]) == unicodedata.normalize("NFC", spec.text)
+    ):
+        raise UnencodableGold(
+            f"{where}: the context is not NFC-stable and the tokenizer's NFC normalizer "
+            "rewrites it, so its ids decode to a different string than the line offsets "
+            "index and the line mapping cannot be verified against decoded text. "
+            "Refused for this slot rather than trusted unverified."
+        )
 
-    candidates = tuple(
-        _token_index_for_char(offsets, c, where=where) for c in spec.line_char_starts
-    )
-    if len(set(candidates)) != len(candidates):
+    candidates = _token_indices_for_chars(offsets, spec.line_char_starts, where=where)
+    if span_collapse_policy not in SPAN_COLLAPSE_POLICIES:
+        raise ValueError(
+            f"span_collapse_policy must be one of {SPAN_COLLAPSE_POLICIES}, "
+            f"got {span_collapse_policy!r}"
+        )
+    collapsed = len(set(candidates)) != len(candidates)
+    if collapsed and span_collapse_policy == SPAN_COLLAPSE_REFUSE_ANY:
         raise UnencodableGold(
             f"{where}: {len(candidates)} context lines map to only "
             f"{len(set(candidates))} distinct tokens, so two lines share one candidate and "
@@ -816,8 +1238,7 @@ def _span_token_positions(
         return ((SPAN_ABSTAIN, SPAN_ABSTAIN), candidates)
 
     start_char, end_char = spec.span_char_starts
-    start_tok = _token_index_for_char(offsets, start_char, where=where)
-    end_tok = _token_index_for_char(offsets, end_char, where=where)
+    start_tok, end_tok = _token_indices_for_chars(offsets, (start_char, end_char), where=where)
     if start_tok > end_tok:
         raise UnencodableGold(
             f"{where}: the gold's first line maps to token {start_tok} and its last to "
@@ -843,6 +1264,17 @@ def _span_token_positions(
             "and the candidate set are built from one list of line offsets, so this means "
             "the offset mapping is not monotonic in the text."
         )
+    if collapsed:
+        # Only reached under refuse-gold: collapsed lines elsewhere share their token, but a
+        # gold line that shares one is a target the pointer cannot tell from its neighbour.
+        shared = [p for p in (start_tok, end_tok) if candidates.count(p) > 1]
+        if shared:
+            raise UnencodableGold(
+                f"{where}: the gold's line start shares token(s) {sorted(set(shared))} with "
+                "another context line, so the pointer head cannot tell the gold from its "
+                "neighbour. Refused under span_collapse_policy=refuse-gold, which keeps a "
+                "collapse only when it misses the gold."
+            )
     if decode is not None:
         # The gold positions first, so that when a whole-corpus mapping is shifted the
         # message names the gold rather than an arbitrary candidate.
@@ -853,6 +1285,29 @@ def _span_token_positions(
             spec, ids, offsets, candidates, decode=decode, where=where
         )
     return ((start_tok, end_tok), candidates)
+
+
+def _check_replay_roles(rows: Sequence[DataRow], *, replay: bool, path: Path) -> None:
+    """A gold shard set holds no replay-only row, and a replay set holds nothing else.
+
+    ``qd_data.general.partition_replay`` marks replay rows
+    ``metadata[REPLAY_ROLE_KEY] == REPLAY_ONLY``: they are trained toward the base
+    model's own answers and their gold is never read. Written into a gold set they
+    would be cross-entropy-trained to that gold after all, which is the one thing the
+    role exists to prevent; a gold row in a replay set would be KL-trained with its
+    label ignored. Refused for the whole write, before any tokenization.
+    """
+    if replay:
+        wrong = [r.row_id for r in rows if r.metadata.get(REPLAY_ROLE_KEY) != REPLAY_ONLY]
+        kind = "gold (not replay-only) row(s) offered to a replay shard set"
+    else:
+        wrong = [r.row_id for r in rows if r.metadata.get(REPLAY_ROLE_KEY) == REPLAY_ONLY]
+        kind = "replay-only row(s) offered to a gold shard set"
+    if wrong:
+        raise ShardContractViolation(
+            f"{path}: {len(wrong)} {kind}, first {sorted(wrong)[:3]}. Replay rows go to"
+            " their own set (write_shards(replay=True)); gold rows never do."
+        )
 
 
 def _match_rows_to_manifest(
@@ -998,9 +1453,15 @@ def write_shards(
     allow_unencodable: bool = False,
     allow_not_run_snapshot: bool = False,
     allow_contradictions: bool = False,
+    replay: bool = False,
     corpus_rev: str = "",
     max_sequences: int = DEFAULT_MAX_SEQUENCES,
     max_total_tokens: int = DEFAULT_MAX_TOTAL_TOKENS,
+    max_seq_len: int | None = None,
+    span_collapse_policy: str = SPAN_COLLAPSE_REFUSE_ANY,
+    report_only: bool = False,
+    exclusions_sha256: str = "",
+    contrast_rows: ContrastRows | None = None,
 ) -> ShardHeader:
     """Tokenize a cleared corpus into a shard set and return its header.
 
@@ -1039,6 +1500,11 @@ def write_shards(
     check that did not run must not read as one that ran and passed -- and without that
     file the two writes produce byte-identical artifacts.
 
+    ``replay`` says which kind of set this is. ``False`` (a gold set) refuses any row marked
+    ``metadata["replay_role"] == "replay_only"``; ``True`` (the replay set that
+    ``qd_train.replay`` reads) refuses any row that is not. See :func:`_check_replay_roles`.
+    The role is recorded in :data:`SEQUENCE_INDEX_NAME`.
+
     ``allow_unencodable`` governs rows this writer cannot turn into a sequence: a gold no
     ``Batch`` can express (see :class:`UnencodableGold`) **and** a row ``render`` refuses
     outright -- over the context cap, whitespace-only, over the option or rendered-prompt
@@ -1052,6 +1518,20 @@ def write_shards(
     whose ``n`` and ``n_total`` carry *both* numbers, so a partial corpus can never be read
     as a complete one; ``ShardReader.coverage`` surfaces it, and the detail names what
     refused each row. It is never silent and never a substitution.
+
+    ``max_seq_len`` is a hard width: a row any of whose slot sequences is longer is refused
+    whole (``OverMaxSeqLen``), under the same two rules -- the write fails without
+    ``allow_unencodable`` and records the exclusion with it. Never truncated: truncation
+    drops the answer token. ``None`` (the default) caps nothing, and the widest bucket is the
+    longest sequence as before.
+
+    ``span_collapse_policy`` is :data:`SPAN_COLLAPSE_REFUSE_ANY` by default. A caller may pass
+    :data:`SPAN_COLLAPSE_REFUSE_GOLD` for a TRAINING set, or for a val set that is
+    ``report_only`` -- outside every gate population, written refuse-gold so its span slots
+    are the population training reads (Fable round K). A gate val set keeps the default, so
+    every gate's span population stays the one it was measured on (rule 2). Both choices are
+    written into the header and covered by its hash; gate readers refuse a report-only or
+    non-refuse-any header (``ShardHeader.require_gate_population``).
     """
     manifest_path = Path(manifest_path)
     out_dir = Path(out_dir)
@@ -1059,6 +1539,29 @@ def write_shards(
         raise ValueError(
             f"max_sequences and max_total_tokens must be positive, got {max_sequences} "
             f"and {max_total_tokens}"
+        )
+    if max_seq_len is not None and (
+        not isinstance(max_seq_len, int) or isinstance(max_seq_len, bool) or max_seq_len < 2
+    ):
+        raise ValueError(f"max_seq_len must be an int of at least 2, got {max_seq_len!r}")
+    if span_collapse_policy not in SPAN_COLLAPSE_POLICIES:
+        raise ValueError(
+            f"span_collapse_policy must be one of {SPAN_COLLAPSE_POLICIES}, "
+            f"got {span_collapse_policy!r}"
+        )
+    if not isinstance(report_only, bool):
+        raise ValueError(f"report_only must be a bool, got {report_only!r}")
+    # The header's contrast record and the rows must agree: a set carrying contrast rows that
+    # its header does not name, or naming rows it does not carry, would let a trainer read a
+    # v5 set as another (qd_train.contrast).
+    n_contrast = sum(r.metadata.get(NOUL_ROUTE_KEY) == NOUL_ROUTE_CONTRAST for r in rows)
+    if n_contrast != (0 if contrast_rows is None else contrast_rows.count) or (
+        contrast_rows is not None and replay
+    ):
+        raise ShardContractViolation(
+            f"{manifest_path}: {n_contrast} contrast row(s) among the rows, and the header "
+            f"would record {contrast_rows!r} on a {'replay' if replay else 'gold'} set; a gold "
+            "train set names exactly the contrast rows it carries, and a replay set carries none"
         )
 
     handle = open_training_data(
@@ -1068,11 +1571,30 @@ def write_shards(
         allow_not_run_snapshot=allow_not_run_snapshot,
     )
     manifest = handle.manifest
+    if report_only and (
+        manifest.split != "val" or span_collapse_policy != SPAN_COLLAPSE_REFUSE_GOLD
+    ):
+        raise ShardContractViolation(
+            f"{manifest_path}: report_only is a val set written {SPAN_COLLAPSE_REFUSE_GOLD}; "
+            f"this is the {manifest.split!r} split under {span_collapse_policy}"
+        )
+    if (
+        span_collapse_policy != SPAN_COLLAPSE_REFUSE_ANY
+        and manifest.split != "train"
+        and not report_only
+    ):
+        raise ShardContractViolation(
+            f"{manifest_path}: span_collapse_policy={span_collapse_policy} is a training-side "
+            f"policy, and this is the {manifest.split!r} split. Val and gate sets keep "
+            f"{SPAN_COLLAPSE_REFUSE_ANY}, so every gate's span population is the one it was "
+            "measured on (rule 2); only a report_only val set may differ."
+        )
 
     entry_hashes: dict[str, int] = {}
     for entry in manifest.entries:
         entry_hashes[entry.content_hash] = entry_hashes.get(entry.content_hash, 0) + 1
     _match_rows_to_manifest(rows, entry_hashes, path=manifest_path)
+    _check_replay_roles(rows, replay=replay, path=manifest_path)
 
     if not rows:
         raise ShardContractViolation(
@@ -1093,45 +1615,25 @@ def write_shards(
     spans: list[tuple[int, int]] = []
     candidates: list[tuple[int, ...]] = []
     excluded: list[str] = []
+    #: `(row_id, slot_name)` per written sequence, and every slot that wrote none: the
+    #: structured record SEQUENCE_INDEX_NAME carries. `excluded` above counts ROWS with
+    #: nothing written and feeds coverage.json; this counts SLOTS.
+    written_keys: list[tuple[str, str]] = []
+    slot_exclusions: list[SlotExclusion] = []
     total_tokens = 0
     n_span_sequences = 0
     for row in ordered:
-        # A row is written whole or not at all. Its slots are one example's supervision, so
-        # committing the ones that encoded and dropping the rest would leave a corpus that
-        # answers some of each question -- and `excluded` counts rows, so the coverage
-        # figure would be wrong as well as the corpus.
-        staged: list[tuple[np.ndarray, str, int, tuple[int, int], tuple[int, ...]]] = []
+        # Two scopes of refusal, split where `training_texts` returns. Everything it raises
+        # is about the ROW -- `render` refused the request (over a cap, whitespace-only), or
+        # a gold names no rendered option -- so no slot of it can be written. Everything
+        # raised after it is about ONE SLOT's sequence: its tokenization cannot place that
+        # slot's span. Each slot is its own sequence with its own supervision, so a span
+        # that collapses under BPE says nothing about whether the row's choice slot can be
+        # trained. Refusing the whole row for it dropped the class label too, unevenly by
+        # class (GAP-A3-BPE-SPAN-COLLAPSE-DROPS-DEFECT-CLASS-LABELS: stub 3,567 of 6,393),
+        # which moved the majority rate the choice head is judged against.
         try:
-            for spec in training_texts(row, seed=shuffle_seed, caps=caps):
-                where = f"row {row.row_id!r} slot {spec.slot_name!r}"
-                ids = _tokenize_checked(tokenize, spec.text, where=where)
-                # Not caught: RemapTable.encode raises on an id the remap dropped, and that
-                # exception is the S2<->S4 cross-lane check firing. Substituting a token
-                # here would turn a coverage bug into a training example that teaches the
-                # wrong thing, and the only symptom would be slightly worse loss.
-                new_ids = remap.encode(ids)
-                if int(new_ids.min()) < 0:
-                    raise ShardContractViolation(
-                        f"{where}: the remap produced a negative id, which cannot be stored "
-                        f"as {TOKEN_DTYPE}"
-                    )
-                projected = _span_token_positions(
-                    spec,
-                    ids,
-                    token_offsets=token_offsets,
-                    decode=decode,
-                    where=where,
-                )
-                if projected is None:
-                    if spec.slot_kind == SLOT_SPAN:
-                        raise ShardContractViolation(
-                            f"{where}: a SLOT_SPAN row reached the writer with no candidates"
-                        )
-                    staged.append((new_ids, where, spec.slot_kind, (NO_SPAN, NO_SPAN), ()))
-                else:
-                    staged.append(
-                        (new_ids, where, spec.slot_kind, projected[0], projected[1])
-                    )
+            specs = training_texts(row, seed=shuffle_seed, caps=caps)
         except (UnencodableGold, QdRefusal) as exc:
             # QdRefusal alongside UnencodableGold: `render` refuses an over-cap context, a
             # whitespace-only one, an over-long option and an over-long prompt, and those
@@ -1143,9 +1645,72 @@ def write_shards(
             if not allow_unencodable:
                 raise
             excluded.append(f"{row.row_id}: {type(exc).__name__}: {exc}")
+            slot_exclusions.extend(
+                SlotExclusion(
+                    row_id=row.row_id, slot_name=slot.name, scope="row",
+                    refusal=type(exc).__name__, detail=str(exc),
+                )
+                for slot in row.request.slots
+            )
             continue
 
-        for new_ids, where, kind, span, cands in staged:
+        staged: list[tuple[np.ndarray, str, str, int, tuple[int, int], tuple[int, ...]]] = []
+        refused_here: list[SlotExclusion] = []
+        for spec in specs:
+            where = f"row {row.row_id!r} slot {spec.slot_name!r}"
+            try:
+                encoded = encode_slot(
+                    spec, tokenize=tokenize, remap=remap, token_offsets=token_offsets,
+                    decode=decode, where=where, span_collapse_policy=span_collapse_policy,
+                )
+            except UnencodableGold as exc:
+                # Only UnencodableGold is slot-scoped: it says this slot's span cannot be
+                # placed in this tokenization. ShardContractViolation from the same call
+                # says the offsets and ids disagree, which is a fault in the tokenizer
+                # wiring, not in one row, and still aborts the write.
+                if not allow_unencodable:
+                    raise
+                refused_here.append(
+                    SlotExclusion(
+                        row_id=row.row_id, slot_name=spec.slot_name, scope="slot",
+                        refusal=type(exc).__name__, detail=str(exc),
+                    )
+                )
+                continue
+            staged.append(
+                (encoded.ids, where, spec.slot_name, spec.slot_kind, encoded.span,
+                 encoded.candidates)
+            )
+        if max_seq_len is not None and any(int(s[0].size) > max_seq_len for s in staged):
+            longest = max(int(s[0].size) for s in staged)
+            detail = f"{longest} tokens, over max_seq_len={max_seq_len}"
+            if not allow_unencodable:
+                raise ShardContractViolation(
+                    f"{manifest_path}: row {row.row_id!r} is {detail}. Refused rather than "
+                    "truncated: truncation drops the answer token off the end of the example"
+                )
+            excluded.append(f"{row.row_id}: OverMaxSeqLen: {detail}")
+            slot_exclusions.extend(refused_here)
+            slot_exclusions.extend(
+                SlotExclusion(
+                    row_id=row.row_id, slot_name=s[2], scope="row", refusal="OverMaxSeqLen",
+                    detail=detail,
+                )
+                for s in staged
+            )
+            continue
+        slot_exclusions.extend(refused_here)
+        if not staged:
+            # Every slot refused on its own account: the row wrote nothing, so it is a row
+            # exclusion for coverage.json as well as N slot exclusions in the index.
+            excluded.append(
+                f"{row.row_id}: every slot refused: "
+                + "; ".join(f"{e.slot_name}: {e.refusal}: {e.detail}" for e in refused_here)
+            )
+            continue
+
+        for new_ids, where, slot_name, kind, span, cands in staged:
+            written_keys.append((row.row_id, slot_name))
             sequences.append(new_ids)
             labels.append(where)
             kinds.append(kind)
@@ -1211,6 +1776,15 @@ def write_shards(
             "write it anyway, which is a decision about the corpus, not about this check."
         )
 
+    index = SequenceIndex(
+        rows_in=len(ordered),
+        role=REPLAY_ONLY if replay else GOLD_ROLE,
+        sequences=tuple(written_keys),
+        slot_kinds=tuple(kinds),
+        excluded=tuple(slot_exclusions),
+    )
+    index_bytes = (json.dumps(index.to_json(), indent=1, sort_keys=True) + "\n").encode("utf-8")
+
     header = ShardHeader(
         split=manifest.split,
         data_snapshot_hash=handle.data_snapshot_hash,
@@ -1233,9 +1807,26 @@ def write_shards(
         # not know its rev must not put a guess here, because a wrong rev in the header is
         # worse than an absent one -- absent reads NotRun, wrong reads passed=True.
         corpus_rev=corpus_rev,
+        sequence_index_hash=hashlib.sha256(index_bytes).hexdigest(),
+        # Empty for refuse-any, so a default set's header and hash are what they were.
+        span_collapse_policy=(
+            "" if span_collapse_policy == SPAN_COLLAPSE_REFUSE_ANY else span_collapse_policy
+        ),
+        report_only=report_only,
+        # Empty unless the caller's train rows passed through an exclusion list
+        # (qd_train.exclusions), so every set written without one is what it was.
+        exclusions_sha256=exclusions_sha256,
+        # None unless the caller derived v5 contrast rows (qd_train.contrast) into `rows`.
+        contrast_rows=contrast_rows,
+        # The layout every sequence above was rendered in: `training_texts` renders through
+        # qd_data.render, so it is that module's format, read off it rather than restated.
+        prompt_format=PROMPT_FORMAT,
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Before the header, which pins its hash: a header naming an index that is not yet on
+    # disk is refused by the reader, never trusted.
+    _write_bytes_atomically(out_dir / SEQUENCE_INDEX_NAME, index_bytes)
     offsets = np.zeros(len(sequences) + 1, dtype=np.int64)
     np.cumsum(np.asarray(lengths, dtype=np.int64), out=offsets[1:])
 
@@ -1439,6 +2030,8 @@ class ShardReader:
             expect_rev=expect_rev,
             allow_rev_mismatch=allow_rev_mismatch,
         )
+        # After the rule-3 door, so a held-out set is refused as one whatever its format.
+        self.header.require_prompt_format(where=str(self.root))
 
         self._offsets: np.ndarray = np.load(self.root / OFFSETS_NAME)
         if self._offsets.dtype != np.int64 or self._offsets.ndim != 1:
@@ -1485,6 +2078,8 @@ class ShardReader:
         )
 
         self._load_supervision()
+        self.sequence_index: SequenceIndex | None = None
+        self.slot_coverage: TriState = self._load_sequence_index()
 
         coverage_path = self.root / COVERAGE_NAME
         if coverage_path.exists():
@@ -1574,6 +2169,68 @@ class ShardReader:
             detail=(
                 f"{stem}.npz re-read and re-hashed; matches the header. "
                 f"tokenizer_hash={remap.tokenizer_hash[:16]}…"
+            ),
+        )
+
+    def _load_sequence_index(self) -> TriState:
+        """Read :data:`SEQUENCE_INDEX_NAME`, check it against the header and the supervision.
+
+        Sets ``self.sequence_index`` and returns slot coverage: sequences written against
+        ``(row, slot)`` pairs offered. ``NotRun`` for a set whose header pins no index --
+        every set written before the index existed -- so "unrecorded" never reads as
+        "nothing excluded". A pinned index that is absent, re-hashes differently, or
+        disagrees with the supervision in length or slot kind is refused outright: a label
+        paired to the wrong sequence trains silently.
+        """
+        pinned = self.header.sequence_index_hash
+        path = self.root / SEQUENCE_INDEX_NAME
+        if not pinned:
+            return NotRun(
+                reason=(
+                    f"{self.root / HEADER_NAME} pins no sequence_index_hash, so which row and "
+                    "slot each sequence is, and which slots were excluded, was not recorded "
+                    "by the writer. Pair labels by re-deriving them, or rewrite the set."
+                )
+            )
+        if not path.exists():
+            raise ShardContractViolation(
+                f"{path} is absent but the header pins sequence_index_hash={pinned[:16]}…"
+            )
+        raw = path.read_bytes()
+        found = hashlib.sha256(raw).hexdigest()
+        if found != pinned:
+            raise ShardContractViolation(
+                f"{path} hashes to {found!r} but the header pins {pinned!r}; the index was "
+                "modified after it was written, or belongs to another set"
+            )
+        index = SequenceIndex.from_json(json.loads(raw), where=str(path))
+        n = self.header.n_sequences
+        if len(index.sequences) != n:
+            raise ShardContractViolation(
+                f"{path}: {len(index.sequences)} indexed sequence(s) but the header declares {n}"
+            )
+        mismatch = np.flatnonzero(np.asarray(index.slot_kinds, dtype=np.int64) != self._slot_kind)
+        if mismatch.size:
+            i = int(mismatch[0])
+            raise ShardContractViolation(
+                f"{path}: sequence {i} is indexed as slot kind {index.slot_kinds[i]} but "
+                f"supervision.npz holds {int(self._slot_kind[i])}; the index and the shards "
+                "describe different orders"
+            )
+        self.sequence_index = index
+        n_total = n + len(index.excluded)
+        by_scope = {
+            scope: sum(1 for e in index.excluded if e.scope == scope) for scope in ("row", "slot")
+        }
+        return Ran(
+            passed=not index.excluded,
+            value=n,
+            n=n,
+            n_total=n_total,
+            detail=(
+                f"{n} of {n_total} (row, slot) sequence(s) written; excluded "
+                f"{by_scope['slot']} slot(s) on their own account and {by_scope['row']} "
+                f"slot(s) of rows refused whole, over {index.rows_in} row(s) offered"
             ),
         )
 
@@ -1790,31 +2447,13 @@ class ShardReader:
         """
         for index, plan in enumerate(self._plan(batch_tokens=batch_tokens, seed=seed, epoch=epoch)):
             rows = np.asarray(plan.rows, dtype=np.int64)
-            tokens = np.full((len(plan.rows), plan.width), PAD_ID, dtype=np.int32)
-            lengths = np.zeros(len(plan.rows), dtype=np.int64)
-            for r, i in enumerate(plan.rows):
-                seq = self.sequence(i)
-                tokens[r, : seq.size] = seq
-                lengths[r] = seq.size
-            kinds = self._slot_kind[rows]
-            spans = self._span_target[rows]
-            has_span = bool((kinds == SLOT_SPAN).any())
-            mask: np.ndarray | None = None
-            if has_span:
-                # Materialised at this batch's width, and only when a span row is present:
-                # Batch refuses a candidate set on a batch with nothing to point.
-                mask = np.zeros((len(plan.rows), plan.width), dtype=np.bool_)
-                for r, i in enumerate(plan.rows):
-                    mask[r, self.candidates(i)] = True
-            yield Batch(
-                tokens=tokens,
-                lengths=lengths,
-                bucket=plan.bucket,
-                index=index,
-                slot_kind=kinds,
+            yield assemble_batch(
+                [self.sequence(i) for i in plan.rows],
+                kinds=self._slot_kind[rows],
                 target_index=self._target_index[rows],
-                span_target=spans if has_span else None,
-                line_starts=mask,
+                spans=self._span_target[rows],
+                candidates=[self.candidates(i) for i in plan.rows],
+                width=plan.width, bucket=plan.bucket, index=index,
             )
 
     def to_json(self) -> dict[str, Any]:
@@ -1824,6 +2463,7 @@ class ShardReader:
             "header": self.header.to_json(),
             "checks": {k: v.to_json() for k, v in sorted(self.checks.items())},
             "coverage": self.coverage.to_json(),
+            "slot_coverage": self.slot_coverage.to_json(),
             "span_check": self.span_check.to_json(),
             "padding_waste": self.padding_waste().to_json(),
         }

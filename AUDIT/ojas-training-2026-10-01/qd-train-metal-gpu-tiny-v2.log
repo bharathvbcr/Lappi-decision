@@ -1,0 +1,15 @@
+     Locking 3 packages to latest Rust 1.98 compatible versions
+      Adding ojas-core v0.1.0 (/Users/bharath/Code/research/ojas/ojas-core)
+      Adding ojas-io v0.1.0 (/Users/bharath/Code/research/ojas/ojas-io)
+      Adding ojas-qwen35 v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35)
+   Compiling ojas-qwen35 v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35)
+   Compiling qd-train-metal v0.1.0 (/Users/bharath/Code/research/Lappi-decision/crates/qd-train-metal)
+    Finished `release` profile [optimized] target(s) in 16.52s
+     Running tests/gpu_tiny.rs (target/release/deps/gpu_tiny-e4e00e2043d13d4a)
+
+running 2 tests
+test gpu_tiny_adapter_accumulates_exactly_what_qwen35step_accumulates ... ok
+test gpu_tiny_loop_resumed_from_a_checkpoint_is_the_uninterrupted_run_bit_for_bit ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.37s
+

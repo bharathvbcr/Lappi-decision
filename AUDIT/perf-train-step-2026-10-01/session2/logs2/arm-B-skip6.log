@@ -1,0 +1,5 @@
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+  progress B-skip6 cuda seed=0: step 1/50 elapsed 4s 3.73s/step 9062 pos/s eta 183s loss 2.1125 peak 46.5GiB
+  progress B-skip6 cuda seed=0: step 22/50 elapsed 64s 2.92s/step 10508 pos/s eta 82s loss 0.5539 peak 60.5GiB
+  progress B-skip6 cuda seed=0: step 43/50 elapsed 125s 2.91s/step 10539 pos/s eta 20s loss 1.0350 peak 60.5GiB
+{"tag": "B-skip6", "steps": 50, "loss_log_digest": "0ec7f81e2a3023f966a78bb11839808126155fb2ef3a25b54c8a3e484a41db5d", "consumed_digest": "aab3a90426d48ba290a2d9e4d72945bf2244c333b79f70d1a92796cec532307d", "pos_per_s": 9817.1, "peak_alloc_gib": 60.5, "termination": "steps_exhausted"}

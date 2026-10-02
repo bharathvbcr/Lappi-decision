@@ -1,0 +1,21 @@
+{
+  "decision": "refused",
+  "inputs": [
+    {
+      "bytes": 11106,
+      "path": "campaign/j6a-preregistered.json",
+      "role": "preregistration",
+      "sha256": "bcc2695e394845bf67a0bf92fbfaacc0d51195bed5874fa922aec5251b99fd86"
+    },
+    {
+      "bytes": 65082,
+      "path": "ledger/gh200-p4-v4-2026-10-01.jsonl",
+      "rows": 5,
+      "sha256": "abb48449d8ecbc814a8877ff35f56352f53c7098b8f9d61ae3fc934f85c34b91"
+    }
+  ],
+  "preregistration": "campaign/j6a-preregistered.json (d66f3b0, 74aea95)",
+  "refused": "(a) row 00000000-0000-4000-8000-000000000001 appears 0 time(s) in ledger/gh200-p4-v4-2026-10-01.jsonl, not once; room not decided: F's envelope did not resolve, so no target was examined for room (R9_room) and no arm was judged; (a) the pre-registration's amendments are pending (no top-level \"amendments\"; amendments_pending: \"The lead fills these by commit after build 2 and decontam 2, before J6(a)'s eval row's written_at: build 2's train-manifest hash (data_snapshot_hash), its train shard hash, the replay shard hash, decontam 2's attestation sha256, and h (with the full hit list's sha256). Until they are filled, the checker refuses.\"); the checker refuses until they are filled as an object with exactly data_snapshot_hash, shard_hash, replay_shard_hash, replay_attestation_sha256 and hit_list_sha256 (each a sha256 in lower-case hex) and h (an integer, 0..=3568)",
+  "rule": "j6a_replay",
+  "tool": "qd-post-f-rules"
+}

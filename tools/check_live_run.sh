@@ -18,5 +18,11 @@
 # Verified in BOTH directions on 2026-09-21, because every refusal observed until then was
 # contaminated by the self-match and so was not evidence that it detects anything: started a
 # python process at tools/rung0_real_run.py -> 1; killed it -> 0.
+#
+# Counted with `wc -l` rather than `pgrep -c`, which is a procps flag: BSD pgrep on macOS
+# has no `-c`, so the old form printed a usage error and NO number there. Callers read an
+# empty answer as "busy" (`${LIVE:-1}`), so it failed closed -- and a guard that can only
+# ever say busy on the Mac could never let `sync_box.sh pull` run where the campaign smoke
+# test runs (measured 2026-09-29). `pgrep -f` exists on both and still excludes itself.
 set -uo pipefail
-pgrep -fc "tools/rung0_real_run\.py|tools/real_ft_run\.py" || true
+{ pgrep -f "tools/rung0_real_run\.py|tools/real_ft_run\.py" || true; } | wc -l | tr -d ' '

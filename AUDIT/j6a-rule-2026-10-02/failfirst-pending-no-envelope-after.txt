@@ -1,0 +1,9 @@
+   Compiling qd-runtime v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ab20fd47a4fdbc017/crates/qd-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.06s
+     Running unittests src/bin/qd_post_f_rules.rs (target/debug/deps/qd_post_f_rules-bd20bf07533940cc)
+
+running 1 test
+test tests::j6a_refuses_while_amendments_are_pending ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 72 filtered out; finished in 0.01s
+

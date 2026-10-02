@@ -1,0 +1,73 @@
+..............................F...................F...........Fssss..... [ 93%]
+.....                                                                    [100%]
+=================================== FAILURES ===================================
+______________ test_the_real_ledger_is_not_touched_by_any_of_this ______________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-472/test_the_real_ledger_is_not_to0')
+
+    def test_the_real_ledger_is_not_touched_by_any_of_this(tmp_path: Path) -> None:
+        """Every test above passes an explicit path. This asserts the default is the repo's
+        own file and that nothing here wrote to it -- a test suite that appends to `gaps.jsonl`
+        on every run would be a novel way to corrupt the thing being protected.
+        """
+        from qd_train.gaps import DEFAULT_GAPS_PATH
+    
+        assert DEFAULT_GAPS_PATH.name == "gaps.jsonl"
+>       assert DEFAULT_GAPS_PATH.parent.name in ("qwen-decision", "Lappi-decision")
+E       AssertionError: assert 'agent-af2fee24b0ffeacd5' in ('qwen-decision', 'Lappi-decision')
+E        +  where 'agent-af2fee24b0ffeacd5' = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5').name
+E        +    where PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5') = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/gaps.jsonl').parent
+
+python/tests/test_gaps_writer.py:212: AssertionError
+_________ test_every_tool_that_hashes_a_recipe_is_found_by_this_check __________
+
+    def test_every_tool_that_hashes_a_recipe_is_found_by_this_check() -> None:
+        """Scope first, and asserted, because everything below is vacuous without it.
+    
+        Six tools produce a `recipe_hash`. A seventh that this stopped finding would read
+        exactly like a repository with six.
+        """
+        found = _recipe_hash_spellings()
+>       assert set(found) == set(_SPELLINGS), (
+            f"tools hashing a recipe: found {sorted(found)}, pinned {sorted(_SPELLINGS)}. A "
+            "tool that appeared needs a spelling entry; one that vanished needs this list "
+            "shortened deliberately"
+        )
+E       AssertionError: tools hashing a recipe: found ['calib_fit_row.py', 'ft_toy_run.py', 'gate_report_row.py', 'margin_probe_row.py', 'qd_train_oracle_trainer.py', 'real_ft_run.py', 'real_tokenizer_pipeline.py', 'remap_parity_real.py', 'rung0_linear_control.py', 'rung0_real_run.py', 'rung0_toy_run.py'], pinned ['calib_fit_row.py', 'ft_toy_run.py', 'gate_report_row.py', 'margin_probe_row.py', 'real_ft_run.py', 'real_tokenizer_pipeline.py', 'remap_parity_real.py', 'rung0_linear_control.py', 'rung0_real_run.py', 'rung0_toy_run.py']. A tool that appeared needs a spelling entry; one that vanished needs this list shortened deliberately
+E       assert {'calib_fit_r..._run.py', ...} == {'calib_fit_r...line.py', ...}
+E         
+E         Extra items in the left set:
+E         'qd_train_oracle_trainer.py'
+E         Use -v to get more diff
+
+python/tests/test_tool_call_sites.py:772: AssertionError
+__________________ test_ruff_is_installed_not_merely_declared __________________
+
+    def test_ruff_is_installed_not_merely_declared():
+        """`ruff>=0.6` is declared in the dev extra. Declared is not installed.
+    
+        This test fails against the tree as it stood before this lane: the dependency was
+        in pyproject.toml and `.venv/bin/python -m ruff` answered "No module named ruff".
+        A linter nobody can run is a lint gate that has never once executed.
+        """
+>       assert VENV_RUFF.exists(), (
+            f"{VENV_RUFF} is missing. 'ruff>=0.6' is declared in pyproject's dev extra and "
+            f"uv.lock resolves it to {LOCKED_RUFF}, but it was never installed. "
+            f"Install the gate: uv pip install --python {REPO}/.venv/bin/python "
+            f"'ruff=={LOCKED_RUFF}'"
+        )
+E       AssertionError: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/.venv/bin/ruff is missing. 'ruff>=0.6' is declared in pyproject's dev extra and uv.lock resolves it to 0.16.8, but it was never installed. Install the gate: uv pip install --python /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/.venv/bin/python 'ruff==0.16.8'
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/.venv/bin/ruff').exists
+
+python/tests/test_lint_gate.py:78: AssertionError
+=========================== short test summary info ============================
+FAILED python/tests/test_gaps_writer.py::test_the_real_ledger_is_not_touched_by_any_of_this
+FAILED python/tests/test_tool_call_sites.py::test_every_tool_that_hashes_a_recipe_is_found_by_this_check
+FAILED python/tests/test_lint_gate.py::test_ruff_is_installed_not_merely_declared
+SKIPPED [1] python/tests/test_lint_gate.py:88: ruff is not installed in .venv; test_ruff_is_installed_not_merely_declared is the test that reports that, and it does not skip
+SKIPPED [1] python/tests/test_lint_gate.py:107: ruff is not installed in .venv; test_ruff_is_installed_not_merely_declared is the test that reports that, and it does not skip
+SKIPPED [1] python/tests/test_lint_gate.py:129: ruff is not installed in .venv; test_ruff_is_installed_not_merely_declared is the test that reports that, and it does not skip
+SKIPPED [1] python/tests/test_lint_gate.py:150: ruff is not installed in .venv; test_ruff_is_installed_not_merely_declared is the test that reports that, and it does not skip
+3 failed, 70 passed, 4 skipped in 9.85s

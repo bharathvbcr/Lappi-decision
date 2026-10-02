@@ -224,6 +224,99 @@ def test_three_clean_seeds_promote(tmp_path: Path):
     assert verdict.promoted, str(verdict)
 
 
+def _eval_and_control(
+    led: Ledger, seed: int, *, margin: Ran | None = None, control_seed: int | None = None,
+    names: str | None = None, control_quick: bool = False,
+) -> None:
+    """An eval row with every gate green except the margin, and a control row naming it.
+
+    The shape tools/real_ft_run.py --score-val and tools/ft_linear_control.py write: the
+    control measures paired_margin_vs_linear after the eval, on a row of its own."""
+    from qd_train.ledger import REQUIRED_CONTROLS, REQUIRED_GATES
+
+    with RunRecorder(led, protocol=_protocol(seed), run_kind="eval", repo=REPO, env=_env(),
+                     wall_clock_s=None, cost=None, recipe={"tool": "real_ft_run"}) as rec:
+        for g in REQUIRED_GATES:
+            if g != "paired_margin_vs_linear":
+                rec.gate(g, Ran(passed=True, value=1.0, n=300, n_total=300))
+        for c in REQUIRED_CONTROLS:
+            rec.control(c, Ran(passed=True, n=300, n_total=300))
+    eval_id = led.rows()[-1].row_id
+    with RunRecorder(
+        led, protocol=_protocol(seed if control_seed is None else control_seed),
+        run_kind="eval", repo=REPO, env=_env(), wall_clock_s=None, cost=None,
+        recipe={"tool": "ft_linear_control", "eval_row_id": eval_id if names is None else names},
+        quick=control_quick, quick_reason="subsample" if control_quick else None,
+    ) as rec:
+        rec.gate(
+            "paired_margin_vs_linear",
+            margin if margin is not None else Ran(passed=True, value=0.15, n=300, n_total=300),
+        )
+
+
+def test_an_eval_row_and_the_control_row_naming_it_promote_as_one_unit(tmp_path: Path):
+    """Human decision, 2026-09-30 (Fable's recommendation). Before it, the eval row (margin
+    not_run) and its control row (every other gate not_run) blocked each other, and the
+    phase-3 GO family -- 6d170b3c with eeda5db4, and two more seeds -- could never promote."""
+    led = Ledger(tmp_path / "runs.jsonl")
+    for seed in (1, 2, 3):
+        _eval_and_control(led, seed)
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert verdict.promoted, str(verdict)
+    assert len(verdict.rows) == 6
+
+
+def test_without_its_control_row_the_eval_rows_margin_still_blocks(tmp_path: Path):
+    led = Ledger(tmp_path / "runs.jsonl")
+    for seed in (1, 2, 3):
+        _eval_and_control(led, seed, names="no-such-row")
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert not verdict.promoted
+    assert any("not in this seed family" in r for r in verdict.reasons)
+    assert any("paired_margin_vs_linear' did not run" in r for r in verdict.reasons)
+
+
+def test_a_control_row_that_measured_a_failure_fails_the_unit(tmp_path: Path):
+    led = Ledger(tmp_path / "runs.jsonl")
+    for seed in (1, 2, 3):
+        _eval_and_control(
+            led, seed,
+            margin=Ran(passed=False, value=-0.02, n=300, n_total=300) if seed == 2 else None,
+        )
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert not verdict.promoted
+    assert any(" + " in r and "ran and FAILED" in r for r in verdict.reasons), verdict.reasons
+
+
+def test_a_control_row_at_another_seed_joins_nothing(tmp_path: Path):
+    led = Ledger(tmp_path / "runs.jsonl")
+    _eval_and_control(led, 1)
+    _eval_and_control(led, 2, control_seed=3)
+    _eval_and_control(led, 3)
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert not verdict.promoted
+    assert any("at seed 2, but is itself seed 3" in r for r in verdict.reasons)
+
+
+def test_a_quick_control_row_still_refuses_the_family(tmp_path: Path):
+    """Joining does not launder rule 8: every row is still checked on its own."""
+    led = Ledger(tmp_path / "runs.jsonl")
+    for seed in (1, 2, 3):
+        _eval_and_control(led, seed, control_quick=(seed == 1))
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert not verdict.promoted
+    assert any("quick runs cannot promote" in r for r in verdict.reasons)
+
+
+def test_a_capped_control_sample_refuses_the_unit(tmp_path: Path):
+    led = Ledger(tmp_path / "runs.jsonl")
+    for seed in (1, 2, 3):
+        _eval_and_control(led, seed, margin=Ran(passed=True, value=0.15, n=100, n_total=300))
+    verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
+    assert not verdict.promoted
+    assert any("capped sample" in r for r in verdict.reasons)
+
+
 def test_two_seeds_do_not_promote(tmp_path: Path):
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2):
@@ -252,7 +345,9 @@ def test_a_quick_run_cannot_promote(tmp_path: Path):
     assert any("quick runs cannot promote" in r for r in verdict.reasons)
 
 
-def test_a_capped_run_cannot_promote_even_when_it_calls_itself_complete(tmp_path: Path):
+def test_a_capped_run_cannot_promote_even_when_it_calls_itself_complete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Rule 8's "truncated schedule", derived from evidence instead of taken on trust.
 
     Measured against the pre-fix code on 2026-09-20: this exact ledger -- three seeds,
@@ -261,7 +356,13 @@ def test_a_capped_run_cannot_promote_even_when_it_calls_itself_complete(tmp_path
     `promoted=True` with the single reason line *"3 completed rows, seeds [1, 2, 3], every
     gate and control ran and passed"*. `quick` was the only thing standing between a capped
     run and a promotion, and `quick` is whatever the caller typed.
+
+    Since 2026-09-29 the recorder also marks such a row quick when it writes it
+    (``test_the_recorder_marks_a_truncated_training_row_quick``). Every row written before
+    that still says ``quick=False``, so the read-time derivation is tested here against a
+    writer without the write-time one -- it is the only guard those rows have.
     """
+    monkeypatch.setattr(RunRecorder, "_quick_if_truncated", lambda self: None)
     led = Ledger(tmp_path / "runs.jsonl")
     for seed in (1, 2, 3):
         with RunRecorder(
@@ -275,6 +376,61 @@ def test_a_capped_run_cannot_promote_even_when_it_calls_itself_complete(tmp_path
     verdict = led.promotion_verdict(_protocol(1).hash_without_seed())
     assert not verdict.promoted, str(verdict)
     assert any("truncated schedule" in r for r in verdict.reasons), str(verdict)
+
+
+def _row_ending(
+    led: Ledger, termination: object, *, run_kind: str = "ft", quick: bool = False,
+    quick_reason: str | None = None,
+) -> LedgerRow:
+    with RunRecorder(
+        led, protocol=_protocol(1), run_kind=run_kind, repo=REPO,  # type: ignore[arg-type]
+        env=_env(), wall_clock_s=None, cost=None, quick=quick, quick_reason=quick_reason,
+    ) as rec:
+        if termination is not None:
+            rec.metric("train.termination", termination)  # type: ignore[arg-type]
+    assert rec.row is not None
+    return rec.row
+
+
+@pytest.mark.parametrize(
+    "termination",
+    [Ran(passed=False, value="wall_clock_cap"), Ran(passed=True, value="data_exhausted"),
+     NotRun(reason="the loop never said")],
+)
+def test_the_recorder_marks_a_truncated_training_row_quick(tmp_path: Path, termination) -> None:
+    """The flag a training tool passes is decided before its loop runs; the loop's own
+    ``train.termination`` is what says whether the schedule finished. A row whose schedule
+    did not finish is written ``quick``, whatever the caller passed."""
+    row = _row_ending(Ledger(tmp_path / "runs.jsonl"), termination)
+    assert row.quick is True
+    assert "truncated schedule" in (row.quick_reason or "")
+
+
+def test_a_finished_schedule_leaves_the_callers_flag_alone(tmp_path: Path) -> None:
+    led = Ledger(tmp_path / "runs.jsonl")
+    done = Ran(passed=True, value="steps_exhausted")
+    assert _row_ending(led, done).quick is False
+    kept = _row_ending(led, done, quick=True, quick_reason="memorisation arm")
+    assert (kept.quick, kept.quick_reason) == (True, "memorisation arm")
+
+
+def test_truncation_is_added_to_the_callers_reasons_never_in_place_of_them(tmp_path: Path) -> None:
+    row = _row_ending(
+        Ledger(tmp_path / "runs.jsonl"), Ran(passed=False, value="wall_clock_cap"),
+        quick=True, quick_reason="device mps is not the campaign's",
+    )
+    assert row.quick_reason is not None
+    assert row.quick_reason.startswith("device mps is not the campaign's; ")
+    assert "'wall_clock_cap'" in row.quick_reason
+
+
+def test_only_training_rows_are_judged_by_a_termination(tmp_path: Path) -> None:
+    """An eval row has no schedule of its own; a termination metric on it says nothing
+    about it, and a row with no termination at all is left to promotion_verdict."""
+    led = Ledger(tmp_path / "runs.jsonl")
+    capped = Ran(passed=False, value="wall_clock_cap")
+    assert _row_ending(led, capped, run_kind="eval").quick is False
+    assert _row_ending(led, None).quick is False
 
 
 def _rows_with_coverage(led: Ledger, gate_value, control_value=None) -> None:

@@ -1,0 +1,22 @@
+--- R3 v=before start (run after R4; see the plan amendment)
+Fri Oct  2 00:17:06 UTC 2026
+System-wide memory free percentage: 88%
+    Finished `release` profile [optimized] target(s) in 0.05s
+     Running tests/gpu_parity.rs (/Users/bharath/Code/research/ojas/target/release/deps/gpu_parity-fc630c46e50ddac3)
+
+running 1 test
+test gpu_real_2b_single_step_matches_the_transformers_reference ... 2B: loss 3.81034020 vs transformers 3.81016684 (rel 4.55e-5) over 128 tokens
+DIAG enter: allocated 43588009984 B, recommended working set 51539607552 B, wired budget 46385646796 B, poisoned false
+DIAG fence before staging: 324.75µs
+DIAG after fence before staging: allocated 41440526336 B, recommended working set 51539607552 B, wired budget 46385646796 B, poisoned false
+DIAG staging alloc: 2.186052667s
+DIAG after staging alloc: allocated 50201247744 B, recommended working set 51539607552 B, wired budget 46385646796 B, poisoned false
+DIAG tessl read: 3.452667292s
+norm.weight: 2.13e-3
+embed_tokens.weight: 3.18e-4
+2B: grad norm 59.976559, clip 0.016673181
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 36.75s
+
+Fri Oct  2 00:17:43 UTC 2026

@@ -1,0 +1,118 @@
+tau=0.02 kappa=3; 1000 trials per configuration
+
+1. exchangeable null at the v1 noise model: pass >= 99%, fail 0
+  [MET ] n=100 3v3 noisy step 0: pass 99.8% fail 0.0% inconclusive 0.2% not_run 0.0%
+  [MET ] n=100 3v3 bit-identical step 0: pass 99.7% fail 0.0% inconclusive 0.3% not_run 0.0%
+  [MET ] n=100 3v1 noisy step 0: pass 99.9% fail 0.0% inconclusive 0.1% not_run 0.0%
+  [MET ] n=100 3v1 bit-identical step 0: pass 99.9% fail 0.0% inconclusive 0.1% not_run 0.0%
+  [MET ] n=50 3v3 noisy step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] n=50 3v3 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] n=50 3v1 noisy step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] n=50 3v1 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+
+2. the same null at noise x3, x5, x10, x20, x100: fail <= 12% (split reported, with the held shapes that carried a failing application)
+  [MET ] x3 n=100 3v3 noisy step 0: pass 42.8% fail 0.1% inconclusive 57.1% not_run 0.0%; held with a failing application 0/1000
+  [MET ] x3 n=100 3v3 bit-identical step 0: pass 49.5% fail 0.0% inconclusive 50.5% not_run 0.0%; held with a failing application 1/1000
+  [MET ] x3 n=100 3v1 noisy step 0: pass 43.7% fail 0.0% inconclusive 56.3% not_run 0.0%; held with a failing application 0/1000
+  [MET ] x3 n=100 3v1 bit-identical step 0: pass 48.5% fail 0.0% inconclusive 51.5% not_run 0.0%; held with a failing application 0/1000
+  [MET ] x3 n=50 3v3 noisy step 0: pass 82.4% fail 0.0% inconclusive 17.6% not_run 0.0%; held with a failing application 0/1000
+  [MET ] x3 n=50 3v3 bit-identical step 0: pass 91.3% fail 0.0% inconclusive 8.7% not_run 0.0%; held with a failing application 0/1000
+  [MET ] x3 n=50 3v1 noisy step 0: pass 81.9% fail 0.0% inconclusive 18.1% not_run 0.0%; held with a failing application 0/1000
+  [MET ] x3 n=50 3v1 bit-identical step 0: pass 91.5% fail 0.0% inconclusive 8.5% not_run 0.0%; held with a failing application 0/1000
+  [MET ] x5 n=100 3v3 noisy step 0: pass 7.6% fail 1.2% inconclusive 91.2% not_run 0.0%; held with a failing application 13/1000
+  [MET ] x5 n=100 3v3 bit-identical step 0: pass 14.7% fail 1.5% inconclusive 83.8% not_run 0.0%; held with a failing application 5/1000
+  [MET ] x5 n=100 3v1 noisy step 0: pass 8.6% fail 0.2% inconclusive 91.2% not_run 0.0%; held with a failing application 4/1000
+  [MET ] x5 n=100 3v1 bit-identical step 0: pass 14.7% fail 0.4% inconclusive 84.9% not_run 0.0%; held with a failing application 0/1000
+  [MET ] x5 n=50 3v3 noisy step 0: pass 29.5% fail 0.0% inconclusive 70.5% not_run 0.0%; held with a failing application 0/1000
+  [MET ] x5 n=50 3v3 bit-identical step 0: pass 57.0% fail 0.0% inconclusive 43.0% not_run 0.0%; held with a failing application 0/1000
+  [MET ] x5 n=50 3v1 noisy step 0: pass 30.7% fail 0.0% inconclusive 69.3% not_run 0.0%; held with a failing application 1/1000
+  [MET ] x5 n=50 3v1 bit-identical step 0: pass 58.1% fail 0.0% inconclusive 41.9% not_run 0.0%; held with a failing application 0/1000
+  [MET ] x10 n=100 3v3 noisy step 0: pass 0.1% fail 0.0% inconclusive 99.9% not_run 0.0%; held with a failing application 80/1000
+  [MET ] x10 n=100 3v3 bit-identical step 0: pass 0.7% fail 1.1% inconclusive 98.2% not_run 0.0%; held with a failing application 47/1000
+  [MET ] x10 n=100 3v1 noisy step 0: pass 0.3% fail 0.0% inconclusive 99.7% not_run 0.0%; held with a failing application 24/1000
+  [MET ] x10 n=100 3v1 bit-identical step 0: pass 1.4% fail 0.4% inconclusive 98.2% not_run 0.0%; held with a failing application 16/1000
+  [MET ] x10 n=50 3v3 noisy step 0: pass 1.1% fail 0.1% inconclusive 98.8% not_run 0.0%; held with a failing application 40/1000
+  [MET ] x10 n=50 3v3 bit-identical step 0: pass 10.7% fail 1.7% inconclusive 87.6% not_run 0.0%; held with a failing application 8/1000
+  [MET ] x10 n=50 3v1 noisy step 0: pass 1.5% fail 0.2% inconclusive 98.3% not_run 0.0%; held with a failing application 17/1000
+  [MET ] x10 n=50 3v1 bit-identical step 0: pass 13.1% fail 0.4% inconclusive 86.5% not_run 0.0%; held with a failing application 3/1000
+  [MET ] x20 n=100 3v3 noisy step 0: pass 0.0% fail 0.0% inconclusive 100.0% not_run 0.0%; held with a failing application 121/1000
+  [MET ] x20 n=100 3v3 bit-identical step 0: pass 0.0% fail 0.0% inconclusive 100.0% not_run 0.0%; held with a failing application 50/1000
+  [MET ] x20 n=100 3v1 noisy step 0: pass 0.0% fail 0.0% inconclusive 100.0% not_run 0.0%; held with a failing application 56/1000
+  [MET ] x20 n=100 3v1 bit-identical step 0: pass 0.0% fail 0.0% inconclusive 100.0% not_run 0.0%; held with a failing application 28/1000
+  [MET ] x20 n=50 3v3 noisy step 0: pass 0.0% fail 0.0% inconclusive 100.0% not_run 0.0%; held with a failing application 112/1000
+  [MET ] x20 n=50 3v3 bit-identical step 0: pass 0.2% fail 1.8% inconclusive 98.0% not_run 0.0%; held with a failing application 46/1000
+  [MET ] x20 n=50 3v1 noisy step 0: pass 0.0% fail 0.0% inconclusive 100.0% not_run 0.0%; held with a failing application 54/1000
+  [MET ] x20 n=50 3v1 bit-identical step 0: pass 0.4% fail 0.4% inconclusive 99.2% not_run 0.0%; held with a failing application 13/1000
+  [MET ] x100 n=100 3v3 noisy step 0: pass 0.0% fail 0.0% inconclusive 100.0% not_run 0.0%; held with a failing application 8/1000
+  [MET ] x100 n=100 3v3 bit-identical step 0: pass 0.0% fail 0.0% inconclusive 100.0% not_run 0.0%; held with a failing application 4/1000
+  [MET ] x100 n=100 3v1 noisy step 0: pass 0.0% fail 0.0% inconclusive 100.0% not_run 0.0%; held with a failing application 10/1000
+  [MET ] x100 n=100 3v1 bit-identical step 0: pass 0.0% fail 0.0% inconclusive 100.0% not_run 0.0%; held with a failing application 0/1000
+  [MET ] x100 n=50 3v3 noisy step 0: pass 0.0% fail 0.0% inconclusive 100.0% not_run 0.0%; held with a failing application 16/1000
+  [MET ] x100 n=50 3v3 bit-identical step 0: pass 0.0% fail 0.0% inconclusive 100.0% not_run 0.0%; held with a failing application 9/1000
+  [MET ] x100 n=50 3v1 noisy step 0: pass 0.0% fail 0.0% inconclusive 100.0% not_run 0.0%; held with a failing application 12/1000
+  [MET ] x100 n=50 3v1 bit-identical step 0: pass 0.0% fail 0.0% inconclusive 100.0% not_run 0.0%; held with a failing application 8/1000
+
+3. all candidates x(1+delta): 0.5% pass >= 99%, 1% pass >= 99%, 2% (= tau) report-only, 3% fail >= 99%, 4% fail >= 99%
+  [MET ] delta 0.5% n=100 3v3 noisy step 0: pass 99.8% fail 0.0% inconclusive 0.2% not_run 0.0%
+  [MET ] delta 0.5% n=100 3v3 bit-identical step 0: pass 99.9% fail 0.0% inconclusive 0.1% not_run 0.0%
+  [MET ] delta 0.5% n=100 3v1 noisy step 0: pass 99.9% fail 0.0% inconclusive 0.1% not_run 0.0%
+  [MET ] delta 0.5% n=100 3v1 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 0.5% n=50 3v3 noisy step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 0.5% n=50 3v3 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 0.5% n=50 3v1 noisy step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 0.5% n=50 3v1 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 1.0% n=100 3v3 noisy step 0: pass 99.7% fail 0.0% inconclusive 0.3% not_run 0.0%
+  [MET ] delta 1.0% n=100 3v3 bit-identical step 0: pass 99.9% fail 0.0% inconclusive 0.1% not_run 0.0%
+  [MET ] delta 1.0% n=100 3v1 noisy step 0: pass 99.8% fail 0.0% inconclusive 0.2% not_run 0.0%
+  [MET ] delta 1.0% n=100 3v1 bit-identical step 0: pass 99.8% fail 0.0% inconclusive 0.2% not_run 0.0%
+  [MET ] delta 1.0% n=50 3v3 noisy step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 1.0% n=50 3v3 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 1.0% n=50 3v1 noisy step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 1.0% n=50 3v1 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [INFO] delta 2.0% n=100 3v3 noisy step 0: pass 0.1% fail 99.9% inconclusive 0.0% not_run 0.0%; held with a failing application 0/1000 (no target: delta = tau is the boundary by construction)
+  [INFO] delta 2.0% n=100 3v3 bit-identical step 0: pass 0.0% fail 99.7% inconclusive 0.3% not_run 0.0%; held with a failing application 3/1000 (no target: delta = tau is the boundary by construction)
+  [INFO] delta 2.0% n=100 3v1 noisy step 0: pass 7.4% fail 92.6% inconclusive 0.0% not_run 0.0%; held with a failing application 0/1000 (no target: delta = tau is the boundary by construction)
+  [INFO] delta 2.0% n=100 3v1 bit-identical step 0: pass 0.0% fail 99.9% inconclusive 0.1% not_run 0.0%; held with a failing application 1/1000 (no target: delta = tau is the boundary by construction)
+  [INFO] delta 2.0% n=50 3v3 noisy step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%; held with a failing application 0/1000 (no target: delta = tau is the boundary by construction)
+  [INFO] delta 2.0% n=50 3v3 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%; held with a failing application 0/1000 (no target: delta = tau is the boundary by construction)
+  [INFO] delta 2.0% n=50 3v1 noisy step 0: pass 9.0% fail 91.0% inconclusive 0.0% not_run 0.0%; held with a failing application 0/1000 (no target: delta = tau is the boundary by construction)
+  [INFO] delta 2.0% n=50 3v1 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%; held with a failing application 0/1000 (no target: delta = tau is the boundary by construction)
+  [MET ] delta 3.0% n=100 3v3 noisy step 0: pass 0.0% fail 99.6% inconclusive 0.4% not_run 0.0%
+  [MET ] delta 3.0% n=100 3v3 bit-identical step 0: pass 0.0% fail 99.9% inconclusive 0.1% not_run 0.0%
+  [MET ] delta 3.0% n=100 3v1 noisy step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 3.0% n=100 3v1 bit-identical step 0: pass 0.0% fail 99.9% inconclusive 0.1% not_run 0.0%
+  [MET ] delta 3.0% n=50 3v3 noisy step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 3.0% n=50 3v3 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 3.0% n=50 3v1 noisy step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 3.0% n=50 3v1 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 4.0% n=100 3v3 noisy step 0: pass 0.0% fail 99.8% inconclusive 0.2% not_run 0.0%
+  [MET ] delta 4.0% n=100 3v3 bit-identical step 0: pass 0.0% fail 99.8% inconclusive 0.2% not_run 0.0%
+  [MET ] delta 4.0% n=100 3v1 noisy step 0: pass 0.0% fail 99.7% inconclusive 0.3% not_run 0.0%
+  [MET ] delta 4.0% n=100 3v1 bit-identical step 0: pass 0.0% fail 99.9% inconclusive 0.1% not_run 0.0%
+  [MET ] delta 4.0% n=50 3v3 noisy step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 4.0% n=50 3v3 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 4.0% n=50 3v1 noisy step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] delta 4.0% n=50 3v1 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+
+4. one candidate x1.04 with two null (3v3 by construction): fail >= 99%
+  [MET ] n=100 3v3 noisy step 0: pass 0.0% fail 99.8% inconclusive 0.2% not_run 0.0%
+  [MET ] n=100 3v3 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] n=50 3v3 noisy step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] n=50 3v3 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+
+5. step-1-only shift, bit-identical baseline forwards: x1.03 fail >= 99%, x1.01 pass >= 99%
+  [MET ] x1.03 n=100 3v3 bit-identical step 0: pass 0.0% fail 99.8% inconclusive 0.2% not_run 0.0%
+  [MET ] x1.03 n=100 3v1 bit-identical step 0: pass 0.0% fail 99.6% inconclusive 0.4% not_run 0.0%
+  [MET ] x1.03 n=50 3v3 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] x1.03 n=50 3v1 bit-identical step 0: pass 0.0% fail 100.0% inconclusive 0.0% not_run 0.0%
+  [MET ] x1.01 n=100 3v3 bit-identical step 0: pass 99.9% fail 0.0% inconclusive 0.1% not_run 0.0%
+  [MET ] x1.01 n=100 3v1 bit-identical step 0: pass 99.7% fail 0.0% inconclusive 0.3% not_run 0.0%
+  [MET ] x1.01 n=50 3v3 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+  [MET ] x1.01 n=50 3v1 bit-identical step 0: pass 100.0% fail 0.0% inconclusive 0.0% not_run 0.0%
+
+6. Gaussian single application, worst case over sigma/tau of P(fail | null) <= 4.5%
+   (one step, so the first-step and all-steps sets are the same single application, read as (letter, first); letter = 1 + sigma*z in every arm, span constant)
+  [MET ] 3v3 worst P(fail|null): 3.94% at sigma/tau = 0.7 (20000 trials per grid point, grid 0.05..3.00 step 0.05)
+  [MET ] 3v1 worst P(fail|null): 1.79% at sigma/tau = 0.75 (20000 trials per grid point, grid 0.05..3.00 step 0.05)
+
+every calibration target met

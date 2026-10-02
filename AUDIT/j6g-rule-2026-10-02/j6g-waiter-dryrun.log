@@ -1,0 +1,198 @@
+== j6g waiter dry run, lane L-j6g, 2026-10-02T05:37:31Z
+== bash 5.2.37(1)-release; flock from util-linux 2.41.5; timeout (GNU coreutils) 9.7; python 3.11.16
+== waiter sha256 5698551dc90e04832f4af234a7f1e9e8adf8446889101a8aa79483b6376e30de; post_f_common.sh 4867546e748c7ec25bcf00de47c70a8359faca32628fd638bce1355c6cce2269; idle_common.sh 1a449f7aa3db3072f41f1b1a2a47f19b41780d58b51d0b36cbf794edf9004c6a
+== tokenizer.json fe000e3ed39ed12b8d2481d527d44f93c65d37e87645d2dcc80d1bf9d50d2927; v4 train header 4c31e02aaf51f68f986e79806c143f332174218102f84aaecaa382e75479e3cc
+== records (synthetic): batches_9682 commit_other data_other delta_empty delta_extra good ok_absent ok_false permuted_float permuted_zero refusals_1 removed_nonempty rows_mismatch seed_wrong shard_other tok_other width_8192
+
+PASS static: bash -n under bash 5
+PASS static: J6G_PRELUDE is UNSET as committed
+PASS static: J6G_PRELUDE_SHA256 is UNSET as committed
+PASS static: J6G_HUMAN_HOURS_YES carries the human's words and the file
+PASS static: no needle-control, replay or shuffled-label call
+PASS static: the training call is capped by timeout 34200
+PASS s1_committed_unset: the committed file (pins UNSET), j5pp.done absent: exit 3
+PASS s1_committed_unset: logs: j6g deferred: pins UNSET: J6G_PRELUDE J6G_PRELUDE_SHA256
+PASS s1_committed_unset: no training call
+PASS s1_committed_unset: gpu.lock never opened
+PASS s1_committed_unset: .queued and .done touched
+PASS s1_committed_unset: did not wait for j5pp.done (it is absent)
+PASS s2_human_unset: J6G_HUMAN_HOURS_YES=UNSET: exit 3
+PASS s2_human_unset: logs: j6g deferred: pins UNSET: J6G_HUMAN_HOURS_YES
+PASS s2_human_unset: no training call
+PASS s2_human_unset: gpu.lock never opened
+PASS s2_human_unset: .queued and .done touched
+PASS s3_after_j6a: still waiting while j6a is queued and not done
+PASS s3_after_j6a: no training call before j6a.done
+PASS s3_after_j6a: logs that j6a is queued
+PASS s3_after_j6a: exit 0
+PASS s3_after_j6a: one training call
+PASS s3_after_j6a: the call came after j6a.done
+PASS s3_after_j6a: ran from qd-lane8
+PASS s3_after_j6a: argv starts with the expected list
+PASS s3_after_j6a: argv is 62 args, the approved-by text last
+PASS s3_after_j6a: approved-by carries the 2026-10-01 cost yes
+PASS s3_after_j6a: approved-by carries the hours yes
+PASS s3_after_j6a: approved-by names the cap
+added {'--option-permutation-seed': '20260919'} dropped [] changed []
+PASS s3_after_j6a: argv == F's argv + --option-permutation-seed 20260919 (paths aside)
+PASS s3_after_j6a: logs the ft row for the lead
+PASS s3_after_j6a: logs that a502670 prints no 'Option permutation' line
+PASS s3_after_j6a: the queue stops after j6g
+PASS s3_after_j6a: the record check printed the sentence
+PASS s3_after_j6a: .started, .queued and .done
+PASS s3_after_j6a: train.log written
+  s3 log:
+    | === j6g: j5pp is done; j6a is queued, so j6g waits for j6a.done (05:37:31)
+    | prelude record: "Option permutation seed 20260919: 150000 choice rows re-permuted per pass on top of the shard set's own shuffle."; mismatches: None
+    | === j6g (J6(g), F + --option-permutation-seed 20260919, seed 0) at a502670: data /home/ubuntu/phase4-v4-2026-10-01, ledger /home/ubuntu/ledger/gh200-j6g-v4-2026-10-02.jsonl (05:37:35)
+    | arm 1: epoch seed=0 (fake)
+    | cuda seed=0: total 1.0 -> 0.0001  ft row 11111111-2222-4333-8444-555555555555  score row 66666666-7777-4888-9999-000000000000
+    | === J6(g) train+score done (exit 0) (05:37:35)
+    | === J6(g): train.log carries no 'Option permutation' line (a502670 writes the sentence into the ft row's notes, not stdout) (05:37:35)
+    | === J6(g) ft row 11111111-2222-4333-8444-555555555555 in /home/ubuntu/ledger/gh200-j6g-v4-2026-10-02.jsonl; the lead reads it with qd-post-f-rules j6g (05:37:35)
+    | === j6g all done; the idle queue STOPS here (05:37:35)
+PASS s4_j6a_not_queued: exit 0 with one call
+PASS s4_j6a_not_queued: logs that j6a is NOT queued
+PASS s5_waits_j5pp: still waiting without j5pp.done
+PASS s5_waits_j5pp: no call and no lock while waiting
+PASS s5_waits_j5pp: .done not touched while waiting
+PASS s5_waits_j5pp: runs once j5pp.done appears
+PASS s6_waits_lock: no .started and no call while another job holds gpu.lock
+PASS s6_waits_lock: exit 0 once the lock is released
+PASS s6_waits_lock: the call came after the release
+PASS s7_record_pin: a record that is not the pinned one: exit 3
+PASS s7_record_pin: logs: j6g deferred: the prelude record is not the pinned one
+PASS s7_record_pin: no training call
+PASS s7_record_pin: gpu.lock never opened
+PASS s7_record_pin: .queued and .done touched
+PASS s8_record_absent: the record is absent: exit 3
+PASS s8_record_absent: logs: j6g deferred: /home/ubuntu/post-f/j6g-prelude-record.json is absent
+PASS s8_record_absent: no training call
+PASS s8_record_absent: gpu.lock never opened
+PASS s8_record_absent: .queued and .done touched
+PASS s9_record_ok_false: record field broken (ok_false), pinned correctly: exit 3
+PASS s9_record_ok_false: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_ok_false: no training call
+PASS s9_record_ok_false: gpu.lock never opened
+PASS s9_record_ok_false: .queued and .done touched
+PASS s9_record_ok_absent: record field broken (ok_absent), pinned correctly: exit 3
+PASS s9_record_ok_absent: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_ok_absent: no training call
+PASS s9_record_ok_absent: gpu.lock never opened
+PASS s9_record_ok_absent: .queued and .done touched
+PASS s9_record_refusals_1: record field broken (refusals_1), pinned correctly: exit 3
+PASS s9_record_refusals_1: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_refusals_1: no training call
+PASS s9_record_refusals_1: gpu.lock never opened
+PASS s9_record_refusals_1: .queued and .done touched
+PASS s9_record_batches_9682: record field broken (batches_9682), pinned correctly: exit 3
+PASS s9_record_batches_9682: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_batches_9682: no training call
+PASS s9_record_batches_9682: gpu.lock never opened
+PASS s9_record_batches_9682: .queued and .done touched
+PASS s9_record_width_8192: record field broken (width_8192), pinned correctly: exit 3
+PASS s9_record_width_8192: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_width_8192: no training call
+PASS s9_record_width_8192: gpu.lock never opened
+PASS s9_record_width_8192: .queued and .done touched
+PASS s9_record_delta_extra: record field broken (delta_extra), pinned correctly: exit 3
+PASS s9_record_delta_extra: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_delta_extra: no training call
+PASS s9_record_delta_extra: gpu.lock never opened
+PASS s9_record_delta_extra: .queued and .done touched
+PASS s9_record_delta_empty: record field broken (delta_empty), pinned correctly: exit 3
+PASS s9_record_delta_empty: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_delta_empty: no training call
+PASS s9_record_delta_empty: gpu.lock never opened
+PASS s9_record_delta_empty: .queued and .done touched
+PASS s9_record_removed_nonempty: record field broken (removed_nonempty), pinned correctly: exit 3
+PASS s9_record_removed_nonempty: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_removed_nonempty: no training call
+PASS s9_record_removed_nonempty: gpu.lock never opened
+PASS s9_record_removed_nonempty: .queued and .done touched
+PASS s9_record_seed_wrong: record field broken (seed_wrong), pinned correctly: exit 3
+PASS s9_record_seed_wrong: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_seed_wrong: no training call
+PASS s9_record_seed_wrong: gpu.lock never opened
+PASS s9_record_seed_wrong: .queued and .done touched
+PASS s9_record_shard_other: record field broken (shard_other), pinned correctly: exit 3
+PASS s9_record_shard_other: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_shard_other: no training call
+PASS s9_record_shard_other: gpu.lock never opened
+PASS s9_record_shard_other: .queued and .done touched
+PASS s9_record_data_other: record field broken (data_other), pinned correctly: exit 3
+PASS s9_record_data_other: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_data_other: no training call
+PASS s9_record_data_other: gpu.lock never opened
+PASS s9_record_data_other: .queued and .done touched
+PASS s9_record_tok_other: record field broken (tok_other), pinned correctly: exit 3
+PASS s9_record_tok_other: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_tok_other: no training call
+PASS s9_record_tok_other: gpu.lock never opened
+PASS s9_record_tok_other: .queued and .done touched
+PASS s9_record_rows_mismatch: record field broken (rows_mismatch), pinned correctly: exit 3
+PASS s9_record_rows_mismatch: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_rows_mismatch: no training call
+PASS s9_record_rows_mismatch: gpu.lock never opened
+PASS s9_record_rows_mismatch: .queued and .done touched
+PASS s9_record_permuted_zero: record field broken (permuted_zero), pinned correctly: exit 3
+PASS s9_record_permuted_zero: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_permuted_zero: no training call
+PASS s9_record_permuted_zero: gpu.lock never opened
+PASS s9_record_permuted_zero: .queued and .done touched
+PASS s9_record_permuted_float: record field broken (permuted_float), pinned correctly: exit 3
+PASS s9_record_permuted_float: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_permuted_float: no training call
+PASS s9_record_permuted_float: gpu.lock never opened
+PASS s9_record_permuted_float: .queued and .done touched
+PASS s9_record_commit_other: record field broken (commit_other), pinned correctly: exit 3
+PASS s9_record_commit_other: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s9_record_commit_other: no training call
+PASS s9_record_commit_other: gpu.lock never opened
+PASS s9_record_commit_other: .queued and .done touched
+PASS s10_box_tokenizer: the box's tokenizer.json is not TOKENIZER_SHA256: exit 3
+PASS s10_box_tokenizer: logs: j6g deferred: the box's tokenizer.json is not the one the prelude checked
+PASS s10_box_tokenizer: no training call
+PASS s10_box_tokenizer: gpu.lock never opened
+PASS s10_box_tokenizer: .queued and .done touched
+PASS s11_box_header: F's train header names another shard hash: exit 3
+PASS s11_box_header: logs: j6g deferred: the prelude record is not the pre-registration's
+PASS s11_box_header: no training call
+PASS s11_box_header: gpu.lock never opened
+PASS s11_box_header: .queued and .done touched
+PASS s12_ledger_exists: J6(g)'s ledger already exists: exit 3
+PASS s12_ledger_exists: logs: j6g: /home/ubuntu/ledger/gh200-j6g-v4-2026-10-02.jsonl exists; J6(g)'s rows go into a new ledger (R2), refusing
+PASS s12_ledger_exists: no training call
+PASS s12_ledger_exists: gpu.lock never opened
+PASS s12_ledger_exists: .queued and .done touched
+PASS s13_train_log_exists: exit 3, no call
+PASS s13_train_log_exists: logs: refusing to run twice
+PASS s14_skip_changed: exit 3, no call
+PASS s14_skip_changed: logs F's skip refusal
+PASS s15_lane_dirty: exit 3, no call
+PASS s15_lane_dirty: logs the dirty lane
+PASS s15_lane_other_commit: exit 3, no call
+PASS s15_lane_other_commit: logs the wrong commit
+PASS s16_kill_child: the child was killed -9 and the waiter went on: exit 4
+PASS s16_kill_child: logs the pipeline status 137
+PASS s16_kill_child: logs no ft row
+PASS s16_kill_child: .done touched
+PASS s17_child_refuses: exit 4, no ft row
+PASS s17_child_refuses: logs the child's exit 3
+
+== aarch64 checker: 4090d565f9121da64cfdc48ec336c7d127f78a9ff2c84a86e9ddc90d9cdff88a, aarch64
+PASS checker_f_ledger: F's committed ledger (seed 0 only): prints refused
+PASS checker_f_ledger: exit 3
+PASS checker_f_ledger: room not decided (no envelope)
+PASS checker_f_seed0_as_arm: F seed 0's own rows as J6(g): prints refused
+PASS checker_f_seed0_as_arm: exit 3
+PASS checker_f_seed0_as_arm: names the missing key
+PASS checker_f_seed0_as_arm: names quick
+PASS checker_synthetic_arm: F seed 0 + the one key, quick: quiet, exit 0
+PASS checker_out_exists: an existing --out refuses
+PASS checker_help: lists j6g beside the existing subcommands
+  c1: refused exit 3; (a) row 00000000-0000-4000-8000-000000000001 appears 0 time(s) in /sim/data/gh200-p4-v4-2026-10-01.jsonl, not once; room not decided: F's envelope did not resolve, so no target was examined for room (R9_room) and no arm was judged
+  c2: refused exit 3; (a) arm j6g ft row 973cd4e3-e0d2-4ff8-8588-b761cb842b75: quick is false, but J6(g) is one seed and quick by construction; recipe.option_permutation_seed is absent, not the pre-registered 20260919: J6(g)'s one added key (arm.identity.recipe)
+  c3: quiet exit 0; quiet
+
+== 174 PASS, 0 FAIL

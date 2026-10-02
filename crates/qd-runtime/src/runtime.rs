@@ -22,9 +22,11 @@ use std::time::{Duration, Instant};
 use crate::answer::{answer, AnswerContext, Deadline};
 use crate::backend::{BackendIdentity, DecisionBackend};
 use crate::calibration::CalibrationTable;
+use crate::ensemble::EnsembleBackend;
 use crate::reference::ReferenceBackend;
 use crate::refusal::{BackendError, HashKind, QdError, Refusal};
 use crate::registry::HeadRegistry;
+use crate::release::{Ensemble, Release};
 use crate::render::RenderCaps;
 use crate::schema::{DecisionRequest, HashExpectation, Response, Route};
 
@@ -98,6 +100,88 @@ impl Runtime {
             HeadRegistry::new(),
             cfg.caps,
             started.elapsed(),
+        )
+    }
+
+    /// Build around a backend that loaded from `release`, with the release's calibration table.
+    ///
+    /// There is no calibration parameter: the table is the one [`Release::open`] verified against
+    /// the manifest, so the table that calibrates is the one `expect.calibration_hash` can pin.
+    /// The backend must report the tower, tokenizer and calibration hash the release binds
+    /// ([`Release::check_backend`]). A mismatch is [`BackendError::Unavailable`] carrying the
+    /// release refusal: a runtime that cannot be built has nothing to answer with, and the model
+    /// is never asked.
+    pub fn from_release(
+        release: &Release,
+        backend: Arc<dyn DecisionBackend>,
+        registry: HeadRegistry,
+        caps: RenderCaps,
+    ) -> Result<Self, BackendError> {
+        release
+            .check_backend(backend.identity())
+            .map_err(|refusal| BackendError::Unavailable {
+                detail: refusal.to_string(),
+            })?;
+        Self::assemble(
+            backend,
+            release.calibration().clone(),
+            registry,
+            caps,
+            Duration::ZERO,
+        )
+    }
+
+    /// Build around N member backends, each loaded from the matching tower of `ensemble`, with
+    /// the ensemble's calibration table.
+    ///
+    /// Refused, as [`BackendError::Unavailable`] carrying why, unless there is exactly one
+    /// member per tower, in order, and each member reports its tower's weight and tokenizer
+    /// hashes ([`crate::release::Tower::check_backend`]) and declares the ensemble's table.
+    /// [`EnsembleBackend::new`] then refuses members that disagree on tokenizer, letter ids or
+    /// table. N-1 members are never built into a runtime.
+    pub fn from_ensemble(
+        ensemble: &Ensemble,
+        members: Vec<Arc<dyn DecisionBackend>>,
+        registry: HeadRegistry,
+        caps: RenderCaps,
+    ) -> Result<Self, BackendError> {
+        let towers = ensemble.towers();
+        if members.len() != towers.len() {
+            return Err(BackendError::Unavailable {
+                detail: format!(
+                    "ensemble {} names {} towers and {} members were loaded; a partial ensemble \
+                     is not served",
+                    ensemble.dir().display(),
+                    towers.len(),
+                    members.len()
+                ),
+            });
+        }
+        let table_hash = ensemble.calibration().hash();
+        for (i, (tower, member)) in towers.iter().zip(&members).enumerate() {
+            let identity = member.identity();
+            tower
+                .check_backend(identity)
+                .map_err(|refusal| BackendError::Unavailable {
+                    detail: format!("ensemble member {i}: {refusal}"),
+                })?;
+            if identity.calibration_hash != table_hash {
+                return Err(BackendError::Unavailable {
+                    detail: format!(
+                        "ensemble member {i} (`{}`) declares calibration_hash {}; the ensemble's \
+                         table is {table_hash}",
+                        identity.name, identity.calibration_hash
+                    ),
+                });
+            }
+        }
+        let backend = EnsembleBackend::new(members)?;
+        Self::assemble(
+            Arc::new(backend),
+            ensemble.calibration().clone(),
+            registry,
+            caps,
+            Duration::ZERO,
         )
     }
 
@@ -178,12 +262,18 @@ impl Runtime {
     /// registered caller ships and therefore the thing it can pin. On the generic route it is the
     /// backend's `lm_head`. The registered head's binding to the backbone is a separate check and
     /// runs whether or not the caller pinned anything.
+    ///
+    /// `calibration_hash` is compared with the table this runtime **calibrates with**, not with
+    /// the hash the backend declares: the backend does not own the table, and a pin that passed
+    /// for a table that is not serving would be approval of something unexamined
+    /// (`GAP-RT-CALIBRATION-HASH-PIN-BINDS-THE-BACKEND-NOT-THE-LOADED-TABLE`).
     pub fn check_hashes(
         &self,
         expect: &HashExpectation,
         head_hash: &str,
     ) -> Result<(), Refusal> {
         let identity = self.identity();
+        let calibration_hash = self.calibration.hash();
         let pairs: [(HashKind, &Option<String>, &str); 5] = [
             (
                 HashKind::Tokenizer,
@@ -200,7 +290,7 @@ impl Runtime {
             (
                 HashKind::Calibration,
                 &expect.calibration_hash,
-                &identity.calibration_hash,
+                &calibration_hash,
             ),
         ];
         for (which, pinned, actual) in pairs {
@@ -247,6 +337,8 @@ impl Runtime {
             }
         };
         self.check_hashes(&request.expect, &head_hash)?;
+        // Before the model: a context its task was never trained on is refused, not answered.
+        crate::admission::admit(request)?;
 
         let ctx = AnswerContext {
             backend: self.backend.as_ref(),
