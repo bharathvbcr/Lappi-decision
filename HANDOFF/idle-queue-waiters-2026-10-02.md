@@ -141,6 +141,9 @@ Two more facts:
    - While any is UNSET, it logs `j6a deferred: pins UNSET: …` and touches `j6a.done`. Trains nothing.
    - Fill them by commit from L-replay's HANDOFF after build 2, decontam 2 (CLEAN), the rsync without held-out data, and the box prelude.
      - The plan names `/home/ubuntu/phase4-v4-replay-2026-10-02`, `…/shards/replay` and `…/replay-attestation.json`.
+   - Write `REPLAY_DIR` and `ATTESTATION` as absolute paths with **no trailing slash**, exactly as the plan writes them.
+     - The prelude gate compares main's `replay: N batches from {args.replay_shards} …` line with `$REPLAY_DIR`.
+     - `--replay-shards` is `type=Path` at a502670 (`tools/real_ft_run.py:7803`), so a trailing slash would be dropped from the printed line and the gate would STOP. That is fail-closed, but it wastes a launch.
    - Then stage the filled copy and record its new sha256.
    - **Never edit the file while its waiter runs.** Bash reads a script as it executes it.
    - j6a waits only on `j5pp.done`, so it can be launched any time after the pins are filled, even after j5pp finished.
@@ -168,10 +171,13 @@ Two more facts:
 
 ## Launch commands, in launch order
 
-All six can be launched together, because every one waits on its predecessor's marker.
+The first five can be launched together, because every one waits on its predecessor's marker.
 - rung 0's waiter is already queued (`rung0.queued`).
 - j6f and j6dv4 are already queued.
-- j6a can go now (it records its deferral) or later, once its pins are filled.
+
+**Recommendation: launch j6a only after its four pins are filled and the filled copy is staged.**
+- The marker check above applies to that launch too: no `j6a.*` marker may exist.
+- If j6a is launched early, while a pin is still UNSET, it logs `j6a deferred: pins UNSET` and touches `j6a.done` once j5pp is done. A real launch afterwards first needs those markers removed, and that removal is the lead's call.
 
 ```
 nohup setsid bash /home/ubuntu/post-f/box_q_j6ctl.sh > /home/ubuntu/logs/q-j6ctl.log 2>&1 < /dev/null &
