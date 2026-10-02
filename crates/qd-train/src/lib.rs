@@ -10,13 +10,15 @@
 //! drives, [`trainer`] the loop, [`objective`] Lappi's letter + span objective, [`schedule`] the
 //! learning-rate schedule, [`recipe`] the optimizer recipe, [`adamw`] the host-side AdamW,
 //! [`run_control`] the cap and the digests, [`ledger`] the `ft` row, [`export`] the trained
-//! weights, and [`mock`] a tiny CPU model that exercises the loop with no GPU. [`pyjson`] (the
-//! bytes Python hashes) and [`tristate`] are shared with the data half. None of it depends on
-//! tessl, so the crate builds and tests on Linux too.
+//! weights, and [`mock`] a tiny CPU model that exercises the loop with no GPU. [`ft_data`] puts
+//! the data half's [`shards::Batch`] and the head lane's [`span_head::SpanHead`] behind the
+//! objective's traits. [`pyjson`] (the bytes Python hashes) and [`tristate`] are shared by both
+//! halves. None of it depends on tessl, so the crate builds and tests on Linux too.
 
 pub mod adamw;
 pub mod export;
 pub mod files;
+pub mod ft_data;
 pub mod held_out;
 pub mod ledger;
 pub mod mock;
