@@ -70,6 +70,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
@@ -89,26 +90,54 @@ __all__ = [
     "COMPOSED_FILE_HEADER_LINES",
     "COMPOSED_SCHEMA",
     "CONTEXT_HEADER_LINES",
+    "CONTRAST_TWIN_FAMILIES",
     "DEFECT_CLASSES",
     "DEFECT_FAMILY_ID",
     "DEFECT_SOURCE_ID",
+    "G6_FORM",
+    "G6_LANGUAGES",
+    "G6_SCHEMA",
     "NOUL_ALLOWLIST_SCHEMA",
     "NOUL_CLASS",
+    "NOUL_COMPOSITE_SCHEMA",
+    "NOUL_FORM_KEY",
     "NOUL_PROSE",
+    "NOUL_ROUTES",
+    "NOUL_ROUTE_CONTRAST",
+    "NOUL_ROUTE_G6",
+    "NOUL_ROUTE_KEY",
+    "NOUL_ROUTE_OWN_PROSE",
     "NOUL_SCRAMBLED",
     "NOUL_SOURCES",
     "NOUL_TEMPLATE_LICENCE",
     "NOUL_TEMPLATE_UNIT_PREFIX",
     "NOUL_UNSEEN_LANGUAGE",
+    "NOUL_V5_ALLOWLIST_SCHEMA",
+    "OOD_PROSE_PATH",
+    "OWN_PROSE_MIN_ASCII_RATIO",
+    "OWN_PROSE_MIN_PARAGRAPH_WORDS",
+    "OWN_PROSE_QUESTION_MARKUP",
+    "OWN_PROSE_QUESTION_WORDS",
+    "OWN_PROSE_SCHEMA",
+    "PROSE_FORMS",
+    "PROSE_FORM_PARAGRAPH",
+    "PROSE_FORM_QUESTION",
     "SPAN_SLOT",
+    "ContrastSpec",
     "DefectCorpusError",
     "DefectLoad",
     "DefectRow",
     "NoulLoad",
+    "composite_digest",
     "diff_line_span",
     "load_defect_rows",
     "load_noul_rows",
     "noul_allowlist",
+    "noul_contrast_spec",
+    "noul_v5_allowlist",
+    "own_prose_ascii_ratio",
+    "own_prose_words",
+    "prose_defect_row",
     "second_pass_permutation",
     "with_permuted_options",
 ]
@@ -169,6 +198,40 @@ NOUL_TEMPLATE_LICENCE_BASIS: Final[str] = (
     "under its LICENSE, Apache-2.0 -- the workspace licence in Cargo.toml"
 )
 
+#: ``DataRow.metadata`` keys of a v5 noul row built by one of the routes below: which route,
+#: and which form within it. Absent on every row v4 built, so those rows' content is unchanged.
+NOUL_ROUTE_KEY: Final[str] = "noul_route"
+NOUL_FORM_KEY: Final[str] = "noul_form"
+
+#: v5's new noul routes (campaign/v5-preregistered.DRAFT.json ``data.sources[3,4,6]``).
+#: ``own-prose``: the human's own repositories' Markdown, route (i). ``contrast``: a surviving
+#: MMLU/CSQA train twin's question, route (ii), derived by ``qd_train.contrast`` after the split.
+#: ``commitpackft-g6``: real bigcode/commitpackft commits in eight languages no suite holds (G6).
+#: Every routed row is pinned to train (``PINNED_SPLIT_KEY``): none may reach val or held-out.
+NOUL_ROUTE_OWN_PROSE: Final[str] = "own-prose"
+NOUL_ROUTE_CONTRAST: Final[str] = "contrast"
+NOUL_ROUTE_G6: Final[str] = "commitpackft-g6"
+NOUL_ROUTES: Final[tuple[str, ...]] = (NOUL_ROUTE_OWN_PROSE, NOUL_ROUTE_CONTRAST, NOUL_ROUTE_G6)
+
+#: The forms a prose route's row takes: one question sentence, or one paragraph.
+PROSE_FORM_QUESTION: Final[str] = "question"
+PROSE_FORM_PARAGRAPH: Final[str] = "paragraph"
+PROSE_FORMS: Final[tuple[str, ...]] = (PROSE_FORM_QUESTION, PROSE_FORM_PARAGRAPH)
+#: A G6 row's form: one real commit's diff.
+G6_FORM: Final[str] = "commit"
+
+#: The OOD suite's prose path (``qd_train.ood.build_ood_suite``). No training row may carry it:
+#: a path that predicts the gate's prose cases is a shortcut the gate would grade.
+OOD_PROSE_PATH: Final[str] = "notes.txt"
+
+#: A composite noul corpus's manifest schema: the parts it is the union of, each pinned by
+#: sha256, and the contrast rows a build derives after its split (``qd_train.contrast``).
+NOUL_COMPOSITE_SCHEMA: Final[str] = "qd-noul-composite/v1"
+#: ``qd-noul-rows own-prose``'s manifest schema.
+OWN_PROSE_SCHEMA: Final[str] = "qd-own-prose/v1"
+#: ``qd-noul-rows g6``'s manifest schema.
+G6_SCHEMA: Final[str] = "qd-noul-g6/v1"
+
 #: The SQuAD source whose train-split paragraphs feed the prose rows, and whose registered
 #: licence they carry.
 _SQUAD_SOURCE_ID: Final[str] = "rajpurkar/squad_v2"
@@ -192,8 +255,15 @@ class DefectRow:
     not be rebased, in which case ``span_refusal`` names why and the rewriter refuses the row.
 
     ``noul_source`` is set exactly when the class is :data:`NOUL_CLASS`, and names which of
-    :data:`NOUL_SOURCES` the row came from; only :func:`load_noul_rows` builds such a row. A
-    noul row, like ``clean``, points at nothing, so it carries no span.
+    :data:`NOUL_SOURCES` the row came from; only :func:`load_noul_rows` and
+    :func:`prose_defect_row` build such a row. A noul row, like ``clean``, points at nothing,
+    so it carries no span.
+
+    ``noul_route`` names which v5 route (:data:`NOUL_ROUTES`) built a noul row, ``noul_form``
+    its form within the route, and ``identity_key`` overrides the rewriter's
+    ``repo::path::symbol/arity`` identity for a route whose identity is fixed elsewhere (a
+    contrast row is ``contrast:<twin identity>``). All three are ``None`` on every row v4
+    read, so those rows render and hash exactly as they did.
     """
 
     example_id: str
@@ -210,8 +280,23 @@ class DefectRow:
     span_refusal: str | None
     licence: str
     noul_source: str | None = None
+    noul_route: str | None = None
+    noul_form: str | None = None
+    identity_key: str | None = None
 
     def __post_init__(self) -> None:
+        if self.noul_route is None:
+            if self.noul_form is not None or self.identity_key is not None:
+                raise DefectCorpusError(
+                    f"{self.example_id}: a noul_form or identity_key without a noul_route; "
+                    "only a routed noul row carries them"
+                )
+        elif self.mutation_class != NOUL_CLASS or self.noul_route not in NOUL_ROUTES:
+            raise DefectCorpusError(
+                f"{self.example_id}: noul_route {self.noul_route!r} on class "
+                f"{self.mutation_class!r}; a route is one of {NOUL_ROUTES} and only a "
+                f"{NOUL_CLASS!r} row has one"
+            )
         if self.mutation_class == NOUL_CLASS:
             if self.noul_source not in NOUL_SOURCES:
                 raise DefectCorpusError(
@@ -267,6 +352,8 @@ class DefectLoad:
     #: Composed rows (``qd-mutate compose``) appended after their base corpus's rows. Never
     #: capped: ``max_rows`` samples the base corpus. Counted in ``n_corpus`` too.
     n_composed: int = 0
+    #: v5's routed noul rows by route (:data:`NOUL_ROUTES`), a subset of ``n_noul``.
+    noul_by_route: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,8 +361,72 @@ class NoulLoad:
     rows: tuple[DefectRow, ...]
     #: ``noul_source -> count``, in :data:`NOUL_SOURCES` order.
     by_source: dict[str, int]
-    #: The corpus's ``examples_sha256``, as checked.
+    #: The corpus's ``examples_sha256``, as checked. A composite corpus's is its parts' digest.
     examples_sha256: str
+    #: ``noul_route -> count`` over the routed rows (v5); empty for a corpus with none.
+    by_route: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ContrastSpec:
+    """What a composite noul corpus asks a build to derive after its split
+    (``qd_train.contrast``): ``per_family[f]`` contrast rows from family ``f``'s surviving
+    train twins, drawn in the keyed blake2b order of their identity keys under ``seed``."""
+
+    per_family: dict[str, int]
+    seed: int
+
+
+#: The general families whose questions a contrast row may carry: MMLU and CSQA, the OOD
+#: suite's own prose families (``qd_train.ood``'s val-split questions come from these two).
+CONTRAST_TWIN_FAMILIES: Final[tuple[str, ...]] = (
+    "knowledge.multiple_choice", "commonsense.multiple_choice",
+)
+
+
+def prose_defect_row(
+    text: str,
+    *,
+    route: str,
+    form: str,
+    example_id: str,
+    repo: str,
+    path: str,
+    licence: str,
+    identity_key: str | None = None,
+) -> DefectRow:
+    """THE one "prose text -> ``code.defect_class`` gold-noul row" builder (Fable's v5 review
+    section 2.4): the own-prose route (:func:`_load_own_prose`) and the contrast route
+    (``qd_train.contrast``) both call it, and every row it returns is rendered by the one
+    ``qd_data.mixture.rewrite_defect_class``. Its context is the text itself under
+    ``file: <path>`` -- not a hunk: v5's prose routes present prose as prose, the form the OOD
+    suite's prose cases take (``campaign/v5-preregistered.DRAFT.json`` ``data.sources[3]``,
+    "Context = the text").
+
+    ``repo`` is the split unit and ``pool_id``; the route pins the row to train
+    (``rewrite_defect_class`` sets ``PINNED_SPLIT_KEY``), so no prose route can reach val or
+    held-out whatever its unit hashes to. Refuses the OOD suite's prose path, a multi-line
+    path, an empty text, and a route or form it does not know.
+    """
+    if route not in (NOUL_ROUTE_OWN_PROSE, NOUL_ROUTE_CONTRAST):
+        raise DefectCorpusError(f"{example_id}: {route!r} is not a prose route")
+    if form not in PROSE_FORMS:
+        raise DefectCorpusError(f"{example_id}: prose form {form!r} is not one of {PROSE_FORMS}")
+    if not text.strip():
+        raise DefectCorpusError(f"{example_id}: an empty text is not prose")
+    if not path or "\n" in path or "\r" in path:
+        raise DefectCorpusError(f"{example_id}: path {path!r} is not one line")
+    if Path(path).name == OOD_PROSE_PATH:
+        raise DefectCorpusError(
+            f"{example_id}: path {path!r} is the OOD suite's prose path; a training row that "
+            "carries it teaches the gate's own cue"
+        )
+    return DefectRow(
+        example_id=example_id, pool_id=repo, repo=repo, path=path, symbol=example_id, arity=0,
+        language=NOUL_PROSE, mutation_class=NOUL_CLASS, operator=f"{NOUL_CLASS}.{NOUL_PROSE}",
+        diff=text, diff_span=None, span_refusal=None, licence=normalise_licence(licence),
+        noul_source=NOUL_PROSE, noul_route=route, noul_form=form, identity_key=identity_key,
+    )
 
 
 def _sha256_file(path: Path) -> str:
@@ -669,7 +820,7 @@ def load_defect_rows(
         capped = base.capped
     noul: NoulLoad | None = None
     if noul_dir is not None:
-        noul = _load_noul(
+        noul = _load_noul_corpus(
             Path(noul_dir), config=config, repo_root=Path(repo_root), licences=licences,
             pools={str(pool_meta["sha256"]): pool},
         )
@@ -689,6 +840,7 @@ def load_defect_rows(
         n_noul=0 if noul is None else len(noul.rows),
         noul_by_source={} if noul is None else dict(noul.by_source),
         n_composed=n_composed,
+        noul_by_route={} if noul is None else dict(noul.by_route),
     )
 
 
@@ -919,6 +1071,436 @@ def _load_noul(
     )
 
 
+# -- v5: the composite noul corpus and its two new parts --------------------------------
+
+#: own-prose's content rules (Fable's v5 review section 2.9 (3); the DRAFT's ``data.sources[3]``):
+#: a paragraph has at least this many words, a question 6-60, and either at least this share of
+#: ASCII characters; at most this many rows come from one repository.
+OWN_PROSE_MIN_PARAGRAPH_WORDS: Final[int] = 25
+OWN_PROSE_QUESTION_WORDS: Final[tuple[int, int]] = (6, 60)
+#: A question unit starts with an ASCII capital, holds none of these (inline code, emphasis cut
+#: by the sentence split, a table cell, a link, a brace: the walker's ``QUESTION_MARKUP``), and
+#: closes every double quote and parenthesis it opens.
+OWN_PROSE_QUESTION_MARKUP: Final[tuple[str, ...]] = ("`", "*", "|", "](", "http", "{", "}")
+OWN_PROSE_MIN_ASCII_RATIO: Final[float] = 0.9
+OWN_PROSE_PER_REPO_CAP: Final[int] = 150
+#: What a word is, for every count above: the inventory's definition
+#: (``AUDIT/v5-plan-2026-10-02/own_repo_inventory.py``), which the walker
+#: (``crates/qd-mutate/src/noul_rows/own_prose.rs``) implements byte for byte.
+OWN_PROSE_WORD: Final[re.Pattern[str]] = re.compile(r"[A-Za-z][A-Za-z'\-]+")
+#: The split unit of an own-prose row: one per repository.
+OWN_PROSE_REPO_PREFIX: Final[str] = "own-prose:"
+
+#: G6's languages: bigcode/commitpackft's ``data/<lang>`` for eight languages that no suite and
+#: no other training source holds (``campaign/v5-preregistered.DRAFT.json`` ``data.sources[6]``;
+#: ``python/tests/test_defect_noul_v5.py`` asserts the disjointness against each suite's own
+#: constants).
+G6_LANGUAGES: Final[tuple[str, ...]] = (
+    "clojure",
+    "erlang",
+    "fortran",
+    "julia",
+    "ocaml",
+    "perl",
+    "r",
+    "tcl",
+)
+
+
+def own_prose_words(text: str) -> int:
+    return len(OWN_PROSE_WORD.findall(text))
+
+
+def own_prose_ascii_ratio(text: str) -> float:
+    return sum(ch.isascii() for ch in text) / len(text) if text else 0.0
+
+
+def _json_lines(path: Path, *, config: DataConfig, limit: int) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    with path.open(encoding="utf-8") as fh:
+        for lineno, line in enumerate(fh, 1):
+            if not line.strip():
+                continue
+            if len(line.encode("utf-8")) > config.max_row_bytes:
+                raise DefectCorpusError(
+                    f"{path}:{lineno}: over the {config.max_row_bytes}-byte bound"
+                )
+            if len(out) >= limit:
+                raise DefectCorpusError(f"{path} holds more than {limit} rows")
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError as e:
+                raise DefectCorpusError(f"{path}:{lineno}: not JSON: {e}") from e
+            if not isinstance(obj, dict):
+                raise DefectCorpusError(f"{path}:{lineno}: not a JSON object")
+            out.append(obj)
+    return out
+
+
+def _own_prose_violation(
+    obj: Mapping[str, Any], *, files: set[tuple[str, str, str]], repos: set[str]
+) -> str | None:
+    """Why ``obj`` may not be an own-prose row, or ``None``: the walker's rules, re-checked."""
+    for key in ("id", "repo", "path", "file_sha256", "form", "text"):
+        if not isinstance(obj.get(key), str) or not str(obj[key]).strip():
+            return f"missing_{key}"
+    text, form, path = str(obj["text"]), str(obj["form"]), str(obj["path"])
+    if obj["repo"] not in repos:
+        return "repo_not_admitted"
+    if (obj["repo"], path, obj["file_sha256"]) not in files:
+        return "file_not_in_files_jsonl"
+    if "\n" in path or "\r" in path or Path(path).name == OOD_PROSE_PATH:
+        return "path_refused"
+    if "\n" in text or "\r" in text:
+        return "text_is_not_one_line"
+    words = own_prose_words(text)
+    if form == PROSE_FORM_QUESTION:
+        lo, hi = OWN_PROSE_QUESTION_WORDS
+        if not (lo <= words <= hi and text.rstrip().endswith("?")):
+            return "question_out_of_band"
+        if not ("A" <= text[0] <= "Z"):
+            return "question_not_a_sentence_start"
+        if any(mark in text for mark in OWN_PROSE_QUESTION_MARKUP):
+            return "question_has_markup"
+        if text.count('"') % 2 or text.count("(") != text.count(")"):
+            return "question_unbalanced"
+    elif form == PROSE_FORM_PARAGRAPH:
+        if words < OWN_PROSE_MIN_PARAGRAPH_WORDS:
+            return "paragraph_too_short"
+    else:
+        return "unknown_form"
+    if own_prose_ascii_ratio(text) < OWN_PROSE_MIN_ASCII_RATIO:
+        return "ascii_ratio_below_min"
+    return None
+
+
+def _load_own_prose(part_dir: Path, *, config: DataConfig, repo_root: Path) -> NoulLoad:
+    """``qd-noul-rows own-prose``'s output as rows, through :func:`prose_defect_row`. Fails closed:
+    a manifest that does not pin its two files, ranges that are not ``render``'s, a licence or a
+    source that is not admitted, and any one row that breaks a rule refuse the whole part."""
+    from qd_train.data_access import assert_path_not_held_out
+
+    from .sources import OWN_REPOS_SOURCE_ID
+
+    manifest_path = part_dir / "manifest.json"
+    files_path = part_dir / "files.jsonl"
+    units_path = part_dir / "units.jsonl"
+    for p in (manifest_path, files_path, units_path):
+        assert_path_not_held_out(p, config=config, repo_root=repo_root)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("schema") != OWN_PROSE_SCHEMA:
+        raise DefectCorpusError(
+            f"{manifest_path}: schema {manifest.get('schema')!r}, not {OWN_PROSE_SCHEMA!r}"
+        )
+    if manifest.get("source_id") != OWN_REPOS_SOURCE_ID:
+        raise DefectCorpusError(
+            f"{manifest_path}: source {manifest.get('source_id')!r}, not {OWN_REPOS_SOURCE_ID!r}"
+        )
+    refusals = source_by_id(OWN_REPOS_SOURCE_ID).admission_refusals(config.licence)
+    if refusals:
+        raise DefectCorpusError(
+            f"{OWN_REPOS_SOURCE_ID} is not admitted by this run: {list(refusals)}"
+        )
+    licence = str(manifest.get("licence", ""))
+    if licence != source_by_id(OWN_REPOS_SOURCE_ID).declared_licence:
+        raise DefectCorpusError(f"{manifest_path}: licence {licence!r} is not the source's")
+    admit_licence(licence, config=config.licence, source=OWN_REPOS_SOURCE_ID)
+    ranges = [tuple(r) for r in manifest.get("invisible_format_ranges", [])]
+    if ranges != [tuple(r) for r in INVISIBLE_FORMAT_RANGES]:
+        raise DefectCorpusError(
+            f"{manifest_path} was walked under invisible-format ranges {ranges}, not "
+            "qd_data.render.INVISIBLE_FORMAT_RANGES: re-walk it with the current table"
+        )
+    _check_sha(files_path, str(manifest["files"]["sha256"]), recorded_in=manifest_path)
+    _check_sha(units_path, str(manifest["units"]["sha256"]), recorded_in=manifest_path)
+    files = _json_lines(files_path, config=config, limit=config.max_rows_per_source)
+    units = _json_lines(units_path, config=config, limit=config.max_rows_per_source)
+    if len(files) != int(manifest["files"]["count"]) or len(units) != int(
+        manifest["units"]["count"]
+    ):
+        raise DefectCorpusError(f"{part_dir}: file or unit counts disagree with {manifest_path}")
+    repos = {str(r["repo"]) for r in manifest.get("admitted_repos", [])}
+    file_keys = {(str(f.get("repo")), str(f.get("path")), str(f.get("sha256"))) for f in files}
+    bad: Counter[str] = Counter()
+    first_bad: list[str] = []
+    per_repo: Counter[str] = Counter()
+    rows: list[DefectRow] = []
+    for obj in units:
+        reason = _own_prose_violation(obj, files=file_keys, repos=repos)
+        if reason is None:
+            per_repo[str(obj["repo"])] += 1
+            if per_repo[str(obj["repo"])] > OWN_PROSE_PER_REPO_CAP:
+                reason = "over_per_repo_cap"
+        if reason is not None:
+            bad[reason] += 1
+            if len(first_bad) < 5:
+                first_bad.append(f"{obj.get('id')!r}:{reason}")
+            continue
+        rows.append(
+            prose_defect_row(
+                str(obj["text"]),
+                route=NOUL_ROUTE_OWN_PROSE,
+                form=str(obj["form"]),
+                example_id=f"{NOUL_ROUTE_OWN_PROSE}:{obj['id']}",
+                repo=f"{OWN_PROSE_REPO_PREFIX}{obj['repo']}",
+                path=str(obj["path"]),
+                licence=licence,
+            )
+        )
+    if bad:
+        raise DefectCorpusError(
+            f"{sum(bad.values())} unit(s) of {units_path} cannot be own-prose rows: "
+            f"{dict(sorted(bad.items()))}; first five {first_bad}. Refusing the whole part"
+        )
+    return NoulLoad(
+        rows=tuple(rows),
+        by_source={NOUL_PROSE: len(rows)} if rows else {},
+        examples_sha256=str(manifest["units"]["sha256"]),
+        by_route={NOUL_ROUTE_OWN_PROSE: len(rows)} if rows else {},
+    )
+
+
+def _g6_violation(
+    obj: Mapping[str, Any], *, config: DataConfig, manifest: Mapping[str, Any]
+) -> str | None:
+    """Why ``obj`` may not be a G6 row, or ``None``. The split and the licence are re-derived
+    with the canonical functions, never read off the generator."""
+    for key in ("id", "repo", "path", "language", "diff", "licence", "commit"):
+        if not isinstance(obj.get(key), str) or not str(obj[key]).strip():
+            return f"missing_{key}"
+    if obj.get("class") != NOUL_CLASS or obj.get("noul_source") != NOUL_UNSEEN_LANGUAGE:
+        return "not_an_unseen_language_noul_row"
+    if obj.get("noul_route") != NOUL_ROUTE_G6 or obj.get("noul_form") != G6_FORM:
+        return "not_a_g6_row"
+    if obj["language"] not in G6_LANGUAGES:
+        return "language_not_g6"
+    repo, path, diff = str(obj["repo"]), str(obj["path"]), str(obj["diff"])
+    if "," in repo or repo != repo.strip():
+        return "repo_is_not_a_primary_repo"
+    if "\n" in path or Path(path).name == OOD_PROSE_PATH:
+        return "path_refused"
+    if not diff.startswith("@@ -"):
+        return "diff_is_not_a_hunk"
+    band = manifest["diff_band"]
+    hunks = sum(1 for line in diff.split("\n") if line.startswith("@@ -"))
+    if not (1 <= hunks <= int(band["max_hunks"])):
+        return "hunks_out_of_band"
+    if not (int(band["min_chars"]) <= len(diff) <= int(band["max_chars"])):
+        return "chars_out_of_band"
+    split = _split_of(repo, config)
+    if split != "train":
+        return f"split_unit_in_{split}"
+    try:
+        admit_licence(str(obj["licence"]), config=config.licence, source=f"G6 {obj['id']}")
+    except LicenceRefused:
+        return "licence_not_admitted"
+    return None
+
+
+def _load_g6(part_dir: Path, *, config: DataConfig, repo_root: Path) -> NoulLoad:
+    """``qd-noul-rows g6``'s output as rows. Fails closed on any row, on a manifest generated at
+    another split, and on a language over the cap the manifest pins."""
+    from qd_train.data_access import assert_path_not_held_out
+
+    manifest_path = part_dir / "manifest.json"
+    examples_path = part_dir / "examples.jsonl"
+    for p in (manifest_path, examples_path):
+        assert_path_not_held_out(p, config=config, repo_root=repo_root)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("schema") != G6_SCHEMA:
+        raise DefectCorpusError(
+            f"{manifest_path}: schema {manifest.get('schema')!r}, not {G6_SCHEMA!r}"
+        )
+    ours = {
+        "seed": config.seed,
+        "train_fraction": config.train_fraction,
+        "val_fraction": config.val_fraction,
+    }
+    if {k: manifest.get("split", {}).get(k) for k in ours} != ours:
+        raise DefectCorpusError(
+            f"{manifest_path} was generated under split {manifest.get('split')}, not {ours}"
+        )
+    _check_sha(examples_path, str(manifest["examples_sha256"]), recorded_in=manifest_path)
+    cap = int(manifest["per_language_cap"])
+    bad: Counter[str] = Counter()
+    first_bad: list[str] = []
+    by_language: Counter[str] = Counter()
+    rows: list[DefectRow] = []
+    for obj in _json_lines(examples_path, config=config, limit=config.max_rows_per_source):
+        reason = _g6_violation(obj, config=config, manifest=manifest)
+        if reason is None:
+            by_language[str(obj["language"])] += 1
+            if by_language[str(obj["language"])] > cap:
+                reason = "over_per_language_cap"
+        if reason is not None:
+            bad[reason] += 1
+            if len(first_bad) < 5:
+                first_bad.append(f"{obj.get('id')!r}:{reason}")
+            continue
+        rows.append(
+            DefectRow(
+                example_id=str(obj["id"]),
+                pool_id=str(obj["repo"]),
+                repo=str(obj["repo"]),
+                path=str(obj["path"]),
+                symbol=str(obj["id"]),
+                arity=0,
+                language=str(obj["language"]),
+                mutation_class=NOUL_CLASS,
+                operator=f"{NOUL_CLASS}.{NOUL_UNSEEN_LANGUAGE}",
+                diff=str(obj["diff"]),
+                diff_span=None,
+                span_refusal=None,
+                licence=normalise_licence(str(obj["licence"])),
+                noul_source=NOUL_UNSEEN_LANGUAGE,
+                noul_route=NOUL_ROUTE_G6,
+                noul_form=G6_FORM,
+            )
+        )
+    if bad:
+        raise DefectCorpusError(
+            f"{sum(bad.values())} row(s) of {examples_path} cannot be G6 rows: "
+            f"{dict(sorted(bad.items()))}; first five {first_bad}. Refusing the whole part"
+        )
+    if len(rows) != int(manifest["totals"]["examples"]):
+        raise DefectCorpusError(
+            f"{examples_path} holds {len(rows)} rows, {manifest_path} records "
+            f"{manifest['totals']['examples']}"
+        )
+    return NoulLoad(
+        rows=tuple(rows),
+        by_source={NOUL_UNSEEN_LANGUAGE: len(rows)} if rows else {},
+        examples_sha256=str(manifest["examples_sha256"]),
+        by_route={NOUL_ROUTE_G6: len(rows)} if rows else {},
+    )
+
+
+def composite_digest(parts: list[Mapping[str, Any]]) -> str:
+    """A composite noul corpus's ``examples_sha256``: sha256 over each part's name, kind and pins,
+    one line per part, in part order -- the bytes every part's own manifest already pins."""
+    lines = [
+        json.dumps(
+            {k: p[k] for k in ("name", "kind", "manifest_sha256", "data_sha256")}, sort_keys=True
+        )
+        for p in parts
+    ]
+    return hashlib.sha256(("\n".join(lines) + "\n").encode("utf-8")).hexdigest()
+
+
+_PART_KINDS: Final[tuple[str, ...]] = ("noul-rows", "own-prose", "g6")
+
+
+def _load_composite(
+    noul_dir: Path,
+    manifest: Mapping[str, Any],
+    *,
+    config: DataConfig,
+    repo_root: Path,
+    licences: Mapping[str, str],
+    pools: dict[str, dict[str, str]],
+) -> NoulLoad:
+    """A :data:`NOUL_COMPOSITE_SCHEMA` corpus: each part, a sibling directory of ``noul_dir``,
+    is checked against the manifest's and data file's sha256 the composite pins, loaded by its
+    own loader, and appended in part order."""
+    manifest_path = noul_dir / "manifest.json"
+    parts = manifest.get("parts")
+    if not isinstance(parts, list) or not parts:
+        raise DefectCorpusError(f"{manifest_path} names no parts")
+    if manifest.get("examples_sha256") != composite_digest(parts):
+        raise DefectCorpusError(f"{manifest_path}: examples_sha256 is not its parts' digest")
+    rows: list[DefectRow] = []
+    by_source: Counter[str] = Counter()
+    by_route: Counter[str] = Counter()
+    for part in parts:
+        kind, name = part.get("kind"), str(part.get("name", ""))
+        if kind not in _PART_KINDS or not name or "/" in name:
+            raise DefectCorpusError(f"{manifest_path}: part {part!r} is not one of {_PART_KINDS}")
+        part_dir = noul_dir.parent / name
+        _check_sha(
+            part_dir / "manifest.json", str(part["manifest_sha256"]), recorded_in=manifest_path
+        )
+        data_name = "units.jsonl" if kind == "own-prose" else "examples.jsonl"
+        _check_sha(part_dir / data_name, str(part["data_sha256"]), recorded_in=manifest_path)
+        if kind == "own-prose":
+            load = _load_own_prose(part_dir, config=config, repo_root=repo_root)
+        elif kind == "g6":
+            load = _load_g6(part_dir, config=config, repo_root=repo_root)
+        else:
+            load = _load_noul(
+                part_dir, config=config, repo_root=repo_root, licences=licences, pools=pools
+            )
+        if len(load.rows) != int(part["rows"]):
+            raise DefectCorpusError(
+                f"part {name}: {len(load.rows)} rows, {manifest_path} records {part['rows']}"
+            )
+        rows.extend(load.rows)
+        by_source.update(load.by_source)
+        by_route.update(load.by_route)
+    if len(rows) != int(manifest["totals"]["examples"]):
+        raise DefectCorpusError(
+            f"{noul_dir}: {len(rows)} rows, {manifest_path} records "
+            f"{manifest['totals']['examples']}"
+        )
+    return NoulLoad(
+        rows=tuple(rows),
+        by_source={s: by_source[s] for s in NOUL_SOURCES if by_source[s]},
+        examples_sha256=str(manifest["examples_sha256"]),
+        by_route={r: by_route[r] for r in NOUL_ROUTES if by_route[r]},
+    )
+
+
+def _load_noul_corpus(
+    noul_dir: Path,
+    *,
+    config: DataConfig,
+    repo_root: Path,
+    licences: Mapping[str, str],
+    pools: dict[str, dict[str, str]],
+) -> NoulLoad:
+    """A ``qd-noul-rows`` corpus, or a composite of them (v5's defect-noul-v3c)."""
+    from qd_train.data_access import assert_path_not_held_out
+
+    manifest_path = noul_dir / "manifest.json"
+    assert_path_not_held_out(manifest_path, config=config, repo_root=repo_root)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("schema") == NOUL_COMPOSITE_SCHEMA:
+        return _load_composite(
+            noul_dir,
+            manifest,
+            config=config,
+            repo_root=repo_root,
+            licences=licences,
+            pools=pools,
+        )
+    return _load_noul(noul_dir, config=config, repo_root=repo_root, licences=licences, pools=pools)
+
+
+def noul_contrast_spec(noul_dir: Path) -> ContrastSpec | None:
+    """The contrast rows a noul corpus asks a build to derive, or ``None`` when it asks for none
+    (every corpus before v5's composite). Refuses a malformed request rather than reading it as
+    none."""
+    manifest = json.loads((Path(noul_dir) / "manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("schema") != NOUL_COMPOSITE_SCHEMA or "contrast" not in manifest:
+        return None
+    raw = manifest["contrast"]
+    per_family = raw.get("per_family") if isinstance(raw, dict) else None
+    seed = raw.get("seed") if isinstance(raw, dict) else None
+    if (
+        not isinstance(per_family, dict)
+        or not per_family
+        or set(per_family) - set(CONTRAST_TWIN_FAMILIES)
+        or any(isinstance(n, bool) or not isinstance(n, int) or n <= 0 for n in per_family.values())
+        or isinstance(seed, bool)
+        or not isinstance(seed, int)
+        or seed < 0
+    ):
+        raise DefectCorpusError(
+            f"{noul_dir}/manifest.json: contrast {raw!r} is not {{per_family: {{one of "
+            f"{CONTRAST_TWIN_FAMILIES}: positive int}}, seed: non-negative int}}"
+        )
+    return ContrastSpec(per_family=dict(per_family), seed=seed)
+
+
 def load_noul_rows(
     noul_dir: Path, *, download_root: Path, config: DataConfig, repo_root: Path
 ) -> NoulLoad:
@@ -937,7 +1519,7 @@ def load_noul_rows(
     from qd_train.data_access import assert_path_not_held_out
 
     assert_path_not_held_out(Path(download_root), config=config, repo_root=Path(repo_root))
-    return _load_noul(
+    return _load_noul_corpus(
         Path(noul_dir), config=config, repo_root=Path(repo_root),
         licences=_load_licences(Path(download_root)), pools={},
     )
@@ -1057,6 +1639,96 @@ def noul_allowlist(
             "licence_basis": NOUL_TEMPLATE_LICENCE_BASIS, "units": allowed_units,
             "excluded": dict(sorted(unit_excluded.items())),
         },
+    }
+
+
+#: ``qd-noul-rows own-prose`` and ``qd-noul-rows g6`` read this allowlist.
+NOUL_V5_ALLOWLIST_SCHEMA: Final[str] = "qd-noul-v5-allowlist/v1"
+
+
+def noul_v5_allowlist(
+    *,
+    g6_root: Path,
+    g6_pins: Mapping[str, str],
+    config: DataConfig,
+    repo_root: Path,
+) -> dict[str, Any]:
+    """What v5's two Rust generators may read, decided by the canonical functions.
+
+    * ``invisible_format_ranges``: ``qd_data.render``'s table, which both generators skip on
+      and the loaders re-check against.
+    * G6: each of :data:`G6_LANGUAGES`' ``<g6_root>/<lang>/data.jsonl`` is read only after its
+      sha256 equals ``g6_pins[lang]`` (the hashes the download record pins,
+      ``AUDIT/v5-plan-2026-10-02/g6-commitpackft-download.md``). A row is admitted when its
+      licence passes ``admit_licence`` under ``config.licence`` -- the per-row filter every
+      commitpackft row of the defect corpus passes -- and its primary repo
+      (``CommitPackFtRow.primary_repo``: the first of ``repos``) hashes to ``train`` under
+      ``assign_repo``. Admitted rows are listed by line; every row is counted before and
+      after each filter, by language and licence.
+    """
+    from qd_train.data_access import assert_path_not_held_out
+
+    if set(g6_pins) != set(G6_LANGUAGES):
+        raise ValueError(f"pins name {sorted(g6_pins)}, not the G6 languages {G6_LANGUAGES}")
+    files: dict[str, dict[str, Any]] = {}
+    rows: dict[str, list[list[Any]]] = {}
+    counts: dict[str, dict[str, Any]] = {}
+    for lang in G6_LANGUAGES:
+        path = Path(g6_root) / lang / "data.jsonl"
+        assert_path_not_held_out(path, config=config, repo_root=Path(repo_root))
+        sha = _sha256_file(path)
+        if sha != g6_pins[lang]:
+            raise DefectCorpusError(
+                f"{path} hashes to {sha}; the download record pins {g6_pins[lang]}: these are "
+                "not the bytes the human approved"
+            )
+        before: Counter[str] = Counter()
+        excluded: Counter[str] = Counter()
+        admitted: list[list[Any]] = []
+        with path.open(encoding="utf-8") as fh:
+            for lineno, line in enumerate(fh, 1):
+                if not line.strip():
+                    continue
+                if len(line.encode("utf-8")) > config.max_row_bytes:
+                    excluded["over_max_row_bytes"] += 1
+                    continue
+                obj = json.loads(line)
+                licence = normalise_licence(str(obj.get("license", "")))
+                before[licence] += 1
+                try:
+                    admit_licence(licence, config=config.licence, source=f"G6 {lang}:{lineno}")
+                except LicenceRefused:
+                    excluded[f"licence:{licence}"] += 1
+                    continue
+                repos = str(obj.get("repos", ""))
+                primary = repos.split(",")[0].strip() or repos.strip()
+                if not primary:
+                    excluded["no_repo"] += 1
+                    continue
+                split_name = _split_of(primary, config)
+                if split_name != "train":
+                    excluded[f"split:{split_name}"] += 1
+                    continue
+                admitted.append([lineno, primary, licence])
+        files[lang] = {"file": f"{lang}/data.jsonl", "sha256": sha, "rows": sum(before.values())}
+        rows[lang] = admitted
+        n_licence = sum(n for lic, n in before.items() if f"licence:{lic}" not in excluded)
+        counts[lang] = {
+            "rows": sum(before.values()),
+            "by_licence_before": dict(sorted(before.items())),
+            "after_licence": n_licence,
+            "after_split": len(admitted),
+            "excluded": dict(sorted(excluded.items())),
+            "repos_after_split": len({r[1] for r in admitted}),
+        }
+    return {
+        "schema": NOUL_V5_ALLOWLIST_SCHEMA,
+        "split": {
+            "seed": config.seed, "train_fraction": config.train_fraction,
+            "val_fraction": config.val_fraction,
+        },
+        "invisible_format_ranges": [[lo, hi] for lo, hi in INVISIBLE_FORMAT_RANGES],
+        "g6": {"root": str(g6_root), "files": files, "rows": rows, "counts": counts},
     }
 
 

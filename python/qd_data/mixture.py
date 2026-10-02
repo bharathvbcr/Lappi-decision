@@ -68,6 +68,8 @@ from .defect_class import (
     DEFECT_FAMILY_ID,
     DEFECT_SOURCE_ID,
     NOUL_CLASS,
+    NOUL_FORM_KEY,
+    NOUL_ROUTE_KEY,
     SPAN_SLOT,
     DefectRow,
 )
@@ -98,7 +100,7 @@ from .schema import (
     SpanSlot,
     canonical_json,
 )
-from .sources import source_by_id, task_family_by_id
+from .sources import PINNED_SPLIT_KEY, source_by_id, task_family_by_id
 from .split import SQUAD_TITLE_FAMILIES, squad_title_family, squad_title_repo_key
 
 if TYPE_CHECKING:
@@ -738,8 +740,14 @@ def rewrite_defect_class(
         row_id=row_id, source_id=DEFECT_SOURCE_ID, family_id=family_id,
         repo_key=raw.repo,
         # `pair_key`'s identity (repo, path, symbol, arity): the same function mutated
-        # twice is one identity, and the identity check keeps it on one side.
-        identity_key=f"{raw.repo}::{raw.path}::{raw.symbol}/{raw.arity}",
+        # twice is one identity, and the identity check keeps it on one side. A routed noul
+        # row whose identity is fixed by its route (a contrast row is `contrast:<twin>`)
+        # carries it instead.
+        identity_key=(
+            raw.identity_key
+            if raw.identity_key is not None
+            else f"{raw.repo}::{raw.path}::{raw.symbol}/{raw.arity}"
+        ),
         licence_id=raw.licence,
         request=_request(
             family_id=family_id, context=context,
@@ -763,6 +771,19 @@ def rewrite_defect_class(
             # provenance of a SQuAD- or template-derived row are not commitpackft's, and
             # this source id is the family's single one.
             **({"noul_source": raw.noul_source} if raw.noul_source is not None else {}),
+            # v5's routed noul rows (own-prose, contrast, G6): which route and form, and the
+            # train pin that keeps every one of them out of val and held-out whatever its
+            # unit hashes to (rule 2: a hashed noul unit would move the defect_class val and
+            # held-out populations). Absent on every row v4 built.
+            **(
+                {
+                    NOUL_ROUTE_KEY: raw.noul_route,
+                    **({NOUL_FORM_KEY: raw.noul_form} if raw.noul_form is not None else {}),
+                    PINNED_SPLIT_KEY: "train",
+                }
+                if raw.noul_route is not None
+                else {}
+            ),
         },
     )
 
