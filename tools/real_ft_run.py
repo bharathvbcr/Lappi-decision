@@ -6801,7 +6801,8 @@ def _seed_weights(
     Or one of that run's ``--retain-tower-every`` snapshots, ``<tag>-seed<N>-<device>-
     step<S>.json``, paired with the same row: the step ``S`` in its name must be the one in
     its body and no later than the row's last, and its schedule the row's. Only the final
-    step's snapshot is the model the row trained, so only it is scored here.
+    step's snapshot is the model the row trained, so only it is scored for a val or gate row;
+    an earlier one only by the OOD-only trajectory row (:func:`_ood_only`).
     """
     from qd_train.run_control import Checkpoint
 
@@ -6837,11 +6838,11 @@ def _seed_weights(
             f"{path.name} is a snapshot after optimizer step {at_step}; ft row {ft['row_id']} "
             f"ended at step {steps}, so it is not that run's"
         )
-    if at_step is not None and at_step != steps:
+    if at_step is not None and at_step != steps and not _ood_only(args):
         raise SystemExit(
             f"{path.name} is the snapshot after optimizer step {at_step} of the {steps} ft row "
             f"{ft['row_id']} ran: not the model that row trained, so it scores no val or gate "
-            "row"
+            "row (the OOD-only trajectory row, --ood without --score-val, scores it)"
         )
     weights, meta = Checkpoint.read_weights(path, subtrees=("tower", "span_head"))
     expected_step = steps if at_step is None else at_step
@@ -8054,19 +8055,80 @@ OOD_DIAGNOSTIC_QUICK_REASON: Final[str] = (
     "an OOD-suite-only diagnostic: no val pass, so no in-distribution bound and no ood_abstain "
     "gate; a diagnostic row is never a gate row"
 )
+#: The tag of an OOD-only trajectory row (``--score-checkpoint`` without ``--score-val``,
+#: v5's trajectory reading). Never ``epoch-score-val`` or any other tag a gate or rule reads
+#: an eval row by (qd-post-f-rules selects rows by tag; qd-gate-report and
+#: gate_report_row.py by the row id they are given).
+OOD_TRAJECTORY_TAG: Final[str] = "trajectory-ood"
+#: Its suite-verdict lines' ``gate``: not ``ood_abstain``, as for the diagnostic.
+OOD_TRAJECTORY_GATE: Final[str] = "ood_abstain.trajectory"
+#: Rule 8 for a trajectory row: report-only by construction.
+OOD_TRAJECTORY_QUICK_REASON: Final[str] = (
+    "an OOD-suite-only trajectory point (--score-checkpoint without --score-val): one "
+    "optimizer step of a run, report-only; no val pass, so no in-distribution bound and no "
+    "ood_abstain gate"
+)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class OodOnlyRow:
+    """What an OOD-suite-only row is: the plan's diagnostic or the trajectory point.
+
+    ``tag`` is formatted with the scored model's tag; ``prefix`` names the per-category
+    metrics (``<prefix>.<category>`` and ``<prefix>.all``); ``checkpoint_step`` adds the
+    ``checkpoint_step`` metric, the optimizer step the weights were taken after.
+    """
+
+    tag: str
+    prefix: str
+    what: str
+    quick_reason: str
+    gate: str
+    describes: str
+    checkpoint_step: bool
+
+
+#: ``--score-plan``'s ``ood`` pass. Its rows are what they were before trajectories existed.
+OOD_DIAGNOSTIC_ROW: Final[OodOnlyRow] = OodOnlyRow(
+    tag="{model}-ood-diagnostic", prefix="ood_diagnostic",
+    what="(an OOD-only diagnostic, no gate)", quick_reason=OOD_DIAGNOSTIC_QUICK_REASON,
+    gate=OOD_DIAGNOSTIC_GATE, describes="--score-plan OOD diagnostic", checkpoint_step=False,
+)
+#: ``--score-checkpoint`` without ``--score-val``. Its metrics are ``ood_abstain.<category>``
+#: because the v5 pre-registration's report-only reading names ``ood_abstain.prose`` on
+#: ``trajectory-ood`` rows; the tag, the quick flag and the absent gate keep every reader
+#: that selects gate rows off it.
+OOD_TRAJECTORY_ROW: Final[OodOnlyRow] = OodOnlyRow(
+    tag=OOD_TRAJECTORY_TAG, prefix="ood_abstain",
+    what="(a trajectory point, report-only, no gate)",
+    quick_reason=OOD_TRAJECTORY_QUICK_REASON, gate=OOD_TRAJECTORY_GATE,
+    describes="--score-checkpoint OOD-only trajectory point", checkpoint_step=True,
+)
+
+
+def _ood_only(args: argparse.Namespace) -> bool:
+    """``--score-checkpoint`` with ``--ood`` and without ``--score-val``: the trajectory row,
+    the OOD suite alone on one model. A ``--score-plan`` kind is never one (its passes say
+    what it decodes), and every other scoring mode still needs ``--score-val``."""
+    return (
+        not args.score_val and args.score_checkpoint is not None
+        and args.score_plan is None and bool(args.ood)
+    )
 
 
 def run_ood_diagnostic(
     args: argparse.Namespace, *, loaded: LoadedModel, reader: ShardReader, val: ValSet,
     device: str, ledger: Ledger, reasons_for: Callable[..., list[str]], ood_suite: OodSuite,
-    suite_seed: int, plan_note: str | None = None,
+    suite_seed: int, plan_note: str | None = None, row: OodOnlyRow = OOD_DIAGNOSTIC_ROW,
 ) -> tuple[str, tuple[dict[str, object], ...], int]:
     """The OOD suite alone on ``loaded``: both passes, the runtime rule per case, a quick
-    diagnostic row (tag ``<model tag>-ood-diagnostic``) and its per-case lines.
+    row and its per-case lines -- ``row`` says which: the plan's diagnostic (tag
+    ``<model tag>-ood-diagnostic``, metrics ``ood_diagnostic.*``) or a trajectory point
+    (tag ``trajectory-ood``, metrics ``ood_abstain.*`` and ``checkpoint_step``).
 
     Decoded by :func:`decode_ood` and counted by :func:`ood_category_metrics`, as the
-    ``ood_abstain`` gate's report is, under ``ood_diagnostic.*``: no val pass runs, so there
-    is no in-distribution bound and no gate. Returns ``(row id, lines, row seed)``.
+    ``ood_abstain`` gate's report is: no val pass runs, so there is no in-distribution bound
+    and no gate. Returns ``(row id, lines, row seed)``.
     """
     if ood_suite.not_run is not None or ood_suite.seed != suite_seed:
         raise SystemExit(
@@ -8083,17 +8145,28 @@ def run_ood_diagnostic(
     decode_at = time.monotonic()
     first, second, ood = decode_ood(step, ood_suite)
     decode_s = time.monotonic() - decode_at
-    what = "(an OOD-only diagnostic, no gate)"
-    metrics = ood_category_metrics(ood_suite, ood, prefix="ood_diagnostic", what=what)
+    what = row.what
+    metrics = ood_category_metrics(ood_suite, ood, prefix=row.prefix, what=what)
     abstained = sum(ood.values())
-    metrics["ood_diagnostic.all"] = (
+    metrics[f"{row.prefix}.all"] = (
         Ran(passed=True, value=abstained / len(ood), n=abstained, n_total=len(ood),
             detail=f"abstained on {abstained} of {len(ood)} OOD cases {what}")
         if ood else NotRun(reason="no OOD case was decoded")
     )
+    # Read only for the row that records it: a diagnostic's meta need not carry it.
+    at_step = int(meta["optimizer_step"]) if row.checkpoint_step else None
+    if row.checkpoint_step:
+        metrics["checkpoint_step"] = Ran(
+            passed=True, value=at_step,
+            detail=(
+                f"the optimizer step {model.scored_checkpoint} was taken after (a "
+                "--retain-tower-every snapshot's step, the run's last for its final "
+                "checkpoint, an average's for its inputs')"
+            ),
+        )
     diagnostic_recipe: dict[str, object] = {
         "tool": "tools/real_ft_run.py",
-        "tag": f"{model.tag}-ood-diagnostic",
+        "tag": row.tag.format(model=model.tag),
         "device": device,
         **{k: recipe[k] for k in (*BACKBONE_KEYS, *RECIPE_PIECE_KEYS) if k in recipe},
         "score_dtype": args.score_dtype,
@@ -8104,10 +8177,11 @@ def run_ood_diagnostic(
         "ood": ood_recipe(ood_suite),
     }
     reasons = model_reasons(model, device=device, reasons_for=reasons_for)
-    reasons.append(OOD_DIAGNOSTIC_QUICK_REASON)
+    reasons.append(row.quick_reason)
     notes = (
-        f"tools/real_ft_run.py --score-plan OOD diagnostic of {model.scored_checkpoint} "
-        f"({model.described}), {args.score_dtype} on {device} at T = 1: the OOD suite's two "
+        f"tools/real_ft_run.py {row.describes} of {model.scored_checkpoint} "
+        + (f"after optimizer step {at_step} " if row.checkpoint_step else "")
+        + f"({model.described}), {args.score_dtype} on {device} at T = 1: the OOD suite's two "
         "passes decoded the way crates/qd-runtime/src/answer.rs decodes them, the runtime "
         "rule's abstentions counted per category, and each case's letter rows (noul "
         "included) kept on its suite-verdict line. No val pass and no gate."
@@ -8731,8 +8805,10 @@ def _check_score_checkpoint_flags(args: argparse.Namespace) -> None:
     ``--score-plan`` kind is checked by this same function, on its own namespace."""
     averaged = _is_average(args.score_checkpoint)
     ensemble = _is_ensemble(args.score_checkpoint)
+    ood_only = _ood_only(args)
     needed = {
-        "--score-val": args.score_val, "--real-backbone": args.real_backbone,
+        # Every mode but the OOD-only trajectory row (--ood without --score-val).
+        "--score-val": args.score_val or ood_only, "--real-backbone": args.real_backbone,
         "--ft-ledger": args.ft_ledger, "--devices": args.devices,
     }
     if not averaged:
@@ -8744,6 +8820,12 @@ def _check_score_checkpoint_flags(args: argparse.Namespace) -> None:
         raise SystemExit(
             "--score-checkpoint of an average (.safetensors) is paired with the ft rows "
             "its manifest names, one per input; --ft-row-id would name one of them"
+        )
+    if ensemble and ood_only:
+        raise SystemExit(
+            "--score-checkpoint without --score-val is the OOD-only trajectory row of one model "
+            "(a snapshot, a checkpoint or an average); a logit ensemble is scored with "
+            "--score-val"
         )
     if ensemble:
         towers = score_paths(args.score_checkpoint)
@@ -9517,7 +9599,12 @@ def main(argv: list[str] | None = None) -> int:
             "Or a METAL EXPORT: epoch-seed<N>-metal.safetensors, one seed's weights the Rust "
             "trainer (crates/qd-train) exported, with its .manifest.json beside it, paired "
             "with the ft row it wrote (--ft-ledger/--ft-row-id) under its one --seeds; every "
-            "row it is scored into records recipe.trained_by"
+            "row it is scored into records recipe.trained_by. A --retain-tower-every "
+            "SNAPSHOT (<tag>-seed<N>-<device>-step<S>.json) is paired like its run's "
+            "checkpoint; with --score-val only the final step's. With --ood and WITHOUT "
+            "--score-val: the OOD-only TRAJECTORY row, the 180-case OOD suite alone on one "
+            "model (a snapshot at any step, a checkpoint or an average), tagged "
+            "trajectory-ood with metrics.checkpoint_step, quick and report-only, no gate"
         ),
     )
     parser.add_argument(
@@ -10089,10 +10176,14 @@ def main(argv: list[str] | None = None) -> int:
     _check_suite_logits_flags(args)
     if (args.ood_general_record is not None) != args.ood:
         raise SystemExit("--ood and --ood-general-record are given together or not at all")
-    if args.ood and not (args.score_val and args.real_backbone is not None):
+    # --score-checkpoint with --ood and without --score-val is the OOD-only trajectory row:
+    # the OOD suite alone, report-only. Every other --ood needs the val pass it is bounded by.
+    ood_only = _ood_only(args)
+    if args.ood and not ((args.score_val or ood_only) and args.real_backbone is not None):
         raise SystemExit(
             "--ood scores the model the val pass scores and encodes with the real "
-            "tokenizer: it needs --score-val and --real-backbone"
+            "tokenizer: it needs --score-val and --real-backbone (or, for the OOD-only "
+            "trajectory row, --score-checkpoint and --real-backbone)"
         )
     if args.needle_predictions_out is not None and not (
         args.needle and args.score_checkpoint is not None
@@ -10269,7 +10360,9 @@ def main(argv: list[str] | None = None) -> int:
     second_pass = SecondPass([], {}, {}, not_run="no val set: --score-val was not given")
     needle_suite = NeedleSuite([], [], {}, [], not_run="no val set: --score-val was not given")
     ood_suite = OodSuite([], None, None, not_run="no val set: --score-val was not given")
-    if args.score_val:
+    if args.score_val or ood_only:
+        # The OOD-only trajectory row opens the val set too, decoding none of it: the OOD
+        # suite is encoded against its reader and the step is sized by its plan.
         val_set = open_val_set(
             args.out, config=config, rev=rev,
             rows=list(val_rows),
@@ -10279,10 +10372,15 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"val set: {len(val_set.reader)} sequences in {len(val_set.plan)} batches, "
             f"remap {val_set.reader.header.remap_hash[:16]} (the train set's)"
+            + (" -- opened for the OOD suite, not decoded" if ood_only else "")
         )
-        second_pass = prepare_second_pass(
-            val_set, reader=val_set.reader, tokenizer_json=args.tokenizer_json,
-            seed=config.seed,
+        second_pass = (
+            SecondPass([], {}, {}, not_run="the OOD-only trajectory row decodes no val row")
+            if ood_only else
+            prepare_second_pass(
+                val_set, reader=val_set.reader, tokenizer_json=args.tokenizer_json,
+                seed=config.seed,
+            )
         )
         print(
             f"permutation second pass: {len(second_pass.perms)} choice rows deranged in "
@@ -10468,6 +10566,31 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 print(f"suite verdicts: {len(control_lines)} lines -> {args.suite_verdicts_out}")
             print(f"needle control row {control_row_id}")
+            return 0
+        if ood_only:
+            loaded = _checkpoint_step(
+                args, reader=reader, val=val_set, device=devices[0],
+                eval_widths=suite_widths(needle_suite, ood_suite), suite_seed=config.seed,
+            )
+            trajectory_row_id, trajectory_lines, trajectory_seed = run_ood_diagnostic(
+                args, loaded=loaded, reader=reader, val=val_set, device=devices[0],
+                ledger=Ledger(args.ledger),
+                reasons_for=lambda tag, device, termination=None: quick_reasons(
+                    tag=tag, device=device, real_backbone=True, corpus=corpus,
+                    termination=termination,
+                ),
+                ood_suite=ood_suite, suite_seed=config.seed, row=OOD_TRAJECTORY_ROW,
+            )
+            if args.suite_verdicts_out is not None:
+                write_suite_verdicts_jsonl(
+                    args.suite_verdicts_out,
+                    [{"eval_row_id": trajectory_row_id, "seed": int(trajectory_seed),
+                      "gate": OOD_TRAJECTORY_GATE, **v} for v in trajectory_lines],
+                )
+                print(
+                    f"suite verdicts: {len(trajectory_lines)} lines -> {args.suite_verdicts_out}"
+                )
+            print(f"trajectory row {trajectory_row_id}")
             return 0
         worker_decoded = (
             run_needle_worker(
