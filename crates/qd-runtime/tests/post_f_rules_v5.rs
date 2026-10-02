@@ -841,6 +841,13 @@ fn room_refuses_unreadable_v5_rows_and_never_prints_room() {
         a.extend([String::from("--ft-row"), format!("{seed}={id}")]);
     }
     run(&s, &a).refused_with("the envelope is v5 seeds [0, 1, 2] only");
+    // v5's seeds out of order refuse too: the arm's seed s is paired with v5's by position, so
+    // the order is the same-seed alignment (each row's protocol.seed is checked against its own).
+    let mut b = a[..8].to_vec();
+    for (seed, id) in [(1, &ids[1]), (0, &ids[0]), (2, &ids[2])] {
+        b.extend([String::from("--ft-row"), format!("{seed}={id}")]);
+    }
+    run(&s, &b).refused_with("given in that order; got [1, 0, 2]");
     room(&s, &repo(DRAFT), &q, &ledger, &ids).refused_with("\"draft\" key");
 }
 
@@ -1335,6 +1342,34 @@ fn the_pairing_check_refuses_an_arm_seed_not_on_v5s_batch_order_for_that_seed() 
         plan_order_digest(2),
         plan_order_digest(1)
     ));
+}
+
+#[test]
+fn the_arms_seeds_out_of_order_refuse_so_arm_seed_s_meets_v5_seed_s() {
+    let s = scratch();
+    let fx = arm_fixture(&s, v5_room(), arm_holds(), |_, _| {});
+    let mut a = args(&[
+        &"v5-noulw",
+        &"--preregistration",
+        &bound(&s),
+        &"--noul-preregistration",
+        &repo(NOUL),
+        &"--v5-ledger",
+        &fx.v5,
+        &"--arm-ledger",
+        &fx.arm,
+    ]);
+    a.extend(ft_args("--ft-row", &fx.v5_ids));
+    for seed in [1, 0, 2] {
+        a.extend([
+            String::from("--arm-ft-row"),
+            format!("{seed}={}", fx.arm_ids[seed]),
+        ]);
+    }
+    run(&s, &a).refused_with(
+        "the arm's ft rows are seeds [0, 1, 2] (identity.ft_rows), given in that order; got \
+         [1, 0, 2]",
+    );
 }
 
 #[test]
