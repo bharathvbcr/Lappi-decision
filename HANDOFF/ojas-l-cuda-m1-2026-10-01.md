@@ -67,7 +67,7 @@ Edits to shared files. Each is one concern and is behaviour-preserving where not
   `cuda`.
 - `src/kernels.rs`: `#[macro_export]` on `device_prelude!` (lead-approved).
 - `src/k0_plan.rs`: a new `ColWindow`; `CopyColsPlan` now delegates to it, with the same error
-  text. L-cuda-small's `Window::check` delegates to it too.
+  text. L-cuda-small's `Window::check` delegates to it too [V, `src/small_common.rs:311`].
 - `src/smoke.rs`: `twice` is now `pub`; new `m0_phases`, which is rung 0's M0 sequence for runga.
 - `src/rung0_cli.rs`: `prepare_out` is a one-line delegation to `report_cli::prepare_report`
   (lead-approved).
@@ -82,6 +82,8 @@ Edits to shared files. Each is one concern and is behaviour-preserving where not
   - K8 and K11, L-cuda-gdn's and L-cuda-small's device tests under "Device tests on the box";
   - small's K10 marked **smoke-scale** (hidden 16, W 15.9 MB), not to be compared with the
     full-scale ~10–14 GB per call.
+  - The README was edited (the smoke-scale note) after the evidence run. So its sha256 in
+    `l-cuda-m1-cross-build.txt` (`a5935057`) is stale. The README is not a build input.
 - `tests/reference/*` (oracle's) were rustfmt-only in item 0.
 
 The oracle-file restructures in item 0:
@@ -267,6 +269,12 @@ The other changes add new code with new tests, or are behaviour-preserving refac
   hashes.
 - The live tree included other lanes' uncommitted files. **Pin the file you copy by these
   hashes; do not rebuild elsewhere and expect them.**
+
+**Unverified by name**, beyond "device NOT RUN" (both are under
+GAP-L-CUDA-M1-DEVICE-NOT-RUN-2026-10-01):
+- `runga` is the first binary to open a second `CudaRuntime` in one process after dropping the
+  first, for the timing section. Its behaviour on the driver's primary context is untested.
+- The K11 norm's move onto `qd_block_sum` has only the host mirror behind it.
 
 ## The box command for runga
 
