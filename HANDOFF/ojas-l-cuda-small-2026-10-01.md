@@ -76,6 +76,13 @@ Kernels are compared to L-cuda-oracle's float64 references (`tests/reference/`),
 The device must also equal the mirror bitwise where the mirror is bitwise, and a repeat run
 must be bit-identical.
 
+**About the brief's bf16 tiers (≤2^-8 / 2^-7).** Only 2^-7 is used, and only for K10's
+gradients at bf16 operands. That is tessl's bound, because the softmax gradient is rounded to
+bf16 before dh and dW. tessl's 2^-8 tier is a bound on **bf16 outputs**
+(`tessl/tests/qwen35_kernels.rs:1123,1178`), and no kernel in this lane emits one: every output
+is f32. The only bf16-operand path here is K10's GEMMs. So 2^-8 has nothing to apply to; it was
+not dropped.
+
 ## Per kernel: what ran on the Mac, and what is NOT RUN
 
 The Mac runs are from the ojas tree, `cargo test --offline --no-fail-fast`, with and without
@@ -143,6 +150,12 @@ The "worst" figures below come from the six host suites rerun with `--nocapture`
 **Total NOT RUN: 15 device tests and `small_smoke::small_checks`.**
 
 ## Fail-first (each run against a planted mutation, captured, then reverted and re-run green)
+
+All three ran in the lane's private copy before landing: the logs show `/private/tmp/.../dev/` paths,
+and that copy predates the `ColWindow` delegation. That does not change what they show:
+- the mutated lines (`yr[d] = xr[d] * inv * (1.0f + w[d]);` and its mirror twin, and the
+  `carried = ... s[n] * qd_exp_nonpos(m_old - m_new)` pair) are byte-identical in the landed files;
+- the tests that caught the mutations are the same tests that pass in the ojas logs above.
 
 - **K7: `w` instead of `1 + w`**, planted in the CUDA source and the mirror. Log:
   `AUDIT/ojas-training-2026-10-01/l-cuda-small-failfirst-k7.txt`.
