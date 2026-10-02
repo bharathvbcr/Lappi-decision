@@ -114,6 +114,17 @@ LICENCE_POLICY: Final[dict[str, LicencePolicy]] = {
                 "the obligation is carried per row so the model card can state it"
             ),
         ),
+        # -- the repository owner's own text --------------------------------
+        _p(
+            "owner-granted", _A,
+            note=(
+                "the human's own repositories, approved for training, eval and commit data "
+                "on 2026-09-28 (docs/train-plan-2026-09-28.md, Human decisions). Carried only "
+                "by rows of qd_data.sources.OWN_REPOS_SOURCE_ID that survive v5's own-prose "
+                "provenance rules (Fable's v5 review section 2.9); it covers text the owner "
+                "authored, not text hosted in their repositories"
+            ),
+        ),
         # -- copyleft / non-standard / absent: default-deny --------------
         _p(
             "agpl-3.0", _H, "share-alike", "network-use-disclosure",

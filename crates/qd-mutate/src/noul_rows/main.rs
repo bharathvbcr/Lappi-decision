@@ -30,7 +30,9 @@
 
 mod allowlist;
 mod corpus;
+mod g6;
 mod hunk;
+mod own_prose;
 mod prose;
 mod questions;
 mod scramble;
@@ -67,6 +69,57 @@ enum Command {
     Units,
     /// Write examples.jsonl and manifest.json from an allowlist and the inputs it names.
     Generate(GenerateArgs),
+    /// v5 route (i): prose units from the human's own repositories (`own_prose`).
+    OwnProse(OwnProseArgs),
+    /// v5 G6: unseen-language rows from real bigcode/commitpackft commits (`g6`).
+    G6(G6Args),
+}
+
+#[derive(clap::Args, Debug)]
+struct OwnProseArgs {
+    /// `AUDIT/v5-plan-2026-10-02/own_repo_inventory.json`: the candidate repositories.
+    #[arg(long)]
+    inventory: PathBuf,
+    /// The v5 allowlist (`tools/noul_v5_inputs.py allowlist`); its invisible-format ranges.
+    #[arg(long)]
+    allowlist: PathBuf,
+    /// A repository the human's tick leaves out, by its absolute path. Repeatable.
+    #[arg(long)]
+    exclude_repo: Vec<PathBuf>,
+    /// How many repositories the human ticked; any other admitted count refuses the run.
+    #[arg(long)]
+    expect_admitted: usize,
+    #[arg(long, default_value_t = 2_150)]
+    target: usize,
+    #[arg(long, default_value_t = 1_500)]
+    floor: usize,
+    #[arg(long, default_value_t = 150)]
+    per_repo_cap: usize,
+    #[arg(long, default_value_t = 0)]
+    seed: u64,
+    #[arg(long)]
+    out: PathBuf,
+}
+
+#[derive(clap::Args, Debug)]
+struct G6Args {
+    /// The v5 allowlist (`tools/noul_v5_inputs.py allowlist`): G6's admitted lines and pins.
+    #[arg(long)]
+    allowlist: PathBuf,
+    #[arg(long)]
+    per_language_cap: usize,
+    #[arg(long)]
+    max_per_repo: usize,
+    #[arg(long)]
+    min_chars: usize,
+    #[arg(long)]
+    max_chars: usize,
+    #[arg(long, default_value_t = 5)]
+    max_hunks: usize,
+    #[arg(long, default_value_t = 0)]
+    seed: u64,
+    #[arg(long)]
+    out: PathBuf,
 }
 
 #[derive(clap::Args, Debug)]
@@ -756,6 +809,27 @@ fn main() {
         .map(|s| println!("{s}"))
         .map_err(anyhow::Error::from),
         Command::Generate(args) => generate(args),
+        Command::OwnProse(a) => own_prose::run(&own_prose::Args {
+            inventory: &a.inventory,
+            allowlist: &a.allowlist,
+            exclude_repos: &a.exclude_repo,
+            expect_admitted: a.expect_admitted,
+            target: a.target,
+            floor: a.floor,
+            per_repo_cap: a.per_repo_cap,
+            seed: a.seed,
+            out: &a.out,
+        }),
+        Command::G6(a) => g6::run(&g6::Args {
+            allowlist: &a.allowlist,
+            per_language_cap: a.per_language_cap,
+            max_per_repo: a.max_per_repo,
+            min_chars: a.min_chars,
+            max_chars: a.max_chars,
+            max_hunks: a.max_hunks,
+            seed: a.seed,
+            out: &a.out,
+        }),
     };
     if let Err(e) = result {
         eprintln!("qd-noul-rows: {e:#}");

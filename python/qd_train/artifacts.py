@@ -82,6 +82,7 @@ __all__ = [
     "SPAN_ABSTAIN",
     "TOKEN_DTYPE",
     "Batch",
+    "ContrastRows",
     "RemapTable",
     "ShardContractViolation",
     "ShardHeader",
@@ -292,6 +293,48 @@ class RemapTable:
 
 
 @dataclass(frozen=True, slots=True)
+class ContrastRows:
+    """The v5 contrast rows a train set carries (``qd_train.contrast``).
+
+    ``code.defect_class`` rows whose context is a surviving MMLU/CSQA train twin's question
+    and whose gold is the abstention, derived after dedupe, split and the decontamination
+    exclusion and never a dedupe or split unit (campaign/v5-preregistered.DRAFT.json
+    ``data.sources[4].amended``). ``count`` rows were added; ``sha256`` covers their row ids
+    and content hashes in write order; ``seed`` is the draw order's seed.
+    """
+
+    count: int
+    sha256: str
+    seed: int
+
+    def __post_init__(self) -> None:
+        if isinstance(self.count, bool) or not isinstance(self.count, int) or self.count <= 0:
+            raise ShardContractViolation(
+                f"contrast_rows.count {self.count!r} is not a positive int: a set that "
+                "carries no contrast row names none"
+            )
+        if len(self.sha256) != 64 or any(c not in "0123456789abcdef" for c in self.sha256):
+            raise ShardContractViolation(
+                f"contrast_rows.sha256 {self.sha256!r} is not a lower-case sha256"
+            )
+        if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
+            raise ShardContractViolation(
+                f"contrast_rows.seed {self.seed!r} is not a non-negative int"
+            )
+
+    def to_json(self) -> dict[str, Any]:
+        return {"count": self.count, "sha256": self.sha256, "seed": self.seed}
+
+    @classmethod
+    def from_json(cls, raw: object) -> Self:
+        if not isinstance(raw, dict) or set(raw) != {"count", "sha256", "seed"}:
+            raise ShardContractViolation(
+                f"contrast_rows is {raw!r}; a header states it as {{count, sha256, seed}}"
+            )
+        return cls(count=raw["count"], sha256=raw["sha256"], seed=raw["seed"])
+
+
+@dataclass(frozen=True, slots=True)
 class ShardHeader:
     """What a set of token shards is, and what it was built from.
 
@@ -353,6 +396,9 @@ class ShardHeader:
     #: every set written before the field existed; a trainer whose rebuild applies a list
     #: refuses a set that names none, and the reverse (``tools/real_ft_run.py``).
     exclusions_sha256: str = ""
+    #: The v5 contrast rows this train set carries (:class:`ContrastRows`). **None means the
+    #: set carries none**, which is every set written before the field existed.
+    contrast_rows: ContrastRows | None = None
 
     def require_gate_population(self, *, where: str) -> None:
         """Refuse a set that is not a gate population: report-only, or any span rule but
@@ -428,6 +474,10 @@ class ShardHeader:
                 f"exclusions_sha256 on split {self.split!r}: the exclusion removes train rows "
                 "only, so only a train set (gold or replay) names it"
             )
+        if self.contrast_rows is not None and self.split != "train":
+            raise ShardContractViolation(
+                f"contrast_rows on split {self.split!r}: contrast rows are train rows only"
+            )
 
     def shard_hash(self) -> str:
         return _sha256_hex(
@@ -486,6 +536,16 @@ class ShardHeader:
                 if self.exclusions_sha256
                 else ()
             ),
+            # Same contract, tagged: absent (no contrast rows) hashes to nothing, so every
+            # header written before the field still verifies.
+            *(
+                (
+                    b"contrast_rows:"
+                    + json.dumps(self.contrast_rows.to_json(), sort_keys=True).encode(),
+                )
+                if self.contrast_rows is not None
+                else ()
+            ),
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -514,6 +574,8 @@ class ShardHeader:
             out["report_only"] = True
         if self.exclusions_sha256:
             out["exclusions_sha256"] = self.exclusions_sha256
+        if self.contrast_rows is not None:
+            out["contrast_rows"] = self.contrast_rows.to_json()
         out["shard_hash"] = self.shard_hash()
         return out
 
@@ -545,6 +607,9 @@ class ShardHeader:
             span_collapse_policy=str(raw.get("span_collapse_policy", "")),
             report_only=raw.get("report_only", False) is True,
             exclusions_sha256=str(raw.get("exclusions_sha256", "")),
+            contrast_rows=(
+                ContrastRows.from_json(raw["contrast_rows"]) if "contrast_rows" in raw else None
+            ),
         )
         if "shard_hash" in raw and raw["shard_hash"] != header.shard_hash():
             raise ShardContractViolation(

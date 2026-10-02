@@ -1,0 +1,52 @@
+{
+ "schema": "qd-noul-composite/v1",
+ "name": "defect-noul-v3c",
+ "split": {
+  "seed": 20260919,
+  "train_fraction": 0.9,
+  "val_fraction": 0.05
+ },
+ "parts": [
+  {
+   "name": "defect-noul-v3b",
+   "kind": "noul-rows",
+   "manifest_sha256": "d9d1edd510cebcb45e6b71506311363f43d936a5ac6a75eed3edffacb577e7eb",
+   "data_sha256": "b194f14c75e1ac959f3658e0dda6a07ef4c41ff026a416a39dd526a9dfb13a5e",
+   "rows": 5004
+  },
+  {
+   "name": "own-prose-v1",
+   "kind": "own-prose",
+   "manifest_sha256": "c70908d9420d4730a3ac5abd58aa9c9627783d0b8fb6fdbf1307c5847deb39d8",
+   "data_sha256": "e3de292b7f4c8070c1f41a24870f365dd0a507032241c599241f3e83b9799b40",
+   "rows": 2150
+  },
+  {
+   "name": "commitpackft-g6-v1",
+   "kind": "g6",
+   "manifest_sha256": "2cb090959ef12c1ae810fde44db8434a1b2b53eca0d036567a17b286511f4134",
+   "data_sha256": "ff277d02fb736145eeb01480d720cb6c4f0638094abe9230a5f12af60a9b5290",
+   "rows": 1255
+  }
+ ],
+ "examples_sha256": "7f0c13a2804070ee98b4d364f3e439e1cd7e4afbfca8c886910ed5be902c1310",
+ "examples_sha256_basis": "qd_data.defect_class.composite_digest over the parts' pins",
+ "totals": {
+  "examples": 8409,
+  "by_part": {
+   "defect-noul-v3b": 5004,
+   "own-prose-v1": 2150,
+   "commitpackft-g6-v1": 1255
+  }
+ },
+ "contrast": {
+  "per_family": {
+   "knowledge.multiple_choice": 1200,
+   "commonsense.multiple_choice": 800
+  },
+  "seed": 20260919
+ },
+ "contrast_basis": "derived by qd_train.contrast.apply_contrast after dedupe, split and --exclude-identity-keys, from surviving train twins, in blake2b order of identity key; never a dedupe or split unit; only on the rebuild that applies the exclusion list (campaign/v5-preregistered.DRAFT.json data.sources[4].amended, build_order[3])",
+ "layout": "every part is a sibling directory of this one; the loader reads them there",
+ "note": "v5 noul corpus: v4's defect-noul-v3b unchanged (5,004 rows), plus own-prose-v1 (route i) and commitpackft-g6-v1 (G6); route ii (contrast) is derived at pipeline time from this manifest's contrast request"
+}
