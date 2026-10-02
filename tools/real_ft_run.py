@@ -92,6 +92,7 @@ import copy
 import dataclasses
 import gc
 import hashlib
+import inspect
 import json
 import math
 import os
@@ -240,16 +241,22 @@ from qd_train.ood import (
     ood_defect_row,
     ood_gate,
 )
-from qd_train.optim import DEFAULT_BETA2, apply_lr
+from qd_train.optim import DEFAULT_BETA2, MasterWeightAdamW, apply_lr
 from qd_train.power import resolution_state
 from qd_train.replay import PriorCache, PriorKLReplay, ReplayRefusal, check_attestation
+
+# `_sidecar_digest` is private to run_control and imported rather than restated, as L-oracle's
+# span-head-init generator does: one formula for the manifest, the Rust trainer and this tool.
 from qd_train.run_control import (
     MAX_CAP_S,
     CostEstimate,
     LRSchedule,
     RunControl,
+    TensorRef,
     WallClockCap,
+    _sidecar_digest,
     hard_exit_on_cap,
+    tensor_refs_from_safetensors,
 )
 from qd_train.shards import (
     HEADER_NAME,
@@ -302,7 +309,27 @@ RECIPE_PIECE_KEYS: Final[tuple[str, ...]] = (
     "optimizer_fused",
     # --train-attention-mask none (Tier B, Fable's no-mask ruling): on every scored row too.
     "train_attention_mask",
+    # Rung (d)'s torch reference arms (fable-rung-d-resize.md; Fable's idle-GPU ruling Q1
+    # item 2). --max-steps: a truncated schedule, so a row scored later from the model says so
+    # (ScoredModel.max_steps reads it back). --train-dtype fp32 and --span-head-init: what the
+    # tower trained in and where its span head started.
+    "max_steps",
+    "train_dtype",
+    "span_head_init",
 )
+
+#: The dtypes ``--train-dtype`` trains the real tower in. ``bf16`` is every row so far and adds
+#: no recipe key; ``fp32`` is rung (d)'s tight reference arm, T-fp32.
+TRAIN_DTYPES: Final[tuple[str, ...]] = ("bf16", "fp32")
+
+#: The span head's tensor names in a span-head init file and in its content digest: the
+#: checkpoint's ``span_head`` state, prefixed, as L-oracle's manifests name them.
+SPAN_HEAD_PREFIX: Final[str] = "span_head."
+
+#: The largest span-head init file ``--span-head-init`` reads. The 2B's head is 33.6 MB (two
+#: [2048, 2048] f32 projections and two [2048] vectors); this is room for a head 4x wider, and
+#: a bound on what a mistyped path can make this process read into memory.
+MAX_SPAN_HEAD_INIT_BYTES: Final[int] = 1 << 30
 
 #: The wall-clock cap a run here carries when ``--wall-clock-cap-s`` is not given -- the one
 #: every row before 2026-09-29 was taken under. `RunControl` stops at a group boundary and the
@@ -346,7 +373,8 @@ def _recipe_pieces(
     cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
-    train_attention_mask: str = "padding",
+    train_attention_mask: str = "padding", max_steps: int | None = None,
+    train_dtype: str = "bf16", span_head_init: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
     """The recipe keys for whichever ported pieces are on. Empty when none is.
 
@@ -357,13 +385,26 @@ def _recipe_pieces(
     already in every recipe as ``gradient_checkpointing``, and a selective one is named
     beside it only when it is on. And ``--train-attention-mask``: ``"padding"`` is every row
     so far, ``"none"`` (Tier B) names itself.
+
+    Rung (d)'s three, on the same terms: ``max_steps`` (``--max-steps``, the epoch arm cut to
+    its first N batches), ``train_dtype`` (only ``"fp32"``; ``"bf16"`` is every row so far)
+    and ``span_head_init`` (the file ``--span-head-init`` loaded: its sha256 and content
+    digest).
     """
     if train_attention_mask not in TRAIN_ATTENTION_MASKS:
         raise ValueError(
             f"train_attention_mask must be one of {TRAIN_ATTENTION_MASKS}, got "
             f"{train_attention_mask!r}"
         )
+    if train_dtype not in TRAIN_DTYPES:
+        raise ValueError(f"train_dtype must be one of {TRAIN_DTYPES}, got {train_dtype!r}")
     out: dict[str, object] = {}
+    if max_steps is not None:
+        out["max_steps"] = max_steps
+    if train_dtype != "bf16":
+        out["train_dtype"] = train_dtype
+    if span_head_init is not None:
+        out["span_head_init"] = dict(span_head_init)
     if fused_adamw:
         out["optimizer_fused"] = True
     if train_attention_mask != "padding":
@@ -1998,6 +2039,210 @@ def optimizer_spec(dtype: str, optimizer_recipe: str) -> OptimizerSpec:
     return ADAMW_BF16
 
 
+def fp32_adamw_problems(optimizer: object, *, beta2: float) -> list[str]:
+    """Why ``optimizer`` is not the fp32 arm's optimizer, read off its own groups. Empty if it is.
+
+    ``--train-dtype fp32`` is rung (d)'s T-fp32: F's recipe on fp32 parameters, which
+    ``MasterWeightAdamW`` refuses (an fp32 parameter is its own master, ``optim.py``), so
+    ``build_optimizer`` hands back plain ``torch.optim.AdamW``. F's master path never passes
+    eps or weight_decay -- ``MasterWeightAdamW(groups, lr=, betas=, fused=)`` -- so its values
+    are that constructor's defaults, read here from its signature rather than retyped: the
+    check is "equals the master path", not "equals two literals". The fp32 path passes
+    neither either, so it gets torch's defaults; this is what proves they agree on the
+    torch that actually runs, before step 0. Non-fused, as F is (no ``--fused-adamw``).
+    """
+    defaults = inspect.signature(MasterWeightAdamW.__init__).parameters
+    eps, weight_decay = defaults["eps"].default, defaults["weight_decay"].default
+    if type(optimizer) is not torch.optim.AdamW:
+        return [
+            f"the optimizer is {type(optimizer).__module__}.{type(optimizer).__qualname__}, "
+            "not torch.optim.AdamW: the fp32 arm runs the non-master AdamW path"
+        ]
+    problems: list[str] = []
+    for i, group in enumerate(optimizer.param_groups):
+        where = f"param group {i} ({group.get('name', 'unnamed')})"
+        if group["eps"] != eps:
+            problems.append(f"{where}: eps {group['eps']!r}, the master path's is {eps!r}")
+        if group["weight_decay"] != weight_decay:
+            problems.append(
+                f"{where}: weight_decay {group['weight_decay']!r}, the master path's is "
+                f"{weight_decay!r}"
+            )
+        if tuple(group["betas"]) != (0.9, beta2):
+            problems.append(f"{where}: betas {tuple(group['betas'])!r}, not (0.9, {beta2!r})")
+        if group.get("amsgrad") or group.get("fused"):
+            problems.append(
+                f"{where}: amsgrad={group.get('amsgrad')!r} fused={group.get('fused')!r}; "
+                "F's inner AdamW is neither"
+            )
+    return problems
+
+
+def span_head_digest(step: Any) -> str:
+    """The span head's content digest: ``run_control._sidecar_digest`` over each tensor's
+    ``qd-tensor-ref-v1`` digest, named ``span_head.<k>`` -- the formula of L-oracle's
+    span-head-init manifests (Amendment 2 (iv)), which the Rust trainer recomputes too.
+
+    Over ``step.span_head`` alone rather than ``step.state()``, which would copy the whole
+    tower (and the optimizer's masters) to host to read 33.6 MB. Each tensor becomes a
+    ``TensorRef`` exactly as ``QwenDecisionStep.state`` builds one; a test pins the two
+    digests equal on a real step, so this cannot drift from the checkpoint's own.
+    """
+    refs: dict[str, TensorRef] = {}
+    for name, tensor in step.span_head.state_dict().items():
+        host = tensor.detach().to("cpu").contiguous()
+        refs[f"{SPAN_HEAD_PREFIX}{name}"] = TensorRef(
+            dtype=str(host.dtype).removeprefix("torch."),
+            shape=tuple(host.shape),
+            data=host.reshape(-1).view(torch.uint8).numpy().tobytes(),
+        )
+    return _sidecar_digest(refs)
+
+
+@dataclasses.dataclass(frozen=True)
+class SpanHeadInit:
+    """A span-head init file, checked against its manifest: ``--span-head-init``.
+
+    The pre-registered fallback of Amendment 2 (iv): if a torch arm's own seed-0 head does not
+    match the Rust trainer's, both start from L-oracle's file instead. ``tensors`` are keyed by
+    the head's own state names (no prefix), float32, on the CPU.
+    """
+
+    path: Path
+    sha256: str
+    content_digest: str
+    seed: int
+    tensors: Mapping[str, Any]
+
+    def recipe(self) -> dict[str, str]:
+        """What the recipe records: which file, by both of its digests."""
+        return {"sha256": self.sha256, "content_digest": self.content_digest}
+
+
+def _manifest_field(manifest: Mapping[str, Any], *keys: str) -> object:
+    node: object = manifest
+    for key in keys:
+        if not isinstance(node, Mapping) or key not in node:
+            raise SystemExit(
+                f"--span-head-init-manifest has no {'.'.join(keys)}: an L-oracle span-head "
+                "manifest records file.sha256, content_digest.value, construction.seed and "
+                "tensors"
+            )
+        node = node[key]
+    return node
+
+
+def _hex64(value: object, what: str) -> str:
+    if not (isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value)):
+        raise SystemExit(f"--span-head-init-manifest {what} is {value!r}, not a lowercase sha256")
+    return value
+
+
+def read_span_head_init(path: Path, manifest_path: Path) -> SpanHeadInit:
+    """Read ``path`` and refuse unless it is exactly what ``manifest_path`` pre-registered.
+
+    Two digests, both recomputed here: the sha256 of the file's bytes, and the content digest
+    over its tensors (``tensor_refs_from_safetensors`` then ``_sidecar_digest``, the reader's
+    path in L-oracle's generator). The names must be ``span_head.*``, the manifest's own, and
+    float32 -- the head's storage dtype, so loading it casts nothing.
+    """
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"--span-head-init-manifest {manifest_path}: {exc}") from exc
+    if not isinstance(manifest, Mapping):
+        raise SystemExit(f"--span-head-init-manifest {manifest_path} is not a JSON object")
+    want_sha = _hex64(_manifest_field(manifest, "file", "sha256"), "file.sha256")
+    want_content = _hex64(
+        _manifest_field(manifest, "content_digest", "value"), "content_digest.value"
+    )
+    seed = _manifest_field(manifest, "construction", "seed")
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise SystemExit(f"--span-head-init-manifest construction.seed is {seed!r}, not a seed")
+    names = _manifest_field(manifest, "tensors")
+    if not isinstance(names, Mapping) or not names:
+        raise SystemExit("--span-head-init-manifest tensors is not a non-empty object")
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise SystemExit(f"--span-head-init {path}: {exc}") from exc
+    if size > MAX_SPAN_HEAD_INIT_BYTES:
+        raise SystemExit(
+            f"--span-head-init {path} is {size:,} bytes, over {MAX_SPAN_HEAD_INIT_BYTES:,}: not a "
+            "span head this tool trains"
+        )
+    payload = path.read_bytes()
+    got_sha = hashlib.sha256(payload).hexdigest()
+    if got_sha != want_sha:
+        raise SystemExit(
+            f"--span-head-init {path}: sha256 {got_sha}, but the manifest pre-registered "
+            f"{want_sha}. Refusing a head that is not the file both arms agreed to start from"
+        )
+    refs = tensor_refs_from_safetensors(payload)
+    if sorted(refs) != sorted(names):
+        raise SystemExit(
+            f"--span-head-init {path} holds {sorted(refs)}; the manifest names {sorted(names)}"
+        )
+    for name, ref in refs.items():
+        if not name.startswith(SPAN_HEAD_PREFIX) or ref.dtype != "float32":
+            raise SystemExit(
+                f"--span-head-init {path}: {name} ({ref.dtype}) is not a float32 "
+                f"{SPAN_HEAD_PREFIX}* tensor"
+            )
+    content = _sidecar_digest(refs)
+    if content != want_content:
+        raise SystemExit(
+            f"--span-head-init {path}: content digest {content}, but the manifest pre-registered "
+            f"{want_content}"
+        )
+    from safetensors.torch import load as load_safetensors
+
+    tensors = {
+        name.removeprefix(SPAN_HEAD_PREFIX): t
+        for name, t in load_safetensors(payload).items()
+    }
+    return SpanHeadInit(
+        path=path, sha256=got_sha, content_digest=content, seed=seed, tensors=tensors
+    )
+
+
+def load_span_head_init(step: Any, init: SpanHeadInit) -> str:
+    """Copy ``init`` into ``step.span_head`` in place; return the head's digest after the load.
+
+    In place, after the optimizer exists: the head's parameters are float32, and an fp32
+    parameter is its own master in ``MasterWeightAdamW`` (and is the parameter plain AdamW
+    steps), so the copy is what the first optimizer step updates. The digest is recomputed
+    from the live head and must equal the file's: a load that silently did not happen, or
+    cast, is refused.
+    """
+    live = step.span_head.state_dict()
+    if sorted(live) != sorted(init.tensors):
+        raise SystemExit(
+            f"--span-head-init {init.path} holds {sorted(init.tensors)}; this step's span head "
+            f"is {sorted(live)}"
+        )
+    for name, tensor in init.tensors.items():
+        if tuple(tensor.shape) != tuple(live[name].shape) or tensor.dtype != live[name].dtype:
+            raise SystemExit(
+                f"--span-head-init {init.path}: {SPAN_HEAD_PREFIX}{name} is "
+                f"{tensor.dtype} shape {tuple(tensor.shape)}, and this step's is "
+                f"{live[name].dtype} shape {tuple(live[name].shape)} -- a head for another "
+                "hidden size"
+            )
+    with torch.no_grad():
+        step.span_head.load_state_dict(
+            {name: t.to(device=live[name].device) for name, t in init.tensors.items()},
+            strict=True,
+        )
+    digest = span_head_digest(step)
+    if digest != init.content_digest:
+        raise SystemExit(
+            f"--span-head-init {init.path}: the head reads {digest} after the load, not the "
+            f"file's {init.content_digest}"
+        )
+    return digest
+
+
 def _real_step(
     *, backbone: Path, reader: ShardReader, plan: list[Batch], device: str, dtype: str,
     spec: OptimizerSpec, attn_implementation: str, seed: int, lr: float, total_steps: int,
@@ -2014,9 +2259,9 @@ def _real_step(
     no-grad forward, so an eval-only shape is not budgeted here. A step bounded by
     ``plan`` alone refused the needle suite after a full val pass on 2026-09-30.
 
-    The one place the real backbone becomes a step: ``_train`` builds it in bf16 to train,
-    and ``--score-checkpoint`` builds it in fp32 to receive a checkpoint's weights. Returns
-    ``(step, tower, budget)``.
+    The one place the real backbone becomes a step: ``_train`` builds it in bf16 to train (in
+    fp32 under ``--train-dtype fp32``, rung (d)'s T-fp32), and ``--score-checkpoint`` builds it
+    in fp32 to receive a checkpoint's weights. Returns ``(step, tower, budget)``.
     """
     # Imported here, not at module scope: qd_train.backbone needs transformers and
     # safetensors, which are the optional `mac` extra.
@@ -2123,7 +2368,9 @@ def _train(
     cap_s: float = WALL_CLOCK_CAP_S, no_memorise: bool = False,
     batch_tokens: int | None = None, shuffled_label: Mapping[str, object] | None = None,
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
-    train_attention_mask: str = "padding",
+    train_attention_mask: str = "padding", max_steps: int | None = None,
+    train_dtype: str = "bf16", span_head_init: SpanHeadInit | None = None,
+    record_span_head_init_digest: bool = False,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -2140,7 +2387,35 @@ def _train(
     ``shuffled_label`` is --shuffled-label's recipe entry: ``plan`` already carries the
     permuted golds (:func:`apply_shuffled_golds`), and the step is built with its span
     channel off, which is the only way either step accepts ``span_weight`` 0.
+
+    Rung (d)'s torch reference arms (``fable-rung-d-resize.md``), on the same terms:
+
+    * ``max_steps`` (``--max-steps``, one pass only): ``plan`` is cut to its first N batches
+      HERE, before ``steps = len(plan) * passes``, so the schedule (the recipe's own formula
+      at N steps), the loop, the loss log, the consumed digest and the row all see N. Rule 8's
+      reason is the caller's (:func:`max_steps_reason` via ``quick_reasons``).
+    * ``train_dtype`` (``--train-dtype``, real backbone only): ``"fp32"`` builds the tower in
+      fp32 on plain ``torch.optim.AdamW``, refused before step 0 unless its groups carry the
+      master path's eps/weight_decay (:func:`fp32_adamw_problems`).
+    * ``span_head_init`` (``--span-head-init``, real backbone only): loaded into the head
+      after the step is built (:func:`load_span_head_init`).
+    * ``record_span_head_init_digest`` (``--span-head-init-digest``): the head's content
+      digest before step 0, as the metric ``train.span_head_init_digest``. A recording
+      option -- no recipe key, no hash moves -- and on whenever ``span_head_init`` is.
     """
+    if max_steps is not None:
+        if passes != 1:
+            raise ValueError(
+                f"max_steps cuts one pass of the plan; this arm repeats it {passes}x, where "
+                "'the first N batches' would be a different subset of each pass"
+            )
+        if not 1 <= max_steps < len(plan):
+            raise ValueError(
+                f"max_steps={max_steps} against an epoch of {len(plan)} batches is not a "
+                "truncation: the recipe would record max_steps and the row a truncated "
+                "schedule over a run that cut nothing, or ran past its own plan"
+            )
+        plan = plan[:max_steps]
     width = max(int(b.tokens.shape[1]) for b in plan)
     steps = len(plan) * passes
     pieces = _recipe_pieces(
@@ -2148,8 +2423,17 @@ def _train(
         permutation=permutation, replay=replay, cap_s=cap_s, no_memorise=no_memorise,
         batch_tokens=batch_tokens, shuffled_label=shuffled_label,
         checkpoint_skip_layers=checkpoint_skip_layers, fused_adamw=fused_adamw,
-        train_attention_mask=train_attention_mask,
+        train_attention_mask=train_attention_mask, max_steps=max_steps,
+        train_dtype=train_dtype,
+        span_head_init=None if span_head_init is None else span_head_init.recipe(),
     )
+    record_head_digest = record_span_head_init_digest or span_head_init is not None
+    if backbone is None and (train_dtype != "bf16" or record_head_digest):
+        raise ValueError(
+            "train_dtype, span_head_init and the span-head init digest need the real backbone: "
+            "the stand-in's dtype is not selectable, and its head is drawn after its embedding "
+            "and block, so its init is not QwenDecisionStep's"
+        )
     if checkpoint_skip_layers and backbone is None:
         raise ValueError(
             "checkpoint_skip_layers needs the real backbone: the stand-in is one block with "
@@ -2219,9 +2503,11 @@ def _train(
             "statement about the loop and the data, not an evaluation of any model."
         )
     else:
-        spec = optimizer_spec("bf16", optimizer_recipe)
+        # bf16 unless --train-dtype says fp32; optimizer_spec("fp32", recipe) is ADAMW_FP32
+        # for either recipe -- an fp32 parameter is its own master.
+        spec = optimizer_spec(train_dtype, optimizer_recipe)
         step, tower, budget = _real_step(
-            backbone=backbone, reader=reader, plan=plan, device=device, dtype="bf16",
+            backbone=backbone, reader=reader, plan=plan, device=device, dtype=train_dtype,
             spec=spec, attn_implementation=attn_implementation, seed=seed, lr=lr,
             total_steps=steps, span_weight=span_weight, width=width,
             lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
@@ -2229,6 +2515,17 @@ def _train(
             checkpoint_skip_layers=checkpoint_skip_layers, fused_adamw=fused_adamw,
             train_attention_mask=train_attention_mask,
         )
+        if train_dtype == "fp32":
+            # Read off what was BUILT, before step 0: rung (d)'s T-fp32 is a reference only
+            # if its AdamW is F's numerics on fp32 parameters.
+            problems = fp32_adamw_problems(step.optimizer, beta2=beta2)
+            if problems:
+                raise SystemExit(
+                    "--train-dtype fp32: the optimizer is not the master path's AdamW on fp32 "
+                    "parameters -- " + "; ".join(problems)
+                )
+        if span_head_init is not None:
+            load_span_head_init(step, span_head_init)
         train_path.update(
             linear_attention_kernels=dict(tower.linear_attention_kernels),
             gradient_checkpointing=tower.gradient_checkpointing,
@@ -2268,6 +2565,26 @@ def _train(
             f"trainable parameters after the remap to {tower.vocab_size} rows, "
             f"gradient_checkpointing={tower.gradient_checkpointing}, dtype={tower.dtype}."
         )
+        # Rung (d)'s pieces, said in the notes only when on, so every other row's notes are
+        # the bytes they were.
+        if train_dtype == "fp32":
+            what_ran += (
+                " --train-dtype fp32: the tower trained in fp32 on torch.optim.AdamW (an fp32 "
+                "parameter is its own master), eps and weight_decay checked equal to the "
+                "master path's before step 0."
+            )
+        if span_head_init is not None:
+            what_ran += (
+                f" Span head loaded from {span_head_init.path.name} (sha256 "
+                f"{span_head_init.sha256}, content digest {span_head_init.content_digest}) "
+                "after the step drew its own."
+            )
+    if max_steps is not None:
+        what_ran += (
+            f" --max-steps {max_steps}: the first {max_steps} batches of the epoch's order, "
+            f"under the recipe's schedule recomputed over {max_steps} steps."
+        )
+    head_digest = span_head_digest(step) if record_head_digest else None
     if not isinstance(step, SpanScoringStep):  # pragma: no cover - the protocol is structural
         raise TypeError(
             f"{type(step).__name__} does not satisfy SpanScoringStep, so train_ft would "
@@ -2335,6 +2652,25 @@ def _train(
         ),
     )
     recorder.metric("device_budget", budget)
+    if head_digest is not None:
+        # Amendment 2 (iv): gate 0 of rung (d) compares this across the Rust trainer and both
+        # torch arms. A metric, not a recipe key: recording it moves no hash.
+        recorder.metric(
+            "train.span_head_init_digest",
+            Ran(
+                passed=True,
+                value=head_digest,
+                detail=(
+                    "run_control._sidecar_digest over the qd-tensor-ref-v1 digests of "
+                    "span_head.* before step 0 -- "
+                    + (
+                        f"loaded from {span_head_init.path.name} (sha256 {span_head_init.sha256})"
+                        if span_head_init is not None
+                        else f"drawn by the step after torch.manual_seed({seed})"
+                    )
+                ),
+            ),
+        )
     recorder.metric(
         "train.path",
         Ran(
@@ -3288,9 +3624,25 @@ def corpus_facts(
     )
 
 
+def max_steps_reason(max_steps: int) -> str:
+    """Rule 8's reason for a ``--max-steps`` model: one wording, for the ft row, every row its
+    run writes after it, and every row a ``--score-checkpoint`` of its weights writes later.
+
+    ``train.termination`` cannot carry it: the schedule is recomputed over N steps, so the
+    loop ends ``steps_exhausted`` -- the true account of what ran -- and the existing
+    vocabulary (``run_control.TerminationReason``) has no word for "the schedule itself was
+    cut". The truncation is relative to the epoch, which is what this says.
+    """
+    return (
+        f"truncated schedule (--max-steps {max_steps}): the epoch arm trained the first "
+        f"{max_steps} batches of its order under an LR schedule recomputed over {max_steps} "
+        "steps, not the epoch"
+    )
+
+
 def quick_reasons(
     *, tag: str, device: str, real_backbone: bool, corpus: CorpusFacts,
-    termination: str | None = None, memorise_detail: str = "",
+    termination: str | None = None, memorise_detail: str = "", max_steps: int | None = None,
 ) -> list[str]:
     """Every rule-8 reason that stands for one row, from the run's facts. Empty means none.
 
@@ -3303,7 +3655,9 @@ def quick_reasons(
       both of which call a corpus drawn from this repository a subsample of the plan's pool.
     * **Truncated schedule.** ``termination`` other than ``steps_exhausted``, for the rows
       written after the loop (verdict, eval). The ``ft`` row's own truncation is added by
-      ``RunRecorder`` from ``train.termination``, since it is written inside the loop.
+      ``RunRecorder`` from ``train.termination``, since it is written inside the loop. And
+      ``max_steps`` (``--max-steps``), whose loop ends ``steps_exhausted`` on a schedule cut
+      to N steps: :func:`max_steps_reason`, for every row of the run.
     * **Not the campaign's run**, stated beside rule 8 because the tool made every row quick
       before this existed and these conditions were among the reasons: a device outside
       :data:`CAMPAIGN_DEVICES` (a Mac or CPU run is a smoke of the path) and the stand-in
@@ -3325,6 +3679,8 @@ def quick_reasons(
         reasons.append(
             f"train.termination is {termination!r}, not 'steps_exhausted': a truncated schedule"
         )
+    if max_steps is not None:
+        reasons.append(max_steps_reason(max_steps))
     if corpus.snapshot_not_run is not None:
         reasons.append(
             "the shard set's data snapshot is NotRun, so the corpus is a capped or partial "
@@ -5575,10 +5931,19 @@ class ScoredModel:
     trained_by: Mapping[str, object] | None = None
     #: That model's ft row's ``quick_reason`` when the row is quick, which its rows carry.
     ft_quick_reason: str | None = None
+    #: ``recipe.max_steps`` of one seed's ft row: a model trained on a schedule cut by
+    #: ``--max-steps``. ``None`` for every row written without the flag.
+    max_steps: int | None = None
 
     @property
     def n_inputs(self) -> int:
         return len(self.ft_row_ids)
+
+    def truncation_reasons(self) -> list[str]:
+        """Rule 8 for a ``--max-steps`` model. Its ft row's termination is ``steps_exhausted``
+        -- the cut schedule ran out -- so :func:`model_reasons`' termination check cannot see
+        the truncation; the recipe key can."""
+        return [] if self.max_steps is None else [max_steps_reason(self.max_steps)]
 
     def recipe_block(self) -> dict[str, object]:
         """``{block_key: block}``, or nothing for one seed's checkpoint; and the
@@ -5705,6 +6070,7 @@ def scored_model(
             ),
             trained_by=trained_by,
             ft_quick_reason=str(ft["quick_reason"]) if ft["quick"] else None,
+            max_steps=_ft_max_steps(ft),
         )
     path = score_paths(args.score_checkpoint)[0]
     return ScoredModel(
@@ -5714,7 +6080,25 @@ def scored_model(
         ft_row_ids=(str(ft["row_id"]),),
         block_key=None, block=None,
         described=f"ft row {ft['row_id']}",
+        max_steps=_ft_max_steps(ft),
     )
+
+
+def _ft_max_steps(ft: Mapping[str, Any]) -> int | None:
+    """One seed's ft row's ``recipe.max_steps``: ``None`` when absent (every row written
+    without ``--max-steps``), a positive int otherwise, or a refusal -- a malformed value
+    ignored would score a truncated model as an untruncated one."""
+    recipe = ft.get("recipe")
+    if not isinstance(recipe, Mapping) or "max_steps" not in recipe:
+        return None
+    value = recipe["max_steps"]
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise SystemExit(
+            f"ft row {ft.get('row_id')}'s recipe.max_steps is {value!r}, not a positive int: "
+            "--max-steps writes one. Refusing rather than scoring a truncated schedule as a "
+            "full one"
+        )
+    return value
 
 
 def _ft_row(ledger_path: Path, row_id: str) -> dict[str, Any]:
@@ -6426,7 +6810,8 @@ def model_reasons(
     model: ScoredModel, *, device: str, reasons_for: Callable[..., list[str]]
 ) -> list[str]:
     """Every rule-8 reason for a row scoring ``model``: each input's termination (one
-    reason shared by three rows is one reason), and a seed shortfall."""
+    reason shared by three rows is one reason), a seed shortfall, a quick foreign trainer's
+    row, and a ``--max-steps`` ft row."""
     reasons: list[str] = []
     for termination in model.terminations:
         for reason in reasons_for(
@@ -6436,6 +6821,8 @@ def model_reasons(
                 reasons.append(reason)
     reasons.extend(model.seed_reasons())
     reasons.extend(model.provenance_reasons())
+    # A --max-steps model: its termination says steps_exhausted, its recipe says cut.
+    reasons.extend(model.truncation_reasons())
     return reasons
 
 
@@ -7902,6 +8289,101 @@ def _check_piece_flags(args: argparse.Namespace) -> None:
             raise SystemExit(f"--suite-verdicts-out {args.suite_verdicts_out} already exists")
 
 
+def _check_rungd_flags(args: argparse.Namespace) -> SpanHeadInit | None:
+    """Refuse, at argv time, every use of rung (d)'s flags that would record a value that
+    determined nothing; read and check ``--span-head-init`` against its manifest. Its own
+    function rather than more of :func:`_check_piece_flags`, whose callers build bare
+    Namespaces without these attributes.
+
+    Each is refused with ``--shuffled-label``: the control must match its target's recipe
+    (``planned_ft_recipe``), and none of these is part of any target's. And with
+    ``--score-checkpoint`` / ``--score-plan``, which train nothing.
+    """
+    scoring = args.score_checkpoint is not None or args.score_plan is not None
+    on = [
+        flag for flag, given in (
+            ("--max-steps", args.max_steps is not None),
+            ("--train-dtype fp32", args.train_dtype != "bf16"),
+            ("--span-head-init", args.span_head_init is not None),
+            ("--span-head-init-digest", args.span_head_init_digest),
+        ) if given
+    ]
+    if on and scoring:
+        raise SystemExit(
+            f"{', '.join(on)} shape a training run, and --score-checkpoint/--score-plan trains "
+            "nothing; the scoring dtype is --score-dtype"
+        )
+    if on and args.shuffled_label is not None:
+        raise SystemExit(
+            f"{', '.join(on)} with --shuffled-label: the control must train its target's "
+            "recipe, and no target recipe carries these"
+        )
+    if args.max_steps is not None:
+        if args.max_steps < 2:
+            # The schedule's warmup is max(1, N//20) steps, and LRSchedule refuses a run that
+            # ends inside its warmup (its peak_lr would be a rate never used) -- after the
+            # tower has loaded. Decidable here.
+            raise SystemExit(
+                f"--max-steps must be at least 2, got {args.max_steps}: the schedule warms up "
+                "for at least one step, and a run that ends inside its warmup never reaches "
+                "the peak lr its recipe records (LRSchedule refuses it)"
+            )
+        if not args.epoch:
+            raise SystemExit(
+                "--max-steps truncates the epoch arm (--epoch), the arm whose plan is one pass "
+                "of the epoch's order; the memorisation arm is not cut by it"
+            )
+    if args.train_dtype == "fp32":
+        if args.real_backbone is None:
+            raise SystemExit(
+                "--train-dtype fp32 needs --real-backbone: the stand-in's dtype is not "
+                "selectable, so the recipe would record a dtype that determined nothing"
+            )
+        if args.train_attention_mask == "none":
+            raise SystemExit(
+                "--train-dtype fp32 with --train-attention-mask none: the no-mask forward runs "
+                "inside sdpa_kernel([FLASH_ATTENTION]) (QwenDecisionStep.training_attention), "
+                "and CUDA's flash backend takes Half/BFloat16 only (torch v2.10.0, "
+                "aten/src/ATen/native/transformers/cuda/sdp_utils.cpp: can_use_flash_attention "
+                "runs check_dtypes_low_precision), so on the GH200 there is no fp32 kernel and "
+                "the first forward would raise 'No available kernel'. CPU's flash kernel would "
+                "take fp32, but no arm runs there. Train fp32 with the padding mask: right-"
+                "padded causal attention reads no pad at a real position, so the supervised "
+                "positions see the function the unpadded step computes, on SDPA's memory-"
+                "efficient backend"
+            )
+        if args.fused_adamw:
+            raise SystemExit(
+                "--fused-adamw with --train-dtype fp32: fp32 parameters train on plain "
+                "torch.optim.AdamW, not the fp32-master optimizer --fused-adamw fuses"
+            )
+    if args.span_head_init_manifest is not None and args.span_head_init is None:
+        raise SystemExit("--span-head-init-manifest without --span-head-init checks nothing")
+    if args.span_head_init is not None and args.span_head_init_manifest is None:
+        raise SystemExit(
+            "--span-head-init needs --span-head-init-manifest: a head nobody pre-registered is "
+            "not the head both rung (d) arms agreed to start from"
+        )
+    if (args.span_head_init is not None or args.span_head_init_digest) and (
+        args.real_backbone is None
+    ):
+        raise SystemExit(
+            "--span-head-init/--span-head-init-digest needs --real-backbone: the stand-in draws "
+            "its head after its embedding and block, so its init is not QwenDecisionStep's"
+        )
+    if args.span_head_init is None:
+        return None
+    init = read_span_head_init(args.span_head_init, args.span_head_init_manifest)
+    other = sorted({int(s) for s in args.seeds} - {init.seed})
+    if other:
+        raise SystemExit(
+            f"--span-head-init {args.span_head_init} is the head of seed {init.seed} "
+            f"(construction.seed), and this run trains seed(s) {other}: each seed starts from "
+            "its own head"
+        )
+    return init
+
+
 def _remap_post(reader: ShardReader) -> Any:
     """``source id -> post-remap id`` for this set, ``None`` for a token the remap dropped."""
     if reader.remap is None:
@@ -8603,6 +9085,51 @@ def main(argv: list[str] | None = None) -> int:
             "--replay-shards, whose KL forward keeps the mask"
         ),
     )
+    # --- rung (d)'s torch reference arms (fable-rung-d-resize.md; Fable's idle-GPU ruling Q1
+    # item 2). All off by default; each lands in the recipe only when on.
+    parser.add_argument(
+        "--max-steps", type=int, default=None, metavar="N",
+        help=(
+            "train the epoch arm on the FIRST N batches of its own order and stop: the plan is "
+            "cut before the schedule is sized, so warmup and cosine are the recipe's formula "
+            "at N steps (warmup max(1, N//20), min lr lr/10). Must be below the epoch's batch "
+            "count. A truncated schedule: the run, and every row scored from its model, is "
+            "quick (rule 8). In the recipe as max_steps. Needs --epoch"
+        ),
+    )
+    parser.add_argument(
+        "--train-dtype", choices=TRAIN_DTYPES, default="bf16",
+        help=(
+            "the dtype the real tower TRAINS in. 'bf16' (default) is every row so far. 'fp32' "
+            "is rung (d)'s tight reference (T-fp32): the tower in fp32 on plain "
+            "torch.optim.AdamW -- an fp32 parameter is its own master -- refused before step 0 "
+            "unless every group's eps and weight_decay equal the master path's. Refused with "
+            "--train-attention-mask none (CUDA's flash SDPA backend takes fp16/bf16 only) and "
+            "with --fused-adamw. In the recipe as train_dtype. Needs --real-backbone"
+        ),
+    )
+    parser.add_argument(
+        "--span-head-init", type=Path, default=None, metavar="PATH",
+        help=(
+            "start the span head from this safetensors (span_head.* tensors, float32) instead "
+            "of the step's own seeded draw: Amendment 2 (iv)'s pre-registered fallback. "
+            "Refused unless its sha256 and content digest equal --span-head-init-manifest's "
+            "and the manifest's construction seed is this run's. In the recipe as "
+            "span_head_init. Needs --real-backbone"
+        ),
+    )
+    parser.add_argument(
+        "--span-head-init-manifest", type=Path, default=None, metavar="PATH",
+        help="the L-oracle manifest --span-head-init is checked against",
+    )
+    parser.add_argument(
+        "--span-head-init-digest", action="store_true",
+        help=(
+            "record train.span_head_init_digest on the ft row: the span head's content digest "
+            "before step 0, by L-oracle's manifest formula, for rung (d)'s gate 0. A metric "
+            "only -- no recipe key. Implied by --span-head-init. Needs --real-backbone"
+        ),
+    )
     parser.add_argument(
         "--checkpoint-skip-layers", type=int, default=0,
         help=(
@@ -8727,6 +9254,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.ft_row_id is not None and len(args.ft_row_id) == 1:
         args.ft_row_id = args.ft_row_id[0]
     _check_piece_flags(args)
+    span_head_init = _check_rungd_flags(args)
 
     # Resolve the sentinels against the backbone that was actually chosen. --hidden and
     # --heads are REFUSED rather than ignored under --real-backbone: the real tower's width
@@ -9400,10 +9928,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     def reasons_for(tag: str, device: str, termination: str | None = None) -> list[str]:
-        """This run's rule-8 reasons for one (arm, device); see :func:`quick_reasons`."""
+        """This run's rule-8 reasons for one (arm, device); see :func:`quick_reasons`.
+        ``--max-steps`` cuts the epoch arm only, so only its rows carry that reason."""
         return quick_reasons(
             tag=tag, device=device, real_backbone=args.real_backbone is not None,
             corpus=corpus, termination=termination, memorise_detail=memorise_detail,
+            max_steps=args.max_steps if tag == "epoch" else None,
         )
 
     report: dict[str, object] = {
@@ -9485,6 +10015,8 @@ def main(argv: list[str] | None = None) -> int:
                 cap_s=args.wall_clock_cap_s, batch_tokens=recipe_batch_tokens,
                 checkpoint_skip_layers=args.checkpoint_skip_layers, fused_adamw=args.fused_adamw,
                 train_attention_mask=args.train_attention_mask,
+                train_dtype=args.train_dtype, span_head_init=span_head_init,
+                record_span_head_init_digest=args.span_head_init_digest,
             )
             step = run.pop("_step")
             decode_at = time.monotonic()
@@ -9594,6 +10126,9 @@ def main(argv: list[str] | None = None) -> int:
                     checkpoint_skip_layers=args.checkpoint_skip_layers,
                     fused_adamw=args.fused_adamw,
                     train_attention_mask=args.train_attention_mask,
+                    max_steps=args.max_steps, train_dtype=args.train_dtype,
+                    span_head_init=span_head_init,
+                    record_span_head_init_digest=args.span_head_init_digest,
                 )
                 step = run.pop("_step")
                 if shuffled is not None and val_set is not None:
