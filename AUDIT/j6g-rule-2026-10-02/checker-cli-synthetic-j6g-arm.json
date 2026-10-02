@@ -1,0 +1,786 @@
+{
+  "decision": "quiet",
+  "detail": {
+    "arms": {
+      "j6g": {
+        "must_not_lose": [
+          {
+            "candidate": {
+              "n": 9130,
+              "n_total": 10985,
+              "value": 0.8311333636777424
+            },
+            "direction": "higher",
+            "envelope": [
+              {
+                "seed": 0,
+                "value": {
+                  "n": 9130,
+                  "n_total": 10985,
+                  "value": 0.8311333636777424
+                }
+              },
+              {
+                "seed": 1,
+                "value": {
+                  "n": 9130,
+                  "n_total": 10985,
+                  "value": 0.8311333636777424
+                }
+              },
+              {
+                "seed": 2,
+                "value": {
+                  "n": 9130,
+                  "n_total": 10985,
+                  "value": 0.8311333636777424
+                }
+              }
+            ],
+            "loses": false,
+            "max": {
+              "n": 9130,
+              "n_total": 10985,
+              "value": 0.8311333636777424
+            },
+            "metric": "val_top1.choice",
+            "min": {
+              "n": 9130,
+              "n_total": 10985,
+              "value": 0.8311333636777424
+            }
+          },
+          {
+            "candidate": {
+              "n": 6529,
+              "n_total": 7238,
+              "value": 0.9020447637468914
+            },
+            "direction": "higher",
+            "envelope": [
+              {
+                "seed": 0,
+                "value": {
+                  "n": 6529,
+                  "n_total": 7238,
+                  "value": 0.9020447637468914
+                }
+              },
+              {
+                "seed": 1,
+                "value": {
+                  "n": 6529,
+                  "n_total": 7238,
+                  "value": 0.9020447637468914
+                }
+              },
+              {
+                "seed": 2,
+                "value": {
+                  "n": 6529,
+                  "n_total": 7238,
+                  "value": 0.9020447637468914
+                }
+              }
+            ],
+            "loses": false,
+            "max": {
+              "n": 6529,
+              "n_total": 7238,
+              "value": 0.9020447637468914
+            },
+            "metric": "val_top1.span",
+            "min": {
+              "n": 6529,
+              "n_total": 7238,
+              "value": 0.9020447637468914
+            }
+          },
+          {
+            "candidate": {
+              "n": 2291,
+              "n_total": 2304,
+              "value": 0.9943576388888888
+            },
+            "direction": "higher",
+            "envelope": [
+              {
+                "seed": 0,
+                "value": {
+                  "n": 2291,
+                  "n_total": 2304,
+                  "value": 0.9943576388888888
+                }
+              },
+              {
+                "seed": 1,
+                "value": {
+                  "n": 2291,
+                  "n_total": 2304,
+                  "value": 0.9943576388888888
+                }
+              },
+              {
+                "seed": 2,
+                "value": {
+                  "n": 2291,
+                  "n_total": 2304,
+                  "value": 0.9943576388888888
+                }
+              }
+            ],
+            "loses": false,
+            "max": {
+              "n": 2291,
+              "n_total": 2304,
+              "value": 0.9943576388888888
+            },
+            "metric": "permutation_consistency.family.code.defect_class",
+            "min": {
+              "n": 2291,
+              "n_total": 2304,
+              "value": 0.9943576388888888
+            }
+          },
+          {
+            "candidate": {
+              "value": 0.02070706058909458
+            },
+            "direction": "lower",
+            "envelope": [
+              {
+                "seed": 0,
+                "value": {
+                  "value": 0.02070706058909458
+                }
+              },
+              {
+                "seed": 1,
+                "value": {
+                  "value": 0.02070706058909458
+                }
+              },
+              {
+                "seed": 2,
+                "value": {
+                  "value": 0.02070706058909458
+                }
+              }
+            ],
+            "loses": false,
+            "max": {
+              "value": 0.02070706058909458
+            },
+            "metric": "ece.family.code.defect_class.choice.k4",
+            "min": {
+              "value": 0.02070706058909458
+            }
+          },
+          {
+            "candidate": {
+              "n": 40,
+              "n_total": 61,
+              "value": 0.6557377049180327
+            },
+            "direction": "higher",
+            "envelope": [
+              {
+                "seed": 0,
+                "value": {
+                  "n": 40,
+                  "n_total": 61,
+                  "value": 0.6557377049180327
+                }
+              },
+              {
+                "seed": 1,
+                "value": {
+                  "n": 40,
+                  "n_total": 61,
+                  "value": 0.6557377049180327
+                }
+              },
+              {
+                "seed": 2,
+                "value": {
+                  "n": 40,
+                  "n_total": 61,
+                  "value": 0.6557377049180327
+                }
+              }
+            ],
+            "loses": false,
+            "max": {
+              "n": 40,
+              "n_total": 61,
+              "value": 0.6557377049180327
+            },
+            "metric": "needle_8k_worst_bucket",
+            "min": {
+              "n": 40,
+              "n_total": 61,
+              "value": 0.6557377049180327
+            }
+          },
+          {
+            "candidate": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "direction": "lower",
+            "envelope": [
+              {
+                "seed": 0,
+                "value": {
+                  "n": 13,
+                  "n_total": 2304,
+                  "value": 0.005642361111111111
+                }
+              },
+              {
+                "seed": 1,
+                "value": {
+                  "n": 13,
+                  "n_total": 2304,
+                  "value": 0.005642361111111111
+                }
+              },
+              {
+                "seed": 2,
+                "value": {
+                  "n": 13,
+                  "n_total": 2304,
+                  "value": 0.005642361111111111
+                }
+              }
+            ],
+            "loses": false,
+            "max": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "metric": "ood_abstain.in_distribution.family.code.defect_class",
+            "min": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            }
+          },
+          {
+            "candidate": {
+              "n": 54,
+              "n_total": 60,
+              "value": 0.9
+            },
+            "direction": "higher",
+            "envelope": [
+              {
+                "seed": 0,
+                "value": {
+                  "n": 54,
+                  "n_total": 60,
+                  "value": 0.9
+                }
+              },
+              {
+                "seed": 1,
+                "value": {
+                  "n": 54,
+                  "n_total": 60,
+                  "value": 0.9
+                }
+              },
+              {
+                "seed": 2,
+                "value": {
+                  "n": 54,
+                  "n_total": 60,
+                  "value": 0.9
+                }
+              }
+            ],
+            "loses": false,
+            "max": {
+              "n": 54,
+              "n_total": 60,
+              "value": 0.9
+            },
+            "metric": "ood_abstain.prose",
+            "min": {
+              "n": 54,
+              "n_total": 60,
+              "value": 0.9
+            }
+          },
+          {
+            "candidate": {
+              "n": 58,
+              "n_total": 60,
+              "value": 0.9666666666666667
+            },
+            "direction": "higher",
+            "envelope": [
+              {
+                "seed": 0,
+                "value": {
+                  "n": 58,
+                  "n_total": 60,
+                  "value": 0.9666666666666667
+                }
+              },
+              {
+                "seed": 1,
+                "value": {
+                  "n": 58,
+                  "n_total": 60,
+                  "value": 0.9666666666666667
+                }
+              },
+              {
+                "seed": 2,
+                "value": {
+                  "n": 58,
+                  "n_total": 60,
+                  "value": 0.9666666666666667
+                }
+              }
+            ],
+            "loses": false,
+            "max": {
+              "n": 58,
+              "n_total": 60,
+              "value": 0.9666666666666667
+            },
+            "metric": "ood_abstain.scrambled",
+            "min": {
+              "n": 58,
+              "n_total": 60,
+              "value": 0.9666666666666667
+            }
+          },
+          {
+            "candidate": {
+              "n": 20,
+              "n_total": 60,
+              "value": 0.3333333333333333
+            },
+            "direction": "higher",
+            "envelope": [
+              {
+                "seed": 0,
+                "value": {
+                  "n": 20,
+                  "n_total": 60,
+                  "value": 0.3333333333333333
+                }
+              },
+              {
+                "seed": 1,
+                "value": {
+                  "n": 20,
+                  "n_total": 60,
+                  "value": 0.3333333333333333
+                }
+              },
+              {
+                "seed": 2,
+                "value": {
+                  "n": 20,
+                  "n_total": 60,
+                  "value": 0.3333333333333333
+                }
+              }
+            ],
+            "loses": false,
+            "max": {
+              "n": 20,
+              "n_total": 60,
+              "value": 0.3333333333333333
+            },
+            "metric": "ood_abstain.unseen-language",
+            "min": {
+              "n": 20,
+              "n_total": 60,
+              "value": 0.3333333333333333
+            }
+          }
+        ],
+        "must_not_lose_lost": [],
+        "recipe_delta": {
+          "added": {
+            "option_permutation_seed": 20260919
+          },
+          "code_commit": "a5026707b6e3e57c253be32003ba32420f2d78e2",
+          "compared_equal": [
+            "attn_implementation",
+            "backbone_params",
+            "backbone_snapshot",
+            "backbone_vocab",
+            "batch_tokens",
+            "batches",
+            "checkpoint_skip_layers",
+            "deterministic",
+            "device",
+            "gradient_checkpointing",
+            "lower_layers_n",
+            "lower_lr_scale",
+            "lr",
+            "no_memorise",
+            "optimizer_recipe",
+            "passes",
+            "shard_hash",
+            "span_weight",
+            "tag",
+            "tool",
+            "wall_clock_cap_s",
+            "width"
+          ],
+          "data_snapshot_hash": "ea3215c4f36d57f74d291fb94c3fa8724fa5a14a303ea7572aa0dafb2a0933a1",
+          "f_seed0_ft_row": "973cd4e3-e0d2-4ff8-8588-b761cb842b75",
+          "identity": "J6(g)'s own (campaign/j6g-preregistered.json arm.identity): F's data, and F seed 0's ft recipe plus exactly one key",
+          "quick": true
+        },
+        "rows": {
+          "eval_row": "00000000-0000-4000-8000-000000000a62",
+          "ft_row": "00000000-0000-4000-8000-000000000a61",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 0
+        },
+        "targets": [
+          {
+            "candidate": {
+              "n": 1168,
+              "n_total": 1485,
+              "value": 0.7865319865319865
+            },
+            "clears": false,
+            "direction": "higher",
+            "envelope": [
+              {
+                "seed": 0,
+                "value": {
+                  "n": 1168,
+                  "n_total": 1485,
+                  "value": 0.7865319865319865
+                }
+              },
+              {
+                "seed": 1,
+                "value": {
+                  "n": 1168,
+                  "n_total": 1485,
+                  "value": 0.7865319865319865
+                }
+              },
+              {
+                "seed": 2,
+                "value": {
+                  "n": 1168,
+                  "n_total": 1485,
+                  "value": 0.7865319865319865
+                }
+              }
+            ],
+            "max": {
+              "n": 1168,
+              "n_total": 1485,
+              "value": 0.7865319865319865
+            },
+            "metric": "permutation_consistency.family.knowledge.multiple_choice",
+            "min": {
+              "n": 1168,
+              "n_total": 1485,
+              "value": 0.7865319865319865
+            }
+          },
+          {
+            "candidate": {
+              "n": 1053,
+              "n_total": 1197,
+              "value": 0.8796992481203008
+            },
+            "clears": false,
+            "direction": "higher",
+            "envelope": [
+              {
+                "seed": 0,
+                "value": {
+                  "n": 1053,
+                  "n_total": 1197,
+                  "value": 0.8796992481203008
+                }
+              },
+              {
+                "seed": 1,
+                "value": {
+                  "n": 1053,
+                  "n_total": 1197,
+                  "value": 0.8796992481203008
+                }
+              },
+              {
+                "seed": 2,
+                "value": {
+                  "n": 1053,
+                  "n_total": 1197,
+                  "value": 0.8796992481203008
+                }
+              }
+            ],
+            "max": {
+              "n": 1053,
+              "n_total": 1197,
+              "value": 0.8796992481203008
+            },
+            "metric": "permutation_consistency.family.commonsense.multiple_choice",
+            "min": {
+              "n": 1053,
+              "n_total": 1197,
+              "value": 0.8796992481203008
+            }
+          },
+          {
+            "candidate": {
+              "n": 317,
+              "n_total": 1485,
+              "value": 0.21346801346801347
+            },
+            "clears": false,
+            "direction": "lower",
+            "envelope": [
+              {
+                "seed": 0,
+                "value": {
+                  "n": 317,
+                  "n_total": 1485,
+                  "value": 0.21346801346801347
+                }
+              },
+              {
+                "seed": 1,
+                "value": {
+                  "n": 317,
+                  "n_total": 1485,
+                  "value": 0.21346801346801347
+                }
+              },
+              {
+                "seed": 2,
+                "value": {
+                  "n": 317,
+                  "n_total": 1485,
+                  "value": 0.21346801346801347
+                }
+              }
+            ],
+            "max": {
+              "n": 317,
+              "n_total": 1485,
+              "value": 0.21346801346801347
+            },
+            "metric": "ood_abstain.in_distribution.family.knowledge.multiple_choice",
+            "min": {
+              "n": 317,
+              "n_total": 1485,
+              "value": 0.21346801346801347
+            }
+          },
+          {
+            "candidate": {
+              "n": 144,
+              "n_total": 1197,
+              "value": 0.12030075187969924
+            },
+            "clears": false,
+            "direction": "lower",
+            "envelope": [
+              {
+                "seed": 0,
+                "value": {
+                  "n": 144,
+                  "n_total": 1197,
+                  "value": 0.12030075187969924
+                }
+              },
+              {
+                "seed": 1,
+                "value": {
+                  "n": 144,
+                  "n_total": 1197,
+                  "value": 0.12030075187969924
+                }
+              },
+              {
+                "seed": 2,
+                "value": {
+                  "n": 144,
+                  "n_total": 1197,
+                  "value": 0.12030075187969924
+                }
+              }
+            ],
+            "max": {
+              "n": 144,
+              "n_total": 1197,
+              "value": 0.12030075187969924
+            },
+            "metric": "ood_abstain.in_distribution.family.commonsense.multiple_choice",
+            "min": {
+              "n": 144,
+              "n_total": 1197,
+              "value": 0.12030075187969924
+            }
+          }
+        ],
+        "targets_all_clear": false,
+        "wins": false
+      }
+    },
+    "cannot_clear": [],
+    "envelope": {
+      "pin": "F seeds 0, 1 and 2 only (the pre-registered F); seeds added by post-F rule (ii) are not part of the envelope",
+      "seeds": [
+        {
+          "eval_row": "f4feac15-db49-4159-bb9b-695866c855cc",
+          "ft_row": "973cd4e3-e0d2-4ff8-8588-b761cb842b75",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 0
+        },
+        {
+          "eval_row": "00000000-0000-4000-8000-0000000000e1",
+          "ft_row": "00000000-0000-4000-8000-0000000000f1",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 1
+        },
+        {
+          "eval_row": "00000000-0000-4000-8000-0000000000e2",
+          "ft_row": "00000000-0000-4000-8000-0000000000f2",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 2
+        }
+      ]
+    },
+    "preregistration_sha256": "8df45d23fa8e85df2cd69c3d0640cdd74ea7160df82eb0255e925ded57878a25",
+    "room": [
+      {
+        "arm": "j6g",
+        "bound": {
+          "n": 1,
+          "n_total": 1,
+          "name": "U",
+          "value": 1.0
+        },
+        "direction": "higher",
+        "max": {
+          "n": 1168,
+          "n_total": 1485,
+          "value": 0.7865319865319865
+        },
+        "min": {
+          "n": 1168,
+          "n_total": 1485,
+          "value": 0.7865319865319865
+        },
+        "room": true,
+        "target": "permutation_consistency.family.knowledge.multiple_choice"
+      },
+      {
+        "arm": "j6g",
+        "bound": {
+          "n": 1,
+          "n_total": 1,
+          "name": "U",
+          "value": 1.0
+        },
+        "direction": "higher",
+        "max": {
+          "n": 1053,
+          "n_total": 1197,
+          "value": 0.8796992481203008
+        },
+        "min": {
+          "n": 1053,
+          "n_total": 1197,
+          "value": 0.8796992481203008
+        },
+        "room": true,
+        "target": "permutation_consistency.family.commonsense.multiple_choice"
+      },
+      {
+        "arm": "j6g",
+        "bound": {
+          "n": 0,
+          "n_total": 1,
+          "name": "L",
+          "value": 0.0
+        },
+        "direction": "lower",
+        "max": {
+          "n": 317,
+          "n_total": 1485,
+          "value": 0.21346801346801347
+        },
+        "min": {
+          "n": 317,
+          "n_total": 1485,
+          "value": 0.21346801346801347
+        },
+        "room": true,
+        "target": "ood_abstain.in_distribution.family.knowledge.multiple_choice"
+      },
+      {
+        "arm": "j6g",
+        "bound": {
+          "n": 0,
+          "n_total": 1,
+          "name": "L",
+          "value": 0.0
+        },
+        "direction": "lower",
+        "max": {
+          "n": 144,
+          "n_total": 1197,
+          "value": 0.12030075187969924
+        },
+        "min": {
+          "n": 144,
+          "n_total": 1197,
+          "value": 0.12030075187969924
+        },
+        "room": true,
+        "target": "ood_abstain.in_distribution.family.commonsense.multiple_choice"
+      }
+    ],
+    "rule": "J6(g) wins iff every target (MMLU / CSQA permutation consistency, higher; MMLU / CSQA in-distribution abstention, lower) lands outside F's three-seed envelope in the right direction by more than F's own seed range, and no guard lands outside it in the wrong direction (campaign/j6g-preregistered.json, as campaign/j6a-preregistered.json and f-v4-preregistered.json:13). A target the envelope leaves no room to clear refuses the decision (R9_room). 'wins' feeds the next re-plan only.",
+    "then": "J6(g) does not win: a target did not clear or a guard lost; the next re-plan reads the rows"
+  },
+  "inputs": [
+    {
+      "bytes": 11382,
+      "path": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ac4d7b78c70988467/campaign/j6g-preregistered.json",
+      "role": "preregistration",
+      "sha256": "8df45d23fa8e85df2cd69c3d0640cdd74ea7160df82eb0255e925ded57878a25"
+    },
+    {
+      "bytes": 99219,
+      "path": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ac4d7b78c70988467/target/j6g/inputs/f-env-cloned.jsonl",
+      "rows": 6,
+      "sha256": "0f6e95a2116268654d2aee1764c885ac54ef9a4d71bc73850441767b71e1a9d7"
+    },
+    {
+      "bytes": 33146,
+      "path": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ac4d7b78c70988467/target/j6g/inputs/arm-j6g-synthetic.jsonl",
+      "rows": 2,
+      "sha256": "47aa39489f0ebd2ec9fd98d1dc66be44282f28467feeb5dd9cb754dae6cfe039"
+    }
+  ],
+  "preregistration": "campaign/j6g-preregistered.json (dec48d8)",
+  "rule": "j6g_option_permutation",
+  "tool": "qd-post-f-rules"
+}

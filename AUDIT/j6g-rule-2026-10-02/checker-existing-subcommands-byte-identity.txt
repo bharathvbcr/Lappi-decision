@@ -1,0 +1,84 @@
+qd-post-f-rules: existing subcommands, before and after lane L-j6g's change
+
+before binary (host debug build of 8a78056's qd_post_f_rules.rs): 6681091750f325cf4154ea122d8633065f5d20b82aa0325b9e09db2150a4fb81
+after binary (host debug build of a643736): 193513c64840fbe5847502608ea680ff437e3477e5d647525f9b825a10e1f5b5
+Both runs wrote into the same directory path in turn (target/j6g/smoke-same), so a path in
+a message cannot differ. Each invocation keeps stdout, stderr, exit code and its --out JSON.
+
+Invocations (target/j6g/smoke.sh, throwaway; ledgers are the committed ones; the cloned
+envelope is F seed 0's committed rows 973cd4e3/f4feac15 plus seeds 1-2 cloned from them):
+  run avgnp avgnp --j7-ledger "$J7" --j4-ledger "$J4" --out "$O/avgnp.json"
+  run seeds34 seeds34 --f-ledger "$J4" "${J4A[@]}" --out "$O/seeds34.json"
+  run j6f j6f --f-ledger "$J4" "${J4A[@]}" --out "$O/j6f.json"
+  run succ-fsnap successor --f-ledger "$FSNAP" --ft-row 0=$F0 "${FAKE[@]}" --arm-ledger "$ABL" \
+    --j6f-ft-row 0=00000000-0000-4000-8000-000000000003 --j6dv4-ft-row 0=00000000-0000-4000-8000-000000000004 --out "$O/succ-fsnap.json"
+  run succ-j4env successor --f-ledger "$J4" "${J4A[@]}" --arm-ledger "$ABL" \
+    --j6f-ft-row 0=3fa33161-0bdb-42fd-b8b1-509c16e32a27 --j6dv4-ft-row 0=3fa33161-0bdb-42fd-b8b1-509c16e32a27 --out "$O/succ-j4env.json"
+  run succ-cloned successor --f-ledger "$I/f-env-cloned.jsonl" "${CLONED[@]}" --arm-ledger "$I/arm-f-seed0.jsonl" \
+    --j6f-ft-row 0=$F0 --j6dv4-ft-row 0=$F0 --out "$O/succ-cloned.json"
+  run j6a-committed j6a --preregistration "$R/campaign/j6a-preregistered.json" --f-ledger "$FV4" --ft-row 0=$F0 "${FAKE[@]}" \
+    --arm-ledger "$FV4" --j6a-ft-row 0=$F0 "${PINS[@]}" --out "$O/j6a-committed.json"
+  run j6a-amended-cloned j6a --preregistration "$I/j6a-prereg-amended.json" --f-ledger "$I/f-env-cloned.jsonl" "${CLONED[@]}" \
+    --arm-ledger "$I/arm-f-seed0.jsonl" --j6a-ft-row 0=$F0 "${PINS[@]}" --out "$O/j6a-amended-cloned.json"
+  run ft-rows ft-rows --ledger "$J4" "${J4A[@]}"
+  run eval-row eval-row --ledger "$J4" --ft-row 0=80b19a41-ad0a-4af7-b1d9-2de675d5199b
+  run out-exists seeds34 --f-ledger "$J4" "${J4A[@]}" --out "$O/seeds34.json"
+  run bad-ft-row seeds34 --f-ledger "$J4" --ft-row 0=nothex --out "$O/never.json"
+  run seeds34-help seeds34 --help
+  run j6a-help j6a --help
+
+file                               before sha256                                                     after
+
+avgnp.exit                         1121cfccd5913f0a63fec40a6ffd44ea64f9dc135c66634ba001d10bcf4302a2  identical
+avgnp.json                         b9911fbaef9187359196f3af1b825298fe68d0d0d2d8e209d7843c9753b114a8  identical
+avgnp.stderr                       e089cebc2d3d00fc091c5109339a292f9baef5ebd7c3af08c02d62e1034ec8f7  identical
+avgnp.stdout                       cb10ab9da8784ab28ccc42d1ad46a58bdbdf01cccf24f71a1b54dad858433f3e  identical
+bad-ft-row.exit                    53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3  identical
+bad-ft-row.stderr                  c59e152d44dccb2d529fb9023dae01e01282839d88bf7e7d975f84dbaf2b4f76  identical
+bad-ft-row.stdout                  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  identical
+eval-row.exit                      9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  identical
+eval-row.stderr                    862e9aacc0c6bebc7b6406b4972fb6543d84dee351b37421c2d381ba539ed3ff  identical
+eval-row.stdout                    26ed9941fba2916379b44f5be7719585f2af91a03af0dd1a9f883431900f15ad  identical
+ft-rows.exit                       9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  identical
+ft-rows.stderr                     d710a2bc7f3d1417cf6d5090af4bb4d8c07579f4b74a49836a06256a7dcd6aa7  identical
+ft-rows.stdout                     b29721e2ea5b916244d00dc07122465fa40d9e1432943fab0c5134086b1e43d8  identical
+j6a-amended-cloned.exit            1121cfccd5913f0a63fec40a6ffd44ea64f9dc135c66634ba001d10bcf4302a2  identical
+j6a-amended-cloned.json            2de5e93cfe016f853a306080af78c061b084254c958197bf7aeecf2df4dbd2bd  identical
+j6a-amended-cloned.stderr          4a4fbda1e0800d822b3b155ae7e1f89d87a7d90482e36171ae2c4b381befd2cc  identical
+j6a-amended-cloned.stdout          cb10ab9da8784ab28ccc42d1ad46a58bdbdf01cccf24f71a1b54dad858433f3e  identical
+j6a-committed.exit                 1121cfccd5913f0a63fec40a6ffd44ea64f9dc135c66634ba001d10bcf4302a2  identical
+j6a-committed.json                 b927bcaa30c642bbf3c19b2770d2bec9593779898823c60cc65fcc6c9960abbc  identical
+j6a-committed.stderr               5ad80f135ed13d5734523a1c659c118abd8841e0c5dff5d208f269736228f581  identical
+j6a-committed.stdout               cb10ab9da8784ab28ccc42d1ad46a58bdbdf01cccf24f71a1b54dad858433f3e  identical
+j6a-help.exit                      9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  identical
+j6a-help.stderr                    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  identical
+j6a-help.stdout                    59bfa8fdde136bf11526033a526e4c4afbe16b7d4bc995d608ecc6a2b5e955db  identical
+j6f.exit                           9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  identical
+j6f.json                           e8b7f290baf245769e93df20dd71c52e61aa455a3fbc45a9aa46caa79832178b  identical
+j6f.stderr                         e8b7f290baf245769e93df20dd71c52e61aa455a3fbc45a9aa46caa79832178b  identical
+j6f.stdout                         121e9809e3b3e64c157eb1294ec571c9220c4370d293e350526b53f0cba4bc20  identical
+out-exists.exit                    1121cfccd5913f0a63fec40a6ffd44ea64f9dc135c66634ba001d10bcf4302a2  identical
+out-exists.stderr                  7caf1c3425081e490d7ac361f97bc68713bfd4962384bf51178c32fcea1b5b73  identical
+out-exists.stdout                  cb10ab9da8784ab28ccc42d1ad46a58bdbdf01cccf24f71a1b54dad858433f3e  identical
+seeds34-help.exit                  9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  identical
+seeds34-help.stderr                e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  identical
+seeds34-help.stdout                2d83d7d5c61b6e0cf378e6d1b81d7e1185e68281b6b12f7db4af998f21dfc4be  identical
+seeds34.exit                       9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  identical
+seeds34.json                       905d226a1b76132c94a5409872b4e528c7ab7a9e0c119b424857c407d3752c40  identical
+seeds34.stderr                     905d226a1b76132c94a5409872b4e528c7ab7a9e0c119b424857c407d3752c40  identical
+seeds34.stdout                     121e9809e3b3e64c157eb1294ec571c9220c4370d293e350526b53f0cba4bc20  identical
+succ-cloned.exit                   1121cfccd5913f0a63fec40a6ffd44ea64f9dc135c66634ba001d10bcf4302a2  identical
+succ-cloned.json                   fb96bd6adff2b23dc2754c4388ace31cdd3a9364f45de7410ada177681acda26  identical
+succ-cloned.stderr                 503b69edb088bc87d66caf2850f396af81cb4946952135f4fece57826d000aae  identical
+succ-cloned.stdout                 cb10ab9da8784ab28ccc42d1ad46a58bdbdf01cccf24f71a1b54dad858433f3e  identical
+succ-fsnap.exit                    1121cfccd5913f0a63fec40a6ffd44ea64f9dc135c66634ba001d10bcf4302a2  identical
+succ-fsnap.json                    607bc787a0faf991783cd56b61baeffefca4228bd72e4cfa472a740fae28e7b2  identical
+succ-fsnap.stderr                  cace6fbaebd5fe263d886013da8f2fa1229e07d54edbbd92adca8df82dd5f2da  identical
+succ-fsnap.stdout                  cb10ab9da8784ab28ccc42d1ad46a58bdbdf01cccf24f71a1b54dad858433f3e  identical
+succ-j4env.exit                    1121cfccd5913f0a63fec40a6ffd44ea64f9dc135c66634ba001d10bcf4302a2  identical
+succ-j4env.json                    d9e16d81a43f9f6f4a7a590e844da0ca96a9b30ed6e0512f3e044bdfe2fd9f62  identical
+succ-j4env.stderr                  80dc266dad8d1d8e4efb0dc4941d342982802e87559df3e33a3447b0ac40b7d5  identical
+succ-j4env.stdout                  cb10ab9da8784ab28ccc42d1ad46a58bdbdf01cccf24f71a1b54dad858433f3e  identical
+
+50 of 50 files byte-identical
+
