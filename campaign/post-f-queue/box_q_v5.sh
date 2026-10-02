@@ -12,10 +12,11 @@
 #   - then gpu.lock passes to the seed's own post-seed waiter v5traj-s<N> (trajectory-ood rows,
 #     cap 3,600 s, then the CPU controls); its .done never gates the next seed.
 # R9 (readings.R9_pause_after_seed_0): right after seed 0's train+score, qd-post-f-rules-v5
-# v5-pause. continue: seeds 1-2 run. pause, refused, or anything else: HOLD. $Q/v5.paused gets
-# the word; seeds 1-2 start only once the human writes $Q/V5_CONTINUE (bounded; $Q/V5_STOP ends
-# the block). The hold acts after seed 0's needle control and trajectory hand-off, which are
-# seed 0's own (already approved) spend.
+# v5-pause. continue: seeds 1-2 run. Anything else: HOLD, and $Q/v5.paused says why, as exactly
+# one of pause, refused, unknown:<word> or no-seed-0-row (v5_common.sh v5_rule's V5_SAID); seeds
+# 1-2 start only once the human writes $Q/V5_CONTINUE (bounded; $Q/V5_STOP ends the block).
+# The hold acts after seed 0's needle control and trajectory hand-off, which are seed 0's own
+# (already approved) spend.
 # Every run's estimate is checked against the approved total first (v5_budget_ok).
 # Downstream: box_q_v5s34.sh, box_q_v5nw.sh and box_q_v5j5.sh wait on v5.done. LAUNCH THEM
 # FIRST: wait_queued skips a waiter whose .queued is absent.
@@ -62,20 +63,23 @@ touch $Q/v5.started
 if [ -e "$V5_LEDGER" ]; then say "v5: $V5_LEDGER appeared while waiting for the lock; refusing"; exit 3; fi
 v5_train_seed v5 0 "v5 seed 0"
 FT0=$V5_FT
+# R9_WHY: continue, or the hold's reason as $Q/v5.paused carries it (Fable's ruling A): pause (the
+# reading), refused (the binary refused or could not be read or run), unknown:<word> (it said a
+# word R9 does not have), no-seed-0-row (seed 0 wrote no ft row, so v5-pause was not run).
 if [ -n "$FT0" ]; then
   v5_rule v5-pause "continue pause" v5-pause --preregistration "$V5_PREREG" --ledger "$V5_LEDGER" --ft-row "0=$FT0"
+  R9_WHY=$V5_SAID
 else
-  V5_WORD=refused
-  say "R9: v5 seed 0 wrote no ft row; v5-pause NOT RUN; refused"
+  R9_WHY=no-seed-0-row
+  say "R9: v5 seed 0 wrote no ft row; v5-pause NOT RUN; no-seed-0-row"
 fi
-R9_WORD=$V5_WORD
 v5_needle_control v5 0 "$FT0" "v5 seed 0"
 v5_post_seed v5 0 "$FT0"
-if [ "$(v5_pause_action "$R9_WORD")" = run ]; then
+if [ "$(v5_pause_action "$R9_WHY")" = run ]; then
   say "R9: continue: seeds 1-2 start"
 else
-  write_atomic "$V5_PAUSED" "$R9_WORD (v5-pause on ft row ${FT0:-none}; the decision JSON is named in this waiter's log)" || exit 3
-  say "R9: $R9_WORD: HOLD. $V5_PAUSED written; seeds 1-2 start only once the human writes $V5_CONTINUE ($V5_STOP ends v5 here)"
+  write_atomic "$V5_PAUSED" "$R9_WHY" || exit 3
+  say "R9: $R9_WHY: HOLD (v5-pause on ft row ${FT0:-none}). $V5_PAUSED says '$R9_WHY'; seeds 1-2 start only once the human writes $V5_CONTINUE ($V5_STOP ends v5 here)"
   v5_wait_marker "$V5_CONTINUE" "R9's hold" || { say "R9: no continue: v5 seeds 1-2 NOT RUN"; exit 3; }
 fi
 

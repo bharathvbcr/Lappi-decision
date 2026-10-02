@@ -106,6 +106,13 @@ V5_HUMAN_WAIT_MAX_S=259200
 V5_TRAJ_HANDOFF_MAX_S=900
 # A trajectory invocation is not started with less than this left of the seed's 3,600 s.
 V5_TRAJ_MIN_LEFT_S=120
+# The ledger read race (Fable's ruling B, 2026-10-02; v5_read_race): a reading the binary refused
+# on a half-written LAST ledger line is made again, at most V5_READ_TRIES attempts in all (the
+# first included), V5_READ_RETRY_S apart: at most 4 x 10 s = 40 s of waiting per reading. Then
+# it is refused, as now. Never gated on a post-seed waiter's .done instead: that waiter releases
+# gpu.lock before its CPU controls, so waiting on it would idle the GPU for up to 5,400 s.
+V5_READ_TRIES=5
+V5_READ_RETRY_S=10
 # The human's yes on the v5 block (launch.human_yes); every run also carries post_f_common.sh's
 # rule-4 lifting through approved().
 V5_HUMAN_YES="Bharath (human, answer 1 at d24c865, AUDIT/v5-plan-2026-10-02/human-answers-v5-review.md: 'Yes, launch when ready (Recommended)' on ~\$137 / ~60 GPU-h, +\$32 / +14 h with seeds 3-4, with R9's seed-0 pause and R7's skip)"
@@ -390,47 +397,142 @@ v5_lock() {
 }
 
 # --- the rules ------------------------------------------------------------------------------
+# v5_rules_run MODE NAME ARGS... : the one place the pinned v5 binary runs. MODE is out (a
+# reading: each attempt gets its own new --out JSON, and V5_RULE_JSON names the last one) or
+# plain (ft-rows, eval-row). The pin is verified before EVERY attempt; when it does not check,
+# nothing runs and this returns 3. Otherwise it returns 0 with V5_RAW (the last attempt's stdout)
+# and V5_RC (its exit code). Each attempt's stderr is kept beside it in $DEC_V5
+# (NAME-<UTC>-try<k>.stderr) and copied to stderr, where this function also logs, so a caller's
+# $(...) carries only the binary's answer. An attempt is made again only on the ledger read race
+# (v5_read_race), V5_READ_RETRY_S later, up to V5_READ_TRIES attempts in all; every other refusal
+# stands at once. Every attempt only reads (the binary refuses an --out that exists, so each
+# gets a new one): a retry decides nothing twice.
+v5_rules_run() {
+  local mode=$1 name=$2 try=1 base errf
+  local -a outarg
+  shift 2
+  V5_RAW=""
+  V5_RC=""
+  V5_RULE_JSON=""
+  if ! mkdir -p "$DEC_V5"; then say "rules $name: cannot create $DEC_V5; NOT RUN" >&2; return 3; fi
+  while :; do
+    base=$DEC_V5/$name-$(date -u +%Y%m%dT%H%M%S%N)-try$try
+    errf=$base.stderr
+    outarg=()
+    if [ "$mode" = out ]; then V5_RULE_JSON=$base.json; outarg=(--out "$V5_RULE_JSON"); fi
+    if ! pin "$RULES_V5" "$RULES_V5_SHA256" >&2; then
+      say "rules $name: the v5 rules binary is not the pinned one; NOT RUN" >&2
+      V5_RAW=""
+      V5_RC=""
+      return 3
+    fi
+    V5_RAW=$("$RULES_V5" "$@" "${outarg[@]}" 2> "$errf")
+    V5_RC=$?
+    cat "$errf" >&2
+    if [ "$V5_RC:$V5_RAW" != 3:refused ] || ! v5_read_race "$errf" "$@"; then return 0; fi
+    if [ "$try" -ge "$V5_READ_TRIES" ]; then
+      say "rules $name: still refused on a half-written last ledger line after $try attempts; refused" >&2
+      return 0
+    fi
+    say "rules $name: attempt $try of $V5_READ_TRIES refused on a half-written last ledger line ($(tail -n 1 "$errf" | head -c 300)); again in ${V5_READ_RETRY_S}s" >&2
+    sleep "$V5_READ_RETRY_S"
+    try=$((try + 1))
+  done
+}
+
+# v5_read_race STDERR_FILE ARGS... : true iff the binary's last stderr line refuses for ONE
+# reason, a malformed line that is the LAST line of a ledger this call names (the value after a
+# --*ledger flag in ARGS). The binary's words for it (qd_post_f_rules.rs parse_rows and main;
+# AUDIT/v5-queue-2026-10-02/read-race-probe.txt): `qd-post-f-rules: refused: <ledger> line <N>:
+# malformed ledger line (<error>)`, several reasons joined by "; ". The last line is counted as
+# parse_rows counts, on the ledger as it is now: lines split on newline, numbered from 1, the
+# empty one after a final newline skipped. The caller has already required exit 3 and stdout
+# refused. A ledger that grew past line N between the read and this check is not retried: held.
+v5_read_race() {
+  local errf=$1 last prev="" a n prefix rest
+  shift
+  last=$(tail -n 1 "$errf" 2>/dev/null)
+  for a in "$@"; do
+    case "$prev" in
+      --*ledger)
+        if [ -f "$a" ]; then
+          n=$(wc -l < "$a" | tr -d ' ')
+          if [ -n "$(tail -c 1 "$a")" ]; then n=$((n + 1)); fi
+          prefix="qd-post-f-rules: refused: $a line $n: malformed ledger line ("
+          case "$last" in
+            "$prefix"*")")
+              rest=${last#"$prefix"}
+              case "$rest" in *";"*) ;; *) return 0 ;; esac ;;
+          esac
+        fi ;;
+    esac
+    prev=$a
+  done
+  return 1
+}
+
 # v5_rule LABEL "WORDS" SUBCOMMAND ARGS... : one pre-registered reading through the pinned v5
-# binary. Sets V5_WORD to one of WORDS (exit 0) or refused, and V5_RULE_JSON to its --out file.
-# Read like fsucc's: exit 0 with a listed word, or exit 3 with refused; any other word, exit
-# code or pairing, a binary that is not the pinned one (then it is not run), or a word with no
-# JSON written, is refused.
+# binary (v5_rules_run). Sets V5_WORD to one of WORDS (exit 0) or refused, and V5_RULE_JSON to the
+# last attempt's --out file. Read like fsucc's: exit 0 with a listed word, or exit 3 with
+# refused; any other word, exit code or pairing, a binary that is not the pinned one (then it is
+# not run), or a word with no JSON written, is refused.
+# V5_SAID is what a hold marker carries (Fable's ruling A, 2026-10-02), so the human tells a
+# reading from a tool failure without the logs: V5_WORD, except unknown:<word> when the binary
+# exited 0 with one word-shaped token (at most 64 of A-Z a-z 0-9 _ . : -) that is none of WORDS
+# and not refused. A refusal, an inconsistent exit, anything else printed, a listed word with no
+# JSON, and a binary that did not run all say refused. Actions read V5_WORD, never V5_SAID.
 v5_rule() {
-  local label=$1 words=$2 raw rc w
+  local label=$1 words=$2 w
   shift 2
   V5_WORD=refused
-  V5_RULE_JSON=$DEC_V5/$label-$(date -u +%Y%m%dT%H%M%S%N).json
-  if ! mkdir -p "$DEC_V5"; then say "rule $label: cannot create $DEC_V5; refused"; return 0; fi
-  if ! pin "$RULES_V5" "$RULES_V5_SHA256"; then
-    say "rule $label: the v5 rules binary is not the pinned one; NOT RUN; refused"; return 0
-  fi
-  raw=$("$RULES_V5" "$@" --out "$V5_RULE_JSON")
-  rc=$?
+  V5_SAID=refused
+  if ! v5_rules_run out "$label" "$@" 2>&1; then say "rule $label: NOT RUN; refused"; return 0; fi
   # exact equality with one listed word: "wins quiet" or " room" is not a word
   for w in $words; do
-    if [ "$rc" = 0 ] && [ "$raw" = "$w" ]; then V5_WORD=$raw; fi
+    if [ "$V5_RC" = 0 ] && [ "$V5_RAW" = "$w" ]; then V5_WORD=$V5_RAW; fi
   done
-  if [ "$V5_WORD" = refused ] && [ "$rc:$raw" != 3:refused ]; then
-    say "rule $label: inconsistent checker output (exit $rc, stdout '$(printf '%s' "$raw" | head -c 200)'); refused"
+  if [ "$V5_WORD" = refused ] && [ "$V5_RC:$V5_RAW" != 3:refused ]; then
+    say "rule $label: inconsistent checker output (exit $V5_RC, stdout '$(printf '%s' "$V5_RAW" | head -c 200)'); refused"
   fi
   if [ "$V5_WORD" != refused ] && [ ! -s "$V5_RULE_JSON" ]; then
     say "rule $label: the checker said '$V5_WORD' but wrote no JSON to $V5_RULE_JSON; refused"
     V5_WORD=refused
   fi
-  say "rule $label: $V5_WORD; JSON in $V5_RULE_JSON"
+  V5_SAID=$V5_WORD
+  if [ "$V5_WORD" = refused ] && [ "$V5_RC" = 0 ] && v5_unlisted_word "$V5_RAW" "$words"; then
+    V5_SAID=unknown:$V5_RAW
+    say "rule $label: refused: the binary said '$V5_RAW', which is not one of this reading's words ($words); JSON in $V5_RULE_JSON"
+  else
+    say "rule $label: $V5_WORD; JSON in $V5_RULE_JSON"
+  fi
 }
 
-# A plain call into the pinned v5 binary (ft-rows, eval-row): its stdout and exit code, or 3
-# without running it when the pin does not check. The pin's message goes to stderr.
+# v5_unlisted_word TOKEN "WORDS": true iff TOKEN is one word-shaped token (1-64 of A-Z a-z 0-9
+# _ . : -) that is not refused and none of WORDS.
+v5_unlisted_word() {
+  local t=$1 w
+  if [ -z "$t" ] || [ "${#t}" -gt 64 ] || [ "$t" = refused ]; then return 1; fi
+  case "$t" in *[!A-Za-z0-9_.:-]*) return 1 ;; esac
+  for w in $2; do
+    if [ "$t" = "$w" ]; then return 1; fi
+  done
+  return 0
+}
+
+# A plain call into the pinned v5 binary (ft-rows, eval-row) through v5_rules_run: the last
+# attempt's stdout and exit code, or 3 without running it when the pin does not check. Its log
+# lines and the binary's stderr go to stderr.
 v5_rules_call() {
-  pin "$RULES_V5" "$RULES_V5_SHA256" >&2 || return 3
-  "$RULES_V5" "$@"
+  v5_rules_run plain "$1" "$@" || return 3
+  if [ -n "$V5_RAW" ]; then printf '%s\n' "$V5_RAW"; fi
+  return "$V5_RC"
 }
 
 # What each word does. Anything not named here holds or skips: an unknown or empty word never
 # starts a run.
 # R9 (readings.R9_pause_after_seed_0): continue -> run seeds 1-2; pause -> hold until V5_CONTINUE;
-# refused -> the same hold (this queue's fail-closed reading; the DRAFT names only pause).
+# refused, unknown:<word> and no-seed-0-row -> the same hold (this queue's fail-closed reading;
+# the DRAFT names only pause).
 v5_pause_action() { case "$1" in continue) echo run ;; *) echo hold ;; esac; }
 # The arm's launch (arm_noul_weight.launch_condition, R7): room -> run; no_room -> run only with
 # V5NW_HUMAN_YES pinned (the second argument "yes"), else skip; refused -> skip even with the

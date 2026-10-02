@@ -1,5 +1,5 @@
 ============================= test session starts ==============================
-platform darwin -- Python 3.14.8, pytest-9.1.1, pluggy-1.6.0 -- /Users/bharath/.cache/uv/builds-v0/.tmpTLGapf/bin/python
+platform darwin -- Python 3.14.8, pytest-9.1.1, pluggy-1.6.0 -- /Users/bharath/.cache/uv/builds-v0/.tmps3Nt9h/bin/python
 rootdir: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a
 configfile: pyproject.toml
 plugins: langsmith-0.9.2, anyio-4.14.1
@@ -31,5 +31,5 @@ python/tests/test_v5_prelude_mac.py::test_the_record_carries_every_plan_seeds_or
   <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-======================== 17 passed, 2 warnings in 4.31s ========================
+======================== 17 passed, 2 warnings in 3.61s ========================
 <sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
