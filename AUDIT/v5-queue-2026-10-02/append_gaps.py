@@ -51,9 +51,11 @@ RECORDS = [
             "recorded argv. The v5 lane commit (build + rename) does not exist yet, so the "
             "L-waiters argv check (each recorded argv through main() of the pinned commit with "
             "resolve_rev stubbed) could not run: it is the first thing to run once V5_LANE_AT is "
-            "known. Unexercised on any machine: --batch-order (not on any branch yet), the needle "
-            "control and trajectory-ood argv against v5 code, ft_linear_control.py on v5's split "
-            "with --exclude-identity-keys, and the qd-post-f-rules-v5 build itself (stubbed)."
+            "known. Unexercised on any machine: these argv under the real main() (--batch-order "
+            "itself is on v5-build at 3223417 with L-v5-train's own tests; the waiters' argv were "
+            "not parsed by it), the needle control and trajectory-ood argv against v5 code, "
+            "ft_linear_control.py on v5's split with --exclude-identity-keys, and the "
+            "qd-post-f-rules-v5 build itself (stubbed)."
         ),
     },
     {
@@ -83,23 +85,42 @@ RECORDS = [
         ),
     },
     {
-        "id": "GAP-V5-QUEUE-PRELUDE-BLOCKED-ON-ORDER-DIGEST-2026-10-02",
-        "tool": "campaign/post-f-queue/v5_prelude_mac.py (not written)",
+        "id": "GAP-V5-QUEUE-PRELUDE-NOT-RUN-ON-V5-DATA-2026-10-02",
+        "tool": "campaign/post-f-queue/v5_prelude_mac.py; python/tests/test_v5_prelude_mac.py",
         "question": (
-            "The v5 Mac prelude prints per-seed corpus.plan_order_digest for plan seeds 0-4 and "
-            "asserts the seed-invariant plan shape by calling L-v5-train's plan_order_digest and "
-            "seed_arms (tools/real_ft_run.py). Is that code committed and merged into v5-build?"
+            "Does the v5 Mac prelude pass on v5's real shard set and argv: five distinct plan "
+            "order digests, one shape across plan seeds 0-4, C1's sentence, the noul-weight "
+            "count, its peak memory, and its run time?"
         ),
         "answer": (
-            "Not when this lane closed: L-v5-train's --batch-order seed, plan_seed_for, "
-            "plan_order_digest and seed_arms were written but uncommitted (the lead's relay, "
-            "2026-10-02), and the lane was told not to merge l-v5-train-build itself. The prelude "
-            "is therefore not written. The waiters already pin and check its record "
-            "(v5_prelude_check: ok, code_commit = V5_LANE_AT, batch_order seed, five distinct "
-            "64-hex plan_order_digest entries for plan seeds 0-4, shape_equal_across_seeds true, "
-            "the box train header's shard and data hashes, the box tokenizer, "
-            "option_permutation_seed iff C1, and argv recipe flags equal to V5_RECIPE), so a "
-            "prelude that writes those fields satisfies them."
+            "Not run: v5's shard set does not exist yet (build_order steps 1-4). It ran only on "
+            "L-v5-train's toy corpus (test_real_ft_rungd_flags's corpus and _patch_module, CPU, "
+            "no tower), where its record carries plan_order_digest at plan seeds 0-4 (five "
+            "distinct), one SeedArms.shape(), and passes v5_common.sh v5_prelude_check once two "
+            "fields the toy cannot supply are given (the argv's v5 recipe, which needs the 2B "
+            "tower's layers, and a tokenizer sha: the tiny snapshot has no tokenizer.json). On "
+            "v5's real plan it holds main's seed-0 plan beside one more seed's at a time "
+            "(Fable's figure: ~1.57 GB and ~38 s per plan; [I] for v5's 1.16x larger set); "
+            "C1's validation loop was not exercised (the toy run has no "
+            "--option-permutation-seed). Run it under tools/mac_heavy.sh."
+        ),
+    },
+    {
+        "id": "GAP-V5-QUEUE-MUTATION-ROUND-2-NOT-RUN-2026-10-02",
+        "tool": "AUDIT/v5-queue-2026-10-02/mutations.py",
+        "question": (
+            "Does the per-gate wait test (test_v5_waits_for_each_gate_on_its_own) catch the "
+            "mutants that survived round 1 (M18 no j5pp wait, M19 no j6g wait) and M27 (no j6a "
+            "wait)?"
+        ),
+        "answer": (
+            "Not measured. Round 2 took the heavy-job lock at 19:24:05Z and the Mac "
+            "kernel-panicked at 19:24:56Z; the lead then barred mutation testing on this Mac "
+            "for host stability after the 2026-10-02 launchd panics "
+            "(AUDIT/mac-stability-2026-10-02/report.md). Its log stops after M1 and M2 "
+            "(mutations-round2-NOT-RUN-interrupted.txt) and is not a result. Round 1 stands: 24 "
+            "of 26 caught. The four per-gate cases pass on the real waiter; that each fails "
+            "with its own wait removed is inferred, not run."
         ),
     },
 ]
