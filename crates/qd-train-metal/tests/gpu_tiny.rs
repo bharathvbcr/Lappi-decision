@@ -316,7 +316,12 @@ fn gpu_tiny_loop_resumed_from_a_checkpoint_is_the_uninterrupted_run_bit_for_bit(
     let full_head: Vec<Vec<f32>> = o.head().values().into_iter().map(<[f32]>::to_vec).collect();
     drop(p);
 
-    let dir = std::env::temp_dir().join(format!("qd-train-metal-gpu-ckpt-{}", std::process::id()));
+    // Under the workspace's target directory, not the system temp dir: on macOS that is under
+    // /var, a symbolic link, and ojas-io's state writer refuses symbolic links on the way to
+    // the state directory.
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target")
+        .join(format!("qd-train-metal-gpu-ckpt-{}", std::process::id()));
     if dir.exists() {
         std::fs::remove_dir_all(&dir).unwrap();
     }

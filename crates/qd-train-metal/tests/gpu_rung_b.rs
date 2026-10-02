@@ -197,24 +197,25 @@ fn rung_b_recipe_and_head_are_the_ones_this_file_trains() {
     assert_eq!(init_head().hidden_size() as u64, cfg["text_config"]["hidden_size"].as_u64().unwrap());
 }
 
-/// CPU only. **A blocker, pinned so it cannot be forgotten:** ojas-qwen35 refuses the fixture's
-/// `config.json` today. Its top-level `tie_word_embeddings` is `false`, though `text_config` says
-/// `true`. The torch reference ties the head by construction (`backbone.py` logits against
-/// the embedding) whatever that flag says, and ojas-qwen35 refuses any `false`. Every GPU test in
-/// this file would fail at `Snapshot::from_files` before training
-/// (`GAP-LTRAINER-RUNG-B-FIXTURE-UNTIED-TOP-LEVEL-2026-10-01`). When L-oracle regenerates the
-/// fixture with a top-level `true`, this test fails. Replace it then with
-/// `Snapshot::from_files(..).unwrap()` and a hidden-size check.
+/// CPU only. Whether ojas-qwen35 can open the fixture, checked in whichever state the fixture is
+/// in, so it never passes vacuously.
+/// - As L-oracle first wrote it, the top-level `tie_word_embeddings` is `false` though
+///   `text_config` says `true`. The torch reference ties the head by construction (`backbone.py`
+///   logits against the embedding), but ojas-qwen35 refuses any `false`. Every GPU test in this
+///   file would then fail at `Snapshot::from_files` before training
+///   (`GAP-LTRAINER-RUNG-B-FIXTURE-UNTIED-TOP-LEVEL-2026-10-01`), so that refusal is asserted.
+/// - Once the fixture says `true`, the snapshot must open and match the head's width.
 #[test]
-fn rung_b_fixture_config_is_refused_by_ojas_today_for_its_untied_top_level_flag() {
+fn rung_b_fixture_config_opens_in_ojas_or_is_refused_for_its_untied_top_level_flag() {
     let cfg = json("config.json");
-    assert_eq!(cfg["tie_word_embeddings"], false);
     assert_eq!(cfg["text_config"]["tie_word_embeddings"], true);
-    let err = match Snapshot::from_files(&dir().join("config.json"), &dir().join("init.safetensors")) {
-        Ok(_) => panic!("ojas-qwen35 now accepts the fixture: replace this pin with the positive check"),
-        Err(e) => e,
-    };
-    assert!(err.to_string().contains("tie_word_embeddings is false"), "{err}");
+    let opened = Snapshot::from_files(&dir().join("config.json"), &dir().join("init.safetensors"));
+    match (cfg["tie_word_embeddings"].as_bool(), opened) {
+        (Some(false), Err(e)) => assert!(e.to_string().contains("tie_word_embeddings is false"), "{e}"),
+        (Some(false), Ok(_)) => panic!("ojas-qwen35 accepted an untied flag it is documented to refuse"),
+        (_, Ok(snap)) => assert_eq!(snap.config.hidden as usize, init_head().hidden_size()),
+        (_, Err(e)) => panic!("the fixture's config does not open in ojas-qwen35: {e}"),
+    }
 }
 
 #[test]
