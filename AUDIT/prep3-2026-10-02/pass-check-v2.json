@@ -1,0 +1,648 @@
+{
+ "sizes": [
+  "p01",
+  "p02",
+  "p05"
+ ],
+ "all_three_sizes": true,
+ "pass": true,
+ "results": [
+  {
+   "size": "p01",
+   "scan": "/Users/bharath/qd-campaign/prep3-2026-10-02/scan-p01-v2",
+   "1": {
+    "clinc_train_keys": 246,
+    "clinc_train_keys_excluded": 0,
+    "clinc_intent_keys_in_exclusions": 0,
+    "enforced_pairs_with_an_intent_row": 0,
+    "pass": true
+   },
+   "2": {
+    "non_intent_keys": 8,
+    "sha256": "2f172e00166496dc1ca66b568ffd303c1694d8e167e53c825b419057046aae31",
+    "expected_keys": 8,
+    "expected_sha256": "2f172e00166496dc1ca66b568ffd303c1694d8e167e53c825b419057046aae31",
+    "pass": true
+   },
+   "3": {
+    "intent_family_slots": {
+     "intent.classification/intent": {
+      "rows": 267,
+      "question_stripped": "Which intent does the utterance express?",
+      "rows_checked_equal_to_context": 267,
+      "distinct_option_values": 128,
+      "too_short_after_strip_by_set": {
+       "train": 102,
+       "val": 4,
+       "heldout": 2
+      },
+      "too_short_recomputed_from_request": {
+       "train": 102,
+       "val": 4,
+       "heldout": 2
+      },
+      "pass": true
+     },
+     "intent.domain/domain": {
+      "rows": 267,
+      "question_stripped": "Which domain does the utterance belong to?",
+      "rows_checked_equal_to_context": 267,
+      "distinct_option_values": 10,
+      "too_short_after_strip_by_set": {
+       "train": 102,
+       "val": 4,
+       "heldout": 2
+      },
+      "too_short_recomputed_from_request": {
+       "train": 102,
+       "val": 4,
+       "heldout": 2
+      },
+      "pass": true
+     },
+     "intent.in_scope/in_scope": {
+      "rows": 267,
+      "question_stripped": "Is the utterance in scope for the assistant at all?",
+      "rows_checked_equal_to_context": 267,
+      "distinct_option_values": 2,
+      "too_short_after_strip_by_set": {
+       "train": 102,
+       "val": 4,
+       "heldout": 2
+      },
+      "too_short_recomputed_from_request": {
+       "train": 102,
+       "val": 4,
+       "heldout": 2
+      },
+      "pass": true
+     },
+     "intent.within_domain/intent": {
+      "rows": 267,
+      "question_stripped": "Which of these intents does the utterance express?",
+      "rows_checked_equal_to_context": 267,
+      "distinct_option_values": 150,
+      "too_short_after_strip_by_set": {
+       "train": 102,
+       "val": 4,
+       "heldout": 2
+      },
+      "too_short_recomputed_from_request": {
+       "train": 102,
+       "val": 4,
+       "heldout": 2
+      },
+      "pass": true
+     }
+    },
+    "intent_texts_differing_across_families": 0,
+    "intent_texts_differing_examples": [],
+    "key_ii_blind_by_set": {
+     "train": 102,
+     "val": 4,
+     "heldout": 2
+    },
+    "key_ii_blind_lists_hash_to_their_sha256": true,
+    "key_ii_blind_non_clinc_keys": [],
+    "too_short_after_strip_by_set_slot_texts_all_families": {
+     "heldout": 8,
+     "heldout-family:code.language_id": 0,
+     "heldout-family:qa.answerability": 0,
+     "train": 408,
+     "val": 16
+    },
+    "expected_per_intent_slot_and_key_ii_blind": {
+     "train": 102,
+     "val": 4,
+     "heldout": 2
+    },
+    "pass": true
+   },
+   "4": {
+    "clean": true,
+    "remaining_hits": {
+     "val": 0,
+     "heldout": 0
+    },
+    "not_clean_because": [],
+    "splitter_checks": {
+     "identity_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "detail": ""
+     },
+     "near_duplicate_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "detail": "scanned 3560 rows; 1656 candidate pairs, 0 of them crossing a repo split, none confirmed at threshold 0.8"
+     },
+     "repo_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "detail": ""
+     }
+    },
+    "strip": {
+     "applied": true,
+     "version": 2,
+     "rule_is_this_checkouts": true
+    },
+    "pass": true
+   },
+   "5": {
+    "groups": {
+     "CLINC (intent.*)": {
+      "train_keys": 246,
+      "excluded": 0,
+      "rate": 0.0
+     },
+     "MMLU (knowledge.multiple_choice)": {
+      "train_keys": 128,
+      "excluded": 0,
+      "rate": 0.0
+     },
+     "CSQA (commonsense.multiple_choice)": {
+      "train_keys": 74,
+      "excluded": 0,
+      "rate": 0.0
+     },
+     "SQuAD answer_span": {
+      "train_keys": 1075,
+      "excluded": 0,
+      "rate": 0.0
+     },
+     "code.defect_class": {
+      "train_keys": 765,
+      "excluded": 8,
+      "rate": 0.0105
+     }
+    },
+    "pairs": 32,
+    "identity_keys_excluded": 8,
+    "enforced_pairs_by_source_family": {
+     "code.defect_class -> heldout (code.defect_class)": 24,
+     "code.defect_class -> val (code.defect_class)": 8
+    },
+    "too_short_per_set_per_key_key_ii_blind": {
+     "train": 102,
+     "val": 4,
+     "heldout": 2
+    },
+    "distinct_option_values_per_2b_slot": {
+     "intent.classification/intent": 128,
+     "intent.domain/domain": 10,
+     "intent.in_scope/in_scope": 2,
+     "intent.within_domain/intent": 150
+    },
+    "sets": {
+     "train": {
+      "rows": 3791,
+      "too_short": 408
+     },
+     "val": {
+      "rows": 159,
+      "too_short": 16
+     },
+     "heldout": {
+      "rows": 149,
+      "too_short": 8
+     },
+     "heldout-family:code.language_id": {
+      "rows": 0,
+      "too_short": 0
+     },
+     "heldout-family:qa.answerability": {
+      "rows": 267,
+      "too_short": 0
+     }
+    }
+   },
+   "pass": true
+  },
+  {
+   "size": "p02",
+   "scan": "/Users/bharath/qd-campaign/prep3-2026-10-02/scan-p02-v2",
+   "1": {
+    "clinc_train_keys": 464,
+    "clinc_train_keys_excluded": 0,
+    "clinc_intent_keys_in_exclusions": 0,
+    "enforced_pairs_with_an_intent_row": 0,
+    "pass": true
+   },
+   "2": {
+    "non_intent_keys": 16,
+    "sha256": "6f4e9364f30da9468553651df787c1a8b1791a4ecf673d6a201a53a90b79c268",
+    "expected_keys": 16,
+    "expected_sha256": "6f4e9364f30da9468553651df787c1a8b1791a4ecf673d6a201a53a90b79c268",
+    "pass": true
+   },
+   "3": {
+    "intent_family_slots": {
+     "intent.classification/intent": {
+      "rows": 512,
+      "question_stripped": "Which intent does the utterance express?",
+      "rows_checked_equal_to_context": 512,
+      "distinct_option_values": 145,
+      "too_short_after_strip_by_set": {
+       "train": 197,
+       "val": 9,
+       "heldout": 7
+      },
+      "too_short_recomputed_from_request": {
+       "train": 197,
+       "val": 9,
+       "heldout": 7
+      },
+      "pass": true
+     },
+     "intent.domain/domain": {
+      "rows": 512,
+      "question_stripped": "Which domain does the utterance belong to?",
+      "rows_checked_equal_to_context": 512,
+      "distinct_option_values": 10,
+      "too_short_after_strip_by_set": {
+       "train": 197,
+       "val": 9,
+       "heldout": 7
+      },
+      "too_short_recomputed_from_request": {
+       "train": 197,
+       "val": 9,
+       "heldout": 7
+      },
+      "pass": true
+     },
+     "intent.in_scope/in_scope": {
+      "rows": 512,
+      "question_stripped": "Is the utterance in scope for the assistant at all?",
+      "rows_checked_equal_to_context": 512,
+      "distinct_option_values": 2,
+      "too_short_after_strip_by_set": {
+       "train": 197,
+       "val": 9,
+       "heldout": 7
+      },
+      "too_short_recomputed_from_request": {
+       "train": 197,
+       "val": 9,
+       "heldout": 7
+      },
+      "pass": true
+     },
+     "intent.within_domain/intent": {
+      "rows": 512,
+      "question_stripped": "Which of these intents does the utterance express?",
+      "rows_checked_equal_to_context": 512,
+      "distinct_option_values": 150,
+      "too_short_after_strip_by_set": {
+       "train": 197,
+       "val": 9,
+       "heldout": 7
+      },
+      "too_short_recomputed_from_request": {
+       "train": 197,
+       "val": 9,
+       "heldout": 7
+      },
+      "pass": true
+     }
+    },
+    "intent_texts_differing_across_families": 0,
+    "intent_texts_differing_examples": [],
+    "key_ii_blind_by_set": {
+     "train": 197,
+     "val": 9,
+     "heldout": 7
+    },
+    "key_ii_blind_lists_hash_to_their_sha256": true,
+    "key_ii_blind_non_clinc_keys": [],
+    "too_short_after_strip_by_set_slot_texts_all_families": {
+     "heldout": 28,
+     "heldout-family:code.language_id": 0,
+     "heldout-family:qa.answerability": 0,
+     "train": 788,
+     "val": 36
+    },
+    "expected_per_intent_slot_and_key_ii_blind": {
+     "train": 197,
+     "val": 9,
+     "heldout": 7
+    },
+    "pass": true
+   },
+   "4": {
+    "clean": true,
+    "remaining_hits": {
+     "val": 0,
+     "heldout": 0
+    },
+    "not_clean_because": [],
+    "splitter_checks": {
+     "identity_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "detail": ""
+     },
+     "near_duplicate_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "detail": "scanned 7008 rows; 3288 candidate pairs, 0 of them crossing a repo split, none confirmed at threshold 0.8"
+     },
+     "repo_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "detail": ""
+     }
+    },
+    "strip": {
+     "applied": true,
+     "version": 2,
+     "rule_is_this_checkouts": true
+    },
+    "pass": true
+   },
+   "5": {
+    "groups": {
+     "CLINC (intent.*)": {
+      "train_keys": 464,
+      "excluded": 0,
+      "rate": 0.0
+     },
+     "MMLU (knowledge.multiple_choice)": {
+      "train_keys": 278,
+      "excluded": 0,
+      "rate": 0.0
+     },
+     "CSQA (commonsense.multiple_choice)": {
+      "train_keys": 178,
+      "excluded": 0,
+      "rate": 0.0
+     },
+     "SQuAD answer_span": {
+      "train_keys": 2109,
+      "excluded": 0,
+      "rate": 0.0
+     },
+     "code.defect_class": {
+      "train_keys": 1499,
+      "excluded": 16,
+      "rate": 0.0107
+     }
+    },
+    "pairs": 64,
+    "identity_keys_excluded": 16,
+    "enforced_pairs_by_source_family": {
+     "code.defect_class -> heldout (code.defect_class)": 52,
+     "code.defect_class -> val (code.defect_class)": 12
+    },
+    "too_short_per_set_per_key_key_ii_blind": {
+     "train": 197,
+     "val": 9,
+     "heldout": 7
+    },
+    "distinct_option_values_per_2b_slot": {
+     "intent.classification/intent": 145,
+     "intent.domain/domain": 10,
+     "intent.in_scope/in_scope": 2,
+     "intent.within_domain/intent": 150
+    },
+    "sets": {
+     "train": {
+      "rows": 7427,
+      "too_short": 788
+     },
+     "val": {
+      "rows": 373,
+      "too_short": 36
+     },
+     "heldout": {
+      "rows": 278,
+      "too_short": 28
+     },
+     "heldout-family:code.language_id": {
+      "rows": 0,
+      "too_short": 0
+     },
+     "heldout-family:qa.answerability": {
+      "rows": 519,
+      "too_short": 0
+     }
+    }
+   },
+   "pass": true
+  },
+  {
+   "size": "p05",
+   "scan": "/Users/bharath/qd-campaign/prep3-2026-10-02/scan-p05-v2",
+   "1": {
+    "clinc_train_keys": 1089,
+    "clinc_train_keys_excluded": 0,
+    "clinc_intent_keys_in_exclusions": 0,
+    "enforced_pairs_with_an_intent_row": 0,
+    "pass": true
+   },
+   "2": {
+    "non_intent_keys": 41,
+    "sha256": "889e0ecf85f395af7b762980bc38da6e933f9a27e38ff757fe8c462c335d71ac",
+    "expected_keys": 41,
+    "expected_sha256": "889e0ecf85f395af7b762980bc38da6e933f9a27e38ff757fe8c462c335d71ac",
+    "pass": true
+   },
+   "3": {
+    "intent_family_slots": {
+     "intent.classification/intent": {
+      "rows": 1222,
+      "question_stripped": "Which intent does the utterance express?",
+      "rows_checked_equal_to_context": 1222,
+      "distinct_option_values": 150,
+      "too_short_after_strip_by_set": {
+       "train": 451,
+       "val": 21,
+       "heldout": 34
+      },
+      "too_short_recomputed_from_request": {
+       "train": 451,
+       "val": 21,
+       "heldout": 34
+      },
+      "pass": true
+     },
+     "intent.domain/domain": {
+      "rows": 1222,
+      "question_stripped": "Which domain does the utterance belong to?",
+      "rows_checked_equal_to_context": 1222,
+      "distinct_option_values": 10,
+      "too_short_after_strip_by_set": {
+       "train": 451,
+       "val": 21,
+       "heldout": 34
+      },
+      "too_short_recomputed_from_request": {
+       "train": 451,
+       "val": 21,
+       "heldout": 34
+      },
+      "pass": true
+     },
+     "intent.in_scope/in_scope": {
+      "rows": 1222,
+      "question_stripped": "Is the utterance in scope for the assistant at all?",
+      "rows_checked_equal_to_context": 1222,
+      "distinct_option_values": 2,
+      "too_short_after_strip_by_set": {
+       "train": 451,
+       "val": 21,
+       "heldout": 34
+      },
+      "too_short_recomputed_from_request": {
+       "train": 451,
+       "val": 21,
+       "heldout": 34
+      },
+      "pass": true
+     },
+     "intent.within_domain/intent": {
+      "rows": 1222,
+      "question_stripped": "Which of these intents does the utterance express?",
+      "rows_checked_equal_to_context": 1222,
+      "distinct_option_values": 150,
+      "too_short_after_strip_by_set": {
+       "train": 451,
+       "val": 21,
+       "heldout": 34
+      },
+      "too_short_recomputed_from_request": {
+       "train": 451,
+       "val": 21,
+       "heldout": 34
+      },
+      "pass": true
+     }
+    },
+    "intent_texts_differing_across_families": 0,
+    "intent_texts_differing_examples": [],
+    "key_ii_blind_by_set": {
+     "train": 451,
+     "val": 21,
+     "heldout": 34
+    },
+    "key_ii_blind_lists_hash_to_their_sha256": true,
+    "key_ii_blind_non_clinc_keys": [],
+    "too_short_after_strip_by_set_slot_texts_all_families": {
+     "heldout": 136,
+     "heldout-family:code.language_id": 0,
+     "heldout-family:qa.answerability": 0,
+     "train": 1804,
+     "val": 84
+    },
+    "expected_per_intent_slot_and_key_ii_blind": {
+     "train": 451,
+     "val": 21,
+     "heldout": 34
+    },
+    "pass": true
+   },
+   "4": {
+    "clean": true,
+    "remaining_hits": {
+     "val": 0,
+     "heldout": 0
+    },
+    "not_clean_because": [],
+    "splitter_checks": {
+     "identity_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "detail": ""
+     },
+     "near_duplicate_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "detail": "scanned 17143 rows; 8713 candidate pairs, 0 of them crossing a repo split, none confirmed at threshold 0.8"
+     },
+     "repo_disjoint": {
+      "state": "ran",
+      "passed": true,
+      "detail": ""
+     }
+    },
+    "strip": {
+     "applied": true,
+     "version": 2,
+     "rule_is_this_checkouts": true
+    },
+    "pass": true
+   },
+   "5": {
+    "groups": {
+     "CLINC (intent.*)": {
+      "train_keys": 1089,
+      "excluded": 0,
+      "rate": 0.0
+     },
+     "MMLU (knowledge.multiple_choice)": {
+      "train_keys": 635,
+      "excluded": 1,
+      "rate": 0.0016
+     },
+     "CSQA (commonsense.multiple_choice)": {
+      "train_keys": 487,
+      "excluded": 0,
+      "rate": 0.0
+     },
+     "SQuAD answer_span": {
+      "train_keys": 5268,
+      "excluded": 0,
+      "rate": 0.0
+     },
+     "code.defect_class": {
+      "train_keys": 3691,
+      "excluded": 40,
+      "rate": 0.0108
+     }
+    },
+    "pairs": 162,
+    "identity_keys_excluded": 41,
+    "enforced_pairs_by_source_family": {
+     "code.defect_class -> heldout (code.defect_class)": 132,
+     "code.defect_class -> val (code.defect_class)": 28,
+     "knowledge.multiple_choice -> val (knowledge.multiple_choice)": 1
+    },
+    "too_short_per_set_per_key_key_ii_blind": {
+     "train": 451,
+     "val": 21,
+     "heldout": 34
+    },
+    "distinct_option_values_per_2b_slot": {
+     "intent.classification/intent": 150,
+     "intent.domain/domain": 10,
+     "intent.in_scope/in_scope": 2,
+     "intent.within_domain/intent": 150
+    },
+    "sets": {
+     "train": {
+      "rows": 18195,
+      "too_short": 1804
+     },
+     "val": {
+      "rows": 906,
+      "too_short": 84
+     },
+     "heldout": {
+      "rows": 774,
+      "too_short": 136
+     },
+     "heldout-family:code.language_id": {
+      "rows": 0,
+      "too_short": 0
+     },
+     "heldout-family:qa.answerability": {
+      "rows": 1226,
+      "too_short": 0
+     }
+    }
+   },
+   "pass": true
+  }
+ ]
+}
