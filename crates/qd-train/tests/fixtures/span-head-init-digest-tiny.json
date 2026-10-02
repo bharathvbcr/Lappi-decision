@@ -1,0 +1,51 @@
+{
+ "what": "run_control._sidecar_digest over the span_head.* TensorRefs of the tiny init (Amendment 2 (iv))",
+ "generator": {
+  "script": "tools/qd_train_oracle_head_digest.py",
+  "script_sha256": "79a47e7247d722c540b3cc884d657d8de2bf6b6816a5c7d985b7a4d3b48f8031",
+  "argv": [
+   "--init",
+   "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a81ce0c0a630aff06/crates/qd-train/tests/fixtures/tiny-published/init.safetensors",
+   "--out",
+   "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a81ce0c0a630aff06/crates/qd-train/tests/fixtures/span-head-init-digest-tiny.json"
+  ],
+  "python": "3.14.7",
+  "torch": "2.12.1"
+ },
+ "source": "init.safetensors",
+ "source_sha256": "9d4b47d5ee67327aef6bb810f391200d0da6eac6f38142461e44dd53baad7c3e",
+ "hidden_size": 64,
+ "tensors": {
+  "span_head.abstain_end": {
+   "dtype": "float32",
+   "shape": [
+    64
+   ],
+   "digest": "4b74feba3255bc0ecf52d3fb78856c35d0ddd965fdd7d1c1274e3fb05953317e"
+  },
+  "span_head.abstain_start": {
+   "dtype": "float32",
+   "shape": [
+    64
+   ],
+   "digest": "4b74feba3255bc0ecf52d3fb78856c35d0ddd965fdd7d1c1274e3fb05953317e"
+  },
+  "span_head.end_proj.weight": {
+   "dtype": "float32",
+   "shape": [
+    64,
+    64
+   ],
+   "digest": "04a1e85b22d31ecad6bc6355fe15a1d7ef198267bd15f47758348b5fd765cb41"
+  },
+  "span_head.start_proj.weight": {
+   "dtype": "float32",
+   "shape": [
+    64,
+    64
+   ],
+   "digest": "ceacb030deb855d9a8773785c3d7e777c59b063895e4ff3e8a455471414974f3"
+  }
+ },
+ "content_digest": "81bd953e1f27e8e2b703264df663f15f239327c9523d3e85973687009db471d6"
+}

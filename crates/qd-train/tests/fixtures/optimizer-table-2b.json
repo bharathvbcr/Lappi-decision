@@ -1,0 +1,4465 @@
+{
+ "what": "F's per-parameter AdamW table on the Qwen3.5-2B names: layerwise_param_groups + build_optimizer as QwenDecisionStep calls them, read off the built optimizer",
+ "generator": {
+  "script": "tools/qd_train_oracle_optimizer_table.py",
+  "script_sha256": "0cf0f7db1b473381fbc8a0ac01608b96492f5ff007b34af80ef21f24e41bde67",
+  "argv": [
+   "--snapshot",
+   "/Users/bharath/.cache/huggingface/hub/models--Qwen--Qwen3.5-2B-Base/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
+   "--out",
+   "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a81ce0c0a630aff06/crates/qd-train/tests/fixtures/optimizer-table-2b.json",
+   "--config-out",
+   "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a81ce0c0a630aff06/crates/qd-train/tests/fixtures/qwen35-2b-config.json"
+  ],
+  "python": "3.14.7",
+  "torch": "2.12.1",
+  "transformers": "5.12.1",
+  "git_head": "7ae109b0e8e625fcbb762d42a0cf63aa3d27be4e"
+ },
+ "snapshot": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
+ "config": {
+  "file": "qwen35-2b-config.json",
+  "sha256": "ed1c1723241f23f7f4e23430759cbd7dcfb4103cbdfe052bfe7626b57c2615b4"
+ },
+ "recipe": {
+  "lr": "0x1.4f8b588e368f1p-17",
+  "lower_layers_n": 8,
+  "lower_lr_scale": "0x1.999999999999ap-4",
+  "total_steps": 9683,
+  "optimizer_recipe": "master",
+  "beta2": "0x1.ff7ced916872bp-1"
+ },
+ "names_checked_against": "backbone.text_tensor_index(snapshot): the model.language_model.* header",
+ "tower_names": [
+  "embed_tokens.weight",
+  "layers.0.linear_attn.dt_bias",
+  "layers.0.linear_attn.A_log",
+  "layers.0.linear_attn.conv1d.weight",
+  "layers.0.linear_attn.norm.weight",
+  "layers.0.linear_attn.out_proj.weight",
+  "layers.0.linear_attn.in_proj_qkv.weight",
+  "layers.0.linear_attn.in_proj_z.weight",
+  "layers.0.linear_attn.in_proj_b.weight",
+  "layers.0.linear_attn.in_proj_a.weight",
+  "layers.0.mlp.gate_proj.weight",
+  "layers.0.mlp.up_proj.weight",
+  "layers.0.mlp.down_proj.weight",
+  "layers.0.input_layernorm.weight",
+  "layers.0.post_attention_layernorm.weight",
+  "layers.1.linear_attn.dt_bias",
+  "layers.1.linear_attn.A_log",
+  "layers.1.linear_attn.conv1d.weight",
+  "layers.1.linear_attn.norm.weight",
+  "layers.1.linear_attn.out_proj.weight",
+  "layers.1.linear_attn.in_proj_qkv.weight",
+  "layers.1.linear_attn.in_proj_z.weight",
+  "layers.1.linear_attn.in_proj_b.weight",
+  "layers.1.linear_attn.in_proj_a.weight",
+  "layers.1.mlp.gate_proj.weight",
+  "layers.1.mlp.up_proj.weight",
+  "layers.1.mlp.down_proj.weight",
+  "layers.1.input_layernorm.weight",
+  "layers.1.post_attention_layernorm.weight",
+  "layers.2.linear_attn.dt_bias",
+  "layers.2.linear_attn.A_log",
+  "layers.2.linear_attn.conv1d.weight",
+  "layers.2.linear_attn.norm.weight",
+  "layers.2.linear_attn.out_proj.weight",
+  "layers.2.linear_attn.in_proj_qkv.weight",
+  "layers.2.linear_attn.in_proj_z.weight",
+  "layers.2.linear_attn.in_proj_b.weight",
+  "layers.2.linear_attn.in_proj_a.weight",
+  "layers.2.mlp.gate_proj.weight",
+  "layers.2.mlp.up_proj.weight",
+  "layers.2.mlp.down_proj.weight",
+  "layers.2.input_layernorm.weight",
+  "layers.2.post_attention_layernorm.weight",
+  "layers.3.self_attn.q_proj.weight",
+  "layers.3.self_attn.k_proj.weight",
+  "layers.3.self_attn.v_proj.weight",
+  "layers.3.self_attn.o_proj.weight",
+  "layers.3.self_attn.q_norm.weight",
+  "layers.3.self_attn.k_norm.weight",
+  "layers.3.mlp.gate_proj.weight",
+  "layers.3.mlp.up_proj.weight",
+  "layers.3.mlp.down_proj.weight",
+  "layers.3.input_layernorm.weight",
+  "layers.3.post_attention_layernorm.weight",
+  "layers.4.linear_attn.dt_bias",
+  "layers.4.linear_attn.A_log",
+  "layers.4.linear_attn.conv1d.weight",
+  "layers.4.linear_attn.norm.weight",
+  "layers.4.linear_attn.out_proj.weight",
+  "layers.4.linear_attn.in_proj_qkv.weight",
+  "layers.4.linear_attn.in_proj_z.weight",
+  "layers.4.linear_attn.in_proj_b.weight",
+  "layers.4.linear_attn.in_proj_a.weight",
+  "layers.4.mlp.gate_proj.weight",
+  "layers.4.mlp.up_proj.weight",
+  "layers.4.mlp.down_proj.weight",
+  "layers.4.input_layernorm.weight",
+  "layers.4.post_attention_layernorm.weight",
+  "layers.5.linear_attn.dt_bias",
+  "layers.5.linear_attn.A_log",
+  "layers.5.linear_attn.conv1d.weight",
+  "layers.5.linear_attn.norm.weight",
+  "layers.5.linear_attn.out_proj.weight",
+  "layers.5.linear_attn.in_proj_qkv.weight",
+  "layers.5.linear_attn.in_proj_z.weight",
+  "layers.5.linear_attn.in_proj_b.weight",
+  "layers.5.linear_attn.in_proj_a.weight",
+  "layers.5.mlp.gate_proj.weight",
+  "layers.5.mlp.up_proj.weight",
+  "layers.5.mlp.down_proj.weight",
+  "layers.5.input_layernorm.weight",
+  "layers.5.post_attention_layernorm.weight",
+  "layers.6.linear_attn.dt_bias",
+  "layers.6.linear_attn.A_log",
+  "layers.6.linear_attn.conv1d.weight",
+  "layers.6.linear_attn.norm.weight",
+  "layers.6.linear_attn.out_proj.weight",
+  "layers.6.linear_attn.in_proj_qkv.weight",
+  "layers.6.linear_attn.in_proj_z.weight",
+  "layers.6.linear_attn.in_proj_b.weight",
+  "layers.6.linear_attn.in_proj_a.weight",
+  "layers.6.mlp.gate_proj.weight",
+  "layers.6.mlp.up_proj.weight",
+  "layers.6.mlp.down_proj.weight",
+  "layers.6.input_layernorm.weight",
+  "layers.6.post_attention_layernorm.weight",
+  "layers.7.self_attn.q_proj.weight",
+  "layers.7.self_attn.k_proj.weight",
+  "layers.7.self_attn.v_proj.weight",
+  "layers.7.self_attn.o_proj.weight",
+  "layers.7.self_attn.q_norm.weight",
+  "layers.7.self_attn.k_norm.weight",
+  "layers.7.mlp.gate_proj.weight",
+  "layers.7.mlp.up_proj.weight",
+  "layers.7.mlp.down_proj.weight",
+  "layers.7.input_layernorm.weight",
+  "layers.7.post_attention_layernorm.weight",
+  "layers.8.linear_attn.dt_bias",
+  "layers.8.linear_attn.A_log",
+  "layers.8.linear_attn.conv1d.weight",
+  "layers.8.linear_attn.norm.weight",
+  "layers.8.linear_attn.out_proj.weight",
+  "layers.8.linear_attn.in_proj_qkv.weight",
+  "layers.8.linear_attn.in_proj_z.weight",
+  "layers.8.linear_attn.in_proj_b.weight",
+  "layers.8.linear_attn.in_proj_a.weight",
+  "layers.8.mlp.gate_proj.weight",
+  "layers.8.mlp.up_proj.weight",
+  "layers.8.mlp.down_proj.weight",
+  "layers.8.input_layernorm.weight",
+  "layers.8.post_attention_layernorm.weight",
+  "layers.9.linear_attn.dt_bias",
+  "layers.9.linear_attn.A_log",
+  "layers.9.linear_attn.conv1d.weight",
+  "layers.9.linear_attn.norm.weight",
+  "layers.9.linear_attn.out_proj.weight",
+  "layers.9.linear_attn.in_proj_qkv.weight",
+  "layers.9.linear_attn.in_proj_z.weight",
+  "layers.9.linear_attn.in_proj_b.weight",
+  "layers.9.linear_attn.in_proj_a.weight",
+  "layers.9.mlp.gate_proj.weight",
+  "layers.9.mlp.up_proj.weight",
+  "layers.9.mlp.down_proj.weight",
+  "layers.9.input_layernorm.weight",
+  "layers.9.post_attention_layernorm.weight",
+  "layers.10.linear_attn.dt_bias",
+  "layers.10.linear_attn.A_log",
+  "layers.10.linear_attn.conv1d.weight",
+  "layers.10.linear_attn.norm.weight",
+  "layers.10.linear_attn.out_proj.weight",
+  "layers.10.linear_attn.in_proj_qkv.weight",
+  "layers.10.linear_attn.in_proj_z.weight",
+  "layers.10.linear_attn.in_proj_b.weight",
+  "layers.10.linear_attn.in_proj_a.weight",
+  "layers.10.mlp.gate_proj.weight",
+  "layers.10.mlp.up_proj.weight",
+  "layers.10.mlp.down_proj.weight",
+  "layers.10.input_layernorm.weight",
+  "layers.10.post_attention_layernorm.weight",
+  "layers.11.self_attn.q_proj.weight",
+  "layers.11.self_attn.k_proj.weight",
+  "layers.11.self_attn.v_proj.weight",
+  "layers.11.self_attn.o_proj.weight",
+  "layers.11.self_attn.q_norm.weight",
+  "layers.11.self_attn.k_norm.weight",
+  "layers.11.mlp.gate_proj.weight",
+  "layers.11.mlp.up_proj.weight",
+  "layers.11.mlp.down_proj.weight",
+  "layers.11.input_layernorm.weight",
+  "layers.11.post_attention_layernorm.weight",
+  "layers.12.linear_attn.dt_bias",
+  "layers.12.linear_attn.A_log",
+  "layers.12.linear_attn.conv1d.weight",
+  "layers.12.linear_attn.norm.weight",
+  "layers.12.linear_attn.out_proj.weight",
+  "layers.12.linear_attn.in_proj_qkv.weight",
+  "layers.12.linear_attn.in_proj_z.weight",
+  "layers.12.linear_attn.in_proj_b.weight",
+  "layers.12.linear_attn.in_proj_a.weight",
+  "layers.12.mlp.gate_proj.weight",
+  "layers.12.mlp.up_proj.weight",
+  "layers.12.mlp.down_proj.weight",
+  "layers.12.input_layernorm.weight",
+  "layers.12.post_attention_layernorm.weight",
+  "layers.13.linear_attn.dt_bias",
+  "layers.13.linear_attn.A_log",
+  "layers.13.linear_attn.conv1d.weight",
+  "layers.13.linear_attn.norm.weight",
+  "layers.13.linear_attn.out_proj.weight",
+  "layers.13.linear_attn.in_proj_qkv.weight",
+  "layers.13.linear_attn.in_proj_z.weight",
+  "layers.13.linear_attn.in_proj_b.weight",
+  "layers.13.linear_attn.in_proj_a.weight",
+  "layers.13.mlp.gate_proj.weight",
+  "layers.13.mlp.up_proj.weight",
+  "layers.13.mlp.down_proj.weight",
+  "layers.13.input_layernorm.weight",
+  "layers.13.post_attention_layernorm.weight",
+  "layers.14.linear_attn.dt_bias",
+  "layers.14.linear_attn.A_log",
+  "layers.14.linear_attn.conv1d.weight",
+  "layers.14.linear_attn.norm.weight",
+  "layers.14.linear_attn.out_proj.weight",
+  "layers.14.linear_attn.in_proj_qkv.weight",
+  "layers.14.linear_attn.in_proj_z.weight",
+  "layers.14.linear_attn.in_proj_b.weight",
+  "layers.14.linear_attn.in_proj_a.weight",
+  "layers.14.mlp.gate_proj.weight",
+  "layers.14.mlp.up_proj.weight",
+  "layers.14.mlp.down_proj.weight",
+  "layers.14.input_layernorm.weight",
+  "layers.14.post_attention_layernorm.weight",
+  "layers.15.self_attn.q_proj.weight",
+  "layers.15.self_attn.k_proj.weight",
+  "layers.15.self_attn.v_proj.weight",
+  "layers.15.self_attn.o_proj.weight",
+  "layers.15.self_attn.q_norm.weight",
+  "layers.15.self_attn.k_norm.weight",
+  "layers.15.mlp.gate_proj.weight",
+  "layers.15.mlp.up_proj.weight",
+  "layers.15.mlp.down_proj.weight",
+  "layers.15.input_layernorm.weight",
+  "layers.15.post_attention_layernorm.weight",
+  "layers.16.linear_attn.dt_bias",
+  "layers.16.linear_attn.A_log",
+  "layers.16.linear_attn.conv1d.weight",
+  "layers.16.linear_attn.norm.weight",
+  "layers.16.linear_attn.out_proj.weight",
+  "layers.16.linear_attn.in_proj_qkv.weight",
+  "layers.16.linear_attn.in_proj_z.weight",
+  "layers.16.linear_attn.in_proj_b.weight",
+  "layers.16.linear_attn.in_proj_a.weight",
+  "layers.16.mlp.gate_proj.weight",
+  "layers.16.mlp.up_proj.weight",
+  "layers.16.mlp.down_proj.weight",
+  "layers.16.input_layernorm.weight",
+  "layers.16.post_attention_layernorm.weight",
+  "layers.17.linear_attn.dt_bias",
+  "layers.17.linear_attn.A_log",
+  "layers.17.linear_attn.conv1d.weight",
+  "layers.17.linear_attn.norm.weight",
+  "layers.17.linear_attn.out_proj.weight",
+  "layers.17.linear_attn.in_proj_qkv.weight",
+  "layers.17.linear_attn.in_proj_z.weight",
+  "layers.17.linear_attn.in_proj_b.weight",
+  "layers.17.linear_attn.in_proj_a.weight",
+  "layers.17.mlp.gate_proj.weight",
+  "layers.17.mlp.up_proj.weight",
+  "layers.17.mlp.down_proj.weight",
+  "layers.17.input_layernorm.weight",
+  "layers.17.post_attention_layernorm.weight",
+  "layers.18.linear_attn.dt_bias",
+  "layers.18.linear_attn.A_log",
+  "layers.18.linear_attn.conv1d.weight",
+  "layers.18.linear_attn.norm.weight",
+  "layers.18.linear_attn.out_proj.weight",
+  "layers.18.linear_attn.in_proj_qkv.weight",
+  "layers.18.linear_attn.in_proj_z.weight",
+  "layers.18.linear_attn.in_proj_b.weight",
+  "layers.18.linear_attn.in_proj_a.weight",
+  "layers.18.mlp.gate_proj.weight",
+  "layers.18.mlp.up_proj.weight",
+  "layers.18.mlp.down_proj.weight",
+  "layers.18.input_layernorm.weight",
+  "layers.18.post_attention_layernorm.weight",
+  "layers.19.self_attn.q_proj.weight",
+  "layers.19.self_attn.k_proj.weight",
+  "layers.19.self_attn.v_proj.weight",
+  "layers.19.self_attn.o_proj.weight",
+  "layers.19.self_attn.q_norm.weight",
+  "layers.19.self_attn.k_norm.weight",
+  "layers.19.mlp.gate_proj.weight",
+  "layers.19.mlp.up_proj.weight",
+  "layers.19.mlp.down_proj.weight",
+  "layers.19.input_layernorm.weight",
+  "layers.19.post_attention_layernorm.weight",
+  "layers.20.linear_attn.dt_bias",
+  "layers.20.linear_attn.A_log",
+  "layers.20.linear_attn.conv1d.weight",
+  "layers.20.linear_attn.norm.weight",
+  "layers.20.linear_attn.out_proj.weight",
+  "layers.20.linear_attn.in_proj_qkv.weight",
+  "layers.20.linear_attn.in_proj_z.weight",
+  "layers.20.linear_attn.in_proj_b.weight",
+  "layers.20.linear_attn.in_proj_a.weight",
+  "layers.20.mlp.gate_proj.weight",
+  "layers.20.mlp.up_proj.weight",
+  "layers.20.mlp.down_proj.weight",
+  "layers.20.input_layernorm.weight",
+  "layers.20.post_attention_layernorm.weight",
+  "layers.21.linear_attn.dt_bias",
+  "layers.21.linear_attn.A_log",
+  "layers.21.linear_attn.conv1d.weight",
+  "layers.21.linear_attn.norm.weight",
+  "layers.21.linear_attn.out_proj.weight",
+  "layers.21.linear_attn.in_proj_qkv.weight",
+  "layers.21.linear_attn.in_proj_z.weight",
+  "layers.21.linear_attn.in_proj_b.weight",
+  "layers.21.linear_attn.in_proj_a.weight",
+  "layers.21.mlp.gate_proj.weight",
+  "layers.21.mlp.up_proj.weight",
+  "layers.21.mlp.down_proj.weight",
+  "layers.21.input_layernorm.weight",
+  "layers.21.post_attention_layernorm.weight",
+  "layers.22.linear_attn.dt_bias",
+  "layers.22.linear_attn.A_log",
+  "layers.22.linear_attn.conv1d.weight",
+  "layers.22.linear_attn.norm.weight",
+  "layers.22.linear_attn.out_proj.weight",
+  "layers.22.linear_attn.in_proj_qkv.weight",
+  "layers.22.linear_attn.in_proj_z.weight",
+  "layers.22.linear_attn.in_proj_b.weight",
+  "layers.22.linear_attn.in_proj_a.weight",
+  "layers.22.mlp.gate_proj.weight",
+  "layers.22.mlp.up_proj.weight",
+  "layers.22.mlp.down_proj.weight",
+  "layers.22.input_layernorm.weight",
+  "layers.22.post_attention_layernorm.weight",
+  "layers.23.self_attn.q_proj.weight",
+  "layers.23.self_attn.k_proj.weight",
+  "layers.23.self_attn.v_proj.weight",
+  "layers.23.self_attn.o_proj.weight",
+  "layers.23.self_attn.q_norm.weight",
+  "layers.23.self_attn.k_norm.weight",
+  "layers.23.mlp.gate_proj.weight",
+  "layers.23.mlp.up_proj.weight",
+  "layers.23.mlp.down_proj.weight",
+  "layers.23.input_layernorm.weight",
+  "layers.23.post_attention_layernorm.weight",
+  "norm.weight"
+ ],
+ "tower_shapes": [
+  [
+   248320,
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   4096,
+   2048
+  ],
+  [
+   512,
+   2048
+  ],
+  [
+   512,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   4096,
+   2048
+  ],
+  [
+   512,
+   2048
+  ],
+  [
+   512,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   4096,
+   2048
+  ],
+  [
+   512,
+   2048
+  ],
+  [
+   512,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   4096,
+   2048
+  ],
+  [
+   512,
+   2048
+  ],
+  [
+   512,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   4096,
+   2048
+  ],
+  [
+   512,
+   2048
+  ],
+  [
+   512,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   16
+  ],
+  [
+   16
+  ],
+  [
+   6144,
+   1,
+   4
+  ],
+  [
+   128
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   16,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   4096,
+   2048
+  ],
+  [
+   512,
+   2048
+  ],
+  [
+   512,
+   2048
+  ],
+  [
+   2048,
+   2048
+  ],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   6144,
+   2048
+  ],
+  [
+   2048,
+   6144
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ],
+  [
+   2048
+  ]
+ ],
+ "head_names": [
+  "span_head.abstain_start",
+  "span_head.abstain_end",
+  "span_head.start_proj.weight",
+  "span_head.end_proj.weight"
+ ],
+ "hidden_size": 2048,
+ "table": {
+  "embed_tokens.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.8.linear_attn.dt_bias": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.8.linear_attn.A_log": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.8.linear_attn.conv1d.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.8.linear_attn.norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.8.linear_attn.out_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.8.linear_attn.in_proj_qkv.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.8.linear_attn.in_proj_z.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.8.linear_attn.in_proj_b.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.8.linear_attn.in_proj_a.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.8.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.8.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.8.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.8.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.8.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.9.linear_attn.dt_bias": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.9.linear_attn.A_log": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.9.linear_attn.conv1d.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.9.linear_attn.norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.9.linear_attn.out_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.9.linear_attn.in_proj_qkv.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.9.linear_attn.in_proj_z.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.9.linear_attn.in_proj_b.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.9.linear_attn.in_proj_a.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.9.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.9.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.9.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.9.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.9.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.10.linear_attn.dt_bias": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.10.linear_attn.A_log": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.10.linear_attn.conv1d.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.10.linear_attn.norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.10.linear_attn.out_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.10.linear_attn.in_proj_qkv.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.10.linear_attn.in_proj_z.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.10.linear_attn.in_proj_b.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.10.linear_attn.in_proj_a.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.10.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.10.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.10.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.10.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.10.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.11.self_attn.q_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.11.self_attn.k_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.11.self_attn.v_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.11.self_attn.o_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.11.self_attn.q_norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.11.self_attn.k_norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.11.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.11.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.11.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.11.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.11.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.12.linear_attn.dt_bias": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.12.linear_attn.A_log": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.12.linear_attn.conv1d.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.12.linear_attn.norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.12.linear_attn.out_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.12.linear_attn.in_proj_qkv.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.12.linear_attn.in_proj_z.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.12.linear_attn.in_proj_b.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.12.linear_attn.in_proj_a.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.12.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.12.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.12.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.12.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.12.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.13.linear_attn.dt_bias": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.13.linear_attn.A_log": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.13.linear_attn.conv1d.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.13.linear_attn.norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.13.linear_attn.out_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.13.linear_attn.in_proj_qkv.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.13.linear_attn.in_proj_z.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.13.linear_attn.in_proj_b.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.13.linear_attn.in_proj_a.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.13.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.13.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.13.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.13.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.13.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.14.linear_attn.dt_bias": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.14.linear_attn.A_log": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.14.linear_attn.conv1d.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.14.linear_attn.norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.14.linear_attn.out_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.14.linear_attn.in_proj_qkv.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.14.linear_attn.in_proj_z.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.14.linear_attn.in_proj_b.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.14.linear_attn.in_proj_a.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.14.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.14.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.14.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.14.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.14.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.15.self_attn.q_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.15.self_attn.k_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.15.self_attn.v_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.15.self_attn.o_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.15.self_attn.q_norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.15.self_attn.k_norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.15.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.15.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.15.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.15.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.15.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.16.linear_attn.dt_bias": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.16.linear_attn.A_log": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.16.linear_attn.conv1d.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.16.linear_attn.norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.16.linear_attn.out_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.16.linear_attn.in_proj_qkv.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.16.linear_attn.in_proj_z.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.16.linear_attn.in_proj_b.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.16.linear_attn.in_proj_a.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.16.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.16.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.16.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.16.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.16.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.17.linear_attn.dt_bias": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.17.linear_attn.A_log": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.17.linear_attn.conv1d.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.17.linear_attn.norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.17.linear_attn.out_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.17.linear_attn.in_proj_qkv.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.17.linear_attn.in_proj_z.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.17.linear_attn.in_proj_b.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.17.linear_attn.in_proj_a.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.17.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.17.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.17.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.17.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.17.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.18.linear_attn.dt_bias": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.18.linear_attn.A_log": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.18.linear_attn.conv1d.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.18.linear_attn.norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.18.linear_attn.out_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.18.linear_attn.in_proj_qkv.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.18.linear_attn.in_proj_z.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.18.linear_attn.in_proj_b.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.18.linear_attn.in_proj_a.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.18.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.18.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.18.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.18.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.18.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.19.self_attn.q_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.19.self_attn.k_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.19.self_attn.v_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.19.self_attn.o_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.19.self_attn.q_norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.19.self_attn.k_norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.19.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.19.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.19.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.19.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.19.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.20.linear_attn.dt_bias": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.20.linear_attn.A_log": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.20.linear_attn.conv1d.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.20.linear_attn.norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.20.linear_attn.out_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.20.linear_attn.in_proj_qkv.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.20.linear_attn.in_proj_z.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.20.linear_attn.in_proj_b.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.20.linear_attn.in_proj_a.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.20.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.20.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.20.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.20.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.20.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.21.linear_attn.dt_bias": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.21.linear_attn.A_log": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.21.linear_attn.conv1d.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.21.linear_attn.norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.21.linear_attn.out_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.21.linear_attn.in_proj_qkv.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.21.linear_attn.in_proj_z.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.21.linear_attn.in_proj_b.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.21.linear_attn.in_proj_a.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.21.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.21.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.21.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.21.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.21.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.22.linear_attn.dt_bias": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.22.linear_attn.A_log": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.22.linear_attn.conv1d.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.22.linear_attn.norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.22.linear_attn.out_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.22.linear_attn.in_proj_qkv.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.22.linear_attn.in_proj_z.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.22.linear_attn.in_proj_b.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.22.linear_attn.in_proj_a.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.22.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.22.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.22.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.22.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.22.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.23.self_attn.q_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.23.self_attn.k_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.23.self_attn.v_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.23.self_attn.o_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.23.self_attn.q_norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.23.self_attn.k_norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.23.mlp.gate_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.23.mlp.up_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.23.mlp.down_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.23.input_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.23.post_attention_layernorm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "norm.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "span_head.abstain_start": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "span_head.abstain_end": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "span_head.start_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "span_head.end_proj.weight": {
+   "group": "base",
+   "lr_scale": "0x1.0000000000000p+0",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.4f8b588e368f1p-17"
+  },
+  "layers.0.linear_attn.dt_bias": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.0.linear_attn.A_log": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.0.linear_attn.conv1d.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.0.linear_attn.norm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.0.linear_attn.out_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.0.linear_attn.in_proj_qkv.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.0.linear_attn.in_proj_z.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.0.linear_attn.in_proj_b.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.0.linear_attn.in_proj_a.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.0.mlp.gate_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.0.mlp.up_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.0.mlp.down_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.0.input_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.0.post_attention_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.1.linear_attn.dt_bias": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.1.linear_attn.A_log": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.1.linear_attn.conv1d.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.1.linear_attn.norm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.1.linear_attn.out_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.1.linear_attn.in_proj_qkv.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.1.linear_attn.in_proj_z.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.1.linear_attn.in_proj_b.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.1.linear_attn.in_proj_a.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.1.mlp.gate_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.1.mlp.up_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.1.mlp.down_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.1.input_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.1.post_attention_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.2.linear_attn.dt_bias": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.2.linear_attn.A_log": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.2.linear_attn.conv1d.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.2.linear_attn.norm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.2.linear_attn.out_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.2.linear_attn.in_proj_qkv.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.2.linear_attn.in_proj_z.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.2.linear_attn.in_proj_b.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.2.linear_attn.in_proj_a.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.2.mlp.gate_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.2.mlp.up_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.2.mlp.down_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.2.input_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.2.post_attention_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.3.self_attn.q_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.3.self_attn.k_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.3.self_attn.v_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.3.self_attn.o_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.3.self_attn.q_norm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.3.self_attn.k_norm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.3.mlp.gate_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.3.mlp.up_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.3.mlp.down_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.3.input_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.3.post_attention_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.4.linear_attn.dt_bias": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.4.linear_attn.A_log": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.4.linear_attn.conv1d.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.4.linear_attn.norm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.4.linear_attn.out_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.4.linear_attn.in_proj_qkv.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.4.linear_attn.in_proj_z.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.4.linear_attn.in_proj_b.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.4.linear_attn.in_proj_a.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.4.mlp.gate_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.4.mlp.up_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.4.mlp.down_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.4.input_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.4.post_attention_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.5.linear_attn.dt_bias": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.5.linear_attn.A_log": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.5.linear_attn.conv1d.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.5.linear_attn.norm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.5.linear_attn.out_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.5.linear_attn.in_proj_qkv.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.5.linear_attn.in_proj_z.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.5.linear_attn.in_proj_b.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.5.linear_attn.in_proj_a.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.5.mlp.gate_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.5.mlp.up_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.5.mlp.down_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.5.input_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.5.post_attention_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.6.linear_attn.dt_bias": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.6.linear_attn.A_log": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.6.linear_attn.conv1d.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.6.linear_attn.norm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.6.linear_attn.out_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.6.linear_attn.in_proj_qkv.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.6.linear_attn.in_proj_z.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.6.linear_attn.in_proj_b.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.6.linear_attn.in_proj_a.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.6.mlp.gate_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.6.mlp.up_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.6.mlp.down_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.6.input_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.6.post_attention_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.7.self_attn.q_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.7.self_attn.k_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.7.self_attn.v_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.7.self_attn.o_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.7.self_attn.q_norm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.7.self_attn.k_norm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.7.mlp.gate_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.7.mlp.up_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.7.mlp.down_proj.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.7.input_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  },
+  "layers.7.post_attention_layernorm.weight": {
+   "group": "base_lower",
+   "lr_scale": "0x1.999999999999ap-4",
+   "weight_decay": "0x1.47ae147ae147bp-7",
+   "eps": "0x1.5798ee2308c3ap-27",
+   "beta1": "0x1.ccccccccccccdp-1",
+   "beta2": "0x1.ff7ced916872bp-1",
+   "lr": "0x1.0c6f7a0b5ed8ep-20"
+  }
+ }
+}
