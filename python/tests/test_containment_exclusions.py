@@ -45,6 +45,7 @@ from qd_data.loaders import MmluRow  # noqa: E402
 from qd_data.mixture import build_mixture  # noqa: E402
 from qd_data.split import SplitReport, split  # noqa: E402
 from qd_train.artifacts import ShardContractViolation, ShardHeader  # noqa: E402
+from qd_train.containment_strip import STRIP_RULE  # noqa: E402
 from qd_train.exclusions import (  # noqa: E402
     ATTESTATION_NAME,
     EXCLUSIONS_NAME,
@@ -303,6 +304,40 @@ def test_an_attestation_that_does_not_vouch_for_this_build_is_refused(
     report, out, _att = scanned
     listed = _copy(out, tmp_path, edit_att=edit)
     with pytest.raises(ExclusionRefusal, match=match):
+        apply_exclusions(report, listed, corpus=CORPUS)
+
+
+#: Version 1's STRIP_RULE, byte for byte as L-prep2 shipped it (369278e). Spelled out, not
+#: imported: a test that read the module's constant would pass against version 1.
+STRIP_RULE_V1 = (
+    "campaign/v5-preregistered data.decontamination.rule: constant template text stripped "
+    "before n-gramming, for containment only (Fable post-F ruling 3(a))"
+)
+
+
+@pytest.mark.parametrize(("version", "rule"), [
+    (1, STRIP_RULE_V1),  # a version-1 list, as a full scan before version 2 would write it
+    (2, STRIP_RULE_V1),  # the version bumped without the rule
+    (1, STRIP_RULE),  # the rule renamed without the version
+])
+def test_a_version_1_strip_attestation_is_refused_by_the_hook(
+    scanned, tmp_path: Path, version: int, rule: str,
+) -> None:
+    """Fable's CLINC strip ruling section 5 (GAP-CONTAINMENT-STRIP-V1-WINDOW-2026-10-02):
+    until version 2, a version-1 list passed ``read_exclusions``. Version 1 left
+    intent.within_domain's per-domain intent lists in the compared text, so its lists
+    excluded 63-66% of CLINC keys for sharing a label list; the hook compares the version
+    and the rule exactly, and refuses either one stale. Fails against version 1, which
+    accepts the first case."""
+    report, out, _att = scanned
+
+    def edit(a: dict[str, Any]) -> None:
+        a["export"]["template_strip"].update(applied=True, version=version, rule=rule)
+
+    listed = _copy(out, tmp_path, edit_att=edit)
+    with pytest.raises(ExclusionRefusal, match="did not apply v5's template strip version 2"):
+        read_exclusions(listed, corpus=CORPUS)
+    with pytest.raises(ExclusionRefusal, match=f"'version': {version}"):
         apply_exclusions(report, listed, corpus=CORPUS)
 
 

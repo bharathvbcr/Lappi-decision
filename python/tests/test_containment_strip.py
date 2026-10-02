@@ -1,10 +1,12 @@
-"""v5's template strip (Fable's post-F ruling 3(a); ``qd_train.containment_strip``).
+"""v5's template strip, version 2 (``qd_train.containment_strip``; Fable's post-F ruling 3(a)
+as amended by Fable's CLINC strip ruling, AUDIT/prep2-2026-10-02/fable-clinc-strip-ruling.md).
 
-Within each (family, slot), a question line or option value byte-identical across every
-rendered row of that family-slot, in the union of sources and targets, is removed before
-n-gramming, for containment only. The tests drive real ``qd_data`` rows through the real
-renderer, the exporter (``tools/containment_scan.scan_sets``) and ``qd-prep containment``, and
-the parity oracle (``qd_train.replay.decontaminate``) through the same strip function.
+Stripped before n-gramming, for containment only: (1) the question line, by constancy within
+the (family, slot); (2a) option values every row of the family-slot carries; (2b) every option
+value of the four intent.* families, whose labels are CLINC's closed vocabulary, so an intent.*
+row is its utterance -- or the strip refuses. The tests drive real ``qd_data`` rows through the
+real renderer, the exporter (``tools/containment_scan.scan_sets``) and ``qd-prep containment``,
+and the parity oracle (``qd_train.replay.decontaminate``) through the same strip function.
 
 Every row's question line is its family's ``description`` (``qd_data.mixture._request``), so
 the strip removes it in every family; the per-row question of MMLU, CSQA and SQuAD is in the
@@ -16,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -59,8 +62,10 @@ from qd_data.loaders import ClincRow, CsqaRow, MmluRow  # noqa: E402
 from qd_data.mixture import rewrite_clinc, rewrite_defect_class, rewrite_squad  # noqa: E402
 from qd_data.render import render  # noqa: E402
 from qd_data.rows import DataRow  # noqa: E402
+from qd_data.sources import TASK_FAMILIES  # noqa: E402
 from qd_data.split import HELD_OUT, SplitReport  # noqa: E402
 from qd_train.containment_strip import (  # noqa: E402
+    CLOSED_VOCABULARY_FAMILIES,
     MIN_ROWS_FOR_CONSTANT,
     STRIP_VERSION,
     PartsRow,
@@ -76,7 +81,7 @@ from qd_train.exclusions import (  # noqa: E402
     ExclusionRefusal,
     read_exclusions,
 )
-from qd_train.replay import decontaminate, word_ngrams  # noqa: E402
+from qd_train.replay import ReplayRefusal, decontaminate, word_ngrams  # noqa: E402
 from qd_train.tristate import Ran  # noqa: E402
 
 CONFIG = DataConfig()
@@ -87,6 +92,19 @@ DOMAINS = ClincDomainMap(domains={
     "work": ("meeting_schedule", "pto_request"),
 })
 IN_SCOPE = "intent.in_scope"
+CLASSIFICATION = "intent.classification"
+INTENT_FAMILIES = (CLASSIFICATION, CLINC_DOMAIN_FAMILY, IN_SCOPE, CLINC_WITHIN_DOMAIN_FAMILY)
+#: The work domain's 15 intents (HANDOFF/prep2-2026-10-02.md's within_domain table) plus
+#: overtime: 16, the most a stage-2 domain may hold (``ClincDomainMap``), each one ``\w+``
+#: word. Under version 1, two same-domain intent.within_domain rows of this map share the
+#: list's 9 internal 8-grams, and 9 of an 8-word utterance's 17 is over 0.5.
+WIDE_DOMAINS = ClincDomainMap(domains={
+    "work": ("direct_deposit", "income", "insurance", "insurance_change", "meeting_schedule",
+             "next_holiday", "overtime", "payday", "pto_balance", "pto_request",
+             "pto_request_status", "pto_used", "rollover_401k", "schedule_meeting", "taxes",
+             "w2"),
+    "banking": ("account_balance", "pay_bill", "transfer"),
+})
 
 # The GAP-CONTAINMENT-CONSTANT-QUESTION-DRIVES-CLINC-HITS-2026-10-02 shape at >= 8 words a
 # side, so the assertion is about containment and not about a row too short to compare: the
@@ -98,11 +116,12 @@ TRAIN_CONTAINS_VAL = f"please tell me {VAL_UTTERANCE} account today"
 SHORT_VAL_UTTERANCE = "what is spanish for hello"
 
 
-def _clinc(utterance: str, family: str, index: int, *, intent: str = "transfer") -> DataRow:
+def _clinc(utterance: str, family: str, index: int, *, intent: str = "transfer",
+           domain_map: ClincDomainMap = DOMAINS) -> DataRow:
     raw = ClincRow(utterance=utterance, intent=intent, is_oos=False)
     if family in (CLINC_DOMAIN_FAMILY, CLINC_WITHIN_DOMAIN_FAMILY):
         return rewrite_clinc_two_stage(raw, family_id=family, index=index, config=CONFIG,
-                                       domain_map=DOMAINS)
+                                       domain_map=domain_map)
     return rewrite_clinc(raw, family_id=family, index=index, config=CONFIG,
                          intent_vocabulary=(*INTENT_VOCABULARY, intent))
 
@@ -215,12 +234,13 @@ def test_a_short_clinc_val_row_is_counted_too_short_after_the_strip_not_clean() 
     assert group["stripped"]["options"] == ["no", "yes"]
 
 
-def test_intent_domain_strips_its_fixed_list_and_within_domain_keeps_per_domain_lists() -> None:
-    """Fable's caveat, measured on the real builders: a family-wide rule strips
-    intent.domain's fixed domain list; intent.within_domain asks over ONE domain's intents
-    (``qd_data.general.rewrite_clinc_two_stage``), so two domains share no option and nothing
-    is stripped from either list. (``intent.classification`` samples 16 sorted random
-    intents per row instead.)"""
+def test_every_intent_family_strips_to_its_utterance_per_domain_lists_and_samples_included(
+) -> None:
+    """(2b), on the real builders. Version 1's family-wide constancy stripped intent.domain's
+    fixed list but kept intent.within_domain's per-domain lists (two domains share no option)
+    and intent.classification's 16 sampled intents per row; Fable's CLINC strip ruling section
+    1 retires that reading: every option value of the four intent.* families is CLINC's
+    closed vocabulary, so every intent.* row is its context block, the utterance."""
     utterances = [
         ("how much money do i have in my checking account now", "account_balance"),
         ("please send two hundred dollars to my savings account", "transfer"),
@@ -228,21 +248,69 @@ def test_intent_domain_strips_its_fixed_list_and_within_domain_keeps_per_domain_
         ("what is the euro to dollar exchange rate this week", "exchange_rate"),
     ]
     train = [_clinc(u, f, i, intent=intent)
-             for i, (u, intent) in enumerate(utterances[:2])
-             for f in (CLINC_DOMAIN_FAMILY, CLINC_WITHIN_DOMAIN_FAMILY)]
+             for i, (u, intent) in enumerate(utterances[:2]) for f in INTENT_FAMILIES]
     val = [_clinc(u, f, 10 + i, intent=intent)
-           for i, (u, intent) in enumerate(utterances[2:])
-           for f in (CLINC_DOMAIN_FAMILY, CLINC_WITHIN_DOMAIN_FAMILY)]
+           for i, (u, intent) in enumerate(utterances[2:]) for f in INTENT_FAMILIES]
     sets, record = scan_sets(_report(train, val), config=CONFIG)
-    domain = record["family_slots"][f"{CLINC_DOMAIN_FAMILY}/domain"]
-    within = record["family_slots"][f"{CLINC_WITHIN_DOMAIN_FAMILY}/intent"]
+    by_key = {key: (fam, text) for s in sets for key, _i, fam, text in s.rows}
+    for row in (*train, *val):
+        fam, text = by_key[_key(row)]
+        assert fam in CLOSED_VOCABULARY_FAMILIES
+        assert text.encode() == row.request.context, row.row_id
+    groups = record["family_slots"]
+    domain = groups[f"{CLINC_DOMAIN_FAMILY}/domain"]
+    within = groups[f"{CLINC_WITHIN_DOMAIN_FAMILY}/intent"]
     assert domain["stripped"]["options"] == sorted(DOMAINS.domains)
     assert domain["option_sets"] == {"distinct": 1, "largest_share_rows": 4}
-    assert within["stripped"]["options"] == []
+    # The two per-domain lists asked (banking for the train rows, travel for the val rows)
+    # are both stripped in full: their union, every value seen.
+    asked = sorted({*DOMAINS.domains["banking"], *DOMAINS.domains["travel"]})
+    assert within["stripped"]["options"] == asked
     assert within["option_sets"] == {"distinct": 2, "largest_share_rows": 2}
-    texts = {key: text for s in sets for key, _i, fam, text in s.rows
-             if fam == CLINC_WITHIN_DOMAIN_FAMILY}
-    assert all("account_balance" in t or "book_flight" in t for t in texts.values())
+    for family, slot in ((CLASSIFICATION, "intent"), (CLINC_DOMAIN_FAMILY, "domain"),
+                         (IN_SCOPE, "in_scope"), (CLINC_WITHIN_DOMAIN_FAMILY, "intent")):
+        group = groups[f"{family}/{slot}"]
+        seen = {o for r in (*train, *val) if r.family_id == family
+                for o in r.request.slots[0].options}
+        assert group["closed_vocabulary"] == {
+            "distinct_option_values": len(seen), "rows_checked_equal_to_context": 4,
+        }, family
+        assert group["stripped"] == {"question": TASK_FAMILIES[family].description,
+                                     "options": sorted(seen)}, family
+    assert groups[f"{CLASSIFICATION}/intent"]["closed_vocabulary"]["distinct_option_values"] > 16
+    # Not every family is (2b): a (2a) group records no closed vocabulary.
+    _, plain = strip_template({"all": _parts([_squad(1), _squad(2)])})
+    assert plain["family_slots"]["qa.answer_span/evidence"]["closed_vocabulary"] is None
+
+
+def test_two_same_domain_within_domain_rows_sharing_only_the_list_no_longer_pair() -> None:
+    """Required by Fable's CLINC strip ruling section 4; fails against version 1. L-prep2's 5%
+    scan: train 'how do i set up direct deposit for my fifth third account' hit val 'what are
+    my tax costs', sharing nothing but the work domain's intent list. Two 8+-word utterances
+    of one domain that share no word: under version 1 (question stripped, per-domain list
+    kept, because a banking row keeps the lists from being constant) the list alone carries
+    the pair over 0.5; under version 2 each row is its utterance and nothing pairs."""
+    val_utterance = "will i be paid extra for working saturday"
+    train_utterance = "how do i set up direct deposit for my fifth third account"
+    val = _clinc(val_utterance, CLINC_WITHIN_DOMAIN_FAMILY, 0, intent="overtime",
+                 domain_map=WIDE_DOMAINS)
+    same_domain = _clinc(train_utterance, CLINC_WITHIN_DOMAIN_FAMILY, 1,
+                         intent="direct_deposit", domain_map=WIDE_DOMAINS)
+    other_domain = _clinc("please move five hundred dollars from checking into savings",
+                          CLINC_WITHIN_DOMAIN_FAMILY, 2, domain_map=WIDE_DOMAINS)
+    report = _report([same_domain, other_domain], [val])
+    assert not word_ngrams(train_utterance) & word_ngrams(val_utterance)
+    # Version 1's text of each row, rebuilt here from its parts: the question line gone
+    # (constant), the per-domain list kept (not in every row). It pairs.
+    v1 = {name: {key: parts.joined(question=False) for key, _i, _f, _s, parts in _parts(rows)}
+          for name, rows in (("train", [same_domain, other_domain]), ("val", [val]))}
+    assert (_key(same_domain), _key(val)) in _pairs(v1)
+    assert (_key(other_domain), _key(val)) not in _pairs(v1)
+    # Version 2, through the exporter: no pair, because each row is its utterance.
+    after = _texts(report, strip=True)
+    assert _pairs(after) == set()
+    assert after["val"][_key(val)] == val_utterance and not too_short(val_utterance)
+    assert after["train"][_key(same_domain)] == train_utterance
 
 
 # --- families whose per-row question is the content: kept whole --------------------------------
@@ -335,6 +403,74 @@ def test_a_group_of_one_row_strips_nothing_and_is_named() -> None:
     assert record["groups_below_min_rows"] == ["solo/s"]
 
 
+def test_the_closed_vocabulary_families_are_exactly_clincs() -> None:
+    """(2b) names four families; a fifth family built from CLINC's labels must not escape it
+    silently, and no other source's family may join it (MMLU's and CSQA's options are
+    content)."""
+    clinc = {f.family_id for f in TASK_FAMILIES.values() if f.source_id == "clinc/clinc_oos"}
+    assert clinc == CLOSED_VOCABULARY_FAMILIES
+    assert len(CLOSED_VOCABULARY_FAMILIES) == 4
+
+
+def _intent(key: str, parts: SlotParts, *, identity: str | None = None) -> PartsRow:
+    return (key, identity or f"id-{key}", CLINC_DOMAIN_FAMILY, "domain", parts)
+
+
+@pytest.mark.parametrize(("rows", "match"), [
+    # One row: the question line is not shown constant, so it stays, and the row is not
+    # its context.
+    ([_intent("a", SlotParts("Which domain?", "book me a flight", ("travel", "work")))],
+     "fewer than 2"),
+    ([_intent("a", SlotParts("Which domain?", None, ("travel", "work"))),
+      _intent("b", SlotParts("Which domain?", "pay my bill", ("travel", "work")))],
+     "no context block"),
+    ([_intent("a", SlotParts("Which domain?", "book me a flight", ("travel", "work"))),
+      _intent("b", SlotParts("Which other domain?", "pay my bill", ("travel", "work")))],
+     "not byte-identical in every row"),
+])
+def test_a_closed_vocabulary_row_that_is_not_its_context_is_refused(
+    rows: list[PartsRow], match: str,
+) -> None:
+    with pytest.raises(ReplayRefusal, match=match):
+        strip_template({"train": rows})
+    # Measurement only: the unstripped texts are what they were, refused by the hook later.
+    texts, record = strip_template({"train": rows}, apply=False)
+    assert [t for _k, _i, _f, t in texts["train"]] == [p.joined() for *_r, p in rows]
+    assert record["applied"] is False
+    assert record["family_slots"][f"{CLINC_DOMAIN_FAMILY}/domain"]["closed_vocabulary"][
+        "rows_checked_equal_to_context"] == 0
+
+
+def test_key_ii_blind_counts_identity_keys_all_of_whose_slot_texts_are_too_short() -> None:
+    """An utterance asked in two intent.* families is one identity key and two slot texts:
+    ``too_short_after_strip_by_set`` counts texts, ``key_ii_blind`` keys. A key with one slot
+    text of 8+ words is not blind, though another is too short."""
+    short = "what is spanish for hello"
+    long_ = "how much money do i have in my checking account now"
+    rows = {
+        "train": [_clinc(long_, f, 0, intent="account_balance")
+                  for f in (CLINC_DOMAIN_FAMILY, IN_SCOPE)],
+        "val": [*(_clinc(short, f, 1) for f in (CLINC_DOMAIN_FAMILY, IN_SCOPE)),
+                _clinc(VAL_UTTERANCE, IN_SCOPE, 2)],
+    }
+    _, record = strip_template({s: _parts(r) for s, r in rows.items()})
+    assert record["too_short_after_strip_by_set"] == {"train": 0, "val": 2}
+    blind_key = rows["val"][0].identity_key
+    assert rows["val"][1].identity_key == blind_key
+    assert record["key_ii_blind"] == {
+        "train": {"n": 0, "sha256": hashlib.sha256(b"").hexdigest(), "identity_keys": []},
+        "val": {"n": 1, "sha256": hashlib.sha256(f"{blind_key}\n".encode()).hexdigest(),
+                "identity_keys": [blind_key]},
+    }
+    # Blind means every slot text of the key: one long text and the key is visible.
+    mixed = SlotParts(question=None, context=" ".join(["word"] * 9), options=())
+    two = [("m#a", "k", "f", "a", SlotParts(None, "too short", ())),
+           ("m#b", "k", "f", "b", mixed),
+           ("n#a", "j", "f", "a", SlotParts(None, "also short", ()))]
+    _, record = strip_template({"val": two})
+    assert record["key_ii_blind"]["val"]["identity_keys"] == ["j"]
+
+
 def test_apply_false_is_byte_for_byte_the_pre_strip_export() -> None:
     """Characterization: the unstripped mode is what the exporter sent before this change,
     ``replay_decontam.row_texts`` (render at seed=None, then prompt_content), key for key."""
@@ -369,18 +505,35 @@ def test_a_strip_that_is_not_a_containment_test_is_refused() -> None:
 # --- through the exporter and qd-prep: parity, attestation, and the hook ----------------------
 
 
+def _other_intent_families(rows: Sequence[DataRow]) -> list[DataRow]:
+    """Each intent.in_scope row's utterance asked by the other three intent.* families, as
+    the v4 mixture asks every CLINC utterance four times under one identity key."""
+    out: list[DataRow] = []
+    for row in rows:
+        if row.family_id != IN_SCOPE:
+            continue
+        index = int(row.row_id.rsplit(":", 1)[1])
+        out += [_clinc(row.request.context.decode(), family, index)
+                for family in INTENT_FAMILIES if family != IN_SCOPE]
+    return out
+
+
 def _mixed_report() -> SplitReport:
     report, _rows = _clinc_report()
     mmlu_q = ("Which of the following best describes the main function of the mitochondria "
               "in eukaryotic cells during aerobic respiration?")
-    train = [*report.rows_by_split["train"],
+    clinc_train = report.rows_by_split["train"]
+    clinc_val = report.rows_by_split["val"]
+    clinc_heldout = [_clinc(TRAIN_SHARES_PREFIX + " again", IN_SCOPE, 20)]
+    train = [*clinc_train, *_other_intent_families(clinc_train),
              _mmlu(mmlu_q, ("protein", "lipids", "water", "light"), 1),
              _mmlu("Which gas do plants absorb from the air for photosynthesis in daylight?",
                    ("oxygen", "carbon dioxide", "nitrogen", "argon"), 2),
              _defect(1, "stub"), _defect(2, "logic"), _squad(11), _squad(12)]
-    val = [*report.rows_by_split["val"], _mmlu(mmlu_q, ("energy", "storage", "x", "y"), 0),
-           _defect(3, "cosmetic"), _squad(13)]
-    heldout = [_clinc(TRAIN_SHARES_PREFIX + " again", IN_SCOPE, 20), _defect(4, "clean")]
+    val = [*clinc_val, *_other_intent_families(clinc_val),
+           _mmlu(mmlu_q, ("energy", "storage", "x", "y"), 0), _defect(3, "cosmetic"),
+           _squad(13)]
+    heldout = [*clinc_heldout, *_other_intent_families(clinc_heldout), _defect(4, "clean")]
     return _report(train, val, heldout)
 
 
@@ -405,6 +558,10 @@ def test_the_stripped_pair_list_is_the_oracles_bit_for_bit(qd_prep_bin: Path,
     body = [line.split("\t") for line in want.splitlines()[1:]]
     assert any(b[3] == MMLU_FAMILY for b in body), "the copied MMLU question must pair"
     assert any(b[3] == IN_SCOPE for b in body), "the real CLINC containment must pair"
+    # (2b) end to end: every intent.* family's row is its utterance, so the utterance that
+    # really contains the val one pairs from all four families, to all four.
+    assert {b[3] for b in body} >= set(INTENT_FAMILIES)
+    assert {b[6] for b in body} >= set(INTENT_FAMILIES)
     # And the strip changed the answer: the template-only CLINC pair is in the unstripped
     # scan and in neither stripped list.
     plain, _ = scan_sets(report, config=CONFIG, template_strip=False)
@@ -447,6 +604,23 @@ def test_attestation_v2_records_the_strip_per_family_slot(qd_prep_bin: Path,
     val_short = sum(g["by_set"].get("val", {}).get("too_short_after_strip", 0)
                     for g in groups.values())
     assert att["sets"]["val"]["too_short"] == val_short
+    for s, short in strip["too_short_after_strip_by_set"].items():
+        assert att["sets"][s]["too_short"] == short, s
+    # The short val utterance is asked by all four intent.* families: four slot texts, one
+    # identity key that key (ii) cannot see.
+    assert val_short == 4
+    short_key = next(r.identity_key for r in _clinc_report()[0].rows_by_split["val"]
+                     if r.request.context.decode() == SHORT_VAL_UTTERANCE)
+    assert strip["key_ii_blind"]["val"]["identity_keys"] == [short_key]
+    assert strip["key_ii_blind"]["train"]["n"] == 0
+    # (2b) ran: every intent.* row was checked to be its context block; no other family is
+    # (2b).
+    for name, group in groups.items():
+        if name.split("/")[0] in CLOSED_VOCABULARY_FAMILIES:
+            assert group["closed_vocabulary"]["rows_checked_equal_to_context"] == group["rows"]
+        else:
+            assert group["closed_vocabulary"] is None, name
+    assert strip["closed_vocabulary_families"] == sorted(CLOSED_VOCABULARY_FAMILIES)
     assert att["clean"] is True, att["not_clean_because"]
 
 
