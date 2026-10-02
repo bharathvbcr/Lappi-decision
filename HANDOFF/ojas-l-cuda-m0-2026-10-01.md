@@ -112,6 +112,25 @@ Every wait is an event poll bounded by `sync_timeout` (60 s by default; rung 0 u
    - The test that fails against the draft: `a_failed_report_write_still_ends_the_run_at_the_cap`
      (`src/bin/rung0.rs`).
 
+**No ledger row was written.** Nothing ran on a GPU, so there is no measurement to record. Every
+count below cites an `AUDIT/ojas-training-2026-10-01/l-cuda-m0-*.txt` file. The first row is
+rung 0's.
+
+**Where the cuBLAS and NVRTC doc facts come from.** The resume message relayed a lookup of
+NVIDIA's **v13.4** docs, not 12.8:
+- the 32 MiB / 256-byte workspace;
+- the reproducibility conditions;
+- `--fmad` defaulting to true;
+- `cuDriverGetVersion` returning `1000*major + 10*minor`.
+
+This lane's own background docs lookup never reported back. Their applicability to cuBLAS
+12.8.4.1 and NVRTC 12.8 is [I].
+
+**Shared manifest:**
+- The only change to `ojas-qwen35-cuda/Cargo.toml` is the `[[bin]] rung0` table.
+- The crate's `Cargo.lock` is unchanged: 1,107 bytes, mtime 2026-10-01 18:10, md5
+  `2f15711f76297ff2751a11262e861048`.
+
 ## Tests: run versus NOT RUN
 
 Raw outputs are in `AUDIT/ojas-training-2026-10-01/l-cuda-m0-*.txt`.
