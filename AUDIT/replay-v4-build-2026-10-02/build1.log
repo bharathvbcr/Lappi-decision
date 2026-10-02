@@ -1,0 +1,100 @@
+tokenizer Qwen2Tokenizer for Qwen/Qwen3.5-2B-Base: vocab_size=248044 len=248077 fast=True
+corpus revision: 881ab304f15ea13529002391dda8520c2ea47af4 -> 881ab304f15ea13529002391dda8520c2ea47af4
+
+code.defect_class: 74953 of 74953 rows, capped=False, noul rows 5004 {'prose': 2010, 'scrambled': 2160, 'unseen-language': 834}, by class {'clean': 12551, 'cosmetic': 11459, 'logic': 17003, 'noul': 5004, 'stub': 33940}, span-rebase refusals none
+
+general families: {'cais/mmlu': 15858, 'clinc/clinc_oos': 23850, 'rajpurkar/squad_v2': 142192, 'tau/commonsense_qa': 10962}, capped=none, clinc domain map=True
+
+corpus: 0 real (commit, path) pairs, 0 real prose passages; blank_line_runs=False; capped=none
+
+== stage 1: build_mixture ==
+  raw rows in: 272819   DataRows out: 343759
+  status: {"detail": "343759 examples built, 610 rows refused across 5 sources; per-family coverage: code.defect_class=79957/79957, commonsense.multiple_choice=10816/10962, intent.classification=23850/23850, intent.domain=23848/23850, intent.in_scope=23850/23850, intent.within_domain=23844/23850, knowledge.multiple_choice=15816/15858, qa.answer_span=117618/117990, qa.answerability=24160/24202; self-consistency: 343825/343825 rows grouped, no contradictory prompt in the emitted rows (66 row(s) of 33 contradictory prompt(s) dropped as 'contradictory_prompt')", "n": 343759, "n_total": 344369, "passed": tru
+  prompt consistency: {"detail": "343825 of 343825 rows grouped into 343323 distinct rendered prompts; no prompt in the emitted rows carries two different gold answers; 33 rendered prompt(s) carried more than one gold answer (families ['intent.domain', 'intent.within_domain', 'qa.answer_span', 'qa.answerability']), and all 66 of their rows were dropped as 'contradictory_prompt' with no winner chosen (13 of those groups counted, not named)", "n": 343825, "n_total": 343825, "passed": true, "state": "ran", "value": 33}
+    refused cais/mmlu option_too_long: 22
+    refused cais/mmlu duplicate_options: 18
+    refused cais/mmlu invisible_format_characters: 2
+    refused clinc/clinc_oos contradictory_prompt: 8
+    refused rajpurkar/squad_v2 invisible_format_characters: 356
+    refused rajpurkar/squad_v2 contradictory_prompt: 58
+    refused tau/commonsense_qa duplicate_options: 146
+minhash: 271627 distinct sets signed by /Users/bharath/qd-campaign/target-replay-a502670/release/qd-prep in 53.1 s (shingling and canaries included), 615063 lookups, 8 canaries equal to the reference; 271737 distinct texts shingled once, 615063 lookups
+lsh: 2 candidate-pair searches banded by /Users/bharath/qd-campaign/target-replay-a502670/release/qd-prep in 2.9 s (canaries included), 1252884 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+
+== stage 2: dedupe + split ==
+  rows in: 343759   kept: 342971
+  split counts: {'train': 289142, 'val': 16124, 'heldout': 37705}
+  heldout: {"family": "code.defect_class", "rows": 2182, "of": 2182, "repos": 824, "classes": {"clean": 409, "cosmetic": 316, "logic": 453, "stub": 1004}, "languages": {"go": 151, "python": 1830, "rust": 97, "typescript": 104}, "majority": {"class": "stub", "n": 1004, "rate": 0.4601}}
+  train: {"family": "code.defect_class", "rows": 74864, "of": 74864, "repos": 15567, "classes": {"clean": 11665, "cosmetic": 10726, "logic": 15861, "noul": 5004, "stub": 31608}, "languages": {"csharp": 139, "elixir": 139, "go": 7628, "kotlin": 139, "php": 139, "prose": 2010, "python": 57272, "rust": 3586, "scala": 139, "shell": 139, "typescript": 3534}, "majority": {"class": "stub", "n": 31608, "rate": 0.4222}}
+  val: {"family": "code.defect_class", "rows": 2304, "of": 2304, "repos": 849, "classes": {"clean": 414, "cosmetic": 337, "logic": 505, "stub": 1048}, "languages": {"go": 172, "python": 1885, "rust": 116, "typescript": 131}, "majority": {"class": "stub", "n": 1048, "rate": 0.4549}}
+  split status: {"n": 6, "n_total": 6, "passed": true, "state": "ran"}
+  replay partition: {'commonsense.multiple_choice': {'gold': 8179, 'replay': 1440, 'excluded': 0}, 'knowledge.multiple_choice': {'gold': 12072, 'replay': 2128, 'excluded': 0}}
+  replay manifest: /Users/bharath/qd-campaign/phase4-v4-replay-build1-2026-10-02/data/pool/train-replay.json (3568 entries)
+  train manifest: /Users/bharath/qd-campaign/phase4-v4-replay-build1-2026-10-02/data/pool/train.json (285574 entries)
+
+== stage 3: census (unmodified write_shards work, per row) ==
+  rows in: 285574   rows that encoded: 285574   sequences: 360382   span sequences: 180698
+    (no row was refused)
+    slot-scoped span:gold_line_collapses_under_bpe: 29 of 360438 slot(s)
+      e.g. qdm:code.defect_class:d8b3e511b00c9b5a8c7951e16d06173fe93d6501:engine/util.py#0 slot defect_span: row 'qdm:code.defect_class:d8b3e511b00c9b5a8c7951e16d06173fe93d6501:engine/util.py#0' slot 'defect_span': the gold's line start shares token(s) [278] with another context line, so the pointer head canno
+    slot-scoped unclassified:UnencodableGold: 27 of 360438 slot(s)
+      e.g. qdm:code.defect_class:7d1d1a073971b97680e9a9316bd199acebc9919d:gem/migrations/0014_add_default_tags.py#0 slot defect_span: row 'qdm:code.defect_class:7d1d1a073971b97680e9a9316bd199acebc9919d:gem/migrations/0014_add_default_tags.py#0' slot 'defect_span': the context is not NFC-stable and the tokenize
+  train, as written: {"family": "code.defect_class", "rows": 74864, "of": 74864, "repos": 15567, "classes": {"clean": 11665, "cosmetic": 10726, "logic": 15861, "noul": 5004, "stub": 31608}, "languages": {"csharp": 139, "elixir": 139, "go": 7628, "kotlin": 139, "php": 139, "prose": 2010, "python": 57272, "rust": 3586, "scala": 139, "shell": 139, "typescript": 3534}, "majority": {"class": "stub", "n": 31608, "rate": 0.4222}, "slot_refused_by_class_and_reason": {"clean:defect_span:unclassified:UnencodableGold": 5, "cosmetic:defect_span:unclassified:UnencodableGold": 3, "logic:defect_span:span:gold_line_collapses_under_bpe": 29, "logic:defect_span:unclassified:UnencodableGold": 8, "stub:defect_span:unclassified:UnencodableGold": 11}}
+  accepted line-start candidates: 13366989, of which 474197 sit inside a token that begins earlier (accepted by design: the writer takes the token containing the line start)
+  composed span survival by length: {"state": "ran", "passed": true, "value": 0.9973, "n": 24962, "n_total": 25000, "detail": "{\"bar\": 0.9, \"bins\": {\"00000-00999\": {\"rows\": 91, \"survival\": 1.0, \"survival_refuse_any\": 0.4835, \"written\": 91, \"written_refuse_any\": 44}, \"01000-01999\": {\"rows\": 3882, \"survival\": 0.9992, \"survival_refuse_any\": 0.4415, \"written\": 3879, \"written_refuse_any\": 1714}, \"02000-02999\": {\"rows\": 3819, \"survival\": 0.9992, \"survival_refuse_any\": 0.3485, \"written\": 3816, \"written_refuse_any\": 1331}, \"03000-03999\": {\"rows\": 3765, \"survival\": 0.9995, \"survival_refuse_any\": 0.2643, \"written\": 3763, \"written_refuse_any\": 995}, \"04000-04999\": {\"rows\": 3766, \"survival\": 0.9973, \"survival_refuse_any\": 0.2007, \"written\": 3756, \"written_refuse_any\": 756}, \"05000-05999\": {\"rows\": 3799, \"survival\": 0.9979, \"survival_refuse_any\": 0.1698, \"written\": 3791, \"written_refuse_any\": 645}, \"06000-06999\": {\"rows\": 3977, \"survival\": 0.9977, \"survival_refuse_any\": 0.1489, \"written\": 3968, \"written_refuse_any\": 592}, \"07000-07999\": {\"rows\": 1901, \"survival\": 0.9984, \"survival_refuse_any\": 0.1957, \"written\": 1898, \"written_refus
+  composed span survival by files: {"state": "ran", "passed": true, "value": 0.9939, "n": 24962, "n_total": 25000, "detail": "{\"bar\": 0.9, \"bins\": {\"00-07\": {\"rows\": 4447, \"survival\": 0.9996, \"survival_refuse_any\": 0.5788, \"written\": 4445, \"written_refuse_any\": 2574}, \"08-15\": {\"rows\": 9503, \"survival\": 0.9988, \"survival_refuse_any\": 0.3246, \"written\": 9492, \"written_refuse_any\": 3085}, \"16-23\": {\"rows\": 5809, \"survival\": 0.9985, \"survival_refuse_any\": 0.1048, \"written\": 5800, \"written_refuse_any\": 609}, \"24-31\": {\"rows\": 3484, \"survival\": 0.998, \"survival_refuse_any\": 0.0456, \"written\": 3477, \"written_refuse_any\": 159}, \"32-39\": {\"rows\": 1481, \"survival\": 0.9939, \"survival_refuse_any\": 0.0128, \"written\": 1472, \"written_refuse_any\": 19}, \"40-47\": {\"rows\": 275, \"survival\": 1.0, \"survival_refuse_any\": 0.0109, \"written\": 275, \"written_refuse_any\": 3}, \"48-55\": {\"rows\": 1, \"survival\": 1.0, \"survival_refuse_any\": 0.0, \"written\": 1, \"written_refuse_any\": 0}}, \"by\": \"files\", \"note\": \"Fable round K: the bar is on every length bin; value is the worst bin's survival under the policy\", \"policy\": \"refuse-gold\"}"}
+
+== stage 3b: does the obvious decode= argument work? ==
+  tokenizer.decode with no kwargs: {"state": "ran", "passed": true, "value": "qdm:code.defect_class:1836d32c638b5630267d5a1181ffeb4fcd806e1c:bowling_test.go#0", "n": 1, "n_total": 1, "detail": "tokenizer.decode with no kwargs satisfies all three statements _assert_spans_decode_to_their_text makes, so a caller need not know to pass clean_up_tokenization_spaces=False"}
+
+== stage 4: buckets and padding, under the real tokenizer ==
+  lengths: n=360382 min=124 max=7936 mean=849.8
+  quantiles: p10=164 p50=276 p90=2791 p99=7029
+  choose_buckets -> [137, 172, 207, 240, 268, 298, 333, 376, 430, 501, 590, 688, 819, 962, 1243, 1610, 1983, 2362, 2749, 3134, 3520, 3907, 4301, 4715, 5116, 5534, 5933, 6330, 6686, 7035, 7404, 7936]
+  occupancy: {0: 19576, 1: 35772, 2: 51541, 3: 32917, 4: 32319, 5: 29076, 6: 24256, 7: 19780, 8: 16187, 9: 13432, 10: 11016, 11: 9097, 12: 8862, 13: 5972, 14: 2664, 15: 2846, 16: 2885, 17: 2867, 18: 2975, 19: 2944, 20: 2957, 21: 2882, 22: 3034, 23: 3002, 24: 3019, 25: 3235, 26: 3022, 27: 3001, 28: 2755, 29: 2958, 30: 2958, 31: 575}
+  padding_waste: {'state': 'ran', 'passed': True, 'value': 0.049884, 'n': 360382, 'n_total': 360382, 'detail': '16078769 padding of 322326003 positions (4.99%) over 360382 sequences; gate is <= 15%. buckets=[137, 172, 207, 240, 268, 298, 333, 376, 430, 501, 590, 688, 819, 962, 1243, 1610, 1983, 2362, 2749, 3134, 3520, 3907, 4301, 4715, 5116, 5534, 5933, 6330, 6686, 7035, 7404, 7936]'}
+  val, as written: {"family": "code.defect_class", "rows": 2304, "of": 2304, "repos": 849, "classes": {"clean": 414, "cosmetic": 337, "logic": 505, "stub": 1048}, "languages": {"go": 172, "python": 1885, "rust": 116, "typescript": 131}, "majority": {"class": "stub", "n": 1048, "rate": 0.4549}, "slot_refused_by_class_and_reason": {"clean:defect_span:span:line_starts_collapse_under_bpe": 48, "cosmetic:defect_span:span:line_starts_collapse_under_bpe": 27, "logic:defect_span:span:line_starts_collapse_under_bpe": 38, "stub:defect_span:span:line_starts_collapse_under_bpe": 92}}
+
+== stage 5: remap over the real vocabulary (--vocab full) ==
+  source vocab 248320 -> kept 248320 (87000 distinct ids used by 312229281 tokens)
+  counted over 382434 tokenized sequence(s) -- train and val -- of which 360382 train sequences reach the shard set; the difference is rows the writer excludes but still demands remap coverage for
+
+== stage 5b: the rows the remap was not built from ==
+  val: --vocab full keeps every tokenizer id, so every row of this split encodes by construction and a count here would measure nothing
+  heldout: --vocab full keeps every tokenizer id, so every row of this split encodes by construction and a count here would measure nothing
+
+== stage 6: write_shards with tokenize + token_offsets + decode ==
+  header: n_sequences=360382 total_tokens=306247234 max_seq_len=7936 vocab_size=248320
+  buckets: [137, 172, 207, 240, 268, 298, 333, 376, 430, 501, 590, 688, 819, 962, 1243, 1610, 1983, 2362, 2749, 3134, 3520, 3907, 4301, 4715, 5116, 5534, 5933, 6330, 6686, 7035, 7404, 7936]
+  coverage.json: {"detail": "every row in the manifest was tokenized into the shard set", "n": 285574, "n_total": 285574, "passed": true, "state": "ran", "value": 285574}
+
+== stage 6b: the val split, under the same remap ==
+  header: n_sequences=18223 total_tokens=5031887 vocab_size=248320
+  coverage: {"state": "ran", "passed": true, "value": 16124, "n": 16124, "n_total": 16124, "detail": "every row in the manifest was tokenized into the shard set"}
+
+== stage 6c: the replay slice, as its own shard set ==
+  replay: n_sequences=3568 {"state": "ran", "passed": true, "value": 3568, "n": 3568, "n_total": 3568, "detail": "3568 of 3568 (row, slot) sequence(s) written; excluded 0 slot(s) on their own account and 0 slot(s) of rows refused whole, over 3568 row(s) offered"}
+
+== stage 7: read back through ShardReader/Batch ==
+  checks: ['held_out_families_configured', 'shard_code_current', 'shard_not_packed', 'shard_path_not_held_out', 'shard_provenance_pinned', 'shard_remap_matches_header', 'shard_rev_matches', 'shard_split_trainable']
+  coverage: {'state': 'ran', 'passed': True, 'value': 285574, 'n': 285574, 'n_total': 285574, 'detail': 'every row in the manifest was tokenized into the shard set'}
+  padding_waste: {'state': 'ran', 'passed': True, 'value': 0.049884, 'n': 360382, 'n_total': 360382, 'detail': '16078769 padding of 322326003 positions (4.99%) over 360382 sequences; gate is <= 15%. buckets=[137, 172, 207, 240, 268, 298, 333, 376, 430, 501, 590, 688, 819, 962, 1243, 1610, 1983, 2362, 2749, 3134, 3520, 3907, 4301, 4715, 5116, 5534, 5933, 6330, 6686, 7035, 7404, 7936]'}
+    sequences: 360382
+    batches: 5108
+    rows_in_batches: 360382
+    span_rows: 180698
+    gold_off_candidate: 0
+    candidate_in_padding: 0
+    target_not_before_last: 0
+    tail_not_one_letter: 0
+    decode_mismatch: 0
+
+== stage 8: the same corpus written WITHOUT decode= ==
+  artifacts identical between decode-checked and unchecked writes: ['coverage']
+  artifacts that differ: ['header_without_created_at', 'span_check']
+  ShardReader.to_json() identical: False
+  span_check, decode supplied : {"state": "ran", "passed": true, "value": 180698, "n": 180698, "n_total": 180698, "detail": "every span sequence's gold positions and full candidate set were checked against tokenizer.decode: each checked token decodes t
+  span_check, decode omitted  : {"state": "not_run", "reason": "write_shards was called without decode=, so the 180725 span sequence(s) here had their gold and candidate positions checked only against the offset mapping they were derived from. That cir
+
+ledger row: da3da869-b0b2-4084-a710-5cafaf9a269e
+  /Users/bharath/qd-campaign/ledger-mac-phase4-v4-replay-2026-10-02.jsonl
