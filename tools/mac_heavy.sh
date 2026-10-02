@@ -16,7 +16,8 @@
 #   never runs unlocked.
 # - It refuses with exit 74 when the data volume has under $MAC_HEAVY_MIN_FREE_GB (default 15) GB
 #   free.
-# - It sets CARGO_BUILD_JOBS=4 unless the caller set it.
+# - It sets CARGO_BUILD_JOBS=2 unless the caller set it (4 until the second panic on 2026-10-02;
+#   the human then chose "resume, gentler": cargo at -j 2).
 # - It releases the lock on every exit path, and only a lock it owns.
 # - It exits with the command's own status.
 #
@@ -91,7 +92,7 @@ if [ "$free_kb" -lt $((MIN_FREE_GB * 1024 * 1024)) ]; then
   exit 74
 fi
 
-export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-4}
+export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
 echo "mac_heavy: $(now) '$LABEL' holds the lock (waited ${waited}s); running: $*" >&2
 "$@"
 rc=$?

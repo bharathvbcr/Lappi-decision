@@ -38,7 +38,9 @@ def test_runs_the_command_under_the_lock_and_releases_it(tmp_path: Path) -> None
     assert proc.returncode == 0, proc.stderr
     owner = seen.read_text()
     assert "label=t" in owner and "pid=" in owner and "start=" in owner
-    assert proc.stdout.strip() == "4"
+    # 2, not 4, since the second launchd-SIGBUS panic (GAP-MAC-KERNEL-PANIC-CONCURRENT-HEAVY-LOAD-
+    # 2026-10-02): the human chose "resume, gentler" -- cargo at -j 2.
+    assert proc.stdout.strip() == "2"
     assert not lock.exists()
 
 
