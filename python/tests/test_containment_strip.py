@@ -287,7 +287,7 @@ def test_two_same_domain_within_domain_rows_sharing_only_the_list_no_longer_pair
     """Required by Fable's CLINC strip ruling section 4; fails against version 1. L-prep2's 5%
     scan: train 'how do i set up direct deposit for my fifth third account' hit val 'what are
     my tax costs', sharing nothing but the work domain's intent list. Two 8+-word utterances
-    of one domain that share no word: under version 1 (question stripped, per-domain list
+    of one domain that share no 8-gram: under version 1 (question stripped, per-domain list
     kept, because a banking row keeps the lists from being constant) the list alone carries
     the pair over 0.5; under version 2 each row is its utterance and nothing pairs."""
     val_utterance = "will i be paid extra for working saturday"
