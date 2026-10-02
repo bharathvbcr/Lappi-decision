@@ -40,6 +40,9 @@ use crate::schema::{check_slot_name, DecisionRequest, Route, SlotSpec, NOUL_LABE
 // Transcribed from python/qd_data/render.py. Each is of the form <|qd_...|>; see the module docs.
 
 pub const M_BEGIN: &str = "<|qd_begin|>";
+/// The prompt-format line's marker, followed by [`PROMPT_FORMAT`]. It has the `<|qd_...|>` shape,
+/// so the one escape rule covers it like every other marker.
+pub const M_FORMAT: &str = "<|qd_prompt_format|>";
 pub const M_VERSION: &str = "<|qd_schema_version|>";
 pub const M_TASK: &str = "<|qd_task|>";
 pub const M_ROUTE: &str = "<|qd_route|>";
@@ -54,6 +57,7 @@ pub const M_ANSWER: &str = "<|qd_answer|>";
 
 pub const MARKERS: &[&str] = &[
     M_BEGIN,
+    M_FORMAT,
     M_VERSION,
     M_TASK,
     M_ROUTE,
@@ -66,6 +70,22 @@ pub const MARKERS: &[&str] = &[
     M_OPT_END,
     M_ANSWER,
 ];
+
+/// The prompt layout this renderer writes, stated in every prompt on the [`M_FORMAT`] line.
+/// Transcribed from `PROMPT_FORMAT` in `python/qd_data/render.py`;
+/// `python/tests/test_prompt_format_v5.py` parses this file and pins the two together, with the
+/// marker set and its order.
+///
+/// Format 2 (v5, `campaign/v5-preregistered.DRAFT.json` `format.*`) renders the question line
+/// **after** the context: begin, format, schema version, task, route, the context block, then the
+/// question, then each slot's suffix. Format 1 (v4) had no format line and rendered the question
+/// between the route and the context. Only the question moved, so N questions with one task over
+/// one context share every byte through `<|qd_context_end|>`.
+///
+/// It is not the wire `schema_version`, which stays 1. It is what a model was trained on, so a
+/// release binds it ([`crate::release`] refuses a release of another format) and the shard reader
+/// and the trainer's recipe record it.
+pub const PROMPT_FORMAT: u32 = 2;
 
 /// The 16 **named-option** letters the generic route decodes over: `docs/schema-api.md`, "one token
 /// over a 17-row `lm_head` slice: 16 option letters + 1 reserved `noul` row". The seventeenth row's
@@ -521,8 +541,12 @@ pub fn render(request: &DecisionRequest, caps: &RenderCaps) -> Result<RenderedPr
         });
     }
 
+    // Prompt format 2 (see `PROMPT_FORMAT`): the question line follows the context.
     let mut prefix = String::new();
     prefix.push_str(M_BEGIN);
+    prefix.push('\n');
+    prefix.push_str(M_FORMAT);
+    prefix.push_str(&PROMPT_FORMAT.to_string());
     prefix.push('\n');
     prefix.push_str(M_VERSION);
     prefix.push_str(&request.schema_version.to_string());
@@ -533,9 +557,6 @@ pub fn render(request: &DecisionRequest, caps: &RenderCaps) -> Result<RenderedPr
     prefix.push_str(M_ROUTE);
     prefix.push_str(route_str(request.route));
     prefix.push('\n');
-    prefix.push_str(M_QUESTION);
-    prefix.push_str(&escape_inline(&request.question));
-    prefix.push('\n');
     prefix.push_str(M_CTX_BEGIN);
     prefix.push('\n');
     let ctx_start = prefix.len();
@@ -543,6 +564,9 @@ pub fn render(request: &DecisionRequest, caps: &RenderCaps) -> Result<RenderedPr
     let ctx_end = prefix.len();
     prefix.push('\n');
     prefix.push_str(M_CTX_END);
+    prefix.push('\n');
+    prefix.push_str(M_QUESTION);
+    prefix.push_str(&escape_inline(&request.question));
     prefix.push('\n');
 
     let mut slots = Vec::with_capacity(request.slots.len());

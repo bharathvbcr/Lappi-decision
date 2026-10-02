@@ -66,6 +66,7 @@ import numpy as np
 
 from qd_data.config import SPLITS, DataConfig
 from qd_data.fingerprint import code_fingerprint, describe_drift
+from qd_data.render import PROMPT_FORMAT
 
 from .data_access import assert_path_not_held_out
 from .tristate import NotRun, Ran, TriState
@@ -399,6 +400,13 @@ class ShardHeader:
     #: The v5 contrast rows this train set carries (:class:`ContrastRows`). **None means the
     #: set carries none**, which is every set written before the field existed.
     contrast_rows: ContrastRows | None = None
+    #: The prompt layout every sequence in this set was rendered in
+    #: (``qd_data.render.PROMPT_FORMAT``; the writer stamps the renderer's). **1 means format
+    #: 1**, the question before the context, which is every set written before the field
+    #: existed: it is serialised and hashed only when it is not 1, so their headers still
+    #: verify (the ``span_collapse_policy`` precedent). :meth:`require_prompt_format` is the
+    #: reader's refusal of a set rendered in another format than the code reading it.
+    prompt_format: int = 1
 
     def require_gate_population(self, *, where: str) -> None:
         """Refuse a set that is not a gate population: report-only, or any span rule but
@@ -409,6 +417,25 @@ class ShardHeader:
                 f"{self.report_only}, span_collapse_policy="
                 f"{self.span_collapse_policy or 'refuse-any'}). A gate scores the population "
                 "it was measured on; a report-only set is read by its own scorer only."
+            )
+
+    def require_prompt_format(self, *, where: str) -> None:
+        """Refuse a set whose sequences were rendered in another prompt format than the one
+        ``qd_data.render`` writes now.
+
+        A model trained or scored on these tokens would see one layout here and another from
+        every prompt the current code renders -- the needle and OOD suites, serving -- and no
+        loss curve shows it. :func:`assert_shard_trainable`'s ``code_fingerprint`` check
+        usually refuses the same set too (``render.py`` is in the fingerprint), but it is
+        ``NotRun`` on a header without a fingerprint and waived by ``allow_stale_code``; this
+        is the format itself, and nothing waives it.
+        """
+        if self.prompt_format != PROMPT_FORMAT:
+            raise ShardContractViolation(
+                f"{where}: this shard set was rendered in prompt_format {self.prompt_format}, "
+                f"and qd_data.render writes prompt_format {PROMPT_FORMAT}. Its sequences are "
+                "another layout than every prompt this code renders; rebuild the set with this "
+                "code, or read it with the code that wrote it."
             )
 
     def __post_init__(self) -> None:
@@ -478,6 +505,14 @@ class ShardHeader:
             raise ShardContractViolation(
                 f"contrast_rows on split {self.split!r}: contrast rows are train rows only"
             )
+        if (
+            isinstance(self.prompt_format, bool)
+            or not isinstance(self.prompt_format, int)
+            or self.prompt_format < 1
+        ):
+            raise ShardContractViolation(
+                f"prompt_format {self.prompt_format!r} is not a positive int"
+            )
 
     def shard_hash(self) -> str:
         return _sha256_hex(
@@ -546,6 +581,13 @@ class ShardHeader:
                 if self.contrast_rows is not None
                 else ()
             ),
+            # Same contract, tagged: format 1 (every set written before the field) hashes to
+            # nothing, so every v4 header still verifies against the hash it was written with.
+            *(
+                (b"prompt_format:" + str(self.prompt_format).encode(),)
+                if self.prompt_format != 1
+                else ()
+            ),
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -576,6 +618,8 @@ class ShardHeader:
             out["exclusions_sha256"] = self.exclusions_sha256
         if self.contrast_rows is not None:
             out["contrast_rows"] = self.contrast_rows.to_json()
+        if self.prompt_format != 1:
+            out["prompt_format"] = self.prompt_format
         out["shard_hash"] = self.shard_hash()
         return out
 
@@ -584,6 +628,13 @@ class ShardHeader:
         if not isinstance(raw.get("report_only", False), bool):
             raise ShardContractViolation(
                 f"report_only is {raw['report_only']!r}; a header states it as a JSON boolean"
+            )
+        prompt_format = raw.get("prompt_format", 1)
+        if isinstance(prompt_format, bool) or not isinstance(prompt_format, int):
+            # Not coerced: `int("2")`, `int(2.0)` and `int(True)` would each read a header
+            # that does not state a format as one that does.
+            raise ShardContractViolation(
+                f"prompt_format is {prompt_format!r}; a header states it as a JSON integer"
             )
         header = cls(
             split=raw["split"],
@@ -610,6 +661,7 @@ class ShardHeader:
             contrast_rows=(
                 ContrastRows.from_json(raw["contrast_rows"]) if "contrast_rows" in raw else None
             ),
+            prompt_format=prompt_format,
         )
         if "shard_hash" in raw and raw["shard_hash"] != header.shard_hash():
             raise ShardContractViolation(

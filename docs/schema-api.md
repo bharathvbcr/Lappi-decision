@@ -328,7 +328,8 @@ more). That is unchanged and still tracked as `GAP-XLANG-REFUSAL-VOCABULARIES`.
 
 ## Answering procedure
 
-1. Prefill the context **once**.
+1. Render the request's prefix in **prompt format 2** (below) and prefill it **once**. The prefix
+   is everything through the question line; each slot's suffix starts after it.
 2. **Snapshot** the recurrent GDN state and the attention KV.
 3. Answer each slot as a 1-token query **from the snapshot**. Never write back — the `readonly` flag
    on the decode kernel (K2) is the slot-isolation mechanism, one flag instead of a mask kernel.
@@ -354,6 +355,45 @@ more). That is unchanged and still tracked as `GAP-XLANG-REFUSAL-VOCABULARIES`.
 
 Step 4 is why permutation consistency (>= 95%) is a training gate and not only a runtime check: a
 model that fails it makes the second pass fire constantly and the abstain rate blows the cap.
+
+### The prompt the model sees: format 2
+
+One renderer per lane writes it, byte for byte the same: `python/qd_data/render.py` for training
+and `crates/qd-runtime/src/render.rs` for serving. Prompt format 2 (v5) puts the context **before**
+the question:
+
+```text
+<|qd_begin|>
+<|qd_prompt_format|>2
+<|qd_schema_version|>1
+<|qd_task|>T
+<|qd_route|>R
+<|qd_context_begin|>
+C
+<|qd_context_end|>
+<|qd_question|>Q
+```
+
+Then, for each slot, its suffix: `<|qd_slot|>`, `<|qd_type|>`, the option block with the reserved
+`Z. noul` row last, and `<|qd_answer|>`, the position the one-token query is answered from.
+
+- **Only the question moved.** Format 1 (v4) had no format line and rendered the question line
+  between the route and the context. Task and route stay ahead of the context, so N questions with
+  one task over one context share every byte through `<|qd_context_end|>`. The slot suffixes did
+  not change.
+- **The format is not the wire version.** The request's `schema_version` stays 1, so callers send
+  the same requests. The format is a property of the *model*: what it was trained on.
+- **Every marker has the shape `<|qd_...|>`, the format line's included**, so the one escape rule
+  covers it. A context or question carrying `<|qd_prompt_format|>` or `<|qd_question|>` is
+  rendered as text (`<\|...`), and the renderer's own lines stay the only markers.
+- **A model is never served another format than it was trained on.** The release manifest
+  (`qd-release.v2`) binds `expected_identity.prompt_format`, and `qd_runtime::release` refuses a
+  release whose format is not `render::PROMPT_FORMAT` (a v4 release, `qd-release.v1`, is refused
+  by its format, and a v4-era runtime refuses a `qd-release.v2` one). `qd-export` stamps the format
+  from the checkpoint's source manifest (`<avg>.manifest.json` `prompt_format`, an integer; absent
+  means 1), never from its own constant, so a v4 checkpoint exported now is refused, not
+  mislabelled. The shard header records the format its sequences were rendered in
+  (`ShardHeader.prompt_format`), and the shard reader refuses a set of another format.
 
 ### How many decodes each slot kind costs
 
