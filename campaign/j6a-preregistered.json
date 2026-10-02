@@ -63,6 +63,15 @@
   },
   "checker": "A qd-post-f-rules j6a subcommand (crates/qd-runtime/src/bin/qd_post_f_rules.rs). It reuses the successor's count arithmetic and Room, with this file's identity and data delta, and must exist before J6(a)'s rows are read. This JSON is what binds. The checker implements it, and a disagreement between them refuses.",
   "amendments_pending": "The lead fills these by commit after build 2 and decontam 2, before J6(a)'s eval row's written_at: build 2's train-manifest hash (data_snapshot_hash), its train shard hash, the replay shard hash, decontam 2's attestation sha256, and h (with the full hit list's sha256). Until they are filled, the checker refuses.",
+  "amendments": {
+    "data_snapshot_hash": "895d393b632aa417250578b04e22a559985f5145a98ad59c81907a75a6f7097a",
+    "shard_hash": "be617e7e3261b6e96a9f5eeb160e125066234548643ae29558a9a12728f94ff1",
+    "replay_shard_hash": "290f69a48a44f15018dc8a52deb4655502182cfa9d14cf84b4f00cd4cddb7cea",
+    "replay_attestation_sha256": "dc69ffce43b5af2a62943603d27052ea16011d191be3de876eec9d5e9b2b6c94",
+    "h": 185,
+    "hit_list_sha256": "8cfcbccbf0ab4dd7b02515b7d37f93f46b4db149a4036ecc60b319c29154e87f"
+  },
+  "amendments_record": "Filled by the lead on 2026-10-02 at ~07:30 UTC, before any J6(a) row exists (no J6(a) ledger exists on the box). Each value was checked independently by the lead from the Mac copies. data_snapshot_hash and shard_hash come from /Users/bharath/qd-campaign/phase4-v4-replay-2026-10-02/shards/train/header.json; data_snapshot_hash also equals build 2's ledger row a48c2987 (/Users/bharath/qd-campaign/ledger-mac-phase4-v4-replay-2026-10-02.jsonl) and differs from F's ea3215c4. replay_shard_hash comes from shards/replay/header.json. replay_attestation_sha256 is the sha256 of replay-attestation.json, which has clean true. h is replay_rows_hit 185 in build 1's full hit list (/Users/bharath/qd-campaign/phase4-v4-replay-build1-2026-10-02/replay-hits.json; 3,414 pairs, 184 identity keys), so 3,568 - 185 = 3,383 replay rows. hit_list_sha256 is that file's sha256, equal to build 2's recipe.replay_exclude_sha256. Lane L-replay (HANDOFF replay-v4-build-2026-10-02.md) reported the same six values.",
   "binds_iff": "This file is on main before the written_at of J6(a)'s epoch-score-val eval row in arm.ledger. If not, the rule is not applied to a row that already existed when it was chosen, and the human decides from the rows.",
   "committed_by": "the lead (Claude, main checkout), 2026-10-02, from Fable's ruling text (AUDIT/idle-gpu-queue-2026-10-02/fable-j6a-replay.md, Q2 and Q4), under the human's standing instruction to follow Fable's recommendations. Before writing, the lead checked every target and guard key and its seed-0 value against f4feac15 in ledger/gh200-p4-v4-2026-10-01.jsonl."
 }
