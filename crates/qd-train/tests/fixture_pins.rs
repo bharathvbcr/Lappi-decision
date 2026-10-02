@@ -20,6 +20,14 @@
 //! | `tiny-published/` | `manifest.json` `files` | `tools/qd_train_oracle_tiny.py` |
 //! | `adamw-decay-sensitive/` | `manifest.json` `files` | `tools/qd_train_oracle_adamw.py` |
 //! | `span-head-init-seed0-h64.safetensors` | its `.manifest.json` `file` | `tools/qd_train_oracle_span_head_init.py` |
+//! | `trainer-oracle.json` (text) | [`TRAINER_ORACLE`] below | `tools/qd_train_oracle_trainer.py` |
+//!
+//! `trainer-oracle.json` is text, so the repository gate does not require a pin for it. It is
+//! pinned here anyway because four bit-exact suites read it (`schedule_oracle.rs`,
+//! `adamw_oracle.rs`, `ledger_oracle.rs`, `pyjson_oracle.rs`) and a regeneration that moved a
+//! byte must show up as a pin change in the same commit. Pinned 2026-10-02 (lane L-v5-train),
+//! when the `--min-lr 0` schedules were added; `python/tests/test_qd_train_oracle_trainer.py`
+//! checks the other direction, that the dumper still writes exactly this file.
 
 mod common;
 
@@ -46,6 +54,14 @@ const SETS: [(&str, Form); 4] = [
 const SINGLE: (&str, &str) = (
     "span-head-init-seed0-h64.safetensors",
     "span-head-init-seed0-h64.manifest.json",
+);
+
+/// The trainer oracle's dump: `(file, sha256, bytes)`. Regenerated with the command in
+/// `tools/qd_train_oracle_trainer.py`'s docstring; update all three together.
+const TRAINER_ORACLE: (&str, &str, u64) = (
+    "trainer-oracle.json",
+    "068924c88f65efa6cf2ec6f2c623b2f20c7930d8177c3297b2b7829972d46944",
+    165_223,
 );
 
 /// The extensions the repository gate allows a binary fixture to have.
@@ -98,6 +114,22 @@ fn the_pinned_h64_init_matches_its_manifest() {
         m["file"]["sha256"].as_str(),
         "{}: sha256",
         SINGLE.0
+    );
+}
+
+#[test]
+fn the_trainer_oracle_matches_its_pin() {
+    let path = fixtures().join(TRAINER_ORACLE.0);
+    let len = std::fs::metadata(&path)
+        .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+        .len();
+    let digest = pins::sha256_file_hex(&path);
+    assert_eq!(
+        (digest.as_str(), len),
+        (TRAINER_ORACLE.1, TRAINER_ORACLE.2),
+        "{}: sha256 and byte count against the pin; a regeneration updates the pin in the same \
+         commit",
+        TRAINER_ORACLE.0
     );
 }
 
