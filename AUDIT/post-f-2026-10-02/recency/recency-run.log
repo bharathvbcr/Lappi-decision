@@ -1,0 +1,33 @@
+mac_heavy: 2026-10-02T17:38:32Z 'L-recency plan, counts, planner null, consumed digest' waiting 0s for the lock; holder: label=manual: ojas adaptive gate for session 22704 (ojas-device tests, clippy, capi, gusset-engine, Go) pid=64547 start=2026-10-02T17:38:05Z cwd=/Users/bharath/Code/research/Lappi-decision 
+mac_heavy: 2026-10-02T17:43:32Z 'L-recency plan, counts, planner null, consumed digest' waiting 300s for the lock; holder: label=L-v5-train: ft_splits contrast hook pre/post + regression (CPU pytest) pid=62501 start=2026-10-02T17:42:45Z cwd=/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ab22efe0da83e3e48 
+mac_heavy: 2026-10-02T17:43:52Z 'L-recency plan, counts, planner null, consumed digest' holds the lock (waited 320s); running: nice -n 10 /usr/bin/time -l env PYTHONDONTWRITEBYTECODE=1 /Users/bharath/.venvs/ml/bin/python -u /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a940b295305b35d51/AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py --code-root /private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/a502670 --out /Users/bharath/qd-campaign/phase4-v4-2026-10-01 --rev 881ab304f15ea13529002391dda8520c2ea47af4 --v3b /Users/bharath/qd-campaign/noul-v3b-2026-10-01/defect-noul-v3b/examples.jsonl --ledger /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a940b295305b35d51/ledger/gh200-p4-v4-2026-10-01.jsonl --result /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a940b295305b35d51/AUDIT/post-f-2026-10-02/recency/recency-f-2026-10-02.json --planner-null-seeds 200 --mc-draws 20000 --consumed-digest
+code root /private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/a502670: 38 modules match code_that_ran; 9 anchors present
+reader open: 363950 sequences, shard_hash 8bcf56ad89bbf059 (1 s, rss 0.42 GB)
+identity: all checks pass for seeds 0, 1, 2
+counts done (6 s)
+planner null done (32 s)
+consumed digest 1f38209195866e8e4b60565ae565ae1dfd46637f1d562d23b14c09c0be32af26 (38 s)
+RESULT /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a940b295305b35d51/AUDIT/post-f-2026-10-02/recency/recency-f-2026-10-02.json sha256 539e57863a4280f0efc959c24f29316660ea3c0d5b1d9bc528696654074826f6
+seed 0: prose abstain 54/60 | (a) prose rows any-late 355/2010, choice seqs 174/2010 | (b) v3b rows any-late 897/5004, choice seqs 441/5004
+seed 1: prose abstain 0/60 | (a) prose rows any-late 355/2010, choice seqs 174/2010 | (b) v3b rows any-late 897/5004, choice seqs 441/5004
+seed 2: prose abstain 1/60 | (a) prose rows any-late 355/2010, choice seqs 174/2010 | (b) v3b rows any-late 897/5004, choice seqs 441/5004
+DONE in 38 s, max rss 1.57 GB
+       37.80 real        34.14 user         0.76 sys
+          1570914304  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               70388  page reclaims
+               75238  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                 256  voluntary context switches
+               58831  involuntary context switches
+        783469746785  instructions retired
+        148350786836  cycles elapsed
+           450478944  peak memory footprint
+mac_heavy: 2026-10-02T17:44:30Z 'L-recency plan, counts, planner null, consumed digest' finished with exit 0
