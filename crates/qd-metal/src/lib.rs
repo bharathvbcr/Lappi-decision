@@ -12,6 +12,10 @@
 //! | [`weights`] | checkpoint tensors → the packed layouts the kernels read (CPU) |
 //! | [`model`] | the GPU model: upload, prefill, snapshot-continuation decode, answer scoring |
 //! | [`backend`] | [`backend::MetalBackend`]: the `DecisionBackend`, on one GPU-owning thread |
+//! | [`serve`] | `qd-metal-serve`'s wiring: release -> backend -> runtime -> service |
+//! | [`decision`] | `qd-metal-bench --decision`: one real decision, timed, A/B over flags |
+//! | [`parity_row`] | the parity gate's result as a ledger row |
+//! | [`ledger`] | `ledger/mac-qd-metal-*.jsonl` rows and what ran (executable, tessl state) |
 //!
 //! Tests that need the model snapshot or the GPU are `#[ignore]`d and named `snapshot_*` /
 //! `gpu_*`: `cargo test` never touches the GPU, and an ignored test is reported as ignored, not
@@ -19,9 +23,13 @@
 
 pub mod backend;
 pub mod config;
+pub mod decision;
 pub mod error;
+pub mod ledger;
 pub mod model;
+pub mod parity_row;
 pub mod safetensors;
+pub mod serve;
 pub mod tokenizer;
 pub mod weights;
 

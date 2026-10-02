@@ -88,3 +88,22 @@ fn snapshot_tokenizer_letters_are_single_tokens() {
     // The answer marker is not a special token in the base tokenizer: several ordinary tokens.
     assert!(tok.encode("<|qd_answer|>").unwrap().len() > 1);
 }
+
+/// `qd-metal-bench --decision`'s prompts: every T is met from below, the context is as long as
+/// fits, both passes tokenize after the prefix, and the permuted pass differs. CPU only.
+#[test]
+#[ignore = "needs the model snapshot"]
+fn snapshot_decision_prompts_fill_each_t_from_below() {
+    let tok = QwenTokenizer::load(&snapshot().join("tokenizer.json")).unwrap();
+    for t in qd_metal::decision::DEFAULT_T {
+        let p = qd_metal::decision::build_prompt(&tok, t, 4).unwrap();
+        assert!(p.prefix.len() <= t, "T={t}: prefix {} tokens", p.prefix.len());
+        // One more source line must not fit, or the context is shorter than it needs to be.
+        assert!(p.prefix.len() + 64 > t, "T={t}: prefix {} tokens is far below the target", p.prefix.len());
+        assert_eq!(p.rows, 5);
+        assert_ne!(p.passes[0], p.passes[1]);
+        assert!(p.passes.iter().all(|s| !s.is_empty() && s.len() < 64), "{:?}", p.passes.iter().map(Vec::len).collect::<Vec<_>>());
+        println!("T={t}: prefix {} tokens ({} context lines), passes {}+{} tokens", p.prefix.len(), p.context_lines, p.passes[0].len(), p.passes[1].len());
+    }
+    assert!(qd_metal::decision::build_prompt(&tok, 16, 4).is_err(), "a T below the fixed text is refused");
+}

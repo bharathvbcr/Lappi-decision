@@ -19,6 +19,18 @@ path = "src/bin/parity.rs"
 name = "qd-metal-bench"
 path = "src/bin/bench.rs"
 
+# `qd serve` with the Metal backend (Fable's Mac ruling, item 5). Lives here because qd-runtime
+# cannot depend on qd-metal: tessl links Metal.
+[[bin]]
+name = "qd-metal-serve"
+path = "src/bin/serve.rs"
+
+# Runs qd-metal-parity and records its result as a schema row in ledger/mac-qd-metal-*.jsonl:
+# the parity binary's own --ledger row is not in the ledger schema (GAP-QDM-PARITY-LEDGER-ROW-NOT-SCHEMA-2026-10-02).
+[[bin]]
+name = "qd-metal-record-parity"
+path = "src/bin/record_parity.rs"
+
 # Two dependencies are new to this workspace, both approved:
 #
 # * `tessl` — the user's own Metal crate, canonical copy (CLAUDE.md rule 6). A path dependency,
@@ -32,8 +44,14 @@ path = "src/bin/bench.rs"
 # Everything else is already in the workspace. Safetensors are parsed by hand (8-byte header
 # length + serde_json), because the format is that small and a crate for it would be a new
 # dependency for capability std already has.
+#
+# Two workspace crates were added 2026-10-02 (L-metal), neither third-party: `qd-train` for the
+# ledger row and its chained append (one owner of the lock and the chain; `ledger.rs`), and
+# `clap` for `qd-metal-serve`'s flags, the same derive `qd serve` parses with.
 [dependencies]
+clap.workspace = true
 qd-runtime = { path = "../qd-runtime" }
+qd-train = { path = "../qd-train" }
 serde_json.workspace = true
 tessl = { path = "../../../tessl" }
 tokenizers = { version = "0.22", default-features = false, features = ["onig"] }

@@ -1,9 +1,18 @@
-//! Prefill throughput of qd-metal on the real 2B weights.
+//! Prefill throughput of qd-metal on the real 2B weights, and the latency of one decision.
 //!
 //! ```text
 //! cargo run --release -p qd-metal --bin qd-metal-bench                 # T = 1024, 2048, 8192
 //! cargo run --release -p qd-metal --bin qd-metal-bench -- 1024 4096    # chosen T
+//! cargo run --release -p qd-metal --bin qd-metal-bench -- --decision T=512,2048,8192 k=4 \
+//!     --ledger ledger/mac-qd-metal-<date>.jsonl                        # writes a quick row
 //! ```
+//!
+//! `--decision` is [`qd_metal::decision`]: prefill + 2 read-only passes + 3 state digests +
+//! readback, interleaved A/B over `--arms` (default `embed=host,embed=device`), min-of-7 and
+//! median, `tessl::infer_trace` counts, one `throughput` row. Exit 0 when the row says completed
+//! and every arm agreed bit for bit, 1 when it records a failed check, 2 when it could not run.
+//!
+//! The rest of this header is the prefill-only mode, which prints and writes no row.
 //!
 //! **This runs on the GPU.** What is timed is what `MetalBackend::prefill` + one answer does:
 //! host embedding gather, all layers with the prefix state kept (conv, GDN, KV), final norm and
@@ -107,7 +116,114 @@ fn run() -> Result<()> {
     Ok(())
 }
 
+/// `--decision`: returns whether the row records completed with every arm bit-identical.
+fn run_decision(argv: &[String]) -> Result<bool> {
+    use qd_metal::decision::{self, RowTarget};
+    use qd_metal::ledger::{Provenance, TreeState};
+
+    let started = Instant::now();
+    let args = decision::parse_args(argv)?;
+    let snapshot = qd_metal::config::resolve_snapshot(args.snapshot.as_deref())?;
+    let tok = QwenTokenizer::load(&snapshot.join("tokenizer.json"))?;
+    let answers = tok.answer_ids(args.k + 1)?;
+    // Everything that can be refused on the host is refused before the GPU opens.
+    let prompts = args
+        .ts
+        .iter()
+        .map(|&t| decision::build_prompt(&tok, t, args.k))
+        .collect::<Result<Vec<_>>>()?;
+    let provenance = Provenance::of(None)?;
+    println!("tessl: {}", provenance.tessl.describe());
+
+    let rt = tessl::GpuRuntime::new().map_err(MetalError::Gpu)?;
+    rt.set_async_encode(true).map_err(MetalError::Gpu)?;
+    tessl::infer_trace::set_enabled(true);
+    println!("device: {}", rt.device_name());
+    let t0 = Instant::now();
+    let mut model = Model::load(&rt, &snapshot)?;
+    let load_s = t0.elapsed().as_secs_f64();
+    println!("weights loaded in {load_s:.1} s; weight hash {}", model.weight_hash());
+
+    let mut results = Vec::with_capacity(prompts.len());
+    let mut tessl_after = provenance.tessl.clone();
+    for p in &prompts {
+        let before = TreeState::read(&provenance.tessl.dir)?;
+        let r = decision::run_t(&mut model, p, &answers, &args.arms, args.warmup, args.iters)?;
+        tessl_after = TreeState::read(&provenance.tessl.dir)?;
+        let moved = before != provenance.tessl || tessl_after != before;
+        println!(
+            "T={:>5} prefix {:>5} tok, passes {}+{} tok",
+            p.target,
+            p.prefix.len(),
+            p.passes[0].len(),
+            p.passes[1].len()
+        );
+        for a in &r.arms {
+            let total: Vec<f64> = a.samples.iter().map(|s| s.total_ms).collect();
+            let pick = |f: &dyn Fn(&decision::Sample) -> f64| {
+                decision::median(&a.samples.iter().map(f).collect::<Vec<_>>())
+            };
+            let first = a.samples.first();
+            println!(
+                "  {:<14} total min {:8.2} ms  median {:8.2} ms | median prefill {:8.2}  decode {:7.2}  digest {:7.2} | dispatches {:>6} commits {:>4} sync-wait {:>8} us",
+                a.arm.name(),
+                decision::min(&total),
+                decision::median(&total),
+                pick(&|s: &decision::Sample| s.prefill_ms),
+                pick(&|s: &decision::Sample| s.decode_ms[0] + s.decode_ms[1]),
+                pick(&|s: &decision::Sample| s.digest_ms.iter().sum()),
+                first.map_or(0, |s| s.counts.dispatches),
+                first.map_or(0, |s| s.counts.commits),
+                first.map_or(0, |s| s.counts.sync_wait_us),
+            );
+        }
+        let (same, n_same, n) = decision::bit_identical(&r);
+        println!("  arms bit-identical: {same} ({n_same}/{n} samples)");
+        results.push(r);
+        if moved {
+            println!("  tessl changed during this A/B: it is discarded; the row records status failed");
+            break;
+        }
+    }
+
+    let ctx = decision::RunContext {
+        device: rt.device_name(),
+        snapshot: snapshot.clone(),
+        vocab: model.config().vocab,
+        weight_hash: model.weight_hash().to_string(),
+        tokenizer_hash: tok.hash().to_string(),
+        load_s,
+        wall_clock_s: started.elapsed().as_secs_f64(),
+        provenance,
+        tessl_after,
+    };
+    let row = decision::build_row(&args, &results, &ctx)?;
+    let complete = results.len() == prompts.len();
+    let ok = complete
+        && row.status == qd_train::ledger::Status::Completed
+        && results.iter().all(|r| decision::bit_identical(r).0);
+    match &args.row {
+        RowTarget::Ledger(path) => {
+            let stamp = qd_metal::ledger::write_row(path, &row)?;
+            println!("ledger row {} appended to {}", stamp.row_id, path.display());
+        }
+        RowTarget::None => println!("--no-ledger: NO ROW WRITTEN; these numbers are not citable"),
+    }
+    Ok(ok)
+}
+
 fn main() -> ExitCode {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().map(String::as_str) == Some("--decision") {
+        return match run_decision(&argv[1..]) {
+            Ok(true) => ExitCode::SUCCESS,
+            Ok(false) => ExitCode::from(1),
+            Err(e) => {
+                eprintln!("qd-metal-bench --decision: NOT RUN: {e}");
+                ExitCode::from(2)
+            }
+        };
+    }
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
