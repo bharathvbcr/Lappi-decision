@@ -55,7 +55,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -116,7 +116,8 @@ from qd_train.artifacts import (
     assign_buckets,
     padding_waste,
 )
-from qd_train.exclusions import apply_exclusions, containment_corpus, read_exclusions
+from qd_train.contrast import ContrastRecord, apply_contrast
+from qd_train.exclusions import Exclusions, apply_exclusions, containment_corpus, read_exclusions
 from qd_train.ledger import (
     DEFAULT_LEDGER_PATH,
     Environment,
@@ -905,7 +906,11 @@ def composed_span_survival(
     table: dict[str, list[int]] = {}
     for tokens, files, kept, kept_any in entries:
         if by == "length":
-            lo = min(tokens // 1000, 8) * 1000
+            # Every bin is the 1k it names. v4 (real 0.9k-7.9k) never reached the old cap at
+            # 8k; v5's band (real to ~10k under --max-seq-len 10240) does, and the cap would
+            # have counted its 9-10k rows into a bin labelled 8-9k. A row over max_seq_len
+            # lands in its own bin, written under neither policy.
+            lo = tokens // 1000 * 1000
             key = f"{lo:05d}-{lo + 999:05d}"
         else:
             lo = files // 8 * 8
@@ -2279,6 +2284,44 @@ def native_minhash(rows: Iterable[DataRow], *, config: DataConfig) -> Iterator[N
     )
 
 
+@dataclass(frozen=True)
+class PostSplit:
+    """What :func:`exclusions_then_contrast` did to the split."""
+
+    report: SplitReport
+    exclusions: Exclusions | None
+    excluded_rows: tuple[DataRow, ...]
+    contrast: ContrastRecord | None
+    contrast_status: TriState | None
+
+
+def exclusions_then_contrast(
+    split_report: SplitReport,
+    *,
+    exclude_identity_keys: Path | None,
+    corpus: Mapping[str, object],
+    defect_noul: Path | None,
+    config: DataConfig,
+) -> PostSplit:
+    """The two steps between ``split`` and ``split_off_replay``, in their one order.
+
+    Fable's v5 rule first (``qd_train.exclusions.apply_exclusions``: the listed train rows
+    leave), then v5's contrast rows (``qd_train.contrast.apply_contrast``: derived from the
+    train twins that survived, and only when a list was applied). ``tools/real_ft_run.py``'s
+    ``ft_splits`` takes the same two calls with the same arguments, in the same order;
+    ``python/tests/test_contrast_rows.py`` fails if this function and that sequence derive
+    different rows from one split. Without either flag the split comes back untouched.
+    """
+    report, exclusions, excluded = apply_exclusions(
+        split_report, exclude_identity_keys, corpus=corpus
+    )
+    report, contrast, status = apply_contrast(
+        report, defect_noul=defect_noul, exclusions_applied=exclude_identity_keys is not None,
+        config=config,
+    )
+    return PostSplit(report, exclusions, excluded, contrast, status)
+
+
 def run(
     *,
     out: Path,
@@ -2476,12 +2519,14 @@ def run(
                 f", plus {load.n_noul} noul rows from {defect_noul} {load.noul_by_source}"
                 if defect_noul is not None else ""
             )
+            + (f" by v5 route {load.noul_by_route}" if load.noul_by_route else "")
             + f"; classes {load.by_class}; span-rebase refusals {load.span_refusals or 'none'})"
         )
         print(
             f"\n{DEFECT_FAMILY_ID}: {n_main} of {load.n_corpus} rows, "
             f"capped={load.capped}, noul rows {load.n_noul} {load.noul_by_source}, by class "
             f"{load.by_class}, span-rebase refusals {load.span_refusals or 'none'}"
+            + (f", v5 routes {load.noul_by_route}" if load.noul_by_route else "")
         )
     report_slice: ReportOnlySlice | None = None
     if report_only_slice is not None:
@@ -2570,11 +2615,17 @@ def run(
             print(f"  {split_name}: {json.dumps(defect_balance(list(split_rows)))}")
     print(f"  split status: {json.dumps(split_report.status.to_json(), sort_keys=True)[:400]}")
 
-    # Fable's v5 rule: once, after the split and before the replay draw. Without the flag
-    # this returns split_report itself.
-    split_report, exclusions, excluded_rows = apply_exclusions(
-        split_report, exclude_identity_keys, corpus=containment
+    # Fable's v5 rule, then v5's contrast rows: once each, after the split and before the
+    # replay draw. Without either flag this returns split_report itself.
+    post = exclusions_then_contrast(
+        split_report, exclude_identity_keys=exclude_identity_keys, corpus=containment,
+        defect_noul=defect_noul, config=config,
     )
+    split_report, exclusions, excluded_rows = post.report, post.exclusions, post.excluded_rows
+    contrast_header = None if post.contrast is None else post.contrast.header()
+    if post.contrast_status is not None:
+        extra_metrics["contrast_rows"] = post.contrast_status
+        print(f"  contrast rows: {json.dumps(post.contrast_status.to_json())[:600]}")
     exclusions_sha256 = "" if exclusions is None else exclusions.sha256
     if exclusions is not None:
         extra_metrics["decontam_exclusion"] = Ran(
@@ -2890,6 +2941,7 @@ def run(
         max_seq_len=max_seq_len,
         span_collapse_policy=span_collapse_policy,
         exclusions_sha256=exclusions_sha256,
+        contrast_rows=contrast_header,
     )
     print(f"  header: n_sequences={header.n_sequences} total_tokens={header.total_tokens} "
           f"max_seq_len={header.max_seq_len} vocab_size={header.vocab_size}")
@@ -2999,6 +3051,7 @@ def run(
         max_seq_len=max_seq_len,
         span_collapse_policy=span_collapse_policy,
         exclusions_sha256=exclusions_sha256,
+        contrast_rows=contrast_header,
     )
     checked = _artifact_digest(shard_dir)
     unchecked = _artifact_digest(undecoded_dir)
