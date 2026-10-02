@@ -13,17 +13,19 @@
 //! `json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False)`, written with
 //! `O_APPEND`, under an exclusive `flock` (the one `Ledger.append` takes), and fsynced.
 //!
-//! **What the scorer pairs on** (`tools/real_ft_run.py`): `_ft_row` needs `run_kind == "ft"`
-//! and `status == "completed"`; `_ft_row_mismatches` compares `recipe.tag == "epoch"`,
-//! `recipe.device`, `protocol.seed`, `recipe.shard_hash` and `recipe.backbone_snapshot`;
-//! `_seed_weights` reads `metrics["train.optimizer_steps"]["value"]` as an integer;
-//! `_scoring_step` reads `recipe.attn_implementation`, `recipe.lr`, `recipe.span_weight` and
-//! `recipe.optimizer_recipe`; `ScoredModel` reads `metrics["train.termination"]["value"]`.
-//! [`FtRecipe::to_json`] and [`ft_metrics`] carry every one of those. The `recipe_hash` is
-//! sha256 over `json.dumps(recipe, sort_keys=True, separators=(",", ":"))`, the bytes
+//! **What the scorer pairs a Metal export with** (`tools/real_ft_run.py` at main 1651fdf,
+//! `_metal_export_weights`): `_ft_row` needs `run_kind == "ft"` and `status == "completed"`;
+//! `_ft_row_mismatches` compares `recipe.tag == "epoch"`, `recipe.device == "metal"`,
+//! `protocol.seed`, `recipe.shard_hash` and `recipe.backbone_snapshot` (the snapshot
+//! directory's name); `_metal_row_problems` needs `recipe.trainer == "qd-train-metal"`,
+//! `recipe.{attn_implementation, lr, span_weight, optimizer_recipe}` (what `_scoring_step`
+//! builds the torch step from, so `attn_implementation` is a torch kernel name -- `sdpa`),
+//! `quick` a bool with a reason, `metrics["train.optimizer_steps"]["value"]` an int and
+//! `metrics["train.termination"]["value"]` a str. [`FtRecipe::to_json`] and [`ft_metrics`]
+//! carry every one of those. `trained_by` is not an ft-row key: the scorer writes it on the
+//! rows that score the export, from the manifest's sha256. The `recipe_hash` is sha256 over
+//! `json.dumps(recipe, sort_keys=True, separators=(",", ":"))`, the bytes
 //! `real_ft_run._protocol` hashes, so Python recomputes the stated hash from the stored recipe.
-//! (`GAP-LTRAINER-METAL-ARTIFACT-CONTRACT-PENDING-2026-10-01`: L-oracle's ft-row contract and
-//! L-scorer's Metal reader are not written yet; this is L-trainer's reading of the code.)
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -37,7 +39,7 @@ use sha2::{Digest, Sha256};
 
 use crate::pyjson::{dumps, float, obj, PyJsonError, CANONICAL, CANONICAL_ASCII};
 use crate::run_control::hex;
-use crate::trainer::{Termination, TrainResult};
+use crate::trainer::{EtaRule, TrainResult};
 use crate::tristate::{TriState, TriStateError};
 
 /// `ledger.REQUIRED_GATES`, filled `not_run` when a run did not evaluate them.
@@ -92,6 +94,9 @@ fn tristates(m: &BTreeMap<String, TriState>) -> Result<Value, LedgerError> {
 /// `optimizer_groups`), so its rows hash apart from every PyTorch row.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FtRecipe {
+    /// The trainer that wrote the row: [`crate::export::METAL_TRAINER`] for a Metal run, which
+    /// `real_ft_run._metal_row_problems` requires of the row a Metal export is scored against.
+    pub trainer: String,
     pub tag: String,
     pub device: String,
     pub lr: f64,
@@ -131,8 +136,22 @@ impl FtRecipe {
                 self.backbone_snapshot
             ));
         }
+        for (name, v) in [
+            ("trainer", &self.trainer),
+            ("tag", &self.tag),
+            ("device", &self.device),
+            ("attn_implementation", &self.attn_implementation),
+            ("optimizer_recipe", &self.optimizer_recipe),
+        ] {
+            if v.trim().is_empty() {
+                return refuse(format!(
+                    "recipe.{name} is empty: the scorer builds its step from it and pairs rows on it"
+                ));
+            }
+        }
         let mut pairs: Vec<(String, Value)> = vec![
             ("tool".into(), Value::from("crates/qd-train-metal")),
+            ("trainer".into(), Value::from(self.trainer.as_str())),
             ("tag".into(), Value::from(self.tag.as_str())),
             ("device".into(), Value::from(self.device.as_str())),
             ("lr".into(), float(self.lr)?),
@@ -389,15 +408,61 @@ impl FtRow {
     }
 }
 
-/// The training metrics `trainer._train_loop` records, from a [`TrainResult`], plus the two a
-/// Rust run adds: the consumed-batch digest and the provider that ran.
-pub fn ft_metrics(result: &TrainResult, cap_s: f64, provider: &str) -> Result<BTreeMap<String, TriState>, LedgerError> {
+/// What a run's metrics say beyond its [`TrainResult`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RunFacts<'a> {
+    /// The wall-clock cap the run was given.
+    pub cap_s: f64,
+    /// What computed the step (`train.path`).
+    pub provider: &'a str,
+    /// The span head's initial weights, when they were read from a file: `(file name, sha256 of
+    /// its bytes)`. Rung (d)'s arms compare this digest before anything else.
+    pub head_init: Option<(&'a str, &'a str)>,
+    /// The early-stop rule the run was given, if any.
+    pub eta: Option<EtaRule>,
+}
+
+/// The training metrics `trainer._train_loop` records, from a [`TrainResult`], plus what a
+/// Rust run adds: the consumed-batch digest, the provider that ran, the head-init digest and
+/// the ETA projection. A run that did not end by running out of work says so with
+/// `train.termination` `passed=false` (a capped run, and an `eta_rule` stop).
+pub fn ft_metrics(result: &TrainResult, facts: &RunFacts<'_>) -> Result<BTreeMap<String, TriState>, LedgerError> {
     let mut m = BTreeMap::new();
     let steps = result.optimizer_steps;
+    let cap_s = facts.cap_s;
     m.insert(
         "train.termination".to_string(),
-        TriState::ran(result.termination != Termination::WallClockCap, result.termination.as_str())
+        TriState::ran(result.termination.finished(), result.termination.as_str())
             .with_detail(format!("ft stopped after {steps} optimizer step(s)")),
+    );
+    m.insert(
+        "train.head_init_digest".to_string(),
+        match facts.head_init {
+            Some((file, sha)) => {
+                if !(sha.len() == 64 && sha.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))) {
+                    return refuse(format!("head-init digest {sha:?} is not a lowercase hex sha256"));
+                }
+                TriState::ran(true, sha).with_detail(format!("sha256 of {file}, the span head's initial weights"))
+            }
+            None => TriState::not_run("the span head was not initialised from a file, so there is no init digest to compare"),
+        },
+    );
+    m.insert(
+        "train.eta_projected_s".to_string(),
+        match (facts.eta, result.eta_projected_s) {
+            (Some(rule), Some(p)) => TriState::ran(!rule.stops(p, cap_s), float(p)?).with_detail(format!(
+                "projected at optimizer step {} from this process's elapsed time; the rule stops a run \
+                 projected past {:.1} s (the {cap_s:.1} s cap less {:.1} s)",
+                rule.at_step,
+                cap_s - rule.margin_s,
+                rule.margin_s
+            )),
+            (Some(rule), None) => TriState::not_run(format!(
+                "the ETA rule at step {} was not evaluated by this process (it ended first, or resumed past it)",
+                rule.at_step
+            )),
+            (None, _) => TriState::not_run("this run had no ETA rule"),
+        },
     );
     m.insert("train.optimizer_steps".to_string(), TriState::ran(true, steps));
     m.insert("train.micro_batches".to_string(), TriState::ran(true, result.micro_batches));
@@ -439,7 +504,7 @@ pub fn ft_metrics(result: &TrainResult, cap_s: f64, provider: &str) -> Result<BT
     );
     m.insert(
         "train.path".to_string(),
-        TriState::ran(true, provider)
+        TriState::ran(true, facts.provider)
             .with_detail("what this row ran on; compare rows only where this agrees or says why not"),
     );
     Ok(m)

@@ -24,7 +24,7 @@ use qd_train::run_control::{Clock, MonotonicClock, WallClockCap};
 use qd_train::schedule::LrSchedule;
 use qd_train::step::{AdamWHyper, BankMode, HiddenGrad, RowTargets, SequenceJob, StepError, StepProvider};
 use qd_train::trainer::{
-    parameters_digest, train, CheckpointPolicy, Hooks, Objective, ResumeState, Termination, TrainConfig,
+    parameters_digest, train, CheckpointPolicy, EtaRule, Hooks, Objective, ResumeState, Termination, TrainConfig,
     TrainError, TrainResult,
 };
 
@@ -89,6 +89,7 @@ fn config(total: u64) -> TrainConfig {
         epoch: 0,
         seed: 7,
         checkpoint: None,
+        eta: None,
     }
 }
 
@@ -504,6 +505,63 @@ fn the_cap_stops_the_loop_between_groups_only() {
     assert_eq!(r.termination, Termination::WallClockCap);
     assert!(r.optimizer_steps > 0 && r.optimizer_steps < 20, "{} steps", r.optimizer_steps);
     assert_eq!(r.micro_batches, 2 * r.optimizer_steps, "no group was cut in half");
+}
+
+/// A clock that moves only when the test moves it.
+struct Manual(Cell<f64>);
+
+impl Clock for Manual {
+    fn now_s(&self) -> f64 {
+        self.0.get()
+    }
+}
+
+/// Rung (d)'s rule on rung (d)'s numbers: 200 steps, cap 21,600 s, evaluated after step 10,
+/// stop when `elapsed / 10 * 200 > 21600 - 900`. Each optimizer step costs `per_step` seconds.
+fn eta_run(per_step: f64) -> (TrainResult, ToyProvider) {
+    let mut cfg = config(200);
+    cfg.cap = WallClockCap::new(21_600.0).unwrap();
+    cfg.eta = Some(EtaRule { at_step: 10, margin_s: 900.0 });
+    let (mut p, mut o) = fresh();
+    let clock = Manual(Cell::new(1_000.0));
+    let mut advance = |_: &qd_train::trainer::Progress| clock.0.set(clock.0.get() + per_step);
+    let mut hooks = Hooks {
+        on_progress: Some(&mut advance),
+    };
+    let r = train(&mut p, &mut o, batches(200, 3), &cfg, &clock, None, &mut hooks).unwrap();
+    (r, p)
+}
+
+#[test]
+fn the_eta_rule_stops_a_run_projected_past_the_cap_at_its_step_and_not_otherwise() {
+    // 10 steps at 103.625 s (exact in binary) project to 20,725 s > 20,700 s: stop after step 10.
+    let (r, p) = eta_run(103.625);
+    assert_eq!(r.termination, Termination::EtaRule);
+    assert_eq!(r.termination.as_str(), "eta_rule");
+    assert!(!r.termination.finished());
+    assert_eq!((r.optimizer_steps, p.step_count()), (10, 10), "it stops after the step it projects from");
+    assert_eq!(r.eta_projected_s, Some(20_725.0));
+    // Exactly at the line is not past it (`>`, not `>=`).
+    let (r, _) = eta_run(103.5);
+    assert_eq!(r.eta_projected_s, Some(20_700.0));
+    assert_eq!((r.termination, r.optimizer_steps), (Termination::StepsExhausted, 200));
+    // Comfortably inside: the run goes to its end, and the projection is recorded either way.
+    let (r, _) = eta_run(60.0);
+    assert_eq!((r.termination, r.optimizer_steps), (Termination::StepsExhausted, 200));
+    assert_eq!(r.eta_projected_s, Some(12_000.0));
+}
+
+#[test]
+fn an_eta_rule_that_could_not_mean_anything_is_refused_before_step_0() {
+    for (at_step, margin_s) in [(0, 900.0), (200, 900.0), (500, 900.0), (10, 21_600.0), (10, f64::NAN), (10, -1.0)] {
+        let mut cfg = config(200);
+        cfg.cap = WallClockCap::new(21_600.0).unwrap();
+        cfg.eta = Some(EtaRule { at_step, margin_s });
+        let (mut p, mut o) = fresh();
+        let err = run(&mut p, &mut o, batches(200, 3), &cfg).unwrap_err();
+        assert!(matches!(&err, TrainError::Refused(m) if m.contains("ETA rule")), "({at_step}, {margin_s}): {err}");
+        assert_eq!(p.step_count(), 0);
+    }
 }
 
 #[test]

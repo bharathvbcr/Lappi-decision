@@ -7,13 +7,15 @@ mod common;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use qd_train::ledger::{self, Environment, FtRecipe, FtRow, Protocol, Stamp, Status, WallClockSource};
-use qd_train::tristate::TriState;
+use qd_train::export::METAL_TRAINER;
+use qd_train::ledger::{self, Environment, FtRecipe, FtRow, Protocol, RunFacts, Stamp, Status, WallClockSource};
 use qd_train::run_control::{LossLog, LossPoint};
-use qd_train::trainer::{BatchCounts, Termination, TrainResult};
+use qd_train::trainer::{BatchCounts, EtaRule, Termination, TrainResult};
+use qd_train::tristate::TriState;
 
 fn recipe() -> FtRecipe {
     FtRecipe {
+        trainer: METAL_TRAINER.into(),
         tag: "epoch".into(),
         device: "metal".into(),
         lr: 1e-5,
@@ -25,7 +27,7 @@ fn recipe() -> FtRecipe {
         backbone_snapshot: "b1485b2fa6dfa1287294f269f5fb618e03d52d7c".into(),
         backbone_vocab: 248_320,
         backbone_params: 1_881_825_088,
-        attn_implementation: "tessl".into(),
+        attn_implementation: "sdpa".into(),
         optimizer_recipe: "master".into(),
         wall_clock_cap_s: Some(21_600.0),
         batch_tokens: Some(35_403),
@@ -41,7 +43,7 @@ fn recipe() -> FtRecipe {
     }
 }
 
-fn result(o: &serde_json::Value, termination: Termination) -> TrainResult {
+fn result(o: &serde_json::Value, termination: Termination, eta_projected_s: f64) -> TrainResult {
     let mut log = LossLog::new();
     for p in o["ledger"]["loss_points"].as_array().unwrap() {
         let p = p.as_array().unwrap();
@@ -71,8 +73,11 @@ fn result(o: &serde_json::Value, termination: Termination) -> TrainResult {
         next_index: 3,
         wall_clock_s: 1234.5,
         final_checkpoint: None,
+        eta_projected_s: Some(eta_projected_s),
     }
 }
+
+const HEAD_INIT: &str = "span_head_init-seed0.safetensors";
 
 fn row(o: &serde_json::Value, termination: Termination) -> FtRow {
     let r = recipe();
@@ -83,7 +88,15 @@ fn row(o: &serde_json::Value, termination: Termination) -> FtRow {
         0,
     )
     .unwrap();
-    let mut metrics = ledger::ft_metrics(&result(o, termination), 21_600.0, "ojas-qwen35 over tessl").unwrap();
+    let projected = if termination == Termination::EtaRule { 20_725.0 } else { 12_000.0 };
+    let head_digest = "01".repeat(32);
+    let facts = RunFacts {
+        cap_s: 21_600.0,
+        provider: "ojas-qwen35 over tessl",
+        head_init: Some((HEAD_INIT, &head_digest)),
+        eta: Some(EtaRule { at_step: 10, margin_s: 900.0 }),
+    };
+    let mut metrics = ledger::ft_metrics(&result(o, termination, projected), &facts).unwrap();
     metrics.insert(
         "deterministic_kernels".into(),
         TriState::not_run("one run; repeat-run equality was not measured"),
@@ -137,6 +150,64 @@ fn rows_are_pythons_lines_and_chain_as_python_chains_them() {
         })
         .unwrap();
     assert_eq!(second, lines[1]);
+    // The third was stopped by the ETA rule: termination 'eta_rule', not passed, the truncation
+    // reason appended, and the projection past the line recorded as not passing.
+    let prev = {
+        use sha2::Digest;
+        let d = sha2::Sha256::digest(lines[1].as_bytes());
+        d.iter().map(|b| format!("{b:02x}")).collect::<String>()
+    };
+    let third = row(&o, Termination::EtaRule)
+        .line(&Stamp {
+            row_id: "00000000-0000-4000-8000-000000000002".into(),
+            written_at: "2026-10-01T18:02:09.195699+00:00".into(),
+            prev_row_hash: Some(prev),
+        })
+        .unwrap();
+    assert_eq!(third, lines[2]);
+    let v: serde_json::Value = serde_json::from_str(&third).unwrap();
+    assert_eq!(v["metrics"]["train.termination"]["value"], "eta_rule");
+    assert_eq!(v["metrics"]["train.termination"]["passed"], false);
+    assert_eq!(v["metrics"]["train.eta_projected_s"]["passed"], false);
+    assert!(v["quick_reason"].as_str().unwrap().contains("'eta_rule', not 'steps_exhausted'"));
+}
+
+#[test]
+fn the_row_carries_what_the_scorer_requires_of_a_metal_ft_row() {
+    // `_metal_row_problems` and `_ft_row_mismatches` at main 1651fdf, key by key.
+    let o = common::trainer_oracle();
+    let line = row(&o, Termination::StepsExhausted)
+        .line(&Stamp {
+            row_id: "00000000-0000-4000-8000-000000000000".into(),
+            written_at: "2026-10-01T18:02:09.195699+00:00".into(),
+            prev_row_hash: None,
+        })
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!((v["run_kind"].as_str(), v["status"].as_str()), (Some("ft"), Some("completed")));
+    let r = &v["recipe"];
+    assert_eq!(r["trainer"], "qd-train-metal");
+    assert_eq!(r["tag"], "epoch");
+    assert_eq!(r["device"], "metal");
+    assert_eq!(r["attn_implementation"], "sdpa", "a torch kernel the scorer can build its step with");
+    assert_eq!(r["optimizer_recipe"], "master");
+    for k in ["lr", "span_weight", "shard_hash", "backbone_snapshot"] {
+        assert!(!r[k].is_null(), "recipe lacks {k}");
+    }
+    assert!(r.get("trained_by").is_none(), "trained_by is the scoring rows', never the ft row's");
+    assert_eq!(v["quick"], true);
+    assert!(!v["quick_reason"].as_str().unwrap().trim().is_empty());
+    assert!(v["protocol"]["seed"].is_u64());
+    assert!(v["metrics"]["train.optimizer_steps"]["value"].is_u64());
+    assert!(v["metrics"]["train.termination"]["value"].is_string());
+    assert_eq!(v["metrics"]["train.head_init_digest"]["value"], "01".repeat(32));
+    // An empty trainer, tag, device, kernel or optimizer recipe is refused, not written.
+    let mut bad = row(&o, Termination::StepsExhausted);
+    bad.recipe.trainer = String::new();
+    assert!(bad.recipe.to_json().is_err());
+    let mut bad = row(&o, Termination::StepsExhausted);
+    bad.recipe.attn_implementation = " ".into();
+    assert!(bad.recipe.to_json().is_err());
 }
 
 #[test]

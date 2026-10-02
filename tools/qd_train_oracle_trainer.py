@@ -31,6 +31,12 @@ throughout).
     # verify a ledger file the Rust writer produced, with Python's own reader
     PYTHONPATH=python /Users/bharath/.venvs/ml/bin/python tools/qd_train_oracle_trainer.py \\
         --verify-ledger /path/to/ledger/mac-ojas-x.jsonl
+
+    # verify a Metal export the Rust writer produced, with the scorer's own reader
+    # (real_ft_run._is_metal_export / _metal_export_seed / _read_metal_manifest and
+    # ckpt_average.read_average: everything before a tower loads)
+    PYTHONPATH=python /Users/bharath/.venvs/ml/bin/python tools/qd_train_oracle_trainer.py \\
+        --verify-export /path/to/epoch-seed0-metal.safetensors
 """
 
 from __future__ import annotations
@@ -72,9 +78,14 @@ def schedules() -> list[dict]:
         (1e-3, 10, 0, 0.0),
         (1e-3, 10, 3, 1e-4),
         (3e-4, 7, 1, 0.0),
+        # Rung (d) as fable-rung-d-resize.md writes it literally. min_lr 1e-6 is one ulp below
+        # real_ft_run's lr / 10 (1.0000000000000002e-06), which the (1e-5, 200) case below uses.
+        (1e-5, 200, 10, 1e-6),
     ]
-    # real_ft_run._control: warmup max(1, steps // 20), floor lr / 10
-    for lr, steps in [(1e-5, 2), (1e-5, 19), (1e-5, 20), (1e-5, 21), (1e-5, 100), (2e-5, 1505), (1e-5, 18197)]:
+    # real_ft_run._control: warmup max(1, steps // 20), floor lr / 10 (real_ft_run.py:1833-1834).
+    # (1e-5, 200) is rung (d)'s schedule: F's recipe at --max-steps 200, every step dumped.
+    for lr, steps in [(1e-5, 2), (1e-5, 19), (1e-5, 20), (1e-5, 21), (1e-5, 100), (1e-5, 200), (2e-5, 1505),
+                      (1e-5, 18197)]:
         configs.append((lr, steps, max(1, steps // 20), lr / 10))
     for peak, total, warmup, floor in configs:
         s = LRSchedule(peak_lr=peak, total_steps=total, warmup_steps=warmup, min_lr=floor)
@@ -223,11 +234,12 @@ def adamw_case() -> dict:
 def ledger_case() -> dict:
     """A row shaped as crates/qd-train's ledger.rs writes one, written by Python's own code."""
     recipe = {
-        "tool": "crates/qd-train-metal", "tag": "epoch", "device": "metal", "lr": 1e-05, "passes": 1,
+        "tool": "crates/qd-train-metal", "trainer": "qd-train-metal", "tag": "epoch", "device": "metal",
+        "lr": 1e-05, "passes": 1,
         "batches": 3, "width": 1625, "span_weight": 1.0, "deterministic": True,
         "shard_hash": "d773b87666e1b042279271ab0f891246b7268d4ce0cad2c3e677bb415c147e1a",
         "backbone_snapshot": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c", "backbone_vocab": 248320,
-        "backbone_params": 1881825088, "attn_implementation": "tessl", "optimizer_recipe": "master",
+        "backbone_params": 1881825088, "attn_implementation": "sdpa", "optimizer_recipe": "master",
         "provider": "ojas-qwen35 over tessl", "operands": "bf16", "optimizer_groups": "single",
         "wall_clock_cap_s": 21600.0, "batch_tokens": 35403, "no_memorise": True,
     }
@@ -257,6 +269,13 @@ def ledger_case() -> dict:
                    "approval required"),
         "train.path": Ran(passed=True, value="ojas-qwen35 over tessl",
                           detail="what this row ran on; compare rows only where this agrees or says why not"),
+        "train.head_init_digest": Ran(
+            passed=True, value="01" * 32,
+            detail="sha256 of span_head_init-seed0.safetensors, the span head's initial weights"),
+        "train.eta_projected_s": Ran(
+            passed=True, value=12000.0,
+            detail="projected at optimizer step 10 from this process's elapsed time; the rule stops a run "
+                   "projected past 20700.0 s (the 21600.0 s cap less 900.0 s)"),
         "deterministic_kernels": NotRun(reason="one run; repeat-run equality was not measured"),
     }
     env = Environment(
@@ -269,17 +288,24 @@ def ledger_case() -> dict:
     rows = []
     with tempfile.TemporaryDirectory() as tmp:
         ledger = Ledger(Path(tmp) / "mac-ojas-oracle.jsonl")
-        for k, (status, quick_reason, termination) in enumerate([
-            ("completed", "Metal/tessl trainer, 1 seed, oracle fixture", None),
-            ("completed", "Metal/tessl trainer, 1 seed, oracle fixture",
-             "train.termination is 'wall_clock_cap', not 'steps_exhausted': the schedule did not run to "
-             "its end, which rule 8 calls a truncated schedule"),
+        # Three rows: a run that finished; one cut by the cap; one stopped by the ETA rule, whose
+        # projection (20725.0 s) is past the line and so is recorded as not passing.
+        for k, (status, quick_reason, ended, projected) in enumerate([
+            ("completed", "Metal/tessl trainer, 1 seed, oracle fixture", None, 12000.0),
+            ("completed", "Metal/tessl trainer, 1 seed, oracle fixture", "wall_clock_cap", 12000.0),
+            ("completed", "Metal/tessl trainer, 1 seed, oracle fixture", "eta_rule", 20725.0),
         ]):
             m = dict(metrics)
-            if termination is not None:
-                m["train.termination"] = Ran(passed=False, value="wall_clock_cap",
+            if ended is not None:
+                m["train.termination"] = Ran(passed=False, value=ended,
                                              detail="ft stopped after 3 optimizer step(s)")
-                quick_reason = f"{quick_reason}; {termination}"
+                quick_reason = (
+                    f"{quick_reason}; train.termination is '{ended}', not 'steps_exhausted': the "
+                    "schedule did not run to its end, which rule 8 calls a truncated schedule"
+                )
+            m["train.eta_projected_s"] = Ran(
+                passed=projected <= 20700.0, value=projected,
+                detail=metrics["train.eta_projected_s"].detail)
             row = LedgerRow(
                 row_id=f"00000000-0000-4000-8000-00000000000{k}",
                 written_at="2026-10-01T18:02:09.195699+00:00",
@@ -338,13 +364,39 @@ def verify_ledger(path: Path) -> int:
     return 0
 
 
+def verify_export(path: Path) -> int:
+    """Run the scorer's own pre-load checks on a Rust-written Metal export: the route by name,
+    the seed in the name, the manifest's fields and types, and the weights' sha256, tensor
+    trees and count. The ft-row pairing needs a ledger row and a shard set, and is not run."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import real_ft_run as rft
+    from ckpt_average import read_average
+
+    if not rft._is_metal_export(path) or rft._is_average(path):
+        print(f"{path.name}: the scorer does not route this name as a Metal export")
+        return 1
+    seed = rft._metal_export_seed(path)
+    manifest = rft._read_metal_manifest(path)
+    weights = read_average(manifest)
+    n = sum(len(weights[t]) for t in ("tower", "span_head"))
+    print(f"{path.name}: seed {seed}; manifest ok (from={manifest.body['from']!r}, "
+          f"trainer={manifest.body['trainer']!r}, device={manifest.body['device']!r}, "
+          f"ft_row_id={manifest.body['ft_row_id']}, manifest sha256 {manifest.sha256}); "
+          f"weights ok ({n} tensors, vocab_size={weights['vocab_size']}, "
+          f"span_weight={weights['span_weight']})")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", type=Path)
     ap.add_argument("--verify-ledger", type=Path)
+    ap.add_argument("--verify-export", type=Path)
     args = ap.parse_args(argv)
     if args.verify_ledger is not None:
         return verify_ledger(args.verify_ledger)
+    if args.verify_export is not None:
+        return verify_export(args.verify_export)
     if args.out is None:
         ap.error("--out or --verify-ledger")
     body = {
