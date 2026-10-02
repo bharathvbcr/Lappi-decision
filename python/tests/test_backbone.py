@@ -79,12 +79,14 @@ TINY_VOCAB, TINY_HIDDEN, TINY_LAYERS = 64, 32, 4
 # --- the tiny snapshot fixture -------------------------------------------------------------
 
 
-def _tiny_text_config(vocab: int = TINY_VOCAB):
+def _tiny_text_config(vocab: int = TINY_VOCAB, hidden: int = TINY_HIDDEN):
+    # `hidden` defaults to the fixture's width, so every existing caller builds the tower it
+    # always did; the span-head init test asks for 64, the width of L-oracle's h64 fixture.
     from transformers.models.qwen3_5 import Qwen3_5TextConfig
 
     return Qwen3_5TextConfig(
         vocab_size=vocab,
-        hidden_size=TINY_HIDDEN,
+        hidden_size=hidden,
         intermediate_size=64,
         num_hidden_layers=TINY_LAYERS,
         num_attention_heads=2,
@@ -100,18 +102,18 @@ def _tiny_text_config(vocab: int = TINY_VOCAB):
     )
 
 
-def _tiny_spec(vocab: int = TINY_VOCAB) -> ModelSpec:
+def _tiny_spec(vocab: int = TINY_VOCAB, hidden: int = TINY_HIDDEN) -> ModelSpec:
     """A ``ModelSpec`` describing the tiny tower, so the footprint is about what was loaded.
 
     ``load_text_tower`` refuses a spec that describes a different model; that refusal is
     itself under test in [`test_a_memory_spec_for_another_model_is_refused`]. This is the
     matching one.
     """
-    cfg = _tiny_text_config(vocab)
+    cfg = _tiny_text_config(vocab, hidden)
     n_full = sum(1 for t in cfg.layer_types if t == "full_attention")
     return ModelSpec(
         name="tiny Qwen3.5 text tower (test fixture)",
-        hidden_size=TINY_HIDDEN,
+        hidden_size=hidden,
         intermediate_size=64,
         n_full_attention_layers=n_full,
         n_linear_attention_layers=TINY_LAYERS - n_full,
@@ -123,18 +125,20 @@ def _tiny_spec(vocab: int = TINY_VOCAB) -> ModelSpec:
         linear_head_dim=16,
         vocab_size=vocab,
         params_total=4_000_000,
-        params_embedding=vocab * TINY_HIDDEN,
+        params_embedding=vocab * hidden,
         tied_embedding=True,
         recurrent_state_bytes=4,
     )
 
 
-def _write_tiny_snapshot(dirpath: Path, *, seed: int = 0, vocab: int = TINY_VOCAB):
+def _write_tiny_snapshot(
+    dirpath: Path, *, seed: int = 0, vocab: int = TINY_VOCAB, hidden: int = TINY_HIDDEN
+):
     """Write a tiny tower in the real on-disk layout. Returns the reference model."""
     from safetensors.torch import save_file
     from transformers.models.qwen3_5 import Qwen3_5Config, Qwen3_5TextModel
 
-    text = _tiny_text_config(vocab)
+    text = _tiny_text_config(vocab, hidden)
     torch.manual_seed(seed)
     model = Qwen3_5TextModel(text)
     dirpath.mkdir(parents=True, exist_ok=True)
