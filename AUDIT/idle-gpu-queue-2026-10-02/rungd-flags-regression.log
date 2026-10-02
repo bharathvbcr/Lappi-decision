@@ -1,0 +1,194 @@
+........................................................................ [  4%]
+........................................................................ [  9%]
+....................................................................ssss [ 14%]
+sssssssssssssss......................................................... [ 19%]
+........................................................................ [ 24%]
+........................................................................ [ 29%]
+........................................................................ [ 34%]
+..............................s......................................... [ 39%]
+..................................................................s...ss [ 44%]
+...........s............................................................ [ 49%]
+..s..................................................................... [ 54%]
+........................................................................ [ 59%]
+.........................s..............s............................... [ 64%]
+....................................................................sss. [ 69%]
+........................................................................ [ 74%]
+........................................................................ [ 79%]
+........................................................................ [ 84%]
+........................................................................ [ 89%]
+......................................F................................. [ 94%]
+..........F.........................F....Fssss.......................... [ 99%]
+...                                                                      [100%]
+=================================== FAILURES ===================================
+_________ test_every_tool_that_hashes_a_recipe_is_found_by_this_check __________
+
+    def test_every_tool_that_hashes_a_recipe_is_found_by_this_check() -> None:
+        """Scope first, and asserted, because everything below is vacuous without it.
+    
+        Six tools produce a `recipe_hash`. A seventh that this stopped finding would read
+        exactly like a repository with six.
+        """
+        found = _recipe_hash_spellings()
+>       assert set(found) == set(_SPELLINGS), (
+            f"tools hashing a recipe: found {sorted(found)}, pinned {sorted(_SPELLINGS)}. A "
+            "tool that appeared needs a spelling entry; one that vanished needs this list "
+            "shortened deliberately"
+        )
+E       AssertionError: tools hashing a recipe: found ['calib_fit_row.py', 'ft_toy_run.py', 'gate_report_row.py', 'margin_probe_row.py', 'qd_train_oracle_trainer.py', 'real_ft_run.py', 'real_tokenizer_pipeline.py', 'remap_parity_real.py', 'rung0_linear_control.py', 'rung0_real_run.py', 'rung0_toy_run.py'], pinned ['calib_fit_row.py', 'ft_toy_run.py', 'gate_report_row.py', 'margin_probe_row.py', 'real_ft_run.py', 'real_tokenizer_pipeline.py', 'remap_parity_real.py', 'rung0_linear_control.py', 'rung0_real_run.py', 'rung0_toy_run.py']. A tool that appeared needs a spelling entry; one that vanished needs this list shortened deliberately
+E       assert {'calib_fit_r..._run.py', ...} == {'calib_fit_r...line.py', ...}
+E         
+E         Extra items in the left set:
+E         'qd_train_oracle_trainer.py'
+E         Use -v to get more diff
+
+python/tests/test_tool_call_sites.py:772: AssertionError
+________ test_every_gap_id_cited_in_a_tracked_file_exists_in_the_ledger ________
+
+    def test_every_gap_id_cited_in_a_tracked_file_exists_in_the_ledger() -> None:
+        """The defect this file was written for.
+    
+        A citation resolves if it names a record exactly. A citation that ENDS IN A HYPHEN may
+        instead resolve as a prefix of at least one record, because those are the two harmless
+        shapes a partial id takes in prose: an id wrapped across a line break in markdown or a
+        comment, and a deliberate family glob naming several records by their shared stem.
+    
+        The hyphen condition is the whole point of the split, and it was missing at first. A
+        peer session reviewing this file noticed that ``ID_RE`` carries the hyphen inside its
+        character class, so prefix tolerance without that condition also absorbs a *complete*
+        citation that is merely truncated or mistyped -- and a mistyped id that happens to be a
+        prefix of a real record is exactly the dangling citation this test exists to catch.
+        They had lost four false positives to the same greedy match using rg. A token with no
+        trailing hyphen is a whole citation and must resolve exactly.
+    
+        The nine AUDIT ids this test first caught were prefixes of nothing.
+        """
+        known = {r["id"] for _, r in _lines()}
+        dangling: dict[str, set[str]] = {}
+        seen_any = False
+        for path in _scanned_files():
+            # The ledger's own prose is excluded, and that exclusion is LOAD-BEARING -- see
+            # test_the_ledger_is_excluded_from_the_citation_scan_for_a_reason below before
+            # removing it. A record documenting a rename, a family of records, or someone
+            # else's typo has to be able to write down a string that is *not* an id, and
+            # "this is not an id" cannot be said without saying it. No checker can tell that
+            # from a dangling reference, because the distinction lives in the prose around it.
+            if path.name == LEDGER.name or not path.is_file():
+                continue
+            try:
+                blob = path.read_bytes()
+            except OSError:  # pragma: no cover - a tracked path that cannot be read
+                continue
+            for m in ID_RE.finditer(blob):
+                gid = m.group().decode()
+                seen_any = True
+                if citation_resolves(gid, known):
+                    continue
+                dangling.setdefault(gid, set()).add(str(path.relative_to(REPO)))
+    
+        # Borrowed from the sibling guard in test_wire_gap_pins.py: a scan that matched nothing
+        # passes for the wrong reason. Zero citations across the whole repo means the scan
+        # broke, not that every citation resolved.
+        assert seen_any, (
+            "no gap id was found in any scanned file, so this test asserted nothing. Either "
+            "every citation was removed or the scan stopped working."
+        )
+    
+        if dangling:
+            detail = "\n  ".join(
+                f"{gid} cited in {', '.join(sorted(where))}" for gid, where in sorted(dangling.items())
+            )
+>           pytest.fail(
+                f"{len(dangling)} gap id(s) are cited in scanned files but are not in "
+                "gaps.jsonl. A document claiming a record was written, when it never was, "
+                "hides the finding from anyone reading the ledger:\n  " + detail
+            )
+E           Failed: 1 gap id(s) are cited in scanned files but are not in gaps.jsonl. A document claiming a record was written, when it never was, hides the finding from anyone reading the ledger:
+E             GAP-RUNGD-DESIGN-EPOCH-ARM-IS-PLAN-ALL-2026-10-02 cited in HANDOFF/rungd-flags-2026-10-02.md
+
+python/tests/test_gaps_ledger.py:304: Failed
+______________ test_the_real_ledger_is_not_touched_by_any_of_this ______________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-464/test_the_real_ledger_is_not_to0')
+
+    def test_the_real_ledger_is_not_touched_by_any_of_this(tmp_path: Path) -> None:
+        """Every test above passes an explicit path. This asserts the default is the repo's
+        own file and that nothing here wrote to it -- a test suite that appends to `gaps.jsonl`
+        on every run would be a novel way to corrupt the thing being protected.
+        """
+        from qd_train.gaps import DEFAULT_GAPS_PATH
+    
+        assert DEFAULT_GAPS_PATH.name == "gaps.jsonl"
+>       assert DEFAULT_GAPS_PATH.parent.name in ("qwen-decision", "Lappi-decision")
+E       AssertionError: assert 'agent-af2fee24b0ffeacd5' in ('qwen-decision', 'Lappi-decision')
+E        +  where 'agent-af2fee24b0ffeacd5' = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5').name
+E        +    where PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5') = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/gaps.jsonl').parent
+
+python/tests/test_gaps_writer.py:212: AssertionError
+__________________ test_ruff_is_installed_not_merely_declared __________________
+
+    def test_ruff_is_installed_not_merely_declared():
+        """`ruff>=0.6` is declared in the dev extra. Declared is not installed.
+    
+        This test fails against the tree as it stood before this lane: the dependency was
+        in pyproject.toml and `.venv/bin/python -m ruff` answered "No module named ruff".
+        A linter nobody can run is a lint gate that has never once executed.
+        """
+>       assert VENV_RUFF.exists(), (
+            f"{VENV_RUFF} is missing. 'ruff>=0.6' is declared in pyproject's dev extra and "
+            f"uv.lock resolves it to {LOCKED_RUFF}, but it was never installed. "
+            f"Install the gate: uv pip install --python {REPO}/.venv/bin/python "
+            f"'ruff=={LOCKED_RUFF}'"
+        )
+E       AssertionError: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/.venv/bin/ruff is missing. 'ruff>=0.6' is declared in pyproject's dev extra and uv.lock resolves it to 0.16.8, but it was never installed. Install the gate: uv pip install --python /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/.venv/bin/python 'ruff==0.16.8'
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/.venv/bin/ruff').exists
+
+python/tests/test_lint_gate.py:78: AssertionError
+=============================== warnings summary ===============================
+python/tests/test_backbone.py::test_the_real_checkpoints_text_keys_are_a_bijection_with_the_text_model_class
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+python/tests/test_backbone.py::test_the_real_checkpoints_text_keys_are_a_bijection_with_the_text_model_class
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED python/tests/test_tool_call_sites.py::test_every_tool_that_hashes_a_recipe_is_found_by_this_check
+FAILED python/tests/test_gaps_ledger.py::test_every_gap_id_cited_in_a_tracked_file_exists_in_the_ledger
+FAILED python/tests/test_gaps_writer.py::test_the_real_ledger_is_not_touched_by_any_of_this
+FAILED python/tests/test_lint_gate.py::test_ruff_is_installed_not_merely_declared
+SKIPPED [1] python/tests/test_defect_noul.py:824: data/pool/defect-noul-v1 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:824: data/pool/defect-noul-v2 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:824: data/pool/defect-noul-v3 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:824: data/pool/defect-noul-v3b is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:857: data/pool/defect-noul-v1 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:857: data/pool/defect-noul-v2 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:857: data/pool/defect-noul-v3 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:857: data/pool/defect-noul-v3b is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:895: data/pool/defect-noul-v2 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:895: data/pool/defect-noul-v3 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:895: data/pool/defect-noul-v3b is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:965: data/pool/defect-noul-v2 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:965: data/pool/defect-noul-v3 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:965: data/pool/defect-noul-v3b is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:1001: data/pool/defect-noul-v2 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:1001: data/pool/defect-noul-v3 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:1001: data/pool/defect-noul-v3b is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:1028: defect-noul-v1's rows, allowlist or the general record is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:1053: the noul corpus, the defect corpus or the download is not on this host
+SKIPPED [1] python/tests/test_pipeline_commitpackft_pool.py:193: the commitpackft download is not on this host; only its manifest is
+SKIPPED [1] python/tests/test_qd_prep_lsh_parity.py:347: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/data/pool/commitpackft-corpus-v2/examples.jsonl is not on disk
+SKIPPED [1] python/tests/test_qd_prep_minhash_parity.py:124: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/data/pool/commitpackft-corpus-v2/examples.jsonl is not on disk
+SKIPPED [1] python/tests/test_qd_prep_minhash_parity.py:140: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/data/pool/commitpackft-corpus-v2/examples.jsonl is not on disk
+SKIPPED [1] python/tests/test_qd_prep_minhash_parity.py:463: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/data/pool/commitpackft-corpus-v2/examples.jsonl is not on disk
+SKIPPED [1] python/tests/test_real_ft_composed_slice.py:361: QD_SLICE_* do not name the real slice
+SKIPPED [1] python/tests/test_real_ft_pieces.py:454: the qd-mutate corpus or the commitpackft download is not on this host
+SKIPPED [1] python/tests/test_real_ft_prep_benchmark.py:256: QD_PREP_BENCH_BEFORE (a pre-change checkout) and QD_PREP_BIN gate this ~30-minute benchmark
+SKIPPED [1] python/tests/test_real_ft_rungd_flags.py:630: opt-in: set QD_SPAN_HEAD_INIT_H2048 to L-oracle's span_head_init-seed0.safetensors (main checkout, data/checkpoints/span-head-init/, ignored). Builds a hidden-2048 stand-in tower on CPU
+SKIPPED [2] python/tests/test_real_ft_rungd_flags.py:708: opt-in: set QD_BYTE_IDENTITY_BASE to the git ref the new flags were added on top of (e21066c). A differential against a fixed base fails by design once the tool legitimately changes, so it is run for the change, not on every suite
+SKIPPED [1] python/tests/test_lint_gate.py:88: ruff is not installed in .venv; test_ruff_is_installed_not_merely_declared is the test that reports that, and it does not skip
+SKIPPED [1] python/tests/test_lint_gate.py:107: ruff is not installed in .venv; test_ruff_is_installed_not_merely_declared is the test that reports that, and it does not skip
+SKIPPED [1] python/tests/test_lint_gate.py:129: ruff is not installed in .venv; test_ruff_is_installed_not_merely_declared is the test that reports that, and it does not skip
+SKIPPED [1] python/tests/test_lint_gate.py:150: ruff is not installed in .venv; test_ruff_is_installed_not_merely_declared is the test that reports that, and it does not skip
+<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
