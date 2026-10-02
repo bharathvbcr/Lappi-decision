@@ -123,7 +123,20 @@ advice; gap table Q1, parity ladder Q3, lanes Q5). Gap records: `GAP-OJAS-ADVICE
   - Runtime, K0, K1 (FFMA ExactF32 and cuBLAS GemmEx bf16→f32) and the rung-0 binary.
   - 67 host tests pass on the Mac; the whole crate's host suite on the merged tree passes 62 + 33.
   - **The 11 device tests are not run.**
-  - **Calibration:** the host side of M0, K0 and K1 is done. The rest of M1 (K8, K11 device, the tiny-fixture loader) is not started.
+  - **Calibration:** the host side of M0, K0 and K1 is done.
+- **L-cuda-small: merged** at `998fe09`. Its handoff is `HANDOFF/ojas-l-cuda-small-2026-10-01.md`.
+  - K3 (published gates), K4, K6, K7, K9 and K10, forward and backward. Each host mirror stays within tessl's bounds of L-cuda-oracle's float64 references: 113 checks, 0 failures.
+  - Fail-firsts: K7 with `w` in place of `1+w`, and K10 without the chunk-boundary rescale.
+  - **The 15 device tests have not run.** NVRTC has compiled none of this CUDA source yet.
+- **L-cuda-M1: merged** at `113e555`. Its handoff is `HANDOFF/ojas-l-cuda-m1-2026-10-01.md`.
+  - K8 (SwiGLU and the residual add) and K11 (AdamW with per-entry lr_scale, decay and step count, plus the squared norm on small_common's block sum).
+  - The tiny-fixture loader, built on ojas-io's JSON and safetensors readers.
+  - **runga**: one pass/fail binary that runs M0, K8, K11, the loader, small's six kernels and GDN K2(i). The GDN timing is a report-only section.
+    - The aarch64 build is `bb3276e7a42ae3d0e20171ed78e0df537f2581d8f144d22b8b6c054a0814c805`. **It is not deployed.**
+  - Host tests: 234 pass without features and 239 with `cuda`. **Every device test and every runga check is NOT RUN.**
+  - K11 against L-oracle's decay-sensitive golden: within 1.49e-8 of torch's fp32 masters. All 7 pre-registered mutations exceed the 1e-6 bound by at least 35x.
+  - The rung0 source snapshot (sha256 `d536b031…`) is kept outside git, at `/Users/bharath/qd-campaign/records/`, under the user's pinned-fixtures rule.
+  - **One lead decision is open:** NaN handling differs between K8, which canonicalises NaN bits, and small's kernels, which do not (`GAP-L-CUDA-M1-K8-NAN-CANONICAL-2026-10-01`, `GAP-L-CUDA-SMALL-NAN-BITS-NOT-CANONICAL-2026-10-01`). Until it is settled, the bitwise claims hold for finite inputs only.
 - **L-tessl** is the user's pending chip, now "Add per-entry lr_scale, mrope refusal and host reads to tessl". It supersedes the earlier chip and includes the host-reads patch. It needs a session rooted in tessl, because this harness blocks git in other repos. **It is the one blocker for rung (b)'s two-group arm and for rung (d).**
 
 **Rung 0 is deployed on the GH200, waiting** (2026-10-02 ~00:50 UTC). It is the user's "no insert; probe after".
