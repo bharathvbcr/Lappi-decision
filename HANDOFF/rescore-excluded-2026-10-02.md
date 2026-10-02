@@ -80,7 +80,11 @@ No failing gate passes either way.
 | --- | --- |
 | `2561065` | The fail-first tests. `crates/qd-runtime/tests/gate_report_exclude.rs` has 12 tests over a deterministic SplitMix64 fixture. Its no-flag goldens, `crates/qd-runtime/tests/fixtures/gate_report_exclude/no_flag.{report.json,stdout.txt}`, were written by `qd-gate-report` at `74aea95` (debug, sha256 `ca6dc0aa3a1bcd0cb1603579f56149014d05f9ed7302e99f4fd74faec9686b10`). `python/tests/test_gate_report_row.py` gains 5 tests. The pre-change logs are in `AUDIT/rescore-excluded-2026-10-02/`. |
 | `396e8fe` | `qd-gate-report --exclude-rows FILE [--allow-empty-exclude-rows] [--allow-absent-exclude-rows]`, and `tools/gate_report_row.py --exclude-rows`, which writes the `gate-report-excluded` row. |
-| this commit | The gap records, this runbook and the post-change test logs. |
+| `ff9c3b8` | This handoff and runbook, five gap records, and the post-change test logs (`AUDIT/rescore-excluded-2026-10-02/{clippy-post,python-post,qd-runtime-tests-post}.log`). |
+| `0264732` | Runbook step 4 checks the suite file's gates, because `qd-gate-report` refuses an unknown suite gate. This is the `code_commit` of row `e663248b`, and `build-wt` / `run-wt` stay at it for seeds 1 and 2. |
+| `0e00e9b` | F seed 0's row `e663248b` in `ledger/mac-rescore-excluded-2026-10-02.jsonl`, plus this file's measured section. |
+| `d68a5c3` | Runbook step 6 becomes one `jq` that writes no file. The harness refuses a redirect outside the project root, which the seed-0 run hit. |
+| this commit | Two gap updates: `GAP-RESCORE-EXCLUDED-NOT-YET-RUN-2026-10-02` (seed 0 done) and `GAP-RESCORE-ONLY-VIEW-ECE-NEEDS-100-ROWS-2026-10-02` (resolved with residual, 183/32). Also this table, and step 6 no longer names a file it does not write. |
 
 ### The flag's semantics
 
@@ -159,9 +163,11 @@ and `test_gate_report_row.py`. It missed `test_gate_report_parity.py` and the co
 
 ## What is open
 
-- `GAP-RESCORE-EXCLUDED-NOT-YET-RUN-2026-10-02`: the real run, below.
-- `GAP-RESCORE-ONLY-VIEW-ECE-NEEDS-100-ROWS-2026-10-02`: ECE on E_val alone is `not_run` below
-  100 rows of a shape. That is expected output, not a clean result.
+- `GAP-RESCORE-EXCLUDED-NOT-YET-RUN-2026-10-02`: seed 0 is done (row `e663248b`). Seeds 1 and 2
+  wait for their verdict files on the box, then run the runbook below.
+- `GAP-RESCORE-ONLY-VIEW-ECE-NEEDS-100-ROWS-2026-10-02`: resolved with residual. On seed 0,
+  MMLU's `only` view has 183 rows and its ECE ran (0.0979). CSQA's has 32 rows and its ECE is
+  `not_run`: not measured, which is not the same as calibrated.
 - `GAP-RESCORE-ABSENT-KEYS-UNDECIDABLE-FROM-VERDICTS-2026-10-02`: resolved with residual; the
   residual is step 6's pre-check.
 - `GAP-RESCORE-NAVIGATION-2026-10-02`: what DevMap, GitPulse and ListAgents could not answer.
@@ -282,9 +288,9 @@ names `69d45fd0…` as F's val). To get the sha256 of the absent keys, which mat
   - the eval row's undecoded count (`decoded.n_total - decoded.n` from step 4) is not 0;
   - the absent count is at most that undecoded count.
 
-  Then add `--allow-absent-exclude-rows`. Record the count and
-  `shasum -a 256 …/absent-s0.txt` in the lead's handoff. That sha256 equals the report's
-  `absent.sha256`, because both are the sorted keys, LF-terminated.
+  Then add `--allow-absent-exclude-rows`. Record the count, and the sha256 printed by the pipe
+  above, in the lead's handoff. That sha256 equals the report's `absent.sha256`: both hash the
+  keys sorted byte-wise, each LF-terminated (`crates/qd-runtime/src/bin/qd_gate_report.rs:1721-1722`).
 - **Anything else: STOP.** On seed 0, `decoded` is 18223/18223, so no val slot went undecoded,
   and any absent key is a key this val set does not decode: a typo, a held-out row or another
   build's row. Record a gap with the printed keys and return E_val to L-replay. Never edit E_val
@@ -332,8 +338,9 @@ eval row before it reports.
 - pooled permutation 10240/10985.
 
 ECE on `only` is `not_run` below 100 rows of a shape
-(`GAP-RESCORE-ONLY-VIEW-ECE-NEEDS-100-ROWS-2026-10-02`). Report that as not measured, not as
-calibrated. Under rule 8 a `quick` row decides nothing.
+(`GAP-RESCORE-ONLY-VIEW-ECE-NEEDS-100-ROWS-2026-10-02`). On seed 0, MMLU (183) ran and CSQA (32)
+did not. Report a `not_run` as not measured, not as calibrated. Under rule 8 a `quick` row
+decides nothing.
 
 ### 9. Land the ledger, then clean up
 
