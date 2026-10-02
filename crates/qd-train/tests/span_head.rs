@@ -36,6 +36,8 @@
 //! (`crates/qd-train/src/shards.rs`, Fable's Q5) and it was not merged when this was written;
 //! when it lands, this one is the duplicate to delete.
 
+mod common;
+
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -263,8 +265,13 @@ fn sha256_f64(values: &[f64]) -> String {
 // One case, loaded.
 // ---------------------------------------------------------------------------------------------
 
+/// `tests/fixtures/span-head`, once every file under it matches its `SHA256SUMS` (checked once
+/// per test binary, before any case is read).
 fn fixture_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/span-head")
+    common::pins::verified(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/span-head"),
+        common::pins::Form::Sha256Sums,
+    )
 }
 
 struct Case {
@@ -847,7 +854,11 @@ fn the_fixture_set_is_exactly_the_cases_tested() {
         .collect();
     let listed: BTreeSet<String> = CASES.iter().map(|s| (*s).to_owned()).collect();
     let tested: BTreeSet<String> = TESTED.iter().map(|s| (*s).to_owned()).collect();
-    assert_eq!(on_disk, listed, "fixture directories vs CASES");
+    // The cases, and beside them the set's pin and nothing else (the human's 2026-10-02 decision:
+    // a tracked binary fixture is sha256-pinned; `crates/qd-runtime/tests/tracked_source_is_text.rs`).
+    let mut expected = listed.clone();
+    expected.insert(common::pins::SHA256SUMS.to_owned());
+    assert_eq!(on_disk, expected, "fixture root entries vs CASES and SHA256SUMS");
     assert_eq!(tested, listed, "parity tests vs CASES");
     // H = 2048 is the real width; a fixture set without it says nothing about it.
     assert!(
