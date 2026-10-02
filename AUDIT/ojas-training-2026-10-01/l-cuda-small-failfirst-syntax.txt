@@ -1,0 +1,31 @@
+   Compiling ojas-qwen35-cuda v0.1.0 (/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/dev/ojas-qwen35-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.85s
+     Running unittests src/lib.rs (/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/dev/ojas-qwen35-cuda/target/debug/deps/ojas_qwen35_cuda-91c6fb8f37a640f9)
+
+running 1 test
+test small_common::tests::syntax_only_every_small_module_parses_as_host_cxx_says_nothing_about_numerics ... FAILED
+
+failures:
+
+---- small_common::tests::syntax_only_every_small_module_parses_as_host_cxx_says_nothing_about_numerics stdout ----
+
+thread 'small_common::tests::syntax_only_every_small_module_parses_as_host_cxx_says_nothing_about_numerics' (147864921) panicked at src/small_common.rs:891:13:
+small_col_sum does not parse as host C++:
+/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-small-cxx-2900/small_col_sum.cu.cpp:101:21: error: use of undeclared identifier 'prt'; did you mean 'part'?
+  101 |             s = s + prt[part_off + b * dim + c];
+      |                     ^~~
+      |                     part
+/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-small-cxx-2900/small_col_sum.cu.cpp:95:18: note: 'part' declared here
+   95 |     const float* part, unsigned long long part_off, float* out,
+      |                  ^
+1 error generated.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    small_common::tests::syntax_only_every_small_module_parses_as_host_cxx_says_nothing_about_numerics
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 154 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `--lib`

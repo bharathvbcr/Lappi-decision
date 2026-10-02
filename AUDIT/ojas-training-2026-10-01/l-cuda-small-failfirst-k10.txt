@@ -1,0 +1,151 @@
+   Compiling ojas-qwen35-cuda v0.1.0 (/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/dev/ojas-qwen35-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.69s
+     Running unittests src/lib.rs (/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/dev/ojas-qwen35-cuda/target/debug/deps/ojas_qwen35_cuda-e3688a9051f9f03d)
+
+running 6 tests
+test gates_published::tests::the_mirror_writes_only_the_gate_columns_of_dp ... ok
+test ce_rows::tests::chunks_cover_the_vocabulary_once_with_at_most_two_widths ... ok
+test ce_rows::tests::the_plan_refuses_empty_selections_bad_rows_targets_and_scales ... ok
+test ce_rows::tests::non_finite_losses_are_refused_by_row ... ok
+test ce_rows::tests::the_cuda_source_rescales_the_carried_sum_and_uses_the_crates_exp_and_log ... FAILED
+test ce_rows::tests::the_online_lse_equals_one_pass_whatever_the_chunk ... FAILED
+
+failures:
+
+---- ce_rows::tests::the_cuda_source_rescales_the_carried_sum_and_uses_the_crates_exp_and_log stdout ----
+
+thread 'ce_rows::tests::the_cuda_source_rescales_the_carried_sum_and_uses_the_crates_exp_and_log' (147195566) panicked at src/ce_rows.rs:496:9:
+assertion failed: SOURCE.contains("const float carried = first ? 0.0f : s[n] * qd_exp_nonpos(m_old - m_new);")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- ce_rows::tests::the_online_lse_equals_one_pass_whatever_the_chunk stdout ----
+
+thread 'ce_rows::tests::the_online_lse_equals_one_pass_whatever_the_chunk' (147195567) panicked at src/ce_rows.rs:481:17:
+chunk 7: 4.831918377792153 vs 0.0000005960462701182223
+
+
+failures:
+    ce_rows::tests::the_cuda_source_rescales_the_carried_sum_and_uses_the_crates_exp_and_log
+    ce_rows::tests::the_online_lse_equals_one_pass_whatever_the_chunk
+
+test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 122 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--lib`
+     Running tests/device_k10_ce_rows.rs (/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/dev/ojas-qwen35-cuda/target/debug/deps/device_k10_ce_rows-4d02b9a64db7e0de)
+
+running 1 test
+test the_mirror_matches_the_one_pass_reference_whatever_the_chunk_and_operands ... FAILED
+
+failures:
+
+---- the_mirror_matches_the_one_pass_reference_whatever_the_chunk_and_operands stdout ----
+fail mirror ce_rows_c0 chunk 7 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.160e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c0 chunk 7 exact_f32 dh: max |err| 4.121e-4 at 44 = 6.636e-3 of max|ref| 6.2094e-2; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c0 chunk 7 exact_f32 dW: max |err| 2.317e-4 at 1833 = 9.521e-4 of max|ref| 2.4336e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c0 chunk 7 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.166e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c0 chunk 7 bf16 dh: max |err| 4.190e-4 at 44 = 6.756e-3 of max|ref| 6.2013e-2; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 7 bf16 dW: max |err| 2.844e-4 at 2032 = 1.168e-3 of max|ref| 2.4348e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c0 chunk 64 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 8.264e2 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c0 chunk 64 exact_f32 dh: max |err| 2.968e-4 at 44 = 4.780e-3 of max|ref| 6.2094e-2; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c0 chunk 64 exact_f32 dW: max |err| 8.714e-5 at 1833 = 3.581e-4 of max|ref| 2.4336e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c0 chunk 64 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 8.327e2 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c0 chunk 64 bf16 dh: max |err| 3.056e-4 at 44 = 4.928e-3 of max|ref| 6.2013e-2; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 64 bf16 dW: max |err| 2.651e-4 at 2032 = 1.089e-3 of max|ref| 2.4348e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 300 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 7.439e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c0 chunk 300 exact_f32 dh: max |err| 3.801e-8 at 2 = 6.122e-7 of max|ref| 6.2094e-2; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 300 exact_f32 dW: max |err| 2.089e-8 at 11 = 8.585e-8 of max|ref| 2.4336e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 300 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.158e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c0 chunk 300 bf16 dh: max |err| 8.347e-5 at 22 = 1.346e-3 of max|ref| 6.2013e-2; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c0 chunk 300 bf16 dW: max |err| 2.439e-4 at 2044 = 1.002e-3 of max|ref| 2.4348e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c1 chunk 7 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 3.335e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c1 chunk 7 exact_f32 dh: max |err| 7.616e-3 at 11 = 4.315e-2 of max|ref| 1.7650e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c1 chunk 7 exact_f32 dW: max |err| 3.399e-3 at 3335 = 4.981e-3 of max|ref| 6.8243e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c1 chunk 7 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 3.336e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c1 chunk 7 bf16 dh: max |err| 7.740e-3 at 11 = 4.381e-2 of max|ref| 1.7667e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 7 bf16 dW: max |err| 3.395e-3 at 3335 = 4.982e-3 of max|ref| 6.8140e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c1 chunk 64 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 2.086e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c1 chunk 64 exact_f32 dh: max |err| 4.969e-3 at 59 = 2.815e-2 of max|ref| 1.7650e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c1 chunk 64 exact_f32 dW: max |err| 2.271e-3 at 3335 = 3.328e-3 of max|ref| 6.8243e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c1 chunk 64 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 2.087e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c1 chunk 64 bf16 dh: max |err| 5.109e-3 at 11 = 2.892e-2 of max|ref| 1.7667e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 64 bf16 dW: max |err| 2.471e-3 at 2055 = 3.626e-3 of max|ref| 6.8140e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 300 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 3.784e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c1 chunk 300 exact_f32 dh: max |err| 1.233e-7 at 14 = 6.988e-7 of max|ref| 1.7650e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 300 exact_f32 dW: max |err| 1.110e-7 at 8 = 1.627e-7 of max|ref| 6.8243e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 300 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 8.355e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c1 chunk 300 bf16 dh: max |err| 3.235e-4 at 40 = 1.831e-3 of max|ref| 1.7667e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c1 chunk 300 bf16 dW: max |err| 1.363e-3 at 2055 = 2.001e-3 of max|ref| 6.8140e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 7 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.303e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c2 chunk 7 exact_f32 dh: max |err| 1.379e1 at 41 = 9.907e-1 of max|ref| 1.3918e1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 7 exact_f32 dW: max |err| 2.298e-1 at 4793 = 5.070e-1 of max|ref| 4.5329e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 7 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.305e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c2 chunk 7 bf16 dh: max |err| 1.377e1 at 41 = 9.907e-1 of max|ref| 1.3900e1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 7 bf16 dW: max |err| 2.297e-1 at 4793 = 5.069e-1 of max|ref| 4.5312e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 64 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.265e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c2 chunk 64 exact_f32 dh: max |err| 1.377e1 at 41 = 9.895e-1 of max|ref| 1.3918e1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 64 exact_f32 dW: max |err| 2.295e-1 at 4793 = 5.064e-1 of max|ref| 4.5329e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 64 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.266e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c2 chunk 64 bf16 dh: max |err| 1.375e1 at 41 = 9.896e-1 of max|ref| 1.3900e1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 64 bf16 dW: max |err| 2.294e-1 at 4793 = 5.063e-1 of max|ref| 4.5312e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 300 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 3.482e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c2 chunk 300 exact_f32 dh: max |err| 4.726e-7 at 62 = 3.396e-8 of max|ref| 1.3918e1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 300 exact_f32 dW: max |err| 2.152e-8 at 4791 = 4.746e-8 of max|ref| 4.5329e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 300 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 2.035e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+pass mirror ce_rows_c2 chunk 300 bf16 dh: max |err| 9.555e-5 at 8 = 6.874e-6 of max|ref| 1.3900e1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+pass mirror ce_rows_c2 chunk 300 bf16 dW: max |err| 3.660e-4 at 6 = 8.077e-4 of max|ref| 4.5312e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror v16384_h32_n4 chunk 8192 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 7.488e5 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror v16384_h32_n4 chunk 8192 exact_f32 dh: max |err| 9.388e-1 at 3 = 1.533e1 of max|ref| 6.1252e-2; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror v16384_h32_n4 chunk 8192 exact_f32 dW: max |err| 2.347e-1 at 524259 = 9.517e-1 of max|ref| 2.4661e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror v248320_h16_n3 chunk 8192 exact_f32 loss: 3 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.109e6 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror v248320_h16_n3 chunk 8192 exact_f32 dh: max |err| 1.252e0 at 3 = 1.656e1 of max|ref| 7.5611e-2; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror v248320_h16_n3 chunk 8192 exact_f32 dW: max |err| 3.131e-1 at 3973107 = 9.800e-1 of max|ref| 3.1951e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+
+thread 'the_mirror_matches_the_one_pass_reference_whatever_the_chunk_and_operands' (147195578) panicked at tests/device_small_common/mod.rs:160:5:
+fail mirror ce_rows_c0 chunk 7 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.160e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c0 chunk 7 exact_f32 dh: max |err| 4.121e-4 at 44 = 6.636e-3 of max|ref| 6.2094e-2; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c0 chunk 7 exact_f32 dW: max |err| 2.317e-4 at 1833 = 9.521e-4 of max|ref| 2.4336e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c0 chunk 7 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.166e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c0 chunk 64 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 8.264e2 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c0 chunk 64 exact_f32 dh: max |err| 2.968e-4 at 44 = 4.780e-3 of max|ref| 6.2094e-2; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c0 chunk 64 exact_f32 dW: max |err| 8.714e-5 at 1833 = 3.581e-4 of max|ref| 2.4336e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c0 chunk 64 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 8.327e2 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c1 chunk 7 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 3.335e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c1 chunk 7 exact_f32 dh: max |err| 7.616e-3 at 11 = 4.315e-2 of max|ref| 1.7650e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c1 chunk 7 exact_f32 dW: max |err| 3.399e-3 at 3335 = 4.981e-3 of max|ref| 6.8243e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c1 chunk 7 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 3.336e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c1 chunk 7 bf16 dh: max |err| 7.740e-3 at 11 = 4.381e-2 of max|ref| 1.7667e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c1 chunk 64 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 2.086e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c1 chunk 64 exact_f32 dh: max |err| 4.969e-3 at 59 = 2.815e-2 of max|ref| 1.7650e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c1 chunk 64 exact_f32 dW: max |err| 2.271e-3 at 3335 = 3.328e-3 of max|ref| 6.8243e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c1 chunk 64 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 2.087e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c1 chunk 64 bf16 dh: max |err| 5.109e-3 at 11 = 2.892e-2 of max|ref| 1.7667e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 7 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.303e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c2 chunk 7 exact_f32 dh: max |err| 1.379e1 at 41 = 9.907e-1 of max|ref| 1.3918e1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 7 exact_f32 dW: max |err| 2.298e-1 at 4793 = 5.070e-1 of max|ref| 4.5329e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 7 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.305e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c2 chunk 7 bf16 dh: max |err| 1.377e1 at 41 = 9.907e-1 of max|ref| 1.3900e1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 7 bf16 dW: max |err| 2.297e-1 at 4793 = 5.069e-1 of max|ref| 4.5312e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 64 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.265e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c2 chunk 64 exact_f32 dh: max |err| 1.377e1 at 41 = 9.895e-1 of max|ref| 1.3918e1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 64 exact_f32 dW: max |err| 2.295e-1 at 4793 = 5.064e-1 of max|ref| 4.5329e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 64 bf16 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.266e3 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror ce_rows_c2 chunk 64 bf16 dh: max |err| 1.375e1 at 41 = 9.896e-1 of max|ref| 1.3900e1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror ce_rows_c2 chunk 64 bf16 dW: max |err| 2.294e-1 at 4793 = 5.063e-1 of max|ref| 4.5312e-1; bound 8e-3 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror v16384_h32_n4 chunk 8192 exact_f32 loss: 4 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 7.488e5 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror v16384_h32_n4 chunk 8192 exact_f32 dh: max |err| 9.388e-1 at 3 = 1.533e1 of max|ref| 6.1252e-2; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror v16384_h32_n4 chunk 8192 exact_f32 dW: max |err| 2.347e-1 at 524259 = 9.517e-1 of max|ref| 2.4661e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror v248320_h16_n3 chunk 8192 exact_f32 loss: 3 per-row losses and the loss: worst |err| / (1e-5 + 1e-5|ref|) = 1.109e6 (tessl/tests/cross_entropy.rs:12-14,185,252-258)
+fail mirror v248320_h16_n3 chunk 8192 exact_f32 dh: max |err| 1.252e0 at 3 = 1.656e1 of max|ref| 7.5611e-2; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+fail mirror v248320_h16_n3 chunk 8192 exact_f32 dW: max |err| 3.131e-1 at 3973107 = 9.800e-1 of max|ref| 3.1951e-1; bound 1e-4 (tessl/tests/cross_entropy.rs:12-14,185,252-258); 0 non-finite
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    the_mirror_matches_the_one_pass_reference_whatever_the_chunk_and_operands
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 1.86s
+
+error: test failed, to rerun pass `--test device_k10_ce_rows`
+error: 2 targets failed:
+    `--lib`
+    `--test device_k10_ce_rows`
