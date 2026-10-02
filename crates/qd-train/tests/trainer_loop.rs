@@ -24,8 +24,8 @@ use qd_train::run_control::{Clock, MonotonicClock, WallClockCap};
 use qd_train::schedule::LrSchedule;
 use qd_train::step::{AdamWHyper, BankMode, HiddenGrad, RowTargets, SequenceJob, StepError, StepProvider};
 use qd_train::trainer::{
-    parameters_digest, train, CheckpointPolicy, EtaRule, Hooks, Objective, ResumeState, Termination, TrainConfig,
-    TrainError, TrainResult,
+    parameters_digest, train, CheckpointPolicy, EtaRule, Hooks, MicroLoss, Objective, ResumeState, Termination,
+    TrainConfig, TrainError, TrainResult,
 };
 
 const V: usize = 13;
@@ -203,13 +203,11 @@ fn the_toy_heads_gradients_match_central_differences() {
 
 // ---- one step of the loop is the composed step ---------------------------------------------
 
-#[test]
-fn one_loop_step_is_exactly_the_composed_step() {
-    let b = batch(0, 5);
-    // The composed step, by hand, through the same public pieces.
-    let (mut p, mut o) = fresh();
-    let plan = o.plan(&b).unwrap();
-    assert_eq!(plan.row_scale, 0.5, "two letter rows: 1/N");
+/// One batch's gradients by hand, through the same public pieces the loop uses: plan, bank,
+/// close, clip. The gradients are left in `p` and `o`. Returns the micro-batch loss, the clip
+/// coefficient and the plan's row scale.
+fn accumulate_by_hand(p: &mut ToyProvider, o: &mut Obj, b: &ToyBatch) -> (MicroLoss, f64, f32) {
+    let plan = o.plan(b).unwrap();
     o.host().unwrap().zero_grads();
     let mut sums = Vec::new();
     for (i, s) in plan.sequences.iter().enumerate() {
@@ -226,7 +224,7 @@ fn one_loop_step_is_exactly_the_composed_step() {
         let sum = if s.hidden_at.is_empty() {
             p.accumulate(&job, mode, None).unwrap()
         } else {
-            let oo = &mut o;
+            let oo = &mut *o;
             let mut ext = |pos: &[u32], h: &[f32]| oo.hidden_grad(i, pos, h, H).map_err(|e| StepError::Contract(e.to_string()));
             p.accumulate(&job, mode, Some(&mut ext)).unwrap()
         };
@@ -234,8 +232,18 @@ fn one_loop_step_is_exactly_the_composed_step() {
     }
     let loss = o.close(&sums).unwrap();
     let tower_sq = p.grad_sq_norm().unwrap();
-    let host_sq: f64 = o.host_ref().unwrap().grads().iter().flat_map(|g| g.iter()).map(|&x| f64::from(x) * f64::from(x)).sum();
+    let host_sq: f64 = o.host_ref().unwrap().grads().into_iter().flatten().flatten().map(|&x| f64::from(x) * f64::from(x)).sum();
     let coef = recipe::clip_coefficient(tower_sq + host_sq, 1.0).unwrap();
+    (loss, coef, plan.row_scale)
+}
+
+#[test]
+fn one_loop_step_is_exactly_the_composed_step() {
+    let b = batch(0, 5);
+    // The composed step, by hand, through the same public pieces.
+    let (mut p, mut o) = fresh();
+    let (loss, coef, row_scale) = accumulate_by_hand(&mut p, &mut o, &b);
+    assert_eq!(row_scale, 0.5, "two letter rows: 1/N");
     let lr = config(4).schedule.lr_at(0).unwrap();
     let hyper = AdamWHyper {
         lr,
@@ -247,7 +255,7 @@ fn one_loop_step_is_exactly_the_composed_step() {
     let n = p.parameters().len();
     p.adamw_step(&hyper, 1, &vec![1.0; n], &vec![0.01; n]).unwrap();
     let mut head_vals: Vec<Vec<f32>> = o.host_ref().unwrap().values().iter().map(|v| v.to_vec()).collect();
-    let head_grads: Vec<Vec<f32>> = o.host_ref().unwrap().grads().iter().map(|g| g.to_vec()).collect();
+    let head_grads: Vec<Vec<f32>> = o.host_ref().unwrap().grads().into_iter().map(|g| g.expect("a span row reached the head").to_vec()).collect();
     for (v, g) in head_vals.iter_mut().zip(&head_grads) {
         let mut m = Moments::zeros(v.len());
         adamw_update(v, g, &mut m, &hyper, lr, 0.01, 1).unwrap();
@@ -305,6 +313,133 @@ fn weight_decay_reaches_every_entry_norms_included() {
             assert_eq!(*x, y * f, "entry {} ({})", e, p.parameters()[e].name);
         }
     }
+}
+
+// ---- a host entry with no gradient is skipped, as torch skips a `None` grad -----------------
+//
+// torch zeroes with `zero_grad(set_to_none=True)`, and a letter-only batch never reaches the
+// span head, so the head's grads stay `None` and AdamW skips it: no decay, no moment update, no
+// step count. Its bias corrections then use its own count, not the model's. The rung (b)
+// reference shows it: `tiny-published/manifest.json` `per_parameter` has `span_head.*` at 13
+// AdamW steps and every tower entry at 20, over the 7 letter-only batches of 20.
+
+/// `batch` without its span row: a letter-only batch.
+fn letter_only(index: u64, seed: u64) -> ToyBatch {
+    let mut b = batch(index, seed);
+    b.rows.retain(|r| r.span.is_none());
+    b.width = b.rows.iter().map(|r| r.tokens.len()).max().unwrap();
+    b
+}
+
+fn head_values(o: &Obj) -> Vec<Vec<f32>> {
+    o.host_ref().unwrap().values().iter().map(|v| v.to_vec()).collect()
+}
+
+#[test]
+fn a_letter_only_step_leaves_the_span_head_bit_for_bit_where_it_was() {
+    let init = head_values(&fresh().1);
+    let (mut p, mut o) = fresh();
+    let r = run(&mut p, &mut o, vec![Ok(letter_only(0, 5))], &config(4)).unwrap();
+    assert_eq!(r.optimizer_steps, 1);
+    assert_eq!(r.counts.span_rows, 0);
+    assert_ne!(p.values(), fresh().0.values(), "the tower stepped");
+    assert_eq!(head_values(&o), init, "the head moved on a step that never reached it");
+}
+
+#[test]
+fn under_grad_accum_a_group_steps_the_head_only_when_one_of_its_micro_batches_reached_it() {
+    let mut cfg = config(2);
+    cfg.grad_accum = 2;
+    // Group 0 is letter-only then span: the head has a gradient and steps. Group 1 is two
+    // letter-only batches: the head is skipped.
+    let data = || vec![Ok(letter_only(0, 5)), Ok(batch(1, 5)), Ok(letter_only(2, 5)), Ok(letter_only(3, 5))];
+    let (mut p, mut o) = fresh();
+    assert_eq!(run(&mut p, &mut o, data(), &cfg).unwrap().optimizer_steps, 2);
+    let (mut p1, mut o1) = fresh();
+    assert_eq!(run(&mut p1, &mut o1, data().into_iter().take(2).collect(), &cfg).unwrap().optimizer_steps, 1);
+    assert_ne!(head_values(&o1), head_values(&fresh().1), "the group with a span row stepped the head");
+    assert_eq!(head_values(&o), head_values(&o1), "the all-letter group left the head where it was");
+}
+
+#[test]
+fn the_heads_first_step_after_a_letter_only_step_bias_corrects_with_its_own_count_of_one() {
+    let (l0, s1) = (letter_only(0, 5), batch(1, 5));
+    // By hand: the loop takes the letter-only step, then the span step is composed by hand. The
+    // tower is at its second step; the head takes its first, with fresh moments.
+    let (mut p, mut o) = fresh();
+    assert_eq!(run(&mut p, &mut o, vec![Ok(l0.clone())], &config(4)).unwrap().optimizer_steps, 1);
+    let (_, coef, _) = accumulate_by_hand(&mut p, &mut o, &s1);
+    let lr = config(4).schedule.lr_at(1).unwrap();
+    let hyper = AdamWHyper {
+        lr,
+        beta1: 0.9,
+        beta2: 0.999,
+        eps: 1e-8,
+        grad_scale: coef,
+    };
+    let n = p.parameters().len();
+    p.adamw_step(&hyper, 2, &vec![1.0; n], &vec![0.01; n]).unwrap();
+    let mut want_head = head_values(&o);
+    let head_grads: Vec<Vec<f32>> = o.host_ref().unwrap().grads().into_iter().map(|g| g.expect("the span row reached the head").to_vec()).collect();
+    for (v, g) in want_head.iter_mut().zip(&head_grads) {
+        let mut fresh_moments = Moments::zeros(v.len());
+        adamw_update(v, g, &mut fresh_moments, &hyper, lr, 0.01, 1).unwrap();
+    }
+
+    let (mut lp, mut lo) = fresh();
+    assert_eq!(run(&mut lp, &mut lo, vec![Ok(l0), Ok(s1)], &config(4)).unwrap().optimizer_steps, 2);
+    assert_eq!(lp.values(), p.values(), "tower parameters after two steps");
+    assert_eq!(head_values(&lo), want_head, "the head's one step, bias-corrected at t = 1");
+}
+
+/// Twelve batches, every third one letter-only, so at the checkpoint (step 6) the head has
+/// taken 4 steps to the tower's 6.
+fn mixed_batches(n: u64, seed: u64) -> Vec<Result<ToyBatch, TrainError>> {
+    (0..n).map(|i| Ok(if i % 3 == 1 { letter_only(i, seed) } else { batch(i, seed) })).collect()
+}
+
+#[test]
+fn a_resume_carries_each_host_entrys_own_step_count() {
+    let dir = temp_dir("resume-host-steps");
+    let full = {
+        let (mut p, mut o) = fresh();
+        let r = run(&mut p, &mut o, mixed_batches(12, 4), &config(12)).unwrap();
+        assert_eq!(r.optimizer_steps, 12);
+        parameters_digest(&mut p, o.host_ref()).unwrap()
+    };
+    let mut cfg = config(12);
+    cfg.checkpoint = Some(CheckpointPolicy {
+        dir: dir.clone(),
+        every: 6,
+    });
+    let ckpt = {
+        let (mut p, mut o) = fresh();
+        run(&mut p, &mut o, mixed_batches(6, 4), &cfg).unwrap().final_checkpoint.unwrap()
+    };
+    let state = ResumeState::read(&ckpt).unwrap();
+    assert_eq!(state.optimizer_step, 6);
+    assert_eq!(state.host_state.iter().map(|s| s.steps).collect::<Vec<_>>(), vec![4, 4], "batches 1 and 4 were letter-only");
+    let (mut p, mut o) = fresh();
+    let mut cfg2 = config(12);
+    cfg2.checkpoint = None;
+    train(&mut p, &mut o, mixed_batches(12, 4), &cfg2, &MonotonicClock::new(), Some(state), &mut Hooks::default()).unwrap();
+    assert_eq!(parameters_digest(&mut p, o.host_ref()).unwrap(), full);
+
+    // A host count past the checkpoint's optimizer step cannot be a real run's, and is refused.
+    let mut bad = ResumeState::read(&ckpt).unwrap();
+    bad.host_state[0].steps = 7;
+    let (mut p, mut o) = fresh();
+    let err = train(&mut p, &mut o, mixed_batches(12, 4), &cfg2, &MonotonicClock::new(), Some(bad), &mut Hooks::default()).unwrap_err();
+    assert!(matches!(&err, TrainError::Refused(m) if m.contains("7 AdamW steps")), "{err}");
+
+    // A v1 checkpoint carries no host counts, so it is refused rather than resumed with a guess.
+    let body = ckpt.join("trainer.json");
+    let text = std::fs::read_to_string(&body).unwrap();
+    assert!(text.contains(qd_train::trainer::CHECKPOINT_FORMAT));
+    std::fs::write(&body, text.replace(qd_train::trainer::CHECKPOINT_FORMAT, "qd-train-checkpoint-v1")).unwrap();
+    let err = ResumeState::read(&ckpt).unwrap_err();
+    assert!(matches!(&err, TrainError::Refused(m) if m.contains("not a qd-train-checkpoint-v2")), "{err}");
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 // ---- determinism and resume ---------------------------------------------------------------

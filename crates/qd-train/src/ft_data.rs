@@ -172,15 +172,25 @@ impl FtBatch for RealBatch {
 }
 
 /// L-head's span pointer head and its gradient bank, trained on the host.
+///
+/// `reached` is torch's `grad is not None` for the head. Every span row's loss reads all four
+/// tensors (both projections, and both abstention vectors through the abstain score), so one
+/// span row gives all four a gradient. No span row since [`HostParams::zero_grads`] leaves all
+/// four `None`.
 pub struct HostSpanHead {
     params: span_head::SpanHead,
     bank: span_head::SpanHead,
+    reached: bool,
 }
 
 impl HostSpanHead {
     pub fn new(params: span_head::SpanHead) -> Result<Self, TrainError> {
         let bank = span_head::SpanHead::zeros(params.hidden_size()).map_err(|e| TrainError::Refused(e.to_string()))?;
-        Ok(Self { params, bank })
+        Ok(Self {
+            params,
+            bank,
+            reached: false,
+        })
     }
 
     pub fn params(&self) -> &span_head::SpanHead {
@@ -211,22 +221,25 @@ impl HostParams for HostSpanHead {
         for (_, g) in self.bank.named_mut() {
             g.fill(0.0);
         }
+        self.reached = false;
     }
 
-    fn grads(&self) -> Vec<&[f32]> {
-        self.bank.named().into_iter().map(|(_, g)| g).collect()
+    fn grads(&self) -> Vec<Option<&[f32]>> {
+        let reached = self.reached;
+        self.bank.named().into_iter().map(|(_, g)| reached.then_some(g)).collect()
     }
 
     fn values(&self) -> Vec<&[f32]> {
         self.params.named().into_iter().map(|(_, v)| v).collect()
     }
 
-    fn values_and_grads(&mut self) -> Vec<(&mut [f32], &[f32])> {
+    fn values_and_grads(&mut self) -> Vec<(&mut [f32], Option<&[f32]>)> {
+        let reached = self.reached;
         self.params
             .named_mut()
             .into_iter()
             .zip(self.bank.named())
-            .map(|((_, v), (_, g))| (v, g))
+            .map(|((_, v), (_, g))| (v, reached.then_some(g)))
             .collect()
     }
 }
@@ -257,6 +270,7 @@ impl objective::SpanHead for HostSpanHead {
             .params
             .loss_and_backward(&[SpanRowInput { plan: span, hidden }], weight, &mut self.bank)
             .map_err(|e| e.to_string())?;
+        self.reached = true;
         let (Some(scores), Some(dh)) = (step.scores.first(), step.d_hidden.into_iter().next()) else {
             return Err("the head returned no row for a one-row batch".into());
         };
