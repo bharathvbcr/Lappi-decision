@@ -1,0 +1,36 @@
+   Compiling ojas-core v0.1.0 (/Users/bharath/Code/research/ojas/ojas-core)
+   Compiling ojas-io v0.1.0 (/Users/bharath/Code/research/ojas/ojas-io)
+   Compiling ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `release` profile [optimized] target(s) in 12.85s
+  Executable unittests src/lib.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/ojas_qwen35_cuda-f376521f00ab582a)
+  Executable unittests src/bin/rung0.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/rung0-56e5448a0d28eb5b)
+  Executable unittests src/bin/runga.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/runga-f0b1bfca70b9212b)
+  Executable tests/device_gdn_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_gdn_published-4ae28ca271858f42)
+  Executable tests/device_gdn_published_mirror.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_gdn_published_mirror-eddc2adfc09331dd)
+  Executable tests/device_k0.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k0-beee810a26824ccf)
+  Executable tests/device_k1.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k1-e0cd3e87185d920b)
+  Executable tests/device_k10_ce_rows.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k10_ce_rows-a5ced68f78e78122)
+  Executable tests/device_k11.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k11-a91063d54a01db67)
+  Executable tests/device_k3_gates_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k3_gates_published-e0e9795d254ed675)
+  Executable tests/device_k4_conv1d.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k4_conv1d-748b11fa0d68887c)
+  Executable tests/device_k6_qk_norm_rope.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k6_qk_norm_rope-00c1ad1cc5efdcc9)
+  Executable tests/device_k7_rmsnorm.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k7_rmsnorm-7e04614e3c9fbae5)
+  Executable tests/device_k8.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k8-ee452f644a37c50c)
+  Executable tests/device_k9_embed.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k9_embed-f53e30d1a601e180)
+  Executable tests/fixture_pins.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/fixture_pins-c298cc7220dfb458)
+  Executable tests/fmt_boundary.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/fmt_boundary-ae66269026c96c83)
+  Executable tests/reference_adamw.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/reference_adamw-415188a45490616b)
+  Executable tests/reference_gdn_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/reference_gdn_published-42c4bd0cedd5b021)
+  Executable tests/reference_gdn_published_vs_tessl.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/reference_gdn_published_vs_tessl-53dcdea604af8263)
+  Executable tests/reference_goldens_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/reference_goldens_published-97c98cb0f4e021ec)
+  Executable tests/reference_k11_host.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/reference_k11_host-6925d75ca16bc5ca)
+  Executable tests/reference_kernels.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/reference_kernels-32e6a1e34921b938)
+  Executable tests/runtime_refusal.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/runtime_refusal-9206ce58b2085e4b)
+c0347031886d45391d7e4e181c76bb3480a747c9e944a4951eecf10672706c0e  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k3_gates_published-e0e9795d254ed675
+52677e362bdd860ceeadf60974ee7e5a00f01af434cca3cd9491065fcfadb12d  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k4_conv1d-748b11fa0d68887c
+2fe43121935d1d40e317ed87020a2603eac6489cb36ed472ba9638a88e2413ec  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k6_qk_norm_rope-00c1ad1cc5efdcc9
+27d8368290e276bab4ccba60a9a0b2d218019315e05a642b958eb5ae52bd3b7b  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k7_rmsnorm-7e04614e3c9fbae5
+2632615d97ec1e54058824b61ad9fd574148975792f95b2fdb6b21c3f7c6d355  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k9_embed-f53e30d1a601e180
+5d202810f6bff5c3487f1955a36bdd0b1aa3eb484f57715f5d83ef27adf5377a  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k10_ce_rows-a5ced68f78e78122
+068c10e97446089be1aefb4925d6ac58e9433171ae0259638a44b6bcc5bb6da2  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/runga-f0b1bfca70b9212b
+/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k7_rmsnorm-7e04614e3c9fbae5: ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 3.7.0, not stripped

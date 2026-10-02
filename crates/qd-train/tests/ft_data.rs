@@ -135,6 +135,7 @@ fn the_row_level_adapter_gives_l_heads_batch_level_gradients_and_loss() {
     // The adapter, row by row at the objective's scale.
     let mut adapter = HostSpanHead::new(head.clone()).unwrap();
     adapter.zero_grads();
+    assert!(adapter.grads().iter().all(Option::is_none), "no span row yet: torch's grads are None");
     let scale = (f64::from(span_weight) / (2.0 * k as f64)) as f32;
     let mut loss_sum = 0.0;
     for ((s, x), want) in rows.iter().zip(&hidden).zip(&whole.d_hidden) {
@@ -146,7 +147,10 @@ fn the_row_level_adapter_gives_l_heads_batch_level_gradients_and_loss() {
     }
     let mean = loss_sum / (2.0 * k as f64);
     assert!((mean - f64::from(whole.loss)).abs() <= 1e-6 * f64::from(whole.loss).abs(), "{mean} vs {}", whole.loss);
-    for (g, (_, w)) in adapter.grads().iter().zip(bank.named()) {
+    let grads = adapter.grads();
+    assert_eq!(grads.len(), 4);
+    for (g, (name, w)) in grads.into_iter().zip(bank.named()) {
+        let g = g.unwrap_or_else(|| panic!("{name}: a span row reads all four tensors, so each has a gradient"));
         for (a, b) in g.iter().zip(w) {
             assert!((a - b).abs() <= 1e-5 * b.abs().max(1e-3), "weight grad {a} vs batch-level {b}");
         }

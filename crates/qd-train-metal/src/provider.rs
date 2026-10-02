@@ -21,6 +21,14 @@
 //!   relative below 0.01. The clip coefficient is f32 too in ojas-qwen35's `AdamWHyper`, and
 //!   torch's `clip_grad_norm_` also forms it in the gradients' dtype. Both roundings are named
 //!   in [`StepProvider::describe`]'s text, so the ledger row carries them.
+//! * **Every entry steps on every step.** tessl's AdamW updates every tower tensor with one
+//!   model-wide count. That is torch's per-parameter AdamW only while each tower tensor has a
+//!   gradient on every step, which the torch reference shows for rung (b): every tower entry
+//!   took 20 AdamW steps of 20 (`tiny-published/manifest.json` `per_parameter`), the three
+//!   span-only batches included. That ojas-qwen35 also writes a gradient into every entry on a
+//!   sequence with no letter rows is [inferred] from the tower's forward path, not measured: it
+//!   is checked when rung (b)'s parity tests run. The span head, which a letter-only batch never
+//!   reaches, is a host entry and steps on its own count.
 //! * **State.** ojas-qwen35 writes a state directory that must not exist, while qd-train hands
 //!   over an empty directory. The state goes into its [`STATE_DIR`] child.
 //!

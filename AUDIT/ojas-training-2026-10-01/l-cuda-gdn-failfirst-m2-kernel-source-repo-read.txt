@@ -1,0 +1,26 @@
+   Compiling ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.85s
+     Running unittests src/lib.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/ojas_qwen35_cuda-e3688a9051f9f03d)
+
+running 5 tests
+test gdn_kernels::tests::the_published_decay_uses_the_crates_one_exp ... ok
+test gdn_kernels::tests::the_published_source_has_no_nul_no_include_and_no_atomics ... ok
+test gdn_kernels::tests::the_published_rule_decays_before_the_read_in_the_forward_and_the_recompute ... FAILED
+test gdn_kernels::tests::the_published_float_arithmetic_is_explicitly_rounded ... ok
+test gdn_kernels::tests::the_published_module_defines_exactly_its_entries_and_every_name_says_published ... ok
+
+failures:
+
+---- gdn_kernels::tests::the_published_rule_decays_before_the_read_in_the_forward_and_the_recompute stdout ----
+
+thread 'gdn_kernels::tests::the_published_rule_decays_before_the_read_in_the_forward_and_the_recompute' (146612615) panicked at src/gdn_kernels.rs:528:13:
+void qd_gdn_published_fwd(: the read of S precedes its decay (the repo rule)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    gdn_kernels::tests::the_published_rule_decays_before_the_read_in_the_forward_and_the_recompute
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 86 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`

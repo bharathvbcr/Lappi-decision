@@ -1,0 +1,110 @@
+     Locking 3 packages to latest Rust 1.98 compatible versions
+      Adding ojas-core v0.1.0 (/Users/bharath/Code/research/ojas/ojas-core)
+      Adding ojas-io v0.1.0 (/Users/bharath/Code/research/ojas/ojas-io)
+      Adding ojas-qwen35 v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35)
+   Compiling qd-train-metal v0.1.0 (/Users/bharath/Code/research/Lappi-decision/crates/qd-train-metal)
+    Finished `release` profile [optimized] target(s) in 6.08s
+     Running tests/gpu_rung_b.rs (target/release/deps/gpu_rung_b-d80db5d0ce07a8cf)
+
+running 3 tests
+test gpu_rung_b_bf16_operands_loss_stays_within_2e_8_of_torch_fp32 ... 
+thread 'gpu_rung_b_bf16_operands_loss_stays_within_2e_8_of_torch_fp32' (146571066) panicked at crates/qd-train-metal/tests/gpu_rung_b.rs:242:55:
+rung (b) needs tessl's per-entry lr_scale (ruling 6): Refused("the recipe asks for a layer-wise learning rate (Some(LowerLayers { n: 2, lr_scale: 0.1 })) and this provider (ojas-qwen35 over tessl cf65d9d5d3deb97b0847e020a562ac8f15e6d5a9-dirty (ojas dab2a12fd2129565515954924e1a11737ca6ee47-dirty; commits read at run time): bf16 GEMM operands with f32 accumulation, f32 weights, gradients and AdamW state; one unpadded sequence per forward; attention tessl::attn_train (attn_train_forward/attn_train_backward, causal GQA, head_dim 256, log-sum-exp); GDN tessl::gdn_train (rule published); AdamW tessl::qwen35_adamw (one learning rate, per-entry weight decay as f32: f32(0.01) = 0.00999999977648258); clip coefficient applied as f32) has no per-entry learning rate. Folding the scale into one rate or running two updates would change the optimizer under test, so the run is refused before it starts")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+test gpu_rung_b_exact_f32_trains_as_torch_fp32_on_fs_recipe ... 
+thread 'gpu_rung_b_exact_f32_trains_as_torch_fp32_on_fs_recipe' (146571174) panicked at crates/qd-train-metal/tests/gpu_rung_b.rs:225:44:
+rung (b) needs tessl's per-entry lr_scale (ruling 6): Refused("the recipe asks for a layer-wise learning rate (Some(LowerLayers { n: 2, lr_scale: 0.1 })) and this provider (ojas-qwen35 over tessl cf65d9d5d3deb97b0847e020a562ac8f15e6d5a9-dirty (ojas dab2a12fd2129565515954924e1a11737ca6ee47-dirty; commits read at run time): exact_f32 GEMM operands with f32 accumulation, f32 weights, gradients and AdamW state; one unpadded sequence per forward; attention tessl::attn_train (attn_train_forward/attn_train_backward, causal GQA, head_dim 256, log-sum-exp); GDN tessl::gdn_train (rule published); AdamW tessl::qwen35_adamw (one learning rate, per-entry weight decay as f32: f32(0.01) = 0.00999999977648258); clip coefficient applied as f32) has no per-entry learning rate. Folding the scale into one rate or running two updates would change the optimizer under test, so the run is refused before it starts")
+FAILED
+test gpu_rung_b_single_group_smoke_completes_finite_and_repeats_bit_for_bit ... single-group smoke vs the two-group torch fp32 reference (information only; not a parity measure):
+  step  0: rust 8.846718790 fp32 8.846719742 rel 1.075e-7
+  step  1: rust 12.002203095 fp32 11.998356819 rel 3.206e-4
+  step  2: rust 6.452525777 fp32 6.455318928 rel 4.327e-4
+  step  3: rust 12.408383986 fp32 12.395814896 rel 1.014e-3
+  step  4: rust 8.422277495 fp32 8.419452667 rel 3.355e-4
+  step  5: rust 15.570022172 fp32 15.572988510 rel 1.905e-4
+  step  6: rust 8.125639754 fp32 8.127338409 rel 2.090e-4
+  step  7: rust 15.943103365 fp32 15.926414490 rel 1.048e-3
+  step  8: rust 8.944951891 fp32 8.942987442 rel 2.197e-4
+  step  9: rust 14.019370090 fp32 14.001898766 rel 1.248e-3
+  step 10: rust 2.181396164 fp32 2.174890041 rel 2.991e-3
+  step 11: rust 12.670047997 fp32 12.673537254 rel 2.753e-4
+  step 12: rust 4.536502179 fp32 4.529822350 rel 1.475e-3
+  step 13: rust 21.094671157 fp32 21.079679489 rel 7.112e-4
+  step 14: rust 7.455066969 fp32 7.455695152 rel 8.426e-5
+  step 15: rust 7.157791614 fp32 7.181901932 rel 3.357e-3
+  step 16: rust 9.144307201 fp32 9.152156830 rel 8.577e-4
+  step 17: rust 9.375097545 fp32 9.373875618 rel 1.304e-4
+  step 18: rust 3.781298474 fp32 3.775823593 rel 1.450e-3
+  step 19: rust 13.308563521 fp32 13.318221092 rel 7.251e-4
+  model.language_model.embed_tokens.weight: |rust-ref| 6.661e-6  /own max 6.687e-6  /displacement 7.158e-2  gated 6.687e-6
+  model.language_model.layers.0.input_layernorm.weight: |rust-ref| 7.636e-5  /own max 8.766e-5  /displacement 8.998e0  gated 8.766e-5
+  model.language_model.layers.0.linear_attn.A_log: |rust-ref| 3.299e-5  /own max 1.207e-4  /displacement 9.000e0  gated 1.207e-4
+  model.language_model.layers.0.linear_attn.conv1d.weight: |rust-ref| 8.529e-5  /own max 3.872e-5  /displacement 8.861e0  gated 3.872e-5
+  model.language_model.layers.0.linear_attn.dt_bias: |rust-ref| 3.397e-5  /own max 2.277e-5  /displacement 9.828e0  gated 2.277e-5
+  model.language_model.layers.0.linear_attn.in_proj_a.weight: |rust-ref| 7.795e-5  /own max 3.382e-4  /displacement 8.973e0  gated 3.382e-4
+  model.language_model.layers.0.linear_attn.in_proj_b.weight: |rust-ref| 8.868e-5  /own max 2.838e-4  /displacement 8.980e0  gated 2.838e-4
+  model.language_model.layers.0.linear_attn.in_proj_qkv.weight: |rust-ref| 9.459e-5  /own max 1.834e-4  /displacement 8.991e0  gated 1.834e-4
+  model.language_model.layers.0.linear_attn.in_proj_z.weight: |rust-ref| 8.985e-5  /own max 1.438e-4  /displacement 8.987e0  gated 1.438e-4
+  model.language_model.layers.0.linear_attn.norm.weight: |rust-ref| 8.225e-5  /own max 4.558e-5  /displacement 9.452e0  gated 4.558e-5
+  model.language_model.layers.0.linear_attn.out_proj.weight: |rust-ref| 9.029e-5  /own max 2.719e-4  /displacement 9.010e0  gated 2.719e-4
+  model.language_model.layers.0.mlp.down_proj.weight: |rust-ref| 9.025e-5  /own max 2.800e-4  /displacement 8.966e0  gated 2.800e-4
+  model.language_model.layers.0.mlp.gate_proj.weight: |rust-ref| 9.180e-5  /own max 1.741e-4  /displacement 8.994e0  gated 1.741e-4
+  model.language_model.layers.0.mlp.up_proj.weight: |rust-ref| 9.038e-5  /own max 1.952e-4  /displacement 8.999e0  gated 1.952e-4
+  model.language_model.layers.0.post_attention_layernorm.weight: |rust-ref| 6.920e-5  /own max 8.278e-5  /displacement 9.039e0  gated 8.278e-5
+  model.language_model.layers.1.input_layernorm.weight: |rust-ref| 7.620e-5  /own max 7.772e-5  /displacement 9.017e0  gated 7.772e-5
+  model.language_model.layers.1.linear_attn.A_log: |rust-ref| 2.379e-5  /own max 1.591e-3  /displacement 9.031e0  gated 1.591e-3
+  model.language_model.layers.1.linear_attn.conv1d.weight: |rust-ref| 9.048e-5  /own max 5.014e-5  /displacement 8.996e0  gated 5.014e-5
+  model.language_model.layers.1.linear_attn.dt_bias: |rust-ref| 2.551e-5  /own max 2.710e-5  /displacement 8.392e0  gated 2.710e-5
+  model.language_model.layers.1.linear_attn.in_proj_a.weight: |rust-ref| 6.510e-5  /own max 2.267e-4  /displacement 8.989e0  gated 2.267e-4
+  model.language_model.layers.1.linear_attn.in_proj_b.weight: |rust-ref| 6.329e-5  /own max 2.025e-4  /displacement 8.987e0  gated 2.025e-4
+  model.language_model.layers.1.linear_attn.in_proj_qkv.weight: |rust-ref| 9.637e-5  /own max 1.801e-4  /displacement 8.988e0  gated 1.801e-4
+  model.language_model.layers.1.linear_attn.in_proj_z.weight: |rust-ref| 8.789e-5  /own max 1.772e-4  /displacement 9.032e0  gated 1.772e-4
+  model.language_model.layers.1.linear_attn.norm.weight: |rust-ref| 7.957e-5  /own max 4.316e-5  /displacement 9.020e0  gated 4.316e-5
+  model.language_model.layers.1.linear_attn.out_proj.weight: |rust-ref| 8.646e-5  /own max 2.473e-4  /displacement 9.023e0  gated 2.473e-4
+  model.language_model.layers.1.mlp.down_proj.weight: |rust-ref| 9.220e-5  /own max 2.914e-4  /displacement 9.004e0  gated 2.914e-4
+  model.language_model.layers.1.mlp.gate_proj.weight: |rust-ref| 9.137e-5  /own max 1.759e-4  /displacement 8.998e0  gated 1.759e-4
+  model.language_model.layers.1.mlp.up_proj.weight: |rust-ref| 9.322e-5  /own max 2.131e-4  /displacement 9.005e0  gated 2.131e-4
+  model.language_model.layers.1.post_attention_layernorm.weight: |rust-ref| 8.482e-5  /own max 1.143e-4  /displacement 8.922e0  gated 1.143e-4
+  model.language_model.layers.2.input_layernorm.weight: |rust-ref| 2.980e-7  /own max 4.287e-7  /displacement 3.356e-3  gated 4.287e-7
+  model.language_model.layers.2.linear_attn.A_log: |rust-ref| 5.960e-8  /own max 1.705e-7  /displacement 8.861e-4  gated 1.705e-7
+  model.language_model.layers.2.linear_attn.conv1d.weight: |rust-ref| 2.995e-6  /own max 1.674e-6  /displacement 3.236e-2  gated 1.674e-6
+  model.language_model.layers.2.linear_attn.dt_bias: |rust-ref| 0.000e0  /own max 0.000e0  /displacement 0.000e0  gated 0.000e0
+  model.language_model.layers.2.linear_attn.in_proj_a.weight: |rust-ref| 3.688e-7  /own max 1.021e-6  /displacement 4.706e-3  gated 1.021e-6
+  model.language_model.layers.2.linear_attn.in_proj_b.weight: |rust-ref| 4.172e-7  /own max 1.504e-6  /displacement 3.908e-3  gated 1.504e-6
+  model.language_model.layers.2.linear_attn.in_proj_qkv.weight: |rust-ref| 4.809e-6  /own max 9.398e-6  /displacement 4.831e-2  gated 9.398e-6
+  model.language_model.layers.2.linear_attn.in_proj_z.weight: |rust-ref| 3.569e-6  /own max 6.174e-6  /displacement 3.542e-2  gated 6.174e-6
+  model.language_model.layers.2.linear_attn.norm.weight: |rust-ref| 9.537e-7  /own max 5.449e-7  /displacement 1.201e-2  gated 5.449e-7
+  model.language_model.layers.2.linear_attn.out_proj.weight: |rust-ref| 6.020e-6  /own max 1.824e-5  /displacement 6.116e-2  gated 1.824e-5
+  model.language_model.layers.2.mlp.down_proj.weight: |rust-ref| 1.535e-6  /own max 4.490e-6  /displacement 1.512e-2  gated 4.490e-6
+  model.language_model.layers.2.mlp.gate_proj.weight: |rust-ref| 1.572e-6  /own max 3.233e-6  /displacement 1.606e-2  gated 3.233e-6
+  model.language_model.layers.2.mlp.up_proj.weight: |rust-ref| 1.341e-6  /own max 2.861e-6  /displacement 1.318e-2  gated 2.861e-6
+  model.language_model.layers.2.post_attention_layernorm.weight: |rust-ref| 3.576e-7  /own max 4.844e-7  /displacement 4.573e-3  gated 4.844e-7
+  model.language_model.layers.3.input_layernorm.weight: |rust-ref| 1.159e-6  /own max 1.211e-6  /displacement 1.448e-2  gated 1.211e-6
+  model.language_model.layers.3.mlp.down_proj.weight: |rust-ref| 5.372e-6  /own max 1.463e-5  /displacement 5.363e-2  gated 1.463e-5
+  model.language_model.layers.3.mlp.gate_proj.weight: |rust-ref| 1.326e-6  /own max 2.829e-6  /displacement 1.333e-2  gated 2.829e-6
+  model.language_model.layers.3.mlp.up_proj.weight: |rust-ref| 1.166e-6  /own max 2.332e-6  /displacement 1.201e-2  gated 2.332e-6
+  model.language_model.layers.3.post_attention_layernorm.weight: |rust-ref| 2.980e-7  /own max 4.102e-7  /displacement 3.729e-3  gated 4.102e-7
+  model.language_model.layers.3.self_attn.k_norm.weight: |rust-ref| 5.849e-7  /own max 7.268e-7  /displacement 6.940e-3  gated 7.268e-7
+  model.language_model.layers.3.self_attn.k_proj.weight: |rust-ref| 3.142e-6  /own max 5.872e-6  /displacement 2.968e-2  gated 5.872e-6
+  model.language_model.layers.3.self_attn.o_proj.weight: |rust-ref| 2.746e-6  /own max 1.413e-5  /displacement 2.584e-2  gated 1.413e-5
+  model.language_model.layers.3.self_attn.q_norm.weight: |rust-ref| 6.109e-7  /own max 7.413e-7  /displacement 7.329e-3  gated 7.413e-7
+  model.language_model.layers.3.self_attn.q_proj.weight: |rust-ref| 5.949e-6  /own max 9.890e-6  /displacement 5.658e-2  gated 9.890e-6
+  model.language_model.layers.3.self_attn.v_proj.weight: |rust-ref| 3.383e-6  /own max 7.041e-6  /displacement 3.221e-2  gated 7.041e-6
+  model.language_model.norm.weight: |rust-ref| 3.725e-7  /own max 5.999e-7  /displacement 3.891e-3  gated 5.999e-7
+  span_head.abstain_end: |rust-ref| 1.047e-5  /own max 1.702e-1  /displacement 1.702e-1  gated 8.376e-5
+  span_head.abstain_start: |rust-ref| 1.100e-5  /own max 2.297e-1  /displacement 2.297e-1  gated 8.798e-5
+  span_head.end_proj.weight: |rust-ref| 1.519e-5  /own max 1.216e-4  /displacement 2.185e-1  gated 1.215e-4
+  span_head.start_proj.weight: |rust-ref| 1.635e-5  /own max 1.308e-4  /displacement 2.278e-1  gated 1.308e-4
+  worst gated ratio 1.591e-3 on model.language_model.layers.1.linear_attn.A_log (a different recipe; no bar applies)
+ok
+
+failures:
+
+failures:
+    gpu_rung_b_bf16_operands_loss_stays_within_2e_8_of_torch_fp32
+    gpu_rung_b_exact_f32_trains_as_torch_fp32_on_fs_recipe
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 2 filtered out; finished in 44.60s
+
+error: test failed, to rerun pass `-p qd-train-metal --test gpu_rung_b`
