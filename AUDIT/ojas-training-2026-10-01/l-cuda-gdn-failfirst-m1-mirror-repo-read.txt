@@ -1,0 +1,71 @@
+   Compiling ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.03s
+     Running tests/device_gdn_published_mirror.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_gdn_published_mirror-7d68608b055dcbf5)
+
+running 8 tests
+test published_mirror_draws_tessls_test_operands ... ok
+test published_mirror_matches_the_f64_reference_across_chunk_edges_b1 ... FAILED
+test published_mirror_matches_the_published_corpus ... FAILED
+test published_mirror_matches_the_f64_reference_across_chunk_edges_b2 ... FAILED
+test published_mirror_matches_the_f64_reference_on_every_smoke_case ... FAILED
+test published_mirror_is_outside_the_bound_from_the_repo_rule ... FAILED
+test published_mirror_varlen_batch_matches_per_sequence_references ... FAILED
+test published_mirror_matches_the_f64_reference_at_qwen35_2b_heads ... FAILED
+
+failures:
+
+---- published_mirror_matches_the_f64_reference_across_chunk_edges_b1 stdout ----
+mirror published B=1 T=1 H=3 Dv=32 s0=false dfin=false: worst 9.531e-7 of max|ref| over every output (bound 1e-4)
+
+thread 'published_mirror_matches_the_f64_reference_across_chunk_edges_b1' (146591957) panicked at tests/device_gdn_published_common/mod.rs:334:9:
+mirror published B=1 T=63 H=3 Dv=32 s0=true dfin=false o: max err 4.236e-3 at 377 is 5.279e-2 of max|ref| 8.025e-2, over the bound 1e-4 (tessl tests/gdn_train.rs:240-241)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- published_mirror_matches_the_published_corpus stdout ----
+mirror published corpus L1 (B=2 H=3 T=1 D=8): worst 1.818e-7 of max|ref| over every output (bound 1e-4)
+published corpus L1 (B=2 H=3 T=1 D=8): vs corpus golden 5.023e-7 of max (bound 1e-4); float64 seam reference vs golden 4.941e-7
+
+thread 'published_mirror_matches_the_published_corpus' (146591961) panicked at tests/device_gdn_published_common/mod.rs:334:9:
+mirror published corpus L63 (B=2 H=3 T=63 D=8) o: max err 4.752e-2 at 2631 is 2.842e-1 of max|ref| 1.672e-1, over the bound 1e-4 (tessl tests/gdn_train.rs:240-241)
+
+---- published_mirror_matches_the_f64_reference_across_chunk_edges_b2 stdout ----
+mirror published B=2 T=1 H=3 Dv=32 s0=false dfin=false: worst 3.444e-7 of max|ref| over every output (bound 1e-4)
+
+thread 'published_mirror_matches_the_f64_reference_across_chunk_edges_b2' (146591958) panicked at tests/device_gdn_published_common/mod.rs:334:9:
+mirror published B=2 T=63 H=3 Dv=32 s0=true dfin=false o: max err 6.928e-3 at 6220 is 6.510e-2 of max|ref| 1.064e-1, over the bound 1e-4 (tessl tests/gdn_train.rs:240-241)
+
+---- published_mirror_matches_the_f64_reference_on_every_smoke_case stdout ----
+mirror published B=2 T=1 H=3 Dv=32 s0=false dfin=false: worst 3.444e-7 of max|ref| over every output (bound 1e-4)
+
+thread 'published_mirror_matches_the_f64_reference_on_every_smoke_case' (146591960) panicked at tests/device_gdn_published_common/mod.rs:334:9:
+mirror published B=2 T=63 H=3 Dv=32 s0=true dfin=false o: max err 6.928e-3 at 6220 is 6.510e-2 of max|ref| 1.064e-1, over the bound 1e-4 (tessl tests/gdn_train.rs:240-241)
+
+---- published_mirror_is_outside_the_bound_from_the_repo_rule stdout ----
+mirror o vs published reference 3.879e-2, vs repo rule 1.184e-7
+
+thread 'published_mirror_is_outside_the_bound_from_the_repo_rule' (146591956) panicked at tests/device_gdn_published_mirror.rs:164:5:
+assertion failed: published <= published_bounds::REL_OF_MAX
+
+---- published_mirror_varlen_batch_matches_per_sequence_references stdout ----
+
+thread 'published_mirror_varlen_batch_matches_per_sequence_references' (146591962) panicked at tests/device_gdn_published_common/mod.rs:334:9:
+mirror published varlen [130, 1, 65, 64, 63] H=2 Dv=48 s0=true dfin=true o: max err 4.713e-3 at 25007 is 3.348e-2 of max|ref| 1.408e-1, over the bound 1e-4 (tessl tests/gdn_train.rs:240-241)
+
+---- published_mirror_matches_the_f64_reference_at_qwen35_2b_heads stdout ----
+
+thread 'published_mirror_matches_the_f64_reference_at_qwen35_2b_heads' (146591959) panicked at tests/device_gdn_published_common/mod.rs:334:9:
+mirror published B=1 T=200 H=16 Dv=128 s0=false dfin=false o: max err 1.749e-3 at 314462 is 7.062e-2 of max|ref| 2.476e-2, over the bound 1e-4 (tessl tests/gdn_train.rs:240-241)
+
+
+failures:
+    published_mirror_is_outside_the_bound_from_the_repo_rule
+    published_mirror_matches_the_f64_reference_across_chunk_edges_b1
+    published_mirror_matches_the_f64_reference_across_chunk_edges_b2
+    published_mirror_matches_the_f64_reference_at_qwen35_2b_heads
+    published_mirror_matches_the_f64_reference_on_every_smoke_case
+    published_mirror_matches_the_published_corpus
+    published_mirror_varlen_batch_matches_per_sequence_references
+
+test result: FAILED. 1 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.86s
+
+error: test failed, to rerun pass `--test device_gdn_published_mirror`

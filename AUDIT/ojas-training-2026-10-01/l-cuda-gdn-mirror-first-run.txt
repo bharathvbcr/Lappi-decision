@@ -1,0 +1,62 @@
+   Compiling ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.12s
+     Running tests/device_gdn_published_mirror.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_gdn_published_mirror-7d68608b055dcbf5)
+
+running 8 tests
+test published_mirror_draws_tessls_test_operands ... ok
+mirror published B=1 T=1 H=3 Dv=32 s0=false dfin=false: worst 9.531e-7 of max|ref| over every output (bound 1e-4)
+mirror published B=2 T=1 H=3 Dv=32 s0=false dfin=false: worst 3.444e-7 of max|ref| over every output (bound 1e-4)
+mirror published B=2 T=1 H=3 Dv=32 s0=false dfin=false: worst 3.444e-7 of max|ref| over every output (bound 1e-4)
+mirror published corpus L1 (B=2 H=3 T=1 D=8): worst 1.818e-7 of max|ref| over every output (bound 1e-4)
+published corpus L1 (B=2 H=3 T=1 D=8): vs corpus golden 5.023e-7 of max (bound 1e-4); float64 seam reference vs golden 4.941e-7
+mirror published B=1 T=63 H=3 Dv=32 s0=true dfin=false: worst 2.513e-7 of max|ref| over every output (bound 1e-4)
+mirror published corpus L63 (B=2 H=3 T=63 D=8): worst 2.547e-7 of max|ref| over every output (bound 1e-4)
+published corpus L63 (B=2 H=3 T=63 D=8): vs corpus golden 7.602e-7 of max (bound 1e-4); float64 seam reference vs golden 5.168e-7
+mirror published B=1 T=64 H=3 Dv=32 s0=false dfin=true: worst 2.105e-7 of max|ref| over every output (bound 1e-4)
+mirror published B=2 T=63 H=3 Dv=32 s0=true dfin=false: worst 1.823e-7 of max|ref| over every output (bound 1e-4)
+mirror published B=2 T=63 H=3 Dv=32 s0=true dfin=false: worst 1.823e-7 of max|ref| over every output (bound 1e-4)
+mirror published corpus L64 (B=2 H=3 T=64 D=8): worst 1.775e-7 of max|ref| over every output (bound 1e-4)
+published corpus L64 (B=2 H=3 T=64 D=8): vs corpus golden 5.347e-7 of max (bound 1e-4); float64 seam reference vs golden 5.022e-7
+mirror o vs published reference 1.272e-7, vs repo rule 3.874e-2
+test published_mirror_is_outside_the_bound_from_the_repo_rule ... ok
+mirror published B=1 T=65 H=3 Dv=32 s0=true dfin=true: worst 1.996e-7 of max|ref| over every output (bound 1e-4)
+mirror published B=2 T=64 H=3 Dv=32 s0=false dfin=true: worst 2.412e-7 of max|ref| over every output (bound 1e-4)
+mirror published B=2 T=64 H=3 Dv=32 s0=false dfin=true: worst 2.412e-7 of max|ref| over every output (bound 1e-4)
+mirror published corpus L64_gqa_kv2 (B=2 H=6 T=64 D=8): worst 2.078e-7 of max|ref| over every output (bound 1e-4)
+published corpus L64_gqa_kv2 (B=2 H=6 T=64 D=8): vs corpus golden 6.763e-7 of max (bound 1e-4); float64 seam reference vs golden 5.973e-7
+mirror published varlen [130, 1, 65, 64, 63] H=2 Dv=48 s0=true dfin=true: worst 2.193e-7 of max|ref| over every output (bound 1e-4)
+test published_mirror_varlen_batch_matches_per_sequence_references ... ok
+mirror published B=1 T=130 H=3 Dv=32 s0=true dfin=true: worst 1.505e-7 of max|ref| over every output (bound 1e-4)
+test published_mirror_matches_the_f64_reference_across_chunk_edges_b1 ... ok
+mirror published corpus L65 (B=2 H=3 T=65 D=8): worst 2.410e-7 of max|ref| over every output (bound 1e-4)
+published corpus L65 (B=2 H=3 T=65 D=8): vs corpus golden 6.556e-7 of max (bound 1e-4); float64 seam reference vs golden 5.092e-7
+mirror published B=2 T=65 H=3 Dv=32 s0=true dfin=true: worst 2.506e-7 of max|ref| over every output (bound 1e-4)
+mirror published B=2 T=65 H=3 Dv=32 s0=true dfin=true: worst 2.506e-7 of max|ref| over every output (bound 1e-4)
+mirror published corpus L65_tinyalpha (B=2 H=3 T=65 D=8): worst 1.785e-7 of max|ref| over every output (bound 1e-4)
+published corpus L65_tinyalpha (B=2 H=3 T=65 D=8): vs corpus golden 6.036e-7 of max (bound 1e-4); float64 seam reference vs golden 4.513e-7
+mirror published corpus L127 (B=2 H=3 T=127 D=8): worst 2.710e-7 of max|ref| over every output (bound 1e-4)
+published corpus L127 (B=2 H=3 T=127 D=8): vs corpus golden 5.741e-7 of max (bound 1e-4); float64 seam reference vs golden 5.629e-7
+mirror published B=2 T=130 H=3 Dv=32 s0=true dfin=true: worst 1.942e-7 of max|ref| over every output (bound 1e-4)
+test published_mirror_matches_the_f64_reference_across_chunk_edges_b2 ... ok
+mirror published B=2 T=130 H=3 Dv=32 s0=true dfin=true: worst 1.942e-7 of max|ref| over every output (bound 1e-4)
+mirror published corpus L127c16 (B=2 H=3 T=127 D=8): worst 2.130e-7 of max|ref| over every output (bound 1e-4)
+published corpus L127c16 (B=2 H=3 T=127 D=8): vs corpus golden 5.741e-7 of max (bound 1e-4); float64 seam reference vs golden 5.629e-7
+mirror published corpus L127c64 (B=2 H=3 T=127 D=8): worst 2.130e-7 of max|ref| over every output (bound 1e-4)
+published corpus L127c64 (B=2 H=3 T=127 D=8): vs corpus golden 5.741e-7 of max (bound 1e-4); float64 seam reference vs golden 5.629e-7
+mirror published corpus L129 (B=2 H=3 T=129 D=8): worst 1.719e-7 of max|ref| over every output (bound 1e-4)
+published corpus L129 (B=2 H=3 T=129 D=8): vs corpus golden 5.216e-7 of max (bound 1e-4); float64 seam reference vs golden 4.233e-7
+mirror published varlen [1, 63, 64, 65, 130] H=3 Dv=32 s0=true dfin=true: worst 9.558e-7 of max|ref| over every output (bound 1e-4)
+test published_mirror_matches_the_f64_reference_on_every_smoke_case ... ok
+mirror published corpus L129_gqa_kv3 (B=2 H=6 T=129 D=8): worst 2.437e-7 of max|ref| over every output (bound 1e-4)
+published corpus L129_gqa_kv3 (B=2 H=6 T=129 D=8): vs corpus golden 5.713e-7 of max (bound 1e-4); float64 seam reference vs golden 5.281e-7
+mirror published corpus L1000 (B=1 H=2 T=1000 D=8): worst 2.194e-7 of max|ref| over every output (bound 1e-4)
+published corpus L1000 (B=1 H=2 T=1000 D=8): vs corpus golden 4.913e-7 of max (bound 1e-4); float64 seam reference vs golden 5.483e-7
+mirror published B=1 T=200 H=16 Dv=128 s0=false dfin=false: worst 2.621e-7 of max|ref| over every output (bound 1e-4)
+test published_mirror_matches_the_f64_reference_at_qwen35_2b_heads ... ok
+mirror published corpus L8191 (B=1 H=2 T=8191 D=8): worst 2.350e-7 of max|ref| over every output (bound 1e-4)
+published corpus L8191 (B=1 H=2 T=8191 D=8): vs corpus golden 6.227e-7 of max (bound 1e-4); float64 seam reference vs golden 5.174e-7
+published corpus, 13 cases: worst vs seam reference 2.710e-7, vs golden 7.602e-7, reference-vs-golden offset 5.973e-7
+test published_mirror_matches_the_published_corpus ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.90s
+

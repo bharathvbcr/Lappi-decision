@@ -1,0 +1,87 @@
+== CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=/Users/bharath/qd-campaign/sysroot-aarch64-linux-gnu/link.sh CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS='-C linker-flavor=gcc' cargo test --offline --release --no-run --target aarch64-unknown-linux-gnu --features cuda --manifest-path /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/Cargo.toml --target-dir /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn   (own target dir: the shared one holds the sha-pinned rung0)
+    Finished `release` profile [optimized] target(s) in 9.95s
+  Executable unittests src/lib.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/ojas_qwen35_cuda-f376521f00ab582a)
+  Executable unittests src/bin/rung0.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/rung0-56e5448a0d28eb5b)
+  Executable tests/device_gdn_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published-81ac041bb9f4a1f2)
+  Executable tests/device_gdn_published_mirror.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published_mirror-fcd093ce8b5195bd)
+  Executable tests/device_k0.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_k0-d791291577bf77ca)
+  Executable tests/device_k1.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_k1-d1fb02ac7f92c934)
+  Executable tests/fmt_boundary.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/fmt_boundary-446e36faa87ffed6)
+  Executable tests/reference_adamw.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/reference_adamw-5c6f5dec233a17ee)
+  Executable tests/reference_gdn_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/reference_gdn_published-e7b6c711c01eedef)
+  Executable tests/reference_gdn_published_vs_tessl.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/reference_gdn_published_vs_tessl-ceb123e963c50492)
+  Executable tests/reference_goldens_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/reference_goldens_published-8347dc8b19548ad1)
+  Executable tests/reference_kernels.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/reference_kernels-e8456f30457026db)
+  Executable tests/runtime_refusal.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/runtime_refusal-3a59dcd3071bc3dd)
+exit 0
+== artifacts (2026-10-02T01:16:11Z)
+f4f2a1e3509baf6b899cdac2ef5db52045268ec2bea101b5bddd428e32e8f52d  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published-81ac041bb9f4a1f2
+/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published-81ac041bb9f4a1f2: ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 3.7.0, not stripped
+-rwxr-xr-x@ 1 bharath  staff  10358400 Oct  1 20:14 /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published-81ac041bb9f4a1f2
+  NEEDED       libgcc_s.so.1
+  NEEDED       libm.so.6
+  NEEDED       libc.so.6
+glibc versions referenced:
+GLIBC_2.17 GLIBC_2.18 GLIBC_2.25 GLIBC_2.28 GLIBC_2.29 GLIBC_2.30 GLIBC_2.32 GLIBC_2.33 GLIBC_2.34 GLIBC_2.39 
+GLIBC_2.39 references (weak, from std's process spawn):
+0000000000000000  w   DF *UND*	0000000000000000 (GLIBC_2.39) pidfd_spawnp
+0000000000000000  w   DF *UND*	0000000000000000 (GLIBC_2.39) pidfd_getpid
+d52a3fe228c0ada97d1a3c7f4f270458e3044768d28ab067e2b86df39d84b770  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published_mirror-fcd093ce8b5195bd
+/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published_mirror-fcd093ce8b5195bd: ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 3.7.0, not stripped
+-rwxr-xr-x@ 1 bharath  staff  9446680 Oct  1 20:14 /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published_mirror-fcd093ce8b5195bd
+  NEEDED       libgcc_s.so.1
+  NEEDED       libm.so.6
+  NEEDED       libc.so.6
+glibc versions referenced:
+GLIBC_2.17 GLIBC_2.18 GLIBC_2.25 GLIBC_2.28 GLIBC_2.29 GLIBC_2.30 GLIBC_2.32 GLIBC_2.33 GLIBC_2.34 GLIBC_2.39 
+GLIBC_2.39 references (weak, from std's process spawn):
+0000000000000000  w   DF *UND*	0000000000000000 (GLIBC_2.39) pidfd_spawnp
+0000000000000000  w   DF *UND*	0000000000000000 (GLIBC_2.39) pidfd_getpid
+
+== FINAL rebuild after the rule-9 unit-test renames in src/gdn_host.rs, same command and target dir. These are the artifacts to copy (the live tree includes other lanes' uncommitted files: pin by these file hashes).
+    Finished `release` profile [optimized] target(s) in 4.48s
+  Executable unittests src/lib.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/ojas_qwen35_cuda-f376521f00ab582a)
+  Executable unittests src/bin/rung0.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/rung0-56e5448a0d28eb5b)
+  Executable tests/device_gdn_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published-81ac041bb9f4a1f2)
+  Executable tests/device_gdn_published_mirror.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published_mirror-fcd093ce8b5195bd)
+  Executable tests/device_k0.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_k0-d791291577bf77ca)
+  Executable tests/device_k1.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_k1-d1fb02ac7f92c934)
+  Executable tests/fmt_boundary.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/fmt_boundary-446e36faa87ffed6)
+  Executable tests/reference_adamw.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/reference_adamw-5c6f5dec233a17ee)
+  Executable tests/reference_gdn_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/reference_gdn_published-e7b6c711c01eedef)
+  Executable tests/reference_gdn_published_vs_tessl.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/reference_gdn_published_vs_tessl-ceb123e963c50492)
+  Executable tests/reference_goldens_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/reference_goldens_published-8347dc8b19548ad1)
+  Executable tests/reference_kernels.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/reference_kernels-e8456f30457026db)
+  Executable tests/runtime_refusal.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/runtime_refusal-3a59dcd3071bc3dd)
+exit 0
+14e350269ce8ad804c1d32a4e38956c87ae9fcf8888e4ce72a1d29e54aa613b5  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published-81ac041bb9f4a1f2
+/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published-81ac041bb9f4a1f2: ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 3.7.0, not stripped
+-rwxr-xr-x@ 1 bharath  staff  10358416 Oct  1 20:17 /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published-81ac041bb9f4a1f2
+  NEEDED       libgcc_s.so.1
+  NEEDED       libm.so.6
+  NEEDED       libc.so.6
+glibc versions referenced:
+GLIBC_2.17 GLIBC_2.18 GLIBC_2.25 GLIBC_2.28 GLIBC_2.29 GLIBC_2.30 GLIBC_2.32 GLIBC_2.33 GLIBC_2.34 GLIBC_2.39 
+0000000000000000  w   DF *UND*	0000000000000000 (GLIBC_2.39) pidfd_spawnp
+0000000000000000  w   DF *UND*	0000000000000000 (GLIBC_2.39) pidfd_getpid
+c0e0bb4ce9cde9d9ebab98002f99ce91f4ecc96f68a5932c7a4d23d7d751d213  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published_mirror-fcd093ce8b5195bd
+/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published_mirror-fcd093ce8b5195bd: ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 3.7.0, not stripped
+-rwxr-xr-x@ 1 bharath  staff  9446680 Oct  1 20:17 /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published_mirror-fcd093ce8b5195bd
+  NEEDED       libgcc_s.so.1
+  NEEDED       libm.so.6
+  NEEDED       libc.so.6
+glibc versions referenced:
+GLIBC_2.17 GLIBC_2.18 GLIBC_2.25 GLIBC_2.28 GLIBC_2.29 GLIBC_2.30 GLIBC_2.32 GLIBC_2.33 GLIBC_2.34 GLIBC_2.39 
+0000000000000000  w   DF *UND*	0000000000000000 (GLIBC_2.39) pidfd_spawnp
+0000000000000000  w   DF *UND*	0000000000000000 (GLIBC_2.39) pidfd_getpid
+== source hashes at build time
+2400fb8c9df01c1c22d0dc01eff83dc064ceb955f2bc540a0c75ee67ad392d5e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gdn.rs
+ed89e4ffecda85258c83b19e9411d5d692874639a0859dfc2357c3b4f46d065b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gdn_host.rs
+0829fa1718b2c7070d39e632af6f2e90b3312a185e19c46fb125805991d95e04  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gdn_kernels.rs
+2d4d0977d26683673d1902ec6a633e90f263b49f0e672c1f488ef1b814e4d6f3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gdn_plan.rs
+b01f2ecf74a01faa92b45c86f0ec67d1cd8b0dca901a476b3b31b71a7c1a851a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gdn_smoke.rs
+65bf611644f5f37e581d726564ac3eb5c3920f1430c26ba9d7249507fe53bd0a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_gdn_published.rs
+727b88ef05b2ba09f693a1fc3d7c02d586d61bfdfc5a13a5125ebb417f83e6b0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_gdn_published_mirror.rs
+86a4c6754305beaa2e781f698cbfee38be968c8f9551807a00518e10ebf8895e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_gdn_published_common/mod.rs
+21edeca7d5369ad1d26b1301ee2a181c2d5cab3c96dfaaa15e42f0169a549547  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k8_act.rs
+d43e60d173db02b37a8c9003a8be4b0c8398529da04165a8f6927171655759d3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/lib.rs

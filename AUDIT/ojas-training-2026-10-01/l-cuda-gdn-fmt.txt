@@ -1,0 +1,55 @@
+== 2026-10-02T01:15:25Z rustfmt --check --edition 2021 on L-cuda-gdn src files
+exit 0
+== cargo fmt --check (whole crate; allowed by L-cuda-M1 after the tessl include moved in-crate)
+Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/npy.rs:222:
+ 
+     #[test]
+     fn reads_f64_f32_and_i64_in_c_order() {
+-        let p: Vec<u8> = [1.5f64, -2.0, 0.25].iter().flat_map(|x| x.to_le_bytes()).collect();
++        let p: Vec<u8> = [1.5f64, -2.0, 0.25]
++            .iter()
++            .flat_map(|x| x.to_le_bytes())
++            .collect();
+         let a = parse(&image("<f8", "False", "(3,)", &p)).unwrap();
+         assert_eq!(a.shape, vec![3]);
+         assert_eq!(a.f64s().unwrap(), &[1.5, -2.0, 0.25]);
+Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/npy.rs:229:
+-        let p: Vec<u8> = [1.0f32, 2.0, 3.0, 4.0].iter().flat_map(|x| x.to_le_bytes()).collect();
++        let p: Vec<u8> = [1.0f32, 2.0, 3.0, 4.0]
++            .iter()
++            .flat_map(|x| x.to_le_bytes())
++            .collect();
+         let b = parse(&image("<f4", "False", "(2, 2)", &p)).unwrap();
+         assert_eq!((b.shape.clone(), b.numel()), (vec![2, 2], 4));
+         assert_eq!(b.to_f64().unwrap(), vec![1.0, 2.0, 3.0, 4.0]);
+Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/npy.rs:241:
+     #[test]
+     fn refuses_what_it_does_not_read() {
+         let p = 1.0f64.to_le_bytes();
+-        assert!(parse(&image("<f8", "True", "(1,)", &p)).is_err(), "fortran order");
+-        assert!(parse(&image(">f8", "False", "(1,)", &p)).is_err(), "big-endian");
+-        assert!(parse(&image("<f8", "False", "(2,)", &p)).is_err(), "short payload");
++        assert!(
++            parse(&image("<f8", "True", "(1,)", &p)).is_err(),
++            "fortran order"
++        );
++        assert!(
++            parse(&image(">f8", "False", "(1,)", &p)).is_err(),
++            "big-endian"
++        );
++        assert!(
++            parse(&image("<f8", "False", "(2,)", &p)).is_err(),
++            "short payload"
++        );
+         assert!(parse(b"\x93NUMPX\x01\x00\x00\x00").is_err(), "magic");
+-        assert!(parse(b"\x93NUMPY\x01\x00\xff\x00{").is_err(), "header past the end");
++        assert!(
++            parse(b"\x93NUMPY\x01\x00\xff\x00{").is_err(),
++            "header past the end"
++        );
+     }
+ }
+ 
+exit 1
+== rustfmt --check --edition 2021 on scratch copies of tests/device_gdn_published.rs, tests/device_gdn_published_mirror.rs, tests/device_gdn_published_common/mod.rs (reference.rs stubbed so rustfmt cannot reach L-cuda-oracle's tests/reference/**)
+exit 0
