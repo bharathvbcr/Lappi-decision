@@ -21,6 +21,42 @@
 //! (`docs/promotion-decisions.json`) states it, with the record's sha256, and the questions that
 //! record still holds open.
 //!
+//! # Excluded rows (`--exclude-rows FILE`)
+//!
+//! This is Fable's Q6 re-score (`AUDIT/idle-gpu-queue-2026-10-02/fable-j6a-replay.md`). F
+//! gold-trains MMLU/CSQA rows that overlap its own val by 8-gram containment. E_val is the set of
+//! val rows some train row hits. The flag gives three views of the same verdicts, each with its
+//! own `n`:
+//! * **full**: every row, unchanged;
+//! * **excluded**: the rows FILE does not name;
+//! * **only**: the rows FILE names.
+//!
+//! The views are given per affected family (a family FILE names a row of) and pooled over every
+//! family, because the gates pool. Each view has top-1, permutation agreement, in-distribution
+//! abstention, ECE and the slot diagnostics for every slot shape, so CSQA's five-option slot
+//! counts too. The last option's deviation (row `noul_row - 1`) is also stated alone.
+//!
+//! The views call the owners G1-G3 call. The `full` view of a family is G1's and G3's per-family
+//! value, which `tests/gate_report_exclude.rs` checks.
+//!
+//! FILE holds one `row_id#slot_name` key per line. That is the key `tools/replay_decontam.py`'s
+//! `row_texts` gives a val target. A key is matched against each verdict line's
+//! `row_id + "#" + slot_name` and is never split on `#`. Two verdict lines that join to one key
+//! are refused, and so is a blank line, whitespace around a key (a CR included), a key with no
+//! `#`, and a key that appears twice.
+//!
+//! FILE's sha256 is recorded with what it says. An empty FILE is refused unless
+//! `--allow-empty-exclude-rows` is given.
+//!
+//! A key that names no line of a verdict file is refused for that file, and named. Verdict files
+//! hold only the val rows that were decoded, so an undecoded val row's key refuses too.
+//! `--allow-absent-exclude-rows` records such keys instead: their count, the sorted list and its
+//! sha256, per eval row. It cannot tell an undecoded val row from a mistyped key, because the
+//! verdicts are all it reads. That check belongs to whoever runs it, against the val manifest. A
+//! FILE that names no line at all is refused even then.
+//!
+//! Without the flag the report is byte for byte what it was before the flag existed.
+//!
 //! # Report-only
 //!
 //! Nothing here is a gate, moves a threshold, or changes a population (CLAUDE.md rule 2). The
@@ -78,6 +114,14 @@ const MAX_LEDGER_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_DECISIONS_BYTES: u64 = 1 << 20;
 /// More files than this of one kind is not one report.
 const MAX_FILES: usize = 16;
+/// An `--exclude-rows` file larger than this names more rows than a val set holds.
+const MAX_EXCLUDE_BYTES: u64 = 16 * 1024 * 1024;
+/// How many keys a refusal spells out; the count is always complete.
+const MAX_KEYS_SHOWN: usize = 20;
+/// What the excluded-row views are, wherever they are reported.
+const EXCLUDED_NOTE: &str = "report-only re-score (Fable Q6): full = every row, excluded = \
+     the rows --exclude-rows does not name, only = the rows it names; no value is a verdict and \
+     no gate or threshold changes (CLAUDE.md rule 2)";
 /// `eval_harness.DEFAULT_ENTROPY_FLOOR` (nats). Read-only (rule 2): stated, never applied here.
 const ENTROPY_FLOOR: f64 = 0.15;
 /// `eval_harness.DEFAULT_MAX_CLASS_SHARE`. Read-only: stated, never applied here.
@@ -117,6 +161,17 @@ struct Args {
     /// Write the JSON report here; refused if the path exists. The text report goes to stdout.
     #[arg(long = "out-json")]
     out_json: Option<PathBuf>,
+    /// Also report every metric with these val rows held out, and over them alone (Fable Q6).
+    /// One `row_id#slot_name` key per line. Without it the report is unchanged.
+    #[arg(long = "exclude-rows")]
+    exclude_rows: Option<PathBuf>,
+    /// Accept an `--exclude-rows` file that names no row.
+    #[arg(long = "allow-empty-exclude-rows", requires = "exclude_rows")]
+    allow_empty_exclude_rows: bool,
+    /// Record `--exclude-rows` keys that name no line of a verdict file instead of refusing.
+    /// Pass it only after checking they are undecoded val rows: the verdicts cannot say.
+    #[arg(long = "allow-absent-exclude-rows", requires = "exclude_rows")]
+    allow_absent_exclude_rows: bool,
 }
 
 /// The permuted second pass `annotate_second_pass` writes onto an asked choice row.
@@ -131,6 +186,7 @@ struct Second {
 #[derive(Debug, Clone)]
 struct Letter {
     row_id: String,
+    slot_name: String,
     family: Option<String>,
     language: Option<String>,
     kind: SlotKind,
@@ -152,13 +208,38 @@ impl Letter {
     fn shape(&self) -> String {
         format!("{}.k{}", self.kind.as_str(), self.rows - RESERVED_NOUL_ROWS)
     }
+
+    /// `row_id#slot_name`: the key an `--exclude-rows` file names this line by.
+    fn key(&self) -> String {
+        format!("{}#{}", self.row_id, self.slot_name)
+    }
 }
 
-/// One span verdict line: only what accuracy reads.
+/// One span verdict line: what accuracy reads, and its key.
 #[derive(Debug, Clone)]
 struct SpanLine {
+    row_id: String,
+    slot_name: String,
     family: Option<String>,
     correct: bool,
+}
+
+impl SpanLine {
+    /// `row_id#slot_name`, as [`Letter::key`].
+    fn key(&self) -> String {
+        format!("{}#{}", self.row_id, self.slot_name)
+    }
+}
+
+/// An `--exclude-rows` file: its keys in file order, and what was allowed of it.
+#[derive(Debug)]
+struct Exclusion {
+    path: String,
+    sha256: String,
+    keys: Vec<String>,
+    set: BTreeSet<String>,
+    allow_empty: bool,
+    allow_absent: bool,
 }
 
 /// One verdict file: one eval row's val verdicts.
@@ -386,6 +467,7 @@ fn letter_line(line: &Map<String, Value>, kind: SlotKind, at: &str) -> Result<Le
     let (probs, argmax, confidence, entropy) = distribution(&logits);
     Ok(Letter {
         row_id: str_field(line, "row_id", at)?.to_string(),
+        slot_name: str_field(line, "slot_name", at)?.to_string(),
         family: label_field(line, "family_id", at)?,
         language: label_field(line, "language", at)?,
         kind,
@@ -445,6 +527,8 @@ fn read_verdicts(path: &Path) -> Result<VerdictFile> {
                 .push(letter_line(&line, SlotKind::Choice, &at)?),
             "score" => file.letters.push(letter_line(&line, SlotKind::Score, &at)?),
             "span" => file.spans.push(SpanLine {
+                row_id: row_id.to_string(),
+                slot_name: slot_name.to_string(),
                 family: label_field(&line, "family_id", &at)?,
                 correct: bool_field(&line, "correct", &at)?,
             }),
@@ -661,7 +745,9 @@ fn head_value(rows: &[&Letter]) -> Value {
 
 /// The runtime's choice rule, minus the calibrated margin (`choice_rule_abstentions`), keyed by
 /// `row_id` with the same last-write-wins as the Python dict.
-fn in_distribution(letters: &[Letter]) -> BTreeMap<String, (bool, Option<String>)> {
+fn in_distribution<'a>(
+    letters: impl IntoIterator<Item = &'a Letter>,
+) -> BTreeMap<String, (bool, Option<String>)> {
     let mut out: BTreeMap<String, (bool, Option<String>)> = BTreeMap::new();
     for l in letters {
         if !matches!(l.kind, SlotKind::Choice) || l.expected_abstain {
@@ -1379,6 +1465,310 @@ fn report_row(file: &VerdictFile, row: &EvalRow, suite: Option<&Vec<SuiteLine>>)
     }))
 }
 
+/// Read an `--exclude-rows` file: one `row_id#slot_name` key per line and nothing else, so the
+/// sha256 of its bytes names exactly the rows it holds out.
+fn read_exclusion(path: &Path, allow_empty: bool, allow_absent: bool) -> Result<Exclusion> {
+    let shown = path.display().to_string();
+    let (bytes, sha256) = read_bounded(path, MAX_EXCLUDE_BYTES)?;
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|e| format!("--exclude-rows {shown}: not UTF-8 ({e})"))?;
+    let mut keys: Vec<String> = Vec::new();
+    let mut line_of: BTreeMap<&str, usize> = BTreeMap::new();
+    if !text.is_empty() {
+        let body = text.strip_suffix('\n').unwrap_or(text);
+        for (i, key) in body.split('\n').enumerate() {
+            let at = format!("--exclude-rows {shown} line {}", i + 1);
+            ensure!(
+                !key.is_empty(),
+                "{at} is blank: the file is one row_id#slot_name key per line"
+            );
+            ensure!(
+                key.trim() == key,
+                "{at}: {key:?} carries leading or trailing whitespace (a CR from CRLF line ends \
+                 counts); keys are matched byte for byte"
+            );
+            ensure!(
+                key.contains('#'),
+                "{at}: {key:?} has no '#'; a key is row_id#slot_name"
+            );
+            if let Some(before) = line_of.insert(key, i + 1) {
+                return Err(format!(
+                    "{at}: {key:?} appears twice (lines {before} and {})",
+                    i + 1
+                ));
+            }
+            keys.push(key.to_string());
+        }
+    }
+    ensure!(
+        !keys.is_empty() || allow_empty,
+        "--exclude-rows {shown} names no row; pass --allow-empty-exclude-rows to report with \
+         nothing held out"
+    );
+    Ok(Exclusion {
+        path: shown,
+        sha256,
+        set: keys.iter().cloned().collect(),
+        keys,
+        allow_empty,
+        allow_absent,
+    })
+}
+
+/// The last option of one slot shape (row `noul_row - 1`): G3's marginals and deviations for
+/// that row, read off `stats`, which is [`slot_stats`] of `rows`.
+fn last_option(rows: &[&Letter], stats: &Value) -> Value {
+    let Some(row) = rows.first().and_then(|l| l.noul_row.checked_sub(1)) else {
+        return not_run("no row of this shape in this view");
+    };
+    let class = &stats["classes"][row];
+    json!({
+        "row": row,
+        "label": format!("option {row}"),
+        "gold_share": class["gold"]["share"].clone(),
+        "predicted_share": class["predicted"]["share"].clone(),
+        "predicted": class["predicted"]["deviation_sigma"].clone(),
+        "mean_probability": class["mean_probability"]["deviation_sigma"].clone(),
+    })
+}
+
+/// One view of some verdict lines. `kinds` and `shapes` come from the view's whole population,
+/// so all three views carry the same keys and an empty part says `not_run`.
+fn view(
+    letters: &[&Letter],
+    spans: &[&SpanLine],
+    kinds: &[&str],
+    shapes: &BTreeSet<String>,
+    asked_any: bool,
+) -> Value {
+    let mut accuracy = Map::new();
+    for kind in kinds {
+        let (k, n) = if *kind == "span" {
+            (spans.iter().filter(|s| s.correct).count(), spans.len())
+        } else {
+            let rows: Vec<&&Letter> = letters
+                .iter()
+                .filter(|l| l.kind.as_str() == *kind)
+                .collect();
+            (rows.iter().filter(|l| l.correct).count(), rows.len())
+        };
+        let value = if n == 0 {
+            not_run(format!("no {kind} row in this view"))
+        } else {
+            share(
+                k,
+                n,
+                format!("{kind} rows decoded to the gold (val_top1.{kind})"),
+            )
+        };
+        accuracy.insert((*kind).to_string(), value);
+    }
+    let asked: Vec<&Letter> = letters
+        .iter()
+        .copied()
+        .filter(|l| matches!(l.kind, SlotKind::Choice) && l.second.is_some())
+        .collect();
+    let permutation = if !asked_any {
+        not_run("these verdicts carry no second pass")
+    } else if asked.is_empty() {
+        not_run("no choice row in this view: the gate reads choice rows only")
+    } else {
+        let agree = asked
+            .iter()
+            .filter(|l| l.second.as_ref().is_some_and(|s| s.agreed))
+            .count();
+        share(
+            agree,
+            asked.len(),
+            "asked choice rows that agreed with themselves across the derangement",
+        )
+    };
+    let indist = in_distribution(letters.iter().copied());
+    let abstention = if !asked_any {
+        not_run(
+            "the runtime rule's permuted half needs the second pass, which these verdicts do not \
+             carry",
+        )
+    } else if indist.is_empty() {
+        not_run("no choice row of this view is in the in-distribution bound")
+    } else {
+        share(
+            indist.values().filter(|(a, _)| *a).count(),
+            indist.len(),
+            "choice rows, gold not noul, the runtime rule would abstain on",
+        )
+    };
+    let (mut ece, mut slots, mut last) = (Map::new(), Map::new(), Map::new());
+    for shape in shapes {
+        let rows: Vec<&Letter> = letters
+            .iter()
+            .copied()
+            .filter(|l| l.shape() == *shape)
+            .collect();
+        let state = match ece_of(&rows) {
+            Ok(state) => ece_value(&state, "one slot shape in this view"),
+            Err(e) => not_run(e),
+        };
+        ece.insert(shape.clone(), state);
+        let stats = slot_stats(&rows);
+        last.insert(shape.clone(), last_option(&rows, &stats));
+        slots.insert(shape.clone(), stats);
+    }
+    json!({
+        "n": letters.len() + spans.len(),
+        "letter_rows": letters.len(),
+        "span_rows": spans.len(),
+        "accuracy": accuracy,
+        "permutation_consistency": permutation,
+        "ood_abstain_in_distribution": abstention,
+        "ece": ece,
+        "slots": slots,
+        "last_option": last,
+    })
+}
+
+/// `full`, `excluded` and `only` over one population of verdict lines.
+fn three_views(
+    letters: &[&Letter],
+    spans: &[&SpanLine],
+    inside: &dyn Fn(&str) -> bool,
+    asked_any: bool,
+) -> Value {
+    let kinds: Vec<&str> = ["choice", "score", "span"]
+        .into_iter()
+        .filter(|k| {
+            if *k == "span" {
+                !spans.is_empty()
+            } else {
+                letters.iter().any(|l| l.kind.as_str() == *k)
+            }
+        })
+        .collect();
+    let shapes: BTreeSet<String> = letters.iter().map(|l| l.shape()).collect();
+    let part = |keep: Option<bool>| {
+        let ls: Vec<&Letter> = letters
+            .iter()
+            .copied()
+            .filter(|l| keep.is_none_or(|k| inside(&l.key()) == k))
+            .collect();
+        let ss: Vec<&SpanLine> = spans
+            .iter()
+            .copied()
+            .filter(|s| keep.is_none_or(|k| inside(&s.key()) == k))
+            .collect();
+        view(&ls, &ss, &kinds, &shapes, asked_any)
+    };
+    json!({"full": part(None), "excluded": part(Some(false)), "only": part(Some(true))})
+}
+
+/// One verdict file's excluded-row views, or a refusal naming the keys it does not hold.
+fn excluded_rows(file: &VerdictFile, ex: &Exclusion) -> Result<Value> {
+    let mut owner: BTreeMap<String, (&str, &str)> = BTreeMap::new();
+    let pairs = file
+        .letters
+        .iter()
+        .map(|l| (l.row_id.as_str(), l.slot_name.as_str()))
+        .chain(
+            file.spans
+                .iter()
+                .map(|s| (s.row_id.as_str(), s.slot_name.as_str())),
+        );
+    for (row_id, slot) in pairs {
+        if let Some((r, s)) = owner.insert(format!("{row_id}#{slot}"), (row_id, slot)) {
+            return Err(format!(
+                "{}: row {r:?} slot {s:?} and row {row_id:?} slot {slot:?} join to one \
+                 row_id#slot_name key, so --exclude-rows cannot tell them apart",
+                file.path
+            ));
+        }
+    }
+    let mut absent: Vec<&str> = ex
+        .keys
+        .iter()
+        .map(String::as_str)
+        .filter(|k| !owner.contains_key(*k))
+        .collect();
+    let matched = ex.keys.len() - absent.len();
+    ensure!(
+        ex.keys.is_empty() || matched > 0,
+        "{}: none of the {} keys in --exclude-rows {} names a verdict line of eval row {}, so \
+         it does not describe this val set",
+        file.path,
+        ex.keys.len(),
+        ex.path,
+        file.eval_row_id
+    );
+    if !absent.is_empty() && !ex.allow_absent {
+        let more = absent.len().saturating_sub(MAX_KEYS_SHOWN);
+        return Err(format!(
+            "{}: {} of {} keys in --exclude-rows {} name no verdict line of eval row {}: {}{}. A \
+             verdict file holds only the val rows that were decoded; once these are checked \
+             against the val manifest to be undecoded val rows, --allow-absent-exclude-rows \
+             records them instead",
+            file.path,
+            absent.len(),
+            ex.keys.len(),
+            ex.path,
+            file.eval_row_id,
+            absent[..absent.len().min(MAX_KEYS_SHOWN)].join(", "),
+            if more > 0 {
+                format!(" and {more} more")
+            } else {
+                String::new()
+            }
+        ));
+    }
+    absent.sort_unstable();
+    let listed: String = absent.iter().map(|k| format!("{k}\n")).collect();
+    let inside = |key: &str| ex.set.contains(key);
+    let letters: Vec<&Letter> = file.letters.iter().collect();
+    let spans: Vec<&SpanLine> = file.spans.iter().collect();
+    let asked_any = file.letters.iter().any(|l| l.second.is_some());
+    let (fams, missing) = families(file);
+    let per_family = if missing > 0 {
+        json!({"family": not_run(format!("{missing} of {} verdict lines {NO_FAMILY_REASON}", file.lines))})
+    } else {
+        let mut m = Map::new();
+        for f in &fams {
+            let mine: Vec<&Letter> = letters
+                .iter()
+                .copied()
+                .filter(|l| l.family.as_deref() == Some(f))
+                .collect();
+            let mine_spans: Vec<&SpanLine> = spans
+                .iter()
+                .copied()
+                .filter(|s| s.family.as_deref() == Some(f))
+                .collect();
+            if mine.iter().any(|l| inside(&l.key())) || mine_spans.iter().any(|s| inside(&s.key()))
+            {
+                m.insert(
+                    f.clone(),
+                    three_views(&mine, &mine_spans, &inside, asked_any),
+                );
+            }
+        }
+        Value::Object(m)
+    };
+    Ok(json!({
+        "note": EXCLUDED_NOTE,
+        "file": ex.path,
+        "file_sha256": ex.sha256,
+        "keys": ex.keys.len(),
+        "keys_matched": matched,
+        "absent": {
+            "count": absent.len(),
+            "keys": absent,
+            "sha256": hex(&Sha256::digest(listed.as_bytes())),
+            "note": "keys naming no verdict line of this eval row, sorted bytewise; the sha256 is \
+                     of them one per line, LF-terminated (what LC_ALL=C sort writes). Recorded, \
+                     not held out: a row with no verdict line moves no number",
+        },
+        "per_family": per_family,
+        "pooled": three_views(&letters, &spans, &inside, asked_any),
+    }))
+}
+
 fn fmt_tri(v: &Value) -> String {
     match v.get("state").and_then(Value::as_str) {
         Some("ran") => {
@@ -1510,8 +1900,85 @@ fn render_text(report: &Value) -> String {
                 render_slot(&mut out, &format!("{shape} {fam}"), stats);
             }
         }
+        if let Some(ex) = row.get("excluded_rows") {
+            render_excluded(&mut out, ex);
+        }
     }
     out
+}
+
+/// The excluded-row views: one line per number, the three views side by side.
+fn render_excluded(out: &mut String, ex: &Value) {
+    out.push_str(&format!(
+        "\nEXCLUDED ROWS -- {}\n  --exclude-rows {} sha256 {}: {} keys, {} name a verdict line of \
+         this row, {} absent\n",
+        ex["note"].as_str().unwrap_or(""),
+        ex["file"].as_str().unwrap_or("?"),
+        ex["file_sha256"].as_str().unwrap_or("?"),
+        ex["keys"],
+        ex["keys_matched"],
+        ex["absent"]["count"],
+    ));
+    let absent: Vec<&str> = ex["absent"]["keys"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    if !absent.is_empty() {
+        out.push_str(&format!(
+            "  absent keys, recorded not held out (sha256 {}): {}\n",
+            ex["absent"]["sha256"].as_str().unwrap_or("?"),
+            absent.join(", ")
+        ));
+    }
+    let mut scopes = vec![("pooled, every family".to_string(), &ex["pooled"])];
+    for (fam, views) in ex["per_family"].as_object().into_iter().flatten() {
+        scopes.push((format!("family {fam}"), views));
+    }
+    for (label, views) in scopes {
+        if views.get("state").is_some() {
+            out.push_str(&format!("  {label}: {}\n", fmt_tri(views)));
+            continue;
+        }
+        out.push_str(&format!("  {label}\n"));
+        let line = |out: &mut String, name: &str, pick: &dyn Fn(&Value) -> String| {
+            let cols: Vec<String> = ["full", "excluded", "only"]
+                .iter()
+                .map(|v| format!("{v} {}", pick(&views[*v])))
+                .collect();
+            out.push_str(&format!("    {name:<36} {}\n", cols.join(" | ")));
+        };
+        line(out, "n", &|v| v["n"].to_string());
+        for kind in views["full"]["accuracy"].as_object().into_iter().flatten() {
+            let kind = kind.0;
+            line(out, &format!("top-1 {kind}"), &|v| {
+                fmt_tri(&v["accuracy"][kind])
+            });
+        }
+        line(out, "permutation agreement", &|v| {
+            fmt_tri(&v["permutation_consistency"])
+        });
+        line(out, "in-distribution abstention", &|v| {
+            fmt_tri(&v["ood_abstain_in_distribution"])
+        });
+        for shape in views["full"]["ece"].as_object().into_iter().flatten() {
+            let shape = shape.0;
+            line(out, &format!("ece {shape}"), &|v| fmt_tri(&v["ece"][shape]));
+            line(
+                out,
+                &format!("last option {shape}, predicted sigma"),
+                &|v| {
+                    let lo = &v["last_option"][shape];
+                    if lo.get("state").is_some() {
+                        fmt_tri(lo)
+                    } else {
+                        fmt_tri(&lo["predicted"])
+                    }
+                },
+            );
+        }
+    }
 }
 
 fn render_recomputed(out: &mut String, v: &Value, indent: &str) {
@@ -1616,6 +2083,14 @@ fn run(args: &Args) -> Result<Value> {
     if let Some(out) = &args.out_json {
         ensure!(!out.exists(), "--out-json {} already exists", out.display());
     }
+    let exclusion = match &args.exclude_rows {
+        Some(path) => Some(read_exclusion(
+            path,
+            args.allow_empty_exclude_rows,
+            args.allow_absent_exclude_rows,
+        )?),
+        None => None,
+    };
     let (population, open) = read_decisions(&args.decisions)?;
     let mut ledgers = Vec::new();
     for path in &args.eval_ledger {
@@ -1634,16 +2109,34 @@ fn run(args: &Args) -> Result<Value> {
             file.eval_row_id
         );
         let row = find_eval_row(&ledgers, &file.eval_row_id)?;
-        rows.push(report_row(&file, &row, suite.get(&file.eval_row_id))?);
+        let mut reported = report_row(&file, &row, suite.get(&file.eval_row_id))?;
+        if let Some(ex) = &exclusion {
+            reported["excluded_rows"] = excluded_rows(&file, ex)?;
+        }
+        rows.push(reported);
     }
-    Ok(json!({
+    let mut report = json!({
         "tool": "qd-gate-report",
         "report_only": "nothing here is a gate, moves a threshold or changes a population (CLAUDE.md rule 2)",
         "promotion_population": population,
         "open_human_decisions": open,
         "suite_verdicts": suite_files,
         "eval_rows": rows,
-    }))
+    });
+    if let Some(ex) = &exclusion {
+        report["exclude_rows"] = json!({
+            "path": ex.path,
+            "sha256": ex.sha256,
+            "keys": ex.keys.len(),
+            "allow_empty": ex.allow_empty,
+            "allow_absent": ex.allow_absent,
+            "form": "one row_id#slot_name key per line, matched byte for byte against each verdict \
+                     line's row_id + '#' + slot_name (the key tools/replay_decontam.py's row_texts \
+                     gives a val target)",
+            "note": EXCLUDED_NOTE,
+        });
+    }
+    Ok(report)
 }
 
 fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -1686,6 +2179,7 @@ mod tests {
         let (probs, argmax, confidence, entropy) = distribution(logits);
         Letter {
             row_id: format!("r{gold}{}", logits.len()),
+            slot_name: "answer".to_string(),
             family: Some(family.to_string()),
             language: None,
             kind: SlotKind::Choice,

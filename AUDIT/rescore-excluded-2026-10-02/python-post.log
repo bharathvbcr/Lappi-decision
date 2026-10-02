@@ -1,0 +1,26 @@
+............................F.....................                       [100%]
+=================================== FAILURES ===================================
+_________ test_every_tool_that_hashes_a_recipe_is_found_by_this_check __________
+
+    def test_every_tool_that_hashes_a_recipe_is_found_by_this_check() -> None:
+        """Scope first, and asserted, because everything below is vacuous without it.
+    
+        Six tools produce a `recipe_hash`. A seventh that this stopped finding would read
+        exactly like a repository with six.
+        """
+        found = _recipe_hash_spellings()
+>       assert set(found) == set(_SPELLINGS), (
+            f"tools hashing a recipe: found {sorted(found)}, pinned {sorted(_SPELLINGS)}. A "
+            "tool that appeared needs a spelling entry; one that vanished needs this list "
+            "shortened deliberately"
+        )
+E       AssertionError: tools hashing a recipe: found ['calib_fit_row.py', 'ft_toy_run.py', 'gate_report_row.py', 'margin_probe_row.py', 'qd_train_oracle_trainer.py', 'real_ft_run.py', 'real_tokenizer_pipeline.py', 'remap_parity_real.py', 'rung0_linear_control.py', 'rung0_real_run.py', 'rung0_toy_run.py'], pinned ['calib_fit_row.py', 'ft_toy_run.py', 'gate_report_row.py', 'margin_probe_row.py', 'real_ft_run.py', 'real_tokenizer_pipeline.py', 'remap_parity_real.py', 'rung0_linear_control.py', 'rung0_real_run.py', 'rung0_toy_run.py']. A tool that appeared needs a spelling entry; one that vanished needs this list shortened deliberately
+E       assert {'calib_fit_r..._run.py', ...} == {'calib_fit_r...line.py', ...}
+E         
+E         Extra items in the left set:
+E         'qd_train_oracle_trainer.py'
+E         Use -v to get more diff
+
+python/tests/test_tool_call_sites.py:772: AssertionError
+=========================== short test summary info ============================
+FAILED python/tests/test_tool_call_sites.py::test_every_tool_that_hashes_a_recipe_is_found_by_this_check

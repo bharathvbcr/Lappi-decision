@@ -1,0 +1,106 @@
+promotion_population: fixture population [families: ["code.defect_class"]] -- status open (fixture-gap-population); source: this test's decisions record
+  record decisions.json sha256 38bdb57a69dffef69c1e5f274c17602fa9ca19bb0012a8dd264299b6f9f3235c
+open human decisions: ece_population (fixture-gap-ece); promotion_population (fixture-gap-population)
+
+=== eval row fixture-eval-row-seed-7 (seed 7) ===
+verdicts verdicts.jsonl sha256 f00744e868c00a8d1947832616f4ab120a9f8afd88175bd23826b6a1a1b715c6: 550 lines (510 letter, 40 span); ledger eval.jsonl
+cross-check: 4 recorded numbers recomputed from the verdicts and equal; 29 not compared
+
+G1 -- pooled = the gate's population and its recorded verdict; per family is report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)
+  ece
+    POOLED [every letter row, per slot shape and per language (the gate as built)] recorded: absent
+      recomputed ece.choice.k4: 0.0495 (350/350)
+      recomputed ece.choice.k5: 0.1124 (160/160)
+    family code.defect_class              choice.k4        0.1248 (150/150)
+    family commonsense.multiple_choice    choice.k5        0.1124 (160/160)
+    family knowledge.multiple_choice      choice.k4        0.0739 (200/200)
+    family qa.answer_span                 not_run: no letter row in this family: ECE reads letter distributions only
+  needle_hunk_recall
+    POOLED [the needle suite's cases] recorded: absent
+        by_depth recomputed 0-4k: 0.8333 (5/6)
+        by_depth recomputed 4k-8k: 0.6667 (4/6)
+        by_depth worst_bucket: 4k-8k
+      note: recomputed from the suite verdicts
+    every family (code.defect_class, commonsense.multiple_choice, knowledge.multiple_choice, qa.answer_span)  not_run: the needle suite's cases are generated haystacks, not val rows, and carry no val family
+  ood_abstain
+    POOLED [OOD suite cases, and every val family's choice rows whose gold is not noul (the gate as built)] recorded: absent
+      recomputed in_distribution: 0.2555 (128/501)
+      note: recomputed from the suite verdicts
+        ood_suite recomputed prose: 1.0000 (6/6)
+        ood_suite recomputed scrambled: 0.8333 (5/6)
+    family code.defect_class              in_distribution  0.2979 (42/141)
+    family code.defect_class              ood_suite        not_run: the OOD suite's cases are generated, carry a category and no val family
+    family commonsense.multiple_choice    in_distribution  0.2687 (43/160)
+    family commonsense.multiple_choice    ood_suite        not_run: the OOD suite's cases are generated, carry a category and no val family
+    family knowledge.multiple_choice      in_distribution  0.2150 (43/200)
+    family knowledge.multiple_choice      ood_suite        not_run: the OOD suite's cases are generated, carry a category and no val family
+    family qa.answer_span                 in_distribution  not_run: no choice row of this family is in the in-distribution bound
+    family qa.answer_span                 ood_suite        not_run: the OOD suite's cases are generated, carry a category and no val family
+  paired_margin_vs_linear
+    POOLED [the linear control's paired rows] recorded: absent
+      recomputed: not_run: a supplement row's gate; not in a verdict file
+    every family (code.defect_class, commonsense.multiple_choice, knowledge.multiple_choice, qa.answer_span)  not_run: measured on a supplement row by tools/ft_linear_control.py, from its own data; a verdict file holds no per-family input for it
+  permutation_consistency
+    POOLED [every val family's choice rows, pooled (the gate as built)] recorded: 0.7784 (397/510) passed
+      recomputed: 0.7784 (397/510)
+    family code.defect_class              0.7533 (113/150)
+    family commonsense.multiple_choice    0.7562 (121/160)
+    family knowledge.multiple_choice      0.8150 (163/200)
+    family qa.answer_span                 not_run: no choice row in this family: the gate reads choice rows only
+  degenerate_head
+    POOLED [every letter row, per slot shape (the control as built)] recorded: absent
+      recomputed degenerate_head.choice.k4: 0.9617 (350/350)
+      recomputed degenerate_head.choice.k5: 1.0907 (160/160)
+    family code.defect_class              choice.k4        1.0184 (150/150)
+    family commonsense.multiple_choice    choice.k5        1.0907 (160/160)
+    family knowledge.multiple_choice      choice.k4        0.9192 (200/200)
+    family qa.answer_span                 not_run: no letter row in this family: the control reads letter distributions only
+  privileged_hunk
+    POOLED [not defined] recorded: absent
+      recomputed: not_run: not specified
+    every family (code.defect_class, commonsense.multiple_choice, knowledge.multiple_choice, qa.answer_span)  not_run: not specified: GAP-PRIVILEGED-HUNK-IS-NEARLY-VACUOUS-ON-COMMITPACKFT
+  shuffled_label
+    POOLED [the shuffled-label model's val rows] recorded: absent
+      recomputed: not_run: a supplement row's control; not in a verdict file
+    every family (code.defect_class, commonsense.multiple_choice, knowledge.multiple_choice, qa.answer_span)  not_run: measured on a supplement row by real_ft_run.py --shuffled-label, from its own data; a verdict file holds no per-family input for it
+  transfer_gate
+    POOLED [not defined] recorded: absent
+      recomputed: not_run: not specified
+    every family (code.defect_class, commonsense.multiple_choice, knowledge.multiple_choice, qa.answer_span)  not_run: not specified: GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA
+  accuracy (val_top1)
+    POOLED choice 0.6176 (315/510)
+    POOLED score  not_run: the verdicts hold no score row
+    POOLED span   0.6250 (25/40)
+    family code.defect_class              choice           0.6133 (92/150)
+    family commonsense.multiple_choice    choice           0.6312 (101/160)
+    family knowledge.multiple_choice      choice           0.6100 (122/200)
+    family qa.answer_span                 span             0.6250 (25/40)
+
+G2 -- report-only: the ece gate is unchanged and still reads per shape and per language
+    pooled, every letter row      0.0581 (510/510)
+    ece.lang.go                   not_run: ECE needs at least 100 examples to be meaningful; got 75. A binned calibration error over a small sample measures the binning.
+    ece.lang.none                 0.0622 (360/360)
+    ece.lang.python               not_run: ECE needs at least 100 examples to be meaningful; got 75. A binned calibration error over a small sample measures the binning.
+
+G3 -- report-only: the degenerate_head control is unchanged; sigma is the binomial standard error under the gold marginal
+  choice.k4 all families (n=350): mean entropy 0.9617 nats [floor 0.15 stated]; accuracy 0.6114 (214/350); decoded correct 0.6114 (214/350); majority-class rate 0.2657 (93/350); top predicted row 3 at 0.3257 [cap 0.95 stated]
+      row        gold share  predicted share (sigma)        mean prob (sigma)
+      option 0   0.2171      0.2029 (    -0.65)           0.2093 (    -0.36)
+      option 1   0.2457      0.2086 (    -1.61)           0.1949 (    -2.21)
+      option 2   0.2457      0.1829 (    -2.73)           0.1965 (    -2.14)
+      option 3   0.2657      0.3257 (    +2.54)           0.3153 (    +2.10)
+      noul       0.0257      0.0800 (    +6.42)           0.0840 (    +6.89)
+  choice.k4 code.defect_class (n=150): mean entropy 1.0184 nats [floor 0.15 stated]; accuracy 0.6133 (92/150); decoded correct 0.6133 (92/150); majority-class rate 0.2600 (39/150); top predicted row 1 at 0.2867 [cap 0.95 stated]
+      row        gold share  predicted share (sigma)        mean prob (sigma)
+      option 0   0.2600      0.2400 (    -0.56)           0.2455 (    -0.40)
+      option 1   0.2400      0.2867 (    +1.34)           0.2259 (    -0.40)
+      option 2   0.2000      0.1800 (    -0.61)           0.1927 (    -0.22)
+      option 3   0.2400      0.1800 (    -1.72)           0.2245 (    -0.45)
+      noul       0.0600      0.1133 (    +2.75)           0.1114 (    +2.65)
+  choice.k4 knowledge.multiple_choice (n=200): mean entropy 0.9192 nats [floor 0.15 stated]; accuracy 0.6100 (122/200); decoded correct 0.6100 (122/200); majority-class rate 0.2850 (57/200); top predicted row 3 at 0.4350 [cap 0.95 stated]
+      row        gold share  predicted share (sigma)        mean prob (sigma)
+      option 0   0.1850      0.1750 (    -0.36)           0.1821 (    -0.11)
+      option 1   0.2500      0.1500 (    -3.27)           0.1717 (    -2.56)
+      option 2   0.2800      0.1850 (    -2.99)           0.1992 (    -2.54)
+      option 3   0.2850      0.4350 (    +4.70)           0.3834 (    +3.08)
+      noul       0.0000      0.0550 (undefined)           0.0635 (undefined)

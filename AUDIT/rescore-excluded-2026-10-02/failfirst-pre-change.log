@@ -1,0 +1,143 @@
+   Compiling qd-runtime v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ab8fcc502a43caacc/crates/qd-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.17s
+     Running tests/gate_report_exclude.rs (target/debug/deps/gate_report_exclude-238f77959c9d3d9d)
+
+running 12 tests
+test the_fixture_plants_what_its_doc_says ... ok
+test an_empty_file_is_refused_unless_explicitly_allowed ... FAILED
+test the_full_view_is_the_reports_own_per_family_and_pooled_numbers ... FAILED
+test the_last_option_deviation_is_computed_on_the_excluded_set ... FAILED
+test allowed_absent_keys_are_recorded_with_their_count_list_and_sha256 ... FAILED
+test an_absent_key_in_one_verdict_file_of_two_is_refused_for_that_file ... FAILED
+test a_malformed_file_is_refused ... FAILED
+test the_flag_adds_its_sections_and_changes_nothing_else ... FAILED
+test planted_all_correct_rows_flatter_the_full_view_in_a_known_direction ... FAILED
+test a_key_absent_from_the_verdicts_is_refused_and_named ... FAILED
+test allowing_absent_keys_still_refuses_a_file_none_of_whose_keys_match ... FAILED
+test without_the_flag_the_output_is_the_pre_change_binarys_byte_for_byte ... FAILED
+
+failures:
+
+---- an_empty_file_is_refused_unless_explicitly_allowed stdout ----
+
+thread 'an_empty_file_is_refused_unless_explicitly_allowed' (153211030) panicked at crates/qd-runtime/tests/gate_report_exclude.rs:707:5:
+error: unexpected argument '--exclude-rows' found
+
+Usage: qd-gate-report --verdicts <VERDICTS> --eval-ledger <EVAL_LEDGER> --decisions <DECISIONS> --suite-verdicts <SUITE_VERDICTS> --out-json <OUT_JSON>
+
+For more information, try '--help'.
+
+
+---- the_full_view_is_the_reports_own_per_family_and_pooled_numbers stdout ----
+
+thread 'the_full_view_is_the_reports_own_per_family_and_pooled_numbers' (153211034) panicked at crates/qd-runtime/tests/gate_report_exclude.rs:326:5:
+qd-gate-report refused: error: unexpected argument '--exclude-rows' found
+
+Usage: qd-gate-report --verdicts <VERDICTS> --eval-ledger <EVAL_LEDGER> --decisions <DECISIONS> --suite-verdicts <SUITE_VERDICTS> --out-json <OUT_JSON>
+
+For more information, try '--help'.
+
+
+---- the_last_option_deviation_is_computed_on_the_excluded_set stdout ----
+
+thread 'the_last_option_deviation_is_computed_on_the_excluded_set' (153211035) panicked at crates/qd-runtime/tests/gate_report_exclude.rs:326:5:
+qd-gate-report refused: error: unexpected argument '--exclude-rows' found
+
+Usage: qd-gate-report --verdicts <VERDICTS> --eval-ledger <EVAL_LEDGER> --decisions <DECISIONS> --suite-verdicts <SUITE_VERDICTS> --out-json <OUT_JSON>
+
+For more information, try '--help'.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- allowed_absent_keys_are_recorded_with_their_count_list_and_sha256 stdout ----
+
+thread 'allowed_absent_keys_are_recorded_with_their_count_list_and_sha256' (153211027) panicked at crates/qd-runtime/tests/gate_report_exclude.rs:326:5:
+qd-gate-report refused: error: unexpected argument '--exclude-rows' found
+
+Usage: qd-gate-report --verdicts <VERDICTS> --eval-ledger <EVAL_LEDGER> --decisions <DECISIONS> --suite-verdicts <SUITE_VERDICTS> --out-json <OUT_JSON>
+
+For more information, try '--help'.
+
+
+---- an_absent_key_in_one_verdict_file_of_two_is_refused_for_that_file stdout ----
+
+thread 'an_absent_key_in_one_verdict_file_of_two_is_refused_for_that_file' (153211029) panicked at crates/qd-runtime/tests/gate_report_exclude.rs:644:5:
+error: unexpected argument '--exclude-rows' found
+
+Usage: qd-gate-report --verdicts <VERDICTS> --eval-ledger <EVAL_LEDGER> --decisions <DECISIONS> --suite-verdicts <SUITE_VERDICTS> --out-json <OUT_JSON>
+
+For more information, try '--help'.
+
+
+---- a_malformed_file_is_refused stdout ----
+
+thread 'a_malformed_file_is_refused' (153211026) panicked at crates/qd-runtime/tests/gate_report_exclude.rs:739:9:
+dup: error: unexpected argument '--exclude-rows' found
+
+Usage: qd-gate-report --verdicts <VERDICTS> --eval-ledger <EVAL_LEDGER> --decisions <DECISIONS> --suite-verdicts <SUITE_VERDICTS> --out-json <OUT_JSON>
+
+For more information, try '--help'.
+
+
+---- the_flag_adds_its_sections_and_changes_nothing_else stdout ----
+
+thread 'the_flag_adds_its_sections_and_changes_nothing_else' (153211033) panicked at crates/qd-runtime/tests/gate_report_exclude.rs:326:5:
+qd-gate-report refused: error: unexpected argument '--exclude-rows' found
+
+Usage: qd-gate-report --verdicts <VERDICTS> --eval-ledger <EVAL_LEDGER> --decisions <DECISIONS> --suite-verdicts <SUITE_VERDICTS> --out-json <OUT_JSON>
+
+For more information, try '--help'.
+
+
+---- planted_all_correct_rows_flatter_the_full_view_in_a_known_direction stdout ----
+
+thread 'planted_all_correct_rows_flatter_the_full_view_in_a_known_direction' (153211031) panicked at crates/qd-runtime/tests/gate_report_exclude.rs:326:5:
+qd-gate-report refused: error: unexpected argument '--exclude-rows' found
+
+Usage: qd-gate-report --verdicts <VERDICTS> --eval-ledger <EVAL_LEDGER> --decisions <DECISIONS> --suite-verdicts <SUITE_VERDICTS> --out-json <OUT_JSON>
+
+For more information, try '--help'.
+
+
+---- a_key_absent_from_the_verdicts_is_refused_and_named stdout ----
+
+thread 'a_key_absent_from_the_verdicts_is_refused_and_named' (153211025) panicked at crates/qd-runtime/tests/gate_report_exclude.rs:627:5:
+error: unexpected argument '--exclude-rows' found
+
+Usage: qd-gate-report --verdicts <VERDICTS> --eval-ledger <EVAL_LEDGER> --decisions <DECISIONS> --suite-verdicts <SUITE_VERDICTS> --out-json <OUT_JSON>
+
+For more information, try '--help'.
+
+
+---- allowing_absent_keys_still_refuses_a_file_none_of_whose_keys_match stdout ----
+
+thread 'allowing_absent_keys_still_refuses_a_file_none_of_whose_keys_match' (153211028) panicked at crates/qd-runtime/tests/gate_report_exclude.rs:699:5:
+error: unexpected argument '--exclude-rows' found
+
+Usage: qd-gate-report --verdicts <VERDICTS> --eval-ledger <EVAL_LEDGER> --decisions <DECISIONS> --suite-verdicts <SUITE_VERDICTS> --out-json <OUT_JSON>
+
+For more information, try '--help'.
+
+
+---- without_the_flag_the_output_is_the_pre_change_binarys_byte_for_byte stdout ----
+
+thread 'without_the_flag_the_output_is_the_pre_change_binarys_byte_for_byte' (153211036) panicked at crates/qd-runtime/tests/gate_report_exclude.rs:370:45:
+golden /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ab8fcc502a43caacc/crates/qd-runtime/tests/fixtures/gate_report_exclude/no_flag.report.json: No such file or directory (os error 2)
+
+
+failures:
+    a_key_absent_from_the_verdicts_is_refused_and_named
+    a_malformed_file_is_refused
+    allowed_absent_keys_are_recorded_with_their_count_list_and_sha256
+    allowing_absent_keys_still_refuses_a_file_none_of_whose_keys_match
+    an_absent_key_in_one_verdict_file_of_two_is_refused_for_that_file
+    an_empty_file_is_refused_unless_explicitly_allowed
+    planted_all_correct_rows_flatter_the_full_view_in_a_known_direction
+    the_flag_adds_its_sections_and_changes_nothing_else
+    the_full_view_is_the_reports_own_per_family_and_pooled_numbers
+    the_last_option_deviation_is_computed_on_the_excluded_set
+    without_the_flag_the_output_is_the_pre_change_binarys_byte_for_byte
+
+test result: FAILED. 1 passed; 11 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+error: test failed, to rerun pass `-p qd-runtime --test gate_report_exclude`
