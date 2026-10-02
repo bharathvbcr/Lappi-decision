@@ -992,7 +992,7 @@ class QwenDecisionStep:
         #: flash backend alone -- see :meth:`training_attention`). Scoring always masks.
         self.train_attention_mask = train_attention_mask
         # float32, deliberately, even when the tower is bf16: the head is two [H, H]
-        # projections and two [H] vectors -- 16.8 MB at H=2048, against a 2.8 GB tower --
+        # projections and two [H] vectors -- 33.57 MB at H=2048, against a 2.8 GB tower --
         # and its loss is a softmax over a candidate set that can run to hundreds of lines.
         # Computing that logsumexp with 8 bits of mantissa is where the abstain row stops
         # being a genuine competitor. `accumulate_span` casts `hidden` to match.

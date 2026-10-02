@@ -35,6 +35,18 @@ stored sequence. Its gap to the reference (manifest ``independent_check_fp32``, 
 ``discrimination``) is the floor between two correct torch implementations: the margin rung
 (b)'s bars actually leave a third one, the Rust trainer.
 
+**Amendment 2** (``AUDIT/ojas-training-2026-10-01/fable-rung-b-bars.md``) adds three things:
+
+* **Arm ``fp32_clip150``.** It is F's recipe at ``max_grad_norm = 150``, inside the measured
+  pre-clip range, so both clip branches run. It refuses to finish if either branch is empty in
+  its own trajectory.
+* **The measure in force** (``weights_gap``'s ``amendment2_*``). Every ``span_head.*`` tensor is
+  measured over the span head's largest ``|w|``, and every tower tensor over its own max. The
+  pre-amendment numbers stay beside it.
+* **A kernel-diverse independent floor** (``independent_check_kernel_diverse``). It runs eager
+  attention and the token-by-token recurrent GDN (``torch_recurrent_gated_delta_rule``,
+  published rule), sharing no kernel with the reference.
+
 The tower is tessl's tiny shape family (``tools/qwen35_ref/make_train_fixture.py`` in
 canonical tessl: hidden 64, head_dim 256, GDN key/value heads of 128, grouped KV, tied
 vocabulary of 64), **not** Lappi's head_dim-16 test tower, which tessl's kernels are not
@@ -128,14 +140,25 @@ TOL_LOSS_EARLY: Final[float] = 1e-5  # steps 0-5
 TOL_LOSS_LATE: Final[float] = 1e-4  # to step 20
 #: The fixture budget the lead set (~20 MB).
 MAX_FIXTURE_BYTES: Final[int] = 20 * 1024 * 1024
-ARMS: Final[dict[str, str]] = {"fp32": "fp32", "master_bf16": "bf16"}
+#: Each rung (b) arm: its tower dtype and its clip norm. ``fp32_clip150`` is Amendment 2
+#: (iii)'s second arm: F's recipe with ``max_grad_norm = 150``, inside the measured
+#: pre-clip range (62-438), so the composed step runs both clip branches.
+ARMS: Final[dict[str, tuple[str, float]]] = {
+    "fp32": ("fp32", 1.0),
+    "master_bf16": ("bf16", 1.0),
+    "fp32_clip150": ("fp32", 150.0),
+}
+#: The span head's tensor names in every file this oracle writes.
+SPAN_HEAD_PREFIX: Final[str] = "span_head."
+#: The arms the second process regenerates for the repeat check: the two fp32 ones.
+REPEAT_ARMS: Final[tuple[str, ...]] = ("fp32", "fp32_clip150")
 MODELING: Final[str] = "transformers/models/qwen3_5/modeling_qwen3_5.py"
 
 
 # --- the tiny tower ------------------------------------------------------------------------
 
 
-def tiny_text_config(layers: int) -> Any:
+def tiny_text_config(layers: int, hidden: int = HIDDEN) -> Any:
     """tessl's tiny Qwen3.5 (make_train_fixture.py:48-70): the 2B's layer pattern, three GDN
     layers then full attention, cut to ``layers``; two layers are one of each."""
     from transformers.models.qwen3_5 import Qwen3_5TextConfig
@@ -150,7 +173,7 @@ def tiny_text_config(layers: int) -> Any:
     if "full_attention" not in types:
         raise SystemExit(f"--layers {layers} holds no attention layer; use 2 or at least 4")
     return Qwen3_5TextConfig(
-        hidden_size=HIDDEN,
+        hidden_size=hidden,
         intermediate_size=INTERMEDIATE,
         num_hidden_layers=layers,
         layer_types=types,
@@ -192,17 +215,27 @@ def reinit(model: Any, gen: torch.Generator) -> None:
             p.copy_(p.to(torch.bfloat16).float())
 
 
-def write_snapshot(dirpath: Path, layers: int) -> dict[str, torch.Tensor]:
+def write_snapshot(dirpath: Path, layers: int, hidden: int = HIDDEN) -> dict[str, torch.Tensor]:
     """The tiny tower in the real checkpoint layout, bf16. Returns its tensors by full name."""
     from safetensors.torch import save_file
     from transformers.models.qwen3_5 import Qwen3_5Config, Qwen3_5TextModel
 
-    text = tiny_text_config(layers)
+    text = tiny_text_config(layers, hidden)
     torch.manual_seed(0)
     model = Qwen3_5TextModel(text).float()
     reinit(model, torch.Generator().manual_seed(INIT_SEED))
     dirpath.mkdir(parents=True, exist_ok=True)
-    Qwen3_5Config(text_config=text.to_dict()).save_pretrained(dirpath)
+    # The composite config's own tie_word_embeddings defaults to False in transformers
+    # (configuration_qwen3_5.py, Qwen3_5Config), whatever text_config says. Taken from the text
+    # config, so config.json cannot say "untied" over a tower that is tied by construction
+    # (QwenDecisionStep's logits are against the embedding) and whose numbers are tied-head
+    # numbers. ojas-qwen35's reader refuses a false flag at either level.
+    full = Qwen3_5Config(
+        text_config=text.to_dict(), tie_word_embeddings=bool(text.tie_word_embeddings)
+    )
+    if not (full.tie_word_embeddings and full.text_config.tie_word_embeddings):
+        raise SystemExit("config.json would describe an untied head over a tied tower")
+    full.save_pretrained(dirpath)
     tensors = {
         f"{TEXT_PREFIX}{k}": v.detach().to(torch.bfloat16).contiguous()
         for k, v in model.state_dict().items()
@@ -211,12 +244,12 @@ def write_snapshot(dirpath: Path, layers: int) -> dict[str, torch.Tensor]:
     return tensors
 
 
-def tiny_spec(layers: int, n_params: int) -> ModelSpec:
-    cfg = tiny_text_config(layers)
+def tiny_spec(layers: int, n_params: int, hidden: int = HIDDEN) -> ModelSpec:
+    cfg = tiny_text_config(layers, hidden)
     n_full = sum(1 for t in cfg.layer_types if t == "full_attention")
     return ModelSpec(
         name=f"tiny Qwen3.5 text tower, tessl shape family, {layers} layers (rung b oracle)",
-        hidden_size=HIDDEN,
+        hidden_size=hidden,
         intermediate_size=INTERMEDIATE,
         n_full_attention_layers=n_full,
         n_linear_attention_layers=layers - n_full,
@@ -228,7 +261,7 @@ def tiny_spec(layers: int, n_params: int) -> ModelSpec:
         linear_head_dim=128,
         vocab_size=VOCAB,
         params_total=n_params,
-        params_embedding=VOCAB * HIDDEN,
+        params_embedding=VOCAB * hidden,
         tied_embedding=True,
         recurrent_state_bytes=4,
     )
@@ -605,6 +638,56 @@ class ArmResult:
     seconds: float
 
 
+#: The GDN kernels an arm may run: transformers' chunked form (every reference arm) and its
+#: token-by-token recurrent form (the kernel-diverse independent arm). Both read the
+#: decayed state, the published rule (gdn_seam names the lines).
+GDN_KERNELS: Final[frozenset[str]] = frozenset({"chunk", "recurrent"})
+
+
+def use_recurrent_gdn(model: Any) -> int:
+    """Route every GDN layer's training forward through ``torch_recurrent_gated_delta_rule``
+    instead of the chunked kernel. Returns how many layers were rerouted; refuses none.
+
+    The forward calls ``self.chunk_gated_delta_rule(..., cu_seqlens=...)``
+    (modeling_qwen3_5.py); the recurrent form takes no ``cu_seqlens``, so the adapter refuses
+    a packed call rather than dropping it, and otherwise passes every argument through.
+    """
+    from transformers.models.qwen3_5.modeling_qwen3_5 import torch_recurrent_gated_delta_rule
+
+    def recurrent(
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        g: torch.Tensor,
+        beta: torch.Tensor,
+        initial_state: torch.Tensor | None = None,
+        output_final_state: bool = False,
+        use_qk_l2norm_in_kernel: bool = False,
+        cu_seqlens: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        if cu_seqlens is not None:
+            raise SystemExit("packed sequences reached the recurrent GDN; this oracle runs none")
+        return torch_recurrent_gated_delta_rule(
+            query,
+            key,
+            value,
+            g,
+            beta,
+            initial_state,
+            output_final_state,
+            use_qk_l2norm_in_kernel=use_qk_l2norm_in_kernel,
+        )
+
+    n = 0
+    for module in model.modules():
+        if hasattr(module, "chunk_gated_delta_rule"):
+            module.chunk_gated_delta_rule = recurrent
+            n += 1
+    if n == 0:
+        raise SystemExit("no GDN layer found to reroute to the recurrent kernel")
+    return n
+
+
 def make_step(
     *,
     snapshot: Path,
@@ -621,22 +704,33 @@ def make_step(
     keep_grads: bool = False,
     seqs: Sequence[Sequence_] | None = None,
     independent: bool = False,
+    hidden: int = HIDDEN,
+    attn_implementation: str = "sdpa",
+    gdn: str = "chunk",
 ) -> tuple[Any, RecordingStep]:
     """The tower and the step exactly as ``real_ft_run._real_step`` builds them (gradient
-    checkpointing on, sdpa, the dtype's optimizer spec under the ``master`` recipe), on CPU."""
+    checkpointing on, sdpa, the dtype's optimizer spec under the ``master`` recipe), on CPU.
+
+    ``attn_implementation="eager"`` and ``gdn="recurrent"`` are the kernel-diverse
+    independent arm's only (Amendment 2 (i)'s recommended measurement): every reference arm
+    runs sdpa and the chunked GDN."""
+    if gdn not in GDN_KERNELS:
+        raise SystemExit(f"gdn must be one of {sorted(GDN_KERNELS)}, got {gdn!r}")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", GradientCheckpointingDisabled)
         tower = load_text_tower(
             snapshot,
             gradient_checkpointing=True,
             optimizer=real_ft_run.optimizer_spec(dtype, "master"),
-            attn_implementation="sdpa",
+            attn_implementation=attn_implementation,
             device="cpu",
             dtype=dtype,
             rows=max(len(b["rows"]) for b in plan),
             width=max(b["width"] for b in plan),
-            spec=tiny_spec(layers, _snapshot_params(snapshot)),
+            spec=tiny_spec(layers, _snapshot_params(snapshot), hidden),
         )
+    if gdn == "recurrent":
+        use_recurrent_gdn(tower.model)
     extra: dict[str, Any] = {}
     if independent:
         if seqs is None:
@@ -682,6 +776,8 @@ def run_arm(
     optimizer_edit: OptimizerEdit | None = None,
     lr_edit: LrEdit | None = None,
     independent: bool = False,
+    attn_implementation: str = "sdpa",
+    gdn: str = "chunk",
 ) -> ArmResult:
     from torch.optim.optimizer import _default_to_fused_or_foreach
 
@@ -701,6 +797,8 @@ def run_arm(
         keep_grads=keep_grads,
         seqs=seqs,
         independent=independent,
+        attn_implementation=attn_implementation,
+        gdn=gdn,
     )
     init_span_head = {
         f"span_head.{n}": p.detach().clone() for n, p in step.span_head.named_parameters()
@@ -823,11 +921,24 @@ def weights_gap(a: Mapping[str, torch.Tensor], b: Mapping[str, torch.Tensor]) ->
         for scope in ("all", "tower") if n.startswith(TEXT_PREFIX) else ("all",):
             if gap > worst[scope][0]:
                 worst[scope] = (gap, n)
+    # Amendment 2 (i): every span_head.* tensor over the span head's largest |w|, every tower
+    # tensor over its own max. The pre-amendment numbers above stay, for the record.
+    head = [n for n in b if n.startswith(SPAN_HEAD_PREFIX)]
+    head_scale = max((float(b[n].abs().max()) for n in head), default=0.0)
+    amended = (0.0, "")
+    for n, ref in b.items():
+        scale = head_scale if n.startswith(SPAN_HEAD_PREFIX) else float(ref.abs().max())
+        gap = float((a[n] - ref).abs().max()) / (scale if scale > 0 else 1.0)
+        if gap > amended[0]:
+            amended = (gap, n)
     return {
         "max_rel_to_param_max": worst["all"][0],
         "param": worst["all"][1],
         "tower_max_rel_to_param_max": worst["tower"][0],
         "tower_param": worst["tower"][1],
+        "amendment2_max_rel": amended[0],
+        "amendment2_param": amended[1],
+        "amendment2_span_head_scale": head_scale,
     }
 
 
@@ -1061,6 +1172,33 @@ def gdn_seam() -> dict[str, Any]:
         "softplus(a + dt_bias) and beta = sigmoid(b) given), the same seam tessl's gdn_train runs",
         "core_dtype": "float32 in both arms (q, k, v, beta, g cast to f32 before the recurrence; "
         "the output cast back to the tower dtype)",
+        "kernel_diverse_independent_arm": {
+            "function": f"{mq.__name__}.torch_recurrent_gated_delta_rule",
+            "rule": "published",
+            "why_published": "token by token, the state is decayed before it is read "
+            "(S = S * exp(g_t); kv_mem = S k_t; delta = (v_t - kv_mem) * beta_t): the decayed "
+            "read of AUDIT/gdn-reference-and-contracts.md section 2.2",
+            "lines": {
+                "torch_recurrent_gated_delta_rule": line_of(
+                    "def torch_recurrent_gated_delta_rule("
+                ),
+                "decay_before_read": line_of("last_recurrent_state = last_recurrent_state * g_t"),
+                "kv_mem_read": line_of(
+                    "kv_mem = (last_recurrent_state * k_t.unsqueeze(-1)).sum(dim=-2)",
+                    within="torch_recurrent_gated_delta_rule",
+                ),
+                "fp32_core_cast": line_of(
+                    "x.transpose(1, 2).contiguous().to(torch.float32)"
+                    " for x in (query, key, value, beta, g)",
+                    within="torch_recurrent_gated_delta_rule",
+                ),
+            },
+            "routing": "use_recurrent_gdn (this script): every GDN layer's "
+            "chunk_gated_delta_rule replaced by an adapter over the recurrent form; a packed "
+            "call (cu_seqlens) is refused",
+            "attention": "eager (transformers' eager_attention_forward, the causal mask built by "
+            "the model from attention_mask=None), against the reference's sdpa flash",
+        },
     }
 
 
@@ -1089,9 +1227,24 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     arms: dict[str, ArmResult] = {}
     span_init: dict[str, torch.Tensor] | None = None
     for arm in args.arms:
-        res = run_arm(dtype=ARMS[arm], span_head_init=span_init, keep_grads=arm == "fp32", **common)
+        dtype, clip = ARMS[arm]
+        res = run_arm(
+            dtype=dtype,
+            max_grad_norm=clip,
+            span_head_init=span_init,
+            keep_grads=arm == "fp32",
+            **common,
+        )
         span_init = span_init or res.init_span_head
         arms[arm] = res
+        if arm == "fp32_clip150":
+            active = [r["clip_active"] for r in res.records]
+            if all(active) or not any(active):
+                raise SystemExit(
+                    f"arm {arm}: the clip was {'active' if all(active) else 'inactive'} on "
+                    "every step, so this arm does not run both clip branches -- the one "
+                    "thing Amendment 2 (iii) asks of it"
+                )
         print(
             f"{arm}: {res.seconds:.1f}s, losses {res.losses[0]:.6f} -> {res.losses[-1]:.6f}, "
             f"termination {res.termination}",
@@ -1122,8 +1275,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         (d / "trajectory.json").write_text(json.dumps(trajectory(res, plan, seqs), indent=1) + "\n")
 
     manifest: dict[str, Any] = {
-        "what": "rung (b) torch reference (fable-advice.md Q3 b): the Lappi FT recipe on tessl's "
-        "tiny Qwen3.5 shape family, CPU, fp32 (tight) and master-bf16 (loose) arms "
+        "what": "rung (b) torch reference (fable-advice.md Q3 b, Amendments 1-2): the Lappi FT "
+        "recipe on tessl's tiny Qwen3.5 shape family, CPU, fp32 (tight) and master-bf16 (loose) "
+        "arms, and fp32_clip150 (Amendment 2 (iii): max_grad_norm 150, both clip branches), "
         "from one init and one batch order",
         "rule": "published",
         "generator": {
@@ -1220,13 +1374,15 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     }
     for arm, res in arms.items():
         manifest["arms"][arm] = {
-            "tower_dtype": ARMS[arm],
+            "tower_dtype": ARMS[arm][0],
+            "max_grad_norm": ARMS[arm][1],
             "optimizer": res.optimizer,
             "termination": res.termination,
             "digests": arm_digests(res),
             "trajectory": f"{arm}/trajectory.json",
             "final_weights": f"{arm}/final.safetensors",
             "clip_active_steps": [i for i, r in enumerate(res.records) if r["clip_active"]],
+            "clip_inactive_steps": [i for i, r in enumerate(res.records) if not r["clip_active"]],
         }
     first = next(iter(arms.values()))
     kinds_of = [[seqs[r].kind for r in b["rows"]] for b in plan]
@@ -1258,17 +1414,32 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
 
     if args.independent_check and "fp32" in arms:
         manifest["independent_check_fp32"] = independent_check(common, arms["fp32"])
+        manifest["independent_check_kernel_diverse"] = independent_check(
+            common,
+            arms["fp32"],
+            attn_implementation="eager",
+            gdn="recurrent",
+            label="independent, kernel-diverse",
+        )
+    if args.independent_check and "fp32_clip150" in arms:
+        manifest["independent_check_fp32_clip150"] = independent_check(
+            common,
+            arms["fp32_clip150"],
+            max_grad_norm=ARMS["fp32_clip150"][1],
+            label="independent, clip 150",
+        )
     floor_at_f = manifest.get("independent_check_fp32")
     if args.repeat_check and "fp32" in arms:
-        manifest["repeat_equality_fp32"] = repeat_check(args, arms["fp32"])
+        manifest["repeat_equality_fp32"] = repeat_check(args, arms)
     if args.discrimination_lrs and "fp32" in arms:
         manifest["discrimination"] = discrimination(args, common, arms["fp32"], floor_at_f)
 
     return finish(out, manifest)
 
 
-def repeat_check(args: argparse.Namespace, first: ArmResult) -> dict[str, Any]:
-    """The fp32 arm again, in a separate process, everything regenerated from the seeds."""
+def repeat_check(args: argparse.Namespace, arms: Mapping[str, ArmResult]) -> dict[str, Any]:
+    """The fp32 arms again, in a separate process, everything regenerated from the seeds."""
+    again = [a for a in REPEAT_ARMS if a in arms]
     with tempfile.TemporaryDirectory(prefix="qd-oracle-repeat-") as tmp:
         cmd = [
             sys.executable,
@@ -1276,7 +1447,7 @@ def repeat_check(args: argparse.Namespace, first: ArmResult) -> dict[str, Any]:
             "--out",
             tmp,
             "--arms",
-            "fp32",
+            ",".join(again),
             "--no-repeat-check",
             "--no-independent-check",
             "--discrimination-lrs",
@@ -1299,31 +1470,55 @@ def repeat_check(args: argparse.Namespace, first: ArmResult) -> dict[str, Any]:
         subprocess.run(cmd, check=True)
         second = json.loads((Path(tmp) / "manifest.json").read_text())
         theirs_files = {k: v["sha256"] for k, v in second["files"].items()}
-    mine = arm_digests(first)
-    theirs = second["arms"]["fp32"]["digests"]
     mine_files = {k: sha256_file(args.out / k) for k in sorted(theirs_files)}
+    by_arm: dict[str, Any] = {}
+    for arm in again:
+        mine = arm_digests(arms[arm])
+        theirs = second["arms"][arm]["digests"]
+        by_arm[arm] = {
+            "first": mine,
+            "second": theirs,
+            "differing": sorted(k for k in mine if mine[k] != theirs.get(k)),
+            "equal": mine == theirs,
+        }
     return {
-        "how": "a second process (subprocess of this script, --arms fp32) regenerating the "
-        "snapshot, batches and run from the seeds; same thread count. Compared: the "
-        "value digests below and the bytes of every file both runs wrote",
-        "first": mine,
-        "second": theirs,
+        "how": f"a second process (subprocess of this script, --arms {','.join(again)}) "
+        "regenerating the snapshot, batches and runs from the seeds; same thread count. "
+        "Compared: each arm's value digests and the bytes of every file both runs wrote",
+        "first": by_arm["fp32"]["first"],
+        "second": by_arm["fp32"]["second"],
+        "by_arm": by_arm,
         "files_compared": sorted(theirs_files),
         "files_differing": sorted(k for k in theirs_files if mine_files[k] != theirs_files[k]),
-        "differing": sorted(k for k in mine if mine[k] != theirs.get(k)),
-        "equal": mine == theirs and mine_files == theirs_files,
+        "differing": by_arm["fp32"]["differing"],
+        "equal": all(r["equal"] for r in by_arm.values()) and mine_files == theirs_files,
     }
 
 
-def independent_check(common: Mapping[str, Any], ref: ArmResult) -> dict[str, Any]:
-    """The fp32 arm again through ``IndependentStep``: the same optimizer, clip, schedule and
+def independent_check(
+    common: Mapping[str, Any],
+    ref: ArmResult,
+    *,
+    max_grad_norm: float = 1.0,
+    attn_implementation: str = "sdpa",
+    gdn: str = "chunk",
+    label: str = "independent",
+) -> dict[str, Any]:
+    """An fp32 arm again through ``IndependentStep``: the same optimizer, clip, schedule and
     init, the forward and loss restated per unpadded sequence. Measured the way rung (b)
-    measures, so the result says whether two correct torch implementations clear its bars."""
+    measures, so the result says whether two correct torch implementations clear its bars.
+
+    With ``attn_implementation="eager"`` and ``gdn="recurrent"`` it is the kernel-diverse floor
+    (Amendment 2 (i), recommended, not a gate): no attention or GDN kernel shared with the
+    reference."""
     res = run_arm(
         dtype="fp32",
         span_head_init=ref.init_span_head,
         keep_grads=True,
         independent=True,
+        max_grad_norm=max_grad_norm,
+        attn_implementation=attn_implementation,
+        gdn=gdn,
         **common,
     )
     w = weights_gap(res.final, ref.final)
@@ -1331,28 +1526,46 @@ def independent_check(common: Mapping[str, Any], ref: ArmResult) -> dict[str, An
     norms = [r["grad_norm_preclip"] for r in ref.records]
     theirs = [r["grad_norm_preclip"] for r in res.records]
     print(
-        f"independent: weights {w['max_rel_to_param_max']:.3e}, losses "
-        f"{lo['all_steps_max_rel']:.3e}",
+        f"{label}: weights {w['max_rel_to_param_max']:.3e} (Amendment 2: "
+        f"{w['amendment2_max_rel']:.3e}), losses {lo['all_steps_max_rel']:.3e}",
         flush=True,
     )
+    shared = attn_implementation == "sdpa" and gdn == "chunk"
     return {
         "how": "IndependentStep (this script): one unpadded sequence at a time through the same "
         "tower, the tied head's logits and torch cross_entropy written out for the letter, the "
         "pointer scores written out for the span head, targets read off the stored sequences "
         "(not ft_supervision/plan_span_batch); the reference's optimizer, clip and schedule. "
-        "Same GDN and attention kernels as the reference: it isolates padding, batching and "
-        "loss-reduction order, not the kernels",
+        + (
+            "Same GDN and attention kernels as the reference: it isolates padding, batching "
+            "and loss-reduction order, not the kernels"
+            if shared
+            else f"Kernels NOT shared with the reference: attention {attn_implementation!r} "
+            f"(the reference runs sdpa, flash backend), GDN {gdn!r} "
+            "(torch_recurrent_gated_delta_rule, token by token; the reference runs "
+            "torch_chunk_gated_delta_rule), both at the published rule"
+        ),
+        "kernels": {"attn_implementation": attn_implementation, "gdn": gdn},
+        "max_grad_norm": max_grad_norm,
         "steps": len(res.records),
-        "grads_step0": weights_gap(res.grads0, ref.grads0),
+        # Report-only at rung (b) (Amendment 2 (i)). A reference arm that kept no step-0
+        # gradient (only "fp32" keeps one) is not compared, and says so rather than reading 0.
+        "grads_step0": weights_gap(res.grads0, ref.grads0)
+        if ref.grads0
+        else {"not_run": "the reference arm keeps no step-0 gradient; only arm fp32 does"},
         "grad_norm_preclip_max_rel": max(
             abs(a - b) / max(abs(b), 1e-30) for a, b in zip(theirs, norms, strict=True)
         ),
         "losses": lo,
         "final_weights": w,
+        "measure": "Amendment 2 (i)",
         "within_rung_b_bars": {
-            "final_weights": w["max_rel_to_param_max"] <= TOL_FINAL_WEIGHTS,
+            "final_weights": w["amendment2_max_rel"] <= TOL_FINAL_WEIGHTS,
             "losses": lo["steps_0_5_max_rel"] <= TOL_LOSS_EARLY
             and lo["all_steps_max_rel"] <= TOL_LOSS_LATE,
+        },
+        "within_rung_b_bars_pre_amendment": {
+            "final_weights": w["max_rel_to_param_max"] <= TOL_FINAL_WEIGHTS,
         },
         "clip_active_steps_equal": [r["clip_active"] for r in res.records]
         == [r["clip_active"] for r in ref.records],
@@ -1374,7 +1587,10 @@ def discrimination(
     table: dict[str, Any] = {
         "how": "fp32 arm rerun with one recipe detail changed; 'caught' means the measured gap "
         "exceeds rung (b)'s bar (final weights 1e-5 of each parameter's max; loss 1e-5 "
-        "relative over steps 0-5, 1e-4 to the end); 'over_independent_floor' divides the gap "
+        "relative over steps 0-5, 1e-4 to the end); 'caught_by_final_weights' is the "
+        "pre-amendment measure (each tensor over its own max), "
+        "'caught_by_final_weights_amendment2' the measure in force (span_head.* over the span "
+        "head's max, Amendment 2 (i)); 'over_independent_floor' divides the gap "
         "by the independent restatement's gap at the same lr on the same measure",
         "by_lr": {},
     }
@@ -1415,10 +1631,12 @@ def discrimination(
                 "final_weights": w,
                 "losses": lo,
                 "caught_by_final_weights": w["max_rel_to_param_max"] > TOL_FINAL_WEIGHTS,
+                "caught_by_final_weights_amendment2": w["amendment2_max_rel"] > TOL_FINAL_WEIGHTS,
                 "caught_by_losses": lo["steps_0_5_max_rel"] > TOL_LOSS_EARLY
                 or lo["all_steps_max_rel"] > TOL_LOSS_LATE,
                 "over_independent_floor": {
                     "final_weights": w["max_rel_to_param_max"] / fw["max_rel_to_param_max"],
+                    "final_weights_amendment2": w["amendment2_max_rel"] / fw["amendment2_max_rel"],
                     "final_weights_tower": w["tower_max_rel_to_param_max"]
                     / fw["tower_max_rel_to_param_max"],
                     "losses_all_steps": lo["all_steps_max_rel"]

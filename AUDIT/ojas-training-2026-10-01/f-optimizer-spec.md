@@ -151,9 +151,22 @@ reliably, whichever side of 1e-5 it lands on.
 
 The clip is active on all 20 fixture steps (coefficient 0.0023-0.0161; pre-clip norms 62-438)
 [V `fp32/trajectory.json`], so the `min(1, .)` branch at coefficient 1 is **not** exercised by
-this fixture.
+this fixture's `fp32` and `master_bf16` arms.
 
-**The open questions for the lead** (rule 2: the rung's thresholds are untouched here;
+Under Amendment 2 (iii) the fixture also carries arm `fp32_clip150`: F's recipe at
+`max_grad_norm = 150`. Its clip is active on 13 steps and inactive on 7 (0, 4, 6, 10, 12, 16, 18),
+so both branches run [V manifest `arms.fp32_clip150.clip_inactive_steps`]. The arm refuses to
+finish if either branch is ever empty.
+
+**The open questions for the lead.** These were answered pre-run by ojas plan Q3 Amendment 2
+(`fable-rung-b-bars.md`, ratified at `931c320`):
+
+- the span head is measured over its own max;
+- D1-D3 move to three rung (a) tests, one of which is the golden at
+  `crates/qd-train/tests/fixtures/adamw-decay-sensitive/`;
+- the lr 1e-3 arm is report-only on losses.
+
+They are kept as asked (rule 2: the rung's thresholds are untouched here;
 recorded as `GAP-L-ORACLE-RUNG-B-FINAL-WEIGHTS-BAR-AT-FLOOR-2026-10-01` for 1 and
 `GAP-L-ORACLE-RUNG-B-BLIND-TO-WD-AT-F-LR-2026-10-01` for 2-3).
 
