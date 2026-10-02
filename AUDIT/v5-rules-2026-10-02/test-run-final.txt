@@ -1,0 +1,135 @@
+mac_heavy: 2026-10-02T18:19:23Z 'L-v5-rules test' holds the lock (waited 0s); running: cargo test -j 4 --manifest-path /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0d704edd19f228/Cargo.toml -p qd-runtime --test post_f_rules_v5 --bin qd-post-f-rules
+     Locking 3 packages to latest Rust 1.98 compatible versions
+      Adding ojas-core v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/ojas/ojas-core)
+      Adding ojas-io v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/ojas/ojas-io)
+      Adding ojas-qwen35 v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/ojas/ojas-qwen35)
+   Compiling qd-runtime v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0d704edd19f228/crates/qd-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.62s
+     Running unittests src/bin/qd_post_f_rules.rs (target/debug/deps/qd_post_f_rules-bd20bf07533940cc)
+
+running 84 tests
+test tests::a_category_not_out_of_60_refuses ... ok
+test tests::a_gate_value_that_is_not_its_worst_bucket_refuses ... ok
+test tests::a_malformed_line_refuses_even_a_half_written_last_one ... ok
+test tests::a_not_run_metric_refuses ... ok
+test tests::a_missing_or_doubled_eval_row_refuses ... ok
+test tests::a_missing_metric_refuses_even_when_an_arm_would_fire ... ok
+test tests::a_margin_off_its_integer_grid_refuses ... ok
+test tests::a_missing_arm_letter_control_row_refuses_even_when_j6f_alone_would_fire ... ok
+test tests::a_missing_arm_row_and_a_target_without_room_are_both_listed ... ok
+test tests::a_spread_of_exactly_0_30_is_quiet_and_one_hit_more_fires ... ok
+test tests::an_envelope_seed_that_is_quick_or_off_recipe_refuses ... ok
+test tests::a_paired_margin_envelope_with_no_room_refuses_on_signed_fractions ... ok
+test tests::an_envelope_that_does_not_resolve_decides_no_room ... ok
+test tests::a_not_run_metric_or_a_row_that_did_not_complete_refuses ... ok
+test tests::a_ceilinged_j6g_target_refuses_under_r9_room ... ok
+test tests::a_missing_avgnp_control_row_refuses_even_when_a_fails ... ok
+test tests::both_arms_winning_refuses_and_keeps_both_verdicts ... ok
+test tests::every_decimal_is_the_fraction_its_text_prints ... ok
+test tests::every_constant_is_the_preregistrations_own_text ... ok
+test tests::an_f_seed_at_61_of_61_blocks_j6f_at_any_spread ... ok
+test tests::a_ceilinged_j6a_target_refuses_under_r9_room ... ok
+test tests::a_preregistration_that_disagrees_with_the_checker_refuses ... ok
+test tests::a_cited_row_that_no_longer_prints_as_its_decimal_refuses ... ok
+test tests::every_key_the_rule_reads_is_on_f_seed_0s_real_rows ... ok
+test tests::a_target_at_exactly_max_plus_range_does_not_fire_and_one_hit_more_does ... ok
+test tests::ft_row_arguments_are_full_ids ... ok
+test tests::avgnp_qualifies_one_hit_above_the_average_everywhere ... ok
+test tests::ft_rows_refuse_a_quick_row_another_recipe_or_a_wrong_seed ... ok
+test tests::avgnp_needs_34_ood_abstentions_not_33 ... ok
+test tests::a_preregistration_that_disagrees_with_the_j6g_checker_refuses ... ok
+test tests::exact_forms_with_unequal_denominators_and_signed_margins ... ok
+test tests::a_guard_at_its_bound_holds_and_one_count_past_it_loses ... ok
+test tests::a_length_control_miss_blocks_j6f_and_not_j6dv4 ... ok
+test tests::j6a_needs_no_control_or_letter_row ... ok
+test tests::f_seed_0s_own_rows_presented_as_j6g_refuse_on_identity ... ok
+test tests::j4_fires_j6f_on_the_needle_and_on_both_falsifiers ... ok
+test tests::j4s_seeds_spread_by_0_75_so_seeds_3_and_4_fire ... ok
+test tests::a_missing_doubled_or_incomplete_j6g_row_refuses ... ok
+test tests::j6a_must_be_quick_and_at_a502670 ... ok
+test tests::every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it ... ok
+test tests::j6a_on_fs_snapshot_or_off_its_pin_refuses ... ok
+test tests::j6a_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied ... ok
+test tests::j4s_average_scored_as_avgnp_fails_a_with_b_and_c_passing ... ok
+test tests::j6a_eval_row_is_one_comparable_epoch_score_val_row ... ok
+test tests::j6a_refuses_while_amendments_are_pending ... ok
+test tests::j4s_ft_rows_average_and_their_eval_rows_resolve ... ok
+test tests::j6f_counts_a_seed_below_0_95_never_one_at_it_and_needs_two ... ok
+test tests::j6b_against_j4_fires_on_the_real_rows ... ok
+test tests::every_j6g_target_ties_at_its_threshold_and_clears_one_count_past_it ... ok
+test tests::j6g_is_compared_with_fs_seed_0_row_and_lists_every_identity_failure ... ok
+test tests::j6dv4_needs_no_needle_control_row_and_j6f_does ... ok
+test tests::no_room_iff_the_bound_itself_does_not_clear ... ok
+test tests::j6f_fires_on_prose_at_9_and_scrambled_at_8_and_not_one_above ... ok
+test tests::no_room_is_the_preregistered_count_form_in_both_directions ... ok
+test tests::room_bounds_are_the_preregistered_ones_and_nothing_else ... ok
+test tests::a_length_control_below_the_average_at_any_length_fails_b ... ok
+test tests::a_j6a_recipe_delta_outside_the_declared_keys_refuses ... ok
+test tests::seeds_other_than_fs_three_refuse ... ok
+test tests::j6b_against_j4_without_its_flags_is_refused_by_the_identity_check ... ok
+test tests::j6dv4_span_near_its_ceiling_refuses_and_never_fires_j6f ... ok
+test tests::j6dv4_needs_every_target_to_clear ... ok
+test tests::quiet_when_both_arms_sit_inside_the_envelope ... ok
+test tests::room_is_decided_for_every_target_and_for_no_guard ... ok
+test tests::the_successor_rule_is_the_preregistrations_own_text ... ok
+test tests::j6f_alone_fires_and_j6dv4_alone_fires ... ok
+test tests::the_envelope_is_fs_seeds_0_1_2_only ... ok
+test tests::j6g_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied ... ok
+test tests::the_j6a_rule_is_the_preregistrations_own_text ... ok
+test tests::letter_control_rows_are_selected_by_the_per_family_key ... ok
+test tests::the_leads_46_31_envelope_refuses_where_it_read_quiet ... ok
+test tests::the_j6g_rule_is_the_preregistrations_own_text ... ok
+test tests::j6f_cannot_fire_when_twice_max_minus_min_reaches_1 ... ok
+test tests::the_successor_still_refuses_an_arm_on_another_snapshot ... ok
+test tests::a_choice_between_the_decimal_and_the_seed_minimum_fails_c ... ok
+test tests::swapped_or_wrong_arm_rows_refuse ... ok
+test tests::j6g_eval_row_is_one_comparable_epoch_score_val_row ... ok
+test tests::unseen_language_guards_j6dv4_and_not_j6f ... ok
+test tests::the_reading_is_the_preregistrations_own_text ... ok
+test tests::a_tie_with_the_cited_row_passes_where_the_decimal_would_fail_it ... ok
+test tests::each_j6g_identity_difference_refuses ... ok
+test tests::malformed_amendments_or_flags_that_disagree_with_them_refuse ... ok
+test tests::every_j6g_guard_holds_at_its_bound_and_loses_one_past_it ... ok
+test tests::every_j6a_guard_holds_at_its_bound_and_loses_one_past_it ... ok
+test tests::the_verdict_is_the_rows_and_differs_from_the_decimals_on_exactly_four_values ... ok
+
+test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/post_f_rules_v5.rs (target/debug/deps/post_f_rules_v5-e19b54d86d723c40)
+
+running 31 tests
+test eval_row_on_fs_real_rows_is_the_unmodified_binarys_answer_byte_for_byte ... ok
+test eval_row_finds_a_v5_seeds_epoch_score_val_row ... ok
+test a_target_clears_only_when_every_arm_seed_holds_even_above_v5s_count ... ok
+test an_arm_holding_every_target_with_room_on_every_seed_and_losing_no_guard_wins ... ok
+test room_and_the_added_keys_are_read_from_the_preregistration_not_from_this_code ... ok
+test r9_continues_at_exactly_5n_eq_4n_total_and_pauses_one_count_below ... ok
+test seeds34_on_fs_real_rows_is_the_unmodified_binarys_decision_byte_for_byte ... ok
+test r9s_thresholds_are_read_from_the_preregistration_not_from_this_code ... ok
+test no_target_with_room_is_no_room_for_the_waiter_and_refused_for_rows_that_exist_anyway ... ok
+test f2_and_f3_are_read_from_the_noul_preregistration_and_must_agree_with_v5s_forms ... ok
+test a_target_v5_holds_on_every_seed_is_read_as_a_guard_the_arm_must_hold_everywhere ... ok
+test an_arm_holding_on_as_many_seeds_as_v5_does_not_clear ... ok
+test r9_continues_at_exactly_2n_eq_n_total_and_pauses_one_hit_below_in_either_bucket_size ... ok
+test the_cli_refuses_an_arm_ledger_with_room_and_no_arm_ledger_without_it ... ok
+test room_iff_v5_holds_a_target_on_at_most_two_seeds_at_the_30_of_60_bar ... ok
+test the_arms_three_ft_rows_must_be_one_configuration_like_v5s ... ok
+test seeds34_reads_v5s_ledger_at_the_0_30_boundary_with_and_without_v5s_preregistration ... ok
+test seeds34_refuses_the_draft_and_a_threshold_that_is_not_0_30 ... ok
+test the_pairing_check_refuses_an_arm_seed_not_on_v5s_batch_order_for_that_seed ... ok
+test seeds34_under_v5s_preregistration_refuses_a_quick_or_shuffled_seed_fs_form_never_checked ... ok
+test room_refuses_unreadable_v5_rows_and_never_prints_room ... ok
+test r9_refuses_a_preregistration_whose_words_it_does_not_apply ... ok
+test the_paired_metric_is_the_one_the_preregistration_names ... ok
+test with_room_at_three_of_three_an_arm_holding_as_many_seeds_as_v5_does_not_clear ... ok
+test r9_refuses_missing_doubled_unfinished_or_malformed_rows_and_never_prints_a_word ... ok
+test the_absolute_guard_allows_50n_eq_n_total_and_loses_one_count_past_it_inside_v5s_envelope ... ok
+test a_missing_doubled_unfinished_or_incomparable_arm_row_refuses ... ok
+test a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read ... ok
+test the_pairing_check_refuses_when_the_order_digest_is_absent_or_unread_on_either_side ... ok
+test an_arm_that_is_not_v5_plus_exactly_the_two_added_keys_refuses ... ok
+test each_guard_holds_at_v5s_bound_and_loses_one_count_past_it_on_the_arms_worst_seed ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+
+mac_heavy: 2026-10-02T18:19:25Z 'L-v5-rules test' finished with exit 0

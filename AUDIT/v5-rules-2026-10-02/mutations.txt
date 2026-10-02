@@ -1,0 +1,105 @@
+source crates/qd-runtime/src/bin/qd_post_f_rules.rs sha256 83d2cc2d705e54142fa975d057ca3c149edb07f708dd1b874e1adf53f8080b56
+command: cargo test -j 4 --manifest-path /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0d704edd19f228/Cargo.toml -p qd-runtime --test post_f_rules_v5 --bin qd-post-f-rules
+
+[unmutated] exit 0: test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s | test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.78s
+V1 caught: a count form's floor is strict (R9, seed_holds: >= -> >)
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 9 passed; 22 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+    failed: a_missing_doubled_unfinished_or_incomparable_arm_row_refuses, a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read, a_target_clears_only_when_every_arm_seed_holds_even_above_v5s_count, a_target_v5_holds_on_every_seed_is_read_as_a_guard_the_arm_must_hold_everywhere, an_arm_holding_every_target_with_room_on_every_seed_and_losing_no_guard_wins, an_arm_holding_on_as_many_seeds_as_v5_does_not_clear, an_arm_that_is_not_v5_plus_exactly_the_two_added_keys_refuses, each_guard_holds_at_v5s_bound_and_loses_one_count_past_it_on_the_arms_worst_seed, f2_and_f3_are_read_from_the_noul_preregistration_and_must_agree_with_v5s_forms, no_target_with_room_is_no_room_for_the_waiter_and_refused_for_rows_that_exist_anyway, r9_continues_at_exactly_2n_eq_n_total_and_pauses_one_hit_below_in_either_bucket_size, r9_continues_at_exactly_5n_eq_4n_total_and_pauses_one_count_below, r9s_thresholds_are_read_from_the_preregistration_not_from_this_code, room_and_the_added_keys_are_read_from_the_preregistration_not_from_this_code, room_iff_v5_holds_a_target_on_at_most_two_seeds_at_the_30_of_60_bar, room_refuses_unreadable_v5_rows_and_never_prints_room, the_absolute_guard_allows_50n_eq_n_total_and_loses_one_count_past_it_inside_v5s_envelope, the_arms_three_ft_rows_must_be_one_configuration_like_v5s, the_paired_metric_is_the_one_the_preregistration_names, the_pairing_check_refuses_an_arm_seed_not_on_v5s_batch_order_for_that_seed, the_pairing_check_refuses_when_the_order_digest_is_absent_or_unread_on_either_side, with_room_at_three_of_three_an_arm_holding_as_many_seeds_as_v5_does_not_clear
+V2 caught: a count form's ceiling is strict (absolute guard: <= -> <)
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s
+    failed: the_absolute_guard_allows_50n_eq_n_total_and_loses_one_count_past_it_inside_v5s_envelope
+V3 caught: R9 continues on either count instead of both
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s | test result: FAILED. 28 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.78s
+    failed: r9_continues_at_exactly_2n_eq_n_total_and_pauses_one_hit_below_in_either_bucket_size, r9_continues_at_exactly_5n_eq_4n_total_and_pauses_one_count_below, r9s_thresholds_are_read_from_the_preregistration_not_from_this_code
+V4 caught: R9's words swapped
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 28 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.78s
+    failed: r9_continues_at_exactly_2n_eq_n_total_and_pauses_one_hit_below_in_either_bucket_size, r9_continues_at_exactly_5n_eq_4n_total_and_pauses_one_count_below, r9s_thresholds_are_read_from_the_preregistration_not_from_this_code
+V5 caught: R9 accepts a ceiling form
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s
+    failed: r9_refuses_a_preregistration_whose_words_it_does_not_apply
+V6 caught: room needs v5 to hold on fewer than K seeds (<= -> <)
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s | test result: FAILED. 27 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s
+    failed: an_arm_holding_every_target_with_room_on_every_seed_and_losing_no_guard_wins, an_arm_holding_on_as_many_seeds_as_v5_does_not_clear, room_iff_v5_holds_a_target_on_at_most_two_seeds_at_the_30_of_60_bar, with_room_at_three_of_three_an_arm_holding_as_many_seeds_as_v5_does_not_clear
+V7 caught: --room prints room only when every target has room
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s | test result: FAILED. 27 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s
+    failed: a_target_v5_holds_on_every_seed_is_read_as_a_guard_the_arm_must_hold_everywhere, room_and_the_added_keys_are_read_from_the_preregistration_not_from_this_code, room_iff_v5_holds_a_target_on_at_most_two_seeds_at_the_30_of_60_bar, with_room_at_three_of_three_an_arm_holding_as_many_seeds_as_v5_does_not_clear
+V8 caught: --room's words swapped
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 29 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+    failed: no_target_with_room_is_no_room_for_the_waiter_and_refused_for_rows_that_exist_anyway, room_iff_v5_holds_a_target_on_at_most_two_seeds_at_the_30_of_60_bar
+V9 caught: a target clears when the arm holds on as many seeds as v5
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s
+    failed: with_room_at_three_of_three_an_arm_holding_as_many_seeds_as_v5_does_not_clear
+V10 caught: a target clears without every arm seed holding
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.81s
+    failed: a_target_clears_only_when_every_arm_seed_holds_even_above_v5s_count
+V11 caught: a no-room target read as a guard tolerates one seed short
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
+    failed: a_target_v5_holds_on_every_seed_is_read_as_a_guard_the_arm_must_hold_everywhere
+V12 caught: seed_holds counts over any number of cases
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s
+    failed: room_refuses_unreadable_v5_rows_and_never_prints_room
+V13 caught: a higher-better guard reads the arm's best seed
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+    failed: each_guard_holds_at_v5s_bound_and_loses_one_count_past_it_on_the_arms_worst_seed
+V14 caught: a lower-better guard reads the arm's best seed
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.59s
+    failed: each_guard_holds_at_v5s_bound_and_loses_one_count_past_it_on_the_arms_worst_seed
+V15 caught: the absolute guard never loses
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s
+    failed: the_absolute_guard_allows_50n_eq_n_total_and_loses_one_count_past_it_inside_v5s_envelope
+V16 caught: the added keys' values are not checked
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s | test result: FAILED. 29 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s
+    failed: an_arm_that_is_not_v5_plus_exactly_the_two_added_keys_refuses, room_and_the_added_keys_are_read_from_the_preregistration_not_from_this_code
+V17 caught: a recipe key other than the added ones may differ
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+    failed: an_arm_that_is_not_v5_plus_exactly_the_two_added_keys_refuses
+V18 caught: code_commit / data snapshot / shard hash not compared
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+    failed: an_arm_that_is_not_v5_plus_exactly_the_two_added_keys_refuses
+V19 caught: an arm row that is quick is accepted
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+    failed: an_arm_that_is_not_v5_plus_exactly_the_two_added_keys_refuses
+V20 caught: the arm's eval rows are not held comparable to v5 seed 0's
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s
+    failed: a_missing_doubled_unfinished_or_incomparable_arm_row_refuses
+V21 caught: v5's envelope is not checked as one configuration
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+    failed: room_refuses_unreadable_v5_rows_and_never_prints_room
+V22 caught: seeds34 under v5's pre-registration skips one_configuration
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.78s
+    failed: seeds34_under_v5s_preregistration_refuses_a_quick_or_shuffled_seed_fs_form_never_checked
+V23 caught: a DRAFT is read as a rule
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 27 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s
+    failed: a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read, r9_refuses_a_preregistration_whose_words_it_does_not_apply, room_refuses_unreadable_v5_rows_and_never_prints_room, seeds34_refuses_the_draft_and_a_threshold_that_is_not_0_30
+V24 caught: a listed direction that disagrees is accepted
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+    failed: a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read
+V25 caught: seed_holds' printed bar is not checked against F2
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+    failed: f2_and_f3_are_read_from_the_noul_preregistration_and_must_agree_with_v5s_forms
+V26 caught: the eval-row recipe keys are not checked against comparable's
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s
+    failed: a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read
+V27 caught: the absolute guard is not checked against F3
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.81s
+    failed: f2_and_f3_are_read_from_the_noul_preregistration_and_must_agree_with_v5s_forms
+V28 caught: seeds34's seed set is not checked against seeds.v5
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+    failed: seeds34_refuses_the_draft_and_a_threshold_that_is_not_0_30
+V29 caught: the pairing check accepts two different orders
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+    failed: the_pairing_check_refuses_an_arm_seed_not_on_v5s_batch_order_for_that_seed
+V30 caught: the pairing check accepts an absent or unread order
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s | test result: FAILED. 29 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.78s
+    failed: the_paired_metric_is_the_one_the_preregistration_names, the_pairing_check_refuses_when_the_order_digest_is_absent_or_unread_on_either_side
+V31 caught: the pairing check reads only the arm's side
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s | test result: FAILED. 29 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s
+    failed: the_pairing_check_refuses_an_arm_seed_not_on_v5s_batch_order_for_that_seed, the_pairing_check_refuses_when_the_order_digest_is_absent_or_unread_on_either_side
+V32 caught: the paired metric's name is not read from the pre-registration
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
+    failed: the_paired_metric_is_the_one_the_preregistration_names
+V33 caught: the arm's ft rows are not checked as one configuration
+    test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s | test result: FAILED. 29 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
+    failed: an_arm_holding_every_target_with_room_on_every_seed_and_losing_no_guard_wins, the_arms_three_ft_rows_must_be_one_configuration_like_v5s
+
+caught 33 of 33; source restored, sha256 83d2cc2d705e54142fa975d057ca3c149edb07f708dd1b874e1adf53f8080b56

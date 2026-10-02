@@ -1,0 +1,162 @@
+{
+  "decision": "refused",
+  "detail": {
+    "envelope": {
+      "pin": "v5 seeds 0, 1 and 2 only (never seeds 3-4, never F)",
+      "seeds": [
+        {
+          "eval_row": "f4feac15-db49-4159-bb9b-695866c855cc",
+          "ft_row": "973cd4e3-e0d2-4ff8-8588-b761cb842b75",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 0
+        },
+        {
+          "eval_row": "aeca8d69-4733-4593-92de-2073021ed684",
+          "ft_row": "95fa4854-6146-4824-b7ad-22bb54744ff1",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 1
+        },
+        {
+          "eval_row": "8c3a774a-87d7-4452-a33b-49cc6fbd911e",
+          "ft_row": "32990e1a-0c61-49fa-9217-800eb845f27e",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 2
+        }
+      ]
+    },
+    "not_checked": "that the eval rows were scored on the rebuilt 8K needle suite: recipe.needle carries no suite digest and needle_suite_tokens records the median, so no row field tells the rebuilt suite from F's; recipe.needle is recorded for the reader (GAP-V5-RULES-REBUILT-SUITE-NOT-ON-THE-ROW-2026-10-02)",
+    "noul_preregistration_sha256": "91a74cb1009548268ae45ddb782b7e1f9da7a0f8c8089b093fd757342563ae9f",
+    "preregistration_sha256": "4ef5ebffebb8224bdc5f2e74214e23a682cd5ca7e6e2f900d7ac6eb409f8f55b",
+    "refused_because": [
+      "arm ft row 973cd4e3-e0d2-4ff8-8588-b761cb842b75 (seed Some(0)): recipe.noul_weight is absent, not the added 4.0; recipe.noul_weight_scope is absent, not the added \"code.defect_class\"; row 973cd4e3-e0d2-4ff8-8588-b761cb842b75 (ledger/gh200-p4-v4-2026-10-01.jsonl line 1): no metrics.corpus.plan_order_digest (the pairing check: absent on either side refuses); row 973cd4e3-e0d2-4ff8-8588-b761cb842b75 (ledger/gh200-p4-v4-2026-10-01.jsonl line 1): no metrics.corpus.plan_order_digest (the pairing check: absent on either side refuses)"
+    ],
+    "room": [
+      {
+        "of": 3,
+        "room": true,
+        "room_iff_at_most": 2,
+        "target": "ood_abstain.prose",
+        "v5_holds": 1,
+        "v5_per_seed": [
+          {
+            "count": {
+              "n": 54,
+              "n_total": 60,
+              "value": 0.9
+            },
+            "holds": true,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 0,
+              "n_total": 60,
+              "value": 0.0
+            },
+            "holds": false,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 1,
+              "n_total": 60,
+              "value": 0.016666666666666666
+            },
+            "holds": false,
+            "seed": 2
+          }
+        ]
+      },
+      {
+        "of": 3,
+        "room": true,
+        "room_iff_at_most": 2,
+        "target": "ood_abstain.unseen-language",
+        "v5_holds": 0,
+        "v5_per_seed": [
+          {
+            "count": {
+              "n": 20,
+              "n_total": 60,
+              "value": 0.3333333333333333
+            },
+            "holds": false,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 0,
+              "n_total": 60,
+              "value": 0.0
+            },
+            "holds": false,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 9,
+              "n_total": 60,
+              "value": 0.15
+            },
+            "holds": false,
+            "seed": 2
+          }
+        ]
+      }
+    ],
+    "rule": {
+      "absolute_guard": "F3 (campaign/v4-noul-v3b-preregistered.json defect_class_in_distribution_abstention, 'the cost check'): on every arm seed ood_abstain.in_distribution.family.code.defect_class has 50 * n <= n_total (<= 46/2304 at v5's expected 2,304 defect_class val slots); one seed over it loses.",
+      "f2_bar": ">= 30/60 on every seed (0, 1, 2), each of prose, scrambled, unseen-language",
+      "f3_bound": "<= 2% on every seed",
+      "guards_form": "strict envelope, as campaign/f-successor-preregistered.json comparison.guard_loses, with the arm's worst seed as the candidate: higher-better loses iff the arm's minimum < v5's minimum; lower-better loses iff the arm's maximum > v5's maximum; ties never lose. Counts on the integers n / n_total by i128 cross-multiplication (the float only cross-checked); ECE on the recorded f64.",
+      "identity": {
+        "eval_rows": "tag epoch-score-val; metrics.ft_run_row_id = the arm ft row; recipe.val_shard_hash, recipe.needle and recipe.ood equal to v5 seed 0's eval row.",
+        "ft_rows": "completed; protocol.seed 0, 1, 2 once each; quick false; recipe.tag 'epoch'; code_commit equal to v5's; protocol.data_snapshot_hash and recipe.shard_hash equal to v5's (no data delta); recipe equal to v5's ft recipe of the same seed except exactly two added keys, noul_weight = 4.0 and noul_weight_scope = 'code.defect_class'.; corpus.plan_order_digest equal to v5's ft row of the same seed, absent on either side refuses (the pairing check, AUDIT/post-f-2026-10-02/fable-seed-order-ruling.md section 2). Any other difference refuses."
+      },
+      "room": "a target has room iff v5 holds on at most 2 of its 3 seeds; with 3 of 3 it cannot clear (cannot_clear). Decided from the envelope alone, before the arm's rows are read. If exactly one target has no room it is read as a guard instead (the arm must hold on 3 of 3 seeds too) and the decision rests on the other target; if neither has room the arm does not launch (launch_condition), and any rows that exist anyway read 'refused'.",
+      "targets_form": "seed_holds. A seed holds a category iff its count is at least half: 2 * n >= n_total (>= 30/60, the F2 bar of campaign/v4-noul-v3b-preregistered.json). A target clears iff all three arm seeds hold AND the arm holds on strictly more seeds than v5's envelope does."
+    },
+    "seed_holds": {
+      "f2_bar": {
+        "n": 30,
+        "n_total": 60,
+        "value": 0.5
+      },
+      "form": "2*n >= 1*n_total"
+    },
+    "then": "no reading; the human decides from the rows"
+  },
+  "inputs": [
+    {
+      "bytes": 59019,
+      "path": "target/v5-prereg-smoke.json",
+      "role": "preregistration",
+      "sha256": "4ef5ebffebb8224bdc5f2e74214e23a682cd5ca7e6e2f900d7ac6eb409f8f55b"
+    },
+    {
+      "bytes": 1906,
+      "path": "campaign/v4-noul-v3b-preregistered.json",
+      "role": "preregistration",
+      "sha256": "91a74cb1009548268ae45ddb782b7e1f9da7a0f8c8089b093fd757342563ae9f"
+    },
+    {
+      "bytes": 195429,
+      "path": "ledger/gh200-p4-v4-2026-10-01.jsonl",
+      "rows": 15,
+      "sha256": "14ec1d56b7c71ec0713f134ccc317aaf035391e543b93f2e2f398053f4163edf"
+    },
+    {
+      "bytes": 195429,
+      "path": "ledger/gh200-p4-v4-2026-10-01.jsonl",
+      "rows": 15,
+      "sha256": "14ec1d56b7c71ec0713f134ccc317aaf035391e543b93f2e2f398053f4163edf"
+    }
+  ],
+  "preregistration": "campaign/v5-preregistered.json (the DRAFT renamed on main, binds_iff; read at run time, its sha256 recorded)",
+  "refused": "arm ft row 973cd4e3-e0d2-4ff8-8588-b761cb842b75 (seed Some(0)): recipe.noul_weight is absent, not the added 4.0; recipe.noul_weight_scope is absent, not the added \"code.defect_class\"; row 973cd4e3-e0d2-4ff8-8588-b761cb842b75 (ledger/gh200-p4-v4-2026-10-01.jsonl line 1): no metrics.corpus.plan_order_digest (the pairing check: absent on either side refuses); row 973cd4e3-e0d2-4ff8-8588-b761cb842b75 (ledger/gh200-p4-v4-2026-10-01.jsonl line 1): no metrics.corpus.plan_order_digest (the pairing check: absent on either side refuses)",
+  "rule": "v5_noul_weight",
+  "tool": "qd-post-f-rules"
+}
