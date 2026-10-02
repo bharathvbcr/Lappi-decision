@@ -97,7 +97,9 @@ Results:
 - Evidence: `decontam1.log` and `replay-attestation-build1-contaminated.json`.
 - 3,568 of 3,568 replay rows checked, 0 too short, against val 18,428 rows and held-out 39,887
   rows. 0 unrenderable targets.
-- Hits: val 185, held-out 0. This is the same 185 as phase 4's attestation.
+- Hits: val 185, held-out 0. That is the same count as phase 4's attestation (185). Whether
+  they are the same rows was not checked: phase 4's attestation names only 50, on another
+  shard set.
 - The hit list, `replay-hits-build1.json`, written by `e571065`'s `--hits-out`:
   - 3,414 pairs;
   - 185 distinct replay rows (`h`);
@@ -339,9 +341,13 @@ The five failures, classified by running the same modules at `a502670` with the 
 
 ## First command for the next lane
 
-The set, its attestation, the amendments and the pins are all in place. The j6a waiter was
-launched on the box at 07:07 UTC (main `619ff52`), and it runs J6(a) when its queue conditions
-hold. What remains on the Mac is bringing this branch to main, from the main checkout:
+The set, its attestation, the amendments and the pins are all in place. The j6a waiter is
+queued on the box:
+
+- `/home/ubuntu/queue/j6a.queued` exists, written 07:07:42 UTC (verified, read-only `ls` at
+  07:35 UTC; main `619ff52` records the launch).
+- `j6a.started` does not exist yet.
+- It runs J6(a) when its queue conditions hold. What remains on the Mac is bringing this branch to main, from the main checkout:
 
 ```
 git merge l-replay-build
