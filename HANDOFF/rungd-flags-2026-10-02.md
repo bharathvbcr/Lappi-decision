@@ -28,8 +28,12 @@ Mac's CPU (torch 2.12.1), with its raw output under `AUDIT/idle-gpu-queue-2026-1
   `test_every_tool_that_hashes_a_recipe_is_found_by_this_check` (it finds
   `qd_train_oracle_trainer.py`, an L-oracle tool), so that failure is pre-existing at `e21066c`.
 - **After the change** (`rungd-flags-after.log`): **45 passed of 45**, both opt-in tests included
-  (`QD_BYTE_IDENTITY_BASE=e21066c`, `QD_SPAN_HEAD_INIT_H2048=<main checkout file>`). With the gap,
-  call-site and lint-gate files in the same run: 103 passed, 3 failed, 4 skipped. The 3:
+  (`QD_BYTE_IDENTITY_BASE=e21066c`, `QD_SPAN_HEAD_INIT_H2048=<main checkout file>`). The repo
+  guards on the final tree, this HANDOFF and these logs included (`rungd-flags-after-repo-guards.log`:
+  `test_gaps_ledger`, `test_gaps_writer`, `test_wire_gap_pins`, `test_tool_call_sites`,
+  `test_lint_gate`, run with `-rfEs` -- an `-rA` log lists `test_gaps_writer`'s deliberately
+  malformed id as a passed parameter, which the citation scan then reads as a dangling gap id):
+  70 passed, 3 failed, 4 skipped. The 3:
   `test_tool_call_sites` (pre-existing, above); `test_gaps_writer::test_the_real_ledger_is_not_touched_by_any_of_this`
   (asserts the ledger's directory is named `Lappi-decision`; a worktree's is
   `agent-af2fee24b0ffeacd5`); `test_lint_gate::test_ruff_is_installed_not_merely_declared` (a
@@ -96,6 +100,14 @@ ft row without its flag and the recipe hash does not move with it.
   (`:8602` / `:9463`). The design's `:9164 _train(plan=plan_small)` citation is that arm. No
   effect on the order: F's epoch order is `reader.batches(batch_tokens=35403, seed=20260919,
   epoch=0)` either way, and `--max-steps 200` takes its first 200 batches.
+- **That main plans F's order.** `git diff --stat a502670 e21066c -- python/qd_data
+  python/qd_train/shards.py python/qd_train/artifacts.py` [V]: `qd_data` unchanged; `shards.py`
+  and `artifacts.py` changed only by the report-only slice (`037c2b8`, `913f79f`): two
+  `ShardHeader` fields (`span_collapse_policy`, `report_only`) that hash to nothing at their
+  defaults, and `write_shards`. The planner (`ShardReader.batches` / `_plan`) is not in the diff,
+  so a main-based lane plans F's batches from the v4 set [I beyond the diff; not run on the v4
+  set]. Criterion 0 compares the Rust reader's consumed digest with both torch arms', all at
+  main, so it does not rest on this.
 - `train.optimizer_steps` = N; `train.termination` = `steps_exhausted`, the existing vocabulary
   (`run_control.TerminationReason` is `data_exhausted | steps_exhausted | wall_clock_cap`): the
   N-step schedule did run out. The truncation is carried by the recipe key `max_steps` and by

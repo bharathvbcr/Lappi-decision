@@ -1,67 +1,4 @@
-........................................................................ [ 65%]
-...F.......F...........Fssss..........                                   [100%]
-=================================== FAILURES ===================================
-______________ test_the_real_ledger_is_not_touched_by_any_of_this ______________
-
-tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/test_the_real_ledger_is_not_to0')
-
-    def test_the_real_ledger_is_not_touched_by_any_of_this(tmp_path: Path) -> None:
-        """Every test above passes an explicit path. This asserts the default is the repo's
-        own file and that nothing here wrote to it -- a test suite that appends to `gaps.jsonl`
-        on every run would be a novel way to corrupt the thing being protected.
-        """
-        from qd_train.gaps import DEFAULT_GAPS_PATH
-    
-        assert DEFAULT_GAPS_PATH.name == "gaps.jsonl"
->       assert DEFAULT_GAPS_PATH.parent.name in ("qwen-decision", "Lappi-decision")
-E       AssertionError: assert 'agent-af2fee24b0ffeacd5' in ('qwen-decision', 'Lappi-decision')
-E        +  where 'agent-af2fee24b0ffeacd5' = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5').name
-E        +    where PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5') = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/gaps.jsonl').parent
-
-python/tests/test_gaps_writer.py:212: AssertionError
-_________ test_every_tool_that_hashes_a_recipe_is_found_by_this_check __________
-
-    def test_every_tool_that_hashes_a_recipe_is_found_by_this_check() -> None:
-        """Scope first, and asserted, because everything below is vacuous without it.
-    
-        Six tools produce a `recipe_hash`. A seventh that this stopped finding would read
-        exactly like a repository with six.
-        """
-        found = _recipe_hash_spellings()
->       assert set(found) == set(_SPELLINGS), (
-            f"tools hashing a recipe: found {sorted(found)}, pinned {sorted(_SPELLINGS)}. A "
-            "tool that appeared needs a spelling entry; one that vanished needs this list "
-            "shortened deliberately"
-        )
-E       AssertionError: tools hashing a recipe: found ['calib_fit_row.py', 'ft_toy_run.py', 'gate_report_row.py', 'margin_probe_row.py', 'qd_train_oracle_trainer.py', 'real_ft_run.py', 'real_tokenizer_pipeline.py', 'remap_parity_real.py', 'rung0_linear_control.py', 'rung0_real_run.py', 'rung0_toy_run.py'], pinned ['calib_fit_row.py', 'ft_toy_run.py', 'gate_report_row.py', 'margin_probe_row.py', 'real_ft_run.py', 'real_tokenizer_pipeline.py', 'remap_parity_real.py', 'rung0_linear_control.py', 'rung0_real_run.py', 'rung0_toy_run.py']. A tool that appeared needs a spelling entry; one that vanished needs this list shortened deliberately
-E       assert {'calib_fit_r..._run.py', ...} == {'calib_fit_r...line.py', ...}
-E         
-E         Extra items in the left set:
-E         'qd_train_oracle_trainer.py'
-E         Use -v to get more diff
-
-python/tests/test_tool_call_sites.py:772: AssertionError
-__________________ test_ruff_is_installed_not_merely_declared __________________
-
-    def test_ruff_is_installed_not_merely_declared():
-        """`ruff>=0.6` is declared in the dev extra. Declared is not installed.
-    
-        This test fails against the tree as it stood before this lane: the dependency was
-        in pyproject.toml and `.venv/bin/python -m ruff` answered "No module named ruff".
-        A linter nobody can run is a lint gate that has never once executed.
-        """
->       assert VENV_RUFF.exists(), (
-            f"{VENV_RUFF} is missing. 'ruff>=0.6' is declared in pyproject's dev extra and "
-            f"uv.lock resolves it to {LOCKED_RUFF}, but it was never installed. "
-            f"Install the gate: uv pip install --python {REPO}/.venv/bin/python "
-            f"'ruff=={LOCKED_RUFF}'"
-        )
-E       AssertionError: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/.venv/bin/ruff is missing. 'ruff>=0.6' is declared in pyproject's dev extra and uv.lock resolves it to 0.16.8, but it was never installed. Install the gate: uv pip install --python /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/.venv/bin/python 'ruff==0.16.8'
-E       assert False
-E        +  where False = exists()
-E        +    where exists = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-af2fee24b0ffeacd5/.venv/bin/ruff').exists
-
-python/tests/test_lint_gate.py:78: AssertionError
+.............................................                            [100%]
 =============================== warnings summary ===============================
 python/tests/test_real_ft_rungd_flags.py::test_max_steps_trains_the_first_n_batches_under_a_schedule_recomputed_at_n
   <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
@@ -80,7 +17,7 @@ __ test_max_steps_trains_the_first_n_batches_under_a_schedule_recomputed_at_n __
 ------------------------------ Captured log setup ------------------------------
 WARNING  transformers.models.qwen3_5.modeling_qwen3_5:logging.py:340 The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
 ----------------------------- Captured stdout call -----------------------------
-shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train
+shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train
   rows in -> out: 172 -> 172  (0 excluded)  tokens 143148  vocab 256
   choice  n= 172  len 435..437 (mean 436.6)  gold is noul: 0  rendered rows [5]
   span    n= 172  len 394..396 (mean 395.6)  gold is noul: 172  pointer-abstaining 43/172, candidates 1204
@@ -102,8 +39,8 @@ feasibility, one forward+backward per bucket width, in a subprocess:
 arm 2 plan: every real batch at most 5383 wide -> 344 of 344 batches, 344 of 344 sequences, slot kinds ['choice', 'span'] of ['choice', 'span']
 
 arm 2: NOT RUN -- --no-memorise
-  progress epoch cpu seed=0: step 1/344 elapsed 0s 0.17s/step 2364 pos/s eta 57s loss 13.5507
-arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.000000, total 13.5507 -> 0.2054, 2.786s, termination steps_exhausted, ft row 0a451c4e-d346-4698-95d1-f60bdd0811cd
+  progress epoch cpu seed=0: step 1/344 elapsed 0s 0.19s/step 2133 pos/s eta 64s loss 13.5507
+arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.000000, total 13.5507 -> 0.2054, 3.328s, termination steps_exhausted, ft row 7889b701-0e0d-446e-801b-404b6a634920
 {
   "arm1": [
     {
@@ -1843,7 +1780,7 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
         "span_loss": 0.5921139629601047,
         "span_rows": 172
       },
-      "ft_row_id": "0a451c4e-d346-4698-95d1-f60bdd0811cd",
+      "ft_row_id": "7889b701-0e0d-446e-801b-404b6a634920",
       "heads": 4,
       "hidden": 128,
       "letter_at_first_joint_batch": NaN,
@@ -1862,14 +1799,14 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       "span_last": 0.20542554557323456,
       "span_rows": 172,
       "span_weight": 1.0,
-      "steps_per_s": 123.47,
+      "steps_per_s": 103.35,
       "steps_requested": 344,
       "supervised_tokens": 172,
       "tag": "epoch",
       "termination": "steps_exhausted",
       "total_first": 13.550694465637207,
       "total_last": 0.20542554557323456,
-      "wall_clock_s": 2.786
+      "wall_clock_s": 3.328
     }
   ],
   "arm2": [],
@@ -4198,14 +4135,14 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       }
     },
     "remap_check": {
-      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
+      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
       "n": 256,
       "n_total": 256,
       "passed": true,
       "state": "ran",
       "value": "7aa0d64186acd624d5791460205f63855352fa4c589266b986e35fdfd90ee7df"
     },
-    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train",
+    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train",
     "sequences": 344,
     "span_check": {
       "reason": "write_shards was called without decode=, so the 172 span sequence(s) here had their gold and candidate positions checked only against the offset mapping they were derived from. That circle is GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT: a mapping that is consistently wrong moves gold and candidates together and every other check stays green. Supplying decode= is what GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED asks for.",
@@ -4266,7 +4203,7 @@ val set: 16 sequences in 16 batches, remap 7aa0d64186acd624 (the train set's)
 permutation second pass: not run -- no tokenizer.json: which token ids end an option line is a fact about the vocabulary, and without it the options cannot be moved
 needle suite: not run -- --needle was not given
 OOD suite: not run -- --ood was not given
-shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train
+shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train
   rows in -> out: 172 -> 172  (0 excluded)  tokens 143148  vocab 256
   choice  n= 172  len 435..437 (mean 436.6)  gold is noul: 0  rendered rows [5]
   span    n= 172  len 394..396 (mean 395.6)  gold is noul: 172  pointer-abstaining 43/172, candidates 1204
@@ -4288,7 +4225,7 @@ feasibility, one forward+backward per bucket width, in a subprocess:
 arm 2 plan: every real batch at most 5383 wide -> 344 of 344 batches, 344 of 344 sequences, slot kinds ['choice', 'span'] of ['choice', 'span']
 
 arm 2: NOT RUN -- --no-memorise
-  progress epoch cpu seed=0: step 1/3 elapsed 0s 0.15s/step 2582 pos/s eta 0s loss 13.5507
+  progress epoch cpu seed=0: step 1/3 elapsed 0s 0.16s/step 2508 pos/s eta 0s loss 13.5507
   cpu seed=0 val_top1.choice: {"state": "ran", "passed": false, "value": 0.0, "n": 0, "n_total": 8, "detail": "0 of 8 val choice rows (0.0%) decoded to the gold the way answer.rs decodes a Letters query, on rows this model never trained on; answering 'C' on every row, the val set's most common gold scores 3 of 8 (37.5%), a gap o
   cpu seed=0 val_top1.score: {"state": "not_run", "reason": "the val set holds no score row to score"}
   cpu seed=0 val_top1.span: {"state": "ran", "passed": true, "value": 0.75, "n": 6, "n_total": 8, "detail": "6 of 8 val span rows (75.0%) decoded to the gold the way answer.rs decodes a pointer query, on rows this model never trained on; abstaining on every row scores 2 of 8 (25.0%), a gap of +50.0%"}
@@ -4297,8 +4234,8 @@ arm 2: NOT RUN -- --no-memorise
   cpu seed=0 permutation_consistency: {"state": "not_run", "reason": "no tokenizer.json: which token ids end an option line is a fact about the vocabulary, and without it the options cannot be moved"}
   cpu seed=0 needle_hunk_recall: {"state": "not_run", "reason": "--needle was not given"}
   cpu seed=0 ood_abstain: {"state": "not_run", "reason": "--ood was not given"}
-  score row 483d0f5a-0374-4391-b94a-f1090cc8c951
-arm1 cpu seed=0: 3 batches, 2 supervised tokens, 1 span rows, padding 0.000000, total 13.5507 -> 5.8268, 0.222s, termination steps_exhausted, ft row 5f144ca8-8137-482d-8b2a-99957537feb2
+  score row 5ccc769d-b4bf-47c7-b133-fc5039ef25d3
+arm1 cpu seed=0: 3 batches, 2 supervised tokens, 1 span rows, padding 0.000000, total 13.5507 -> 5.8268, 0.228s, termination steps_exhausted, ft row 48d45b7c-d3de-4468-8d39-0090a624f22d
 {
   "arm1": [
     {
@@ -4333,7 +4270,7 @@ arm1 cpu seed=0: 3 batches, 2 supervised tokens, 1 span rows, padding 0.000000, 
         "span_loss": 0.0,
         "span_rows": 1
       },
-      "ft_row_id": "5f144ca8-8137-482d-8b2a-99957537feb2",
+      "ft_row_id": "48d45b7c-d3de-4468-8d39-0090a624f22d",
       "heads": 4,
       "hidden": 128,
       "letter_at_first_joint_batch": NaN,
@@ -4346,7 +4283,7 @@ arm1 cpu seed=0: 3 batches, 2 supervised tokens, 1 span rows, padding 0.000000, 
       "optimizer_steps": 3,
       "padding_fraction": 0.0,
       "params": 352512,
-      "score_row_id": "483d0f5a-0374-4391-b94a-f1090cc8c951",
+      "score_row_id": "5ccc769d-b4bf-47c7-b133-fc5039ef25d3",
       "seed": 0,
       "span_at_first_joint_batch": NaN,
       "span_first": 13.550694465637207,
@@ -4354,14 +4291,14 @@ arm1 cpu seed=0: 3 batches, 2 supervised tokens, 1 span rows, padding 0.000000, 
       "span_last": 13.550694465637207,
       "span_rows": 1,
       "span_weight": 1.0,
-      "steps_per_s": 13.54,
+      "steps_per_s": 13.13,
       "steps_requested": 3,
       "supervised_tokens": 2,
       "tag": "epoch",
       "termination": "steps_exhausted",
       "total_first": 13.550694465637207,
       "total_last": 5.826796054840088,
-      "wall_clock_s": 0.222
+      "wall_clock_s": 0.228
     }
   ],
   "arm2": [],
@@ -6692,14 +6629,14 @@ arm1 cpu seed=0: 3 batches, 2 supervised tokens, 1 span rows, padding 0.000000, 
       }
     },
     "remap_check": {
-      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
+      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
       "n": 256,
       "n_total": 256,
       "passed": true,
       "state": "ran",
       "value": "7aa0d64186acd624d5791460205f63855352fa4c589266b986e35fdfd90ee7df"
     },
-    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train",
+    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train",
     "sequences": 344,
     "span_check": {
       "reason": "write_shards was called without decode=, so the 172 span sequence(s) here had their gold and candidate positions checked only against the offset mapping they were derived from. That circle is GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT: a mapping that is consistently wrong moves gold and candidates together and every other check stays green. Supplying decode= is what GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED asks for.",
@@ -6761,7 +6698,7 @@ FAILED: 1 claim(s) did not hold:
 
 __________ test_train_dtype_fp32_trains_an_fp32_tower_on_plain_adamw ___________
 ----------------------------- Captured stdout call -----------------------------
-shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train
+shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train
   rows in -> out: 172 -> 172  (0 excluded)  tokens 143148  vocab 256
   choice  n= 172  len 435..437 (mean 436.6)  gold is noul: 0  rendered rows [5]
   span    n= 172  len 394..396 (mean 395.6)  gold is noul: 172  pointer-abstaining 43/172, candidates 1204
@@ -6784,8 +6721,8 @@ feasibility, one forward+backward per bucket width, in a subprocess:
 arm 2 plan: every real batch at most 5383 wide -> 344 of 344 batches, 344 of 344 sequences, slot kinds ['choice', 'span'] of ['choice', 'span']
 
 arm 2: NOT RUN -- --no-memorise
-  progress epoch cpu seed=0: step 1/2 elapsed 0s 0.27s/step 1441 pos/s eta 0s loss 7.1366
-arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, total 7.1366 -> 5.4502, 0.425s, termination steps_exhausted, ft row e621f66a-3726-49c0-80b9-732f84e1f7dc
+  progress epoch cpu seed=0: step 1/2 elapsed 0s 0.24s/step 1661 pos/s eta 0s loss 7.1366
+arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, total 7.1366 -> 5.4502, 0.379s, termination steps_exhausted, ft row 381b180b-dcc0-44ec-9ed0-8c93434bcbee
 {
   "arm1": [
     {
@@ -6819,7 +6756,7 @@ arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, 
         "span_loss": 6.7625555992126465,
         "span_rows": 1
       },
-      "ft_row_id": "e621f66a-3726-49c0-80b9-732f84e1f7dc",
+      "ft_row_id": "381b180b-dcc0-44ec-9ed0-8c93434bcbee",
       "letter_at_first_joint_batch": NaN,
       "letter_first": 5.4502105712890625,
       "letter_floor": 0.0,
@@ -6840,7 +6777,7 @@ arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, 
       "span_last": 7.136569976806641,
       "span_rows": 1,
       "span_weight": 1.0,
-      "steps_per_s": 4.71,
+      "steps_per_s": 5.27,
       "steps_requested": 2,
       "supervised_tokens": 1,
       "tag": "epoch",
@@ -6848,7 +6785,7 @@ arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, 
       "total_first": 7.136569976806641,
       "total_last": 5.4502105712890625,
       "train_dtype": "fp32",
-      "wall_clock_s": 0.425
+      "wall_clock_s": 0.379
     }
   ],
   "arm2": [],
@@ -9179,14 +9116,14 @@ arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, 
       }
     },
     "remap_check": {
-      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
+      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
       "n": 256,
       "n_total": 256,
       "passed": true,
       "state": "ran",
       "value": "7aa0d64186acd624d5791460205f63855352fa4c589266b986e35fdfd90ee7df"
     },
-    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train",
+    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train",
     "sequences": 344,
     "span_check": {
       "reason": "write_shards was called without decode=, so the 172 span sequence(s) here had their gold and candidate positions checked only against the offset mapping they were derived from. That circle is GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT: a mapping that is consistently wrong moves gold and candidates together and every other check stays green. Supplying decode= is what GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED asks for.",
@@ -9252,7 +9189,7 @@ FAILED: 1 claim(s) did not hold:
 WARNING  transformers.utils.generic:logging.py:340 `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
 ___ test_the_digest_flag_records_the_init_digest_on_the_ft_row_only_when_on ____
 ----------------------------- Captured stdout call -----------------------------
-shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train
+shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train
   rows in -> out: 172 -> 172  (0 excluded)  tokens 143148  vocab 256
   choice  n= 172  len 435..437 (mean 436.6)  gold is noul: 0  rendered rows [5]
   span    n= 172  len 394..396 (mean 395.6)  gold is noul: 172  pointer-abstaining 43/172, candidates 1204
@@ -9275,8 +9212,8 @@ feasibility, one forward+backward per bucket width, in a subprocess:
 arm 2 plan: every real batch at most 5383 wide -> 344 of 344 batches, 344 of 344 sequences, slot kinds ['choice', 'span'] of ['choice', 'span']
 
 arm 2: NOT RUN -- --no-memorise
-  progress epoch cpu seed=0: step 1/2 elapsed 0s 0.28s/step 1423 pos/s eta 0s loss 7.1717
-arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, total 7.1717 -> 5.4489, 0.457s, termination steps_exhausted, ft row a2de0dae-ade3-4da3-bb78-87d5a93e6a6b
+  progress epoch cpu seed=0: step 1/2 elapsed 0s 0.28s/step 1425 pos/s eta 0s loss 7.1717
+arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, total 7.1717 -> 5.4489, 0.464s, termination steps_exhausted, ft row 421b9fe6-b673-4311-bcdc-e77bb9705f8d
 {
   "arm1": [
     {
@@ -9310,7 +9247,7 @@ arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, 
         "span_loss": 7.045109272003174,
         "span_rows": 1
       },
-      "ft_row_id": "a2de0dae-ade3-4da3-bb78-87d5a93e6a6b",
+      "ft_row_id": "421b9fe6-b673-4311-bcdc-e77bb9705f8d",
       "letter_at_first_joint_batch": NaN,
       "letter_first": 5.448866844177246,
       "letter_floor": 0.0,
@@ -9329,14 +9266,14 @@ arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, 
       "span_last": 7.171743869781494,
       "span_rows": 1,
       "span_weight": 1.0,
-      "steps_per_s": 4.38,
+      "steps_per_s": 4.31,
       "steps_requested": 2,
       "supervised_tokens": 1,
       "tag": "epoch",
       "termination": "steps_exhausted",
       "total_first": 7.171743869781494,
       "total_last": 5.448866844177246,
-      "wall_clock_s": 0.457
+      "wall_clock_s": 0.464
     }
   ],
   "arm2": [],
@@ -11667,14 +11604,14 @@ arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, 
       }
     },
     "remap_check": {
-      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
+      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
       "n": 256,
       "n_total": 256,
       "passed": true,
       "state": "ran",
       "value": "7aa0d64186acd624d5791460205f63855352fa4c589266b986e35fdfd90ee7df"
     },
-    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train",
+    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train",
     "sequences": 344,
     "span_check": {
       "reason": "write_shards was called without decode=, so the 172 span sequence(s) here had their gold and candidate positions checked only against the offset mapping they were derived from. That circle is GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT: a mapping that is consistently wrong moves gold and candidates together and every other check stays green. Supplying decode= is what GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED asks for.",
@@ -11734,7 +11671,7 @@ arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, 
 FAILED: 1 claim(s) did not hold:
   - arm1 cpu seed=0: the letter loss did not fall
 
-shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train
+shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train
   rows in -> out: 172 -> 172  (0 excluded)  tokens 143148  vocab 256
   choice  n= 172  len 435..437 (mean 436.6)  gold is noul: 0  rendered rows [5]
   span    n= 172  len 394..396 (mean 395.6)  gold is noul: 172  pointer-abstaining 43/172, candidates 1204
@@ -11757,8 +11694,8 @@ feasibility, one forward+backward per bucket width, in a subprocess:
 arm 2 plan: every real batch at most 5383 wide -> 344 of 344 batches, 344 of 344 sequences, slot kinds ['choice', 'span'] of ['choice', 'span']
 
 arm 2: NOT RUN -- --no-memorise
-  progress epoch cpu seed=0: step 1/2 elapsed 0s 0.26s/step 1534 pos/s eta 0s loss 7.1717
-arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, total 7.1717 -> 5.4489, 0.432s, termination steps_exhausted, ft row a2a4db7b-0550-4f59-9e9a-3675f43ec831
+  progress epoch cpu seed=0: step 1/2 elapsed 0s 0.28s/step 1399 pos/s eta 0s loss 7.1717
+arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, total 7.1717 -> 5.4489, 0.49s, termination steps_exhausted, ft row c73559ab-f097-49ab-aca3-2e2e17605310
 {
   "arm1": [
     {
@@ -11792,7 +11729,7 @@ arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, 
         "span_loss": 7.045109272003174,
         "span_rows": 1
       },
-      "ft_row_id": "a2a4db7b-0550-4f59-9e9a-3675f43ec831",
+      "ft_row_id": "c73559ab-f097-49ab-aca3-2e2e17605310",
       "letter_at_first_joint_batch": NaN,
       "letter_first": 5.448866844177246,
       "letter_floor": 0.0,
@@ -11811,14 +11748,14 @@ arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, 
       "span_last": 7.171743869781494,
       "span_rows": 1,
       "span_weight": 1.0,
-      "steps_per_s": 4.62,
+      "steps_per_s": 4.08,
       "steps_requested": 2,
       "supervised_tokens": 1,
       "tag": "epoch",
       "termination": "steps_exhausted",
       "total_first": 7.171743869781494,
       "total_last": 5.448866844177246,
-      "wall_clock_s": 0.432
+      "wall_clock_s": 0.49
     }
   ],
   "arm2": [],
@@ -14149,14 +14086,14 @@ arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, 
       }
     },
     "remap_check": {
-      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
+      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
       "n": 256,
       "n_total": 256,
       "passed": true,
       "state": "ran",
       "value": "7aa0d64186acd624d5791460205f63855352fa4c589266b986e35fdfd90ee7df"
     },
-    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train",
+    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train",
     "sequences": 344,
     "span_check": {
       "reason": "write_shards was called without decode=, so the 172 span sequence(s) here had their gold and candidate positions checked only against the offset mapping they were derived from. That circle is GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT: a mapping that is consistently wrong moves gold and candidates together and every other check stays green. Supplying decode= is what GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED asks for.",
@@ -14218,7 +14155,7 @@ FAILED: 1 claim(s) did not hold:
 
 ________ test_span_head_init_end_to_end_records_the_file_in_the_recipe _________
 ----------------------------- Captured stdout call -----------------------------
-shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train
+shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train
   rows in -> out: 172 -> 172  (0 excluded)  tokens 143148  vocab 256
   choice  n= 172  len 435..437 (mean 436.6)  gold is noul: 0  rendered rows [5]
   span    n= 172  len 394..396 (mean 395.6)  gold is noul: 172  pointer-abstaining 43/172, candidates 1204
@@ -14241,8 +14178,8 @@ feasibility, one forward+backward per bucket width, in a subprocess:
 arm 2 plan: every real batch at most 5383 wide -> 344 of 344 batches, 344 of 344 sequences, slot kinds ['choice', 'span'] of ['choice', 'span']
 
 arm 2: NOT RUN -- --no-memorise
-  progress epoch cpu seed=0: step 1/2 elapsed 0s 0.25s/step 1582 pos/s eta 0s loss 7.1717
-arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, total 7.1717 -> 5.4489, 0.428s, termination steps_exhausted, ft row c46c4a2a-cb31-49e2-845d-71f3a2ee644f
+  progress epoch cpu seed=0: step 1/2 elapsed 0s 0.36s/step 1101 pos/s eta 0s loss 7.1717
+arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, total 7.1717 -> 5.4489, 0.6s, termination steps_exhausted, ft row 3e5f4c62-d349-4fd3-afd5-6c56a5ea6331
 {
   "arm1": [
     {
@@ -14276,7 +14213,7 @@ arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, 
         "span_loss": 7.045109272003174,
         "span_rows": 1
       },
-      "ft_row_id": "c46c4a2a-cb31-49e2-845d-71f3a2ee644f",
+      "ft_row_id": "3e5f4c62-d349-4fd3-afd5-6c56a5ea6331",
       "letter_at_first_joint_batch": NaN,
       "letter_first": 5.448866844177246,
       "letter_floor": 0.0,
@@ -14299,14 +14236,14 @@ arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, 
       "span_last": 7.171743869781494,
       "span_rows": 1,
       "span_weight": 1.0,
-      "steps_per_s": 4.67,
+      "steps_per_s": 3.33,
       "steps_requested": 2,
       "supervised_tokens": 1,
       "tag": "epoch",
       "termination": "steps_exhausted",
       "total_first": 7.171743869781494,
       "total_last": 5.448866844177246,
-      "wall_clock_s": 0.428
+      "wall_clock_s": 0.6
     }
   ],
   "arm2": [],
@@ -16637,14 +16574,14 @@ arm1 cpu seed=0: 2 batches, 1 supervised tokens, 1 span rows, padding 0.000000, 
       }
     },
     "remap_check": {
-      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
+      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
       "n": 256,
       "n_total": 256,
       "passed": true,
       "state": "ran",
       "value": "7aa0d64186acd624d5791460205f63855352fa4c589266b986e35fdfd90ee7df"
     },
-    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train",
+    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train",
     "sequences": 344,
     "span_check": {
       "reason": "write_shards was called without decode=, so the 172 span sequence(s) here had their gold and candidate positions checked only against the offset mapping they were derived from. That circle is GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT: a mapping that is consistently wrong moves gold and candidates together and every other check stays green. Supplying decode= is what GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED asks for.",
@@ -16710,7 +16647,7 @@ val set: 16 sequences in 16 batches, remap 7aa0d64186acd624 (the train set's)
 permutation second pass: not run -- no tokenizer.json: which token ids end an option line is a fact about the vocabulary, and without it the options cannot be moved
 needle suite: not run -- --needle was not given
 OOD suite: not run -- --ood was not given
-shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train
+shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train
   rows in -> out: 172 -> 172  (0 excluded)  tokens 143148  vocab 256
   choice  n= 172  len 435..437 (mean 436.6)  gold is noul: 0  rendered rows [5]
   span    n= 172  len 394..396 (mean 395.6)  gold is noul: 172  pointer-abstaining 43/172, candidates 1204
@@ -16733,7 +16670,7 @@ feasibility, one forward+backward per bucket width, in a subprocess:
 arm 2 plan: every real batch at most 5383 wide -> 344 of 344 batches, 344 of 344 sequences, slot kinds ['choice', 'span'] of ['choice', 'span']
 
 arm 2: NOT RUN -- --no-memorise
-  progress epoch cpu seed=0: step 1/344 elapsed 0s 0.28s/step 1396 pos/s eta 97s loss 7.1717
+  progress epoch cpu seed=0: step 1/344 elapsed 0s 0.35s/step 1140 pos/s eta 119s loss 7.1717
   cpu seed=0 val_top1.choice: {"state": "ran", "passed": false, "value": 0.375, "n": 3, "n_total": 8, "detail": "3 of 8 val choice rows (37.5%) decoded to the gold the way answer.rs decodes a Letters query, on rows this model never trained on; answering 'C' on every row, the val set's most common gold scores 3 of 8 (37.5%), a ga
   cpu seed=0 val_top1.score: {"state": "not_run", "reason": "the val set holds no score row to score"}
   cpu seed=0 val_top1.span: {"state": "ran", "passed": true, "value": 0.75, "n": 6, "n_total": 8, "detail": "6 of 8 val span rows (75.0%) decoded to the gold the way answer.rs decodes a pointer query, on rows this model never trained on; abstaining on every row scores 2 of 8 (25.0%), a gap of +50.0%"}
@@ -16742,8 +16679,8 @@ arm 2: NOT RUN -- --no-memorise
   cpu seed=0 permutation_consistency: {"state": "not_run", "reason": "no tokenizer.json: which token ids end an option line is a fact about the vocabulary, and without it the options cannot be moved"}
   cpu seed=0 needle_hunk_recall: {"state": "not_run", "reason": "--needle was not given"}
   cpu seed=0 ood_abstain: {"state": "not_run", "reason": "--ood was not given"}
-  score row df53f4fa-feeb-4911-bfab-249b3c99569b
-arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.000000, total 7.1717 -> 0.0019, 47.304s, termination steps_exhausted, ft row fdc7406d-c6a5-4827-9d0f-8db27dd7a510
+  score row 38c53485-d9b9-4c1f-9249-a0b3b080bc57
+arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.000000, total 7.1717 -> 0.0019, 48.57s, termination steps_exhausted, ft row 4e638a6c-739a-4e65-a16c-924698faab5f
 {
   "arm1": [
     {
@@ -18487,7 +18424,7 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
         "span_loss": 1.6796500749593644,
         "span_rows": 172
       },
-      "ft_row_id": "fdc7406d-c6a5-4827-9d0f-8db27dd7a510",
+      "ft_row_id": "4e638a6c-739a-4e65-a16c-924698faab5f",
       "letter_at_first_joint_batch": NaN,
       "letter_first": 5.4493088722229,
       "letter_floor": 0.0,
@@ -18500,7 +18437,7 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       "optimizer_steps": 344,
       "padding_fraction": 0.0,
       "params": 112680,
-      "score_row_id": "df53f4fa-feeb-4911-bfab-249b3c99569b",
+      "score_row_id": "38c53485-d9b9-4c1f-9249-a0b3b080bc57",
       "seed": 0,
       "span_at_first_joint_batch": NaN,
       "span_first": 7.171743869781494,
@@ -18508,7 +18445,7 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       "span_last": 0.0018952980171889067,
       "span_rows": 172,
       "span_weight": 1.0,
-      "steps_per_s": 7.27,
+      "steps_per_s": 7.08,
       "steps_requested": 344,
       "supervised_tokens": 172,
       "tag": "epoch",
@@ -18516,7 +18453,7 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       "total_first": 7.171743869781494,
       "total_last": 0.0018952980171889067,
       "train_attention_mask": "none",
-      "wall_clock_s": 47.304
+      "wall_clock_s": 48.57
     }
   ],
   "arm2": [],
@@ -20845,14 +20782,14 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       }
     },
     "remap_check": {
-      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
+      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
       "n": 256,
       "n_total": 256,
       "passed": true,
       "state": "ran",
       "value": "7aa0d64186acd624d5791460205f63855352fa4c589266b986e35fdfd90ee7df"
     },
-    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train",
+    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train",
     "sequences": 344,
     "span_check": {
       "reason": "write_shards was called without decode=, so the 172 span sequence(s) here had their gold and candidate positions checked only against the offset mapping they were derived from. That circle is GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT: a mapping that is consistently wrong moves gold and candidates together and every other check stays green. Supplying decode= is what GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED asks for.",
@@ -20913,7 +20850,7 @@ val set: 16 sequences in 16 batches, remap 7aa0d64186acd624 (the train set's)
 permutation second pass: not run -- no tokenizer.json: which token ids end an option line is a fact about the vocabulary, and without it the options cannot be moved
 needle suite: not run -- --needle was not given
 OOD suite: not run -- --ood was not given
-shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train
+shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train
   rows in -> out: 172 -> 172  (0 excluded)  tokens 143148  vocab 256
   choice  n= 172  len 435..437 (mean 436.6)  gold is noul: 0  rendered rows [5]
   span    n= 172  len 394..396 (mean 395.6)  gold is noul: 172  pointer-abstaining 43/172, candidates 1204
@@ -20936,7 +20873,7 @@ feasibility, one forward+backward per bucket width, in a subprocess:
 arm 2 plan: every real batch at most 5383 wide -> 344 of 344 batches, 344 of 344 sequences, slot kinds ['choice', 'span'] of ['choice', 'span']
 
 arm 2: NOT RUN -- --no-memorise
-  progress epoch cpu seed=0: step 1/344 elapsed 0s 0.23s/step 1712 pos/s eta 79s loss 7.1717
+  progress epoch cpu seed=0: step 1/344 elapsed 0s 0.35s/step 1138 pos/s eta 119s loss 7.1717
   cpu seed=0 val_top1.choice: {"state": "ran", "passed": false, "value": 0.375, "n": 3, "n_total": 8, "detail": "3 of 8 val choice rows (37.5%) decoded to the gold the way answer.rs decodes a Letters query, on rows this model never trained on; answering 'C' on every row, the val set's most common gold scores 3 of 8 (37.5%), a ga
   cpu seed=0 val_top1.score: {"state": "not_run", "reason": "the val set holds no score row to score"}
   cpu seed=0 val_top1.span: {"state": "ran", "passed": true, "value": 0.75, "n": 6, "n_total": 8, "detail": "6 of 8 val span rows (75.0%) decoded to the gold the way answer.rs decodes a pointer query, on rows this model never trained on; abstaining on every row scores 2 of 8 (25.0%), a gap of +50.0%"}
@@ -20945,8 +20882,8 @@ arm 2: NOT RUN -- --no-memorise
   cpu seed=0 permutation_consistency: {"state": "not_run", "reason": "no tokenizer.json: which token ids end an option line is a fact about the vocabulary, and without it the options cannot be moved"}
   cpu seed=0 needle_hunk_recall: {"state": "not_run", "reason": "--needle was not given"}
   cpu seed=0 ood_abstain: {"state": "not_run", "reason": "--ood was not given"}
-  score row bb2eb95f-f6a5-436f-9f89-39b4b9599a53
-arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.000000, total 7.1717 -> 0.0019, 48.897s, termination steps_exhausted, ft row d8925be4-c099-46f6-818d-4f2bbfd7cd0b
+  score row 561d2b11-f5e8-4196-9adf-8f741389b725
+arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.000000, total 7.1717 -> 0.0019, 55.166s, termination steps_exhausted, ft row f10fcece-1e3e-4934-ada4-85c692e19f1d
 {
   "arm1": [
     {
@@ -22690,7 +22627,7 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
         "span_loss": 1.6796500749593644,
         "span_rows": 172
       },
-      "ft_row_id": "d8925be4-c099-46f6-818d-4f2bbfd7cd0b",
+      "ft_row_id": "f10fcece-1e3e-4934-ada4-85c692e19f1d",
       "letter_at_first_joint_batch": NaN,
       "letter_first": 5.4493088722229,
       "letter_floor": 0.0,
@@ -22703,7 +22640,7 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       "optimizer_steps": 344,
       "padding_fraction": 0.0,
       "params": 112680,
-      "score_row_id": "bb2eb95f-f6a5-436f-9f89-39b4b9599a53",
+      "score_row_id": "561d2b11-f5e8-4196-9adf-8f741389b725",
       "seed": 0,
       "span_at_first_joint_batch": NaN,
       "span_first": 7.171743869781494,
@@ -22711,7 +22648,7 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       "span_last": 0.0018952980171889067,
       "span_rows": 172,
       "span_weight": 1.0,
-      "steps_per_s": 7.04,
+      "steps_per_s": 6.24,
       "steps_requested": 344,
       "supervised_tokens": 172,
       "tag": "epoch",
@@ -22719,7 +22656,7 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       "total_first": 7.171743869781494,
       "total_last": 0.0018952980171889067,
       "train_attention_mask": "none",
-      "wall_clock_s": 48.897
+      "wall_clock_s": 55.166
     }
   ],
   "arm2": [],
@@ -25048,14 +24985,14 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       }
     },
     "remap_check": {
-      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
+      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
       "n": 256,
       "n_total": 256,
       "passed": true,
       "state": "ran",
       "value": "7aa0d64186acd624d5791460205f63855352fa4c589266b986e35fdfd90ee7df"
     },
-    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train",
+    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train",
     "sequences": 344,
     "span_check": {
       "reason": "write_shards was called without decode=, so the 172 span sequence(s) here had their gold and candidate positions checked only against the offset mapping they were derived from. That circle is GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT: a mapping that is consistently wrong moves gold and candidates together and every other check stays green. Supplying decode= is what GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED asks for.",
@@ -25119,7 +25056,7 @@ val set: 16 sequences in 16 batches, remap 7aa0d64186acd624 (the train set's)
 permutation second pass: not run -- no tokenizer.json: which token ids end an option line is a fact about the vocabulary, and without it the options cannot be moved
 needle suite: not run -- --needle was not given
 OOD suite: not run -- --ood was not given
-shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train
+shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train
   rows in -> out: 172 -> 172  (0 excluded)  tokens 143148  vocab 256
   choice  n= 172  len 435..437 (mean 436.6)  gold is noul: 0  rendered rows [5]
   span    n= 172  len 394..396 (mean 395.6)  gold is noul: 172  pointer-abstaining 43/172, candidates 1204
@@ -25141,7 +25078,7 @@ feasibility, one forward+backward per bucket width, in a subprocess:
 arm 2 plan: every real batch at most 5383 wide -> 344 of 344 batches, 344 of 344 sequences, slot kinds ['choice', 'span'] of ['choice', 'span']
 
 arm 2: NOT RUN -- --no-memorise
-  progress epoch cpu seed=0: step 1/344 elapsed 0s 0.16s/step 2482 pos/s eta 55s loss 13.5507
+  progress epoch cpu seed=0: step 1/344 elapsed 1s 0.56s/step 712 pos/s eta 191s loss 13.5507
   cpu seed=0 val_top1.choice: {"state": "ran", "passed": false, "value": 0.375, "n": 3, "n_total": 8, "detail": "3 of 8 val choice rows (37.5%) decoded to the gold the way answer.rs decodes a Letters query, on rows this model never trained on; answering 'C' on every row, the val set's most common gold scores 3 of 8 (37.5%), a ga
   cpu seed=0 val_top1.score: {"state": "not_run", "reason": "the val set holds no score row to score"}
   cpu seed=0 val_top1.span: {"state": "ran", "passed": true, "value": 0.75, "n": 6, "n_total": 8, "detail": "6 of 8 val span rows (75.0%) decoded to the gold the way answer.rs decodes a pointer query, on rows this model never trained on; abstaining on every row scores 2 of 8 (25.0%), a gap of +50.0%"}
@@ -25150,8 +25087,8 @@ arm 2: NOT RUN -- --no-memorise
   cpu seed=0 permutation_consistency: {"state": "not_run", "reason": "no tokenizer.json: which token ids end an option line is a fact about the vocabulary, and without it the options cannot be moved"}
   cpu seed=0 needle_hunk_recall: {"state": "not_run", "reason": "--needle was not given"}
   cpu seed=0 ood_abstain: {"state": "not_run", "reason": "--ood was not given"}
-  score row d893f643-ea1b-4352-8210-085fa0310123
-arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.000000, total 13.5507 -> 0.2054, 2.462s, termination steps_exhausted, ft row 37019f25-bf40-4fee-b87e-622becac4b3c
+  score row 4f0c9dc3-092e-4423-bd71-abac117733d6
+arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.000000, total 13.5507 -> 0.2054, 3.627s, termination steps_exhausted, ft row 8b7bc2ca-afc1-4660-b1b1-f1813bfd752b
 {
   "arm1": [
     {
@@ -26891,7 +26828,7 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
         "span_loss": 0.5921139629601047,
         "span_rows": 172
       },
-      "ft_row_id": "37019f25-bf40-4fee-b87e-622becac4b3c",
+      "ft_row_id": "8b7bc2ca-afc1-4660-b1b1-f1813bfd752b",
       "heads": 4,
       "hidden": 128,
       "letter_at_first_joint_batch": NaN,
@@ -26903,7 +26840,7 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       "optimizer_steps": 344,
       "padding_fraction": 0.0,
       "params": 352512,
-      "score_row_id": "d893f643-ea1b-4352-8210-085fa0310123",
+      "score_row_id": "4f0c9dc3-092e-4423-bd71-abac117733d6",
       "seed": 0,
       "span_at_first_joint_batch": NaN,
       "span_first": 13.550694465637207,
@@ -26911,14 +26848,14 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       "span_last": 0.20542554557323456,
       "span_rows": 172,
       "span_weight": 1.0,
-      "steps_per_s": 139.73,
+      "steps_per_s": 94.86,
       "steps_requested": 344,
       "supervised_tokens": 172,
       "tag": "epoch",
       "termination": "steps_exhausted",
       "total_first": 13.550694465637207,
       "total_last": 0.20542554557323456,
-      "wall_clock_s": 2.462
+      "wall_clock_s": 3.627
     }
   ],
   "arm2": [],
@@ -29247,14 +29184,14 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       }
     },
     "remap_check": {
-      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
+      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
       "n": 256,
       "n_total": 256,
       "passed": true,
       "state": "ran",
       "value": "7aa0d64186acd624d5791460205f63855352fa4c589266b986e35fdfd90ee7df"
     },
-    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train",
+    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train",
     "sequences": 344,
     "span_check": {
       "reason": "write_shards was called without decode=, so the 172 span sequence(s) here had their gold and candidate positions checked only against the offset mapping they were derived from. That circle is GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT: a mapping that is consistently wrong moves gold and candidates together and every other check stays green. Supplying decode= is what GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED asks for.",
@@ -29315,7 +29252,7 @@ val set: 16 sequences in 16 batches, remap 7aa0d64186acd624 (the train set's)
 permutation second pass: not run -- no tokenizer.json: which token ids end an option line is a fact about the vocabulary, and without it the options cannot be moved
 needle suite: not run -- --needle was not given
 OOD suite: not run -- --ood was not given
-shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train
+shard set: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train
   rows in -> out: 172 -> 172  (0 excluded)  tokens 143148  vocab 256
   choice  n= 172  len 435..437 (mean 436.6)  gold is noul: 0  rendered rows [5]
   span    n= 172  len 394..396 (mean 395.6)  gold is noul: 172  pointer-abstaining 43/172, candidates 1204
@@ -29337,7 +29274,7 @@ feasibility, one forward+backward per bucket width, in a subprocess:
 arm 2 plan: every real batch at most 5383 wide -> 344 of 344 batches, 344 of 344 sequences, slot kinds ['choice', 'span'] of ['choice', 'span']
 
 arm 2: NOT RUN -- --no-memorise
-  progress epoch cpu seed=0: step 1/344 elapsed 0s 0.11s/step 3737 pos/s eta 36s loss 13.5507
+  progress epoch cpu seed=0: step 1/344 elapsed 0s 0.11s/step 3676 pos/s eta 37s loss 13.5507
   cpu seed=0 val_top1.choice: {"state": "ran", "passed": false, "value": 0.375, "n": 3, "n_total": 8, "detail": "3 of 8 val choice rows (37.5%) decoded to the gold the way answer.rs decodes a Letters query, on rows this model never trained on; answering 'C' on every row, the val set's most common gold scores 3 of 8 (37.5%), a ga
   cpu seed=0 val_top1.score: {"state": "not_run", "reason": "the val set holds no score row to score"}
   cpu seed=0 val_top1.span: {"state": "ran", "passed": true, "value": 0.75, "n": 6, "n_total": 8, "detail": "6 of 8 val span rows (75.0%) decoded to the gold the way answer.rs decodes a pointer query, on rows this model never trained on; abstaining on every row scores 2 of 8 (25.0%), a gap of +50.0%"}
@@ -29346,8 +29283,8 @@ arm 2: NOT RUN -- --no-memorise
   cpu seed=0 permutation_consistency: {"state": "not_run", "reason": "no tokenizer.json: which token ids end an option line is a fact about the vocabulary, and without it the options cannot be moved"}
   cpu seed=0 needle_hunk_recall: {"state": "not_run", "reason": "--needle was not given"}
   cpu seed=0 ood_abstain: {"state": "not_run", "reason": "--ood was not given"}
-  score row 0cab0024-fa5a-40cd-9d16-0e3f226f8e03
-arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.000000, total 13.5507 -> 0.2054, 2.446s, termination steps_exhausted, ft row a9099a1a-a488-421d-91c1-87e6318f1522
+  score row 62c9d149-b48e-461d-b167-ea0167977995
+arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.000000, total 13.5507 -> 0.2054, 2.763s, termination steps_exhausted, ft row 70f1d8b3-d002-46ca-a083-0d447d93dda8
 {
   "arm1": [
     {
@@ -31087,7 +31024,7 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
         "span_loss": 0.5921139629601047,
         "span_rows": 172
       },
-      "ft_row_id": "a9099a1a-a488-421d-91c1-87e6318f1522",
+      "ft_row_id": "70f1d8b3-d002-46ca-a083-0d447d93dda8",
       "heads": 4,
       "hidden": 128,
       "letter_at_first_joint_batch": NaN,
@@ -31099,7 +31036,7 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       "optimizer_steps": 344,
       "padding_fraction": 0.0,
       "params": 352512,
-      "score_row_id": "0cab0024-fa5a-40cd-9d16-0e3f226f8e03",
+      "score_row_id": "62c9d149-b48e-461d-b167-ea0167977995",
       "seed": 0,
       "span_at_first_joint_batch": NaN,
       "span_first": 13.550694465637207,
@@ -31107,14 +31044,14 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       "span_last": 0.20542554557323456,
       "span_rows": 172,
       "span_weight": 1.0,
-      "steps_per_s": 140.65,
+      "steps_per_s": 124.5,
       "steps_requested": 344,
       "supervised_tokens": 172,
       "tag": "epoch",
       "termination": "steps_exhausted",
       "total_first": 13.550694465637207,
       "total_last": 0.20542554557323456,
-      "wall_clock_s": 2.446
+      "wall_clock_s": 2.763
     }
   ],
   "arm2": [],
@@ -33443,14 +33380,14 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
       }
     },
     "remap_check": {
-      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
+      "detail": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train/remap.npz re-read and re-hashed; matches the header. tokenizer_hash=tokhash-shuffled\u2026",
       "n": 256,
       "n_total": 256,
       "passed": true,
       "state": "ran",
       "value": "7aa0d64186acd624d5791460205f63855352fa4c589266b986e35fdfd90ee7df"
     },
-    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-469/rungd-corpus0/shards/train",
+    "root": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-471/rungd-corpus0/shards/train",
     "sequences": 344,
     "span_check": {
       "reason": "write_shards was called without decode=, so the 172 span sequence(s) here had their gold and candidate positions checked only against the offset mapping they were derived from. That circle is GAP-S4-GOLD-ON-CANDIDATE-CANNOT-CATCH-LINE-SHIFT: a mapping that is consistently wrong moves gold and candidates together and every other check stays green. Supplying decode= is what GAP-SPAN-HEAD-LINE-MAPPING-BPE-UNVERIFIED asks for.",
@@ -33508,15 +33445,6 @@ arm1 cpu seed=0: 344 batches, 172 supervised tokens, 172 span rows, padding 0.00
 }
 
 stand-in: 2 rows identical to e21066c's after dropping ['row_id', 'written_at', 'prev_row_hash', 'wall_clock_s'] and metrics ['code_that_ran']; recipe_hash e8d0d5be2a7f800a, a079159b81ff1ed4
-_____________ test_every_supersedes_and_answers_reference_resolves _____________
------------------------------ Captured stdout call -----------------------------
-gaps.jsonl references: 0 dangling in current records, 0 dangling across all 780 lines including history
-______ test_every_tool_call_into_this_repository_binds_against_its_callee ______
------------------------------ Captured stdout call -----------------------------
-tools/: 730 call site(s) bound, 11 unchecked
-_____________ test_every_in_package_call_binds_against_its_callee ______________
------------------------------ Captured stdout call -----------------------------
-packages: 844 call site(s) bound, 401 unchecked
 =========================== short test summary info ============================
 PASSED python/tests/test_real_ft_rungd_flags.py::test_the_new_pieces_add_no_recipe_key_when_off
 PASSED python/tests/test_real_ft_rungd_flags.py::test_each_new_piece_lands_in_the_recipe_under_a_mirrored_key_when_on
@@ -33563,70 +33491,5 @@ PASSED python/tests/test_real_ft_rungd_flags.py::test_the_2b_head_at_seed_0_is_t
 PASSED python/tests/test_real_ft_rungd_flags.py::test_with_every_new_flag_off_the_rows_are_the_base_commits[real-tiny]
 PASSED python/tests/test_real_ft_rungd_flags.py::test_with_every_new_flag_off_the_rows_are_the_base_commits[stand-in]
 PASSED python/tests/test_real_ft_rungd_flags.py::test_argparse_namespace_for_old_check_piece_flags_callers_is_untouched
-PASSED python/tests/test_gaps_ledger.py::test_every_line_is_one_valid_record_carrying_an_id
-PASSED python/tests/test_gaps_ledger.py::test_every_current_record_carries_the_required_keys
-PASSED python/tests/test_gaps_ledger.py::test_every_supersedes_and_answers_reference_resolves
-PASSED python/tests/test_gaps_ledger.py::test_the_last_line_for_an_id_is_the_one_a_reader_gets
-PASSED python/tests/test_gaps_ledger.py::test_every_gap_id_cited_in_a_tracked_file_exists_in_the_ledger
-PASSED python/tests/test_gaps_ledger.py::test_the_ledger_is_excluded_from_the_citation_scan_for_a_reason
-PASSED python/tests/test_gaps_ledger.py::test_an_undeclared_status_is_caught
-PASSED python/tests/test_gaps_ledger.py::test_every_status_in_the_ledger_is_one_of_the_pinned_vocabulary
-PASSED python/tests/test_gaps_ledger.py::test_open_and_closed_partition_the_ledger_with_nothing_left_over
-PASSED python/tests/test_gaps_ledger.py::test_the_two_statuses_that_read_as_open_are_counted_as_closed
-PASSED python/tests/test_gaps_writer.py::test_a_status_nobody_declared_is_refused_before_it_lands
-PASSED python/tests/test_gaps_writer.py::test_prose_where_a_gap_id_belongs_is_refused
-PASSED python/tests/test_gaps_writer.py::test_a_valid_record_appends_exactly_one_line
-PASSED python/tests/test_gaps_writer.py::test_superseding_a_record_that_exists_is_allowed
-PASSED python/tests/test_gaps_writer.py::test_a_record_may_reference_an_id_added_moments_earlier
-PASSED python/tests/test_gaps_writer.py::test_a_record_missing_a_required_key_is_refused[id]
-PASSED python/tests/test_gaps_writer.py::test_a_record_missing_a_required_key_is_refused[question]
-PASSED python/tests/test_gaps_writer.py::test_a_record_missing_a_required_key_is_refused[status]
-PASSED python/tests/test_gaps_writer.py::test_an_id_that_is_not_one_is_refused[]
-PASSED python/tests/test_gaps_writer.py::test_an_id_that_is_not_one_is_refused[GAP-]
-PASSED python/tests/test_gaps_writer.py::test_an_id_that_is_not_one_is_refused[gap-lowercase]
-PASSED python/tests/test_gaps_writer.py::test_an_id_that_is_not_one_is_refused[NOT-A-GAP-ID]
-PASSED python/tests/test_gaps_writer.py::test_an_id_that_is_not_one_is_refused[17]
-PASSED python/tests/test_gaps_writer.py::test_an_id_that_is_not_one_is_refused[None]
-PASSED python/tests/test_gaps_writer.py::test_an_id_that_is_not_one_is_refused[GAP-MEMORY-PREDICTS-0.84-0.97X-ON-GH200]
-PASSED python/tests/test_gaps_writer.py::test_an_id_that_is_not_one_is_refused[GAP-Mixed-Case-ID]
-PASSED python/tests/test_gaps_writer.py::test_a_record_that_would_span_two_lines_is_refused
-PASSED python/tests/test_gaps_writer.py::test_a_record_that_cannot_be_serialised_is_refused
-PASSED python/tests/test_gaps_writer.py::test_answers_must_be_a_list_of_ids_that_exist
-PASSED python/tests/test_gaps_writer.py::test_the_writer_and_the_checker_share_one_vocabulary
-PASSED python/tests/test_tool_call_sites.py::test_every_tool_call_into_this_repository_binds_against_its_callee
-PASSED python/tests/test_tool_call_sites.py::test_the_scope_of_the_check_above_is_stated_rather_than_assumed
-PASSED python/tests/test_tool_call_sites.py::test_every_in_package_call_binds_against_its_callee
-PASSED python/tests/test_tool_call_sites.py::test_no_tool_prices_a_rented_machine_at_zero
-PASSED python/tests/test_tool_call_sites.py::test_every_runner_records_which_sources_produced_its_row
-PASSED python/tests/test_tool_call_sites.py::test_every_recorder_that_can_be_billed_wraps_the_work_it_records
-PASSED python/tests/test_tool_call_sites.py::test_the_only_billed_work_outside_a_block_is_the_verdict_decode
-PASSED python/tests/test_tool_call_sites.py::test_each_tool_keeps_the_spelling_its_existing_rows_were_written_under[calib_fit_row.py]
-PASSED python/tests/test_tool_call_sites.py::test_each_tool_keeps_the_spelling_its_existing_rows_were_written_under[ft_toy_run.py]
-PASSED python/tests/test_tool_call_sites.py::test_each_tool_keeps_the_spelling_its_existing_rows_were_written_under[gate_report_row.py]
-PASSED python/tests/test_tool_call_sites.py::test_each_tool_keeps_the_spelling_its_existing_rows_were_written_under[margin_probe_row.py]
-PASSED python/tests/test_tool_call_sites.py::test_each_tool_keeps_the_spelling_its_existing_rows_were_written_under[real_ft_run.py]
-PASSED python/tests/test_tool_call_sites.py::test_each_tool_keeps_the_spelling_its_existing_rows_were_written_under[real_tokenizer_pipeline.py]
-PASSED python/tests/test_tool_call_sites.py::test_each_tool_keeps_the_spelling_its_existing_rows_were_written_under[remap_parity_real.py]
-PASSED python/tests/test_tool_call_sites.py::test_each_tool_keeps_the_spelling_its_existing_rows_were_written_under[rung0_linear_control.py]
-PASSED python/tests/test_tool_call_sites.py::test_each_tool_keeps_the_spelling_its_existing_rows_were_written_under[rung0_real_run.py]
-PASSED python/tests/test_tool_call_sites.py::test_each_tool_keeps_the_spelling_its_existing_rows_were_written_under[rung0_toy_run.py]
-PASSED python/tests/test_tool_call_sites.py::test_the_two_spellings_really_do_disagree
-PASSED python/tests/test_lint_gate.py::test_the_makefile_lint_target_does_not_narrow_the_rule_set
-PASSED python/tests/test_lint_gate.py::test_a_gate_that_cannot_run_never_exits_zero[lint-VENV=/nonexistent/venv]
-PASSED python/tests/test_lint_gate.py::test_a_gate_that_cannot_run_never_exits_zero[pytest-PY=/nonexistent/python]
-PASSED python/tests/test_lint_gate.py::test_a_gate_that_cannot_run_never_exits_zero[ledger-verify-LEDGER=/nonexistent/runs.jsonl]
-PASSED python/tests/test_lint_gate.py::test_the_aggregate_reports_notrun_rather_than_passing
-PASSED python/tests/test_lint_gate.py::test_every_makefile_gate_declares_all_three_outcomes
-PASSED python/tests/test_lint_gate.py::test_every_recorded_suite_is_mapped_to_a_target_and_every_mapped_target_exists
-PASSED python/tests/test_lint_gate.py::test_the_command_recorded_for_a_suite_is_the_command_its_target_runs[cargo_test_workspace-cargo-test]
-PASSED python/tests/test_lint_gate.py::test_the_command_recorded_for_a_suite_is_the_command_its_target_runs[pytest_python_tests-pytest]
-PASSED python/tests/test_lint_gate.py::test_the_command_recorded_for_a_suite_is_the_command_its_target_runs[pytest_torch_python_tests-torch-pytest]
-SKIPPED [1] python/tests/test_lint_gate.py:88: ruff is not installed in .venv; test_ruff_is_installed_not_merely_declared is the test that reports that, and it does not skip
-SKIPPED [1] python/tests/test_lint_gate.py:107: ruff is not installed in .venv; test_ruff_is_installed_not_merely_declared is the test that reports that, and it does not skip
-SKIPPED [1] python/tests/test_lint_gate.py:129: ruff is not installed in .venv; test_ruff_is_installed_not_merely_declared is the test that reports that, and it does not skip
-SKIPPED [1] python/tests/test_lint_gate.py:150: ruff is not installed in .venv; test_ruff_is_installed_not_merely_declared is the test that reports that, and it does not skip
-FAILED python/tests/test_gaps_writer.py::test_the_real_ledger_is_not_touched_by_any_of_this
-FAILED python/tests/test_tool_call_sites.py::test_every_tool_that_hashes_a_recipe_is_found_by_this_check
-FAILED python/tests/test_lint_gate.py::test_ruff_is_installed_not_merely_declared
-3 failed, 103 passed, 4 skipped, 2 warnings in 138.83s (0:02:18)
+45 passed, 2 warnings in 140.78s (0:02:20)
 <sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
