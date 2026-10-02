@@ -1,0 +1,21 @@
+base: fe1e642 (fe1e642bc2626ad070fe24fbc707bf6dac3e2067)
+modified tracked files: 18 (18 .py); added: 0
+EQUAL        AUDIT/j6a-rule-2026-10-02/mutations.py old_sha256=15d34bfe12bb0987 new_sha256=a2b537afd606684f
+JUSTIFIED    AUDIT/j6g-rule-2026-10-02/append_gaps_staged.py old_sha256=923372f301e1a17f new_sha256=e666b9ea8a92c02a (equal once its 1 listed hunk(s) are reverted)
+EQUAL        AUDIT/post-f-2026-10-02/append_gap_j6a_resolved.py old_sha256=812cd6f49042bdc4 new_sha256=8babcc2f7aefc6b6
+JUSTIFIED    AUDIT/prep2-2026-10-02/append_gaps_clinc_ruling.py old_sha256=c453093f305fd12c new_sha256=38961d26fdbc05ca (equal once its 1 listed hunk(s) are reverted)
+EQUAL        AUDIT/prep2-2026-10-02/apply_clinc_strip_amendment.py old_sha256=fd632103b4947bc8 new_sha256=0b9383b71c358fc0
+EQUAL        AUDIT/succ-room-2026-10-02/mutations.py old_sha256=de9ffd25ed1d4ca9 new_sha256=1b2f95a90c592b45
+EQUAL        AUDIT/v5-plan-2026-10-02/append_gap_own_prose_strike.py old_sha256=6f7ce1191e305ca6 new_sha256=bf42470047addb60
+EQUAL        AUDIT/v5-plan-2026-10-02/append_gaps.py old_sha256=4b97af5dc9ecd622 new_sha256=5b2fc88d7fb83800
+EQUAL        AUDIT/v5-plan-2026-10-02/apply_own_prose_strike.py old_sha256=4c208f16164e9dbb new_sha256=dc20d214711ebced
+EQUAL        AUDIT/v5-plan-2026-10-02/apply_review_amendments.py old_sha256=7c213d247739aaa1 new_sha256=599bd7e752724343
+EQUAL        AUDIT/v5-plan-2026-10-02/clinc_oos_rekey.py old_sha256=40517f07d5073466 new_sha256=e90c1b33bd077d80
+EQUAL        AUDIT/v5-plan-2026-10-02/count_v4_manifests.py old_sha256=52ff4b319e98e85c new_sha256=8ddf01073af9bb6b
+JUSTIFIED    AUDIT/v5-plan-2026-10-02/own_repo_inventory.py old_sha256=230f744b74a2e925 new_sha256=c3a7d4be317cebf9 (equal once its 1 listed hunk(s) are reverted)
+EQUAL        AUDIT/v5-plan-2026-10-02/own_repo_questions.py old_sha256=398da0b5935acd82 new_sha256=04998a1cd7ce5afa
+JUSTIFIED    AUDIT/v5-plan-2026-10-02/v4_token_accounting.py old_sha256=3c64ce73cee5a224 new_sha256=bb5ab165dd13b7d0 (equal once its 1 listed hunk(s) are reverted)
+EQUAL        AUDIT/v5-plan-2026-10-02/v5_accounting.py old_sha256=3e9f62e7134a8a84 new_sha256=7f4b000177893e3f
+EQUAL        AUDIT/v5-rules-2026-10-02/append_gaps.py old_sha256=6dc12ddba32b5fb1 new_sha256=1e02b39ce3d2cd61
+JUSTIFIED    python/tests/test_contrast_rows.py old_sha256=d39e5215cb5fcfcf new_sha256=29cc1d190eed24a9 (equal once its 1 listed hunk(s) are reverted)
+summary: 18 .py files compared: 13 EQUAL, 5 JUSTIFIED, 0 DIFFERS; 0 failures

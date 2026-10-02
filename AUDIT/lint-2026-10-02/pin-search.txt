@@ -1,0 +1,39 @@
+searched 567 text files
+=== AUDIT/j6a-rule-2026-10-02/mutations.py sha256=15d34bfe12bb098735331fc21ecfcdc53a4c08607bff055a5c68212529dfddd0 blob=b5f96a9dadecabe75901cdf134459db92d38292d hits=1
+  gaps.jsonl:827 [name+pin-word] {"id": "GAP-SUCC-MUTATION-RUNNER-NOT-COMMITTED-2026-10-02", "opened": "2026-10-02", "lane": "L-room", "owner": "lead", "status": "resolved-with-residual", "tool": "AUDIT/idle-gpu-queue-2026-10-02/succ-rule-mutations.txt"
+=== AUDIT/j6g-rule-2026-10-02/append_gaps_staged.py sha256=923372f301e1a17f76e2bb82be6c893d5b67ce10b040819072c3ad1580b2a71e blob=f3f98bb4ce0779189c01c368d250b6d2fe7714f5 hits=0
+=== AUDIT/post-f-2026-10-02/append_gap_j6a_resolved.py sha256=812cd6f49042bdc481b3ea5fb268979848aa57c7e1364ea1c4bbd0fd8bc1194e blob=a8f23357b2b2ca131bbe3cf6a90e068da0787cff hits=0
+=== AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py sha256=28b07ea860cc6801a8abbbfda4e4e71b9014c87af0ffdfa4387e7b3b5e5d3302 blob=e5008a7d8729e4a8259e58a6a892f9310017abbe hits=0
+=== AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py sha256=677c81c094d9a2026a379dd5fb5764d7fc317b16bce7af72da94c17e6e175203 blob=a4afbf6c35248003b139ea9e2f2d59d8021ecb57 hits=7
+  gaps.jsonl:996 [name+pin-word] {"id": "GAP-OOD-PROSE-ABSTENTION-BIMODAL-ACROSS-SEEDS-2026-10-02", "opened": "2026-10-02", "lane": "L-recency", "owner": "lead", "status": "open", "tool": "AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py (a502670's
+  gaps.jsonl:998 [name+pin-word] {"id": "GAP-F-FT-ROWS-CARRY-NO-ORDER-SENSITIVE-PLAN-DIGEST-2026-10-02", "opened": "2026-10-02", "lane": "L-recency", "owner": "lead", "status": "open", "tool": "rg/json over ledger/gh200-p4-v4-2026-10-01.jsonl; AUDIT/pos
+  AUDIT/post-f-2026-10-02/recency/recency-run.log:3 [name+pin-word] mac_heavy: 2026-10-02T17:43:52Z 'L-recency plan, counts, planner null, consumed digest' holds the lock (waited 320s); running: nice -n 10 /usr/bin/time -l env PYTHONDONTWRITEBYTECODE=1 /Users/bharath/.venvs/ml/bin/python
+  AUDIT/post-f-2026-10-02/recency/recency-f-2026-10-02.json:1427 [sha256[:8]]  "tool_sha256": "677c81c094d9a2026a379dd5fb5764d7fc317b16bce7af72da94c17e6e175203",
+  AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py:118 [name+pin-word]             "tool": "AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py (a502670's ShardReader._plan on F's v4 train shards)",
+  HANDOFF/recency-2026-10-02.md:188 [name+pin-word] - `AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py`: the throwaway analysis. Its sha256 is
+  HANDOFF/recency-2026-10-02.md:215 [sha256[:8]]   one whose sha256 (`677c81c0...`) the result records, and the append script stays the record of
+=== AUDIT/prep2-2026-10-02/append_gaps_clinc_ruling.py sha256=c453093f305fd12c70d918aebe867d890efab21d880977ef04539643abf2b7b8 blob=2f0c6cebafe5d9e52324584bc7e341f1c8cb583f hits=0
+=== AUDIT/prep2-2026-10-02/apply_clinc_strip_amendment.py sha256=fd632103b4947bc8b4c1fe41d45ff15f9584ed57ab929268a5397fa1f8d2b68a blob=dbfa5c9e023a90eb73307896b6261655c9a42a57 hits=2
+  gaps.jsonl:969 [name+pin-word] {"id": "GAP-CONTAINMENT-CONSTANT-QUESTION-DRIVES-CLINC-HITS-2026-10-02", "opened": "2026-10-02", "lane": "L-prep2", "owner": "human", "status": "open", "tool": "qd_train.containment_strip.strip_template (369278e) via too
+  campaign/v5-preregistered.DRAFT.json:225 [name+pin-word]   "amendments_applied": "Fable's v5 review section 5 (AUDIT/v5-plan-2026-10-02/fable-v5-plan-review.md, Fable source sha256 04e969b0...) and the v5 items of Fable's post-F ruling, sections 1, 2(b), 3(a) and 4 (AUDIT/post
+=== AUDIT/prep2-2026-10-02/clinc_oracle.py sha256=638eb349ea9b9be2f691d37ab8ca4e2f3b839821efc2477334a01c8148c90370 blob=ee5eb839058f49c5df82d2aaf9057a2610e0be73 hits=1
+  AUDIT/prep2-2026-10-02/fable-clinc-strip-ruling.md:3 [sha256[:8],name+pin-word] The lead asked at ~15:50 UTC 2026-10-02, after lane L-prep2's subsample re-run (HANDOFF/prep2-2026-10-02.md). Advisor: claude-fable-5-1, in a read-only lane. Recorded verbatim below (source sha256 ec2c1e6d00c8342cfeb50e3
+=== AUDIT/succ-room-2026-10-02/mutations.py sha256=de9ffd25ed1d4ca9bdb624c9d6b2effd69386458acf722b57001be8f9471fd73 blob=5a0e47834fda28bd173273a57ba56deb1d7b8219 hits=1
+  gaps.jsonl:827 [name+pin-word] {"id": "GAP-SUCC-MUTATION-RUNNER-NOT-COMMITTED-2026-10-02", "opened": "2026-10-02", "lane": "L-room", "owner": "lead", "status": "resolved-with-residual", "tool": "AUDIT/idle-gpu-queue-2026-10-02/succ-rule-mutations.txt"
+=== AUDIT/v5-plan-2026-10-02/append_gap_own_prose_strike.py sha256=6f7ce1191e305ca62cda7868750af07a5e5f179d5a43867d1fefd5c45b8d626c blob=53705cb8f6f273fcd388a2449616abed14520d05 hits=0
+=== AUDIT/v5-plan-2026-10-02/append_gaps.py sha256=4b97af5dc9ecd62233e1aa53261ea322b6bd3e07af382879a44791421d1ffe17 blob=18a21fe46521daf11fae9800a930695668a01bcd hits=0
+=== AUDIT/v5-plan-2026-10-02/apply_own_prose_strike.py sha256=4c208f16164e9dbb832e6520cd574e9c478dc58116f76dc0ade380ff54e95248 blob=12af60e382ba9ce6289a4a625e2c0283f58cb03c hits=1
+  campaign/v5-preregistered.DRAFT.json:225 [name+pin-word]   "amendments_applied": "Fable's v5 review section 5 (AUDIT/v5-plan-2026-10-02/fable-v5-plan-review.md, Fable source sha256 04e969b0...) and the v5 items of Fable's post-F ruling, sections 1, 2(b), 3(a) and 4 (AUDIT/post
+=== AUDIT/v5-plan-2026-10-02/apply_review_amendments.py sha256=7c213d247739aaa181b834d5eb58c36e99b137edb5d0f5f1c97c72685cc4a309 blob=f0db7050c00743e27a723ad642011785990559c4 hits=1
+  campaign/v5-preregistered.DRAFT.json:225 [name+pin-word]   "amendments_applied": "Fable's v5 review section 5 (AUDIT/v5-plan-2026-10-02/fable-v5-plan-review.md, Fable source sha256 04e969b0...) and the v5 items of Fable's post-F ruling, sections 1, 2(b), 3(a) and 4 (AUDIT/post
+=== AUDIT/v5-plan-2026-10-02/clinc_oos_rekey.py sha256=40517f07d5073466714a0b1039dd0b26253176f3b4f2d41b3cd281fbeadeb55f blob=683bb38a2e858981afd0be073ee31cbe5e0e5106 hits=0
+=== AUDIT/v5-plan-2026-10-02/count_v4_manifests.py sha256=52ff4b319e98e85c5705c1980b23565f247cfa745d52b7ef21f1aa032de8b7bb blob=d0d4eb3ccdaa8edab19d9861916716e4a037c5d9 hits=0
+=== AUDIT/v5-plan-2026-10-02/own_repo_inventory.py sha256=230f744b74a2e9255d80439ecae9c75e8be1cb342d1f149d63ec507ec4d1de6d blob=f86709639afb285c0dc0a0cdee178599e3ba2c8d hits=0
+=== AUDIT/v5-plan-2026-10-02/own_repo_questions.py sha256=398da0b5935acd82ad98b491f7dfb658a126c7a275e8c1909aa32fe2fe6d5d1e blob=899a4d3d43e8549e267eaa60516ff53cd1763474 hits=0
+=== AUDIT/v5-plan-2026-10-02/v4_token_accounting.py sha256=3c64ce73cee5a224c51c82c468f145b613f024d589a9d19ba462ae9e554088ce blob=4c0f4a3d6216cea1eeccc77f56fbd0537b2c41ce hits=0
+=== AUDIT/v5-plan-2026-10-02/v5_accounting.py sha256=3e9f62e7134a8a843af2edb9c50f95eca5567800febc2dee26796f6d92033219 blob=51eb5020104c19b6410d1db2a75b1c517de56382 hits=0
+=== AUDIT/v5-rules-2026-10-02/append_gaps.py sha256=6dc12ddba32b5fb1d9e6d2f63cee0f625b993f95cf77dbb2efe8ab97c924ab35 blob=75fdefb5b951f35b6d0c2095a10ee2c109b3e9f6 hits=0
+=== python/tests/test_contrast_rows.py sha256=d39e5215cb5fcfcf27a343ea9fa41fcbb25b0aa5ac4bce9cb9c08c7ce099a0e2 blob=568c629e29415ee507e2401009f6f580919873d0 hits=1
+  gaps.jsonl:973 [name+pin-word] {"id": "GAP-L-V5DATA-FT-SPLITS-CONTRAST-HOOK-2026-10-02", "question": "Does tools/real_ft_run.py's ft_splits rebuild derive the same contrast rows as the pipeline, once v5's noul corpus asks for them?", "answer": "Not on
+=== tools/qd_train_oracle_head_digest.py sha256=79a47e7247d722c540b3cc884d657d8de2bf6b6816a5c7d985b7a4d3b48f8031 blob=8261d7d57a01cd3fd94aed51ed4a89cc70fe9402 hits=0
+=== tools/qd_train_oracle_optimizer_table.py sha256=0cf0f7db1b473381fbc8a0ac01608b96492f5ff007b34af80ef21f24e41bde67 blob=c0acc24f2394a0c2b3cc47ce459cbcc8766f2ae9 hits=0

@@ -1,0 +1,5 @@
+./AUDIT/prep2-2026-10-02/fable-clinc-strip-ruling.md:3:The lead asked at ~15:50 UTC 2026-10-02, after lane L-prep2's subsample re-run (HANDOFF/prep2-2026-10-02.md). Advisor: claude-fable-5-1, in a read-only lane. Recorded verbatim below (source sha256 ec2c1e6d00c8342cfeb50e389ded98eadb4cff2ea80e7b13c99df [... omitted end of long line]
+./HANDOFF/recency-2026-10-02.md:215:  one whose sha256 (`677c81c0...`) the result records, and the append script stays the record of
+./AUDIT/post-f-2026-10-02/recency/recency-f-2026-10-02.json:1427: "tool_sha256": "677c81c094d9a2026a379dd5fb5764d7fc317b16bce7af72da94c17e6e175203",
+./crates/qd-train/tests/fixtures/span-head-init-digest-tiny.json:5:  "script_sha256": "79a47e7247d722c540b3cc884d657d8de2bf6b6816a5c7d985b7a4d3b48f8031",
+./crates/qd-train/tests/fixtures/optimizer-table-2b.json:5:  "script_sha256": "0cf0f7db1b473381fbc8a0ac01608b96492f5ff007b34af80ef21f24e41bde67",
