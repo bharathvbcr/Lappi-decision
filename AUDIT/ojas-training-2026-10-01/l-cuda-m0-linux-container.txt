@@ -1,0 +1,27 @@
+2026-10-02T00:27:44Z
+== podman run --rm --pull never --network none (image docker.io/library/python:3.11-trixie b73116cf1823, arm64, Debian 13, glibc 2.41; box is Ubuntu 24.04 glibc 2.39); three read-only bind mounts, nothing else; no GPU
+04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7  /opt/qd/rung0
+ldd (Debian GLIBC 2.41-12+deb13u4) 2.41
+== open
+rung0: refusing to start: CUDA libraries not loadable: libcuda, libnvrtc, libcublas. libcuda: searched ["libcuda.so", "libcuda64.so", "libcuda64_12.so", "libcuda64_128.so", "libcuda64_128_0.so", "libcuda64_120_8.so", "libcuda64_10.so", "libcuda64_11.so", "libcuda64_12.so", "libcuda64_120_0.so", "libcuda64_9.so", "libcuda.so.12", "libcuda.so.12", "libcuda.so.11", "libcuda.so.10", "libcuda.so.9", "libcuda.so.1", "libnvcuda.so", "libnvcuda64.so", "libnvcuda64_12.so", "libnvcuda64_128.so", "libnvcuda64_128_0.so", "libnvcuda64_120_8.so", "libnvcuda64_10.so", "libnvcuda64_11.so", "libnvcuda64_12.so", "libnvcuda64_120_0.so", "libnvcuda64_9.so", "libnvcuda.so.12", "libnvcuda.so.12", "libnvcuda.so.11", "libnvcuda.so.10", "libnvcuda.so.9", "libnvcuda.so.1"]; LD_LIBRARY_PATH=<unset>; none of them exists in those directories | libnvrtc: searched ["libnvrtc.so", "libnvrtc64.so", "libnvrtc64_12.so", "libnvrtc64_128.so", "libnvrtc64_128_0.so", "libnvrtc64_120_8.so", "libnvrtc64_10.so", "libnvrtc64_11.so", "libnvrtc64_12.so", "libnvrtc64_120_0.so", "libnvrtc64_9.so", "libnvrtc.so.12", "libnvrtc.so.12", "libnvrtc.so.11", "libnvrtc.so.10", "libnvrtc.so.9", "libnvrtc.so.1"]; LD_LIBRARY_PATH=<unset>; none of them exists in those directories | libcublas: searched ["libcublas.so", "libcublas64.so", "libcublas64_12.so", "libcublas64_128.so", "libcublas64_128_0.so", "libcublas64_120_8.so", "libcublas64_10.so", "libcublas64_11.so", "libcublas64_12.so", "libcublas64_120_0.so", "libcublas64_9.so", "libcublas.so.12", "libcublas.so.12", "libcublas.so.11", "libcublas.so.10", "libcublas.so.9", "libcublas.so.1"]; LD_LIBRARY_PATH=<unset>; none of them exists in those directories
+rung0: refused (0/1 checks pass) in 0.0 s; report /tmp/out/rung0-report.json
+rung0 exit 2
+report: refused 2 library_missing {'total': 1, 'pass': 0, 'fail': 1, 'panicked': 0, 'not_run': 0}
+refusal names: refusing to start: CUDA libraries not loadable: libcuda, libnvrtc, libcublas. libcuda: searched ["libcuda.so", "libcuda6
+test rung0_cli::tests::an_existing_report_is_refused_and_writes_are_atomic ... ok
+
+test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+lib-tests exit 0
+running 4 tests
+test tests::the_cap_writes_a_timeout_report_naming_the_phase_and_exits_3 ... ok
+test tests::the_watchdog_stands_down_when_main_already_wrote ... ok
+test tests::a_failed_report_write_still_ends_the_run_at_the_cap ... ok
+test tests::a_held_report_lock_still_ends_the_run_at_the_cap ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+rung0-tests exit 0
+NOTE: the 'lib-tests exit' and 'rung0-tests exit' lines above are tail's status (sh has no pipefail); the evidence for those two binaries is their 'test result: ok. 62 passed' and 'test result: ok. 4 passed' lines. rung0's 'exit 2' is unpiped and is the process status.
+stopped
+2026-10-02T00:27:58Z

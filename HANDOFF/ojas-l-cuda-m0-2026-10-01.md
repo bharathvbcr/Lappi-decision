@@ -215,7 +215,27 @@ Conditions:
 - the image's glibc version reported against the box's 2.39;
 - the podman machine stopped afterwards (it was stopped before).
 
-Results: see the next section.
+**Results** (run 2026-10-02T00:27:44Z, after this section was committed in `af69512`; raw output in
+`AUDIT/ojas-training-2026-10-01/l-cuda-m0-linux-container.txt`). **All three expectations held:**
+- `rung0` exit **2** (the unpiped process status). It refused naming **libcuda, libnvrtc,
+  libcublas**, and its report reads `status: refused`, `exit_code: 2`, `refusal.kind:
+  library_missing`. The Linux candidate names it searched include `libcuda.so.1`,
+  `libcublas.so.12` and `libnvrtc.so.12`, the box's sonames.
+- The lib unit-test binary: `test result: ok. 62 passed; 0 failed`.
+- The rung0 unit-test binary: `test result: ok. 4 passed; 0 failed`.
+- `sha256sum` inside the container: `04ab105a…24f7`, the artifact above.
+
+**Image:**
+- `docker.io/library/python:3.11-trixie` (`b73116cf1823`), arm64, Debian 13. It was the only image
+  on disk, and nothing was pulled.
+- Its glibc is **2.41**, newer than the box's **2.39**. A newer glibc proves less: the binary's
+  newest symbol version is GLIBC_2.34, so 2.39 should load it [I], but this run does not show it
+  (`GAP-L-CUDA-M0-LINUX-GLIBC239-NOT-RUN-2026-10-01`).
+
+**Isolation:** `--pull never --network none`, three read-only file bind mounts, no GPU.
+
+**The podman machine:** stopped before; started for the run; stopped again at 00:27:58Z
+(`podman machine inspect` → `stopped`).
 
 ## Open gaps
 
@@ -226,7 +246,7 @@ New, in `gaps.jsonl`:
 - `GAP-L-CUDA-M0-NVRTC-PTX-JIT-PATH-2026-10-01`
 - `GAP-L-CUDA-M0-CAP-EXIT-PATH-NOT-EXERCISED-2026-10-01`
 - `GAP-L-CUDA-M0-CARGO-FMT-WOULD-EDIT-TESSL-2026-10-01`
-- `GAP-L-CUDA-M0-LINUX-NOT-RUN-2026-10-01`
+- `GAP-L-CUDA-M0-LINUX-GLIBC239-NOT-RUN-2026-10-01`
 
 Still open, and falsified by rung 0: `GAP-L-CUDA-CUBLAS-BF16-F32-UNVERIFIED-2026-10-01`.
 
