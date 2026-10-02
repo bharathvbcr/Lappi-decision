@@ -22,12 +22,25 @@ Every metric's ``passed`` is true: a per-family value is not a verdict (rule 2).
 **No model ran.** The row's environment is the CPU's; the GDN path that produced the verdicts is
 the eval row's record, not this one's.
 
+**With ``--exclude-rows FILE``** this is Fable's Q6 re-score
+(``AUDIT/idle-gpu-queue-2026-10-02/fable-j6a-replay.md``). The binary reports the same verdicts
+three ways: every row, the rows FILE does not name, and the rows FILE names (E_val, the val rows
+some train row overlaps). The row is then tagged ``gate-report-excluded``:
+* its recipe adds FILE's sha256 and the two allow flags;
+* its metrics are the three views, as ``rescore.{pooled|family.<family>}.{full|excluded|only}.*``,
+  plus the cross-check and the keys that named no verdict line.
+
+It is never tagged ``epoch-score-val`` and carries no ``ft_run_row_id``, which are the two
+things ``qd-post-f-rules``' ``eval_row_of`` selects an F eval row by. Without the flag the row
+is exactly the plain report row.
+
 RUN
 ---
     cargo build --release -p qd-runtime --bin qd-gate-report
     python tools/gate_report_row.py --bin target/release/qd-gate-report \\
       --verdicts VERDICTS.jsonl [--suite-verdicts SUITE.jsonl] \\
-      --eval-ledger ledger/<eval>.jsonl --ledger ledger/<out>.jsonl --out-json REPORT.json
+      --eval-ledger ledger/<eval>.jsonl --ledger ledger/<out>.jsonl --out-json REPORT.json \\
+      [--exclude-rows E_VAL.txt [--allow-absent-exclude-rows] [--allow-empty-exclude-rows]]
 """
 
 from __future__ import annotations
@@ -65,7 +78,16 @@ QUICK_REASON: Final[str] = (
     "a report-only re-read of one eval row's verdicts on CPU: it measures nothing new and "
     "promotes nothing (Fable G, rule 2)"
 )
+#: The excluded re-score's own tag: never ``epoch-score-val``, so no F eval-row lookup selects it.
+EXCLUDED_TAG: Final[str] = "gate-report-excluded"
+QUICK_REASON_EXCLUDED: Final[str] = (
+    "a report-only re-score of one eval row's verdicts on CPU with the --exclude-rows val rows "
+    "held out, and over them alone (Fable Q6): it measures nothing new and promotes nothing "
+    "(rule 2)"
+)
 REPORT_ONLY: Final[str] = "report-only, not a verdict"
+#: The three views ``qd-gate-report --exclude-rows`` gives each population.
+VIEWS: Final[tuple[str, ...]] = ("full", "excluded", "only")
 
 Json = dict[str, object]
 
@@ -120,6 +142,12 @@ def run_report(args: argparse.Namespace) -> Json:
     for path in args.eval_ledger:
         cmd += ["--eval-ledger", str(path)]
     cmd += ["--decisions", str(args.decisions), "--out-json", str(args.out_json)]
+    if args.exclude_rows is not None:
+        cmd += ["--exclude-rows", str(args.exclude_rows)]
+        if args.allow_empty_exclude_rows:
+            cmd.append("--allow-empty-exclude-rows")
+        if args.allow_absent_exclude_rows:
+            cmd.append("--allow-absent-exclude-rows")
     done = subprocess.run(cmd, capture_output=True, text=True, timeout=REPORT_TIMEOUT_S,
                           check=False)
     if done.returncode != 0:
@@ -205,18 +233,23 @@ def slot_metrics(prefix: str, node: object) -> dict[str, TriState]:
     return out
 
 
-def report_metrics(reported: Json, report: Json) -> dict[str, TriState]:
-    """Every report-only number as a metric. The pooled values are the eval row's own."""
-    out: dict[str, TriState] = {}
+def cross_check_metric(reported: Json) -> TriState:
+    """How many of the eval row's own numbers the binary recomputed equal, and what it could
+    not compare, with both counts: the proof the report read that row's verdicts."""
     check = _obj(reported.get("cross_check"), "cross_check")
     checked = _int(check.get("checked"), "cross_check.checked")
     skipped = [_obj(s, "cross_check.not_checked[]")
                for s in _list(check.get("not_checked"), "cross_check.not_checked")]
-    out["gate_report.cross_check"] = Ran(
+    return Ran(
         passed=True, value=checked, n=checked, n_total=checked + len(skipped),
         detail=(f"{checked} numbers the eval row records were recomputed from its verdicts and "
                 f"equal; {len(skipped)} were not compared: "
                 + ("; ".join(f"{s.get('name')} ({s.get('why')})" for s in skipped) or "none")))
+
+
+def report_metrics(reported: Json, report: Json) -> dict[str, TriState]:
+    """Every report-only number as a metric. The pooled values are the eval row's own."""
+    out: dict[str, TriState] = {"gate_report.cross_check": cross_check_metric(reported)}
     population = _obj(report.get("promotion_population"), "promotion_population")
     out["promotion_population"] = Ran(
         passed=True, value=str(population.get("value")),
@@ -247,6 +280,85 @@ def report_metrics(reported: Json, report: Json) -> dict[str, TriState]:
     return out
 
 
+def view_metrics(prefix: str, node: object) -> dict[str, TriState]:
+    """One ``--exclude-rows`` view as metrics: its size, top-1 per kind, permutation agreement,
+    in-distribution abstention, ECE per slot shape and the last option's deviations."""
+    view = _obj(node, prefix)
+    n = _int(view.get("n"), f"{prefix}.n")
+    out: dict[str, TriState] = {
+        f"{prefix}.n": Ran(
+            passed=True, value=n, n=n, n_total=n,
+            detail=(f"{_int(view.get('letter_rows'), prefix)} letter and "
+                    f"{_int(view.get('span_rows'), prefix)} span verdict lines; {REPORT_ONLY}")),
+    }
+    for kind, state in _obj(view.get("accuracy"), f"{prefix}.accuracy").items():
+        out[f"{prefix}.accuracy.{kind}"] = tri(state, f"{prefix}.accuracy.{kind}")
+    out[f"{prefix}.permutation_consistency"] = tri(
+        view.get("permutation_consistency"), f"{prefix}.permutation_consistency")
+    out[f"{prefix}.ood_abstain.in_distribution"] = tri(
+        view.get("ood_abstain_in_distribution"), f"{prefix}.ood_abstain_in_distribution")
+    for shape, state in _obj(view.get("ece"), f"{prefix}.ece").items():
+        out[f"{prefix}.ece.{shape}"] = tri(state, f"{prefix}.ece.{shape}")
+    for shape, node_ in _obj(view.get("last_option"), f"{prefix}.last_option").items():
+        where = f"{prefix}.last_option.{shape}"
+        if _is_tri(node_):
+            out[where] = tri(node_, where)
+            continue
+        last = _obj(node_, where)
+        shares = (f"{last.get('label')} (row {_int(last.get('row'), where)}): gold share "
+                  f"{_float(last.get('gold_share'), where):.4f}, predicted share "
+                  f"{_float(last.get('predicted_share'), where):.4f}")
+        for kind in ("predicted", "mean_probability"):
+            state = tri(last.get(kind), f"{where}.{kind}")
+            if isinstance(state, Ran):
+                state = Ran(passed=True, value=state.value, n=state.n, n_total=state.n_total,
+                            detail=f"{shares}; {state.detail}")
+            out[f"{where}.{kind}_sigma"] = state
+    return out
+
+
+def excluded_metrics(reported: Json, report: Json, exclude_sha256: str) -> dict[str, TriState]:
+    """The excluded re-score's metrics: the cross-check, what FILE named and missed, and every
+    population's three views. Refused unless the report is of the file this row hashed."""
+    stated = _obj(report.get("exclude_rows"), "exclude_rows")
+    if stated.get("sha256") != exclude_sha256:
+        raise Refused(f"the report excluded the rows of a file with sha256 {stated.get('sha256')}, "
+                      f"not the --exclude-rows file this row hashed ({exclude_sha256})")
+    ex = _obj(reported.get("excluded_rows"), "excluded_rows")
+    keys = _int(ex.get("keys"), "excluded_rows.keys")
+    matched = _int(ex.get("keys_matched"), "excluded_rows.keys_matched")
+    absent = _obj(ex.get("absent"), "excluded_rows.absent")
+    count = _int(absent.get("count"), "excluded_rows.absent.count")
+    listed = [str(k) for k in _list(absent.get("keys"), "excluded_rows.absent.keys")]
+    if len(listed) != count or matched + count != keys:
+        raise Refused(f"excluded_rows: {matched} matched and {count} absent ({len(listed)} "
+                      f"listed) do not account for the file's {keys} keys")
+    out: dict[str, TriState] = {
+        "gate_report.cross_check": cross_check_metric(reported),
+        "rescore.exclude_rows": Ran(
+            passed=True, value=matched, n=matched, n_total=keys,
+            detail=(f"{matched} of the {keys} keys in --exclude-rows (sha256 {exclude_sha256}) "
+                    f"name a verdict line of this eval row; {REPORT_ONLY}")),
+        "rescore.absent": Ran(
+            passed=True, value=count, n=count, n_total=keys,
+            detail=(f"keys naming no verdict line, recorded and not held out; sha256 "
+                    f"{absent.get('sha256')} of them sorted, one per line, LF-terminated; keys "
+                    f"{json.dumps(listed)}")),
+    }
+    scopes: list[tuple[str, object]] = [("rescore.pooled", ex.get("pooled"))]
+    for family, views in _obj(ex.get("per_family"), "excluded_rows.per_family").items():
+        name = "rescore.family" if family == "family" else f"rescore.family.{family}"
+        scopes.append((name, views))
+    for name, views in scopes:
+        if _is_tri(views):
+            out[name] = tri(views, name)
+            continue
+        body = _obj(views, name)
+        for which in VIEWS:
+            out.update(view_metrics(f"{name}.{which}", body.get(which)))
+    return out
+
+
 def the_reported_row(report: Json, eval_row_id: str, verdicts_sha256: str) -> Json:
     """The report's one eval row, which must be the row and the file this row hashed."""
     rows = _list(report.get("eval_rows"), "eval_rows")
@@ -274,7 +386,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ledger", type=Path, required=True, help="the ledger to append to")
     parser.add_argument("--out-json", type=Path, required=True,
                         help="where the binary writes its JSON report; refused if it exists")
+    parser.add_argument("--exclude-rows", type=Path, default=None,
+                        help="E_val: one row_id#slot_name key per line; writes the excluded "
+                             "re-score row (tag gate-report-excluded) instead of the plain one")
+    parser.add_argument("--allow-empty-exclude-rows", action="store_true",
+                        help="as qd-gate-report's: accept an --exclude-rows file naming no row")
+    parser.add_argument("--allow-absent-exclude-rows", action="store_true",
+                        help="as qd-gate-report's: record keys naming no verdict line instead "
+                             "of refusing; only after checking them against the val manifest")
     args = parser.parse_args(argv)
+    if args.exclude_rows is None and (args.allow_empty_exclude_rows
+                                      or args.allow_absent_exclude_rows):
+        raise SystemExit("--allow-empty-exclude-rows and --allow-absent-exclude-rows qualify "
+                         "--exclude-rows, which was not given")
+    if args.exclude_rows is not None and not args.exclude_rows.is_file():
+        raise SystemExit(f"--exclude-rows {args.exclude_rows} is not a file")
     if len(args.verdicts) != 1:
         raise SystemExit(f"{len(args.verdicts)} --verdicts files: one report row re-reads "
                          "exactly one --verdicts file, one eval row")
@@ -300,6 +426,13 @@ def main(argv: list[str] | None = None) -> int:
         "suite_verdicts_sha256": [sha256_file(p) for p in args.suite_verdicts],
         "decisions_sha256": sha256_file(args.decisions),
     }
+    exclude_sha256 = None if args.exclude_rows is None else sha256_file(args.exclude_rows)
+    if exclude_sha256 is not None:
+        recipe.update({
+            "tag": EXCLUDED_TAG, "exclude_rows_sha256": exclude_sha256,
+            "allow_empty_exclude_rows": args.allow_empty_exclude_rows,
+            "allow_absent_exclude_rows": args.allow_absent_exclude_rows,
+        })
     protocol = Protocol(
         data_snapshot_hash=eval_row.protocol.data_snapshot_hash,
         tokenizer_hash=eval_row.protocol.tokenizer_hash,
@@ -312,15 +445,20 @@ def main(argv: list[str] | None = None) -> int:
     with RunRecorder(
         Ledger(args.ledger), entry_point=Path(__file__), protocol=protocol, run_kind="eval",
         repo=REPO, env=Environment.detect(device="cpu"), wall_clock_s=None, cost=None,
-        recipe=recipe, quick=True, quick_reason=QUICK_REASON,
+        recipe=recipe, quick=True,
+        quick_reason=QUICK_REASON if exclude_sha256 is None else QUICK_REASON_EXCLUDED,
         notes=(f"tools/gate_report_row.py: qd-gate-report over eval row {eval_row.row_id}'s "
-               "verdicts; report-only"),
+               "verdicts; report-only"
+               + ("" if exclude_sha256 is None else
+                  f"; --exclude-rows sha256 {exclude_sha256}, tag {EXCLUDED_TAG}")),
     ) as recorder:
         started = time.monotonic()
         report = run_report(args)
         recorder.measured(time.monotonic() - started)
         reported = the_reported_row(report, eval_row.row_id, verdicts_sha256)
-        for name, state in report_metrics(reported, report).items():
+        metrics = (report_metrics(reported, report) if exclude_sha256 is None
+                   else excluded_metrics(reported, report, exclude_sha256))
+        for name, state in metrics.items():
             recorder.metric(name, state)
     written = recorder.row
     print(f"wrote row {written.row_id if written else '?'} to {args.ledger}")
