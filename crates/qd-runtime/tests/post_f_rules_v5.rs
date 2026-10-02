@@ -166,7 +166,7 @@ struct P {
     scrambled: u64,
     perm: u64,
     ece: f64,
-    id_dc: u64,
+    id_dc: (u64, u64),
     id_pooled: (u64, u64),
 }
 
@@ -180,7 +180,7 @@ const BASE: P = P {
     scrambled: 58,
     perm: 2291,
     ece: 0.020_7,
-    id_dc: 13,
+    id_dc: (13, 2304),
     id_pooled: (843, 10985),
 };
 
@@ -200,7 +200,16 @@ fn v5_shard() -> String {
     "5d".repeat(32)
 }
 
-/// A v5 ft row (`arm` adds the noul-weight arm's two keys).
+/// The batch order v5 seed `seed` trains on (`--batch-order seed`): its plan's digest.
+fn plan_order_digest(seed: i64) -> String {
+    format!("{:02x}", 0xb0 + seed).repeat(32)
+}
+
+const PAIRED: &str = "corpus.plan_order_digest";
+
+/// A v5 ft row (`arm` adds the noul-weight arm's two keys). Every v5 run trains with
+/// `--batch-order seed` (Fable's seed-order ruling): the recipe key is the constant string, and
+/// the ft row records seed `seed`'s plan seed and order digest.
 fn ft(id: &str, seed: i64, arm: bool) -> Value {
     let mut r = f_row("973cd4e3");
     r["row_id"] = json!(id);
@@ -210,6 +219,9 @@ fn ft(id: &str, seed: i64, arm: bool) -> Value {
     r["protocol"]["recipe_hash"] = json!(if arm { "a5" } else { "55" }.repeat(32));
     r["recipe"]["shard_hash"] = json!(v5_shard());
     r["recipe"]["min_lr"] = json!(0.0);
+    r["recipe"]["batch_order"] = json!("seed");
+    r["metrics"]["corpus.plan_seed"] = json!({"state": "ran", "value": seed});
+    r["metrics"][PAIRED] = json!({"state": "ran", "value": plan_order_digest(seed)});
     if arm {
         r["recipe"]["noul_weight"] = json!(4.0);
         r["recipe"]["noul_weight_scope"] = json!("code.defect_class");
@@ -239,7 +251,7 @@ fn eval(id: &str, seed: i64, ft: &str, p: &P) -> Value {
     set(
         &mut r,
         "ood_abstain.in_distribution.family.code.defect_class",
-        (p.id_dc, 2304),
+        p.id_dc,
     );
     set(&mut r, "ood_abstain.in_distribution", p.id_pooled);
     r["metrics"]["ece.family.code.defect_class.choice.k4"]["value"] = json!(p.ece);
@@ -848,8 +860,20 @@ fn arm_fixture(
     arm: [P; 3],
     edit: impl FnOnce(&mut Vec<Value>, &[String]),
 ) -> Arm {
-    let (v5_rows, v5_ids) = seeds(0x5, false, v5);
+    arm_fixture_both(s, v5, arm, |_, _| {}, edit)
+}
+
+/// v5's ledger and the arm's, with `edit_v5` applied to v5's rows and `edit` to the arm's.
+fn arm_fixture_both(
+    s: &Scratch,
+    v5: [P; 3],
+    arm: [P; 3],
+    edit_v5: impl FnOnce(&mut Vec<Value>, &[String]),
+    edit: impl FnOnce(&mut Vec<Value>, &[String]),
+) -> Arm {
+    let (mut v5_rows, v5_ids) = seeds(0x5, false, v5);
     let (mut arm_rows, arm_ids) = seeds(0xa, true, arm);
+    edit_v5(&mut v5_rows, &v5_ids);
     edit(&mut arm_rows, &arm_ids);
     Arm {
         v5: s.ledger(
@@ -940,6 +964,30 @@ fn an_arm_holding_every_target_with_room_on_every_seed_and_losing_no_guard_wins(
         d["arm"]["identity"][0]["added"],
         json!({"noul_weight": 4.0, "noul_weight_scope": "code.defect_class"})
     );
+    // Seed for seed, the arm trained on v5's batch order.
+    for s_ in 0..3 {
+        assert_eq!(
+            d["arm"]["identity"][s_]["paired"][PAIRED],
+            plan_order_digest(s_ as i64)
+        );
+    }
+    assert_eq!(d["arm"]["recipe_hash"], "a5".repeat(32));
+}
+
+#[test]
+fn a_target_clears_only_when_every_arm_seed_holds_even_above_v5s_count() {
+    let s = scratch();
+    // v5 holds prose on 1 of 3; the arm on 2 of 3: more than v5, but not every seed.
+    let v5 = ood([50, 20, 20], V5_ROOM.1);
+    let arm = with(arm_holds(), 2, |p| p.prose = 29);
+    let o = noulw(&s, &arm_fixture(&s, v5, arm, |_, _| {}));
+    o.said("quiet");
+    let t = &o.json["detail"]["arm"]["targets"][0];
+    assert_eq!(
+        (t["v5_holds"].as_u64(), t["arm_holds"].as_u64()),
+        (Some(1), Some(2))
+    );
+    assert_eq!(t["clears"], false);
 }
 
 #[test]
@@ -973,6 +1021,34 @@ fn a_target_v5_holds_on_every_seed_is_read_as_a_guard_the_arm_must_hold_everywhe
     assert_eq!(t["room"], false);
     assert_eq!(t["loses"], true);
     assert!(t.get("clears").is_none());
+}
+
+#[test]
+fn with_room_at_three_of_three_an_arm_holding_as_many_seeds_as_v5_does_not_clear() {
+    let s = scratch();
+    // "at most 3 of its 3 seeds": prose, which v5 holds on 3 of 3, has room. The arm holds it on
+    // every seed too, but not on more seeds than v5, so it does not clear ("more" is strict).
+    let three = prereg(&s, |p| {
+        retext(
+            p,
+            &["arm_noul_weight", "comparison", "room"],
+            "at most 2 of its 3 seeds",
+            "at most 3 of its 3 seeds",
+        );
+    });
+    let v5 = ood([50, 30, 45], V5_ROOM.1);
+    let fx = arm_fixture(&s, v5, arm_holds(), |_, _| {});
+    let o = noulw_with(&s, &three, &repo(NOUL), &fx);
+    o.said("quiet");
+    let t = &o.json["detail"]["arm"]["targets"][0];
+    assert_eq!(t["room"], true);
+    assert_eq!(
+        (t["v5_holds"].as_u64(), t["arm_holds"].as_u64()),
+        (Some(3), Some(3))
+    );
+    assert_eq!(t["clears"], false);
+    // Under the bound text (at most 2) the same rows make prose a guard the arm holds: wins.
+    noulw(&s, &fx).said("wins");
 }
 
 #[test]
@@ -1053,8 +1129,15 @@ fn each_guard_holds_at_v5s_bound_and_loses_one_count_past_it_on_the_arms_worst_s
         ),
         (
             "ood_abstain.in_distribution.family.code.defect_class",
-            [BASE, P { id_dc: 20, ..BASE }, BASE],
-            |p, past| p.id_dc = if past { 21 } else { 20 },
+            [
+                BASE,
+                P {
+                    id_dc: (20, 2304),
+                    ..BASE
+                },
+                BASE,
+            ],
+            |p, past| p.id_dc = (if past { 21 } else { 20 }, 2304),
         ),
         (
             "ood_abstain.in_distribution",
@@ -1093,21 +1176,28 @@ fn each_guard_holds_at_v5s_bound_and_loses_one_count_past_it_on_the_arms_worst_s
 }
 
 #[test]
-fn the_absolute_guard_allows_46_of_2304_and_loses_at_47_inside_v5s_envelope() {
+fn the_absolute_guard_allows_50n_eq_n_total_and_loses_one_count_past_it_inside_v5s_envelope() {
     let s = scratch();
-    // v5's defect_class in-distribution abstention 40 / 50 / 45: 47 is inside the envelope.
+    // v5's defect_class in-distribution abstention 40 / 50 / 45 of 2304: every arm count below
+    // is inside the envelope, so only the absolute guard can lose. 46/2304 and 47/2304 are the
+    // printed example's boundary; at 2300 slots, 50 * 46 = 2300 exactly.
     let id_dc = [40, 50, 45];
     let v5 = [0, 1, 2].map(|i| P {
         prose: V5_ROOM.0[i],
         unseen: V5_ROOM.1[i],
-        id_dc: id_dc[i],
+        id_dc: (id_dc[i], 2304),
         ..BASE
     });
-    for (worst, word) in [(46, "wins"), (47, "quiet")] {
+    for (worst, word) in [
+        ((46, 2304), "wins"),
+        ((47, 2304), "quiet"),
+        ((46, 2300), "wins"),
+        ((47, 2300), "quiet"),
+    ] {
         let arm = [0, 1, 2].map(|i| P {
             prose: ARM_HOLDS.0[i],
             unseen: ARM_HOLDS.1[i],
-            id_dc: if i == 1 { worst } else { 40 },
+            id_dc: if i == 1 { worst } else { (40, 2304) },
             ..BASE
         });
         let o = noulw(&s, &arm_fixture(&s, v5, arm, |_, _| {}));
@@ -1232,12 +1322,141 @@ fn a_missing_doubled_unfinished_or_incomparable_arm_row_refuses() {
 }
 
 #[test]
+fn the_pairing_check_refuses_an_arm_seed_not_on_v5s_batch_order_for_that_seed() {
+    let s = scratch();
+    // Arm seed 1 trained on v5 seed 2's order: every other key agrees, and it refuses.
+    let fx = arm_fixture(&s, v5_room(), arm_holds(), |r, ids| {
+        row_mut(r, &ids[1])["metrics"][PAIRED]["value"] = json!(plan_order_digest(2));
+    });
+    noulw(&s, &fx).refused_with(&format!(
+        "arm ft row {} (seed Some(1)): metrics.{PAIRED} is {}, not v5 seed Some(1)'s {}: not \
+         v5's batch order (the pairing check)",
+        fx.arm_ids[1],
+        plan_order_digest(2),
+        plan_order_digest(1)
+    ));
+}
+
+#[test]
+fn the_pairing_check_refuses_when_the_order_digest_is_absent_or_unread_on_either_side() {
+    let s = scratch();
+    type Edit = fn(&mut Vec<Value>, &[String]);
+    let none: Edit = |_, _| {};
+    let drop_seed_2: Edit = |r, ids| {
+        row_mut(r, &ids[2])["metrics"]
+            .as_object_mut()
+            .unwrap()
+            .remove(PAIRED);
+    };
+    let not_run: Edit = |r, ids| {
+        row_mut(r, &ids[0])["metrics"][PAIRED] = json!({"state": "not_run", "reason": "test"});
+    };
+    let empty: Edit = |r, ids| row_mut(r, &ids[0])["metrics"][PAIRED]["value"] = json!("");
+    let number: Edit = |r, ids| row_mut(r, &ids[0])["metrics"][PAIRED]["value"] = json!(176);
+    // (v5's edit, the arm's edit, the row the reason names, the phrase)
+    let cases: [(Edit, Edit, bool, String); 5] = [
+        (
+            none,
+            drop_seed_2,
+            true,
+            format!("no metrics.{PAIRED} (the pairing check: absent on either side refuses)"),
+        ),
+        (
+            drop_seed_2,
+            none,
+            false,
+            format!("no metrics.{PAIRED} (the pairing check: absent on either side refuses)"),
+        ),
+        (
+            none,
+            not_run,
+            true,
+            format!("metrics.{PAIRED} is not_run (test), not ran (the pairing check"),
+        ),
+        (
+            none,
+            empty,
+            true,
+            format!("metrics.{PAIRED} records no string value (the pairing check"),
+        ),
+        (
+            number,
+            none,
+            false,
+            format!("metrics.{PAIRED} records no string value (the pairing check"),
+        ),
+    ];
+    for (edit_v5, edit, on_arm, phrase) in cases {
+        let fx = arm_fixture_both(&s, v5_room(), arm_holds(), edit_v5, edit);
+        let o = noulw(&s, &fx);
+        o.refused_with(&phrase);
+        // The reason names v5's row iff v5's side lacks it (the arm's row id is always named).
+        let reason = o.json["refused"].as_str().unwrap();
+        let names_v5 = fx
+            .v5_ids
+            .iter()
+            .any(|id| reason.contains(&format!("row {id} (")));
+        assert_eq!(names_v5, !on_arm, "{reason}");
+    }
+}
+
+#[test]
+fn the_paired_metric_is_the_one_the_preregistration_names() {
+    let s = scratch();
+    // Name train.consumed_digest instead: the rows carry corpus.plan_order_digest only, so the
+    // check reads the named metric, finds it on neither side, and refuses.
+    let consumed = prereg(&s, |p| {
+        retext(
+            p,
+            &["arm_noul_weight", "identity", "ft_rows"],
+            "corpus.plan_order_digest equal to",
+            "train.consumed_digest equal to",
+        );
+    });
+    let fx = arm_fixture(&s, v5_room(), arm_holds(), |_, _| {});
+    noulw_with(&s, &consumed, &repo(NOUL), &fx)
+        .refused_with("no metrics.train.consumed_digest (the pairing check");
+    // With it recorded and equal seed for seed, the arm wins on that metric.
+    let digest = |r: &mut Vec<Value>, ids: &[String]| {
+        for (seed, id) in ids.iter().enumerate() {
+            row_mut(r, id)["metrics"]["train.consumed_digest"] =
+                json!({"state": "ran", "value": format!("c{seed}").repeat(32)});
+        }
+    };
+    let fx = arm_fixture_both(&s, v5_room(), arm_holds(), digest, digest);
+    let o = noulw_with(&s, &consumed, &repo(NOUL), &fx);
+    o.said("wins");
+    assert_eq!(
+        o.json["detail"]["arm"]["identity"][2]["paired"]["train.consumed_digest"],
+        "c2".repeat(32)
+    );
+}
+
+#[test]
+fn the_arms_three_ft_rows_must_be_one_configuration_like_v5s() {
+    let s = scratch();
+    // Arm seed 1's recipe hash differs; its recipe, which the per-seed identity compares key by
+    // key, does not. one_configuration (the envelope's own check) refuses it.
+    let fx = arm_fixture(&s, v5_room(), arm_holds(), |r, ids| {
+        row_mut(r, &ids[1])["protocol"]["recipe_hash"] = json!("a6".repeat(32));
+    });
+    noulw(&s, &fx).refused_with(&format!(
+        "ft row {} has recipe {} / data {}, not the first row's {} / {}: not one configuration",
+        fx.arm_ids[1],
+        "a6".repeat(32),
+        v5_data(),
+        "a5".repeat(32),
+        v5_data()
+    ));
+}
+
+#[test]
 fn a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read() {
     let s = scratch();
     let fx = arm_fixture(&s, v5_room(), arm_holds(), |_, _| {});
     noulw_with(&s, &repo(DRAFT), &repo(NOUL), &fx).refused_with("\"draft\" key");
     type Edit = fn(&mut Map<String, Value>);
-    let cases: [(Edit, &str); 11] = [
+    let cases: [(Edit, &str); 13] = [
         (
             |p| {
                 p["arm_noul_weight"]["guards"].as_array_mut().unwrap().push(
@@ -1320,6 +1539,29 @@ fn a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_i
                 );
             },
             "does not say \"ties never lose\"",
+        ),
+        (
+            |p| {
+                retext(
+                    p,
+                    &["arm_noul_weight", "identity", "ft_rows"],
+                    "corpus.plan_order_digest equal to v5's ft row of the same seed",
+                    "corpus.plan_order_digest recorded",
+                );
+            },
+            "does not say \"<metric> equal to v5's ft row of the same seed\"",
+        ),
+        (
+            |p| {
+                retext(
+                    p,
+                    &["arm_noul_weight", "identity", "ft_rows"],
+                    "absent on either side refuses",
+                    "absent on the arm's side refuses",
+                );
+            },
+            "corpus.plan_order_digest equal to v5's ft row of the same seed, absent on either \
+             side refuses",
         ),
     ];
     for (edit, phrase) in cases {

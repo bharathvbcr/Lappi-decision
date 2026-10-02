@@ -2982,6 +2982,9 @@ const ROOM_WORDS: [&str; 2] = ["room", "no_room"];
 const PAUSE_WORDS: [&str; 2] = ["continue", "pause"];
 /// R9 names the 8K gate's worst depth bucket in words, not by its listed name.
 const R9_NEEDLE_PHRASE: &str = "8K needle worst bucket";
+/// identity.ft_rows' pairing check follows the metric it names with these words (Fable's
+/// seed-order ruling, section 2).
+const PAIRED_PHRASE: &str = " equal to v5's ft row of the same seed";
 /// Pooled in-distribution abstention: every val choice row, CLINC's included (a v5 guard).
 const ID_ABSTAIN_POOLED: Metric = count_metric("ood_abstain.in_distribution", Dir::Lower);
 /// Every metric a v5 rule reads off an epoch-score-val row, under the name the pre-registration
@@ -3449,6 +3452,9 @@ struct NoulwRule {
     ft_tag: String,
     /// identity.ft_rows: the keys the arm's recipe adds to v5's same-seed recipe, and their values.
     added: Vec<(String, Value)>,
+    /// identity.ft_rows' pairing check: the ft-row metric (`corpus.plan_order_digest`) the arm's
+    /// and v5's same-seed ft rows must both record, equal.
+    paired: String,
     /// seed_holds: a seed holds a target iff its count meets this form...
     holds: CountForm,
     /// ...which is the F2 bar, over exactly this many cases.
@@ -3605,6 +3611,34 @@ fn noulw_rule(p: &Map<String, Value>, noul: &Map<String, Value>) -> Result<Noulw
         "arm_noul_weight.identity.ft_rows adds {added:?}, which does not set noul_weight to \
          arm_noul_weight.w.value {w_value}"
     );
+    // The pairing check (Fable's seed-order ruling, section 2): the ft-row metric named just
+    // before PAIRED_PHRASE is equal on the arm's and v5's same-seed ft rows.
+    let at = id_text.find(PAIRED_PHRASE).ok_or_else(|| {
+        format!(
+            "arm_noul_weight.identity.ft_rows does not say \"<metric>{PAIRED_PHRASE}\": the \
+             pairing check this checker applies"
+        )
+    })?;
+    ensure!(
+        id_text.matches(PAIRED_PHRASE).count() == 1,
+        "arm_noul_weight.identity.ft_rows names more than one paired metric"
+    );
+    let head = &id_text[..at];
+    let start = head
+        .char_indices()
+        .rev()
+        .find(|(_, c)| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')))
+        .map_or(0, |(i, c)| i + c.len_utf8());
+    let paired = head[start..].to_string();
+    ensure!(
+        !paired.is_empty() && !paired.starts_with('.') && !paired.ends_with('.'),
+        "arm_noul_weight.identity.ft_rows: no metric named before {PAIRED_PHRASE:?}"
+    );
+    says(
+        p,
+        &id_path,
+        &format!("{paired}{PAIRED_PHRASE}, absent on either side refuses"),
+    )?;
 
     // Identity: the eval rows. Their tag, and the recipe keys held equal to v5 seed 0's, which
     // must be `comparable`'s.
@@ -3866,6 +3900,7 @@ fn noulw_rule(p: &Map<String, Value>, noul: &Map<String, Value>) -> Result<Noulw
         seeds,
         ft_tag,
         added,
+        paired,
         holds,
         bar,
         room_at_most,
@@ -3917,8 +3952,9 @@ impl Held {
 }
 
 /// The arm's ft row is v5's same-seed ft row plus exactly the added keys (identity.ft_rows):
-/// quick false, its tag, v5's code commit and data snapshot, and every recipe key but the added
-/// ones equal. Every failure is listed, not only the first.
+/// quick false, its tag, v5's code commit and data snapshot, every recipe key but the added
+/// ones equal, and the paired metric (v5's batch order for that seed) recorded on both rows and
+/// equal. Every failure is listed, not only the first.
 fn noulw_identity(rule: &NoulwRule, ft: &Row, v5: &Row) -> Result<Value> {
     let what = format!("arm ft row {} (seed {:?})", ft.id(), ft.seed());
     let shown = |v: Option<&Value>| v.map_or("absent".to_string(), Value::to_string);
@@ -3983,12 +4019,49 @@ fn noulw_identity(rule: &NoulwRule, ft: &Row, v5: &Row) -> Result<Value> {
             ));
         }
     }
+    // The pairing check: both rows record the paired metric, as a non-empty string, equal.
+    let paired = |row: &Row| -> Result<String> {
+        row.ran("metrics", &rule.paired)?
+            .get("value")
+            .and_then(Value::as_str)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                format!(
+                    "row {} ({}): metrics.{} records no string value",
+                    row.id(),
+                    row.at,
+                    rule.paired
+                )
+            })
+    };
+    let order = match (paired(ft), paired(v5)) {
+        (Ok(a), Ok(b)) if a == b => Some(a),
+        (Ok(a), Ok(b)) => {
+            wrong.push(format!(
+                "metrics.{} is {a}, not v5 seed {:?}'s {b}: not v5's batch order (the pairing \
+                 check)",
+                rule.paired,
+                v5.seed()
+            ));
+            None
+        }
+        (a, b) => {
+            for e in [a.err(), b.err()].into_iter().flatten() {
+                wrong.push(format!(
+                    "{e} (the pairing check: absent on either side refuses)"
+                ));
+            }
+            None
+        }
+    };
     ensure!(wrong.is_empty(), "{what}: {}", wrong.join("; "));
     Ok(json!({
         "seed": ft.seed(),
         "arm_ft_row": ft.id(),
         "v5_ft_row": v5.id(),
         "added": rule.added.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<Map<_, _>>(),
+        "paired": {rule.paired.as_str(): order},
     }))
 }
 
@@ -4022,6 +4095,10 @@ fn judge_noulw(
         comparable(&rows, reference, &format!("arm seed {seed}"))?;
         arm.push(rows);
     }
+    // The arm's three ft rows are one configuration, as v5's are: one recipe hash and data
+    // snapshot (batch_order = "seed" is a constant, so per-seed orders keep one recipe hash).
+    // The per-seed identity above does not compare protocol.recipe_hash; this does.
+    let (_, arm_recipe_hash, _) = one_configuration(&ledger, arm_ft)?;
     let n = rule.seeds.len();
     let mut lost: Vec<String> = Vec::new();
     let mut cleared = true;
@@ -4109,6 +4186,7 @@ fn judge_noulw(
         json!({
             "wins": win,
             "rows": arm.iter().map(SeedRows::json).collect::<Vec<_>>(),
+            "recipe_hash": arm_recipe_hash,
             "identity": identity,
             "targets_with_room_all_clear": cleared,
             "targets": targets,
