@@ -15,6 +15,8 @@ fn base() -> Vec<String> {
         "--manifest", "/nonexistent/out/data/pool/train.json",
         "--qd-data", "/nonexistent/python/qd_data",
         "--head-init", "/nonexistent/span_head_init-seed0.safetensors",
+        "--head-init-sha256", "8f10b58bb45af911e5e8524157f1898604c3bca7fb97ff66437614cda5d48230",
+        "--head-init-content-digest", "81bd953e1f27e8e2b703264df663f15f239327c9523d3e85973687009db471d6",
         "--out", "/nonexistent/run",
         "--ledger", "/nonexistent/ledger/mac-ojas-rung-d-2026-10-01.jsonl",
         "--repo", "/nonexistent",
@@ -109,7 +111,8 @@ fn real_fts_source_transforms_and_the_doors_escape_hatches_are_refused_by_name()
 #[test]
 fn malformed_command_lines_are_usage_errors() {
     for required in [
-        "--snapshot", "--data-root", "--shards", "--manifest", "--qd-data", "--head-init", "--out",
+        "--snapshot", "--data-root", "--shards", "--manifest", "--qd-data", "--head-init",
+        "--head-init-sha256", "--head-init-content-digest", "--out",
         "--ledger", "--repo", "--seed", "--lr", "--steps", "--batch-tokens", "--span-weight", "--cap-s",
         "--operands",
     ] {
@@ -137,6 +140,8 @@ fn malformed_command_lines_are_usage_errors() {
     assert!(bad("--cap-s", "200000").contains("MAX_CAP_S"), "the program's 40 h cap is read-only");
     assert!(bad("--operands", "fp16").contains("exact_f32 or bf16"));
     assert!(bad("--seed", "-1").contains("not a valid number"));
+    assert!(bad("--head-init-sha256", "abc").contains("64 lowercase hex"));
+    assert!(bad("--head-init-content-digest", &"A".repeat(64)).contains("64 lowercase hex"));
 }
 
 #[test]

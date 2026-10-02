@@ -26,6 +26,7 @@
 
 use std::path::PathBuf;
 
+use qd_train::ft_data::HeadInitPin;
 use qd_train::ledger::check_ledger_path;
 use qd_train::run_control::WallClockCap;
 use qd_train::trainer::EtaRule;
@@ -67,6 +68,10 @@ pub struct TrainArgs {
     pub expect_rev: Option<String>,
     /// The span head's initial weights (`span_head.*` or bare names, f32).
     pub head_init: PathBuf,
+    /// What pins it (Amendment 2 (iv)): the file's sha256 and its content digest
+    /// (`run_control._sidecar_digest` over `qd-tensor-ref-v1`), as its tracked manifest
+    /// records them. The run refuses a file that matches either one alone, or neither.
+    pub head_init_pin: HeadInitPin,
     /// A new or empty directory for the export, its manifest and any checkpoint.
     pub out: PathBuf,
     /// `ledger/mac-ojas-*.jsonl`.
@@ -108,11 +113,14 @@ impl std::error::Error for ArgsError {}
 
 pub const USAGE: &str = "qd-train-metal \
 --snapshot DIR --data-root DIR --shards DIR --manifest FILE --qd-data DIR [--expect-rev REV] \
---head-init FILE --out DIR --ledger ledger/mac-ojas-*.jsonl --repo DIR \
+--head-init FILE --head-init-sha256 HEX --head-init-content-digest HEX \
+--out DIR --ledger ledger/mac-ojas-*.jsonl --repo DIR \
 --seed N --lr X --steps N --batch-tokens N --span-weight X --cap-s X --operands exact_f32|bf16 \
 [--eta-at-step N --eta-margin-s X] [--checkpoint-every N]";
 
-const TAKES_VALUE: [&str; 20] = [
+const TAKES_VALUE: [&str; 22] = [
+    "--head-init-sha256",
+    "--head-init-content-digest",
     "--snapshot",
     "--data-root",
     "--shards",
@@ -247,6 +255,18 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
     };
     let ledger = path("--ledger")?;
     check_ledger_path(&ledger).map_err(|e| ArgsError::Refused(e.to_string()))?;
+    let sha256_hex = |flag: &str| -> Result<String, ArgsError> {
+        let v = req(flag)?;
+        if v.len() == 64 && v.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+            Ok(v.to_owned())
+        } else {
+            Err(ArgsError::Usage(format!("{flag} {v:?} is not 64 lowercase hex characters")))
+        }
+    };
+    let head_init_pin = HeadInitPin {
+        sha256: sha256_hex("--head-init-sha256")?,
+        content_digest: sha256_hex("--head-init-content-digest")?,
+    };
     Ok(TrainArgs {
         snapshot: path("--snapshot")?,
         data_root: path("--data-root")?,
@@ -255,6 +275,7 @@ pub fn parse(args: &[String]) -> Result<TrainArgs, ArgsError> {
         qd_data: path("--qd-data")?,
         expect_rev: get("--expect-rev").map(str::to_owned),
         head_init: path("--head-init")?,
+        head_init_pin,
         out: path("--out")?,
         ledger,
         repo: path("--repo")?,

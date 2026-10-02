@@ -26,7 +26,7 @@ use ojas_qwen35::Snapshot;
 use qd_export::layout::Layout;
 use qd_train::export::{self, ExportSummary, ManifestInfo, NamedTensor, Precision, METAL_DEVICE, METAL_TRAINER};
 use qd_train::files::OsFiles;
-use qd_train::ft_data::{load_span_head, HostSpanHead, RealBatch};
+use qd_train::ft_data::{load_span_head_pinned, HostSpanHead, RealBatch};
 use qd_train::held_out::DataConfig;
 use qd_train::ledger::{self, Environment, FtRecipe, FtRow, Protocol, RunFacts, Status, WallClockSource};
 use qd_train::objective::LetterSpanObjective;
@@ -143,7 +143,8 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
     if layout.hidden != hidden {
         return refused(format!("qd-export reads hidden {} but ojas-qwen35 reads {hidden}", layout.hidden));
     }
-    let (head, head_sha) = load_span_head(&a.head_init, hidden).map_err(|e| RunError::Refused(format!("the head init: {e}")))?;
+    let (head, head_sha, head_content) = load_span_head_pinned(&a.head_init, hidden, &a.head_init_pin)
+        .map_err(|e| RunError::Refused(format!("the head init: {e}")))?;
     let head_file = a
         .head_init
         .file_name()
@@ -280,6 +281,15 @@ pub fn run(a: &TrainArgs) -> Result<RunSummary, RunError> {
     metrics.insert(
         "deterministic_kernels".into(),
         TriState::not_run("one run; repeat-run equality was not measured by this run"),
+    );
+    // Amendment 2 (iv): the digest a torch arm records for the head it built from seed 0, under
+    // the same name, so gate 0 compares the two before anything else.
+    metrics.insert(
+        "train.span_head_init_digest".into(),
+        TriState::ran(true, head_content.as_str()).with_detail(format!(
+            "run_control._sidecar_digest over qd-tensor-ref-v1 of {head_file}'s span_head.* (float32), \
+             recomputed at load and equal to the pinned value; file sha256 {head_sha}"
+        )),
     );
     metrics.insert(
         "train.vocab_remap".into(),

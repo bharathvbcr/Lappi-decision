@@ -26,7 +26,7 @@ use std::path::Path;
 use qd_export::safetensors::{Dtype, SafeTensorsFile};
 
 use crate::objective::{self, FtBatch, LetterTarget};
-use crate::run_control::hex;
+use crate::run_control::{hex, sidecar_digest, tensor_ref_digest};
 use crate::shards::{Batch, ConsumedPrefix};
 use crate::span_head::{self, SpanGold, SpanRowInput, SpanRowPlan, PARAMETER_NAMES};
 use crate::step::ParamSpec;
@@ -312,4 +312,55 @@ pub fn load_span_head(path: &Path, hidden_size: usize) -> Result<(span_head::Spa
     };
     let head = span_head::SpanHead::new(h, s, e, a_s, a_e).map_err(|e| TrainError::Refused(format!("{at}: {e}")))?;
     Ok((head, sha))
+}
+
+/// The span head's content digest: `run_control._sidecar_digest` over its four tensors as
+/// `TensorRef`s named `span_head.<name>`, dtype `float32`, little-endian bytes (Amendment 2
+/// (iv)). The digest a GH200 torch arm records as `train.span_head_init_digest` for the head it
+/// built, so the two can be compared before anything else.
+pub fn span_head_content_digest(head: &span_head::SpanHead) -> Result<String, TrainError> {
+    let h = head.hidden_size();
+    let mut refs = Vec::with_capacity(4);
+    for (name, values) in head.named() {
+        // The two projections are `[H, H]` (`*.weight`), the two abstain vectors `[H]`.
+        let shape: Vec<usize> = if name.ends_with(".weight") { vec![h, h] } else { vec![h] };
+        let mut bytes = Vec::with_capacity(values.len() * 4);
+        for v in values {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        let digest = tensor_ref_digest("float32", &shape, 4, &bytes).map_err(|e| TrainError::Refused(format!("span_head.{name}: {e}")))?;
+        refs.push((format!("span_head.{name}"), digest));
+    }
+    sidecar_digest(&refs).map_err(|e| TrainError::Refused(e.to_string()))
+}
+
+/// What pins a span-head init file: the sha256 of its bytes and its content digest
+/// ([`span_head_content_digest`]), as its tracked manifest records them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeadInitPin {
+    pub sha256: String,
+    pub content_digest: String,
+}
+
+/// [`load_span_head`], then refuse unless the file's sha256 and the loaded head's content
+/// digest are both the pinned ones. Returns the head and both digests.
+pub fn load_span_head_pinned(path: &Path, hidden_size: usize, pin: &HeadInitPin) -> Result<(span_head::SpanHead, String, String), TrainError> {
+    let (head, sha) = load_span_head(path, hidden_size)?;
+    let content = span_head_content_digest(&head)?;
+    let mut wrong = Vec::new();
+    if sha != pin.sha256 {
+        wrong.push(format!("file sha256 {sha}, pinned {}", pin.sha256));
+    }
+    if content != pin.content_digest {
+        wrong.push(format!("content digest {content}, pinned {}", pin.content_digest));
+    }
+    if !wrong.is_empty() {
+        return refuse(format!(
+            "{} is not the pinned span-head init: {}. The run would start from another head than the \
+             torch arms it is compared with",
+            path.display(),
+            wrong.join("; ")
+        ));
+    }
+    Ok((head, sha, content))
 }
