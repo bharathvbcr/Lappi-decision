@@ -7,26 +7,26 @@
     "evidence": {
       "value": null,
       "conformal_set": null,
-      "score": 0.9125933653549204,
+      "score": 0.19339990537324758,
       "noul": true,
       "degraded": true
     },
     "severity": {
-      "value": 2,
+      "value": 1,
       "conformal_set": [
-        2
+        1,
+        5
       ],
-      "score": 0.465703800288614,
+      "score": 0.5984734296209133,
       "noul": false,
       "degraded": true
     },
     "verdict": {
-      "value": "clean",
+      "value": "cosmetic",
       "conformal_set": [
-        "stub",
-        "clean"
+        "cosmetic"
       ],
-      "score": 0.7240117515995799,
+      "score": 0.9345157871497498,
       "noul": false,
       "degraded": true
     }

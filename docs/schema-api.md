@@ -221,6 +221,15 @@ code currently does and can never disagree with it, which is not a gate. The gen
 `crates/qd-runtime/src/fixtures.rs`; `tests/wire_fixtures.rs` also asserts the corpus covers **every**
 variant of both error enums, so a new variant fails a test rather than quietly going unexported.
 
+The answer fixtures are produced by the reference backend, whose answers are a function of the
+rendered prompt's bytes, so a change to the prompt (prompt format 2 was one) re-rolls them. Each
+answer fixture's intended shape -- which slots answer, which abstain, whether it is degraded -- is
+therefore pinned by name in `fixtures.rs`'s `tests::every_answer_fixture_shows_its_intended_shape`:
+a re-roll that loses an answered or an abstained shape fails there, and the fix is a new fixture
+input, not a new expected shape. Under format 2 the three-slot example and the score-only fixture
+read `fn add(a: i32, b: i32) -> i32 { // 6` as their first context line, and the span fixture
+`alpha 2`; the search that chose them is `AUDIT/v5-fmt-2026-10-02/fixture_search.py`.
+
 **Both halves exist.** `python/qd_wire/` is an independent parser for the answer side, and
 `python/tests/test_wire_golden_corpus.py` reads this corpus and re-derives every claim below from
 the bytes. That closes `GAP-XLANG-NO-PY-ANSWER-PARSER`, which had stood because there was no second
