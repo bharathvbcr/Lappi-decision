@@ -1,0 +1,378 @@
+{
+  "allowlist_counts": {
+    "clojure": {
+      "after_licence": 1206,
+      "after_split": 1094,
+      "by_licence_before": {
+        "agpl-3.0": 79,
+        "apache-2.0": 283,
+        "bsd-2-clause": 62,
+        "bsd-3-clause": 54,
+        "cc0-1.0": 6,
+        "epl-1.0": 1048,
+        "isc": 8,
+        "lgpl-2.1": 3,
+        "mit": 710,
+        "mpl-2.0": 66,
+        "unknown": 1,
+        "unlicense": 83
+      },
+      "excluded": {
+        "licence:agpl-3.0": 79,
+        "licence:epl-1.0": 1048,
+        "licence:lgpl-2.1": 3,
+        "licence:mpl-2.0": 66,
+        "licence:unknown": 1,
+        "split:heldout": 31,
+        "split:val": 81
+      },
+      "repos_after_split": 382,
+      "rows": 2403
+    },
+    "erlang": {
+      "after_licence": 469,
+      "after_split": 420,
+      "by_licence_before": {
+        "agpl-3.0": 4,
+        "apache-2.0": 185,
+        "bsd-2-clause": 25,
+        "bsd-3-clause": 58,
+        "epl-1.0": 5,
+        "isc": 14,
+        "mit": 183,
+        "mpl-2.0": 2,
+        "unlicense": 4
+      },
+      "excluded": {
+        "licence:agpl-3.0": 4,
+        "licence:epl-1.0": 5,
+        "licence:mpl-2.0": 2,
+        "split:heldout": 24,
+        "split:val": 25
+      },
+      "repos_after_split": 227,
+      "rows": 480
+    },
+    "fortran": {
+      "after_licence": 63,
+      "after_split": 61,
+      "by_licence_before": {
+        "apache-2.0": 8,
+        "bsd-2-clause": 26,
+        "bsd-3-clause": 14,
+        "lgpl-2.1": 7,
+        "mit": 15
+      },
+      "excluded": {
+        "licence:lgpl-2.1": 7,
+        "split:val": 2
+      },
+      "repos_after_split": 26,
+      "rows": 70
+    },
+    "julia": {
+      "after_licence": 170,
+      "after_split": 160,
+      "by_licence_before": {
+        "agpl-3.0": 3,
+        "apache-2.0": 9,
+        "bsd-2-clause": 9,
+        "bsd-3-clause": 3,
+        "cc0-1.0": 5,
+        "lgpl-2.1": 7,
+        "mit": 142,
+        "unlicense": 2
+      },
+      "excluded": {
+        "licence:agpl-3.0": 3,
+        "licence:lgpl-2.1": 7,
+        "split:heldout": 3,
+        "split:val": 7
+      },
+      "repos_after_split": 86,
+      "rows": 180
+    },
+    "ocaml": {
+      "after_licence": 263,
+      "after_split": 245,
+      "by_licence_before": {
+        "agpl-3.0": 3,
+        "apache-2.0": 34,
+        "bsd-2-clause": 12,
+        "bsd-3-clause": 22,
+        "isc": 50,
+        "lgpl-2.1": 67,
+        "mit": 132,
+        "unlicense": 13
+      },
+      "excluded": {
+        "licence:agpl-3.0": 3,
+        "licence:lgpl-2.1": 67,
+        "split:heldout": 7,
+        "split:val": 11
+      },
+      "repos_after_split": 130,
+      "rows": 333
+    },
+    "perl": {
+      "after_licence": 1229,
+      "after_split": 1061,
+      "by_licence_before": {
+        "agpl-3.0": 212,
+        "apache-2.0": 366,
+        "artistic-2.0": 799,
+        "bsd-2-clause": 116,
+        "bsd-3-clause": 112,
+        "cc0-1.0": 13,
+        "epl-1.0": 1,
+        "isc": 93,
+        "lgpl-2.1": 39,
+        "mit": 515,
+        "mpl-2.0": 6,
+        "unknown": 2,
+        "unlicense": 14
+      },
+      "excluded": {
+        "licence:agpl-3.0": 212,
+        "licence:artistic-2.0": 799,
+        "licence:epl-1.0": 1,
+        "licence:lgpl-2.1": 39,
+        "licence:mpl-2.0": 6,
+        "licence:unknown": 2,
+        "split:heldout": 133,
+        "split:val": 35
+      },
+      "repos_after_split": 477,
+      "rows": 2288
+    },
+    "r": {
+      "after_licence": 117,
+      "after_split": 102,
+      "by_licence_before": {
+        "agpl-3.0": 2,
+        "apache-2.0": 42,
+        "bsd-3-clause": 5,
+        "cc0-1.0": 3,
+        "mit": 67,
+        "mpl-2.0": 2
+      },
+      "excluded": {
+        "licence:agpl-3.0": 2,
+        "licence:mpl-2.0": 2,
+        "split:heldout": 10,
+        "split:val": 5
+      },
+      "repos_after_split": 50,
+      "rows": 121
+    },
+    "tcl": {
+      "after_licence": 99,
+      "after_split": 94,
+      "by_licence_before": {
+        "agpl-3.0": 1,
+        "apache-2.0": 25,
+        "bsd-2-clause": 3,
+        "bsd-3-clause": 45,
+        "epl-1.0": 1,
+        "isc": 4,
+        "lgpl-2.1": 2,
+        "mit": 22
+      },
+      "excluded": {
+        "licence:agpl-3.0": 1,
+        "licence:epl-1.0": 1,
+        "licence:lgpl-2.1": 2,
+        "split:heldout": 2,
+        "split:val": 3
+      },
+      "repos_after_split": 52,
+      "rows": 103
+    }
+  },
+  "allowlist_sha256": "a0f1c22011aa70e97d9465b5bca26bf426c2e156778ca6442abd8b674303f597",
+  "diff_band": {
+    "context": 3,
+    "max_chars": 2400,
+    "max_hunks": 5,
+    "min_chars": 120,
+    "renderer": "qd_mutate::diffspan::unified_multi (commitpackft-corpus-v3's multi_hunk renderer)"
+  },
+  "examples_sha256": "ff277d02fb736145eeb01480d720cb6c4f0638094abe9230a5f12af60a9b5290",
+  "files": {
+    "clojure": {
+      "file": "clojure/data.jsonl",
+      "rows": 2403,
+      "sha256": "6e0c98f3eca6613f68594636625e683c6384ecda9e9c308d92c6ee2fd87c82c7"
+    },
+    "erlang": {
+      "file": "erlang/data.jsonl",
+      "rows": 480,
+      "sha256": "ceaf80113a42769039f297c3041da7f1b42e055f224a93049d53cfa0894cf321"
+    },
+    "fortran": {
+      "file": "fortran/data.jsonl",
+      "rows": 70,
+      "sha256": "1937e2c05ec0e8f22fea7a3f3734f22034b7199a0fe0bd466dd06ce887879c47"
+    },
+    "julia": {
+      "file": "julia/data.jsonl",
+      "rows": 180,
+      "sha256": "3e6a68ba343c09cf56018b2d5d91a3bddf6e3833ac37600a063216c77f5e76c3"
+    },
+    "ocaml": {
+      "file": "ocaml/data.jsonl",
+      "rows": 333,
+      "sha256": "85dc1a33118dd772ba26ee9c3ab545498b63cc7fbfe4a78934227ab705d47fa7"
+    },
+    "perl": {
+      "file": "perl/data.jsonl",
+      "rows": 2288,
+      "sha256": "7be9d71232ee596adc28f31b3c9d165a2ed512adfa1565cfc5a2eb6915259909"
+    },
+    "r": {
+      "file": "r/data.jsonl",
+      "rows": 121,
+      "sha256": "44e911a7983da6ef3fb9ef71302abe55f8fc15430884026568fcbbb5c088b8e4"
+    },
+    "tcl": {
+      "file": "tcl/data.jsonl",
+      "rows": 103,
+      "sha256": "9423b17ba400ba6409779c3570718a38dad52872dc006ee2e5e4e3bc9c5b6fec"
+    }
+  },
+  "funnel": {
+    "clojure": {
+      "admitted_by_allowlist": 1094,
+      "rendered_in_band": 1002,
+      "selected": 300
+    },
+    "erlang": {
+      "admitted_by_allowlist": 420,
+      "rendered_in_band": 312,
+      "selected": 261
+    },
+    "fortran": {
+      "admitted_by_allowlist": 61,
+      "rendered_in_band": 39,
+      "selected": 26
+    },
+    "julia": {
+      "admitted_by_allowlist": 160,
+      "rendered_in_band": 122,
+      "selected": 101
+    },
+    "ocaml": {
+      "admitted_by_allowlist": 245,
+      "rendered_in_band": 196,
+      "selected": 161
+    },
+    "perl": {
+      "admitted_by_allowlist": 1061,
+      "rendered_in_band": 575,
+      "selected": 300
+    },
+    "r": {
+      "admitted_by_allowlist": 102,
+      "rendered_in_band": 61,
+      "selected": 50
+    },
+    "tcl": {
+      "admitted_by_allowlist": 94,
+      "rendered_in_band": 66,
+      "selected": 56
+    }
+  },
+  "licence": {
+    "basis": "per row: bigcode/commitpackft's license field, admitted by qd_data.licences.admit_licence under DataConfig().licence -- the per-row filter every commitpackft-corpus-v3 row passes; dataset card licence mit",
+    "licence": null
+  },
+  "max_per_repo": 3,
+  "per_language_cap": 300,
+  "root": "/Users/bharath/qd-campaign/commitpackft-g6-2026-10-02",
+  "schema": "qd-noul-g6/v1",
+  "seed": 0,
+  "skipped": {
+    "clojure": {
+      "added_or_deleted_file": 86,
+      "chars_over_max": 2,
+      "chars_under_min": 4,
+      "duplicate_diff": 1,
+      "over_max_per_repo": 60,
+      "over_per_language_cap": 641
+    },
+    "erlang": {
+      "added_or_deleted_file": 102,
+      "chars_over_max": 1,
+      "chars_under_min": 5,
+      "duplicate_diff": 7,
+      "over_max_per_repo": 44
+    },
+    "fortran": {
+      "added_or_deleted_file": 21,
+      "chars_under_min": 1,
+      "duplicate_diff": 1,
+      "over_max_per_repo": 12
+    },
+    "julia": {
+      "added_or_deleted_file": 36,
+      "chars_under_min": 2,
+      "over_max_per_repo": 21
+    },
+    "ocaml": {
+      "added_or_deleted_file": 45,
+      "chars_under_min": 4,
+      "duplicate_diff": 3,
+      "over_max_per_repo": 32
+    },
+    "perl": {
+      "added_or_deleted_file": 474,
+      "chars_under_min": 11,
+      "duplicate_diff": 3,
+      "hunks_out_of_band": 1,
+      "over_max_per_repo": 48,
+      "over_per_language_cap": 224
+    },
+    "r": {
+      "added_or_deleted_file": 41,
+      "duplicate_diff": 2,
+      "over_max_per_repo": 9
+    },
+    "tcl": {
+      "added_or_deleted_file": 25,
+      "chars_over_max": 1,
+      "chars_under_min": 2,
+      "duplicate_diff": 4,
+      "over_max_per_repo": 6
+    }
+  },
+  "split": {
+    "seed": 20260919,
+    "train_fraction": 0.9,
+    "val_fraction": 0.05
+  },
+  "tool": "qd-noul-rows g6",
+  "tool_version": "0.1.0",
+  "totals": {
+    "by_language": {
+      "clojure": 300,
+      "erlang": 261,
+      "fortran": 26,
+      "julia": 101,
+      "ocaml": 161,
+      "perl": 300,
+      "r": 50,
+      "tcl": 56
+    },
+    "by_licence": {
+      "apache-2.0": 334,
+      "bsd-2-clause": 94,
+      "bsd-3-clause": 111,
+      "cc0-1.0": 9,
+      "isc": 45,
+      "mit": 625,
+      "unlicense": 37
+    },
+    "examples": 1255,
+    "repos": 858
+  }
+}
