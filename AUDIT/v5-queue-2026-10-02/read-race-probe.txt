@@ -1,0 +1,12 @@
+sha256 6ec9d1286c61a813247e7551eb8e1ab6bf46fdb94f65463e84555e5151c3fc17
+== ft-rows on last: exit 3 stdout 'refused'; last stderr line:
+qd-post-f-rules: refused: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/build/l-v5-queue/race/last.jsonl line 2: malformed ledger line (EOF while parsing a string at line 1 column 16)
+== ft-rows on inner: exit 3 stdout 'refused'; last stderr line:
+qd-post-f-rules: refused: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/build/l-v5-queue/race/inner.jsonl line 2: malformed ledger line (EOF while parsing a string at line 1 column 15)
+== seeds34 on last: exit 3 stdout 'refused'; last stderr line:
+qd-post-f-rules: refused: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/build/l-v5-queue/race/last.jsonl line 2: malformed ledger line (EOF while parsing a string at line 1 column 16)
+== its --out JSON 'refused':
+  "decision": "refused",
+  "refused": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/build/l-v5-queue/race/last.jsonl line 2: malformed ledger line (EOF while parsing a string at line 1 column 16)",
+== the same --out again: exit 3 stdout 'refused'; last stderr line:
+qd-post-f-rules: refused: --out /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/build/l-v5-queue/race/last-seeds34.json already exists

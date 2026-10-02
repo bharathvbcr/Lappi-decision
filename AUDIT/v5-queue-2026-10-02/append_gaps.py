@@ -123,6 +123,58 @@ RECORDS = [
             "with its own wait removed is inferred, not run."
         ),
     },
+    # Fable's rulings A (the R9 reason marker) and B (the read-race retry), 2026-10-02.
+    {
+        "id": "GAP-L-V5-QUEUE-AB-NAVIGATION-2026-10-02",
+        "tool": "DevMap MCP, GitPulse MCP",
+        "question": "What could DevMap and GitPulse Insights not answer for rulings A and B?",
+        "answer": (
+            "(1) devmap_search 'v5_rule' on the main checkout's built index returned 0 items "
+            "(truncated false): the shell functions are not indexed, and this worktree has no "
+            "store. The callers of v5_rule and v5_rules_call (box_q_v5.sh R9; box_q_v5s34.sh "
+            "seeds34; box_q_v5nw.sh --room and the arm's reading; box_q_v5j5.sh ft-rows and "
+            "eval-row) rest on rg over campaign/post-f-queue, re-run with -uu (same files plus "
+            "the test file and the handoff), not on the graph. (2) gitpulse_insights: every "
+            "facet ok, 6 of 6 worktrees scanned, the only cross-worktree overlap Cargo.lock "
+            "(not touched). (3) ListAgents was not loadable in this session; the lead was "
+            "reached with SendMessage."
+        ),
+    },
+    {
+        "id": "GAP-V5-QUEUE-READ-RACE-RETRY-NOT-RUN-ON-BOX-2026-10-02",
+        "tool": "campaign/post-f-queue/v5_common.sh v5_rules_run, v5_read_race",
+        "question": (
+            "Does the bounded retry on a half-written last ledger line (Fable's ruling B) behave "
+            "on the box with the qd-post-f-rules-v5 build and a real post-seed waiter appending?"
+        ),
+        "answer": (
+            "Not run on the box. Measured on the Mac only: the refusal text from the v5 build's "
+            "debug qd-post-f-rules (build/v5-build-wt, sha256 6ec9d128..., read-only on temp "
+            "ledgers; AUDIT/v5-queue-2026-10-02/read-race-probe.txt), and the retry against a "
+            "stub and a fake that writes and completes a half row in the real ledger file "
+            "(python/tests/test_v5_queue_scripts.py). Residual, inferred: if the writer "
+            "completes line N and appends another row between the binary's read and the "
+            "waiter's line count, N is no longer the last line and the reading holds as "
+            "refused (fail-closed). Ledger.append takes LOCK_EX while it writes "
+            "(python/qd_train/ledger.py _take_write_lock), so a shared flock around each read "
+            "would close the race at its source; not done, the ruling is the retry."
+        ),
+    },
+    {
+        "id": "GAP-V5-QUEUE-BOX-WALL-CLOCK-NOT-TRACKED-2026-10-02",
+        "tool": "campaign/post-f-queue/v5_common.sh v5_spend_add, v5_total_line",
+        "question": "Does the v5 block's running total say what the box bills?",
+        "answer": (
+            "No, by design (reading 4, confirmed by Fable): $Q/v5.spend and the running total "
+            "count GPU-step wall time only. The box bills its wall clock, which adds up to 72 h "
+            "(V5_HUMAN_WAIT_MAX_S) for the launch yes and up to 72 h for an R9 hold (each <= "
+            "$164.88 at $2.29/h), the hand-offs, the last seed's CPU controls (no timeout in "
+            "idle_common.sh controls_block), and whatever follows v5j5.done until the box is "
+            "stopped. No waiter tracks it. HANDOFF/v5-queue-2026-10-02.md section 2 reading 4 "
+            "has the two numbers side by side and the box command for the bill; projected, not "
+            "measured."
+        ),
+    },
 ]
 
 

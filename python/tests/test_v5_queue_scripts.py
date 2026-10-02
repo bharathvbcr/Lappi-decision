@@ -240,9 +240,20 @@ def test_the_rules_binary_is_reached_only_through_its_pin_check() -> None:
             if line.lstrip().startswith("pin ") or line.lstrip().startswith("RULES_V5="):
                 continue
             assert name == "v5_common.sh", f"{name} runs the binary directly: {line.strip()}"
+    # one function runs the binary, and it checks the pin before every attempt, inside its loop
+    callers = [
+        m[1]
+        for m in re.finditer(r"^(\w+)\(\) \{$", common, re.M)
+        if '"$RULES_V5" "$@"' in function_body(common, m[1])
+    ]
+    assert callers == ["v5_rules_run"], callers
+    body = function_body(common, "v5_rules_run")
+    loop = body.index("while :; do")
+    assert loop < body.index('pin "$RULES_V5" "$RULES_V5_SHA256"') < body.index('"$RULES_V5" "$@"')
+    assert body.count('"$RULES_V5" "$@"') == 1
     for fn in ("v5_rule", "v5_rules_call"):
-        body = function_body(common, fn)
-        assert body.index('pin "$RULES_V5" "$RULES_V5_SHA256"') < body.index('"$RULES_V5" "$@"'), fn
+        fb = function_body(common, fn)
+        assert "v5_rules_run " in fb and '"$RULES_V5"' not in fb, fn
 
 
 # --- the decision functions -------------------------------------------------------------------
@@ -291,6 +302,7 @@ def run_rule(
         + f"""
 v5_rule t "{words}" some-subcommand --a b
 echo "WORD=$V5_WORD"
+echo "SAID=$V5_SAID"
 """
     )
     assert r.returncode == 0, r.stdout + r.stderr
@@ -373,6 +385,319 @@ def test_v5_rules_call_checks_the_pin_before_running(tmp_path: Path) -> None:
     assert not (tmp_path / "stub" / "calls.log").exists()
 
 
+# --- what a hold marker says (Fable's ruling A, 2026-10-02) ---------------------------------
+# V5_SAID is what $Q/v5.paused carries when R9 holds: the word the binary said when it is one of
+# the subcommand's words; unknown:<word> when it exited 0 with one word-shaped token it may not
+# say; refused for everything else (a refusal, an inconsistent exit, garbage, a listed word with
+# no JSON, a binary that is not the pinned one). (stdout, exit code, JSON written) -> V5_SAID.
+SAID_MATRIX = [
+    ("continue", 0, True, "continue"),
+    ("pause", 0, True, "pause"),
+    ("refused", 3, True, "refused"),
+    ("hold", 0, True, "unknown:hold"),
+    ("hold", 0, False, "unknown:hold"),
+    ("Continue", 0, True, "unknown:Continue"),
+    ("fires:j6f", 0, True, "unknown:fires:j6f"),
+    ("continue", 3, True, "refused"),
+    ("hold", 3, True, "refused"),
+    ("hold", 2, True, "refused"),
+    ("refused", 0, True, "refused"),
+    ("continue", 0, False, "refused"),
+    ("", 0, True, "refused"),
+    ("wins quiet", 0, True, "refused"),
+    ("continue\npause", 0, True, "refused"),
+    ("h" * 65, 0, True, "refused"),
+    ("hold!", 0, True, "refused"),
+]
+
+
+@pytest.mark.parametrize(("word", "rc", "json_out", "want"), SAID_MATRIX)
+def test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it(
+    tmp_path: Path, word: str, rc: int, json_out: bool, want: str
+) -> None:
+    got, _, out = run_rule(tmp_path, "continue pause", word, rc, json_out=json_out)
+    assert re.findall(r"^SAID=(.*)$", out, re.M)[-1] == want
+    # the action still reads V5_WORD: only a listed word with its JSON ever runs anything
+    assert got == (want if want in ("continue", "pause") else "refused")
+
+
+def test_v5_rule_says_refused_for_a_binary_that_is_not_the_pinned_one(tmp_path: Path) -> None:
+    _, called, out = run_rule(tmp_path, "continue pause", "hold", 0, pin_ok=False)
+    assert not called
+    assert re.findall(r"^SAID=(.*)$", out, re.M)[-1] == "refused"
+
+
+# --- the ledger read race (Fable's ruling B, 2026-10-02) ---------------------------------------
+# A post-seed waiter appends its trajectory and control rows after it releases gpu.lock, so a
+# reading can meet a row half-written as its ledger's last line. Only that refusal is retried.
+# The binary's own words for it, from the v5 build run on a half-written ledger
+# (AUDIT/v5-queue-2026-10-02/read-race-probe.txt; parse_rows and main in qd_post_f_rules.rs):
+# exit 3, stdout `refused`, last stderr line
+# `qd-post-f-rules: refused: <ledger> line <N>: malformed ledger line (<serde error>)`.
+ROW = '{"row_id": "aaaaaaaa-1111-2222-3333-444444444444", "completed": true}'
+HALF = '{"row_id": "half'
+RETRIES_K = 5
+RETRY_S = "10"
+REFUSED_PREFIX = "qd-post-f-rules: refused: "
+
+
+def malformed(ledger: Path, line: int) -> str:
+    return (
+        f"{REFUSED_PREFIX}{ledger} line {line}: malformed ledger line "
+        "(EOF while parsing a string at line 1 column 16)"
+    )
+
+
+def half_written(d: Path, name: str = "ledger.jsonl") -> Path:
+    """Two rows and half a third: line 3 is the last line, and it is malformed."""
+    d.mkdir(parents=True, exist_ok=True)
+    ledger = d / name
+    ledger.write_text(f"{ROW}\n{ROW}\n{HALF}")
+    return ledger
+
+
+def completed(d: Path) -> Path:
+    """Three whole rows: the writer finished line 3 after the binary read half of it."""
+    d.mkdir(parents=True, exist_ok=True)
+    ledger = d / "ledger.jsonl"
+    ledger.write_text(f"{ROW}\n{ROW}\n{ROW}\n")
+    return ledger
+
+
+def inner_malformed(d: Path) -> Path:
+    """Line 2 of 3 is malformed and line 3 is whole: not a row being written."""
+    d.mkdir(parents=True, exist_ok=True)
+    ledger = d / "ledger.jsonl"
+    ledger.write_text(f"{ROW}\n{HALF}\n{ROW}\n")
+    return ledger
+
+
+def script_rules(tmp: Path, steps: list[tuple[int, str, str]]) -> Path:
+    """A rules binary that answers its i-th call with steps[i] (the last step repeats): exit
+    code, stdout, and the last stderr line. Like the real one it writes a JSON to a new --out
+    and refuses an --out that already exists."""
+    d = tmp / "stub"
+    d.mkdir(parents=True, exist_ok=True)
+    for i, (rc, out, err) in enumerate(steps):
+        (d / f"{i}.rc").write_text(str(rc))
+        (d / f"{i}.out").write_text(out)
+        (d / f"{i}.err").write_text(err)
+    (d / "n").write_text(str(len(steps)))
+    return write_exec(
+        d / "rules",
+        f"""#!/bin/bash
+echo "$*" >> "{d}/calls.log"
+i=$(( $(wc -l < "{d}/calls.log") - 1 ))
+n=$(cat "{d}/n")
+if [ "$i" -ge "$n" ]; then i=$((n - 1)); fi
+out=""; prev=""
+for a in "$@"; do [ "$prev" = --out ] && out=$a; prev=$a; done
+if [ -n "$out" ] && [ -e "$out" ]; then
+  echo "qd-post-f-rules: refused: --out $out already exists" >&2
+  echo refused
+  exit 3
+fi
+if [ -n "$out" ]; then echo '{{"stub": true}}' > "$out"; fi
+echo '{{"tool": "qd-post-f-rules", "stub": true}}' >&2
+if [ -s "{d}/$i.err" ]; then cat "{d}/$i.err" >&2; echo >&2; fi
+printf '%s\\n' "$(cat "{d}/$i.out")"
+exit "$(cat "{d}/$i.rc")"
+""",
+    )
+
+
+READING = """v5_rule t "fires quiet" seeds34 --preregistration "{prereg}" \\
+  --f-ledger "{ledger}" --ft-row 0=x
+echo "WORD=$V5_WORD SAID=$V5_SAID JSON=$V5_RULE_JSON"
+"""
+PLAIN = """X=$(v5_rules_call ft-rows --ledger "{ledger}" --ft-row 0=x)
+echo "RC=$? GOT=[$X]"
+"""
+
+
+def race_run(
+    tmp: Path,
+    steps: list[tuple[int, str, str]],
+    call: str,
+    ledger: Path,
+    prereg: Path | None = None,
+) -> tuple[subprocess.CompletedProcess, int, list[str]]:
+    """Run one reading against script_rules; `sleep` is recorded, not slept."""
+    tmp.mkdir(parents=True, exist_ok=True)
+    stub = script_rules(tmp, steps)
+    extra = (
+        f'RULES_V5="{stub}"; RULES_V5_SHA256={sha256(stub)}\n'
+        f'sleep() {{ echo "$*" >> "{tmp}/sleeps"; }}'
+    )
+    r = bash(lib(tmp, extra) + call.format(ledger=ledger, prereg=prereg or tmp / "prereg.json"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    log = tmp / "stub" / "calls.log"
+    calls = len(log.read_text().splitlines()) if log.exists() else 0
+    sleeps = (tmp / "sleeps").read_text().split() if (tmp / "sleeps").exists() else []
+    return r, calls, sleeps
+
+
+def word_of(r: subprocess.CompletedProcess) -> str:
+    return re.findall(r"^WORD=(\S*)", r.stdout, re.M)[-1]
+
+
+@pytest.mark.parametrize("via", ["reading", "plain"])
+@pytest.mark.parametrize("ledger_at_check", ["still half-written", "completed since"])
+def test_a_refusal_on_a_half_written_last_line_is_retried_and_the_answer_accepted(
+    tmp_path: Path, via: str, ledger_at_check: str
+) -> None:
+    ledger = (half_written if ledger_at_check == "still half-written" else completed)(tmp_path)
+    race = (3, "refused", malformed(ledger, 3))
+    answer = (0, "fires", "") if via == "reading" else (0, EVAL_ROW, "")
+    r, calls, sleeps = race_run(
+        tmp_path, [race, race, answer], READING if via == "reading" else PLAIN, ledger
+    )
+    assert calls == 3, r.stdout + r.stderr
+    assert sleeps == [RETRY_S, RETRY_S]
+    assert "half-written" in r.stdout + r.stderr
+    if via == "reading":
+        assert word_of(r) == "fires"
+        jsons = sorted((tmp_path / "dec").glob("t-*.json"))
+        assert len(jsons) == 3, "each attempt writes its own new --out"
+        assert re.findall(r"JSON=(\S*)", r.stdout)[-1] == str(jsons[-1])
+        assert len(sorted((tmp_path / "dec").glob("t-*.stderr"))) == 3
+    else:
+        # only the answer reaches the caller's $(...): no `refused` from the earlier attempts
+        assert f"RC=0 GOT=[{EVAL_ROW}]" in r.stdout
+
+
+@pytest.mark.parametrize("via", ["reading", "plain"])
+def test_a_last_line_refusal_that_persists_is_held_after_k_attempts(
+    tmp_path: Path, via: str
+) -> None:
+    ledger = half_written(tmp_path)
+    r, calls, sleeps = race_run(
+        tmp_path,
+        [(3, "refused", malformed(ledger, 3))],
+        READING if via == "reading" else PLAIN,
+        ledger,
+    )
+    assert calls == RETRIES_K, r.stdout + r.stderr
+    assert sleeps == [RETRY_S] * (RETRIES_K - 1)
+    if via == "reading":
+        assert word_of(r) == "refused"
+        assert "SAID=refused" in r.stdout
+    else:
+        assert "RC=3 GOT=[refused]" in r.stdout
+
+
+def other_reasons(ledger: Path) -> dict[str, tuple[int, str, str]]:
+    last = malformed(ledger, 3)
+    return {
+        "another reason": (
+            3,
+            "refused",
+            "qd-post-f-rules: refused: the envelope is v5 seeds [0, 1, 2] only; got [0, 1]",
+        ),
+        "the race and another reason": (3, "refused", f"{last}; no target has room"),
+        "another reason and the race": (
+            3,
+            "refused",
+            f"qd-post-f-rules: refused: no target has room; {last.removeprefix(REFUSED_PREFIX)}",
+        ),
+        "exit 3 without refused on stdout": (3, "pause", last),
+        "exit 2": (2, "refused", last),
+        "exit 0": (0, "refused", last),
+        "an --out that already exists": (
+            3,
+            "refused",
+            f"qd-post-f-rules: refused: --out {ledger} already exists",
+        ),
+    }
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "another reason",
+        "the race and another reason",
+        "another reason and the race",
+        "exit 3 without refused on stdout",
+        "exit 2",
+        "exit 0",
+        "an --out that already exists",
+    ],
+)
+def test_a_refusal_for_any_other_reason_is_held_at_once(tmp_path: Path, case: str) -> None:
+    # the twin: the same stub, its first answer the race itself, is retried (so this test is
+    # not satisfied by a waiter that never retries)
+    twin_ledger = half_written(tmp_path / "twin")
+    _, twin_calls, _ = race_run(
+        tmp_path / "twin",
+        [(3, "refused", malformed(twin_ledger, 3)), (0, "fires", "")],
+        READING,
+        twin_ledger,
+    )
+    assert twin_calls == 2
+    ledger = half_written(tmp_path / "case")
+    r, calls, sleeps = race_run(
+        tmp_path / "case", [other_reasons(ledger)[case], (0, "fires", "")], READING, ledger
+    )
+    assert calls == 1, r.stdout + r.stderr
+    assert sleeps == []
+    assert word_of(r) == "refused"
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "an inner line",
+        "an earlier line of a half-written ledger",
+        "a line past the end",
+        "a file the call names by a flag that is not a ledger",
+        "a ledger the call does not name",
+    ],
+)
+def test_a_malformed_line_that_is_not_the_last_line_is_not_retried(
+    tmp_path: Path, case: str
+) -> None:
+    twin_ledger = half_written(tmp_path / "twin")
+    _, twin_calls, _ = race_run(
+        tmp_path / "twin",
+        [(3, "refused", malformed(twin_ledger, 3)), (0, "fires", "")],
+        READING,
+        twin_ledger,
+    )
+    assert twin_calls == 2
+    d = tmp_path / "case"
+    prereg = None
+    if case == "an inner line":
+        ledger = inner_malformed(d)
+        err = malformed(ledger, 2)
+    elif case == "an earlier line of a half-written ledger":
+        ledger = half_written(d)
+        err = malformed(ledger, 2)
+    elif case == "a line past the end":
+        ledger = half_written(d)
+        err = malformed(ledger, 4)
+    elif case == "a file the call names by a flag that is not a ledger":
+        ledger = half_written(d)
+        prereg = half_written(d, "prereg.jsonl")
+        err = malformed(prereg, 3)
+    else:
+        ledger = half_written(d)
+        err = malformed(half_written(d, "other.jsonl"), 3)
+    r, calls, sleeps = race_run(d, [(3, "refused", err), (0, "fires", "")], READING, ledger, prereg)
+    assert calls == 1, r.stdout + r.stderr
+    assert sleeps == []
+    assert word_of(r) == "refused"
+
+
+def test_the_read_race_retry_is_bounded_as_ruled() -> None:
+    text = common_text()
+    assert re.search(rf"^V5_READ_TRIES={RETRIES_K}$", text, re.M)
+    assert re.search(rf"^V5_READ_RETRY_S={RETRY_S}$", text, re.M)
+    # never gated on a trajectory waiter's .done: its CPU controls run after it releases the lock
+    assert "traj-s2.done" not in "\n".join(
+        ln for ln in text.splitlines() if not ln.lstrip().startswith("#")
+    )
+
+
 ACTIONS = [
     # R9: continue -> run seeds 1-2; pause or anything else -> hold until V5_CONTINUE
     ("v5_pause_action continue", "run"),
@@ -381,6 +706,8 @@ ACTIONS = [
     ("v5_pause_action ''", "hold"),
     ("v5_pause_action 'continue '", "hold"),
     ("v5_pause_action room", "hold"),
+    ("v5_pause_action unknown:continue", "hold"),
+    ("v5_pause_action no-seed-0-row", "hold"),
     # the arm's launch: room; no_room only with V5NW_HUMAN_YES; refused never
     ("v5_room_action room no", "run"),
     ("v5_room_action room yes", "run"),
@@ -790,14 +1117,38 @@ with open(os.path.join(ROOT, "rules.log"), "a") as f:
     f.write(json.dumps(args) + "\n")
 scen = json.load(open(os.path.join(ROOT, "scenario.json")))
 sub = args[0]
+key = sub + (" --room" if "--room" in args else "")
+out = args[args.index("--out") + 1] if "--out" in args else None
+race = scen.get("race", {{}}).get(key)
+if race:
+    # a post-seed waiter mid-append: the first n calls meet half a row as the ledger's last line
+    # and refuse as the real binary does; the next call finds the row completed
+    flag, n = race
+    led = args[args.index(flag) + 1]
+    count = os.path.join(ROOT, "race-" + key.replace(" ", "") + ".count")
+    seen = int(open(count).read()) if os.path.exists(count) else 0
+    text = open(led).read() if os.path.exists(led) else ""
+    if seen < n:
+        open(count, "w").write(str(seen + 1))
+        if not text or text.endswith("\n"):
+            open(led, "a").write('{{"row_id": "half')
+            text += '{{"row_id": "half'
+        reason = (f"{{led}} line {{text.count(chr(10)) + 1}}: malformed ledger line "
+                  "(EOF while parsing a string at line 1 column 16)")
+        if out:
+            open(out, "w").write(json.dumps({{"decision": "refused", "refused": reason}}))
+        sys.stderr.write(json.dumps({{"refused": reason}}) + "\n")
+        sys.stderr.write("qd-post-f-rules: refused: " + reason + "\n")
+        print("refused")
+        sys.exit(3)
+    if text and not text.endswith("\n"):
+        open(led, "a").write('-row"}}\n')
 if sub == "ft-rows":
     sys.exit(scen.get("ft-rows", 0))
 if sub == "eval-row":
     print(scen.get("eval-row", "{eval_row}"))
     sys.exit(0)
-key = sub + (" --room" if "--room" in args else "")
 word, rc = scen["rules"][key]
-out = args[args.index("--out") + 1]
 open(out, "w").write(json.dumps({{"stub": key}}))
 print(word)
 sys.exit(rc)
@@ -1192,8 +1543,42 @@ def test_r9_never_runs_a_rules_binary_that_is_not_the_pinned_one(tmp_path: Path)
             p.kill()
     assert box.rules() == [], "the swapped binary ran"
     assert "not the pinned one; NOT RUN" in out
-    assert (box.q / "v5.paused").read_text().startswith("refused")
+    assert (box.q / "v5.paused").read_text() == "refused\n"
     box.wait_for("v5traj-s0.done")
+
+
+@pytest.mark.parametrize(
+    ("said", "train_fails", "reason"),
+    [
+        (["pause", 0], False, "pause"),
+        (["refused", 3], False, "refused"),
+        (["continue", 3], False, "refused"),
+        (["hold", 0], False, "unknown:hold"),
+        (["continue", 0], True, "no-seed-0-row"),
+    ],
+)
+def test_r9_hold_marker_says_why(
+    tmp_path: Path, said: list, train_fails: bool, reason: str
+) -> None:
+    """$Q/v5.paused carries exactly one of pause, refused, unknown:<word> or no-seed-0-row, so
+    the human tells a reading from a tool failure without reading logs."""
+    box = started_box(tmp_path, {"v5-pause": said})
+    box.scenario["train_fails"] = train_fails
+    box.write_scenario()
+    p = box.popen("box_q_v5.sh")
+    try:
+        box.wait_for("v5.paused")
+        assert (box.q / "v5.paused").read_text() == f"{reason}\n"
+        (box.q / "V5_STOP").write_text("Bharath: stop v5 here\n")
+        out, _ = p.communicate(timeout=60)
+    finally:
+        if p.poll() is None:
+            p.kill()
+    assert p.returncode == 3 and "seeds 1-2 NOT RUN" in out, out
+    assert [opt(a, "--seeds") for a in box.training()] == ["0"]
+    assert [r[0] for r in box.rules()] == ([] if train_fails else ["v5-pause"])
+    if not train_fails:
+        box.wait_for("v5traj-s0.done")
 
 
 def test_v5_refuses_a_run_past_the_approved_total_without_the_humans_words(tmp_path: Path) -> None:
@@ -1363,6 +1748,88 @@ def test_v5j5_is_skipped_without_three_completed_v5_ft_rows(tmp_path: Path) -> N
     box.write_scenario()
     rc, out = box.run("box_q_v5j5.sh")
     assert rc == 0 and "v5j5 SKIPPED" in out and box.training() == []
+
+
+# Every reading a post-seed waiter may race (Fable's ruling B): seeds34, --room and J5''s ft-rows
+# on v5's ledger, the arm's reading after arm seed 2's hand-off, and J5''s eval-row (the same
+# read: with the arm skipped, J5' starts while seed 2's or 4's controls may still append).
+RACE_SITES = {
+    "seeds34": (
+        "box_q_v5s34.sh",
+        {"seeds34": ["fires", 0]},
+        {},
+        ("seeds34", "--f-ledger", 2),
+    ),
+    "room": (
+        "box_q_v5nw.sh",
+        {"v5-noulw --room": ["room", 0], "v5-noulw": ["quiet", 0]},
+        {},
+        ("v5-noulw --room", "--v5-ledger", 2),
+    ),
+    "arm reading": (
+        "box_q_v5nw.sh",
+        {"v5-noulw --room": ["room", 0], "v5-noulw": ["quiet", 0]},
+        {},
+        ("v5-noulw", "--arm-ledger", 2),
+    ),
+    "ft-rows": ("box_q_v5j5.sh", {}, {"ft-rows": 0}, ("ft-rows", "--ledger", 2)),
+    "eval-row": ("box_q_v5j5.sh", {}, {"ft-rows": 0}, ("eval-row", "--ledger", 1)),
+}
+
+
+def race_box(tmp: Path, site: str, n: int | None = None) -> tuple[Box, str, int]:
+    waiter, rules, extra, (key, flag, races) = RACE_SITES[site]
+    races = races if n is None else n
+    box = done_v5(tmp, rules)
+    box.scenario.update(extra)
+    box.scenario["race"] = {key: [flag, races]}
+    box.write_scenario()
+    return box, waiter, races
+
+
+def calls_of(box: Box, key: str) -> list[list[str]]:
+    sub, _, room = key.partition(" ")
+    return [c for c in box.rules() if c[0] == sub and (("--room" in c) == bool(room))]
+
+
+@pytest.mark.parametrize("site", list(RACE_SITES))
+def test_each_reading_a_post_seed_waiter_may_race_is_retried_then_read(
+    tmp_path: Path, site: str
+) -> None:
+    box, waiter, races = race_box(tmp_path, site)
+    key = RACE_SITES[site][3][0]
+    rc, out = box.run(waiter)
+    assert rc == 0, out
+    # one reading each, plus one call per refused attempt; eval-row is read once per J5' seed
+    reads = 3 if key == "eval-row" else 1
+    assert len(calls_of(box, key)) == races + reads, out
+    if key == "eval-row":
+        seeds = [c[c.index("--ft-row") + 1][:1] for c in calls_of(box, key)]
+        assert seeds == ["0"] * (races + 1) + ["1", "2"]
+    assert "half-written" in out
+    if site == "seeds34":
+        assert (box.q / "v5s34.word").read_text() == "fires\n"
+        assert [opt(a, "--seeds") for a in box.training()] == ["3", "4"]
+        box.wait_for("v5traj-s3.done", "v5traj-s4.done")
+    elif site in ("room", "arm reading"):
+        assert (box.q / "v5nw.room").read_text() == "room\n"
+        assert (box.q / "v5nw.word").read_text() == "quiet\n"
+        assert [opt(a, "--seeds") for a in box.training()] == ["0", "1", "2"]
+        box.wait_for("v5nwtraj-s0.done", "v5nwtraj-s1.done", "v5nwtraj-s2.done")
+    else:
+        assert [opt(a, "--seeds") for a in box.training()] == ["0", "1", "2"]
+        assert all(opt(a, "--shuffled-label") == EVAL_ROW for a in box.training())
+
+
+def test_a_reading_whose_ledger_stays_half_written_is_refused_after_k_attempts(
+    tmp_path: Path,
+) -> None:
+    box, waiter, _ = race_box(tmp_path, "seeds34", n=99)
+    rc, out = box.run(waiter)
+    assert rc == 3, out
+    assert len(calls_of(box, "seeds34")) == RETRIES_K
+    assert (box.q / "v5s34.word").read_text() == "refused\n"
+    assert box.training() == []
 
 
 def test_the_post_seed_waiter_refuses_a_bad_ft_row_and_still_touches_done(tmp_path: Path) -> None:
