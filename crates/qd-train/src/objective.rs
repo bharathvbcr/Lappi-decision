@@ -25,7 +25,6 @@
 
 use std::marker::PhantomData;
 
-use crate::run_control::{ConsumedPrefix, RunControlError};
 use crate::trainer::{BatchCounts, ConsumedBatch, HostParams, MicroBatchPlan, MicroLoss, Objective, SequenceWork, TrainError};
 
 /// One row's letter answer: the hidden state at `position` predicts `target`
@@ -307,24 +306,4 @@ where
     fn host_ref(&self) -> Option<&dyn HostParams> {
         Some(&self.head)
     }
-}
-
-/// Fold `trainer._fold`'s parts for a batch whose arrays the caller already holds as their
-/// numpy buffers' bytes: a helper for [`ConsumedBatch::fold_into`] implementations. `optional`
-/// is `[slot_kind, target_index, span_target, line_starts]`, `None` for an absent array.
-pub fn fold_batch_parts(
-    prefix: &mut ConsumedPrefix,
-    index: u64,
-    bucket: u64,
-    tokens: &[u8],
-    lengths: &[u8],
-    optional: [Option<&[u8]>; 4],
-) -> Result<(), RunControlError> {
-    let idx = index.to_be_bytes();
-    let bkt = bucket.to_be_bytes();
-    let mut parts: Vec<&[u8]> = vec![&idx, &bkt, tokens, lengths];
-    for a in optional {
-        parts.push(a.unwrap_or(&[]));
-    }
-    prefix.fold(&parts)
 }
