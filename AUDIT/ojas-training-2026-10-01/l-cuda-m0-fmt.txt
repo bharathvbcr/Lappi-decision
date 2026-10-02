@@ -1,0 +1,22 @@
+2026-10-02T00:27:06Z
+== cargo fmt --check (whole crate, read-only): files with a diff (diff bodies omitted; they are other lanes' code)
+   2 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/../../../tessl/tests/common/gdn_train.rs
+  15 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/adamw.rs
+  40 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/attn_pieces.rs
+  20 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/ce.rs
+  20 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/conv1d.rs
+  15 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/embed.rs
+  10 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/fd.rs
+  10 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/gates_published.rs
+  30 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/gdn_published.rs
+  55 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/goldens.rs
+  30 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/norms.rs
+  40 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/npy.rs
+   5 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/rng.rs
+  15 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/sha256.rs
+   8 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_adamw.rs
+  25 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_gdn_published.rs
+   8 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_gdn_published_vs_tessl.rs
+   5 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_goldens_published.rs
+  28 Diff in /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_kernels.rs
+== rustfmt --edition 2021 --check src/lib.rs (follows every src module) src/bin/rung0.rs tests/device_k0.rs tests/device_k1.rs tests/runtime_refusal.rs: exit 0
