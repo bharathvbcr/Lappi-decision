@@ -997,29 +997,35 @@ def started_box(tmp: Path, rules: dict, **kw) -> Box:
     return box
 
 
-def test_v5_waits_for_the_chain_then_for_the_humans_launch_words(tmp_path: Path) -> None:
+@pytest.mark.parametrize("gate", ["j5pp", "j6a", "j6g", "launch"])
+def test_v5_waits_for_each_gate_on_its_own(tmp_path: Path, gate: str) -> None:
+    """Each gate is the ONLY one closed, so no later wait can mask a missing earlier one."""
     box = started_box(tmp_path, {"v5-pause": ["continue", 0]})
-    (box.q / "j5pp.done").unlink()
-    (box.q / "j6g.queued").write_text("")
-    (box.q / "V5_LAUNCH_YES").write_text("")  # empty is not a yes
+    if gate == "j5pp":
+        (box.q / "j5pp.done").unlink()
+    elif gate in ("j6a", "j6g"):
+        (box.q / f"{gate}.queued").write_text("")
+    else:
+        (box.q / "V5_LAUNCH_YES").write_text("")  # empty is not a yes
     p = box.popen("box_q_v5.sh")
     try:
-        time.sleep(1.0)
-        assert box.calls() == [] and not (box.q / "v5.started").exists()  # j5pp not done
-        (box.q / "j5pp.done").write_text("")
-        time.sleep(1.0)
-        assert box.calls() == [] and not (box.q / "v5.started").exists()  # j6g queued, not done
-        (box.q / "j6g.done").write_text("")
-        time.sleep(1.0)
-        assert box.calls() == [] and not (box.q / "v5.started").exists()  # no launch words
-        (box.q / "V5_LAUNCH_YES").write_text("Bharath: launch v5\n")
+        time.sleep(1.5)
+        assert box.calls() == [] and not (box.q / "v5.started").exists(), gate
+        if gate == "j5pp":
+            (box.q / "j5pp.done").write_text("")
+        elif gate in ("j6a", "j6g"):
+            (box.q / f"{gate}.done").write_text("")
+        else:
+            (box.q / "V5_LAUNCH_YES").write_text("Bharath: launch v5\n")
         out, _ = p.communicate(timeout=120)
     finally:
         if p.poll() is None:
             p.kill()
     assert p.returncode == 0, out
-    assert "j6g is queued, so v5 waits for j6g.done" in out and "j6a is NOT queued" in out
-    assert "the human's v5 launch yes: " in out and "Bharath: launch v5" in out
+    if gate in ("j6a", "j6g"):
+        assert f"{gate} is queued, so v5 waits for {gate}.done" in out
+    if gate == "launch":
+        assert "the human's v5 launch yes: " in out and "Bharath: launch v5" in out
     assert [opt(a, "--seeds") for a in box.training()] == ["0", "1", "2"]
     box.wait_for("v5traj-s2.done")
 
