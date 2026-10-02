@@ -1,4 +1,4 @@
-== argv checks (2026-10-02T03:11:21Z), lane L-waiters
+== argv checks (2026-10-02T03:28:37Z), lane L-waiters
 == method: each real_ft_run.py argv the dry-run waiters recorded (out/<scenario>/calls.log) goes
    through main() of a git archive of the commit its checkout is pinned to, with resolve_rev (the
    first disk read after every argv-time refusal) replaced by a sentinel. /home/ubuntu is mapped
