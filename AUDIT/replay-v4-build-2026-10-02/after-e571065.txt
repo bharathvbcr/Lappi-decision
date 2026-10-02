@@ -1,0 +1,14 @@
+...........                                                              [100%]
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED python/tests/test_replay.py::test_a_row_hitting_two_targets_lists_both
+PASSED python/tests/test_replay.py::test_the_pair_list_is_every_pair_at_or_above_the_threshold_and_nothing_below
+PASSED python/tests/test_replay.py::test_the_pair_list_is_complete_past_the_examples_cap
+PASSED python/tests/test_replay.py::test_the_attestation_body_is_version_1_and_byte_identical_to_before_the_pair_list
+PASSED python/tests/test_replay_decontam.py::test_the_hit_list_names_every_pair_with_its_row_slot_and_identity_key
+PASSED python/tests/test_replay_decontam.py::test_a_hit_row_the_replay_manifest_does_not_name_stops_the_tool
+PASSED python/tests/test_replay_decontam.py::test_hits_out_is_a_flag_and_refuses_to_overwrite_before_any_work
+PASSED python/tests/test_pipeline_general.py::test_replay_exclude_drops_only_the_named_replay_rows_and_the_gold_train_is_unchanged
+PASSED python/tests/test_pipeline_general.py::test_replay_exclude_refuses_a_key_the_build_draws_as_gold
+PASSED python/tests/test_pipeline_general.py::test_a_replay_exclude_file_is_read_from_the_decontam_hit_list
+PASSED python/tests/test_pipeline_general.py::test_replay_exclude_without_replay_shards_is_refused

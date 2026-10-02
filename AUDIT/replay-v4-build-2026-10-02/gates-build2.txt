@@ -1,0 +1,41 @@
+PASS  val shard_hash: ef06ab99eef107dd608424c80117b81b3986ce5ea827d2d4f47f990d960b1bc5
+PASS  val manifest data_snapshot_hash: 69d45fd04fad01751b3f102f09041c0ba67176e44725dbeb977d550f4b0abbd4
+PASS  held-out manifest data_snapshot_hash == v4's: 116a67c46e030bcffef3bbbd8dbabed7e5763f5bddc28c324df16e4dc72ef7a5 vs v4 116a67c46e030bcffef3bbbd8dbabed7e5763f5bddc28c324df16e4dc72ef7a5
+PASS  train remap_hash: e7d0890c547b43811f93e50dc0e582ba35eb2e75706ee0ad27186d6a89d502ab
+PASS  val remap_hash: e7d0890c547b43811f93e50dc0e582ba35eb2e75706ee0ad27186d6a89d502ab
+PASS  replay remap_hash: e7d0890c547b43811f93e50dc0e582ba35eb2e75706ee0ad27186d6a89d502ab
+PASS  hit list h == distinct hit rows: h=185, rows=185
+PASS  replay rows == 3,568 - h: 3383 vs 3568 - 185
+PASS  replay rows == build 1's replay rows minus the hit rows: 3383 vs 3383
+PASS  train shard_hash == build 1's: be617e7e3261b6e96a9f5eeb160e125066234548643ae29558a9a12728f94ff1 vs be617e7e3261b6e96a9f5eeb160e125066234548643ae29558a9a12728f94ff1
+PASS  train manifest hash == build 1's: 895d393b632aa417250578b04e22a559985f5145a98ad59c81907a75a6f7097a
+PASS  every drawn replay row is a v4 train row: 0 not
+PASS  train.json == v4 train minus the 3,568 drawn row_ids (row_id, content_hash): 285574 entries; diff 0
+PASS  train rows == 285,574: 285574
+PASS  train manifest hash differs from F's ea3215c4: 895d393b632aa417250578b04e22a559985f5145a98ad59c81907a75a6f7097a
+PASS  recipe keys shared with d96409bd are equal: differ: []
+PASS  recipe rev: 881ab304f15ea13529002391dda8520c2ea47af4
+PASS  recipe adds only the replay keys: added ['replay_exclude_sha256', 'replay_shards'], removed []
+{
+  "h": 185,
+  "ledger_row": "a48c2987-9088-4243-be7c-26089a2104a6",
+  "code_commit": "e571065cbb8042b9c84d4c0d6650706b9a765311-dirty",
+  "status": "completed",
+  "wall_clock_s": 4386.004161582998,
+  "recipe_hash": "4f44cbb8d4a6fa806ef8dc8102041cdc14564d232c3f4d771edba97679b41cd9",
+  "protocol_data_snapshot_hash": "895d393b632aa417250578b04e22a559985f5145a98ad59c81907a75a6f7097a",
+  "train_manifest_hash": "895d393b632aa417250578b04e22a559985f5145a98ad59c81907a75a6f7097a",
+  "train_shard_hash": "be617e7e3261b6e96a9f5eeb160e125066234548643ae29558a9a12728f94ff1",
+  "train_sequences": 360382,
+  "replay_shard_hash": "290f69a48a44f15018dc8a52deb4655502182cfa9d14cf84b4f00cd4cddb7cea",
+  "replay_sequences": 3383,
+  "replay_manifest_hash": "7379280d37461dde4984a87903c43e88d9b5650f15887bdcb8322360132e34cf",
+  "replay_rows": 3383,
+  "val_shard_hash": "ef06ab99eef107dd608424c80117b81b3986ce5ea827d2d4f47f990d960b1bc5",
+  "recipe_added": [
+    "replay_exclude_sha256",
+    "replay_shards"
+  ],
+  "ledger_sha256": "2b531b94f2f2baa8e827934ae5962ae5db480979082fd7a44d91bb4b8b8f9264"
+}
+GATES: ALL PASS

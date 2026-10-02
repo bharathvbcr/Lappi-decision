@@ -1,0 +1,5 @@
+minhash: 271627 distinct sets signed by /Users/bharath/qd-campaign/target-replay-a502670/release/qd-prep in 47.4 s (shingling and canaries included), 615063 lookups, 8 canaries equal to the reference; 271737 distinct texts shingled once, 615063 lookups
+lsh: 2 candidate-pair searches banded by /Users/bharath/qd-campaign/target-replay-a502670/release/qd-prep in 3.9 s (canaries included), 1252884 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+replay 290f69a48a44f150: 3383 of 3383 rows checked (0 too short for a 8-gram), against val 18428/18428 rows, heldout 39887/39887 rows; unrenderable targets skipped: val 0, heldout 0
+hits per target: {'val': 0, 'heldout': 0} -> CLEAN
+attestation: /Users/bharath/qd-campaign/phase4-v4-replay-2026-10-02/replay-attestation.json
