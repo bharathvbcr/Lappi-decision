@@ -736,6 +736,9 @@ def run_arm(
         ),
         run_kind="ft",
         repo=ROOT,
+        # The row is scratch (a temp ledger train_ft requires), but it still names the sources
+        # that produced it, as every recorder in tools/ does (test_provenance_on_every_exit).
+        entry_point=Path(__file__),
         wall_clock_s=None,
         cost=None,
         env=Environment(

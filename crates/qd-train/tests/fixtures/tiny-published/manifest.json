@@ -3,7 +3,7 @@
  "rule": "published",
  "generator": {
   "script": "tools/qd_train_oracle_tiny.py",
-  "script_sha256": "b2a9ea2a9986a6d2eb2091df99096287461cb18bf874ab84c6f14c3414894028",
+  "script_sha256": "f3f812cb813b29d0df7457f8a65f17fb1b00c82993ba9ac1b165a242d75f697b",
   "argv": [
    "--out",
    "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a4907ad4a70172990/crates/qd-train/tests/fixtures/tiny-published"
@@ -16,7 +16,7 @@
   "device": "cpu",
   "torch_threads": 1,
   "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
-  "git_head": "6a06bd3bf2242335aea9277acfff316f97078013"
+  "git_head": "1f09695597d34ec39ec0b09ccaf8fa0cbb5eddb3"
  },
  "seeds": {
   "protocol_seed": 0,
@@ -1348,7 +1348,7 @@
    "losses": true
   },
   "clip_active_steps_equal": true,
-  "seconds": 2.0308193750097416
+  "seconds": 2.0669929160067113
  },
  "repeat_equality_fp32": {
   "how": "a second process (subprocess of this script, --arms fp32) regenerating the snapshot, batches and run from the seeds; same thread count. Compared: the value digests below and the bytes of every file both runs wrote",
