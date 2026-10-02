@@ -41,8 +41,8 @@
 #   J6G_HUMAN_HOURS_YES  the human's yes on the rental hours, in their words.
 # The lead fills the first two from the prelude's output, stages the filled copy and records its
 # sha256. Never edit this file while its waiter runs: bash reads a script as it executes it.
-J6G_PRELUDE=UNSET
-J6G_PRELUDE_SHA256=UNSET
+J6G_PRELUDE=/home/ubuntu/post-f/j6g-prelude-record.json
+J6G_PRELUDE_SHA256=ef17d56ccc0ef0c4190b2c72f924aa672ddc523ceaaf2ebde6fb48b4f83294fc
 J6G_HUMAN_HOURS_YES="Bharath (human, in chat 2026-10-02 ~05:15 UTC: 'Yes, after j6a (Recommended)'; AUDIT/fable-optimize-2026-10-02/human-decisions.md item 1)"
 #
 # Fixed by the pre-registration (campaign/j6g-preregistered.json arm):

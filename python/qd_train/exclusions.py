@@ -12,8 +12,10 @@ contaminated keys of its own.
 
 Refused, before any row moves: an ``exclusions.txt`` that is not byte-sorted, unique,
 non-empty LF lines; an attestation beside it that is missing, not version 2, not CLEAN on
-its enforced targets, made under another ``n`` or threshold than the rule's (8, 0.5), for
-another corpus, or naming another file's sha256; and a key that names no train row. Only
+its enforced targets, made under another ``n`` or threshold than the rule's (8, 0.5), made
+without v5's template strip (``export.template_strip``: ``qd_train.containment_strip``,
+applied, this version), for another corpus, or naming another file's sha256; and a key that
+names no train row. Only
 train rows move: val and held-out never do (rule 2), and an identity key a held-out row
 shares by design (the two task-holdout families) leaves that row where it is.
 """
@@ -33,6 +35,7 @@ from qd_data.fingerprint import code_fingerprint
 from qd_data.rows import DataRow
 from qd_data.split import SplitReport
 
+from .containment_strip import STRIP_RULE, STRIP_VERSION
 from .replay import DEFAULT_N, DEFAULT_THRESHOLD
 
 __all__ = [
@@ -123,6 +126,21 @@ def read_exclusions(path: Path, *, corpus: Mapping[str, object]) -> Exclusions:
         raise ExclusionRefusal(
             f"{att_path}: n={att.get('n')} threshold={att.get('threshold')}, not the rule's "
             f"{DEFAULT_N} and {DEFAULT_THRESHOLD} (Fable: n and threshold unchanged)"
+        )
+    export = att.get("export")
+    strip = export.get("template_strip") if isinstance(export, dict) else None
+    if (
+        not isinstance(strip, dict)
+        or strip.get("applied") is not True
+        or strip.get("rule") != STRIP_RULE
+        or strip.get("version") != STRIP_VERSION
+    ):
+        applied = strip.get("applied") if isinstance(strip, dict) else None
+        raise ExclusionRefusal(
+            f"{att_path}: the scan did not apply v5's template strip (export.template_strip "
+            f"applied={applied!r}); a list over unstripped prompt_content measures the "
+            "families' constant question and option text, not overlap, and v5's rule "
+            "(campaign/v5-preregistered data.decontamination.rule) strips it"
         )
     if att.get("exclusions_sha256") != digest:
         raise ExclusionRefusal(

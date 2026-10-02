@@ -197,11 +197,11 @@ def _report() -> SplitReport:
 
 def _scan(binary: Path, report: SplitReport, out: Path) -> dict[str, Any]:
     config = DataConfig()
-    sets = scan_sets(report, config=config)
+    sets, strip = scan_sets(report, config=config)
     request = out.with_name(out.name + ".request.bin")
     with request.open("xb") as fh:
-        write_request(fh, sets, scan_specs(sets), corpus=CORPUS, export={},
-                      checks=splitter_checks(report))
+        write_request(fh, sets, scan_specs(sets), corpus=CORPUS,
+                      export={"template_strip": strip}, checks=splitter_checks(report))
     run_containment(binary, request, out, threads=4, timeout_s=120.0)
     return json.loads((out / ATTESTATION_NAME).read_text(encoding="utf-8"))
 
@@ -274,7 +274,17 @@ def _set(key: str, value: object):
     return edit
 
 
+def _set_strip(key: str, value: object):
+    def edit(att: dict[str, Any]) -> None:
+        att["export"]["template_strip"][key] = value
+    return edit
+
+
 @pytest.mark.parametrize(("edit", "match"), [
+    (_set("export", {}), "did not apply v5's template strip"),
+    (_set_strip("applied", False), "did not apply v5's template strip"),
+    (_set_strip("version", 0), "did not apply v5's template strip"),
+    (_set_strip("rule", "another rule"), "did not apply v5's template strip"),
     (_set("clean", False), "not CLEAN"),
     (_set("remaining_hits", {"val": 1, "heldout": 0}), "not CLEAN"),
     (_set("remaining_hits", {}), "not CLEAN"),
@@ -376,11 +386,11 @@ def test_a_build_with_the_list_drops_those_train_rows_and_not_one_val_byte(
         rev=rev, max_pairs=60, commitpackft=DOWNLOAD, defect_class=None, defect_max_rows=None,
         repo_history=False,
     ))
-    sets = scan_sets(report, config=config)
+    sets, strip = scan_sets(report, config=config)
     request = tmp_path / "scan.request.bin"
     with request.open("xb") as fh:
-        write_request(fh, sets, scan_specs(sets), corpus=corpus, export={},
-                      checks=splitter_checks(report))
+        write_request(fh, sets, scan_specs(sets), corpus=corpus,
+                      export={"template_strip": strip}, checks=splitter_checks(report))
     run_containment(qd_prep_bin, request, tmp_path / "scan", threads=4, timeout_s=300.0)
     att = json.loads((tmp_path / "scan" / ATTESTATION_NAME).read_text(encoding="utf-8"))
     assert att["clean"] is True, att["not_clean_because"]
