@@ -336,7 +336,52 @@ RECIPE_PIECE_KEYS: Final[tuple[str, ...]] = (
     # model says which layout it was trained on, and --score-checkpoint refuses a model of
     # another layout than this build renders (_ft_row).
     "prompt_format",
+    # --batch-order seed (AUDIT/post-f-2026-10-02/fable-seed-order-ruling.md section 1): the
+    # constant string, never the plan seed, so every seed of one configuration shares one
+    # recipe_hash (qd_post_f_rules' one_configuration refuses an average or envelope that
+    # does not).
+    "batch_order",
 )
+
+#: ``--batch-order``'s one value: the epoch arm plans its batches at the TRAINING seed rather
+#: than at ``DataConfig().seed``, so seeds differ in order as well as in initialisation.
+BATCH_ORDER_SEED: Final[str] = "seed"
+BATCH_ORDERS: Final[tuple[str, ...]] = (BATCH_ORDER_SEED,)
+
+
+def plan_seed_for(batch_order: str | None, *, seed: int, config: DataConfig) -> int:
+    """The seed ``reader.batches`` plans the train set with, for a run at training seed ``seed``.
+
+    Without ``--batch-order``: ``config.seed``, as every run before v5 -- so every seed of an
+    F-era configuration trained on one order. With ``--batch-order seed``: ``seed`` itself.
+    Passed ONLY to the planner (and to :func:`_labels_by_batch`, which reads the same plan's
+    membership): ``config.seed`` also feeds ``data_snapshot_hash`` and every suite, alphabet
+    and inventory, none of which may move with the training seed.
+    """
+    if batch_order is None:
+        return config.seed
+    if batch_order == BATCH_ORDER_SEED:
+        return seed
+    raise ValueError(f"batch_order must be None or one of {BATCH_ORDERS}, got {batch_order!r}")
+
+
+def plan_order_digest(
+    reader: ShardReader, *, batch_tokens: int, plan_seed: int, max_width: int | None = None
+) -> str:
+    """sha256 over the plan's ``(bucket, rows)`` in order: which sequences, in which batches,
+    in which order -- without assembling a token. ``max_width`` keeps only the batches arm 2
+    trains on (``width <= max_width``, the rule that cuts ``plan_small`` from ``plan_all``).
+
+    The text hashed is ``json.dumps([[bucket, [row, ...]], ...], separators=(",", ":"))``.
+    ``ShardReader._plan`` is the planner ``reader.batches`` itself iterates, and the one
+    :func:`_labels_by_batch` already reads its membership from.
+    """
+    plans = reader._plan(batch_tokens=batch_tokens, seed=plan_seed, epoch=0)
+    body = [
+        [int(p.bucket), [int(i) for i in p.rows]]
+        for p in plans if max_width is None or int(p.width) <= max_width
+    ]
+    return hashlib.sha256(json.dumps(body, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 #: ``--noul-weight``'s scope (v5 reading R5): the weight multiplies noul-gold letter positions
 #: of ``code.defect_class`` rows only. CLINC's Z-gold rows and every other family stay
@@ -507,6 +552,7 @@ def _recipe_pieces(
     train_dtype: str = "bf16", span_head_init: Mapping[str, str] | None = None,
     exclusions_sha256: str = "", min_lr: float | None = None,
     noul_weight: float | None = None, prompt_format: int = 1,
+    batch_order: str | None = None,
 ) -> dict[str, object]:
     """The recipe keys for whichever ported pieces are on. Empty when none is.
 
@@ -535,6 +581,10 @@ def _recipe_pieces(
 
     ``prompt_format`` is the train header's (``ShardHeader.prompt_format``), never
     ``qd_data.render.PROMPT_FORMAT``: 1, every row before v5's format 2, adds no key.
+
+    ``batch_order`` is ``--batch-order``: ``None`` (the plan at ``DataConfig().seed``, every
+    row so far) adds no key; given, the key is the constant string (``"seed"``), never the plan
+    seed, so the seeds of one configuration keep one recipe_hash.
     """
     if train_attention_mask not in TRAIN_ATTENTION_MASKS:
         raise ValueError(
@@ -545,9 +595,13 @@ def _recipe_pieces(
         raise ValueError(f"train_dtype must be one of {TRAIN_DTYPES}, got {train_dtype!r}")
     if isinstance(prompt_format, bool) or not isinstance(prompt_format, int) or prompt_format < 1:
         raise ValueError(f"prompt_format must be an int >= 1, got {prompt_format!r}")
+    if batch_order is not None and batch_order not in BATCH_ORDERS:
+        raise ValueError(f"batch_order must be None or one of {BATCH_ORDERS}, got {batch_order!r}")
     out: dict[str, object] = {}
     if prompt_format != 1:
         out["prompt_format"] = prompt_format
+    if batch_order is not None:
+        out["batch_order"] = batch_order
     if noul_weight is not None:
         out["noul_weight"] = noul_weight
         out["noul_weight_scope"] = NOUL_WEIGHT_SCOPE
@@ -2735,8 +2789,15 @@ def _train(
     train_dtype: str = "bf16", span_head_init: SpanHeadInit | None = None,
     record_span_head_init_digest: bool = False, min_lr: float | None = None,
     noul_weight: NoulWeightPlan | None = None, retain_tower_every: int = 0,
+    batch_order: str | None = None, plan_seed: int | None = None,
+    order_digest: str | None = None,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
+
+    ``batch_order`` is ``--batch-order`` (a recipe key only when given); ``plan_seed`` and
+    ``order_digest`` are the seed ``plan`` was planned at and :func:`plan_order_digest` of it,
+    recorded as ``corpus.plan_seed`` and ``corpus.plan_order_digest`` on every ft row (NotRun
+    when the caller did not say).
 
     The batches are the real reader's, re-indexed: ``_train`` requires strictly increasing
     indices inside an epoch because S5 reconstructs a resume position from them, and a
@@ -2866,7 +2927,7 @@ def _train(
         span_head_init=None if span_head_init is None else span_head_init.recipe(),
         exclusions_sha256=reader.header.exclusions_sha256, min_lr=min_lr,
         noul_weight=None if noul_weight is None else noul_weight.weight,
-        prompt_format=reader.header.prompt_format,
+        prompt_format=reader.header.prompt_format, batch_order=batch_order,
     )
     recipe: dict[str, object] = {
         "tool": "tools/real_ft_run.py", "tag": tag, "device": device,
@@ -3235,6 +3296,22 @@ def _train(
         ("corpus.plan_max_width", width, "the widest padded batch this run trains on"),
     ):
         recorder.metric(name, Ran(passed=True, value=value, detail=detail))
+    # Which order: the plan seed and the order's digest, on every ft row (Fable's seed-order
+    # ruling section 1). Metrics, not recipe keys: they differ by seed under --batch-order seed
+    # and the recipe_hash must not. train.consumed_digest, the final checkpoint's, is the
+    # trainer's (qd_train.trainer).
+    for name, value, said in (
+        ("corpus.plan_seed", plan_seed,
+         "the seed the plan was drawn at: DataConfig().seed, or under --batch-order seed the "
+         "training seed"),
+        ("corpus.plan_order_digest", order_digest,
+         "sha256 over the plan's (bucket, rows) in order (plan_order_digest)"),
+    ):
+        recorder.metric(
+            name,
+            NotRun(reason="the caller did not say which plan this is")
+            if value is None else Ran(passed=True, value=value, detail=said),
+        )
 
     if permutation is not None:
         recorder.metric(
@@ -8642,6 +8719,7 @@ def planned_ft_recipe(
             fused_adamw=args.fused_adamw, train_attention_mask=args.train_attention_mask,
             exclusions_sha256=reader.header.exclusions_sha256, min_lr=args.min_lr,
             noul_weight=args.noul_weight, prompt_format=reader.header.prompt_format,
+            batch_order=args.batch_order,
         ),
     }
     if args.real_backbone is None:
@@ -9245,6 +9323,99 @@ def _permutation_spec(
     )
 
 
+@dataclasses.dataclass
+class SeedArms:
+    """One plan seed's batches and what is derived from them, for both arms.
+
+    ``plan_all`` is the epoch arm's plan, ``plan_small`` arm 2's cut of it (every batch at most
+    ``--max-width`` wide), each with its labels; ``epoch_alphabets`` (C1's option permutation),
+    ``noul_epoch`` and ``noul_memorise`` (``--noul-weight``) index those batches, so they are
+    rebuilt with them. ``order_digest`` and ``order_digest_small`` are :func:`plan_order_digest`
+    of the two. Without ``--batch-order`` there is one for the whole run; under ``--batch-order
+    seed`` one per training seed, and :meth:`release` drops the last before the next is built.
+    """
+
+    plan_seed: int
+    plan_all: list[Batch]
+    labels_by_batch_all: dict[int, list[Label]]
+    plan_small: list[Batch]
+    labels_small: dict[int, list[Label]]
+    order_digest: str
+    order_digest_small: str
+    epoch_alphabets: dict[int, list[tuple[str, ...] | None]] | None = None
+    noul_epoch: NoulWeightPlan | None = None
+    noul_memorise: NoulWeightPlan | None = None
+
+    def shape(self) -> tuple[int, ...]:
+        """What must not move with the plan seed: batch counts, the widest batch, rows and
+        padded positions of both arms' plans (``ShardReader._plan`` groups each bucket's
+        members by count alone, so only which sequence lands where depends on the seed)."""
+        return tuple(
+            f(plan)
+            for plan in (self.plan_all, self.plan_small)
+            for f in (
+                len,
+                lambda p: max((int(b.tokens.shape[1]) for b in p), default=0),
+                lambda p: sum(int(b.tokens.shape[0]) for b in p),
+                lambda p: sum(int(b.tokens.size) for b in p),
+            )
+        )
+
+    def release(self) -> None:
+        """Drop the batches, in place, so the next seed's plan is the only one held."""
+        self.plan_all.clear()
+        self.plan_small.clear()
+        self.labels_by_batch_all.clear()
+        self.labels_small.clear()
+        self.epoch_alphabets = None
+        self.noul_epoch = self.noul_memorise = None
+
+
+def seed_arms(
+    reader: ShardReader, labels: list[Label], *, config: DataConfig, batch_tokens: int,
+    plan_seed: int, max_width: int,
+) -> SeedArms:
+    """The plan drawn at ``plan_seed``, its labels and arm 2's cut of it (see :class:`SeedArms`;
+    the alphabets and noul plans are the caller's, after the checks it makes between)."""
+    plan_all = list(reader.batches(batch_tokens=batch_tokens, seed=plan_seed, epoch=0))
+    labels_by_batch_all = _labels_by_batch(
+        reader, plan_all, labels, config=config, batch_tokens=batch_tokens, plan_seed=plan_seed
+    )
+    keep = [i for i, b in enumerate(plan_all) if b.tokens.shape[1] <= max_width]
+    return SeedArms(
+        plan_seed=plan_seed,
+        plan_all=plan_all,
+        labels_by_batch_all=labels_by_batch_all,
+        plan_small=[plan_all[i] for i in keep],
+        labels_small={new: labels_by_batch_all[old] for new, old in enumerate(keep)},
+        order_digest=plan_order_digest(reader, batch_tokens=batch_tokens, plan_seed=plan_seed),
+        order_digest_small=plan_order_digest(
+            reader, batch_tokens=batch_tokens, plan_seed=plan_seed, max_width=max_width
+        ),
+    )
+
+
+def noul_plans(
+    arms: SeedArms, *, weight: float | None, epoch: bool, memorise: bool,
+    letter_id: Mapping[str, int],
+) -> tuple[NoulWeightPlan | None, NoulWeightPlan | None]:
+    """``(noul_epoch, noul_memorise)``: ``--noul-weight``'s plan over each arm that runs, or a
+    refusal naming why it cannot be planned."""
+    if weight is None:
+        return None, None
+    try:
+        return (
+            noul_weight_plan(
+                arms.plan_all, arms.labels_by_batch_all, weight=weight, letter_id=letter_id
+            ) if epoch else None,
+            noul_weight_plan(
+                arms.plan_small, arms.labels_small, weight=weight, letter_id=letter_id
+            ) if memorise else None,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
 def _alphabets(
     plan: list[Batch], labels_for: Mapping[int, list[Label]]
 ) -> dict[int, list[tuple[str, ...] | None]]:
@@ -9524,6 +9695,17 @@ def main(argv: list[str] | None = None) -> int:
             "the cosine schedule's floor (v5: 0). Default: lr / 10, the floor every run "
             "before v5 trained on, which adds no recipe key; any given value is recorded as "
             "min_lr. Must be finite, >= 0 and <= --lr. Layer-wise lower layers scale it too"
+        ),
+    )
+    parser.add_argument(
+        "--batch-order", choices=BATCH_ORDERS, default=None,
+        help=(
+            "seed: plan each seed's batches at that training seed rather than at "
+            "DataConfig().seed, so seeds differ in batch order too (v5; Fable's seed-order "
+            "ruling). Absent: every seed trains on the one order drawn at DataConfig().seed, "
+            "as every run before v5, and no recipe key is added. Given: recipe key "
+            "batch_order='seed' (the constant, so every seed shares one recipe_hash). Every ft "
+            "row records corpus.plan_seed and corpus.plan_order_digest either way"
         ),
     )
     parser.add_argument(
@@ -10136,6 +10318,13 @@ def main(argv: list[str] | None = None) -> int:
                 "--noul-weight with --shuffled-label: the control permutes the very golds the "
                 "weight selects, and no pre-registration asks for that control"
             )
+    if args.batch_order is not None and (
+        args.score_checkpoint is not None or args.score_plan is not None
+    ):
+        raise SystemExit(
+            "--batch-order orders the batches a run trains on; --score-checkpoint and "
+            "--score-plan train nothing (a scored model's order is its ft row's)"
+        )
 
     # Checkpointing is refused on the STAND-IN branch, and that is not a limitation being
     # worked around -- it is the whole point. `RealFtStep.load_state` raises by design
@@ -10759,13 +10948,16 @@ def main(argv: list[str] | None = None) -> int:
                 + ("ok " + f"{probe.get('wall_s')}s" if probe["ok"] else f"REFUSED {probe['why']}")
             )
 
-    plan_all = list(reader.batches(batch_tokens=batch_tokens, seed=config.seed, epoch=0))
-    labels_by_batch_all = _labels_by_batch(
-        reader, plan_all, labels, config=config, batch_tokens=batch_tokens
+    # The plan both arms train on. Without --batch-order it is drawn at DataConfig().seed and
+    # is every seed's; under --batch-order seed this is the first seed's, and arms_for (below)
+    # draws each later seed's in its turn, one plan held at a time.
+    arms = seed_arms(
+        reader, labels, config=config, batch_tokens=batch_tokens,
+        plan_seed=plan_seed_for(args.batch_order, seed=int(args.seeds[0]), config=config),
+        max_width=args.max_width,
     )
-    keep = [i for i, b in enumerate(plan_all) if b.tokens.shape[1] <= args.max_width]
-    plan_small = [plan_all[i] for i in keep]
-    labels_small = {new: labels_by_batch_all[old] for new, old in enumerate(keep)}
+    plan_all, labels_by_batch_all = arms.plan_all, arms.labels_by_batch_all
+    plan_small, labels_small = arms.plan_small, arms.labels_small
 
     kinds_in_set = {name for name in inventory["per_kind"]}  # type: ignore[union-attr]
     kinds_in_plan = {
@@ -10803,20 +10995,14 @@ def main(argv: list[str] | None = None) -> int:
         )
     # --noul-weight over each arm's plan, before Ledger(args.ledger): the Mac prelude takes
     # these from main's frame there and prints the weighted-position count.
-    noul_epoch: NoulWeightPlan | None = None
-    noul_memorise: NoulWeightPlan | None = None
+    noul_epoch, noul_memorise = noul_plans(
+        arms, weight=args.noul_weight, epoch=args.epoch, memorise=not args.no_memorise,
+        letter_id=letter_id,
+    )
+    arms.epoch_alphabets, arms.noul_epoch, arms.noul_memorise = (
+        epoch_alphabets, noul_epoch, noul_memorise
+    )
     if args.noul_weight is not None:
-        try:
-            if args.epoch:
-                noul_epoch = noul_weight_plan(
-                    plan_all, labels_by_batch_all, weight=args.noul_weight, letter_id=letter_id
-                )
-            if not args.no_memorise:
-                noul_memorise = noul_weight_plan(
-                    plan_small, labels_small, weight=args.noul_weight, letter_id=letter_id
-                )
-        except ValueError as exc:
-            raise SystemExit(str(exc)) from exc
         for arm, nw in (("epoch", noul_epoch), ("memorise", noul_memorise)):
             if nw is None:
                 continue
@@ -10935,6 +11121,52 @@ def main(argv: list[str] | None = None) -> int:
             f"({rewritten} answer tokens rewritten), permutation "
             f"{shuffled.golds.digest[:16]}; span weight {args.span_weight}"
         )
+        arms.plan_all = plan_all
+
+    first_shape = arms.shape()
+
+    def arms_for(seed: int) -> SeedArms:
+        """The plan training seed ``seed`` trains on. The same object for every seed without
+        --batch-order; under --batch-order seed, the previous seed's plan is released and this
+        one's drawn, with everything derived from it rebuilt by the same calls as above."""
+        nonlocal arms
+        want = plan_seed_for(args.batch_order, seed=seed, config=config)
+        if want == arms.plan_seed:
+            return arms
+        arms.release()
+        arms = seed_arms(
+            reader, labels, config=config, batch_tokens=batch_tokens, plan_seed=want,
+            max_width=args.max_width,
+        )
+        if permutation is not None:
+            arms.epoch_alphabets = _alphabets(arms.plan_all, arms.labels_by_batch_all)
+        arms.noul_epoch, arms.noul_memorise = noul_plans(
+            arms, weight=args.noul_weight, epoch=args.epoch, memorise=not args.no_memorise,
+            letter_id=letter_id,
+        )
+        if shuffled is not None:
+            arms.plan_all, _ = apply_shuffled_golds(
+                arms.plan_all, arms.labels_by_batch_all, shuffled.golds, letter_id
+            )
+        if arms.shape() != first_shape:
+            raise SystemExit(
+                f"--batch-order seed: seed {seed}'s plan has shape {arms.shape()} and the first "
+                f"seed's {first_shape}. Batch counts, widths, rows and padding are the shard "
+                "set's, not the seed's; the recipe recorded the first seed's batches and width"
+            )
+        print(
+            f"batch order: seed {seed} plans at seed {want}, order digest "
+            f"{arms.order_digest[:16]} (arm 2 {arms.order_digest_small[:16]})",
+            flush=True,
+        )
+        return arms
+
+    print(
+        f"batch order: plan seed {arms.plan_seed} "
+        + ("(the training seed, --batch-order seed)" if args.batch_order else
+           "(DataConfig().seed: every seed trains on this one order)")
+        + f", order digest {arms.order_digest[:16]} (arm 2 {arms.order_digest_small[:16]})"
+    )
 
     if args.no_memorise:
         print("\narm 2: NOT RUN -- --no-memorise")
@@ -10951,8 +11183,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             continue
         for seed in args.seeds:
+            seed_plan = arms_for(seed)
             run = _train(
-                reader=reader, plan=plan_small, passes=args.passes, device=device, seed=seed,
+                reader=reader, plan=seed_plan.plan_small, passes=args.passes, device=device,
+                seed=seed,
                 hidden=args.hidden, heads=args.heads, lr=args.lr,
                 span_weight=args.span_weight, ledger=ledger,
                 checkpoint_dir=args.checkpoint_dir,
@@ -10979,12 +11213,18 @@ def main(argv: list[str] | None = None) -> int:
                 train_attention_mask=args.train_attention_mask,
                 train_dtype=args.train_dtype, span_head_init=span_head_init,
                 record_span_head_init_digest=args.span_head_init_digest, min_lr=args.min_lr,
-                noul_weight=noul_memorise, retain_tower_every=args.retain_tower_every,
+                noul_weight=seed_plan.noul_memorise,
+                retain_tower_every=args.retain_tower_every, batch_order=args.batch_order,
+                plan_seed=seed_plan.plan_seed, order_digest=seed_plan.order_digest_small,
             )
             step = run.pop("_step")
             decode_at = time.monotonic()
-            shipped = _decode(step, plan_small, labels_small, letter_id, noul_first=False)
-            defect = _decode(step, plan_small, labels_small, letter_id, noul_first=True)
+            shipped = _decode(
+                step, seed_plan.plan_small, seed_plan.labels_small, letter_id, noul_first=False
+            )
+            defect = _decode(
+                step, seed_plan.plan_small, seed_plan.labels_small, letter_id, noul_first=True
+            )
             decode_s = time.monotonic() - decode_at
             run["verdict_row_id"] = _record_verdict(
                 run, ledger=ledger, reader=reader, shipped=shipped, defect=defect,
@@ -11060,8 +11300,9 @@ def main(argv: list[str] | None = None) -> int:
                 report["arm1"].append({"device": device, "not_run": why})  # type: ignore[union-attr]
                 continue
             for seed in args.seeds:
+                seed_plan = arms_for(seed)
                 run = _train(
-                    reader=reader, plan=plan_all, passes=1, device=device, seed=seed,
+                    reader=reader, plan=seed_plan.plan_all, passes=1, device=device, seed=seed,
                     hidden=args.hidden, heads=args.heads, lr=args.lr,
                     span_weight=args.span_weight, ledger=ledger,
                     checkpoint_dir=args.checkpoint_dir,
@@ -11083,7 +11324,8 @@ def main(argv: list[str] | None = None) -> int:
                     batch_tokens=recipe_batch_tokens,
                     lower_layers_n=args.lower_layers_n,
                     lower_lr_scale=args.lower_layers_lr_scale, beta2=args.beta2,
-                    permutation=permutation, alphabets=epoch_alphabets, replay=replay_plan,
+                    permutation=permutation, alphabets=seed_plan.epoch_alphabets,
+                    replay=replay_plan,
                     eval_widths=suite_widths(needle_suite, ood_suite),
                     shuffled_label=None if shuffled is None else SHUFFLED_LABEL_RECIPE,
                     checkpoint_skip_layers=args.checkpoint_skip_layers,
@@ -11092,8 +11334,9 @@ def main(argv: list[str] | None = None) -> int:
                     max_steps=args.max_steps, train_dtype=args.train_dtype,
                     span_head_init=span_head_init,
                     record_span_head_init_digest=args.span_head_init_digest,
-                    min_lr=args.min_lr, noul_weight=noul_epoch,
-                    retain_tower_every=args.retain_tower_every,
+                    min_lr=args.min_lr, noul_weight=seed_plan.noul_epoch,
+                    retain_tower_every=args.retain_tower_every, batch_order=args.batch_order,
+                    plan_seed=seed_plan.plan_seed, order_digest=seed_plan.order_digest,
                 )
                 step = run.pop("_step")
                 if shuffled is not None and val_set is not None:
@@ -11196,7 +11439,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _labels_by_batch(
     reader: ShardReader, plan: list[Batch], labels: list[Label], *, config: DataConfig,
-    batch_tokens: int,
+    batch_tokens: int, plan_seed: int | None = None,
 ) -> dict[int, list[Label]]:
     """Which :class:`Label` each row of each batch is.
 
@@ -11204,10 +11447,16 @@ def _labels_by_batch(
     only thing that knows which sequence landed in which row, so the membership is taken from
     it rather than re-derived. Checked: every row's stored ``target_index`` and ``slot_kind``
     must match the label's, over every row of every batch.
+
+    ``plan_seed`` is the seed ``plan`` was drawn at (:func:`plan_seed_for`); ``None`` is
+    ``config.seed``, as every plan before ``--batch-order seed``. A different seed is a
+    different membership that the slot-kind check below would not always catch.
     """
     # The plan ``plan`` was yielded from, so it must be the same batch_tokens: a different
     # value is a different grouping, and the check below would refuse it row by row.
-    plans = reader._plan(batch_tokens=batch_tokens, seed=config.seed, epoch=0)
+    plans = reader._plan(
+        batch_tokens=batch_tokens, seed=config.seed if plan_seed is None else plan_seed, epoch=0
+    )
     if len(plans) != len(plan):
         raise SystemExit(f"{len(plans)} planned batches against {len(plan)} yielded")
     out: dict[int, list[Label]] = {}

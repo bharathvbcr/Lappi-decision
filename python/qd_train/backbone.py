@@ -1069,10 +1069,12 @@ class QwenDecisionStep:
         # Before anything random is drawn. This class builds a randomly-initialised
         # SpanPointerHead, and until this line nothing in it was seeded at all -- so the
         # `seed` in the ledger's protocol, in `_checkpoint_name` and in every ledger row
-        # this step ever wrote determined the BATCH ORDER and not the parameters the run
-        # started from. Two runs at one seed opened at different losses, and the channel
-        # whose head is random (span) scattered while the channel whose head is pretrained
-        # (letter) did not. The stand-in branch, `real_ft_run.RealFtStep.__init__`, has
+        # this step ever wrote determined the training stream (and, only where the epoch arm
+        # passes it to the planner -- tools/real_ft_run.py --batch-order seed -- the batch
+        # order) and not the parameters the run started from. Two runs at one seed opened at
+        # different losses, and the channel whose head is random (span) scattered while the
+        # channel whose head is pretrained (letter) did not. The stand-in branch,
+        # `real_ft_run.RealFtStep.__init__`, has
         # always called this on its first line; the real branch never did, and every GH200
         # measurement to date ran on the real branch.
         #
