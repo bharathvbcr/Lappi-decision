@@ -102,7 +102,10 @@ import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
+
+if TYPE_CHECKING:  # pragma: no cover - typing only: qd_train.backbone is imported lazily
+    from qd_train.backbone import NoulWeight
 
 # Inline for the reason tools/bpe_line_start_collapse.py states: ruff's E402 exemption
 # covers `sys.path` modification before the imports, but an ordinary assignment in between
@@ -324,7 +327,15 @@ RECIPE_PIECE_KEYS: Final[tuple[str, ...]] = (
     "exclusions_sha256",
     # --min-lr (v5 recipe.added[1]): the cosine floor, when given instead of lr / 10.
     "min_lr",
+    # --noul-weight (v5 arm_noul_weight): the weight and the family it is scoped to.
+    "noul_weight",
+    "noul_weight_scope",
 )
+
+#: ``--noul-weight``'s scope (v5 reading R5): the weight multiplies noul-gold letter positions
+#: of ``code.defect_class`` rows only. CLINC's Z-gold rows and every other family stay
+#: unweighted, so the arm is not confounded with CLINC in-distribution effects.
+NOUL_WEIGHT_SCOPE: Final[str] = DEFECT_FAMILY_ID
 
 #: The dtypes ``--train-dtype`` trains the real tower in. ``bf16`` is every row so far and adds
 #: no recipe key; ``fp32`` is rung (d)'s tight reference arm, T-fp32.
@@ -375,6 +386,111 @@ class ReplayPlan:
     attestation_sha256: str
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class NoulWeightPlan:
+    """``--noul-weight`` over one arm's plan, decided before any tower loads.
+
+    ``rows[b]`` says which rows of plan batch ``b`` are in :data:`NOUL_WEIGHT_SCOPE`; the
+    per-batch counts are the positions the step will weight (``backbone.noul_weight_mask``,
+    the one owner of the rule) and the letter positions it supervises, per pass. The Mac
+    prelude reads :attr:`weighted_positions` off the epoch arm's plan, which ``main`` builds
+    before ``Ledger(args.ledger)``.
+    """
+
+    weight: float
+    scope: str
+    noul_id: int
+    rows: tuple[np.ndarray, ...]
+    per_batch_weighted: tuple[int, ...]
+    per_batch_supervised: tuple[int, ...]
+
+    @property
+    def weighted_positions(self) -> int:
+        """Letter positions weighted per pass: in-scope rows whose gold is the noul letter."""
+        return sum(self.per_batch_weighted)
+
+    @property
+    def supervised_positions(self) -> int:
+        """Letter positions supervised per pass, the count the letter loss is divided by."""
+        return sum(self.per_batch_supervised)
+
+    @property
+    def weight_mass_ratio(self) -> float | None:
+        """``sum(w_i) / N`` over the supervised letter positions of one pass: how far the
+        letter loss's mass rises (recorded, not renormalised). ``None`` with no letter
+        position, where the ratio is 0/0."""
+        n = self.supervised_positions
+        if not n:
+            return None
+        return (n + (self.weight - 1.0) * self.weighted_positions) / n
+
+    def recipe(self) -> dict[str, object]:
+        return _recipe_pieces(
+            lower_layers_n=0, lower_lr_scale=1.0, beta2=DEFAULT_BETA2, permutation=None,
+            replay=None, noul_weight=self.weight,
+        )
+
+    def cut(self, n: int) -> NoulWeightPlan:
+        """The plan's first ``n`` batches (``--max-steps``)."""
+        if not 1 <= n <= len(self.rows):
+            raise ValueError(f"cannot cut a {len(self.rows)}-batch noul weight plan to {n}")
+        return dataclasses.replace(
+            self, rows=self.rows[:n], per_batch_weighted=self.per_batch_weighted[:n],
+            per_batch_supervised=self.per_batch_supervised[:n],
+        )
+
+    def by_index(self, passes: int) -> dict[int, np.ndarray]:
+        """Scope rows keyed by ``Batch.index`` as ``_train``'s source re-indexes the plan:
+        one running index over ``passes`` repetitions of it."""
+        out: dict[int, np.ndarray] = {}
+        index = 0
+        for _ in range(passes):
+            for rows in self.rows:
+                out[index] = rows
+                index += 1
+        return out
+
+
+def noul_weight_plan(
+    plan: Sequence[Batch], labels_for: Mapping[int, list[Label]], *, weight: float,
+    letter_id: Mapping[str, int],
+) -> NoulWeightPlan:
+    """``--noul-weight``'s rows and counts over ``plan`` (one arm's), before a tower loads.
+
+    A row is in scope when its label's family is :data:`NOUL_WEIGHT_SCOPE`; a position is
+    weighted by ``backbone.noul_weight_mask``. Refused when a batch's labels do not name one
+    label per row, since the scope would then be read off the wrong rows.
+    """
+    from qd_train.backbone import noul_weight_mask
+
+    if NOUL_LETTER not in letter_id:
+        raise ValueError(
+            f"--noul-weight: the noul letter {NOUL_LETTER!r} has no token id in {letter_id}"
+        )
+    noul_id = int(letter_id[NOUL_LETTER])
+    rows: list[np.ndarray] = []
+    weighted: list[int] = []
+    supervised: list[int] = []
+    for b, batch in enumerate(plan):
+        labels = labels_for.get(b)
+        n = int(batch.tokens.shape[0])
+        if labels is None or len(labels) != n:
+            raise ValueError(
+                f"--noul-weight: plan batch {b} has {n} rows and "
+                f"{'no' if labels is None else len(labels)} labels; the scope is read off one "
+                "label per row"
+            )
+        in_scope = np.asarray([label.family_id == NOUL_WEIGHT_SCOPE for label in labels])
+        sup = ft_supervision(batch)
+        rows.append(in_scope)
+        weighted.append(int(noul_weight_mask(sup, in_scope, noul_id).sum()))
+        supervised.append(int(sup.n_supervised))
+    return NoulWeightPlan(
+        weight=float(weight), scope=NOUL_WEIGHT_SCOPE, noul_id=noul_id, rows=tuple(rows),
+        per_batch_weighted=tuple(weighted), per_batch_supervised=tuple(supervised),
+    )
+
+
 def _recipe_pieces(
     *, lower_layers_n: int, lower_lr_scale: float, beta2: float,
     permutation: ChoicePermutation | None, replay: ReplayPlan | None,
@@ -384,6 +500,7 @@ def _recipe_pieces(
     train_attention_mask: str = "padding", max_steps: int | None = None,
     train_dtype: str = "bf16", span_head_init: Mapping[str, str] | None = None,
     exclusions_sha256: str = "", min_lr: float | None = None,
+    noul_weight: float | None = None,
 ) -> dict[str, object]:
     """The recipe keys for whichever ported pieces are on. Empty when none is.
 
@@ -405,6 +522,10 @@ def _recipe_pieces(
 
     ``min_lr`` is ``--min-lr``: ``None`` (the floor ``lr / 10`` every row so far trained on)
     adds no key; any given value is recorded, ``lr / 10`` included, because it was given.
+
+    ``noul_weight`` is ``--noul-weight``: ``None`` adds no key; given, it adds exactly two,
+    ``noul_weight`` and ``noul_weight_scope`` -- the arm's identity
+    (``arm_noul_weight.identity``) is v5's recipe plus these two.
     """
     if train_attention_mask not in TRAIN_ATTENTION_MASKS:
         raise ValueError(
@@ -414,6 +535,9 @@ def _recipe_pieces(
     if train_dtype not in TRAIN_DTYPES:
         raise ValueError(f"train_dtype must be one of {TRAIN_DTYPES}, got {train_dtype!r}")
     out: dict[str, object] = {}
+    if noul_weight is not None:
+        out["noul_weight"] = noul_weight
+        out["noul_weight_scope"] = NOUL_WEIGHT_SCOPE
     if min_lr is not None:
         out["min_lr"] = min_lr
     if exclusions_sha256:
@@ -2273,9 +2397,11 @@ def _real_step(
     span_weight: float, width: int, lower_layers_n: int = 0, lower_lr_scale: float = 1.0,
     beta2: float = DEFAULT_BETA2, eval_widths: Sequence[int] = (),
     span_channel_off: bool = False, checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
-    train_attention_mask: str = "padding",
+    train_attention_mask: str = "padding", noul_weight: NoulWeight | None = None,
 ) -> tuple[Any, Any, TriState]:
     """The real tower, remapped to the shard set, budgeted, and wrapped in a step.
+
+    ``noul_weight`` is ``--noul-weight``'s, for a training step only.
 
     ``eval_widths`` are the widths of batches the step will only DECODE -- the needle
     suite's ~8K cases. They raise the step's ``max_width`` bound and nothing else: the
@@ -2369,6 +2495,7 @@ def _real_step(
         span_channel_off=span_channel_off,
         fused_adamw=fused_adamw,
         train_attention_mask=train_attention_mask,
+        noul_weight=noul_weight,
     )
     return step, tower, budget
 
@@ -2395,6 +2522,7 @@ def _train(
     train_attention_mask: str = "padding", max_steps: int | None = None,
     train_dtype: str = "bf16", span_head_init: SpanHeadInit | None = None,
     record_span_head_init_digest: bool = False, min_lr: float | None = None,
+    noul_weight: NoulWeightPlan | None = None,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -2426,7 +2554,17 @@ def _train(
     * ``record_span_head_init_digest`` (``--span-head-init-digest``): the head's content
       digest before step 0, as the metric ``train.span_head_init_digest``. A recording
       option -- no recipe key, no hash moves -- and on whenever ``span_head_init`` is.
+
+    v5's pieces: ``min_lr`` (``--min-lr``, the schedule's floor) and ``noul_weight``
+    (``--noul-weight``, real backbone only): :func:`noul_weight_plan` over exactly this
+    ``plan``, cut with it under ``max_steps``; its count goes on the row as metrics and is
+    checked against what the step weighted when the schedule ran out.
     """
+    if noul_weight is not None and len(noul_weight.rows) != len(plan):
+        raise ValueError(
+            f"the noul weight plan covers {len(noul_weight.rows)} batches and this arm's plan "
+            f"{len(plan)}: it was built for another plan"
+        )
     if max_steps is not None:
         if passes != 1:
             raise ValueError(
@@ -2440,6 +2578,8 @@ def _train(
                 "schedule over a run that cut nothing, or ran past its own plan"
             )
         plan = plan[:max_steps]
+        if noul_weight is not None:
+            noul_weight = noul_weight.cut(max_steps)
     width = max(int(b.tokens.shape[1]) for b in plan)
     steps = len(plan) * passes
     record_head_digest = record_span_head_init_digest or span_head_init is not None
@@ -2459,6 +2599,11 @@ def _train(
             "train_attention_mask needs the real backbone: the stand-in has no SDPA layer to "
             "switch, so a recipe naming the switch would describe nothing that ran"
         )
+    if noul_weight is not None and backbone is None:
+        raise ValueError(
+            "noul_weight needs the real backbone: the stand-in's letter loss has no "
+            "per-position weight, so a recipe naming one would describe nothing that ran"
+        )
     if fused_adamw and (backbone is None or optimizer_recipe != "master"):
         raise ValueError(
             "fused_adamw is built for the real backbone's fp32-master optimizer only; the "
@@ -2477,6 +2622,7 @@ def _train(
         train_dtype=train_dtype,
         span_head_init=None if span_head_init is None else span_head_init.recipe(),
         exclusions_sha256=reader.header.exclusions_sha256, min_lr=min_lr,
+        noul_weight=None if noul_weight is None else noul_weight.weight,
     )
     recipe: dict[str, object] = {
         "tool": "tools/real_ft_run.py", "tag": tag, "device": device,
@@ -2533,6 +2679,15 @@ def _train(
         # bf16 unless --train-dtype says fp32; optimizer_spec("fp32", recipe) is ADAMW_FP32
         # for either recipe -- an fp32 parameter is its own master.
         spec = optimizer_spec(train_dtype, optimizer_recipe)
+        step_noul: NoulWeight | None = None
+        if noul_weight is not None:
+            from qd_train.backbone import NoulWeight
+
+            # Keyed by the index source() below gives each batch: the same enumeration.
+            step_noul = NoulWeight(
+                weight=noul_weight.weight, scope=noul_weight.scope,
+                noul_id=noul_weight.noul_id, rows_by_index=noul_weight.by_index(passes),
+            )
         step, tower, budget = _real_step(
             backbone=backbone, reader=reader, plan=plan, device=device, dtype=train_dtype,
             spec=spec, attn_implementation=attn_implementation, seed=seed, lr=lr,
@@ -2540,7 +2695,7 @@ def _train(
             lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
             eval_widths=eval_widths, span_channel_off=shuffled_label is not None,
             checkpoint_skip_layers=checkpoint_skip_layers, fused_adamw=fused_adamw,
-            train_attention_mask=train_attention_mask,
+            train_attention_mask=train_attention_mask, noul_weight=step_noul,
         )
         if train_dtype == "fp32":
             # Read off what was BUILT, before step 0: rung (d)'s T-fp32 is a reference only
@@ -2610,6 +2765,14 @@ def _train(
         what_ran += (
             f" --max-steps {max_steps}: the first {max_steps} batches of the epoch's order, "
             f"under the recipe's schedule recomputed over {max_steps} steps."
+        )
+    if noul_weight is not None:
+        what_ran += (
+            f" --noul-weight {noul_weight.weight:g}: the letter cross-entropy at "
+            f"{noul_weight.weighted_positions} of {noul_weight.supervised_positions} "
+            f"supervised letter positions per pass ({noul_weight.scope} rows whose gold is "
+            f"{NOUL_LETTER}) multiplied by it; every other position, CLINC's Z golds "
+            "included, and the span channel unweighted; not renormalised."
         )
     head_digest = span_head_digest(step) if record_head_digest else None
     if not isinstance(step, SpanScoringStep):  # pragma: no cover - the protocol is structural
@@ -2706,6 +2869,35 @@ def _train(
             detail="what this row ran on; compare rows only where this agrees or says why not",
         ),
     )
+    if noul_weight is not None:
+        # Metrics, not recipe keys: the two recipe keys are the arm's whole identity.
+        recorder.metric(
+            "train.noul_weight.positions",
+            Ran(
+                passed=True, value=noul_weight.weighted_positions,
+                n=noul_weight.weighted_positions, n_total=noul_weight.supervised_positions,
+                detail=(
+                    f"supervised letter positions per pass of this plan whose row is "
+                    f"{noul_weight.scope} and whose gold is {NOUL_LETTER}, each weighted "
+                    f"{noul_weight.weight:g} (backbone.noul_weight_mask), of the supervised "
+                    f"letter positions per pass; {passes} pass(es)"
+                ),
+            ),
+        )
+        ratio = noul_weight.weight_mass_ratio
+        recorder.metric(
+            "train.noul_weight.mass_ratio",
+            Ran(
+                passed=True, value=ratio,
+                detail=(
+                    "sum of the letter positions' weights over their count, per pass: how "
+                    "far the letter loss's mass rises under the weight. The loss stays "
+                    "sum(w_i * ce_i) over the supervised count -- recorded, not renormalised"
+                ),
+            )
+            if ratio is not None
+            else NotRun(reason="the plan supervises no letter position, so the ratio is 0/0"),
+        )
 
     supervised = [ft_supervision(b) for b in plan]
     # Per batch as well as over the plan. The per-batch numbers are what each batch's loss
@@ -2849,6 +3041,23 @@ def _train(
     wall = time.monotonic() - started
     if on_checkpoint is not None:
         on_checkpoint.final(result.checkpoint)
+    if noul_weight is not None:
+        weighted = int(getattr(step, "noul_weighted_positions", -1))
+        expected = noul_weight.weighted_positions * passes
+        print(
+            f"  noul weight: {weighted} letter position(s) weighted {noul_weight.weight:g} "
+            f"in this process; the plan counts {expected} over {passes} pass(es)",
+            flush=True,
+        )
+        # A run that ended early (cap) or started late (resume) weighted a part of the plan;
+        # one that ran its whole schedule from step 0 must have weighted exactly the plan.
+        if (resume_from is None and result.termination == "steps_exhausted"
+                and weighted != expected):
+            raise SystemExit(
+                f"--noul-weight: the step weighted {weighted} letter positions and the plan "
+                f"counts {expected}. Row {result.row_id} records the plan's count over a run "
+                "that did not weight it; treat that row as not describing its model."
+            )
     losses = result.loss_log.losses()
     letter = [x for x in step.letter_log if x > 0.0]
     spans = [x for x in step.span_log if x > 0.0]
@@ -7972,6 +8181,7 @@ def planned_ft_recipe(
             batch_tokens=batch_tokens, checkpoint_skip_layers=args.checkpoint_skip_layers,
             fused_adamw=args.fused_adamw, train_attention_mask=args.train_attention_mask,
             exclusions_sha256=reader.header.exclusions_sha256, min_lr=args.min_lr,
+            noul_weight=args.noul_weight,
         ),
     }
     if args.real_backbone is None:
@@ -8837,6 +9047,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--noul-weight", type=float, default=None, metavar="W",
+        help=(
+            "v5 arm_noul_weight: multiply the letter cross-entropy by W at every supervised "
+            f"letter position whose gold is the noul letter in a {NOUL_WEIGHT_SCOPE} row "
+            "(CLINC's Z golds, every other family and the span channel unweighted); the "
+            "loss stays sum(w_i ce_i) over the supervised count. Recipe keys noul_weight and "
+            "noul_weight_scope only when given. Finite and > 0; needs --real-backbone"
+        ),
+    )
+    parser.add_argument(
         "--max-width", type=int, default=5383,
         help="arm 2 trains on every real batch at most this wide. The rule is stated rather "
              "than tuned: it is what this Mac can repeat often enough to reach a floor.",
@@ -9408,6 +9628,27 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(
                 f"--min-lr {args.min_lr:g} exceeds the peak --lr {args.lr:g}: the schedule "
                 "would decay upwards"
+            )
+    if args.noul_weight is not None:
+        if not (math.isfinite(args.noul_weight) and args.noul_weight > 0.0):
+            raise SystemExit(
+                f"--noul-weight must be finite and positive, got {args.noul_weight!r}: zero or "
+                "less would remove or invert the pull of the rows it names"
+            )
+        if args.real_backbone is None:
+            raise SystemExit(
+                "--noul-weight needs --real-backbone: the stand-in's letter loss has no "
+                "per-position weight"
+            )
+        if args.score_checkpoint is not None or args.score_plan is not None:
+            raise SystemExit(
+                "--noul-weight weights a training objective; --score-checkpoint and "
+                "--score-plan train nothing"
+            )
+        if args.shuffled_label is not None:
+            raise SystemExit(
+                "--noul-weight with --shuffled-label: the control permutes the very golds the "
+                "weight selects, and no pre-registration asks for that control"
             )
 
     # Checkpointing is refused on the STAND-IN branch, and that is not a limitation being
@@ -10018,6 +10259,34 @@ def main(argv: list[str] | None = None) -> int:
             f"(attestation {replay_plan.attestation_sha256[:16]}), weight "
             f"{replay_plan.weight}, every {replay_plan.every}"
         )
+    # --noul-weight over each arm's plan, before Ledger(args.ledger): the Mac prelude takes
+    # these from main's frame there and prints the weighted-position count.
+    noul_epoch: NoulWeightPlan | None = None
+    noul_memorise: NoulWeightPlan | None = None
+    if args.noul_weight is not None:
+        try:
+            if args.epoch:
+                noul_epoch = noul_weight_plan(
+                    plan_all, labels_by_batch_all, weight=args.noul_weight, letter_id=letter_id
+                )
+            if not args.no_memorise:
+                noul_memorise = noul_weight_plan(
+                    plan_small, labels_small, weight=args.noul_weight, letter_id=letter_id
+                )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        for arm, nw in (("epoch", noul_epoch), ("memorise", noul_memorise)):
+            if nw is None:
+                continue
+            ratio = nw.weight_mass_ratio
+            print(
+                f"noul weight {nw.weight:g} ({nw.scope}) on the {arm} plan: "
+                f"{nw.weighted_positions} of {nw.supervised_positions} supervised letter "
+                f"positions per pass are {nw.scope} rows whose gold is {NOUL_LETTER}; letter "
+                "weight mass x"
+                + ("n/a" if ratio is None else f"{ratio:.4f}")
+                + " (not renormalised)"
+            )
     verdict_lines: list[dict[str, object]] = []
     suite_lines: list[dict[str, object]] = []
 
@@ -10141,6 +10410,7 @@ def main(argv: list[str] | None = None) -> int:
                 train_attention_mask=args.train_attention_mask,
                 train_dtype=args.train_dtype, span_head_init=span_head_init,
                 record_span_head_init_digest=args.span_head_init_digest, min_lr=args.min_lr,
+                noul_weight=noul_memorise,
             )
             step = run.pop("_step")
             decode_at = time.monotonic()
@@ -10253,7 +10523,7 @@ def main(argv: list[str] | None = None) -> int:
                     max_steps=args.max_steps, train_dtype=args.train_dtype,
                     span_head_init=span_head_init,
                     record_span_head_init_digest=args.span_head_init_digest,
-                    min_lr=args.min_lr,
+                    min_lr=args.min_lr, noul_weight=noul_epoch,
                 )
                 step = run.pop("_step")
                 if shuffled is not None and val_set is not None:
