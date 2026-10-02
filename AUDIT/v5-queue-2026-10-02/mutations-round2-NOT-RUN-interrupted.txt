@@ -1,0 +1,7 @@
+mac_heavy: 2026-10-02T19:13:05Z 'L-v5-queue mutations round 2 (27 x one test file)' waiting 0s for the lock; holder: label=lead: v5-build suite at b64e45b (rules + lint merged) pid=93969 start=2026-10-02T19:12:38Z cwd=/Users/bharath/Code/research/Lappi-decision 
+mac_heavy: 2026-10-02T19:18:05Z 'L-v5-queue mutations round 2 (27 x one test file)' waiting 300s for the lock; holder: label=lead: v5-build suite at b64e45b (rules + lint merged) pid=93969 start=2026-10-02T19:12:38Z cwd=/Users/bharath/Code/research/Lappi-decision 
+mac_heavy: 2026-10-02T19:23:05Z 'L-v5-queue mutations round 2 (27 x one test file)' waiting 600s for the lock; holder: label=lead: v5-build suite at b64e45b (rules + lint merged) pid=93969 start=2026-10-02T19:12:38Z cwd=/Users/bharath/Code/research/Lappi-decision 
+mac_heavy: 2026-10-02T19:24:05Z 'L-v5-queue mutations round 2 (27 x one test file)' holds the lock (waited 660s); running: uv run --no-project --python /Users/bharath/.venvs/ml/bin/python --with pytest python AUDIT/v5-queue-2026-10-02/mutations.py
+M1 CAUGHT: the recipe loses --batch-order seed (v5_common.sh) -- 1 failed, 88 passed in 5.59s
+M2 CAUGHT: R9 pause runs seeds 1-2 (v5_common.sh) -- 1 failed, 6 passed in 1.87s
+M3 CAUGHT: V5NW_HUMAN_YES overrides a refused room (v5_common.sh) -- (no output)

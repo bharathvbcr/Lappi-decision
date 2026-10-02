@@ -1,0 +1,30 @@
+mac_heavy: 2026-10-02T19:00:41Z 'L-v5-queue mutations (26 x one test file)' waiting 0s for the lock; holder: label=L-v5-train: batch-order pre/post + 79-file regression (CPU pytest) pid=59218 start=2026-10-02T18:53:05Z cwd=/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ab22efe0da83e3e48 
+mac_heavy: 2026-10-02T19:04:41Z 'L-v5-queue mutations (26 x one test file)' holds the lock (waited 240s); running: uv run --no-project --python /Users/bharath/.venvs/ml/bin/python --with pytest python AUDIT/v5-queue-2026-10-02/mutations.py
+M1 CAUGHT: the recipe loses --batch-order seed (v5_common.sh) -- 1 failed, 88 passed in 5.34s
+M2 CAUGHT: R9 pause runs seeds 1-2 (v5_common.sh) -- 1 failed, 44 passed in 4.98s
+M3 CAUGHT: V5NW_HUMAN_YES overrides a refused room (v5_common.sh) -- 1 failed, 53 passed in 4.89s
+M4 CAUGHT: a refused seeds34 reads as quiet (v5_common.sh) -- 1 failed, 59 passed in 4.82s
+M5 CAUGHT: v5_rule runs an unpinned binary (v5_common.sh) -- 1 failed, 10 passed in 1.96s
+M6 CAUGHT: v5_rule ignores the exit code (v5_common.sh) -- 1 failed, 14 passed in 2.37s
+M7 CAUGHT: v5_rule accepts a word without its JSON (v5_common.sh) -- 1 failed, 20 passed in 3.01s
+M8 CAUGHT: no budget stop (v5_common.sh) -- 1 failed, 106 passed in 8.27s
+M9 CAUGHT: an empty over-budget marker is a yes (v5_common.sh) -- 1 failed, 108 passed in 5.62s
+M10 CAUGHT: the split may name held-out data (v5_common.sh) -- 1 failed, 77 passed in 5.02s
+M11 CAUGHT: a held-out split on the box is not refused (v5_common.sh) -- 1 failed, 137 passed in 25.50s
+M12 CAUGHT: an empty human marker is a yes (v5_common.sh) -- 1 failed, 123 passed in 8.90s
+M13 CAUGHT: seeds 3-4 never raise the approved total (v5_common.sh) -- 1 failed, 109 passed in 5.52s
+M14 CAUGHT: the DRAFT itself is read as binding (v5_common.sh) -- 1 failed, 98 passed in 4.79s
+M15 CAUGHT: the recipe gains a flag the DRAFT does not name (v5_common.sh) -- 1 failed, 88 passed in 5.47s
+M16 CAUGHT: the waiter ignores R9 (box_q_v5.sh) -- 1 failed, 128 passed in 77.77s (0:01:17)
+M17 CAUGHT: v5 launches without the human's marker (box_q_v5.sh) -- 1 failed, 123 passed in 8.47s
+M18 SURVIVED: v5 does not wait for the chain (box_q_v5.sh) -- 152 passed in 30.35s
+M19 SURVIVED: v5 does not wait for j6g (box_q_v5.sh) -- 152 passed in 36.85s
+M20 CAUGHT: the arm trains without its weight, into v5's ledger (box_q_v5nw.sh) -- 1 failed, 142 passed in 31.38s
+M21 CAUGHT: J5' drops v5's recipe (box_q_v5j5.sh) -- 1 failed, 149 passed in 35.70s
+M22 CAUGHT: seeds34 reads F's ledger (box_q_v5s34.sh) -- 1 failed, 138 passed in 26.68s
+M23 CAUGHT: the final step is not scored first (box_q_v5traj.sh) -- 1 failed, 6 passed in 1.96s
+M24 CAUGHT: the trajectory ignores its cap (box_q_v5traj.sh) -- 1 failed, 125 passed in 11.97s
+M25 CAUGHT: an empty V5NW_HUMAN_YES counts as the yes (box_q_v5nw.sh) -- 1 failed, 144 passed in 31.33s
+M26 CAUGHT: J5' runs without three completed v5 ft rows (box_q_v5j5.sh) -- 1 failed, 149 passed in 34.37s
+24 of 26 caught
+mac_heavy: 2026-10-02T19:12:01Z 'L-v5-queue mutations (26 x one test file)' finished with exit 0
