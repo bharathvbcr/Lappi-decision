@@ -40,6 +40,12 @@ measured, [I] inferred.
 - **Scale.** The Mac has 64 GiB of RAM.
 - **Who launched them.** Both go.test events share one launching coalition (1571). The reports do
   not name it.
+  - The ojas adaptive-resources session says the 10:55 event was very likely its own test: a case
+    in `go/profile_test.go` generated a record with 4,294,967,295 entries (about 38 GB, more with
+    append growth). The OS killed it after 491 s. It was fixed the same morning; the case now
+    patches the count field of a 16-entry record, and the rerun took 17.8 s.
+  - That session cannot say whether 11:02 was also its test.
+  - This attribution is the peer's own report; it was not independently verified.
 - **Relation to the panics.** Swap was heavy before panic 1 (42 swapfiles), but not before panic 2.
 
 ### 2. Process churn [V]
@@ -47,6 +53,12 @@ measured, [I] inferred.
 - **git spawns 31 times a second on an idle machine.** 3,682 distinct git pids in 2 minutes. The
   children caught were from GitPulse.app and the Claude desktop app's node helper. About 60
   worktrees of this repo alone are polled.
+  - Pruning 54 merged worktrees (60 -> 6) did NOT lower the rate: 4,470 git pids in the next 2
+    minutes, 37.2/s.
+  - A 10 s back-to-back `ps` burst caught only GitPulse's children (`git -c ...`, parent
+    `gitpulse --background`). Those processes live a few milliseconds.
+  - So GitPulse.app is the dominant spawner, and its rate does not scale with this repo's worktree
+    count. It likely polls other repositories too. [I]
 - **The clean pre-panic window shows the same churn.** 14:21 to 14:24:38 has 85,317 log lines:
   - gitpulse 23,982 and git 9,978, with consecutive pids milliseconds apart;
   - syspolicyd exec-policy errors (`Unable to initialize qtn_proc`, MACH_SEND_INVALID_DEST), the
@@ -83,7 +95,9 @@ proven cause.
 
 ### Lappi-side (the lead)
 
-- **Prune merged lane worktrees.** This cuts git churn and the Cargo.lock contention noise.
+- **Prune merged lane worktrees.** Done: 54 removed, 60 -> 6. It cut the Cargo.lock contention
+  noise but not the git churn (31/s before, 37/s after; see pathology 2). GitPulse's own poll rate
+  is the lever there.
 - **Harden `tools/mac_heavy.sh`.**
   - Add an RSS watchdog on the job's process tree: kill the job and exit nonzero above a cap.
   - Refuse to start when load or the process count is too high.
