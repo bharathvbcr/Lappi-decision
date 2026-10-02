@@ -269,6 +269,9 @@ fn write_ensemble(
             "tokenizer_hash": first.tokenizer_hash(),
             "trained_width": req.trained_widths[0],
             "calibration_hash": table_hash,
+            // The members' own, as `Tower::open` read and checked it from each member's
+            // manifest; never this binary's constant.
+            "prompt_format": first.prompt_format(),
         },
         "files": {
             CALIBRATION_FILE: {"sha256": table_sha, "bytes": len64(table_bytes)?},

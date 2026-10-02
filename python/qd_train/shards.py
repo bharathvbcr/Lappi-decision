@@ -92,10 +92,18 @@ from typing import Any, Final
 import numpy as np
 
 from qd_data.config import DataConfig
+from qd_data.defect_class import NOUL_ROUTE_CONTRAST, NOUL_ROUTE_KEY
 from qd_data.errors import QdRefusal
 from qd_data.fingerprint import code_fingerprint
 from qd_data.general import REPLAY_ONLY, REPLAY_ROLE_KEY
-from qd_data.render import DEFAULT_CAPS, M_CTX_END, RenderCaps, RenderedPrompt, render
+from qd_data.render import (
+    DEFAULT_CAPS,
+    M_CTX_END,
+    PROMPT_FORMAT,
+    RenderCaps,
+    RenderedPrompt,
+    render,
+)
 from qd_data.rows import DataRow, row_content_hash
 from qd_data.schema import NOUL_LETTER, ChoiceSlot, ScoreSlot, Slot, SpanSlot
 
@@ -107,6 +115,7 @@ from .artifacts import (
     SPAN_ABSTAIN,
     TOKEN_DTYPE,
     Batch,
+    ContrastRows,
     RemapTable,
     ShardContractViolation,
     ShardHeader,
@@ -1452,6 +1461,7 @@ def write_shards(
     span_collapse_policy: str = SPAN_COLLAPSE_REFUSE_ANY,
     report_only: bool = False,
     exclusions_sha256: str = "",
+    contrast_rows: ContrastRows | None = None,
 ) -> ShardHeader:
     """Tokenize a cleared corpus into a shard set and return its header.
 
@@ -1541,6 +1551,18 @@ def write_shards(
         )
     if not isinstance(report_only, bool):
         raise ValueError(f"report_only must be a bool, got {report_only!r}")
+    # The header's contrast record and the rows must agree: a set carrying contrast rows that
+    # its header does not name, or naming rows it does not carry, would let a trainer read a
+    # v5 set as another (qd_train.contrast).
+    n_contrast = sum(r.metadata.get(NOUL_ROUTE_KEY) == NOUL_ROUTE_CONTRAST for r in rows)
+    if n_contrast != (0 if contrast_rows is None else contrast_rows.count) or (
+        contrast_rows is not None and replay
+    ):
+        raise ShardContractViolation(
+            f"{manifest_path}: {n_contrast} contrast row(s) among the rows, and the header "
+            f"would record {contrast_rows!r} on a {'replay' if replay else 'gold'} set; a gold "
+            "train set names exactly the contrast rows it carries, and a replay set carries none"
+        )
 
     handle = open_training_data(
         manifest_path,
@@ -1794,6 +1816,11 @@ def write_shards(
         # Empty unless the caller's train rows passed through an exclusion list
         # (qd_train.exclusions), so every set written without one is what it was.
         exclusions_sha256=exclusions_sha256,
+        # None unless the caller derived v5 contrast rows (qd_train.contrast) into `rows`.
+        contrast_rows=contrast_rows,
+        # The layout every sequence above was rendered in: `training_texts` renders through
+        # qd_data.render, so it is that module's format, read off it rather than restated.
+        prompt_format=PROMPT_FORMAT,
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -2003,6 +2030,8 @@ class ShardReader:
             expect_rev=expect_rev,
             allow_rev_mismatch=allow_rev_mismatch,
         )
+        # After the rule-3 door, so a held-out set is refused as one whatever its format.
+        self.header.require_prompt_format(where=str(self.root))
 
         self._offsets: np.ndarray = np.load(self.root / OFFSETS_NAME)
         if self._offsets.dtype != np.int64 or self._offsets.ndim != 1:

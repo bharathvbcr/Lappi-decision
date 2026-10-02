@@ -1,0 +1,15 @@
+{
+  "decision": "refused",
+  "inputs": [
+    {
+      "bytes": 59269,
+      "path": "campaign/v5-preregistered.DRAFT.json",
+      "role": "preregistration",
+      "sha256": "5680eaa9ce27ec1d94383791ba8d7240c14bfc6943af6625c8561e2e5b3e01db"
+    }
+  ],
+  "preregistration": "campaign/v5-preregistered.json (the DRAFT renamed on main, binds_iff; read at run time, its sha256 recorded)",
+  "refused": "the pre-registration still carries the DRAFT's top-level \"draft\" key, which says no checker may read it as a rule; it binds only once renamed to campaign/v5-preregistered.json on main without that key (binds_iff)",
+  "rule": "v5_pause_after_seed_0",
+  "tool": "qd-post-f-rules"
+}

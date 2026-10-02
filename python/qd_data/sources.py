@@ -32,6 +32,7 @@ from .licences import (
 )
 
 __all__ = [
+    "OWN_REPOS_SOURCE_ID",
     "PINNED_SPLIT_KEY",
     "SOURCES",
     "TASK_FAMILIES",
@@ -53,6 +54,12 @@ __all__ = [
 #: the bottom of the import graph, so the splitter can read it without importing a
 #: rewriter.
 PINNED_SPLIT_KEY: Final[str] = "pinned_split"
+
+#: The human's own repositories under ``/Users/bharath/Code`` (a remote naming github owner
+#: ``bharathvbcr``), the source of v5's own-prose noul rows. Rows from it are
+#: ``code.defect_class`` rows of the family's single source id and carry this source's
+#: licence per row; the own-prose loader refuses them unless this source is admitted.
+OWN_REPOS_SOURCE_ID: Final[str] = "bharathvbcr/own-repositories"
 
 
 class Reachability(Enum):
@@ -258,6 +265,24 @@ SOURCES: Final[dict[str, Source]] = {
             ),
         ),
         *_GENERAL_SOURCES,
+        Source(
+            source_id=OWN_REPOS_SOURCE_ID,
+            host="local",
+            declared_licence="owner-granted",
+            reachability=Reachability.LOADABLE,
+            per_row_licence_field=False,
+            evidence=(
+                "The human's own repositories: all of them may be used for training, eval and "
+                "commit data (decided 2026-09-28, docs/train-plan-2026-09-28.md, Human "
+                "decisions). v5 reads prose only (campaign/v5-preregistered.DRAFT.json "
+                "data.sources[3]): the 29 non-fork repos of "
+                "AUDIT/v5-plan-2026-10-02/own_repo_inventory.json other than Lappi-decision, "
+                "ticked by the human ('All but Lappi-decision', d24c865), under Fable's v5 "
+                "review section 2.9 provenance rules; every file read is listed with its "
+                "sha256 in data/pool/own-prose-v1/files.jsonl so the human can strike any"
+            ),
+            benchmark_reportable=False,
+        ),
         Source(
             source_id="nuprl/AgentPack",
             host="huggingface",

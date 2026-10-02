@@ -6,11 +6,11 @@
   "slots": {
     "evidence": {
       "value": {
-        "start_line": 2,
-        "end_line": 2
+        "start_line": 4,
+        "end_line": 4
       },
       "conformal_set": null,
-      "score": 0.2594779524218489,
+      "score": 0.6909071801033823,
       "noul": false,
       "degraded": true
     }

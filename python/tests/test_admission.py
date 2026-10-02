@@ -42,9 +42,13 @@ from qd_data.sources import (
 
 
 def test_exactly_these_sources_are_admitted_unattended() -> None:
+    # bharathvbcr/own-repositories: the human's own repositories (decided 2026-09-28,
+    # docs/train-plan-2026-09-28.md), registered for v5's own-prose noul route
+    # (campaign/v5-preregistered.DRAFT.json data.sources[3]).
     assert {s.source_id for s in admitted_sources()} == {
         "bigcode/commitpackft", "clinc/clinc_oos", "rajpurkar/squad_v2",
         "qd-mutate/commitpackft", "cais/mmlu", "tau/commonsense_qa",
+        "bharathvbcr/own-repositories",
     }
 
 

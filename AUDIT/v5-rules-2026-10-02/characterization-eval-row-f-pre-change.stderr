@@ -1,0 +1,20 @@
+{
+  "decision": "aeca8d69-4733-4593-92de-2073021ed684",
+  "detail": {
+    "eval_row": "aeca8d69-4733-4593-92de-2073021ed684",
+    "ft_row": "95fa4854-6146-4824-b7ad-22bb54744ff1",
+    "seed": 1,
+    "tag": "epoch-score-val"
+  },
+  "inputs": [
+    {
+      "bytes": 195429,
+      "path": "ledger/gh200-p4-v4-2026-10-01.jsonl",
+      "rows": 15,
+      "sha256": "14ec1d56b7c71ec0713f134ccc317aaf035391e543b93f2e2f398053f4163edf"
+    }
+  ],
+  "preregistration": "campaign/f-j7prime-preregistered.json (54512e6)",
+  "rule": "eval_row",
+  "tool": "qd-post-f-rules"
+}

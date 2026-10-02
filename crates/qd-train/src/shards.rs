@@ -206,6 +206,69 @@ pub struct ShardHeader {
     pub span_collapse_policy: String,
     /// A report-only val set.
     pub report_only: bool,
+    /// sha256 of the `exclusions.txt` whose identity keys left this train set
+    /// (`qd_train.exclusions`); empty when none was applied, which is every set written before
+    /// the field existed.
+    pub exclusions_sha256: String,
+    /// The v5 contrast rows this train set carries (`qd_train.contrast`); `None` for every set
+    /// written before the field existed.
+    pub contrast_rows: Option<ContrastRows>,
+    /// The prompt layout the sequences were rendered in (`qd_data.render.PROMPT_FORMAT`); 1 for
+    /// every set written before the field existed, which is format 1.
+    pub prompt_format: u64,
+}
+
+/// `artifacts.ContrastRows`: how many contrast rows a train set carries, a sha256 over their row
+/// ids and content hashes in write order, and the draw order's seed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContrastRows {
+    /// Rows added; positive.
+    pub count: u64,
+    /// Lower-case sha256.
+    pub sha256: String,
+    /// The draw order's seed.
+    pub seed: u64,
+}
+
+impl ContrastRows {
+    /// `ContrastRows.from_json` + `__post_init__`: exactly `{count, sha256, seed}`, a positive
+    /// integer count, a lower-case sha256 and a non-negative integer seed. A JSON boolean is not
+    /// an integer here, as it is not in Python's check.
+    fn from_json(raw: &Value) -> Result<Self, String> {
+        let obj = raw
+            .as_object()
+            .filter(|o| o.len() == 3 && ["count", "sha256", "seed"].iter().all(|k| o.contains_key(*k)))
+            .ok_or(format!(
+                "contrast_rows is {raw}; a header states it as {{count, sha256, seed}}"
+            ))?;
+        let count = obj["count"].as_u64().filter(|n| *n > 0).ok_or(format!(
+            "contrast_rows.count {} is not a positive int: a set that carries no contrast row \
+             names none",
+            obj["count"]
+        ))?;
+        let sha256 = obj["sha256"]
+            .as_str()
+            .filter(|s| is_lower_hex64(s))
+            .ok_or(format!(
+                "contrast_rows.sha256 {} is not a lower-case sha256",
+                obj["sha256"]
+            ))?
+            .to_owned();
+        let seed = obj["seed"].as_u64().ok_or(format!(
+            "contrast_rows.seed {} is not a non-negative int",
+            obj["seed"]
+        ))?;
+        Ok(Self { count, sha256, seed })
+    }
+
+    /// `ContrastRows.to_json()`.
+    fn to_json(&self) -> Value {
+        json!({"count": self.count, "sha256": self.sha256, "seed": self.seed})
+    }
+}
+
+fn is_lower_hex64(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 impl ShardHeader {
@@ -284,6 +347,19 @@ impl ShardHeader {
             sequence_index_hash: opt_str(obj, "sequence_index_hash")?.unwrap_or_default(),
             span_collapse_policy: opt_str(obj, "span_collapse_policy")?.unwrap_or_default(),
             report_only: obj.get("report_only") == Some(&Value::Bool(true)),
+            exclusions_sha256: opt_str(obj, "exclusions_sha256")?.unwrap_or_default(),
+            contrast_rows: obj
+                .get("contrast_rows")
+                .map(ContrastRows::from_json)
+                .transpose()?,
+            // Absent is format 1. Not coerced: a string, a float or a boolean does not state a
+            // format, exactly as `ShardHeader.from_json` refuses them.
+            prompt_format: match obj.get("prompt_format") {
+                None => 1,
+                Some(v) => v.as_u64().filter(|n| *n >= 1).ok_or(format!(
+                    "prompt_format is {v}; a header states it as a positive JSON integer"
+                ))?,
+            },
         };
         header.validate()?;
         let recorded = obj.get("shard_hash").and_then(Value::as_str).ok_or(
@@ -361,6 +437,28 @@ impl ShardHeader {
                 self.split
             ));
         }
+        if !self.exclusions_sha256.is_empty() && !is_lower_hex64(&self.exclusions_sha256) {
+            return Err(format!(
+                "exclusions_sha256 {:?} is not a lower-case sha256",
+                self.exclusions_sha256
+            ));
+        }
+        if !self.exclusions_sha256.is_empty() && self.split != "train" {
+            return Err(format!(
+                "exclusions_sha256 on split {:?}: the exclusion removes train rows only, so only \
+                 a train set (gold or replay) names it",
+                self.split
+            ));
+        }
+        if self.contrast_rows.is_some() && self.split != "train" {
+            return Err(format!(
+                "contrast_rows on split {:?}: contrast rows are train rows only",
+                self.split
+            ));
+        }
+        if self.prompt_format == 0 {
+            return Err("prompt_format 0 is not a positive int".to_owned());
+        }
         Ok(())
     }
 
@@ -402,6 +500,19 @@ impl ShardHeader {
         }
         if self.report_only {
             parts.push(b"report_only:true".to_vec());
+        }
+        // The v5 pins, in `ShardHeader.shard_hash`'s order, each tagged and each contributing
+        // nothing when absent (format 1, for `prompt_format`), so every header written before
+        // them still verifies.
+        if !self.exclusions_sha256.is_empty() {
+            parts.push(format!("exclusions_sha256:{}", self.exclusions_sha256).into_bytes());
+        }
+        if let Some(rows) = &self.contrast_rows {
+            let text = pyjson::dumps(&rows.to_json(), SORTED_DEFAULT)?;
+            parts.push(format!("contrast_rows:{text}").into_bytes());
+        }
+        if self.prompt_format != 1 {
+            parts.push(format!("prompt_format:{}", self.prompt_format).into_bytes());
         }
         let refs: Vec<&[u8]> = parts.iter().map(Vec::as_slice).collect();
         Ok(sha256_parts(&refs))

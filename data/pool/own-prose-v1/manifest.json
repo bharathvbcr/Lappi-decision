@@ -1,0 +1,448 @@
+{
+  "schema": "qd-own-prose/v1",
+  "tool": "qd-noul-rows own-prose",
+  "tool_version": "0.1.0",
+  "seed": 0,
+  "source_id": "bharathvbcr/own-repositories",
+  "licence": "owner-granted",
+  "code_root": "/Users/bharath/Code",
+  "inventory": {
+    "path": "AUDIT/v5-plan-2026-10-02/own_repo_inventory.json",
+    "sha256": "8e46a9aace07c26899b9a372919f6d05ef2311d6c66fbf26219b18a013a43efc"
+  },
+  "allowlist_sha256": "a0f1c22011aa70e97d9465b5bca26bf426c2e156778ca6442abd8b674303f597",
+  "invisible_format_ranges": [
+    [
+      173,
+      173
+    ],
+    [
+      1536,
+      1541
+    ],
+    [
+      1564,
+      1564
+    ],
+    [
+      1757,
+      1757
+    ],
+    [
+      1807,
+      1807
+    ],
+    [
+      2192,
+      2193
+    ],
+    [
+      2274,
+      2274
+    ],
+    [
+      6158,
+      6158
+    ],
+    [
+      8203,
+      8207
+    ],
+    [
+      8234,
+      8238
+    ],
+    [
+      8288,
+      8292
+    ],
+    [
+      8294,
+      8303
+    ],
+    [
+      65279,
+      65279
+    ],
+    [
+      65529,
+      65531
+    ]
+  ],
+  "admitted_repos": [
+    {
+      "repo": "apps/AcademiaTrack",
+      "remotes": [
+        "https://github.com/bharathvbcr/AcademiaTrack"
+      ]
+    },
+    {
+      "repo": "apps/Chronicle",
+      "remotes": [
+        "https://github.com/bharathvbcr/Chronicle.git"
+      ]
+    },
+    {
+      "repo": "apps/ChronosFlow",
+      "remotes": [
+        "https://github.com/bharathvbcr/ChronosFlow.git"
+      ]
+    },
+    {
+      "repo": "apps/Curio",
+      "remotes": [
+        "https://github.com/bharathvbcr/Curio.git"
+      ]
+    },
+    {
+      "repo": "apps/DevType",
+      "remotes": [
+        "https://github.com/bharathvbcr/DevType.git"
+      ]
+    },
+    {
+      "repo": "apps/M5Blade",
+      "remotes": [
+        "https://github.com/bharathvbcr/M5Blade"
+      ]
+    },
+    {
+      "repo": "apps/Meridian",
+      "remotes": [
+        "https://github.com/bharathvbcr/Meridian.git"
+      ]
+    },
+    {
+      "repo": "apps/SalEdge",
+      "remotes": [
+        "https://github.com/bharathvbcr/SalEdge.git"
+      ]
+    },
+    {
+      "repo": "apps/TrailBlazer",
+      "remotes": [
+        "https://github.com/bharathvbcr/TrailBlazer.git"
+      ]
+    },
+    {
+      "repo": "devtools/DevCouncil",
+      "remotes": [
+        "https://github.com/bharathvbcr/DevCouncil.git"
+      ]
+    },
+    {
+      "repo": "devtools/GitPulse",
+      "remotes": [
+        "https://github.com/bharathvbcr/GitPulse.git"
+      ]
+    },
+    {
+      "repo": "devtools/Jarvis",
+      "remotes": [
+        "https://github.com/bharathvbcr/Jarvis.git"
+      ]
+    },
+    {
+      "repo": "devtools/LiquiTask",
+      "remotes": [
+        "https://github.com/bharathvbcr/LiquiTask.git"
+      ]
+    },
+    {
+      "repo": "devtools/Manvi",
+      "remotes": [
+        "https://github.com/bharathvbcr/Manvi.git"
+      ]
+    },
+    {
+      "repo": "devtools/MarkDev",
+      "remotes": [
+        "https://github.com/bharathvbcr/MarkDev.git"
+      ]
+    },
+    {
+      "repo": "devtools/gusset",
+      "remotes": [
+        "https://github.com/bharathvbcr/gusset.git"
+      ]
+    },
+    {
+      "repo": "research/BINN",
+      "remotes": [
+        "https://github.com/bharathvbcr/Brain-Inspired_Neural_Network.git"
+      ]
+    },
+    {
+      "repo": "research/GenoThermalTargeting",
+      "remotes": [
+        "https://github.com/bharathvbcr/GenoThermal_Targeting.git"
+      ]
+    },
+    {
+      "repo": "research/MLSystemsLab",
+      "remotes": [
+        "https://github.com/bharathvbcr/MachineLearning.git"
+      ]
+    },
+    {
+      "repo": "research/StressProject",
+      "remotes": [
+        "https://github.com/bharathvbcr/Stress_Project.git"
+      ]
+    },
+    {
+      "repo": "research/tessl",
+      "remotes": [
+        "https://github.com/bharathvbcr/tessl.git"
+      ]
+    },
+    {
+      "repo": "scholarlm",
+      "remotes": [
+        "https://github.com/bharathvbcr/ScholarLM.git"
+      ]
+    },
+    {
+      "repo": "scholarlm/wisdev-arc",
+      "remotes": [
+        "https://github.com/bharathvbcr/WisDev.git"
+      ]
+    },
+    {
+      "repo": "web/BlueberryFarming",
+      "remotes": [
+        "https://github.com/bharathvbcr/BlueberryFarming.git"
+      ]
+    },
+    {
+      "repo": "web/Lappi-BDay",
+      "remotes": [
+        "https://github.com/bharathvbcr/LAPPI.git"
+      ]
+    },
+    {
+      "repo": "web/Portfolio",
+      "remotes": [
+        "https://github.com/bharathvbcr/Portfolio-VBCR.git"
+      ]
+    },
+    {
+      "repo": "web/Void",
+      "remotes": [
+        "https://github.com/bharathvbcr/Void.git"
+      ]
+    },
+    {
+      "repo": "web/WhimsicalLove",
+      "remotes": [
+        "https://github.com/bharathvbcr/Whimsical-Love.git"
+      ]
+    },
+    {
+      "repo": "web/bharathvbcr",
+      "remotes": [
+        "https://github.com/bharathvbcr/bharathvbcr.git"
+      ]
+    }
+  ],
+  "excluded_repos": {
+    "CodeGit/order-import-service": "inventory_owner:other:stridefunding",
+    "apps/AppLock": "inventory_owner:no-remote",
+    "career/CurriculumVitae": "inventory_owner:no-remote",
+    "devtools/Blitztree": "inventory_owner:other:ahmedkhaleel2004",
+    "devtools/DevPrism": "fork_or_other_owner:delibae",
+    "devtools/LiquiTask/vendor/multica-ref": "inventory_owner:other:multica-ai",
+    "devtools/Strait": "inventory_owner:no-remote",
+    "n8n-email-engine": "inventory_owner:no-remote",
+    "research/Lappi-decision": "excluded_by_the_human_tick",
+    "research/MLSystemsLab/Step-Audio-EditX": "inventory_owner:other:stepfun-ai",
+    "research/MLSystemsLab/modded-nanogpt": "inventory_owner:other:KellerJordan",
+    "research/external/RSI-Jev": "inventory_owner:other:Shanghua-Gao",
+    "research/external/decider": "inventory_owner:other:Mapika",
+    "research/firebrand": "inventory_owner:no-remote",
+    "research/ojas": "inventory_owner:no-remote"
+  },
+  "strike": {
+    "basis": "The human's answer 'Strike personal + business (Recommended)', recorded verbatim at AUDIT/v5-plan-2026-10-02/human-answer-own-prose-strike.md (main) and relayed by the lead on 2026-10-02: strike the repos web/Lappi-BDay, web/WhimsicalLove and web/bharathvbcr and the paths scholarlm/docs/business/** and research/BINN/writing/**; keep AGENTS.md, CLAUDE.md and CHANGELOG.md. --target 1963 is the 2,150 of the unstruck walk less the 187 units struck: the strike removes and does not refill.",
+    "repos": [
+      "web/Lappi-BDay",
+      "web/WhimsicalLove",
+      "web/bharathvbcr"
+    ],
+    "paths": [
+      {
+        "repo": "scholarlm",
+        "prefix": "docs/business/"
+      },
+      {
+        "repo": "research/BINN",
+        "prefix": "writing/"
+      }
+    ],
+    "files_struck": {
+      "path:research/BINN:writing/": 5,
+      "path:scholarlm:docs/business/": 40,
+      "repo:web/Lappi-BDay": 11,
+      "repo:web/WhimsicalLove": 5,
+      "repo:web/bharathvbcr": 1
+    }
+  },
+  "rules": {
+    "admission": "a remote naming github owner bharathvbcr and no remote naming another owner; no-remote repos out; --exclude-repo out",
+    "content": "Markdown (.md, .markdown) only; fenced and indented code, tables, HTML, headings, list items, block quotes, link-only lines and trailers dropped from paragraphs; questions also read from headings, list items and block quotes",
+    "min_ascii_permille": 900,
+    "other_owner_markdown_files_hashed": 113,
+    "paragraph": {
+      "max_chars": 2000,
+      "min_words": 25
+    },
+    "provenance": "Fable's v5 review section 2.9: own-repo prose is text the user authored or had written in their own repositories, not text hosted there",
+    "pruning": "nested git trees; hidden and build directories; vendor/ external/ third_party/ node_modules/ site-packages/; a directory below the root with its own LICENSE/LICENCE/COPYING/NOTICE; a file with a Copyright, (c)-sign or SPDX-License-Identifier line naming no owner token (bharath, vaddaram, bharathvbcr); a file opening with YAML front matter; a Markdown file byte-identical to one in a repo of another owner",
+    "question": {
+      "ends_with": "?",
+      "refused_markup": [
+        "`",
+        "*",
+        "|",
+        "](",
+        "http",
+        "{",
+        "}"
+      ],
+      "sentences": "read from a paragraph's joined lines, or from one heading, list item or block quote; a . ! or ? ends a sentence only before whitespace, a closing mark or the end",
+      "starts_with": "an ASCII capital",
+      "words": [
+        6,
+        60
+      ]
+    },
+    "selection": "every distinct question in keyed order, then paragraphs round-robin over repos in keyed order, each repo at most per_repo_cap units",
+    "word": "[A-Za-z][A-Za-z'\\-]+"
+  },
+  "files": {
+    "file": "files.jsonl",
+    "sha256": "6233515780f4e21fda80bb26fbafd09bd937e769e8cf2a5b4fed8c0b5077040a",
+    "count": 1784
+  },
+  "units": {
+    "file": "units.jsonl",
+    "sha256": "1e616fd16f7464b52a764737c06063400c398f8cdfbcc5454864ca538bbd22fe",
+    "count": 1963
+  },
+  "target": 1963,
+  "floor": 1500,
+  "per_repo_cap": 150,
+  "totals": {
+    "by_form": {
+      "paragraph": 1814,
+      "question": 149
+    },
+    "by_repo": {
+      "apps/AcademiaTrack": {
+        "paragraph": 36
+      },
+      "apps/Chronicle": {
+        "paragraph": 95,
+        "question": 2
+      },
+      "apps/ChronosFlow": {
+        "paragraph": 95,
+        "question": 2
+      },
+      "apps/Curio": {
+        "paragraph": 19
+      },
+      "apps/DevType": {
+        "paragraph": 95,
+        "question": 13
+      },
+      "apps/M5Blade": {
+        "paragraph": 95
+      },
+      "apps/Meridian": {
+        "paragraph": 38
+      },
+      "apps/SalEdge": {
+        "paragraph": 6
+      },
+      "apps/TrailBlazer": {
+        "paragraph": 29
+      },
+      "devtools/DevCouncil": {
+        "paragraph": 95,
+        "question": 2
+      },
+      "devtools/GitPulse": {
+        "paragraph": 95,
+        "question": 2
+      },
+      "devtools/Jarvis": {
+        "paragraph": 95
+      },
+      "devtools/LiquiTask": {
+        "paragraph": 95
+      },
+      "devtools/Manvi": {
+        "paragraph": 95,
+        "question": 6
+      },
+      "devtools/MarkDev": {
+        "paragraph": 95
+      },
+      "devtools/gusset": {
+        "paragraph": 95,
+        "question": 2
+      },
+      "research/BINN": {
+        "paragraph": 83,
+        "question": 67
+      },
+      "research/GenoThermalTargeting": {
+        "paragraph": 95,
+        "question": 2
+      },
+      "research/MLSystemsLab": {
+        "paragraph": 94,
+        "question": 24
+      },
+      "research/StressProject": {
+        "paragraph": 11
+      },
+      "research/tessl": {
+        "paragraph": 95
+      },
+      "scholarlm": {
+        "paragraph": 95,
+        "question": 22
+      },
+      "scholarlm/wisdev-arc": {
+        "paragraph": 50
+      },
+      "web/BlueberryFarming": {
+        "paragraph": 32,
+        "question": 3
+      },
+      "web/Portfolio": {
+        "paragraph": 86,
+        "question": 2
+      }
+    },
+    "units": 1963
+  },
+  "skipped": {
+    "dir:nested_git_tree": 19,
+    "dir:own_licence_file": 19,
+    "file:foreign_copyright_or_spdx": 7,
+    "file:yaml_front_matter": 69,
+    "paragraph:ascii_ratio_below_min": 38,
+    "paragraph:invisible_format_character": 2,
+    "paragraph:paragraph_over_max_chars": 18,
+    "paragraph:paragraph_under_min_words": 19166,
+    "question:ascii_ratio_below_min": 2,
+    "question:question_has_markup": 174,
+    "question:question_not_a_sentence_start": 78,
+    "question:question_unbalanced": 49,
+    "question:question_words_out_of_band": 154
+  },
+  "commit_bodies": "not read: git runs only in the lane's worktree (GAP-L-V5PLAN-OWN-REPO-COMMIT-BODIES-NOT-MEASURED-2026-10-02)"
+}

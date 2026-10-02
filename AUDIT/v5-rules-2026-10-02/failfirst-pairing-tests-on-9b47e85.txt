@@ -1,0 +1,4526 @@
+mac_heavy: 2026-10-02T18:14:51Z 'L-v5-rules failfirst pairing' waiting 0s for the lock; holder: label=manual: ojas CPU timing-only slot for session 4810 (quiet) pid=23797 start=2026-10-02T18:14:51Z cwd=/Users/bharath/Code/research/Lappi-decision 
+mac_heavy: 2026-10-02T18:17:12Z 'L-v5-rules failfirst pairing' holds the lock (waited 140s); running: cargo test -j 4 --manifest-path /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0d704edd19f228/Cargo.toml -p qd-runtime --test post_f_rules_v5
+     Locking 3 packages to latest Rust 1.98 compatible versions
+      Adding ojas-core v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/ojas/ojas-core)
+      Adding ojas-io v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/ojas/ojas-io)
+      Adding ojas-qwen35 v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/ojas/ojas-qwen35)
+   Compiling qd-runtime v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0d704edd19f228/crates/qd-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.88s
+     Running tests/post_f_rules_v5.rs (target/debug/deps/post_f_rules_v5-e19b54d86d723c40)
+
+running 31 tests
+test eval_row_on_fs_real_rows_is_the_unmodified_binarys_answer_byte_for_byte ... ok
+test eval_row_finds_a_v5_seeds_epoch_score_val_row ... ok
+test a_target_clears_only_when_every_arm_seed_holds_even_above_v5s_count ... ok
+test an_arm_holding_every_target_with_room_on_every_seed_and_losing_no_guard_wins ... FAILED
+test r9s_thresholds_are_read_from_the_preregistration_not_from_this_code ... ok
+test seeds34_on_fs_real_rows_is_the_unmodified_binarys_decision_byte_for_byte ... ok
+test r9_continues_at_exactly_5n_eq_4n_total_and_pauses_one_count_below ... ok
+test no_target_with_room_is_no_room_for_the_waiter_and_refused_for_rows_that_exist_anyway ... ok
+test f2_and_f3_are_read_from_the_noul_preregistration_and_must_agree_with_v5s_forms ... ok
+test room_and_the_added_keys_are_read_from_the_preregistration_not_from_this_code ... ok
+test a_target_v5_holds_on_every_seed_is_read_as_a_guard_the_arm_must_hold_everywhere ... ok
+test an_arm_holding_on_as_many_seeds_as_v5_does_not_clear ... ok
+test r9_continues_at_exactly_2n_eq_n_total_and_pauses_one_hit_below_in_either_bucket_size ... ok
+test the_cli_refuses_an_arm_ledger_with_room_and_no_arm_ledger_without_it ... ok
+test room_iff_v5_holds_a_target_on_at_most_two_seeds_at_the_30_of_60_bar ... ok
+test the_arms_three_ft_rows_must_be_one_configuration_like_v5s ... FAILED
+test seeds34_reads_v5s_ledger_at_the_0_30_boundary_with_and_without_v5s_preregistration ... ok
+test the_paired_metric_is_the_one_the_preregistration_names ... FAILED
+test seeds34_refuses_the_draft_and_a_threshold_that_is_not_0_30 ... ok
+test the_pairing_check_refuses_when_the_order_digest_is_absent_or_unread_on_either_side ... FAILED
+test the_pairing_check_refuses_an_arm_seed_not_on_v5s_batch_order_for_that_seed ... FAILED
+test seeds34_under_v5s_preregistration_refuses_a_quick_or_shuffled_seed_fs_form_never_checked ... ok
+test room_refuses_unreadable_v5_rows_and_never_prints_room ... ok
+test r9_refuses_a_preregistration_whose_words_it_does_not_apply ... ok
+test with_room_at_three_of_three_an_arm_holding_as_many_seeds_as_v5_does_not_clear ... ok
+test r9_refuses_missing_doubled_unfinished_or_malformed_rows_and_never_prints_a_word ... ok
+test the_absolute_guard_allows_50n_eq_n_total_and_loses_one_count_past_it_inside_v5s_envelope ... ok
+test a_missing_doubled_unfinished_or_incomparable_arm_row_refuses ... ok
+test a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read ... FAILED
+test an_arm_that_is_not_v5_plus_exactly_the_two_added_keys_refuses ... ok
+test each_guard_holds_at_v5s_bound_and_loses_one_count_past_it_on_the_arms_worst_seed ... ok
+
+failures:
+
+---- an_arm_holding_every_target_with_room_on_every_seed_and_losing_no_guard_wins stdout ----
+
+thread 'an_arm_holding_every_target_with_room_on_every_seed_and_losing_no_guard_wins' (38407921) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:969:9:
+assertion `left == right` failed
+  left: Null
+ right: "b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- the_arms_three_ft_rows_must_be_one_configuration_like_v5s stdout ----
+
+thread 'the_arms_three_ft_rows_must_be_one_configuration_like_v5s' (38408138) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:93:9:
+assertion `left == right` failed: {
+  "decision": "wins",
+  "detail": {
+    "arm": {
+      "absolute_guard": {
+        "form": "50*n <= 1*n_total",
+        "loses": false,
+        "metric": "ood_abstain.in_distribution.family.code.defect_class",
+        "per_seed": [
+          {
+            "count": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "holds": true,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "holds": true,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "holds": true,
+            "seed": 2
+          }
+        ]
+      },
+      "guards": [
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            }
+          ],
+          "candidate": {
+            "n": 9130,
+            "n_total": 10985,
+            "value": 0.8311333636777424
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "val_top1.choice",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 9130,
+            "n_total": 10985,
+            "value": 0.8311333636777424
+          },
+          "v5_min": {
+            "n": 9130,
+            "n_total": 10985,
+            "value": 0.8311333636777424
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            }
+          ],
+          "candidate": {
+            "n": 6529,
+            "n_total": 7238,
+            "value": 0.9020447637468914
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "val_top1.span",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 6529,
+            "n_total": 7238,
+            "value": 0.9020447637468914
+          },
+          "v5_min": {
+            "n": 6529,
+            "n_total": 7238,
+            "value": 0.9020447637468914
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            }
+          ],
+          "candidate": {
+            "n": 2291,
+            "n_total": 2304,
+            "value": 0.9943576388888888
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "permutation_consistency.family.code.defect_class",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 2291,
+            "n_total": 2304,
+            "value": 0.9943576388888888
+          },
+          "v5_min": {
+            "n": 2291,
+            "n_total": 2304,
+            "value": 0.9943576388888888
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "value": 0.0207
+              }
+            }
+          ],
+          "candidate": {
+            "value": 0.0207
+          },
+          "direction": "lower",
+          "loses": false,
+          "metric": "ece.family.code.defect_class.choice.k4",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "value": 0.0207
+              }
+            }
+          ],
+          "v5_max": {
+            "value": 0.0207
+          },
+          "v5_min": {
+            "value": 0.0207
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            }
+          ],
+          "candidate": {
+            "n": 40,
+            "n_total": 61,
+            "value": 0.6557377049180327
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "needle_8k_worst_bucket",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 40,
+            "n_total": 61,
+            "value": 0.6557377049180327
+          },
+          "v5_min": {
+            "n": 40,
+            "n_total": 61,
+            "value": 0.6557377049180327
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            }
+          ],
+          "candidate": {
+            "n": 58,
+            "n_total": 60,
+            "value": 0.9666666666666667
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "ood_abstain.scrambled",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 58,
+            "n_total": 60,
+            "value": 0.9666666666666667
+          },
+          "v5_min": {
+            "n": 58,
+            "n_total": 60,
+            "value": 0.9666666666666667
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            }
+          ],
+          "candidate": {
+            "n": 13,
+            "n_total": 2304,
+            "value": 0.005642361111111111
+          },
+          "direction": "lower",
+          "loses": false,
+          "metric": "ood_abstain.in_distribution.family.code.defect_class",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 13,
+            "n_total": 2304,
+            "value": 0.005642361111111111
+          },
+          "v5_min": {
+            "n": 13,
+            "n_total": 2304,
+            "value": 0.005642361111111111
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            }
+          ],
+          "candidate": {
+            "n": 843,
+            "n_total": 10985,
+            "value": 0.07674101046882112
+          },
+          "direction": "lower",
+          "loses": false,
+          "metric": "ood_abstain.in_distribution",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 843,
+            "n_total": 10985,
+            "value": 0.07674101046882112
+          },
+          "v5_min": {
+            "n": 843,
+            "n_total": 10985,
+            "value": 0.07674101046882112
+          }
+        }
+      ],
+      "identity": [
+        {
+          "added": {
+            "noul_weight": 4.0,
+            "noul_weight_scope": "code.defect_class"
+          },
+          "arm_ft_row": "0000000a-0000-4000-8000-000000000001",
+          "seed": 0,
+          "v5_ft_row": "00000005-0000-4000-8000-000000000001"
+        },
+        {
+          "added": {
+            "noul_weight": 4.0,
+            "noul_weight_scope": "code.defect_class"
+          },
+          "arm_ft_row": "0000000a-0000-4000-8000-000000000003",
+          "seed": 1,
+          "v5_ft_row": "00000005-0000-4000-8000-000000000003"
+        },
+        {
+          "added": {
+            "noul_weight": 4.0,
+            "noul_weight_scope": "code.defect_class"
+          },
+          "arm_ft_row": "0000000a-0000-4000-8000-000000000005",
+          "seed": 2,
+          "v5_ft_row": "00000005-0000-4000-8000-000000000005"
+        }
+      ],
+      "lost": [],
+      "rows": [
+        {
+          "eval_row": "0000000a-0000-4000-8000-000000000002",
+          "ft_row": "0000000a-0000-4000-8000-000000000001",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 0
+        },
+        {
+          "eval_row": "0000000a-0000-4000-8000-000000000004",
+          "ft_row": "0000000a-0000-4000-8000-000000000003",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 1
+        },
+        {
+          "eval_row": "0000000a-0000-4000-8000-000000000006",
+          "ft_row": "0000000a-0000-4000-8000-000000000005",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 2
+        }
+      ],
+      "targets": [
+        {
+          "arm_holds": 3,
+          "arm_per_seed": [
+            {
+              "count": {
+                "n": 50,
+                "n_total": 60,
+                "value": 0.8333333333333334
+              },
+              "holds": true,
+              "seed": 0
+            },
+            {
+              "count": {
+                "n": 50,
+                "n_total": 60,
+                "value": 0.8333333333333334
+              },
+              "holds": true,
+              "seed": 1
+            },
+            {
+              "count": {
+                "n": 50,
+                "n_total": 60,
+                "value": 0.8333333333333334
+              },
+              "holds": true,
+              "seed": 2
+            }
+          ],
+          "clears": true,
+          "of": 3,
+          "room": true,
+          "target": "ood_abstain.prose",
+          "v5_holds": 2
+        },
+        {
+          "arm_holds": 3,
+          "arm_per_seed": [
+            {
+              "count": {
+                "n": 30,
+                "n_total": 60,
+                "value": 0.5
+              },
+              "holds": true,
+              "seed": 0
+            },
+            {
+              "count": {
+                "n": 31,
+                "n_total": 60,
+                "value": 0.5166666666666667
+              },
+              "holds": true,
+              "seed": 1
+            },
+            {
+              "count": {
+                "n": 40,
+                "n_total": 60,
+                "value": 0.6666666666666666
+              },
+              "holds": true,
+              "seed": 2
+            }
+          ],
+          "clears": true,
+          "of": 3,
+          "room": true,
+          "target": "ood_abstain.unseen-language",
+          "v5_holds": 0
+        }
+      ],
+      "targets_with_room_all_clear": true,
+      "wins": true
+    },
+    "envelope": {
+      "pin": "v5 seeds 0, 1 and 2 only (never seeds 3-4, never F)",
+      "seeds": [
+        {
+          "eval_row": "00000005-0000-4000-8000-000000000002",
+          "ft_row": "00000005-0000-4000-8000-000000000001",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 0
+        },
+        {
+          "eval_row": "00000005-0000-4000-8000-000000000004",
+          "ft_row": "00000005-0000-4000-8000-000000000003",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 1
+        },
+        {
+          "eval_row": "00000005-0000-4000-8000-000000000006",
+          "ft_row": "00000005-0000-4000-8000-000000000005",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 2
+        }
+      ]
+    },
+    "not_checked": "that the eval rows were scored on the rebuilt 8K needle suite: recipe.needle carries no suite digest and needle_suite_tokens records the median, so no row field tells the rebuilt suite from F's; recipe.needle is recorded for the reader (GAP-V5-RULES-REBUILT-SUITE-NOT-ON-THE-ROW-2026-10-02)",
+    "noul_preregistration_sha256": "91a74cb1009548268ae45ddb782b7e1f9da7a0f8c8089b093fd757342563ae9f",
+    "preregistration_sha256": "26836be106afcfafd5ee2760310718c5dcb0c66a5bc10c9ce479fabe57e442cb",
+    "room": [
+      {
+        "of": 3,
+        "room": true,
+        "room_iff_at_most": 2,
+        "target": "ood_abstain.prose",
+        "v5_holds": 2,
+        "v5_per_seed": [
+          {
+            "count": {
+              "n": 50,
+              "n_total": 60,
+              "value": 0.8333333333333334
+            },
+            "holds": true,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 20,
+              "n_total": 60,
+              "value": 0.3333333333333333
+            },
+            "holds": false,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 45,
+              "n_total": 60,
+              "value": 0.75
+            },
+            "holds": true,
+            "seed": 2
+          }
+        ]
+      },
+      {
+        "of": 3,
+        "room": true,
+        "room_iff_at_most": 2,
+        "target": "ood_abstain.unseen-language",
+        "v5_holds": 0,
+        "v5_per_seed": [
+          {
+            "count": {
+              "n": 20,
+              "n_total": 60,
+              "value": 0.3333333333333333
+            },
+            "holds": false,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 25,
+              "n_total": 60,
+              "value": 0.4166666666666667
+            },
+            "holds": false,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 10,
+              "n_total": 60,
+              "value": 0.16666666666666666
+            },
+            "holds": false,
+            "seed": 2
+          }
+        ]
+      }
+    ],
+    "rule": {
+      "absolute_guard": "F3 (campaign/v4-noul-v3b-preregistered.json defect_class_in_distribution_abstention, 'the cost check'): on every arm seed ood_abstain.in_distribution.family.code.defect_class has 50 * n <= n_total (<= 46/2304 at v5's expected 2,304 defect_class val slots); one seed over it loses.",
+      "f2_bar": ">= 30/60 on every seed (0, 1, 2), each of prose, scrambled, unseen-language",
+      "f3_bound": "<= 2% on every seed",
+      "guards_form": "strict envelope, as campaign/f-successor-preregistered.json comparison.guard_loses, with the arm's worst seed as the candidate: higher-better loses iff the arm's minimum < v5's minimum; lower-better loses iff the arm's maximum > v5's maximum; ties never lose. Counts on the integers n / n_total by i128 cross-multiplication (the float only cross-checked); ECE on the recorded f64.",
+      "identity": {
+        "eval_rows": "tag epoch-score-val; metrics.ft_run_row_id = the arm ft row; recipe.val_shard_hash, recipe.needle and recipe.ood equal to v5 seed 0's eval row.",
+        "ft_rows": "completed; protocol.seed 0, 1, 2 once each; quick false; recipe.tag 'epoch'; code_commit equal to v5's; protocol.data_snapshot_hash and recipe.shard_hash equal to v5's (no data delta); recipe equal to v5's ft recipe of the same seed except exactly two added keys, noul_weight = 4.0 and noul_weight_scope = 'code.defect_class'.; corpus.plan_order_digest equal to v5's ft row of the same seed, absent on either side refuses (the pairing check, AUDIT/post-f-2026-10-02/fable-seed-order-ruling.md section 2). Any other difference refuses."
+      },
+      "room": "a target has room iff v5 holds on at most 2 of its 3 seeds; with 3 of 3 it cannot clear (cannot_clear). Decided from the envelope alone, before the arm's rows are read. If exactly one target has no room it is read as a guard instead (the arm must hold on 3 of 3 seeds too) and the decision rests on the other target; if neither has room the arm does not launch (launch_condition), and any rows that exist anyway read 'refused'.",
+      "targets_form": "seed_holds. A seed holds a category iff its count is at least half: 2 * n >= n_total (>= 30/60, the F2 bar of campaign/v4-noul-v3b-preregistered.json). A target clears iff all three arm seeds hold AND the arm holds on strictly more seeds than v5's envelope does."
+    },
+    "seed_holds": {
+      "f2_bar": {
+        "n": 30,
+        "n_total": 60,
+        "value": 0.5
+      },
+      "form": "2*n >= 1*n_total"
+    },
+    "then": "the noul-weight arm wins: this feeds the next re-plan only and promotes nothing"
+  },
+  "inputs": [
+    {
+      "bytes": 60083,
+      "path": "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-post-f-rules-v5-72191-143/prereg-187.json",
+      "role": "preregistration",
+      "sha256": "26836be106afcfafd5ee2760310718c5dcb0c66a5bc10c9ce479fabe57e442cb"
+    },
+    {
+      "bytes": 1906,
+      "path": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0d704edd19f228/crates/qd-runtime/../../campaign/v4-noul-v3b-preregistered.json",
+      "role": "preregistration",
+      "sha256": "91a74cb1009548268ae45ddb782b7e1f9da7a0f8c8089b093fd757342563ae9f"
+    },
+    {
+      "bytes": 95414,
+      "path": "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-post-f-rules-v5-72191-143/gh200-v5-158.jsonl",
+      "rows": 6,
+      "sha256": "c40b12713a2b6799e9dbe0199f0ed3d19bca5cb1b5b46bc4040fb7117bff9a43"
+    },
+    {
+      "bytes": 95586,
+      "path": "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-post-f-rules-v5-72191-143/gh200-v5-noulw-168.jsonl",
+      "rows": 6,
+      "sha256": "f6ff2e911bbc51c8af59b7ca9ad8192d5a4742cd6ed22f4e9c99f18bef6bc3a6"
+    }
+  ],
+  "preregistration": "campaign/v5-preregistered.json (the DRAFT renamed on main, binds_iff; read at run time, its sha256 recorded)",
+  "rule": "v5_noul_weight",
+  "tool": "qd-post-f-rules"
+}
+
+  left: "wins"
+ right: "refused"
+
+---- the_paired_metric_is_the_one_the_preregistration_names stdout ----
+
+thread 'the_paired_metric_is_the_one_the_preregistration_names' (38408153) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:93:9:
+assertion `left == right` failed: {
+  "decision": "wins",
+  "detail": {
+    "arm": {
+      "absolute_guard": {
+        "form": "50*n <= 1*n_total",
+        "loses": false,
+        "metric": "ood_abstain.in_distribution.family.code.defect_class",
+        "per_seed": [
+          {
+            "count": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "holds": true,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "holds": true,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "holds": true,
+            "seed": 2
+          }
+        ]
+      },
+      "guards": [
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            }
+          ],
+          "candidate": {
+            "n": 9130,
+            "n_total": 10985,
+            "value": 0.8311333636777424
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "val_top1.choice",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 9130,
+            "n_total": 10985,
+            "value": 0.8311333636777424
+          },
+          "v5_min": {
+            "n": 9130,
+            "n_total": 10985,
+            "value": 0.8311333636777424
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            }
+          ],
+          "candidate": {
+            "n": 6529,
+            "n_total": 7238,
+            "value": 0.9020447637468914
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "val_top1.span",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 6529,
+            "n_total": 7238,
+            "value": 0.9020447637468914
+          },
+          "v5_min": {
+            "n": 6529,
+            "n_total": 7238,
+            "value": 0.9020447637468914
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            }
+          ],
+          "candidate": {
+            "n": 2291,
+            "n_total": 2304,
+            "value": 0.9943576388888888
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "permutation_consistency.family.code.defect_class",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 2291,
+            "n_total": 2304,
+            "value": 0.9943576388888888
+          },
+          "v5_min": {
+            "n": 2291,
+            "n_total": 2304,
+            "value": 0.9943576388888888
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "value": 0.0207
+              }
+            }
+          ],
+          "candidate": {
+            "value": 0.0207
+          },
+          "direction": "lower",
+          "loses": false,
+          "metric": "ece.family.code.defect_class.choice.k4",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "value": 0.0207
+              }
+            }
+          ],
+          "v5_max": {
+            "value": 0.0207
+          },
+          "v5_min": {
+            "value": 0.0207
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            }
+          ],
+          "candidate": {
+            "n": 40,
+            "n_total": 61,
+            "value": 0.6557377049180327
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "needle_8k_worst_bucket",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 40,
+            "n_total": 61,
+            "value": 0.6557377049180327
+          },
+          "v5_min": {
+            "n": 40,
+            "n_total": 61,
+            "value": 0.6557377049180327
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            }
+          ],
+          "candidate": {
+            "n": 58,
+            "n_total": 60,
+            "value": 0.9666666666666667
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "ood_abstain.scrambled",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 58,
+            "n_total": 60,
+            "value": 0.9666666666666667
+          },
+          "v5_min": {
+            "n": 58,
+            "n_total": 60,
+            "value": 0.9666666666666667
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            }
+          ],
+          "candidate": {
+            "n": 13,
+            "n_total": 2304,
+            "value": 0.005642361111111111
+          },
+          "direction": "lower",
+          "loses": false,
+          "metric": "ood_abstain.in_distribution.family.code.defect_class",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 13,
+            "n_total": 2304,
+            "value": 0.005642361111111111
+          },
+          "v5_min": {
+            "n": 13,
+            "n_total": 2304,
+            "value": 0.005642361111111111
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            }
+          ],
+          "candidate": {
+            "n": 843,
+            "n_total": 10985,
+            "value": 0.07674101046882112
+          },
+          "direction": "lower",
+          "loses": false,
+          "metric": "ood_abstain.in_distribution",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 843,
+            "n_total": 10985,
+            "value": 0.07674101046882112
+          },
+          "v5_min": {
+            "n": 843,
+            "n_total": 10985,
+            "value": 0.07674101046882112
+          }
+        }
+      ],
+      "identity": [
+        {
+          "added": {
+            "noul_weight": 4.0,
+            "noul_weight_scope": "code.defect_class"
+          },
+          "arm_ft_row": "0000000a-0000-4000-8000-000000000001",
+          "seed": 0,
+          "v5_ft_row": "00000005-0000-4000-8000-000000000001"
+        },
+        {
+          "added": {
+            "noul_weight": 4.0,
+            "noul_weight_scope": "code.defect_class"
+          },
+          "arm_ft_row": "0000000a-0000-4000-8000-000000000003",
+          "seed": 1,
+          "v5_ft_row": "00000005-0000-4000-8000-000000000003"
+        },
+        {
+          "added": {
+            "noul_weight": 4.0,
+            "noul_weight_scope": "code.defect_class"
+          },
+          "arm_ft_row": "0000000a-0000-4000-8000-000000000005",
+          "seed": 2,
+          "v5_ft_row": "00000005-0000-4000-8000-000000000005"
+        }
+      ],
+      "lost": [],
+      "rows": [
+        {
+          "eval_row": "0000000a-0000-4000-8000-000000000002",
+          "ft_row": "0000000a-0000-4000-8000-000000000001",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 0
+        },
+        {
+          "eval_row": "0000000a-0000-4000-8000-000000000004",
+          "ft_row": "0000000a-0000-4000-8000-000000000003",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 1
+        },
+        {
+          "eval_row": "0000000a-0000-4000-8000-000000000006",
+          "ft_row": "0000000a-0000-4000-8000-000000000005",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 2
+        }
+      ],
+      "targets": [
+        {
+          "arm_holds": 3,
+          "arm_per_seed": [
+            {
+              "count": {
+                "n": 50,
+                "n_total": 60,
+                "value": 0.8333333333333334
+              },
+              "holds": true,
+              "seed": 0
+            },
+            {
+              "count": {
+                "n": 50,
+                "n_total": 60,
+                "value": 0.8333333333333334
+              },
+              "holds": true,
+              "seed": 1
+            },
+            {
+              "count": {
+                "n": 50,
+                "n_total": 60,
+                "value": 0.8333333333333334
+              },
+              "holds": true,
+              "seed": 2
+            }
+          ],
+          "clears": true,
+          "of": 3,
+          "room": true,
+          "target": "ood_abstain.prose",
+          "v5_holds": 2
+        },
+        {
+          "arm_holds": 3,
+          "arm_per_seed": [
+            {
+              "count": {
+                "n": 30,
+                "n_total": 60,
+                "value": 0.5
+              },
+              "holds": true,
+              "seed": 0
+            },
+            {
+              "count": {
+                "n": 31,
+                "n_total": 60,
+                "value": 0.5166666666666667
+              },
+              "holds": true,
+              "seed": 1
+            },
+            {
+              "count": {
+                "n": 40,
+                "n_total": 60,
+                "value": 0.6666666666666666
+              },
+              "holds": true,
+              "seed": 2
+            }
+          ],
+          "clears": true,
+          "of": 3,
+          "room": true,
+          "target": "ood_abstain.unseen-language",
+          "v5_holds": 0
+        }
+      ],
+      "targets_with_room_all_clear": true,
+      "wins": true
+    },
+    "envelope": {
+      "pin": "v5 seeds 0, 1 and 2 only (never seeds 3-4, never F)",
+      "seeds": [
+        {
+          "eval_row": "00000005-0000-4000-8000-000000000002",
+          "ft_row": "00000005-0000-4000-8000-000000000001",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 0
+        },
+        {
+          "eval_row": "00000005-0000-4000-8000-000000000004",
+          "ft_row": "00000005-0000-4000-8000-000000000003",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 1
+        },
+        {
+          "eval_row": "00000005-0000-4000-8000-000000000006",
+          "ft_row": "00000005-0000-4000-8000-000000000005",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 2
+        }
+      ]
+    },
+    "not_checked": "that the eval rows were scored on the rebuilt 8K needle suite: recipe.needle carries no suite digest and needle_suite_tokens records the median, so no row field tells the rebuilt suite from F's; recipe.needle is recorded for the reader (GAP-V5-RULES-REBUILT-SUITE-NOT-ON-THE-ROW-2026-10-02)",
+    "noul_preregistration_sha256": "91a74cb1009548268ae45ddb782b7e1f9da7a0f8c8089b093fd757342563ae9f",
+    "preregistration_sha256": "c6bd434353f8c529838e2c1a3dbb6397c000dfe7c0992cdd6baf77c262a6c242",
+    "room": [
+      {
+        "of": 3,
+        "room": true,
+        "room_iff_at_most": 2,
+        "target": "ood_abstain.prose",
+        "v5_holds": 2,
+        "v5_per_seed": [
+          {
+            "count": {
+              "n": 50,
+              "n_total": 60,
+              "value": 0.8333333333333334
+            },
+            "holds": true,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 20,
+              "n_total": 60,
+              "value": 0.3333333333333333
+            },
+            "holds": false,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 45,
+              "n_total": 60,
+              "value": 0.75
+            },
+            "holds": true,
+            "seed": 2
+          }
+        ]
+      },
+      {
+        "of": 3,
+        "room": true,
+        "room_iff_at_most": 2,
+        "target": "ood_abstain.unseen-language",
+        "v5_holds": 0,
+        "v5_per_seed": [
+          {
+            "count": {
+              "n": 20,
+              "n_total": 60,
+              "value": 0.3333333333333333
+            },
+            "holds": false,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 25,
+              "n_total": 60,
+              "value": 0.4166666666666667
+            },
+            "holds": false,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 10,
+              "n_total": 60,
+              "value": 0.16666666666666666
+            },
+            "holds": false,
+            "seed": 2
+          }
+        ]
+      }
+    ],
+    "rule": {
+      "absolute_guard": "F3 (campaign/v4-noul-v3b-preregistered.json defect_class_in_distribution_abstention, 'the cost check'): on every arm seed ood_abstain.in_distribution.family.code.defect_class has 50 * n <= n_total (<= 46/2304 at v5's expected 2,304 defect_class val slots); one seed over it loses.",
+      "f2_bar": ">= 30/60 on every seed (0, 1, 2), each of prose, scrambled, unseen-language",
+      "f3_bound": "<= 2% on every seed",
+      "guards_form": "strict envelope, as campaign/f-successor-preregistered.json comparison.guard_loses, with the arm's worst seed as the candidate: higher-better loses iff the arm's minimum < v5's minimum; lower-better loses iff the arm's maximum > v5's maximum; ties never lose. Counts on the integers n / n_total by i128 cross-multiplication (the float only cross-checked); ECE on the recorded f64.",
+      "identity": {
+        "eval_rows": "tag epoch-score-val; metrics.ft_run_row_id = the arm ft row; recipe.val_shard_hash, recipe.needle and recipe.ood equal to v5 seed 0's eval row.",
+        "ft_rows": "completed; protocol.seed 0, 1, 2 once each; quick false; recipe.tag 'epoch'; code_commit equal to v5's; protocol.data_snapshot_hash and recipe.shard_hash equal to v5's (no data delta); recipe equal to v5's ft recipe of the same seed except exactly two added keys, noul_weight = 4.0 and noul_weight_scope = 'code.defect_class'.; train.consumed_digest equal to v5's ft row of the same seed, absent on either side refuses (the pairing check, AUDIT/post-f-2026-10-02/fable-seed-order-ruling.md section 2). Any other difference refuses."
+      },
+      "room": "a target has room iff v5 holds on at most 2 of its 3 seeds; with 3 of 3 it cannot clear (cannot_clear). Decided from the envelope alone, before the arm's rows are read. If exactly one target has no room it is read as a guard instead (the arm must hold on 3 of 3 seeds too) and the decision rests on the other target; if neither has room the arm does not launch (launch_condition), and any rows that exist anyway read 'refused'.",
+      "targets_form": "seed_holds. A seed holds a category iff its count is at least half: 2 * n >= n_total (>= 30/60, the F2 bar of campaign/v4-noul-v3b-preregistered.json). A target clears iff all three arm seeds hold AND the arm holds on strictly more seeds than v5's envelope does."
+    },
+    "seed_holds": {
+      "f2_bar": {
+        "n": 30,
+        "n_total": 60,
+        "value": 0.5
+      },
+      "form": "2*n >= 1*n_total"
+    },
+    "then": "the noul-weight arm wins: this feeds the next re-plan only and promotes nothing"
+  },
+  "inputs": [
+    {
+      "bytes": 60080,
+      "path": "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-post-f-rules-v5-72191-159/prereg-167.json",
+      "role": "preregistration",
+      "sha256": "c6bd434353f8c529838e2c1a3dbb6397c000dfe7c0992cdd6baf77c262a6c242"
+    },
+    {
+      "bytes": 1906,
+      "path": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0d704edd19f228/crates/qd-runtime/../../campaign/v4-noul-v3b-preregistered.json",
+      "role": "preregistration",
+      "sha256": "91a74cb1009548268ae45ddb782b7e1f9da7a0f8c8089b093fd757342563ae9f"
+    },
+    {
+      "bytes": 95414,
+      "path": "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-post-f-rules-v5-72191-159/gh200-v5-179.jsonl",
+      "rows": 6,
+      "sha256": "c40b12713a2b6799e9dbe0199f0ed3d19bca5cb1b5b46bc4040fb7117bff9a43"
+    },
+    {
+      "bytes": 95586,
+      "path": "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-post-f-rules-v5-72191-159/gh200-v5-noulw-199.jsonl",
+      "rows": 6,
+      "sha256": "a049ddb7955658bb6ad9172698d93489c1478a6dd69a3278ec2c0b886ab1f714"
+    }
+  ],
+  "preregistration": "campaign/v5-preregistered.json (the DRAFT renamed on main, binds_iff; read at run time, its sha256 recorded)",
+  "rule": "v5_noul_weight",
+  "tool": "qd-post-f-rules"
+}
+
+  left: "wins"
+ right: "refused"
+
+---- the_pairing_check_refuses_when_the_order_digest_is_absent_or_unread_on_either_side stdout ----
+
+thread 'the_pairing_check_refuses_when_the_order_digest_is_absent_or_unread_on_either_side' (38408164) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:93:9:
+assertion `left == right` failed: {
+  "decision": "wins",
+  "detail": {
+    "arm": {
+      "absolute_guard": {
+        "form": "50*n <= 1*n_total",
+        "loses": false,
+        "metric": "ood_abstain.in_distribution.family.code.defect_class",
+        "per_seed": [
+          {
+            "count": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "holds": true,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "holds": true,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "holds": true,
+            "seed": 2
+          }
+        ]
+      },
+      "guards": [
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            }
+          ],
+          "candidate": {
+            "n": 9130,
+            "n_total": 10985,
+            "value": 0.8311333636777424
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "val_top1.choice",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 9130,
+            "n_total": 10985,
+            "value": 0.8311333636777424
+          },
+          "v5_min": {
+            "n": 9130,
+            "n_total": 10985,
+            "value": 0.8311333636777424
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            }
+          ],
+          "candidate": {
+            "n": 6529,
+            "n_total": 7238,
+            "value": 0.9020447637468914
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "val_top1.span",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 6529,
+            "n_total": 7238,
+            "value": 0.9020447637468914
+          },
+          "v5_min": {
+            "n": 6529,
+            "n_total": 7238,
+            "value": 0.9020447637468914
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            }
+          ],
+          "candidate": {
+            "n": 2291,
+            "n_total": 2304,
+            "value": 0.9943576388888888
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "permutation_consistency.family.code.defect_class",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 2291,
+            "n_total": 2304,
+            "value": 0.9943576388888888
+          },
+          "v5_min": {
+            "n": 2291,
+            "n_total": 2304,
+            "value": 0.9943576388888888
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "value": 0.0207
+              }
+            }
+          ],
+          "candidate": {
+            "value": 0.0207
+          },
+          "direction": "lower",
+          "loses": false,
+          "metric": "ece.family.code.defect_class.choice.k4",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "value": 0.0207
+              }
+            }
+          ],
+          "v5_max": {
+            "value": 0.0207
+          },
+          "v5_min": {
+            "value": 0.0207
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            }
+          ],
+          "candidate": {
+            "n": 40,
+            "n_total": 61,
+            "value": 0.6557377049180327
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "needle_8k_worst_bucket",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 40,
+            "n_total": 61,
+            "value": 0.6557377049180327
+          },
+          "v5_min": {
+            "n": 40,
+            "n_total": 61,
+            "value": 0.6557377049180327
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            }
+          ],
+          "candidate": {
+            "n": 58,
+            "n_total": 60,
+            "value": 0.9666666666666667
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "ood_abstain.scrambled",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 58,
+            "n_total": 60,
+            "value": 0.9666666666666667
+          },
+          "v5_min": {
+            "n": 58,
+            "n_total": 60,
+            "value": 0.9666666666666667
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            }
+          ],
+          "candidate": {
+            "n": 13,
+            "n_total": 2304,
+            "value": 0.005642361111111111
+          },
+          "direction": "lower",
+          "loses": false,
+          "metric": "ood_abstain.in_distribution.family.code.defect_class",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 13,
+            "n_total": 2304,
+            "value": 0.005642361111111111
+          },
+          "v5_min": {
+            "n": 13,
+            "n_total": 2304,
+            "value": 0.005642361111111111
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            }
+          ],
+          "candidate": {
+            "n": 843,
+            "n_total": 10985,
+            "value": 0.07674101046882112
+          },
+          "direction": "lower",
+          "loses": false,
+          "metric": "ood_abstain.in_distribution",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 843,
+            "n_total": 10985,
+            "value": 0.07674101046882112
+          },
+          "v5_min": {
+            "n": 843,
+            "n_total": 10985,
+            "value": 0.07674101046882112
+          }
+        }
+      ],
+      "identity": [
+        {
+          "added": {
+            "noul_weight": 4.0,
+            "noul_weight_scope": "code.defect_class"
+          },
+          "arm_ft_row": "0000000a-0000-4000-8000-000000000001",
+          "seed": 0,
+          "v5_ft_row": "00000005-0000-4000-8000-000000000001"
+        },
+        {
+          "added": {
+            "noul_weight": 4.0,
+            "noul_weight_scope": "code.defect_class"
+          },
+          "arm_ft_row": "0000000a-0000-4000-8000-000000000003",
+          "seed": 1,
+          "v5_ft_row": "00000005-0000-4000-8000-000000000003"
+        },
+        {
+          "added": {
+            "noul_weight": 4.0,
+            "noul_weight_scope": "code.defect_class"
+          },
+          "arm_ft_row": "0000000a-0000-4000-8000-000000000005",
+          "seed": 2,
+          "v5_ft_row": "00000005-0000-4000-8000-000000000005"
+        }
+      ],
+      "lost": [],
+      "rows": [
+        {
+          "eval_row": "0000000a-0000-4000-8000-000000000002",
+          "ft_row": "0000000a-0000-4000-8000-000000000001",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 0
+        },
+        {
+          "eval_row": "0000000a-0000-4000-8000-000000000004",
+          "ft_row": "0000000a-0000-4000-8000-000000000003",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 1
+        },
+        {
+          "eval_row": "0000000a-0000-4000-8000-000000000006",
+          "ft_row": "0000000a-0000-4000-8000-000000000005",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 2
+        }
+      ],
+      "targets": [
+        {
+          "arm_holds": 3,
+          "arm_per_seed": [
+            {
+              "count": {
+                "n": 50,
+                "n_total": 60,
+                "value": 0.8333333333333334
+              },
+              "holds": true,
+              "seed": 0
+            },
+            {
+              "count": {
+                "n": 50,
+                "n_total": 60,
+                "value": 0.8333333333333334
+              },
+              "holds": true,
+              "seed": 1
+            },
+            {
+              "count": {
+                "n": 50,
+                "n_total": 60,
+                "value": 0.8333333333333334
+              },
+              "holds": true,
+              "seed": 2
+            }
+          ],
+          "clears": true,
+          "of": 3,
+          "room": true,
+          "target": "ood_abstain.prose",
+          "v5_holds": 2
+        },
+        {
+          "arm_holds": 3,
+          "arm_per_seed": [
+            {
+              "count": {
+                "n": 30,
+                "n_total": 60,
+                "value": 0.5
+              },
+              "holds": true,
+              "seed": 0
+            },
+            {
+              "count": {
+                "n": 31,
+                "n_total": 60,
+                "value": 0.5166666666666667
+              },
+              "holds": true,
+              "seed": 1
+            },
+            {
+              "count": {
+                "n": 40,
+                "n_total": 60,
+                "value": 0.6666666666666666
+              },
+              "holds": true,
+              "seed": 2
+            }
+          ],
+          "clears": true,
+          "of": 3,
+          "room": true,
+          "target": "ood_abstain.unseen-language",
+          "v5_holds": 0
+        }
+      ],
+      "targets_with_room_all_clear": true,
+      "wins": true
+    },
+    "envelope": {
+      "pin": "v5 seeds 0, 1 and 2 only (never seeds 3-4, never F)",
+      "seeds": [
+        {
+          "eval_row": "00000005-0000-4000-8000-000000000002",
+          "ft_row": "00000005-0000-4000-8000-000000000001",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 0
+        },
+        {
+          "eval_row": "00000005-0000-4000-8000-000000000004",
+          "ft_row": "00000005-0000-4000-8000-000000000003",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 1
+        },
+        {
+          "eval_row": "00000005-0000-4000-8000-000000000006",
+          "ft_row": "00000005-0000-4000-8000-000000000005",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 2
+        }
+      ]
+    },
+    "not_checked": "that the eval rows were scored on the rebuilt 8K needle suite: recipe.needle carries no suite digest and needle_suite_tokens records the median, so no row field tells the rebuilt suite from F's; recipe.needle is recorded for the reader (GAP-V5-RULES-REBUILT-SUITE-NOT-ON-THE-ROW-2026-10-02)",
+    "noul_preregistration_sha256": "91a74cb1009548268ae45ddb782b7e1f9da7a0f8c8089b093fd757342563ae9f",
+    "preregistration_sha256": "26836be106afcfafd5ee2760310718c5dcb0c66a5bc10c9ce479fabe57e442cb",
+    "room": [
+      {
+        "of": 3,
+        "room": true,
+        "room_iff_at_most": 2,
+        "target": "ood_abstain.prose",
+        "v5_holds": 2,
+        "v5_per_seed": [
+          {
+            "count": {
+              "n": 50,
+              "n_total": 60,
+              "value": 0.8333333333333334
+            },
+            "holds": true,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 20,
+              "n_total": 60,
+              "value": 0.3333333333333333
+            },
+            "holds": false,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 45,
+              "n_total": 60,
+              "value": 0.75
+            },
+            "holds": true,
+            "seed": 2
+          }
+        ]
+      },
+      {
+        "of": 3,
+        "room": true,
+        "room_iff_at_most": 2,
+        "target": "ood_abstain.unseen-language",
+        "v5_holds": 0,
+        "v5_per_seed": [
+          {
+            "count": {
+              "n": 20,
+              "n_total": 60,
+              "value": 0.3333333333333333
+            },
+            "holds": false,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 25,
+              "n_total": 60,
+              "value": 0.4166666666666667
+            },
+            "holds": false,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 10,
+              "n_total": 60,
+              "value": 0.16666666666666666
+            },
+            "holds": false,
+            "seed": 2
+          }
+        ]
+      }
+    ],
+    "rule": {
+      "absolute_guard": "F3 (campaign/v4-noul-v3b-preregistered.json defect_class_in_distribution_abstention, 'the cost check'): on every arm seed ood_abstain.in_distribution.family.code.defect_class has 50 * n <= n_total (<= 46/2304 at v5's expected 2,304 defect_class val slots); one seed over it loses.",
+      "f2_bar": ">= 30/60 on every seed (0, 1, 2), each of prose, scrambled, unseen-language",
+      "f3_bound": "<= 2% on every seed",
+      "guards_form": "strict envelope, as campaign/f-successor-preregistered.json comparison.guard_loses, with the arm's worst seed as the candidate: higher-better loses iff the arm's minimum < v5's minimum; lower-better loses iff the arm's maximum > v5's maximum; ties never lose. Counts on the integers n / n_total by i128 cross-multiplication (the float only cross-checked); ECE on the recorded f64.",
+      "identity": {
+        "eval_rows": "tag epoch-score-val; metrics.ft_run_row_id = the arm ft row; recipe.val_shard_hash, recipe.needle and recipe.ood equal to v5 seed 0's eval row.",
+        "ft_rows": "completed; protocol.seed 0, 1, 2 once each; quick false; recipe.tag 'epoch'; code_commit equal to v5's; protocol.data_snapshot_hash and recipe.shard_hash equal to v5's (no data delta); recipe equal to v5's ft recipe of the same seed except exactly two added keys, noul_weight = 4.0 and noul_weight_scope = 'code.defect_class'.; corpus.plan_order_digest equal to v5's ft row of the same seed, absent on either side refuses (the pairing check, AUDIT/post-f-2026-10-02/fable-seed-order-ruling.md section 2). Any other difference refuses."
+      },
+      "room": "a target has room iff v5 holds on at most 2 of its 3 seeds; with 3 of 3 it cannot clear (cannot_clear). Decided from the envelope alone, before the arm's rows are read. If exactly one target has no room it is read as a guard instead (the arm must hold on 3 of 3 seeds too) and the decision rests on the other target; if neither has room the arm does not launch (launch_condition), and any rows that exist anyway read 'refused'.",
+      "targets_form": "seed_holds. A seed holds a category iff its count is at least half: 2 * n >= n_total (>= 30/60, the F2 bar of campaign/v4-noul-v3b-preregistered.json). A target clears iff all three arm seeds hold AND the arm holds on strictly more seeds than v5's envelope does."
+    },
+    "seed_holds": {
+      "f2_bar": {
+        "n": 30,
+        "n_total": 60,
+        "value": 0.5
+      },
+      "form": "2*n >= 1*n_total"
+    },
+    "then": "the noul-weight arm wins: this feeds the next re-plan only and promotes nothing"
+  },
+  "inputs": [
+    {
+      "bytes": 60083,
+      "path": "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-post-f-rules-v5-72191-173/prereg-216.json",
+      "role": "preregistration",
+      "sha256": "26836be106afcfafd5ee2760310718c5dcb0c66a5bc10c9ce479fabe57e442cb"
+    },
+    {
+      "bytes": 1906,
+      "path": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0d704edd19f228/crates/qd-runtime/../../campaign/v4-noul-v3b-preregistered.json",
+      "role": "preregistration",
+      "sha256": "91a74cb1009548268ae45ddb782b7e1f9da7a0f8c8089b093fd757342563ae9f"
+    },
+    {
+      "bytes": 95414,
+      "path": "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-post-f-rules-v5-72191-173/gh200-v5-189.jsonl",
+      "rows": 6,
+      "sha256": "c40b12713a2b6799e9dbe0199f0ed3d19bca5cb1b5b46bc4040fb7117bff9a43"
+    },
+    {
+      "bytes": 95468,
+      "path": "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-post-f-rules-v5-72191-173/gh200-v5-noulw-202.jsonl",
+      "rows": 6,
+      "sha256": "a9d6f7ad25ad0b4fff451b04f46979c8e96b31c042c3b9994844693ebcc857e3"
+    }
+  ],
+  "preregistration": "campaign/v5-preregistered.json (the DRAFT renamed on main, binds_iff; read at run time, its sha256 recorded)",
+  "rule": "v5_noul_weight",
+  "tool": "qd-post-f-rules"
+}
+
+  left: "wins"
+ right: "refused"
+
+---- the_pairing_check_refuses_an_arm_seed_not_on_v5s_batch_order_for_that_seed stdout ----
+
+thread 'the_pairing_check_refuses_an_arm_seed_not_on_v5s_batch_order_for_that_seed' (38408163) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:93:9:
+assertion `left == right` failed: {
+  "decision": "wins",
+  "detail": {
+    "arm": {
+      "absolute_guard": {
+        "form": "50*n <= 1*n_total",
+        "loses": false,
+        "metric": "ood_abstain.in_distribution.family.code.defect_class",
+        "per_seed": [
+          {
+            "count": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "holds": true,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "holds": true,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "holds": true,
+            "seed": 2
+          }
+        ]
+      },
+      "guards": [
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            }
+          ],
+          "candidate": {
+            "n": 9130,
+            "n_total": 10985,
+            "value": 0.8311333636777424
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "val_top1.choice",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 9130,
+            "n_total": 10985,
+            "value": 0.8311333636777424
+          },
+          "v5_min": {
+            "n": 9130,
+            "n_total": 10985,
+            "value": 0.8311333636777424
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            }
+          ],
+          "candidate": {
+            "n": 6529,
+            "n_total": 7238,
+            "value": 0.9020447637468914
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "val_top1.span",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 6529,
+            "n_total": 7238,
+            "value": 0.9020447637468914
+          },
+          "v5_min": {
+            "n": 6529,
+            "n_total": 7238,
+            "value": 0.9020447637468914
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            }
+          ],
+          "candidate": {
+            "n": 2291,
+            "n_total": 2304,
+            "value": 0.9943576388888888
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "permutation_consistency.family.code.defect_class",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 2291,
+            "n_total": 2304,
+            "value": 0.9943576388888888
+          },
+          "v5_min": {
+            "n": 2291,
+            "n_total": 2304,
+            "value": 0.9943576388888888
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "value": 0.0207
+              }
+            }
+          ],
+          "candidate": {
+            "value": 0.0207
+          },
+          "direction": "lower",
+          "loses": false,
+          "metric": "ece.family.code.defect_class.choice.k4",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "value": 0.0207
+              }
+            }
+          ],
+          "v5_max": {
+            "value": 0.0207
+          },
+          "v5_min": {
+            "value": 0.0207
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            }
+          ],
+          "candidate": {
+            "n": 40,
+            "n_total": 61,
+            "value": 0.6557377049180327
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "needle_8k_worst_bucket",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 40,
+            "n_total": 61,
+            "value": 0.6557377049180327
+          },
+          "v5_min": {
+            "n": 40,
+            "n_total": 61,
+            "value": 0.6557377049180327
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            }
+          ],
+          "candidate": {
+            "n": 58,
+            "n_total": 60,
+            "value": 0.9666666666666667
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "ood_abstain.scrambled",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 58,
+            "n_total": 60,
+            "value": 0.9666666666666667
+          },
+          "v5_min": {
+            "n": 58,
+            "n_total": 60,
+            "value": 0.9666666666666667
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            }
+          ],
+          "candidate": {
+            "n": 13,
+            "n_total": 2304,
+            "value": 0.005642361111111111
+          },
+          "direction": "lower",
+          "loses": false,
+          "metric": "ood_abstain.in_distribution.family.code.defect_class",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 13,
+            "n_total": 2304,
+            "value": 0.005642361111111111
+          },
+          "v5_min": {
+            "n": 13,
+            "n_total": 2304,
+            "value": 0.005642361111111111
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            }
+          ],
+          "candidate": {
+            "n": 843,
+            "n_total": 10985,
+            "value": 0.07674101046882112
+          },
+          "direction": "lower",
+          "loses": false,
+          "metric": "ood_abstain.in_distribution",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 843,
+            "n_total": 10985,
+            "value": 0.07674101046882112
+          },
+          "v5_min": {
+            "n": 843,
+            "n_total": 10985,
+            "value": 0.07674101046882112
+          }
+        }
+      ],
+      "identity": [
+        {
+          "added": {
+            "noul_weight": 4.0,
+            "noul_weight_scope": "code.defect_class"
+          },
+          "arm_ft_row": "0000000a-0000-4000-8000-000000000001",
+          "seed": 0,
+          "v5_ft_row": "00000005-0000-4000-8000-000000000001"
+        },
+        {
+          "added": {
+            "noul_weight": 4.0,
+            "noul_weight_scope": "code.defect_class"
+          },
+          "arm_ft_row": "0000000a-0000-4000-8000-000000000003",
+          "seed": 1,
+          "v5_ft_row": "00000005-0000-4000-8000-000000000003"
+        },
+        {
+          "added": {
+            "noul_weight": 4.0,
+            "noul_weight_scope": "code.defect_class"
+          },
+          "arm_ft_row": "0000000a-0000-4000-8000-000000000005",
+          "seed": 2,
+          "v5_ft_row": "00000005-0000-4000-8000-000000000005"
+        }
+      ],
+      "lost": [],
+      "rows": [
+        {
+          "eval_row": "0000000a-0000-4000-8000-000000000002",
+          "ft_row": "0000000a-0000-4000-8000-000000000001",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 0
+        },
+        {
+          "eval_row": "0000000a-0000-4000-8000-000000000004",
+          "ft_row": "0000000a-0000-4000-8000-000000000003",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 1
+        },
+        {
+          "eval_row": "0000000a-0000-4000-8000-000000000006",
+          "ft_row": "0000000a-0000-4000-8000-000000000005",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 2
+        }
+      ],
+      "targets": [
+        {
+          "arm_holds": 3,
+          "arm_per_seed": [
+            {
+              "count": {
+                "n": 50,
+                "n_total": 60,
+                "value": 0.8333333333333334
+              },
+              "holds": true,
+              "seed": 0
+            },
+            {
+              "count": {
+                "n": 50,
+                "n_total": 60,
+                "value": 0.8333333333333334
+              },
+              "holds": true,
+              "seed": 1
+            },
+            {
+              "count": {
+                "n": 50,
+                "n_total": 60,
+                "value": 0.8333333333333334
+              },
+              "holds": true,
+              "seed": 2
+            }
+          ],
+          "clears": true,
+          "of": 3,
+          "room": true,
+          "target": "ood_abstain.prose",
+          "v5_holds": 2
+        },
+        {
+          "arm_holds": 3,
+          "arm_per_seed": [
+            {
+              "count": {
+                "n": 30,
+                "n_total": 60,
+                "value": 0.5
+              },
+              "holds": true,
+              "seed": 0
+            },
+            {
+              "count": {
+                "n": 31,
+                "n_total": 60,
+                "value": 0.5166666666666667
+              },
+              "holds": true,
+              "seed": 1
+            },
+            {
+              "count": {
+                "n": 40,
+                "n_total": 60,
+                "value": 0.6666666666666666
+              },
+              "holds": true,
+              "seed": 2
+            }
+          ],
+          "clears": true,
+          "of": 3,
+          "room": true,
+          "target": "ood_abstain.unseen-language",
+          "v5_holds": 0
+        }
+      ],
+      "targets_with_room_all_clear": true,
+      "wins": true
+    },
+    "envelope": {
+      "pin": "v5 seeds 0, 1 and 2 only (never seeds 3-4, never F)",
+      "seeds": [
+        {
+          "eval_row": "00000005-0000-4000-8000-000000000002",
+          "ft_row": "00000005-0000-4000-8000-000000000001",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 0
+        },
+        {
+          "eval_row": "00000005-0000-4000-8000-000000000004",
+          "ft_row": "00000005-0000-4000-8000-000000000003",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 1
+        },
+        {
+          "eval_row": "00000005-0000-4000-8000-000000000006",
+          "ft_row": "00000005-0000-4000-8000-000000000005",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 2
+        }
+      ]
+    },
+    "not_checked": "that the eval rows were scored on the rebuilt 8K needle suite: recipe.needle carries no suite digest and needle_suite_tokens records the median, so no row field tells the rebuilt suite from F's; recipe.needle is recorded for the reader (GAP-V5-RULES-REBUILT-SUITE-NOT-ON-THE-ROW-2026-10-02)",
+    "noul_preregistration_sha256": "91a74cb1009548268ae45ddb782b7e1f9da7a0f8c8089b093fd757342563ae9f",
+    "preregistration_sha256": "26836be106afcfafd5ee2760310718c5dcb0c66a5bc10c9ce479fabe57e442cb",
+    "room": [
+      {
+        "of": 3,
+        "room": true,
+        "room_iff_at_most": 2,
+        "target": "ood_abstain.prose",
+        "v5_holds": 2,
+        "v5_per_seed": [
+          {
+            "count": {
+              "n": 50,
+              "n_total": 60,
+              "value": 0.8333333333333334
+            },
+            "holds": true,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 20,
+              "n_total": 60,
+              "value": 0.3333333333333333
+            },
+            "holds": false,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 45,
+              "n_total": 60,
+              "value": 0.75
+            },
+            "holds": true,
+            "seed": 2
+          }
+        ]
+      },
+      {
+        "of": 3,
+        "room": true,
+        "room_iff_at_most": 2,
+        "target": "ood_abstain.unseen-language",
+        "v5_holds": 0,
+        "v5_per_seed": [
+          {
+            "count": {
+              "n": 20,
+              "n_total": 60,
+              "value": 0.3333333333333333
+            },
+            "holds": false,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 25,
+              "n_total": 60,
+              "value": 0.4166666666666667
+            },
+            "holds": false,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 10,
+              "n_total": 60,
+              "value": 0.16666666666666666
+            },
+            "holds": false,
+            "seed": 2
+          }
+        ]
+      }
+    ],
+    "rule": {
+      "absolute_guard": "F3 (campaign/v4-noul-v3b-preregistered.json defect_class_in_distribution_abstention, 'the cost check'): on every arm seed ood_abstain.in_distribution.family.code.defect_class has 50 * n <= n_total (<= 46/2304 at v5's expected 2,304 defect_class val slots); one seed over it loses.",
+      "f2_bar": ">= 30/60 on every seed (0, 1, 2), each of prose, scrambled, unseen-language",
+      "f3_bound": "<= 2% on every seed",
+      "guards_form": "strict envelope, as campaign/f-successor-preregistered.json comparison.guard_loses, with the arm's worst seed as the candidate: higher-better loses iff the arm's minimum < v5's minimum; lower-better loses iff the arm's maximum > v5's maximum; ties never lose. Counts on the integers n / n_total by i128 cross-multiplication (the float only cross-checked); ECE on the recorded f64.",
+      "identity": {
+        "eval_rows": "tag epoch-score-val; metrics.ft_run_row_id = the arm ft row; recipe.val_shard_hash, recipe.needle and recipe.ood equal to v5 seed 0's eval row.",
+        "ft_rows": "completed; protocol.seed 0, 1, 2 once each; quick false; recipe.tag 'epoch'; code_commit equal to v5's; protocol.data_snapshot_hash and recipe.shard_hash equal to v5's (no data delta); recipe equal to v5's ft recipe of the same seed except exactly two added keys, noul_weight = 4.0 and noul_weight_scope = 'code.defect_class'.; corpus.plan_order_digest equal to v5's ft row of the same seed, absent on either side refuses (the pairing check, AUDIT/post-f-2026-10-02/fable-seed-order-ruling.md section 2). Any other difference refuses."
+      },
+      "room": "a target has room iff v5 holds on at most 2 of its 3 seeds; with 3 of 3 it cannot clear (cannot_clear). Decided from the envelope alone, before the arm's rows are read. If exactly one target has no room it is read as a guard instead (the arm must hold on 3 of 3 seeds too) and the decision rests on the other target; if neither has room the arm does not launch (launch_condition), and any rows that exist anyway read 'refused'.",
+      "targets_form": "seed_holds. A seed holds a category iff its count is at least half: 2 * n >= n_total (>= 30/60, the F2 bar of campaign/v4-noul-v3b-preregistered.json). A target clears iff all three arm seeds hold AND the arm holds on strictly more seeds than v5's envelope does."
+    },
+    "seed_holds": {
+      "f2_bar": {
+        "n": 30,
+        "n_total": 60,
+        "value": 0.5
+      },
+      "form": "2*n >= 1*n_total"
+    },
+    "then": "the noul-weight arm wins: this feeds the next re-plan only and promotes nothing"
+  },
+  "inputs": [
+    {
+      "bytes": 60083,
+      "path": "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-post-f-rules-v5-72191-172/prereg-215.json",
+      "role": "preregistration",
+      "sha256": "26836be106afcfafd5ee2760310718c5dcb0c66a5bc10c9ce479fabe57e442cb"
+    },
+    {
+      "bytes": 1906,
+      "path": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0d704edd19f228/crates/qd-runtime/../../campaign/v4-noul-v3b-preregistered.json",
+      "role": "preregistration",
+      "sha256": "91a74cb1009548268ae45ddb782b7e1f9da7a0f8c8089b093fd757342563ae9f"
+    },
+    {
+      "bytes": 95414,
+      "path": "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-post-f-rules-v5-72191-172/gh200-v5-180.jsonl",
+      "rows": 6,
+      "sha256": "c40b12713a2b6799e9dbe0199f0ed3d19bca5cb1b5b46bc4040fb7117bff9a43"
+    },
+    {
+      "bytes": 95586,
+      "path": "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-post-f-rules-v5-72191-172/gh200-v5-noulw-194.jsonl",
+      "rows": 6,
+      "sha256": "9f9f148402fe76d1730086094e57d613cfa9c1f3d96967d83d4f2157923af548"
+    }
+  ],
+  "preregistration": "campaign/v5-preregistered.json (the DRAFT renamed on main, binds_iff; read at run time, its sha256 recorded)",
+  "rule": "v5_noul_weight",
+  "tool": "qd-post-f-rules"
+}
+
+  left: "wins"
+ right: "refused"
+
+---- a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read stdout ----
+
+thread 'a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read' (38407918) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:93:9:
+assertion `left == right` failed: {
+  "decision": "wins",
+  "detail": {
+    "arm": {
+      "absolute_guard": {
+        "form": "50*n <= 1*n_total",
+        "loses": false,
+        "metric": "ood_abstain.in_distribution.family.code.defect_class",
+        "per_seed": [
+          {
+            "count": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "holds": true,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "holds": true,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 13,
+              "n_total": 2304,
+              "value": 0.005642361111111111
+            },
+            "holds": true,
+            "seed": 2
+          }
+        ]
+      },
+      "guards": [
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            }
+          ],
+          "candidate": {
+            "n": 9130,
+            "n_total": 10985,
+            "value": 0.8311333636777424
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "val_top1.choice",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 9130,
+                "n_total": 10985,
+                "value": 0.8311333636777424
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 9130,
+            "n_total": 10985,
+            "value": 0.8311333636777424
+          },
+          "v5_min": {
+            "n": 9130,
+            "n_total": 10985,
+            "value": 0.8311333636777424
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            }
+          ],
+          "candidate": {
+            "n": 6529,
+            "n_total": 7238,
+            "value": 0.9020447637468914
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "val_top1.span",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 6529,
+                "n_total": 7238,
+                "value": 0.9020447637468914
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 6529,
+            "n_total": 7238,
+            "value": 0.9020447637468914
+          },
+          "v5_min": {
+            "n": 6529,
+            "n_total": 7238,
+            "value": 0.9020447637468914
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            }
+          ],
+          "candidate": {
+            "n": 2291,
+            "n_total": 2304,
+            "value": 0.9943576388888888
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "permutation_consistency.family.code.defect_class",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 2291,
+                "n_total": 2304,
+                "value": 0.9943576388888888
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 2291,
+            "n_total": 2304,
+            "value": 0.9943576388888888
+          },
+          "v5_min": {
+            "n": 2291,
+            "n_total": 2304,
+            "value": 0.9943576388888888
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "value": 0.0207
+              }
+            }
+          ],
+          "candidate": {
+            "value": 0.0207
+          },
+          "direction": "lower",
+          "loses": false,
+          "metric": "ece.family.code.defect_class.choice.k4",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "value": 0.0207
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "value": 0.0207
+              }
+            }
+          ],
+          "v5_max": {
+            "value": 0.0207
+          },
+          "v5_min": {
+            "value": 0.0207
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            }
+          ],
+          "candidate": {
+            "n": 40,
+            "n_total": 61,
+            "value": 0.6557377049180327
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "needle_8k_worst_bucket",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 40,
+                "n_total": 61,
+                "value": 0.6557377049180327
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 40,
+            "n_total": 61,
+            "value": 0.6557377049180327
+          },
+          "v5_min": {
+            "n": 40,
+            "n_total": 61,
+            "value": 0.6557377049180327
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            }
+          ],
+          "candidate": {
+            "n": 58,
+            "n_total": 60,
+            "value": 0.9666666666666667
+          },
+          "direction": "higher",
+          "loses": false,
+          "metric": "ood_abstain.scrambled",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 58,
+                "n_total": 60,
+                "value": 0.9666666666666667
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 58,
+            "n_total": 60,
+            "value": 0.9666666666666667
+          },
+          "v5_min": {
+            "n": 58,
+            "n_total": 60,
+            "value": 0.9666666666666667
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            }
+          ],
+          "candidate": {
+            "n": 13,
+            "n_total": 2304,
+            "value": 0.005642361111111111
+          },
+          "direction": "lower",
+          "loses": false,
+          "metric": "ood_abstain.in_distribution.family.code.defect_class",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 13,
+                "n_total": 2304,
+                "value": 0.005642361111111111
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 13,
+            "n_total": 2304,
+            "value": 0.005642361111111111
+          },
+          "v5_min": {
+            "n": 13,
+            "n_total": 2304,
+            "value": 0.005642361111111111
+          }
+        },
+        {
+          "arm": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            }
+          ],
+          "candidate": {
+            "n": 843,
+            "n_total": 10985,
+            "value": 0.07674101046882112
+          },
+          "direction": "lower",
+          "loses": false,
+          "metric": "ood_abstain.in_distribution",
+          "v5": [
+            {
+              "seed": 0,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 1,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            },
+            {
+              "seed": 2,
+              "value": {
+                "n": 843,
+                "n_total": 10985,
+                "value": 0.07674101046882112
+              }
+            }
+          ],
+          "v5_max": {
+            "n": 843,
+            "n_total": 10985,
+            "value": 0.07674101046882112
+          },
+          "v5_min": {
+            "n": 843,
+            "n_total": 10985,
+            "value": 0.07674101046882112
+          }
+        }
+      ],
+      "identity": [
+        {
+          "added": {
+            "noul_weight": 4.0,
+            "noul_weight_scope": "code.defect_class"
+          },
+          "arm_ft_row": "0000000a-0000-4000-8000-000000000001",
+          "seed": 0,
+          "v5_ft_row": "00000005-0000-4000-8000-000000000001"
+        },
+        {
+          "added": {
+            "noul_weight": 4.0,
+            "noul_weight_scope": "code.defect_class"
+          },
+          "arm_ft_row": "0000000a-0000-4000-8000-000000000003",
+          "seed": 1,
+          "v5_ft_row": "00000005-0000-4000-8000-000000000003"
+        },
+        {
+          "added": {
+            "noul_weight": 4.0,
+            "noul_weight_scope": "code.defect_class"
+          },
+          "arm_ft_row": "0000000a-0000-4000-8000-000000000005",
+          "seed": 2,
+          "v5_ft_row": "00000005-0000-4000-8000-000000000005"
+        }
+      ],
+      "lost": [],
+      "rows": [
+        {
+          "eval_row": "0000000a-0000-4000-8000-000000000002",
+          "ft_row": "0000000a-0000-4000-8000-000000000001",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 0
+        },
+        {
+          "eval_row": "0000000a-0000-4000-8000-000000000004",
+          "ft_row": "0000000a-0000-4000-8000-000000000003",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 1
+        },
+        {
+          "eval_row": "0000000a-0000-4000-8000-000000000006",
+          "ft_row": "0000000a-0000-4000-8000-000000000005",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 2
+        }
+      ],
+      "targets": [
+        {
+          "arm_holds": 3,
+          "arm_per_seed": [
+            {
+              "count": {
+                "n": 50,
+                "n_total": 60,
+                "value": 0.8333333333333334
+              },
+              "holds": true,
+              "seed": 0
+            },
+            {
+              "count": {
+                "n": 50,
+                "n_total": 60,
+                "value": 0.8333333333333334
+              },
+              "holds": true,
+              "seed": 1
+            },
+            {
+              "count": {
+                "n": 50,
+                "n_total": 60,
+                "value": 0.8333333333333334
+              },
+              "holds": true,
+              "seed": 2
+            }
+          ],
+          "clears": true,
+          "of": 3,
+          "room": true,
+          "target": "ood_abstain.prose",
+          "v5_holds": 2
+        },
+        {
+          "arm_holds": 3,
+          "arm_per_seed": [
+            {
+              "count": {
+                "n": 30,
+                "n_total": 60,
+                "value": 0.5
+              },
+              "holds": true,
+              "seed": 0
+            },
+            {
+              "count": {
+                "n": 31,
+                "n_total": 60,
+                "value": 0.5166666666666667
+              },
+              "holds": true,
+              "seed": 1
+            },
+            {
+              "count": {
+                "n": 40,
+                "n_total": 60,
+                "value": 0.6666666666666666
+              },
+              "holds": true,
+              "seed": 2
+            }
+          ],
+          "clears": true,
+          "of": 3,
+          "room": true,
+          "target": "ood_abstain.unseen-language",
+          "v5_holds": 0
+        }
+      ],
+      "targets_with_room_all_clear": true,
+      "wins": true
+    },
+    "envelope": {
+      "pin": "v5 seeds 0, 1 and 2 only (never seeds 3-4, never F)",
+      "seeds": [
+        {
+          "eval_row": "00000005-0000-4000-8000-000000000002",
+          "ft_row": "00000005-0000-4000-8000-000000000001",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 0
+        },
+        {
+          "eval_row": "00000005-0000-4000-8000-000000000004",
+          "ft_row": "00000005-0000-4000-8000-000000000003",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 1
+        },
+        {
+          "eval_row": "00000005-0000-4000-8000-000000000006",
+          "ft_row": "00000005-0000-4000-8000-000000000005",
+          "letter_control_row": null,
+          "needle_control_row": null,
+          "seed": 2
+        }
+      ]
+    },
+    "not_checked": "that the eval rows were scored on the rebuilt 8K needle suite: recipe.needle carries no suite digest and needle_suite_tokens records the median, so no row field tells the rebuilt suite from F's; recipe.needle is recorded for the reader (GAP-V5-RULES-REBUILT-SUITE-NOT-ON-THE-ROW-2026-10-02)",
+    "noul_preregistration_sha256": "91a74cb1009548268ae45ddb782b7e1f9da7a0f8c8089b093fd757342563ae9f",
+    "preregistration_sha256": "3678be4d9d9519595b4f9ad2c507e60b01d4d3c2170ed85a3d1db449a0d0436d",
+    "room": [
+      {
+        "of": 3,
+        "room": true,
+        "room_iff_at_most": 2,
+        "target": "ood_abstain.prose",
+        "v5_holds": 2,
+        "v5_per_seed": [
+          {
+            "count": {
+              "n": 50,
+              "n_total": 60,
+              "value": 0.8333333333333334
+            },
+            "holds": true,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 20,
+              "n_total": 60,
+              "value": 0.3333333333333333
+            },
+            "holds": false,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 45,
+              "n_total": 60,
+              "value": 0.75
+            },
+            "holds": true,
+            "seed": 2
+          }
+        ]
+      },
+      {
+        "of": 3,
+        "room": true,
+        "room_iff_at_most": 2,
+        "target": "ood_abstain.unseen-language",
+        "v5_holds": 0,
+        "v5_per_seed": [
+          {
+            "count": {
+              "n": 20,
+              "n_total": 60,
+              "value": 0.3333333333333333
+            },
+            "holds": false,
+            "seed": 0
+          },
+          {
+            "count": {
+              "n": 25,
+              "n_total": 60,
+              "value": 0.4166666666666667
+            },
+            "holds": false,
+            "seed": 1
+          },
+          {
+            "count": {
+              "n": 10,
+              "n_total": 60,
+              "value": 0.16666666666666666
+            },
+            "holds": false,
+            "seed": 2
+          }
+        ]
+      }
+    ],
+    "rule": {
+      "absolute_guard": "F3 (campaign/v4-noul-v3b-preregistered.json defect_class_in_distribution_abstention, 'the cost check'): on every arm seed ood_abstain.in_distribution.family.code.defect_class has 50 * n <= n_total (<= 46/2304 at v5's expected 2,304 defect_class val slots); one seed over it loses.",
+      "f2_bar": ">= 30/60 on every seed (0, 1, 2), each of prose, scrambled, unseen-language",
+      "f3_bound": "<= 2% on every seed",
+      "guards_form": "strict envelope, as campaign/f-successor-preregistered.json comparison.guard_loses, with the arm's worst seed as the candidate: higher-better loses iff the arm's minimum < v5's minimum; lower-better loses iff the arm's maximum > v5's maximum; ties never lose. Counts on the integers n / n_total by i128 cross-multiplication (the float only cross-checked); ECE on the recorded f64.",
+      "identity": {
+        "eval_rows": "tag epoch-score-val; metrics.ft_run_row_id = the arm ft row; recipe.val_shard_hash, recipe.needle and recipe.ood equal to v5 seed 0's eval row.",
+        "ft_rows": "completed; protocol.seed 0, 1, 2 once each; quick false; recipe.tag 'epoch'; code_commit equal to v5's; protocol.data_snapshot_hash and recipe.shard_hash equal to v5's (no data delta); recipe equal to v5's ft recipe of the same seed except exactly two added keys, noul_weight = 4.0 and noul_weight_scope = 'code.defect_class'.; corpus.plan_order_digest recorded, absent on either side refuses (the pairing check, AUDIT/post-f-2026-10-02/fable-seed-order-ruling.md section 2). Any other difference refuses."
+      },
+      "room": "a target has room iff v5 holds on at most 2 of its 3 seeds; with 3 of 3 it cannot clear (cannot_clear). Decided from the envelope alone, before the arm's rows are read. If exactly one target has no room it is read as a guard instead (the arm must hold on 3 of 3 seeds too) and the decision rests on the other target; if neither has room the arm does not launch (launch_condition), and any rows that exist anyway read 'refused'.",
+      "targets_form": "seed_holds. A seed holds a category iff its count is at least half: 2 * n >= n_total (>= 30/60, the F2 bar of campaign/v4-noul-v3b-preregistered.json). A target clears iff all three arm seeds hold AND the arm holds on strictly more seeds than v5's envelope does."
+    },
+    "seed_holds": {
+      "f2_bar": {
+        "n": 30,
+        "n_total": 60,
+        "value": 0.5
+      },
+      "form": "2*n >= 1*n_total"
+    },
+    "then": "the noul-weight arm wins: this feeds the next re-plan only and promotes nothing"
+  },
+  "inputs": [
+    {
+      "bytes": 60054,
+      "path": "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-post-f-rules-v5-72191-15/prereg-279.json",
+      "role": "preregistration",
+      "sha256": "3678be4d9d9519595b4f9ad2c507e60b01d4d3c2170ed85a3d1db449a0d0436d"
+    },
+    {
+      "bytes": 1906,
+      "path": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0d704edd19f228/crates/qd-runtime/../../campaign/v4-noul-v3b-preregistered.json",
+      "role": "preregistration",
+      "sha256": "91a74cb1009548268ae45ddb782b7e1f9da7a0f8c8089b093fd757342563ae9f"
+    },
+    {
+      "bytes": 95414,
+      "path": "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-post-f-rules-v5-72191-15/gh200-v5-24.jsonl",
+      "rows": 6,
+      "sha256": "c40b12713a2b6799e9dbe0199f0ed3d19bca5cb1b5b46bc4040fb7117bff9a43"
+    },
+    {
+      "bytes": 95586,
+      "path": "/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-post-f-rules-v5-72191-15/gh200-v5-noulw-40.jsonl",
+      "rows": 6,
+      "sha256": "a049ddb7955658bb6ad9172698d93489c1478a6dd69a3278ec2c0b886ab1f714"
+    }
+  ],
+  "preregistration": "campaign/v5-preregistered.json (the DRAFT renamed on main, binds_iff; read at run time, its sha256 recorded)",
+  "rule": "v5_noul_weight",
+  "tool": "qd-post-f-rules"
+}
+
+  left: "wins"
+ right: "refused"
+
+
+failures:
+    a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read
+    an_arm_holding_every_target_with_room_on_every_seed_and_losing_no_guard_wins
+    the_arms_three_ft_rows_must_be_one_configuration_like_v5s
+    the_paired_metric_is_the_one_the_preregistration_names
+    the_pairing_check_refuses_an_arm_seed_not_on_v5s_batch_order_for_that_seed
+    the_pairing_check_refuses_when_the_order_digest_is_absent_or_unread_on_either_side
+
+test result: FAILED. 25 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.97s
+
+error: test failed, to rerun pass `-p qd-runtime --test post_f_rules_v5`
+mac_heavy: 2026-10-02T18:17:13Z 'L-v5-rules failfirst pairing' finished with exit 101

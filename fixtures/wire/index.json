@@ -12,8 +12,8 @@
       "status": "ok",
       "note": "The contract's own example request, answered: one slot of every kind in one envelope. Note the five envelope keys — status, schema_version, backend, degraded, slots — where docs/schema-api.md's example showed only two.",
       "request": {
-        "context_b64": "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgewogICAgdG9kbyEoKQp9Cg==",
-        "context_len": 46,
+        "context_b64": "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgeyAvLyA2CiAgICB0b2RvISgpCn0K",
+        "context_len": 51,
         "question": "Does this diff implement what the commit message claims?",
         "route": "generic",
         "schema_version": 1,
@@ -71,8 +71,8 @@
       "status": "ok",
       "note": "A single `score` slot. Its value is a 1-based ordinal bin as a JSON number, and its conformal set is a list of bins.",
       "request": {
-        "context_b64": "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgewogICAgdG9kbyEoKQp9Cg==",
-        "context_len": 46,
+        "context_b64": "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgeyAvLyA2CiAgICB0b2RvISgpCn0K",
+        "context_len": 51,
         "question": "Does this diff implement what the commit message claims?",
         "route": "generic",
         "schema_version": 1,
@@ -91,8 +91,8 @@
       "status": "ok",
       "note": "A single `span` slot over a four-line context. Its value is {start_line, end_line}, 1-based and inclusive, and its conformal_set is null — a span has no conformal set.",
       "request": {
-        "context_b64": "YWxwaGEKYmV0YQpnYW1tYQpkZWx0YQo=",
-        "context_len": 23,
+        "context_b64": "YWxwaGEgMgpiZXRhCmdhbW1hCmRlbHRhCg==",
+        "context_len": 25,
         "question": "Does this diff implement what the commit message claims?",
         "route": "generic",
         "schema_version": 1,

@@ -1,0 +1,10 @@
+   Compiling qd-runtime v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ae6a72efc208f39e9/crates/qd-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.41s
+     Running unittests src/lib.rs (target/debug/deps/qd_runtime-19e373ea09e918d3)
+
+running 2 tests
+test fixtures::tests::the_intended_shapes_cover_every_slot_kind_answered_and_abstained ... ok
+test fixtures::tests::every_answer_fixture_shows_its_intended_shape ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.01s
+
