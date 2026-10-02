@@ -97,6 +97,16 @@ struct OwnProseArgs {
     per_repo_cap: usize,
     #[arg(long, default_value_t = 0)]
     seed: u64,
+    /// An admitted repo the human struck, as the manifest names it (`web/Lappi-BDay`).
+    /// Repeatable. Its files are never read.
+    #[arg(long)]
+    strike_repo: Vec<String>,
+    /// `REPO:DIR/`: every file of REPO under DIR is struck and never read. Repeatable.
+    #[arg(long, value_parser = own_prose::parse_strike_path)]
+    strike_path: Vec<own_prose::StrikePath>,
+    /// The decision the strike carries out, recorded in the manifest. Required with a strike.
+    #[arg(long, default_value = "")]
+    strike_basis: String,
     #[arg(long)]
     out: PathBuf,
 }
@@ -818,6 +828,11 @@ fn main() {
             floor: a.floor,
             per_repo_cap: a.per_repo_cap,
             seed: a.seed,
+            strike: own_prose::Strike {
+                basis: &a.strike_basis,
+                repos: &a.strike_repo,
+                paths: &a.strike_path,
+            },
             out: &a.out,
         }),
         Command::G6(a) => g6::run(&g6::Args {

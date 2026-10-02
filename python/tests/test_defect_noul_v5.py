@@ -406,6 +406,68 @@ def test_one_own_prose_unit_that_breaks_a_rule_refuses_the_part(
         _load(noul)
 
 
+STRIKE = {
+    "basis": "the human's answer: Strike personal + business (Recommended)",
+    "repos": ["devtools/Other"],
+    "paths": [{"repo": "apps/Example", "prefix": "docs/business/"}],
+    "files_struck": {"repo:devtools/Other": 2, "path:apps/Example:docs/business/": 3},
+}
+
+
+def test_a_strike_that_covers_nothing_loaded_loads(tmp_path: Path) -> None:
+    units = [_unit(0), _unit(1, path="docs/business-plan.md"), _unit(2, path="docs/other/x.md")]
+    _own_prose_part(tmp_path, units, strike=STRIKE)
+    noul = _composite(tmp_path, [("own-prose-v1", "own-prose", "units.jsonl", 3)])
+    assert len(_load(noul).rows) == 3
+
+
+@pytest.mark.parametrize(
+    "unit",
+    [
+        _unit(9, repo="devtools/Other"),
+        _unit(9, path="docs/business/yc.md"),
+        _unit(9, path="docs/business/archive/pitch.md"),
+    ],
+)
+def test_a_unit_or_file_the_strike_covers_refuses_the_part(tmp_path: Path, unit: dict) -> None:
+    _own_prose_part(tmp_path, [_unit(0), unit], strike=STRIKE)
+    noul = _composite(tmp_path, [("own-prose-v1", "own-prose", "units.jsonl", 2)])
+    # files.jsonl carries the unit's file, so the file check fires before the unit check.
+    with pytest.raises(DefectCorpusError, match="the manifest's strike covers"):
+        _load(noul)
+
+
+def test_a_struck_unit_is_refused_even_when_files_jsonl_omits_its_file(tmp_path: Path) -> None:
+    d = _own_prose_part(tmp_path, [_unit(0)], strike=STRIKE)
+    struck = _unit(9, path="docs/business/yc.md")
+    with (d / "units.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(struck) + "\n")
+    manifest = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
+    manifest["units"] = {"sha256": _sha(d / "units.jsonl"), "count": 2}
+    (d / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    noul = _composite(tmp_path, [("own-prose-v1", "own-prose", "units.jsonl", 2)])
+    with pytest.raises(DefectCorpusError, match="struck_by_the_human"):
+        _load(noul)
+
+
+@pytest.mark.parametrize(
+    ("strike", "match"),
+    [
+        ({**STRIKE, "basis": " "}, "without its basis"),
+        ({**STRIKE, "repos": ["web/Unknown"]}, "not admitted"),
+        ({**STRIKE, "repos": [], "paths": []}, "names no rule"),
+        ({**STRIKE, "paths": [{"repo": "apps/Example", "prefix": "docs/business"}]}, "directory"),
+        ({**STRIKE, "paths": [{"repo": "apps/Example", "prefix": "../x/"}]}, "directory"),
+        ({"repos": ["devtools/Other"], "paths": []}, "must carry basis"),
+    ],
+)
+def test_a_malformed_strike_refuses_the_part(tmp_path: Path, strike: dict, match: str) -> None:
+    _own_prose_part(tmp_path, [_unit(0)], strike=strike)
+    noul = _composite(tmp_path, [("own-prose-v1", "own-prose", "units.jsonl", 1)])
+    with pytest.raises(DefectCorpusError, match=match):
+        _load(noul)
+
+
 def test_own_prose_is_capped_per_repository(tmp_path: Path) -> None:
     _own_prose_part(tmp_path, [_unit(i) for i in range(151)])
     noul = _composite(tmp_path, [("own-prose-v1", "own-prose", "units.jsonl", 151)])
