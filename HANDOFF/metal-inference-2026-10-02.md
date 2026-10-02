@@ -22,12 +22,18 @@ have not changed since 01:32:30 [V, `find -newermt`].
 | Row id | Kind | What | Result |
 | --- | --- | --- | --- |
 | `669e1ba9-bf81-40fe-a50a-0bbe3a58e189` | build | CPU suites at `c1fa18f`'s code | qd-metal 42/50 (8 ignored), snapshot_cpu `--ignored` 4/4, qd-train lib 50/50, ledger_oracle 5/5; exit 0 |
-| `0112dade-0cd0-4034-be74-d20a398a4545` | smoke | parity gate, short set | **PASS** (numbers below) |
+| `0112dade-0cd0-4034-be74-d20a398a4545` | smoke (`quick`) | parity gate, short set | **PASS** (numbers below) |
 | `2a8bc443-6e62-4959-9b58-3d864f73c5f3` | build | `tests/gpu.rs --ignored`, first run ever | **FAILED** 3/4: `gpu_backend_readonly_decode_leaves_the_runtime_hash_unchanged` at gpu.rs:171 (below) |
 | `a9ef3c3a-c262-4119-960d-217f90c5dad2` | build | `tests/gpu.rs --ignored` after correcting that test | 4/4 passed |
 | `ebb17358-fbe6-4320-a659-630f2400bb8d` | throughput (`quick`) | `qd-metal-bench --decision`, both embed arms interleaved | numbers below |
 | `2b858908-ca96-48b6-91ef-7a624ac4a3b5` | build | CPU suites at the final code | qd-metal 43/51 (8 ignored: 4 GPU, 4 snapshot), snapshot_cpu `--ignored` 4/4, qd-train lib 50/50, ledger_oracle 5/5; exit 0 |
-| `c9452efc-c24e-49e2-9300-2d4e8e9d1ee1` | smoke | parity gate, long set | **PASS** (numbers below) |
+| `c9452efc-c24e-49e2-9300-2d4e8e9d1ee1` | smoke (`quick`) | parity gate, long set | **PASS** (numbers below) |
+
+**Both parity rows carry `quick: true`.** `parity_row.rs` sets it with the reason "one run, no
+training; rule 8: quick, excluded from every decision". A reader that drops quick rows also drops
+the gate's PASS. Whether a complete, deterministic gate run should be quick is the lead's call
+(`GAP-QDM-PARITY-ROW-MARKED-QUICK-2026-10-02`). Changing it means a `parity_row.rs` edit, a
+rebuild and a re-run of both sets.
 
 The file was checked after the last row was written:
 - `python -m qd_train.ledger verify`: "chain verifies: 7 row(s)", exit 0;
@@ -151,7 +157,9 @@ Not committed, on purpose: `Cargo.lock` (rule; its diff adds the `clap` and `qd-
 `block2`/`dispatch2` before this lane). No frozen file was edited: `backend.rs`, `parity.rs`,
 `tokenizer.rs`, `serve.rs`, `service.rs`, `tests/common/mod.rs`, `tests/lifecycle.rs`,
 `tristate.rs` are byte-identical to main `276a475` here (`git diff --stat 276a475 --` on them is
-empty [V]), and nothing was created under `crates/qd-metal/tests/fixtures/`.
+empty [V]), and nothing was created under `crates/qd-metal/tests/fixtures/`. `tests/gpu.rs`,
+which this lane edited, is unchanged in the main checkout (sha256 `b3cc0c08…` there and at
+`276a475` [V]), so the edit does not collide.
 Nothing in tessl was written; tessl was read with read-only git (`rev-parse`, `status`, `log`).
 
 ## Work items
@@ -288,6 +296,7 @@ session's uncommitted work, which is why neither was started.
 | `GAP-QDM-SERVE-COLD-START-UNDER-LIFECYCLE-LOCK-2026-10-02` | open | agent |
 | `GAP-QDM-RUNTIME-OPENED-WITH-TIMESTAMP-HEAP-2026-10-02` | open | agent |
 | `GAP-QDM-TESSL-PREDATES-EXE-COUNTS-NON-BUILD-FILES-2026-10-02` | open | agent |
+| `GAP-QDM-PARITY-ROW-MARKED-QUICK-2026-10-02` | open (is a full gate run `quick`?) | lead |
 | `GAP-LMETAL-NAVIGATION-2026-10-02` | open (DevMap store degraded/absent, GitPulse untrusted, no ListAgents) | lead |
 
 Still open from before, and named above: `GAP-QDM-ONE-SLOT-PER-DECODE-CALL` (ruling item 3),
