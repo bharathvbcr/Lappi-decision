@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import math
 import random
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
@@ -218,12 +219,110 @@ def _approx_tokens(text: str) -> int:
     return max(1, len(text) // 3)
 
 
+#: A case measured by ``build_suite``'s ``measure`` grows by at most this many filler hunks
+#: past its estimate before the search gives up: a bound, not an expectation (an 8K case
+#: is ~200 hunks).
+MAX_FILLER_HUNKS: Final[int] = 4096
+
+
+def _draw_hunk(rng: random.Random, template: str) -> str:
+    return template.format(
+        a=rng.randint(10, 900), name=rng.choice(_NAMES), fn=rng.choice(_FNS),
+        r=rng.choice(("s", "c", "m")),
+    )
+
+
+def _case_from(
+    n: int, *, lang: str, depth: float, needle: str, fillers: list[str]
+) -> NeedleCase:
+    """The case with ``needle`` inserted among ``fillers`` at ``depth``: where it goes, the
+    lines it spans and its id, by the rule the heuristic suite has always used."""
+    hunks = list(fillers)
+    position = min(len(hunks), max(0, round(depth * len(hunks))))
+    hunks.insert(position, needle)
+    before = "".join(hunks[:position])
+    start_line = before.count("\n") + 1
+    end_line = start_line + needle.rstrip("\n").count("\n")
+    context = "".join(hunks)
+    return NeedleCase(
+        case_id=f"needle-{lang}-{n:04d}-{hashlib.sha256(context.encode()).hexdigest()[:8]}",
+        language=lang,
+        context=context,
+        needle_index=position,
+        n_hunks=len(hunks),
+        depth_fraction=position / max(len(hunks) - 1, 1),
+        needle_start_line=start_line,
+        needle_end_line=end_line,
+        approx_tokens=_approx_tokens(context),
+    )
+
+
+def _measured_case(
+    n: int, *, lang: str, depth: float, seed: int, target_tokens: int,
+    measure: Callable[[NeedleCase], int],
+) -> NeedleCase:
+    """Case ``n`` grown by whole filler hunks while the next one still fits: the most
+    fillers ``k`` with ``measure(case(k)) <= target_tokens < measure(case(k + 1))``, the
+    needle inserted at ``depth`` before every measurement (reading R1).
+
+    Its own stream, ``seed`` and ``n``: the needle is drawn first and the fillers after it,
+    so filler ``i`` is the same however many the search looks at. The search starts at the
+    3-chars/token estimate, jumps once by the measured ratio, then walks one hunk at a time;
+    every count it settles on was measured on both sides.
+    """
+    digest = hashlib.sha256(f"qd_train.needle.measured:{seed}:{n}".encode()).digest()
+    rng = random.Random(int.from_bytes(digest[:8], "big"))
+    needle = _draw_hunk(rng, _NEEDLE[lang])
+    pool = _FILLER[lang]
+    fillers: list[str] = []
+    measured: dict[int, int] = {}
+
+    def grow(k: int) -> None:
+        if not 1 <= k <= MAX_FILLER_HUNKS:
+            raise ValueError(
+                f"needle case {n} ({lang}) would need {k} filler hunks to reach "
+                f"{target_tokens} tokens; the search is bounded to 1..{MAX_FILLER_HUNKS}"
+            )
+        while len(fillers) < k:
+            fillers.append(_draw_hunk(rng, pool[rng.randrange(len(pool))]))
+
+    def size(k: int) -> int:
+        grow(k)
+        if k not in measured:
+            tokens = measure(_case_from(n, lang=lang, depth=depth, needle=needle,
+                                        fillers=fillers[:k]))
+            if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens < 1:
+                raise ValueError(f"measure returned {tokens!r}, not a positive token count")
+            measured[k] = tokens
+        return measured[k]
+
+    k, estimate = 1, _approx_tokens(needle)
+    grow(k)
+    estimate += _approx_tokens(fillers[0])
+    while estimate < target_tokens:
+        k += 1
+        grow(k)
+        estimate += _approx_tokens(fillers[k - 1])
+    k = max(1, min(MAX_FILLER_HUNKS - 1, k * target_tokens // size(k)))
+    if size(1) > target_tokens:
+        raise ValueError(
+            f"needle case {n} ({lang}): the needle and one filler hunk already measure "
+            f"{size(1)} tokens, over the {target_tokens} target"
+        )
+    while size(k) > target_tokens:
+        k -= 1
+    while size(k + 1) <= target_tokens:
+        k += 1
+    return _case_from(n, lang=lang, depth=depth, needle=needle, fillers=fillers[:k])
+
+
 def build_suite(
     *,
     target_tokens: int = 8192,
     cases_per_depth: int = 20,
     languages: tuple[str, ...] = ("rust", "go", "python", "typescript", "swift"),
     seed: int = 0,
+    measure: Callable[[NeedleCase], int] | None = None,
 ) -> list[NeedleCase]:
     """Build needles at controlled depths through a ~`target_tokens` haystack.
 
@@ -231,6 +330,14 @@ def build_suite(
     construction. A randomly-placed needle set leaves the early buckets thin, which is
     precisely where a recurrent model fails and precisely where the estimate would
     then be least certain.
+
+    ``measure`` is the caller's real token count of a case as the model will read it (v5
+    reading R1: ``tools/real_ft_run.py`` renders the case's ``code.defect_class`` row and
+    counts its encoded span sequence; the renderer and tokenizer stay the caller's). With
+    it, every case measures at most ``target_tokens`` and one more filler hunk would not
+    fit (:func:`_measured_case`). Without it, the haystack is sized by the 3-chars/token
+    heuristic as it always was, and the suite is the same bytes as before ``measure``
+    existed.
     """
     if target_tokens < 256:
         raise ValueError(f"target_tokens must be at least 256, got {target_tokens}")
@@ -240,9 +347,18 @@ def build_suite(
     if unknown:
         raise ValueError(f"no filler hunks for language(s): {sorted(unknown)}")
 
+    depths = [i / (cases_per_depth * 5 - 1) for i in range(cases_per_depth * 5)]
+    if measure is not None:
+        return [
+            _measured_case(
+                n, lang=languages[n % len(languages)], depth=depth, seed=seed,
+                target_tokens=target_tokens, measure=measure,
+            )
+            for n, depth in enumerate(depths)
+        ]
+
     rng = random.Random(seed)
     cases: list[NeedleCase] = []
-    depths = [i / (cases_per_depth * 5 - 1) for i in range(cases_per_depth * 5)]
 
     for n, depth in enumerate(depths):
         lang = languages[n % len(languages)]

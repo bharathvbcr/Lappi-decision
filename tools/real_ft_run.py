@@ -5154,7 +5154,8 @@ class NeedleSuite:
     cases: list[NeedleCase]
     batches: list[Batch]
     labels_for: dict[int, list[Label]]
-    #: Real token count per case, re-measured: ``build_suite`` sizes by a 3-chars/token guess.
+    #: Real token count per case: the encoded span sequence, the quantity ``build_suite`` was
+    #: sized by (``prepare_needle``'s measure), each at most the suite's target.
     token_lengths: list[int]
     seed: int = 0
     not_run: str | None = None
@@ -5189,6 +5190,24 @@ def _repad(batch: Batch, width: int) -> Batch:
     )
 
 
+def needle_measure(
+    reader: ShardReader, *, tok: Any, config: DataConfig
+) -> Callable[[NeedleCase], int]:
+    """``build_suite``'s ``measure``: a case's real token count as :func:`prepare_needle`
+    encodes it -- ``needle_defect_row`` rendered and its span slot encoded by
+    ``encode_slot_batch`` -- so the size a case was grown to is the size it is scored at."""
+
+    def measure(case: NeedleCase) -> int:
+        _, _, encoded = encode_slot_batch(
+            needle_defect_row(case, config=config), slot_kind=SLOT_SPAN, tok=tok,
+            reader=reader, config=config, index=0, row_id=case.case_id,
+            where=f"needle case {case.case_id} (sizing)",
+        )
+        return int(encoded.ids.size)
+
+    return measure
+
+
 def prepare_needle(
     reader: ShardReader, *, config: DataConfig, enabled: bool,
     target_tokens: int = NEEDLE_TARGET_TOKENS,
@@ -5204,6 +5223,12 @@ def prepare_needle(
     make the hunk mapping trustworthy before anything is decoded: one candidate per rendered
     context line, and the encoded gold's line falling in the needle hunk. Either failing is
     a refusal, because a mapping off by one line scores the model against the wrong hunk.
+
+    Sizing (v5 readings R1, R2): ``build_suite`` is handed :func:`needle_measure` -- this
+    same render and encode, counting the span sequence's ids -- so every case, the gate's
+    and each ``--needle-control`` length's, is grown by whole filler hunks to at most
+    ``target_tokens`` real tokens with the next hunk not fitting. A case that encodes past
+    the target here is a refusal: the measure and this encode disagree.
     """
     if not enabled:
         return NeedleSuite([], [], {}, [], not_run="--needle was not given")
@@ -5212,7 +5237,7 @@ def prepare_needle(
     tok = _matching_tokenizer(reader, what="the needle suite")
     cases = build_suite(
         target_tokens=target_tokens, cases_per_depth=NEEDLE_CASES_PER_DEPTH,
-        seed=config.seed,
+        seed=config.seed, measure=needle_measure(reader, tok=tok, config=config),
     )
     batches: list[Batch] = []
     labels_for: dict[int, list[Label]] = {}
@@ -5223,6 +5248,11 @@ def prepare_needle(
             needle_defect_row(case, config=config), slot_kind=SLOT_SPAN, tok=tok,
             reader=reader, config=config, index=i, row_id=case.case_id, where=where,
         )
+        if int(encoded.ids.size) > target_tokens:
+            raise SystemExit(
+                f"{where}: encodes to {int(encoded.ids.size)} tokens, over the "
+                f"{target_tokens} target build_suite sized it to; the measure is not this encode"
+            )
         body = case.context[:-1] if case.context.endswith("\n") else case.context
         n_lines = CONTEXT_HEADER_LINES + len(body.split("\n"))
         if len(encoded.candidates) != n_lines:
