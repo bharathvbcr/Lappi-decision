@@ -347,6 +347,12 @@ class ShardHeader:
     #: A report-only set: outside every gate population, scored only by a reader that asks
     #: for one. Gate paths refuse it (:meth:`require_gate_population`).
     report_only: bool = False
+    #: sha256 of the ``exclusions.txt`` (``qd-prep containment``) whose identity keys left the
+    #: train split before this set was written (``qd_train.exclusions.apply_exclusions``):
+    #: Fable's v5 decontamination rule. **Empty means no exclusion was applied**, which is
+    #: every set written before the field existed; a trainer whose rebuild applies a list
+    #: refuses a set that names none, and the reverse (``tools/real_ft_run.py``).
+    exclusions_sha256: str = ""
 
     def require_gate_population(self, *, where: str) -> None:
         """Refuse a set that is not a gate population: report-only, or any span rule but
@@ -410,6 +416,18 @@ class ShardHeader:
             raise ShardContractViolation(
                 f"report_only on split {self.split!r}: only a val set may be report-only"
             )
+        if self.exclusions_sha256 and (
+            len(self.exclusions_sha256) != 64
+            or any(c not in "0123456789abcdef" for c in self.exclusions_sha256)
+        ):
+            raise ShardContractViolation(
+                f"exclusions_sha256 {self.exclusions_sha256!r} is not a lower-case sha256"
+            )
+        if self.exclusions_sha256 and self.split != "train":
+            raise ShardContractViolation(
+                f"exclusions_sha256 on split {self.split!r}: the exclusion removes train rows "
+                "only, so only a train set (gold or replay) names it"
+            )
 
     def shard_hash(self) -> str:
         return _sha256_hex(
@@ -461,6 +479,13 @@ class ShardHeader:
                 else ()
             ),
             *((b"report_only:true",) if self.report_only else ()),
+            # Same contract, tagged: absent (no exclusion) hashes to nothing, so every header
+            # written before the field still verifies.
+            *(
+                (b"exclusions_sha256:" + self.exclusions_sha256.encode(),)
+                if self.exclusions_sha256
+                else ()
+            ),
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -487,6 +512,8 @@ class ShardHeader:
             out["span_collapse_policy"] = self.span_collapse_policy
         if self.report_only:
             out["report_only"] = True
+        if self.exclusions_sha256:
+            out["exclusions_sha256"] = self.exclusions_sha256
         out["shard_hash"] = self.shard_hash()
         return out
 
@@ -517,6 +544,7 @@ class ShardHeader:
             sequence_index_hash=str(raw.get("sequence_index_hash", "")),
             span_collapse_policy=str(raw.get("span_collapse_policy", "")),
             report_only=raw.get("report_only", False) is True,
+            exclusions_sha256=str(raw.get("exclusions_sha256", "")),
         )
         if "shard_hash" in raw and raw["shard_hash"] != header.shard_hash():
             raise ShardContractViolation(

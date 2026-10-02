@@ -1012,6 +1012,12 @@ def main(argv: list[str] | None = None) -> int:
         help="exactly as the run was given it: the replay-only rows left the gold train "
              "split, so the control is not fitted on them",
     )
+    parser.add_argument(
+        "--exclude-identity-keys", type=Path, default=None,
+        help="exactly as the run was given it: the qd-prep containment exclusions.txt whose "
+             "train rows the run never saw, so the control is not fitted on them either. "
+             "Checked against the eval row's exclusions_sha256, in both directions",
+    )
     parser.add_argument("--control-cache", type=Path, default=None)
     parser.add_argument("--max-iter", type=int, default=DEFAULT_MAX_ITER)
     parser.add_argument(
@@ -1085,6 +1091,25 @@ def main(argv: list[str] | None = None) -> int:
             f"and this control would hold out {args.hold_out_operator!r}: it would not be "
             "that arm's opponent"
         )
+    # The eval row carries the run's exclusion list (real_ft_run's RECIPE_PIECE_KEYS); a
+    # control fitted with another list, or none, is fitted on rows the model never saw.
+    exclusions_sha256 = ""
+    if args.exclude_identity_keys is not None:
+        try:
+            exclusions_sha256 = hashlib.sha256(
+                args.exclude_identity_keys.read_bytes()
+            ).hexdigest()
+        except OSError as exc:
+            raise Refused(
+                f"--exclude-identity-keys {args.exclude_identity_keys}: unreadable ({exc})"
+            ) from exc
+    recorded_exclusions = str((row.recipe or {}).get("exclusions_sha256", ""))
+    if recorded_exclusions != exclusions_sha256:
+        raise Refused(
+            f"the eval row's model was trained with exclusion list "
+            f"{recorded_exclusions or 'none'} and this control would apply "
+            f"{exclusions_sha256 or 'none'}: it would be fitted on a different train split"
+        )
     hold = HoldOut(args.operator_key, args.hold_out_operator) if args.hold_out_operator else None
     # Before the split rebuild, which is most of a run's wall clock before the first fit: a
     # control that cannot be fitted is refused while that costs nothing.
@@ -1097,6 +1122,7 @@ def main(argv: list[str] | None = None) -> int:
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
         general_record=args.general_record, general_max_rows=args.general_max_rows,
         replay_partition=args.replay_partition, defect_noul=args.defect_noul,
+        exclude_identity_keys=args.exclude_identity_keys,
     )
     # Rule 3 through this door too. A control fitted on a held-out family would not train a
     # model, but it would set the bar the model is measured against with data the model may
@@ -1147,6 +1173,9 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.replay_partition:
         recipe["replay_partition"] = True
+    if exclusions_sha256:
+        # Only when used, as real_ft_run's recipe pieces name it.
+        recipe["exclusions_sha256"] = exclusions_sha256
     if args.defect_noul is not None:
         # Only when used, as the pipeline's and real_ft_run's recipes record it: by the noul
         # corpus's examples sha256, so a control with the noul rows never hashes as one without.

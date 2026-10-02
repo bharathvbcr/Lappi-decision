@@ -386,11 +386,13 @@ def _fake_runner(
     module = types.ModuleType("real_ft_run")
     if with_fn:
         # The real signature: the defect-class corpus is part of how the run built its split.
-        # The general record, its per-file cap and the replay partition too (phase 4).
+        # The general record, its per-file cap and the replay partition too (phase 4), and
+        # the v5 decontamination's exclusion list (2026-10-02).
         def ft_split_rows(*, commitpackft, max_pairs, rev, config, defect_class=None,
                           defect_download=None, defect_max_rows=None, repo_history=True,
                           general_record=None, general_max_rows=None,
-                          replay_partition=False, defect_noul=None):
+                          replay_partition=False, defect_noul=None,
+                          exclude_identity_keys=None):
             if calls is not None:
                 calls.append({"defect_class": defect_class, "defect_download": defect_download,
                               "defect_max_rows": defect_max_rows,
@@ -398,7 +400,8 @@ def _fake_runner(
                               "general_record": general_record,
                               "general_max_rows": general_max_rows,
                               "replay_partition": replay_partition,
-                              "defect_noul": defect_noul})
+                              "defect_noul": defect_noul,
+                              "exclude_identity_keys": exclude_identity_keys})
             return train, val
         module.ft_split_rows = ft_split_rows  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "real_ft_run", module)
@@ -600,9 +603,11 @@ def test_the_defect_class_corpus_reaches_the_runs_own_split_function(
     assert calls == [{"defect_class": corpus, "defect_download": download,
                       "defect_max_rows": 40, "repo_history": True, "rev": REV,
                       "general_record": None, "general_max_rows": None,
-                      "replay_partition": False, "defect_noul": None}]
+                      "replay_partition": False, "defect_noul": None,
+                      "exclude_identity_keys": None}]
     assert Ledger(ledger).rows()[-1].recipe["defect_class"] == "corpus-v2"
     assert "defect_noul_examples_sha256" not in Ledger(ledger).rows()[-1].recipe
+    assert "exclusions_sha256" not in Ledger(ledger).rows()[-1].recipe
 
 
 def test_a_note_lands_in_the_rows_notes_and_not_its_recipe(
@@ -629,6 +634,33 @@ def test_a_note_lands_in_the_rows_notes_and_not_its_recipe(
     assert noted.notes.endswith(". report-only; which row a gate reads is the human's call")
     assert not plain.notes.endswith("call")
     assert noted.recipe == plain.recipe
+
+
+def test_an_exclusion_list_the_eval_row_does_not_name_is_refused_before_the_rebuild(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The v5 decontamination's list (2026-10-02): a model trained without it is not opposed
+    by a control fitted with it, nor the reverse -- each would be fitted on another train
+    split. The eval row names the run's list (real_ft_run's RECIPE_PIECE_KEYS); this one names
+    none, so a control given a list is refused, and nothing is rebuilt."""
+    rows, _config = _rows(40)
+    train, val = _split(rows)
+    ledger = tmp_path / "ledger.jsonl"
+    eval_id = _eval_row(ledger, choice=(1, 1), score=(0, 0))
+    verdicts = _write_verdicts(tmp_path / "v.jsonl", [
+        {"eval_row_id": eval_id, "seed": 0, "row_id": "r", "kind": "choice", "correct": True},
+    ])
+    calls: list[dict[str, object]] = []
+    _fake_runner(monkeypatch, train, val, calls=calls)
+    listed = tmp_path / "exclusions.txt"
+    listed.write_bytes(b"some-identity-key\n")
+    with pytest.raises(ftc.Refused, match="trained with exclusion list none"):
+        ftc.main(["--ledger", str(ledger), "--verdicts", str(verdicts), "--max-pairs", "40",
+                  "--rev", REV, "--exclude-identity-keys", str(listed)])
+    with pytest.raises(ftc.Refused, match="unreadable"):
+        ftc.main(["--ledger", str(ledger), "--verdicts", str(verdicts), "--max-pairs", "40",
+                  "--rev", REV, "--exclude-identity-keys", str(tmp_path / "missing.txt")])
+    assert calls == []
 
 
 def test_a_set_built_with_noul_rows_is_rebuilt_with_them(

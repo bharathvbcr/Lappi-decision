@@ -12,13 +12,16 @@
 //!   `LinearBaseline.fit` makes it, with the evaluation rows' logits.
 //! - `qd-prep lsh --input IN --output OUT`: a `QDPLSIN1` request (see `qd_prep::lsh`) -> the
 //!   `QDPLSOK1` banded-LSH candidate pairs, as `qd_data.minhash.candidate_pairs` finds them.
+//! - `qd-prep containment --input IN --out-dir DIR`: a `QDPCTIN1` request (see
+//!   `qd_prep::containment`) -> `DIR/{pairs.tsv, exclusions.txt, attestation.json}`, the
+//!   complete word n-gram containment pair list `qd_train.replay.decontaminate` defines.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use qd_prep::{linwire, lsh, wire};
+use qd_prep::{containment, linwire, lsh, wire};
 
 /// Threads are bounded whatever the host reports.
 const MAX_THREADS: usize = 256;
@@ -58,6 +61,69 @@ enum Command {
     Linfit(Io),
     /// Banded-LSH candidate pairs, as qd_data.minhash.candidate_pairs finds them.
     Lsh(Io),
+    /// Word n-gram containment with the complete pair list, as qd_train.replay.decontaminate
+    /// defines it; writes pairs.tsv, exclusions.txt and attestation.json into --out-dir.
+    Containment(DirIo),
+}
+
+/// The arguments of a subcommand whose answer is a directory of files.
+#[derive(clap::Args, Debug)]
+struct DirIo {
+    /// The request file.
+    #[arg(long)]
+    input: PathBuf,
+    /// The directory to create; refused if it, or DIR.partial, exists.
+    #[arg(long)]
+    out_dir: PathBuf,
+    /// Worker threads; default every core the host reports, at most 256. The result does not
+    /// depend on it.
+    #[arg(long)]
+    threads: Option<usize>,
+}
+
+/// `qd-prep containment`: the request in, the directory out.
+fn run_containment(io: &DirIo) -> Result<String, String> {
+    if io.out_dir.exists() {
+        return Err(format!(
+            "{} exists; refusing to overwrite it",
+            io.out_dir.display()
+        ));
+    }
+    let (buf, threads) = read_input(&io.input, io.threads, containment::MAX_INPUT_BYTES)?;
+    let written = containment::run(&buf, threads)?;
+    containment::write_dir(&io.out_dir, &written)?;
+    Ok(format!(
+        "{} on {threads} thread(s) -> {}",
+        written.summary,
+        io.out_dir.display()
+    ))
+}
+
+/// The request's bytes, refused past `max_input_bytes`, and the thread count to use.
+fn read_input(
+    input: &Path,
+    threads: Option<usize>,
+    max_input_bytes: u64,
+) -> Result<(Vec<u8>, usize), String> {
+    let size = std::fs::metadata(input)
+        .map_err(|e| format!("{}: {e}", input.display()))?
+        .len();
+    if size > max_input_bytes {
+        return Err(format!(
+            "{}: {size} bytes; the bound is {max_input_bytes}",
+            input.display(),
+        ));
+    }
+    let buf = std::fs::read(input).map_err(|e| format!("{}: {e}", input.display()))?;
+    let threads = match threads {
+        Some(0) => return Err("--threads 0 would do nothing".to_string()),
+        Some(n) => n,
+        None => std::thread::available_parallelism()
+            .map(usize::from)
+            .unwrap_or(1),
+    }
+    .min(MAX_THREADS);
+    Ok((buf, threads))
 }
 
 /// Read `io.input`, hand it to `work` with the thread count, and write what it returns to
@@ -74,24 +140,7 @@ fn run(
             output.display()
         ));
     }
-    let size = std::fs::metadata(input)
-        .map_err(|e| format!("{}: {e}", input.display()))?
-        .len();
-    if size > max_input_bytes {
-        return Err(format!(
-            "{}: {size} bytes; the bound is {max_input_bytes}",
-            input.display(),
-        ));
-    }
-    let buf = std::fs::read(input).map_err(|e| format!("{}: {e}", input.display()))?;
-    let threads = match io.threads {
-        Some(0) => return Err("--threads 0 would do nothing".to_string()),
-        Some(n) => n,
-        None => std::thread::available_parallelism()
-            .map(usize::from)
-            .unwrap_or(1),
-    }
-    .min(MAX_THREADS);
+    let (buf, threads) = read_input(input, io.threads, max_input_bytes)?;
     let (bytes, line) = work(&buf, threads)?;
     write_atomically(output, &bytes)?;
     Ok(format!("{line} -> {}", output.display()))
@@ -135,6 +184,7 @@ fn main() -> ExitCode {
         Command::Ngrams(io) => run(io, linwire::MAX_INPUT_BYTES, linwire::run_ngrams),
         Command::Linfit(io) => run(io, linwire::MAX_INPUT_BYTES, linwire::run_linfit),
         Command::Lsh(io) => run(io, lsh::MAX_INPUT_BYTES, lsh::run_lsh),
+        Command::Containment(io) => run_containment(io),
     };
     match result {
         Ok(line) => {

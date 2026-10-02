@@ -116,6 +116,7 @@ from qd_train.artifacts import (
     assign_buckets,
     padding_waste,
 )
+from qd_train.exclusions import apply_exclusions, containment_corpus, read_exclusions
 from qd_train.ledger import (
     DEFAULT_LEDGER_PATH,
     Environment,
@@ -1738,6 +1739,50 @@ def general_rows(record: Path, *, max_rows_per_file: int = DEFAULT_GENERAL_MAX_R
     )
 
 
+def corpus_identity(
+    *, rev: str, max_pairs: int, commitpackft: Path | None, defect_class: Path | None,
+    defect_max_rows: int | None, repo_history: bool = True,
+    general_record: Path | None = None, general_max_rows: int | None = None,
+    defect_noul: Path | None = None,
+) -> dict[str, object]:
+    """What this pipeline's corpus inputs are -- equally, what ``real_ft_run.ft_splits`` was
+    called with -- as an attestation records them. The one owner: the replay attestation
+    (``real_ft_run.replay_corpus_identity``, which delegates here) and the containment
+    attestation (``qd_train.exclusions.containment_corpus``) both name the corpus with it,
+    and this module checks an exclusion list against it without importing the trainer.
+    ``repo_history`` is named only when False, and the general record only when given, so
+    every attestation written before either existed still matches. The record is named by
+    its sha256, as the pipeline's recipe names it."""
+    if general_record is None and general_max_rows is not None:
+        raise ValueError("general_max_rows without general_record read nothing")
+    general: dict[str, object] = {}
+    if general_record is not None:
+        general = {
+            "general_record_sha256": hashlib.sha256(general_record.read_bytes()).hexdigest(),
+            "general_max_rows": (
+                DEFAULT_GENERAL_MAX_ROWS if general_max_rows is None else general_max_rows
+            ),
+        }
+    return {
+        "rev": rev,
+        "max_pairs": max_pairs,
+        "commitpackft": None if commitpackft is None else commitpackft.name,
+        "defect_class": None if defect_class is None else defect_class.name,
+        "defect_max_rows": defect_max_rows,
+        **({} if repo_history else {"repo_history": False}),
+        **general,
+        # Named by its examples' sha256, and only when given, so every attestation written
+        # before it still matches: a corpus with the noul rows is not the corpus without.
+        **(
+            {} if defect_noul is None else {
+                "defect_noul_examples_sha256": str(json.loads(
+                    (defect_noul / "manifest.json").read_text(encoding="utf-8")
+                )["examples_sha256"]),
+            }
+        ),
+    }
+
+
 #: What ``tools/replay_decontam.py --hits-out`` names as its writer (its ``HITS_TOOL``). Spelled
 #: here rather than imported: that tool imports ``real_ft_run``, and this one stays light.
 REPLAY_HITS_TOOL: Final[str] = "tools/replay_decontam.py --hits-out"
@@ -2257,6 +2302,7 @@ def run(
     report_only_slice: Path | None = None,
     gate_set: Path | None = None,
     replay_exclude: Path | None = None,
+    exclude_identity_keys: Path | None = None,
 ) -> Measured:
     """Build, measure and write one shard set, and return what was measured.
 
@@ -2266,7 +2312,19 @@ def run(
     row of ``gate_set``'s gate val set or the remap is not the one ``gate_set`` trained
     under. The train set it also writes is the base-corpus sample the pipeline needs to
     measure, not a training set.
+
+    With ``exclude_identity_keys`` (an ``exclusions.txt`` from ``qd-prep containment``, its
+    attestation beside it) the train rows it names leave the train split right after
+    ``split`` and before ``split_off_replay`` (``qd_train.exclusions.apply_exclusions``), and
+    the train and replay headers carry its sha256. Without it nothing here changes.
     """
+    if exclude_identity_keys is not None and replay_exclude is not None:
+        raise SystemExit(
+            "--exclude-identity-keys and --replay-exclude together: the containment list "
+            "already removes every contaminated train row, gold or replay-drawn, before the "
+            "replay draw, so partition_replay is handed no contaminated keys (Fable "
+            "2026-10-02, Q2) and a --replay-exclude key would name no drawn row"
+        )
     if replay_exclude is not None and not replay_shards:
         raise SystemExit(
             "--replay-exclude needs --replay-shards: it removes rows from the replay slice, "
@@ -2304,6 +2362,8 @@ def run(
                 ("--general-record", general_record),
                 ("--commitpackft", commitpackft),
                 ("--replay-shards", replay_shards or None),
+                ("--exclude-identity-keys (the slice's train side trains nothing)",
+                 exclude_identity_keys),
                 ("repository history (pass --no-repo-history)", repo_history or None),
             ) if given is not None
         ]
@@ -2343,6 +2403,17 @@ def run(
     config = DataConfig()
     extra_metrics: dict[str, TriState] = {}
     resolved = resolve_rev(REPO, rev)
+    containment = containment_corpus(corpus_identity(
+        rev=resolved, max_pairs=max_pairs, commitpackft=commitpackft, defect_class=defect_class,
+        defect_max_rows=defect_max_rows, repo_history=repo_history,
+        general_record=general_record,
+        general_max_rows=general_max_rows if general_record is not None else None,
+        defect_noul=defect_noul,
+    )) if exclude_identity_keys is not None else {}
+    if exclude_identity_keys is not None:
+        # Verified now, before minutes of building: the same check runs again where it is
+        # applied, after the split.
+        read_exclusions(exclude_identity_keys, corpus=containment)
     tok = RealTokenizer.load(memo_limit=memo_limit)
     print(
         f"tokenizer {type(tok.tok).__name__} for {MODEL}: vocab_size={tok.tok.vocab_size} "
@@ -2498,6 +2569,25 @@ def run(
         for split_name, split_rows in sorted(split_report.rows_by_split.items()):
             print(f"  {split_name}: {json.dumps(defect_balance(list(split_rows)))}")
     print(f"  split status: {json.dumps(split_report.status.to_json(), sort_keys=True)[:400]}")
+
+    # Fable's v5 rule: once, after the split and before the replay draw. Without the flag
+    # this returns split_report itself.
+    split_report, exclusions, excluded_rows = apply_exclusions(
+        split_report, exclude_identity_keys, corpus=containment
+    )
+    exclusions_sha256 = "" if exclusions is None else exclusions.sha256
+    if exclusions is not None:
+        extra_metrics["decontam_exclusion"] = Ran(
+            passed=True, value=len(excluded_rows), n=len(excluded_rows),
+            n_total=len(excluded_rows) + len(split_report.rows_by_split.get("train", ())),
+            detail=(
+                f"{len(excluded_rows)} train row(s) under {len(exclusions.keys)} identity "
+                f"key(s) of {exclusions.path} (sha256 {exclusions.sha256}) left the train "
+                "split before the replay draw; val and held-out are untouched"
+            ),
+        )
+        print(f"  decontamination exclusion: {len(excluded_rows)} train row(s), "
+              f"{len(exclusions.keys)} key(s), exclusions sha256 {exclusions.sha256}")
 
     replay_report: SplitReport | None = None
     if replay_shards:
@@ -2799,6 +2889,7 @@ def run(
         corpus_rev=resolved,
         max_seq_len=max_seq_len,
         span_collapse_policy=span_collapse_policy,
+        exclusions_sha256=exclusions_sha256,
     )
     print(f"  header: n_sequences={header.n_sequences} total_tokens={header.total_tokens} "
           f"max_seq_len={header.max_seq_len} vocab_size={header.vocab_size}")
@@ -2869,6 +2960,7 @@ def run(
             config=config, repo_root=out, allow_unencodable=True,
             allow_not_run_snapshot=not_run_snapshot, corpus_rev=resolved, replay=True,
             max_seq_len=max_seq_len, span_collapse_policy=span_collapse_policy,
+            exclusions_sha256=exclusions_sha256,
         )
         replay_reader = ShardReader(replay_dir, config=config, repo_root=out)
         extra_metrics["replay_shard_slots_written"] = replay_reader.slot_coverage
@@ -2906,6 +2998,7 @@ def run(
         corpus_rev=resolved,
         max_seq_len=max_seq_len,
         span_collapse_policy=span_collapse_policy,
+        exclusions_sha256=exclusions_sha256,
     )
     checked = _artifact_digest(shard_dir)
     unchecked = _artifact_digest(undecoded_dir)
@@ -3234,6 +3327,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--exclude-identity-keys", type=Path, default=None,
+        help=(
+            "an exclusions.txt written by qd-prep containment (tools/containment_scan.py), "
+            "with its attestation.json beside it: those train rows leave the train split "
+            "before the replay draw (Fable's v5 decontamination rule). Refused unless the "
+            "attestation is CLEAN, for this corpus, and every key names a train row"
+        ),
+    )
+    parser.add_argument(
         "--usd-per-hour", type=float, default=None,
         help="the instance rate from the provider's price page, on a rented box",
     )
@@ -3285,6 +3387,7 @@ def main(argv: list[str] | None = None) -> int:
         "span_collapse_policy": args.span_collapse_policy or SPAN_COLLAPSE_REFUSE_ANY,
         "report_only_slice": args.report_only_slice, "gate_set": args.gate_set,
         "replay_exclude": args.replay_exclude,
+        "exclude_identity_keys": args.exclude_identity_keys,
     }
     if args.ledger is None:
         run(**run_kwargs)
@@ -3352,6 +3455,12 @@ def main(argv: list[str] | None = None) -> int:
         # Only when used: the hit list decides which replay rows are written.
         recipe["replay_exclude_sha256"] = hashlib.sha256(
             args.replay_exclude.read_bytes()
+        ).hexdigest()
+    if args.exclude_identity_keys is not None:
+        # Only when used, so every recipe written without it hashes as before: the list
+        # decides which train rows are written, and the train header names the same digest.
+        recipe["exclusions_sha256"] = hashlib.sha256(
+            args.exclude_identity_keys.read_bytes()
         ).hexdigest()
     if args.max_seq_len is not None:
         # Only when used: it decides which rows are written.
