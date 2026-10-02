@@ -7,12 +7,72 @@ all 23,819 v4 MMLU/CSQA rows, because the 09-29 exclusion was never wired into a
 val rows (E_val) held out, and over E_val alone. It is report-only: no threshold, gate or
 population moves (rule 2).
 
-**Nothing ran on real data.** E_val did not exist when this lane finished. That is L-replay's
-output (`GAP-RESCORE-EXCLUDED-NOT-YET-RUN-2026-10-02`).
+**F seed 0 is re-scored** (row `e663248b`, below). The run used L-replay's E_val at
+`/Users/bharath/qd-campaign/replay-v4-2026-10-02/gold-side/e-val.txt`: sha256
+`e933ea3010ba136f3a5cf6d007ac2642fddef43ef9d74c14ca4d9faebcecb45c`, 215 keys (183 MMLU, 32 CSQA,
+all slot `answer`). Seeds 1 and 2 follow when their verdict files land on the box
+(`GAP-RESCORE-EXCLUDED-NOT-YET-RUN-2026-10-02`).
 
 ## What was measured
 
-No ledger row. The only numbers are the tests' numbers, on synthetic fixtures (rule 5).
+Ledger `ledger/mac-rescore-excluded-2026-10-02.jsonl`, row
+**`e663248b-0532-412f-addf-a48fa6cf86ba`** (chain verifies, 1 row):
+- `quick`, report-only, tag `gate-report-excluded`;
+- `code_commit` `026473290d5a18097095885432bc4d9a4364c1ec`, clean: this lane's HEAD, run from a
+  clean detached worktree;
+- binary sha256 `ec88665ff984b5bde930ce8e2b8a763a4e132071d815ca151d5806da31cd34f5` (release,
+  built at that commit).
+
+It re-reads F seed 0's eval row `f4feac15-db49-4159-bb9b-695866c855cc` from the files pulled
+read-only from the box, each sha256-equal to the box's copy:
+- `verdicts-s0.jsonl` `4452eb66…`;
+- `suite-verdicts-s0.jsonl` `d93971cd…`;
+- the box ledger `abb48449…`.
+
+Checks:
+- All 215 E_val keys name a verdict line (0 absent; seed 0 decoded 18223/18223), so the default
+  refuse path ran, with no allow flag.
+- The binary recomputed 65 of the eval row's own numbers equal, with none left uncompared.
+- Every `full` value below is the eval row's own.
+
+F seed 0, three views (count / n). All verified, read off row `e663248b`:
+
+| Population | Metric | full | excluded (not in E_val) | only (E_val) |
+| --- | --- | --- | --- | --- |
+| knowledge.multiple_choice (MMLU) | top-1 | 905/1485 = 0.6094 | 798/1302 = 0.6129 | 107/183 = 0.5847 |
+| | permutation agreement | 1168/1485 = 0.7865 | 1020/1302 = 0.7834 | 148/183 = 0.8087 |
+| | in-distribution abstention | 317/1485 = 0.2135 | 282/1302 = 0.2166 | 35/183 = 0.1913 |
+| | ECE choice.k4 | 0.0489 | 0.0525 | 0.0979 (183 rows) |
+| | last option (k4) predicted sigma | -1.306 | -1.019 | -0.983 |
+| commonsense.multiple_choice (CSQA) | top-1 | 914/1197 = 0.7636 | 887/1165 = 0.7614 | 27/32 = 0.8438 |
+| | permutation agreement | 1053/1197 = 0.8797 | 1026/1165 = 0.8807 | 27/32 = 0.8438 |
+| | in-distribution abstention | 144/1197 = 0.1203 | 139/1165 = 0.1193 | 5/32 = 0.1562 |
+| | ECE choice.k5 | 0.0278 | 0.0278 | not_run (32 < 100) |
+| | last option (k5) predicted sigma | +0.678 | +0.764 | -0.453 |
+| pooled, every family | top-1 choice (`val_top1.choice`) | 9130/10985 = 0.8311 | 8996/10770 = 0.8353 | 134/215 = 0.6233 |
+| | permutation agreement (the gate's population) | 10240/10985 = 0.9322 | 10065/10770 = 0.9345 | 175/215 = 0.8140 |
+| | in-distribution abstention (the gate's half) | 843/10985 = 0.0767 | 803/10770 = 0.0746 | 40/215 = 0.1860 |
+| | ECE choice.k4 (defect_class + MMLU) | 0.0270 (3789) | 0.0275 (3606) | 0.0979 (183) |
+
+Reading. This is report-only; it moves nothing, and a quick row decides nothing (rule 8).
+
+**Within a family, holding E_val out barely moves anything on seed 0, and not in one
+direction.**
+- MMLU top-1 rises 0.0035 and CSQA's falls 0.0022.
+- MMLU permutation falls 0.0031 and CSQA's rises 0.0010.
+- MMLU abstention rises 0.0031 and CSQA's falls 0.0010.
+
+**The E_val rows themselves are not answered better than their family.** MMLU's E_val top-1 is
+0.5847, against 0.6129 for the rest. Fable's direction ("contamination can only flatter", Q6)
+was inferred and is not borne out for top-1 on this seed. Inferred, not tested: 183 rows give
+the `only` share a binomial SE of about 0.036, so these within-family gaps are inside one SE.
+
+**Pooled, holding E_val out RAISES the pooled gates' values.**
+- Permutation goes 0.9322 to 0.9345, still under the 95% bar.
+- In-distribution abstention goes 0.0767 to 0.0746, still over the 5% bar.
+
+That is family composition, not memorisation (inferred): E_val sits in the two weakest families.
+No failing gate passes either way.
 
 ## What changed
 
@@ -129,8 +189,19 @@ are written for seed 0; repeat them with `s1` and `s2`.
 
 ### 1. Two worktrees at `<MERGED>`: one to build in, one kept clean to run from
 
+**For seeds 1 and 2, skip steps 1 and 2.** Both worktrees already exist at `0264732` with the
+binary built. Reusing them keeps all three seeds' rows on one `code_commit` and one
+`bin_sha256`.
+
     git worktree add --detach /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/build-wt <MERGED>
     git worktree add --detach /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/run-wt <MERGED>
+    ln -s /Users/bharath/Code/research/tessl /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/tessl
+    ln -s /Users/bharath/Code/research/ojas /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/ojas
+
+The two symlinks are needed because the workspace reaches tessl by a relative path,
+`crates/qd-metal/Cargo.toml:38` `../../../tessl`, as `.claude/worktrees/` does with its own
+`tessl` and `ojas` links. Without them the build fails to load the workspace (seen on the
+seed-0 run).
 
 Nothing is ever built or written inside `run-wt`. `code_commit` counts untracked files as dirty
 (`python/qd_train/ledger.py:1112-1127`), and a cargo build re-resolves `Cargo.lock` (the tessl
