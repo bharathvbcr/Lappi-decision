@@ -1,0 +1,61 @@
+== Mutation runs on 2026-10-02 UTC, before the final evidence runs that start at 00:21:26Z, ojas-qwen35-cuda (each mutation reverted afterwards; md5 before = after: src/runtime.rs 98471947aa97a88dd87689ca8aa9b6a2, src/bf16.rs 1ad5a45952a30c00cd95f9d5097ff20f)
+== M1: src/bf16.rs f32_to_bf16_bits rounding replaced by round-half-up ((bits + 0x8000) >> 16); cargo test --features cuda --lib -- bf16
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.07s
+     Running unittests src/lib.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/ojas_qwen35_cuda-cd63eccd36e9c006)
+
+running 7 tests
+test bf16::tests::every_bf16_value_round_trips_exactly ... ok
+test bf16::tests::nans_stay_nans_with_the_quiet_bit_and_sign ... ok
+test bf16::tests::overflow_rounds_to_infinity_and_infinities_stay ... ok
+test bf16::tests::signed_zeros_and_subnormals_are_kept ... ok
+test host_ref::tests::bf16_operands_round_before_multiplying ... ok
+test bf16::tests::ties_go_to_even_and_carries_propagate ... FAILED
+test bf16::tests::integer_trick_matches_the_value_rounding_on_two_million_inputs ... FAILED
+
+failures:
+
+---- bf16::tests::ties_go_to_even_and_carries_propagate stdout ----
+
+thread 'bf16::tests::ties_go_to_even_and_carries_propagate' (141146292) panicked at src/bf16.rs:83:9:
+assertion `left == right` failed
+  left: 16257
+ right: 16256
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- bf16::tests::integer_trick_matches_the_value_rounding_on_two_million_inputs stdout ----
+
+thread 'bf16::tests::integer_trick_matches_the_value_rounding_on_two_million_inputs' (141146288) panicked at src/bf16.rs:144:13:
+assertion `left == right` failed: x = 1.5990784e8 (0x4d188000)
+  left: 19737
+ right: 19736
+
+
+failures:
+    bf16::tests::integer_trick_matches_the_value_rounding_on_two_million_inputs
+    bf16::tests::ties_go_to_even_and_carries_propagate
+
+test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
+== M2: src/runtime.rs CudaRuntime::open with probe_libraries()? removed; cargo test --features cuda --test runtime_refusal
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running tests/runtime_refusal.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/runtime_refusal-551cf29acab77aff)
+
+running 1 test
+test a_host_without_cuda_is_refused_by_library_name_not_by_a_panic ... FAILED
+
+failures:
+
+---- a_host_without_cuda_is_refused_by_library_name_not_by_a_panic stdout ----
+
+thread 'a_host_without_cuda_is_refused_by_library_name_not_by_a_panic' (141222128) panicked at /Users/bharath/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cudarc-0.19.10/src/lib.rs:200:5:
+Unable to dynamically load the "cuda" shared library - searched for library names: ["libcuda.dylib", "libcuda64.dylib", "libcuda64_12.dylib", "libcuda64_128.dylib", "libcuda64_128_0.dylib", "libcuda64_120_8.dylib", "libcuda64_10.dylib", "libcuda64_11 [... omitted end of long line]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_host_without_cuda_is_refused_by_library_name_not_by_a_panic
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--test runtime_refusal`

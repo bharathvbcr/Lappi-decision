@@ -1,0 +1,13 @@
+--- verification: gpu_tiny with the shipped fix
+Fri Oct  2 00:24:11 UTC 2026
+System-wide memory free percentage: 87%
+--- ollama ps
+NAME    ID    SIZE    PROCESSOR    CONTEXT    UNTIL 
+cargo test/bench running: no
+test gpu_tiny_adamw_step_is_torchs_update ... ok
+test gpu_tiny_bf16_operands_stay_near_the_fixture ... ok
+test gpu_tiny_hidden_rows_external_grad_and_accumulation_are_tessls_own ... ok
+test gpu_tiny_rows_step_matches_the_transformers_fixture ... ok
+test gpu_tiny_state_round_trip_is_bit_exact ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 4.71s
+Fri Oct  2 00:24:17 UTC 2026

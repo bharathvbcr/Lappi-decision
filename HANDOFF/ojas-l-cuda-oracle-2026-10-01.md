@@ -15,7 +15,7 @@ On resume after the usage-limit stop, `tests/` did not exist: no partial write h
 Everything below is under `ojas-qwen35-cuda/tests/`.
 
 - `reference/`, 14 files: `mod.rs` and 13 modules.
-  - References: `gdn_published`, `gates`, `conv1d`, `norms`, `attn_pieces`, `embed`, `ce`, `adamw`.
+  - References: `gdn_published`, `gates_published`, `conv1d`, `norms`, `attn_pieces`, `embed`, `ce`, `adamw`.
   - Helpers: `npy`, `sha256`, `rng`, `fd`, `goldens`.
 - 5 test targets: `reference_gdn_published.rs`, `reference_gdn_published_vs_tessl.rs`,
   `reference_goldens_published.rs`, `reference_kernels.rs`, `reference_adamw.rs`.
@@ -51,7 +51,7 @@ tests still pass alongside. Every target finishes in under 10 s in debug (`--tes
 | K2 | `gdn_published.rs`: fwd + checkpoints `[B,H,ceil(T/64),Dk,Dv]`, bwd consuming them | (1) tessl's 13-case `gdn_published_*` corpus (numpy f64; copied byte-identical, checked in-test against tessl's `SHA256SUMS`), T=1,63,64,65,127,129,1000,8191, 1e-12 of max (`tessl/tests/gdn_fixtures.rs:63`); (2) torch f64 golden of transformers' `torch_recurrent_gated_delta_rule` (l2norm in kernel) + autograd, T=1,63,64,65,130, Dk=128, 1e-10 | (1) 2.45e-16 (L8191); (2) 2.23e-15 over o, final state, dq, dk, dv, dg, dbeta, ds0 | golden ×2 |
 | K2 | same | tessl `gdn_train_f64`/`gdn_train_bwd_f64` in process, T=1,63,64,65,130 with tessl's flags (`tessl/tests/gdn_train.rs:365-371`), Dk=128 | **bit-identical**, all 8 outputs × 5 T | tessl in process |
 | K2 | same | FD through the checkpointed backward at T=1,63,64,65,130 (tessl's own FD runs only T=7) | 9.98e-10 | derivative |
-| K3 | `gates.rs` (`g = -exp(A_log) softplus(a+dt_bias)`, `beta = sigmoid(b)`) | `goldens/gates_*`, 1e-13 (includes softplus' linear branch and a=120) | 2.39e-16 | golden + derivative |
+| K3 | `gates_published.rs` (`g = -exp(A_log) softplus(a+dt_bias)`, `beta = sigmoid(b)`) | `goldens/gates_published_*`, 1e-13 (includes softplus' linear branch and a=120) | 2.39e-16 | golden + derivative |
 | K4 | `conv1d.rs` (causal depthwise K=4 + SiLU, zero state) | `goldens/conv1d_silu_*` (`F.conv1d`), 3 shapes incl. T<K-1, 1e-12 | 2.85e-16 | golden + derivative |
 | K6 | `attn_pieces.rs`: q/k `(1+w)` norm + partial RoPE (cos/sin of the f32 angle) | tessl's transformers fixture `qwen35_rope_*` at positions 20000+, 5e-6 abs (`tessl/tests/qwen35_kernels.rs:192-212`); `goldens/qk_norm_rope_*` given the angle, 1e-12 | 7.08e-7 abs; 3.80e-16 | golden ×2 + derivative |
 | K6 | `rope_angle_f32` | the golden's angles from transformers' own `Qwen3_5TextRotaryEmbedding` at the 2B config | 320/320 bit-identical | golden |
@@ -129,10 +129,19 @@ Each run used a temporary edit. The edit was reverted, and the suite then ran gr
   gradient tensors in place before `adamw_step_f64`, as torch does to `.grad`. tessl does it in f32
   before its step (`tessl/tests/qwen35_adamw.rs:89-94`). `grad_sq_norm_f64` is the squared norm that
   coefficient is computed from.
-- **Rule 9 and K3:** the gate goldens are named `gates_*`, without `published`. The gates sit
-  upstream of the state update, which is where the published and repo rules differ. tessl's
-  `tests/gdn_gates.rs` and `tests/qwen35_bwd.rs::gdn_gates_forward_and_backward_match` name them
-  the same way. Recorded so the lead can rule on it rather than discover it.
+- **Rule 9 and K3 (the lead ruled 2026-10-01: rename).** The gates are part of the GDN operator,
+  so their goldens, tests and reference now say `published`:
+  - the goldens are `goldens/gates_published_*`, and the manifest case is `gates_published`;
+  - the module is `reference/gates_published.rs`, with `gdn_gates_published_fwd_f64` / `_bwd_f64`;
+  - the tests are `k3_gates_published_match_the_torch_golden` and
+    `k3_gates_published_backward_is_the_derivative_away_from_the_threshold`.
+
+  The rule-9 test now covers the gates as well (92 GDN goldens, 12 of them gates, all say `published`).
+  - Regenerating gave **byte-identical** goldens apart from the rename: 193 files before and after;
+    the 12 `gates_*` files map to the 12 `gates_published_*` files sha256 for sha256; nothing
+    missing, nothing extra, no other file changed.
+  - K3 measurements are unchanged (2.39e-16).
+  - tessl's own `tests/gdn_gates.rs` names are tessl's to change.
 - Not written by this lane, being outside its brief:
   - K0, K1 (GEMM), K5 (attention core) and K8 (swiglu, residual) references;
   - the whole-step reference against tessl's `qwen35_train/` fixture (§5.2).
@@ -140,7 +149,10 @@ Each run used a temporary edit. The edit was reverted, and the suite then ran gr
 ## What changed (commits in this Lappi worktree, branch `worktree-agent-a7351a470e167004b`)
 
 - `8fd9ea1`: interim. K2 handoff, GDN fail-first outputs, three gaps.
-- The final commit: this handoff, the AUDIT outputs and five more gaps.
+- `142faa2`: the handoff, the AUDIT outputs and five more gaps.
+- `5b3f2e2`: in-test pins for tessl's `gdn_train.rs` and the RoPE copies; 33 tests.
+- Merged to main at `6d1bac1`.
+- The K3 rename commit (this note): the lead's rule-9 ruling.
 
 ## Open (gap ids)
 

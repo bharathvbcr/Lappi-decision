@@ -1,0 +1,326 @@
+tessl patch for a tessl-rooted session (written by L-ojas-qwen35; NOT applied; tessl was not edited).
+Applies to tessl HEAD cf65d9d: the three files below are clean in tessl's working tree (GitPulse active_changes, 2026-10-02 00:2x UTC).
+Type-checked and clippy-clean (cargo check/clippy --lib --test qwen35_params) on a scratch copy of tessl's working tree; the new test was NOT run (it needs the GPU).
+Adds per-entry host-mapped reads and writes of the parameter table, gradients and AdamW moments, so a 2B read-back or checkpoint never stages a 7.5 GB table on the device.
+Why: GAP-OJAS-QWEN35-2B-READ-GRADIENTS-METAL-FAULT-2026-10-01 and GAP-OJAS-QWEN35-2B-STAGING-HEADROOM-2026-10-01 in Lappi gaps.jsonl; evidence in AUDIT/ojas-training-2026-10-01/ojas-qwen35-gpu-diag-*.log.
+Apply from the tessl root: git apply --check <this file> && git apply <this file>; then: cargo test --release --test qwen35_params host_entries_are_the_table_copies_bit_for_bit (GPU).
+
+--- a/src/qwen35_params.rs
++++ b/src/qwen35_params.rs
+@@ -384,5 +384,172 @@
+             Src::Raw(b) => gpu_copy(src, &self.as_tensor(b, info)?),
+             Src::Packed(t, off) => self.packed_copy(t, off, info.shape[1], info.shape[0], src, false),
+         }
++    }
++
++    /// Entry `i` of [`Self::parameter_table`] into `out`, dense f32 in the
++    /// entry's [`ParamInfo::storage_shape`], laid out as
++    /// [`Self::read_parameters`] writes it, read on the host from unified
++    /// memory: no staging tensor and no dispatch. The mapping waits for
++    /// submitted GPU work first. A caller streaming a checkpoint holds one
++    /// entry at a time; [`Self::read_parameters`] needs every entry staged
++    /// on the device at once, 7.5 GB more device memory on the 2B, which
++    /// left no room under the device's recommended working set.
++    pub fn read_parameter_host(&self, i: usize, out: &mut [f32]) -> Result<(), String> {
++        const WHAT: &str = "Qwen35Model::read_parameter_host";
++        self.require_f32(WHAT)?;
++        let slots = slots(self, None)?;
++        let s = entry(WHAT, &slots, i)?;
++        host_read(s.param, &s.info, out).map_err(|e| format!("{WHAT}: {}: {e}", s.info.name))
+     }
++
++    /// Set entry `i` from `src`, laid out as [`Self::read_parameter_host`]
++    /// reads it, written on the host. The mapping waits for submitted GPU
++    /// work first, and no GPU work runs while it is held. Checked before
++    /// anything is written.
++    pub fn write_parameter_host(&self, i: usize, src: &[f32]) -> Result<(), String> {
++        const WHAT: &str = "Qwen35Model::write_parameter_host";
++        self.require_f32(WHAT)?;
++        let slots = slots(self, None)?;
++        let s = entry(WHAT, &slots, i)?;
++        host_write(s.param, &s.info, src).map_err(|e| format!("{WHAT}: {}: {e}", s.info.name))
++    }
++
++    /// Entry `i` of `grads` (from a step on this model) on the host, laid out
++    /// as [`Self::read_parameter_host`] reads the value.
++    pub fn read_gradient_host(&self, grads: &Qwen35Grads, i: usize, out: &mut [f32]) -> Result<(), String> {
++        self.read_gradient_layout_host("Qwen35Model::read_gradient_host", grads, i, out)
++    }
++
++    /// Entry `i` of gradient-shaped storage for this model (gradients, or an
++    /// optimizer's moments) on the host.
++    pub(crate) fn read_gradient_layout_host(
++        &self,
++        what: &str,
++        mirror: &Qwen35Grads,
++        i: usize,
++        out: &mut [f32],
++    ) -> Result<(), String> {
++        self.require_f32(what)?;
++        let slots = slots(self, Some(mirror)).map_err(|e| format!("{what}: {e}"))?;
++        let s = entry(what, &slots, i)?;
++        let g = s.grad.ok_or_else(|| format!("{what}: {} has no slot", s.info.name))?;
++        host_read(g, &s.info, out).map_err(|e| format!("{what}: {}: {e}", s.info.name))
++    }
++
++    /// Set entry `i` of gradient-shaped storage for this model on the host.
++    pub(crate) fn write_gradient_layout_host(
++        &self,
++        what: &str,
++        mirror: &Qwen35Grads,
++        i: usize,
++        src: &[f32],
++    ) -> Result<(), String> {
++        self.require_f32(what)?;
++        let slots = slots(self, Some(mirror)).map_err(|e| format!("{what}: {e}"))?;
++        let s = entry(what, &slots, i)?;
++        let g = s.grad.ok_or_else(|| format!("{what}: {} has no slot", s.info.name))?;
++        host_write(g, &s.info, src).map_err(|e| format!("{what}: {}: {e}", s.info.name))
++    }
+ }
++
++fn entry<'s, 'a>(what: &str, slots: &'s [Slot<'a>], i: usize) -> Result<&'s Slot<'a>, String> {
++    slots
++        .get(i)
++        .ok_or_else(|| format!("{what}: entry {i} of a {}-entry table", slots.len()))
++}
++
++/// Where an entry's storage-layout value sits in a tessl buffer: `rows` runs
++/// of `width` f32, the first at element `start`, each `ld` after the last.
++struct Window<'a> {
++    buf: &'a GpuBuffer,
++    start: usize,
++    rows: usize,
++    width: usize,
++    ld: usize,
++}
++
++/// The [`Window`] of `at` for an entry of `info`, holding exactly `len`
++/// values. Every bound is checked here, before the buffer is mapped.
++fn window<'a>(at: Src<'a>, info: &ParamInfo, len: usize) -> Result<Window<'a>, String> {
++    let shape = info.storage_shape();
++    let n = shape
++        .iter()
++        .try_fold(1usize, |a, &d| a.checked_mul(d))
++        .ok_or_else(|| format!("storage shape {shape:?} overflows"))?;
++    if len != n {
++        return Err(format!("{len} values for storage shape {shape:?}"));
++    }
++    let w = match at {
++        Src::Raw(b) => Window {
++            buf: b,
++            start: 0,
++            rows: 1,
++            width: n,
++            ld: n,
++        },
++        Src::Dense(t) => {
++            if t.dtype != DType::F32 || t.shape() != shape.as_slice() {
++                return Err(format!("tessl holds {:?} {:?}", t.dtype, t.shape()));
++            }
++            Window {
++                buf: &t.buffer,
++                start: t.byte_offset() / 4,
++                rows: 1,
++                width: n,
++                ld: n,
++            }
++        }
++        Src::Packed(t, off) => {
++            let (rows, width) = (info.shape[1], info.shape[0]);
++            let s = t.shape();
++            let fits = s.len() == 2 && s[0] == rows && off.checked_add(width).is_some_and(|e| e <= s[1]);
++            if t.dtype != DType::F32 || !fits {
++                return Err(format!(
++                    "columns [{off}, {off} + {width}) of {rows} rows in a {:?} {s:?} matrix",
++                    t.dtype
++                ));
++            }
++            Window {
++                buf: &t.buffer,
++                start: t.byte_offset() / 4 + off,
++                rows,
++                width,
++                ld: s[1],
++            }
++        }
++    };
++    // One past the last element touched (nothing is touched with no rows).
++    let end = match w.rows.checked_sub(1) {
++        None => Some(w.start),
++        Some(last) => last
++            .checked_mul(w.ld)
++            .and_then(|x| x.checked_add(w.start))
++            .and_then(|x| x.checked_add(w.width)),
++    }
++    .ok_or("window end overflows")?;
++    let have = w.buf.nbytes() / 4;
++    if end > have {
++        return Err(format!("the window ends at element {end}, the buffer holds {have}"));
++    }
++    Ok(w)
++}
++
++fn host_read(from: Src<'_>, info: &ParamInfo, out: &mut [f32]) -> Result<(), String> {
++    let w = window(from, info, out.len())?;
++    let map = w.buf.try_contents_f32()?;
++    for r in 0..w.rows {
++        let a = w.start + r * w.ld;
++        out[r * w.width..(r + 1) * w.width].copy_from_slice(&map[a..a + w.width]);
++    }
++    Ok(())
++}
++
++fn host_write(to: Src<'_>, info: &ParamInfo, src: &[f32]) -> Result<(), String> {
++    let w = window(to, info, src.len())?;
++    let mut map = w.buf.try_contents_f32()?;
++    for r in 0..w.rows {
++        let a = w.start + r * w.ld;
++        map[a..a + w.width].copy_from_slice(&src[r * w.width..(r + 1) * w.width]);
++    }
++    Ok(())
++}
+--- a/src/qwen35_adamw.rs
++++ b/src/qwen35_adamw.rs
+@@ -486,6 +486,31 @@
+         self.write_gradient_layout("Qwen35Model::write_adamw_moment", state.moment(which), src)
+     }
+ 
++    /// Entry `i` of one of `state`'s moments on the host, laid out as
++    /// [`Qwen35Model::read_parameter_host`] reads the value: one entry at a
++    /// time, with no staging tensor.
++    pub fn read_adamw_moment_host(
++        &self,
++        state: &AdamW,
++        which: Moment,
++        i: usize,
++        out: &mut [f32],
++    ) -> Result<(), String> {
++        self.read_gradient_layout_host("Qwen35Model::read_adamw_moment_host", state.moment(which), i, out)
++    }
++
++    /// Set entry `i` of one of `state`'s moments from `src` on the host, laid
++    /// out as [`Self::read_adamw_moment_host`] reads it.
++    pub fn write_adamw_moment_host(
++        &self,
++        state: &mut AdamW,
++        which: Moment,
++        i: usize,
++        src: &[f32],
++    ) -> Result<(), String> {
++        self.write_gradient_layout_host("Qwen35Model::write_adamw_moment_host", state.moment(which), i, src)
++    }
++
+     /// Weight decay `wd` for every parameter-table entry except those
+     /// [`excluded_from_weight_decay`], which take 0.
+     pub fn default_weight_decay(&self, wd: f32) -> Result<Vec<f32>, String> {
+--- a/tests/qwen35_params.rs
++++ b/tests/qwen35_params.rs
+@@ -11,6 +11,7 @@
+ 
+ use tessl::gemm::GemmOperands;
+ use tessl::npy::read_npy;
++use tessl::qwen35_adamw::{AdamW, AdamWHyper, Moment};
+ use tessl::qwen35_model::{Precision, Qwen35Config, Qwen35Model};
+ use tessl::qwen35_params::ParamInfo;
+ use tessl::safetensors::SafeTensors;
+@@ -288,3 +289,99 @@
+     let (_, bf16, _) = load(Precision::Bf16);
+     e(bf16.read_parameters(&alloc(&rt, &table)), "Precision::F32");
+ }
++
++/// A per-entry host read: entry index, then the caller's buffer.
++type HostRead<'a> = &'a dyn Fn(usize, &mut [f32]) -> Result<(), String>;
++
++/// One entry at a time on the host is the whole-table device copies' bits,
++/// for values, gradients and both AdamW moments; a host write round-trips
++/// and moves the step; a bad index or length is refused before anything is
++/// mapped or written.
++#[test]
++fn host_entries_are_the_table_copies_bit_for_bit() {
++    let (rt, model, _st) = load(Precision::F32);
++    let ids = ids();
++    let table = model.parameter_table().unwrap();
++    let step = model.train_step(&ids, GemmOperands::ExactF32).unwrap();
++    let mut state = AdamW::new(&model).unwrap();
++    let wd = model.default_weight_decay(0.01).unwrap();
++    model
++        .adamw_step(&step.grads, &mut state, &AdamWHyper::default(), &wd)
++        .unwrap();
++    let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<u32>>();
++    let same = |what: &str, dst: &[Tensor], host: HostRead<'_>| {
++        for (i, (p, t)) in table.iter().zip(dst).enumerate() {
++            let mut out = vec![f32::NAN; t.numel()];
++            host(i, &mut out).unwrap();
++            assert_eq!(bits(&out), bits(&t.read_f32().unwrap()), "{what} {}", p.name);
++        }
++    };
++    let params = alloc(&rt, &table);
++    model.read_parameters(&params).unwrap();
++    same("value", &params, &|i, out| model.read_parameter_host(i, out));
++    let grads = alloc(&rt, &table);
++    model.read_gradients(&step.grads, &grads).unwrap();
++    same("gradient", &grads, &|i, out| {
++        model.read_gradient_host(&step.grads, i, out)
++    });
++    for which in [Moment::First, Moment::Second] {
++        let m = alloc(&rt, &table);
++        model.read_adamw_moment(&state, which, &m).unwrap();
++        same("moment", &m, &|i, out| {
++            model.read_adamw_moment_host(&state, which, i, out)
++        });
++    }
++
++    // A host write of every entry, then the device copy reads it back.
++    let before = model.train_step(&ids, GemmOperands::ExactF32).unwrap().loss;
++    let scaled: Vec<Vec<f32>> = params
++        .iter()
++        .map(|t| t.read_f32().unwrap().iter().map(|x| x * 0.5).collect())
++        .collect();
++    for (i, v) in scaled.iter().enumerate() {
++        model.write_parameter_host(i, v).unwrap();
++    }
++    let back = alloc(&rt, &table);
++    model.read_parameters(&back).unwrap();
++    for ((p, t), v) in table.iter().zip(&back).zip(&scaled) {
++        assert_eq!(bits(&t.read_f32().unwrap()), bits(v), "write {}", p.name);
++    }
++    let after = model.train_step(&ids, GemmOperands::ExactF32).unwrap().loss;
++    assert_ne!(after.to_bits(), before.to_bits(), "a host write did not move the step");
++    let m0: Vec<f32> = vec![0.125; table[0].shape.iter().product()];
++    model
++        .write_adamw_moment_host(&mut state, Moment::Second, 0, &m0)
++        .unwrap();
++    let mut out = vec![0.0; m0.len()];
++    model
++        .read_adamw_moment_host(&state, Moment::Second, 0, &mut out)
++        .unwrap();
++    assert_eq!(bits(&out), bits(&m0));
++
++    let e = |r: Result<(), String>, needle: &str| {
++        let m = r.expect_err(needle);
++        assert!(m.contains(needle), "{m:?} lacks {needle:?}");
++    };
++    let n = table.len();
++    e(
++        model.read_parameter_host(n, &mut []),
++        &format!("entry {n} of a {n}-entry table"),
++    );
++    e(
++        model.read_parameter_host(0, &mut [0.0; 3]),
++        "3 values for storage shape",
++    );
++    // A refused write leaves the entry as it was.
++    let last = n - 1;
++    let mut was = vec![0.0; table[last].shape.iter().product()];
++    model.read_parameter_host(last, &mut was).unwrap();
++    e(
++        model.write_parameter_host(last, &[1.0; 3]),
++        "3 values for storage shape",
++    );
++    let mut now = vec![0.0; was.len()];
++    model.read_parameter_host(last, &mut now).unwrap();
++    assert_eq!(bits(&now), bits(&was));
++    let (_, bf16, _) = load(Precision::Bf16);
++    e(bf16.read_parameter_host(0, &mut []), "Precision::F32");
++}

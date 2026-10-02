@@ -1,0 +1,25 @@
+2026-10-02T00:22:53Z
+== CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=/Users/bharath/qd-campaign/sysroot-aarch64-linux-gnu/link.sh CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS='-C linker-flavor=gcc' cargo test --offline --release --no-run --target aarch64-unknown-linux-gnu --features cuda --target-dir /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda
+   Compiling ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `release` profile [optimized] target(s) in 3.95s
+  Executable unittests src/lib.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/ojas_qwen35_cuda-14579485aaa962c9)
+  Executable unittests src/bin/rung0.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/rung0-ec074d89f726fb62)
+  Executable tests/device_k0.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k0-a1c65b0da4b54814)
+  Executable tests/device_k1.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k1-c496f6df13da4818)
+  Executable tests/reference_adamw.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/reference_adamw-13a97f95a2bba165)
+  Executable tests/reference_gdn_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/reference_gdn_published-6616e9547d206551)
+  Executable tests/reference_gdn_published_vs_tessl.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/reference_gdn_published_vs_tessl-d6bc7629bd39045b)
+  Executable tests/reference_goldens_published.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/reference_goldens_published-93b811f660a7c648)
+  Executable tests/reference_kernels.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/reference_kernels-d3a90870f898d748)
+  Executable tests/runtime_refusal.rs (/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/runtime_refusal-bac9fcdc59c16410)
+== CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=... RUSTFLAGS='-C linker-flavor=gcc' cargo build --offline --release --target aarch64-unknown-linux-gnu --features cuda --bin rung0 --target-dir /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda
+    Finished `release` profile [optimized] target(s) in 0.01s
+== artifacts
+04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+e038f76dbc832b06661b1f208d4fb54b7dc533fb7038082d1e2c530e53e5374d  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k0-a1c65b0da4b54814
+ce9e0a928f3152007e35e18498bc7eb62bd821d267845c5b45b0576577f4aa41  /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/deps/device_k1-c496f6df13da4818
+/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0: ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 3.7.0, not stripped
+  NEEDED       libgcc_s.so.1
+  NEEDED       libc.so.6
+GLIBC_2.17 GLIBC_2.18 GLIBC_2.28 GLIBC_2.30 GLIBC_2.32 GLIBC_2.33 GLIBC_2.34 
+-rwxr-xr-x@ 1 bharath  staff  1575016 Oct  1 19:22 /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0

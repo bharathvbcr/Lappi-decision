@@ -83,11 +83,57 @@ advice; gap table Q1, parity ladder Q3, lanes Q5). Gap records: `GAP-OJAS-ADVICE
     - `gpu_name_map`: 1/1 passes.
     - `gpu_real_2b` **fails, deterministically (2/2 runs).** The forward matches transformers (3.81034020 vs 3.81016684, rel 4.55e-5, 128 tokens). Then `read_gradients` on `embed_tokens.weight` hits a Metal 4 command buffer fault.
   - The fault is `GAP-OJAS-QWEN35-2B-READ-GRADIENTS-METAL-FAULT-2026-10-01`. L-ojas-qwen35 has been resumed to diagnose it. Until it is fixed, no 2B gradient or state read-back from the provider stands.
-- **L-trainer and L-oracle: running.**
-  - L-trainer reports one blocker. tessl has a single lr, so F's two-group recipe cannot run until tessl's per-entry `lr_scale` lands.
+  - **Diagnosed, fixed and verified (2026-10-02 ~00:10–00:24 UTC).** The gap is now resolved. This is L-ojas-qwen35's lane handoff, folded in here.
+    - **Plan.** The runs were pre-registered in `AUDIT/ojas-training-2026-10-01/ojas-qwen35-gpu-diag-plan.md` (`b131373`), with an amendment written before R3. Logs: `ojas-qwen35-gpu-diag-{none,after,chunked,before,tiny}.log` (process listings withheld; `991dd67`).
+    - **Cause.** The process's Metal allocations exceeded `recommendedMaxWorkingSetSize`, 51.54 GB on this M5 Pro.
+      - tessl recycles freed buffers only at its next waited commit. So the step's leftover scratch, including the 2 GB d_embed, was still allocated when the whole-table staging (7.53 GB) was added.
+      - That reached 52.44 GB, and the next command buffer timed out (`MTL4CommandQueueErrorTimeout`).
+    - **Ruled out by the runs:**
+      - dispatch size: backward ran the identical copy clean;
+      - residency delta size: R3 made 7.5 GB resident at once and passed;
+      - GPU contention: R1 reproduced the fault on a quiet GPU.
+    - **Fix, in `ojas/ojas-qwen35/src/state.rs`.** One `staging_tensors` helper serves `read_entries`/`read_table`, `save_state` and `load_state`. It:
+      1. calls `synchronize()`;
+      2. allocates the staging;
+      3. checks the **measured** `currentAllocatedSize` against the working set, before any GPU work. A projection would have estimated 51.12 GB and passed R1.
+      4. refuses with `Unsupported` if over the limit.
+      - `save_state` now streams through ojas-io's `SafeTensorsWriter` and `replace_dir_with`, and refuses symlinked or existing targets.
+    - **Verification.**
+      - `gpu_real_2b` **passes**, 26.04 s. It had failed 4 of 4 runs before the fix. Loss rel 4.55e-5; worst gradient 3.91e-3 against the 1e-2 bound; grad norm 59.976559; one 2B AdamW step runs.
+      - `gpu_tiny` passes 5/5.
+      - CPU: 25 pass, 8 ignored. Logs: `ojas-qwen35-gpu-verify-{real-2b,tiny}.log`.
+    - **Headroom is 1.34 GB** (50.20 of 51.54 GB): `GAP-OJAS-QWEN35-2B-STAGING-HEADROOM-2026-10-01`. Nothing else may hold GPU memory during a 2B run.
+      - Not run: a 2B `save_state`/`load_state` (inferred peak ≈50.2 GB per kind), and the refusal path on a GPU.
+    - **The structural fix is tessl's to make.** `AUDIT/ojas-training-2026-10-01/ojas-qwen35-tessl-host-reads.patch` adds per-entry host reads and writes. It applies cleanly at tessl HEAD cf65d9d (dry run) and is not applied. It belongs in the same tessl-rooted session as the lr_scale chip.
+- **L-trainer: running.**
+  - Its blocker: tessl has a single lr, so F's two-group recipe cannot run until tessl's per-entry `lr_scale` lands.
   - The trainer refuses any lr_scale ≠ 1.0, with no workaround.
-- **L-tessl** is the user's pending chip "Add per-entry lr_scale and mrope handling to tessl". It needs a session rooted in tessl, because this harness blocks git in other repos. **It is the one blocker for rung (b)'s two-group arm and for rung (d).**
-- **L-cuda-M0 and L-cuda-oracle: running.**
+  - A local, never-committed symlink `.claude/devtools -> ~/Code/devtools` was approved, so ojas's gusset path resolves from worktrees.
+- **L-oracle: merged** at `fc7d783` (rung (b) fixture, F's optimizer spec, ft-row contract), then resumed for Amendment 2's items.
+- **Amendment 2** (Fable, ratified by the lead before any Rust run; `931c320`, under Q3 of `fable-advice.md`; ruling in `fable-rung-b-bars.md`):
+  - span_head.* tensors are measured against the span head's overall max. **This loosens two zero-initialised tensors, and is recorded as such.**
+  - D1/D2/D3 detection moves to three rung (a) tests.
+  - Clip coverage is added.
+  - The span-head init is assigned to L-oracle, with a manifest pinned by digest.
+- **L-cuda-oracle: merged** at `6d1bac1` and `69e3001`.
+  - Float64 references for K2–K11 against independent goldens; GDN at the published rule is bit-identical to tessl's in-process reference.
+  - 33 tests pass.
+  - The K3 goldens were renamed `published`.
+- **L-cuda-M0: merged** at `7a360ee`.
+  - Runtime, K0, K1 (FFMA ExactF32 and cuBLAS GemmEx bf16→f32) and the rung-0 binary.
+  - 67 host tests pass on the Mac; the whole crate's host suite on the merged tree passes 62 + 33.
+  - **The 11 device tests are not run.**
+  - **Calibration:** the host side of M0, K0 and K1 is done. The rest of M1 (K8, K11 device, the tiny-fixture loader) is not started.
+- **L-tessl** is the user's pending chip, now "Add per-entry lr_scale, mrope refusal and host reads to tessl". It supersedes the earlier chip and includes the host-reads patch. It needs a session rooted in tessl, because this harness blocks git in other repos. **It is the one blocker for rung (b)'s two-group arm and for rung (d).**
+
+**Rung 0 is deployed on the GH200, waiting** (2026-10-02 ~00:50 UTC). It is the user's "no insert; probe after".
+- Waiter: `campaign/post-f-queue/box_q_rung0.sh`, at `/home/ubuntu/post-f/`, sha256 `4062281f…`.
+  - It waits for `j6dv4.done` (post-F item 10), then holds `gpu.lock` for at most 300 s.
+  - Binary: `/home/ubuntu/bin/ojas-qwen35-cuda-rung0`, sha256 `04ab105a…`, checked by the waiter before running.
+  - Log: `/home/ubuntu/logs/q-rung0.log`. Report: `/home/ubuntu/ojas-cuda/rung0-<UTC>/rung0-report.json`.
+- **Starting the binary with no arguments on the box** ran only the loader and the argument parser: no GPU, no files. It exited 2 with its usage line, on Ubuntu glibc 2.39.
+  - So it loads on the box's glibc.
+  - The 62 host tests have still not run on 2.39 (`GAP-L-CUDA-M0-LINUX-GLIBC239-NOT-RUN`, narrowed).
 
 ## Invariants for every lane
 
