@@ -1,0 +1,25 @@
+== static checks, lane L-waiters, 2026-10-02T03:29:04Z
+-- bash --version: GNU bash, version 3.2.57(1)-release (arm64-apple-darwin26)
+-- bash -n on the eight new files
+ok  idle_common.sh
+ok  box_q_j6ctl.sh
+ok  box_q_cudadev.sh
+ok  box_q_rungd.sh
+ok  box_q_fsucc.sh
+ok  box_q_j5pp.sh
+ok  box_q_j6a.sh
+ok  box_mk_rungd_overlay.sh
+-- version: 0.11.0 (/opt/homebrew/bin/shellcheck), all severities, -x following post_f_common.sh and idle_common.sh
+shellcheck exit 0
+-- j6a_prelude_box.py: ast.parse (python 3.14.7)
+ok  j6a_prelude_box.py
+-- sha256 of the committed scripts (= the files staged on the box)
+1a449f7aa3db3072f41f1b1a2a47f19b41780d58b51d0b36cbf794edf9004c6a  campaign/post-f-queue/idle_common.sh
+6055800ce28573a5568a2aae24c8897951575633cbfcba6fd21ee41ef764a536  campaign/post-f-queue/box_q_j6ctl.sh
+c061e824a323e2e6bf51ef13ce145facf9d0c337f1dbe30221dfd202a61284b9  campaign/post-f-queue/box_q_cudadev.sh
+8c2488896b415403d69b373790778758e811e39342acef878f8d0792f587e077  campaign/post-f-queue/box_q_rungd.sh
+9bbabced3c354ecafa11985033f1b3fd2914c235d46c2decdcd335f0aee757dd  campaign/post-f-queue/box_q_fsucc.sh
+0eb4a5f797d354c2db5776b9fb1bb9f5f8637e9d977ca06dfaec666991dd6409  campaign/post-f-queue/box_q_j5pp.sh
+6d2caea7eec05629ee1639f2738de15a477b67788f4084767ae7b974fc040af9  campaign/post-f-queue/box_q_j6a.sh
+e76798f786dacb0215fc5996ce5f2c8ae946a0f25a9262d63eca93aa7d2662ac  campaign/post-f-queue/box_mk_rungd_overlay.sh
+415d09eb799b50e9d756ec1527dcf193b01c93c510634b97ff6673848ec96e70  campaign/post-f-queue/j6a_prelude_box.py
