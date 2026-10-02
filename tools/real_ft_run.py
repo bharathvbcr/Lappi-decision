@@ -156,6 +156,7 @@ from ckpt_average import (
     AverageManifest,
     AverageRefusal,
     manifest_path,
+    prompt_format_of,
     read_average,
     read_manifest,
     verify_sources,
@@ -186,7 +187,7 @@ from torch import nn
 from qd_data.config import DataConfig
 from qd_data.defect_class import CHOICE_SLOT, DEFECT_FAMILY_ID, SPAN_SLOT
 from qd_data.errors import QdRefusal
-from qd_data.render import DEFAULT_CAPS, second_pass_permutation
+from qd_data.render import DEFAULT_CAPS, PROMPT_FORMAT, second_pass_permutation
 from qd_data.rows import DataRow
 from qd_data.schema import NOUL_LETTER
 from qd_data.split import SplitReport
@@ -330,6 +331,11 @@ RECIPE_PIECE_KEYS: Final[tuple[str, ...]] = (
     # --noul-weight (v5 arm_noul_weight): the weight and the family it is scoped to.
     "noul_weight",
     "noul_weight_scope",
+    # v5's prompt format 2 (campaign/v5-preregistered format): the layout the train shard set
+    # was rendered in, read off its header, never the render constant. A row scored from the
+    # model says which layout it was trained on, and --score-checkpoint refuses a model of
+    # another layout than this build renders (_ft_row).
+    "prompt_format",
 )
 
 #: ``--noul-weight``'s scope (v5 reading R5): the weight multiplies noul-gold letter positions
@@ -500,7 +506,7 @@ def _recipe_pieces(
     train_attention_mask: str = "padding", max_steps: int | None = None,
     train_dtype: str = "bf16", span_head_init: Mapping[str, str] | None = None,
     exclusions_sha256: str = "", min_lr: float | None = None,
-    noul_weight: float | None = None,
+    noul_weight: float | None = None, prompt_format: int = 1,
 ) -> dict[str, object]:
     """The recipe keys for whichever ported pieces are on. Empty when none is.
 
@@ -526,6 +532,9 @@ def _recipe_pieces(
     ``noul_weight`` is ``--noul-weight``: ``None`` adds no key; given, it adds exactly two,
     ``noul_weight`` and ``noul_weight_scope`` -- the arm's identity
     (``arm_noul_weight.identity``) is v5's recipe plus these two.
+
+    ``prompt_format`` is the train header's (``ShardHeader.prompt_format``), never
+    ``qd_data.render.PROMPT_FORMAT``: 1, every row before v5's format 2, adds no key.
     """
     if train_attention_mask not in TRAIN_ATTENTION_MASKS:
         raise ValueError(
@@ -534,7 +543,11 @@ def _recipe_pieces(
         )
     if train_dtype not in TRAIN_DTYPES:
         raise ValueError(f"train_dtype must be one of {TRAIN_DTYPES}, got {train_dtype!r}")
+    if isinstance(prompt_format, bool) or not isinstance(prompt_format, int) or prompt_format < 1:
+        raise ValueError(f"prompt_format must be an int >= 1, got {prompt_format!r}")
     out: dict[str, object] = {}
+    if prompt_format != 1:
+        out["prompt_format"] = prompt_format
     if noul_weight is not None:
         out["noul_weight"] = noul_weight
         out["noul_weight_scope"] = NOUL_WEIGHT_SCOPE
@@ -1813,6 +1826,11 @@ def _resume_arm(path: Path) -> tuple[str, int, str]:
 #: needs and nothing a resume would. No optimizer state, so ``load_state`` refuses it and
 #: ``_resume_arm`` refuses its name: a snapshot is a model to score, never a resume point.
 SNAPSHOT_KEYS: Final[tuple[str, ...]] = ("tower", "span_head", "span_weight", "vocab_size")
+#: Kept beside :data:`SNAPSHOT_KEYS` when the step's state has it: the prompt layout the
+#: weights were trained under (``QwenDecisionStep.state``, only when it is not 1), which
+#: ``ckpt_average.py --same-seed-trajectory`` reads off every snapshot it averages. Dropping it
+#: would make a format-2 snapshot read as format 1.
+SNAPSHOT_OPTIONAL_KEYS: Final[tuple[str, ...]] = ("prompt_format",)
 
 
 def _snapshot_name(tag: str, seed: int, device: str, step: int) -> str:
@@ -1966,7 +1984,10 @@ class RetainingSink:
             position=ckpt.position, optimizer_step=step, seed=ckpt.seed,
             schedule=ckpt.schedule, loss_log=ckpt.loss_log,
             consumed_digest=ckpt.consumed_digest,
-            model_state={k: ckpt.model_state[k] for k in SNAPSHOT_KEYS},
+            model_state={
+                k: ckpt.model_state[k]
+                for k in (*SNAPSHOT_KEYS, *SNAPSHOT_OPTIONAL_KEYS) if k in ckpt.model_state
+            },
         )
         target = self.directory / _snapshot_name(self.tag, self.seed, self.device, step)
         t0 = time.monotonic()
@@ -2684,6 +2705,9 @@ def _real_step(
         fused_adamw=fused_adamw,
         train_attention_mask=train_attention_mask,
         noul_weight=noul_weight,
+        # The train set's layout, so the step's checkpoints state it (model_state, only when
+        # it is not 1): ckpt_average reads it there and a resume compares it.
+        prompt_format=reader.header.prompt_format,
     )
     return step, tower, budget
 
@@ -2842,6 +2866,7 @@ def _train(
         span_head_init=None if span_head_init is None else span_head_init.recipe(),
         exclusions_sha256=reader.header.exclusions_sha256, min_lr=min_lr,
         noul_weight=None if noul_weight is None else noul_weight.weight,
+        prompt_format=reader.header.prompt_format,
     )
     recipe: dict[str, object] = {
         "tool": "tools/real_ft_run.py", "tag": tag, "device": device,
@@ -6703,10 +6728,16 @@ def _ft_max_steps(ft: Mapping[str, Any]) -> int | None:
     return value
 
 
-def _ft_row(ledger_path: Path, row_id: str) -> dict[str, Any]:
-    """The one ft row ``row_id`` names (a full id or a unique prefix), or a refusal."""
+def _ft_row(ledger_path: Path, row_id: str, *, where: str = "") -> dict[str, Any]:
+    """The one ft row ``row_id`` names (a full id or a unique prefix), or a refusal.
+
+    ``where`` names what is being scored (``"Metal export <name>"``) at the head of every
+    refusal, for a loader whose refusals all say so."""
+    say = f"{where}: " if where else ""
     if len(row_id) < 8:
-        raise SystemExit(f"--ft-row-id {row_id!r}: give at least 8 characters of the row id")
+        raise SystemExit(
+            f"{say}--ft-row-id {row_id!r}: give at least 8 characters of the row id"
+        )
     found = [
         row for row in (
             json.loads(line) for line in ledger_path.read_text(encoding="utf-8").splitlines()
@@ -6715,12 +6746,34 @@ def _ft_row(ledger_path: Path, row_id: str) -> dict[str, Any]:
         if str(row.get("row_id", "")).startswith(row_id)
     ]
     if len(found) != 1:
-        raise SystemExit(f"{ledger_path}: {len(found)} rows match --ft-row-id {row_id!r}, not 1")
+        raise SystemExit(
+            f"{say}{ledger_path}: {len(found)} rows match --ft-row-id {row_id!r}, not 1"
+        )
     row = found[0]
     if row.get("run_kind") != "ft" or row.get("status") != "completed":
         raise SystemExit(
-            f"row {row['row_id']} is a {row.get('status')} {row.get('run_kind')!r} row; "
+            f"{say}row {row['row_id']} is a {row.get('status')} {row.get('run_kind')!r} row; "
             "--score-checkpoint scores the model a completed ft row trained"
+        )
+    # Every scored model's ft row comes through here -- one seed's checkpoint, a Metal export,
+    # each row an average or an ensemble names -- before any weights are read. The DRAFT's
+    # format.refusal_both_ways.eval: a model trained on another prompt layout than this build
+    # renders would be scored on prompts it never saw. Absent is 1, every row before format 2.
+    recipe = row.get("recipe")
+    if not isinstance(recipe, dict):
+        raise SystemExit(
+            f"{say}row {row['row_id']} has no recipe: nothing says which model, or which "
+            "prompt format, it trained"
+        )
+    try:
+        trained_on = prompt_format_of(recipe, where=f"{say}row {row['row_id']}'s recipe")
+    except AverageRefusal as exc:
+        raise SystemExit(str(exc)) from exc
+    if trained_on != PROMPT_FORMAT:
+        raise SystemExit(
+            f"{say}row {row['row_id']} trained on prompt format {trained_on} and this build "
+            f"renders format {PROMPT_FORMAT} (qd_data.render.PROMPT_FORMAT): scoring it would "
+            "decode prompts in a layout the model never saw"
         )
     return row
 
@@ -7055,7 +7108,7 @@ def _metal_export_weights(
         raise SystemExit(f"{where} is seed {seed}; --seeds says {args.seeds}")
     manifest = _read_metal_manifest(path)
     body = manifest.body
-    ft = _ft_row(args.ft_ledger, row_id)
+    ft = _ft_row(args.ft_ledger, row_id, where=where)
     protocol = ft.get("protocol")
     if not isinstance(ft.get("recipe"), Mapping) or not (
         isinstance(protocol, Mapping) and isinstance(protocol.get("seed"), int)
@@ -8588,7 +8641,7 @@ def planned_ft_recipe(
             batch_tokens=batch_tokens, checkpoint_skip_layers=args.checkpoint_skip_layers,
             fused_adamw=args.fused_adamw, train_attention_mask=args.train_attention_mask,
             exclusions_sha256=reader.header.exclusions_sha256, min_lr=args.min_lr,
-            noul_weight=args.noul_weight,
+            noul_weight=args.noul_weight, prompt_format=reader.header.prompt_format,
         ),
     }
     if args.real_backbone is None:

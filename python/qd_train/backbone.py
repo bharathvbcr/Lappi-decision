@@ -1026,10 +1026,18 @@ class QwenDecisionStep:
         fused_adamw: bool = False,
         train_attention_mask: str = "padding",
         noul_weight: NoulWeight | None = None,
+        prompt_format: int = 1,
     ) -> None:
         import torch
         from torch import nn
 
+        # The prompt layout the rows this step trains on were rendered in: the train shard
+        # header's ``prompt_format`` (``qd_data.render.PROMPT_FORMAT`` at the build). 1 is every
+        # layout before v5's context-first format 2, and is what a step built without it says.
+        if isinstance(prompt_format, bool) or not isinstance(prompt_format, int) or (
+            prompt_format < 1
+        ):
+            raise ValueError(f"prompt_format must be an int >= 1, got {prompt_format!r}")
         if train_attention_mask not in TRAIN_ATTENTION_MASKS:
             raise ValueError(
                 f"train_attention_mask must be one of {TRAIN_ATTENTION_MASKS}, got "
@@ -1078,6 +1086,7 @@ class QwenDecisionStep:
         self.tower = tower
         self.device = tower.device
         self.span_weight = float(span_weight)
+        self.prompt_format = prompt_format
         self.max_grad_norm = float(max_grad_norm)
         self.max_width = int(max_width)
         #: What the TRAINING forward attends with: ``"padding"`` (the mask from
@@ -1382,6 +1391,11 @@ class QwenDecisionStep:
             # resume compares it (load_state): the weight is part of the objective, and the
             # trainer's own resume checks (seed, schedule, consumed digest) cannot see it.
             **({} if self.noul_weight is None else {"noul_weight": self.noul_weight.to_json()}),
+            # Only when it is not 1, so every v4 checkpoint body is what it was. The checkpoint
+            # states the prompt layout its weights were trained under: tools/ckpt_average.py
+            # reads it off each input (and refuses to average two layouts), and a resume
+            # compares it (load_state).
+            **({} if self.prompt_format == 1 else {"prompt_format": self.prompt_format}),
         }
 
     #: Where ``torch.optim.Optimizer.state_dict()`` keys a dict by parameter INDEX rather
@@ -1509,9 +1523,20 @@ class QwenDecisionStep:
                 f"{mine_noul!r}. Resuming would train the rest of the run on a different "
                 "letter objective than the part before the checkpoint."
             )
+        # The prompt layout, on the same terms: absent is 1, every checkpoint before v5's
+        # format 2. A resume across layouts would train the rest of the run on rows rendered
+        # differently from the part before the checkpoint.
+        theirs_format = state.get("prompt_format", 1)
+        if theirs_format != self.prompt_format or isinstance(theirs_format, bool):
+            raise BackboneContractViolation(
+                f"the checkpoint was trained on prompt format {theirs_format!r} and this step "
+                f"on {self.prompt_format}. Resuming would train the rest of the run on rows "
+                "rendered in another layout than the part before the checkpoint."
+            )
         unexpected = set(state) - {
             "tower", "span_head", "span_weight", "vocab_size", "optimizer", "micro_batches",
             "channel_log", *(() if mine_noul is None else ("noul_weight",)),
+            *(() if self.prompt_format == 1 else ("prompt_format",)),
         }
         if unexpected:
             raise BackboneContractViolation(
