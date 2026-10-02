@@ -1,0 +1,65 @@
+   Compiling ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.34s
+     Running tests/reference_gdn_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_gdn_published-ca6ff0ba9c1dfe5e)
+
+running 8 tests
+test published_reference_refuses_an_empty_sequence - should panic ... ok
+test published_reference_refuses_a_misshapen_gate - should panic ... ok
+test published_reference_refuses_a_non_finite_operand - should panic ... ok
+test published_backward_matches_central_differences_across_checkpoints ... FAILED
+test published_recurrence_reproduces_the_published_corpus ... FAILED
+test the_repo_rule_does_not_reproduce_the_published_corpus ... FAILED
+test published_checkpoint_c_is_the_state_after_the_first_64c_tokens ... ok
+test published_corpus_is_tessls_bytes_and_every_file_names_the_published_rule ... ok
+
+failures:
+
+---- published_backward_matches_central_differences_across_checkpoints stdout ----
+published T=1 dq: worst relative error vs central differences 7.45e-2 (bound 1e-7)
+
+thread 'published_backward_matches_central_differences_across_checkpoints' (133743657) panicked at tests/reference/fd.rs:33:5:
+published T=1 dq: worst 7.45e-2 against finite differences exceeds 1e-7
+
+---- published_recurrence_reproduces_the_published_corpus stdout ----
+published L1 (T=1): max err 1.503e0, 8.895e-1 of max|golden| 1.6901
+
+thread 'published_recurrence_reproduces_the_published_corpus' (133743663) panicked at tests/reference_gdn_published.rs:189:9:
+L1: published reference differs from the golden by 8.895e-1 of its magnitude, over 1e-12
+
+---- the_repo_rule_does_not_reproduce_the_published_corpus stdout ----
+
+thread 'the_repo_rule_does_not_reproduce_the_published_corpus' (133743672) panicked at tests/reference_gdn_published.rs:212:13:
+L1: with T=1 the rules must agree bit for bit
+
+
+failures:
+    published_backward_matches_central_differences_across_checkpoints
+    published_recurrence_reproduces_the_published_corpus
+    the_repo_rule_does_not_reproduce_the_published_corpus
+
+test result: FAILED. 5 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+error: test failed, to rerun pass `--test reference_gdn_published`
+     Running tests/reference_gdn_published_vs_tessl.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_gdn_published_vs_tessl-8d9d37ce1830f69f)
+
+running 1 test
+test published_reference_matches_tessls_gdn_train_f64_at_the_chunk_edges ... FAILED
+
+failures:
+
+---- published_reference_matches_tessls_gdn_train_f64_at_the_chunk_edges stdout ----
+
+thread 'published_reference_matches_tessls_gdn_train_f64_at_the_chunk_edges' (133751692) panicked at tests/reference_gdn_published_vs_tessl.rs:44:5:
+published T=1 s0=false dfin=false o: port differs from tessl's reference by 2.841e0 of max|ref|, over 1e-12
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    published_reference_matches_tessls_gdn_train_f64_at_the_chunk_edges
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--test reference_gdn_published_vs_tessl`
+error: 2 targets failed:
+    `--test reference_gdn_published`
+    `--test reference_gdn_published_vs_tessl`
