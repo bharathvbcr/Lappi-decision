@@ -342,9 +342,41 @@ const F_SEEDS34_JSON_SHA256: &str =
 /// AUDIT/v5-rules-2026-10-02/characterization-eval-row-f-pre-change.stderr.
 const F_EVAL_ROW_STDERR_SHA256: &str =
     "a6fbd508b941495a57debe3f35bd7b7cfa4782f66264214efe2294032e83e6bb";
+/// Both captures record F's ledger as it stood then: its first 15 rows, 195,429 bytes. The ledger
+/// is append-only and has grown since (F seed 3's rows, f320a33), so the captures are replayed on
+/// that prefix; a rewrite of any of those rows fails `f_ledger_as_captured` instead of the pins.
+const F_LEDGER_CAPTURED_ROWS: usize = 15;
+const F_LEDGER_CAPTURED_SHA256: &str =
+    "14ec1d56b7c71ec0713f134ccc317aaf035391e543b93f2e2f398053f4163edf";
+
+/// A stand-in for the repository holding only F's ledger, cut to the rows the captures saw and
+/// at the same relative path, so the binary (which reads nothing else for `seeds34` without
+/// `--preregistration`, or for `eval-row`) names the same path and records the same bytes.
+fn f_ledger_as_captured() -> Scratch {
+    let text = std::fs::read(repo(F_LEDGER)).unwrap();
+    let end = text
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| **b == b'\n')
+        .nth(F_LEDGER_CAPTURED_ROWS - 1)
+        .map(|(i, _)| i + 1)
+        .unwrap_or_else(|| panic!("{F_LEDGER} has fewer than {F_LEDGER_CAPTURED_ROWS} rows"));
+    assert_eq!(
+        sha256(&text[..end]),
+        F_LEDGER_CAPTURED_SHA256,
+        "{F_LEDGER}'s first {F_LEDGER_CAPTURED_ROWS} rows are not the ones captured: the ledger \
+         is append-only"
+    );
+    let s = scratch();
+    let path = s.path(F_LEDGER);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, &text[..end]).unwrap();
+    s
+}
 
 #[test]
 fn seeds34_on_fs_real_rows_is_the_unmodified_binarys_decision_byte_for_byte() {
+    let root = f_ledger_as_captured();
     let s = scratch();
     let out = s.path("s34.json");
     let mut a = args(&[&"seeds34", &"--f-ledger", &F_LEDGER]);
@@ -352,7 +384,7 @@ fn seeds34_on_fs_real_rows_is_the_unmodified_binarys_decision_byte_for_byte() {
     a.extend(args(&[&"--out", &out]));
     let o = Command::new(BIN)
         .args(&a)
-        .current_dir(REPO)
+        .current_dir(&root.0)
         .output()
         .unwrap();
     assert_eq!(String::from_utf8(o.stdout).unwrap(), "fires\n");
@@ -362,10 +394,11 @@ fn seeds34_on_fs_real_rows_is_the_unmodified_binarys_decision_byte_for_byte() {
 
 #[test]
 fn eval_row_on_fs_real_rows_is_the_unmodified_binarys_answer_byte_for_byte() {
+    let root = f_ledger_as_captured();
     let o = Command::new(BIN)
         .args(["eval-row", "--ledger", F_LEDGER, "--ft-row"])
         .arg(format!("1={}", F_FT[1]))
-        .current_dir(REPO)
+        .current_dir(&root.0)
         .output()
         .unwrap();
     assert_eq!(
