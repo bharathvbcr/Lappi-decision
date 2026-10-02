@@ -1,0 +1,21 @@
+{
+  "decision": "refused",
+  "inputs": [
+    {
+      "bytes": 65082,
+      "path": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a11389c33abac2b64/AUDIT/idle-gpu-queue-2026-10-02/f-ledger-seed0-snapshot-2026-10-02T0113Z.jsonl",
+      "rows": 5,
+      "sha256": "abb48449d8ecbc814a8877ff35f56352f53c7098b8f9d61ae3fc934f85c34b91"
+    },
+    {
+      "bytes": 35736,
+      "path": "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a11389c33abac2b64/ledger/gh200-j6-ablations-2026-10-01.jsonl",
+      "rows": 3,
+      "sha256": "4a32bc0a9b6bf72a7ffa517c71546001d03ad2e588af9e7f8824b00aeb75099b"
+    }
+  ],
+  "preregistration": "campaign/f-successor-preregistered.json (ba1cedb, merged at bcb3c72; R5 struck at e9cff78)",
+  "refused": "row 00000000-0000-4000-8000-000000000001 appears 0 time(s) in /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a11389c33abac2b64/AUDIT/idle-gpu-queue-2026-10-02/f-ledger-seed0-snapshot-2026-10-02T0113Z.jsonl, not once",
+  "rule": "f_successor",
+  "tool": "qd-post-f-rules"
+}

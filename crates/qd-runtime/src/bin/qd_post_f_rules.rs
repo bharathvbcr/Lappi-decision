@@ -1,4 +1,4 @@
-//! `qd-post-f-rules` — the three decisions Fable pre-registered for the GPU queue after run F,
+//! `qd-post-f-rules` — the four decisions Fable pre-registered for the GPU queue after run F,
 //! read off ledger rows, plus the two row look-ups that queue's box scripts need to pin the ids
 //! they grep out of F's logs to the ledger.
 //!
@@ -19,6 +19,15 @@
 //!   `fires`, `quiet`.
 //! * `j6f` — (iii) does J6(f) run right after J5'? Iff F's 8K worst bucket is < 0.95 on >= 2 of
 //!   3 seeds, or any F seed has prose <= 9/60 or scrambled <= 8/60. Words: `fires`, `quiet`.
+//! * `successor` — (iv) does F' (fsucc) run, and on which v4 arm's recipe?
+//!   (`campaign/f-successor-preregistered.json`, ba1cedb, merged at bcb3c72, R5 struck at
+//!   e9cff78: Fable's idle-GPU ruling.) The J6(b) win definition (`f-v4-preregistered.json:13`) with F's seeds 0-2 as the
+//!   envelope, applied to J6(f) and J6(d)-v4 separately: an arm wins iff every target lands
+//!   outside the envelope in the right direction by more than the envelope's range and no
+//!   must-not-lose metric lands outside it in the wrong direction. Words: `fires:j6f`,
+//!   `fires:j6dv4`, `quiet`; both arms winning is `refused` (the human decides), as is any row
+//!   or metric that cannot be read. The paired margin is compared as the exact fraction
+//!   `m / n_total` it is (a mean of per-row differences); ECE, which has no count, on its f64.
 //!
 //! Look-ups (ids on stdout, JSON on stderr): `ft-rows` checks a set of ft rows can be averaged
 //! or ensembled (completed, not quick, tag `epoch`, the seed claimed, one recipe and one data
@@ -77,6 +86,8 @@ macro_rules! ensure {
 const TOOL: &str = "qd-post-f-rules";
 const PREREG: &str = "campaign/f-j7prime-preregistered.json (54512e6)";
 const PREREG_F: &str = "campaign/f-v4-preregistered.json (3a1796d)";
+const PREREG_SUCC: &str =
+    "campaign/f-successor-preregistered.json (ba1cedb, merged at bcb3c72; R5 struck at e9cff78)";
 /// A ledger larger than this is not one this repo writes (`qd-gate-report`'s cap).
 const MAX_LEDGER_BYTES: u64 = 256 * 1024 * 1024;
 /// How far a recorded float may sit from its own counts before the row is refused.
@@ -223,6 +234,28 @@ enum Cmd {
         f_ledger: PathBuf,
         #[arg(long = "ft-row", required = true, value_parser = parse_ft_row)]
         ft_rows: Vec<(i64, String)>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// (iv) Does F' run, and on which v4 arm's recipe? Prints `fires:j6f`, `fires:j6dv4`,
+    /// `quiet`, or `refused` (both arms win, or anything could not be read).
+    Successor {
+        /// F's ledger: the envelope's rows.
+        #[arg(long)]
+        f_ledger: PathBuf,
+        /// `SEED=FT_ROW_ID` for F's seeds 0, 1 and 2 exactly, in order (the envelope pin).
+        #[arg(long = "ft-row", required = true, value_parser = parse_ft_row)]
+        ft_rows: Vec<(i64, String)>,
+        /// The v4 ablation ledger: both arms' ft and eval rows, J6(f)'s needle-control row and
+        /// J6(d)-v4's letter-control row (R5 as struck: J6(d)-v4 reads no length control).
+        #[arg(long)]
+        arm_ledger: PathBuf,
+        /// `0=FT_ROW_ID` of J6(f)'s run (from /home/ubuntu/j6f-v4/train.log).
+        #[arg(long, value_parser = parse_ft_row)]
+        j6f_ft_row: (i64, String),
+        /// `0=FT_ROW_ID` of J6(d)-v4's run (from /home/ubuntu/j6d-v4/train.log).
+        #[arg(long, value_parser = parse_ft_row)]
+        j6dv4_ft_row: (i64, String),
         #[arg(long)]
         out: PathBuf,
     },
@@ -947,6 +980,710 @@ fn rule_j6f(
     Ok((if fires { "fires" } else { "quiet" }.into(), body))
 }
 
+// --- (iv): successor, campaign/f-successor-preregistered.json ----------------------------------
+//
+// The J6(b) win definition (f-v4-preregistered.json:13) with F's three seeds as the envelope,
+// applied to each v4 arm separately. Each of the lane's readings R1-R8 (the pre-registration's
+// `readings`) lives in exactly one place below, named where it is, so an amendment touches one
+// item: R1 `Arm::must_not_lose`, R2 `BASE_MUST_NOT_LOSE`, R3 `targets_win`, R4 and R5 (as
+// amended at e9cff78) the `guards` of `ARM_J6DV4`, R6 `PERM_DC` / `ID_ABSTAIN_DC`, R7 `clears`
+// / `loses`, R8 `arm_identity`.
+
+/// The length-control row's tag (`real_ft_run --needle-control`).
+const CONTROL_TAG: &str = "epoch-needle-length-control";
+/// The letter control's per-family paired margin (`ft_linear_control.py`); J6(d)-v4's target.
+const MARGIN_KEY: &str = "paired_margin_vs_linear.choice.code.defect_class";
+/// The arms are one run each, seed 0, F seed 0's data order (box_q_j6f.sh, box_q_j6dv4.sh).
+const ARM_SEED: i64 = 0;
+/// No suite this repo scores has a billion cases; a larger denominator refuses, which keeps
+/// every three-way product below far inside i128.
+const MAX_DENOMINATOR: u64 = 1_000_000_000;
+/// The lead's pin, recorded in every decision's JSON.
+const ENVELOPE_PIN: &str = "F seeds 0, 1 and 2 only (the pre-registered F); seeds added by \
+                            post-F rule (ii) are not part of the envelope";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Dir {
+    Higher,
+    Lower,
+}
+
+/// Where a metric's value is read, and in which form it is compared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Source {
+    /// `n / n_total` on the eval row, cross-checked against its value.
+    Count(&'static str),
+    /// A recorded float on the eval row that has no count (ECE).
+    Float(&'static str),
+    /// The 8K gate's worst depth bucket on the eval row (`needle_worst`).
+    Needle8k,
+    /// A length control's worst depth bucket on the needle-control row.
+    Control(u32),
+    /// The letter-control row's signed paired margin, recovered as `m / n_total`.
+    Margin,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Metric {
+    name: &'static str,
+    source: Source,
+    dir: Dir,
+}
+
+const fn count_metric(name: &'static str, dir: Dir) -> Metric {
+    Metric {
+        name,
+        source: Source::Count(name),
+        dir,
+    }
+}
+
+const fn control_metric(name: &'static str, length: u32) -> Metric {
+    Metric {
+        name,
+        source: Source::Control(length),
+        dir: Dir::Higher,
+    }
+}
+
+/// R2: "defect_class choice/span" is val_top1.choice / val_top1.span; the eval rows carry no
+/// per-family top-1 key.
+const VAL_CHOICE: Metric = count_metric("val_top1.choice", Dir::Higher);
+const VAL_SPAN: Metric = count_metric("val_top1.span", Dir::Higher);
+/// R6: "permutation" is the defect_class family's.
+const PERM_DC: Metric = count_metric(
+    "permutation_consistency.family.code.defect_class",
+    Dir::Higher,
+);
+/// R6: "in-distribution abstention" is the defect_class family's; lower is better.
+const ID_ABSTAIN_DC: Metric = count_metric(
+    "ood_abstain.in_distribution.family.code.defect_class",
+    Dir::Lower,
+);
+const ECE_DC_KEY: &str = "ece.family.code.defect_class.choice.k4";
+const ECE_DC: Metric = Metric {
+    name: ECE_DC_KEY,
+    source: Source::Float(ECE_DC_KEY),
+    dir: Dir::Lower,
+};
+const NEEDLE_8K_WORST: Metric = Metric {
+    name: "needle_8k_worst_bucket",
+    source: Source::Needle8k,
+    dir: Dir::Higher,
+};
+const CONTROL_1K: Metric = control_metric("needle_hunk_recall.control.1024", 1024);
+const CONTROL_2K: Metric = control_metric("needle_hunk_recall.control.2048", 2048);
+const CONTROL_4K: Metric = control_metric("needle_hunk_recall.control.4096", 4096);
+const PROSE: Metric = count_metric("ood_abstain.prose", Dir::Higher);
+const SCRAMBLED: Metric = count_metric("ood_abstain.scrambled", Dir::Higher);
+const UNSEEN: Metric = count_metric("ood_abstain.unseen-language", Dir::Higher);
+const MARGIN_DC: Metric = Metric {
+    name: MARGIN_KEY,
+    source: Source::Margin,
+    dir: Dir::Higher,
+};
+
+/// The win definition's "gate-bearing metric of the promotion population (defect_class
+/// choice/span, defect_class permutation, defect_class ECE, needle)".
+const BASE_MUST_NOT_LOSE: [Metric; 5] = [VAL_CHOICE, VAL_SPAN, PERM_DC, ECE_DC, NEEDLE_8K_WORST];
+
+/// One v4 ablation arm: the recipe delta that identifies its ft row (R8), the metrics its flag
+/// was meant to move, and Fable's per-arm must-not-lose list.
+struct Arm {
+    name: &'static str,
+    /// The word printed when this arm alone wins.
+    word: &'static str,
+    /// Its ft recipe is the envelope's seed-0 ft recipe with exactly these keys changed:
+    /// `None` = absent, `Some(v)` = the number `v`.
+    delta: &'static [(&'static str, Option<f64>)],
+    targets: &'static [Metric],
+    guards: &'static [Metric],
+}
+
+impl Arm {
+    /// R1: the base list, then the arm's own, each metric once.
+    fn must_not_lose(&self) -> Vec<Metric> {
+        let mut out: Vec<Metric> = Vec::new();
+        for m in BASE_MUST_NOT_LOSE.iter().chain(self.guards) {
+            if !out.iter().any(|o| o.name == m.name) {
+                out.push(*m);
+            }
+        }
+        out
+    }
+    fn reads(&self, pred: impl Fn(Source) -> bool) -> bool {
+        self.targets
+            .iter()
+            .chain(self.must_not_lose().iter())
+            .any(|m| pred(m.source))
+    }
+    fn reads_control(&self) -> bool {
+        self.reads(|s| matches!(s, Source::Control(_)))
+    }
+    fn reads_margin(&self) -> bool {
+        self.reads(|s| s == Source::Margin)
+    }
+}
+
+/// J6(f): no layer-wise LR. Target: the 8K worst bucket alone. Must not lose: the length
+/// controls and prose / scrambled OOD.
+const ARM_J6F: Arm = Arm {
+    name: "j6f",
+    word: "fires:j6f",
+    delta: &[("lower_layers_n", None), ("lower_lr_scale", None)],
+    targets: &[NEEDLE_8K_WORST],
+    guards: &[CONTROL_1K, CONTROL_2K, CONTROL_4K, PROSE, SCRAMBLED],
+};
+
+/// J6(d)-v4: --lr 3e-5 --beta2 0.95. Targets: the defect_class paired margin and val top-1
+/// choice / span. Must not lose: OOD (R4: all three categories), needle, permutation (both in
+/// the base list) and in-distribution abstention. R5 as amended (Fable, e9cff78): "needle" is
+/// the gate-bearing 8K worst bucket only, so this arm neither guards on nor reads the 1K/2K/4K
+/// length controls, and its needle-control row is not required.
+const ARM_J6DV4: Arm = Arm {
+    name: "j6dv4",
+    word: "fires:j6dv4",
+    delta: &[("lr", Some(3e-5)), ("beta2", Some(0.95))],
+    targets: &[MARGIN_DC, VAL_CHOICE, VAL_SPAN],
+    guards: &[PROSE, SCRAMBLED, UNSEEN, ID_ABSTAIN_DC],
+};
+
+/// A signed exact fraction `num / den`, `0 < den <= MAX_DENOMINATOR`, `|num| <= den`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Rat {
+    num: i64,
+    den: i64,
+}
+
+impl Rat {
+    fn new(num: i64, den: u64, what: &str) -> Result<Rat> {
+        ensure!(
+            den > 0 && den <= MAX_DENOMINATOR,
+            "{what}: denominator {den} is outside 1..={MAX_DENOMINATOR}"
+        );
+        let den = i64::try_from(den).map_err(|_| format!("{what}: denominator {den} overflows"))?;
+        ensure!(
+            num.abs() <= den,
+            "{what}: {num}/{den} is not a fraction in [-1, 1]"
+        );
+        Ok(Rat { num, den })
+    }
+    fn of_count(f: Frac, what: &str) -> Result<Rat> {
+        let num = i64::try_from(f.k).map_err(|_| format!("{what}: count {} overflows", f.k))?;
+        Rat::new(num, f.n, what)
+    }
+    fn f64(self) -> f64 {
+        self.num as f64 / self.den as f64
+    }
+    fn parts(self) -> (i128, i128) {
+        (i128::from(self.num), i128::from(self.den))
+    }
+}
+
+/// A metric's value in the form it is compared in.
+#[derive(Clone, Copy, Debug)]
+enum Val {
+    Exact(Rat),
+    Float(f64),
+}
+
+impl Val {
+    fn json(self) -> Value {
+        match self {
+            Val::Exact(r) => json!({"n": r.num, "n_total": r.den, "value": r.f64()}),
+            Val::Float(v) => json!({"value": v}),
+        }
+    }
+}
+
+fn mixed(a: Val, b: Val) -> String {
+    format!("cannot compare {a:?} with {b:?}: one metric read in two forms")
+}
+
+fn cmp_val(a: Val, b: Val) -> Result<std::cmp::Ordering> {
+    match (a, b) {
+        (Val::Exact(x), Val::Exact(y)) => {
+            let ((xn, xd), (yn, yd)) = (x.parts(), y.parts());
+            Ok((xn * yd).cmp(&(yn * xd)))
+        }
+        (Val::Float(x), Val::Float(y)) => x
+            .partial_cmp(&y)
+            .ok_or_else(|| format!("{x} and {y} do not compare")),
+        _ => Err(mixed(a, b)),
+    }
+}
+
+/// R7, targets: the candidate lands outside the envelope in the right direction by MORE than
+/// the envelope's own range. Higher: `c - max > max - min`; lower: `min - c > max - min`. A
+/// candidate at exactly max + range (min - range) does not clear. Exact for counts and
+/// margins: with c = a/b, min = e/f, max = g/h, higher clears iff a*f*h + e*b*h > 2*g*b*f and
+/// lower iff 2*e*b*h > a*f*h + g*b*f.
+fn clears(c: Val, min: Val, max: Val, dir: Dir) -> Result<bool> {
+    match (c, min, max) {
+        (Val::Exact(c), Val::Exact(lo), Val::Exact(hi)) => {
+            let ((a, b), (e, f), (g, h)) = (c.parts(), lo.parts(), hi.parts());
+            Ok(match dir {
+                Dir::Higher => a * f * h + e * b * h > 2 * g * b * f,
+                Dir::Lower => 2 * e * b * h > a * f * h + g * b * f,
+            })
+        }
+        (Val::Float(c), Val::Float(lo), Val::Float(hi)) => Ok(match dir {
+            Dir::Higher => c - hi > hi - lo,
+            Dir::Lower => lo - c > hi - lo,
+        }),
+        _ => Err(mixed(c, max)),
+    }
+}
+
+/// R7, must-not-lose: the candidate lands outside the envelope in the wrong direction,
+/// strictly. Higher: `c < min`; lower: `c > max`. Equal to the bound is inside.
+fn loses(c: Val, min: Val, max: Val, dir: Dir) -> Result<bool> {
+    Ok(match dir {
+        Dir::Higher => cmp_val(c, min)? == std::cmp::Ordering::Less,
+        Dir::Lower => cmp_val(c, max)? == std::cmp::Ordering::Greater,
+    })
+}
+
+/// R3: an arm's targets win only if every one of them clears.
+fn targets_win(cleared: &[bool]) -> bool {
+    !cleared.is_empty() && cleared.iter().all(|&c| c)
+}
+
+/// The signed paired margin `mean(model_correct - control_correct)` over `n_total` rows
+/// (eval_harness.paired_margin_test), recovered as the exact fraction `m / n_total`. A value
+/// that is not `m / n_total` for an integer m refuses.
+fn paired_margin(row: &Row) -> Result<Rat> {
+    let what = format!("row {} metrics.{MARGIN_KEY}", row.id());
+    let entry = row.ran("metrics", MARGIN_KEY)?;
+    let rows = entry
+        .get("n_total")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| format!("{what}: no integer n_total"))?;
+    ensure!(
+        entry.get("n").and_then(Value::as_u64) == Some(rows),
+        "{what}: n is not n_total {rows} (a paired margin is over every row)"
+    );
+    let value = recorded_value(entry, &what)?;
+    ensure!(
+        (-1.0..=1.0).contains(&value),
+        "{what}: {value} is not a mean of per-row differences in [-1, 1]"
+    );
+    ensure!(
+        rows > 0 && rows <= MAX_DENOMINATOR,
+        "{what}: n_total {rows} is outside 1..={MAX_DENOMINATOR}"
+    );
+    let scaled = (value * rows as f64).round();
+    // |scaled| <= rows <= 1e9, so the conversion below is exact.
+    let m = scaled as i64;
+    let exact = Rat::new(m, rows, &what)?;
+    ensure!(
+        close(value, exact.f64()),
+        "{what}: value {value} is not m/{rows} for any integer m (nearest {m}/{rows}); a \
+         paired margin over {rows} rows is"
+    );
+    Ok(exact)
+}
+
+/// One seed's rows: its ft row, its eval row, and the needle-control and letter-control rows
+/// when an arm reads them.
+struct SeedRows<'a> {
+    seed: i64,
+    ft: &'a Row,
+    eval: &'a Row,
+    control: Option<&'a Row>,
+    letter: Option<&'a Row>,
+}
+
+impl SeedRows<'_> {
+    fn json(&self) -> Value {
+        json!({
+            "seed": self.seed,
+            "ft_row": self.ft.id(),
+            "eval_row": self.eval.id(),
+            "needle_control_row": self.control.map(Row::id),
+            "letter_control_row": self.letter.map(Row::id),
+        })
+    }
+    fn read(&self, m: Metric) -> Result<Val> {
+        let what = format!("row {} {}", self.eval.id(), m.name);
+        Ok(match m.source {
+            Source::Count(key) => {
+                Val::Exact(Rat::of_count(self.eval.count("metrics", key)?, &what)?)
+            }
+            Source::Float(key) => {
+                let entry = self.eval.ran("metrics", key)?;
+                Val::Float(recorded_value(entry, &what)?)
+            }
+            Source::Needle8k => Val::Exact(Rat::of_count(needle_8k(self.eval)?.frac, &what)?),
+            Source::Control(length) => {
+                let row = self
+                    .control
+                    .ok_or_else(|| format!("{what}: no needle-control row was looked up"))?;
+                Val::Exact(Rat::of_count(needle_control(row, length)?.frac, &what)?)
+            }
+            Source::Margin => {
+                let row = self
+                    .letter
+                    .ok_or_else(|| format!("{what}: no letter-control row was looked up"))?;
+                Val::Exact(paired_margin(row)?)
+            }
+        })
+    }
+}
+
+/// The one completed letter-control row of an eval row: it names the eval row in
+/// `metrics.scored_eval_row_id` and carries the per-family margin. An older letter-control
+/// row without per-family margins (J4's d597ee7d) is not one; the option control records
+/// `linear_option_control.scored_eval_row_id` and is never one.
+fn letter_control_row<'a>(ledger: &'a Ledger, eval: &Row) -> Result<&'a Row> {
+    let found: Vec<&Row> = ledger
+        .rows
+        .iter()
+        .filter(|r| {
+            r.completed()
+                && r.str_at(&["run_kind"]) == Some("eval")
+                && r.str_at(&["metrics", "scored_eval_row_id", "value"]) == Some(eval.id())
+                && r.get(&["metrics", MARGIN_KEY]).is_some()
+        })
+        .collect();
+    let row = match found.len() {
+        1 => found[0],
+        0 => {
+            return Err(format!(
+                "missing row: no completed letter-control row carrying {MARGIN_KEY} for eval \
+                 row {} in {}",
+                eval.id(),
+                ledger.shown
+            ));
+        }
+        n => {
+            return Err(format!(
+                "{n} completed letter-control rows carry {MARGIN_KEY} for eval row {} in {} \
+                 ({}); which one decides is not this tool's call",
+                eval.id(),
+                ledger.shown,
+                found.iter().map(|r| r.id()).collect::<Vec<_>>().join(", ")
+            ));
+        }
+    };
+    ensure!(
+        row.str_at(&["recipe", "eval_row_id"]) == Some(eval.id()),
+        "letter-control row {}: recipe.eval_row_id {:?} is not its scored eval row {}",
+        row.id(),
+        row.str_at(&["recipe", "eval_row_id"]),
+        eval.id()
+    );
+    Ok(row)
+}
+
+fn seed_rows<'a>(
+    ledger: &'a Ledger,
+    seed: i64,
+    ft: &str,
+    control: bool,
+    letter: bool,
+) -> Result<SeedRows<'a>> {
+    let ft_row = ft_row(ledger, seed, ft)?;
+    let eval = eval_row_of(ledger, seed, ft, EVAL_TAG)?;
+    let control = if control {
+        Some(eval_row_of(ledger, seed, ft, CONTROL_TAG)?)
+    } else {
+        None
+    };
+    let letter = if letter {
+        Some(letter_control_row(ledger, eval)?)
+    } else {
+        None
+    };
+    Ok(SeedRows {
+        seed,
+        ft: ft_row,
+        eval,
+        control,
+        letter,
+    })
+}
+
+/// `row.recipe` agrees with `reference.recipe` on every key in `keys`, each of which the
+/// reference records (an absent key on both sides would otherwise pass unexamined).
+fn same_recipe_keys(row: &Row, reference: &Row, keys: &[&str], what: &str) -> Result<()> {
+    for key in keys {
+        let want = reference.get(&["recipe", key]).ok_or_else(|| {
+            format!(
+                "{what}: reference row {} has no recipe.{key}",
+                reference.id()
+            )
+        })?;
+        ensure!(
+            row.get(&["recipe", key]) == Some(want),
+            "{what}: row {} recipe.{key} is {}, not reference row {}'s {want}: not comparable",
+            row.id(),
+            row.get(&["recipe", key])
+                .map_or("absent".to_string(), Value::to_string),
+            reference.id()
+        );
+    }
+    Ok(())
+}
+
+fn recipe_of<'a>(row: &'a Row, what: &str) -> Result<&'a Map<String, Value>> {
+    row.get(&["recipe"])
+        .and_then(Value::as_object)
+        .ok_or_else(|| format!("{what}: row {} has no recipe object", row.id()))
+}
+
+/// Every row an arm or envelope seed is read from is comparable with the envelope's seed 0:
+/// the same val set and needle / OOD suites, the same length-control suite, and the same
+/// letter control (its recipe but for its own eval row id).
+fn comparable(rows: &SeedRows, reference: &SeedRows, what: &str) -> Result<()> {
+    same_recipe_keys(
+        rows.eval,
+        reference.eval,
+        &["val_shard_hash", "needle", "ood"],
+        what,
+    )?;
+    if let (Some(c), Some(r)) = (rows.control, reference.control) {
+        same_recipe_keys(c, r, &["needle_control"], what)?;
+    }
+    if let (Some(l), Some(r)) = (rows.letter, reference.letter) {
+        let (mut a, mut b) = (recipe_of(l, what)?.clone(), recipe_of(r, what)?.clone());
+        a.remove("eval_row_id");
+        b.remove("eval_row_id");
+        ensure!(
+            a == b,
+            "{what}: letter-control row {}'s recipe is not reference row {}'s (but for \
+             eval_row_id): not the same control",
+            l.id(),
+            r.id()
+        );
+    }
+    Ok(())
+}
+
+/// R8: the arm's ft row is the declared ablation of the envelope's recipe: the same data
+/// snapshot, and the same recipe but for exactly the arm's delta. Swapped or wrong ft ids
+/// refuse rather than name the wrong recipe.
+fn arm_identity(arm: &Arm, ft: &Row, reference: &Row) -> Result<()> {
+    let what = format!("arm {} ft row {}", arm.name, ft.id());
+    let data = ft.str_at(&["protocol", "data_snapshot_hash"]);
+    ensure!(
+        data.is_some() && data == reference.str_at(&["protocol", "data_snapshot_hash"]),
+        "{what}: data snapshot {data:?} is not the envelope's {:?}",
+        reference.str_at(&["protocol", "data_snapshot_hash"])
+    );
+    let (got, base) = (recipe_of(ft, &what)?, recipe_of(reference, &what)?);
+    for (key, want) in arm.delta {
+        match want {
+            None => ensure!(
+                !got.contains_key(*key),
+                "{what}: recipe.{key} is {}, but the arm drops it",
+                got[*key]
+            ),
+            Some(v) => ensure!(
+                got.get(*key).and_then(Value::as_f64) == Some(*v),
+                "{what}: recipe.{key} is {}, not the arm's {v}",
+                got.get(*key).map_or("absent".to_string(), Value::to_string)
+            ),
+        }
+    }
+    let changed: BTreeSet<&str> = arm.delta.iter().map(|(k, _)| *k).collect();
+    let keys: BTreeSet<&String> = got.keys().chain(base.keys()).collect();
+    for key in keys {
+        if changed.contains(key.as_str()) {
+            continue;
+        }
+        ensure!(
+            got.get(key) == base.get(key),
+            "{what}: recipe.{key} is {}, not the envelope's {}; the arm differs from F only by \
+             {:?}",
+            got.get(key).map_or("absent".to_string(), Value::to_string),
+            base.get(key).map_or("absent".to_string(), Value::to_string),
+            changed
+        );
+    }
+    Ok(())
+}
+
+/// One metric against the envelope: a target (does it clear?) or a guard (does it lose?).
+fn judge(
+    m: Metric,
+    envelope: &[SeedRows],
+    candidate: &SeedRows,
+    target: bool,
+) -> Result<(bool, Value)> {
+    let values: Vec<Val> = envelope.iter().map(|s| s.read(m)).collect::<Result<_>>()?;
+    let c = candidate.read(m)?;
+    let (mut min, mut max) = (values[0], values[0]);
+    for &v in &values[1..] {
+        if cmp_val(v, min)? == std::cmp::Ordering::Less {
+            min = v;
+        }
+        if cmp_val(v, max)? == std::cmp::Ordering::Greater {
+            max = v;
+        }
+    }
+    let verdict = if target {
+        clears(c, min, max, m.dir)?
+    } else {
+        loses(c, min, max, m.dir)?
+    };
+    let mut j = json!({
+        "metric": m.name,
+        "direction": match m.dir { Dir::Higher => "higher", Dir::Lower => "lower" },
+        "envelope": envelope
+            .iter()
+            .zip(&values)
+            .map(|(s, v)| json!({"seed": s.seed, "value": v.json()}))
+            .collect::<Vec<_>>(),
+        "min": min.json(),
+        "max": max.json(),
+        "candidate": c.json(),
+    });
+    j[if target { "clears" } else { "loses" }] = Value::Bool(verdict);
+    Ok((verdict, j))
+}
+
+/// Each arm judged against the envelope: whether it wins, and the JSON of every comparison.
+/// Any row or metric that cannot be read refuses the whole decision.
+fn decide_arms(
+    inputs: &mut Inputs,
+    envelope_ledger: &Path,
+    envelope_ft: &[(i64, String)],
+    arm_ledger: &Path,
+    arms: &[(&Arm, &(i64, String))],
+) -> Result<(Vec<bool>, Value)> {
+    let seeds: Vec<i64> = envelope_ft.iter().map(|(s, _)| *s).collect();
+    ensure!(
+        seeds == F_SEEDS,
+        "the envelope is {ENVELOPE_PIN}, given as seeds {F_SEEDS:?} in that order; got {seeds:?}"
+    );
+    let env = inputs.read(envelope_ledger)?;
+    let arm_rows = inputs.read(arm_ledger)?;
+    one_configuration(&env, envelope_ft)?;
+    let control = arms.iter().any(|(a, _)| a.reads_control());
+    let letter = arms.iter().any(|(a, _)| a.reads_margin());
+    let envelope: Vec<SeedRows> = envelope_ft
+        .iter()
+        .map(|(seed, ft)| seed_rows(&env, *seed, ft, control, letter))
+        .collect::<Result<_>>()?;
+    let reference = &envelope[0];
+    for s in &envelope[1..] {
+        comparable(s, reference, &format!("envelope seed {}", s.seed))?;
+    }
+    let mut wins = Vec::new();
+    let mut detail = Map::new();
+    for (arm, (seed, ft)) in arms {
+        ensure!(
+            *seed == ARM_SEED,
+            "arm {}: seed {seed}, but each arm is one seed-{ARM_SEED} run",
+            arm.name
+        );
+        let rows = seed_rows(
+            &arm_rows,
+            *seed,
+            ft,
+            arm.reads_control(),
+            arm.reads_margin(),
+        )?;
+        arm_identity(arm, rows.ft, reference.ft)?;
+        comparable(&rows, reference, &format!("arm {}", arm.name))?;
+        let mut cleared = Vec::new();
+        let mut targets = Vec::new();
+        for m in arm.targets {
+            let (c, j) = judge(*m, &envelope, &rows, true)?;
+            cleared.push(c);
+            targets.push(j);
+        }
+        let mut lost = Vec::new();
+        let mut guards = Vec::new();
+        for m in arm.must_not_lose() {
+            let (l, j) = judge(m, &envelope, &rows, false)?;
+            if l {
+                lost.push(m.name);
+            }
+            guards.push(j);
+        }
+        let win = targets_win(&cleared) && lost.is_empty();
+        wins.push(win);
+        detail.insert(
+            arm.name.to_string(),
+            json!({
+                "wins": win,
+                "rows": rows.json(),
+                "recipe_delta": arm
+                    .delta
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.map_or(Value::Null, |x| json!(x))))
+                    .collect::<Map<_, _>>(),
+                "targets_all_clear": targets_win(&cleared),
+                "targets": targets,
+                "must_not_lose_lost": lost,
+                "must_not_lose": guards,
+            }),
+        );
+    }
+    Ok((
+        wins,
+        json!({
+            "envelope": {
+                "pin": ENVELOPE_PIN,
+                "seeds": envelope.iter().map(SeedRows::json).collect::<Vec<_>>(),
+            },
+            "arms": detail,
+        }),
+    ))
+}
+
+fn rule_successor(
+    inputs: &mut Inputs,
+    f_ledger: &Path,
+    ft_rows: &[(i64, String)],
+    arm_ledger: &Path,
+    j6f: &(i64, String),
+    j6dv4: &(i64, String),
+) -> Result<(String, Value)> {
+    let (wins, mut body) = decide_arms(
+        inputs,
+        f_ledger,
+        ft_rows,
+        arm_ledger,
+        &[(&ARM_J6F, j6f), (&ARM_J6DV4, j6dv4)],
+    )?;
+    let &[f, d] = wins.as_slice() else {
+        return Err(format!("{} arm verdicts for two arms", wins.len()));
+    };
+    body["rule"] = json!(
+        "an arm wins iff every metric its flag was meant to move lands outside F's three-seed \
+         envelope in the right direction by more than F's own seed range, and no must-not-lose \
+         metric lands outside the envelope in the wrong direction (f-v4-preregistered.json:13); \
+         F' runs the one winning arm's recipe"
+    );
+    let (word, then) = match (f, d) {
+        (true, false) => (
+            ARM_J6F.word,
+            "F' runs J6(f)'s recipe: F's argv without --lower-layers-n 8 --lower-layers-lr-scale 0.1, seeds 0 1 2",
+        ),
+        (false, true) => (
+            ARM_J6DV4.word,
+            "F' runs J6(d)-v4's recipe: F's argv with --lr 3e-5 --beta2 0.95 in place of --lr 1e-5, seeds 0 1 2",
+        ),
+        (false, false) => (
+            "quiet",
+            "no F'; re-plan from J7''s avg / ens3 / avg-np rows (Fable Q2)",
+        ),
+        (true, true) => {
+            body["refused_because"] = json!(
+                "both arms win, on different metrics (J6(f) on the 8K needle, J6(d)-v4 on the \
+                 margin and val top-1): the human decides; two one-seed wins are never combined \
+                 into an untested recipe"
+            );
+            ("refused", "no F' until the human decides")
+        }
+    };
+    body["then"] = json!(then);
+    Ok((word.to_string(), body))
+}
+
 // --- look-ups ----------------------------------------------------------------------------------
 
 fn lookup_ft_rows(
@@ -966,10 +1703,29 @@ fn lookup_ft_rows(
         "a seed or an ft row is named twice"
     );
     let ledger = inputs.read(ledger)?;
+    let (_, recipe, data) = one_configuration(&ledger, ft_rows)?;
+    let rows: Vec<Value> = ft_rows
+        .iter()
+        .map(|(seed, id)| json!({"seed": seed, "ft_row": id}))
+        .collect();
+    let ids: Vec<&str> = ft_rows.iter().map(|(_, id)| id.as_str()).collect();
+    Ok((
+        ids.join(" "),
+        json!({"rows": rows, "recipe_hash": recipe, "data_snapshot_hash": data}),
+    ))
+}
+
+/// The ft rows, in order, checked as one configuration that can be averaged, ensembled or
+/// used as an envelope: each completed, `quick: false`, an `epoch` arm with no shuffle, the
+/// seed it was given as, and all sharing one recipe hash and one data snapshot (returned).
+fn one_configuration<'a>(
+    ledger: &'a Ledger,
+    ft_rows: &[(i64, String)],
+) -> Result<(Vec<&'a Row>, String, String)> {
     let mut shared: Option<(String, String)> = None;
     let mut rows = Vec::new();
     for (seed, id) in ft_rows {
-        let row = ft_row(&ledger, *seed, id)?;
+        let row = ft_row(ledger, *seed, id)?;
         ensure!(
             row.get(&["quick"]) == Some(&Value::Bool(false)),
             "ft row {id} does not say quick: false; an average or ensemble of it promotes \
@@ -995,14 +1751,10 @@ fn lookup_ft_rows(
                  not one configuration"
             ),
         }
-        rows.push(json!({"seed": seed, "ft_row": id}));
+        rows.push(row);
     }
-    let (recipe, data) = shared.unwrap_or_default();
-    let ids: Vec<&str> = ft_rows.iter().map(|(_, id)| id.as_str()).collect();
-    Ok((
-        ids.join(" "),
-        json!({"rows": rows, "recipe_hash": recipe, "data_snapshot_hash": data}),
-    ))
+    let (recipe, data) = shared.ok_or_else(|| "no ft row was given".to_string())?;
+    Ok((rows, recipe, data))
 }
 
 fn lookup_eval_row(
@@ -1033,8 +1785,16 @@ fn rule_name(cmd: &Cmd) -> &'static str {
         Cmd::Avgnp { .. } => "avgnp_qualifies_for_f_j7prime",
         Cmd::Seeds34 { .. } => "seeds_3_4",
         Cmd::J6f { .. } => "j6f_position",
+        Cmd::Successor { .. } => "f_successor",
         Cmd::FtRows { .. } => "ft_rows",
         Cmd::EvalRow { .. } => "eval_row",
+    }
+}
+
+fn preregistration(cmd: &Cmd) -> &'static str {
+    match cmd {
+        Cmd::Successor { .. } => PREREG_SUCC,
+        _ => PREREG,
     }
 }
 
@@ -1052,6 +1812,21 @@ fn run(cmd: &Cmd) -> Outcome {
         Cmd::J6f {
             f_ledger, ft_rows, ..
         } => rule_j6f(&mut inputs, f_ledger, ft_rows),
+        Cmd::Successor {
+            f_ledger,
+            ft_rows,
+            arm_ledger,
+            j6f_ft_row,
+            j6dv4_ft_row,
+            ..
+        } => rule_successor(
+            &mut inputs,
+            f_ledger,
+            ft_rows,
+            arm_ledger,
+            j6f_ft_row,
+            j6dv4_ft_row,
+        ),
         Cmd::FtRows { ledger, ft_rows } => lookup_ft_rows(&mut inputs, ledger, ft_rows),
         Cmd::EvalRow {
             ledger,
@@ -1062,10 +1837,23 @@ fn run(cmd: &Cmd) -> Outcome {
     let mut json = json!({
         "tool": TOOL,
         "rule": rule_name(cmd),
-        "preregistration": PREREG,
+        "preregistration": preregistration(cmd),
         "inputs": inputs.0,
     });
     let (word, refused) = match result {
+        // A rule that read every row and refuses by its own terms (successor: both arms win)
+        // keeps its detail and exits as every refusal does.
+        Ok((word, body)) if word == "refused" => {
+            let reason = body
+                .get("refused_because")
+                .and_then(Value::as_str)
+                .unwrap_or("the rule refused without recording why; see detail")
+                .to_string();
+            json["decision"] = Value::String(word.clone());
+            json["refused"] = Value::String(reason);
+            json["detail"] = body;
+            (word, true)
+        }
         Ok((word, body)) => {
             json["decision"] = Value::String(word.clone());
             json["detail"] = body;
@@ -1098,7 +1886,10 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let out_path = match &cli.cmd {
-        Cmd::Avgnp { out, .. } | Cmd::Seeds34 { out, .. } | Cmd::J6f { out, .. } => Some(out),
+        Cmd::Avgnp { out, .. }
+        | Cmd::Seeds34 { out, .. }
+        | Cmd::J6f { out, .. }
+        | Cmd::Successor { out, .. } => Some(out),
         Cmd::FtRows { .. } | Cmd::EvalRow { .. } => None,
     };
     if let Some(path) = out_path
@@ -2010,5 +2801,1190 @@ mod tests {
         assert!(parse_ft_row(&format!("x={}", J4_FT[0])).is_err());
         assert!(parse_ft_row(&format!("0={}", J4_FT[0].to_uppercase())).is_err());
         assert!(parse_ft_row(&format!("100={}", J4_FT[0])).is_err());
+    }
+
+    // --- (iv) successor: campaign/f-successor-preregistered.json -----------------------------
+
+    const SUCC_PREREG: &str = "campaign/f-successor-preregistered.json";
+    const J6B: &str = "ledger/gh200-j6-ablations-2026-10-01.jsonl";
+    const J6B_FT: &str = "3fa33161-0bdb-42fd-b8b1-509c16e32a27";
+    /// F's ledger as it stood at 2026-10-02 01:13 UTC (sha256 abb48449...): seed 0's rows only.
+    const F_SNAPSHOT: &str =
+        "AUDIT/idle-gpu-queue-2026-10-02/f-ledger-seed0-snapshot-2026-10-02T0113Z.jsonl";
+    const F_SEED0_FT: &str = "973cd4e3-e0d2-4ff8-8588-b761cb842b75";
+
+    /// The replay arm: J6(b) against J4, with the targets its flag was meant to move
+    /// (`j6b_evidence.met`) and the base must-not-lose list only.
+    const ARM_J6B: Arm = Arm {
+        name: "j6b",
+        word: "fires",
+        delta: &[("lower_layers_n", Some(8.0)), ("lower_lr_scale", Some(0.1))],
+        targets: &[PROSE, SCRAMBLED],
+        guards: &[],
+    };
+
+    fn prereg_succ() -> Value {
+        serde_json::from_str(&std::fs::read_to_string(repo(SUCC_PREREG)).unwrap()).unwrap()
+    }
+
+    fn names(ms: &[Metric]) -> Vec<&'static str> {
+        ms.iter().map(|m| m.name).collect()
+    }
+
+    #[test]
+    fn the_successor_rule_is_the_preregistrations_own_text() {
+        let p = prereg_succ();
+        let words: Vec<&str> = p["outcomes"]["words"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| w.as_str().unwrap())
+            .collect();
+        assert_eq!(words, [ARM_J6F.word, ARM_J6DV4.word, "quiet", "refused"]);
+        let base: Vec<&str> = p["base_must_not_lose"]["metrics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(base, names(&BASE_MUST_NOT_LOSE));
+        for (arm, key) in [(&ARM_J6F, "j6f"), (&ARM_J6DV4, "j6dv4")] {
+            let a = &p["arms"][key];
+            let targets: Vec<&str> = a["targets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| m["name"].as_str().unwrap())
+                .collect();
+            assert_eq!(targets, names(arm.targets), "{key}");
+            let text = a["must_not_lose"].as_str().unwrap();
+            assert!(text.starts_with("base_must_not_lose, plus: "), "{key}");
+            for m in arm.guards {
+                let phrase = match m.source {
+                    Source::Control(_) => {
+                        "needle_hunk_recall.control.1024 / .2048 / .4096 worst depth bucket"
+                    }
+                    _ => m.name,
+                };
+                assert!(text.contains(phrase), "{key}: {phrase} not in {text}");
+            }
+            assert_eq!(a["reads_margin"], arm.reads_margin(), "{key}");
+        }
+        // Each arm's must-not-lose names exactly the guards above, no more: count the metric
+        // names the text lists against the arm's own list (controls are one phrase).
+        let j6f_text = p["arms"]["j6f"]["must_not_lose"].as_str().unwrap();
+        assert!(!j6f_text.contains("unseen-language") && !j6f_text.contains("in_distribution"));
+        // R5 struck (e9cff78): J6(d)-v4 lists no length control and requires no control row.
+        let j6dv4 = &p["arms"]["j6dv4"];
+        assert!(
+            !j6dv4["must_not_lose"]
+                .as_str()
+                .unwrap()
+                .contains("needle_hunk_recall.control")
+        );
+        assert!(
+            !j6dv4["rows"]
+                .as_str()
+                .unwrap()
+                .contains("needle-length-control")
+        );
+        assert!(
+            p["arms"]["j6f"]["rows"]
+                .as_str()
+                .unwrap()
+                .contains("epoch-needle-length-control")
+        );
+        assert!(
+            p["readings"]["R5_j6dv4_needle"]
+                .as_str()
+                .unwrap()
+                .starts_with("struck by Fable 2026-10-02")
+        );
+        assert!(PREREG_SUCC.contains("e9cff78"));
+        assert!(
+            p["arms"]["j6f"]["identity"]
+                .as_str()
+                .unwrap()
+                .contains("lower_layers_n and lower_lr_scale are absent")
+        );
+        assert_eq!(
+            ARM_J6F.delta,
+            &[("lower_layers_n", None), ("lower_lr_scale", None)]
+        );
+        assert!(
+            p["arms"]["j6dv4"]["identity"]
+                .as_str()
+                .unwrap()
+                .contains("except lr = 3e-5 and beta2 = 0.95")
+        );
+        assert_eq!(
+            ARM_J6DV4.delta,
+            &[("lr", Some(3e-5)), ("beta2", Some(0.95))]
+        );
+        assert!(
+            p["envelope"]["pin"]
+                .as_str()
+                .unwrap()
+                .contains("The envelope is F seeds 0, 1 and 2 only")
+        );
+        assert_eq!(F_SEEDS, [0, 1, 2]);
+        let c = &p["comparison"];
+        assert!(c["target_clears"].as_str().unwrap().contains(
+            "higher-better: candidate - max > max - min; lower-better: min - candidate > max - min"
+        ));
+        assert!(
+            c["guard_loses"]
+                .as_str()
+                .unwrap()
+                .contains("higher-better: candidate < min; lower-better: candidate > max")
+        );
+        assert!(c["counts"].as_str().unwrap().contains(
+            "clears (higher-better) iff a*f*h + e*b*h > 2*g*b*f; clears (lower-better) iff \
+             2*e*b*h > a*f*h + g*b*f"
+        ));
+        assert!(c["paired_margin"].as_str().unwrap().contains("873/2304"));
+        assert!(
+            p["readings"]["R3_all_targets_clear"]
+                .as_str()
+                .unwrap()
+                .contains("every one of its targets clears")
+        );
+        assert_eq!(p["arms"]["j6dv4"]["targets"][0]["name"], MARGIN_KEY);
+        assert!(PREREG_SUCC.contains("ba1cedb") && PREREG_SUCC.contains(SUCC_PREREG));
+    }
+
+    /// Fable's real-row check: the definition, run on J6(b)'s and J4's committed rows, says
+    /// what the record says (`met: yes`).
+    #[test]
+    fn j6b_against_j4_fires_on_the_real_rows() {
+        let mut inputs = Inputs::default();
+        let (wins, d) = decide_arms(
+            &mut inputs,
+            &repo(J4),
+            &ft_args(&J4_FT),
+            &repo(J6B),
+            &[(&ARM_J6B, &(0, J6B_FT.to_string()))],
+        )
+        .unwrap();
+        assert_eq!(wins, [true], "{d}");
+        let arm = &d["arms"]["j6b"];
+        assert!(
+            arm["rows"]["eval_row"]
+                .as_str()
+                .unwrap()
+                .starts_with("f4958492")
+        );
+        assert_eq!(arm["rows"]["ft_row"], J6B_FT);
+        let t = &arm["targets"];
+        // prose 44 > 9 + (9 - 2); scrambled 51 > 8 + (8 - 3).
+        assert_eq!(
+            (
+                t[0]["candidate"]["n"].as_i64(),
+                t[0]["max"]["n"].as_i64(),
+                t[0]["min"]["n"].as_i64()
+            ),
+            (Some(44), Some(9), Some(2))
+        );
+        assert_eq!(
+            (
+                t[1]["candidate"]["n"].as_i64(),
+                t[1]["max"]["n"].as_i64(),
+                t[1]["min"]["n"].as_i64()
+            ),
+            (Some(51), Some(8), Some(3))
+        );
+        assert!(t.as_array().unwrap().iter().all(|x| x["clears"] == true));
+        let g = arm["must_not_lose"].as_array().unwrap();
+        assert_eq!(g.len(), 5);
+        assert!(g.iter().all(|x| x["loses"] == false), "{g:?}");
+        // The 8K needle: J6(b)'s worst bucket 0/59 ties J4's minimum 0/59: inside, not lost.
+        let needle = g
+            .iter()
+            .find(|x| x["metric"] == "needle_8k_worst_bucket")
+            .unwrap();
+        assert_eq!(
+            (
+                needle["candidate"]["n"].as_i64(),
+                needle["min"]["n"].as_i64()
+            ),
+            (Some(0), Some(0))
+        );
+        let ece = g.iter().find(|x| x["metric"] == ECE_DC_KEY).unwrap();
+        assert!(
+            ece["candidate"]["value"].as_f64().unwrap() < ece["max"]["value"].as_f64().unwrap()
+        );
+        // The envelope is J4's three eval rows, pinned through their ft rows.
+        let evals: Vec<&str> = d["envelope"]["seeds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["eval_row"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            evals,
+            [
+                REF_SPAN_MIN,
+                REF_CHOICE_MIN,
+                "02cf5ff4-a344-4a0c-afad-6e31d7e5924d"
+            ]
+        );
+        // Both ledgers were read and hashed; the J6(b) one is the box's (4a32bc0a...).
+        assert_eq!(inputs.0.len(), 2);
+        assert!(
+            inputs.0[1]["sha256"]
+                .as_str()
+                .unwrap()
+                .starts_with("4a32bc0a")
+        );
+    }
+
+    #[test]
+    fn j6b_against_j4_without_its_flags_is_refused_by_the_identity_check() {
+        // The same rows, declared as J6(f)'s delta (lower-layers flags absent): J6(b)'s ft row
+        // carries them, so it is not that arm and the decision refuses rather than judges.
+        let arm = Arm {
+            delta: &[("lower_layers_n", None), ("lower_lr_scale", None)],
+            ..ARM_J6B
+        };
+        let err = decide_arms(
+            &mut Inputs::default(),
+            &repo(J4),
+            &ft_args(&J4_FT),
+            &repo(J6B),
+            &[(&arm, &(0, J6B_FT.to_string()))],
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("recipe.lower_layers_n is 8, but the arm drops it"),
+            "{err}"
+        );
+    }
+
+    /// Every key the rule reads is on F seed 0's real rows (f4feac15, a4f244f0, c89b89a1),
+    /// read through the checker's own readers, with the values the pre-registration cites.
+    #[test]
+    fn every_key_the_rule_reads_is_on_f_seed_0s_real_rows() {
+        let ledger = Inputs::default().read(&repo(F_SNAPSHOT)).unwrap();
+        let rows = seed_rows(&ledger, 0, F_SEED0_FT, true, true).unwrap();
+        assert!(rows.eval.id().starts_with("f4feac15"));
+        assert!(rows.control.unwrap().id().starts_with("a4f244f0"));
+        assert!(rows.letter.unwrap().id().starts_with("c89b89a1"));
+        let exact = |m: Metric| match rows.read(m).unwrap() {
+            Val::Exact(r) => (r.num, r.den),
+            v => panic!("{} read as {v:?}", m.name),
+        };
+        assert_eq!(exact(NEEDLE_8K_WORST), (40, 61));
+        for m in [CONTROL_1K, CONTROL_2K, CONTROL_4K] {
+            let (k, n) = exact(m);
+            assert_eq!(k, n, "{}", m.name);
+        }
+        assert_eq!(exact(PROSE), (54, 60));
+        assert_eq!(exact(SCRAMBLED), (58, 60));
+        assert_eq!(exact(UNSEEN), (20, 60));
+        assert_eq!(exact(PERM_DC), (2291, 2304));
+        assert_eq!(exact(ID_ABSTAIN_DC), (13, 2304));
+        assert_eq!(exact(VAL_CHOICE), (9130, 10985));
+        assert_eq!(exact(VAL_SPAN), (6529, 7238));
+        assert_eq!(exact(MARGIN_DC), (873, 2304));
+        match rows.read(ECE_DC).unwrap() {
+            Val::Float(v) => assert!((v - 0.020_707_060_589_094_58).abs() < 1e-15),
+            v => panic!("ECE read as {v:?}"),
+        }
+        // Every metric either arm reads is among those just read.
+        for arm in [&ARM_J6F, &ARM_J6DV4] {
+            for m in arm.targets.iter().chain(arm.must_not_lose().iter()) {
+                assert!(rows.read(*m).is_ok(), "{}", m.name);
+            }
+        }
+        // The option-control row 4e8ec654 is in the ledger and is not selected.
+        assert!(ledger.rows.iter().any(|r| r.id().starts_with("4e8ec654")));
+    }
+
+    // Synthetic ledgers: F's three seeds (ft, eval, needle control, letter control each) and the
+    // two arms, every metric set from a profile.
+
+    #[derive(Clone, Copy, Debug)]
+    struct Profile {
+        /// The 8K worst bucket: (depth bucket index, hits); the other buckets are full.
+        needle: (usize, u64),
+        /// 1K/2K/4K hits in the 80-100% bucket, out of 60; the other buckets are full.
+        controls: [u64; 3],
+        prose: u64,
+        scrambled: u64,
+        unseen: u64,
+        choice: u64,
+        span: u64,
+        perm: u64,
+        id_abstain: u64,
+        ece: f64,
+        /// Numerator of the paired margin over 2304 rows.
+        margin: i64,
+    }
+
+    const NEEDLE_SIZES: [u64; 5] = [59, 61, 59, 60, 61];
+
+    /// F's envelope: 8K worst 40/45/50 of 61, controls 60/60, prose 54/50/52, scrambled
+    /// 58/55/57, unseen 20/25/30, choice 9130/9100/9160, span 6529/6500/6550, permutation
+    /// 2291/2285/2295, in-distribution abstention 13/15/11, ECE 0.0207/0.0190/0.0220, margin
+    /// 873/860/880 of 2304.
+    const F_ENV: [Profile; 3] = [
+        Profile {
+            needle: (4, 40),
+            controls: [60, 60, 60],
+            prose: 54,
+            scrambled: 58,
+            unseen: 20,
+            choice: 9130,
+            span: 6529,
+            perm: 2291,
+            id_abstain: 13,
+            ece: 0.0207,
+            margin: 873,
+        },
+        Profile {
+            needle: (4, 45),
+            controls: [60, 60, 60],
+            prose: 50,
+            scrambled: 55,
+            unseen: 25,
+            choice: 9100,
+            span: 6500,
+            perm: 2285,
+            id_abstain: 15,
+            ece: 0.0190,
+            margin: 860,
+        },
+        Profile {
+            needle: (4, 50),
+            controls: [60, 60, 60],
+            prose: 52,
+            scrambled: 57,
+            unseen: 30,
+            choice: 9160,
+            span: 6550,
+            perm: 2295,
+            id_abstain: 11,
+            ece: 0.0220,
+            margin: 880,
+        },
+    ];
+    /// Inside the envelope on every metric.
+    const NEUTRAL: Profile = F_ENV[0];
+    /// J6(f) clearing its one target: 61/61 at 8K (threshold: more than 60/61).
+    const J6F_WINS: Profile = Profile {
+        needle: (4, 61),
+        ..NEUTRAL
+    };
+    /// J6(d)-v4 clearing all three targets: margin 901 > 900, choice 9221 > 9220, span 6601 > 6600.
+    const J6DV4_WINS: Profile = Profile {
+        margin: 901,
+        choice: 9221,
+        span: 6601,
+        ..NEUTRAL
+    };
+
+    fn rid(kind: u64, n: u64) -> String {
+        format!("{kind:08x}-0000-4000-8000-{n:012x}")
+    }
+
+    fn ran(k: u64, n: u64) -> Value {
+        json!({"state": "ran", "n": k, "n_total": n, "value": k as f64 / n as f64})
+    }
+
+    fn s_ft(
+        id: &str,
+        seed: i64,
+        recipe_hash: &str,
+        edit: impl Fn(&mut Map<String, Value>),
+    ) -> Value {
+        let mut recipe = json!({
+            "tag": "epoch", "tool": "tools/real_ft_run.py", "optimizer_recipe": "master",
+            "lr": 1e-5, "lower_layers_n": 8, "lower_lr_scale": 0.1,
+            "checkpoint_skip_layers": 6, "batch_tokens": 35403, "no_memorise": true,
+        });
+        edit(recipe.as_object_mut().unwrap());
+        json!({
+            "row_id": id, "run_kind": "ft", "status": "completed", "quick": false,
+            "protocol": {"seed": seed, "recipe_hash": recipe_hash, "data_snapshot_hash": "d"},
+            "recipe": recipe,
+        })
+    }
+
+    fn s_eval(id: &str, seed: i64, ft: &str, p: &Profile) -> Value {
+        let mut m = Map::new();
+        let mut worst = (u64::MAX, 1u64);
+        for (i, label) in DEPTH_BUCKETS.iter().enumerate() {
+            let n = NEEDLE_SIZES[i];
+            let k = if i == p.needle.0 { p.needle.1 } else { n };
+            if u128::from(k) * u128::from(worst.1) < u128::from(worst.0) * u128::from(n) {
+                worst = (k, n);
+            }
+            m.insert(format!("needle_hunk_recall.depth.{label}"), ran(k, n));
+        }
+        for (key, k, n) in [
+            ("ood_abstain.prose", p.prose, 60),
+            ("ood_abstain.scrambled", p.scrambled, 60),
+            ("ood_abstain.unseen-language", p.unseen, 60),
+            ("val_top1.choice", p.choice, 10985),
+            ("val_top1.span", p.span, 7238),
+            (PERM_DC.name, p.perm, 2304),
+            (ID_ABSTAIN_DC.name, p.id_abstain, 2304),
+        ] {
+            m.insert(key.into(), ran(k, n));
+        }
+        m.insert(
+            ECE_DC_KEY.into(),
+            json!({"state": "ran", "n": 2304, "n_total": 2304, "value": p.ece}),
+        );
+        m.insert("ft_run_row_id".into(), json!({"state": "ran", "value": ft}));
+        json!({
+            "row_id": id, "run_kind": "eval", "status": "completed", "quick": false,
+            "protocol": {"seed": seed},
+            "recipe": {"tag": EVAL_TAG, "val_shard_hash": "v", "needle": {"cases": 300}, "ood": {"cases_per_category": 60}},
+            "gates": {"needle_hunk_recall": {"state": "ran", "n": 300, "n_total": 300, "value": worst.0 as f64 / worst.1 as f64}},
+            "metrics": m,
+        })
+    }
+
+    fn s_control(id: &str, seed: i64, ft: &str, p: &Profile) -> Value {
+        let mut m = Map::new();
+        for (length, k) in [1024u32, 2048, 4096].into_iter().zip(p.controls) {
+            for (i, label) in DEPTH_BUCKETS.iter().enumerate() {
+                let hits = if i == 4 { k } else { 60 };
+                m.insert(
+                    format!("needle_hunk_recall.control.{length}.depth.{label}"),
+                    ran(hits, 60),
+                );
+            }
+            m.insert(
+                format!("needle_hunk_recall.control.{length}"),
+                json!({"state": "ran", "n": 300, "n_total": 300, "value": k as f64 / 60.0}),
+            );
+        }
+        m.insert("ft_run_row_id".into(), json!({"state": "ran", "value": ft}));
+        json!({
+            "row_id": id, "run_kind": "eval", "status": "completed", "quick": true,
+            "protocol": {"seed": seed},
+            "recipe": {"tag": CONTROL_TAG, "needle_control": {"target_tokens": [1024, 2048, 4096]}},
+            "metrics": m,
+        })
+    }
+
+    fn s_letter(id: &str, seed: i64, eval: &str, margin: i64) -> Value {
+        json!({
+            "row_id": id, "run_kind": "eval", "status": "completed", "quick": false,
+            "protocol": {"seed": seed},
+            "recipe": {"tool": "tools/ft_linear_control.py", "control_engine_sha256": "c", "eval_row_id": eval},
+            "metrics": {
+                "scored_eval_row_id": {"state": "ran", "value": eval},
+                MARGIN_KEY: {"state": "ran", "n": 2304, "n_total": 2304, "value": margin as f64 / 2304.0},
+            },
+        })
+    }
+
+    /// A run's four rows; `kind` keeps ids distinct per run.
+    fn s_run(
+        rows: &mut Vec<Value>,
+        kind: u64,
+        seed: i64,
+        recipe_hash: &str,
+        p: &Profile,
+        recipe: impl Fn(&mut Map<String, Value>),
+    ) -> String {
+        let (ft, ev) = (rid(kind, 1), rid(kind, 2));
+        rows.push(s_ft(&ft, seed, recipe_hash, recipe));
+        rows.push(s_eval(&ev, seed, &ft, p));
+        rows.push(s_control(&rid(kind, 3), seed, &ft, p));
+        rows.push(s_letter(&rid(kind, 4), seed, &ev, p.margin));
+        ft
+    }
+
+    fn j6f_recipe(r: &mut Map<String, Value>) {
+        r.remove("lower_layers_n");
+        r.remove("lower_lr_scale");
+    }
+    fn j6dv4_recipe(r: &mut Map<String, Value>) {
+        r.insert("lr".into(), json!(3e-5));
+        r.insert("beta2".into(), json!(0.95));
+    }
+
+    struct Succ {
+        f: Temp,
+        arms: Temp,
+        f_ft: Vec<(i64, String)>,
+        j6f: (i64, String),
+        j6dv4: (i64, String),
+    }
+
+    /// F's ledger and the arm ledger, with `edit` applied to their rows (F's, then the arms').
+    fn succ_fixture(
+        env: [Profile; 3],
+        j6f: Profile,
+        j6dv4: Profile,
+        edit: impl Fn(&mut Vec<Value>, &mut Vec<Value>),
+    ) -> Succ {
+        let (mut f_rows, mut a_rows) = (Vec::new(), Vec::new());
+        let f_ft: Vec<(i64, String)> = env
+            .iter()
+            .enumerate()
+            .map(|(s, p)| {
+                (
+                    s as i64,
+                    s_run(&mut f_rows, 0xf0 + s as u64, s as i64, "r", p, |_| {}),
+                )
+            })
+            .collect();
+        let j6f_ft = s_run(&mut a_rows, 0xa6f, 0, "rf", &j6f, j6f_recipe);
+        let j6dv4_ft = s_run(&mut a_rows, 0xa6d, 0, "rd", &j6dv4, j6dv4_recipe);
+        edit(&mut f_rows, &mut a_rows);
+        Succ {
+            f: temp_ledger(&f_rows),
+            arms: temp_ledger(&a_rows),
+            f_ft,
+            j6f: (0, j6f_ft),
+            j6dv4: (0, j6dv4_ft),
+        }
+    }
+
+    fn succ_of(fx: &Succ) -> Outcome {
+        outcome(Cmd::Successor {
+            f_ledger: fx.f.0.clone(),
+            ft_rows: fx.f_ft.clone(),
+            arm_ledger: fx.arms.0.clone(),
+            j6f_ft_row: fx.j6f.clone(),
+            j6dv4_ft_row: fx.j6dv4.clone(),
+            out: PathBuf::from("/unused"),
+        })
+    }
+
+    fn succ(env: [Profile; 3], j6f: Profile, j6dv4: Profile) -> Outcome {
+        succ_of(&succ_fixture(env, j6f, j6dv4, |_, _| {}))
+    }
+
+    fn no_edit(_: &mut Vec<Value>, _: &mut Vec<Value>) {}
+
+    fn row_mut<'a>(rows: &'a mut [Value], id: &str) -> &'a mut Value {
+        rows.iter_mut().find(|r| r["row_id"] == id).unwrap()
+    }
+
+    fn refused_with(o: &Outcome, phrase: &str) {
+        assert!(o.refused, "not refused: {}", o.json);
+        assert_eq!(o.word, "refused");
+        let reason = o.json["refused"].as_str().unwrap();
+        assert!(reason.contains(phrase), "{reason}");
+    }
+
+    #[test]
+    fn quiet_when_both_arms_sit_inside_the_envelope() {
+        let o = succ(F_ENV, NEUTRAL, NEUTRAL);
+        assert!(!o.refused, "{}", o.json);
+        assert_eq!(o.word, "quiet");
+        let d = &o.json["detail"];
+        assert_eq!(d["arms"]["j6f"]["wins"], false);
+        assert_eq!(d["arms"]["j6dv4"]["wins"], false);
+        assert!(
+            d["envelope"]["pin"]
+                .as_str()
+                .unwrap()
+                .contains("seeds added by post-F rule (ii) are not part")
+        );
+        assert_eq!(o.json["preregistration"], PREREG_SUCC);
+    }
+
+    #[test]
+    fn j6f_alone_fires_and_j6dv4_alone_fires() {
+        let o = succ(F_ENV, J6F_WINS, NEUTRAL);
+        assert_eq!(
+            (o.word.as_str(), o.refused),
+            ("fires:j6f", false),
+            "{}",
+            o.json
+        );
+        let o = succ(F_ENV, NEUTRAL, J6DV4_WINS);
+        assert_eq!(
+            (o.word.as_str(), o.refused),
+            ("fires:j6dv4", false),
+            "{}",
+            o.json
+        );
+        // Each arm judges only its own targets: J6(d)-v4's winning profile does not move J6(f).
+        let o = succ(F_ENV, J6DV4_WINS, NEUTRAL);
+        assert_eq!(o.word, "quiet", "{}", o.json);
+    }
+
+    #[test]
+    fn both_arms_winning_refuses_and_keeps_both_verdicts() {
+        let o = succ(F_ENV, J6F_WINS, J6DV4_WINS);
+        refused_with(&o, "the human decides");
+        assert_eq!(o.json["decision"], "refused");
+        let d = &o.json["detail"];
+        assert_eq!(
+            (
+                d["arms"]["j6f"]["wins"].as_bool(),
+                d["arms"]["j6dv4"]["wins"].as_bool()
+            ),
+            (Some(true), Some(true))
+        );
+    }
+
+    #[test]
+    fn a_target_at_exactly_max_plus_range_does_not_fire_and_one_hit_more_does() {
+        // 8K: envelope 40..50 of 61, range 10/61; 60/61 is exactly max + range.
+        let tie = Profile {
+            needle: (4, 60),
+            ..NEUTRAL
+        };
+        assert_eq!(succ(F_ENV, tie, NEUTRAL).word, "quiet");
+        assert_eq!(succ(F_ENV, J6F_WINS, NEUTRAL).word, "fires:j6f");
+        // Margin: envelope 860..880 of 2304, range 20; 900 ties, 901 clears.
+        let tie = Profile {
+            margin: 900,
+            ..J6DV4_WINS
+        };
+        assert_eq!(succ(F_ENV, NEUTRAL, tie).word, "quiet");
+        // Choice 9160 + 60 = 9220 ties; span 6550 + 50 = 6600 ties.
+        let tie = Profile {
+            choice: 9220,
+            ..J6DV4_WINS
+        };
+        assert_eq!(succ(F_ENV, NEUTRAL, tie).word, "quiet");
+        let tie = Profile {
+            span: 6600,
+            ..J6DV4_WINS
+        };
+        assert_eq!(succ(F_ENV, NEUTRAL, tie).word, "quiet");
+    }
+
+    #[test]
+    fn j6dv4_needs_every_target_to_clear() {
+        // R3: two of three clearing is not a win.
+        for p in [
+            Profile {
+                margin: 873,
+                ..J6DV4_WINS
+            },
+            Profile {
+                choice: 9130,
+                ..J6DV4_WINS
+            },
+            Profile {
+                span: 6529,
+                ..J6DV4_WINS
+            },
+        ] {
+            let o = succ(F_ENV, NEUTRAL, p);
+            assert_eq!(o.word, "quiet", "{p:?}");
+            assert_eq!(
+                o.json["detail"]["arms"]["j6dv4"]["targets_all_clear"],
+                false
+            );
+        }
+    }
+
+    #[test]
+    fn a_guard_at_its_bound_holds_and_one_count_past_it_loses() {
+        // Higher-better guards: J6(f) prose at F's minimum 50 fires; 49 loses.
+        assert_eq!(
+            succ(
+                F_ENV,
+                Profile {
+                    prose: 50,
+                    ..J6F_WINS
+                },
+                NEUTRAL
+            )
+            .word,
+            "fires:j6f"
+        );
+        let o = succ(
+            F_ENV,
+            Profile {
+                prose: 49,
+                ..J6F_WINS
+            },
+            NEUTRAL,
+        );
+        assert_eq!(o.word, "quiet");
+        assert_eq!(
+            o.json["detail"]["arms"]["j6f"]["must_not_lose_lost"],
+            json!(["ood_abstain.prose"])
+        );
+        // Lower-better guards: ECE at F's maximum 0.0220 holds; above it loses.
+        assert_eq!(
+            succ(
+                F_ENV,
+                Profile {
+                    ece: 0.0220,
+                    ..J6F_WINS
+                },
+                NEUTRAL
+            )
+            .word,
+            "fires:j6f"
+        );
+        assert_eq!(
+            succ(
+                F_ENV,
+                Profile {
+                    ece: 0.0221,
+                    ..J6F_WINS
+                },
+                NEUTRAL
+            )
+            .word,
+            "quiet"
+        );
+        // J6(d)-v4's in-distribution abstention: 15 (F's max) holds, 16 loses.
+        assert_eq!(
+            succ(
+                F_ENV,
+                NEUTRAL,
+                Profile {
+                    id_abstain: 15,
+                    ..J6DV4_WINS
+                }
+            )
+            .word,
+            "fires:j6dv4"
+        );
+        assert_eq!(
+            succ(
+                F_ENV,
+                NEUTRAL,
+                Profile {
+                    id_abstain: 16,
+                    ..J6DV4_WINS
+                }
+            )
+            .word,
+            "quiet"
+        );
+        // Base list: a val top-1 below F's minimum blocks J6(f) too (R1, R2).
+        assert_eq!(
+            succ(
+                F_ENV,
+                Profile {
+                    span: 6499,
+                    ..J6F_WINS
+                },
+                NEUTRAL
+            )
+            .word,
+            "quiet"
+        );
+    }
+
+    #[test]
+    fn a_length_control_miss_blocks_j6f_and_not_j6dv4() {
+        // J6(f)'s guard is Fable's explicit "the length controls": one hit short of F's 60/60
+        // at any length loses.
+        for controls in [[59, 60, 60], [60, 59, 60], [60, 60, 59]] {
+            let o = succ(
+                F_ENV,
+                Profile {
+                    controls,
+                    ..J6F_WINS
+                },
+                NEUTRAL,
+            );
+            assert_eq!(o.word, "quiet", "{controls:?}");
+            assert_eq!(o.json["detail"]["arms"]["j6f"]["targets_all_clear"], true);
+        }
+        // R5 as struck (e9cff78): J6(d)-v4's "needle" is the 8K worst bucket only, so a control
+        // miss does not block it -- not at one length, not at all three.
+        for controls in [[59, 60, 60], [60, 60, 59], [0, 0, 0]] {
+            let o = succ(
+                F_ENV,
+                NEUTRAL,
+                Profile {
+                    controls,
+                    ..J6DV4_WINS
+                },
+            );
+            assert_eq!(o.word, "fires:j6dv4", "{controls:?}: {}", o.json);
+            let guards = o.json["detail"]["arms"]["j6dv4"]["must_not_lose"]
+                .as_array()
+                .unwrap();
+            assert!(
+                guards
+                    .iter()
+                    .all(|g| !g["metric"].as_str().unwrap().contains(".control."))
+            );
+        }
+        // ...while its 8K worst bucket, in the base list, still guards it.
+        let o = succ(
+            F_ENV,
+            NEUTRAL,
+            Profile {
+                needle: (4, 39),
+                ..J6DV4_WINS
+            },
+        );
+        assert_eq!(o.word, "quiet");
+        assert_eq!(
+            o.json["detail"]["arms"]["j6dv4"]["must_not_lose_lost"],
+            json!(["needle_8k_worst_bucket"])
+        );
+    }
+
+    #[test]
+    fn j6dv4_needs_no_needle_control_row_and_j6f_does() {
+        let fx = succ_fixture(F_ENV, NEUTRAL, J6DV4_WINS, |_, a| {
+            let ctl = rid(0xa6d, 3);
+            a.retain(|r| r["row_id"] != ctl.as_str());
+        });
+        let o = succ_of(&fx);
+        assert_eq!(o.word, "fires:j6dv4", "{}", o.json);
+        assert_eq!(
+            o.json["detail"]["arms"]["j6dv4"]["rows"]["needle_control_row"],
+            Value::Null
+        );
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, |_, a| {
+            let ctl = rid(0xa6f, 3);
+            a.retain(|r| r["row_id"] != ctl.as_str());
+        });
+        refused_with(
+            &succ_of(&fx),
+            "missing row: no completed eval row tagged epoch-needle-length-control",
+        );
+        assert!(ARM_J6F.reads_control() && !ARM_J6DV4.reads_control());
+    }
+
+    /// Recorded as GAP-SUCC-J6F-CANNOT-FIRE-WHEN-2MAX-MINUS-MIN-REACHES-1-2026-10-02, not fixed:
+    /// a worst bucket is at most 1 and must exceed max + range = 2*max - min strictly, so when
+    /// F's 8K envelope has 2*max - min >= 1, J6(f) cannot fire and the rule returns only
+    /// fires:j6dv4 or quiet.
+    #[test]
+    fn j6f_cannot_fire_when_twice_max_minus_min_reaches_1() {
+        // 8K worst 40, 20, 45 of 61: spread 25/61 = 0.41 > 0.30 (rule (ii) fires); 2*45 - 20 =
+        // 70 > 61, so even 61/61 does not clear.
+        let wide = [
+            F_ENV[0],
+            Profile {
+                needle: (4, 20),
+                ..F_ENV[1]
+            },
+            Profile {
+                needle: (4, 45),
+                ..F_ENV[2]
+            },
+        ];
+        let o = succ(wide, J6F_WINS, NEUTRAL);
+        assert_eq!(o.word, "quiet", "{}", o.json);
+        assert_eq!(
+            o.json["detail"]["arms"]["j6f"]["targets"][0]["clears"],
+            false
+        );
+        assert_eq!(succ(wide, J6F_WINS, J6DV4_WINS).word, "fires:j6dv4");
+        // Exactly at 1: 2*40 - 19 = 61, so 61/61 ties max + range and does not clear.
+        let at_one = [
+            F_ENV[0],
+            Profile {
+                needle: (4, 19),
+                ..F_ENV[1]
+            },
+            Profile {
+                needle: (4, 40),
+                ..F_ENV[2]
+            },
+        ];
+        assert_eq!(succ(at_one, J6F_WINS, NEUTRAL).word, "quiet");
+        // A spread over 0.30 with a low maximum still leaves room: 2*40 - 21 = 59 < 61, and a
+        // spread of 19/61 = 0.31 does not by itself rule J6(f) out.
+        let room = [
+            F_ENV[0],
+            Profile {
+                needle: (4, 21),
+                ..F_ENV[1]
+            },
+            Profile {
+                needle: (4, 40),
+                ..F_ENV[2]
+            },
+        ];
+        assert_eq!(succ(room, J6F_WINS, NEUTRAL).word, "fires:j6f");
+    }
+
+    #[test]
+    fn unseen_language_guards_j6dv4_and_not_j6f() {
+        // R4: J6(d)-v4's OOD is all three categories; J6(f)'s is prose and scrambled only.
+        let low = Profile {
+            unseen: 0,
+            ..J6F_WINS
+        };
+        assert_eq!(succ(F_ENV, low, NEUTRAL).word, "fires:j6f");
+        let low = Profile {
+            unseen: 19,
+            ..J6DV4_WINS
+        };
+        assert_eq!(succ(F_ENV, NEUTRAL, low).word, "quiet");
+        assert_eq!(
+            succ(
+                F_ENV,
+                NEUTRAL,
+                Profile {
+                    unseen: 20,
+                    ..J6DV4_WINS
+                }
+            )
+            .word,
+            "fires:j6dv4"
+        );
+    }
+
+    #[test]
+    fn exact_forms_with_unequal_denominators_and_signed_margins() {
+        let r = |num: i64, den: u64| Val::Exact(Rat::new(num, den, "t").unwrap());
+        // 7/10 + 1/2 = 2 * 3/5 exactly: a tie across three denominators does not clear.
+        assert!(!clears(r(7, 10), r(1, 2), r(3, 5), Dir::Higher).unwrap());
+        assert!(clears(r(43, 61), r(30, 60), r(36, 60), Dir::Higher).unwrap());
+        assert!(!clears(r(42, 61), r(30, 60), r(36, 60), Dir::Higher).unwrap());
+        // Lower-better mirror: 2 * 3/5 = 7/10 + 1/2 ties; 1/2 - 1/10 = 0.4 < 0.5 range... clears
+        // needs min - c > max - min.
+        assert!(!clears(r(1, 2), r(3, 5), r(7, 10), Dir::Lower).unwrap());
+        assert!(clears(r(49, 100), r(3, 5), r(7, 10), Dir::Lower).unwrap());
+        // Signed margins: envelope -10..10 of 2304, range 20; 30 ties, 31 clears.
+        assert!(!clears(r(30, 2304), r(-10, 2304), r(10, 2304), Dir::Higher).unwrap());
+        assert!(clears(r(31, 2304), r(-10, 2304), r(10, 2304), Dir::Higher).unwrap());
+        let env = [
+            Profile {
+                margin: -10,
+                ..NEUTRAL
+            },
+            Profile {
+                margin: 0,
+                ..NEUTRAL
+            },
+            Profile {
+                margin: 10,
+                ..NEUTRAL
+            },
+        ];
+        assert_eq!(
+            succ(
+                env,
+                NEUTRAL,
+                Profile {
+                    margin: 30,
+                    ..J6DV4_WINS
+                }
+            )
+            .word,
+            "quiet"
+        );
+        assert_eq!(
+            succ(
+                env,
+                NEUTRAL,
+                Profile {
+                    margin: 31,
+                    ..J6DV4_WINS
+                }
+            )
+            .word,
+            "fires:j6dv4"
+        );
+        // Guards: equal to the bound is inside, in either direction.
+        assert!(!loses(r(1, 2), r(30, 60), r(36, 60), Dir::Higher).unwrap());
+        assert!(loses(r(29, 60), r(1, 2), r(3, 5), Dir::Higher).unwrap());
+        assert!(!loses(r(36, 60), r(1, 2), r(3, 5), Dir::Lower).unwrap());
+        assert!(loses(r(37, 60), r(1, 2), r(3, 5), Dir::Lower).unwrap());
+        // Two forms never compare.
+        assert!(cmp_val(r(1, 2), Val::Float(0.5)).is_err());
+    }
+
+    #[test]
+    fn a_missing_metric_refuses_even_when_an_arm_would_fire() {
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, |f, _| {
+            let ev = rid(0xf1, 2);
+            row_mut(f, &ev)["metrics"]
+                .as_object_mut()
+                .unwrap()
+                .remove(ECE_DC_KEY);
+        });
+        refused_with(
+            &succ_of(&fx),
+            "no metrics.ece.family.code.defect_class.choice.k4",
+        );
+    }
+
+    #[test]
+    fn a_not_run_metric_or_a_row_that_did_not_complete_refuses() {
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, |_, a| {
+            let ev = rid(0xa6d, 2);
+            row_mut(a, &ev)["metrics"][PERM_DC.name] =
+                json!({"state": "not_run", "reason": "no suite"});
+        });
+        refused_with(&succ_of(&fx), "is not_run (no suite), not ran");
+        let fx = succ_fixture(F_ENV, NEUTRAL, J6DV4_WINS, |_, a| {
+            let ev = rid(0xa6f, 2);
+            row_mut(a, &ev)["status"] = json!("failed");
+        });
+        refused_with(
+            &succ_of(&fx),
+            "missing row: no completed eval row tagged epoch-score-val",
+        );
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, |f, _| {
+            let ctl = rid(0xf2, 3);
+            row_mut(f, &ctl)["status"] = json!("killed");
+        });
+        refused_with(
+            &succ_of(&fx),
+            "missing row: no completed eval row tagged epoch-needle-length-control",
+        );
+    }
+
+    #[test]
+    fn a_missing_arm_letter_control_row_refuses_even_when_j6f_alone_would_fire() {
+        // box_q_j6ctl.sh has not written J6(d)-v4's control: a both-win cannot be ruled out.
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, |_, a| {
+            let letter = rid(0xa6d, 4);
+            a.retain(|r| r["row_id"] != letter.as_str());
+        });
+        refused_with(
+            &succ_of(&fx),
+            "missing row: no completed letter-control row",
+        );
+    }
+
+    #[test]
+    fn letter_control_rows_are_selected_by_the_per_family_key() {
+        // An older control row of the same eval without the per-family key (J4's d597ee7d) is
+        // not a candidate; a second one with it refuses.
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, |f, _| {
+            let ev = rid(0xf0, 2);
+            let mut old = s_letter(&rid(0xb0, 9), 0, &ev, 0);
+            old["metrics"].as_object_mut().unwrap().remove(MARGIN_KEY);
+            f.push(old);
+        });
+        assert_eq!(succ_of(&fx).word, "fires:j6f");
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, |f, _| {
+            let ev = rid(0xf0, 2);
+            f.push(s_letter(&rid(0xb0, 9), 0, &ev, 873));
+        });
+        refused_with(&succ_of(&fx), "2 completed letter-control rows");
+        // The option control (linear_option_control.scored_eval_row_id) is never selected.
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, |f, _| {
+            let ev = rid(0xf0, 2);
+            let mut opt = s_letter(&rid(0xb0, 9), 0, &ev, 873);
+            let m = opt["metrics"].as_object_mut().unwrap();
+            let v = m.remove("scored_eval_row_id").unwrap();
+            m.insert("linear_option_control.scored_eval_row_id".into(), v);
+            f.push(opt);
+        });
+        assert_eq!(succ_of(&fx).word, "fires:j6f");
+    }
+
+    #[test]
+    fn a_margin_off_its_integer_grid_refuses() {
+        let fx = succ_fixture(F_ENV, NEUTRAL, J6DV4_WINS, |_, a| {
+            let letter = rid(0xa6d, 4);
+            row_mut(a, &letter)["metrics"][MARGIN_KEY]["value"] = json!(0.391);
+        });
+        refused_with(&succ_of(&fx), "is not m/2304 for any integer m");
+    }
+
+    #[test]
+    fn the_envelope_is_fs_seeds_0_1_2_only() {
+        // Seeds 3 and 4 in F's ledger (rule (ii)) change nothing: they are never read.
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, |f, _| {
+            let low = Profile {
+                needle: (4, 0),
+                prose: 0,
+                ..NEUTRAL
+            };
+            s_run(f, 0xf3, 3, "r", &low, |_| {});
+            s_run(f, 0xf4, 4, "r", &low, |_| {});
+        });
+        let o = succ_of(&fx);
+        assert_eq!(o.word, "fires:j6f", "{}", o.json);
+        let seeds: Vec<i64> = o.json["detail"]["envelope"]["seeds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["seed"].as_i64().unwrap())
+            .collect();
+        assert_eq!(seeds, [0, 1, 2]);
+        // Naming any other seed set refuses.
+        for ft_rows in [
+            vec![fx.f_ft[0].clone(), fx.f_ft[1].clone()],
+            vec![
+                fx.f_ft[0].clone(),
+                fx.f_ft[1].clone(),
+                fx.f_ft[2].clone(),
+                (3, rid(0xf3, 1)),
+            ],
+            vec![fx.f_ft[1].clone(), fx.f_ft[0].clone(), fx.f_ft[2].clone()],
+            vec![fx.f_ft[0].clone(), fx.f_ft[1].clone(), (3, rid(0xf3, 1))],
+        ] {
+            let o = outcome(Cmd::Successor {
+                f_ledger: fx.f.0.clone(),
+                ft_rows,
+                arm_ledger: fx.arms.0.clone(),
+                j6f_ft_row: fx.j6f.clone(),
+                j6dv4_ft_row: fx.j6dv4.clone(),
+                out: PathBuf::from("/unused"),
+            });
+            refused_with(&o, "the envelope is F seeds 0, 1 and 2 only");
+        }
+    }
+
+    #[test]
+    fn swapped_or_wrong_arm_rows_refuse() {
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, no_edit);
+        let swapped = outcome(Cmd::Successor {
+            f_ledger: fx.f.0.clone(),
+            ft_rows: fx.f_ft.clone(),
+            arm_ledger: fx.arms.0.clone(),
+            j6f_ft_row: fx.j6dv4.clone(),
+            j6dv4_ft_row: fx.j6f.clone(),
+            out: PathBuf::from("/unused"),
+        });
+        refused_with(&swapped, "but the arm drops it");
+        // An arm that changed anything beyond its delta is not that arm.
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, |_, a| {
+            let ft = rid(0xa6f, 1);
+            row_mut(a, &ft)["recipe"]["batch_tokens"] = json!(16384);
+        });
+        refused_with(
+            &succ_of(&fx),
+            "recipe.batch_tokens is 16384, not the envelope's 35403",
+        );
+        // An arm on another data snapshot, or scored on another val set, is not comparable.
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, |_, a| {
+            let ft = rid(0xa6f, 1);
+            row_mut(a, &ft)["protocol"]["data_snapshot_hash"] = json!("other");
+        });
+        refused_with(&succ_of(&fx), "is not the envelope's");
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, |_, a| {
+            let ev = rid(0xa6f, 2);
+            row_mut(a, &ev)["recipe"]["val_shard_hash"] = json!("w");
+        });
+        refused_with(&succ_of(&fx), "recipe.val_shard_hash");
+        // A seed other than 0 for an arm refuses.
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, no_edit);
+        let o = outcome(Cmd::Successor {
+            f_ledger: fx.f.0.clone(),
+            ft_rows: fx.f_ft.clone(),
+            arm_ledger: fx.arms.0.clone(),
+            j6f_ft_row: (1, fx.j6f.1.clone()),
+            j6dv4_ft_row: fx.j6dv4.clone(),
+            out: PathBuf::from("/unused"),
+        });
+        refused_with(&o, "each arm is one seed-0 run");
+    }
+
+    #[test]
+    fn an_envelope_seed_that_is_quick_or_off_recipe_refuses() {
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, |f, _| {
+            let ft = rid(0xf1, 1);
+            row_mut(f, &ft)["quick"] = json!(true);
+        });
+        refused_with(&succ_of(&fx), "does not say quick: false");
+        let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, |f, _| {
+            let ft = rid(0xf2, 1);
+            row_mut(f, &ft)["protocol"]["recipe_hash"] = json!("other");
+        });
+        refused_with(&succ_of(&fx), "not one configuration");
     }
 }
