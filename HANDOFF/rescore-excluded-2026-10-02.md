@@ -463,6 +463,10 @@ say `-dirty`.
 
 ## First command for the next lane
 
-After this lane's commits are on main as `<MERGED>`, and once L-replay has pinned E_val:
+For F seed 2, once `verdicts-s2.jsonl` is on the box (about 10:30 UTC). `build-wt`, `run-wt`
+(both at `0264732`), the binary and E_val already exist, so this is step 3, read-only:
 
-    git worktree add --detach /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/build-wt <MERGED>
+    ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.51.246 'ls -la /home/ubuntu/p4-v4/ && sha256sum /home/ubuntu/p4-v4/verdicts-s2.jsonl /home/ubuntu/p4-v4/suite-verdicts-s2.jsonl /home/ubuntu/ledger/gh200-p4-v4-2026-10-01.jsonl'
+
+Then keep seed 1's ledger pull (step 3, `.s1-pull.jsonl`) before the `scp`, and continue through
+steps 4-9 with `s2`.
