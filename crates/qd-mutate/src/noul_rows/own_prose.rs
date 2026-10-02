@@ -13,6 +13,11 @@
 //!    repo with no remote is out (ownership is not readable), and so is every `--exclude-repo`
 //!    (the human's tick: "All but Lappi-decision"). `--expect-admitted` refuses a run whose count
 //!    differs from the ticked list's.
+//!
+//!    **The human's strike** (`--strike-repo`, `--strike-path REPO:DIR/`, `--strike-basis`) then
+//!    removes admitted repos and directories from the walk: a struck file is never opened, the
+//!    manifest's `strike` records the rules, their basis and the files each kept unread, and a
+//!    rule that strikes nothing refuses the run.
 //! 2. **Tree pruning.** Nested git trees (any other inventory repo, any directory holding
 //!    `.git`), hidden and build directories, `vendor/ external/ third_party/ node_modules/
 //!    site-packages/`, any directory below the root holding its own LICENSE/COPYING/NOTICE, any
@@ -175,6 +180,9 @@ struct Manifest {
     invisible_format_ranges: Vec<(u32, u32)>,
     admitted_repos: Vec<AdmittedRepo>,
     excluded_repos: BTreeMap<String, String>,
+    /// Absent when no strike was given.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    strike: Option<StrikeRecord>,
     rules: serde_json::Value,
     files: Pinned,
     units: Pinned,
@@ -195,6 +203,7 @@ pub struct Args<'a> {
     pub floor: usize,
     pub per_repo_cap: usize,
     pub seed: u64,
+    pub strike: Strike<'a>,
     pub out: &'a Path,
 }
 
@@ -583,6 +592,74 @@ struct RangesOnly {
     invisible_format_ranges: Vec<(u32, u32)>,
 }
 
+/// A path rule of the human's strike: every file of `repo` under the directory `prefix`.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct StrikePath {
+    pub repo: String,
+    pub prefix: String,
+}
+
+/// `--strike-path REPO:DIR/`. The directory is repo-relative, ends in `/` (a directory, not a
+/// file-name prefix) and climbs nowhere; `REPO` is a repo name as the manifest spells it.
+pub fn parse_strike_path(spec: &str) -> std::result::Result<StrikePath, String> {
+    let Some((repo, prefix)) = spec.split_once(':') else {
+        return Err(format!("--strike-path {spec:?} is not REPO:DIR/"));
+    };
+    let bad_part = prefix
+        .split('/')
+        .any(|p| p == ".." || p == "." || p.contains('\\'));
+    if repo.is_empty()
+        || prefix.len() < 2
+        || !prefix.ends_with('/')
+        || prefix.starts_with('/')
+        || prefix.contains("//")
+        || bad_part
+    {
+        return Err(format!(
+            "--strike-path {spec:?}: the directory must be repo-relative, end in '/' and not climb"
+        ));
+    }
+    Ok(StrikePath {
+        repo: repo.to_string(),
+        prefix: prefix.to_string(),
+    })
+}
+
+/// The human's strike, applied before a file is read: a struck repo is walked by no one, and a
+/// file under a struck directory is never opened. `qd_data.defect_class._own_prose_strike` reads
+/// the manifest's record of it and refuses any unit or file it covers.
+pub struct Strike<'a> {
+    pub basis: &'a str,
+    pub repos: &'a [String],
+    pub paths: &'a [StrikePath],
+}
+
+impl Strike<'_> {
+    fn is_empty(&self) -> bool {
+        self.repos.is_empty() && self.paths.is_empty()
+    }
+
+    /// The rule that strikes `file_rel` of `repo`, as the manifest labels it, if any.
+    fn rule_for(&self, repo: &str, file_rel: &str) -> Option<String> {
+        if self.repos.iter().any(|r| r == repo) {
+            return Some(format!("repo:{repo}"));
+        }
+        self.paths
+            .iter()
+            .find(|p| p.repo == repo && file_rel.starts_with(&p.prefix))
+            .map(|p| format!("path:{}:{}", p.repo, p.prefix))
+    }
+}
+
+#[derive(Serialize)]
+struct StrikeRecord {
+    basis: String,
+    repos: Vec<String>,
+    paths: Vec<StrikePath>,
+    /// Markdown files each rule kept unread, by the rule's label.
+    files_struck: BTreeMap<String, u64>,
+}
+
 struct Candidate {
     repo: String,
     path: String,
@@ -671,17 +748,74 @@ pub fn run(args: &Args<'_>) -> Result<()> {
         );
     }
 
+    // (1b) the human's strike, checked against the admitted set before any file is read.
+    let strike = &args.strike;
+    if strike.is_empty() != strike.basis.trim().is_empty() {
+        bail!("a strike needs both its rules and --strike-basis, the decision it records");
+    }
+    let admitted_paths: BTreeMap<&str, &PathBuf> =
+        admitted.iter().map(|(p, r, _)| (r.as_str(), p)).collect();
+    let mut seen_rules: BTreeSet<String> = BTreeSet::new();
+    for r in strike.repos {
+        if !admitted_paths.contains_key(r.as_str()) {
+            bail!("--strike-repo {r:?} is not an admitted repo");
+        }
+        if !seen_rules.insert(format!("repo:{r}")) {
+            bail!("--strike-repo {r:?} is given twice");
+        }
+    }
+    for p in strike.paths {
+        let Some(root) = admitted_paths.get(p.repo.as_str()) else {
+            bail!(
+                "--strike-path {}:{}: {:?} is not an admitted repo",
+                p.repo,
+                p.prefix,
+                p.repo
+            );
+        };
+        if strike.repos.contains(&p.repo) {
+            bail!(
+                "--strike-path {}:{}: the whole repo is struck",
+                p.repo,
+                p.prefix
+            );
+        }
+        if !root.join(&p.prefix).is_dir() {
+            bail!("--strike-path {}:{} names no directory", p.repo, p.prefix);
+        }
+        if !seen_rules.insert(format!("path:{}:{}", p.repo, p.prefix)) {
+            bail!("--strike-path {}:{} is given twice", p.repo, p.prefix);
+        }
+    }
+
     // (2) and (3): walk, filter files, extract and filter units.
     let mut file_records: Vec<(String, String, String, usize)> = Vec::new();
     let mut questions: BTreeMap<String, Candidate> = BTreeMap::new();
     let mut paragraphs: BTreeMap<String, Candidate> = BTreeMap::new();
+    let mut files_struck: BTreeMap<String, u64> = BTreeMap::new();
     for (path, rel, _) in &admitted {
         let nested: BTreeSet<PathBuf> = all_repos
             .iter()
             .filter(|p| *p != path && p.starts_with(path))
             .cloned()
             .collect();
-        for f in markdown_files(path, &nested, &mut skipped)? {
+        // A struck repo's directory pruning is not this corpus's accounting.
+        let mut struck_sink = BTreeMap::new();
+        let skip_into = if strike.repos.contains(rel) {
+            &mut struck_sink
+        } else {
+            &mut skipped
+        };
+        for f in markdown_files(path, &nested, skip_into)? {
+            let file_rel = f
+                .strip_prefix(path)
+                .unwrap_or(&f)
+                .to_string_lossy()
+                .to_string();
+            if let Some(rule) = strike.rule_for(rel, &file_rel) {
+                *files_struck.entry(rule).or_insert(0) += 1;
+                continue;
+            }
             let bytes = fs::read(&f).with_context(|| format!("reading {}", f.display()))?;
             let Ok(text) = std::str::from_utf8(&bytes) else {
                 *skipped.entry("file:not_utf8".into()).or_insert(0) += 1;
@@ -701,11 +835,6 @@ pub fn run(args: &Args<'_>) -> Result<()> {
                 *skipped.entry(reason.into()).or_insert(0) += 1;
                 continue;
             }
-            let file_rel = f
-                .strip_prefix(path)
-                .unwrap_or(&f)
-                .to_string_lossy()
-                .to_string();
             file_records.push((rel.clone(), file_rel.clone(), sha.clone(), words(text)));
             let (paras, qs) = extract(text);
             for (form, texts, pool) in [
@@ -727,6 +856,10 @@ pub fn run(args: &Args<'_>) -> Result<()> {
                 }
             }
         }
+    }
+    // A rule that struck nothing is stale: it names a decision this walk does not carry out.
+    if let Some(stale) = seen_rules.iter().find(|r| !files_struck.contains_key(*r)) {
+        bail!("strike rule {stale} kept no Markdown file unread: a stale rule");
     }
     // A paragraph that is also a question sentence is one text: the question keeps it.
     paragraphs.retain(|t, _| !questions.contains_key(t));
@@ -856,6 +989,12 @@ pub fn run(args: &Args<'_>) -> Result<()> {
             .map(|(_, repo, remotes)| AdmittedRepo { repo, remotes })
             .collect(),
         excluded_repos,
+        strike: (!strike.is_empty()).then(|| StrikeRecord {
+            basis: strike.basis.to_string(),
+            repos: strike.repos.to_vec(),
+            paths: strike.paths.to_vec(),
+            files_struck,
+        }),
         rules: serde_json::json!({
             "provenance": "Fable's v5 review section 2.9: own-repo prose is text the user authored or had written in their own repositories, not text hosted there",
             "admission": "a remote naming github owner bharathvbcr and no remote naming another owner; no-remote repos out; --exclude-repo out",
@@ -898,10 +1037,11 @@ pub fn run(args: &Args<'_>) -> Result<()> {
     text.push('\n');
     crate::write_atomic(&manifest_path, text.as_bytes())?;
     println!(
-        "own-prose: {} units {by_form:?} from {} files of {} repos -> {}",
+        "own-prose: {} units {by_form:?} from {} files of {} admitted repos ({} struck) -> {}",
         units.len(),
         file_records.len(),
         manifest.admitted_repos.len(),
+        strike.repos.len(),
         args.out.display()
     );
     Ok(())
@@ -1011,6 +1151,67 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn a_strike_path_is_a_repo_relative_directory() {
+        assert_eq!(
+            parse_strike_path("scholarlm:docs/business/"),
+            Ok(StrikePath {
+                repo: "scholarlm".into(),
+                prefix: "docs/business/".into()
+            })
+        );
+        for bad in [
+            "scholarlm/docs/business/",
+            "scholarlm:docs/business",
+            "scholarlm:/docs/",
+            ":docs/",
+            "scholarlm:../x/",
+            "scholarlm:docs//x/",
+            "scholarlm:/",
+        ] {
+            assert!(parse_strike_path(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_strike_covers_its_repo_and_its_directories_and_nothing_else() {
+        let repos = vec!["web/Lappi-BDay".to_string()];
+        let paths = vec![
+            parse_strike_path("scholarlm:docs/business/").unwrap(),
+            parse_strike_path("research/BINN:writing/").unwrap(),
+        ];
+        let s = Strike {
+            basis: "the human's answer",
+            repos: &repos,
+            paths: &paths,
+        };
+        assert_eq!(
+            s.rule_for("web/Lappi-BDay", "README.md").as_deref(),
+            Some("repo:web/Lappi-BDay")
+        );
+        assert_eq!(
+            s.rule_for("scholarlm", "docs/business/archive/YC.md")
+                .as_deref(),
+            Some("path:scholarlm:docs/business/")
+        );
+        assert_eq!(
+            s.rule_for("research/BINN", "writing/post.md").as_deref(),
+            Some("path:research/BINN:writing/")
+        );
+        // A sibling directory sharing the prefix's letters, the same path in another repo
+        // (a nested repo included) and a file named like the directory are all kept.
+        for (repo, file) in [
+            ("scholarlm", "docs/business-plan.md"),
+            ("scholarlm", "docs/businessy/x.md"),
+            ("scholarlm/wisdev-arc", "docs/business/x.md"),
+            ("research/BINN", "writing.md"),
+            ("research/BINN", "docs/writing/x.md"),
+            ("web/Lappi-BDay-2", "README.md"),
+        ] {
+            assert_eq!(s.rule_for(repo, file), None, "{repo} {file}");
+        }
     }
 
     #[test]

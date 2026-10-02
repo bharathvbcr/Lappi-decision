@@ -128,6 +128,7 @@ __all__ = [
     "DefectLoad",
     "DefectRow",
     "NoulLoad",
+    "OwnProseStrike",
     "composite_digest",
     "diff_line_span",
     "load_defect_rows",
@@ -1137,14 +1138,81 @@ def _json_lines(path: Path, *, config: DataConfig, limit: int) -> list[dict[str,
     return out
 
 
+@dataclass(frozen=True, slots=True)
+class OwnProseStrike:
+    """The human's strike as the own-prose manifest records it: whole repos, and repo-relative
+    directories (``prefix`` ends in ``/``). The walker never reads a struck file; the loader
+    refuses any file or unit one would cover."""
+
+    basis: str
+    repos: frozenset[str]
+    paths: tuple[tuple[str, str], ...]
+
+    def covers(self, repo: str, path: str) -> bool:
+        return repo in self.repos or any(
+            repo == r and path.startswith(prefix) for r, prefix in self.paths
+        )
+
+
+def _own_prose_strike(
+    manifest: Mapping[str, Any], *, manifest_path: Path, admitted: set[str]
+) -> OwnProseStrike | None:
+    """The manifest's ``strike``, checked, or ``None`` when it has none."""
+    raw = manifest.get("strike")
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping) or not {"basis", "repos", "paths"} <= set(raw):
+        raise DefectCorpusError(f"{manifest_path}: strike must carry basis, repos and paths")
+    basis = raw["basis"]
+    repos = raw["repos"]
+    paths = raw["paths"]
+    if not isinstance(basis, str) or not basis.strip():
+        raise DefectCorpusError(f"{manifest_path}: a strike without its basis records no decision")
+    if not isinstance(repos, list) or not all(isinstance(r, str) for r in repos):
+        raise DefectCorpusError(f"{manifest_path}: strike.repos must be a list of repo names")
+    if not isinstance(paths, list) or not all(
+        isinstance(p, Mapping)
+        and isinstance(p.get("repo"), str)
+        and isinstance(p.get("prefix"), str)
+        for p in paths
+    ):
+        raise DefectCorpusError(f"{manifest_path}: strike.paths must be {{repo, prefix}} objects")
+    pairs = tuple((str(p["repo"]), str(p["prefix"])) for p in paths)
+    for repo, prefix in pairs:
+        parts = prefix.split("/")
+        if (
+            not prefix.endswith("/")
+            or prefix.startswith("/")
+            or "//" in prefix
+            or ".." in parts
+            or "." in parts
+        ):
+            raise DefectCorpusError(
+                f"{manifest_path}: strike path {repo}:{prefix} is not a repo-relative directory"
+            )
+    unknown = sorted({*repos, *(r for r, _ in pairs)} - admitted)
+    if unknown or not (repos or pairs):
+        raise DefectCorpusError(
+            f"{manifest_path}: strike names no rule or names repos that were not admitted: "
+            f"{unknown}"
+        )
+    return OwnProseStrike(basis=basis, repos=frozenset(repos), paths=pairs)
+
+
 def _own_prose_violation(
-    obj: Mapping[str, Any], *, files: set[tuple[str, str, str]], repos: set[str]
+    obj: Mapping[str, Any],
+    *,
+    files: set[tuple[str, str, str]],
+    repos: set[str],
+    strike: OwnProseStrike | None = None,
 ) -> str | None:
     """Why ``obj`` may not be an own-prose row, or ``None``: the walker's rules, re-checked."""
     for key in ("id", "repo", "path", "file_sha256", "form", "text"):
         if not isinstance(obj.get(key), str) or not str(obj[key]).strip():
             return f"missing_{key}"
     text, form, path = str(obj["text"]), str(obj["form"]), str(obj["path"])
+    if strike is not None and strike.covers(str(obj["repo"]), path):
+        return "struck_by_the_human"
     if obj["repo"] not in repos:
         return "repo_not_admitted"
     if (obj["repo"], path, obj["file_sha256"]) not in files:
@@ -1220,13 +1288,21 @@ def _load_own_prose(part_dir: Path, *, config: DataConfig, repo_root: Path) -> N
     ):
         raise DefectCorpusError(f"{part_dir}: file or unit counts disagree with {manifest_path}")
     repos = {str(r["repo"]) for r in manifest.get("admitted_repos", [])}
+    strike = _own_prose_strike(manifest, manifest_path=manifest_path, admitted=repos)
     file_keys = {(str(f.get("repo")), str(f.get("path")), str(f.get("sha256"))) for f in files}
+    if strike is not None:
+        struck_files = sorted(f"{r}/{p}" for r, p, _ in file_keys if strike.covers(r, p))
+        if struck_files:
+            raise DefectCorpusError(
+                f"{files_path} lists {len(struck_files)} file(s) the manifest's strike covers, "
+                f"first five {struck_files[:5]}: a struck file is never read"
+            )
     bad: Counter[str] = Counter()
     first_bad: list[str] = []
     per_repo: Counter[str] = Counter()
     rows: list[DefectRow] = []
     for obj in units:
-        reason = _own_prose_violation(obj, files=file_keys, repos=repos)
+        reason = _own_prose_violation(obj, files=file_keys, repos=repos, strike=strike)
         if reason is None:
             per_repo[str(obj["repo"])] += 1
             if per_repo[str(obj["repo"])] > OWN_PROSE_PER_REPO_CAP:

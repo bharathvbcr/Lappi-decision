@@ -17,9 +17,9 @@
   {
    "name": "own-prose-v1",
    "kind": "own-prose",
-   "manifest_sha256": "c70908d9420d4730a3ac5abd58aa9c9627783d0b8fb6fdbf1307c5847deb39d8",
-   "data_sha256": "e3de292b7f4c8070c1f41a24870f365dd0a507032241c599241f3e83b9799b40",
-   "rows": 2150
+   "manifest_sha256": "375f6af4faac424a2d1d0b28ca66929281c86b1dbeee3399a1af8d6509a9de90",
+   "data_sha256": "1e616fd16f7464b52a764737c06063400c398f8cdfbcc5454864ca538bbd22fe",
+   "rows": 1963
   },
   {
    "name": "commitpackft-g6-v1",
@@ -29,13 +29,13 @@
    "rows": 1255
   }
  ],
- "examples_sha256": "7f0c13a2804070ee98b4d364f3e439e1cd7e4afbfca8c886910ed5be902c1310",
+ "examples_sha256": "8a17a536b3a13abee1f0275636e99a0f3f920f445bd76faf6e18ec32dece10c8",
  "examples_sha256_basis": "qd_data.defect_class.composite_digest over the parts' pins",
  "totals": {
-  "examples": 8409,
+  "examples": 8222,
   "by_part": {
    "defect-noul-v3b": 5004,
-   "own-prose-v1": 2150,
+   "own-prose-v1": 1963,
    "commitpackft-g6-v1": 1255
   }
  },
@@ -48,5 +48,5 @@
  },
  "contrast_basis": "derived by qd_train.contrast.apply_contrast after dedupe, split and --exclude-identity-keys, from surviving train twins, in blake2b order of identity key; never a dedupe or split unit; only on the rebuild that applies the exclusion list (campaign/v5-preregistered.DRAFT.json data.sources[4].amended, build_order[3])",
  "layout": "every part is a sibling directory of this one; the loader reads them there",
- "note": "v5 noul corpus: v4's defect-noul-v3b unchanged (5,004 rows), plus own-prose-v1 (route i) and commitpackft-g6-v1 (G6); route ii (contrast) is derived at pipeline time from this manifest's contrast request"
+ "note": "v5 noul corpus: v4's defect-noul-v3b unchanged (5,004 rows), plus own-prose-v1 (route i, after the human's strike of personal and business documents) and commitpackft-g6-v1 (G6); route ii (contrast) is derived at pipeline time from this manifest's contrast request"
 }

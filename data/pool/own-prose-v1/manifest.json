@@ -262,6 +262,31 @@
     "research/firebrand": "inventory_owner:no-remote",
     "research/ojas": "inventory_owner:no-remote"
   },
+  "strike": {
+    "basis": "The human's answer 'Strike personal + business (Recommended)', recorded verbatim at AUDIT/v5-plan-2026-10-02/human-answer-own-prose-strike.md (main) and relayed by the lead on 2026-10-02: strike the repos web/Lappi-BDay, web/WhimsicalLove and web/bharathvbcr and the paths scholarlm/docs/business/** and research/BINN/writing/**; keep AGENTS.md, CLAUDE.md and CHANGELOG.md. --target 1963 is the 2,150 of the unstruck walk less the 187 units struck: the strike removes and does not refill.",
+    "repos": [
+      "web/Lappi-BDay",
+      "web/WhimsicalLove",
+      "web/bharathvbcr"
+    ],
+    "paths": [
+      {
+        "repo": "scholarlm",
+        "prefix": "docs/business/"
+      },
+      {
+        "repo": "research/BINN",
+        "prefix": "writing/"
+      }
+    ],
+    "files_struck": {
+      "path:research/BINN:writing/": 5,
+      "path:scholarlm:docs/business/": 40,
+      "repo:web/Lappi-BDay": 11,
+      "repo:web/WhimsicalLove": 5,
+      "repo:web/bharathvbcr": 1
+    }
+  },
   "rules": {
     "admission": "a remote naming github owner bharathvbcr and no remote naming another owner; no-remote repos out; --exclude-repo out",
     "content": "Markdown (.md, .markdown) only; fenced and indented code, tables, HTML, headings, list items, block quotes, link-only lines and trailers dropped from paragraphs; questions also read from headings, list items and block quotes",
@@ -296,43 +321,43 @@
   },
   "files": {
     "file": "files.jsonl",
-    "sha256": "6730bfce26c05fda6c97423a4fe353ac2b75479ea5cc01c152f987e0171cb54a",
-    "count": 1845
+    "sha256": "6233515780f4e21fda80bb26fbafd09bd937e769e8cf2a5b4fed8c0b5077040a",
+    "count": 1784
   },
   "units": {
     "file": "units.jsonl",
-    "sha256": "e3de292b7f4c8070c1f41a24870f365dd0a507032241c599241f3e83b9799b40",
-    "count": 2150
+    "sha256": "1e616fd16f7464b52a764737c06063400c398f8cdfbcc5454864ca538bbd22fe",
+    "count": 1963
   },
-  "target": 2150,
+  "target": 1963,
   "floor": 1500,
   "per_repo_cap": 150,
   "totals": {
     "by_form": {
-      "paragraph": 1953,
-      "question": 197
+      "paragraph": 1814,
+      "question": 149
     },
     "by_repo": {
       "apps/AcademiaTrack": {
         "paragraph": 36
       },
       "apps/Chronicle": {
-        "paragraph": 98,
+        "paragraph": 95,
         "question": 2
       },
       "apps/ChronosFlow": {
-        "paragraph": 98,
+        "paragraph": 95,
         "question": 2
       },
       "apps/Curio": {
         "paragraph": 19
       },
       "apps/DevType": {
-        "paragraph": 98,
+        "paragraph": 95,
         "question": 13
       },
       "apps/M5Blade": {
-        "paragraph": 98
+        "paragraph": 95
       },
       "apps/Meridian": {
         "paragraph": 38
@@ -344,51 +369,51 @@
         "paragraph": 29
       },
       "devtools/DevCouncil": {
-        "paragraph": 98,
+        "paragraph": 95,
         "question": 2
       },
       "devtools/GitPulse": {
-        "paragraph": 98,
+        "paragraph": 95,
         "question": 2
       },
       "devtools/Jarvis": {
-        "paragraph": 99
+        "paragraph": 95
       },
       "devtools/LiquiTask": {
-        "paragraph": 98
+        "paragraph": 95
       },
       "devtools/Manvi": {
-        "paragraph": 98,
+        "paragraph": 95,
         "question": 6
       },
       "devtools/MarkDev": {
-        "paragraph": 99
+        "paragraph": 95
       },
       "devtools/gusset": {
-        "paragraph": 98,
+        "paragraph": 95,
         "question": 2
       },
       "research/BINN": {
-        "paragraph": 56,
-        "question": 94
+        "paragraph": 83,
+        "question": 67
       },
       "research/GenoThermalTargeting": {
-        "paragraph": 99,
+        "paragraph": 95,
         "question": 2
       },
       "research/MLSystemsLab": {
-        "paragraph": 98,
+        "paragraph": 94,
         "question": 24
       },
       "research/StressProject": {
         "paragraph": 11
       },
       "research/tessl": {
-        "paragraph": 98
+        "paragraph": 95
       },
       "scholarlm": {
-        "paragraph": 98,
-        "question": 44
+        "paragraph": 95,
+        "question": 22
       },
       "scholarlm/wisdev-arc": {
         "paragraph": 50
@@ -397,36 +422,27 @@
         "paragraph": 32,
         "question": 3
       },
-      "web/Lappi-BDay": {
-        "paragraph": 98
-      },
       "web/Portfolio": {
-        "paragraph": 85,
-        "question": 1
-      },
-      "web/WhimsicalLove": {
-        "paragraph": 6
-      },
-      "web/bharathvbcr": {
-        "paragraph": 14
+        "paragraph": 86,
+        "question": 2
       }
     },
-    "units": 2150
+    "units": 1963
   },
   "skipped": {
     "dir:nested_git_tree": 19,
     "dir:own_licence_file": 19,
-    "file:foreign_copyright_or_spdx": 8,
+    "file:foreign_copyright_or_spdx": 7,
     "file:yaml_front_matter": 69,
-    "paragraph:ascii_ratio_below_min": 46,
+    "paragraph:ascii_ratio_below_min": 38,
     "paragraph:invisible_format_character": 2,
     "paragraph:paragraph_over_max_chars": 18,
-    "paragraph:paragraph_under_min_words": 19888,
+    "paragraph:paragraph_under_min_words": 19166,
     "question:ascii_ratio_below_min": 2,
-    "question:question_has_markup": 190,
-    "question:question_not_a_sentence_start": 90,
-    "question:question_unbalanced": 54,
-    "question:question_words_out_of_band": 189
+    "question:question_has_markup": 174,
+    "question:question_not_a_sentence_start": 78,
+    "question:question_unbalanced": 49,
+    "question:question_words_out_of_band": 154
   },
   "commit_bodies": "not read: git runs only in the lane's worktree (GAP-L-V5PLAN-OWN-REPO-COMMIT-BODIES-NOT-MEASURED-2026-10-02)"
 }
