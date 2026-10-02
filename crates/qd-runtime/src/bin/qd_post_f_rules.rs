@@ -246,7 +246,8 @@ enum Cmd {
         /// `SEED=FT_ROW_ID` for F's seeds 0, 1 and 2 exactly, in order (the envelope pin).
         #[arg(long = "ft-row", required = true, value_parser = parse_ft_row)]
         ft_rows: Vec<(i64, String)>,
-        /// The v4 ablation ledger: both arms' ft, eval, needle-control and letter-control rows.
+        /// The v4 ablation ledger: both arms' ft and eval rows, J6(f)'s needle-control row and
+        /// J6(d)-v4's letter-control row (R5 as struck: J6(d)-v4 reads no length control).
         #[arg(long)]
         arm_ledger: PathBuf,
         /// `0=FT_ROW_ID` of J6(f)'s run (from /home/ubuntu/j6f-v4/train.log).
