@@ -1,0 +1,83 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.00s
+     Running unittests src/lib.rs (/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/dev/ojas-qwen35-cuda/target/debug/deps/ojas_qwen35_cuda-e3688a9051f9f03d)
+
+running 5 tests
+test rmsnorm::tests::gated_plans_check_windows_and_the_dim_cap ... ok
+test rmsnorm::tests::plans_refuse_zero_sizes_bad_eps_and_wide_backward_rows ... ok
+test rmsnorm::tests::the_cuda_source_forms_one_plus_w_in_both_rms_norm_kernels_and_w_in_the_gated_one ... FAILED
+test rmsnorm::tests::the_rms_mirror_is_the_zero_centred_norm_and_close_to_f64 ... FAILED
+test rmsnorm::tests::the_backward_mirror_accumulates_into_dx_when_asked ... ok
+
+failures:
+
+---- rmsnorm::tests::the_cuda_source_forms_one_plus_w_in_both_rms_norm_kernels_and_w_in_the_gated_one stdout ----
+
+thread 'rmsnorm::tests::the_cuda_source_forms_one_plus_w_in_both_rms_norm_kernels_and_w_in_the_gated_one' (147097332) panicked at src/rmsnorm.rs:750:9:
+assertion failed: body(RMS_FWD).contains("yr[d] = xr[d] * inv * (1.0f + w[d]);")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- rmsnorm::tests::the_rms_mirror_is_the_zero_centred_norm_and_close_to_f64 stdout ----
+
+thread 'rmsnorm::tests::the_rms_mirror_is_the_zero_centred_norm_and_close_to_f64' (147097333) panicked at src/rmsnorm.rs:718:17:
+r0 d0: -0.04566030576825142 vs -0.43096436719305115
+
+
+failures:
+    rmsnorm::tests::the_cuda_source_forms_one_plus_w_in_both_rms_norm_kernels_and_w_in_the_gated_one
+    rmsnorm::tests::the_rms_mirror_is_the_zero_centred_norm_and_close_to_f64
+
+test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 123 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
+     Running tests/device_k7_rmsnorm.rs (/private/tmp/claude-501/-Users-bharath-Code-research-Lappi-decision/752954f4-7f08-4414-bdac-8e49ae47f8b4/scratchpad/dev/ojas-qwen35-cuda/target/debug/deps/device_k7_rmsnorm-c2da63c01e68de45)
+
+running 2 tests
+test the_mirrors_match_the_reference_on_the_torch_goldens ... FAILED
+test the_mirrors_match_the_reference_at_the_2b_shapes_in_fused_windows ... FAILED
+
+failures:
+
+---- the_mirrors_match_the_reference_on_the_torch_goldens stdout ----
+fail mirror rms_norm_c0 y: worst |err| / (abs + rel|ref|) = 1.781e5 at 313; max |err| 1.830e0; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror rms_norm_c0 dx: max |err| 1.365e-7 at 153 = 1.653e-7 of max|ref| 8.2539e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror rms_norm_c0 dw: max |err| 3.072e-7 at 29 = 8.129e-8 of max|ref| 3.7795e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+fail mirror rms_norm_c1 y: worst |err| / (abs + rel|ref|) = 1.768e5 at 2600; max |err| 1.749e0; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror rms_norm_c1 dx: max |err| 1.579e-7 at 5091 = 1.833e-7 of max|ref| 8.6167e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror rms_norm_c1 dw: max |err| 3.502e-7 at 819 = 1.082e-7 of max|ref| 3.2366e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated_rms_norm_c0 y: worst |err| / (abs + rel|ref|) = 2.199e-2 at 1533; max |err| 3.711e-7; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror gated_rms_norm_c0 dx: max |err| 8.182e-7 at 1187 = 2.366e-7 of max|ref| 3.4579e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated_rms_norm_c0 dz: max |err| 2.154e-7 at 1534 = 1.448e-7 of max|ref| 1.4869e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated_rms_norm_c0 dw: max |err| 5.217e-7 at 11 = 5.821e-8 of max|ref| 8.9612e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated_rms_norm_c1 y: worst |err| / (abs + rel|ref|) = 1.399e-2 at 12; max |err| 9.623e-8; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror gated_rms_norm_c1 dx: max |err| 2.311e-7 at 17 = 8.208e-8 of max|ref| 2.8153e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated_rms_norm_c1 dz: max |err| 6.561e-8 at 7 = 9.895e-8 of max|ref| 6.6302e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated_rms_norm_c1 dw: max |err| 1.923e-7 at 12 = 8.207e-8 of max|ref| 2.3435e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+
+thread 'the_mirrors_match_the_reference_on_the_torch_goldens' (147097338) panicked at tests/device_small_common/mod.rs:160:5:
+fail mirror rms_norm_c0 y: worst |err| / (abs + rel|ref|) = 1.781e5 at 313; max |err| 1.830e0; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+fail mirror rms_norm_c1 y: worst |err| / (abs + rel|ref|) = 1.768e5 at 2600; max |err| 1.749e0; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- the_mirrors_match_the_reference_at_the_2b_shapes_in_fused_windows stdout ----
+fail mirror rms_norm 70x2048 y: worst |err| / (abs + rel|ref|) = 1.791e5 at 50224; max |err| 1.791e0; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror rms_norm 70x2048 dx: max |err| 1.633e-7 at 76664 = 1.854e-7 of max|ref| 8.8047e-1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror rms_norm 70x2048 dw: max |err| 2.984e-6 at 1456 = 1.753e-7 of max|ref| 1.7021e1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated 9x16x128 y: worst |err| / (abs + rel|ref|) = 2.627e-2 at 14743; max |err| 9.296e-7; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+pass mirror gated 9x16x128 dx: max |err| 5.409e-7 at 4107 = 1.745e-7 of max|ref| 3.0990e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated 9x16x128 dz: max |err| 3.071e-7 at 14589 = 1.903e-7 of max|ref| 1.6143e0; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+pass mirror gated 9x16x128 dw: max |err| 4.226e-6 at 87 = 1.452e-7 of max|ref| 2.9099e1; bound 1e-4 (tessl/tests/qwen35_bwd.rs:5,43-66); 0 non-finite
+
+thread 'the_mirrors_match_the_reference_at_the_2b_shapes_in_fused_windows' (147097337) panicked at tests/device_small_common/mod.rs:160:5:
+fail mirror rms_norm 70x2048 y: worst |err| / (abs + rel|ref|) = 1.791e5 at 50224; max |err| 1.791e0; bound 1e-6 + 1e-5|ref| (tessl/tests/qwen35_kernels.rs:1071,1118,1174); 0 non-finite
+
+
+failures:
+    the_mirrors_match_the_reference_at_the_2b_shapes_in_fused_windows
+    the_mirrors_match_the_reference_on_the_torch_goldens
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `--test device_k7_rmsnorm`
+error: 2 targets failed:
+    `--lib`
+    `--test device_k7_rmsnorm`
