@@ -264,21 +264,20 @@ The sha256 must equal L-replay's pin. The tool refuses a malformed file on its o
 
 ### 6. Pre-check: are any E_val keys absent from this seed's verdicts?
 
-    jq -r '"\(.row_id)#\(.slot_name)"' /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/box/verdicts-s0.jsonl | LC_ALL=C sort -u > /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/keys-s0.txt
-    LC_ALL=C sort -u /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/e_val.txt > /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/e_val.sorted.txt
-    LC_ALL=C comm -23 /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/e_val.sorted.txt /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/keys-s0.txt > /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/absent-s0.txt
-    wc -l /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/absent-s0.txt
-    jq -r '.data_snapshot_hash' /Users/bharath/qd-campaign/phase4-v4-2026-10-01/data/pool/val.json
-    jq -r '.entries[].row_id' /Users/bharath/qd-campaign/phase4-v4-2026-10-01/data/pool/val.json | LC_ALL=C sort -u > /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/val-row-ids.txt
-    sed 's/#[^#]*$//' /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/absent-s0.txt | LC_ALL=C sort -u | LC_ALL=C comm -23 - /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/val-row-ids.txt
-    rg -v '#answer$' /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/absent-s0.txt | rg '^(mmlu|csqa):'
+This is one `jq`, and it writes no file. The harness refuses a shell redirect to any path
+outside the project root, which the seed-0 run hit.
 
-The val manifest's `data_snapshot_hash` must be `69d45fd04fad01751b3f102f09041c0ba67176e44725dbeb977d550f4b0abbd4`
-(read from that file; Fable Q4 names `69d45fd0…` as F's val). Then decide:
-- **`absent-s0.txt` is empty:** run step 7 without `--allow-absent-exclude-rows`.
-- **It is not empty, and all four hold:**
-  - the last two commands print nothing, so every absent key is a v4 val row, with slot
-    `answer` for MMLU/CSQA;
+    jq -rn --rawfile e /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/e_val.txt --slurpfile val /Users/bharath/qd-campaign/phase4-v4-2026-10-01/data/pool/val.json '([inputs | "\(.row_id)#\(.slot_name)"] | map({key: ., value: true}) | from_entries) as $have | ($val[0].entries | map({key: .row_id, value: true}) | from_entries) as $valrows | [$e | split("\n")[] | select(length > 0)] as $keys | [$keys[] | select($have[.] | not)] as $absent | "val data_snapshot_hash \($val[0].data_snapshot_hash)", "verdict keys \($have | length)", "E_val keys \($keys | length)", "absent \($absent | length)", ($absent[] | "absent-key \(.)"), ($absent[] | select((sub("#[^#]*$"; "")) as $r | $valrows[$r] | not) | "NOT-A-VAL-ROW \(.)"), ($absent[] | select(test("^(mmlu|csqa):") and (test("#answer$") | not)) | "BAD-SLOT \(.)")' /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/box/verdicts-s0.jsonl
+
+Seed 0 printed `val data_snapshot_hash 69d45fd04fad01751b3f102f09041c0ba67176e44725dbeb977d550f4b0abbd4`,
+`verdict keys 18223`, `E_val keys 215` and `absent 0`. The hash must be that value (Fable Q4
+names `69d45fd0…` as F's val). To get the sha256 of the absent keys, which matches the report's
+`absent.sha256`, pipe the same command through
+`rg '^absent-key ' | sed 's/^absent-key //' | LC_ALL=C sort | shasum -a 256`. Then decide:
+- **`absent 0`:** run step 7 without `--allow-absent-exclude-rows`.
+- **Absent keys, and all four hold:**
+  - no `NOT-A-VAL-ROW` or `BAD-SLOT` line is printed, so every absent key is a v4 val row, with
+    slot `answer` for MMLU/CSQA;
   - every absent key is undecoded;
   - the eval row's undecoded count (`decoded.n_total - decoded.n` from step 4) is not 0;
   - the absent count is at most that undecoded count.
