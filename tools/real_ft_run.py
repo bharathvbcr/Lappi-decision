@@ -322,6 +322,8 @@ RECIPE_PIECE_KEYS: Final[tuple[str, ...]] = (
     # exclusions.txt whose train rows the set and this rebuild left out, read off the train
     # header that check_exclusion_source checked against the flag.
     "exclusions_sha256",
+    # --min-lr (v5 recipe.added[1]): the cosine floor, when given instead of lr / 10.
+    "min_lr",
 )
 
 #: The dtypes ``--train-dtype`` trains the real tower in. ``bf16`` is every row so far and adds
@@ -381,7 +383,7 @@ def _recipe_pieces(
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
     train_attention_mask: str = "padding", max_steps: int | None = None,
     train_dtype: str = "bf16", span_head_init: Mapping[str, str] | None = None,
-    exclusions_sha256: str = "",
+    exclusions_sha256: str = "", min_lr: float | None = None,
 ) -> dict[str, object]:
     """The recipe keys for whichever ported pieces are on. Empty when none is.
 
@@ -400,6 +402,9 @@ def _recipe_pieces(
 
     ``exclusions_sha256`` is the train header's (``--exclude-identity-keys``): ``""``, every
     row so far, adds no key.
+
+    ``min_lr`` is ``--min-lr``: ``None`` (the floor ``lr / 10`` every row so far trained on)
+    adds no key; any given value is recorded, ``lr / 10`` included, because it was given.
     """
     if train_attention_mask not in TRAIN_ATTENTION_MASKS:
         raise ValueError(
@@ -409,6 +414,8 @@ def _recipe_pieces(
     if train_dtype not in TRAIN_DTYPES:
         raise ValueError(f"train_dtype must be one of {TRAIN_DTYPES}, got {train_dtype!r}")
     out: dict[str, object] = {}
+    if min_lr is not None:
+        out["min_lr"] = min_lr
     if exclusions_sha256:
         out["exclusions_sha256"] = exclusions_sha256
     if max_steps is not None:
@@ -1849,9 +1856,13 @@ def _control(
     steps: int, *, device: str, lr: float, checkpoint_every: int = 0,
     n_gpus: int | None = None, usd_per_hour: float | None = None,
     usd_per_gpu_hour: float | None = None, instance: str | None = None,
-    approved_by: str = "", cap_s: float = WALL_CLOCK_CAP_S,
+    approved_by: str = "", cap_s: float = WALL_CLOCK_CAP_S, min_lr: float | None = None,
 ) -> RunControl:
     """The cap, the schedule and the price of a local run.
+
+    The schedule's floor is ``lr / 10`` unless ``min_lr`` (``--min-lr``) is given; every run
+    before v5 trained on ``lr / 10``. ``LRSchedule`` refuses a floor that is negative,
+    non-finite or above ``lr``; ``main`` refuses the same at argv time.
 
     ``usd_per_hour=0.0`` with ``n_gpus=0`` is a measured fact about a Mac that is already
     bought, not a way around rule 4: a rented machine sets a real rate here and
@@ -1884,7 +1895,8 @@ def _control(
     )
     return RunControl(
         schedule=LRSchedule(
-            peak_lr=lr, total_steps=steps, warmup_steps=max(1, steps // 20), min_lr=lr / 10
+            peak_lr=lr, total_steps=steps, warmup_steps=max(1, steps // 20),
+            min_lr=lr / 10 if min_lr is None else min_lr,
         ),
         cap=cap,
         cost=cost,
@@ -2382,7 +2394,7 @@ def _train(
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
     train_attention_mask: str = "padding", max_steps: int | None = None,
     train_dtype: str = "bf16", span_head_init: SpanHeadInit | None = None,
-    record_span_head_init_digest: bool = False,
+    record_span_head_init_digest: bool = False, min_lr: float | None = None,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -2464,7 +2476,7 @@ def _train(
         train_attention_mask=train_attention_mask, max_steps=max_steps,
         train_dtype=train_dtype,
         span_head_init=None if span_head_init is None else span_head_init.recipe(),
-        exclusions_sha256=reader.header.exclusions_sha256,
+        exclusions_sha256=reader.header.exclusions_sha256, min_lr=min_lr,
     )
     recipe: dict[str, object] = {
         "tool": "tools/real_ft_run.py", "tag": tag, "device": device,
@@ -2824,7 +2836,7 @@ def _train(
             steps, device=device, lr=lr, checkpoint_every=checkpoint_every,
             n_gpus=n_gpus, usd_per_hour=usd_per_hour,
             usd_per_gpu_hour=usd_per_gpu_hour, instance=instance,
-            approved_by=approved_by, cap_s=cap_s,
+            approved_by=approved_by, cap_s=cap_s, min_lr=min_lr,
         ),
         recorder=recorder,
         on_checkpoint=on_checkpoint,
@@ -7959,7 +7971,7 @@ def planned_ft_recipe(
             cap_s=args.wall_clock_cap_s, no_memorise=args.no_memorise,
             batch_tokens=batch_tokens, checkpoint_skip_layers=args.checkpoint_skip_layers,
             fused_adamw=args.fused_adamw, train_attention_mask=args.train_attention_mask,
-            exclusions_sha256=reader.header.exclusions_sha256,
+            exclusions_sha256=reader.header.exclusions_sha256, min_lr=args.min_lr,
         ),
     }
     if args.real_backbone is None:
@@ -8817,6 +8829,14 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--min-lr", type=float, default=None,
+        help=(
+            "the cosine schedule's floor (v5: 0). Default: lr / 10, the floor every run "
+            "before v5 trained on, which adds no recipe key; any given value is recorded as "
+            "min_lr. Must be finite, >= 0 and <= --lr. Layer-wise lower layers scale it too"
+        ),
+    )
+    parser.add_argument(
         "--max-width", type=int, default=5383,
         help="arm 2 trains on every real batch at most this wide. The rule is stated rather "
              "than tuned: it is what this Mac can repeat often enough to reach a floor.",
@@ -9376,6 +9396,19 @@ def main(argv: list[str] | None = None) -> int:
         args.hidden = STANDIN_HIDDEN if args.hidden is None else args.hidden
         args.heads = STANDIN_HEADS if args.heads is None else args.heads
         args.lr = STANDIN_LR if args.lr is None else args.lr
+    # After --lr resolves: LRSchedule refuses these too, but per arm inside _train, after the
+    # shard set is read and the tower loaded.
+    if args.min_lr is not None:
+        if not (math.isfinite(args.min_lr) and args.min_lr >= 0.0):
+            raise SystemExit(
+                f"--min-lr must be finite and non-negative, got {args.min_lr!r}: it is the "
+                "floor the cosine decays to"
+            )
+        if args.min_lr > args.lr:
+            raise SystemExit(
+                f"--min-lr {args.min_lr:g} exceeds the peak --lr {args.lr:g}: the schedule "
+                "would decay upwards"
+            )
 
     # Checkpointing is refused on the STAND-IN branch, and that is not a limitation being
     # worked around -- it is the whole point. `RealFtStep.load_state` raises by design
@@ -10107,7 +10140,7 @@ def main(argv: list[str] | None = None) -> int:
                 checkpoint_skip_layers=args.checkpoint_skip_layers, fused_adamw=args.fused_adamw,
                 train_attention_mask=args.train_attention_mask,
                 train_dtype=args.train_dtype, span_head_init=span_head_init,
-                record_span_head_init_digest=args.span_head_init_digest,
+                record_span_head_init_digest=args.span_head_init_digest, min_lr=args.min_lr,
             )
             step = run.pop("_step")
             decode_at = time.monotonic()
@@ -10220,6 +10253,7 @@ def main(argv: list[str] | None = None) -> int:
                     max_steps=args.max_steps, train_dtype=args.train_dtype,
                     span_head_init=span_head_init,
                     record_span_head_init_digest=args.span_head_init_digest,
+                    min_lr=args.min_lr,
                 )
                 step = run.pop("_step")
                 if shuffled is not None and val_set is not None:

@@ -8,8 +8,9 @@ compare against -- floats as ``float.hex`` so a comparison is of bits, not of re
 What it pins, and the Rust test that reads it:
 
 * ``schedule`` -- ``LRSchedule.lr_at`` for every step of small schedules and sampled steps of
-  large ones, including ``real_ft_run._control``'s ``max(1, steps // 20)`` / ``lr / 10``
-  (``tests/schedule_oracle.rs``). Same-host claim: ``math.cos`` is this host's libm.
+  large ones, including ``real_ft_run._control``'s ``max(1, steps // 20)`` / ``lr / 10``, and
+  the same warmup with the ``--min-lr 0`` floor (``tests/schedule_oracle.rs``). Same-host
+  claim: ``math.cos`` is this host's libm.
 * ``floats`` -- ``repr`` and ``float.hex`` of edge and random floats; ``json`` -- canonical
   ``json.dumps`` of nested values; ``consumed`` -- ``ConsumedPrefix`` digests;
   ``loss_log`` -- ``LossLog.digest``; ``isoformat`` -- ``datetime.isoformat`` in UTC
@@ -87,6 +88,10 @@ def schedules() -> list[dict]:
     for lr, steps in [(1e-5, 2), (1e-5, 19), (1e-5, 20), (1e-5, 21), (1e-5, 100), (1e-5, 200),
                       (2e-5, 1505), (1e-5, 18197)]:
         configs.append((lr, steps, max(1, steps // 20), lr / 10))
+    # The same rule under --min-lr 0 (v5 recipe.added[1]; LrSchedule::real_ft_with_floor):
+    # warmup max(1, steps // 20), floor 0. 9683 is F's epoch, the length v5's base ran.
+    for lr, steps in [(1e-5, 20), (1e-5, 200), (1e-5, 9683)]:
+        configs.append((lr, steps, max(1, steps // 20), 0.0))
     for peak, total, warmup, floor in configs:
         s = LRSchedule(peak_lr=peak, total_steps=total, warmup_steps=warmup, min_lr=floor)
         steps = list(range(total)) if total <= 200 else sorted(
