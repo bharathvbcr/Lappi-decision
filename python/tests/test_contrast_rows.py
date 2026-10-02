@@ -48,6 +48,7 @@ from qd_train.contrast import (
     contrast_rows_sha256,
     derive_contrast_rows,
 )
+from qd_train.containment_strip import STRIP_RULE, STRIP_VERSION
 from qd_train.exclusions import ATTESTATION_NAME, EXCLUSIONS_NAME, apply_exclusions
 from qd_train.shards import write_shards
 from qd_train.tristate import NotRun, Ran
@@ -206,8 +207,10 @@ def _composite(tmp: Path, contrast: object) -> Path:
 
 
 def _crafted_exclusions(tmp: Path, keys: list[str], corpus: dict[str, object]) -> Path:
-    """A test-only ``exclusions.txt`` and attestation v2 in the shape ``read_exclusions`` checks.
-    Not a decontamination: it names the keys this test chose."""
+    """A test-only ``exclusions.txt`` and attestation v2 in the shape ``read_exclusions`` checks,
+    including the template strip it requires (``export.template_strip``: applied, this
+    ``STRIP_VERSION`` and ``STRIP_RULE``). Not a decontamination: it names the keys this test
+    chose."""
     d = tmp / "scan"
     d.mkdir()
     body = "".join(f"{k}\n" for k in sorted(keys, key=str.encode)).encode()
@@ -216,6 +219,9 @@ def _crafted_exclusions(tmp: Path, keys: list[str], corpus: dict[str, object]) -
         "version": 2, "tool": "qd-prep containment", "n": 8, "threshold": 0.5,
         "exclusions_sha256": hashlib.sha256(body).hexdigest(), "n_exclusions": len(keys),
         "clean": True, "remaining_hits": {"val": 0}, "excluded_from": "train", "corpus": corpus,
+        "export": {"template_strip": {
+            "applied": True, "version": STRIP_VERSION, "rule": STRIP_RULE,
+        }},
     }), encoding="utf-8")
     return d / EXCLUSIONS_NAME
 
