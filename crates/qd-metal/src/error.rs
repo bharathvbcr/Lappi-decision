@@ -20,6 +20,8 @@ pub enum MetalError {
     Gpu(String),
     /// The snapshot store: an unknown, evicted or foreign snapshot.
     State(String),
+    /// A ledger row could not be built or appended, or its provenance could not be read.
+    Ledger(String),
 }
 
 impl fmt::Display for MetalError {
@@ -31,6 +33,7 @@ impl fmt::Display for MetalError {
             MetalError::Input(s) => write!(f, "input: {s}"),
             MetalError::Gpu(s) => write!(f, "gpu: {s}"),
             MetalError::State(s) => write!(f, "state: {s}"),
+            MetalError::Ledger(s) => write!(f, "ledger: {s}"),
         }
     }
 }

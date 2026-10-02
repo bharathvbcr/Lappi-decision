@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use qd_metal::backend::{MetalBackend, MetalConfig, StateRecord};
-use qd_metal::model::{Model, PrefixState, RECURRENT_MAX_SEQ};
+use qd_metal::model::{EmbedPath, Model, PrefixState, RECURRENT_MAX_SEQ};
 use qd_metal::tokenizer::QwenTokenizer;
 use qd_runtime::backend::{DecisionBackend, DecodeMode, QueryKind, SlotQuery};
 
@@ -141,6 +141,7 @@ fn gpu_backend_readonly_decode_leaves_the_runtime_hash_unchanged() {
     let handle = backend.prefill(PREFIX).unwrap();
     let mut snap = backend.snapshot(&handle).unwrap();
     let before = snap.state_digest();
+    let before_rec = StateRecord::parse(snap.state.as_bytes()).unwrap();
     let query = SlotQuery {
         slot_name: "defect_class",
         suffix: SUFFIX,
@@ -166,12 +167,59 @@ fn gpu_backend_readonly_decode_leaves_the_runtime_hash_unchanged() {
     let rec = StateRecord::parse(snap.state.as_bytes()).unwrap();
     assert!(rec.tokens > handle.token_count as u64);
 
-    // A fresh snapshot of the same prefill is untouched by that write-back.
+    // A fresh snapshot of the same prefill is untouched by that write-back. Every snapshot is its
+    // own entry (`Worker::snapshot` inserts one), so its record, and the runtime's hash of that
+    // record, names a different entry: comparing `state_digest()` here failed on the first GPU run
+    // (2026-10-02) with the device state unchanged. The device state is the record's `digest`.
     let fresh = backend.snapshot(&handle).unwrap();
-    assert_eq!(fresh.state_digest(), before);
+    let fresh_rec = StateRecord::parse(fresh.state.as_bytes()).unwrap();
+    assert_ne!(fresh_rec.entry, before_rec.entry, "a second snapshot reused the first one's entry");
+    assert_eq!(
+        (fresh_rec.tokens, fresh_rec.digest),
+        (before_rec.tokens, before_rec.digest),
+        "the write-back changed the device state of the cached prefill"
+    );
 
     // Pointer heads are refused, typed, never answered with letters.
     let span = SlotQuery { kind: QueryKind::PointerStart, ..query };
     let mut fresh = fresh;
     assert!(backend.decode_slot(&mut fresh, &span, DecodeMode::ReadOnly).is_err());
+}
+
+/// `EmbedPath::Device` (`tessl::qwen35::embed_rows`) against the host gather. The widening is a
+/// 16-bit shift on both sides, so the claim is bit identity, not a tolerance: of the gathered
+/// rows, of a whole pass's logits, and of the prefix state the runtime hashes.
+#[test]
+#[ignore = "GPU + model snapshot"]
+fn gpu_embed_paths_are_bit_identical() {
+    let (mut model, tok) = setup();
+    let letters = tok.letter_ids().to_vec();
+    let full = tok.encode(&format!("{PREFIX}{SUFFIX}")).unwrap();
+    let prefix = tok.encode(PREFIX).unwrap();
+    let suffix = &full[prefix.len()..];
+    let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<u32>>();
+
+    // The gather itself, including the first and last vocabulary rows.
+    let vocab = u32::try_from(model.config().vocab).unwrap();
+    let mut ids = full.clone();
+    ids.extend_from_slice(&[0, vocab - 1]);
+    let mut per_path = Vec::new();
+    for path in [EmbedPath::Host, EmbedPath::Device] {
+        model.set_embed_path(path);
+        let rows = model.gather_embeddings(&ids).unwrap();
+        let t = u32::try_from(full.len()).unwrap();
+        let (out, state) = model.prefill(&prefix).unwrap();
+        drop(out);
+        let digest = state.digest().unwrap();
+        let (cont, _) = continue_logprobs(&model, &state, suffix, &letters, false);
+        let whole = model.run(&full, 1, t, None, false, None).unwrap();
+        let logits = model.score(&whole, &[t - 1], &letters).unwrap().logits;
+        per_path.push((bits(&rows), digest, bits(&cont), bits(&logits)));
+    }
+    let (h, d) = (&per_path[0], &per_path[1]);
+    assert_eq!(h.0, d.0, "the gathered embedding rows differ between the host and the device path");
+    assert_eq!(h.1, d.1, "the prefix state differs between the paths");
+    assert_eq!(h.2, d.2, "a continuation's letter log-probs differ between the paths");
+    assert_eq!(h.3, d.3, "a whole pass's letter logits differ between the paths");
+    println!("embed paths bit-identical: {} gathered rows, prefix state, continuation and whole-pass letters", ids.len());
 }

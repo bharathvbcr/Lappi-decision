@@ -4,6 +4,11 @@
 //! invariants): never a campaign ledger, never a box path. And every row is `quick=True` with a
 //! non-empty `quick_reason` (rule 8): the type has no way to say otherwise.
 //!
+//! **Other run kinds.** [`Row`] is the same row for any non-`build` kind (a `throughput`
+//! benchmark, a `smoke` check), and [`append_line`] the same chained append without the
+//! trainer's path rule; `qd-metal` writes its `ledger/mac-qd-metal-*.jsonl` rows through both and
+//! states its own path rule. [`FtRow`] is a `Row` of kind `ft`.
+//!
 //! **What Python requires of the row** (`LedgerRow.__post_init__`, `from_json`,
 //! `Ledger.verify_chain`): a known `run_kind` and `status`; `quick_reason` exactly when `quick`;
 //! `wall_clock_source` in `{caller, recorder}`; finite non-negative `wall_clock_s` and
@@ -301,7 +306,8 @@ impl Environment {
         }
     }
 
-    fn to_json(&self) -> Result<Value, LedgerError> {
+    /// `Environment.to_json`. A Rust process probes neither CUDA library, so both are `not_run`.
+    pub fn to_json(&self) -> Result<Value, LedgerError> {
         let probe = |what: &str, field: &str| TriState::not_run(format!("{what} dry run not executed")).to_json(field);
         Ok(obj([
             ("torch", Value::from(self.torch.as_str())),
@@ -337,33 +343,71 @@ pub struct Stamp {
     pub prev_row_hash: Option<String>,
 }
 
-impl FtRow {
+/// `ledger.RunKind` less `build`: the kinds a [`Row`] may carry. A build row's protocol carries
+/// the [`NOT_APPLICABLE`] marker, which [`Protocol::to_json`] refuses; Python's
+/// `Protocol.for_build` / `qd_train.ledger record` is that row's writer.
+pub const RUN_KINDS: [&str; 12] = [
+    "teacher",
+    "lr_probe",
+    "cpt",
+    "prune_heal",
+    "ft",
+    "ablation",
+    "eval",
+    "calibration",
+    "smoke",
+    "throughput",
+    "resume",
+    "scale",
+];
+
+/// A row of any [`RUN_KINDS`] kind before the ledger gives it a place in the chain. [`FtRow`] is
+/// this for `ft` plus the trainer's own rules; a benchmark or a check (`throughput`, `smoke`)
+/// fills it directly. Every row is `quick` (rule 8): the type has no way to say otherwise.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Row {
+    pub run_kind: String,
+    pub protocol: Protocol,
+    pub status: Status,
+    pub quick_reason: String,
+    pub code_commit: String,
+    pub env: Environment,
+    pub metrics: BTreeMap<String, TriState>,
+    pub noul_rate: TriState,
+    pub wall_clock_s: f64,
+    pub wall_clock_source: WallClockSource,
+    pub notes: String,
+    /// The settings `protocol.recipe_hash` was taken of: sha256 over this object's
+    /// `json.dumps(sort_keys=True, separators=(",", ":"))`, checked when the line is built.
+    pub recipe: Value,
+}
+
+impl Row {
     /// The row's JSON with `stamp`'s fields: the exact line `Ledger.append` writes, newline
-    /// excluded.
+    /// excluded. Refuses what `LedgerRow.__post_init__` refuses, and a recipe that does not
+    /// reproduce `protocol.recipe_hash`.
     pub fn line(&self, stamp: &Stamp) -> Result<String, LedgerError> {
+        if !RUN_KINDS.contains(&self.run_kind.as_str()) {
+            return refuse(format!("run_kind {:?} is not one of {RUN_KINDS:?}", self.run_kind));
+        }
         if self.quick_reason.trim().is_empty() {
-            return refuse("quick=True requires quick_reason; every ojas row is quick (rule 8)");
+            return refuse("quick=True requires quick_reason; every row this crate writes is quick (rule 8)");
         }
         if !(self.wall_clock_s.is_finite() && self.wall_clock_s >= 0.0) {
             return refuse(format!("wall_clock_s {} is not a measured duration", self.wall_clock_s));
         }
-        let recipe_hash = hex(&Sha256::digest(dumps(&self.recipe.to_json()?, CANONICAL_ASCII)?.as_bytes()));
+        if !self.recipe.as_object().is_some_and(|o| !o.is_empty()) {
+            return refuse(
+                "recipe is not a non-empty object: a row with a recipe_hash always had settings, and \
+                 `LedgerRow` refuses an empty one",
+            );
+        }
+        let recipe_hash = hex(&Sha256::digest(dumps(&self.recipe, CANONICAL_ASCII)?.as_bytes()));
         if recipe_hash != self.protocol.recipe_hash {
             return refuse(format!(
                 "protocol.recipe_hash {} is not the hash of the stored recipe ({recipe_hash})",
                 self.protocol.recipe_hash
             ));
-        }
-        // `_quick_if_truncated`: a schedule that did not run to its end is a truncated one.
-        let mut quick_reason = self.quick_reason.clone();
-        if let Some(term) = self.metrics.get("train.termination") {
-            let said = termination_value(term).unwrap_or("not_run");
-            if said != "steps_exhausted" {
-                quick_reason = format!(
-                    "{quick_reason}; train.termination is '{said}', not 'steps_exhausted': the schedule \
-                     did not run to its end, which rule 8 calls a truncated schedule"
-                );
-            }
         }
         let gates: BTreeMap<String, TriState> = REQUIRED_GATES
             .iter()
@@ -382,14 +426,14 @@ impl FtRow {
             ),
             ("protocol_hash", Value::from(self.protocol.hash()?)),
             ("protocol", self.protocol.to_json()?),
-            ("run_kind", Value::from("ft")),
+            ("run_kind", Value::from(self.run_kind.as_str())),
             ("status", Value::from(self.status.as_str())),
             ("quick", Value::Bool(true)),
-            ("quick_reason", Value::from(quick_reason)),
+            ("quick_reason", Value::from(self.quick_reason.as_str())),
             ("code_commit", Value::from(self.code_commit.as_str())),
             ("env", self.env.to_json()?),
             ("metrics", tristates(&self.metrics)?),
-            ("noul_rate", TriState::not_run("noul rate not computed by this run").to_json("noul_rate")?),
+            ("noul_rate", self.noul_rate.to_json("noul_rate")?),
             ("controls", tristates(&controls)?),
             ("gates", tristates(&gates)?),
             ("wall_clock_s", float(self.wall_clock_s)?),
@@ -402,9 +446,46 @@ impl FtRow {
             ),
             ("cost_usd", float(0.0)?),
             ("notes", Value::from(self.notes.as_str())),
-            ("recipe", self.recipe.to_json()?),
+            ("recipe", self.recipe.clone()),
         ])?;
         Ok(dumps(&row, CANONICAL)?)
+    }
+}
+
+impl FtRow {
+    /// The row's JSON with `stamp`'s fields: the exact line `Ledger.append` writes, newline
+    /// excluded. A [`Row`] of kind `ft`, with the trainer's own rule on top: a schedule that did
+    /// not run to its end is quick for that reason too.
+    pub fn line(&self, stamp: &Stamp) -> Result<String, LedgerError> {
+        if self.quick_reason.trim().is_empty() {
+            return refuse("quick=True requires quick_reason; every ojas row is quick (rule 8)");
+        }
+        // `_quick_if_truncated`: a schedule that did not run to its end is a truncated one.
+        let mut quick_reason = self.quick_reason.clone();
+        if let Some(term) = self.metrics.get("train.termination") {
+            let said = termination_value(term).unwrap_or("not_run");
+            if said != "steps_exhausted" {
+                quick_reason = format!(
+                    "{quick_reason}; train.termination is '{said}', not 'steps_exhausted': the schedule \
+                     did not run to its end, which rule 8 calls a truncated schedule"
+                );
+            }
+        }
+        Row {
+            run_kind: "ft".to_string(),
+            protocol: self.protocol.clone(),
+            status: self.status,
+            quick_reason,
+            code_commit: self.code_commit.clone(),
+            env: self.env.clone(),
+            metrics: self.metrics.clone(),
+            noul_rate: TriState::not_run("noul rate not computed by this run"),
+            wall_clock_s: self.wall_clock_s,
+            wall_clock_source: self.wall_clock_source,
+            notes: self.notes.clone(),
+            recipe: self.recipe.to_json()?,
+        }
+        .line(stamp)
     }
 }
 
@@ -534,10 +615,23 @@ fn raw_lines(bytes: &[u8]) -> Vec<&[u8]> {
         .collect()
 }
 
-/// `Ledger.append`: take the write lock, refuse a duplicate `row_id`, chain to the last line,
-/// append one line with `O_APPEND`, fsync. Returns the stamp the row was written with.
+/// `Ledger.append` for the Rust trainer's `ft` row: only into `ledger/mac-ojas-*.jsonl`
+/// ([`check_ledger_path`]), then [`append_line`].
 pub fn append(path: &Path, row: &FtRow, row_id: String, written_at: String) -> Result<Stamp, LedgerError> {
     check_ledger_path(path)?;
+    append_line(path, row_id, written_at, |stamp| row.line(stamp))
+}
+
+/// `Ledger.append`: take the write lock, refuse a duplicate `row_id`, chain to the last line,
+/// append the line `line(stamp)` builds with `O_APPEND`, fsync. Returns the stamp the row was
+/// written with. Which files a writer may append to is the writer's rule: [`append`] holds the
+/// trainer to `mac-ojas-*`; another caller states its own before calling this.
+pub fn append_line(
+    path: &Path,
+    row_id: String,
+    written_at: String,
+    line: impl FnOnce(&Stamp) -> Result<String, LedgerError>,
+) -> Result<Stamp, LedgerError> {
     let ioe = |e: std::io::Error| LedgerError::Io(format!("{}: {e}", path.display()));
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(ioe)?;
@@ -557,9 +651,9 @@ pub fn append(path: &Path, row: &FtRow, row_id: String, written_at: String) -> R
             written_at: written_at.clone(),
             prev_row_hash: lines.last().map(|l| hex(&Sha256::digest(l))),
         };
-        let mut line = row.line(&stamp)?.into_bytes();
-        line.push(b'\n');
-        f.write_all(&line).map_err(ioe)?;
+        let mut out = line(&stamp)?.into_bytes();
+        out.push(b'\n');
+        f.write_all(&out).map_err(ioe)?;
         f.sync_all().map_err(ioe)?;
         Ok(stamp)
     })();

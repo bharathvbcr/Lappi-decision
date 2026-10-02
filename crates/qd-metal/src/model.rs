@@ -5,7 +5,7 @@
 //! and state carried in and out:
 //!
 //! ```text
-//! resid = embed(ids)                                         host gather (no bf16 embed kernel)
+//! resid = embed(ids)                       host gather, or qwen35::embed_rows (EmbedPath)
 //! per layer:
 //!   xb = rms_norm_bf16(resid, 1 + w_in_norm)
 //!   GDN:  proj = xb @ W_in;  qkv = conv1d_silu(proj[:, :conv_dim], conv state)
@@ -62,6 +62,40 @@ pub const RECURRENT_MAX_SEQ: u32 = 16;
 
 /// Layers prepared on the CPU at once during load (bounds the host copies held at a time).
 const LOAD_PARALLEL_LAYERS: usize = 6;
+
+/// Where a pass's embedding rows are gathered: the first write of every [`Model::run`].
+///
+/// Both read the same bf16 table and widen bf16 to f32 by a 16-bit shift, which is exact, so the
+/// two produce the same bits and every logit downstream is unchanged. `tests/gpu.rs`
+/// (`gpu_embed_paths_are_bit_identical`) asserts that on the real weights; it is kept as a flag so
+/// `qd-metal-bench --decision` can time both arms interleaved (Fable's Mac ruling, item 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmbedPath {
+    /// Map the 1 GB table and the residual on the host and convert there. Mapping a shared
+    /// buffer commits and waits for every GPU command already encoded, so this is also a sync.
+    Host,
+    /// `tessl::qwen35::embed_rows`: one dispatch, ids uploaded as `u32`, no host map of the table.
+    Device,
+}
+
+impl EmbedPath {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EmbedPath::Host => "host",
+            EmbedPath::Device => "device",
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "host" => Ok(EmbedPath::Host),
+            "device" => Ok(EmbedPath::Device),
+            other => Err(MetalError::Input(format!(
+                "embed path {other:?} is not `host` or `device`"
+            ))),
+        }
+    }
+}
 
 struct GdnWeights {
     w_in: Tensor,
@@ -176,6 +210,7 @@ pub struct Model {
     embed: Tensor,
     weight_hash: String,
     embed_digest: [u8; 32],
+    embed_path: EmbedPath,
 }
 
 fn upload_f32(rt: &Arc<GpuRuntime>, data: &[f32], what: &str) -> Result<GpuBuffer> {
@@ -437,7 +472,19 @@ impl Model {
             embed,
             weight_hash,
             embed_digest,
+            // The path every measured number so far ran on. `Device` becomes the default only
+            // after the bit-identity test and the parity gate pass on the GPU with it (rule 2).
+            embed_path: EmbedPath::Host,
         })
+    }
+
+    /// Which embedding gather [`Model::run`] uses from now on.
+    pub fn set_embed_path(&mut self, path: EmbedPath) {
+        self.embed_path = path;
+    }
+
+    pub fn embed_path(&self) -> EmbedPath {
+        self.embed_path
     }
 
     pub fn config(&self) -> &ModelConfig {
@@ -458,8 +505,60 @@ impl Model {
         self.embed_digest
     }
 
-    /// Host gather of the bf16 embedding rows into f32 (tessl has no bf16 embedding kernel).
+    /// The f32 embedding rows of `ids` (`[ids.len(), hidden]`) as the current [`EmbedPath`]
+    /// gathers them, read back. What every [`Model::run`] starts from; exposed so the two paths
+    /// can be compared bit for bit (`tests/gpu.rs`). Waits for the GPU.
+    pub fn gather_embeddings(&self, ids: &[u32]) -> Result<Vec<f32>> {
+        if ids.is_empty() {
+            return Err(MetalError::Input("no ids to embed".into()));
+        }
+        if let Some(bad) = ids.iter().find(|&&id| id as usize >= self.cfg.vocab) {
+            return Err(MetalError::Input(format!(
+                "token id {bad} is outside the {}-row vocabulary",
+                self.cfg.vocab
+            )));
+        }
+        let h = self.cfg.hidden;
+        let out = self.rt.alloc_tensor_f32(&[ids.len(), h]).gpu("embedding readback")?;
+        if out.byte_offset() != 0 {
+            return Err(MetalError::Gpu("the embedding gather writes from its buffer's start".into()));
+        }
+        self.embed_rows(ids, &out)?;
+        let m = out.buffer.try_contents_f32().gpu("read embeddings")?;
+        Ok(m[..ids.len() * h].to_vec())
+    }
+
+    /// Gather the bf16 embedding rows of `ids` into `resid` as f32, by [`Model::embed_path`].
+    /// `ids` were checked against the vocabulary by [`Model::run`].
     fn embed_rows(&self, ids: &[u32], resid: &Tensor) -> Result<()> {
+        match self.embed_path {
+            EmbedPath::Host => self.embed_rows_host(ids, resid),
+            EmbedPath::Device => self.embed_rows_device(ids, resid),
+        }
+    }
+
+    /// `tessl::qwen35::embed_rows` over the resident table: `out[r] = widen(table[ids[r]])`.
+    fn embed_rows_device(&self, ids: &[u32], resid: &Tensor) -> Result<()> {
+        let rt = &self.rt;
+        let n = to_u32(ids.len(), "embedding rows")?;
+        let ids_buf = upload_u32(rt, ids, "embed ids")?;
+        qwen35::embed_rows(
+            rt,
+            &ids_buf,
+            n,
+            LmHead {
+                weight: &self.embed.buffer,
+                dtype: DType::BF16,
+                vocab: to_u32(self.cfg.vocab, "vocab")?,
+            },
+            to_u32(self.cfg.hidden, "hidden")?,
+            &resid.buffer,
+        )
+        .gpu("qwen35::embed_rows")
+    }
+
+    /// Host gather of the bf16 embedding rows into f32.
+    fn embed_rows_host(&self, ids: &[u32], resid: &Tensor) -> Result<()> {
         let h = self.cfg.hidden;
         let mut rows = vec![0f32; ids.len() * h];
         {
@@ -489,16 +588,19 @@ impl Model {
             .ok_or_else(|| MetalError::Input("prefix + continuation exceeds u32 positions".into()))?;
         let g_proj = rt.alloc_tensor_f32(&[rows, self.gdn.width() as usize]).gpu("gdn proj")?;
         let a_proj = rt.alloc_tensor_f32(&[rows, self.attn.width() as usize]).gpu("attn proj")?;
-        for t in [&g_proj, &a_proj] {
+        let resid = rt.alloc_tensor_f32(&[rows, h]).gpu("resid")?;
+        for t in [&g_proj, &a_proj, &resid] {
             if t.byte_offset() != 0 {
                 return Err(MetalError::Gpu(
-                    "the qwen35 kernels address the projection from its buffer's start".into(),
+                    "the qwen35 kernels and the embedding gather address the projections and the \
+                     residual from their buffer's start"
+                        .into(),
                 ));
             }
         }
         Ok(Acts {
             rows,
-            resid: rt.alloc_tensor_f32(&[rows, h]).gpu("resid")?,
+            resid,
             xb: rt.alloc_tensor_bf16(&[rows, h]).gpu("xb")?,
             g_proj,
             g_qkv: scratch_f32(rt, rows * self.gdn.conv_dim() as usize, "gdn qkv")?,
