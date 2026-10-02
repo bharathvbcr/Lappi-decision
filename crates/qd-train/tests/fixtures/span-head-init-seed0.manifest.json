@@ -67,7 +67,7 @@
   "script": "tools/qd_train_oracle_span_head_init.py",
   "script_sha256": "3bee35a9bc3a915768c1f5d44b3df88f57cd0e5bcc505d1954dfa047d2ffaa56",
   "command": "PYTHONPATH=python /Users/bharath/.venvs/ml/bin/python tools/qd_train_oracle_span_head_init.py --hidden 2048 --seed 0 --out data/checkpoints/span-head-init/span_head_init-seed0.safetensors --manifest crates/qd-train/tests/fixtures/span-head-init-seed0.manifest.json",
-  "git_head": "fec0d69383400be4591de90fd850d3c16a1c31c2",
+  "git_head": "fd5fe80f6fbe6d3e635b87a25f3e93982db9c3d8",
   "python": "3.14.7",
   "torch": "2.12.1",
   "safetensors": "0.8.0",
