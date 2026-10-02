@@ -141,6 +141,7 @@ fn gpu_backend_readonly_decode_leaves_the_runtime_hash_unchanged() {
     let handle = backend.prefill(PREFIX).unwrap();
     let mut snap = backend.snapshot(&handle).unwrap();
     let before = snap.state_digest();
+    let before_rec = StateRecord::parse(snap.state.as_bytes()).unwrap();
     let query = SlotQuery {
         slot_name: "defect_class",
         suffix: SUFFIX,
@@ -166,9 +167,18 @@ fn gpu_backend_readonly_decode_leaves_the_runtime_hash_unchanged() {
     let rec = StateRecord::parse(snap.state.as_bytes()).unwrap();
     assert!(rec.tokens > handle.token_count as u64);
 
-    // A fresh snapshot of the same prefill is untouched by that write-back.
+    // A fresh snapshot of the same prefill is untouched by that write-back. Every snapshot is its
+    // own entry (`Worker::snapshot` inserts one), so its record, and the runtime's hash of that
+    // record, names a different entry: comparing `state_digest()` here failed on the first GPU run
+    // (2026-10-02) with the device state unchanged. The device state is the record's `digest`.
     let fresh = backend.snapshot(&handle).unwrap();
-    assert_eq!(fresh.state_digest(), before);
+    let fresh_rec = StateRecord::parse(fresh.state.as_bytes()).unwrap();
+    assert_ne!(fresh_rec.entry, before_rec.entry, "a second snapshot reused the first one's entry");
+    assert_eq!(
+        (fresh_rec.tokens, fresh_rec.digest),
+        (before_rec.tokens, before_rec.digest),
+        "the write-back changed the device state of the cached prefill"
+    );
 
     // Pointer heads are refused, typed, never answered with letters.
     let span = SlotQuery { kind: QueryKind::PointerStart, ..query };

@@ -4,11 +4,18 @@
 //! row through `LedgerRow.from_json`) and against the check `test_ledger_provenance.py` holds
 //! every non-`build` row to (a non-empty `metrics.code_that_ran`).
 //!
-//! The Python half needs the project venv: `QD_PYTHON`, else `<repo>/.venv/bin/python`. Without
-//! one it prints a SKIPPED notice and returns: reported, never passed.
+//! The Python half needs an interpreter that can import `qd_train.ledger` (standard library only):
+//! `QD_PYTHON`, else `<repo>/.venv/bin/python`, else `python3`. With none it **fails**. It used to
+//! print SKIPPED and return, which libtest records as `ok`: in a worktree without `.venv` and
+//! without `QD_PYTHON` the suite read "4 passed" with the Python half never run (observed
+//! 2026-10-02 on the c1fa18f binary). `crates/qd-preflight/tests/schema_compat.rs` retired the same
+//! pattern for the same reason (CLAUDE.md: a check that could not run must never report the same
+//! result as a check that ran and passed).
 
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 use qd_metal::decision::{self, Arm, ArmResult, DecisionArgs, DecisionPrompt, RowTarget, RunContext, Sample, TResult};
 use qd_metal::ledger::{self, Provenance};
@@ -20,12 +27,79 @@ fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
 }
 
-fn python() -> Option<PathBuf> {
+/// Every interpreter call here is short; one that runs past this is killed and fails the test.
+const PYTHON_TIMEOUT: Duration = Duration::from_secs(60);
+
+fn python_candidates() -> Vec<PathBuf> {
+    let mut out = Vec::new();
     if let Some(p) = std::env::var_os("QD_PYTHON") {
-        return Some(PathBuf::from(p));
+        out.push(PathBuf::from(p));
     }
-    let p = repo().join(".venv/bin/python");
-    p.exists().then_some(p)
+    out.push(repo().join(".venv/bin/python"));
+    out.push(PathBuf::from("python3"));
+    out
+}
+
+/// Run `cmd` with piped output, killing it past `limit`. The scripts here print a few hundred
+/// bytes, well under a pipe buffer, so reading after exit cannot deadlock.
+fn output_bounded(cmd: &mut Command, limit: Duration) -> io::Result<Output> {
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let start = Instant::now();
+    loop {
+        if child.try_wait()?.is_some() {
+            return child.wait_with_output();
+        }
+        if start.elapsed() > limit {
+            child.kill()?;
+            child.wait()?;
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("interpreter did not exit within {limit:?}"),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn python_command(py: &Path) -> Command {
+    let mut cmd = Command::new(py);
+    cmd.env("PYTHONPATH", repo().join("python"));
+    cmd
+}
+
+/// True when `p` runs and can import the module under test.
+fn can_import_ledger(p: &Path) -> bool {
+    let mut cmd = python_command(p);
+    cmd.arg("-c").arg("import qd_train.ledger");
+    matches!(output_bounded(&mut cmd, PYTHON_TIMEOUT), Ok(out) if out.status.success())
+}
+
+/// The interpreter the Python half must use, or a panic naming the remedy. Takes the candidate
+/// list so the fail-closed path is itself tested against a list known to hold nothing usable.
+fn require_python_from(candidates: &[PathBuf]) -> PathBuf {
+    match candidates.iter().find(|p| can_import_ledger(p)) {
+        Some(p) => p.clone(),
+        None => panic!(
+            "no interpreter among {candidates:?} can import qd_train.ledger, so Python did NOT \
+             read these rows. This fails rather than skipping: a skip is recorded as `ok`. \
+             Remedy: point QD_PYTHON at a Python >= 3.11."
+        ),
+    }
+}
+
+fn python() -> PathBuf {
+    require_python_from(&python_candidates())
+}
+
+/// Run `script` with `path` as `sys.argv[1]`, bounded; a spawn error or a timeout fails the test.
+fn python_out(py: &Path, script: &str, path: &Path) -> Output {
+    let mut cmd = python_command(py);
+    cmd.arg("-c").arg(script).arg(path);
+    output_bounded(&mut cmd, PYTHON_TIMEOUT).unwrap_or_else(|e| panic!("could not run {}: {e}", py.display()))
 }
 
 fn scratch_ledger(tag: &str) -> PathBuf {
@@ -40,8 +114,8 @@ fn scratch_ledger(tag: &str) -> PathBuf {
 }
 
 /// Python's verdict on the file: `verify_chain`, then every row's `code_that_ran`.
-fn python_verifies(path: &Path) -> Option<Value> {
-    let py = python()?;
+fn python_verifies(path: &Path) -> Value {
+    let py = python();
     let script = "import json, sys\n\
 from qd_train.ledger import Ledger\n\
 led = Ledger(sys.argv[1])\n\
@@ -50,20 +124,14 @@ rows = led.rows()\n\
 out = [{'run_kind': r.run_kind, 'status': r.status, 'quick': r.quick,\n\
         'code_that_ran': bool(json.loads(json.dumps(r.metrics['code_that_ran'].to_json())).get('value'))} for r in rows]\n\
 print(json.dumps(out))\n";
-    let out = Command::new(&py)
-        .arg("-c")
-        .arg(script)
-        .arg(path)
-        .env("PYTHONPATH", repo().join("python"))
-        .output()
-        .unwrap_or_else(|e| panic!("could not run {}: {e}", py.display()));
+    let out = python_out(&py, script, path);
     assert!(
         out.status.success(),
         "Python refused the rows ({}):\n{}",
         out.status,
         String::from_utf8_lossy(&out.stderr)
     );
-    Some(serde_json::from_slice(&out.stdout).expect("python printed JSON"))
+    serde_json::from_slice(&out.stdout).expect("python printed JSON")
 }
 
 fn sample(total: f64, logits: &[f32]) -> Sample {
@@ -189,22 +257,15 @@ fn decision_and_parity_rows_are_rows_python_verifies() {
     ledger::write_row(&path, &p2).unwrap();
     ledger::write_row(&path, &p3).unwrap();
 
-    match python_verifies(&path) {
-        None => eprintln!(
-            "SKIPPED (reported, not passed): no project venv (QD_PYTHON or .venv/bin/python), so \
-             python/qd_train/ledger.py did not read these rows. This assertion did NOT pass; it did not run."
-        ),
-        Some(v) => {
-            let rows = v.as_array().unwrap();
-            assert_eq!(rows.len(), 4);
-            assert_eq!(rows[0]["run_kind"], "throughput");
-            assert_eq!(rows[1]["run_kind"], "smoke");
-            assert_eq!(rows[3]["status"], "failed");
-            for r in rows {
-                assert_eq!(r["quick"], true);
-                assert_eq!(r["code_that_ran"], true, "test_ledger_provenance requires it: {r}");
-            }
-        }
+    let v = python_verifies(&path);
+    let rows = v.as_array().expect("python printed a list of rows");
+    assert_eq!(rows.len(), 4);
+    assert_eq!(rows[0]["run_kind"], "throughput");
+    assert_eq!(rows[1]["run_kind"], "smoke");
+    assert_eq!(rows[3]["status"], "failed");
+    for r in rows {
+        assert_eq!(r["quick"], true);
+        assert_eq!(r["code_that_ran"], true, "test_ledger_provenance requires it: {r}");
     }
     std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap()).unwrap();
 }
@@ -213,10 +274,7 @@ fn decision_and_parity_rows_are_rows_python_verifies() {
 /// proves nothing.
 #[test]
 fn python_refuses_a_row_edited_after_it_was_written() {
-    let Some(py) = python() else {
-        eprintln!("SKIPPED (reported, not passed): no project venv; the negative control did not run.");
-        return;
-    };
+    let py = python();
     let prov = Provenance::of(None).unwrap();
     let path = scratch_ledger("tamper");
     ledger::write_row(&path, &decision_row(prov, false)).unwrap();
@@ -224,16 +282,23 @@ fn python_refuses_a_row_edited_after_it_was_written() {
     let edited = text.replacen("\"seed\":0", "\"seed\":1", 1);
     assert_ne!(edited, text, "the edit must change the row");
     std::fs::write(&path, edited).unwrap();
-    let out = Command::new(&py)
-        .arg("-c")
-        .arg("import sys\nfrom qd_train.ledger import Ledger\nLedger(sys.argv[1]).verify_chain()\n")
-        .arg(&path)
-        .env("PYTHONPATH", repo().join("python"))
-        .output()
-        .unwrap();
+    let out = python_out(
+        &py,
+        "import sys\nfrom qd_train.ledger import Ledger\nLedger(sys.argv[1]).verify_chain()\n",
+        &path,
+    );
     assert!(!out.status.success(), "Python accepted a row whose protocol no longer hashes to its protocol_hash");
     assert!(String::from_utf8_lossy(&out.stderr).contains("protocol_hash"), "{}", String::from_utf8_lossy(&out.stderr));
     std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap()).unwrap();
+}
+
+/// With no usable interpreter the Python half fails the suite; it never returns as a pass.
+#[test]
+#[should_panic(expected = "can import qd_train.ledger")]
+fn no_usable_python_fails_rather_than_skips() {
+    let missing = std::env::temp_dir().join(format!("qdm-no-python-{}", std::process::id()));
+    assert!(!missing.exists());
+    require_python_from(&[missing]);
 }
 
 #[test]
