@@ -1,0 +1,2309 @@
+== idle-queue waiter dry run, lane L-waiters, written 2026-10-02T03:03:51Z
+== podman 6.1.2, machine podman-machine-default; image docker.io/library/python:3.11-trixie
+   (b73116cf1823 arm64), --network none --pull never, one bind mount (the sim dir)
+== harness (throwaway, not committed): run_all.sh, overlay_test.sh, succ_smoke.sh, order_check.py, killer.py, fakes/
+   real in the container: bash, the scripts under test, the aarch64 binaries (runga bb3276e7, the 11 device tests,
+   qd-post-f-rules cadbdc74, qd-post-f-rules-succ be020297, qd-prep-m1 9ccaf5aa, a rung0 build 52e522ed), sha256sum,
+   timeout, tee, nice, util-linux flock, git (overlay_test only). Faked: python (slow, records argv), flock (0.3 s
+   then the real one), sleep (0.2 s polls), git (lane checks by dir), the successor word where a scenario says so.
+
+== results
+PASS chain_fires_j6f_kill: every marker .done within 180 s
+PASS chain_fires_j6f_kill: fsucc.word is fires:j6f
+PASS chain_fires_j6f_kill: F' trains without --lower-layers-n (J6(f)'s recipe)
+PASS chain_fires_j6f_kill: F' trained 3 seeds (seed 1 killed -9)
+PASS chain_fires_j6f_kill: seed 1 was killed -9 by the harness
+PASS chain_fires_j6f_kill: seed 1's needle control NOT RUN (no ft row)
+PASS chain_fires_j6f_kill: seeds 0 and 2 ran their needle control
+PASS chain_fires_j6f_kill: fsucc released the lock and touched fsuccgpu.done
+PASS chain_fires_j6f_kill: fsucc controls: seeds 0 and 2 run, seed 1 NOT RUN (no verdicts)
+PASS chain_fires_j6f_kill: j5pp SKIPPED: F' ft rows incomplete
+PASS chain_fires_j6f_kill: j6a DEFERRED on fires:j6f
+PASS chain_fires_j6f_kill: j6ctl ran J6(d)-v4 then J6(f)-v4, letter + option
+PASS chain_fires_j6f_kill: cudadev recorded runga + 11 device tests
+PASS chain_fires_j6f_kill: runga refused (exit 2: no libcuda in the container)
+PASS chain_fires_j6f_kill: every device test failed at runtime open (exit 101), recorded, chain went on
+PASS chain_fires_j6f_kill: rungd ran T-bf16 then T-fp32
+PASS chain_fires_j6f_kill: order
+PASS chain_fires_j6f: every marker .done within 180 s
+PASS chain_fires_j6f: F' trained 3 seeds of J6(f)'s recipe
+PASS chain_fires_j6f: j5pp ran 3 shuffled-label seeds on J6(f)'s recipe (no --lower-layers-n)
+PASS chain_fires_j6f: j6a DEFERRED on fires:j6f
+PASS chain_fires_j6f: order
+PASS chain_fires_j6dv4: every marker .done within 180 s
+PASS chain_fires_j6dv4: F' recipe has --lr 3e-5 --beta2 0.95 on all three seeds
+PASS chain_fires_j6dv4: fsucc controls ran for 3 seeds (letter + option)
+PASS chain_fires_j6dv4: j5pp ran 3 shuffled-label seeds
+PASS chain_fires_j6dv4: j5pp recipe equals F' (--beta2 0.95)
+PASS chain_fires_j6dv4: j5pp targets are eval-row's ids (real qd-post-f-rules eval-row)
+PASS chain_fires_j6dv4: j6a DEFERRED on fires:j6dv4
+PASS chain_fires_j6dv4: order
+PASS chain_quiet: every marker .done within 180 s
+PASS chain_quiet: fsucc quiet: no F'
+PASS chain_quiet: no F' training call
+PASS chain_quiet: j5pp SKIPPED on quiet
+PASS chain_quiet: j6a DEFERRED: UNSET pins (fail-closed)
+PASS chain_quiet: j6a made no call
+PASS chain_quiet: order
+PASS chain_refused_real: every marker .done within 180 s
+PASS chain_refused_real: the REAL be020297 binary refused (exit 3) on F's seed-0-only ledger
+PASS chain_refused_real: reasons logged from top-level refused (no detail: envelope did not resolve)
+PASS chain_refused_real: never read as quiet
+PASS chain_refused_real: j5pp SKIPPED on refused
+PASS chain_refused_real: j6a DEFERRED on refused
+PASS chain_refused_real: order
+PASS succ_inconsistent_refused_0_json: fsucc .done
+PASS succ_inconsistent_refused_0_json: stdout 'fsucc', exit 0, json -> refused
+PASS succ_inconsistent_refused_0_json: no F' call
+PASS succ_inconsistent_quiet_3_json: fsucc .done
+PASS succ_inconsistent_quiet_3_json: stdout 'fsucc', exit 3, json -> refused
+PASS succ_inconsistent_quiet_3_json: no F' call
+PASS succ_inconsistent_fires_0_json: fsucc .done
+PASS succ_inconsistent_fires_0_json: stdout 'fsucc', exit 0, json -> refused
+PASS succ_inconsistent_fires_0_json: no F' call
+PASS succ_inconsistent_quiet_2_json: fsucc .done
+PASS succ_inconsistent_quiet_2_json: stdout 'fsucc', exit 2, json -> refused
+PASS succ_inconsistent_quiet_2_json: no F' call
+PASS succ_inconsistent_quiet_0_nojson: fsucc .done
+PASS succ_inconsistent_quiet_0_nojson: stdout 'fsucc', exit 0, nojson -> refused
+PASS succ_inconsistent_quiet_0_nojson: no F' call
+PASS succ_inconsistent_refused_3_stringrb: fsucc .done
+PASS succ_inconsistent_refused_3_stringrb: refused_because as a string is logged, not parsed
+PASS succ_inconsistent_refused_3_stringrb: stdout 'fsucc', exit 3, stringrb -> refused
+PASS succ_inconsistent_refused_3_stringrb: no F' call
+PASS succ_inconsistent_fires-j6f_3_json: fsucc .done
+PASS succ_inconsistent_fires-j6f_3_json: stdout 'fsucc', exit 3, json -> refused
+PASS succ_inconsistent_fires-j6f_3_json: no F' call
+PASS succ_inconsistent_garbage_0_json: fsucc .done
+PASS succ_inconsistent_garbage_0_json: stdout 'fsucc', exit 0, json -> refused
+PASS succ_inconsistent_garbage_0_json: no F' call
+PASS succ_reasons_list: fsucc .done
+PASS succ_reasons_list: each (c)/(b) reason logged from the list
+PASS succ_reasons_list: cannot_clear logged
+PASS succ_missing_arm_id: fsucc .done
+PASS succ_missing_arm_id: refused without calling the checker
+PASS succ_missing_arm_id: the checker was not called
+PASS succ_missing_arm_id: word refused
+PASS succ_twice: fsucc .done
+PASS succ_twice: a second decision is refused
+PASS succ_twice: the first word is kept
+PASS succ_wrong_pin: fsucc .done
+PASS succ_wrong_pin: an unpinned successor binary refuses
+PASS succ_wrong_pin: word refused
+PASS j6a_run: j6a .done
+PASS j6a_run: J6(a) trained with the replay flags and --replay-partition
+PASS j6a_run: J6(a) trained on the rebuild's root (--out)
+PASS j6a_run: J6(a) needle control ran on the rebuild
+PASS j6a_run: the queue stops after j6a
+PASS j6a_unclean: j6a .done
+PASS j6a_unclean: an unclean attestation defers J6(a)
+PASS j6a_unclean: no J6(a) call
+PASS j6a_hits: j6a .done
+PASS j6a_hits: clean:true with hits defers J6(a)
+PASS j6a_pin_mismatch: j6a .done
+PASS j6a_pin_mismatch: a changed attestation defers J6(a)
+PASS j6a_kill_child: j6a .done after its training child is killed -9
+PASS j6a_kill_child: the killed run left no ft row: needle control NOT RUN, exit 4 path
+PASS j6a_kill_child: no needle control call
+PASS j6a_absent_word: j6a .done
+PASS j6a_absent_word: no fsucc word defers J6(a)
+PASS cudadev_pin_budget: cudadev .done
+PASS cudadev_pin_budget: k0 with a wrong sha256 refused alone
+PASS cudadev_pin_budget: k1 timed out at its own cap (8 s)
+PASS cudadev_pin_budget: k8 timed out
+PASS cudadev_pin_budget: the rest NOT RUN: budget
+PASS cudadev_pin_budget: cudadev exits non-zero and still touches .done
+PASS rungd_cap_kill: rungd .done
+PASS rungd_cap_kill: T-bf16 ended by the outer backstop (exit 124)
+PASS rungd_cap_kill: T-fp32 ran after T-bf16's cap
+PASS rungd_cap_kill: T-fp32 killed -9, logged (exit 137)
+PASS rungd_cap_kill: T-fp32 argv: no --train-attention-mask, no --checkpoint-skip-layers
+PASS rungd_cap_kill: T-bf16 argv carries --checkpoint-skip-layers 6 and --train-attention-mask none
+PASS rungd_dirty: rungd .done
+PASS rungd_dirty: a dirty overlay refuses
+PASS rungd_dirty: no arm ran
+PASS rungd_symlink: rungd .done
+PASS rungd_symlink: an overlay pool symlink that is not qd-lane8's refuses
+PASS rungd_symlink: no arm ran
+PASS rungd_rec_pin: rungd .done
+PASS rungd_rec_pin: a changed fetch record refuses
+PASS j6ctl_guard: j6ctl .done (first run)
+PASS j6ctl_guard: J6(f)-v4 without verdicts: NOT RUN
+PASS j6ctl_guard: J6(d)-v4 letter + option ran
+PASS j6ctl_guard: j6ctl .done (second run)
+PASS j6ctl_guard: a second letter control for J6(d)-v4 is refused
+PASS j6ctl_guard: no second J6(d)-v4 control call
+PASS mut_rungd_no_wait: ORDER BROKEN without rungd's wait
+PASS mut_fsucc_no_j6ctl_wait: the mutation changed both wait lines
+PASS mut_fsucc_no_j6ctl_wait: ORDER BROKEN without fsucc's j6ctl / F-controls wait
+PASS succ_fctl_line_never_comes: fsucc .done although F's controls line never came
+PASS succ_fctl_line_never_comes: refused after the bounded wait
+PASS succ_fctl_line_never_comes: word refused
+PASS succ_fctl_line_never_comes: the checker was not called
+PASS mut_j5pp_no_wait: ORDER BROKEN or j5pp skipped for want of the word
+PASS overlay_real_git: builder exit 0 at the bundle's commit
+PASS overlay_real_git: overlay clean, at the full sha, pool symlinks equal
+PASS overlay_real_git: pool symlink copied as a symlink
+PASS overlay_real_git: real git status --porcelain empty
+PASS overlay_real_git: real HEAD is B
+PASS overlay_real_git: qd-lane8 untouched (clean, still A)
+PASS overlay_real_git: a second build over the overlay refuses (exit 3)
+PASS overlay_real_git: a short sha refuses (exit 2)
+PASS overlay_real_git: a changed perf_mkoverlay.sh refuses
+== 142 PASS, 0 FAIL
+
+== be020297 smoke on aarch64 (container)
+container: aarch64, ldd (Debian GLIBC 2.41-12+deb13u4) 2.41
+be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62  /sim/bin-real/qd-post-f-rules-succ
+no args: exit 2 (stderr first line: The post-F queue's pre-registered decisions, read off ledger rows; refuses rather than defaults)
+fires
+seeds34 on J4's ledger: exit 0
+refused
+successor on F's seed-0 snapshot: exit 3
+  decision: refused | detail present: False | refused: (b) row 11111111-1111-4111-8111-111111111111 appears 0 time(s) in /sim/fixtures/f-ledger-seed0-snapshot-2026-10-02T0113Z.jsonl, not once; room not decided: F's 
+
+################ scenario chain_fires_j6dv4
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:04.076161142 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:04.077849730 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:02:04.084161166 +0000
++++ post-f/idle_common.sh	2026-10-02 03:02:04.086101130 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+-- order check
+ok    gpu calls rungd(1921) and rungd do not overlap
+ok    gpu calls rungd(1946) and fsucc do not overlap
+ok    gpu calls fsucc(2035) and fsucc do not overlap
+ok    gpu calls fsucc(2051) and fsucc do not overlap
+ok    gpu calls fsucc(2068) and fsucc do not overlap
+ok    gpu calls fsucc(2084) and fsucc do not overlap
+ok    gpu calls fsucc(2101) and fsucc do not overlap
+ok    gpu calls fsucc(2117) and j5pp do not overlap
+ok    gpu calls j5pp(2188) and j5pp do not overlap
+ok    gpu calls j5pp(2206) and j5pp do not overlap
+ok    cudadev starts after rung0.done
+ok    rungd's first call after cudadev.done
+ok    fsucc's first call after rungd.done
+ok    fsucc's first call after j6ctl.done
+ok    j6ctl's first call after j6f.done
+ok    j6ctl's first call after j6dv4.done
+ok    j5pp's first call after F''s last GPU call ended
+ok    fsucc-ctl's first call after F''s last GPU call ended
+ok    successor call after rungd.done
+ok    successor call after j6ctl.done
+ok    successor call after the F controls line
+ok    F' training after the successor call
+ok    rungd's last call ends before F' starts
+n/a   j6a's first call after j5pp.done (not exercised in this scenario)
+ORDER OK (23 held, 0 broken, 1 not exercised)
+-- fsucc.word: fires:j6dv4
+-- cudadev summary.tsv
+name	file	sha256_pinned	status	exit	seconds	timeout_s	log
+runga	/home/ubuntu/bin/ojas-qwen35-cuda-runga	bb3276e7a42ae3d0e20171ed78e0df537f2581d8f144d22b8b6c054a0814c805	fail	2	0	300	/home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/runga.log
+k0	/home/ubuntu/bin/ojas-cuda-device-k0	b10542091a32f9bf293d1cefd36d754221115f5ed88386c1b2e3f970fa9820a6	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k0.log
+k1	/home/ubuntu/bin/ojas-cuda-device-k1	9546b2df0da4334ab735673885b9812a9f02ca4021172b60fb4c1f6b9eaa93bd	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k1.log
+k8	/home/ubuntu/bin/ojas-cuda-device-k8	75f05d3a42c7964fc0143dc5149a02d37b2af04aaca3f7ea271cefcdb8074ff1	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k8.log
+k11	/home/ubuntu/bin/ojas-cuda-device-k11	bc65b3bca3c48f1814185fc74859e6c623cffceda5bf3f9736d9b8b82c72ad90	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k11.log
+k3_gates_published	/home/ubuntu/bin/ojas-cuda-device-k3-gates-published	fd4e1e2410b2b8ae11176aa0b3d3f75a469b48fb0c8a4387c7f17fe27819bfbb	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k3_gates_published.log
+k4_conv1d	/home/ubuntu/bin/ojas-cuda-device-k4-conv1d	eb12cb197f5d259a4b3bf79396f247f431c222461afbdb8191a763bf70e4b666	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k4_conv1d.log
+k6_qk_norm_rope	/home/ubuntu/bin/ojas-cuda-device-k6-qk-norm-rope	03a641f055494f8c68bb1f8eb320906fe892010e59fe3ac2375037f5498611fe	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k6_qk_norm_rope.log
+k7_rmsnorm	/home/ubuntu/bin/ojas-cuda-device-k7-rmsnorm	c56c71146f7af183c3af1a3252e51818705d1a61e24d0eef7cdfc3440bd095e2	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k7_rmsnorm.log
+k9_embed	/home/ubuntu/bin/ojas-cuda-device-k9-embed	363a21f68eefd664cf72bb8af6ce78be8a43b4fa99ff0ad4d9b0f4d1053f6d8b	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k9_embed.log
+k10_ce_rows	/home/ubuntu/bin/ojas-cuda-device-k10-ce-rows	54c8755464b913adb407c74c52ebfb6d421da0e39e844af34cba61950a5c707e	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k10_ce_rows.log
+gdn_published	/home/ubuntu/bin/ojas-cuda-device-gdn-published	97034105198442010a12661228442197a9d20a3eb7685480e239daebdb8f4f28	fail	101	1	600	/home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/gdn_published.log
+-- q-cudadev.log ('===' lines and the fsucc reason lines)
+=== cudadev start, out /home/ubuntu/ojas-cuda/cudadev-20261002T030205Z, total cap 1500s (deadline 03:27:05Z) (2026-10-02T03:02:05Z)
+=== runga (timeout 300s) -> /home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/runga/runga-report.json (2026-10-02T03:02:05Z)
+=== runga exit 2 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/runga.log: (2026-10-02T03:02:05Z)
+=== k0 (timeout 150s) (2026-10-02T03:02:05Z)
+=== k0 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k0.log: (2026-10-02T03:02:05Z)
+=== k1 (timeout 150s) (2026-10-02T03:02:05Z)
+=== k1 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k1.log: (2026-10-02T03:02:05Z)
+=== k8 (timeout 150s) (2026-10-02T03:02:05Z)
+=== k8 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k8.log: (2026-10-02T03:02:05Z)
+=== k11 (timeout 150s) (2026-10-02T03:02:05Z)
+=== k11 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k11.log: (2026-10-02T03:02:05Z)
+=== k3_gates_published (timeout 150s) (2026-10-02T03:02:05Z)
+=== k3_gates_published exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k3_gates_published.log: (2026-10-02T03:02:05Z)
+=== k4_conv1d (timeout 150s) (2026-10-02T03:02:05Z)
+=== k4_conv1d exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k4_conv1d.log: (2026-10-02T03:02:05Z)
+=== k6_qk_norm_rope (timeout 150s) (2026-10-02T03:02:05Z)
+=== k6_qk_norm_rope exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k6_qk_norm_rope.log: (2026-10-02T03:02:05Z)
+=== k7_rmsnorm (timeout 150s) (2026-10-02T03:02:05Z)
+=== k7_rmsnorm exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k7_rmsnorm.log: (2026-10-02T03:02:05Z)
+=== k9_embed (timeout 150s) (2026-10-02T03:02:05Z)
+=== k9_embed exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k9_embed.log: (2026-10-02T03:02:05Z)
+=== k10_ce_rows (timeout 150s) (2026-10-02T03:02:05Z)
+=== k10_ce_rows exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/k10_ce_rows.log: (2026-10-02T03:02:05Z)
+=== gdn_published (timeout 600s) (2026-10-02T03:02:05Z)
+=== gdn_published exit 101 (fail) in 1s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/gdn_published.log: (2026-10-02T03:02:06Z)
+=== cudadev done in 1s; summary /home/ubuntu/ojas-cuda/cudadev-20261002T030205Z/summary.tsv (runga exit: 0 pass, 1 a check failed, 2 refused, 3 binary cap; tests: 0 pass, 101 a test failed; 124 timeout; 137 killed, by timeout's --kill-after or from outside) (2026-10-02T03:02:06Z)
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:02:07)
+fsucc cannot_clear: []
+=== fsucc: successor word 'fires:j6dv4' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030207565552521.json; word in /home/ubuntu/queue/fsucc.word) (03:02:07)
+=== fsucc: F' on j6dv4 at a502670: --optimizer master --lr 3e-5 --beta2 0.95 --epoch --no-memorise --batch-tokens 35403 --lower-layers-n 8 --lower-layers-lr-scale 0.1 --checkpoint-skip-layers 6 -> /home/ubuntu/ledger/gh200-fsucc-j6dv4-2026-10-02.jsonl (03:02:08)
+=== F' seed 0 train+score done (exit 0) (03:02:08)
+=== F' seed 0 needle control done (exit 0) (03:02:09)
+=== F' seed 1 train+score done (exit 0) (03:02:09)
+=== F' seed 1 needle control done (exit 0) (03:02:10)
+=== F' seed 2 train+score done (exit 0) (03:02:10)
+=== F' seed 2 needle control done (exit 0) (03:02:11)
+=== fsucc: F' GPU part done; gpu.lock released; fsuccgpu.done touched (j5pp may start) (03:02:11)
+=== F' (j6dv4) seed 0 letter control at 3460afc -> /home/ubuntu/ledger/gh200-fsucc-j6dv4-2026-10-02.jsonl (03:02:11)
+=== F' (j6dv4) seed 0 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:02:11)
+=== F' (j6dv4) seed 0 option control done (exit 0) (03:02:12)
+=== F' (j6dv4) seed 1 letter control at 3460afc -> /home/ubuntu/ledger/gh200-fsucc-j6dv4-2026-10-02.jsonl (03:02:12)
+=== F' (j6dv4) seed 1 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:02:12)
+=== F' (j6dv4) seed 1 option control done (exit 0) (03:02:13)
+=== F' (j6dv4) seed 2 letter control at 3460afc -> /home/ubuntu/ledger/gh200-fsucc-j6dv4-2026-10-02.jsonl (03:02:13)
+=== F' (j6dv4) seed 2 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:02:13)
+=== F' (j6dv4) seed 2 option control done (exit 0) (03:02:14)
+=== fsucc all done (03:02:14)
+-- q-j5pp.log ('===' lines and the fsucc reason lines)
+=== j5pp (J5'' on F' j6dv4) at a502670: --optimizer master --lr 3e-5 --beta2 0.95 --epoch --no-memorise --batch-tokens 35403 --lower-layers-n 8 --lower-layers-lr-scale 0.1 --checkpoint-skip-layers 6 -> /home/ubuntu/ledger/gh200-fsucc-j6dv4-2026-10-02.jsonl (03:02:11)
+=== J5'' seed 0 -> eval row 0009aee3-d2a7-47d5-aa83-653a7ebf48e8 (ft row 90876997-e43e-446e-afd8-1ece6fcbf6e4) (03:02:11)
+=== J5'' seed 0 done (exit 0) (03:02:12)
+=== J5'' seed 1 -> eval row 68cc5164-63c6-4644-b673-423db0e62286 (ft row 9dcb4d26-1e97-420f-a834-a351063adec7) (03:02:12)
+=== J5'' seed 1 done (exit 0) (03:02:12)
+=== J5'' seed 2 -> eval row a5ad114b-37b6-434e-a13d-c6c08e678373 (ft row 19eccaed-22e9-4c83-918a-e6a13921d4d0) (03:02:12)
+=== J5'' seed 2 done (exit 0) (03:02:13)
+=== j5pp all done (03:02:13)
+-- q-j6a.log ('===' lines and the fsucc reason lines)
+=== j6a DEFERRED to the re-plan: fsucc's word is 'fires:j6dv4', not quiet (Fable Q2: j6a runs only if fsucc was quiet) (03:02:13)
+-- q-j6ctl.log ('===' lines and the fsucc reason lines)
+=== j6ctl at 3460afc: J6(d)-v4 first (successor reads it), then J6(f)-v4 (03:02:05)
+=== J6(d)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:02:05)
+=== J6(d)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:02:05)
+=== J6(d)-v4 option control done (exit 0) (03:02:06)
+=== J6(f)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:02:06)
+=== J6(f)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:02:06)
+=== J6(f)-v4 option control done (exit 0) (03:02:07)
+=== j6ctl all done (03:02:07)
+-- q-rung0.log ('===' lines and the fsucc reason lines)
+=== rung0 start, out /home/ubuntu/ojas-cuda/rung0-20261002T030205Z (2026-10-02T03:02:05Z)
+=== rung0 done (exit 2; 0 all passed, 1 a check failed, 2 refused, 3 binary cap, 124 outer timeout) (2026-10-02T03:02:05Z)
+-- q-rungd.log ('===' lines and the fsucc reason lines)
+=== rungd at 28000af661a062ae54f4a69b17e8638d83b5e7ba: T-bf16 (cap 3600s), then T-fp32 (cap 10800s) -> /home/ubuntu/ledger/gh200-rungd-torch-2026-10-02.jsonl (03:02:06)
+=== T-bf16 done (exit 0; 1 with the ft row written is the epoch arm's letter-loss claim, 124 the outer backstop); ft row: b7686f1e-9e43-492d-afd3-8c5460959b3f (03:02:06)
+=== T-fp32 done (exit 0); ft row: d53f51f0-cb26-4668-a77a-4132b712b470 (03:02:07)
+=== rungd all done (03:02:07)
+-- queue markers: cudadev.done cudadev.queued cudadev.started f.ckpt-skip fsucc-s0.letter.started fsucc-s1.letter.started fsucc-s2.letter.started fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done gpu.lock j5pp.done j5pp.queued j5pp.started j6a.done j6a.queued j6ctl-j6dv4.letter.started j6ctl-j6f.letter.started j6ctl.done j6ctl.queued j6ctl.started j6dv4.done j6f.done rung0.done rung0.queued rung0.started rungd.done rungd.queued rungd.started 
+
+################ scenario chain_fires_j6f
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:01:53.422129324 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:01:53.424361539 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:01:53.432129354 +0000
++++ post-f/idle_common.sh	2026-10-02 03:01:53.433794817 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+-- order check
+ok    gpu calls rungd(1148) and rungd do not overlap
+ok    gpu calls rungd(1173) and fsucc do not overlap
+ok    gpu calls fsucc(1262) and fsucc do not overlap
+ok    gpu calls fsucc(1280) and fsucc do not overlap
+ok    gpu calls fsucc(1295) and fsucc do not overlap
+ok    gpu calls fsucc(1313) and fsucc do not overlap
+ok    gpu calls fsucc(1328) and fsucc do not overlap
+ok    gpu calls fsucc(1348) and j5pp do not overlap
+ok    gpu calls j5pp(1415) and j5pp do not overlap
+ok    gpu calls j5pp(1433) and j5pp do not overlap
+ok    cudadev starts after rung0.done
+ok    rungd's first call after cudadev.done
+ok    fsucc's first call after rungd.done
+ok    fsucc's first call after j6ctl.done
+ok    j6ctl's first call after j6f.done
+ok    j6ctl's first call after j6dv4.done
+ok    j5pp's first call after F''s last GPU call ended
+ok    fsucc-ctl's first call after F''s last GPU call ended
+ok    successor call after rungd.done
+ok    successor call after j6ctl.done
+ok    successor call after the F controls line
+ok    F' training after the successor call
+ok    rungd's last call ends before F' starts
+n/a   j6a's first call after j5pp.done (not exercised in this scenario)
+ORDER OK (23 held, 0 broken, 1 not exercised)
+-- fsucc.word: fires:j6f
+-- cudadev summary.tsv
+name	file	sha256_pinned	status	exit	seconds	timeout_s	log
+runga	/home/ubuntu/bin/ojas-qwen35-cuda-runga	bb3276e7a42ae3d0e20171ed78e0df537f2581d8f144d22b8b6c054a0814c805	fail	2	0	300	/home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/runga.log
+k0	/home/ubuntu/bin/ojas-cuda-device-k0	b10542091a32f9bf293d1cefd36d754221115f5ed88386c1b2e3f970fa9820a6	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k0.log
+k1	/home/ubuntu/bin/ojas-cuda-device-k1	9546b2df0da4334ab735673885b9812a9f02ca4021172b60fb4c1f6b9eaa93bd	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k1.log
+k8	/home/ubuntu/bin/ojas-cuda-device-k8	75f05d3a42c7964fc0143dc5149a02d37b2af04aaca3f7ea271cefcdb8074ff1	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k8.log
+k11	/home/ubuntu/bin/ojas-cuda-device-k11	bc65b3bca3c48f1814185fc74859e6c623cffceda5bf3f9736d9b8b82c72ad90	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k11.log
+k3_gates_published	/home/ubuntu/bin/ojas-cuda-device-k3-gates-published	fd4e1e2410b2b8ae11176aa0b3d3f75a469b48fb0c8a4387c7f17fe27819bfbb	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k3_gates_published.log
+k4_conv1d	/home/ubuntu/bin/ojas-cuda-device-k4-conv1d	eb12cb197f5d259a4b3bf79396f247f431c222461afbdb8191a763bf70e4b666	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k4_conv1d.log
+k6_qk_norm_rope	/home/ubuntu/bin/ojas-cuda-device-k6-qk-norm-rope	03a641f055494f8c68bb1f8eb320906fe892010e59fe3ac2375037f5498611fe	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k6_qk_norm_rope.log
+k7_rmsnorm	/home/ubuntu/bin/ojas-cuda-device-k7-rmsnorm	c56c71146f7af183c3af1a3252e51818705d1a61e24d0eef7cdfc3440bd095e2	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k7_rmsnorm.log
+k9_embed	/home/ubuntu/bin/ojas-cuda-device-k9-embed	363a21f68eefd664cf72bb8af6ce78be8a43b4fa99ff0ad4d9b0f4d1053f6d8b	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k9_embed.log
+k10_ce_rows	/home/ubuntu/bin/ojas-cuda-device-k10-ce-rows	54c8755464b913adb407c74c52ebfb6d421da0e39e844af34cba61950a5c707e	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k10_ce_rows.log
+gdn_published	/home/ubuntu/bin/ojas-cuda-device-gdn-published	97034105198442010a12661228442197a9d20a3eb7685480e239daebdb8f4f28	fail	101	0	600	/home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/gdn_published.log
+-- q-cudadev.log ('===' lines and the fsucc reason lines)
+=== cudadev start, out /home/ubuntu/ojas-cuda/cudadev-20261002T030155Z, total cap 1500s (deadline 03:26:55Z) (2026-10-02T03:01:55Z)
+=== runga (timeout 300s) -> /home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/runga/runga-report.json (2026-10-02T03:01:55Z)
+=== runga exit 2 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/runga.log: (2026-10-02T03:01:55Z)
+=== k0 (timeout 150s) (2026-10-02T03:01:55Z)
+=== k0 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k0.log: (2026-10-02T03:01:55Z)
+=== k1 (timeout 150s) (2026-10-02T03:01:55Z)
+=== k1 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k1.log: (2026-10-02T03:01:55Z)
+=== k8 (timeout 150s) (2026-10-02T03:01:55Z)
+=== k8 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k8.log: (2026-10-02T03:01:55Z)
+=== k11 (timeout 150s) (2026-10-02T03:01:55Z)
+=== k11 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k11.log: (2026-10-02T03:01:55Z)
+=== k3_gates_published (timeout 150s) (2026-10-02T03:01:55Z)
+=== k3_gates_published exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k3_gates_published.log: (2026-10-02T03:01:55Z)
+=== k4_conv1d (timeout 150s) (2026-10-02T03:01:55Z)
+=== k4_conv1d exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k4_conv1d.log: (2026-10-02T03:01:55Z)
+=== k6_qk_norm_rope (timeout 150s) (2026-10-02T03:01:55Z)
+=== k6_qk_norm_rope exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k6_qk_norm_rope.log: (2026-10-02T03:01:55Z)
+=== k7_rmsnorm (timeout 150s) (2026-10-02T03:01:55Z)
+=== k7_rmsnorm exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k7_rmsnorm.log: (2026-10-02T03:01:55Z)
+=== k9_embed (timeout 150s) (2026-10-02T03:01:55Z)
+=== k9_embed exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k9_embed.log: (2026-10-02T03:01:55Z)
+=== k10_ce_rows (timeout 150s) (2026-10-02T03:01:55Z)
+=== k10_ce_rows exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/k10_ce_rows.log: (2026-10-02T03:01:55Z)
+=== gdn_published (timeout 600s) (2026-10-02T03:01:55Z)
+=== gdn_published exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/gdn_published.log: (2026-10-02T03:01:55Z)
+=== cudadev done in 0s; summary /home/ubuntu/ojas-cuda/cudadev-20261002T030155Z/summary.tsv (runga exit: 0 pass, 1 a check failed, 2 refused, 3 binary cap; tests: 0 pass, 101 a test failed; 124 timeout; 137 killed, by timeout's --kill-after or from outside) (2026-10-02T03:01:55Z)
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:01:56)
+fsucc cannot_clear: []
+=== fsucc: successor word 'fires:j6f' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030156939734496.json; word in /home/ubuntu/queue/fsucc.word) (03:01:57)
+=== fsucc: F' on j6f at a502670: --optimizer master --lr 1e-5 --epoch --no-memorise --batch-tokens 35403 --checkpoint-skip-layers 6 -> /home/ubuntu/ledger/gh200-fsucc-j6f-2026-10-02.jsonl (03:01:57)
+=== F' seed 0 train+score done (exit 0) (03:01:58)
+=== F' seed 0 needle control done (exit 0) (03:01:58)
+=== F' seed 1 train+score done (exit 0) (03:01:59)
+=== F' seed 1 needle control done (exit 0) (03:01:59)
+=== F' seed 2 train+score done (exit 0) (03:02:00)
+=== F' seed 2 needle control done (exit 0) (03:02:00)
+=== fsucc: F' GPU part done; gpu.lock released; fsuccgpu.done touched (j5pp may start) (03:02:00)
+=== F' (j6f) seed 0 letter control at 3460afc -> /home/ubuntu/ledger/gh200-fsucc-j6f-2026-10-02.jsonl (03:02:00)
+=== F' (j6f) seed 0 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:02:01)
+=== F' (j6f) seed 0 option control done (exit 0) (03:02:01)
+=== F' (j6f) seed 1 letter control at 3460afc -> /home/ubuntu/ledger/gh200-fsucc-j6f-2026-10-02.jsonl (03:02:01)
+=== F' (j6f) seed 1 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:02:02)
+=== F' (j6f) seed 1 option control done (exit 0) (03:02:02)
+=== F' (j6f) seed 2 letter control at 3460afc -> /home/ubuntu/ledger/gh200-fsucc-j6f-2026-10-02.jsonl (03:02:02)
+=== F' (j6f) seed 2 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:02:03)
+=== F' (j6f) seed 2 option control done (exit 0) (03:02:03)
+=== fsucc all done (03:02:03)
+-- q-j5pp.log ('===' lines and the fsucc reason lines)
+=== j5pp (J5'' on F' j6f) at a502670: --optimizer master --lr 1e-5 --epoch --no-memorise --batch-tokens 35403 --checkpoint-skip-layers 6 -> /home/ubuntu/ledger/gh200-fsucc-j6f-2026-10-02.jsonl (03:02:01)
+=== J5'' seed 0 -> eval row df33c7b4-27c9-4144-a037-3909ebd3fc24 (ft row 20a55d8c-1c01-47d8-9a3e-693ba877d9be) (03:02:01)
+=== J5'' seed 0 done (exit 0) (03:02:01)
+=== J5'' seed 1 -> eval row fe95a86d-3ee5-407c-8aa7-bfd73f770c79 (ft row 3b2667ad-f6d4-46c2-9c62-20ab56551d91) (03:02:01)
+=== J5'' seed 1 done (exit 0) (03:02:02)
+=== J5'' seed 2 -> eval row ceafddfa-66bd-4dc8-98ce-2fdff058b51f (ft row f739b07e-277d-4850-b18b-18e0625f17d5) (03:02:02)
+=== J5'' seed 2 done (exit 0) (03:02:02)
+=== j5pp all done (03:02:02)
+-- q-j6a.log ('===' lines and the fsucc reason lines)
+=== j6a DEFERRED to the re-plan: fsucc's word is 'fires:j6f', not quiet (Fable Q2: j6a runs only if fsucc was quiet) (03:02:02)
+-- q-j6ctl.log ('===' lines and the fsucc reason lines)
+=== j6ctl at 3460afc: J6(d)-v4 first (successor reads it), then J6(f)-v4 (03:01:54)
+=== J6(d)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:01:54)
+=== J6(d)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:01:54)
+=== J6(d)-v4 option control done (exit 0) (03:01:55)
+=== J6(f)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:01:55)
+=== J6(f)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:01:56)
+=== J6(f)-v4 option control done (exit 0) (03:01:56)
+=== j6ctl all done (03:01:56)
+-- q-rung0.log ('===' lines and the fsucc reason lines)
+=== rung0 start, out /home/ubuntu/ojas-cuda/rung0-20261002T030154Z (2026-10-02T03:01:54Z)
+=== rung0 done (exit 2; 0 all passed, 1 a check failed, 2 refused, 3 binary cap, 124 outer timeout) (2026-10-02T03:01:54Z)
+-- q-rungd.log ('===' lines and the fsucc reason lines)
+=== rungd at 28000af661a062ae54f4a69b17e8638d83b5e7ba: T-bf16 (cap 3600s), then T-fp32 (cap 10800s) -> /home/ubuntu/ledger/gh200-rungd-torch-2026-10-02.jsonl (03:01:55)
+=== T-bf16 done (exit 0; 1 with the ft row written is the epoch arm's letter-loss claim, 124 the outer backstop); ft row: 28df3801-c97c-4952-b269-029375659c4c (03:01:56)
+=== T-fp32 done (exit 0); ft row: a2a582f2-7f7c-4ad4-ac85-e696f546d844 (03:01:56)
+=== rungd all done (03:01:56)
+-- queue markers: cudadev.done cudadev.queued cudadev.started f.ckpt-skip fsucc-s0.letter.started fsucc-s1.letter.started fsucc-s2.letter.started fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done gpu.lock j5pp.done j5pp.queued j5pp.started j6a.done j6a.queued j6ctl-j6dv4.letter.started j6ctl-j6f.letter.started j6ctl.done j6ctl.queued j6ctl.started j6dv4.done j6f.done rung0.done rung0.queued rung0.started rungd.done rungd.queued rungd.started 
+
+################ scenario chain_fires_j6f_kill
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:01:44.399102378 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:01:44.400885133 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:01:44.408102405 +0000
++++ post-f/idle_common.sh	2026-10-02 03:01:44.409102408 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+-- order check
+ok    gpu calls rungd(395) and rungd do not overlap
+ok    gpu calls rungd(420) and fsucc do not overlap
+ok    gpu calls fsucc(509) and fsucc do not overlap
+ok    gpu calls fsucc(527) and fsucc do not overlap
+ok    gpu calls fsucc(542) and fsucc do not overlap
+ok    gpu calls fsucc(556) and fsucc do not overlap
+ok    cudadev starts after rung0.done
+ok    rungd's first call after cudadev.done
+ok    fsucc's first call after rungd.done
+ok    fsucc's first call after j6ctl.done
+ok    j6ctl's first call after j6f.done
+ok    j6ctl's first call after j6dv4.done
+ok    fsucc-ctl's first call after F''s last GPU call ended
+ok    successor call after rungd.done
+ok    successor call after j6ctl.done
+ok    successor call after the F controls line
+ok    F' training after the successor call
+ok    rungd's last call ends before F' starts
+n/a   j6a's first call after j5pp.done (not exercised in this scenario)
+n/a   j5pp's first call after F''s last GPU call ended (not exercised in this scenario)
+ORDER OK (18 held, 0 broken, 2 not exercised)
+-- killer
+killed -9 pid 542: tools/real_ft_run.py --out /home/ubuntu/phase4-v4-2026-10-01 --no-repo-history --rev 881ab304f15ea13529002391dda8520c2ea47af4 --defect-class data/pool/commitpackft-composed-v1 --defect-download data/p
+-- fsucc.word: fires:j6f
+-- cudadev summary.tsv
+name	file	sha256_pinned	status	exit	seconds	timeout_s	log
+runga	/home/ubuntu/bin/ojas-qwen35-cuda-runga	bb3276e7a42ae3d0e20171ed78e0df537f2581d8f144d22b8b6c054a0814c805	fail	2	0	300	/home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/runga.log
+k0	/home/ubuntu/bin/ojas-cuda-device-k0	b10542091a32f9bf293d1cefd36d754221115f5ed88386c1b2e3f970fa9820a6	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k0.log
+k1	/home/ubuntu/bin/ojas-cuda-device-k1	9546b2df0da4334ab735673885b9812a9f02ca4021172b60fb4c1f6b9eaa93bd	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k1.log
+k8	/home/ubuntu/bin/ojas-cuda-device-k8	75f05d3a42c7964fc0143dc5149a02d37b2af04aaca3f7ea271cefcdb8074ff1	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k8.log
+k11	/home/ubuntu/bin/ojas-cuda-device-k11	bc65b3bca3c48f1814185fc74859e6c623cffceda5bf3f9736d9b8b82c72ad90	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k11.log
+k3_gates_published	/home/ubuntu/bin/ojas-cuda-device-k3-gates-published	fd4e1e2410b2b8ae11176aa0b3d3f75a469b48fb0c8a4387c7f17fe27819bfbb	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k3_gates_published.log
+k4_conv1d	/home/ubuntu/bin/ojas-cuda-device-k4-conv1d	eb12cb197f5d259a4b3bf79396f247f431c222461afbdb8191a763bf70e4b666	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k4_conv1d.log
+k6_qk_norm_rope	/home/ubuntu/bin/ojas-cuda-device-k6-qk-norm-rope	03a641f055494f8c68bb1f8eb320906fe892010e59fe3ac2375037f5498611fe	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k6_qk_norm_rope.log
+k7_rmsnorm	/home/ubuntu/bin/ojas-cuda-device-k7-rmsnorm	c56c71146f7af183c3af1a3252e51818705d1a61e24d0eef7cdfc3440bd095e2	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k7_rmsnorm.log
+k9_embed	/home/ubuntu/bin/ojas-cuda-device-k9-embed	363a21f68eefd664cf72bb8af6ce78be8a43b4fa99ff0ad4d9b0f4d1053f6d8b	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k9_embed.log
+k10_ce_rows	/home/ubuntu/bin/ojas-cuda-device-k10-ce-rows	54c8755464b913adb407c74c52ebfb6d421da0e39e844af34cba61950a5c707e	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k10_ce_rows.log
+gdn_published	/home/ubuntu/bin/ojas-cuda-device-gdn-published	97034105198442010a12661228442197a9d20a3eb7685480e239daebdb8f4f28	fail	101	0	600	/home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/gdn_published.log
+-- q-cudadev.log ('===' lines and the fsucc reason lines)
+=== cudadev start, out /home/ubuntu/ojas-cuda/cudadev-20261002T030146Z, total cap 1500s (deadline 03:26:46Z) (2026-10-02T03:01:46Z)
+=== runga (timeout 300s) -> /home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/runga/runga-report.json (2026-10-02T03:01:46Z)
+=== runga exit 2 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/runga.log: (2026-10-02T03:01:46Z)
+=== k0 (timeout 150s) (2026-10-02T03:01:46Z)
+=== k0 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k0.log: (2026-10-02T03:01:46Z)
+=== k1 (timeout 150s) (2026-10-02T03:01:46Z)
+=== k1 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k1.log: (2026-10-02T03:01:46Z)
+=== k8 (timeout 150s) (2026-10-02T03:01:46Z)
+=== k8 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k8.log: (2026-10-02T03:01:46Z)
+=== k11 (timeout 150s) (2026-10-02T03:01:46Z)
+=== k11 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k11.log: (2026-10-02T03:01:46Z)
+=== k3_gates_published (timeout 150s) (2026-10-02T03:01:46Z)
+=== k3_gates_published exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k3_gates_published.log: (2026-10-02T03:01:46Z)
+=== k4_conv1d (timeout 150s) (2026-10-02T03:01:46Z)
+=== k4_conv1d exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k4_conv1d.log: (2026-10-02T03:01:46Z)
+=== k6_qk_norm_rope (timeout 150s) (2026-10-02T03:01:46Z)
+=== k6_qk_norm_rope exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k6_qk_norm_rope.log: (2026-10-02T03:01:46Z)
+=== k7_rmsnorm (timeout 150s) (2026-10-02T03:01:46Z)
+=== k7_rmsnorm exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k7_rmsnorm.log: (2026-10-02T03:01:46Z)
+=== k9_embed (timeout 150s) (2026-10-02T03:01:46Z)
+=== k9_embed exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k9_embed.log: (2026-10-02T03:01:46Z)
+=== k10_ce_rows (timeout 150s) (2026-10-02T03:01:46Z)
+=== k10_ce_rows exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/k10_ce_rows.log: (2026-10-02T03:01:46Z)
+=== gdn_published (timeout 600s) (2026-10-02T03:01:46Z)
+=== gdn_published exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/gdn_published.log: (2026-10-02T03:01:46Z)
+=== cudadev done in 0s; summary /home/ubuntu/ojas-cuda/cudadev-20261002T030146Z/summary.tsv (runga exit: 0 pass, 1 a check failed, 2 refused, 3 binary cap; tests: 0 pass, 101 a test failed; 124 timeout; 137 killed, by timeout's --kill-after or from outside) (2026-10-02T03:01:46Z)
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:01:47)
+fsucc cannot_clear: []
+=== fsucc: successor word 'fires:j6f' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030147932304929.json; word in /home/ubuntu/queue/fsucc.word) (03:01:48)
+=== fsucc: F' on j6f at a502670: --optimizer master --lr 1e-5 --epoch --no-memorise --batch-tokens 35403 --checkpoint-skip-layers 6 -> /home/ubuntu/ledger/gh200-fsucc-j6f-2026-10-02.jsonl (03:01:48)
+=== F' seed 0 train+score done (exit 0) (03:01:49)
+=== F' seed 0 needle control done (exit 0) (03:01:49)
+=== F' seed 1 train+score done (exit 137) (03:01:49)
+=== F' seed 1: no ft row or checkpoint from this run; its needle control NOT RUN (03:01:49)
+=== F' seed 2 train+score done (exit 0) (03:01:50)
+=== F' seed 2 needle control done (exit 0) (03:01:50)
+=== fsucc: F' GPU part done; gpu.lock released; fsuccgpu.done touched (j5pp may start) (03:01:50)
+=== F' (j6f) seed 0 letter control at 3460afc -> /home/ubuntu/ledger/gh200-fsucc-j6f-2026-10-02.jsonl (03:01:51)
+=== F' (j6f) seed 0 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:01:51)
+=== F' (j6f) seed 0 option control done (exit 0) (03:01:52)
+=== F' (j6f) seed 1: no verdicts at /home/ubuntu/fsucc-j6f/verdicts-s1.jsonl; controls NOT RUN (03:01:52)
+=== F' (j6f) seed 2 letter control at 3460afc -> /home/ubuntu/ledger/gh200-fsucc-j6f-2026-10-02.jsonl (03:01:52)
+=== F' (j6f) seed 2 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:01:52)
+=== F' (j6f) seed 2 option control done (exit 0) (03:01:53)
+=== fsucc all done (03:01:53)
+-- q-j5pp.log ('===' lines and the fsucc reason lines)
+=== j5pp SKIPPED: fsucc fired (fires:j6f) but F''s ft rows 'a02adada-92fe-46e6-a95c-46c6bcfbc1cb  1f3b7dc2-3ed6-4648-a26c-43cd8886cab2' in /home/ubuntu/ledger/gh200-fsucc-j6f-2026-10-02.jsonl are not three completed F' ft rows (the binary's reason is above) (03:01:51)
+-- q-j6a.log ('===' lines and the fsucc reason lines)
+=== j6a DEFERRED to the re-plan: fsucc's word is 'fires:j6f', not quiet (Fable Q2: j6a runs only if fsucc was quiet) (03:01:51)
+-- q-j6ctl.log ('===' lines and the fsucc reason lines)
+=== j6ctl at 3460afc: J6(d)-v4 first (successor reads it), then J6(f)-v4 (03:01:45)
+=== J6(d)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:01:45)
+=== J6(d)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:01:45)
+=== J6(d)-v4 option control done (exit 0) (03:01:46)
+=== J6(f)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:01:46)
+=== J6(f)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:01:47)
+=== J6(f)-v4 option control done (exit 0) (03:01:47)
+=== j6ctl all done (03:01:47)
+-- q-rung0.log ('===' lines and the fsucc reason lines)
+=== rung0 start, out /home/ubuntu/ojas-cuda/rung0-20261002T030145Z (2026-10-02T03:01:45Z)
+=== rung0 done (exit 2; 0 all passed, 1 a check failed, 2 refused, 3 binary cap, 124 outer timeout) (2026-10-02T03:01:45Z)
+-- q-rungd.log ('===' lines and the fsucc reason lines)
+=== rungd at 28000af661a062ae54f4a69b17e8638d83b5e7ba: T-bf16 (cap 3600s), then T-fp32 (cap 10800s) -> /home/ubuntu/ledger/gh200-rungd-torch-2026-10-02.jsonl (03:01:46)
+=== T-bf16 done (exit 0; 1 with the ft row written is the epoch arm's letter-loss claim, 124 the outer backstop); ft row: 561982f6-c30b-46d5-9605-772876a7adf8 (03:01:47)
+=== T-fp32 done (exit 0); ft row: 0e47b0bd-867b-4e59-93cb-29cfadb6a70e (03:01:47)
+=== rungd all done (03:01:47)
+-- queue markers: cudadev.done cudadev.queued cudadev.started f.ckpt-skip fsucc-s0.letter.started fsucc-s2.letter.started fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done gpu.lock j5pp.done j5pp.queued j6a.done j6a.queued j6ctl-j6dv4.letter.started j6ctl-j6f.letter.started j6ctl.done j6ctl.queued j6ctl.started j6dv4.done j6f.done rung0.done rung0.queued rung0.started rungd.done rungd.queued rungd.started 
+
+################ scenario chain_quiet
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:14.710192899 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:14.711192902 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:02:14.718192923 +0000
++++ post-f/idle_common.sh	2026-10-02 03:02:14.719543927 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+-- order check
+ok    gpu calls rungd(2707) and rungd do not overlap
+ok    cudadev starts after rung0.done
+ok    rungd's first call after cudadev.done
+ok    j6ctl's first call after j6f.done
+ok    j6ctl's first call after j6dv4.done
+ok    successor call after rungd.done
+ok    successor call after j6ctl.done
+ok    successor call after the F controls line
+n/a   fsucc's first call after rungd.done (not exercised in this scenario)
+n/a   fsucc's first call after j6ctl.done (not exercised in this scenario)
+n/a   j6a's first call after j5pp.done (not exercised in this scenario)
+n/a   j5pp's first call after F''s last GPU call ended (not exercised in this scenario)
+n/a   fsucc-ctl's first call after F''s last GPU call ended (not exercised in this scenario)
+n/a   F' training after the successor call (not exercised in this scenario)
+n/a   rungd's last call ends before F' starts (not exercised in this scenario)
+ORDER OK (8 held, 0 broken, 7 not exercised)
+-- fsucc.word: quiet
+-- cudadev summary.tsv
+name	file	sha256_pinned	status	exit	seconds	timeout_s	log
+runga	/home/ubuntu/bin/ojas-qwen35-cuda-runga	bb3276e7a42ae3d0e20171ed78e0df537f2581d8f144d22b8b6c054a0814c805	fail	2	0	300	/home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/runga.log
+k0	/home/ubuntu/bin/ojas-cuda-device-k0	b10542091a32f9bf293d1cefd36d754221115f5ed88386c1b2e3f970fa9820a6	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k0.log
+k1	/home/ubuntu/bin/ojas-cuda-device-k1	9546b2df0da4334ab735673885b9812a9f02ca4021172b60fb4c1f6b9eaa93bd	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k1.log
+k8	/home/ubuntu/bin/ojas-cuda-device-k8	75f05d3a42c7964fc0143dc5149a02d37b2af04aaca3f7ea271cefcdb8074ff1	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k8.log
+k11	/home/ubuntu/bin/ojas-cuda-device-k11	bc65b3bca3c48f1814185fc74859e6c623cffceda5bf3f9736d9b8b82c72ad90	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k11.log
+k3_gates_published	/home/ubuntu/bin/ojas-cuda-device-k3-gates-published	fd4e1e2410b2b8ae11176aa0b3d3f75a469b48fb0c8a4387c7f17fe27819bfbb	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k3_gates_published.log
+k4_conv1d	/home/ubuntu/bin/ojas-cuda-device-k4-conv1d	eb12cb197f5d259a4b3bf79396f247f431c222461afbdb8191a763bf70e4b666	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k4_conv1d.log
+k6_qk_norm_rope	/home/ubuntu/bin/ojas-cuda-device-k6-qk-norm-rope	03a641f055494f8c68bb1f8eb320906fe892010e59fe3ac2375037f5498611fe	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k6_qk_norm_rope.log
+k7_rmsnorm	/home/ubuntu/bin/ojas-cuda-device-k7-rmsnorm	c56c71146f7af183c3af1a3252e51818705d1a61e24d0eef7cdfc3440bd095e2	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k7_rmsnorm.log
+k9_embed	/home/ubuntu/bin/ojas-cuda-device-k9-embed	363a21f68eefd664cf72bb8af6ce78be8a43b4fa99ff0ad4d9b0f4d1053f6d8b	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k9_embed.log
+k10_ce_rows	/home/ubuntu/bin/ojas-cuda-device-k10-ce-rows	54c8755464b913adb407c74c52ebfb6d421da0e39e844af34cba61950a5c707e	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k10_ce_rows.log
+gdn_published	/home/ubuntu/bin/ojas-cuda-device-gdn-published	97034105198442010a12661228442197a9d20a3eb7685480e239daebdb8f4f28	fail	101	0	600	/home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/gdn_published.log
+-- q-cudadev.log ('===' lines and the fsucc reason lines)
+=== cudadev start, out /home/ubuntu/ojas-cuda/cudadev-20261002T030216Z, total cap 1500s (deadline 03:27:16Z) (2026-10-02T03:02:16Z)
+=== runga (timeout 300s) -> /home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/runga/runga-report.json (2026-10-02T03:02:16Z)
+=== runga exit 2 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/runga.log: (2026-10-02T03:02:16Z)
+=== k0 (timeout 150s) (2026-10-02T03:02:16Z)
+=== k0 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k0.log: (2026-10-02T03:02:16Z)
+=== k1 (timeout 150s) (2026-10-02T03:02:16Z)
+=== k1 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k1.log: (2026-10-02T03:02:16Z)
+=== k8 (timeout 150s) (2026-10-02T03:02:16Z)
+=== k8 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k8.log: (2026-10-02T03:02:16Z)
+=== k11 (timeout 150s) (2026-10-02T03:02:16Z)
+=== k11 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k11.log: (2026-10-02T03:02:16Z)
+=== k3_gates_published (timeout 150s) (2026-10-02T03:02:16Z)
+=== k3_gates_published exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k3_gates_published.log: (2026-10-02T03:02:16Z)
+=== k4_conv1d (timeout 150s) (2026-10-02T03:02:16Z)
+=== k4_conv1d exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k4_conv1d.log: (2026-10-02T03:02:16Z)
+=== k6_qk_norm_rope (timeout 150s) (2026-10-02T03:02:16Z)
+=== k6_qk_norm_rope exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k6_qk_norm_rope.log: (2026-10-02T03:02:16Z)
+=== k7_rmsnorm (timeout 150s) (2026-10-02T03:02:16Z)
+=== k7_rmsnorm exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k7_rmsnorm.log: (2026-10-02T03:02:16Z)
+=== k9_embed (timeout 150s) (2026-10-02T03:02:16Z)
+=== k9_embed exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k9_embed.log: (2026-10-02T03:02:16Z)
+=== k10_ce_rows (timeout 150s) (2026-10-02T03:02:16Z)
+=== k10_ce_rows exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/k10_ce_rows.log: (2026-10-02T03:02:16Z)
+=== gdn_published (timeout 600s) (2026-10-02T03:02:16Z)
+=== gdn_published exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/gdn_published.log: (2026-10-02T03:02:16Z)
+=== cudadev done in 0s; summary /home/ubuntu/ojas-cuda/cudadev-20261002T030216Z/summary.tsv (runga exit: 0 pass, 1 a check failed, 2 refused, 3 binary cap; tests: 0 pass, 101 a test failed; 124 timeout; 137 killed, by timeout's --kill-after or from outside) (2026-10-02T03:02:16Z)
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:02:18)
+fsucc cannot_clear: []
+=== fsucc: successor word 'quiet' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030218225346314.json; word in /home/ubuntu/queue/fsucc.word) (03:02:18)
+=== fsucc: quiet: no F' (Fable Q2: re-plan from J7' avg / ens3 / avg-np) (03:02:18)
+-- q-j5pp.log ('===' lines and the fsucc reason lines)
+=== j5pp SKIPPED: fsucc's word is 'quiet', not fires:<arm>; follow_on_j5pp runs only on three completed F' ft rows (03:02:18)
+-- q-j6a.log ('===' lines and the fsucc reason lines)
+=== j6a DEFERRED to the re-plan: fsucc was quiet, but these pins are UNSET: REPLAY_SHARDS REPLAY_SHARDS_SHA256 REPLAY_ATTESTATION REPLAY_ATTESTATION_SHA256 REPLAY_WEIGHT (fail-closed until the lead fills them from the replay lane's HANDOFF); J6(a) NOT RUN (03:02:18)
+-- q-j6ctl.log ('===' lines and the fsucc reason lines)
+=== j6ctl at 3460afc: J6(d)-v4 first (successor reads it), then J6(f)-v4 (03:02:15)
+=== J6(d)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:02:15)
+=== J6(d)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:02:16)
+=== J6(d)-v4 option control done (exit 0) (03:02:16)
+=== J6(f)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:02:16)
+=== J6(f)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:02:17)
+=== J6(f)-v4 option control done (exit 0) (03:02:17)
+=== j6ctl all done (03:02:17)
+-- q-rung0.log ('===' lines and the fsucc reason lines)
+=== rung0 start, out /home/ubuntu/ojas-cuda/rung0-20261002T030216Z (2026-10-02T03:02:16Z)
+=== rung0 done (exit 2; 0 all passed, 1 a check failed, 2 refused, 3 binary cap, 124 outer timeout) (2026-10-02T03:02:16Z)
+-- q-rungd.log ('===' lines and the fsucc reason lines)
+=== rungd at 28000af661a062ae54f4a69b17e8638d83b5e7ba: T-bf16 (cap 3600s), then T-fp32 (cap 10800s) -> /home/ubuntu/ledger/gh200-rungd-torch-2026-10-02.jsonl (03:02:17)
+=== T-bf16 done (exit 0; 1 with the ft row written is the epoch arm's letter-loss claim, 124 the outer backstop); ft row: d66e334e-b266-44a5-936c-0958074751af (03:02:17)
+=== T-fp32 done (exit 0); ft row: a5f80d11-5ed8-43f9-a24f-096b706b4d15 (03:02:18)
+=== rungd all done (03:02:18)
+-- queue markers: cudadev.done cudadev.queued cudadev.started f.ckpt-skip fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done gpu.lock j5pp.done j5pp.queued j6a.done j6a.queued j6ctl-j6dv4.letter.started j6ctl-j6f.letter.started j6ctl.done j6ctl.queued j6ctl.started j6dv4.done j6f.done rung0.done rung0.queued rung0.started rungd.done rungd.queued rungd.started 
+
+################ scenario chain_refused_real
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:19.135206114 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:19.136578952 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+-- order check
+ok    gpu calls rungd(3241) and rungd do not overlap
+ok    cudadev starts after rung0.done
+ok    rungd's first call after cudadev.done
+ok    j6ctl's first call after j6f.done
+ok    j6ctl's first call after j6dv4.done
+n/a   fsucc's first call after rungd.done (not exercised in this scenario)
+n/a   fsucc's first call after j6ctl.done (not exercised in this scenario)
+n/a   j6a's first call after j5pp.done (not exercised in this scenario)
+n/a   j5pp's first call after F''s last GPU call ended (not exercised in this scenario)
+n/a   fsucc-ctl's first call after F''s last GPU call ended (not exercised in this scenario)
+n/a   rungd's last call ends before F' starts (not exercised in this scenario)
+ORDER OK (5 held, 0 broken, 6 not exercised)
+-- fsucc.word: refused
+-- cudadev summary.tsv
+name	file	sha256_pinned	status	exit	seconds	timeout_s	log
+runga	/home/ubuntu/bin/ojas-qwen35-cuda-runga	bb3276e7a42ae3d0e20171ed78e0df537f2581d8f144d22b8b6c054a0814c805	fail	2	0	300	/home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/runga.log
+k0	/home/ubuntu/bin/ojas-cuda-device-k0	b10542091a32f9bf293d1cefd36d754221115f5ed88386c1b2e3f970fa9820a6	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k0.log
+k1	/home/ubuntu/bin/ojas-cuda-device-k1	9546b2df0da4334ab735673885b9812a9f02ca4021172b60fb4c1f6b9eaa93bd	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k1.log
+k8	/home/ubuntu/bin/ojas-cuda-device-k8	75f05d3a42c7964fc0143dc5149a02d37b2af04aaca3f7ea271cefcdb8074ff1	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k8.log
+k11	/home/ubuntu/bin/ojas-cuda-device-k11	bc65b3bca3c48f1814185fc74859e6c623cffceda5bf3f9736d9b8b82c72ad90	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k11.log
+k3_gates_published	/home/ubuntu/bin/ojas-cuda-device-k3-gates-published	fd4e1e2410b2b8ae11176aa0b3d3f75a469b48fb0c8a4387c7f17fe27819bfbb	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k3_gates_published.log
+k4_conv1d	/home/ubuntu/bin/ojas-cuda-device-k4-conv1d	eb12cb197f5d259a4b3bf79396f247f431c222461afbdb8191a763bf70e4b666	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k4_conv1d.log
+k6_qk_norm_rope	/home/ubuntu/bin/ojas-cuda-device-k6-qk-norm-rope	03a641f055494f8c68bb1f8eb320906fe892010e59fe3ac2375037f5498611fe	fail	101	1	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k6_qk_norm_rope.log
+k7_rmsnorm	/home/ubuntu/bin/ojas-cuda-device-k7-rmsnorm	c56c71146f7af183c3af1a3252e51818705d1a61e24d0eef7cdfc3440bd095e2	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k7_rmsnorm.log
+k9_embed	/home/ubuntu/bin/ojas-cuda-device-k9-embed	363a21f68eefd664cf72bb8af6ce78be8a43b4fa99ff0ad4d9b0f4d1053f6d8b	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k9_embed.log
+k10_ce_rows	/home/ubuntu/bin/ojas-cuda-device-k10-ce-rows	54c8755464b913adb407c74c52ebfb6d421da0e39e844af34cba61950a5c707e	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k10_ce_rows.log
+gdn_published	/home/ubuntu/bin/ojas-cuda-device-gdn-published	97034105198442010a12661228442197a9d20a3eb7685480e239daebdb8f4f28	fail	101	0	600	/home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/gdn_published.log
+-- q-cudadev.log ('===' lines and the fsucc reason lines)
+=== cudadev start, out /home/ubuntu/ojas-cuda/cudadev-20261002T030220Z, total cap 1500s (deadline 03:27:20Z) (2026-10-02T03:02:20Z)
+=== runga (timeout 300s) -> /home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/runga/runga-report.json (2026-10-02T03:02:20Z)
+=== runga exit 2 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/runga.log: (2026-10-02T03:02:20Z)
+=== k0 (timeout 150s) (2026-10-02T03:02:20Z)
+=== k0 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k0.log: (2026-10-02T03:02:20Z)
+=== k1 (timeout 150s) (2026-10-02T03:02:20Z)
+=== k1 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k1.log: (2026-10-02T03:02:20Z)
+=== k8 (timeout 150s) (2026-10-02T03:02:20Z)
+=== k8 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k8.log: (2026-10-02T03:02:20Z)
+=== k11 (timeout 150s) (2026-10-02T03:02:20Z)
+=== k11 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k11.log: (2026-10-02T03:02:20Z)
+=== k3_gates_published (timeout 150s) (2026-10-02T03:02:20Z)
+=== k3_gates_published exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k3_gates_published.log: (2026-10-02T03:02:20Z)
+=== k4_conv1d (timeout 150s) (2026-10-02T03:02:20Z)
+=== k4_conv1d exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k4_conv1d.log: (2026-10-02T03:02:20Z)
+=== k6_qk_norm_rope (timeout 150s) (2026-10-02T03:02:21Z)
+=== k6_qk_norm_rope exit 101 (fail) in 1s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k6_qk_norm_rope.log: (2026-10-02T03:02:21Z)
+=== k7_rmsnorm (timeout 150s) (2026-10-02T03:02:21Z)
+=== k7_rmsnorm exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k7_rmsnorm.log: (2026-10-02T03:02:21Z)
+=== k9_embed (timeout 150s) (2026-10-02T03:02:21Z)
+=== k9_embed exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k9_embed.log: (2026-10-02T03:02:21Z)
+=== k10_ce_rows (timeout 150s) (2026-10-02T03:02:21Z)
+=== k10_ce_rows exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/k10_ce_rows.log: (2026-10-02T03:02:21Z)
+=== gdn_published (timeout 600s) (2026-10-02T03:02:21Z)
+=== gdn_published exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/gdn_published.log: (2026-10-02T03:02:21Z)
+=== cudadev done in 1s; summary /home/ubuntu/ojas-cuda/cudadev-20261002T030220Z/summary.tsv (runga exit: 0 pass, 1 a check failed, 2 refused, 3 binary cap; tests: 0 pass, 101 a test failed; 124 timeout; 137 killed, by timeout's --kill-after or from outside) (2026-10-02T03:02:21Z)
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:02:22)
+=== fsucc: successor word 'refused' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030222644649220.json; word in /home/ubuntu/queue/fsucc.word) (03:02:22)
+=== fsucc: REFUSED: no F'; the human decides (a refusal is never quiet) (03:02:22)
+-- q-j5pp.log ('===' lines and the fsucc reason lines)
+=== j5pp SKIPPED: fsucc's word is 'refused', not fires:<arm>; follow_on_j5pp runs only on three completed F' ft rows (03:02:22)
+-- q-j6a.log ('===' lines and the fsucc reason lines)
+=== j6a DEFERRED to the re-plan: fsucc's word is 'refused', not quiet (Fable Q2: j6a runs only if fsucc was quiet) (03:02:23)
+-- q-j6ctl.log ('===' lines and the fsucc reason lines)
+=== j6ctl at 3460afc: J6(d)-v4 first (successor reads it), then J6(f)-v4 (03:02:20)
+=== J6(d)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:02:20)
+=== J6(d)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:02:20)
+=== J6(d)-v4 option control done (exit 0) (03:02:21)
+=== J6(f)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:02:21)
+=== J6(f)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:02:21)
+=== J6(f)-v4 option control done (exit 0) (03:02:22)
+=== j6ctl all done (03:02:22)
+-- q-rung0.log ('===' lines and the fsucc reason lines)
+=== rung0 start, out /home/ubuntu/ojas-cuda/rung0-20261002T030220Z (2026-10-02T03:02:20Z)
+=== rung0 done (exit 2; 0 all passed, 1 a check failed, 2 refused, 3 binary cap, 124 outer timeout) (2026-10-02T03:02:20Z)
+-- q-rungd.log ('===' lines and the fsucc reason lines)
+=== rungd at 28000af661a062ae54f4a69b17e8638d83b5e7ba: T-bf16 (cap 3600s), then T-fp32 (cap 10800s) -> /home/ubuntu/ledger/gh200-rungd-torch-2026-10-02.jsonl (03:02:21)
+=== T-bf16 done (exit 0; 1 with the ft row written is the epoch arm's letter-loss claim, 124 the outer backstop); ft row: 898b74b2-e115-41a7-92d4-294f0c78e938 (03:02:22)
+=== T-fp32 done (exit 0); ft row: a1387cf1-f451-4839-8d64-fd3820868517 (03:02:22)
+=== rungd all done (03:02:22)
+-- queue markers: cudadev.done cudadev.queued cudadev.started f.ckpt-skip fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done gpu.lock j5pp.done j5pp.queued j6a.done j6a.queued j6ctl-j6dv4.letter.started j6ctl-j6f.letter.started j6ctl.done j6ctl.queued j6ctl.started j6dv4.done j6f.done rung0.done rung0.queued rung0.started rungd.done rungd.queued rungd.started 
+
+################ scenario cudadev_pin_budget
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:32.357245601 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:32.358895022 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- /sim/scripts/box_q_cudadev.sh	2026-10-02 03:01:44.162420933 +0000
++++ /home/ubuntu/post-f/box_q_cudadev.sh	2026-10-02 03:02:32.368280300 +0000
+@@ -40,8 +40,8 @@
+        ojas-cuda-device-k7-rmsnorm ojas-cuda-device-k9-embed ojas-cuda-device-k10-ce-rows ojas-cuda-device-gdn-published)
+ SHAS=(bb3276e7a42ae3d0e20171ed78e0df537f2581d8f144d22b8b6c054a0814c805
+       b10542091a32f9bf293d1cefd36d754221115f5ed88386c1b2e3f970fa9820a6
+-      9546b2df0da4334ab735673885b9812a9f02ca4021172b60fb4c1f6b9eaa93bd
+-      75f05d3a42c7964fc0143dc5149a02d37b2af04aaca3f7ea271cefcdb8074ff1
++      7184a4441c51d7e6f291619a47acd862186ace0905c921cfe76d4ba8f5f3ab42
++      7184a4441c51d7e6f291619a47acd862186ace0905c921cfe76d4ba8f5f3ab42
+       bc65b3bca3c48f1814185fc74859e6c623cffceda5bf3f9736d9b8b82c72ad90
+       fd4e1e2410b2b8ae11176aa0b3d3f75a469b48fb0c8a4387c7f17fe27819bfbb
+       eb12cb197f5d259a4b3bf79396f247f431c222461afbdb8191a763bf70e4b666
+--- post-f/box_q_cudadev.sh.orig	2026-10-02 03:02:32.371245642 +0000
++++ post-f/box_q_cudadev.sh	2026-10-02 03:02:32.372446563 +0000
+@@ -23,7 +23,7 @@
+ Q=queue
+ B=bin
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+-TOTAL_CAP_S=1500
++TOTAL_CAP_S=45
+ RUNGA_CAP_S=300
+ DEVICE_CAP_S=150
+ GDN_CAP_S=600
+--- post-f/box_q_cudadev.sh.orig	2026-10-02 03:02:32.375245654 +0000
++++ post-f/box_q_cudadev.sh	2026-10-02 03:02:32.376987076 +0000
+@@ -25,7 +25,7 @@
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ TOTAL_CAP_S=45
+ RUNGA_CAP_S=300
+-DEVICE_CAP_S=150
++DEVICE_CAP_S=8
+ GDN_CAP_S=600
+ MIN_LEFT_S=30
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+-- cudadev summary.tsv
+name	file	sha256_pinned	status	exit	seconds	timeout_s	log
+runga	/home/ubuntu/bin/ojas-qwen35-cuda-runga	bb3276e7a42ae3d0e20171ed78e0df537f2581d8f144d22b8b6c054a0814c805	fail	2	0	35	/home/ubuntu/ojas-cuda/cudadev-20261002T030232Z/runga.log
+k0	/home/ubuntu/bin/ojas-cuda-device-k0	b10542091a32f9bf293d1cefd36d754221115f5ed88386c1b2e3f970fa9820a6	refused_pin	-	0	0	-
+k1	/home/ubuntu/bin/ojas-cuda-device-k1	7184a4441c51d7e6f291619a47acd862186ace0905c921cfe76d4ba8f5f3ab42	timeout	124	8	8	/home/ubuntu/ojas-cuda/cudadev-20261002T030232Z/k1.log
+k8	/home/ubuntu/bin/ojas-cuda-device-k8	7184a4441c51d7e6f291619a47acd862186ace0905c921cfe76d4ba8f5f3ab42	timeout	124	8	8	/home/ubuntu/ojas-cuda/cudadev-20261002T030232Z/k8.log
+k11	/home/ubuntu/bin/ojas-cuda-device-k11	bc65b3bca3c48f1814185fc74859e6c623cffceda5bf3f9736d9b8b82c72ad90	not_run_budget	-	0	0	-
+k3_gates_published	/home/ubuntu/bin/ojas-cuda-device-k3-gates-published	fd4e1e2410b2b8ae11176aa0b3d3f75a469b48fb0c8a4387c7f17fe27819bfbb	not_run_budget	-	0	0	-
+k4_conv1d	/home/ubuntu/bin/ojas-cuda-device-k4-conv1d	eb12cb197f5d259a4b3bf79396f247f431c222461afbdb8191a763bf70e4b666	not_run_budget	-	0	0	-
+k6_qk_norm_rope	/home/ubuntu/bin/ojas-cuda-device-k6-qk-norm-rope	03a641f055494f8c68bb1f8eb320906fe892010e59fe3ac2375037f5498611fe	not_run_budget	-	0	0	-
+k7_rmsnorm	/home/ubuntu/bin/ojas-cuda-device-k7-rmsnorm	c56c71146f7af183c3af1a3252e51818705d1a61e24d0eef7cdfc3440bd095e2	not_run_budget	-	0	0	-
+k9_embed	/home/ubuntu/bin/ojas-cuda-device-k9-embed	363a21f68eefd664cf72bb8af6ce78be8a43b4fa99ff0ad4d9b0f4d1053f6d8b	not_run_budget	-	0	0	-
+k10_ce_rows	/home/ubuntu/bin/ojas-cuda-device-k10-ce-rows	54c8755464b913adb407c74c52ebfb6d421da0e39e844af34cba61950a5c707e	not_run_budget	-	0	0	-
+gdn_published	/home/ubuntu/bin/ojas-cuda-device-gdn-published	97034105198442010a12661228442197a9d20a3eb7685480e239daebdb8f4f28	not_run_budget	-	0	0	-
+-- q-cudadev.log ('===' lines and the fsucc reason lines)
+=== cudadev start, out /home/ubuntu/ojas-cuda/cudadev-20261002T030232Z, total cap 45s (deadline 03:03:17Z) (2026-10-02T03:02:32Z)
+=== runga (timeout 35s) -> /home/ubuntu/ojas-cuda/cudadev-20261002T030232Z/runga/runga-report.json (2026-10-02T03:02:32Z)
+=== runga exit 2 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030232Z/runga.log: (2026-10-02T03:02:32Z)
+=== k0 NOT RUN: /home/ubuntu/bin/ojas-cuda-device-k0 is sha256 56ed539ba0779e38305f777a70ff86647c9a7d13c251af9a349e7e9ba2eac921, not the pinned b10542091a32f9bf293d1cefd36d754221115f5ed88386c1b2e3f970fa9820a6 (2026-10-02T03:02:32Z)
+=== k1 (timeout 8s) (2026-10-02T03:02:32Z)
+=== k1 exit 124 (timeout) in 8s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030232Z/k1.log: (2026-10-02T03:02:40Z)
+=== k8 (timeout 8s) (2026-10-02T03:02:40Z)
+=== k8 exit 124 (timeout) in 8s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030232Z/k8.log: (2026-10-02T03:02:48Z)
+=== k11 NOT RUN: 29s of the 45s cap left (budget) (2026-10-02T03:02:48Z)
+=== k3_gates_published NOT RUN: 29s of the 45s cap left (budget) (2026-10-02T03:02:48Z)
+=== k4_conv1d NOT RUN: 29s of the 45s cap left (budget) (2026-10-02T03:02:48Z)
+=== k6_qk_norm_rope NOT RUN: 29s of the 45s cap left (budget) (2026-10-02T03:02:48Z)
+=== k7_rmsnorm NOT RUN: 29s of the 45s cap left (budget) (2026-10-02T03:02:48Z)
+=== k9_embed NOT RUN: 29s of the 45s cap left (budget) (2026-10-02T03:02:48Z)
+=== k10_ce_rows NOT RUN: 29s of the 45s cap left (budget) (2026-10-02T03:02:48Z)
+=== gdn_published NOT RUN: 29s of the 45s cap left (budget) (2026-10-02T03:02:48Z)
+=== cudadev done in 16s; summary /home/ubuntu/ojas-cuda/cudadev-20261002T030232Z/summary.tsv (runga exit: 0 pass, 1 a check failed, 2 refused, 3 binary cap; tests: 0 pass, 101 a test failed; 124 timeout; 137 killed, by timeout's --kill-after or from outside) (2026-10-02T03:02:48Z)
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+-- queue markers: cudadev.done cudadev.queued cudadev.started f.ckpt-skip gpu.lock rung0.done 
+
+################ scenario j6a_absent_word
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:32.045244669 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:32.046410964 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:32.050244684 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:32.051532354 +0000
+@@ -24,7 +24,7 @@
+ #                      at a502670), and no pre-registration, plan or HANDOFF names a value
+ #                      (GAP-IDLE-WAITERS-J6A-REPLAY-WEIGHT-HAS-NO-SOURCE-2026-10-02). So it is a
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+-REPLAY_SHARDS=UNSET
++REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=UNSET
+ REPLAY_ATTESTATION=UNSET
+ REPLAY_ATTESTATION_SHA256=UNSET
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:32.056244702 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:32.057744040 +0000
+@@ -25,7 +25,7 @@
+ #                      (GAP-IDLE-WAITERS-J6A-REPLAY-WEIGHT-HAS-NO-SOURCE-2026-10-02). So it is a
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+ REPLAY_SHARDS=replay-v4/shards/replay
+-REPLAY_SHARDS_SHA256=UNSET
++REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=UNSET
+ REPLAY_ATTESTATION_SHA256=UNSET
+ REPLAY_WEIGHT=UNSET
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:32.061244717 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:32.062398220 +0000
+@@ -26,7 +26,7 @@
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+ REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+-REPLAY_ATTESTATION=UNSET
++REPLAY_ATTESTATION=replay-v4/attestation.json
+ REPLAY_ATTESTATION_SHA256=UNSET
+ REPLAY_WEIGHT=UNSET
+ #
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:32.067244735 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:32.068592947 +0000
+@@ -27,7 +27,7 @@
+ REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=replay-v4/attestation.json
+-REPLAY_ATTESTATION_SHA256=UNSET
++REPLAY_ATTESTATION_SHA256=1ff0cb10fd5721108184a618183712aaa7a7c19313e2f1790ef0cec32c049200
+ REPLAY_WEIGHT=UNSET
+ #
+ # Recipe: F's (post_f_common.sh F_RECIPE, F's skip) on the rebuild with --replay-partition (the
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:32.071244747 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:32.073095377 +0000
+@@ -28,7 +28,7 @@
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=replay-v4/attestation.json
+ REPLAY_ATTESTATION_SHA256=1ff0cb10fd5721108184a618183712aaa7a7c19313e2f1790ef0cec32c049200
+-REPLAY_WEIGHT=UNSET
++REPLAY_WEIGHT=0.25
+ #
+ # Recipe: F's (post_f_common.sh F_RECIPE, F's skip) on the rebuild with --replay-partition (the
+ # rebuild's replay-only rows left gold training, real_ft_run.py corpus_facts), plus
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+-- q-j6a.log ('===' lines and the fsucc reason lines)
+=== j6a DEFERRED to the re-plan: fsucc's word is 'absent or not one of: fires:j6f fires:j6dv4 quiet refused', not quiet (Fable Q2: j6a runs only if fsucc was quiet) (03:02:32)
+-- queue markers: f.ckpt-skip j5pp.done j6a.done j6a.queued 
+
+################ scenario j6a_hits
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:30.652240509 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:30.655700144 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:30.658240527 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:30.661249036 +0000
+@@ -24,7 +24,7 @@
+ #                      at a502670), and no pre-registration, plan or HANDOFF names a value
+ #                      (GAP-IDLE-WAITERS-J6A-REPLAY-WEIGHT-HAS-NO-SOURCE-2026-10-02). So it is a
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+-REPLAY_SHARDS=UNSET
++REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=UNSET
+ REPLAY_ATTESTATION=UNSET
+ REPLAY_ATTESTATION_SHA256=UNSET
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:30.666240551 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:30.668103598 +0000
+@@ -25,7 +25,7 @@
+ #                      (GAP-IDLE-WAITERS-J6A-REPLAY-WEIGHT-HAS-NO-SOURCE-2026-10-02). So it is a
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+ REPLAY_SHARDS=replay-v4/shards/replay
+-REPLAY_SHARDS_SHA256=UNSET
++REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=UNSET
+ REPLAY_ATTESTATION_SHA256=UNSET
+ REPLAY_WEIGHT=UNSET
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:30.671240566 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:30.672638403 +0000
+@@ -26,7 +26,7 @@
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+ REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+-REPLAY_ATTESTATION=UNSET
++REPLAY_ATTESTATION=replay-v4/attestation.json
+ REPLAY_ATTESTATION_SHA256=UNSET
+ REPLAY_WEIGHT=UNSET
+ #
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:30.675240578 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:30.678192920 +0000
+@@ -27,7 +27,7 @@
+ REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=replay-v4/attestation.json
+-REPLAY_ATTESTATION_SHA256=UNSET
++REPLAY_ATTESTATION_SHA256=5a67d825a1b707d058d56e60d4b7adce4cdafdf9166f7e323abf80c1c09d960a
+ REPLAY_WEIGHT=UNSET
+ #
+ # Recipe: F's (post_f_common.sh F_RECIPE, F's skip) on the rebuild with --replay-partition (the
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:30.680240592 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:30.682611891 +0000
+@@ -28,7 +28,7 @@
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=replay-v4/attestation.json
+ REPLAY_ATTESTATION_SHA256=5a67d825a1b707d058d56e60d4b7adce4cdafdf9166f7e323abf80c1c09d960a
+-REPLAY_WEIGHT=UNSET
++REPLAY_WEIGHT=0.25
+ #
+ # Recipe: F's (post_f_common.sh F_RECIPE, F's skip) on the rebuild with --replay-partition (the
+ # rebuild's replay-only rows left gold training, real_ft_run.py corpus_facts), plus
+-- fsucc.word: quiet
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+-- q-j6a.log ('===' lines and the fsucc reason lines)
+attestation clean=True hits={'val': 2} replay_rows_checked=3568
+=== j6a DEFERRED: the attestation is not CLEAN (or unreadable); J6(a) NOT RUN (03:02:30)
+-- queue markers: f.ckpt-skip fsucc.word j5pp.done j6a.done j6a.queued 
+
+################ scenario j6a_kill_child
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:31.304242456 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:31.305509835 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:31.309242471 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:31.310854934 +0000
+@@ -24,7 +24,7 @@
+ #                      at a502670), and no pre-registration, plan or HANDOFF names a value
+ #                      (GAP-IDLE-WAITERS-J6A-REPLAY-WEIGHT-HAS-NO-SOURCE-2026-10-02). So it is a
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+-REPLAY_SHARDS=UNSET
++REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=UNSET
+ REPLAY_ATTESTATION=UNSET
+ REPLAY_ATTESTATION_SHA256=UNSET
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:31.316242492 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:31.317375787 +0000
+@@ -25,7 +25,7 @@
+ #                      (GAP-IDLE-WAITERS-J6A-REPLAY-WEIGHT-HAS-NO-SOURCE-2026-10-02). So it is a
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+ REPLAY_SHARDS=replay-v4/shards/replay
+-REPLAY_SHARDS_SHA256=UNSET
++REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=UNSET
+ REPLAY_ATTESTATION_SHA256=UNSET
+ REPLAY_WEIGHT=UNSET
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:31.321242507 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:31.322368760 +0000
+@@ -26,7 +26,7 @@
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+ REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+-REPLAY_ATTESTATION=UNSET
++REPLAY_ATTESTATION=replay-v4/attestation.json
+ REPLAY_ATTESTATION_SHA256=UNSET
+ REPLAY_WEIGHT=UNSET
+ #
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:31.327242525 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:31.328876030 +0000
+@@ -27,7 +27,7 @@
+ REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=replay-v4/attestation.json
+-REPLAY_ATTESTATION_SHA256=UNSET
++REPLAY_ATTESTATION_SHA256=1ff0cb10fd5721108184a618183712aaa7a7c19313e2f1790ef0cec32c049200
+ REPLAY_WEIGHT=UNSET
+ #
+ # Recipe: F's (post_f_common.sh F_RECIPE, F's skip) on the rebuild with --replay-partition (the
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:31.331242537 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:31.332163081 +0000
+@@ -28,7 +28,7 @@
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=replay-v4/attestation.json
+ REPLAY_ATTESTATION_SHA256=1ff0cb10fd5721108184a618183712aaa7a7c19313e2f1790ef0cec32c049200
+-REPLAY_WEIGHT=UNSET
++REPLAY_WEIGHT=0.25
+ #
+ # Recipe: F's (post_f_common.sh F_RECIPE, F's skip) on the rebuild with --replay-partition (the
+ # rebuild's replay-only rows left gold training, real_ft_run.py corpus_facts), plus
+-- killer
+killed -9 pid 5271: tools/real_ft_run.py --out /home/ubuntu/replay-v4 --no-repo-history --rev 881ab304f15ea13529002391dda8520c2ea47af4 --defect-class data/pool/commitpackft-composed-v1 --defect-download data/pool/commitp
+-- fsucc.word: quiet
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+-- q-j6a.log ('===' lines and the fsucc reason lines)
+attestation clean=True hits={'val': 0} replay_rows_checked=3568
+=== j6a (J6(a) +replay, seed 0) at a502670: rebuild /home/ubuntu/replay-v4, replay /home/ubuntu/replay-v4/shards/replay, weight 0.25 (03:02:31)
+=== J6(a) train+score done (exit 137) (03:02:31)
+=== J6(a): no ft row or checkpoint from this run; its needle control NOT RUN (03:02:31)
+-- queue markers: f.ckpt-skip fsucc.word gpu.lock j5pp.done j6a.done j6a.queued j6a.started 
+
+################ scenario j6a_pin_mismatch
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:30.988241512 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:30.989954684 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:30.997241539 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:30.998483001 +0000
+@@ -24,7 +24,7 @@
+ #                      at a502670), and no pre-registration, plan or HANDOFF names a value
+ #                      (GAP-IDLE-WAITERS-J6A-REPLAY-WEIGHT-HAS-NO-SOURCE-2026-10-02). So it is a
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+-REPLAY_SHARDS=UNSET
++REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=UNSET
+ REPLAY_ATTESTATION=UNSET
+ REPLAY_ATTESTATION_SHA256=UNSET
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:31.004241560 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:31.006872818 +0000
+@@ -25,7 +25,7 @@
+ #                      (GAP-IDLE-WAITERS-J6A-REPLAY-WEIGHT-HAS-NO-SOURCE-2026-10-02). So it is a
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+ REPLAY_SHARDS=replay-v4/shards/replay
+-REPLAY_SHARDS_SHA256=UNSET
++REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=UNSET
+ REPLAY_ATTESTATION_SHA256=UNSET
+ REPLAY_WEIGHT=UNSET
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:31.009241575 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:31.011241581 +0000
+@@ -26,7 +26,7 @@
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+ REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+-REPLAY_ATTESTATION=UNSET
++REPLAY_ATTESTATION=replay-v4/attestation.json
+ REPLAY_ATTESTATION_SHA256=UNSET
+ REPLAY_WEIGHT=UNSET
+ #
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:31.018241602 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:31.020916777 +0000
+@@ -27,7 +27,7 @@
+ REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=replay-v4/attestation.json
+-REPLAY_ATTESTATION_SHA256=UNSET
++REPLAY_ATTESTATION_SHA256=1ff0cb10fd5721108184a618183712aaa7a7c19313e2f1790ef0cec32c049200
+ REPLAY_WEIGHT=UNSET
+ #
+ # Recipe: F's (post_f_common.sh F_RECIPE, F's skip) on the rebuild with --replay-partition (the
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:31.023241617 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:31.025580540 +0000
+@@ -28,7 +28,7 @@
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=replay-v4/attestation.json
+ REPLAY_ATTESTATION_SHA256=1ff0cb10fd5721108184a618183712aaa7a7c19313e2f1790ef0cec32c049200
+-REPLAY_WEIGHT=UNSET
++REPLAY_WEIGHT=0.25
+ #
+ # Recipe: F's (post_f_common.sh F_RECIPE, F's skip) on the rebuild with --replay-partition (the
+ # rebuild's replay-only rows left gold training, real_ft_run.py corpus_facts), plus
+-- fsucc.word: quiet
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+-- q-j6a.log ('===' lines and the fsucc reason lines)
+=== /home/ubuntu/replay-v4/attestation.json is sha256 9c021a0c9ba64adce9ac6723fc8c8b8ee3b93260df2fa3f4cba431fa21a9ca38, not 1ff0cb10fd5721108184a618183712aaa7a7c19313e2f1790ef0cec32c049200; refusing (03:02:31)
+=== j6a DEFERRED: the attestation is not the pinned one (03:02:31)
+-- queue markers: f.ckpt-skip fsucc.word j5pp.done j6a.done j6a.queued 
+
+################ scenario j6a_run
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:28.769234885 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:28.770874932 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:28.774234900 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:28.775497071 +0000
+@@ -24,7 +24,7 @@
+ #                      at a502670), and no pre-registration, plan or HANDOFF names a value
+ #                      (GAP-IDLE-WAITERS-J6A-REPLAY-WEIGHT-HAS-NO-SOURCE-2026-10-02). So it is a
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+-REPLAY_SHARDS=UNSET
++REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=UNSET
+ REPLAY_ATTESTATION=UNSET
+ REPLAY_ATTESTATION_SHA256=UNSET
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:28.779234915 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:28.780821837 +0000
+@@ -25,7 +25,7 @@
+ #                      (GAP-IDLE-WAITERS-J6A-REPLAY-WEIGHT-HAS-NO-SOURCE-2026-10-02). So it is a
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+ REPLAY_SHARDS=replay-v4/shards/replay
+-REPLAY_SHARDS_SHA256=UNSET
++REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=UNSET
+ REPLAY_ATTESTATION_SHA256=UNSET
+ REPLAY_WEIGHT=UNSET
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:28.782234924 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:28.784149972 +0000
+@@ -26,7 +26,7 @@
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+ REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+-REPLAY_ATTESTATION=UNSET
++REPLAY_ATTESTATION=replay-v4/attestation.json
+ REPLAY_ATTESTATION_SHA256=UNSET
+ REPLAY_WEIGHT=UNSET
+ #
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:28.787234939 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:28.789279570 +0000
+@@ -27,7 +27,7 @@
+ REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=replay-v4/attestation.json
+-REPLAY_ATTESTATION_SHA256=UNSET
++REPLAY_ATTESTATION_SHA256=1ff0cb10fd5721108184a618183712aaa7a7c19313e2f1790ef0cec32c049200
+ REPLAY_WEIGHT=UNSET
+ #
+ # Recipe: F's (post_f_common.sh F_RECIPE, F's skip) on the rebuild with --replay-partition (the
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:28.792234954 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:28.793522375 +0000
+@@ -28,7 +28,7 @@
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=replay-v4/attestation.json
+ REPLAY_ATTESTATION_SHA256=1ff0cb10fd5721108184a618183712aaa7a7c19313e2f1790ef0cec32c049200
+-REPLAY_WEIGHT=UNSET
++REPLAY_WEIGHT=0.25
+ #
+ # Recipe: F's (post_f_common.sh F_RECIPE, F's skip) on the rebuild with --replay-partition (the
+ # rebuild's replay-only rows left gold training, real_ft_run.py corpus_facts), plus
+-- fsucc.word: quiet
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+-- q-j6a.log ('===' lines and the fsucc reason lines)
+attestation clean=True hits={'val': 0} replay_rows_checked=3568
+=== j6a (J6(a) +replay, seed 0) at a502670: rebuild /home/ubuntu/replay-v4, replay /home/ubuntu/replay-v4/shards/replay, weight 0.25 (03:02:29)
+=== J6(a) train+score done (exit 0) (03:02:29)
+=== J6(a) needle control done (exit 0) (03:02:30)
+=== j6a all done; the idle queue STOPS here (Fable Q2) (03:02:30)
+-- queue markers: f.ckpt-skip fsucc.word gpu.lock j5pp.done j6a.done j6a.queued j6a.started 
+
+################ scenario j6a_unclean
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:30.327239538 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:30.328155666 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:30.332239553 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:30.334045434 +0000
+@@ -24,7 +24,7 @@
+ #                      at a502670), and no pre-registration, plan or HANDOFF names a value
+ #                      (GAP-IDLE-WAITERS-J6A-REPLAY-WEIGHT-HAS-NO-SOURCE-2026-10-02). So it is a
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+-REPLAY_SHARDS=UNSET
++REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=UNSET
+ REPLAY_ATTESTATION=UNSET
+ REPLAY_ATTESTATION_SHA256=UNSET
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:30.339239574 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:30.340374619 +0000
+@@ -25,7 +25,7 @@
+ #                      (GAP-IDLE-WAITERS-J6A-REPLAY-WEIGHT-HAS-NO-SOURCE-2026-10-02). So it is a
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+ REPLAY_SHARDS=replay-v4/shards/replay
+-REPLAY_SHARDS_SHA256=UNSET
++REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=UNSET
+ REPLAY_ATTESTATION_SHA256=UNSET
+ REPLAY_WEIGHT=UNSET
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:30.342239583 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:30.343998672 +0000
+@@ -26,7 +26,7 @@
+ #                      pin the lead must fill from a recorded decision, not a number chosen here.
+ REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+-REPLAY_ATTESTATION=UNSET
++REPLAY_ATTESTATION=replay-v4/attestation.json
+ REPLAY_ATTESTATION_SHA256=UNSET
+ REPLAY_WEIGHT=UNSET
+ #
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:30.347239598 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:30.349639272 +0000
+@@ -27,7 +27,7 @@
+ REPLAY_SHARDS=replay-v4/shards/replay
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=replay-v4/attestation.json
+-REPLAY_ATTESTATION_SHA256=UNSET
++REPLAY_ATTESTATION_SHA256=a437fe356b0f00cbd2f1602b4c2e6a7cc5e1b352a2aaa257958550f916ef4bd6
+ REPLAY_WEIGHT=UNSET
+ #
+ # Recipe: F's (post_f_common.sh F_RECIPE, F's skip) on the rebuild with --replay-partition (the
+--- post-f/box_q_j6a.sh.orig	2026-10-02 03:02:30.351239610 +0000
++++ post-f/box_q_j6a.sh	2026-10-02 03:02:30.353190074 +0000
+@@ -28,7 +28,7 @@
+ REPLAY_SHARDS_SHA256=342f3d2e7f235815fe0f8ba4e176e8385969faa0942c0bab24d963c139c56e77
+ REPLAY_ATTESTATION=replay-v4/attestation.json
+ REPLAY_ATTESTATION_SHA256=a437fe356b0f00cbd2f1602b4c2e6a7cc5e1b352a2aaa257958550f916ef4bd6
+-REPLAY_WEIGHT=UNSET
++REPLAY_WEIGHT=0.25
+ #
+ # Recipe: F's (post_f_common.sh F_RECIPE, F's skip) on the rebuild with --replay-partition (the
+ # rebuild's replay-only rows left gold training, real_ft_run.py corpus_facts), plus
+-- fsucc.word: quiet
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+-- q-j6a.log ('===' lines and the fsucc reason lines)
+attestation clean=False hits={'val': 0} replay_rows_checked=3568
+=== j6a DEFERRED: the attestation is not CLEAN (or unreadable); J6(a) NOT RUN (03:02:30)
+-- queue markers: f.ckpt-skip fsucc.word j5pp.done j6a.done j6a.queued 
+
+################ scenario j6ctl_guard
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:54.258302862 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:54.260003658 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+-- q-j6ctl.first.log ('===' lines and the fsucc reason lines)
+=== j6ctl at 3460afc: J6(d)-v4 first (successor reads it), then J6(f)-v4 (03:02:54)
+=== J6(d)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:02:54)
+=== J6(d)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:02:54)
+=== J6(d)-v4 option control done (exit 0) (03:02:55)
+=== J6(f)-v4: no verdicts at /home/ubuntu/j6f-v4/verdicts.jsonl; controls NOT RUN (03:02:55)
+=== j6ctl all done (03:02:55)
+-- q-j6ctl.log ('===' lines and the fsucc reason lines)
+=== j6ctl at 3460afc: J6(d)-v4 first (successor reads it), then J6(f)-v4 (03:02:55)
+=== J6(d)-v4: /home/ubuntu/queue/j6ctl-j6dv4.letter.started exists, so a letter control was already started for these verdicts; a second row would make successor refuse; controls NOT RUN again (03:02:55)
+=== J6(f)-v4: no verdicts at /home/ubuntu/j6f-v4/verdicts.jsonl; controls NOT RUN (03:02:55)
+=== j6ctl all done (03:02:55)
+-- queue markers: f.ckpt-skip j6ctl-j6dv4.letter.started j6ctl.done j6ctl.queued j6ctl.started j6dv4.done j6f.done 
+
+################ scenario mut_fsucc_no_j6ctl_wait
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:03:00.039317749 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:03:00.041065253 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:03:00.051317780 +0000
++++ post-f/idle_common.sh	2026-10-02 03:03:00.053079743 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+--- /sim/scripts/box_q_fsucc.sh	2026-10-02 03:01:44.162955142 +0000
++++ /home/ubuntu/post-f/box_q_fsucc.sh	2026-10-02 03:03:00.058312756 +0000
+@@ -38,9 +38,9 @@
+   say "fsucc: $SUCC_WORD_FILE already exists ('$(head -c 64 "$SUCC_WORD_FILE" | tr -d '\n')'): the successor was decided once; not deciding again"
+   exit 3
+ fi
+-until [ -f $Q/rungd.done ] && [ -f $Q/j6ctl.done ]; do sleep 60; done
++until [ -f $Q/rungd.done ]; do sleep 60; done
+ FCTL_T0=$(date +%s)
+-until grep -qxF "$FCTL_DONE" "$FCTL_LOG" 2>/dev/null; do
++until true; do
+   if [ $(( $(date +%s) - FCTL_T0 )) -ge "$FCTL_WAIT_MAX_S" ]; then
+     say "fsucc: refused: '$FCTL_DONE' is not in $FCTL_LOG ${FCTL_WAIT_MAX_S}s after rungd and j6ctl finished (F's letter-control rows are rows successor reads); successor NOT RUN"
+     write_atomic "$SUCC_WORD_FILE" refused
+-- order check
+ok    gpu calls rungd(7154) and rungd do not overlap
+ok    cudadev starts after rung0.done
+ok    rungd's first call after cudadev.done
+ok    j6ctl's first call after j6f.done
+ok    j6ctl's first call after j6dv4.done
+ok    successor call after rungd.done
+ok    successor call after j6ctl.done
+n/a   fsucc's first call after rungd.done (not exercised in this scenario)
+n/a   fsucc's first call after j6ctl.done (not exercised in this scenario)
+n/a   j6a's first call after j5pp.done (not exercised in this scenario)
+n/a   j5pp's first call after F''s last GPU call ended (not exercised in this scenario)
+n/a   fsucc-ctl's first call after F''s last GPU call ended (not exercised in this scenario)
+n/a   F' training after the successor call (not exercised in this scenario)
+n/a   rungd's last call ends before F' starts (not exercised in this scenario)
+BAD   successor call after the F controls line
+ORDER BROKEN (7 held, 1 broken, 7 not exercised)
+-- fsucc.word: quiet
+-- cudadev summary.tsv
+name	file	sha256_pinned	status	exit	seconds	timeout_s	log
+runga	/home/ubuntu/bin/ojas-qwen35-cuda-runga	bb3276e7a42ae3d0e20171ed78e0df537f2581d8f144d22b8b6c054a0814c805	fail	2	0	300	/home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/runga.log
+k0	/home/ubuntu/bin/ojas-cuda-device-k0	b10542091a32f9bf293d1cefd36d754221115f5ed88386c1b2e3f970fa9820a6	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k0.log
+k1	/home/ubuntu/bin/ojas-cuda-device-k1	9546b2df0da4334ab735673885b9812a9f02ca4021172b60fb4c1f6b9eaa93bd	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k1.log
+k8	/home/ubuntu/bin/ojas-cuda-device-k8	75f05d3a42c7964fc0143dc5149a02d37b2af04aaca3f7ea271cefcdb8074ff1	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k8.log
+k11	/home/ubuntu/bin/ojas-cuda-device-k11	bc65b3bca3c48f1814185fc74859e6c623cffceda5bf3f9736d9b8b82c72ad90	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k11.log
+k3_gates_published	/home/ubuntu/bin/ojas-cuda-device-k3-gates-published	fd4e1e2410b2b8ae11176aa0b3d3f75a469b48fb0c8a4387c7f17fe27819bfbb	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k3_gates_published.log
+k4_conv1d	/home/ubuntu/bin/ojas-cuda-device-k4-conv1d	eb12cb197f5d259a4b3bf79396f247f431c222461afbdb8191a763bf70e4b666	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k4_conv1d.log
+k6_qk_norm_rope	/home/ubuntu/bin/ojas-cuda-device-k6-qk-norm-rope	03a641f055494f8c68bb1f8eb320906fe892010e59fe3ac2375037f5498611fe	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k6_qk_norm_rope.log
+k7_rmsnorm	/home/ubuntu/bin/ojas-cuda-device-k7-rmsnorm	c56c71146f7af183c3af1a3252e51818705d1a61e24d0eef7cdfc3440bd095e2	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k7_rmsnorm.log
+k9_embed	/home/ubuntu/bin/ojas-cuda-device-k9-embed	363a21f68eefd664cf72bb8af6ce78be8a43b4fa99ff0ad4d9b0f4d1053f6d8b	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k9_embed.log
+k10_ce_rows	/home/ubuntu/bin/ojas-cuda-device-k10-ce-rows	54c8755464b913adb407c74c52ebfb6d421da0e39e844af34cba61950a5c707e	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k10_ce_rows.log
+gdn_published	/home/ubuntu/bin/ojas-cuda-device-gdn-published	97034105198442010a12661228442197a9d20a3eb7685480e239daebdb8f4f28	fail	101	0	600	/home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/gdn_published.log
+-- q-cudadev.log ('===' lines and the fsucc reason lines)
+=== cudadev start, out /home/ubuntu/ojas-cuda/cudadev-20261002T030301Z, total cap 1500s (deadline 03:28:01Z) (2026-10-02T03:03:01Z)
+=== runga (timeout 300s) -> /home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/runga/runga-report.json (2026-10-02T03:03:01Z)
+=== runga exit 2 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/runga.log: (2026-10-02T03:03:01Z)
+=== k0 (timeout 150s) (2026-10-02T03:03:01Z)
+=== k0 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k0.log: (2026-10-02T03:03:01Z)
+=== k1 (timeout 150s) (2026-10-02T03:03:01Z)
+=== k1 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k1.log: (2026-10-02T03:03:01Z)
+=== k8 (timeout 150s) (2026-10-02T03:03:01Z)
+=== k8 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k8.log: (2026-10-02T03:03:01Z)
+=== k11 (timeout 150s) (2026-10-02T03:03:01Z)
+=== k11 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k11.log: (2026-10-02T03:03:01Z)
+=== k3_gates_published (timeout 150s) (2026-10-02T03:03:01Z)
+=== k3_gates_published exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k3_gates_published.log: (2026-10-02T03:03:01Z)
+=== k4_conv1d (timeout 150s) (2026-10-02T03:03:01Z)
+=== k4_conv1d exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k4_conv1d.log: (2026-10-02T03:03:01Z)
+=== k6_qk_norm_rope (timeout 150s) (2026-10-02T03:03:01Z)
+=== k6_qk_norm_rope exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k6_qk_norm_rope.log: (2026-10-02T03:03:01Z)
+=== k7_rmsnorm (timeout 150s) (2026-10-02T03:03:01Z)
+=== k7_rmsnorm exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k7_rmsnorm.log: (2026-10-02T03:03:01Z)
+=== k9_embed (timeout 150s) (2026-10-02T03:03:01Z)
+=== k9_embed exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k9_embed.log: (2026-10-02T03:03:01Z)
+=== k10_ce_rows (timeout 150s) (2026-10-02T03:03:01Z)
+=== k10_ce_rows exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/k10_ce_rows.log: (2026-10-02T03:03:01Z)
+=== gdn_published (timeout 600s) (2026-10-02T03:03:01Z)
+=== gdn_published exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/gdn_published.log: (2026-10-02T03:03:01Z)
+=== cudadev done in 0s; summary /home/ubuntu/ojas-cuda/cudadev-20261002T030301Z/summary.tsv (runga exit: 0 pass, 1 a check failed, 2 refused, 3 binary cap; tests: 0 pass, 101 a test failed; 124 timeout; 137 killed, by timeout's --kill-after or from outside) (2026-10-02T03:03:01Z)
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:03:03)
+fsucc cannot_clear: []
+=== fsucc: successor word 'quiet' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030303563018698.json; word in /home/ubuntu/queue/fsucc.word) (03:03:03)
+=== fsucc: quiet: no F' (Fable Q2: re-plan from J7' avg / ens3 / avg-np) (03:03:03)
+-- q-j5pp.log ('===' lines and the fsucc reason lines)
+=== j5pp SKIPPED: fsucc's word is 'quiet', not fires:<arm>; follow_on_j5pp runs only on three completed F' ft rows (03:03:03)
+-- q-j6a.log ('===' lines and the fsucc reason lines)
+=== j6a DEFERRED to the re-plan: fsucc was quiet, but these pins are UNSET: REPLAY_SHARDS REPLAY_SHARDS_SHA256 REPLAY_ATTESTATION REPLAY_ATTESTATION_SHA256 REPLAY_WEIGHT (fail-closed until the lead fills them from the replay lane's HANDOFF); J6(a) NOT RUN (03:03:04)
+-- q-j6ctl.log ('===' lines and the fsucc reason lines)
+=== j6ctl at 3460afc: J6(d)-v4 first (successor reads it), then J6(f)-v4 (03:03:01)
+=== J6(d)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:03:01)
+=== J6(d)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:03:01)
+=== J6(d)-v4 option control done (exit 0) (03:03:02)
+=== J6(f)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:03:02)
+=== J6(f)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:03:02)
+=== J6(f)-v4 option control done (exit 0) (03:03:03)
+=== j6ctl all done (03:03:03)
+-- q-rung0.log ('===' lines and the fsucc reason lines)
+=== rung0 start, out /home/ubuntu/ojas-cuda/rung0-20261002T030301Z (2026-10-02T03:03:01Z)
+=== rung0 done (exit 2; 0 all passed, 1 a check failed, 2 refused, 3 binary cap, 124 outer timeout) (2026-10-02T03:03:01Z)
+-- q-rungd.log ('===' lines and the fsucc reason lines)
+=== rungd at 28000af661a062ae54f4a69b17e8638d83b5e7ba: T-bf16 (cap 3600s), then T-fp32 (cap 10800s) -> /home/ubuntu/ledger/gh200-rungd-torch-2026-10-02.jsonl (03:03:02)
+=== T-bf16 done (exit 0; 1 with the ft row written is the epoch arm's letter-loss claim, 124 the outer backstop); ft row: 752d78d9-53b1-48bf-a980-8478298785de (03:03:02)
+=== T-fp32 done (exit 0); ft row: ef82582c-ed83-4fc0-905e-93c7309d6057 (03:03:03)
+=== rungd all done (03:03:03)
+-- queue markers: cudadev.done cudadev.queued cudadev.started f.ckpt-skip fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done gpu.lock j5pp.done j5pp.queued j6a.done j6a.queued j6ctl-j6dv4.letter.started j6ctl-j6f.letter.started j6ctl.done j6ctl.queued j6ctl.started j6dv4.done j6f.done rung0.done rung0.queued rung0.started rungd.done rungd.queued rungd.started 
+
+################ scenario mut_j5pp_no_wait
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:03:28.363390688 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:03:28.365161818 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:03:28.372390711 +0000
++++ post-f/idle_common.sh	2026-10-02 03:03:28.374815551 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+--- /sim/scripts/box_q_j5pp.sh	2026-10-02 03:01:44.163479477 +0000
++++ /home/ubuntu/post-f/box_q_j5pp.sh	2026-10-02 03:03:28.377797517 +0000
+@@ -22,7 +22,7 @@
+ source /home/ubuntu/post-f/idle_common.sh || exit 3
+ trap 'touch /home/ubuntu/queue/j5pp.done' EXIT
+ touch $Q/j5pp.queued
+-until [ -f $Q/fsuccgpu.done ]; do sleep 60; done
++: wait deleted
+ WORD=$(read_succ_word)
+ if ! fp_arm "$WORD"; then
+   say "j5pp SKIPPED: fsucc's word is '${WORD:-absent or not one of: $SUCC_WORDS}', not fires:<arm>; follow_on_j5pp runs only on three completed F' ft rows"
+-- fsucc.word: fires:j6dv4
+-- cudadev summary.tsv
+name	file	sha256_pinned	status	exit	seconds	timeout_s	log
+runga	/home/ubuntu/bin/ojas-qwen35-cuda-runga	bb3276e7a42ae3d0e20171ed78e0df537f2581d8f144d22b8b6c054a0814c805	fail	2	0	300	/home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/runga.log
+k0	/home/ubuntu/bin/ojas-cuda-device-k0	b10542091a32f9bf293d1cefd36d754221115f5ed88386c1b2e3f970fa9820a6	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k0.log
+k1	/home/ubuntu/bin/ojas-cuda-device-k1	9546b2df0da4334ab735673885b9812a9f02ca4021172b60fb4c1f6b9eaa93bd	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k1.log
+k8	/home/ubuntu/bin/ojas-cuda-device-k8	75f05d3a42c7964fc0143dc5149a02d37b2af04aaca3f7ea271cefcdb8074ff1	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k8.log
+k11	/home/ubuntu/bin/ojas-cuda-device-k11	bc65b3bca3c48f1814185fc74859e6c623cffceda5bf3f9736d9b8b82c72ad90	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k11.log
+k3_gates_published	/home/ubuntu/bin/ojas-cuda-device-k3-gates-published	fd4e1e2410b2b8ae11176aa0b3d3f75a469b48fb0c8a4387c7f17fe27819bfbb	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k3_gates_published.log
+k4_conv1d	/home/ubuntu/bin/ojas-cuda-device-k4-conv1d	eb12cb197f5d259a4b3bf79396f247f431c222461afbdb8191a763bf70e4b666	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k4_conv1d.log
+k6_qk_norm_rope	/home/ubuntu/bin/ojas-cuda-device-k6-qk-norm-rope	03a641f055494f8c68bb1f8eb320906fe892010e59fe3ac2375037f5498611fe	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k6_qk_norm_rope.log
+k7_rmsnorm	/home/ubuntu/bin/ojas-cuda-device-k7-rmsnorm	c56c71146f7af183c3af1a3252e51818705d1a61e24d0eef7cdfc3440bd095e2	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k7_rmsnorm.log
+k9_embed	/home/ubuntu/bin/ojas-cuda-device-k9-embed	363a21f68eefd664cf72bb8af6ce78be8a43b4fa99ff0ad4d9b0f4d1053f6d8b	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k9_embed.log
+k10_ce_rows	/home/ubuntu/bin/ojas-cuda-device-k10-ce-rows	54c8755464b913adb407c74c52ebfb6d421da0e39e844af34cba61950a5c707e	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k10_ce_rows.log
+gdn_published	/home/ubuntu/bin/ojas-cuda-device-gdn-published	97034105198442010a12661228442197a9d20a3eb7685480e239daebdb8f4f28	fail	101	0	600	/home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/gdn_published.log
+-- q-cudadev.log ('===' lines and the fsucc reason lines)
+=== cudadev start, out /home/ubuntu/ojas-cuda/cudadev-20261002T030330Z, total cap 1500s (deadline 03:28:30Z) (2026-10-02T03:03:30Z)
+=== runga (timeout 300s) -> /home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/runga/runga-report.json (2026-10-02T03:03:30Z)
+=== runga exit 2 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/runga.log: (2026-10-02T03:03:30Z)
+=== k0 (timeout 150s) (2026-10-02T03:03:30Z)
+=== k0 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k0.log: (2026-10-02T03:03:30Z)
+=== k1 (timeout 150s) (2026-10-02T03:03:30Z)
+=== k1 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k1.log: (2026-10-02T03:03:30Z)
+=== k8 (timeout 150s) (2026-10-02T03:03:30Z)
+=== k8 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k8.log: (2026-10-02T03:03:30Z)
+=== k11 (timeout 150s) (2026-10-02T03:03:30Z)
+=== k11 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k11.log: (2026-10-02T03:03:30Z)
+=== k3_gates_published (timeout 150s) (2026-10-02T03:03:30Z)
+=== k3_gates_published exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k3_gates_published.log: (2026-10-02T03:03:30Z)
+=== k4_conv1d (timeout 150s) (2026-10-02T03:03:30Z)
+=== k4_conv1d exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k4_conv1d.log: (2026-10-02T03:03:30Z)
+=== k6_qk_norm_rope (timeout 150s) (2026-10-02T03:03:30Z)
+=== k6_qk_norm_rope exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k6_qk_norm_rope.log: (2026-10-02T03:03:30Z)
+=== k7_rmsnorm (timeout 150s) (2026-10-02T03:03:30Z)
+=== k7_rmsnorm exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k7_rmsnorm.log: (2026-10-02T03:03:30Z)
+=== k9_embed (timeout 150s) (2026-10-02T03:03:30Z)
+=== k9_embed exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k9_embed.log: (2026-10-02T03:03:30Z)
+=== k10_ce_rows (timeout 150s) (2026-10-02T03:03:30Z)
+=== k10_ce_rows exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/k10_ce_rows.log: (2026-10-02T03:03:30Z)
+=== gdn_published (timeout 600s) (2026-10-02T03:03:30Z)
+=== gdn_published exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/gdn_published.log: (2026-10-02T03:03:30Z)
+=== cudadev done in 0s; summary /home/ubuntu/ojas-cuda/cudadev-20261002T030330Z/summary.tsv (runga exit: 0 pass, 1 a check failed, 2 refused, 3 binary cap; tests: 0 pass, 101 a test failed; 124 timeout; 137 killed, by timeout's --kill-after or from outside) (2026-10-02T03:03:30Z)
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:03:31)
+fsucc cannot_clear: []
+=== fsucc: successor word 'fires:j6dv4' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030331898219124.json; word in /home/ubuntu/queue/fsucc.word) (03:03:32)
+=== fsucc: F' on j6dv4 at a502670: --optimizer master --lr 3e-5 --beta2 0.95 --epoch --no-memorise --batch-tokens 35403 --lower-layers-n 8 --lower-layers-lr-scale 0.1 --checkpoint-skip-layers 6 -> /home/ubuntu/ledger/gh200-fsucc-j6dv4-2026-10-02.jsonl (03:03:32)
+=== F' seed 0 train+score done (exit 0) (03:03:33)
+=== F' seed 0 needle control done (exit 0) (03:03:33)
+=== F' seed 1 train+score done (exit 0) (03:03:34)
+=== F' seed 1 needle control done (exit 0) (03:03:34)
+=== F' seed 2 train+score done (exit 0) (03:03:35)
+=== F' seed 2 needle control done (exit 0) (03:03:35)
+=== fsucc: F' GPU part done; gpu.lock released; fsuccgpu.done touched (j5pp may start) (03:03:35)
+=== F' (j6dv4) seed 0 letter control at 3460afc -> /home/ubuntu/ledger/gh200-fsucc-j6dv4-2026-10-02.jsonl (03:03:35)
+=== F' (j6dv4) seed 0 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:03:36)
+=== F' (j6dv4) seed 0 option control done (exit 0) (03:03:36)
+=== F' (j6dv4) seed 1 letter control at 3460afc -> /home/ubuntu/ledger/gh200-fsucc-j6dv4-2026-10-02.jsonl (03:03:36)
+=== F' (j6dv4) seed 1 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:03:37)
+=== F' (j6dv4) seed 1 option control done (exit 0) (03:03:37)
+=== F' (j6dv4) seed 2 letter control at 3460afc -> /home/ubuntu/ledger/gh200-fsucc-j6dv4-2026-10-02.jsonl (03:03:37)
+=== F' (j6dv4) seed 2 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:03:38)
+=== F' (j6dv4) seed 2 option control done (exit 0) (03:03:38)
+=== fsucc all done (03:03:38)
+-- q-j5pp.log ('===' lines and the fsucc reason lines)
+=== j5pp SKIPPED: fsucc's word is 'absent or not one of: fires:j6f fires:j6dv4 quiet refused', not fires:<arm>; follow_on_j5pp runs only on three completed F' ft rows (03:03:28)
+-- q-j6a.log ('===' lines and the fsucc reason lines)
+=== j6a DEFERRED to the re-plan: fsucc's word is 'absent or not one of: fires:j6f fires:j6dv4 quiet refused', not quiet (Fable Q2: j6a runs only if fsucc was quiet) (03:03:28)
+-- q-j6ctl.log ('===' lines and the fsucc reason lines)
+=== j6ctl at 3460afc: J6(d)-v4 first (successor reads it), then J6(f)-v4 (03:03:29)
+=== J6(d)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:03:29)
+=== J6(d)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:03:29)
+=== J6(d)-v4 option control done (exit 0) (03:03:30)
+=== J6(f)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:03:30)
+=== J6(f)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:03:30)
+=== J6(f)-v4 option control done (exit 0) (03:03:31)
+=== j6ctl all done (03:03:31)
+-- q-rung0.log ('===' lines and the fsucc reason lines)
+=== rung0 start, out /home/ubuntu/ojas-cuda/rung0-20261002T030329Z (2026-10-02T03:03:29Z)
+=== rung0 done (exit 2; 0 all passed, 1 a check failed, 2 refused, 3 binary cap, 124 outer timeout) (2026-10-02T03:03:29Z)
+-- q-rungd.log ('===' lines and the fsucc reason lines)
+=== rungd at 28000af661a062ae54f4a69b17e8638d83b5e7ba: T-bf16 (cap 3600s), then T-fp32 (cap 10800s) -> /home/ubuntu/ledger/gh200-rungd-torch-2026-10-02.jsonl (03:03:30)
+=== T-bf16 done (exit 0; 1 with the ft row written is the epoch arm's letter-loss claim, 124 the outer backstop); ft row: b9a8b1ea-97e2-4d57-b0a0-8cb5a2fa326b (03:03:31)
+=== T-fp32 done (exit 0); ft row: 6e886aba-57e4-44c1-b8bc-e938fe881aeb (03:03:31)
+=== rungd all done (03:03:31)
+-- queue markers: cudadev.done cudadev.queued cudadev.started f.ckpt-skip fsucc-s0.letter.started fsucc-s1.letter.started fsucc-s2.letter.started fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done gpu.lock j5pp.done j5pp.queued j6a.done j6a.queued j6ctl-j6dv4.letter.started j6ctl-j6f.letter.started j6ctl.done j6ctl.queued j6ctl.started j6dv4.done j6f.done rung0.done rung0.queued rung0.started rungd.done rungd.queued rungd.started 
+
+################ scenario mut_rungd_no_wait
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:55.807306851 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:55.808563437 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:02:55.814306869 +0000
++++ post-f/idle_common.sh	2026-10-02 03:02:55.817294752 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+--- /sim/scripts/box_q_rungd.sh	2026-10-02 03:01:44.165906941 +0000
++++ /home/ubuntu/post-f/box_q_rungd.sh	2026-10-02 03:02:55.821193637 +0000
+@@ -36,7 +36,7 @@
+ TFP32_OUTER_S=12600
+ trap 'touch /home/ubuntu/queue/rungd.done' EXIT
+ touch $Q/rungd.queued
+-until [ -f $Q/cudadev.done ]; do sleep 60; done
++: wait deleted
+ exec 9>$Q/gpu.lock
+ flock 9
+ touch $Q/rungd.started
+-- order check
+ok    gpu calls rungd(6371) and rungd do not overlap
+ok    cudadev starts after rung0.done
+ok    j6ctl's first call after j6f.done
+ok    j6ctl's first call after j6dv4.done
+ok    successor call after rungd.done
+ok    successor call after j6ctl.done
+ok    successor call after the F controls line
+n/a   fsucc's first call after rungd.done (not exercised in this scenario)
+n/a   fsucc's first call after j6ctl.done (not exercised in this scenario)
+n/a   j6a's first call after j5pp.done (not exercised in this scenario)
+n/a   j5pp's first call after F''s last GPU call ended (not exercised in this scenario)
+n/a   fsucc-ctl's first call after F''s last GPU call ended (not exercised in this scenario)
+n/a   F' training after the successor call (not exercised in this scenario)
+n/a   rungd's last call ends before F' starts (not exercised in this scenario)
+BAD   rungd's first call after cudadev.done
+ORDER BROKEN (7 held, 1 broken, 7 not exercised)
+-- fsucc.word: quiet
+-- cudadev summary.tsv
+name	file	sha256_pinned	status	exit	seconds	timeout_s	log
+runga	/home/ubuntu/bin/ojas-qwen35-cuda-runga	bb3276e7a42ae3d0e20171ed78e0df537f2581d8f144d22b8b6c054a0814c805	fail	2	0	300	/home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/runga.log
+k0	/home/ubuntu/bin/ojas-cuda-device-k0	b10542091a32f9bf293d1cefd36d754221115f5ed88386c1b2e3f970fa9820a6	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k0.log
+k1	/home/ubuntu/bin/ojas-cuda-device-k1	9546b2df0da4334ab735673885b9812a9f02ca4021172b60fb4c1f6b9eaa93bd	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k1.log
+k8	/home/ubuntu/bin/ojas-cuda-device-k8	75f05d3a42c7964fc0143dc5149a02d37b2af04aaca3f7ea271cefcdb8074ff1	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k8.log
+k11	/home/ubuntu/bin/ojas-cuda-device-k11	bc65b3bca3c48f1814185fc74859e6c623cffceda5bf3f9736d9b8b82c72ad90	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k11.log
+k3_gates_published	/home/ubuntu/bin/ojas-cuda-device-k3-gates-published	fd4e1e2410b2b8ae11176aa0b3d3f75a469b48fb0c8a4387c7f17fe27819bfbb	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k3_gates_published.log
+k4_conv1d	/home/ubuntu/bin/ojas-cuda-device-k4-conv1d	eb12cb197f5d259a4b3bf79396f247f431c222461afbdb8191a763bf70e4b666	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k4_conv1d.log
+k6_qk_norm_rope	/home/ubuntu/bin/ojas-cuda-device-k6-qk-norm-rope	03a641f055494f8c68bb1f8eb320906fe892010e59fe3ac2375037f5498611fe	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k6_qk_norm_rope.log
+k7_rmsnorm	/home/ubuntu/bin/ojas-cuda-device-k7-rmsnorm	c56c71146f7af183c3af1a3252e51818705d1a61e24d0eef7cdfc3440bd095e2	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k7_rmsnorm.log
+k9_embed	/home/ubuntu/bin/ojas-cuda-device-k9-embed	363a21f68eefd664cf72bb8af6ce78be8a43b4fa99ff0ad4d9b0f4d1053f6d8b	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k9_embed.log
+k10_ce_rows	/home/ubuntu/bin/ojas-cuda-device-k10-ce-rows	54c8755464b913adb407c74c52ebfb6d421da0e39e844af34cba61950a5c707e	fail	101	0	150	/home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k10_ce_rows.log
+gdn_published	/home/ubuntu/bin/ojas-cuda-device-gdn-published	97034105198442010a12661228442197a9d20a3eb7685480e239daebdb8f4f28	fail	101	0	600	/home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/gdn_published.log
+-- q-cudadev.log ('===' lines and the fsucc reason lines)
+=== cudadev start, out /home/ubuntu/ojas-cuda/cudadev-20261002T030257Z, total cap 1500s (deadline 03:27:57Z) (2026-10-02T03:02:57Z)
+=== runga (timeout 300s) -> /home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/runga/runga-report.json (2026-10-02T03:02:57Z)
+=== runga exit 2 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/runga.log: (2026-10-02T03:02:57Z)
+=== k0 (timeout 150s) (2026-10-02T03:02:57Z)
+=== k0 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k0.log: (2026-10-02T03:02:57Z)
+=== k1 (timeout 150s) (2026-10-02T03:02:57Z)
+=== k1 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k1.log: (2026-10-02T03:02:57Z)
+=== k8 (timeout 150s) (2026-10-02T03:02:57Z)
+=== k8 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k8.log: (2026-10-02T03:02:57Z)
+=== k11 (timeout 150s) (2026-10-02T03:02:57Z)
+=== k11 exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k11.log: (2026-10-02T03:02:57Z)
+=== k3_gates_published (timeout 150s) (2026-10-02T03:02:57Z)
+=== k3_gates_published exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k3_gates_published.log: (2026-10-02T03:02:57Z)
+=== k4_conv1d (timeout 150s) (2026-10-02T03:02:57Z)
+=== k4_conv1d exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k4_conv1d.log: (2026-10-02T03:02:57Z)
+=== k6_qk_norm_rope (timeout 150s) (2026-10-02T03:02:57Z)
+=== k6_qk_norm_rope exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k6_qk_norm_rope.log: (2026-10-02T03:02:57Z)
+=== k7_rmsnorm (timeout 150s) (2026-10-02T03:02:57Z)
+=== k7_rmsnorm exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k7_rmsnorm.log: (2026-10-02T03:02:57Z)
+=== k9_embed (timeout 150s) (2026-10-02T03:02:57Z)
+=== k9_embed exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k9_embed.log: (2026-10-02T03:02:57Z)
+=== k10_ce_rows (timeout 150s) (2026-10-02T03:02:57Z)
+=== k10_ce_rows exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/k10_ce_rows.log: (2026-10-02T03:02:57Z)
+=== gdn_published (timeout 600s) (2026-10-02T03:02:57Z)
+=== gdn_published exit 101 (fail) in 0s; tail of /home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/gdn_published.log: (2026-10-02T03:02:57Z)
+=== cudadev done in 0s; summary /home/ubuntu/ojas-cuda/cudadev-20261002T030257Z/summary.tsv (runga exit: 0 pass, 1 a check failed, 2 refused, 3 binary cap; tests: 0 pass, 101 a test failed; 124 timeout; 137 killed, by timeout's --kill-after or from outside) (2026-10-02T03:02:57Z)
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:02:59)
+fsucc cannot_clear: []
+=== fsucc: successor word 'quiet' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030259135145921.json; word in /home/ubuntu/queue/fsucc.word) (03:02:59)
+=== fsucc: quiet: no F' (Fable Q2: re-plan from J7' avg / ens3 / avg-np) (03:02:59)
+-- q-j5pp.log ('===' lines and the fsucc reason lines)
+=== j5pp SKIPPED: fsucc's word is 'quiet', not fires:<arm>; follow_on_j5pp runs only on three completed F' ft rows (03:02:59)
+-- q-j6a.log ('===' lines and the fsucc reason lines)
+=== j6a DEFERRED to the re-plan: fsucc was quiet, but these pins are UNSET: REPLAY_SHARDS REPLAY_SHARDS_SHA256 REPLAY_ATTESTATION REPLAY_ATTESTATION_SHA256 REPLAY_WEIGHT (fail-closed until the lead fills them from the replay lane's HANDOFF); J6(a) NOT RUN (03:02:59)
+-- q-j6ctl.log ('===' lines and the fsucc reason lines)
+=== j6ctl at 3460afc: J6(d)-v4 first (successor reads it), then J6(f)-v4 (03:02:56)
+=== J6(d)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:02:56)
+=== J6(d)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:02:57)
+=== J6(d)-v4 option control done (exit 0) (03:02:57)
+=== J6(f)-v4 letter control at 3460afc -> /home/ubuntu/ledger/gh200-j6-v4-ablations-2026-10-01.jsonl (03:02:57)
+=== J6(f)-v4 letter control done (exit 3; 3 with a row written is F seed 0's c89b89a1 case) (03:02:58)
+=== J6(f)-v4 option control done (exit 0) (03:02:58)
+=== j6ctl all done (03:02:58)
+-- q-rung0.log ('===' lines and the fsucc reason lines)
+=== rung0 start, out /home/ubuntu/ojas-cuda/rung0-20261002T030257Z (2026-10-02T03:02:57Z)
+=== rung0 done (exit 2; 0 all passed, 1 a check failed, 2 refused, 3 binary cap, 124 outer timeout) (2026-10-02T03:02:57Z)
+-- q-rungd.log ('===' lines and the fsucc reason lines)
+=== rungd at 28000af661a062ae54f4a69b17e8638d83b5e7ba: T-bf16 (cap 3600s), then T-fp32 (cap 10800s) -> /home/ubuntu/ledger/gh200-rungd-torch-2026-10-02.jsonl (03:02:56)
+=== T-bf16 done (exit 0; 1 with the ft row written is the epoch arm's letter-loss claim, 124 the outer backstop); ft row: 69f92368-4c91-43c3-b15d-3ead2746068f (03:02:56)
+=== T-fp32 done (exit 0); ft row: 653bfffd-ccf4-4014-81b8-cd7081773549 (03:02:57)
+=== rungd all done (03:02:57)
+-- queue markers: cudadev.done cudadev.queued cudadev.started f.ckpt-skip fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done gpu.lock j5pp.done j5pp.queued j6a.done j6a.queued j6ctl-j6dv4.letter.started j6ctl-j6f.letter.started j6ctl.done j6ctl.queued j6ctl.started j6dv4.done j6f.done rung0.done rung0.queued rung0.started rungd.done rungd.queued rungd.started 
+
+################ scenario overlay_real_git
+-- no substitution beyond setup()'s rung0 pin (none)
+
+################ scenario rungd_cap_kill
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:48.923289123 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:48.924721710 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/box_q_rungd.sh.orig	2026-10-02 03:02:48.928289136 +0000
++++ post-f/box_q_rungd.sh	2026-10-02 03:02:48.930107474 +0000
+@@ -32,7 +32,7 @@
+ TBF16_CAP_S=3600
+ TFP32_CAP_S=10800
+ # Outer backstops: the tool's own cap plus 1,800 s, the post-F form (32,400 -> 34,200).
+-TBF16_OUTER_S=5400
++TBF16_OUTER_S=3
+ TFP32_OUTER_S=12600
+ trap 'touch queue/rungd.done' EXIT
+ touch $Q/rungd.queued
+-- killer
+killed -9 pid 5826: tools/real_ft_run.py --out /home/ubuntu/phase4-v4-2026-10-01 --no-repo-history --rev 881ab304f15ea13529002391dda8520c2ea47af4 --defect-class data/pool/commitpackft-composed-v1 --defect-download data/p
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+-- q-rungd.log ('===' lines and the fsucc reason lines)
+=== rungd at 28000af661a062ae54f4a69b17e8638d83b5e7ba: T-bf16 (cap 3600s), then T-fp32 (cap 10800s) -> /home/ubuntu/ledger/gh200-rungd-torch-2026-10-02.jsonl (03:02:49)
+=== T-bf16 done (exit 124; 1 with the ft row written is the epoch arm's letter-loss claim, 124 the outer backstop); ft row:  (03:02:52)
+=== T-fp32 done (exit 137); ft row:  (03:02:52)
+=== rungd all done (03:02:52)
+-- queue markers: cudadev.done f.ckpt-skip gpu.lock rungd.done rungd.queued rungd.started 
+
+################ scenario rungd_dirty
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:52.759299002 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:52.760995381 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+-- q-rungd.log ('===' lines and the fsucc reason lines)
+=== /home/ubuntu/perf/overlay-rungd is dirty; refusing (03:02:53)
+-- queue markers: cudadev.done f.ckpt-skip gpu.lock rungd.done rungd.queued rungd.started 
+
+################ scenario rungd_rec_pin
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:53.762301585 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:53.764204673 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+-- q-rungd.log ('===' lines and the fsucc reason lines)
+=== /Users/bharath/.cache/qd-decision/general/fetch-record-2026-09-29.json is sha256 952b7b197640fdc2a9aceff2b1e8367168b582823fde0e7d58a1883b8b923137, not a0841f0d9990bbc0fa8c46ad559e0c33d2f1bedbd2b5e9e30454d4c1d6ba5555; refusing (03:02:54)
+-- queue markers: cudadev.done f.ckpt-skip gpu.lock rungd.done rungd.queued rungd.started 
+
+################ scenario rungd_symlink
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:53.259300289 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:53.261019960 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+-- q-rungd.log ('===' lines and the fsucc reason lines)
+=== rungd: /home/ubuntu/perf/overlay-rungd/data/pool/commitpackft/go.jsonl is not qd-lane8's /home/ubuntu/qwen-decision/data/pool/commitpackft/go.jsonl; NOT RUN (03:02:53)
+-- queue markers: cudadev.done f.ckpt-skip gpu.lock rungd.done rungd.queued rungd.started 
+
+################ scenario succ_fctl_line_never_comes
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:03:26.186385082 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:03:26.187783461 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:03:26.193385100 +0000
++++ post-f/idle_common.sh	2026-10-02 03:03:26.195571981 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+--- post-f/box_q_fsucc.sh.orig	2026-10-02 03:03:26.197385110 +0000
++++ post-f/box_q_fsucc.sh	2026-10-02 03:03:26.199675949 +0000
+@@ -31,7 +31,7 @@
+ # lands minutes after F's last seed (~18 min per seed on the box, q-fcontrols.log), hours before
+ # rungd ends; if the line is still absent this long after, box_f_controls.sh has died, its rows
+ # will not come, and waiting on would only idle the GPU. Then: refused, never quiet.
+-FCTL_WAIT_MAX_S=7200
++FCTL_WAIT_MAX_S=2
+ trap 'touch queue/fsuccgpu.done /home/ubuntu/queue/fsucc.done' EXIT
+ touch $Q/fsucc.queued
+ if [ -e "$SUCC_WORD_FILE" ]; then
+-- fsucc.word: refused
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: refused: '=== F controls all done' is not in /home/ubuntu/logs/q-fcontrols.log 2s after rungd and j6ctl finished (F's letter-control rows are rows successor reads); successor NOT RUN (03:03:28)
+-- queue markers: f.ckpt-skip fsucc.done fsucc.queued fsucc.word fsuccgpu.done j6ctl.done rungd.done 
+
+################ scenario succ_inconsistent_fires-j6f_3_json
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:26.413227849 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:26.414643645 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:02:26.421227873 +0000
++++ post-f/idle_common.sh	2026-10-02 03:02:26.423053504 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+-- fsucc.word: refused
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:02:26)
+=== fsucc: refused: inconsistent checker output (exit 3, stdout 'fires:j6f'); never read as quiet (03:02:26)
+fsucc cannot_clear: []
+=== fsucc: successor word 'refused' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030226432525074.json; word in /home/ubuntu/queue/fsucc.word) (03:02:26)
+=== fsucc: REFUSED: no F'; the human decides (a refusal is never quiet) (03:02:26)
+-- queue markers: f.ckpt-skip fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done j6ctl.done rungd.done 
+
+################ scenario succ_inconsistent_fires_0_json
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:24.317221590 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:24.318507552 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:02:24.325221614 +0000
++++ post-f/idle_common.sh	2026-10-02 03:02:24.326477534 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+-- fsucc.word: refused
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:02:24)
+=== fsucc: refused: inconsistent checker output (exit 0, stdout 'fires'); never read as quiet (03:02:24)
+fsucc cannot_clear: []
+=== fsucc: successor word 'refused' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030224334511100.json; word in /home/ubuntu/queue/fsucc.word) (03:02:24)
+=== fsucc: REFUSED: no F'; the human decides (a refusal is never quiet) (03:02:24)
+-- queue markers: f.ckpt-skip fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done j6ctl.done rungd.done 
+
+################ scenario succ_inconsistent_garbage_0_json
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:26.923229372 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:26.924624918 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:02:26.932229399 +0000
++++ post-f/idle_common.sh	2026-10-02 03:02:26.934149738 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+-- fsucc.word: refused
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:02:26)
+=== fsucc: refused: inconsistent checker output (exit 0, stdout 'garbage'); never read as quiet (03:02:27)
+fsucc cannot_clear: []
+=== fsucc: successor word 'refused' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030226944067726.json; word in /home/ubuntu/queue/fsucc.word) (03:02:27)
+=== fsucc: REFUSED: no F'; the human decides (a refusal is never quiet) (03:02:27)
+-- queue markers: f.ckpt-skip fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done j6ctl.done rungd.done 
+
+################ scenario succ_inconsistent_quiet_0_nojson
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:25.370224735 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:25.372224741 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:02:25.380224764 +0000
++++ post-f/idle_common.sh	2026-10-02 03:02:25.381716394 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+-- fsucc.word: refused
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:02:25)
+=== fsucc: refused: the checker said 'quiet' but wrote no JSON to /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030225393378179.json (03:02:25)
+=== fsucc: successor word 'refused' (no JSON: successor not run; word in /home/ubuntu/queue/fsucc.word) (03:02:25)
+=== fsucc: REFUSED: no F'; the human decides (a refusal is never quiet) (03:02:25)
+-- queue markers: f.ckpt-skip fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done j6ctl.done rungd.done 
+
+################ scenario succ_inconsistent_quiet_2_json
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:24.813223071 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:24.815513745 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:02:24.827223113 +0000
++++ post-f/idle_common.sh	2026-10-02 03:02:24.828591825 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+-- fsucc.word: refused
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:02:24)
+=== fsucc: refused: inconsistent checker output (exit 2, stdout 'quiet'); never read as quiet (03:02:25)
+fsucc cannot_clear: []
+=== fsucc: successor word 'refused' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030224841787156.json; word in /home/ubuntu/queue/fsucc.word) (03:02:25)
+=== fsucc: REFUSED: no F'; the human decides (a refusal is never quiet) (03:02:25)
+-- queue markers: f.ckpt-skip fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done j6ctl.done rungd.done 
+
+################ scenario succ_inconsistent_quiet_3_json
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:23.815220091 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:23.817562973 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:02:23.825220121 +0000
++++ post-f/idle_common.sh	2026-10-02 03:02:23.826670083 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+-- fsucc.word: refused
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:02:23)
+=== fsucc: refused: inconsistent checker output (exit 3, stdout 'quiet'); never read as quiet (03:02:24)
+fsucc cannot_clear: []
+=== fsucc: successor word 'refused' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030223835436818.json; word in /home/ubuntu/queue/fsucc.word) (03:02:24)
+=== fsucc: REFUSED: no F'; the human decides (a refusal is never quiet) (03:02:24)
+-- queue markers: f.ckpt-skip fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done j6ctl.done rungd.done 
+
+################ scenario succ_inconsistent_refused_0_json
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:23.324218624 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:23.325725045 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:02:23.332218648 +0000
++++ post-f/idle_common.sh	2026-10-02 03:02:23.334303154 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+-- fsucc.word: refused
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:02:23)
+=== fsucc: refused: inconsistent checker output (exit 0, stdout 'refused'); never read as quiet (03:02:23)
+fsucc reason: (c) j6f needle_8k_worst_bucket cannot clear
+fsucc reason: (b) fake reason
+fsucc cannot_clear: [{"arm": "j6f", "target": "needle_8k_worst_bucket", "max": "61/61", "min": "40/61", "bound": {"name": "U", "n": 1, "n_total": 1, "value": 1.0}}]
+=== fsucc: successor word 'refused' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030223342702180.json; word in /home/ubuntu/queue/fsucc.word) (03:02:23)
+=== fsucc: REFUSED: no F'; the human decides (a refusal is never quiet) (03:02:23)
+-- queue markers: f.ckpt-skip fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done j6ctl.done rungd.done 
+
+################ scenario succ_inconsistent_refused_3_stringrb
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:25.894226299 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:25.896211389 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:02:25.903226326 +0000
++++ post-f/idle_common.sh	2026-10-02 03:02:25.905226332 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+-- fsucc.word: refused
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:02:25)
+fsucc cannot_clear: []
+=== fsucc: successor word 'refused' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030225913633399.json; word in /home/ubuntu/queue/fsucc.word) (03:02:26)
+=== fsucc: REFUSED: no F'; the human decides (a refusal is never quiet) (03:02:26)
+-- queue markers: f.ckpt-skip fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done j6ctl.done rungd.done 
+
+################ scenario succ_missing_arm_id
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:27.916232338 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:27.917355175 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:02:27.924232362 +0000
++++ post-f/idle_common.sh	2026-10-02 03:02:27.925848242 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+-- fsucc.word: refused
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: refused: no 'ft row' id in the log of: J6(d)-v4 (/home/ubuntu/j6d-v4/train.log); successor NOT RUN (03:02:27)
+=== fsucc: successor word 'refused' (no JSON: successor not run; word in /home/ubuntu/queue/fsucc.word) (03:02:27)
+=== fsucc: REFUSED: no F'; the human decides (a refusal is never quiet) (03:02:27)
+-- queue markers: f.ckpt-skip fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done j6ctl.done rungd.done 
+
+################ scenario succ_reasons_list
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:27.427230878 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:27.428416214 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:02:27.437230907 +0000
++++ post-f/idle_common.sh	2026-10-02 03:02:27.438791037 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+-- fsucc.word: refused
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: successor on F ft rows 973cd4e3-e0d2-4ff8-8588-b761cb842b75 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222, J6(f)-v4 aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, J6(d)-v4 dddddddd-dddd-4ddd-8ddd-dddddddddddd (03:02:27)
+fsucc reason: (c) j6f needle_8k_worst_bucket cannot clear
+fsucc reason: (b) fake reason
+fsucc cannot_clear: [{"arm": "j6f", "target": "needle_8k_worst_bucket", "max": "61/61", "min": "40/61", "bound": {"name": "U", "n": 1, "n_total": 1, "value": 1.0}}]
+=== fsucc: successor word 'refused' (JSON /home/ubuntu/ledger/idle-decisions-2026-10-02/fsucc-successor-20261002T030227447437396.json; word in /home/ubuntu/queue/fsucc.word) (03:02:27)
+=== fsucc: REFUSED: no F'; the human decides (a refusal is never quiet) (03:02:27)
+-- queue markers: f.ckpt-skip fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done j6ctl.done rungd.done 
+
+################ scenario succ_twice
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:28.213233225 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:28.214917522 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+--- post-f/idle_common.sh.orig	2026-10-02 03:02:28.222233252 +0000
++++ post-f/idle_common.sh	2026-10-02 03:02:28.223628923 +0000
+@@ -18,7 +18,7 @@
+ # as is to a NEW path. bin/qd-post-f-rules and RULES_SHA256 (cadbdc74...) are not
+ # touched; $RULES stays the binary for ft-rows / eval-row.
+ RULES_SUCC=bin/qd-post-f-rules-succ
+-RULES_SUCC_SHA256=be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62
++RULES_SUCC_SHA256=366a68e8730629112503fd668556d8b13db553b77fd2af670aa6e60cc53632fd
+ 
+ # Decisions of this queue (new directory; post-F's $DEC is not written).
+ IDLE_DEC=ledger/idle-decisions-2026-10-02
+-- fsucc.word: quiet
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== fsucc: /home/ubuntu/queue/fsucc.word already exists ('quiet'): the successor was decided once; not deciding again (03:02:28)
+-- queue markers: f.ckpt-skip fsucc.done fsucc.queued fsucc.word fsuccgpu.done j6ctl.done rungd.done 
+
+################ scenario succ_wrong_pin
+-- substitutions in the test copies (the only differences from the committed scripts)
+--- post-f/box_q_rung0.sh.orig	2026-10-02 03:02:28.494234064 +0000
++++ post-f/box_q_rung0.sh	2026-10-02 03:02:28.496086778 +0000
+@@ -20,7 +20,7 @@
+ BIN=bin/ojas-qwen35-cuda-rung0
+ # sha256 of the file copied from the Mac at
+ # /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda/aarch64-unknown-linux-gnu/release/rung0
+-BIN_SHA256=04ab105afcbf315d97f439f18c0baf73c659fd8d880ad34547419aa5ac9224f7
++BIN_SHA256=52e522edc690da764a42db59d95d90f1ffe80dd8a748bbbdca1f5058eb7a3c4c
+ NV=qd-venv/lib/python3.12/site-packages/nvidia
+ say() { echo "=== $* ($(date -u +%Y-%m-%dT%H:%M:%SZ))"; }
+ trap 'touch queue/rung0.done' EXIT
+-- fsucc.word: refused
+-- q-fcontrols.log ('===' lines and the fsucc reason lines)
+=== F seed 2 option control done (exit 0), 12:00
+=== F controls all done
+-- q-fsucc.log ('===' lines and the fsucc reason lines)
+=== /home/ubuntu/bin/qd-post-f-rules-succ is sha256 02f3f6589fd409190411413f332ffcdcdb8193354ab05d9fa4b59388b15a00d1, not be02029779eca1510c75f24e22c23cf7d762f1d87bbbca08b238ff9aede5eb62; refusing (03:02:28)
+=== fsucc: refused: the successor binary is not the pinned one; NOT RUN (03:02:28)
+=== fsucc: successor word 'refused' (no JSON: successor not run; word in /home/ubuntu/queue/fsucc.word) (03:02:28)
+=== fsucc: REFUSED: no F'; the human decides (a refusal is never quiet) (03:02:28)
+-- queue markers: f.ckpt-skip fsucc.done fsucc.queued fsucc.started fsucc.word fsuccgpu.done j6ctl.done rungd.done 

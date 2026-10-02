@@ -1,0 +1,62 @@
+== argv checks (2026-10-02T02:59:27Z), lane L-waiters
+== method: each real_ft_run.py argv the dry-run waiters recorded (out/<scenario>/calls.log) goes
+   through main() of a git archive of the commit its checkout is pinned to, with resolve_rev (the
+   first disk read after every argv-time refusal) replaced by a sentinel. /home/ubuntu is mapped
+   to a Mac directory; nothing else is changed. torch 2.12.1 on this Mac (the box has 2.10.0).
+   archives: git archive a502670 tools python; git archive 28000af tools python
+
+== 1. rung (d) arms (box_q_rungd.sh) at main 28000af, the overlay's commit
+
+$ argv_check.py argv/28000af argv/root rungd sim/out/chain_fires_j6f/calls.log sim/out/chain_fires_j6dv4/calls.log
+ARGV OK   seed 0 [--epoch --lower-layers-n --max-steps] from chain_fires_j6f
+ARGV OK   seed 0 [--epoch --lower-layers-n --max-steps --train-dtype] from chain_fires_j6f
+== 28000af: 2 ARGV OK, 0 refused or unexpected
+exit 0
+
+== 2. F' (both arms), J5'' (both arms), J6(a) at a502670, qd-lane8's commit
+
+$ argv_check.py argv/a502670 argv/root lane8 sim/out/chain_fires_j6f/calls.log sim/out/chain_fires_j6dv4/calls.log sim/out/j6a_run/calls.log
+ARGV OK   seed 0 [--epoch] from chain_fires_j6f
+ARGV OK   seed 0 [--needle-control] from chain_fires_j6f
+ARGV OK   seed 1 [--epoch] from chain_fires_j6f
+ARGV OK   seed 1 [--needle-control] from chain_fires_j6f
+ARGV OK   seed 2 [--epoch] from chain_fires_j6f
+ARGV OK   seed 2 [--needle-control] from chain_fires_j6f
+ARGV OK   seed 0 [--epoch --shuffled-label] from chain_fires_j6f
+ARGV OK   seed 1 [--epoch --shuffled-label] from chain_fires_j6f
+ARGV OK   seed 2 [--epoch --shuffled-label] from chain_fires_j6f
+ARGV OK   seed 0 [--beta2 --epoch --lower-layers-n] from chain_fires_j6dv4
+ARGV OK   seed 0 [--needle-control] from chain_fires_j6dv4
+ARGV OK   seed 1 [--beta2 --epoch --lower-layers-n] from chain_fires_j6dv4
+ARGV OK   seed 1 [--needle-control] from chain_fires_j6dv4
+ARGV OK   seed 2 [--beta2 --epoch --lower-layers-n] from chain_fires_j6dv4
+ARGV OK   seed 2 [--needle-control] from chain_fires_j6dv4
+ARGV OK   seed 0 [--beta2 --epoch --lower-layers-n --shuffled-label] from chain_fires_j6dv4
+ARGV OK   seed 1 [--beta2 --epoch --lower-layers-n --shuffled-label] from chain_fires_j6dv4
+ARGV OK   seed 2 [--beta2 --epoch --lower-layers-n --shuffled-label] from chain_fires_j6dv4
+ARGV OK   seed 0 [--epoch --lower-layers-n --replay-shards] from j6a_run
+ARGV OK   seed 0 [--needle-control] from j6a_run
+== a502670: 20 ARGV OK, 0 refused or unexpected
+exit 0
+
+== 3. negative controls (each must be REFUSED)
+-- T-fp32 + --train-attention-mask none, at 28000af
+
+$ argv_check.py argv/28000af argv/root rungd argv/neg-rungd/calls.log
+REFUSED   seed 0 [--epoch --lower-layers-n --max-steps --train-dtype] from neg-rungd: --train-dtype fp32 with --train-attention-mask none: the no-mask forward runs inside sdpa_kernel([FLASH_ATTENTION]) (QwenDecisionStep.training_attention), and CUDA's flash backend takes Half/BFloat16 only (torch v2.10.0, aten/src/ATen/native/transformers/cuda/sdp_utils.cpp: can_use_flash_attention runs check_dtypes_low_precision), so on the GH200 there is no fp32 kernel and the first forward would raise 'No available kernel'. CPU's flash kernel would take fp32, but no arm runs there. Train fp32 with the paddi
+== 28000af: 0 ARGV OK, 1 refused or unexpected
+exit 1
+-- F' seed 0 without --approved-by; J6(a) without --replay-weight, at a502670
+
+$ argv_check.py argv/a502670 argv/root lane8 argv/neg-lane8/calls.log
+REFUSED   seed 0 [--epoch] from neg-lane8: rule 4: lambda-1xgh200: 0 GPU(s) at $2.29/h per instance, capped at 9.00 h -> $20.61 at the cap -- NEEDS A HUMAN YES. Each arm of each seed carries this cap, so each needs a human yes: pass --approved-by '<who said yes>' once a human has. An agent cannot supply it on a human's behalf.
+REFUSED   seed 0 [--epoch --lower-layers-n --replay-shards] from neg-lane8: --replay-shards needs --replay-weight
+== a502670: 0 ARGV OK, 2 refused or unexpected
+exit 1
+-- the rung (d) arms at a502670 (the flags do not exist there: argparse exit 2)
+
+$ argv_check.py argv/a502670 argv/root rungd sim/out/chain_fires_j6f/calls.log
+REFUSED   seed 0 [--epoch --lower-layers-n --max-steps] from chain_fires_j6f: 2
+REFUSED   seed 0 [--epoch --lower-layers-n --max-steps --train-dtype] from chain_fires_j6f: 2
+== a502670: 0 ARGV OK, 2 refused or unexpected
+exit 1
