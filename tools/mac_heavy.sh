@@ -10,7 +10,8 @@
 # for every Lappi lane:
 #
 # - The lock is an atomic `mkdir` of $MAC_HEAVY_LOCK. It defaults to the main checkout's
-#   gitignored .claude/mac-heavy.lock.d, so every worktree shares it.
+#   gitignored build/mac-heavy.lock.d, so every worktree shares it. (.claude/ is a path the
+#   harness protects from writes.)
 # - The script waits up to $MAC_HEAVY_MAX_WAIT_S (default 4 h). Then it fails with exit 75 and
 #   never runs unlocked.
 # - It refuses with exit 74 when the data volume has under $MAC_HEAVY_MIN_FREE_GB (default 15) GB
@@ -31,7 +32,7 @@ fi
 LABEL=$1
 shift
 
-LOCK=${MAC_HEAVY_LOCK:-/Users/bharath/Code/research/Lappi-decision/.claude/mac-heavy.lock.d}
+LOCK=${MAC_HEAVY_LOCK:-/Users/bharath/Code/research/Lappi-decision/build/mac-heavy.lock.d}
 MAX_WAIT=${MAC_HEAVY_MAX_WAIT_S:-14400}
 MIN_FREE_GB=${MAC_HEAVY_MIN_FREE_GB:-15}
 POLL=${MAC_HEAVY_POLL_S:-20}
