@@ -168,6 +168,11 @@ The test must print 12 passed. The row records the binary's sha256 as `recipe.bi
     jq -c 'select(.run_kind=="eval" and .recipe.tag=="epoch-score-val") | {row_id, seed: .protocol.seed, ft: .metrics.ft_run_row_id.value, decoded: (.metrics.val_rows_decoded | {n, n_total})}' /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/box/gh200-p4-v4-2026-10-01.jsonl
     head -1 /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/box/verdicts-s0.jsonl | jq -c '{eval_row_id, seed}'
     jq -r 'select(.kind != "span") | has("row_logits")' /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/box/verdicts-s0.jsonl | sort | uniq -c
+    jq -r '.gate' /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/box/suite-verdicts-s0.jsonl | sort | uniq -c
+
+The last command must print only `needle_hunk_recall` and `ood_abstain`. `qd-gate-report`
+refuses any other suite gate (`read_suite`, "unknown suite gate"). If another value appears,
+drop `--suite-verdicts` in steps 7 and 8 and record it in the lead's handoff.
 
 Expected for seed 0:
 - row `f4feac15-db49-4159-bb9b-695866c855cc`, ft `973cd4e3…`, `decoded` 18223/18223;
