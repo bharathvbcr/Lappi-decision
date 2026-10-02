@@ -1,0 +1,248 @@
+{
+ "p01": {
+  "unstripped (L-prep2)": {
+   "template_strip_applied": false,
+   "pairs": 46,
+   "identity_keys_excluded": 20,
+   "clean": true,
+   "groups": {
+    "CLINC (intent.*)": "8/246",
+    "MMLU (knowledge.multiple_choice)": "0/128",
+    "CSQA (commonsense.multiple_choice)": "0/74",
+    "SQuAD answer_span": "0/1075",
+    "code.defect_class": "12/765"
+   }
+  },
+  "version 1 (L-prep2)": {
+   "template_strip_applied": true,
+   "pairs": 284,
+   "identity_keys_excluded": 163,
+   "clean": true,
+   "groups": {
+    "CLINC (intent.*)": "155/246",
+    "MMLU (knowledge.multiple_choice)": "0/128",
+    "CSQA (commonsense.multiple_choice)": "0/74",
+    "SQuAD answer_span": "0/1075",
+    "code.defect_class": "8/765"
+   }
+  },
+  "version 2 (L-prep3)": {
+   "template_strip_applied": true,
+   "pairs": 32,
+   "identity_keys_excluded": 8,
+   "clean": true,
+   "groups": {
+    "CLINC (intent.*)": "0/246",
+    "MMLU (knowledge.multiple_choice)": "0/128",
+    "CSQA (commonsense.multiple_choice)": "0/74",
+    "SQuAD answer_span": "0/1075",
+    "code.defect_class": "8/765"
+   }
+  },
+  "version 2 key_ii_blind per set (identity keys)": {
+   "heldout": 2,
+   "heldout-family:code.language_id": 0,
+   "heldout-family:qa.answerability": 0,
+   "train": 102,
+   "val": 4
+  },
+  "version 2 too_short_after_strip per intent.* family-slot per set": {
+   "intent.classification/intent": {
+    "heldout": 2,
+    "train": 102,
+    "val": 4
+   },
+   "intent.domain/domain": {
+    "heldout": 2,
+    "train": 102,
+    "val": 4
+   },
+   "intent.in_scope/in_scope": {
+    "heldout": 2,
+    "train": 102,
+    "val": 4
+   },
+   "intent.within_domain/intent": {
+    "heldout": 2,
+    "train": 102,
+    "val": 4
+   }
+  },
+  "version 2 distinct option values per (2b) family-slot": {
+   "intent.classification/intent": 128,
+   "intent.domain/domain": 10,
+   "intent.in_scope/in_scope": 2,
+   "intent.within_domain/intent": 150
+  },
+  "non_intent_pair_rows": {
+   "version 1": 32,
+   "version 2": 32,
+   "byte_identical": true,
+   "sha256": "6a836a1dfceabf14d9b784dd3106117383d18250f6b9de81ac355be7f6517a41"
+  }
+ },
+ "p02": {
+  "unstripped (L-prep2)": {
+   "template_strip_applied": false,
+   "pairs": 136,
+   "identity_keys_excluded": 84,
+   "clean": true,
+   "groups": {
+    "CLINC (intent.*)": "39/464",
+    "MMLU (knowledge.multiple_choice)": "25/278",
+    "CSQA (commonsense.multiple_choice)": "0/178",
+    "SQuAD answer_span": "0/2109",
+    "code.defect_class": "20/1499"
+   }
+  },
+  "version 1 (L-prep2)": {
+   "template_strip_applied": true,
+   "pairs": 1265,
+   "identity_keys_excluded": 309,
+   "clean": true,
+   "groups": {
+    "CLINC (intent.*)": "293/464",
+    "MMLU (knowledge.multiple_choice)": "0/278",
+    "CSQA (commonsense.multiple_choice)": "0/178",
+    "SQuAD answer_span": "0/2109",
+    "code.defect_class": "16/1499"
+   }
+  },
+  "version 2 (L-prep3)": {
+   "template_strip_applied": true,
+   "pairs": 64,
+   "identity_keys_excluded": 16,
+   "clean": true,
+   "groups": {
+    "CLINC (intent.*)": "0/464",
+    "MMLU (knowledge.multiple_choice)": "0/278",
+    "CSQA (commonsense.multiple_choice)": "0/178",
+    "SQuAD answer_span": "0/2109",
+    "code.defect_class": "16/1499"
+   }
+  },
+  "version 2 key_ii_blind per set (identity keys)": {
+   "heldout": 7,
+   "heldout-family:code.language_id": 0,
+   "heldout-family:qa.answerability": 0,
+   "train": 197,
+   "val": 9
+  },
+  "version 2 too_short_after_strip per intent.* family-slot per set": {
+   "intent.classification/intent": {
+    "heldout": 7,
+    "train": 197,
+    "val": 9
+   },
+   "intent.domain/domain": {
+    "heldout": 7,
+    "train": 197,
+    "val": 9
+   },
+   "intent.in_scope/in_scope": {
+    "heldout": 7,
+    "train": 197,
+    "val": 9
+   },
+   "intent.within_domain/intent": {
+    "heldout": 7,
+    "train": 197,
+    "val": 9
+   }
+  },
+  "version 2 distinct option values per (2b) family-slot": {
+   "intent.classification/intent": 145,
+   "intent.domain/domain": 10,
+   "intent.in_scope/in_scope": 2,
+   "intent.within_domain/intent": 150
+  },
+  "non_intent_pair_rows": {
+   "version 1": 64,
+   "version 2": 64,
+   "byte_identical": true,
+   "sha256": "78d4734436e8779b8b4b7afcf7434b92ef6e6ea939b7aee756dac891310d1061"
+  }
+ },
+ "p05": {
+  "unstripped (L-prep2)": {
+   "template_strip_applied": false,
+   "pairs": 874,
+   "identity_keys_excluded": 439,
+   "clean": true,
+   "groups": {
+    "CLINC (intent.*)": "338/1089",
+    "MMLU (knowledge.multiple_choice)": "47/635",
+    "CSQA (commonsense.multiple_choice)": "0/487",
+    "SQuAD answer_span": "0/5268",
+    "code.defect_class": "54/3691"
+   }
+  },
+  "version 1 (L-prep2)": {
+   "template_strip_applied": true,
+   "pairs": 8169,
+   "identity_keys_excluded": 762,
+   "clean": true,
+   "groups": {
+    "CLINC (intent.*)": "721/1089",
+    "MMLU (knowledge.multiple_choice)": "1/635",
+    "CSQA (commonsense.multiple_choice)": "0/487",
+    "SQuAD answer_span": "0/5268",
+    "code.defect_class": "40/3691"
+   }
+  },
+  "version 2 (L-prep3)": {
+   "template_strip_applied": true,
+   "pairs": 162,
+   "identity_keys_excluded": 41,
+   "clean": true,
+   "groups": {
+    "CLINC (intent.*)": "0/1089",
+    "MMLU (knowledge.multiple_choice)": "1/635",
+    "CSQA (commonsense.multiple_choice)": "0/487",
+    "SQuAD answer_span": "0/5268",
+    "code.defect_class": "40/3691"
+   }
+  },
+  "version 2 key_ii_blind per set (identity keys)": {
+   "heldout": 34,
+   "heldout-family:code.language_id": 0,
+   "heldout-family:qa.answerability": 0,
+   "train": 451,
+   "val": 21
+  },
+  "version 2 too_short_after_strip per intent.* family-slot per set": {
+   "intent.classification/intent": {
+    "heldout": 34,
+    "train": 451,
+    "val": 21
+   },
+   "intent.domain/domain": {
+    "heldout": 34,
+    "train": 451,
+    "val": 21
+   },
+   "intent.in_scope/in_scope": {
+    "heldout": 34,
+    "train": 451,
+    "val": 21
+   },
+   "intent.within_domain/intent": {
+    "heldout": 34,
+    "train": 451,
+    "val": 21
+   }
+  },
+  "version 2 distinct option values per (2b) family-slot": {
+   "intent.classification/intent": 150,
+   "intent.domain/domain": 10,
+   "intent.in_scope/in_scope": 2,
+   "intent.within_domain/intent": 150
+  },
+  "non_intent_pair_rows": {
+   "version 1": 162,
+   "version 2": 162,
+   "byte_identical": true,
+   "sha256": "27fc70478c8842ee8b7c9b3b9a89df3676c6cca7ab7c6402aaaff9b020228098"
+  }
+ }
+}
