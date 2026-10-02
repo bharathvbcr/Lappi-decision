@@ -39,6 +39,13 @@
 //!   structured field that disagrees with this code refuses, and the six values it pins by
 //!   amendment (top-level `amendments`) must be present and repeated on the command line.
 //!   Words: `wins`, `quiet`, `refused`.
+//! * `j6g` — (vi) does J6(g), F plus `--option-permutation-seed 20260919` on v4, win against F's
+//!   envelope? (`campaign/j6g-preregistered.json`, dec48d8: Fable's 2026-10-02 optimize ruling,
+//!   Q1(b) and Q3.) J6(a)'s targets and guards, with the successor's envelope, comparison and
+//!   R9_room, under J6(g)'s own identity: F's data snapshot, and F seed 0's ft recipe (973cd4e3)
+//!   plus exactly `option_permutation_seed = 20260919`; any other difference refuses. The
+//!   pre-registration is read at run time and must agree with this code, the identity it states
+//!   included. Words: `wins`, `quiet`, `refused`.
 //!
 //! Look-ups (ids on stdout, JSON on stderr): `ft-rows` checks a set of ft rows can be averaged
 //! or ensembled (completed, not quick, tag `epoch`, the seed claimed, one recipe and one data
@@ -314,6 +321,31 @@ enum Cmd {
         /// The full hit list's sha256; must equal amendments.hit_list_sha256.
         #[arg(long)]
         hit_list_sha256: String,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// (vi) Does J6(g) (F + train-time option permutation) win against F's envelope? Prints
+    /// `wins`, `quiet` or `refused` (anything could not be read, an identity, data or
+    /// comparability check failed, the pre-registration disagrees with this checker, or a target
+    /// has no room: R9_room).
+    J6g {
+        /// campaign/j6g-preregistered.json as committed; read at run time and its sha256
+        /// recorded. Its structured fields and stated identity must agree with this checker.
+        #[arg(long)]
+        preregistration: PathBuf,
+        /// F's ledger: the envelope's ft and epoch-score-val rows.
+        #[arg(long)]
+        f_ledger: PathBuf,
+        /// `SEED=FT_ROW_ID` for F's seeds 0, 1 and 2 exactly, in order (the envelope pin); seed
+        /// 0's must be 973cd4e3-e0d2-4ff8-8588-b761cb842b75.
+        #[arg(long = "ft-row", required = true, value_parser = parse_ft_row)]
+        ft_rows: Vec<(i64, String)>,
+        /// J6(g)'s ledger (arm.ledger): its ft and epoch-score-val rows (R2).
+        #[arg(long)]
+        arm_ledger: PathBuf,
+        /// `0=FT_ROW_ID` of J6(g)'s run (from /home/ubuntu/j6g-v4/train.log).
+        #[arg(long, value_parser = parse_ft_row)]
+        j6g_ft_row: (i64, String),
         #[arg(long)]
         out: PathBuf,
     },
@@ -2276,10 +2308,14 @@ fn listed(m: Metric) -> (&'static str, &'static str, &'static str) {
     (m.name, dir_word(m.dir), form)
 }
 
-/// The pre-registration's structured fields agree with this code: its words, its targets and
-/// guards (name, direction and form, in order) and its replay flags. A disagreement refuses: the
-/// file is what binds, and a checker applying anything else applies a rule nobody registered.
-fn j6a_agrees(p: &Map<String, Value>) -> Result<()> {
+/// The pre-registration's outcome words and its arm's targets and guards (name, direction and
+/// form, in order) agree with this code's `words` and `checked`. Returns the arm object, for the
+/// fields a rule checks on its own. Shared by j6a and j6g.
+fn arm_agrees<'p>(
+    p: &'p Map<String, Value>,
+    want_words: &[&str],
+    checked: &Arm,
+) -> Result<&'p Map<String, Value>> {
     let words: Vec<&str> = p
         .get("outcomes")
         .and_then(|o| o.get("words"))
@@ -2287,16 +2323,16 @@ fn j6a_agrees(p: &Map<String, Value>) -> Result<()> {
         .map(|w| w.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
     ensure!(
-        words == J6A_WORDS,
-        "the pre-registration's outcomes.words are {words:?}, not this checker's {J6A_WORDS:?}"
+        words == want_words,
+        "the pre-registration's outcomes.words are {words:?}, not this checker's {want_words:?}"
     );
     let arm = p
         .get("arm")
         .and_then(Value::as_object)
         .ok_or("the pre-registration has no arm object")?;
     for (list, want) in [
-        ("targets", ARM_J6A.targets.to_vec()),
-        ("guards", ARM_J6A.must_not_lose()),
+        ("targets", checked.targets.to_vec()),
+        ("guards", checked.must_not_lose()),
     ] {
         let got: Vec<(&str, &str, &str)> = arm
             .get(list)
@@ -2321,6 +2357,14 @@ fn j6a_agrees(p: &Map<String, Value>) -> Result<()> {
             "the pre-registration's arm.{list} are {got:?}, not this checker's {want:?}"
         );
     }
+    Ok(arm)
+}
+
+/// The pre-registration's structured fields agree with this code: its words, its targets and
+/// guards (name, direction and form, in order) and its replay flags. A disagreement refuses: the
+/// file is what binds, and a checker applying anything else applies a rule nobody registered.
+fn j6a_agrees(p: &Map<String, Value>) -> Result<()> {
+    let arm = arm_agrees(p, &J6A_WORDS, &ARM_J6A)?;
     let flags = arm.get("replay_flags").unwrap_or(&Value::Null);
     ensure!(
         flags["replay_weight"].as_f64() == Some(REPLAY_WEIGHT)
@@ -2517,6 +2561,277 @@ fn rule_j6a(
     s.finish(word, "no reading; the human decides from the rows")
 }
 
+// --- (vi): j6g, campaign/j6g-preregistered.json ------------------------------------------------
+//
+// J6(g) (F plus --option-permutation-seed 20260919 on v4, seed 0, quick) read against F's seeds
+// 0-2 with the successor's envelope, comparison and R9_room (`decide_arms`, `settle`), on J6(a)'s
+// targets and guards, under its own identity (`option_identity`): F's data snapshot (R8's
+// equality holds, since J6(g) changes no data), and F seed 0's ft recipe plus exactly one key.
+// The pre-registration is read at run time: its structured fields and the identity it states
+// must agree with this code, and a disagreement refuses (R1: an amendment that admits more
+// recipe keys refuses here until the checker follows it).
+
+/// The file as registered; the text a decision applied is the one whose sha256 it records.
+const PREREG_J6G: &str = "campaign/j6g-preregistered.json (dec48d8)";
+/// The pre-registration's own words for the outcome.
+const J6G_WORDS: [&str; 3] = ["wins", "quiet", "refused"];
+/// J6(g)'s outcomes.refused calls a row / identity / data / comparability failure (a), no room (b).
+const J6G_LABELS: Labels = Labels {
+    unreadable: "(a)",
+    no_room: "(b)",
+};
+/// arm.identity.ft_row: code_commit a502670, as F's 973cd4e3 (the commit J6(a) also runs at).
+const J6G_CODE_COMMIT: &str = J6A_CODE_COMMIT;
+/// arm.identity.recipe: "except exactly one added key: option_permutation_seed = 20260919".
+const OPTION_PERMUTATION_KEY: &str = "option_permutation_seed";
+const OPTION_PERMUTATION_SEED: i64 = 20_260_919;
+/// arm.identity.recipe: "Equal to F seed 0's ft recipe (973cd4e3)". The envelope's seed-0 ft row
+/// must be this row, so a wrong F ledger cannot supply the recipe J6(g) is compared with.
+const J6G_F_SEED0_FT: &str = "973cd4e3-e0d2-4ff8-8588-b761cb842b75";
+/// arm.identity.ft_row: "protocol.data_snapshot_hash equal to F's ea3215c4...".
+const J6G_F_DATA_SNAPSHOT_HASH: &str =
+    "ea3215c4f36d57f74d291fb94c3fa8724fa5a14a303ea7572aa0dafb2a0933a1";
+/// arm.identity.eval_row: "recipe.val_shard_hash = ef06ab99... (F's)".
+const J6G_F_VAL_SHARD_HASH: &str =
+    "ef06ab99eef107dd608424c80117b81b3986ce5ea827d2d4f47f990d960b1bc5";
+/// arm.identity.recipe: "batches (9683) and width (7936)", F seed 0's; R1 compares them like
+/// every other key, since J6(g) changes no data.
+const J6G_F_BATCHES: i64 = 9683;
+const J6G_F_WIDTH: i64 = 7936;
+
+/// J6(g): F plus train-time option permutation. J6(a)'s four targets (MMLU / CSQA permutation
+/// consistency, higher; in-distribution abstention, lower) and its guards: the successor's base
+/// list, then defect_class in-distribution abstention and the three OOD categories. It reads no
+/// needle-control or letter-control row. Its identity is `option_identity`, not a delta.
+const ARM_J6G: Arm = Arm {
+    name: "j6g",
+    word: "wins",
+    delta: &[],
+    targets: &[
+        PERM_KNOWLEDGE,
+        PERM_COMMONSENSE,
+        ID_ABSTAIN_KNOWLEDGE,
+        ID_ABSTAIN_COMMONSENSE,
+    ],
+    guards: &[ID_ABSTAIN_DC, PROSE, SCRAMBLED, UNSEEN],
+};
+
+/// The identity this checker applies, as the pre-registration states it: (arm.identity key, a
+/// phrase its text must hold). An amended identity changes the text and refuses until the
+/// checker follows it.
+fn j6g_identity_text() -> [(&'static str, String); 7] {
+    [
+        ("ft_row", format!("code_commit {J6G_CODE_COMMIT}")),
+        ("ft_row", "quick true".to_string()),
+        (
+            "ft_row",
+            format!("protocol.data_snapshot_hash equal to F's {J6G_F_DATA_SNAPSHOT_HASH}"),
+        ),
+        (
+            "recipe",
+            "Equal to F seed 0's ft recipe (973cd4e3), including shard_hash, batches (9683) and \
+             width (7936)"
+                .to_string(),
+        ),
+        (
+            "recipe",
+            format!(
+                "except exactly one added key: {OPTION_PERMUTATION_KEY} = \
+                 {OPTION_PERMUTATION_SEED}. Any other difference refuses."
+            ),
+        ),
+        ("eval_row", "tag epoch-score-val".to_string()),
+        (
+            "eval_row",
+            format!("recipe.val_shard_hash = {J6G_F_VAL_SHARD_HASH}"),
+        ),
+    ]
+}
+
+/// The pre-registration's structured fields agree with this code: its words, its targets and
+/// guards (name, direction and form, in order), the option permutation's seed, and the identity
+/// it states (`j6g_identity_text`). A disagreement refuses before any ledger is read.
+fn j6g_agrees(p: &Map<String, Value>) -> Result<()> {
+    let arm = arm_agrees(p, &J6G_WORDS, &ARM_J6G)?;
+    let seed = arm.get("option_permutation").and_then(|o| o.get("seed"));
+    ensure!(
+        seed.and_then(Value::as_i64) == Some(OPTION_PERMUTATION_SEED),
+        "the pre-registration's arm.option_permutation.seed is {}, not this checker's \
+         {OPTION_PERMUTATION_SEED}",
+        seed.map_or("absent".to_string(), Value::to_string)
+    );
+    let identity = arm
+        .get("identity")
+        .and_then(Value::as_object)
+        .ok_or("the pre-registration has no arm.identity object")?;
+    for (key, phrase) in j6g_identity_text() {
+        let text = identity.get(key).and_then(Value::as_str).unwrap_or("");
+        ensure!(
+            text.contains(&phrase),
+            "the pre-registration's arm.identity.{key} does not say {phrase:?}, which is the \
+             identity this checker applies"
+        );
+    }
+    Ok(())
+}
+
+/// J6(g)'s own identity (arm.identity.ft_row and .recipe): the ft row is quick (one seed, by
+/// construction), at a502670, on F's data snapshot, and its recipe is F seed 0's (973cd4e3) plus
+/// exactly `option_permutation_seed = 20260919`; F's own recipe must not carry that key. Every
+/// protocol key but recipe_hash (a hash of the recipe, which differs by that key) equals F seed
+/// 0's: any data difference refuses (declared_data_delta). Every failure is listed, not only the
+/// first, so F's own row read as J6(g) names the missing key beside `quick`. Returns what it
+/// checked, for the JSON.
+fn option_identity(arm: &Arm, ft: &Row, reference: &Row) -> Result<Value> {
+    let what = format!("arm {} ft row {}", arm.name, ft.id());
+    let shown = |v: Option<&Value>| v.map_or("absent".to_string(), Value::to_string);
+    let mut wrong: Vec<String> = Vec::new();
+    if reference.id() != J6G_F_SEED0_FT {
+        wrong.push(format!(
+            "the envelope's seed-0 ft row is {}, not F seed 0's {J6G_F_SEED0_FT}, whose recipe \
+             arm.identity.recipe names",
+            reference.id()
+        ));
+    }
+    if ft.get(&["quick"]) != Some(&Value::Bool(true)) {
+        wrong.push(format!(
+            "quick is {}, but J6(g) is one seed and quick by construction",
+            shown(ft.get(&["quick"]))
+        ));
+    }
+    if ft.str_at(&["code_commit"]) != Some(J6G_CODE_COMMIT) {
+        wrong.push(format!(
+            "code_commit {:?} is not {J6G_CODE_COMMIT} (a502670, as F's 973cd4e3)",
+            ft.str_at(&["code_commit"])
+        ));
+    }
+    let data = ft.str_at(&["protocol", "data_snapshot_hash"]);
+    if data != Some(J6G_F_DATA_SNAPSHOT_HASH) {
+        wrong.push(format!(
+            "data snapshot {data:?} is not F's {J6G_F_DATA_SNAPSHOT_HASH}: J6(g) trains on F's \
+             data (declared_data_delta: none)"
+        ));
+    }
+    match (
+        ft.get(&["protocol"]).and_then(Value::as_object),
+        reference.get(&["protocol"]).and_then(Value::as_object),
+    ) {
+        (Some(got), Some(base)) => {
+            let keys: BTreeSet<&String> = got.keys().chain(base.keys()).collect();
+            for key in keys {
+                if key != "recipe_hash" && got.get(key) != base.get(key) {
+                    wrong.push(format!(
+                        "protocol.{key} is {}, not F seed 0's {}",
+                        shown(got.get(key)),
+                        shown(base.get(key))
+                    ));
+                }
+            }
+        }
+        _ => wrong.push("it or F seed 0's ft row has no protocol object".to_string()),
+    }
+    let (got, base) = (recipe_of(ft, &what)?, recipe_of(reference, &what)?);
+    if let Some(v) = base.get(OPTION_PERMUTATION_KEY) {
+        wrong.push(format!(
+            "envelope ft row {}: recipe.{OPTION_PERMUTATION_KEY} is {v}, but F trained without \
+             option permutation",
+            reference.id()
+        ));
+    }
+    match got.get(OPTION_PERMUTATION_KEY) {
+        Some(v) if v.as_i64() == Some(OPTION_PERMUTATION_SEED) => {}
+        v => wrong.push(format!(
+            "recipe.{OPTION_PERMUTATION_KEY} is {}, not the pre-registered \
+             {OPTION_PERMUTATION_SEED}: J6(g)'s one added key (arm.identity.recipe)",
+            shown(v)
+        )),
+    }
+    for (key, want) in [("batches", J6G_F_BATCHES), ("width", J6G_F_WIDTH)] {
+        if base.get(key).and_then(Value::as_i64) != Some(want) {
+            wrong.push(format!(
+                "envelope ft row {}: recipe.{key} is {}, not F's {want} (arm.identity.recipe)",
+                reference.id(),
+                shown(base.get(key))
+            ));
+        }
+    }
+    let keys: BTreeSet<&String> = got.keys().chain(base.keys()).collect();
+    for key in keys {
+        if key != OPTION_PERMUTATION_KEY && got.get(key) != base.get(key) {
+            wrong.push(format!(
+                "recipe.{key} is {}, not F seed 0's {}; J6(g) differs from F's recipe only by \
+                 {OPTION_PERMUTATION_KEY} (arm.identity.recipe)",
+                shown(got.get(key)),
+                shown(base.get(key))
+            ));
+        }
+    }
+    ensure!(wrong.is_empty(), "{what}: {}", wrong.join("; "));
+    Ok(json!({
+        "identity": "J6(g)'s own (campaign/j6g-preregistered.json arm.identity): F's data, and F \
+                     seed 0's ft recipe plus exactly one key",
+        "f_seed0_ft_row": reference.id(),
+        "quick": true,
+        "code_commit": J6G_CODE_COMMIT,
+        "data_snapshot_hash": data,
+        "added": {OPTION_PERMUTATION_KEY: OPTION_PERMUTATION_SEED},
+        "compared_equal": got
+            .keys()
+            .filter(|k| k.as_str() != OPTION_PERMUTATION_KEY)
+            .collect::<Vec<_>>(),
+    }))
+}
+
+/// The J6(g) decision: `wins`, `quiet` or `refused`, every refusal listed in the order it was
+/// met. The pre-registration is read and checked first (a disagreement refuses before any
+/// ledger is read); then room from F's envelope, then J6(g)'s rows.
+fn rule_j6g(
+    inputs: &mut Inputs,
+    preregistration: &Path,
+    f_ledger: &Path,
+    ft_rows: &[(i64, String)],
+    arm_ledger: &Path,
+    j6g: &(i64, String),
+) -> Result<(String, Value)> {
+    let (prereg, prereg_sha256) = inputs.read_preregistration(preregistration)?;
+    j6g_agrees(&prereg).map_err(|e| format!("{} {e}", J6G_LABELS.unreadable))?;
+    let decided = decide_arms(
+        inputs,
+        f_ledger,
+        ft_rows,
+        arm_ledger,
+        &[(&ARM_J6G, j6g)],
+        &option_identity,
+    )
+    .map_err(|e| no_envelope(J6G_LABELS, &e))?;
+    let mut s = settle(
+        decided,
+        J6G_LABELS,
+        "J6(g) wins iff every target (MMLU / CSQA permutation consistency, higher; MMLU / CSQA \
+         in-distribution abstention, lower) lands outside F's three-seed envelope in the right \
+         direction by more than F's own seed range, and no guard lands outside it in the wrong \
+         direction (campaign/j6g-preregistered.json, as campaign/j6a-preregistered.json and \
+         f-v4-preregistered.json:13). A target the envelope leaves no room to clear refuses the \
+         decision (R9_room). 'wins' feeds the next re-plan only.",
+    );
+    s.body["preregistration_sha256"] = json!(prereg_sha256);
+    let word = match s.wins.as_deref() {
+        None => None,
+        Some(&[true]) => Some((
+            ARM_J6G.word,
+            "J6(g) wins: this feeds the next re-plan only and starts nothing (one quick seed; \
+             rule 8)",
+        )),
+        Some(&[false]) => Some((
+            "quiet",
+            "J6(g) does not win: a target did not clear or a guard lost; the next re-plan reads \
+             the rows",
+        )),
+        Some(other) => return Err(format!("{} arm verdicts for one arm", other.len())),
+    };
+    s.finish(word, "no reading; the human decides from the rows")
+}
+
 // --- look-ups ----------------------------------------------------------------------------------
 
 fn lookup_ft_rows(
@@ -2620,6 +2935,7 @@ fn rule_name(cmd: &Cmd) -> &'static str {
         Cmd::J6f { .. } => "j6f_position",
         Cmd::Successor { .. } => "f_successor",
         Cmd::J6a { .. } => "j6a_replay",
+        Cmd::J6g { .. } => "j6g_option_permutation",
         Cmd::FtRows { .. } => "ft_rows",
         Cmd::EvalRow { .. } => "eval_row",
     }
@@ -2629,6 +2945,7 @@ fn preregistration(cmd: &Cmd) -> &'static str {
     match cmd {
         Cmd::Successor { .. } => PREREG_SUCC,
         Cmd::J6a { .. } => PREREG_J6A,
+        Cmd::J6g { .. } => PREREG_J6G,
         _ => PREREG,
     }
 }
@@ -2690,6 +3007,21 @@ fn run(cmd: &Cmd) -> Outcome {
                 h: *h,
                 hit_list_sha256: hit_list_sha256.clone(),
             },
+        ),
+        Cmd::J6g {
+            preregistration,
+            f_ledger,
+            ft_rows,
+            arm_ledger,
+            j6g_ft_row,
+            ..
+        } => rule_j6g(
+            &mut inputs,
+            preregistration,
+            f_ledger,
+            ft_rows,
+            arm_ledger,
+            j6g_ft_row,
         ),
         Cmd::FtRows { ledger, ft_rows } => lookup_ft_rows(&mut inputs, ledger, ft_rows),
         Cmd::EvalRow {
@@ -2758,7 +3090,8 @@ fn main() -> ExitCode {
         | Cmd::Seeds34 { out, .. }
         | Cmd::J6f { out, .. }
         | Cmd::Successor { out, .. }
-        | Cmd::J6a { out, .. } => Some(out),
+        | Cmd::J6a { out, .. }
+        | Cmd::J6g { out, .. } => Some(out),
         Cmd::FtRows { .. } | Cmd::EvalRow { .. } => None,
     };
     if let Some(path) = out_path
@@ -5481,12 +5814,12 @@ mod tests {
         assert_eq!(o.word, "quiet");
     }
 
-    /// Each of the nine guards, in its own direction: at F's bound it holds (wins), one count
-    /// (or a 1e-4 ECE step) past it loses (quiet, naming it), and a move the right way holds.
-    #[test]
-    fn every_j6a_guard_holds_at_its_bound_and_loses_one_past_it() {
-        type Edit = fn(Profile) -> Profile;
-        let cases: [(&str, Edit, Edit, Edit); 9] = [
+    type GuardEdit = fn(Profile) -> Profile;
+
+    /// J6(a)'s and J6(g)'s nine guards against F_ENV: (name, at F's bound, one count or a 1e-4
+    /// ECE step past it, a move the right way).
+    fn guard_cases() -> [(&'static str, GuardEdit, GuardEdit, GuardEdit); 9] {
+        [
             (
                 "val_top1.choice",
                 |p| Profile { choice: 9100, ..p },
@@ -5556,8 +5889,14 @@ mod tests {
                 |p| Profile { unseen: 19, ..p },
                 |p| Profile { unseen: 60, ..p },
             ),
-        ];
-        for (name, at_bound, past, right_way) in cases {
+        ]
+    }
+
+    /// Each of the nine guards, in its own direction: at F's bound it holds (wins), one count
+    /// (or a 1e-4 ECE step) past it loses (quiet, naming it), and a move the right way holds.
+    #[test]
+    fn every_j6a_guard_holds_at_its_bound_and_loses_one_past_it() {
+        for (name, at_bound, past, right_way) in guard_cases() {
             let o = j6a(F_ENV, at_bound(J6A_WINS));
             assert_eq!(o.word, "wins", "{name} at its bound: {}", o.json);
             let o = j6a(F_ENV, past(J6A_WINS));
@@ -6060,6 +6399,769 @@ mod tests {
                     .iter()
                     .copied()
                     .chain(ARM_J6A.must_not_lose())
+                    .find(|x| x.name == name)
+                    .unwrap();
+                let shown = match rows.read(metric).unwrap() {
+                    Val::Exact(r) => format!("{}/{}", r.num, r.den),
+                    Val::Float(x) => x.to_string(),
+                };
+                assert_eq!(shown, m["f_seed0"].as_str().unwrap(), "{name}");
+            }
+        }
+    }
+
+    // --- j6g: campaign/j6g-preregistered.json ------------------------------------------------
+    //
+    // F's envelope from the same synthetic F ledger, with seed 0's ft row renamed to 973cd4e3
+    // (arm.identity.recipe names it) and every row on F's data snapshot and val shard; J6(g)'s
+    // ft and eval rows in their own ledger; the pre-registration is the committed file.
+
+    const J6G_PREREG: &str = "campaign/j6g-preregistered.json";
+
+    fn prereg_j6g() -> Value {
+        serde_json::from_str(&std::fs::read_to_string(repo(J6G_PREREG)).unwrap()).unwrap()
+    }
+
+    /// J6(g)'s recipe as a502670 records it with the flag on: F's, plus the one key
+    /// (tools/real_ft_run.py:356-357 at a502670).
+    fn j6g_recipe(r: &mut Map<String, Value>) {
+        r.insert(
+            OPTION_PERMUTATION_KEY.into(),
+            json!(OPTION_PERMUTATION_SEED),
+        );
+    }
+
+    struct J6g {
+        f: Temp,
+        arm: Temp,
+        prereg: Temp,
+        f_ft: Vec<(i64, String)>,
+        ft: (i64, String),
+    }
+
+    /// `edit` gets F's rows, J6(g)'s rows (ft, then eval) and the pre-registration, in that order.
+    fn j6g_fixture(
+        env: [Profile; 3],
+        arm: Profile,
+        edit: impl Fn(&mut Vec<Value>, &mut Vec<Value>, &mut Value),
+    ) -> J6g {
+        let mut f_rows = Vec::new();
+        let mut f_ft: Vec<(i64, String)> = env
+            .iter()
+            .enumerate()
+            .map(|(s, p)| {
+                (
+                    s as i64,
+                    s_run(&mut f_rows, 0xf0 + s as u64, s as i64, "r", p, |_| {}),
+                )
+            })
+            .collect();
+        let seed0 = f_ft[0].1.clone();
+        for r in &mut f_rows {
+            if r["row_id"] == seed0.as_str() {
+                r["row_id"] = json!(F_SEED0_FT);
+            }
+            if r["metrics"]["ft_run_row_id"]["value"] == seed0.as_str() {
+                r["metrics"]["ft_run_row_id"]["value"] = json!(F_SEED0_FT);
+            }
+        }
+        f_ft[0].1 = F_SEED0_FT.to_string();
+        let ft = rid(0xa6b, 1);
+        let mut a_rows = vec![
+            s_ft(&ft, 0, "rg", j6g_recipe),
+            s_eval(&rid(0xa6b, 2), 0, &ft, &arm),
+        ];
+        a_rows[0]["quick"] = json!(true);
+        for r in f_rows.iter_mut().chain(a_rows.iter_mut()) {
+            if r["run_kind"] == "ft" {
+                r["protocol"]["data_snapshot_hash"] = json!(F_DATA_SNAPSHOT_HASH);
+            }
+            if r["recipe"]["tag"] == EVAL_TAG {
+                r["recipe"]["val_shard_hash"] = json!(F_VAL_SHARD_HASH);
+            }
+        }
+        let mut prereg = prereg_j6g();
+        edit(&mut f_rows, &mut a_rows, &mut prereg);
+        let p = temp_path("j6g-preregistered.json");
+        std::fs::write(&p.0, serde_json::to_vec_pretty(&prereg).unwrap()).unwrap();
+        J6g {
+            f: temp_ledger(&f_rows),
+            arm: temp_ledger(&a_rows),
+            prereg: p,
+            f_ft,
+            ft: (0, ft),
+        }
+    }
+
+    fn j6g_of(fx: &J6g) -> Outcome {
+        outcome(Cmd::J6g {
+            preregistration: fx.prereg.0.clone(),
+            f_ledger: fx.f.0.clone(),
+            ft_rows: fx.f_ft.clone(),
+            arm_ledger: fx.arm.0.clone(),
+            j6g_ft_row: fx.ft.clone(),
+            out: PathBuf::from("/unused"),
+        })
+    }
+
+    fn j6g(env: [Profile; 3], arm: Profile) -> Outcome {
+        j6g_of(&j6g_fixture(env, arm, |_, _, _| {}))
+    }
+
+    fn j6g_edited(edit: impl Fn(&mut Vec<Value>, &mut Vec<Value>, &mut Value)) -> Outcome {
+        j6g_of(&j6g_fixture(F_ENV, J6G_WINS, edit))
+    }
+
+    /// J6(g) has J6(a)'s targets, so the same profile clears all four against F_ENV.
+    const J6G_WINS: Profile = J6A_WINS;
+
+    fn arm_j6g(o: &Outcome) -> &Value {
+        &o.json["detail"]["arms"]["j6g"]
+    }
+
+    #[test]
+    fn j6g_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied() {
+        let fx = j6g_fixture(F_ENV, J6G_WINS, |_, _, _| {});
+        let o = j6g_of(&fx);
+        assert_eq!((o.word.as_str(), o.refused), ("wins", false), "{}", o.json);
+        assert_eq!(o.json["rule"], "j6g_option_permutation");
+        assert_eq!(o.json["preregistration"], PREREG_J6G);
+        let a = arm_j6g(&o);
+        assert_eq!(a["wins"], true);
+        assert_eq!(a["targets"].as_array().unwrap().len(), 4);
+        assert_eq!(a["must_not_lose"].as_array().unwrap().len(), 9);
+        let id = &a["recipe_delta"];
+        assert_eq!(id["added"], json!({"option_permutation_seed": 20260919}));
+        assert_eq!(id["f_seed0_ft_row"], F_SEED0_FT);
+        assert_eq!(id["data_snapshot_hash"], F_DATA_SNAPSHOT_HASH);
+        assert!(
+            id["identity"]
+                .as_str()
+                .unwrap()
+                .contains("plus exactly one key")
+        );
+        let compared: Vec<&str> = id["compared_equal"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|k| k.as_str().unwrap())
+            .collect();
+        for k in ["batches", "width", "shard_hash", "lower_layers_n", "tag"] {
+            assert!(compared.contains(&k), "{k}: {compared:?}");
+        }
+        let sha = sha256_hex(&std::fs::read(&fx.prereg.0).unwrap());
+        assert_eq!(o.json["detail"]["preregistration_sha256"], sha);
+        assert_eq!(o.json["inputs"][0]["role"], "preregistration");
+        assert_eq!(o.json["inputs"][0]["sha256"], sha);
+        assert_eq!(o.json["detail"]["cannot_clear"], json!([]));
+        assert_eq!(o.json["detail"]["room"].as_array().unwrap().len(), 4);
+        // Inside the envelope everywhere: quiet, which is a word, not a refusal.
+        let o = j6g(F_ENV, NEUTRAL);
+        assert_eq!((o.word.as_str(), o.refused), ("quiet", false), "{}", o.json);
+        assert_eq!(arm_j6g(&o)["targets_all_clear"], false);
+        assert_eq!(arm_j6g(&o)["must_not_lose_lost"], json!([]));
+    }
+
+    /// R7 and R3 on each target: exactly max + range (min - range) does not clear, one count past
+    /// it does, and one target short of clearing is quiet even with the other three clearing.
+    #[test]
+    fn every_j6g_target_ties_at_its_threshold_and_clears_one_count_past_it() {
+        for (tie, metric) in [
+            (
+                Profile {
+                    perm_know: 1210,
+                    ..J6G_WINS
+                },
+                PERM_KNOWLEDGE.name,
+            ),
+            (
+                Profile {
+                    perm_csqa: 1080,
+                    ..J6G_WINS
+                },
+                PERM_COMMONSENSE.name,
+            ),
+            (
+                Profile {
+                    id_know: 270,
+                    ..J6G_WINS
+                },
+                ID_ABSTAIN_KNOWLEDGE.name,
+            ),
+            (
+                Profile {
+                    id_csqa: 130,
+                    ..J6G_WINS
+                },
+                ID_ABSTAIN_COMMONSENSE.name,
+            ),
+        ] {
+            let o = j6g(F_ENV, tie);
+            assert_eq!(
+                (o.word.as_str(), o.refused),
+                ("quiet", false),
+                "{metric}: {}",
+                o.json
+            );
+            let targets = arm_j6g(&o)["targets"].as_array().unwrap().clone();
+            for t in &targets {
+                assert_eq!(t["clears"], t["metric"] != metric, "{metric}: {t}");
+            }
+        }
+        // One past each tie clears: J6G_WINS is every tie plus one count.
+        assert_eq!(j6g(F_ENV, J6G_WINS).word, "wins");
+        // A lower-better target moving up never clears; a higher-better one moving down never.
+        let o = j6g(
+            F_ENV,
+            Profile {
+                id_csqa: 1197,
+                ..J6G_WINS
+            },
+        );
+        assert_eq!(o.word, "quiet");
+        let o = j6g(
+            F_ENV,
+            Profile {
+                perm_csqa: 0,
+                ..J6G_WINS
+            },
+        );
+        assert_eq!(o.word, "quiet");
+    }
+
+    /// A guard that loses makes a run whose targets all clear quiet, naming it; at F's bound it
+    /// holds. All nine guards, each in its own direction.
+    #[test]
+    fn every_j6g_guard_holds_at_its_bound_and_loses_one_past_it() {
+        for (name, at_bound, past, right_way) in guard_cases() {
+            let o = j6g(F_ENV, at_bound(J6G_WINS));
+            assert_eq!(o.word, "wins", "{name} at its bound: {}", o.json);
+            let o = j6g(F_ENV, past(J6G_WINS));
+            assert_eq!(
+                (o.word.as_str(), o.refused),
+                ("quiet", false),
+                "{name}: {}",
+                o.json
+            );
+            assert_eq!(arm_j6g(&o)["must_not_lose_lost"], json!([name]), "{name}");
+            assert_eq!(arm_j6g(&o)["targets_all_clear"], true, "{name}");
+            let o = j6g(F_ENV, right_way(J6G_WINS));
+            assert_eq!(o.word, "wins", "{name} the right way: {}", o.json);
+        }
+    }
+
+    /// R9_room on J6(g)'s targets, both directions, with its own label (b), decided from the
+    /// envelope alone: a candidate that would otherwise win refuses, and a missing arm row
+    /// beside it is listed too, as (a).
+    #[test]
+    fn a_ceilinged_j6g_target_refuses_under_r9_room() {
+        // Higher-better at the ceiling: 2*1485 - 1300 = 1670 >= 1485.
+        let mut env = F_ENV;
+        for (p, k) in env.iter_mut().zip([1485, 1300, 1400]) {
+            p.perm_know = k;
+        }
+        let o = j6g(env, J6G_WINS);
+        refused_with(
+            &o,
+            "(b) j6g target permutation_consistency.family.knowledge",
+        );
+        refused_with(&o, "2*max - min >= U = 1");
+        assert_eq!(
+            cannot_clear(&o),
+            [("j6g".to_string(), PERM_KNOWLEDGE.name.to_string())]
+        );
+        // Lower-better at the floor: 2*0 - 20 <= 0.
+        let mut env = F_ENV;
+        for (p, k) in env.iter_mut().zip([0, 20, 10]) {
+            p.id_csqa = k;
+        }
+        let o = j6g(env, J6G_WINS);
+        refused_with(&o, "2*min - max <= L = 0");
+        assert_eq!(
+            cannot_clear(&o),
+            [("j6g".to_string(), ID_ABSTAIN_COMMONSENSE.name.to_string())]
+        );
+        // No room and a missing J6(g) eval row: both listed, room first.
+        let mut env = F_ENV;
+        for (p, k) in env.iter_mut().zip([1485, 1300, 1400]) {
+            p.perm_know = k;
+        }
+        let o = j6g_of(&j6g_fixture(env, J6G_WINS, |_, a, _| a.truncate(1)));
+        let because: Vec<&str> = o.json["detail"]["refused_because"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r.as_str().unwrap())
+            .collect();
+        assert_eq!(because.len(), 2, "{because:?}");
+        assert!(because[0].starts_with("(b) j6g target"), "{because:?}");
+        assert!(because[1].starts_with("(a) missing row"), "{because:?}");
+    }
+
+    /// arm.identity.recipe: F seed 0's recipe plus exactly option_permutation_seed = 20260919.
+    /// A missing key, a wrong value, an extra key or any other changed key refuses as (a); so do
+    /// another data snapshot, another code commit and a run that is not quick.
+    #[test]
+    fn each_j6g_identity_difference_refuses() {
+        type RowsEdit = fn(&mut Vec<Value>, &mut Vec<Value>);
+        let cases: [(RowsEdit, &str); 17] = [
+            (
+                |_, a| {
+                    a[0]["recipe"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove(OPTION_PERMUTATION_KEY);
+                },
+                "recipe.option_permutation_seed is absent, not the pre-registered 20260919",
+            ),
+            (
+                |_, a| a[0]["recipe"][OPTION_PERMUTATION_KEY] = json!(20260920),
+                "recipe.option_permutation_seed is 20260920, not the pre-registered 20260919",
+            ),
+            (
+                |_, a| a[0]["recipe"][OPTION_PERMUTATION_KEY] = json!(20260919.0),
+                "recipe.option_permutation_seed is 20260919.0",
+            ),
+            (
+                |_, a| a[0]["recipe"][OPTION_PERMUTATION_KEY] = json!("20260919"),
+                "recipe.option_permutation_seed is \"20260919\"",
+            ),
+            (
+                |_, a| a[0]["recipe"]["beta2"] = json!(0.95),
+                "recipe.beta2 is 0.95, not F seed 0's absent",
+            ),
+            (
+                |_, a| a[0]["recipe"]["replay_weight"] = json!(1.0),
+                "recipe.replay_weight is 1.0, not F seed 0's absent",
+            ),
+            (
+                |_, a| a[0]["recipe"]["lr"] = json!(3e-5),
+                "recipe.lr is 0.00003, not F seed 0's 0.00001",
+            ),
+            (
+                |_, a| {
+                    a[0]["recipe"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("lower_layers_n");
+                },
+                "recipe.lower_layers_n is absent, not F seed 0's 8",
+            ),
+            (
+                |_, a| a[0]["recipe"]["batches"] = json!(9682),
+                "recipe.batches is 9682, not F seed 0's 9683",
+            ),
+            (
+                |_, a| a[0]["recipe"]["width"] = json!(8192),
+                "recipe.width is 8192, not F seed 0's 7936",
+            ),
+            (
+                |_, a| a[0]["recipe"]["shard_hash"] = json!("5b".repeat(32)),
+                "recipe.shard_hash is",
+            ),
+            (
+                |_, a| a[0]["protocol"]["data_snapshot_hash"] = json!("c3".repeat(32)),
+                "is not F's ea3215c4",
+            ),
+            (
+                |_, a| a[0]["protocol"]["tokenizer_hash"] = json!("t"),
+                "protocol.tokenizer_hash is \"t\", not F seed 0's absent",
+            ),
+            (
+                |_, a| a[0]["code_commit"] = json!("881ab304".repeat(5)),
+                "code_commit Some(\"881ab304881ab304881ab304881ab304881ab304\") is not a5026707",
+            ),
+            (|_, a| a[0]["quick"] = json!(false), "quick is false"),
+            (
+                |_, a| {
+                    a[0].as_object_mut().unwrap().remove("quick");
+                },
+                "quick is absent",
+            ),
+            (
+                |f, _| row_mut(f, F_SEED0_FT)["recipe"][OPTION_PERMUTATION_KEY] = json!(1),
+                "but F trained without option permutation",
+            ),
+        ];
+        for (edit, phrase) in cases {
+            let o = j6g_edited(|f, a, _| edit(f, a));
+            refused_with(&o, phrase);
+            refused_with(&o, "(a) arm j6g ft row ");
+            assert!(arm_j6g(&o).is_null(), "{phrase}: judged though refused");
+        }
+        // An F ledger whose seed-0 recipe is not the pre-registration's 9,683 x 7,936 refuses,
+        // even when J6(g)'s row matches it key for key.
+        let o = j6g_edited(|f, a, _| {
+            row_mut(f, F_SEED0_FT)["recipe"]["batches"] = json!(9682);
+            a[0]["recipe"]["batches"] = json!(9682);
+        });
+        refused_with(
+            &o,
+            "envelope ft row 973cd4e3-e0d2-4ff8-8588-b761cb842b75: recipe.batches is 9682, not \
+             F's 9683",
+        );
+        assert_eq!(o.json["refused"].as_str().unwrap().matches("; ").count(), 0);
+        // F's recipe carrying the very key and value J6(g) adds is still not F: refused, and
+        // that is the one failure.
+        let o = j6g_edited(|f, _, _| {
+            row_mut(f, F_SEED0_FT)["recipe"][OPTION_PERMUTATION_KEY] =
+                json!(OPTION_PERMUTATION_SEED);
+        });
+        refused_with(&o, "but F trained without option permutation");
+        assert_eq!(o.json["refused"].as_str().unwrap().matches("; ").count(), 0);
+    }
+
+    /// The recipe J6(g) is compared with is F seed 0's 973cd4e3 and no other row; and every
+    /// identity failure is listed, not only the first.
+    #[test]
+    fn j6g_is_compared_with_fs_seed_0_row_and_lists_every_identity_failure() {
+        let row = |v: Value| Row {
+            at: "test".into(),
+            map: v.as_object().unwrap().clone(),
+        };
+        let mut f = s_ft(&rid(0xf0, 1), 0, "r", |_| {});
+        f["protocol"]["data_snapshot_hash"] = json!(F_DATA_SNAPSHOT_HASH);
+        let mut g = s_ft(&rid(0xa6b, 1), 0, "rg", j6g_recipe);
+        g["quick"] = json!(true);
+        g["protocol"]["data_snapshot_hash"] = json!(F_DATA_SNAPSHOT_HASH);
+        let err = option_identity(&ARM_J6G, &row(g.clone()), &row(f.clone())).unwrap_err();
+        assert!(
+            err.contains("the envelope's seed-0 ft row is 000000f0-0000-4000-8000-000000000001, not F seed 0's 973cd4e3"),
+            "{err}"
+        );
+        f = with_id(f, F_SEED0_FT);
+        assert!(option_identity(&ARM_J6G, &row(g.clone()), &row(f.clone())).is_ok());
+        // Not quick, another commit and no key: three failures in one message.
+        g["quick"] = json!(false);
+        g["code_commit"] = json!("0".repeat(40));
+        g["recipe"]
+            .as_object_mut()
+            .unwrap()
+            .remove(OPTION_PERMUTATION_KEY);
+        let err = option_identity(&ARM_J6G, &row(g), &row(f)).unwrap_err();
+        for phrase in [
+            "quick is false",
+            "code_commit Some(\"0000000000000000000000000000000000000000\") is not",
+            "recipe.option_permutation_seed is absent",
+        ] {
+            assert!(err.contains(phrase), "{phrase}: {err}");
+        }
+        assert_eq!(err.matches("; ").count(), 2, "{err}");
+    }
+
+    /// A required row missing, doubled or not completed, a metric that did not run or is absent,
+    /// and a count off its own value: each refuses as (a), never quiet.
+    #[test]
+    fn a_missing_doubled_or_incomplete_j6g_row_refuses() {
+        type AllEdit = fn(&mut Vec<Value>, &mut Vec<Value>);
+        let cases: [(AllEdit, &str); 12] = [
+            (
+                |_, a| a.truncate(1),
+                "(a) missing row: no completed eval row tagged epoch-score-val",
+            ),
+            (
+                |_, a| drop(a.remove(0)),
+                "(a) row 00000a6b-0000-4000-8000-000000000001 appears 0 time(s)",
+            ),
+            (
+                |_, a| {
+                    let again = a[0].clone();
+                    a.push(again);
+                },
+                "appears 2 time(s)",
+            ),
+            (
+                |_, a| {
+                    let second = with_id(a[1].clone(), &rid(0xa6b, 3));
+                    a.push(second);
+                },
+                "2 completed eval rows tagged epoch-score-val",
+            ),
+            (
+                |_, a| a[0]["status"] = json!("running"),
+                "is not a completed ft row",
+            ),
+            (
+                |_, a| a[1]["status"] = json!("failed"),
+                "(a) missing row: no completed eval row tagged epoch-score-val",
+            ),
+            (
+                |_, a| a[1]["metrics"][PERM_KNOWLEDGE.name]["state"] = json!("not_run"),
+                "permutation_consistency.family.knowledge.multiple_choice is not_run",
+            ),
+            (
+                |_, a| {
+                    a[1]["metrics"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove(ID_ABSTAIN_COMMONSENSE.name);
+                },
+                "no metrics.ood_abstain.in_distribution.family.commonsense.multiple_choice",
+            ),
+            (
+                |_, a| a[1]["metrics"][PERM_COMMONSENSE.name]["value"] = json!(0.5),
+                "is not its own n/n_total",
+            ),
+            (
+                |_, a| a[1]["metrics"]["ft_run_row_id"]["value"] = json!(rid(0xa6b, 9)),
+                "(a) missing row: no completed eval row tagged epoch-score-val",
+            ),
+            // J6(g)'s rows are read from its own ledger only (R2).
+            (
+                |f, a| f.append(a),
+                "(a) row 00000a6b-0000-4000-8000-000000000001 appears 0 time(s)",
+            ),
+            // An envelope seed missing: there is no envelope, so no room is decided.
+            (
+                |f, _| f.retain(|r| r["protocol"]["seed"] != 2),
+                "room not decided",
+            ),
+        ];
+        for (edit, phrase) in cases {
+            let o = j6g_edited(|f, a, _| edit(f, a));
+            refused_with(&o, phrase);
+            assert_ne!(o.word, "quiet");
+        }
+    }
+
+    /// The eval row is one comparable epoch-score-val row (arm.identity.eval_row): F's val shard
+    /// and suites. The eval row's mirrored option_permutation_seed (a502670 copies the ported
+    /// pieces into score rows, tools/real_ft_run.py:2605) is not a difference.
+    #[test]
+    fn j6g_eval_row_is_one_comparable_epoch_score_val_row() {
+        let o = j6g_edited(|_, a, _| a[1]["recipe"]["val_shard_hash"] = json!("w"));
+        refused_with(&o, "recipe.val_shard_hash");
+        let o = j6g_edited(|_, a, _| a[1]["recipe"]["ood"]["cases_per_category"] = json!(30));
+        refused_with(&o, "recipe.ood");
+        let o = j6g_edited(|_, a, _| a[1]["recipe"]["needle"]["cases"] = json!(299));
+        refused_with(&o, "recipe.needle");
+        let o = j6g_edited(|_, a, _| {
+            a[1]["recipe"][OPTION_PERMUTATION_KEY] = json!(OPTION_PERMUTATION_SEED);
+        });
+        assert_eq!(o.word, "wins", "{}", o.json);
+        // No needle-control or letter-control row is required.
+        assert!(!ARM_J6G.reads_control() && !ARM_J6G.reads_margin());
+        let o = j6g_edited(|f, _, _| {
+            f.retain(|r| {
+                r["recipe"]["tag"] != json!(CONTROL_TAG) && r["metrics"].get(MARGIN_KEY).is_none()
+            });
+        });
+        assert_eq!(o.word, "wins", "{}", o.json);
+    }
+
+    /// The file binds: a structured field or a stated identity that disagrees with the checker
+    /// refuses before any ledger is read (R1: an amendment that admits more keys refuses here).
+    #[test]
+    fn a_preregistration_that_disagrees_with_the_j6g_checker_refuses() {
+        type PreregEdit = fn(&mut Value);
+        let cases: [(PreregEdit, &str); 11] = [
+            (
+                |p| p["outcomes"]["words"] = json!(["wins", "quiet"]),
+                "outcomes.words are",
+            ),
+            (
+                |p| {
+                    p["arm"]["targets"].as_array_mut().unwrap().pop();
+                },
+                "arm.targets are",
+            ),
+            (
+                |p| p["arm"]["targets"][3]["direction"] = json!("higher"),
+                "arm.targets are",
+            ),
+            (
+                |p| p["arm"]["guards"][4]["form"] = json!("count"),
+                "arm.guards are",
+            ),
+            (
+                |p| {
+                    p["arm"]["guards"].as_array_mut().unwrap().swap(0, 1);
+                },
+                "arm.guards are",
+            ),
+            (
+                |p| p["arm"]["option_permutation"]["seed"] = json!(20260920),
+                "arm.option_permutation.seed is 20260920",
+            ),
+            (
+                |p| {
+                    p["arm"]["option_permutation"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("seed");
+                },
+                "arm.option_permutation.seed is absent",
+            ),
+            (
+                |p| {
+                    p["arm"]["identity"]["recipe"] = json!(
+                        "Equal to F seed 0's ft recipe (973cd4e3), including shard_hash, batches \
+                         (9683) and width (7936), except exactly two added keys: \
+                         option_permutation_seed = 20260919 and tokenizer_json. Any other \
+                         difference refuses."
+                    )
+                },
+                "arm.identity.recipe does not say",
+            ),
+            (
+                |p| {
+                    p["arm"]["identity"]["ft_row"] = json!(
+                        "completed; protocol.seed 0; recipe.tag 'epoch'; code_commit \
+                         0264732; quick true"
+                    )
+                },
+                "arm.identity.ft_row does not say",
+            ),
+            (
+                |p| p["arm"]["identity"]["eval_row"] = json!("tag epoch-score-val"),
+                "arm.identity.eval_row does not say",
+            ),
+            (
+                |p| {
+                    p["arm"].as_object_mut().unwrap().remove("identity");
+                },
+                "has no arm.identity object",
+            ),
+        ];
+        for (edit, phrase) in cases {
+            let o = j6g_edited(|_, _, p| edit(p));
+            refused_with(&o, phrase);
+            refused_with(&o, "(a) the pre-registration");
+            assert_eq!(o.json["inputs"].as_array().unwrap().len(), 1, "{}", o.json);
+        }
+    }
+
+    /// F seed 0's own committed rows (973cd4e3, f4feac15), presented as a J6(g) arm, refuse on
+    /// identity: F trained without option permutation and is not quick. The envelope is F seed
+    /// 0's real rows plus seeds 1 and 2 cloned from them (new ids, seed changed), because the
+    /// committed ledger holds seed 0 only; the reference row stays the real 973cd4e3.
+    #[test]
+    fn f_seed_0s_own_rows_presented_as_j6g_refuse_on_identity() {
+        let rows = real_rows(F_LEDGER_V4);
+        let ft = rows
+            .iter()
+            .find(|r| r["row_id"] == F_SEED0_FT)
+            .unwrap()
+            .clone();
+        let ev = rows
+            .iter()
+            .find(|r| {
+                r["recipe"]["tag"] == EVAL_TAG
+                    && r["metrics"]["ft_run_row_id"]["value"] == F_SEED0_FT
+            })
+            .unwrap()
+            .clone();
+        assert!(ev["row_id"].as_str().unwrap().starts_with("f4feac15"));
+        let mut env = vec![ft.clone(), ev.clone()];
+        let mut f_ft = vec![(0, F_SEED0_FT.to_string())];
+        for s in 1..3u64 {
+            let (ft_id, ev_id) = (rid(0xf5, s), rid(0xf6, s));
+            let mut a = with_id(ft.clone(), &ft_id);
+            a["protocol"]["seed"] = json!(s);
+            let mut b = with_id(ev.clone(), &ev_id);
+            b["protocol"]["seed"] = json!(s);
+            b["metrics"]["ft_run_row_id"]["value"] = json!(ft_id);
+            env.push(a);
+            env.push(b);
+            f_ft.push((s as i64, ft_id));
+        }
+        let (f, arm) = (temp_ledger(&env), temp_ledger(&[ft, ev]));
+        let o = outcome(Cmd::J6g {
+            preregistration: repo(J6G_PREREG),
+            f_ledger: f.0.clone(),
+            ft_rows: f_ft,
+            arm_ledger: arm.0.clone(),
+            j6g_ft_row: (0, F_SEED0_FT.to_string()),
+            out: PathBuf::from("/unused"),
+        });
+        refused_with(
+            &o,
+            "(a) arm j6g ft row 973cd4e3-e0d2-4ff8-8588-b761cb842b75: ",
+        );
+        refused_with(
+            &o,
+            "recipe.option_permutation_seed is absent, not the pre-registered 20260919",
+        );
+        refused_with(&o, "quick is false");
+        let reason = o.json["refused"].as_str().unwrap();
+        // Only those two: F's own data, commit, protocol and every other recipe key agree.
+        assert_eq!(reason.matches("; ").count(), 1, "{reason}");
+        // Room was decided from the (real seed-0) envelope before the arm was read.
+        assert_eq!(o.json["detail"]["room"].as_array().unwrap().len(), 4);
+        assert_eq!(o.json["detail"]["cannot_clear"], json!([]));
+    }
+
+    /// The checker's constants are the pre-registration's text, and its literals are what F seed
+    /// 0's committed rows record.
+    #[test]
+    fn the_j6g_rule_is_the_preregistrations_own_text() {
+        let p = prereg_j6g();
+        j6g_agrees(p.as_object().unwrap()).unwrap();
+        assert_eq!(J6G_F_SEED0_FT, F_SEED0_FT);
+        assert_eq!(J6G_F_DATA_SNAPSHOT_HASH, F_DATA_SNAPSHOT_HASH);
+        assert_eq!(J6G_F_VAL_SHARD_HASH, F_VAL_SHARD_HASH);
+        assert_eq!(
+            p["arm"]["option_permutation"]["seed"],
+            OPTION_PERMUTATION_SEED
+        );
+        assert_eq!(
+            p["arm"]["ledger"],
+            "/home/ubuntu/ledger/gh200-j6g-v4-2026-10-02.jsonl"
+        );
+        assert!(
+            p["arm"]["declared_data_delta"]
+                .as_str()
+                .unwrap()
+                .starts_with("None.")
+        );
+        let refused = p["outcomes"]["refused"].as_str().unwrap();
+        assert!(refused.contains("(a) A required row is missing, doubled or not completed"));
+        assert!(refused.contains("(b) A target has no room under R9_room (cannot_clear)"));
+        assert_eq!((J6G_LABELS.unreadable, J6G_LABELS.no_room), ("(a)", "(b)"));
+        assert!(
+            p["envelope"]
+                .as_str()
+                .unwrap()
+                .contains("F seeds 0, 1 and 2 only, never seeds 3-4")
+        );
+        let r1 = p["readings"]["R1_recipe_keys"].as_str().unwrap();
+        assert!(r1.contains("recipe.batches and recipe.width are compared to F's (9683, 7936)"));
+        assert!(
+            p["readings"]["R2_ledger"]
+                .as_str()
+                .unwrap()
+                .contains("refuses")
+        );
+        // The literals against F seed 0's committed rows (973cd4e3, f4feac15).
+        let ledger = Inputs::default().read(&repo(F_LEDGER_V4)).unwrap();
+        let rows = seed_rows(&ledger, 0, F_SEED0_FT, false, false).unwrap();
+        assert_eq!(rows.ft.str_at(&["code_commit"]), Some(J6G_CODE_COMMIT));
+        assert_eq!(
+            rows.ft.str_at(&["protocol", "data_snapshot_hash"]),
+            Some(J6G_F_DATA_SNAPSHOT_HASH)
+        );
+        assert_eq!(
+            rows.ft.get(&["recipe", "batches"]).and_then(Value::as_i64),
+            Some(J6G_F_BATCHES)
+        );
+        assert_eq!(
+            rows.ft.get(&["recipe", "width"]).and_then(Value::as_i64),
+            Some(J6G_F_WIDTH)
+        );
+        assert!(rows.ft.get(&["recipe", OPTION_PERMUTATION_KEY]).is_none());
+        assert_eq!(
+            rows.eval.str_at(&["recipe", "val_shard_hash"]),
+            Some(J6G_F_VAL_SHARD_HASH)
+        );
+        // Every target and guard reads on f4feac15 with the value the file cites (f_seed0).
+        for list in ["targets", "guards"] {
+            for m in p["arm"][list].as_array().unwrap() {
+                let name = m["name"].as_str().unwrap();
+                let metric = ARM_J6G
+                    .targets
+                    .iter()
+                    .copied()
+                    .chain(ARM_J6G.must_not_lose())
                     .find(|x| x.name == name)
                     .unwrap();
                 let shown = match rows.read(metric).unwrap() {
