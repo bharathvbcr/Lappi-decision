@@ -52,7 +52,8 @@
   "readings": {
     "status": "The lead's readings where Fable's text leaves a choice, fixed here before any J6(a) row exists. Fable or the human may strike or amend any of them by commit before J6(a)'s eval row's written_at.",
     "R1_derived_recipe_keys": "recipe.batches (F: 9683) and recipe.width (F: 7936) are derived by the batch planner from the train set, so a train set 3,568 rows smaller may change them. They are recorded and reported, not compared. Every other recipe key follows arm.identity.recipe. The lead added this reading: Fable's identity text lists shard_hash and the five replay keys as the only differences, and the derived counts follow from the declared data delta.",
-    "R2_ledger": "The J6(a) ft and eval rows are read from arm.ledger only. A second completed epoch-score-val row for the J6(a) ft row refuses (as the successor's row_selection)."
+    "R2_ledger": "The J6(a) ft and eval rows are read from arm.ledger only. A second completed epoch-score-val row for the J6(a) ft row refuses (as the successor's row_selection).",
+    "R3_replay_log": "arm.replay_flags.report_only_requirement asks for replay_log over the first and last 20 replay steps. At a502670 that log exists in memory only (python/qd_train/replay.py:478, :499); the run prints only the replay count and the first and last values (tools/real_ft_run.py:2457-2459, printed at :8825), and the checkpoint stores counts only (lane L-waiters, by reading). The requirement is met by what a502670 prints. No observer is patched in, because the ft row's code_commit must name the code that ran. Report-only, no kill criterion: this changes nothing the checker reads. The lead added it on 2026-10-02, before any J6(a) row exists (GAP-J6A-REPLAY-LOG-NOT-EMITTED-AT-A502670-2026-10-02)."
   },
   "outcomes": {
     "words": ["wins", "quiet", "refused"],
