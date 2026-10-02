@@ -123,15 +123,30 @@ def _pipeline_or_skip():
 
 @pytest.mark.usefixtures("qd_prep")
 def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) -> None:
-    """Characterization, pinned at d554702: every shard file, sequence index and manifest of a
-    60-pair build, timestamps aside, is the bytes the pipeline wrote before the flag existed."""
+    """Characterization: every shard file, sequence index and manifest of a 60-pair build,
+    timestamps aside, is the bytes the pipeline wrote before the flag existed.
+
+    Pinned at d554702 as d67c7de0.... It has moved twice since, each time by design and with
+    every moved byte accounted for. Neither move was a re-pin to whatever came out:
+
+    * L-v5-data -> 92299328...: the tokens, offsets and supervision are byte-identical. The
+      headers differ only in five qd_data code fingerprints and their derived hashes, and the
+      manifests only in admitted_source_ids and their derived hashes.
+      See GAP-L-V5DATA-CHARACTERIZATION-DIGEST-MOVES-2026-10-02.
+    * Prompt format 2 -> 3c9ae50a.... Every sequence of all three shard sets (86/86/12) decodes
+      to the format-1 text with exactly two edits: the format line inserted after the begin
+      line, and the question line moved after the context. Each sequence is 9 tokens longer;
+      target_index shifts by that delta; the other supervision arrays are identical. The headers
+      gain prompt_format 2 and move only in fingerprints and derived fields. Unexplained: 0.
+      See AUDIT/v5-fmt-characterization-2026-10-02/ and
+      GAP-L-V5FMT-CHARACTERIZATION-CRITERION-STALE-2026-10-02."""
     pipeline = _pipeline_or_skip()
     pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev=PIN_REV, commitpackft=DOWNLOAD,
         val_shards=True, repo_history=False,
     )
     assert build_digest(tmp_path) == (
-        "d67c7de09c1cf2a5b80fe4eff6459fbf7c7df122432a2a38062d05efb5e9b76c"
+        "3c9ae50a8d92783e5eed90cf4391048bd70033d6060d57b83c2fb43c24c3fa60"
     )
 
 
