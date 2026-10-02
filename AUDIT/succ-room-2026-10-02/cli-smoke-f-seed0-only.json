@@ -1,0 +1,15 @@
+{
+  "decision": "refused",
+  "inputs": [
+    {
+      "bytes": 65082,
+      "path": "AUDIT/idle-gpu-queue-2026-10-02/f-ledger-seed0-snapshot-2026-10-02T0113Z.jsonl",
+      "rows": 5,
+      "sha256": "abb48449d8ecbc814a8877ff35f56352f53c7098b8f9d61ae3fc934f85c34b91"
+    }
+  ],
+  "preregistration": "campaign/f-successor-preregistered.json (ba1cedb, merged at bcb3c72; R5 struck at e9cff78; R9_room at 56d74cf)",
+  "refused": "(b) row 00000000-0000-4000-8000-000000000001 appears 0 time(s) in AUDIT/idle-gpu-queue-2026-10-02/f-ledger-seed0-snapshot-2026-10-02T0113Z.jsonl, not once; room not decided: F's envelope did not resolve, so no target was examined for room (R9_room) and no arm was judged",
+  "rule": "f_successor",
+  "tool": "qd-post-f-rules"
+}

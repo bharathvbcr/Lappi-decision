@@ -1,0 +1,144 @@
+source crates/qd-runtime/src/bin/qd_post_f_rules.rs sha256 ea6296d8c47f1bf2374721ffcdc8168f1c4409ded34cefe88fc648696e742f46
+command: cargo test -p qd-runtime --bin qd-post-f-rules
+
+[unmutated] exit 0: test result: ok. 59 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+M1 R7 target tie fires (higher: > -> >=): exit 101: test result: FAILED. 56 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+    FAILED a_target_at_exactly_max_plus_range_does_not_fire_and_one_hit_more_does
+    FAILED exact_forms_with_unequal_denominators_and_signed_margins
+    FAILED no_room_iff_the_bound_itself_does_not_clear
+
+M2 R7 target tie fires (lower: > -> >=): exit 101: test result: FAILED. 57 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED exact_forms_with_unequal_denominators_and_signed_margins
+    FAILED no_room_iff_the_bound_itself_does_not_clear
+
+M3 R7 guard at its bound loses (higher): exit 101: test result: FAILED. 44 passed; 15 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+    FAILED a_guard_at_its_bound_holds_and_one_count_past_it_loses
+    FAILED a_length_control_miss_blocks_j6f_and_not_j6dv4
+    FAILED a_paired_margin_envelope_with_no_room_refuses_on_signed_fractions
+    FAILED a_target_at_exactly_max_plus_range_does_not_fire_and_one_hit_more_does
+    FAILED both_arms_winning_refuses_and_keeps_both_verdicts
+    FAILED exact_forms_with_unequal_denominators_and_signed_margins
+    FAILED j6b_against_j4_fires_on_the_real_rows
+    FAILED j6dv4_needs_no_needle_control_row_and_j6f_does
+    FAILED j6dv4_span_near_its_ceiling_refuses_and_never_fires_j6f
+    FAILED j6f_alone_fires_and_j6dv4_alone_fires
+    FAILED j6f_cannot_fire_when_twice_max_minus_min_reaches_1
+    FAILED letter_control_rows_are_selected_by_the_per_family_key
+    FAILED the_envelope_is_fs_seeds_0_1_2_only
+    FAILED the_leads_46_31_envelope_refuses_where_it_read_quiet
+    FAILED unseen_language_guards_j6dv4_and_not_j6f
+
+M4 R7 guard at its bound loses (lower): exit 101: test result: FAILED. 57 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED a_guard_at_its_bound_holds_and_one_count_past_it_loses
+    FAILED exact_forms_with_unequal_denominators_and_signed_margins
+
+M5 R3 any target suffices: exit 101: test result: FAILED. 56 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED a_target_at_exactly_max_plus_range_does_not_fire_and_one_hit_more_does
+    FAILED exact_forms_with_unequal_denominators_and_signed_margins
+    FAILED j6dv4_needs_every_target_to_clear
+
+M6 both arms winning picks J6(f) instead of refusing: exit 101: test result: FAILED. 58 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED both_arms_winning_refuses_and_keeps_both_verdicts
+
+M7 R4 struck: no unseen-language guard on J6(d)-v4: exit 101: test result: FAILED. 58 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED unseen_language_guards_j6dv4_and_not_j6f
+
+M8 R5 as first registered (controls guard J6(d)-v4), i.e. the amendment not applied: exit 101: test result: FAILED. 56 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED a_length_control_miss_blocks_j6f_and_not_j6dv4
+    FAILED j6dv4_needs_no_needle_control_row_and_j6f_does
+    FAILED the_successor_rule_is_the_preregistrations_own_text
+
+M9 R5 amendment half-applied: J6(d)-v4 still requires its needle-control row: exit 101: test result: FAILED. 58 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED j6dv4_needs_no_needle_control_row_and_j6f_does
+
+M10 R1 struck: per-arm guards only, no base list: exit 101: test result: FAILED. 54 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+    FAILED a_guard_at_its_bound_holds_and_one_count_past_it_loses
+    FAILED a_length_control_miss_blocks_j6f_and_not_j6dv4
+    FAILED a_missing_metric_refuses_even_when_an_arm_would_fire
+    FAILED a_not_run_metric_or_a_row_that_did_not_complete_refuses
+    FAILED j6b_against_j4_fires_on_the_real_rows
+
+M11 envelope pin: any three seeds: exit 101: test result: FAILED. 58 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED the_envelope_is_fs_seeds_0_1_2_only
+
+M12 R8 off: no arm identity check: exit 101: test result: FAILED. 57 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED j6b_against_j4_without_its_flags_is_refused_by_the_identity_check
+    FAILED swapped_or_wrong_arm_rows_refuse
+
+M13 margin grid check off: exit 101: test result: FAILED. 58 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED a_margin_off_its_integer_grid_refuses
+
+M14 letter-control row selected without the per-family key: exit 101: test result: FAILED. 58 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+    FAILED letter_control_rows_are_selected_by_the_per_family_key
+
+M15 an arm whose rows cannot be read counts as not winning (missing -> quiet): exit 101: test result: FAILED. 52 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED a_margin_off_its_integer_grid_refuses
+    FAILED a_missing_arm_letter_control_row_refuses_even_when_j6f_alone_would_fire
+    FAILED a_missing_arm_row_and_a_target_without_room_are_both_listed
+    FAILED a_missing_metric_refuses_even_when_an_arm_would_fire
+    FAILED a_not_run_metric_or_a_row_that_did_not_complete_refuses
+    FAILED j6dv4_needs_no_needle_control_row_and_j6f_does
+    FAILED swapped_or_wrong_arm_rows_refuse
+
+M16 ECE direction flipped (higher is better): exit 101: test result: FAILED. 58 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED a_guard_at_its_bound_holds_and_one_count_past_it_loses
+
+M17 in-distribution abstention direction flipped: exit 101: test result: FAILED. 57 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED a_guard_at_its_bound_holds_and_one_count_past_it_loses
+    FAILED room_bounds_are_the_preregistered_ones_and_nothing_else
+
+M18 eval comparability (val set / suites) not checked: exit 101: test result: FAILED. 58 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED swapped_or_wrong_arm_rows_refuse
+
+N1 R9_room off: no_room never blocks: exit 101: test result: FAILED. 51 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+    FAILED a_missing_arm_row_and_a_target_without_room_are_both_listed
+    FAILED a_paired_margin_envelope_with_no_room_refuses_on_signed_fractions
+    FAILED an_f_seed_at_61_of_61_blocks_j6f_at_any_spread
+    FAILED j6dv4_span_near_its_ceiling_refuses_and_never_fires_j6f
+    FAILED j6f_cannot_fire_when_twice_max_minus_min_reaches_1
+    FAILED no_room_iff_the_bound_itself_does_not_clear
+    FAILED no_room_is_the_preregistered_count_form_in_both_directions
+    FAILED the_leads_46_31_envelope_refuses_where_it_read_quiet
+
+N2 R9_room higher form at equality has room (>= -> >): exit 101: test result: FAILED. 51 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED a_missing_arm_row_and_a_target_without_room_are_both_listed
+    FAILED a_paired_margin_envelope_with_no_room_refuses_on_signed_fractions
+    FAILED an_f_seed_at_61_of_61_blocks_j6f_at_any_spread
+    FAILED j6dv4_span_near_its_ceiling_refuses_and_never_fires_j6f
+    FAILED j6f_cannot_fire_when_twice_max_minus_min_reaches_1
+    FAILED no_room_iff_the_bound_itself_does_not_clear
+    FAILED no_room_is_the_preregistered_count_form_in_both_directions
+    FAILED the_leads_46_31_envelope_refuses_where_it_read_quiet
+
+N3 R9_room lower form at equality has room (<= -> <): exit 101: test result: FAILED. 57 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED no_room_iff_the_bound_itself_does_not_clear
+    FAILED no_room_is_the_preregistered_count_form_in_both_directions
+
+N4 R9_room lower-better uses the higher-better form: exit 101: test result: FAILED. 57 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+    FAILED no_room_iff_the_bound_itself_does_not_clear
+    FAILED no_room_is_the_preregistered_count_form_in_both_directions
+
+N5 room decided and listed but (c) does not refuse: exit 101: test result: FAILED. 53 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED a_missing_arm_row_and_a_target_without_room_are_both_listed
+    FAILED a_paired_margin_envelope_with_no_room_refuses_on_signed_fractions
+    FAILED an_f_seed_at_61_of_61_blocks_j6f_at_any_spread
+    FAILED j6dv4_span_near_its_ceiling_refuses_and_never_fires_j6f
+    FAILED j6f_cannot_fire_when_twice_max_minus_min_reaches_1
+    FAILED the_leads_46_31_envelope_refuses_where_it_read_quiet
+
+N6 R9_room applied to J6(f)'s targets only: exit 101: test result: FAILED. 55 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED a_paired_margin_envelope_with_no_room_refuses_on_signed_fractions
+    FAILED j6b_against_j4_fires_on_the_real_rows
+    FAILED j6dv4_span_near_its_ceiling_refuses_and_never_fires_j6f
+    FAILED room_is_decided_for_every_target_and_for_no_guard
+
+N7 an arm-row refusal propagates and drops the room already decided: exit 101: test result: FAILED. 57 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED a_missing_arm_row_and_a_target_without_room_are_both_listed
+    FAILED j6b_against_j4_without_its_flags_is_refused_by_the_identity_check
+
+N8 R9_room lower bound L = 1 instead of 0: exit 101: test result: FAILED. 58 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+    FAILED room_bounds_are_the_preregistered_ones_and_nothing_else
+
+[restored, sha256 ea6296d8c47f1bf2374721ffcdc8168f1c4409ded34cefe88fc648696e742f46, equal: True] exit 0: test result: ok. 59 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+mutations caught: 26 of 26

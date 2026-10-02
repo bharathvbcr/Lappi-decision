@@ -26,8 +26,11 @@
 //!   outside the envelope in the right direction by more than the envelope's range and no
 //!   must-not-lose metric lands outside it in the wrong direction. Words: `fires:j6f`,
 //!   `fires:j6dv4`, `quiet`; both arms winning is `refused` (the human decides), as is any row
-//!   or metric that cannot be read. The paired margin is compared as the exact fraction
-//!   `m / n_total` it is (a mean of per-row differences); ECE, which has no count, on its f64.
+//!   or metric that cannot be read, and (R9_room, 56d74cf) any target the envelope leaves no
+//!   room to clear (`2*max - min >= U`, `2*min - max <= L`), decided from the envelope before
+//!   any arm row is read and listed as `cannot_clear`. The paired margin is compared as the
+//!   exact fraction `m / n_total` it is (a mean of per-row differences); ECE, which has no
+//!   count, on its f64.
 //!
 //! Look-ups (ids on stdout, JSON on stderr): `ft-rows` checks a set of ft rows can be averaged
 //! or ensembled (completed, not quick, tag `epoch`, the seed claimed, one recipe and one data
@@ -86,8 +89,8 @@ macro_rules! ensure {
 const TOOL: &str = "qd-post-f-rules";
 const PREREG: &str = "campaign/f-j7prime-preregistered.json (54512e6)";
 const PREREG_F: &str = "campaign/f-v4-preregistered.json (3a1796d)";
-const PREREG_SUCC: &str =
-    "campaign/f-successor-preregistered.json (ba1cedb, merged at bcb3c72; R5 struck at e9cff78)";
+const PREREG_SUCC: &str = "campaign/f-successor-preregistered.json (ba1cedb, merged at bcb3c72; \
+                           R5 struck at e9cff78; R9_room at 56d74cf)";
 /// A ledger larger than this is not one this repo writes (`qd-gate-report`'s cap).
 const MAX_LEDGER_BYTES: u64 = 256 * 1024 * 1024;
 /// How far a recorded float may sit from its own counts before the row is refused.
@@ -238,7 +241,8 @@ enum Cmd {
         out: PathBuf,
     },
     /// (iv) Does F' run, and on which v4 arm's recipe? Prints `fires:j6f`, `fires:j6dv4`,
-    /// `quiet`, or `refused` (both arms win, or anything could not be read).
+    /// `quiet`, or `refused` (both arms win, anything could not be read, or F's envelope
+    /// leaves a target no room to clear: R9_room, listed as `cannot_clear`).
     Successor {
         /// F's ledger: the envelope's rows.
         #[arg(long)]
@@ -987,7 +991,8 @@ fn rule_j6f(
 // `readings`) lives in exactly one place below, named where it is, so an amendment touches one
 // item: R1 `Arm::must_not_lose`, R2 `BASE_MUST_NOT_LOSE`, R3 `targets_win`, R4 and R5 (as
 // amended at e9cff78) the `guards` of `ARM_J6DV4`, R6 `PERM_DC` / `ID_ABSTAIN_DC`, R7 `clears`
-// / `loses`, R8 `arm_identity`.
+// / `loses`, R8 `arm_identity`, R9_room (56d74cf) `room_bound` / `no_room`, applied in
+// `decide_arms` before any arm row is read and refused as (c) in `rule_successor`.
 
 /// The length-control row's tag (`real_ft_run --needle-control`).
 const CONTROL_TAG: &str = "epoch-needle-length-control";
@@ -1249,6 +1254,165 @@ fn targets_win(cleared: &[bool]) -> bool {
     !cleared.is_empty() && cleared.iter().all(|&c| c)
 }
 
+/// The bound a target's metric cannot pass (R9_room): `U` above a higher-better target, `L`
+/// below a lower-better one.
+#[derive(Clone, Copy, Debug)]
+struct Bound {
+    name: &'static str,
+    value: Rat,
+}
+
+impl Bound {
+    fn json(self) -> Value {
+        json!({
+            "name": self.name,
+            "n": self.value.num,
+            "n_total": self.value.den,
+            "value": self.value.f64(),
+        })
+    }
+}
+
+/// R9_room's bounds (56d74cf): U = 1 for a higher-better count (a worst depth bucket, val
+/// top-1) and for the paired margin; L = 0 for a lower-better count. Nothing else is
+/// pre-registered, so a float target or a lower-better margin refuses rather than defaults.
+fn room_bound(m: Metric) -> Result<Bound> {
+    match (m.source, m.dir) {
+        (
+            Source::Count(_) | Source::Needle8k | Source::Control(_) | Source::Margin,
+            Dir::Higher,
+        ) => Ok(Bound {
+            name: "U",
+            value: Rat { num: 1, den: 1 },
+        }),
+        (Source::Count(_) | Source::Needle8k | Source::Control(_), Dir::Lower) => Ok(Bound {
+            name: "L",
+            value: Rat { num: 0, den: 1 },
+        }),
+        (Source::Margin, Dir::Lower) | (Source::Float(_), _) => Err(format!(
+            "target {}: R9_room pre-registers no bound for a {:?} {:?} target (U = 1 for \
+             higher-better counts and the paired margin, L = 0 for lower-better counts)",
+            m.name, m.source, m.dir
+        )),
+    }
+}
+
+/// R9_room: the envelope leaves a target no room, so no candidate can clear it. Higher-better
+/// with bound U: `2*max - min >= U`; lower-better with bound L: `2*min - max <= L`. Exact: with
+/// min = e/f, max = g/h and the bound u/v, higher iff `(2*g*f - e*h)*v >= u*f*h` and lower iff
+/// `(2*e*h - g*f)*v <= u*f*h`, which for counts (U = 1, L = 0) are the pre-registration's
+/// `2*g*f - e*h >= f*h` and `2*e*h <= g*f`. It reads the envelope alone; `clears`, the
+/// comparison, is unchanged.
+fn no_room(min: Val, max: Val, bound: Rat, dir: Dir) -> Result<bool> {
+    match (min, max) {
+        (Val::Exact(lo), Val::Exact(hi)) => {
+            let ((e, f), (g, h), (u, v)) = (lo.parts(), hi.parts(), bound.parts());
+            Ok(match dir {
+                Dir::Higher => (2 * g * f - e * h) * v >= u * f * h,
+                Dir::Lower => (2 * e * h - g * f) * v <= u * f * h,
+            })
+        }
+        _ => Err(format!(
+            "R9_room is pre-registered on exact fractions, not on {min:?} / {max:?}"
+        )),
+    }
+}
+
+fn text(v: Val) -> String {
+    match v {
+        Val::Exact(r) if r.den == 1 => r.num.to_string(),
+        Val::Exact(r) => format!("{}/{}", r.num, r.den),
+        Val::Float(x) => x.to_string(),
+    }
+}
+
+/// R9_room for one target of one arm, decided from F's envelope alone.
+struct Room {
+    arm: &'static str,
+    metric: Metric,
+    /// The envelope's min and max, the bound, and whether they leave no room; or why the
+    /// envelope's value could not be read, which is itself a refusal (outcomes.refused (b)).
+    decided: Result<(Val, Val, Bound, bool)>,
+}
+
+impl Room {
+    fn of(arm: &Arm, m: Metric, envelope: &[SeedRows]) -> Room {
+        let decide = || -> Result<(Val, Val, Bound, bool)> {
+            let bound = room_bound(m)?;
+            let (_, min, max) = envelope_range(m, envelope)?;
+            Ok((min, max, bound, no_room(min, max, bound.value, m.dir)?))
+        };
+        Room {
+            arm: arm.name,
+            metric: m,
+            decided: decide(),
+        }
+    }
+    fn json(&self) -> Value {
+        let mut j = json!({"arm": self.arm, "target": self.metric.name});
+        match &self.decided {
+            Ok((min, max, bound, blocked)) => {
+                j["direction"] = json!(dir_word(self.metric.dir));
+                j["min"] = min.json();
+                j["max"] = max.json();
+                j["bound"] = bound.json();
+                j["room"] = json!(!blocked);
+            }
+            Err(e) => {
+                j["room"] = Value::Null;
+                j["not_decided"] = json!(e);
+            }
+        }
+        j
+    }
+    /// The pre-registration's `{arm, target, max, min, bound}`, for a target with no room.
+    fn cannot_clear(&self) -> Option<Value> {
+        match &self.decided {
+            Ok((min, max, bound, true)) => Some(json!({
+                "arm": self.arm,
+                "target": self.metric.name,
+                "max": max.json(),
+                "min": min.json(),
+                "bound": bound.json(),
+            })),
+            _ => None,
+        }
+    }
+    /// Why this target refuses the decision, if it does: (c) no room, or (b) unreadable.
+    fn refusal(&self) -> Option<String> {
+        match &self.decided {
+            Ok((min, max, bound, true)) => {
+                let (form, beyond) = match self.metric.dir {
+                    Dir::Higher => ("2*max - min >=", "above max + range"),
+                    Dir::Lower => ("2*min - max <=", "below min - range"),
+                };
+                Some(format!(
+                    "(c) {} target {} cannot clear: F's envelope leaves it no room (R9_room): \
+                     {}-better with max {} and min {} has {form} {} = {}, so no candidate can \
+                     land {beyond}; a target that could not be examined is not one that was \
+                     examined and missed",
+                    self.arm,
+                    self.metric.name,
+                    dir_word(self.metric.dir),
+                    text(*max),
+                    text(*min),
+                    bound.name,
+                    text(Val::Exact(bound.value)),
+                ))
+            }
+            Ok(_) => None,
+            Err(e) => Some(format!("(b) {e}")),
+        }
+    }
+}
+
+fn dir_word(dir: Dir) -> &'static str {
+    match dir {
+        Dir::Higher => "higher",
+        Dir::Lower => "lower",
+    }
+}
+
 /// The signed paired margin `mean(model_correct - control_correct)` over `n_total` rows
 /// (eval_harness.paired_margin_test), recovered as the exact fraction `m / n_total`. A value
 /// that is not `m / n_total` for an integer m refuses.
@@ -1504,16 +1668,13 @@ fn arm_identity(arm: &Arm, ft: &Row, reference: &Row) -> Result<()> {
     Ok(())
 }
 
-/// One metric against the envelope: a target (does it clear?) or a guard (does it lose?).
-fn judge(
-    m: Metric,
-    envelope: &[SeedRows],
-    candidate: &SeedRows,
-    target: bool,
-) -> Result<(bool, Value)> {
+/// A metric's value on each envelope seed, and their minimum and maximum.
+fn envelope_range(m: Metric, envelope: &[SeedRows]) -> Result<(Vec<Val>, Val, Val)> {
     let values: Vec<Val> = envelope.iter().map(|s| s.read(m)).collect::<Result<_>>()?;
-    let c = candidate.read(m)?;
-    let (mut min, mut max) = (values[0], values[0]);
+    let first = *values
+        .first()
+        .ok_or_else(|| format!("{}: an empty envelope has no range", m.name))?;
+    let (mut min, mut max) = (first, first);
     for &v in &values[1..] {
         if cmp_val(v, min)? == std::cmp::Ordering::Less {
             min = v;
@@ -1522,6 +1683,18 @@ fn judge(
             max = v;
         }
     }
+    Ok((values, min, max))
+}
+
+/// One metric against the envelope: a target (does it clear?) or a guard (does it lose?).
+fn judge(
+    m: Metric,
+    envelope: &[SeedRows],
+    candidate: &SeedRows,
+    target: bool,
+) -> Result<(bool, Value)> {
+    let (values, min, max) = envelope_range(m, envelope)?;
+    let c = candidate.read(m)?;
     let verdict = if target {
         clears(c, min, max, m.dir)?
     } else {
@@ -1529,7 +1702,7 @@ fn judge(
     };
     let mut j = json!({
         "metric": m.name,
-        "direction": match m.dir { Dir::Higher => "higher", Dir::Lower => "lower" },
+        "direction": dir_word(m.dir),
         "envelope": envelope
             .iter()
             .zip(&values)
@@ -1543,7 +1716,19 @@ fn judge(
     Ok((verdict, j))
 }
 
-/// Each arm judged against the envelope: whether it wins, and the JSON of every comparison.
+/// What `decide_arms` decided: R9_room for every target of every arm, from the envelope before
+/// any arm row was read; then the arms judged, or the refusal met while reading their rows.
+/// The second is carried as data, not returned as an error, so an arm row that cannot be read
+/// never hides a target that has no room.
+struct Decided {
+    envelope: Value,
+    room: Vec<Room>,
+    /// Each arm's verdict and the JSON of every comparison, keyed by arm name.
+    judged: Result<(Vec<bool>, Value)>,
+}
+
+/// F's envelope resolved and checked (an error here means there is no envelope, so no room was
+/// decided), R9_room decided for every target from it alone, then each arm judged against it.
 /// Any row or metric that cannot be read refuses the whole decision.
 fn decide_arms(
     inputs: &mut Inputs,
@@ -1551,14 +1736,13 @@ fn decide_arms(
     envelope_ft: &[(i64, String)],
     arm_ledger: &Path,
     arms: &[(&Arm, &(i64, String))],
-) -> Result<(Vec<bool>, Value)> {
+) -> Result<Decided> {
     let seeds: Vec<i64> = envelope_ft.iter().map(|(s, _)| *s).collect();
     ensure!(
         seeds == F_SEEDS,
         "the envelope is {ENVELOPE_PIN}, given as seeds {F_SEEDS:?} in that order; got {seeds:?}"
     );
     let env = inputs.read(envelope_ledger)?;
-    let arm_rows = inputs.read(arm_ledger)?;
     one_configuration(&env, envelope_ft)?;
     let control = arms.iter().any(|(a, _)| a.reads_control());
     let letter = arms.iter().any(|(a, _)| a.reads_margin());
@@ -1570,6 +1754,34 @@ fn decide_arms(
     for s in &envelope[1..] {
         comparable(s, reference, &format!("envelope seed {}", s.seed))?;
     }
+    // R9_room: "decided from the envelope alone, before the arm's rows are read".
+    let room: Vec<Room> = arms
+        .iter()
+        .flat_map(|(arm, _)| arm.targets.iter().map(|m| Room::of(arm, *m, &envelope)))
+        .collect();
+    let judged = judge_arms(inputs, arm_ledger, &envelope, arms);
+    Ok(Decided {
+        envelope: json!({
+            "pin": ENVELOPE_PIN,
+            "seeds": envelope.iter().map(SeedRows::json).collect::<Vec<_>>(),
+        }),
+        room,
+        judged,
+    })
+}
+
+/// Each arm's rows read from `arm_ledger` and judged against the envelope: whether it wins,
+/// and the JSON of every comparison.
+fn judge_arms(
+    inputs: &mut Inputs,
+    arm_ledger: &Path,
+    envelope: &[SeedRows],
+    arms: &[(&Arm, &(i64, String))],
+) -> Result<(Vec<bool>, Value)> {
+    let arm_rows = inputs.read(arm_ledger)?;
+    let reference = envelope
+        .first()
+        .ok_or_else(|| "an empty envelope".to_string())?;
     let mut wins = Vec::new();
     let mut detail = Map::new();
     for (arm, (seed, ft)) in arms {
@@ -1590,14 +1802,14 @@ fn decide_arms(
         let mut cleared = Vec::new();
         let mut targets = Vec::new();
         for m in arm.targets {
-            let (c, j) = judge(*m, &envelope, &rows, true)?;
+            let (c, j) = judge(*m, envelope, &rows, true)?;
             cleared.push(c);
             targets.push(j);
         }
         let mut lost = Vec::new();
         let mut guards = Vec::new();
         for m in arm.must_not_lose() {
-            let (l, j) = judge(m, &envelope, &rows, false)?;
+            let (l, j) = judge(m, envelope, &rows, false)?;
             if l {
                 lost.push(m.name);
             }
@@ -1622,18 +1834,14 @@ fn decide_arms(
             }),
         );
     }
-    Ok((
-        wins,
-        json!({
-            "envelope": {
-                "pin": ENVELOPE_PIN,
-                "seeds": envelope.iter().map(SeedRows::json).collect::<Vec<_>>(),
-            },
-            "arms": detail,
-        }),
-    ))
+    Ok((wins, Value::Object(detail)))
 }
 
+/// The successor decision. Every applicable refusal is listed in `refused_because`, in the
+/// order it was met: (c) a target with no room and (b) an envelope value that could not be
+/// read, both decided from the envelope first; then (b) an arm row or metric that could not be
+/// read; then (a) both arms winning. Any of them refuses, so a target that could not be
+/// examined never reads as quiet or as the other arm firing.
 fn rule_successor(
     inputs: &mut Inputs,
     f_ledger: &Path,
@@ -1642,44 +1850,82 @@ fn rule_successor(
     j6f: &(i64, String),
     j6dv4: &(i64, String),
 ) -> Result<(String, Value)> {
-    let (wins, mut body) = decide_arms(
+    let decided = decide_arms(
         inputs,
         f_ledger,
         ft_rows,
         arm_ledger,
         &[(&ARM_J6F, j6f), (&ARM_J6DV4, j6dv4)],
-    )?;
-    let &[f, d] = wins.as_slice() else {
-        return Err(format!("{} arm verdicts for two arms", wins.len()));
-    };
-    body["rule"] = json!(
-        "an arm wins iff every metric its flag was meant to move lands outside F's three-seed \
-         envelope in the right direction by more than F's own seed range, and no must-not-lose \
-         metric lands outside the envelope in the wrong direction (f-v4-preregistered.json:13); \
-         F' runs the one winning arm's recipe"
-    );
-    let (word, then) = match (f, d) {
-        (true, false) => (
-            ARM_J6F.word,
-            "F' runs J6(f)'s recipe: F's argv without --lower-layers-n 8 --lower-layers-lr-scale 0.1, seeds 0 1 2",
-        ),
-        (false, true) => (
-            ARM_J6DV4.word,
-            "F' runs J6(d)-v4's recipe: F's argv with --lr 3e-5 --beta2 0.95 in place of --lr 1e-5, seeds 0 1 2",
-        ),
-        (false, false) => (
-            "quiet",
-            "no F'; re-plan from J7''s avg / ens3 / avg-np rows (Fable Q2)",
-        ),
-        (true, true) => {
-            body["refused_because"] = json!(
-                "both arms win, on different metrics (J6(f) on the 8K needle, J6(d)-v4 on the \
-                 margin and val top-1): the human decides; two one-seed wins are never combined \
-                 into an untested recipe"
-            );
-            ("refused", "no F' until the human decides")
+    )
+    .map_err(|e| {
+        format!(
+            "(b) {e}; room not decided: F's envelope did not resolve, so no target was \
+             examined for room (R9_room) and no arm was judged"
+        )
+    })?;
+    let mut because: Vec<String> = Vec::new();
+    let mut add = |reason: String| {
+        if !because.contains(&reason) {
+            because.push(reason);
         }
     };
+    decided
+        .room
+        .iter()
+        .filter_map(Room::refusal)
+        .for_each(&mut add);
+    let mut body = json!({
+        "rule": "an arm wins iff every metric its flag was meant to move lands outside F's \
+                 three-seed envelope in the right direction by more than F's own seed range, and \
+                 no must-not-lose metric lands outside the envelope in the wrong direction \
+                 (f-v4-preregistered.json:13); F' runs the one winning arm's recipe. A target \
+                 the envelope leaves no room to clear refuses the decision (R9_room).",
+        "envelope": decided.envelope,
+        "room": decided.room.iter().map(Room::json).collect::<Vec<_>>(),
+        "cannot_clear": decided.room.iter().filter_map(Room::cannot_clear).collect::<Vec<_>>(),
+    });
+    let word = match decided.judged {
+        Err(e) => {
+            add(format!("(b) {e}"));
+            None
+        }
+        Ok((wins, arms)) => {
+            body["arms"] = arms;
+            let &[f, d] = wins.as_slice() else {
+                return Err(format!("{} arm verdicts for two arms", wins.len()));
+            };
+            match (f, d) {
+                (true, false) => Some((
+                    ARM_J6F.word,
+                    "F' runs J6(f)'s recipe: F's argv without --lower-layers-n 8 --lower-layers-lr-scale 0.1, seeds 0 1 2",
+                )),
+                (false, true) => Some((
+                    ARM_J6DV4.word,
+                    "F' runs J6(d)-v4's recipe: F's argv with --lr 3e-5 --beta2 0.95 in place of --lr 1e-5, seeds 0 1 2",
+                )),
+                (false, false) => Some((
+                    "quiet",
+                    "no F'; re-plan from J7''s avg / ens3 / avg-np rows (Fable Q2)",
+                )),
+                (true, true) => {
+                    add(
+                        "(a) both arms win, on different metrics (J6(f) on the 8K needle, \
+                         J6(d)-v4 on the margin and val top-1): the human decides; two one-seed \
+                         wins are never combined into an untested recipe"
+                            .to_string(),
+                    );
+                    None
+                }
+            }
+        }
+    };
+    if !because.is_empty() {
+        body["refused_because"] = json!(because);
+        body["then"] = json!("no F' until the human decides");
+        return Ok(("refused".to_string(), body));
+    }
+    let (word, then) =
+        word.ok_or_else(|| "the decision has neither a word nor a refusal".to_string())?;
     body["then"] = json!(then);
     Ok((word.to_string(), body))
 }
@@ -1841,14 +2087,18 @@ fn run(cmd: &Cmd) -> Outcome {
         "inputs": inputs.0,
     });
     let (word, refused) = match result {
-        // A rule that read every row and refuses by its own terms (successor: both arms win)
-        // keeps its detail and exits as every refusal does.
+        // A rule that refuses by its own terms (successor: both arms win, a target without
+        // room, or an arm row that could not be read) keeps its detail, lists every reason in
+        // `refused_because`, and exits as every refusal does.
         Ok((word, body)) if word == "refused" => {
-            let reason = body
-                .get("refused_because")
-                .and_then(Value::as_str)
-                .unwrap_or("the rule refused without recording why; see detail")
-                .to_string();
+            let reason = match body.get("refused_because") {
+                Some(Value::Array(reasons)) if !reasons.is_empty() => reasons
+                    .iter()
+                    .map(|r| r.as_str().map_or_else(|| r.to_string(), str::to_string))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+                _ => "the rule refused without recording why; see detail".to_string(),
+            };
             json["decision"] = Value::String(word.clone());
             json["refused"] = Value::String(reason);
             json["detail"] = body;
@@ -2943,6 +3193,42 @@ mod tests {
              2*e*b*h > a*f*h + g*b*f"
         ));
         assert!(c["paired_margin"].as_str().unwrap().contains("873/2304"));
+        // R9_room (56d74cf): the Room clause, its (c) refusal and its reading, as no_room and
+        // room_bound implement them.
+        let target_clears = c["target_clears"].as_str().unwrap();
+        for phrase in [
+            "Higher-better, bound U (1 for counts and the paired margin): if 2*max - min >= U \
+             (counts: 2*g*f - e*h >= f*h), no candidate can clear.",
+            "Lower-better, bound L (0 for counts): if 2*min - max <= L (counts: 2*e*h <= g*f), \
+             likewise.",
+            "Decided from the envelope alone, before the arm's rows are read.",
+            "refuses the decision (outcomes.refused (c))",
+        ] {
+            assert!(target_clears.contains(phrase), "{phrase}");
+        }
+        let refused = p["outcomes"]["refused"].as_str().unwrap();
+        assert!(refused.contains(
+            "The JSON carries cannot_clear: [{arm, target, max, min, bound}] and refused_because \
+             names them. Never quiet and never fires:<other arm> in case (c)"
+        ));
+        assert!(
+            p["readings"]["R9_room"]
+                .as_str()
+                .unwrap()
+                .contains("2*max - min >= 1 = spread >= 1 - max")
+        );
+        assert!(PREREG_SUCC.contains("56d74cf"));
+        for arm in [&ARM_J6F, &ARM_J6DV4] {
+            for m in arm.targets {
+                let b = room_bound(*m).unwrap();
+                assert_eq!(
+                    (b.name, b.value),
+                    ("U", Rat { num: 1, den: 1 }),
+                    "{}",
+                    m.name
+                );
+            }
+        }
         assert!(
             p["readings"]["R3_all_targets_clear"]
                 .as_str()
@@ -2958,7 +3244,7 @@ mod tests {
     #[test]
     fn j6b_against_j4_fires_on_the_real_rows() {
         let mut inputs = Inputs::default();
-        let (wins, d) = decide_arms(
+        let decided = decide_arms(
             &mut inputs,
             &repo(J4),
             &ft_args(&J4_FT),
@@ -2966,7 +3252,23 @@ mod tests {
             &[(&ARM_J6B, &(0, J6B_FT.to_string()))],
         )
         .unwrap();
-        assert_eq!(wins, [true], "{d}");
+        // R9_room on the real rows: prose 2*9 - 2 = 16 < 60 and scrambled 2*8 - 3 = 13 < 60
+        // leave J6(b)'s targets room, so the replay is decided by the comparison as before.
+        let room: Vec<(&str, bool)> = decided
+            .room
+            .iter()
+            .map(|r| (r.metric.name, r.decided.as_ref().unwrap().3))
+            .collect();
+        assert_eq!(
+            room,
+            [
+                ("ood_abstain.prose", false),
+                ("ood_abstain.scrambled", false)
+            ]
+        );
+        let (wins, arms) = decided.judged.unwrap();
+        assert_eq!(wins, [true], "{arms}");
+        let d = json!({"arms": arms, "envelope": decided.envelope});
         let arm = &d["arms"]["j6b"];
         assert!(
             arm["rows"]["eval_row"]
@@ -3053,6 +3355,8 @@ mod tests {
             &repo(J6B),
             &[(&arm, &(0, J6B_FT.to_string()))],
         )
+        .unwrap()
+        .judged
         .unwrap_err();
         assert!(
             err.contains("recipe.lower_layers_n is 8, but the arm drops it"),
@@ -3650,59 +3954,346 @@ mod tests {
         assert!(ARM_J6F.reads_control() && !ARM_J6DV4.reads_control());
     }
 
-    /// Recorded as GAP-SUCC-J6F-CANNOT-FIRE-WHEN-2MAX-MINUS-MIN-REACHES-1-2026-10-02, not fixed:
-    /// a worst bucket is at most 1 and must exceed max + range = 2*max - min strictly, so when
-    /// F's 8K envelope has 2*max - min >= 1, J6(f) cannot fire and the rule returns only
-    /// fires:j6dv4 or quiet.
+    /// The (arm, target) pairs a decision's `cannot_clear` names (R9_room, outcomes.refused (c)).
+    fn cannot_clear(o: &Outcome) -> Vec<(String, String)> {
+        o.json["detail"]["cannot_clear"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no detail.cannot_clear: {}", o.json))
+            .iter()
+            .map(|c| {
+                (
+                    c["arm"].as_str().unwrap().to_string(),
+                    c["target"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect()
+    }
+
+    /// Refused under outcomes.refused (c): exit 3's word, never quiet and never fires:<arm>,
+    /// with `cannot_clear` naming exactly `blocked` and `refused_because` naming each of them.
+    fn refused_cannot_clear(o: &Outcome, blocked: &[(&str, &str)]) {
+        refused_with(o, "(c)");
+        let want: Vec<(String, String)> = blocked
+            .iter()
+            .map(|(a, t)| (a.to_string(), t.to_string()))
+            .collect();
+        assert_eq!(cannot_clear(o), want, "{}", o.json);
+        let because: Vec<&str> = o.json["detail"]["refused_because"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no detail.refused_because list: {}", o.json))
+            .iter()
+            .map(|r| r.as_str().unwrap())
+            .collect();
+        for (arm, target) in blocked {
+            assert!(
+                because
+                    .iter()
+                    .any(|r| r.starts_with("(c)") && r.contains(arm) && r.contains(target)),
+                "{arm} / {target} not named in {because:?}"
+            );
+        }
+    }
+
+    /// An F envelope that is F_ENV with the 8K worst buckets replaced.
+    fn needle_env(hits: [u64; 3]) -> [Profile; 3] {
+        let mut env = F_ENV;
+        for (p, k) in env.iter_mut().zip(hits) {
+            p.needle = (4, k);
+        }
+        env
+    }
+
+    /// GAP-SUCC-J6F-CANNOT-FIRE-WHEN-2MAX-MINUS-MIN-REACHES-1-2026-10-02, fixed by R9_room
+    /// (Fable 2026-10-02, AUDIT/idle-gpu-queue-2026-10-02/fable-j6f-room.md): a worst bucket is
+    /// at most 1 and must exceed max + range = 2*max - min strictly, so when F's 8K envelope has
+    /// 2*max - min >= 1 no J6(f) run can clear. That target cannot be examined, so the decision
+    /// refuses (outcomes.refused (c)) with cannot_clear naming it: never quiet, and never
+    /// fires:j6dv4, even when J6(d)-v4 wins on its own.
     #[test]
     fn j6f_cannot_fire_when_twice_max_minus_min_reaches_1() {
         // 8K worst 40, 20, 45 of 61: spread 25/61 = 0.41 > 0.30 (rule (ii) fires); 2*45 - 20 =
         // 70 > 61, so even 61/61 does not clear.
-        let wide = [
-            F_ENV[0],
-            Profile {
-                needle: (4, 20),
-                ..F_ENV[1]
-            },
-            Profile {
-                needle: (4, 45),
-                ..F_ENV[2]
-            },
-        ];
+        let wide = needle_env([40, 20, 45]);
         let o = succ(wide, J6F_WINS, NEUTRAL);
-        assert_eq!(o.word, "quiet", "{}", o.json);
+        refused_cannot_clear(&o, &[("j6f", "needle_8k_worst_bucket")]);
+        // The comparison is unchanged and still recorded: 61/61 does not clear.
         assert_eq!(
             o.json["detail"]["arms"]["j6f"]["targets"][0]["clears"],
             false
         );
-        assert_eq!(succ(wide, J6F_WINS, J6DV4_WINS).word, "fires:j6dv4");
+        // J6(d)-v4 wins on its own, and the decision still is not fires:j6dv4.
+        let o = succ(wide, J6F_WINS, J6DV4_WINS);
+        refused_cannot_clear(&o, &[("j6f", "needle_8k_worst_bucket")]);
+        assert_eq!(o.json["detail"]["arms"]["j6dv4"]["wins"], true);
         // Exactly at 1: 2*40 - 19 = 61, so 61/61 ties max + range and does not clear.
-        let at_one = [
-            F_ENV[0],
-            Profile {
-                needle: (4, 19),
-                ..F_ENV[1]
-            },
-            Profile {
-                needle: (4, 40),
-                ..F_ENV[2]
-            },
-        ];
-        assert_eq!(succ(at_one, J6F_WINS, NEUTRAL).word, "quiet");
+        let at_one = needle_env([40, 19, 40]);
+        refused_cannot_clear(
+            &succ(at_one, J6F_WINS, NEUTRAL),
+            &[("j6f", "needle_8k_worst_bucket")],
+        );
         // A spread over 0.30 with a low maximum still leaves room: 2*40 - 21 = 59 < 61, and a
         // spread of 19/61 = 0.31 does not by itself rule J6(f) out.
-        let room = [
-            F_ENV[0],
+        let room = needle_env([40, 21, 40]);
+        let o = succ(room, J6F_WINS, NEUTRAL);
+        assert_eq!(o.word, "fires:j6f", "{}", o.json);
+        assert_eq!(o.json["detail"]["cannot_clear"], json!([]));
+    }
+
+    /// The lead's counterexample to "the block is rule (ii)'s spread > 0.30": 8K worst 46/61
+    /// and 31/61 with a third seed inside, spread 15/61 = 0.246 (rule (ii) silent), and
+    /// 2*46 - 31 = 61, so 61/61 ties max + range. Before R9_room this printed quiet, the word
+    /// for "examined and did not clear".
+    #[test]
+    fn the_leads_46_31_envelope_refuses_where_it_read_quiet() {
+        let env = needle_env([46, 31, 40]);
+        let o = succ(env, J6F_WINS, NEUTRAL);
+        refused_cannot_clear(&o, &[("j6f", "needle_8k_worst_bucket")]);
+        refused_with(&o, "max 46/61 and min 31/61 has 2*max - min >= U = 1,");
+        let c = &o.json["detail"]["cannot_clear"][0];
+        assert_eq!(
+            (
+                c["max"]["n"].as_i64(),
+                c["max"]["n_total"].as_i64(),
+                c["min"]["n"].as_i64(),
+                c["min"]["n_total"].as_i64(),
+            ),
+            (Some(46), Some(61), Some(31), Some(61)),
+            "{c}"
+        );
+        assert_eq!(
+            (c["bound"]["name"].as_str(), c["bound"]["value"].as_f64()),
+            (Some("U"), Some(1.0)),
+            "{c}"
+        );
+        // The prereg's five keys, no more.
+        let mut keys: Vec<&String> = c.as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(keys, ["arm", "bound", "max", "min", "target"]);
+        // One hit more at the minimum, 32/61: 2*46 - 32 = 60 < 61, so 61/61 clears and fires.
+        let o = succ(needle_env([46, 32, 40]), J6F_WINS, NEUTRAL);
+        assert_eq!(o.word, "fires:j6f", "{}", o.json);
+    }
+
+    /// R9_room: an F seed at 61/61 leaves J6(f) no room at any spread, spread 0 included
+    /// (max = 1, and 2 - min >= 1 for every min <= 1).
+    #[test]
+    fn an_f_seed_at_61_of_61_blocks_j6f_at_any_spread() {
+        for env in [needle_env([61, 61, 61]), needle_env([61, 45, 50])] {
+            let o = succ(env, J6F_WINS, NEUTRAL);
+            refused_cannot_clear(&o, &[("j6f", "needle_8k_worst_bucket")]);
+            assert_eq!(
+                o.json["detail"]["cannot_clear"][0]["max"]["value"].as_f64(),
+                Some(1.0)
+            );
+        }
+    }
+
+    /// R9_room covers J6(d)-v4's targets too: val_top1.span 7000 / 6762 / 6900 of 7238 has
+    /// 2*7000 - 6762 = 7238, so even 7238/7238 ties. J6(f) winning on its own does not make the
+    /// decision fires:j6f.
+    #[test]
+    fn j6dv4_span_near_its_ceiling_refuses_and_never_fires_j6f() {
+        let spans = |s: [u64; 3]| {
+            let mut env = F_ENV;
+            for (p, k) in env.iter_mut().zip(s) {
+                p.span = k;
+            }
+            env
+        };
+        let inside = |p: Profile| Profile { span: 6900, ..p };
+        let o = succ(
+            spans([7000, 6762, 6900]),
+            inside(J6F_WINS),
+            inside(J6DV4_WINS),
+        );
+        refused_cannot_clear(&o, &[("j6dv4", "val_top1.span")]);
+        assert_eq!(o.json["detail"]["arms"]["j6f"]["wins"], true, "{}", o.json);
+        // One count of room (6763: 2*7000 - 6763 = 7237 < 7238): decided as before.
+        let o = succ(spans([7000, 6763, 6900]), inside(J6F_WINS), inside(NEUTRAL));
+        assert_eq!(o.word, "fires:j6f", "{}", o.json);
+        assert_eq!(o.json["detail"]["cannot_clear"], json!([]));
+    }
+
+    /// R9_room on the paired margin (bound U = 1), on signed fractions: margins 1102, -100,
+    /// 500 of 2304 have 2*1102 - (-100) = 2304, so even +2304/2304 ties.
+    #[test]
+    fn a_paired_margin_envelope_with_no_room_refuses_on_signed_fractions() {
+        let margins = |m: [i64; 3]| {
+            let mut env = F_ENV;
+            for (p, k) in env.iter_mut().zip(m) {
+                p.margin = k;
+            }
+            env
+        };
+        let o = succ(margins([1102, -100, 500]), NEUTRAL, J6DV4_WINS);
+        refused_cannot_clear(&o, &[("j6dv4", MARGIN_KEY)]);
+        let c = &o.json["detail"]["cannot_clear"][0];
+        assert_eq!(
+            (c["min"]["n"].as_i64(), c["max"]["n"].as_i64()),
+            (Some(-100), Some(1102))
+        );
+        // min -99: 2*1102 + 99 = 2303 < 2304 leaves one count of room, and +2304 clears it.
+        let o = succ(
+            margins([1102, -99, 500]),
+            NEUTRAL,
             Profile {
-                needle: (4, 21),
-                ..F_ENV[1]
+                margin: 2304,
+                ..J6DV4_WINS
             },
-            Profile {
-                needle: (4, 40),
-                ..F_ENV[2]
-            },
-        ];
-        assert_eq!(succ(room, J6F_WINS, NEUTRAL).word, "fires:j6f");
+        );
+        assert_eq!(o.word, "fires:j6dv4", "{}", o.json);
+        assert_eq!(o.json["detail"]["cannot_clear"], json!([]));
+    }
+
+    /// Room is decided from the envelope before any arm row is read, so an arm row that is
+    /// missing (outcomes.refused (b)) does not hide a target with no room (c): both are listed.
+    #[test]
+    fn a_missing_arm_row_and_a_target_without_room_are_both_listed() {
+        let fx = succ_fixture(needle_env([46, 31, 40]), J6F_WINS, NEUTRAL, |_, a| {
+            let letter = rid(0xa6d, 4);
+            a.retain(|r| r["row_id"] != letter.as_str());
+        });
+        let o = succ_of(&fx);
+        refused_cannot_clear(&o, &[("j6f", "needle_8k_worst_bucket")]);
+        refused_with(&o, "missing row: no completed letter-control row");
+        let because = o.json["detail"]["refused_because"].as_array().unwrap();
+        assert_eq!(because.len(), 2, "{because:?}");
+        assert!(because[1].as_str().unwrap().starts_with("(b)"));
+    }
+
+    /// Every target of both arms gets a room verdict and no guard does; with room everywhere
+    /// cannot_clear is the empty list, which is a decided "none", not an absent check.
+    #[test]
+    fn room_is_decided_for_every_target_and_for_no_guard() {
+        let o = succ(F_ENV, NEUTRAL, NEUTRAL);
+        assert_eq!(o.word, "quiet", "{}", o.json);
+        assert_eq!(o.json["detail"]["cannot_clear"], json!([]));
+        let room: Vec<(&str, &str, bool)> = o.json["detail"]["room"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no detail.room: {}", o.json))
+            .iter()
+            .map(|r| {
+                (
+                    r["arm"].as_str().unwrap(),
+                    r["target"].as_str().unwrap(),
+                    r["room"].as_bool().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            room,
+            [
+                ("j6f", "needle_8k_worst_bucket", true),
+                ("j6dv4", MARGIN_KEY, true),
+                ("j6dv4", "val_top1.choice", true),
+                ("j6dv4", "val_top1.span", true),
+            ]
+        );
+    }
+
+    /// R9_room's two forms on the helper, both directions, at and one step off the boundary,
+    /// with unequal denominators and signed margins.
+    #[test]
+    fn no_room_is_the_preregistered_count_form_in_both_directions() {
+        let r = |num: i64, den: u64| Val::Exact(Rat::new(num, den, "t").unwrap());
+        let (u, l) = (Rat { num: 1, den: 1 }, Rat { num: 0, den: 1 });
+        // Higher-better, U = 1: 2*max - min >= 1.
+        assert!(no_room(r(31, 61), r(46, 61), u, Dir::Higher).unwrap());
+        assert!(!no_room(r(32, 61), r(46, 61), u, Dir::Higher).unwrap());
+        assert!(no_room(r(61, 61), r(61, 61), u, Dir::Higher).unwrap());
+        // 2*(3/4) - 1/2 = 1 exactly, across denominators; 2*(3/4) - 3/5 = 0.9 leaves room.
+        assert!(no_room(r(1, 2), r(3, 4), u, Dir::Higher).unwrap());
+        assert!(!no_room(r(3, 5), r(3, 4), u, Dir::Higher).unwrap());
+        // Signed margins: 2*1102 + 100 = 2304 blocks, 2*1102 + 99 = 2303 does not.
+        assert!(no_room(r(-100, 2304), r(1102, 2304), u, Dir::Higher).unwrap());
+        assert!(!no_room(r(-99, 2304), r(1102, 2304), u, Dir::Higher).unwrap());
+        // Lower-better, L = 0: 2*min - max <= 0.
+        assert!(no_room(r(1, 10), r(2, 10), l, Dir::Lower).unwrap());
+        assert!(!no_room(r(2, 10), r(3, 10), l, Dir::Lower).unwrap());
+        assert!(no_room(r(0, 2304), r(0, 2304), l, Dir::Lower).unwrap());
+        assert!(!no_room(r(1, 2304), r(1, 2304), l, Dir::Lower).unwrap());
+        // 2*(1/6) - 1/3 = 0 exactly; 2*(1/6) - 2/7 = 1/21 > 0 leaves room.
+        assert!(no_room(r(1, 6), r(1, 3), l, Dir::Lower).unwrap());
+        assert!(!no_room(r(1, 6), r(2, 7), l, Dir::Lower).unwrap());
+        // Direction matters: 1/10..2/10 has room upward (2*2/10 - 1/10 < 1) and none downward
+        // (2*1/10 - 2/10 = 0); 6/10..10/10 is the reverse (2 - 6/10 >= 1; 12/10 - 1 > 0).
+        assert!(!no_room(r(1, 10), r(2, 10), u, Dir::Higher).unwrap());
+        assert!(no_room(r(1, 10), r(2, 10), l, Dir::Lower).unwrap());
+        assert!(no_room(r(6, 10), r(10, 10), u, Dir::Higher).unwrap());
+        assert!(!no_room(r(6, 10), r(10, 10), l, Dir::Lower).unwrap());
+        // A float envelope has no pre-registered room.
+        assert!(no_room(Val::Float(0.01), Val::Float(0.02), l, Dir::Lower).is_err());
+    }
+
+    /// Two independent signals agree: no room iff the bound itself (the best any candidate can
+    /// score) does not clear by the unchanged comparison. Every envelope with denominators up
+    /// to 7, both directions; signed numerators in the higher direction (the paired margin).
+    #[test]
+    fn no_room_iff_the_bound_itself_does_not_clear() {
+        let mut fracs = Vec::new();
+        for den in 1..=7u64 {
+            for num in -(den as i64)..=den as i64 {
+                fracs.push(Rat::new(num, den, "t").unwrap());
+            }
+        }
+        let mut checked = 0;
+        for &lo in &fracs {
+            for &hi in &fracs {
+                let (lo, hi) = (Val::Exact(lo), Val::Exact(hi));
+                if cmp_val(lo, hi).unwrap() == std::cmp::Ordering::Greater {
+                    continue;
+                }
+                let u = room_bound(VAL_SPAN).unwrap().value;
+                assert_eq!(
+                    no_room(lo, hi, u, Dir::Higher).unwrap(),
+                    !clears(Val::Exact(u), lo, hi, Dir::Higher).unwrap(),
+                    "{lo:?} {hi:?} higher"
+                );
+                let nonneg = |v: Val| matches!(v, Val::Exact(r) if r.num >= 0);
+                if nonneg(lo) && nonneg(hi) {
+                    let l = room_bound(ID_ABSTAIN_DC).unwrap().value;
+                    assert_eq!(
+                        no_room(lo, hi, l, Dir::Lower).unwrap(),
+                        !clears(Val::Exact(l), lo, hi, Dir::Lower).unwrap(),
+                        "{lo:?} {hi:?} lower"
+                    );
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked > 1000, "{checked}");
+    }
+
+    /// Bounds are pre-registered for counts and the higher-better margin only; anything else
+    /// refuses rather than defaults.
+    #[test]
+    fn room_bounds_are_the_preregistered_ones_and_nothing_else() {
+        assert_eq!(room_bound(NEEDLE_8K_WORST).unwrap().name, "U");
+        assert_eq!(room_bound(MARGIN_DC).unwrap().name, "U");
+        assert_eq!(room_bound(CONTROL_1K).unwrap().name, "U");
+        let l = room_bound(ID_ABSTAIN_DC).unwrap();
+        assert_eq!((l.name, l.value), ("L", Rat { num: 0, den: 1 }));
+        let err = room_bound(ECE_DC).unwrap_err();
+        assert!(err.contains("pre-registers no bound"), "{err}");
+        let lower_margin = Metric {
+            dir: Dir::Lower,
+            ..MARGIN_DC
+        };
+        assert!(room_bound(lower_margin).is_err());
+    }
+
+    /// An envelope that does not resolve decides no room: the refusal says so, and there is no
+    /// cannot_clear to be misread as "decided, none blocked".
+    #[test]
+    fn an_envelope_that_does_not_resolve_decides_no_room() {
+        let fx = succ_fixture(needle_env([46, 31, 40]), J6F_WINS, NEUTRAL, |f, _| {
+            let ft = rid(0xf1, 1);
+            row_mut(f, &ft)["quick"] = json!(true);
+        });
+        let o = succ_of(&fx);
+        refused_with(&o, "does not say quick: false");
+        refused_with(&o, "room not decided");
+        assert!(o.json["detail"]["cannot_clear"].is_null(), "{}", o.json);
     }
 
     #[test]

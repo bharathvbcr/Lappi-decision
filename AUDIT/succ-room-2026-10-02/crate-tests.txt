@@ -1,0 +1,719 @@
+   Compiling qd-runtime v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-ab20fd47a4fdbc017/crates/qd-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.78s
+     Running unittests src/lib.rs (target/debug/deps/qd_runtime-19e373ea09e918d3)
+
+running 30 tests
+test admission::tests::hunk_headers_parse_with_and_without_counts_and_with_a_section ... ok
+test admission::tests::the_empty_context_is_refused_at_line_one ... ok
+test b64::tests::characters_outside_the_alphabet_are_refused ... ok
+test b64::tests::non_canonical_padding_is_refused ... ok
+test b64::tests::an_error_names_the_offset_and_both_values ... ok
+test b64::tests::the_slack_bits_error_names_the_canonical_character_at_both_widths ... ok
+test b64::tests::the_engine_config_this_module_depends_on ... ok
+test b64::tests::rfc4648_test_vectors ... ok
+test b64::tests::a_non_multiple_of_four_is_refused ... ok
+test admission::tests::a_non_utf8_path_is_refused_and_a_non_utf8_body_line_is_left_to_the_renderer ... ok
+test calibration_fit::tests::non_finite_logits_and_bad_gold_rows_are_refused ... ok
+test calibration_fit::tests::ece_is_not_run_below_the_floor_and_puts_confidence_one_in_the_last_bin ... ok
+test b64::tests::non_zero_trailing_bits_are_refused ... ok
+test b64::tests::every_byte_value_round_trips_at_every_alignment ... ok
+test b64::tests::a_misplaced_pad_is_named_as_padding_not_as_a_bad_character ... ok
+test admission::tests::a_refusal_echoes_a_bounded_excerpt_not_the_payload ... ok
+test calibration_fit::tests::noul_margin_is_the_lowest_margin_reaching_the_target_or_the_largest ... ok
+test calibration_fit::tests::pairwise_sum_is_sequential_below_eight_and_blocked_above ... ok
+test calibration_fit::tests::pairwise_sum_splits_above_the_block_at_a_multiple_of_eight ... ok
+test calibration_fit::tests::the_conformal_index_is_numpys_higher_method ... ok
+test context::tests::an_empty_context_is_a_legal_value_not_an_error ... ok
+test context::tests::a_declared_length_that_disagrees_is_refused_by_the_one_decoder ... ok
+test context::tests::debug_prints_a_length_and_a_digest_and_never_the_bytes ... ok
+test context::tests::each_missing_part_names_itself ... ok
+test context::tests::invalid_base64_is_a_typed_refusal_that_names_the_offset ... ok
+test context::tests::serialize_then_deserialize_is_the_identity ... ok
+test context::tests::the_serialized_form_is_exactly_the_two_contract_fields ... ok
+test calibration_fit::tests::an_entry_never_wrong_or_never_right_has_no_interior_temperature ... ok
+test calibration_fit::tests::the_table_holds_the_probability_cutoff_not_the_nonconformity_quantile ... ok
+test calibration_fit::tests::fit_temperature_recovers_a_known_distortion ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s
+
+     Running unittests src/main.rs (target/debug/deps/qd-8de453f797873ac5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/qd_calib_fit.rs (target/debug/deps/qd_calib_fit-61518464a93b6fab)
+
+running 2 tests
+test tests::a_letter_line_outside_the_runtime_shape_is_refused ... ok
+test tests::the_split_is_the_margin_probes_and_keyed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/qd_gate_report.rs (target/debug/deps/qd_gate_report-bf4b9b41775a31e0)
+
+running 5 tests
+test tests::the_softmax_takes_numpys_first_max_and_entropy_is_clipped ... ok
+test tests::a_partial_second_pass_is_refused ... ok
+test tests::the_in_distribution_rule_is_the_runtimes_and_skips_gold_noul_rows ... ok
+test tests::a_deviation_is_undefined_where_the_gold_share_is_zero_or_one ... ok
+test tests::a_deviation_is_in_standard_errors_of_the_gold_marginal ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/qd_margin_probe.rs (target/debug/deps/qd_margin_probe-ffc3b674bf879aab)
+
+running 7 tests
+test tests::fit_refuses_an_empty_set_and_a_bad_target ... ok
+test tests::fit_returns_the_largest_margin_when_nothing_reaches_the_target ... ok
+test tests::fit_returns_the_lowest_margin_reaching_the_target ... ok
+test tests::the_margin_is_the_runtimes ... ok
+test tests::quantiles_are_nearest_rank ... ok
+test tests::a_line_without_logits_is_refused_not_skipped ... ok
+test tests::the_split_is_keyed_and_deterministic ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/qd_post_f_rules.rs (target/debug/deps/qd_post_f_rules-bd20bf07533940cc)
+
+running 59 tests
+test tests::a_malformed_line_refuses_even_a_half_written_last_one ... ok
+test tests::a_not_run_metric_refuses ... ok
+test tests::a_missing_arm_row_and_a_target_without_room_are_both_listed ... ok
+test tests::a_margin_off_its_integer_grid_refuses ... ok
+test tests::a_category_not_out_of_60_refuses ... ok
+test tests::a_missing_metric_refuses_even_when_an_arm_would_fire ... ok
+test tests::a_gate_value_that_is_not_its_worst_bucket_refuses ... ok
+test tests::a_spread_of_exactly_0_30_is_quiet_and_one_hit_more_fires ... ok
+test tests::a_missing_or_doubled_eval_row_refuses ... ok
+test tests::every_constant_is_the_preregistrations_own_text ... ok
+test tests::every_decimal_is_the_fraction_its_text_prints ... ok
+test tests::an_envelope_that_does_not_resolve_decides_no_room ... ok
+test tests::every_key_the_rule_reads_is_on_f_seed_0s_real_rows ... ok
+test tests::ft_row_arguments_are_full_ids ... ok
+test tests::an_envelope_seed_that_is_quick_or_off_recipe_refuses ... ok
+test tests::a_paired_margin_envelope_with_no_room_refuses_on_signed_fractions ... ok
+test tests::a_missing_arm_letter_control_row_refuses_even_when_j6f_alone_would_fire ... ok
+test tests::both_arms_winning_refuses_and_keeps_both_verdicts ... ok
+test tests::a_not_run_metric_or_a_row_that_did_not_complete_refuses ... ok
+test tests::an_f_seed_at_61_of_61_blocks_j6f_at_any_spread ... ok
+test tests::ft_rows_refuse_a_quick_row_another_recipe_or_a_wrong_seed ... ok
+test tests::a_missing_avgnp_control_row_refuses_even_when_a_fails ... ok
+test tests::j4_fires_j6f_on_the_needle_and_on_both_falsifiers ... ok
+test tests::exact_forms_with_unequal_denominators_and_signed_margins ... ok
+test tests::avgnp_needs_34_ood_abstentions_not_33 ... ok
+test tests::avgnp_qualifies_one_hit_above_the_average_everywhere ... ok
+test tests::j4s_seeds_spread_by_0_75_so_seeds_3_and_4_fire ... ok
+test tests::a_target_at_exactly_max_plus_range_does_not_fire_and_one_hit_more_does ... ok
+test tests::j6b_against_j4_without_its_flags_is_refused_by_the_identity_check ... ok
+test tests::j6dv4_span_near_its_ceiling_refuses_and_never_fires_j6f ... ok
+test tests::j6b_against_j4_fires_on_the_real_rows ... ok
+test tests::no_room_is_the_preregistered_count_form_in_both_directions ... ok
+test tests::j6dv4_needs_no_needle_control_row_and_j6f_does ... ok
+test tests::no_room_iff_the_bound_itself_does_not_clear ... ok
+test tests::room_bounds_are_the_preregistered_ones_and_nothing_else ... ok
+test tests::seeds_other_than_fs_three_refuse ... ok
+test tests::j6f_counts_a_seed_below_0_95_never_one_at_it_and_needs_two ... ok
+test tests::a_length_control_miss_blocks_j6f_and_not_j6dv4 ... ok
+test tests::a_guard_at_its_bound_holds_and_one_count_past_it_loses ... ok
+test tests::j6f_fires_on_prose_at_9_and_scrambled_at_8_and_not_one_above ... ok
+test tests::j4s_average_scored_as_avgnp_fails_a_with_b_and_c_passing ... ok
+test tests::quiet_when_both_arms_sit_inside_the_envelope ... ok
+test tests::the_successor_rule_is_the_preregistrations_own_text ... ok
+test tests::j6dv4_needs_every_target_to_clear ... ok
+test tests::room_is_decided_for_every_target_and_for_no_guard ... ok
+test tests::a_cited_row_that_no_longer_prints_as_its_decimal_refuses ... ok
+test tests::the_envelope_is_fs_seeds_0_1_2_only ... ok
+test tests::j4s_ft_rows_average_and_their_eval_rows_resolve ... ok
+test tests::j6f_alone_fires_and_j6dv4_alone_fires ... ok
+test tests::the_leads_46_31_envelope_refuses_where_it_read_quiet ... ok
+test tests::letter_control_rows_are_selected_by_the_per_family_key ... ok
+test tests::j6f_cannot_fire_when_twice_max_minus_min_reaches_1 ... ok
+test tests::swapped_or_wrong_arm_rows_refuse ... ok
+test tests::unseen_language_guards_j6dv4_and_not_j6f ... ok
+test tests::the_reading_is_the_preregistrations_own_text ... ok
+test tests::a_length_control_below_the_average_at_any_length_fails_b ... ok
+test tests::a_choice_between_the_decimal_and_the_seed_minimum_fails_c ... ok
+test tests::a_tie_with_the_cited_row_passes_where_the_decimal_would_fail_it ... ok
+test tests::the_verdict_is_the_rows_and_differs_from_the_decimals_on_exactly_four_values ... ok
+
+test result: ok. 59 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/admission.rs (target/debug/deps/admission-d0652fe4878a03ae)
+
+running 7 tests
+test prose_is_not_a_unified_diff ... ok
+test a_line_without_a_diff_marker_is_refused ... ok
+test other_tasks_are_not_held_to_the_defect_class_shape ... ok
+test a_header_with_no_hunk_or_a_body_before_the_first_hunk_is_refused ... ok
+test a_hunk_whose_body_disagrees_with_its_header_is_refused ... ok
+test a_language_the_pool_never_held_is_refused ... ok
+test a_diff_in_the_trained_shape_and_a_pool_language_is_answered ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/answer_envelope_contract.rs (target/debug/deps/answer_envelope_contract-a7cf78e039f7f9f4)
+
+running 9 tests
+test a_slot_answer_carrying_neither_a_value_nor_an_abstention_is_refused ... ok
+test both_well_formed_shapes_still_parse ... ok
+test a_slot_answer_carrying_both_a_value_and_an_abstention_is_refused ... ok
+test an_unknown_field_on_the_answer_side_is_refused_the_way_the_request_side_refuses_one ... ok
+test a_span_carries_its_own_bounds_and_both_readers_refuse_a_violation ... ok
+test the_answer_maps_keys_obey_the_same_slot_name_cap_the_request_side_does ... ok
+test the_answer_envelope_carries_exactly_the_five_documented_keys ... ok
+test the_envelope_degraded_flag_is_mirrored_onto_every_slot ... ok
+test every_answer_this_runtime_emits_satisfies_the_biconditional ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/answering_procedure.rs (target/debug/deps/answering_procedure-4447947f8eb349d9)
+
+running 19 tests
+test the_pointer_head_ranges_over_the_contexts_line_starts_plus_the_abstain_row ... ok
+test the_abstain_rule_table_is_total_and_names_exactly_one_unserved_pair ... ok
+test the_conformal_set_holds_values_and_never_the_abstain_row ... ok
+test a_content_addressed_answer_survives_the_permuted_pass ... ok
+test the_reserved_abstain_row_is_the_last_row_of_every_slot_kind ... ok
+test the_contracts_example_request_is_answerable ... ok
+test a_span_that_runs_backwards_abstains_rather_than_being_reordered ... ok
+test every_requested_slot_appears_in_the_answer_exactly_once ... ok
+test letter_position_bias_becomes_an_abstention ... ok
+test a_span_slot_takes_exactly_two_pointer_decodes_from_one_snapshot ... ok
+test a_span_is_answered_as_one_based_inclusive_lines ... ok
+test row_zero_is_a_named_answer_and_never_the_abstention ... ok
+test the_registered_route_has_no_second_pass_to_run_and_the_rule_table_says_so ... ok
+test the_second_pass_permutation_is_reproducible_for_a_given_request ... ok
+test a_score_slot_is_answered_without_a_second_pass ... ok
+test the_same_request_answers_identically_twice ... ok
+test a_choice_slot_takes_two_decodes_with_different_suffixes_and_a_score_slot_takes_one ... ok
+test an_abstaining_backend_abstains_rather_than_returning_a_letter ... ok
+test the_second_pass_permutation_is_a_derangement ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/calib_fit_roundtrip.rs (target/debug/deps/calib_fit_roundtrip-8d3411681a5ab136)
+
+running 5 tests
+test a_fitted_number_survives_the_trip_through_json_bit_for_bit ... ok
+test an_out_dir_without_a_parent_is_refused_before_the_inputs_are_read ... ok
+test an_existing_out_dir_and_a_meaningless_split_key_are_refused ... ok
+test the_fitted_file_is_the_table_the_runtime_answers_with ... ok
+test two_fold_writes_both_fold_tables_and_no_pooled_one ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+     Running tests/calibration_hash_pin.rs (target/debug/deps/calibration_hash_pin-07f1d9c763a2ffa1)
+
+running 2 tests
+test the_pin_of_the_table_being_served_is_answered ... ok
+test the_pin_of_a_table_that_is_not_being_served_is_refused ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ensemble_backend.rs (target/debug/deps/ensemble_backend-fcbb08372c840c79)
+
+running 9 tests
+test one_failing_member_fails_the_decode_and_names_itself ... ok
+test a_member_with_a_non_finite_logit_fails_the_decode_and_names_itself ... ok
+test the_mean_log_softmax_and_the_mean_logit_give_one_distribution ... ok
+test a_corrupt_ensemble_state_is_refused ... ok
+test the_ensemble_returns_the_mean_of_the_members_row_log_softmax ... ok
+test the_identity_is_the_members_combined ... ok
+test a_partial_or_oversized_ensemble_is_never_built ... ok
+test the_runtime_answers_through_an_ensemble_and_its_readonly_check_covers_every_member ... ok
+test members_that_disagree_or_repeat_are_refused ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/lifecycle.rs (target/debug/deps/lifecycle-a083caa543574c8b)
+
+running 15 tests
+test the_shipped_idle_timeout_is_the_plans_ten_minutes ... ok
+test nothing_is_built_until_a_request_needs_it ... ok
+test the_reference_backend_refuses_to_serve_unless_it_is_switched_on ... ok
+test a_rebuild_that_cannot_build_is_reported_as_a_rebuild_failure ... ok
+test a_runtime_that_poisons_again_after_a_rebuild_stops_rather_than_looping ... ok
+test the_evict_op_drops_the_runtime_and_says_whether_it_did ... ok
+test the_status_counters_separate_answers_refusals_and_failures ... ok
+test a_backend_returning_the_wrong_shape_fails_rather_than_answering ... ok
+test a_poisoned_runtime_rebuilds_and_the_answer_says_degraded ... ok
+test the_cold_start_is_measured_not_assumed ... ok
+test the_reaper_thread_evicts_on_its_own ... ok
+test an_idle_runtime_is_evicted_and_the_next_request_rebuilds ... ok
+test a_request_that_outruns_its_deadline_is_stopped_and_names_the_limit ... ok
+test requests_beyond_the_concurrency_cap_are_told_so ... ok
+test a_slow_request_does_not_wedge_the_agent ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+
+     Running tests/readonly_slot_isolation.rs (target/debug/deps/readonly_slot_isolation-c73aec304acf20dc)
+
+running 10 tests
+test the_prefill_happens_once_per_request_whatever_the_slot_count ... ok
+test a_readonly_decode_leaves_the_state_buffer_hash_identical ... ok
+test a_writeback_decode_does_change_the_state_buffer_hash ... ok
+test the_check_records_the_hash_it_compared ... ok
+test a_backend_that_writes_back_under_readonly_is_caught ... ok
+test a_not_run_check_says_why ... ok
+test slot_two_does_not_depend_on_slot_one ... ok
+test a_leaking_backend_fails_the_whole_request_rather_than_answering ... ok
+test an_unverifiable_state_degrades_the_answer_rather_than_passing_silently ... ok
+test a_second_request_does_not_read_the_first_requests_leftovers ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/refusal_is_not_noul.rs (target/debug/deps/refusal_is_not_noul-648b15c5edd787c7)
+
+running 9 tests
+test an_abstention_reads_as_an_abstention_and_nothing_else ... ok
+test every_variant_is_covered_and_names_its_own_check ... ok
+test an_abstention_payload_carries_no_failure_key_at_any_depth ... ok
+test no_refusal_and_no_backend_error_reads_as_an_abstention ... ok
+test a_backend_error_payload_carries_no_answer_key_at_any_depth ... ok
+test every_refusal_carries_both_values_it_compared ... ok
+test a_refusal_envelope_cannot_be_deserialized_as_an_answer ... ok
+test a_refusal_payload_carries_no_answer_key_at_any_depth ... ok
+test a_hash_mismatch_does_not_read_as_model_humility ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/render_contract.rs (target/debug/deps/render_contract-3e45adaedc08b125)
+
+running 19 tests
+test the_default_caps_are_self_consistent ... ok
+test inline_escaping_emits_no_line_break_of_any_kind ... ok
+test a_context_that_is_not_valid_utf8_is_refused_rather_than_replaced ... ok
+test escaping_never_emits_a_special_token_opener ... ok
+test an_option_over_the_cap_is_refused_not_truncated ... ok
+test tokenizer_special_tokens_in_the_context_are_rendered_as_text ... ok
+test an_option_containing_a_newline_cannot_become_a_second_option ... ok
+test the_question_delimiters_in_the_context_cannot_terminate_it_early ... ok
+test a_context_carrying_the_literal_noul_token_stays_data ... ok
+test a_context_carrying_an_answer_decoy_cannot_forge_an_option_line ... ok
+test block_escaping_preserves_the_newline_count_exactly ... ok
+test a_hand_built_slot_spec_cannot_carry_an_over_cap_name_into_the_prompt ... ok
+test rust_renders_the_same_bytes_as_the_python_lane ... ok
+test the_context_region_is_exactly_the_escaped_context ... ok
+test a_permutation_that_is_not_one_is_refused_rather_than_partly_applied ... ok
+test nfc_and_nfd_spellings_render_to_different_bytes ... ok
+test unescape_is_the_exact_inverse_of_both_escapers ... ok
+test an_all_whitespace_context_is_refused_not_answered ... ok
+test an_option_containing_a_unicode_line_separator_cannot_become_a_second_option ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tracked_source_is_text.rs (target/debug/deps/tracked_source_is_text-296fc682159f5ac2)
+
+running 1 test
+test no_tracked_source_file_contains_a_nul_byte ... FAILED
+
+failures:
+
+---- no_tracked_source_file_contains_a_nul_byte stdout ----
+scanned 1273 of 1273 tracked files (0 absent from the worktree, 0 over the 8388608-byte scan cap)
+
+thread 'no_tracked_source_file_contains_a_nul_byte' (152516858) panicked at crates/qd-runtime/tests/tracked_source_is_text.rs:170:5:
+a tracked file contains a NUL byte, which makes it binary to DevMap, ripgrep, git diff and file(1) all at once — each of which then reports its absence exactly as it reports a genuine absence. If you meant to write an escape in a comment or a string, write the characters (`\0`, `\u0000`), not the byte. GAP-RT-SOURCE-NUL-BYTE-UNGATED:
+  crates/qd-train/tests/fixtures/adamw-decay-sensitive/golden.safetensors — 366 NUL byte(s), first at offset 2 (line 1)
+  crates/qd-train/tests/fixtures/adamw-decay-sensitive/inputs.safetensors — 1890 NUL byte(s), first at offset 2 (line 1)
+  crates/qd-train/tests/fixtures/shards-tiny/door/supervision-deflated.npz — 269 NUL byte(s), first at offset 5 (line 1)
+  crates/qd-train/tests/fixtures/shards-tiny/shards/train/offsets.npy — 577 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/shards-tiny/shards/train/remap.npz — 1655 NUL byte(s), first at offset 5 (line 1)
+  crates/qd-train/tests/fixtures/shards-tiny/shards/train/supervision.npz — 1547 NUL byte(s), first at offset 5 (line 1)
+  crates/qd-train/tests/fixtures/shards-tiny/shards/train/tokens.u32 — 245622 NUL byte(s), first at offset 1 (line 1)
+  crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only/offsets.npy — 64 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only/remap.npz — 1655 NUL byte(s), first at offset 5 (line 1)
+  crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only/supervision.npz — 407 NUL byte(s), first at offset 5 (line 1)
+  crates/qd-train/tests/fixtures/shards-tiny/shards/val-report-only/tokens.u32 — 37995 NUL byte(s), first at offset 1 (line 1)
+  crates/qd-train/tests/fixtures/span-head-init-seed0-h64.safetensors — 876 NUL byte(s), first at offset 2 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/abstain_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/abstaining.npy — 4 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/candidate_pos.npy — 110 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/candidate_valid.npy — 4 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/d_abstain_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/d_abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/d_end_proj.npy — 8 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/d_hidden.npy — 3784 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/d_start_proj.npy — 4 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/gold_end.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/gold_end_token.npy — 16 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/gold_start.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/gold_start_token.npy — 16 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/hidden.npy — 14 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/n_candidates.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/query_index.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/ref64_d_abstain_end.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/ref64_d_abstain_start.npy — 4 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/ref64_d_end_proj.npy — 8 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/ref64_d_hidden.npy — 7561 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/ref64_d_start_proj.npy — 12 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/ref64_loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/ref64_scores_end.npy — 14 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/ref64_scores_start.npy — 14 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/runtime_rows.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/scores_end.npy — 6 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/duplicate-positions/scores_start.npy — 6 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/abstain_end.npy — 66 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/abstain_start.npy — 66 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/abstaining.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/candidate_pos.npy — 114 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/candidate_valid.npy — 8 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/d_abstain_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/d_abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/d_end_proj.npy — 6 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/d_hidden.npy — 3080 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/d_start_proj.npy — 5 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/gold_end.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/gold_end_token.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/gold_start.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/gold_start_token.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/hidden.npy — 18 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/n_candidates.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/query_index.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/ref64_d_abstain_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/ref64_d_abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/ref64_d_end_proj.npy — 6 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/ref64_d_hidden.npy — 6153 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/ref64_d_start_proj.npy — 7 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/ref64_loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/ref64_scores_end.npy — 62 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/ref64_scores_start.npy — 62 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/runtime_rows.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/scores_end.npy — 27 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/gold-abstain-zero-init/scores_start.npy — 26 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/abstain_end.npy — 30 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/abstain_start.npy — 31 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/abstaining.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/candidate_pos.npy — 115 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/candidate_valid.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/d_abstain_end.npy — 25 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/d_abstain_start.npy — 26 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/d_hidden.npy — 33279 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/dq_end.npy — 51 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/dq_start.npy — 44 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/gold_end.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/gold_end_token.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/gold_start.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/gold_start_token.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/hidden.npy — 546 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/n_candidates.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/query_index.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/ref64_d_abstain_end.npy — 63 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/ref64_d_abstain_start.npy — 46 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/ref64_d_hidden.npy — 66439 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/ref64_dq_end.npy — 67 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/ref64_dq_start.npy — 76 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/ref64_loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/ref64_scores_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/ref64_scores_start.npy — 4 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/runtime_rows.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/scores_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-abstain-duplicate/scores_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/abstain_end.npy — 24 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/abstain_start.npy — 30 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/abstaining.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/candidate_pos.npy — 171 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/candidate_valid.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/d_abstain_end.npy — 21 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/d_abstain_start.npy — 35 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/d_hidden.npy — 25379 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/dq_end.npy — 28 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/dq_start.npy — 30 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/gold_end.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/gold_end_token.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/gold_start.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/gold_start_token.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/hidden.npy — 741 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/n_candidates.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/query_index.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/ref64_d_abstain_end.npy — 46 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/ref64_d_abstain_start.npy — 52 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/ref64_d_hidden.npy — 50679 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/ref64_dq_end.npy — 54 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/ref64_dq_start.npy — 54 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/ref64_loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/ref64_scores_end.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/ref64_scores_start.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/runtime_rows.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/scores_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/h2048-point/scores_start.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/abstain_end.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/abstaining.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/candidate_pos.npy — 4387 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/candidate_valid.npy — 297 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/d_abstain_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/d_abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/d_end_proj.npy — 4 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/d_hidden.npy — 15817 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/d_start_proj.npy — 4 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/gold_end.npy — 15 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/gold_end_token.npy — 8 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/gold_start.npy — 16 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/gold_start_token.npy — 8 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/hidden.npy — 78 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/n_candidates.npy — 15 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/query_index.npy — 17 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/ref64_d_abstain_end.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/ref64_d_abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/ref64_d_end_proj.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/ref64_d_hidden.npy — 31626 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/ref64_d_start_proj.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/ref64_loss.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/ref64_scores_end.npy — 1790 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/ref64_scores_start.npy — 1789 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/runtime_rows.npy — 15 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/scores_end.npy — 595 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/many-candidates/scores_start.npy — 604 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/abstain_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/abstaining.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/candidate_pos.npy — 17 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/candidate_valid.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/d_abstain_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/d_abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/d_end_proj.npy — 6 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/d_hidden.npy — 1282 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/d_start_proj.npy — 7 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/gold_end.npy — 17 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/gold_end_token.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/gold_start.npy — 17 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/gold_start_token.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/hidden.npy — 10 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/n_candidates.npy — 16 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/query_index.npy — 16 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/ref64_d_abstain_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/ref64_d_abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/ref64_d_end_proj.npy — 8 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/ref64_d_hidden.npy — 2564 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/ref64_d_start_proj.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/ref64_loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/ref64_scores_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/ref64_scores_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/runtime_rows.npy — 16 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/scores_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/one-candidate/scores_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/abstain_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/abstaining.npy — 5 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/candidate_pos.npy — 235 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/candidate_valid.npy — 11 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/d_abstain_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/d_abstain_start.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/d_end_proj.npy — 6 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/d_hidden.npy — 6470 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/d_start_proj.npy — 6 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/gold_end.npy — 30 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/gold_end_token.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/gold_start.npy — 31 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/gold_start_token.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/hidden.npy — 28 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/n_candidates.npy — 30 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/query_index.npy — 30 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/ref64_d_abstain_end.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/ref64_d_abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/ref64_d_end_proj.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/ref64_d_hidden.npy — 12940 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/ref64_d_start_proj.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/ref64_loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/ref64_scores_end.npy — 57 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/ref64_scores_start.npy — 58 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/runtime_rows.npy — 30 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/scores_end.npy — 21 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h16/scores_start.npy — 20 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/abstain_end.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/abstain_start.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/abstaining.npy — 6 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/candidate_pos.npy — 255 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/candidate_valid.npy — 10 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/d_abstain_end.npy — 4 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/d_abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/d_end_proj.npy — 36 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/d_hidden.npy — 39967 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/d_start_proj.npy — 37 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/gold_end.npy — 37 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/gold_end_token.npy — 30 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/gold_start.npy — 38 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/gold_start_token.npy — 30 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/hidden.npy — 161 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/n_candidates.npy — 37 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/query_index.npy — 37 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/ref64_d_abstain_end.npy — 4 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/ref64_d_abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/ref64_d_end_proj.npy — 76 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/ref64_d_hidden.npy — 79905 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/ref64_d_start_proj.npy — 64 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/ref64_loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/ref64_scores_end.npy — 51 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/ref64_scores_start.npy — 53 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/runtime_rows.npy — 37 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/scores_end.npy — 19 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h48/scores_start.npy — 18 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/abstain_end.npy — 3 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/abstaining.npy — 4 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/candidate_pos.npy — 369 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/candidate_valid.npy — 12 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/d_abstain_end.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/d_abstain_start.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/d_end_proj.npy — 124 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/d_hidden.npy — 29246 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/d_start_proj.npy — 133 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/gold_end.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/gold_end_token.npy — 16 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/gold_start.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/gold_start_token.npy — 16 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/hidden.npy — 173 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/n_candidates.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/query_index.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/ref64_d_abstain_end.npy — 6 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/ref64_d_abstain_start.npy — 9 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/ref64_d_end_proj.npy — 208 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/ref64_d_hidden.npy — 58475 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/ref64_d_start_proj.npy — 205 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/ref64_loss.npy — 2 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/ref64_scores_end.npy — 66 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/ref64_scores_start.npy — 66 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/runtime_rows.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/scores_end.npy — 23 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/span-head/random-h96/scores_start.npy — 24 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/tiny-published/batches/offsets.npy — 288 NUL byte(s), first at offset 7 (line 1)
+  crates/qd-train/tests/fixtures/tiny-published/batches/supervision.npz — 1329 NUL byte(s), first at offset 5 (line 1)
+  crates/qd-train/tests/fixtures/tiny-published/batches/tokens.u32 — 13398 NUL byte(s), first at offset 1 (line 1)
+  crates/qd-train/tests/fixtures/tiny-published/fp32/final.safetensors — 31067 NUL byte(s), first at offset 2 (line 1)
+  crates/qd-train/tests/fixtures/tiny-published/fp32/grads_step0.safetensors — 4934 NUL byte(s), first at offset 0 (line 1)
+  crates/qd-train/tests/fixtures/tiny-published/fp32_clip150/final.safetensors — 31573 NUL byte(s), first at offset 2 (line 1)
+  crates/qd-train/tests/fixtures/tiny-published/init.safetensors — 2412 NUL byte(s), first at offset 2 (line 1)
+  crates/qd-train/tests/fixtures/tiny-published/master_bf16/final.safetensors — 31158 NUL byte(s), first at offset 2 (line 1)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    no_tracked_source_file_contains_a_nul_byte
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+error: test failed, to rerun pass `-p qd-runtime --test tracked_source_is_text`
+     Running tests/two_modes_one_contract.rs (target/debug/deps/two_modes_one_contract-abffc53180d8a747)
+
+running 13 tests
+test a_stale_socket_file_from_a_killed_agent_is_replaced ... ok
+test binding_over_a_live_socket_is_refused ... ok
+test an_unknown_control_op_is_byte_identical_in_both_modes ... ok
+test a_malformed_line_is_byte_identical_in_both_modes ... ok
+test a_backend_failure_is_byte_identical_in_both_modes ... ok
+test a_line_carrying_both_op_and_schema_version_is_refused_in_both_modes ... ok
+test a_refusal_is_byte_identical_in_both_modes ... ok
+test the_socket_is_preferred_when_one_is_listening ... ok
+test an_answer_is_byte_identical_in_both_modes ... ok
+test the_dcverify_fallback_answers_exactly_what_the_socket_would_have ... ok
+test a_line_over_the_payload_cap_is_refused_and_the_connection_closed ... ok
+test several_requests_travel_down_one_connection ... ok
+test a_shutdown_op_stops_the_agent ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/wire_context_crosslang.rs (target/debug/deps/wire_context_crosslang-fb1eb8ed4a07538e)
+
+running 21 tests
+test the_option_and_bin_bounds_are_the_same_number_on_both_sides ... ok
+test both_lanes_refuse_the_same_payloads_and_name_the_context_checks_identically ... ok
+test the_answer_side_now_has_a_python_parser_and_a_corpus_to_feed_it ... ok
+test python_now_has_a_hash_expectation_and_its_label_set_hash_is_still_a_different_quantity ... ok
+test the_envelope_fields_cross_intact ... ok
+test both_lanes_agree_which_strings_are_blank_and_which_strip_to_the_reserved_label ... ok
+test every_python_encoded_context_decodes_to_the_bytes_python_meant ... ok
+test the_escape_growth_bound_and_every_byte_cap_are_the_same_numbers_on_both_sides ... ok
+test a_python_encoded_context_survives_the_type_that_carries_it ... ok
+test a_python_encoded_payload_truncated_in_transit_is_caught_by_the_length ... ok
+test both_lanes_call_exactly_the_same_codepoints_whitespace_for_the_empty_context_rule ... ok
+test example_id_and_metadata_are_accepted_and_ignored ... ok
+test every_slot_kind_crosses_intact_with_its_payload ... ok
+test both_routes_are_reachable_from_the_python_encoder ... ok
+test hash_expectation_carries_five_optional_fields_and_refuses_the_rest ... ok
+test a_context_of_nothing_but_the_separator_characters_is_refused_like_any_other_blank_one ... ok
+test span_value_is_start_line_and_end_line_and_refuses_anything_else ... ok
+test the_slot_name_cap_is_one_number_here_and_in_qd_wire_and_qd_data_produces_nothing_over_it ... ok
+test the_three_span_spellings_stay_distinct_across_the_two_lanes ... ok
+test a_separator_only_option_or_slot_name_is_refused_the_way_the_python_lane_refuses_it ... ok
+test the_whitespace_set_is_pinned_as_a_literal_so_a_missing_venv_cannot_retire_the_rule ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/wire_fixtures.rs (target/debug/deps/wire_fixtures-d8ae28cd4e8255a0)
+
+running 6 tests
+test every_answer_in_the_corpus_covers_a_slot_kind_and_the_three_together_cover_all_of_them ... ok
+test the_corpus_covers_every_refusal_and_every_backend_error ... ok
+test a_refusal_fixture_is_not_mistakable_for_an_abstention ... ok
+test every_fixture_round_trips_through_this_builds_own_parser ... ok
+test the_manifest_accounts_for_every_file_and_for_all_three_statuses ... ok
+test the_corpus_on_disk_is_what_this_build_emits ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/wire_refusals.rs (target/debug/deps/wire_refusals-1716b637381128c5)
+
+running 40 tests
+test a_truncated_payload_that_still_decodes_is_caught_by_the_length ... ok
+test a_shape_the_calibration_table_was_never_fitted_for_is_refused ... ok
+test a_declared_length_that_disagrees_is_refused_and_names_both_numbers ... ok
+test a_head_not_bound_to_the_loaded_backbone_is_refused ... ok
+test a_context_that_is_not_a_json_string_is_refused_rather_than_coerced ... ok
+test a_context_that_is_not_utf8_is_refused ... ok
+test an_empty_context_carries_an_empty_blob_and_a_zero_length ... ok
+test an_empty_or_whitespace_context_is_refused ... ok
+test a_missing_length_is_refused ... ok
+test a_length_that_is_not_a_non_negative_integer_is_refused ... ok
+test a_slot_carrying_the_wrong_field_is_refused ... ok
+test a_duplicate_or_reserved_option_is_refused ... ok
+test a_head_with_no_rows_for_a_slot_is_refused ... ok
+test a_slot_name_is_capped_in_bytes_and_the_boundary_is_exact ... ok
+test an_empty_task_slot_name_or_option_is_refused ... ok
+test an_unknown_route_or_slot_type_is_refused ... ok
+test an_unknown_field_is_refused_rather_than_ignored ... ok
+test options_below_two ... ok
+test the_caps_configuration_itself_is_refused_below_the_escape_floor ... ok
+test base64_that_is_not_canonical_is_refused ... ok
+test bins_out_of_range ... ok
+test slots_empty_or_duplicated ... ok
+test the_registered_route_refuses_a_task_with_no_head ... ok
+test malformed_ambiguous_and_unknown_lines_are_refused ... ok
+test a_bound_head_answers_and_pins_its_own_hash ... ok
+test a_matching_pin_is_answered ... ok
+test options_over_sixteen ... ok
+test the_payload_budget_counts_every_term_so_the_total_is_the_worst_case ... ok
+test the_payload_cap_does_not_cover_a_request_at_every_other_limit_at_once ... ok
+test schema_version_unknown ... ok
+test the_over_cap_refusal_names_the_numbers_and_not_the_name ... ok
+test the_retired_byte_array_context_is_refused_rather_than_read ... ok
+test the_registered_route_refuses_a_span_slot ... ok
+test with_no_backend_a_valid_request_is_an_error_not_an_abstention ... ok
+test an_oversized_question_task_or_option_is_refused ... ok
+test every_pinned_hash_is_checked_and_names_which_one_failed ... ok
+test a_line_over_the_payload_cap_is_refused ... ok
+test context_over_the_cap ... ok
+test the_rendered_cap_still_refuses_what_actually_exceeds_it ... ok
+test a_maximal_nul_dense_context_is_no_longer_refused_by_arithmetic ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+   Doc-tests qd_runtime
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 1 target failed:
+    `-p qd-runtime --test tracked_source_is_text`
