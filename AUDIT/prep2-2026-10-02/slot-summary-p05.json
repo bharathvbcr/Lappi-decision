@@ -1,0 +1,260 @@
+{
+ "code.defect_class/defect_class": {
+  "rows": 3958,
+  "stripped": {
+   "options": [
+    "clean",
+    "cosmetic",
+    "logic",
+    "stub"
+   ],
+   "question": "What kind of change is this diff, and which lines does it touch?"
+  },
+  "option_sets": {
+   "distinct": 1,
+   "largest_share_rows": 3958
+  },
+  "too_short_after_strip_by_set": {
+   "heldout": "0/115",
+   "train": "0/3724",
+   "val": "0/119"
+  },
+  "words_before": {
+   "median": 177.0,
+   "p10": 61
+  },
+  "words_after": {
+   "median": 160.0,
+   "p10": 44
+  }
+ },
+ "code.defect_class/defect_span": {
+  "rows": 3958,
+  "stripped": {
+   "options": [],
+   "question": "What kind of change is this diff, and which lines does it touch?"
+  },
+  "option_sets": {
+   "distinct": 1,
+   "largest_share_rows": 3958
+  },
+  "too_short_after_strip_by_set": {
+   "heldout": "0/115",
+   "train": "0/3724",
+   "val": "0/119"
+  },
+  "words_before": {
+   "median": 173.0,
+   "p10": 57
+  },
+  "words_after": {
+   "median": 160.0,
+   "p10": 44
+  }
+ },
+ "commonsense.multiple_choice/answer": {
+  "rows": 541,
+  "stripped": {
+   "options": [],
+   "question": "Which option is the most sensible answer to the question?"
+  },
+  "option_sets": {
+   "distinct": 541,
+   "largest_share_rows": 1
+  },
+  "too_short_after_strip_by_set": {
+   "train": "0/487",
+   "val": "0/54"
+  },
+  "words_before": {
+   "median": 30,
+   "p10": 25
+  },
+  "words_after": {
+   "median": 20,
+   "p10": 15
+  }
+ },
+ "intent.classification/intent": {
+  "rows": 1222,
+  "stripped": {
+   "options": [],
+   "question": "Which intent does the utterance express?"
+  },
+  "option_sets": {
+   "distinct": 1222,
+   "largest_share_rows": 1
+  },
+  "too_short_after_strip_by_set": {
+   "heldout": "0/64",
+   "train": "0/1089",
+   "val": "0/69"
+  },
+  "words_before": {
+   "median": 30.0,
+   "p10": 27
+  },
+  "words_after": {
+   "median": 24.0,
+   "p10": 21
+  }
+ },
+ "intent.domain/domain": {
+  "rows": 1222,
+  "stripped": {
+   "options": [
+    "auto_and_commute",
+    "banking",
+    "credit_cards",
+    "home",
+    "kitchen_and_dining",
+    "meta",
+    "small_talk",
+    "travel",
+    "utility",
+    "work"
+   ],
+   "question": "Which domain does the utterance belong to?"
+  },
+  "option_sets": {
+   "distinct": 1,
+   "largest_share_rows": 1222
+  },
+  "too_short_after_strip_by_set": {
+   "heldout": "34/64",
+   "train": "451/1089",
+   "val": "21/69"
+  },
+  "words_before": {
+   "median": 25.0,
+   "p10": 22
+  },
+  "words_after": {
+   "median": 8.0,
+   "p10": 5
+  }
+ },
+ "intent.in_scope/in_scope": {
+  "rows": 1222,
+  "stripped": {
+   "options": [
+    "no",
+    "yes"
+   ],
+   "question": "Is the utterance in scope for the assistant at all?"
+  },
+  "option_sets": {
+   "distinct": 1,
+   "largest_share_rows": 1222
+  },
+  "too_short_after_strip_by_set": {
+   "heldout": "34/64",
+   "train": "451/1089",
+   "val": "21/69"
+  },
+  "words_before": {
+   "median": 20.0,
+   "p10": 17
+  },
+  "words_after": {
+   "median": 8.0,
+   "p10": 5
+  }
+ },
+ "intent.within_domain/intent": {
+  "rows": 1222,
+  "stripped": {
+   "options": [],
+   "question": "Which of these intents does the utterance express?"
+  },
+  "option_sets": {
+   "distinct": 10,
+   "largest_share_rows": 136
+  },
+  "too_short_after_strip_by_set": {
+   "heldout": "0/64",
+   "train": "0/1089",
+   "val": "0/69"
+  },
+  "words_before": {
+   "median": 31.0,
+   "p10": 28
+  },
+  "words_after": {
+   "median": 23.0,
+   "p10": 20
+  }
+ },
+ "knowledge.multiple_choice/answer": {
+  "rows": 715,
+  "stripped": {
+   "options": [],
+   "question": "Which option answers the question?"
+  },
+  "option_sets": {
+   "distinct": 661,
+   "largest_share_rows": 51
+  },
+  "too_short_after_strip_by_set": {
+   "train": "0/636",
+   "val": "0/79"
+  },
+  "words_before": {
+   "median": 52,
+   "p10": 23
+  },
+  "words_after": {
+   "median": 47,
+   "p10": 18
+  }
+ },
+ "qa.answer_span/evidence": {
+  "rows": 5815,
+  "stripped": {
+   "options": [],
+   "question": "Which lines of the passage contain the answer?"
+  },
+  "option_sets": {
+   "distinct": 1,
+   "largest_share_rows": 5815
+  },
+  "too_short_after_strip_by_set": {
+   "heldout": "0/288",
+   "train": "0/5268",
+   "val": "0/259"
+  },
+  "words_before": {
+   "median": 132,
+   "p10": 94
+  },
+  "words_after": {
+   "median": 124,
+   "p10": 86
+  }
+ },
+ "qa.answerability/answerable": {
+  "rows": 1226,
+  "stripped": {
+   "options": [
+    "no",
+    "yes"
+   ],
+   "question": "Does the passage contain an answer to the question?"
+  },
+  "option_sets": {
+   "distinct": 1,
+   "largest_share_rows": 1226
+  },
+  "too_short_after_strip_by_set": {
+   "heldout-family:qa.answerability": "0/1226"
+  },
+  "words_before": {
+   "median": 133.0,
+   "p10": 94
+  },
+  "words_after": {
+   "median": 122.0,
+   "p10": 83
+  }
+ }
+}

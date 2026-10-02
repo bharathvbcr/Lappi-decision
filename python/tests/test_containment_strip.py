@@ -88,9 +88,9 @@ DOMAINS = ClincDomainMap(domains={
 })
 IN_SCOPE = "intent.in_scope"
 
-# The GAP-CONTAINMENT-CONSTANT-QUESTION-DRIVES-CLINC-HITS shape at >= 8 words a side, so the
-# assertion is about containment and not about a row too short to compare: the two share
-# their first four words and nothing else.
+# The GAP-CONTAINMENT-CONSTANT-QUESTION-DRIVES-CLINC-HITS-2026-10-02 shape at >= 8 words a
+# side, so the assertion is about containment and not about a row too short to compare: the
+# two share their first four words and nothing else.
 VAL_UTTERANCE = "what is the minimum balance for my checking"
 TRAIN_SHARES_PREFIX = "what is the minimum payment on my eddie bauer card"
 #: A train utterance that really contains the val one: the strip must keep that hit.

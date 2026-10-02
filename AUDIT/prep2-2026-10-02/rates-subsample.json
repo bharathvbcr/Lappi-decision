@@ -19,7 +19,7 @@
     "too_short": 0
    },
    "heldout-family:code.language_id": {
-    "rows": 267,
+    "rows": 0,
     "too_short": 0
    },
    "heldout-family:qa.answerability": {
@@ -131,7 +131,7 @@
     "too_short": 4
    },
    "heldout-family:code.language_id": {
-    "rows": 267,
+    "rows": 0,
     "too_short": 0
    },
    "heldout-family:qa.answerability": {
@@ -243,7 +243,7 @@
     "too_short": 0
    },
    "heldout-family:code.language_id": {
-    "rows": 519,
+    "rows": 0,
     "too_short": 0
    },
    "heldout-family:qa.answerability": {
@@ -358,7 +358,7 @@
     "too_short": 14
    },
    "heldout-family:code.language_id": {
-    "rows": 519,
+    "rows": 0,
     "too_short": 0
    },
    "heldout-family:qa.answerability": {
@@ -453,7 +453,7 @@
  {
   "scan": "/Users/bharath/qd-campaign/prep2-2026-10-02/scan-p05-nostrip",
   "template_strip_applied": false,
-  "n_pairs": 875,
+  "n_pairs": 874,
   "n_exclusions": 439,
   "clean": true,
   "sets": {
@@ -470,7 +470,7 @@
     "too_short": 0
    },
    "heldout-family:code.language_id": {
-    "rows": 1226,
+    "rows": 0,
     "too_short": 0
    },
    "heldout-family:qa.answerability": {
@@ -568,7 +568,7 @@
  {
   "scan": "/Users/bharath/qd-campaign/prep2-2026-10-02/scan-p05-strip",
   "template_strip_applied": true,
-  "n_pairs": 8170,
+  "n_pairs": 8169,
   "n_exclusions": 762,
   "clean": true,
   "sets": {
@@ -585,7 +585,7 @@
     "too_short": 68
    },
    "heldout-family:code.language_id": {
-    "rows": 1226,
+    "rows": 0,
     "too_short": 0
    },
    "heldout-family:qa.answerability": {
