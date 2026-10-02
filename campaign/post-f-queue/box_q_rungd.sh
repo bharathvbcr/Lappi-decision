@@ -10,7 +10,7 @@
 #           checkpointing); cap 10,800 s ($6.87).
 # Both under rule 4's $20 single-GPU line, so no --approved-by. T-fp32 runs whatever T-bf16's
 # exit; a capped arm ends wall_clock_cap, is not a parity result, and is rerun (rule 5).
-# The flags exist only on main, so the arms run from a NEW overlay of qd-lane8 at main 28000af
+# The flags exist only on main, so the arms run from a NEW overlay of qd-lane8 at main 01b6db2
 # (contains 055a7ec), built from a git bundle by box_mk_rungd_overlay.sh. Before T-bf16 this
 # re-checks, read-only: the overlay is clean at the full sha; F's three pool dirs are qd-lane8's
 # (same symlink targets); the fetch record F read is the pinned file; the backbone snapshot and
@@ -23,7 +23,7 @@ source /home/ubuntu/post-f/post_f_common.sh || exit 3
 # shellcheck source=idle_common.sh
 source /home/ubuntu/post-f/idle_common.sh || exit 3
 OVL=/home/ubuntu/perf/overlay-rungd
-OVL_AT=28000af661a062ae54f4a69b17e8638d83b5e7ba
+OVL_AT=01b6db2fbaba1d149bb585940e6436308acfa4a5
 BOX_Q_F=/home/ubuntu/box_q_f.sh
 BOX_Q_F_SHA256=a1bab9b033c519c98ac74ee6bba273a5d347031bb1b04657d7c556ec529e308b
 F_SPLIT_DIR=/home/ubuntu/phase4-v4-2026-10-01

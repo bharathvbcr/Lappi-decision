@@ -8,22 +8,24 @@
 #     to the re-plan (logged), exit 0;
 #   - the replay set is on the box, pinned, and CLEAN (below). Otherwise: deferred, exit 3.
 #
-# THE THREE PINS BELOW ARE FAIL-CLOSED, NOT PLACEHOLDERS. The replay set is being built by a
-# separate lane (Fable lane task 5); the lead fills these in after that lane lands, from its
-# HANDOFF. While any of them is the literal UNSET, this script refuses: it logs "deferred" and
-# touches .done, so the chain ends and the GPU is released. It never trains on a set it has not
-# pinned.
+# THE FIVE VALUES BELOW ARE FAIL-CLOSED PINS, NOT PLACEHOLDERS. The replay set is being built by
+# lane L-replay (Fable lane task 5; plan HANDOFF/replay-v4-plan-2026-10-02.md, which puts it at
+# /home/ubuntu/phase4-v4-replay-2026-10-02 with shards/replay and replay-attestation.json). The
+# lead fills these in after that lane lands, from its HANDOFF. While any of them is the literal
+# UNSET, this script refuses: it logs "deferred" and touches .done, so the chain ends and the GPU
+# is released. It never trains on a set it has not pinned.
 #   REPLAY_SHARDS      the replay-only shard set (<v4 replay rebuild>/shards/replay); the rebuild
 #                      root (--out, two levels up) must hold data/pool/train-replay.json and
 #                      shards/train/header.json (the pipeline's --replay-shards layout);
 #   REPLAY_SHARDS_SHA256  sha256 of $REPLAY_SHARDS/header.json;
 #   REPLAY_ATTESTATION the clean attestation tools/replay_decontam.py wrote for that set;
 #   REPLAY_ATTESTATION_SHA256  its sha256;
-#   REPLAY_WEIGHT      --replay-weight. tools/real_ft_run.py has NO default ("weight on
-#                      prior_kl; no default -- say it", :9191-9192 at main 28000af, :7818-7819
-#                      at a502670), and no pre-registration, plan or HANDOFF names a value
-#                      (GAP-IDLE-WAITERS-J6A-REPLAY-WEIGHT-HAS-NO-SOURCE-2026-10-02). So it is a
-#                      pin the lead must fill from a recorded decision, not a number chosen here.
+#   REPLAY_WEIGHT      --replay-weight, pinned from the code: tools/real_ft_run.py has NO default
+#                      ("weight on prior_kl; no default -- say it", :9191-9192 at main,
+#                      :7818-7819 at a502670), and no pre-registration, plan or HANDOFF names a
+#                      value (L-replay's GAP-REPLAY-WEIGHT-HAS-NO-PINNED-VALUE-2026-10-02, its
+#                      decision point 2). So it is a pin the lead fills from a recorded decision,
+#                      not a number chosen here.
 REPLAY_SHARDS=UNSET
 REPLAY_SHARDS_SHA256=UNSET
 REPLAY_ATTESTATION=UNSET
@@ -33,8 +35,10 @@ REPLAY_WEIGHT=UNSET
 # Recipe: F's (post_f_common.sh F_RECIPE, F's skip) on the rebuild with --replay-partition (the
 # rebuild's replay-only rows left gold training, real_ft_run.py corpus_facts), plus
 # --replay-shards / --replay-attestation / --replay-cache (a new .npz, built once) /
-# --replay-weight, --replay-every at its default 6. From qd-lane8 at a502670, F's exact path:
-# replay.py and replay_decontam.py are byte-identical between a502670 and main.
+# --replay-weight / --replay-every 6 (the code's DEFAULT_REPLAY_EVERY, said explicitly as
+# L-replay's argv does). From qd-lane8 at a502670, F's exact path: replay.py and
+# replay_decontam.py are byte-identical between a502670 and main. The set must be built at
+# a502670 (L-replay decision point 3: a502670's reader refuses headers written at main).
 # Cap 32,400 s ($20.61; the human's 2026-10-01 yes via approved()) + needle control 5,400 s.
 # Rows: the v4 ablation ledger ($J6V4_LEDGER). Holds gpu.lock.
 # Queue: after j5pp (j5pp.done).
@@ -99,7 +103,7 @@ say "j6a (J6(a) +replay, seed 0) at $(git rev-parse --short HEAD): rebuild $REPL
 timeout 34200 "$PY" -u tools/real_ft_run.py "${J6A_SPLIT[@]}" "${F_RECIPE[@]}" --devices cuda --seeds 0 \
   --checkpoint-dir "$CKPT" --checkpoint-every 100000 \
   --replay-shards "$REPLAY_SHARDS" --replay-attestation "$REPLAY_ATTESTATION" \
-  --replay-cache "$CKPT/replay-prior-cache.npz" --replay-weight "$REPLAY_WEIGHT" \
+  --replay-cache "$CKPT/replay-prior-cache.npz" --replay-weight "$REPLAY_WEIGHT" --replay-every 6 \
   --score-val --needle --ood --ood-general-record "$REC" \
   --verdicts-out "$OUT/verdicts.jsonl" --suite-verdicts-out "$OUT/suite-verdicts.jsonl" \
   --wall-clock-cap-s 32400 "${COST[@]}" --ledger "$J6V4_LEDGER" \
