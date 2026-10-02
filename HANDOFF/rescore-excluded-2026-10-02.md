@@ -637,7 +637,7 @@ What the fields mean, verified on seed 2's 10985 letter lines:
 - `perm` maps a presented position to an original row;
 - `top` is an original row, and `top_permuted` a presented position;
 - outside abstention, `permutation_agreed` equals `perm[top_permuted] == top`;
-- the 141 other lines abstain under both orderings, which counts as agreement.
+- every other line abstains under both orderings, which counts as agreement.
 
 None of the probe's counts is in a ledger row yet. Whoever runs it records them before citing any
 of them (rule 5). The next step after that is which v4 train rows hit these 183 keys, and whether
