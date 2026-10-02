@@ -104,3 +104,20 @@ before the read.
 
 A pass on R1 does not count as a fix. A result counts only from a quiet-GPU run
 whose log is in this directory.
+
+## Amendment, 2026-10-02 00:17 UTC, written after R4 and before R3
+
+Results so far:
+
+- R1 (none) faulted at :604 on a quiet GPU: 43.59 GB allocated on entry, 52.44 GB after staging, against a recommended working set of 51.54 GB.
+- R2 (after) faulted in the empty fence itself, at the same 52.44 GB.
+- R4 (chunked) passed, but its first fence drained the pending cold recycles, so it finished staging at 50.20 GB, under the working set. R4 changed two things at once (footprint and delta size) and cannot separate them.
+
+R3 (v=before) was pre-registered only for an R2 pass. It is run anyway, as the fifth and last run in the window, because it separates the two:
+
+| Outcome | Reading |
+| --- | --- |
+| Passes | Footprint above the working set is the cause, and a 7.5 GB residency delta committed at once is not. |
+| Faults | Delta size matters (possibly as well as footprint). |
+
+R5 (gpu_tiny) follows R3.

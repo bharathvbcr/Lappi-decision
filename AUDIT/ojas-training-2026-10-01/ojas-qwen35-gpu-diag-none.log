@@ -1,0 +1,38 @@
+Fri Oct  2 00:14:06 UTC 2026
+commit under test: ojas working tree (ojas-qwen35 diag build); Lappi main b131373
+System-wide memory free percentage: 87%
+--- ps snapshot
+[process listing withheld by the lead: 73 lines of other applications' command lines; names matched: python, ollama]
+--- ollama ps
+NAME    ID    SIZE    PROCESSOR    CONTEXT    UNTIL 
+--- rss of long-running python/ollama (KB)
+[process listing withheld by the lead: 4 lines of other applications' command lines; names matched: python, ollama]
+--- top GPU-capable cpu users
+[process listing withheld by the lead: 8 lines of other applications' command lines; names matched: none]
+--- R1 v=none start
+Fri Oct  2 00:14:21 UTC 2026
+System-wide memory free percentage: 87%
+   Compiling ojas-qwen35 v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35)
+    Finished `release` profile [optimized] target(s) in 4.41s
+     Running tests/gpu_parity.rs (/Users/bharath/Code/research/ojas/target/release/deps/gpu_parity-fc630c46e50ddac3)
+
+running 1 test
+test gpu_real_2b_single_step_matches_the_transformers_reference ... 2B: loss 3.81034020 vs transformers 3.81016684 (rel 4.55e-5) over 128 tokens
+DIAG enter: allocated 43588009984 B, recommended working set 51539607552 B, wired budget 46385646796 B, poisoned false
+DIAG staging alloc: 1.065012958s
+DIAG after staging alloc: allocated 52436942848 B, recommended working set 51539607552 B, wired budget 46385646796 B, poisoned false
+
+thread 'gpu_real_2b_single_step_matches_the_transformers_reference' (137256228) panicked at ojas-qwen35/tests/gpu_parity.rs:611:55:
+called `Result::unwrap()` on an `Err` value: Tessl { op: "read_gradients", detail: "Qwen35Model::read_gradients: embed_tokens.weight: Metal 4 command buffer fault: The operation couldn’t be completed. (MTL4CommandQueueErrorDomain error 1.)" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    gpu_real_2b_single_step_matches_the_transformers_reference
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 26.83s
+
+error: test failed, to rerun pass `-p ojas-qwen35 --test gpu_parity`
+Fri Oct  2 00:14:53 UTC 2026

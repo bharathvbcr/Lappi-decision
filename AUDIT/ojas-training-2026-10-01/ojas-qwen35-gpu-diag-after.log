@@ -1,0 +1,27 @@
+--- R2 v=after start
+Fri Oct  2 00:15:08 UTC 2026
+System-wide memory free percentage: 84%
+[process listing withheld by the lead: 11 lines of other applications' command lines; names matched: cargo]
+    Finished `release` profile [optimized] target(s) in 0.04s
+     Running tests/gpu_parity.rs (/Users/bharath/Code/research/ojas/target/release/deps/gpu_parity-fc630c46e50ddac3)
+
+running 1 test
+test gpu_real_2b_single_step_matches_the_transformers_reference ... 2B: loss 3.81034020 vs transformers 3.81016684 (rel 4.55e-5) over 128 tokens
+DIAG enter: allocated 43588009984 B, recommended working set 51539607552 B, wired budget 46385646796 B, poisoned false
+DIAG staging alloc: 1.74889275s
+DIAG after staging alloc: allocated 52436942848 B, recommended working set 51539607552 B, wired budget 46385646796 B, poisoned false
+
+thread 'gpu_real_2b_single_step_matches_the_transformers_reference' (137477034) panicked at ojas-qwen35/tests/gpu_parity.rs:611:55:
+called `Result::unwrap()` on an `Err` value: Tessl { op: "diag fence after staging", detail: "Metal 4 command buffer fault: The operation couldn’t be completed. (MTL4CommandQueueErrorDomain error 1.)" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    gpu_real_2b_single_step_matches_the_transformers_reference
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 37.26s
+
+error: test failed, to rerun pass `-p ojas-qwen35 --test gpu_parity`
+Fri Oct  2 00:15:46 UTC 2026
