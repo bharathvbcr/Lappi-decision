@@ -1,0 +1,681 @@
+[
+ {
+  "scan": "/Users/bharath/qd-campaign/prep2-2026-10-02/scan-p01-nostrip",
+  "template_strip_applied": false,
+  "n_pairs": 46,
+  "n_exclusions": 20,
+  "clean": true,
+  "sets": {
+   "train": {
+    "rows": 3791,
+    "too_short": 0
+   },
+   "val": {
+    "rows": 159,
+    "too_short": 0
+   },
+   "heldout": {
+    "rows": 149,
+    "too_short": 0
+   },
+   "heldout-family:code.language_id": {
+    "rows": 267,
+    "too_short": 0
+   },
+   "heldout-family:qa.answerability": {
+    "rows": 267,
+    "too_short": 0
+   }
+  },
+  "groups": {
+   "CLINC (intent.*)": {
+    "train_keys": 246,
+    "excluded": 8,
+    "rate": 0.0325
+   },
+   "MMLU (knowledge.multiple_choice)": {
+    "train_keys": 128,
+    "excluded": 0,
+    "rate": 0.0
+   },
+   "CSQA (commonsense.multiple_choice)": {
+    "train_keys": 74,
+    "excluded": 0,
+    "rate": 0.0
+   },
+   "SQuAD answer_span": {
+    "train_keys": 1075,
+    "excluded": 0,
+    "rate": 0.0
+   },
+   "code.defect_class": {
+    "train_keys": 765,
+    "excluded": 12,
+    "rate": 0.0157
+   }
+  },
+  "families": {
+   "code.defect_class": {
+    "train_keys": 765,
+    "excluded": 12,
+    "rate": 0.0157,
+    "hit_by_own_rows": 12
+   },
+   "commonsense.multiple_choice": {
+    "train_keys": 74,
+    "excluded": 0,
+    "rate": 0.0,
+    "hit_by_own_rows": 0
+   },
+   "intent.classification": {
+    "train_keys": 246,
+    "excluded": 8,
+    "rate": 0.0325,
+    "hit_by_own_rows": 0
+   },
+   "intent.domain": {
+    "train_keys": 246,
+    "excluded": 8,
+    "rate": 0.0325,
+    "hit_by_own_rows": 0
+   },
+   "intent.in_scope": {
+    "train_keys": 246,
+    "excluded": 8,
+    "rate": 0.0325,
+    "hit_by_own_rows": 8
+   },
+   "intent.within_domain": {
+    "train_keys": 246,
+    "excluded": 8,
+    "rate": 0.0325,
+    "hit_by_own_rows": 0
+   },
+   "knowledge.multiple_choice": {
+    "train_keys": 128,
+    "excluded": 0,
+    "rate": 0.0,
+    "hit_by_own_rows": 0
+   },
+   "qa.answer_span": {
+    "train_keys": 1075,
+    "excluded": 0,
+    "rate": 0.0,
+    "hit_by_own_rows": 0
+   }
+  },
+  "enforced_pairs": {
+   "code.defect_class -> heldout (code.defect_class)": 24,
+   "code.defect_class -> val (code.defect_class)": 14,
+   "intent.in_scope -> heldout (intent.in_scope)": 3,
+   "intent.in_scope -> val (intent.in_scope)": 5
+  }
+ },
+ {
+  "scan": "/Users/bharath/qd-campaign/prep2-2026-10-02/scan-p01-strip",
+  "template_strip_applied": true,
+  "n_pairs": 284,
+  "n_exclusions": 163,
+  "clean": true,
+  "sets": {
+   "train": {
+    "rows": 3791,
+    "too_short": 204
+   },
+   "val": {
+    "rows": 159,
+    "too_short": 8
+   },
+   "heldout": {
+    "rows": 149,
+    "too_short": 4
+   },
+   "heldout-family:code.language_id": {
+    "rows": 267,
+    "too_short": 0
+   },
+   "heldout-family:qa.answerability": {
+    "rows": 267,
+    "too_short": 0
+   }
+  },
+  "groups": {
+   "CLINC (intent.*)": {
+    "train_keys": 246,
+    "excluded": 155,
+    "rate": 0.6301
+   },
+   "MMLU (knowledge.multiple_choice)": {
+    "train_keys": 128,
+    "excluded": 0,
+    "rate": 0.0
+   },
+   "CSQA (commonsense.multiple_choice)": {
+    "train_keys": 74,
+    "excluded": 0,
+    "rate": 0.0
+   },
+   "SQuAD answer_span": {
+    "train_keys": 1075,
+    "excluded": 0,
+    "rate": 0.0
+   },
+   "code.defect_class": {
+    "train_keys": 765,
+    "excluded": 8,
+    "rate": 0.0105
+   }
+  },
+  "families": {
+   "code.defect_class": {
+    "train_keys": 765,
+    "excluded": 8,
+    "rate": 0.0105,
+    "hit_by_own_rows": 8
+   },
+   "commonsense.multiple_choice": {
+    "train_keys": 74,
+    "excluded": 0,
+    "rate": 0.0,
+    "hit_by_own_rows": 0
+   },
+   "intent.classification": {
+    "train_keys": 246,
+    "excluded": 155,
+    "rate": 0.6301,
+    "hit_by_own_rows": 0
+   },
+   "intent.domain": {
+    "train_keys": 246,
+    "excluded": 155,
+    "rate": 0.6301,
+    "hit_by_own_rows": 0
+   },
+   "intent.in_scope": {
+    "train_keys": 246,
+    "excluded": 155,
+    "rate": 0.6301,
+    "hit_by_own_rows": 0
+   },
+   "intent.within_domain": {
+    "train_keys": 246,
+    "excluded": 155,
+    "rate": 0.6301,
+    "hit_by_own_rows": 155
+   },
+   "knowledge.multiple_choice": {
+    "train_keys": 128,
+    "excluded": 0,
+    "rate": 0.0,
+    "hit_by_own_rows": 0
+   },
+   "qa.answer_span": {
+    "train_keys": 1075,
+    "excluded": 0,
+    "rate": 0.0,
+    "hit_by_own_rows": 0
+   }
+  },
+  "enforced_pairs": {
+   "code.defect_class -> heldout (code.defect_class)": 24,
+   "code.defect_class -> val (code.defect_class)": 8,
+   "intent.within_domain -> heldout (intent.within_domain)": 83,
+   "intent.within_domain -> val (intent.within_domain)": 166
+  }
+ },
+ {
+  "scan": "/Users/bharath/qd-campaign/prep2-2026-10-02/scan-p02-nostrip",
+  "template_strip_applied": false,
+  "n_pairs": 136,
+  "n_exclusions": 84,
+  "clean": true,
+  "sets": {
+   "train": {
+    "rows": 7427,
+    "too_short": 0
+   },
+   "val": {
+    "rows": 373,
+    "too_short": 0
+   },
+   "heldout": {
+    "rows": 278,
+    "too_short": 0
+   },
+   "heldout-family:code.language_id": {
+    "rows": 519,
+    "too_short": 0
+   },
+   "heldout-family:qa.answerability": {
+    "rows": 519,
+    "too_short": 0
+   }
+  },
+  "groups": {
+   "CLINC (intent.*)": {
+    "train_keys": 464,
+    "excluded": 39,
+    "rate": 0.0841
+   },
+   "MMLU (knowledge.multiple_choice)": {
+    "train_keys": 278,
+    "excluded": 25,
+    "rate": 0.0899
+   },
+   "CSQA (commonsense.multiple_choice)": {
+    "train_keys": 178,
+    "excluded": 0,
+    "rate": 0.0
+   },
+   "SQuAD answer_span": {
+    "train_keys": 2109,
+    "excluded": 0,
+    "rate": 0.0
+   },
+   "code.defect_class": {
+    "train_keys": 1499,
+    "excluded": 20,
+    "rate": 0.0133
+   }
+  },
+  "families": {
+   "code.defect_class": {
+    "train_keys": 1499,
+    "excluded": 20,
+    "rate": 0.0133,
+    "hit_by_own_rows": 20
+   },
+   "commonsense.multiple_choice": {
+    "train_keys": 178,
+    "excluded": 0,
+    "rate": 0.0,
+    "hit_by_own_rows": 0
+   },
+   "intent.classification": {
+    "train_keys": 464,
+    "excluded": 39,
+    "rate": 0.0841,
+    "hit_by_own_rows": 0
+   },
+   "intent.domain": {
+    "train_keys": 464,
+    "excluded": 39,
+    "rate": 0.0841,
+    "hit_by_own_rows": 0
+   },
+   "intent.in_scope": {
+    "train_keys": 464,
+    "excluded": 39,
+    "rate": 0.0841,
+    "hit_by_own_rows": 32
+   },
+   "intent.within_domain": {
+    "train_keys": 464,
+    "excluded": 39,
+    "rate": 0.0841,
+    "hit_by_own_rows": 7
+   },
+   "knowledge.multiple_choice": {
+    "train_keys": 278,
+    "excluded": 25,
+    "rate": 0.0899,
+    "hit_by_own_rows": 25
+   },
+   "qa.answer_span": {
+    "train_keys": 2109,
+    "excluded": 0,
+    "rate": 0.0,
+    "hit_by_own_rows": 0
+   }
+  },
+  "enforced_pairs": {
+   "code.defect_class -> heldout (code.defect_class)": 52,
+   "code.defect_class -> val (code.defect_class)": 20,
+   "intent.in_scope -> heldout (intent.in_scope)": 25,
+   "intent.in_scope -> val (intent.in_scope)": 7,
+   "intent.within_domain -> heldout (intent.within_domain)": 3,
+   "intent.within_domain -> val (intent.within_domain)": 4,
+   "knowledge.multiple_choice -> val (knowledge.multiple_choice)": 25
+  }
+ },
+ {
+  "scan": "/Users/bharath/qd-campaign/prep2-2026-10-02/scan-p02-strip",
+  "template_strip_applied": true,
+  "n_pairs": 1265,
+  "n_exclusions": 309,
+  "clean": true,
+  "sets": {
+   "train": {
+    "rows": 7427,
+    "too_short": 394
+   },
+   "val": {
+    "rows": 373,
+    "too_short": 18
+   },
+   "heldout": {
+    "rows": 278,
+    "too_short": 14
+   },
+   "heldout-family:code.language_id": {
+    "rows": 519,
+    "too_short": 0
+   },
+   "heldout-family:qa.answerability": {
+    "rows": 519,
+    "too_short": 0
+   }
+  },
+  "groups": {
+   "CLINC (intent.*)": {
+    "train_keys": 464,
+    "excluded": 293,
+    "rate": 0.6315
+   },
+   "MMLU (knowledge.multiple_choice)": {
+    "train_keys": 278,
+    "excluded": 0,
+    "rate": 0.0
+   },
+   "CSQA (commonsense.multiple_choice)": {
+    "train_keys": 178,
+    "excluded": 0,
+    "rate": 0.0
+   },
+   "SQuAD answer_span": {
+    "train_keys": 2109,
+    "excluded": 0,
+    "rate": 0.0
+   },
+   "code.defect_class": {
+    "train_keys": 1499,
+    "excluded": 16,
+    "rate": 0.0107
+   }
+  },
+  "families": {
+   "code.defect_class": {
+    "train_keys": 1499,
+    "excluded": 16,
+    "rate": 0.0107,
+    "hit_by_own_rows": 16
+   },
+   "commonsense.multiple_choice": {
+    "train_keys": 178,
+    "excluded": 0,
+    "rate": 0.0,
+    "hit_by_own_rows": 0
+   },
+   "intent.classification": {
+    "train_keys": 464,
+    "excluded": 293,
+    "rate": 0.6315,
+    "hit_by_own_rows": 0
+   },
+   "intent.domain": {
+    "train_keys": 464,
+    "excluded": 293,
+    "rate": 0.6315,
+    "hit_by_own_rows": 0
+   },
+   "intent.in_scope": {
+    "train_keys": 464,
+    "excluded": 293,
+    "rate": 0.6315,
+    "hit_by_own_rows": 0
+   },
+   "intent.within_domain": {
+    "train_keys": 464,
+    "excluded": 293,
+    "rate": 0.6315,
+    "hit_by_own_rows": 293
+   },
+   "knowledge.multiple_choice": {
+    "train_keys": 278,
+    "excluded": 0,
+    "rate": 0.0,
+    "hit_by_own_rows": 0
+   },
+   "qa.answer_span": {
+    "train_keys": 2109,
+    "excluded": 0,
+    "rate": 0.0,
+    "hit_by_own_rows": 0
+   }
+  },
+  "enforced_pairs": {
+   "code.defect_class -> heldout (code.defect_class)": 52,
+   "code.defect_class -> val (code.defect_class)": 12,
+   "intent.within_domain -> heldout (intent.within_domain)": 319,
+   "intent.within_domain -> val (intent.within_domain)": 864
+  }
+ },
+ {
+  "scan": "/Users/bharath/qd-campaign/prep2-2026-10-02/scan-p05-nostrip",
+  "template_strip_applied": false,
+  "n_pairs": 875,
+  "n_exclusions": 439,
+  "clean": true,
+  "sets": {
+   "train": {
+    "rows": 18195,
+    "too_short": 0
+   },
+   "val": {
+    "rows": 906,
+    "too_short": 0
+   },
+   "heldout": {
+    "rows": 774,
+    "too_short": 0
+   },
+   "heldout-family:code.language_id": {
+    "rows": 1226,
+    "too_short": 0
+   },
+   "heldout-family:qa.answerability": {
+    "rows": 1226,
+    "too_short": 0
+   }
+  },
+  "groups": {
+   "CLINC (intent.*)": {
+    "train_keys": 1089,
+    "excluded": 338,
+    "rate": 0.3104
+   },
+   "MMLU (knowledge.multiple_choice)": {
+    "train_keys": 635,
+    "excluded": 47,
+    "rate": 0.074
+   },
+   "CSQA (commonsense.multiple_choice)": {
+    "train_keys": 487,
+    "excluded": 0,
+    "rate": 0.0
+   },
+   "SQuAD answer_span": {
+    "train_keys": 5268,
+    "excluded": 0,
+    "rate": 0.0
+   },
+   "code.defect_class": {
+    "train_keys": 3691,
+    "excluded": 54,
+    "rate": 0.0146
+   }
+  },
+  "families": {
+   "code.defect_class": {
+    "train_keys": 3691,
+    "excluded": 54,
+    "rate": 0.0146,
+    "hit_by_own_rows": 54
+   },
+   "commonsense.multiple_choice": {
+    "train_keys": 487,
+    "excluded": 0,
+    "rate": 0.0,
+    "hit_by_own_rows": 0
+   },
+   "intent.classification": {
+    "train_keys": 1089,
+    "excluded": 338,
+    "rate": 0.3104,
+    "hit_by_own_rows": 0
+   },
+   "intent.domain": {
+    "train_keys": 1089,
+    "excluded": 338,
+    "rate": 0.3104,
+    "hit_by_own_rows": 0
+   },
+   "intent.in_scope": {
+    "train_keys": 1089,
+    "excluded": 338,
+    "rate": 0.3104,
+    "hit_by_own_rows": 231
+   },
+   "intent.within_domain": {
+    "train_keys": 1089,
+    "excluded": 338,
+    "rate": 0.3104,
+    "hit_by_own_rows": 146
+   },
+   "knowledge.multiple_choice": {
+    "train_keys": 635,
+    "excluded": 47,
+    "rate": 0.074,
+    "hit_by_own_rows": 47
+   },
+   "qa.answer_span": {
+    "train_keys": 5268,
+    "excluded": 0,
+    "rate": 0.0,
+    "hit_by_own_rows": 0
+   }
+  },
+  "enforced_pairs": {
+   "code.defect_class -> heldout (code.defect_class)": 140,
+   "code.defect_class -> val (code.defect_class)": 50,
+   "intent.in_scope -> heldout (intent.in_scope)": 281,
+   "intent.in_scope -> val (intent.in_scope)": 75,
+   "intent.within_domain -> heldout (intent.within_domain)": 137,
+   "intent.within_domain -> val (intent.within_domain)": 41,
+   "knowledge.multiple_choice -> val (knowledge.multiple_choice)": 95
+  }
+ },
+ {
+  "scan": "/Users/bharath/qd-campaign/prep2-2026-10-02/scan-p05-strip",
+  "template_strip_applied": true,
+  "n_pairs": 8170,
+  "n_exclusions": 762,
+  "clean": true,
+  "sets": {
+   "train": {
+    "rows": 18195,
+    "too_short": 902
+   },
+   "val": {
+    "rows": 906,
+    "too_short": 42
+   },
+   "heldout": {
+    "rows": 774,
+    "too_short": 68
+   },
+   "heldout-family:code.language_id": {
+    "rows": 1226,
+    "too_short": 0
+   },
+   "heldout-family:qa.answerability": {
+    "rows": 1226,
+    "too_short": 0
+   }
+  },
+  "groups": {
+   "CLINC (intent.*)": {
+    "train_keys": 1089,
+    "excluded": 721,
+    "rate": 0.6621
+   },
+   "MMLU (knowledge.multiple_choice)": {
+    "train_keys": 635,
+    "excluded": 1,
+    "rate": 0.0016
+   },
+   "CSQA (commonsense.multiple_choice)": {
+    "train_keys": 487,
+    "excluded": 0,
+    "rate": 0.0
+   },
+   "SQuAD answer_span": {
+    "train_keys": 5268,
+    "excluded": 0,
+    "rate": 0.0
+   },
+   "code.defect_class": {
+    "train_keys": 3691,
+    "excluded": 40,
+    "rate": 0.0108
+   }
+  },
+  "families": {
+   "code.defect_class": {
+    "train_keys": 3691,
+    "excluded": 40,
+    "rate": 0.0108,
+    "hit_by_own_rows": 40
+   },
+   "commonsense.multiple_choice": {
+    "train_keys": 487,
+    "excluded": 0,
+    "rate": 0.0,
+    "hit_by_own_rows": 0
+   },
+   "intent.classification": {
+    "train_keys": 1089,
+    "excluded": 721,
+    "rate": 0.6621,
+    "hit_by_own_rows": 0
+   },
+   "intent.domain": {
+    "train_keys": 1089,
+    "excluded": 721,
+    "rate": 0.6621,
+    "hit_by_own_rows": 0
+   },
+   "intent.in_scope": {
+    "train_keys": 1089,
+    "excluded": 721,
+    "rate": 0.6621,
+    "hit_by_own_rows": 0
+   },
+   "intent.within_domain": {
+    "train_keys": 1089,
+    "excluded": 721,
+    "rate": 0.6621,
+    "hit_by_own_rows": 721
+   },
+   "knowledge.multiple_choice": {
+    "train_keys": 635,
+    "excluded": 1,
+    "rate": 0.0016,
+    "hit_by_own_rows": 1
+   },
+   "qa.answer_span": {
+    "train_keys": 5268,
+    "excluded": 0,
+    "rate": 0.0,
+    "hit_by_own_rows": 0
+   }
+  },
+  "enforced_pairs": {
+   "code.defect_class -> heldout (code.defect_class)": 132,
+   "code.defect_class -> val (code.defect_class)": 28,
+   "intent.within_domain -> heldout (intent.within_domain)": 3737,
+   "intent.within_domain -> val (intent.within_domain)": 3990,
+   "knowledge.multiple_choice -> val (knowledge.multiple_choice)": 1
+  }
+ }
+]
