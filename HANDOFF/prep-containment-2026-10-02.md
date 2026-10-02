@@ -174,13 +174,19 @@ full list is applied.
   The release binary these numbers used: sha256 `9ad514e82ec91b83c7a9d8a19b95280cb3f6cb0312e2d455dc09d58b790d5d6f`
   (the fixture benchmark ran on the build before a `clippy`-driven rewrite of one loop in
   `sha256.rs` and `rustfmt`; the SHA-256 vectors pass on both).
-- The affected Python suites on the final tree, `/Users/bharath/.venvs/ml` (3.14.7, torch) via
-  `uv run --with pytest --with hypothesis --with datasketch`, 42 files (every `test_real_ft_*`,
-  the control, replay, shard, pipeline, minhash, dedupe and gap files and this lane's):
-  **1063 passed, 27 skipped, exit 0** (12 min 48 s). The 27 skips: 8 env-gated benchmarks, 15
-  `test_defect_noul` data not on this host, 4 opt-ins. After the lint fixes (import order only, and
-  two test-file style fixes): `test_containment_exclusions`, `test_real_ft_general_record`,
-  `test_pipeline_general` 48 passed, exit 0.
+- The affected Python suites **on the committed tree** (`6c94a38`; the code is `42ec232`'s),
+  `/Users/bharath/.venvs/ml` (3.14.7, torch 2.12.1, Unicode 16.0.0) via `uv run --no-project
+  --python /Users/bharath/.venvs/ml/bin/python --with pytest --with hypothesis --with datasketch
+  python -m pytest`, 50 files (every `test_real_ft_*`, the control, `rung0`, baseline, replay,
+  shard, pipeline, minhash, LSH, dedupe and gap files, and this lane's), 1,109 collected:
+  **1079 passed, 1 failed, 29 skipped, exit 1** (log `target/lprep-stash/head-pytest.log`, ignored;
+  counts read from its progress lines and checked against `--collect-only`, because the repo's
+  `addopts -q` plus `-q` suppressed the summary line). The one failure is
+  `test_gaps_writer::test_the_real_ledger_is_not_touched_by_any_of_this`, which asserts the
+  ledger's directory is named `Lappi-decision` or `qwen-decision` and so fails in any worktree
+  (pre-existing; below). The skips are env-gated benchmarks, `test_defect_noul` data not on this
+  host, and opt-ins. An earlier 42-file run on the pre-lint tree (1063 passed, 27 skipped, exit 0)
+  is superseded by this one.
 - `.venv` (3.13.14, Unicode 15.1.0): `test_qd_prep_containment_parity` 7 passed, 1 skipped (the
   table check, with its reason); `test_gaps_ledger` 10 passed, exit 0.
 - Fail-first: Part A's tests ran against the old budget and failed (3 failed, 1 passed; the
