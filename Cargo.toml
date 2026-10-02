@@ -1,6 +1,10 @@
 [workspace]
 resolver = "3"
-members = ["crates/qd-export", "crates/qd-lang", "crates/qd-metal", "crates/qd-mutate", "crates/qd-preflight", "crates/qd-prep", "crates/qd-runtime", "crates/qd-train"]
+members = ["crates/qd-export", "crates/qd-lang", "crates/qd-metal", "crates/qd-mutate", "crates/qd-preflight", "crates/qd-prep", "crates/qd-runtime", "crates/qd-train", "crates/qd-train-metal"]
+# Agent worktrees and the local ojas/tessl/devtools symlinks live under .claude/ (gitignored).
+# Without this, cargo resolving a path dependency reached through .claude/worktrees/{tessl,ojas}
+# walks up to this root and inherits `workspace.package` from it instead of from ojas's own root.
+exclude = [".claude"]
 
 [workspace.package]
 version = "0.1.0"

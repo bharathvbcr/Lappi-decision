@@ -41,7 +41,7 @@ pub struct Coverage {
 }
 
 /// A tri-state record that Python's `parse_tristate` (or `Ran`/`NotRun` validation) refuses.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
 #[error("{field}: {detail}")]
 pub struct TriStateError {
     /// Where the record came from.
@@ -79,6 +79,97 @@ impl TriState {
     /// `true` for `Ran { passed: false, .. }`; `NotRun` is neither a pass nor a failure.
     pub fn is_fail(&self) -> bool {
         matches!(self, Self::Ran { passed: false, .. })
+    }
+
+    /// A `Ran` with a measured value, no coverage and no detail.
+    pub fn ran(passed: bool, value: impl Into<Value>) -> Self {
+        Self::Ran {
+            passed,
+            value: value.into(),
+            coverage: None,
+            detail: String::new(),
+        }
+    }
+
+    /// This record with `detail` replaced; a `NotRun` is returned unchanged.
+    pub fn with_detail(self, detail: impl Into<String>) -> Self {
+        match self {
+            Self::Ran {
+                passed,
+                value,
+                coverage,
+                ..
+            } => Self::Ran {
+                passed,
+                value,
+                coverage,
+                detail: detail.into(),
+            },
+            other => other,
+        }
+    }
+
+    /// This record with `n` of `n_total` examined; a `NotRun` is returned unchanged. The pair
+    /// is checked when the record is written ([`TriState::to_json`]).
+    pub fn with_coverage(self, n: u64, n_total: u64) -> Self {
+        match self {
+            Self::Ran {
+                passed,
+                value,
+                detail,
+                ..
+            } => Self::Ran {
+                passed,
+                value,
+                coverage: Some(Coverage { n, n_total }),
+                detail,
+            },
+            other => other,
+        }
+    }
+
+    /// `Ran.to_json` / `NotRun.to_json`: `state` and `passed`, then `value` unless it is null,
+    /// `n`/`n_total` when coverage is carried, `detail` unless empty; or `state` and
+    /// `reason`. Refuses what `Ran.__post_init__` / `NotRun.__post_init__` refuse: `n` over
+    /// `n_total`, and an empty reason.
+    pub fn to_json(&self, field: &str) -> Result<Value, TriStateError> {
+        let err = |detail: String| TriStateError {
+            field: field.to_owned(),
+            detail,
+        };
+        let mut out = serde_json::Map::new();
+        match self {
+            Self::NotRun { reason } => {
+                if reason.trim().is_empty() {
+                    return Err(err("NotRun requires a non-empty reason".to_owned()));
+                }
+                out.insert("state".to_owned(), Value::from("not_run"));
+                out.insert("reason".to_owned(), Value::from(reason.as_str()));
+            }
+            Self::Ran {
+                passed,
+                value,
+                coverage,
+                detail,
+            } => {
+                out.insert("state".to_owned(), Value::from("ran"));
+                out.insert("passed".to_owned(), Value::Bool(*passed));
+                if !value.is_null() {
+                    out.insert("value".to_owned(), value.clone());
+                }
+                if let Some(Coverage { n, n_total }) = coverage {
+                    if n > n_total {
+                        return Err(err(format!("examined {n} of {n_total}: n exceeds n_total")));
+                    }
+                    out.insert("n".to_owned(), Value::from(*n));
+                    out.insert("n_total".to_owned(), Value::from(*n_total));
+                }
+                if !detail.is_empty() {
+                    out.insert("detail".to_owned(), Value::from(detail.as_str()));
+                }
+            }
+        }
+        Ok(Value::Object(out))
     }
 }
 
@@ -245,6 +336,25 @@ mod tests {
         )
         .unwrap();
         assert!(ok.is_fail());
+    }
+
+    #[test]
+    fn the_writer_emits_what_python_writes_and_the_parser_reads_it_back() {
+        use crate::pyjson::{dumps, CANONICAL};
+        let r = TriState::ran(true, 3).with_coverage(3, 4).with_detail("d");
+        let v = r.to_json("f").unwrap();
+        assert_eq!(
+            dumps(&v, CANONICAL).unwrap(),
+            "{\"detail\":\"d\",\"n\":3,\"n_total\":4,\"passed\":true,\"state\":\"ran\",\"value\":3}"
+        );
+        assert_eq!(parse_tristate(&v, "f").unwrap(), r);
+        // A null value is omitted, as `Ran(value=None)` omits it.
+        let bare = TriState::ran(false, Value::Null).to_json("f").unwrap();
+        assert_eq!(dumps(&bare, CANONICAL).unwrap(), "{\"passed\":false,\"state\":\"ran\"}");
+        assert!(TriState::ran(true, 1).with_coverage(3, 2).to_json("f").is_err());
+        assert!(TriState::NotRun { reason: " ".into() }.to_json("f").is_err());
+        let nr = TriState::not_run("why").to_json("f").unwrap();
+        assert_eq!(dumps(&nr, CANONICAL).unwrap(), "{\"reason\":\"why\",\"state\":\"not_run\"}");
     }
 
     #[test]

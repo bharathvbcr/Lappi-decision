@@ -1,12 +1,12 @@
 {
- "what": "rung (b) torch reference (fable-advice.md Q3 b): the Lappi FT recipe on tessl's tiny Qwen3.5 shape family, CPU, fp32 (tight) and master-bf16 (loose) arms from one init and one batch order",
+ "what": "rung (b) torch reference (fable-advice.md Q3 b, Amendments 1-2): the Lappi FT recipe on tessl's tiny Qwen3.5 shape family, CPU, fp32 (tight) and master-bf16 (loose) arms, and fp32_clip150 (Amendment 2 (iii): max_grad_norm 150, both clip branches), from one init and one batch order",
  "rule": "published",
  "generator": {
   "script": "tools/qd_train_oracle_tiny.py",
-  "script_sha256": "f3f812cb813b29d0df7457f8a65f17fb1b00c82993ba9ac1b165a242d75f697b",
+  "script_sha256": "5c77464b097cfaf10dffeb736e7808cbb9faab9d25f2002e52854aee1393e1aa",
   "argv": [
    "--out",
-   "/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a4907ad4a70172990/crates/qd-train/tests/fixtures/tiny-published"
+   "crates/qd-train/tests/fixtures/tiny-published"
   ],
   "python": "3.14.7",
   "torch": "2.12.1",
@@ -16,7 +16,7 @@
   "device": "cpu",
   "torch_threads": 1,
   "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
-  "git_head": "1f09695597d34ec39ec0b09ccaf8fa0cbb5eddb3"
+  "git_head": "50a0af4db2aaa88dad30bd74201484925eb96ed4"
  },
  "seeds": {
   "protocol_seed": 0,
@@ -55,7 +55,20 @@
     "chunk_size": 64,
     "use_qk_l2norm_in_kernel": true,
     "seam": "transformers' (l2norm of q/k in the kernel, g = -exp(A_log) * softplus(a + dt_bias) and beta = sigmoid(b) given), the same seam tessl's gdn_train runs",
-    "core_dtype": "float32 in both arms (q, k, v, beta, g cast to f32 before the recurrence; the output cast back to the tower dtype)"
+    "core_dtype": "float32 in both arms (q, k, v, beta, g cast to f32 before the recurrence; the output cast back to the tower dtype)",
+    "kernel_diverse_independent_arm": {
+     "function": "transformers.models.qwen3_5.modeling_qwen3_5.torch_recurrent_gated_delta_rule",
+     "rule": "published",
+     "why_published": "token by token, the state is decayed before it is read (S = S * exp(g_t); kv_mem = S k_t; delta = (v_t - kv_mem) * beta_t): the decayed read of AUDIT/gdn-reference-and-contracts.md section 2.2",
+     "lines": {
+      "torch_recurrent_gated_delta_rule": 327,
+      "decay_before_read": 359,
+      "kv_mem_read": 360,
+      "fp32_core_cast": 335
+     },
+     "routing": "use_recurrent_gdn (this script): every GDN layer's chunk_gated_delta_rule replaced by an adapter over the recurrent form; a packed call (cu_seqlens) is refused",
+     "attention": "eager (transformers' eager_attention_forward, the causal mask built by the model from attention_mask=None), against the reference's sdpa flash"
+    }
    },
    "linear_attention_kernels": {
     "chunk_gated_delta_rule": "transformers.models.qwen3_5.modeling_qwen3_5.torch_chunk_gated_delta_rule",
@@ -1034,6 +1047,7 @@
  "arms": {
   "fp32": {
    "tower_dtype": "fp32",
+   "max_grad_norm": 1.0,
    "optimizer": {
     "class": "torch.optim.adamw.AdamW",
     "inner": "torch.optim.adamw.AdamW",
@@ -1115,10 +1129,12 @@
     17,
     18,
     19
-   ]
+   ],
+   "clip_inactive_steps": []
   },
   "master_bf16": {
    "tower_dtype": "bf16",
+   "max_grad_norm": 1.0,
    "optimizer": {
     "class": "qd_train.optim.MasterWeightAdamW",
     "inner": "torch.optim.adamw.AdamW",
@@ -1201,18 +1217,110 @@
     18,
     19
    ],
+   "clip_inactive_steps": [],
    "vs_fp32": {
     "final_weights": {
      "max_rel_to_param_max": 0.3290994522902271,
      "param": "span_head.abstain_end",
      "tower_max_rel_to_param_max": 0.000252620429026923,
-     "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+     "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight",
+     "amendment2_max_rel": 0.0002632546982351386,
+     "amendment2_param": "span_head.start_proj.weight",
+     "amendment2_span_head_scale": 0.12500903010368347
     },
     "losses": {
      "steps_0_5_max_rel": 0.007614113059100791,
      "all_steps_max_rel": 0.017387465026816647
     }
    }
+  },
+  "fp32_clip150": {
+   "tower_dtype": "fp32",
+   "max_grad_norm": 150.0,
+   "optimizer": {
+    "class": "torch.optim.adamw.AdamW",
+    "inner": "torch.optim.adamw.AdamW",
+    "groups": [
+     {
+      "lr_scale": 1.0,
+      "name": "base",
+      "lr": 1.0613741346877498e-06,
+      "betas": [
+       0.9,
+       0.999
+      ],
+      "eps": 1e-08,
+      "weight_decay": 0.01,
+      "amsgrad": false,
+      "maximize": false,
+      "foreach": null,
+      "capturable": false,
+      "differentiable": false,
+      "fused": null,
+      "decoupled_weight_decay": true,
+      "n_tensors": 31
+     },
+     {
+      "lr_scale": 0.1,
+      "name": "base_lower",
+      "lr": 1.0613741346877499e-07,
+      "betas": [
+       0.9,
+       0.999
+      ],
+      "eps": 1e-08,
+      "weight_decay": 0.01,
+      "amsgrad": false,
+      "maximize": false,
+      "foreach": null,
+      "capturable": false,
+      "differentiable": false,
+      "fused": null,
+      "decoupled_weight_decay": true,
+      "n_tensors": 28
+     }
+    ],
+    "torch_dispatch_on_this_host": {
+     "fused": false,
+     "foreach": false
+    }
+   },
+   "termination": "steps_exhausted",
+   "digests": {
+    "losses_f64": "94fe2c21e4a3b32673a7251fdad5c1cbb819650b7f56bf9045c1ce0d60e8c348",
+    "letter_f64": "76367443a7765b5f32c6609d5d3d0e0fd026c9777c41b98264bf2f0790470cec",
+    "span_f64": "9a29856a5221a83b3b4afc646a12e572305f55b4d75434c87a2cabad50937af6",
+    "grad_norms_f64": "abccc8114ee1eca9326c9a855bf1e70d642e6e1d7e25c64e0d3be4ddeb6281d6",
+    "lrs_f64": "12079579716f1821ecaef817c0052d985f0857c686a4640ab7fd570090d10716",
+    "final_weights": "c67c579447d390ebdca69a0325c3eaaab4df3f32b94a9e4356d075106bb2b266",
+    "loss_log_digest": "ca69701fa61c39b6f99b3036d80fba97d234b1ce36d4f8b20938855c733eda24"
+   },
+   "trajectory": "fp32_clip150/trajectory.json",
+   "final_weights": "fp32_clip150/final.safetensors",
+   "clip_active_steps": [
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    9,
+    11,
+    13,
+    14,
+    15,
+    17,
+    19
+   ],
+   "clip_inactive_steps": [
+    0,
+    4,
+    6,
+    10,
+    12,
+    16,
+    18
+   ]
   }
  },
  "files": {
@@ -1233,8 +1341,8 @@
    "sha256": "3fb0e02a0f20da03317c5c98dcc533501ca151fecc8a5bf6506e454fd4310760"
   },
   "config.json": {
-   "bytes": 1626,
-   "sha256": "99f26f628bff4ee89b9dc263b6f1a28546145d648426cba2ced5daf5d9c0223e"
+   "bytes": 1625,
+   "sha256": "94238eda8c7a24abcb2515793cf0cd6f9d92a7652a15c312a23d3faaf1059521"
   },
   "fp32/final.safetensors": {
    "bytes": 1491608,
@@ -1247,6 +1355,14 @@
   "fp32/trajectory.json": {
    "bytes": 7363,
    "sha256": "1f593372e029a2e9df1f4782439638fc4c06821789b7bb40a2b6e535821a6705"
+  },
+  "fp32_clip150/final.safetensors": {
+   "bytes": 1491616,
+   "sha256": "a00e9eb472ff456a82db3d3fc9d3a722f8af6fed29077919863f45ee836a0c3d"
+  },
+  "fp32_clip150/trajectory.json": {
+   "bytes": 7215,
+   "sha256": "f8ee8f9eed17b1fdf7b3cf3c478794ece6ddcc8a030133b57c41cc47926a0c91"
   },
   "init.safetensors": {
    "bytes": 765956,
@@ -1325,12 +1441,20 @@
  },
  "independent_check_fp32": {
   "how": "IndependentStep (this script): one unpadded sequence at a time through the same tower, the tied head's logits and torch cross_entropy written out for the letter, the pointer scores written out for the span head, targets read off the stored sequences (not ft_supervision/plan_span_batch); the reference's optimizer, clip and schedule. Same GDN and attention kernels as the reference: it isolates padding, batching and loss-reduction order, not the kernels",
+  "kernels": {
+   "attn_implementation": "sdpa",
+   "gdn": "chunk"
+  },
+  "max_grad_norm": 1.0,
   "steps": 20,
   "grads_step0": {
    "max_rel_to_param_max": 6.310281390009368e-05,
    "param": "model.language_model.layers.0.linear_attn.A_log",
    "tower_max_rel_to_param_max": 6.310281390009368e-05,
-   "tower_param": "model.language_model.layers.0.linear_attn.A_log"
+   "tower_param": "model.language_model.layers.0.linear_attn.A_log",
+   "amendment2_max_rel": 6.310281390009368e-05,
+   "amendment2_param": "model.language_model.layers.0.linear_attn.A_log",
+   "amendment2_span_head_scale": 0.0
   },
   "grad_norm_preclip_max_rel": 1.1540743688820663e-06,
   "losses": {
@@ -1341,17 +1465,102 @@
    "max_rel_to_param_max": 9.117097262105302e-06,
    "param": "span_head.abstain_start",
    "tower_max_rel_to_param_max": 9.655237916505509e-07,
-   "tower_param": "model.language_model.layers.2.mlp.up_proj.weight"
+   "tower_param": "model.language_model.layers.2.mlp.up_proj.weight",
+   "amendment2_max_rel": 9.655237916505509e-07,
+   "amendment2_param": "model.language_model.layers.2.mlp.up_proj.weight",
+   "amendment2_span_head_scale": 0.12500903010368347
   },
+  "measure": "Amendment 2 (i)",
   "within_rung_b_bars": {
    "final_weights": true,
    "losses": true
   },
+  "within_rung_b_bars_pre_amendment": {
+   "final_weights": true
+  },
   "clip_active_steps_equal": true,
-  "seconds": 2.0669929160067113
+  "seconds": 2.2099572499864735
+ },
+ "independent_check_kernel_diverse": {
+  "how": "IndependentStep (this script): one unpadded sequence at a time through the same tower, the tied head's logits and torch cross_entropy written out for the letter, the pointer scores written out for the span head, targets read off the stored sequences (not ft_supervision/plan_span_batch); the reference's optimizer, clip and schedule. Kernels NOT shared with the reference: attention 'eager' (the reference runs sdpa, flash backend), GDN 'recurrent' (torch_recurrent_gated_delta_rule, token by token; the reference runs torch_chunk_gated_delta_rule), both at the published rule",
+  "kernels": {
+   "attn_implementation": "eager",
+   "gdn": "recurrent"
+  },
+  "max_grad_norm": 1.0,
+  "steps": 20,
+  "grads_step0": {
+   "max_rel_to_param_max": 9.592552296168088e-05,
+   "param": "model.language_model.layers.0.linear_attn.A_log",
+   "tower_max_rel_to_param_max": 9.592552296168088e-05,
+   "tower_param": "model.language_model.layers.0.linear_attn.A_log",
+   "amendment2_max_rel": 9.592552296168088e-05,
+   "amendment2_param": "model.language_model.layers.0.linear_attn.A_log",
+   "amendment2_span_head_scale": 0.0
+  },
+  "grad_norm_preclip_max_rel": 1.1138911203454232e-06,
+  "losses": {
+   "steps_0_5_max_rel": 1.430707383856963e-06,
+   "all_steps_max_rel": 1.430707383856963e-06
+  },
+  "final_weights": {
+   "max_rel_to_param_max": 5.144986918484945e-06,
+   "param": "span_head.abstain_start",
+   "tower_max_rel_to_param_max": 2.987958400498824e-06,
+   "tower_param": "model.language_model.layers.2.mlp.up_proj.weight",
+   "amendment2_max_rel": 2.987958400498824e-06,
+   "amendment2_param": "model.language_model.layers.2.mlp.up_proj.weight",
+   "amendment2_span_head_scale": 0.12500903010368347
+  },
+  "measure": "Amendment 2 (i)",
+  "within_rung_b_bars": {
+   "final_weights": true,
+   "losses": true
+  },
+  "within_rung_b_bars_pre_amendment": {
+   "final_weights": true
+  },
+  "clip_active_steps_equal": true,
+  "seconds": 5.282983625002089
+ },
+ "independent_check_fp32_clip150": {
+  "how": "IndependentStep (this script): one unpadded sequence at a time through the same tower, the tied head's logits and torch cross_entropy written out for the letter, the pointer scores written out for the span head, targets read off the stored sequences (not ft_supervision/plan_span_batch); the reference's optimizer, clip and schedule. Same GDN and attention kernels as the reference: it isolates padding, batching and loss-reduction order, not the kernels",
+  "kernels": {
+   "attn_implementation": "sdpa",
+   "gdn": "chunk"
+  },
+  "max_grad_norm": 150.0,
+  "steps": 20,
+  "grads_step0": {
+   "not_run": "the reference arm keeps no step-0 gradient; only arm fp32 does"
+  },
+  "grad_norm_preclip_max_rel": 1.323820847030589e-06,
+  "losses": {
+   "steps_0_5_max_rel": 2.2160564964397943e-07,
+   "all_steps_max_rel": 1.7531164932761408e-06
+  },
+  "final_weights": {
+   "max_rel_to_param_max": 3.3552168029257492e-06,
+   "param": "span_head.abstain_start",
+   "tower_max_rel_to_param_max": 4.5295915834148924e-07,
+   "tower_param": "model.language_model.layers.2.mlp.up_proj.weight",
+   "amendment2_max_rel": 4.5295915834148924e-07,
+   "amendment2_param": "model.language_model.layers.2.mlp.up_proj.weight",
+   "amendment2_span_head_scale": 0.12500901520252228
+  },
+  "measure": "Amendment 2 (i)",
+  "within_rung_b_bars": {
+   "final_weights": true,
+   "losses": true
+  },
+  "within_rung_b_bars_pre_amendment": {
+   "final_weights": true
+  },
+  "clip_active_steps_equal": true,
+  "seconds": 2.2958493330079364
  },
  "repeat_equality_fp32": {
-  "how": "a second process (subprocess of this script, --arms fp32) regenerating the snapshot, batches and run from the seeds; same thread count. Compared: the value digests below and the bytes of every file both runs wrote",
+  "how": "a second process (subprocess of this script, --arms fp32,fp32_clip150) regenerating the snapshot, batches and runs from the seeds; same thread count. Compared: each arm's value digests and the bytes of every file both runs wrote",
   "first": {
    "losses_f64": "898eae3bdab6cd35508073dc0b358364dab7d8700edeaf59a2a1eae0690f4003",
    "letter_f64": "62a19886a7937bcc15cae988661ce370aa0715ea98513b6c041cc19e36cb69bc",
@@ -1370,6 +1579,52 @@
    "final_weights": "7b497caa8f4e40e3b12d033546a4c74d390c854a5dd5b437382981dfb3f69a8b",
    "loss_log_digest": "ba7bd71117e37be4ad71b5f47e1c261e11a94219bea1108f4857bf9f093e03d2"
   },
+  "by_arm": {
+   "fp32": {
+    "first": {
+     "losses_f64": "898eae3bdab6cd35508073dc0b358364dab7d8700edeaf59a2a1eae0690f4003",
+     "letter_f64": "62a19886a7937bcc15cae988661ce370aa0715ea98513b6c041cc19e36cb69bc",
+     "span_f64": "2a63b3f08b7d096c0f37a25035a02ac1c069b9ca317d40f00cb01d1a4f758090",
+     "grad_norms_f64": "f8fc5b5b427e698bccf1281772a3e8ab83a430e3c85c199065926271198a0eaf",
+     "lrs_f64": "12079579716f1821ecaef817c0052d985f0857c686a4640ab7fd570090d10716",
+     "final_weights": "7b497caa8f4e40e3b12d033546a4c74d390c854a5dd5b437382981dfb3f69a8b",
+     "loss_log_digest": "ba7bd71117e37be4ad71b5f47e1c261e11a94219bea1108f4857bf9f093e03d2"
+    },
+    "second": {
+     "losses_f64": "898eae3bdab6cd35508073dc0b358364dab7d8700edeaf59a2a1eae0690f4003",
+     "letter_f64": "62a19886a7937bcc15cae988661ce370aa0715ea98513b6c041cc19e36cb69bc",
+     "span_f64": "2a63b3f08b7d096c0f37a25035a02ac1c069b9ca317d40f00cb01d1a4f758090",
+     "grad_norms_f64": "f8fc5b5b427e698bccf1281772a3e8ab83a430e3c85c199065926271198a0eaf",
+     "lrs_f64": "12079579716f1821ecaef817c0052d985f0857c686a4640ab7fd570090d10716",
+     "final_weights": "7b497caa8f4e40e3b12d033546a4c74d390c854a5dd5b437382981dfb3f69a8b",
+     "loss_log_digest": "ba7bd71117e37be4ad71b5f47e1c261e11a94219bea1108f4857bf9f093e03d2"
+    },
+    "differing": [],
+    "equal": true
+   },
+   "fp32_clip150": {
+    "first": {
+     "losses_f64": "94fe2c21e4a3b32673a7251fdad5c1cbb819650b7f56bf9045c1ce0d60e8c348",
+     "letter_f64": "76367443a7765b5f32c6609d5d3d0e0fd026c9777c41b98264bf2f0790470cec",
+     "span_f64": "9a29856a5221a83b3b4afc646a12e572305f55b4d75434c87a2cabad50937af6",
+     "grad_norms_f64": "abccc8114ee1eca9326c9a855bf1e70d642e6e1d7e25c64e0d3be4ddeb6281d6",
+     "lrs_f64": "12079579716f1821ecaef817c0052d985f0857c686a4640ab7fd570090d10716",
+     "final_weights": "c67c579447d390ebdca69a0325c3eaaab4df3f32b94a9e4356d075106bb2b266",
+     "loss_log_digest": "ca69701fa61c39b6f99b3036d80fba97d234b1ce36d4f8b20938855c733eda24"
+    },
+    "second": {
+     "losses_f64": "94fe2c21e4a3b32673a7251fdad5c1cbb819650b7f56bf9045c1ce0d60e8c348",
+     "letter_f64": "76367443a7765b5f32c6609d5d3d0e0fd026c9777c41b98264bf2f0790470cec",
+     "span_f64": "9a29856a5221a83b3b4afc646a12e572305f55b4d75434c87a2cabad50937af6",
+     "grad_norms_f64": "abccc8114ee1eca9326c9a855bf1e70d642e6e1d7e25c64e0d3be4ddeb6281d6",
+     "lrs_f64": "12079579716f1821ecaef817c0052d985f0857c686a4640ab7fd570090d10716",
+     "final_weights": "c67c579447d390ebdca69a0325c3eaaab4df3f32b94a9e4356d075106bb2b266",
+     "loss_log_digest": "ca69701fa61c39b6f99b3036d80fba97d234b1ce36d4f8b20938855c733eda24"
+    },
+    "differing": [],
+    "equal": true
+   }
+  },
   "files_compared": [
    "batches/offsets.npy",
    "batches/plan.json",
@@ -1379,6 +1634,8 @@
    "fp32/final.safetensors",
    "fp32/grads_step0.safetensors",
    "fp32/trajectory.json",
+   "fp32_clip150/final.safetensors",
+   "fp32_clip150/trajectory.json",
    "init.safetensors"
   ],
   "files_differing": [],
@@ -1386,21 +1643,27 @@
   "equal": true
  },
  "discrimination": {
-  "how": "fp32 arm rerun with one recipe detail changed; 'caught' means the measured gap exceeds rung (b)'s bar (final weights 1e-5 of each parameter's max; loss 1e-5 relative over steps 0-5, 1e-4 to the end); 'over_independent_floor' divides the gap by the independent restatement's gap at the same lr on the same measure",
+  "how": "fp32 arm rerun with one recipe detail changed; 'caught' means the measured gap exceeds rung (b)'s bar (final weights 1e-5 of each parameter's max; loss 1e-5 relative over steps 0-5, 1e-4 to the end); 'caught_by_final_weights' is the pre-amendment measure (each tensor over its own max), 'caught_by_final_weights_amendment2' the measure in force (span_head.* over the span head's max, Amendment 2 (i)); 'over_independent_floor' divides the gap by the independent restatement's gap at the same lr on the same measure",
   "by_lr": {
    "1e-05": {
     "reference_moved_from_init": {
      "max_rel_to_param_max": 0.0005742034566428103,
      "param": "span_head.start_proj.weight",
      "tower_max_rel_to_param_max": 0.0005468291852941465,
-     "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+     "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight",
+     "amendment2_max_rel": 0.0005742034566428103,
+     "amendment2_param": "span_head.start_proj.weight",
+     "amendment2_span_head_scale": 0.12498007714748383
     },
     "independent_floor": {
      "final_weights": {
       "max_rel_to_param_max": 9.117097262105302e-06,
       "param": "span_head.abstain_start",
       "tower_max_rel_to_param_max": 9.655237916505509e-07,
-      "tower_param": "model.language_model.layers.2.mlp.up_proj.weight"
+      "tower_param": "model.language_model.layers.2.mlp.up_proj.weight",
+      "amendment2_max_rel": 9.655237916505509e-07,
+      "amendment2_param": "model.language_model.layers.2.mlp.up_proj.weight",
+      "amendment2_span_head_scale": 0.12500903010368347
      },
      "losses": {
       "steps_0_5_max_rel": 4.899120375184437e-07,
@@ -1418,16 +1681,21 @@
        "max_rel_to_param_max": 4.957421636269758e-06,
        "param": "span_head.abstain_start",
        "tower_max_rel_to_param_max": 1.5555342389752437e-06,
-       "tower_param": "model.language_model.layers.3.self_attn.k_norm.weight"
+       "tower_param": "model.language_model.layers.3.self_attn.k_norm.weight",
+       "amendment2_max_rel": 1.5555342389752437e-06,
+       "amendment2_param": "model.language_model.layers.3.self_attn.k_norm.weight",
+       "amendment2_span_head_scale": 0.12500903010368347
       },
       "losses": {
        "steps_0_5_max_rel": 4.61611112025785e-07,
        "all_steps_max_rel": 9.295198233381182e-07
       },
       "caught_by_final_weights": false,
+      "caught_by_final_weights_amendment2": false,
       "caught_by_losses": false,
       "over_independent_floor": {
        "final_weights": 0.5437500000000001,
+       "final_weights_amendment2": 1.611078103332987,
        "final_weights_tower": 1.611078103332987,
        "losses_all_steps": 1.5555555555555556
       }
@@ -1438,16 +1706,21 @@
        "max_rel_to_param_max": 1.5840956492907963e-05,
        "param": "span_head.abstain_start",
        "tower_max_rel_to_param_max": 1.787893813410634e-06,
-       "tower_param": "model.language_model.layers.3.mlp.up_proj.weight"
+       "tower_param": "model.language_model.layers.3.mlp.up_proj.weight",
+       "amendment2_max_rel": 1.787893813410634e-06,
+       "amendment2_param": "model.language_model.layers.3.mlp.up_proj.weight",
+       "amendment2_span_head_scale": 0.12500903010368347
       },
       "losses": {
        "steps_0_5_max_rel": 1.1023020844164981e-06,
        "all_steps_max_rel": 3.727191506388297e-06
       },
       "caught_by_final_weights": true,
+      "caught_by_final_weights_amendment2": false,
       "caught_by_losses": false,
       "over_independent_floor": {
        "final_weights": 1.7375,
+       "final_weights_amendment2": 1.851734601334113,
        "final_weights_tower": 1.851734601334113,
        "losses_all_steps": 6.237471551236398
       }
@@ -1458,16 +1731,21 @@
        "max_rel_to_param_max": 1.1339389719743469e-05,
        "param": "span_head.abstain_start",
        "tower_max_rel_to_param_max": 1.7339633245949288e-06,
-       "tower_param": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight"
+       "tower_param": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+       "amendment2_max_rel": 1.7339633245949288e-06,
+       "amendment2_param": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+       "amendment2_span_head_scale": 0.12500903010368347
       },
       "losses": {
        "steps_0_5_max_rel": 1.1023020844164981e-06,
        "all_steps_max_rel": 6.011873065567918e-06
       },
       "caught_by_final_weights": true,
+      "caught_by_final_weights_amendment2": false,
       "caught_by_losses": false,
       "over_independent_floor": {
        "final_weights": 1.24375,
+       "final_weights_amendment2": 1.795878402572287,
        "final_weights_tower": 1.795878402572287,
        "losses_all_steps": 10.060896294663758
       }
@@ -1478,16 +1756,21 @@
        "max_rel_to_param_max": 0.005283585790821575,
        "param": "span_head.abstain_start",
        "tower_max_rel_to_param_max": 0.0015910557030208755,
-       "tower_param": "model.language_model.layers.1.linear_attn.A_log"
+       "tower_param": "model.language_model.layers.1.linear_attn.A_log",
+       "amendment2_max_rel": 0.0015910557030208755,
+       "amendment2_param": "model.language_model.layers.1.linear_attn.A_log",
+       "amendment2_span_head_scale": 0.12500903010368347
       },
       "losses": {
        "steps_0_5_max_rel": 0.0009958490390102935,
        "all_steps_max_rel": 0.0033803316261152576
       },
       "caught_by_final_weights": true,
+      "caught_by_final_weights_amendment2": true,
       "caught_by_losses": true,
       "over_independent_floor": {
        "final_weights": 579.525,
+       "final_weights_amendment2": 1647.8679415045647,
        "final_weights_tower": 1647.8679415045647,
        "losses_all_steps": 5656.999999999999
       }
@@ -1498,16 +1781,21 @@
        "max_rel_to_param_max": 0.2402274111691932,
        "param": "span_head.abstain_end",
        "tower_max_rel_to_param_max": 0.0002434394589583421,
-       "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+       "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight",
+       "amendment2_max_rel": 0.0002434394589583421,
+       "amendment2_param": "model.language_model.layers.3.self_attn.o_proj.weight",
+       "amendment2_span_head_scale": 0.12500903010368347
       },
       "losses": {
        "steps_0_5_max_rel": 6.463391167757503e-05,
        "all_steps_max_rel": 0.001342665928536584
       },
       "caught_by_final_weights": true,
+      "caught_by_final_weights_amendment2": true,
       "caught_by_losses": true,
       "over_independent_floor": {
        "final_weights": 26349.111374262156,
+       "final_weights_amendment2": 252.13201483330138,
        "final_weights_tower": 252.13201483330138,
        "losses_all_steps": 2246.9573988101
       }
@@ -1518,16 +1806,21 @@
        "max_rel_to_param_max": 0.08252082269038855,
        "param": "span_head.abstain_start",
        "tower_max_rel_to_param_max": 3.948392138053576e-05,
-       "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+       "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight",
+       "amendment2_max_rel": 4.166063709901786e-05,
+       "amendment2_param": "span_head.start_proj.weight",
+       "amendment2_span_head_scale": 0.12500903010368347
       },
       "losses": {
        "steps_0_5_max_rel": 8.08354861905432e-06,
        "all_steps_max_rel": 0.00011905088164522618
       },
       "caught_by_final_weights": true,
+      "caught_by_final_weights_amendment2": true,
       "caught_by_losses": true,
       "over_independent_floor": {
        "final_weights": 9051.216666666667,
+       "final_weights_amendment2": 43.1482242688184,
        "final_weights_tower": 40.89378399784275,
        "losses_all_steps": 199.23217954831554
       }
@@ -1539,14 +1832,20 @@
      "max_rel_to_param_max": 0.05655740109029504,
      "param": "span_head.start_proj.weight",
      "tower_max_rel_to_param_max": 0.05450103989797621,
-     "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+     "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight",
+     "amendment2_max_rel": 0.05655740109029504,
+     "amendment2_param": "span_head.start_proj.weight",
+     "amendment2_span_head_scale": 0.12498007714748383
     },
     "independent_floor": {
      "final_weights": {
       "max_rel_to_param_max": 9.573760151712167e-05,
       "param": "model.language_model.layers.2.mlp.up_proj.weight",
       "tower_max_rel_to_param_max": 9.573760151712167e-05,
-      "tower_param": "model.language_model.layers.2.mlp.up_proj.weight"
+      "tower_param": "model.language_model.layers.2.mlp.up_proj.weight",
+      "amendment2_max_rel": 9.573760151712167e-05,
+      "amendment2_param": "model.language_model.layers.2.mlp.up_proj.weight",
+      "amendment2_span_head_scale": 0.1303291916847229
      },
      "losses": {
       "steps_0_5_max_rel": 7.0864879952226405e-06,
@@ -1564,16 +1863,21 @@
        "max_rel_to_param_max": 0.00014489199868658782,
        "param": "span_head.abstain_start",
        "tower_max_rel_to_param_max": 0.0001201085945346206,
-       "tower_param": "model.language_model.norm.weight"
+       "tower_param": "model.language_model.norm.weight",
+       "amendment2_max_rel": 0.0001201085945346206,
+       "amendment2_param": "model.language_model.norm.weight",
+       "amendment2_span_head_scale": 0.1303291916847229
       },
       "losses": {
        "steps_0_5_max_rel": 1.471070374752327e-05,
        "all_steps_max_rel": 7.648404124130054e-05
       },
       "caught_by_final_weights": true,
+      "caught_by_final_weights_amendment2": true,
       "caught_by_losses": true,
       "over_independent_floor": {
        "final_weights": 1.5134283331787395,
+       "final_weights_amendment2": 1.254560304742337,
        "final_weights_tower": 1.254560304742337,
        "losses_all_steps": 10.792940211408288
       }
@@ -1584,16 +1888,21 @@
        "max_rel_to_param_max": 0.0006737618701878425,
        "param": "span_head.abstain_start",
        "tower_max_rel_to_param_max": 0.00012260886412720375,
-       "tower_param": "model.language_model.layers.3.mlp.down_proj.weight"
+       "tower_param": "model.language_model.layers.3.mlp.down_proj.weight",
+       "amendment2_max_rel": 0.00012260886412720375,
+       "amendment2_param": "model.language_model.layers.3.mlp.down_proj.weight",
+       "amendment2_span_head_scale": 0.1303291916847229
       },
       "losses": {
        "steps_0_5_max_rel": 5.587786694795661e-05,
        "all_steps_max_rel": 0.00023918536385044575
       },
       "caught_by_final_weights": true,
+      "caught_by_final_weights_amendment2": true,
       "caught_by_losses": true,
       "over_independent_floor": {
        "final_weights": 7.0375887792357865,
+       "final_weights_amendment2": 1.2806761625971634,
        "final_weights_tower": 1.2806761625971634,
        "losses_all_steps": 33.75231341839465
       }
@@ -1604,16 +1913,21 @@
        "max_rel_to_param_max": 0.0009726250779709452,
        "param": "span_head.abstain_start",
        "tower_max_rel_to_param_max": 0.00010797025706522722,
-       "tower_param": "model.language_model.layers.1.mlp.down_proj.weight"
+       "tower_param": "model.language_model.layers.1.mlp.down_proj.weight",
+       "amendment2_max_rel": 0.000621238099463038,
+       "amendment2_param": "span_head.end_proj.weight",
+       "amendment2_span_head_scale": 0.1303291916847229
       },
       "losses": {
        "steps_0_5_max_rel": 0.00012403983045527174,
        "all_steps_max_rel": 0.0004718320238428493
       },
       "caught_by_final_weights": true,
+      "caught_by_final_weights_amendment2": true,
       "caught_by_losses": true,
       "over_independent_floor": {
        "final_weights": 10.159279766341351,
+       "final_weights_amendment2": 6.488966608923622,
        "final_weights_tower": 1.1277727387594711,
        "losses_all_steps": 66.58192664136807
       }
@@ -1624,16 +1938,21 @@
        "max_rel_to_param_max": 0.5059115278570352,
        "param": "span_head.abstain_start",
        "tower_max_rel_to_param_max": 0.04164409276891106,
-       "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+       "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight",
+       "amendment2_max_rel": 0.0578698624803973,
+       "amendment2_param": "span_head.end_proj.weight",
+       "amendment2_span_head_scale": 0.1303291916847229
       },
       "losses": {
        "steps_0_5_max_rel": 0.10585351635683912,
        "all_steps_max_rel": 0.5656066591108312
       },
       "caught_by_final_weights": true,
+      "caught_by_final_weights_amendment2": true,
       "caught_by_losses": true,
       "over_independent_floor": {
        "final_weights": 5284.355570225542,
+       "final_weights_amendment2": 604.4632575221542,
        "final_weights_tower": 434.9815757757776,
        "losses_all_steps": 79814.80523104467
       }
@@ -1644,16 +1963,21 @@
        "max_rel_to_param_max": 0.24564099366257036,
        "param": "span_head.abstain_start",
        "tower_max_rel_to_param_max": 0.025338420599644793,
-       "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+       "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight",
+       "amendment2_max_rel": 0.025338420599644793,
+       "amendment2_param": "model.language_model.layers.3.self_attn.o_proj.weight",
+       "amendment2_span_head_scale": 0.1303291916847229
       },
       "losses": {
        "steps_0_5_max_rel": 0.005077679953621538,
        "all_steps_max_rel": 0.1439823432054604
       },
       "caught_by_final_weights": true,
+      "caught_by_final_weights_amendment2": true,
       "caught_by_losses": true,
       "over_independent_floor": {
        "final_weights": 2565.773424129912,
+       "final_weights_amendment2": 264.6652955381724,
        "final_weights_tower": 264.6652955381724,
        "losses_all_steps": 20317.870192191982
       }
@@ -1664,16 +1988,21 @@
        "max_rel_to_param_max": 0.07571094909608132,
        "param": "span_head.abstain_start",
        "tower_max_rel_to_param_max": 0.0038656733912493923,
-       "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight"
+       "tower_param": "model.language_model.layers.3.self_attn.o_proj.weight",
+       "amendment2_max_rel": 0.0038802370480402787,
+       "amendment2_param": "span_head.end_proj.weight",
+       "amendment2_span_head_scale": 0.1303291916847229
       },
       "losses": {
        "steps_0_5_max_rel": 0.00074499841026503,
        "all_steps_max_rel": 0.007468549087486263
       },
       "caught_by_final_weights": true,
+      "caught_by_final_weights_amendment2": true,
       "caught_by_losses": true,
       "over_independent_floor": {
        "final_weights": 790.8172744701695,
+       "final_weights_amendment2": 40.52991704984733,
        "final_weights_tower": 40.377796497837444,
        "losses_all_steps": 1053.9140251872561
       }
@@ -1682,5 +2011,5 @@
    }
   }
  },
- "total_bytes_excluding_manifest": 5255413
+ "total_bytes_excluding_manifest": 6754243
 }
