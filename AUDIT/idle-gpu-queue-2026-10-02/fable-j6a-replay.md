@@ -11,7 +11,7 @@ Read-only lane. I wrote no file and ran nothing on the box. Rules 2, 3 and 8 are
 Three things I verified **here** rather than relayed from the lane, by scratchpad joins on the Mac copies:
 - all 3,568 phase-4 replay rows are in v4's `train.json` by `row_id`, `identity_key` and `content_hash` (`/Users/bharath/qd-campaign/phase4-fullvocab-2026-09-30/data/pool/train-replay.json` vs `/Users/bharath/qd-campaign/phase4-v4-2026-10-01/data/pool/train.json`);
 - the attestation's 50 `hit_examples` (keyed by replay *sequence number*, resolved through `shards/replay/sequence_index.json`) are 50 distinct train rows, 44 MMLU / 6 CSQA, every one a v4 gold row;
-- those 50 hits name only **15 distinct val rows** (10 MMLU, 5 CSQA), all in v4's `val.json`. The other 135 hits are unnamed (`GAP-DECONTAM-ATTESTATION-NAMES-50-OF-N-HITS`).
+- those 50 hits name only **15 distinct val rows** (10 MMLU, 5 CSQA), all in v4's `val.json`. The other 135 hits are unnamed (`GAP-DECONTAM-ATTESTATION-NAMES-50-OF-N-HITS-2026-10-02`).
 
 ## Q1. Option (a). Mine to rule.
 
