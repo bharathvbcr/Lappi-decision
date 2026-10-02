@@ -32,10 +32,10 @@
 #   REPLAY_DIR         --replay-shards: build 2's replay shard set (<J6A_DATA>/shards/replay);
 #   ATTESTATION        --replay-attestation: decontam 2's attestation for that set;
 #   ATTESTATION_SHA256 its sha256 (campaign/j6a-preregistered.json amendments_pending).
-J6A_DATA=UNSET
-REPLAY_DIR=UNSET
-ATTESTATION=UNSET
-ATTESTATION_SHA256=UNSET
+J6A_DATA=/home/ubuntu/phase4-v4-replay-2026-10-02
+REPLAY_DIR=/home/ubuntu/phase4-v4-replay-2026-10-02/shards/replay
+ATTESTATION=/home/ubuntu/phase4-v4-replay-2026-10-02/replay-attestation.json
+ATTESTATION_SHA256=dc69ffce43b5af2a62943603d27052ea16011d191be3de876eec9d5e9b2b6c94
 #
 # Fixed by the pre-registration (campaign/j6a-preregistered.json arm.replay_flags; Fable's J6(a)
 # ruling, Q2):
