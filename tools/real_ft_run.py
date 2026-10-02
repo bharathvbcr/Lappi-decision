@@ -3798,9 +3798,12 @@ def ft_splits(
 ) -> dict[str, list[DataRow]]:
     """Every split of the corpus this tool's shard sets were built from, by split name.
 
-    ``exclude_identity_keys`` mirrors the pipeline's ``--exclude-identity-keys``: the same
-    ``qd_train.exclusions.apply_exclusions``, at the same point (after the split, before the
-    replay draw), so a set built with the list rebuilds with it. The split itself is
+    ``exclude_identity_keys`` mirrors the pipeline's ``--exclude-identity-keys``, and v5's
+    contrast rows (``qd_train.contrast``, requested by the ``--defect-noul`` manifest) follow
+    it: both through the pipeline's own ``exclusions_then_contrast``, at the same point (after
+    the split, before the replay draw), so a set built with the list -- and with the contrast
+    rows that only that rebuild derives -- rebuilds with both. One call, not a copy of its two
+    steps, so the order and arguments cannot drift from the build's. The split itself is
     :func:`ft_split_report`; the rest of this docstring is about that build.
 
     The same "which rows" ``tools/real_tokenizer_pipeline.py``'s ``run`` answered, from the
@@ -3841,7 +3844,7 @@ def ft_splits(
     import real_tokenizer_pipeline as pipeline
 
     from qd_data.config import SPLITS
-    from qd_train.exclusions import apply_exclusions, containment_corpus
+    from qd_train.exclusions import containment_corpus
 
     split_report = ft_split_report(
         commitpackft=commitpackft, max_pairs=max_pairs, rev=rev, config=config,
@@ -3856,9 +3859,10 @@ def ft_splits(
         general_record=general_record, general_max_rows=general_max_rows,
         defect_noul=defect_noul,
     )) if exclude_identity_keys is not None else {}
-    split_report, _exclusions, _excluded = apply_exclusions(
-        split_report, exclude_identity_keys, corpus=corpus
-    )
+    split_report = pipeline.exclusions_then_contrast(
+        split_report, exclude_identity_keys=exclude_identity_keys, corpus=corpus,
+        defect_noul=defect_noul, config=config,
+    ).report
     if replay_partition:
         split_report, _replay, _partition = pipeline.split_off_replay(
             split_report, seed=config.seed
@@ -9564,7 +9568,8 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "the qd-prep containment exclusions.txt the shard set was built with, exactly as "
             "passed to tools/real_tokenizer_pipeline.py --exclude-identity-keys: the rebuild "
-            "drops the same train rows through qd_train.exclusions.apply_exclusions. Checked "
+            "drops the same train rows, then derives the contrast rows a --defect-noul "
+            "manifest asks for, through the pipeline's exclusions_then_contrast. Checked "
             "against the train header's exclusions_sha256, in both directions"
         ),
     )
