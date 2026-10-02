@@ -138,13 +138,16 @@ def scan_sets(
     the pre-strip definition). The record is the attestation's ``export.template_strip``."""
     by_split = report.rows_by_split
     heldout = by_split.get(HELD_OUT, ())
-    chosen: list[tuple[str, Iterable[DataRow]]] = [
-        (TRAIN, by_split.get(TRAIN, ())),
-        (VAL, by_split.get(VAL, ())),
-        (HELD_OUT, (r for r in heldout if not config.is_held_out_family(r.family_id))),
-        *((f"{HELDOUT_FAMILY_PREFIX}{family}", (r for r in heldout if r.family_id == family))
-          for family in config.held_out_families),
+    # Each set's rows are materialised in its own iteration: a generator closing over the
+    # loop's ``family`` and consumed after the loop would read the last family for all.
+    chosen: list[tuple[str, tuple[DataRow, ...]]] = [
+        (TRAIN, tuple(by_split.get(TRAIN, ()))),
+        (VAL, tuple(by_split.get(VAL, ()))),
+        (HELD_OUT, tuple(r for r in heldout if not config.is_held_out_family(r.family_id))),
     ]
+    for family in config.held_out_families:
+        chosen.append((f"{HELDOUT_FAMILY_PREFIX}{family}",
+                       tuple(r for r in heldout if r.family_id == family)))
     parts: dict[str, list[PartsRow]] = {}
     refused: dict[str, dict[str, str]] = {}
     for name, rows in chosen:

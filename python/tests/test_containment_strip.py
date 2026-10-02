@@ -473,3 +473,30 @@ def test_the_strip_moves_no_row_between_sets() -> None:
         assert [r[:3] for r in a.rows] == [r[:3] for r in b.rows], a.name
         assert a.unrenderable == b.unrenderable, a.name
     assert any(a.rows != b.rows for a, b in zip(with_strip, without, strict=True))
+
+
+def test_each_task_holdout_family_set_holds_exactly_that_familys_held_out_rows() -> None:
+    """Regression: 369278e built each ``heldout-family:<family>`` row source as a generator
+    closing over the loop's ``family`` and consumed it after the loop, so every such set held
+    the LAST family's rows (both held qa.answerability's in the 1/2/5% scans). Each set must
+    hold exactly its own family's rendered held-out rows, and the repo-disjoint held-out set
+    none of them."""
+    from data_fixtures import small_corpus
+
+    from qd_data.mixture import build_mixture
+
+    rows = build_mixture(small_corpus(), config=CONFIG).rows
+    held = [r for r in rows if CONFIG.is_held_out_family(r.family_id)]
+    trainable = [r for r in rows if not CONFIG.is_held_out_family(r.family_id)][:5]
+    assert {r.family_id for r in held} == set(CONFIG.held_out_families)
+    assert len(CONFIG.held_out_families) >= 2
+    sets, _ = scan_sets(_report([], [], [*held, *trainable]), config=CONFIG)
+    by_name = {s.name: s for s in sets}
+    for family in CONFIG.held_out_families:
+        got = by_name[f"heldout-family:{family}"]
+        want = {r.row_id for r in held if r.family_id == family}
+        assert {key.rsplit("#", 1)[0] for key, *_ in got.rows} | set(got.unrenderable) == want
+        assert {fam for _k, _i, fam, _t in got.rows} == {family}
+    assert {fam for _k, _i, fam, _t in by_name[HELD_OUT].rows} == {
+        r.family_id for r in trainable
+    }
