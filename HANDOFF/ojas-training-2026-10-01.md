@@ -136,6 +136,10 @@ advice; gap table Q1, parity ladder Q3, lanes Q5). Gap records: `GAP-OJAS-ADVICE
   - Host tests: 234 pass without features and 239 with `cuda`. **Every device test and every runga check is NOT RUN.**
   - K11 against L-oracle's decay-sensitive golden: within 1.49e-8 of torch's fp32 masters. All 7 pre-registered mutations exceed the 1e-6 bound by at least 35x.
   - The rung0 source snapshot (sha256 `d536b031…`) is kept outside git, at `/Users/bharath/qd-campaign/records/`, under the user's pinned-fixtures rule.
+  - **The first git record of `ojas-qwen35-cuda/`** is the ojas coordinator's WIP snapshot branch `wip/framework-layer-2026-10-01` at `c686bb0` (parent `dab2a12`), taken 2026-10-02 ~02:45 UTC.
+    - It holds src, tests, all 348 `tests/fixtures` files and Cargo.lock. `target/` is excluded.
+    - Its commit message says only the host tests have run.
+    - The lead ran no git in ojas. The coordinator reported these ids and the lead did not re-verify them.
   - **One lead decision is open:** NaN handling differs between K8, which canonicalises NaN bits, and small's kernels, which do not (`GAP-L-CUDA-M1-K8-NAN-CANONICAL-2026-10-01`, `GAP-L-CUDA-SMALL-NAN-BITS-NOT-CANONICAL-2026-10-01`). Until it is settled, the bitwise claims hold for finite inputs only.
 - **L-tessl** is the user's pending chip, now "Add per-entry lr_scale, mrope refusal and host reads to tessl". It supersedes the earlier chip and includes the host-reads patch. It needs a session rooted in tessl, because this harness blocks git in other repos. **It is the one blocker for rung (b)'s two-group arm and for rung (d).**
 
