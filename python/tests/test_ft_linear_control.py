@@ -605,6 +605,32 @@ def test_the_defect_class_corpus_reaches_the_runs_own_split_function(
     assert "defect_noul_examples_sha256" not in Ledger(ledger).rows()[-1].recipe
 
 
+def test_a_note_lands_in_the_rows_notes_and_not_its_recipe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qd_prep: Path
+) -> None:
+    """``--note``: a re-run written to a report-only ledger says on the row that it is not the
+    row a gate reads; the recipe, and so the protocol hash, does not move."""
+    rows, config = _rows(80)
+    rows = [r for r in rows if r.family_id == "code.commit_intent"]
+    train, val = _split(rows)
+    val_docs, _ = request_texts(val, seed=config.seed)
+    ledger = tmp_path / "ledger.jsonl"
+    eval_id = _eval_row(ledger, choice=(len(val_docs), len(val_docs)), score=(0, 0))
+    verdicts = _write_verdicts(tmp_path / "v.jsonl", [
+        {"eval_row_id": eval_id, "seed": 0, "row_id": d.row_id, "kind": d.kind, "correct": True}
+        for d in val_docs
+    ])
+    _fake_runner(monkeypatch, train, val)
+    argv = ["--ledger", str(ledger), "--verdicts", str(verdicts), "--max-pairs", "80",
+            "--rev", REV]
+    ftc.main(argv)
+    ftc.main([*argv, "--note", "report-only; which row a gate reads is the human's call"])
+    plain, noted = Ledger(ledger).rows()[-2:]
+    assert noted.notes.endswith(". report-only; which row a gate reads is the human's call")
+    assert not plain.notes.endswith("call")
+    assert noted.recipe == plain.recipe
+
+
 def test_a_set_built_with_noul_rows_is_rebuilt_with_them(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qd_prep: Path
 ) -> None:

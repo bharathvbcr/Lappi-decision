@@ -16,14 +16,17 @@ model and corrupts the one gate that decides the program. So:
 Implemented on numpy rather than scikit-learn to avoid adding a dependency. The
 optimizer is Adam with an explicit convergence criterion; see `LOGISTIC_NOTE` in the
 handoff for the argument that this is not weaker than sklearn's lbfgs for this
-problem, and for the check that was run to establish it.
+problem, and for the check that was run to establish it. Its step size is constant for
+the first `LR_CONSTANT_ITERS` iterations and halves every `LR_HALVING_PERIOD` after
+(`step_size`): at a constant step, Adam can settle into a limit cycle a converged fit never
+leaves (F seed 0's intent.domain control, HANDOFF/prep-containment-2026-10-02.md).
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Final, Literal, Protocol
 
 import numpy as np
 
@@ -40,6 +43,8 @@ __all__ = [
     "CSR",
     "DENSE_OPERAND_BUDGET_BYTES",
     "LETTER_KINDS",
+    "LR_CONSTANT_ITERS",
+    "LR_HALVING_PERIOD",
     "BaselineFit",
     "CharNGramHasher",
     "ContextLengthFeatures",
@@ -53,7 +58,29 @@ __all__ = [
     "control_label_space",
     "fit_budget_refusal",
     "request_texts",
+    "step_size",
 ]
+
+#: ``_train_once``'s step-size schedule, fixed here and in ``crates/qd-prep/src/linfit.rs``
+#: (whose parity test crosses it). For the first ``LR_CONSTANT_ITERS`` iterations the step
+#: is ``lr``, as it always was: every fit that converges within the 6,000-iteration budget
+#: the controls ran under until 2026-10-02 is unchanged bit for bit. From then on it halves
+#: every ``LR_HALVING_PERIOD`` iterations. Adam at a constant step can settle into a limit
+#: cycle -- F seed 0's intent.domain control (c89b89a1) oscillated with its loss flat and its
+#: grad norm near 1e-2 from about iteration 1,000 to 6,000 -- and a cycle's amplitude scales
+#: with the step, so a shrinking step lets the fit reach the tolerance. The tolerance itself
+#: never moves: it is what makes the control worth beating.
+LR_CONSTANT_ITERS: Final[int] = 6_000
+LR_HALVING_PERIOD: Final[int] = 500
+
+
+def step_size(lr: float, it: int) -> float:
+    """Adam's step at 1-based iteration ``it``: ``lr``, then halved every
+    :data:`LR_HALVING_PERIOD` iterations past :data:`LR_CONSTANT_ITERS`. ``0.5 ** n`` is a
+    power of two, so the product is ``lr`` scaled exactly, as the Rust engine computes it."""
+    if it <= LR_CONSTANT_ITERS:
+        return lr
+    return lr * 0.5 ** ((it - LR_CONSTANT_ITERS - 1) // LR_HALVING_PERIOD + 1)
 
 
 def context_texts(decisions) -> tuple[list[str], list[str]]:
@@ -615,6 +642,7 @@ class LinearBaseline:
                 converged = True
                 break
 
+            lr = step_size(self.lr, it)
             for p, g, m, v in ((W, gW, mW, vW), (b, gb, mb, vb)):
                 m *= b1
                 m += (1 - b1) * g
@@ -622,7 +650,7 @@ class LinearBaseline:
                 v += (1 - b2) * (g * g)
                 mhat = m / (1 - b1**it)
                 vhat = v / (1 - b2**it)
-                p -= self.lr * mhat / (np.sqrt(vhat) + eps)
+                p -= lr * mhat / (np.sqrt(vhat) + eps)
 
         return W, b, converged, it, grad_norm, history
 
