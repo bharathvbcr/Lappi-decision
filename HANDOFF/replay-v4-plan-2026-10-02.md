@@ -358,7 +358,16 @@ All of these run on the Mac, from the build lane's root, because the data paths 
 git worktree add /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/l-replay-build -b l-replay-build a502670
 ```
 
-Link in the untracked corpora (paths in §1). Then build `qd-prep` at the lane commit:
+Bring in the untracked corpora (paths in §1):
+
+- **Copy** the composed-v1 `examples.jsonl` to a stable path under `/Users/bharath/qd-campaign/`,
+  then check that its sha256 is `a63563e5…`.
+- Do not symlink it into another agent's worktree (`agent-a23c0fc7f22b1097c`). A worktree
+  cleanup during a 65-minute build would break the link mid-run.
+- noul-v3b already lives under `qd-campaign`. The rest are in the main checkout.
+- Link the copies into the lane's `data/pool/`.
+
+Then build `qd-prep` at the lane commit:
 
 ```
 cargo build --release -p qd-prep --target-dir /Users/bharath/qd-campaign/target-replay
