@@ -133,7 +133,7 @@ advice; gap table Q1, parity ladder Q3, lanes Q5). Gap records: `GAP-OJAS-ADVICE
   - Log: `/home/ubuntu/logs/q-rung0.log`. Report: `/home/ubuntu/ojas-cuda/rung0-<UTC>/rung0-report.json`.
 - **Starting the binary with no arguments on the box** ran only the loader and the argument parser: no GPU, no files. It exited 2 with its usage line, on Ubuntu glibc 2.39.
   - So it loads on the box's glibc.
-  - The 62 host tests have still not run on 2.39 (`GAP-L-CUDA-M0-LINUX-GLIBC239-NOT-RUN`, narrowed).
+  - The 62 host tests have still not run on 2.39 (`GAP-L-CUDA-M0-LINUX-GLIBC239-NOT-RUN-2026-10-01`, narrowed).
 
 ## Invariants for every lane
 
