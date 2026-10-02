@@ -94,6 +94,7 @@ __all__ = [
     "INVISIBLE_FORMAT_CHARS",
     "INVISIBLE_FORMAT_RANGES",
     "MARKERS",
+    "PROMPT_FORMAT",
     "DeterministicRng",
     "RenderCaps",
     "RenderedPrompt",
@@ -113,6 +114,7 @@ __all__ = [
 # what lets a single escape rule protect the format and the tokenizer at once.
 
 M_BEGIN: Final[str] = "<|qd_begin|>"
+M_FORMAT: Final[str] = "<|qd_prompt_format|>"
 M_VERSION: Final[str] = "<|qd_schema_version|>"
 M_TASK: Final[str] = "<|qd_task|>"
 M_ROUTE: Final[str] = "<|qd_route|>"
@@ -126,9 +128,25 @@ M_OPT_END: Final[str] = "<|qd_options_end|>"
 M_ANSWER: Final[str] = "<|qd_answer|>"
 
 MARKERS: Final[tuple[str, ...]] = (
-    M_BEGIN, M_VERSION, M_TASK, M_ROUTE, M_QUESTION, M_CTX_BEGIN, M_CTX_END,
+    M_BEGIN, M_FORMAT, M_VERSION, M_TASK, M_ROUTE, M_QUESTION, M_CTX_BEGIN, M_CTX_END,
     M_SLOT, M_TYPE, M_OPT_BEGIN, M_OPT_END, M_ANSWER,
 )
+
+#: The prompt layout this renderer writes, stated in every prompt on the ``M_FORMAT`` line.
+#:
+#: Format 2 (v5, ``campaign/v5-preregistered.DRAFT.json`` ``format.*``) puts the question
+#: line **after** the context: begin, format, schema version, task, route, the context block,
+#: then the question, then the slot suffix. Format 1 (v4) had no format line and rendered the
+#: question between the route and the context. Only the question moved, so N questions over
+#: one context share every byte through ``<|qd_context_end|>``.
+#:
+#: It is not the wire ``schema_version``, which stays 1: callers send the same requests. It
+#: is what a model was trained on, so everything that pairs a model with prompts refuses a
+#: mismatch: ``qd_train.artifacts.ShardHeader.prompt_format`` (the shard reader), the
+#: release manifest's ``expected_identity.prompt_format`` (``crates/qd-runtime/src/release.rs``)
+#: and the trainer's recipe. ``crates/qd-runtime/src/render.rs`` carries the same number,
+#: pinned by ``python/tests/test_prompt_format_v5.py``.
+PROMPT_FORMAT: Final[int] = 2
 
 #: The escape sentinel. Chosen so that escaping is a pure ASCII transform that
 #: never touches a multi-byte sequence, and so ``unescape`` is a single scan.
@@ -713,15 +731,17 @@ def render(
             detail="refused rather than truncated",
         )
 
+    # Prompt format 2 (see `PROMPT_FORMAT`): the question line follows the context.
     prefix = (
         f"{M_BEGIN}\n"
+        f"{M_FORMAT}{PROMPT_FORMAT}\n"
         f"{M_VERSION}{request.schema_version}\n"
         f"{M_TASK}{escape_inline(request.task)}\n"
         f"{M_ROUTE}{request.route}\n"
-        f"{M_QUESTION}{escape_inline(request.question)}\n"
         f"{M_CTX_BEGIN}\n"
         f"{escape_block(ctx_text)}\n"
         f"{M_CTX_END}\n"
+        f"{M_QUESTION}{escape_inline(request.question)}\n"
     )
 
     slots = tuple(

@@ -81,6 +81,8 @@ pub struct ExportSummary {
     pub weight_hash: String,
     pub tokenizer_hash: String,
     pub calibration_hash: Option<String>,
+    /// The prompt format stamped into `expected_identity.prompt_format`: the source manifest's.
+    pub prompt_format: u64,
     /// File name -> SHA-256 hex, for every file except the manifest itself.
     pub files: BTreeMap<String, String>,
     /// Tower tensors rounded from F32/F16, and copied from BF16.
@@ -126,6 +128,12 @@ struct SourceManifest {
     vocab_size: usize,
     ft_row_ids: Vec<String>,
     tool: Option<String>,
+    /// The prompt format the checkpoint was trained on: the source manifest's `prompt_format`, a
+    /// positive JSON integer, which its writer copies from the training recipe. **Absent means 1**
+    /// (format 1, v4): every checkpoint averaged before the field existed was trained on it.
+    prompt_format: u64,
+    /// Whether the source manifest stated `prompt_format` (`false`: the default above applied).
+    prompt_format_stated: bool,
 }
 
 fn read_source_manifest(path: &Path) -> Result<SourceManifest> {
@@ -168,6 +176,21 @@ fn read_source_manifest(path: &Path) -> Result<SourceManifest> {
             ),
         ));
     }
+    // Read from the checkpoint, never from `qd_runtime::render::PROMPT_FORMAT`: stamping the
+    // exporter's own format would label a v4 tower as v5 and serve it prompts it never saw.
+    let prompt_format = match v.get("prompt_format") {
+        None => 1,
+        Some(stated) => stated.as_u64().filter(|n| *n >= 1).ok_or_else(|| {
+            refuse(
+                k,
+                format!(
+                    "{}: prompt_format is {stated}, not a positive integer. It names the prompt \
+                     layout the checkpoint was trained on; absent means 1",
+                    path.display()
+                ),
+            )
+        })?,
+    };
     Ok(SourceManifest {
         path: path.to_path_buf(),
         sha256: hex(&sha256(&bytes)),
@@ -176,6 +199,8 @@ fn read_source_manifest(path: &Path) -> Result<SourceManifest> {
         vocab_size,
         ft_row_ids,
         tool: v.get("tool").and_then(Value::as_str).map(str::to_string),
+        prompt_format,
+        prompt_format_stated: v.get("prompt_format").is_some(),
     })
 }
 
@@ -664,6 +689,10 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
             "manifest_sha256": plan.manifest.sha256,
             "manifest_tool": plan.manifest.tool,
             "ft_row_ids": plan.manifest.ft_row_ids,
+            // What `expected_identity.prompt_format` was read from: the source manifest's field,
+            // or the absent-means-1 default when it stated none.
+            "prompt_format": plan.manifest.prompt_format,
+            "prompt_format_stated": plan.manifest.prompt_format_stated,
             "n_tensors": src.tensors().len(),
             "tower_dtypes": plan.dtype_counts,
         },
@@ -685,15 +714,16 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
         },
         "dropped_extras": plan.dropped.iter().map(|d| json!({"name": d.name, "reason": d.reason})).collect::<Vec<_>>(),
         "calibration": calibration,
-        // What goes together: this tower, served under this config.json, with this tokenizer.
-        // `qd_runtime::release::Release::open` refuses a config.json whose sha256 is not
-        // `config_sha256`, and `Release::check_backend` a loaded tower whose hash is not
-        // `weight_hash`.
+        // What goes together: this tower, served under this config.json, with this tokenizer, in
+        // the prompt format it was trained on. `qd_runtime::release::Release::open` refuses a
+        // config.json whose sha256 is not `config_sha256` and a `prompt_format` other than the
+        // runtime's, and `Release::check_backend` a loaded tower whose hash is not `weight_hash`.
         "expected_identity": {
             "weight_hash": weight_hash,
             "config_sha256": config_sha,
             "tokenizer_hash": tokenizer_hash,
             "calibration_hash": calibration_hash,
+            "prompt_format": plan.manifest.prompt_format,
             "not_computed": {
                 "head_hash": "needs the tokenizer's 17 letter ids (qd-metal/src/backend.rs:345-356); \
                               this binary links no tokenizer",
@@ -710,6 +740,7 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
         weight_hash,
         tokenizer_hash,
         calibration_hash,
+        prompt_format: plan.manifest.prompt_format,
         files: shas,
         rounded,
         copied,

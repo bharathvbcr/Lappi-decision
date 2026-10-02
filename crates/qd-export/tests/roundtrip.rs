@@ -44,7 +44,8 @@ fn oracle_bf16(t: &common::Tensor) -> Vec<u16> {
 #[test]
 fn the_release_loads_through_qd_metal_and_holds_the_bf16_cast_of_every_tensor() {
     let tensors = common::standard_tensors();
-    let fx = common::build(&tensors, &common::tiny_config(), |_| {});
+    // A format-2 checkpoint: its source manifest states the prompt format its recipe trained on.
+    let fx = common::build(&tensors, &common::tiny_config(), |m| m["prompt_format"] = 2.into());
     let table = CalibrationTable::reference();
     let table_path = fx.dir.0.join("table.json");
     std::fs::write(&table_path, serde_json::to_vec_pretty(&table).unwrap()).unwrap();
@@ -139,7 +140,9 @@ fn the_release_loads_through_qd_metal_and_holds_the_bf16_cast_of_every_tensor() 
         assert_eq!(files[name]["sha256"], sha.as_str(), "{name}");
     }
     assert_eq!(on_disk, summary.files);
+    assert_eq!(manifest["format"], "qd-release.v2");
     let id = &manifest["expected_identity"];
+    assert_eq!(id["prompt_format"], 2, "stamped from the source manifest");
     assert_eq!(id["weight_hash"], loader_hash.as_str());
     assert_eq!(id["tokenizer_hash"], tok.hash());
     assert_eq!(id["calibration_hash"], table.hash().as_str());
@@ -147,6 +150,7 @@ fn the_release_loads_through_qd_metal_and_holds_the_bf16_cast_of_every_tensor() 
     assert_eq!(manifest["calibration"]["table_hash"], table.hash().as_str());
     let src = &manifest["source"];
     assert_eq!(src["ft_row_ids"], serde_json::json!(common::FT_ROW_IDS));
+    assert_eq!(src["prompt_format"], 2, "the source block records what the stamp was read from");
     assert_eq!(src["manifest_sha256"], hex(&sha256(&std::fs::read(&fx.manifest).unwrap())).as_str());
     assert_eq!(src["safetensors_sha256"], hex(&sha256(&std::fs::read(&fx.source).unwrap())).as_str());
 

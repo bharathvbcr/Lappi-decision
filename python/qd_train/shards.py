@@ -96,7 +96,14 @@ from qd_data.defect_class import NOUL_ROUTE_CONTRAST, NOUL_ROUTE_KEY
 from qd_data.errors import QdRefusal
 from qd_data.fingerprint import code_fingerprint
 from qd_data.general import REPLAY_ONLY, REPLAY_ROLE_KEY
-from qd_data.render import DEFAULT_CAPS, M_CTX_END, RenderCaps, RenderedPrompt, render
+from qd_data.render import (
+    DEFAULT_CAPS,
+    M_CTX_END,
+    PROMPT_FORMAT,
+    RenderCaps,
+    RenderedPrompt,
+    render,
+)
 from qd_data.rows import DataRow, row_content_hash
 from qd_data.schema import NOUL_LETTER, ChoiceSlot, ScoreSlot, Slot, SpanSlot
 
@@ -1811,6 +1818,9 @@ def write_shards(
         exclusions_sha256=exclusions_sha256,
         # None unless the caller derived v5 contrast rows (qd_train.contrast) into `rows`.
         contrast_rows=contrast_rows,
+        # The layout every sequence above was rendered in: `training_texts` renders through
+        # qd_data.render, so it is that module's format, read off it rather than restated.
+        prompt_format=PROMPT_FORMAT,
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -2020,6 +2030,8 @@ class ShardReader:
             expect_rev=expect_rev,
             allow_rev_mismatch=allow_rev_mismatch,
         )
+        # After the rule-3 door, so a held-out set is refused as one whatever its format.
+        self.header.require_prompt_format(where=str(self.root))
 
         self._offsets: np.ndarray = np.load(self.root / OFFSETS_NAME)
         if self._offsets.dtype != np.int64 or self._offsets.ndim != 1:

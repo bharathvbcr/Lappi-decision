@@ -45,10 +45,29 @@ fn fitted_table() -> CalibrationTable {
         })
 }
 
-/// Export the standard fixture, with `table` passed through as pretty-printed JSON (so the file's
-/// sha256 is not the table's hash, as it need not be).
+/// The prompt format a v5 checkpoint's source manifest states (`<avg>.manifest.json`
+/// `prompt_format`), and the one this runtime serves. Written as the wire number rather than
+/// `render::PROMPT_FORMAT`, so this file pins the contract and not the constant.
+const V5_PROMPT_FORMAT: u64 = 2;
+
+/// The standard fixture, its source manifest stating `prompt_format` (nothing when `None`).
+fn fixture_of_format(prompt_format: Option<Value>) -> common::Fixture {
+    common::build(&common::standard_tensors(), &common::tiny_config(), |m| {
+        if let Some(format) = prompt_format {
+            m["prompt_format"] = format;
+        }
+    })
+}
+
+fn release_manifest(release: &Path) -> Value {
+    serde_json::from_slice(&std::fs::read(release.join(MANIFEST_FILE)).unwrap()).unwrap()
+}
+
+/// Export the standard fixture of a format-2 checkpoint, with `table` passed through as
+/// pretty-printed JSON (so the file's sha256 is not the table's hash, as it need not be). Every
+/// release the tests below open is checked here to be stamped with the source's format.
 fn export_with(table: Option<&CalibrationTable>) -> (common::Fixture, ExportSummary) {
-    let fx = common::standard();
+    let fx = fixture_of_format(Some(json!(V5_PROMPT_FORMAT)));
     let mut req = fx.request();
     if let Some(table) = table {
         let path = fx.dir.0.join("table.json");
@@ -56,6 +75,12 @@ fn export_with(table: Option<&CalibrationTable>) -> (common::Fixture, ExportSumm
         req.calibration = Some(path);
     }
     let summary = export(&req).expect("the standard fixture exports");
+    let manifest = release_manifest(&fx.out);
+    assert_eq!(manifest["format"], json!("qd-release.v2"));
+    assert_eq!(
+        manifest["expected_identity"]["prompt_format"],
+        json!(V5_PROMPT_FORMAT)
+    );
     (fx, summary)
 }
 
@@ -115,6 +140,59 @@ fn the_manifest_binds_config_json_to_the_tower_and_the_reader_accepts_the_releas
         bound["weight_hash"],
         Value::from(summary.weight_hash.clone())
     );
+}
+
+// -- the prompt format ---------------------------------------------------------------------------
+
+/// A checkpoint averaged before the format existed states none, so it is stamped 1 -- what it was
+/// trained on -- and this runtime refuses it. Refused, not mislabelled: stamping the runtime's own
+/// format here would serve format-2 prompts to a format-1 tower and every check would pass.
+#[test]
+fn a_checkpoint_that_states_no_prompt_format_is_stamped_1_and_refused_not_mislabelled() {
+    let fx = fixture_of_format(None);
+    let mut req = fx.request();
+    let path = fx.dir.0.join("table.json");
+    std::fs::write(&path, serde_json::to_vec_pretty(&fitted_table()).unwrap()).unwrap();
+    req.calibration = Some(path);
+    export(&req).expect("a v4 checkpoint still exports");
+    let manifest = release_manifest(&fx.out);
+    assert_eq!(manifest["format"], json!("qd-release.v2"));
+    assert_eq!(manifest["expected_identity"]["prompt_format"], json!(1));
+    assert_eq!(manifest["source"]["prompt_format"], json!(1));
+
+    let err = Release::open(&fx.out).expect_err("a format-1 tower is not served format-2 prompts");
+    assert_eq!(err.kind.as_str(), "prompt_format", "{err}");
+    assert!(err.detail.contains("prompt_format 1"), "{err}");
+}
+
+/// The stamp is read from the source manifest, never from the exporter's own constant: a source
+/// stating 7 is stamped 7 (and then refused by this runtime, which serves format 2).
+#[test]
+fn the_stamp_is_the_source_manifests_never_the_runtimes_constant() {
+    let fx = fixture_of_format(Some(json!(7)));
+    export(&fx.request()).expect("exports");
+    let manifest = release_manifest(&fx.out);
+    assert_eq!(manifest["expected_identity"]["prompt_format"], json!(7));
+    assert_eq!(manifest["source"]["prompt_format"], json!(7));
+    let err = Release::open(&fx.out).expect_err("format 7 is not this runtime's");
+    assert_eq!(err.kind.as_str(), "prompt_format", "{err}");
+    assert!(err.detail.contains("prompt_format 7"), "{err}");
+}
+
+#[test]
+fn a_source_prompt_format_that_is_not_a_positive_integer_is_refused_before_anything_is_written() {
+    for bad in [json!("2"), json!(2.0), json!(true), json!(null), json!(0), json!(-1), json!([2])] {
+        let fx = fixture_of_format(Some(bad.clone()));
+        match export(&fx.request()) {
+            Err(err) => {
+                assert_eq!(err.kind, qd_export::RefusalKind::SourceManifest, "{bad}: {err}");
+                assert!(err.detail.contains("prompt_format"), "{bad}: {err}");
+            }
+            Ok(_) => panic!("a source manifest stating prompt_format {bad} was exported"),
+        }
+        assert!(!fx.out.exists(), "{bad}: a refused export left {} behind", fx.out.display());
+        assert!(fx.leftovers().is_empty(), "{bad}: staging left behind");
+    }
 }
 
 #[test]
