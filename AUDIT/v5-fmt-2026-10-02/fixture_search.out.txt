@@ -1,0 +1,16 @@
+three-slots+score-only candidate 0: context=b'fn add(a: i32, b: i32) -> i32 {\n    todo!()\n}\n' shapes=[{'evidence': 'abstained', 'severity': 'abstained', 'verdict': 'abstained'}, {'severity': 'abstained'}] -> no
+three-slots+score-only candidate 1: context=b'fn add(a: i32, b: i32) -> i32 { // 1\n    todo!()\n}\n' shapes=[{'evidence': 'abstained', 'severity': 'answered', 'verdict': 'abstained'}, {'severity': 'answered'}] -> no
+three-slots+score-only candidate 2: context=b'fn add(a: i32, b: i32) -> i32 { // 2\n    todo!()\n}\n' shapes=[{'evidence': 'abstained', 'severity': 'answered', 'verdict': 'abstained'}, {'severity': 'answered'}] -> no
+three-slots+score-only candidate 3: context=b'fn add(a: i32, b: i32) -> i32 { // 3\n    todo!()\n}\n' shapes=[{'evidence': 'abstained', 'severity': 'answered', 'verdict': 'abstained'}, {'severity': 'answered'}] -> no
+three-slots+score-only candidate 4: context=b'fn add(a: i32, b: i32) -> i32 { // 4\n    todo!()\n}\n' shapes=[{'evidence': 'answered', 'severity': 'answered', 'verdict': 'abstained'}, {'severity': 'answered'}] -> no
+three-slots+score-only candidate 5: context=b'fn add(a: i32, b: i32) -> i32 { // 5\n    todo!()\n}\n' shapes=[{'evidence': 'abstained', 'severity': 'abstained', 'verdict': 'abstained'}, {'severity': 'abstained'}] -> no
+three-slots+score-only candidate 6: context=b'fn add(a: i32, b: i32) -> i32 { // 6\n    todo!()\n}\n' shapes=[{'evidence': 'abstained', 'severity': 'answered', 'verdict': 'answered'}, {'severity': 'answered'}] -> PICK
+span-only candidate 0: context=b'alpha\nbeta\ngamma\ndelta\n' shapes=[{'evidence': 'abstained'}] -> no
+span-only candidate 1: context=b'alpha 1\nbeta\ngamma\ndelta\n' shapes=[{'evidence': 'abstained'}] -> no
+span-only candidate 2: context=b'alpha 2\nbeta\ngamma\ndelta\n' shapes=[{'evidence': 'answered'}] -> PICK
+
+PICKED three-slots+score-only i=6: b'fn add(a: i32, b: i32) -> i32 { // 6\n    todo!()\n}\n'
+PICKED span-only j=2: b'alpha 2\nbeta\ngamma\ndelta\n'
+three-slots reply: {"evidence": {"conformal_set": null, "degraded": true, "noul": true, "score": 0.19339990537324758, "value": null}, "severity": {"conformal_set": [1, 5], "degraded": true, "noul": false, "score": 0.5984734296209133, "value": 1}, "verdict": {"conformal_set": ["cosmetic"], "degraded": true, "noul": false, "score": 0.9345157871497498, "value": "cosmetic"}}
+score-only reply: {"severity": {"conformal_set": [1, 5], "degraded": true, "noul": false, "score": 0.5984734296209133, "value": 1}}
+span-only reply: {"evidence": {"conformal_set": null, "degraded": true, "noul": false, "score": 0.6909071801033823, "value": {"end_line": 4, "start_line": 4}}}

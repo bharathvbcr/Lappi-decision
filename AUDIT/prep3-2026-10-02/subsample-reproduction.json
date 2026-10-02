@@ -1,0 +1,35 @@
+[
+ {
+  "new": "/Users/bharath/qd-campaign/prep3-2026-10-02/sub-p01/subsample.json",
+  "prep2": "AUDIT/prep2-2026-10-02/subsample-p01.json",
+  "identical": true,
+  "differ": [],
+  "general_files": 11,
+  "general_rows_kept": 1971,
+  "composed_kept": 251,
+  "noul_kept": 55,
+  "defect_max_rows": 500
+ },
+ {
+  "new": "/Users/bharath/qd-campaign/prep3-2026-10-02/sub-p02/subsample.json",
+  "prep2": "AUDIT/prep2-2026-10-02/subsample-p02.json",
+  "identical": true,
+  "differ": [],
+  "general_files": 11,
+  "general_rows_kept": 3916,
+  "composed_kept": 496,
+  "noul_kept": 94,
+  "defect_max_rows": 999
+ },
+ {
+  "new": "/Users/bharath/qd-campaign/prep3-2026-10-02/sub-p05/subsample.json",
+  "prep2": "AUDIT/prep2-2026-10-02/subsample-p05.json",
+  "identical": true,
+  "differ": [],
+  "general_files": 11,
+  "general_rows_kept": 9607,
+  "composed_kept": 1225,
+  "noul_kept": 237,
+  "defect_max_rows": 2498
+ }
+]
