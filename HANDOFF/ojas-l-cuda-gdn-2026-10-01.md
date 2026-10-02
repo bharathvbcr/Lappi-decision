@@ -15,14 +15,15 @@ unverified.
 
 All files are in `/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/`. No git was run in ojas,
 so nothing there is committed. The source state is pinned by sha256 (raw list:
-`AUDIT/ojas-training-2026-10-01/l-cuda-gdn-cross-build.txt`, "source hashes at build time").
+`AUDIT/ojas-training-2026-10-01/l-cuda-gdn-cross-build.txt`, "source hashes at LATE build time",
+which supersedes the earlier "source hashes at build time").
 
 | File | Lines | sha256 (prefix) | What |
 | --- | ---: | --- | --- |
 | `src/gdn_plan.rs` | 641 | `2d4d0977` | Host plan: variable lengths, offsets, checkpoint layout, buffer lengths, refusals, geometry |
-| `src/gdn_kernels.rs` | 556 | `0829fa17` | CUDA-C module `k2_gdn_published_scan`: `qd_gdn_published_fwd`, `_bwd`, `_bwd_finish` |
+| `src/gdn_kernels.rs` | 556 | `b09fb0d1` | CUDA-C module `k2_gdn_published_scan`: `qd_gdn_published_fwd`, `_bwd`, `_bwd_finish` |
 | `src/gdn_host.rs` | 1002 | `ed89e4ff` | Bitwise host mirror of the three kernels; test cases; the pre-registered bounds |
-| `src/gdn.rs` (`cuda`) | 360 | `2400fb8c` | Device launches through the plan: `GdnPublishedLayout`, `GdnPublishedWorkspace`, forward, backward |
+| `src/gdn.rs` (`cuda`) | 360 | `a82799cf` | Device launches through the plan: `GdnPublishedLayout`, `GdnPublishedWorkspace`, forward, backward |
 | `src/gdn_smoke.rs` (`cuda`) | 511 | `b01f2ecf` | `gdn_published_checks` (runga hook), device-run helpers, report-only timing |
 | `tests/device_gdn_published.rs` (`cuda`) | 396 | `65bf6116` | 10 `#[ignore]` device tests |
 | `tests/device_gdn_published_mirror.rs` | 169 | `727b88ef` | 8 host tests: the mirror against the float64 reference |
@@ -48,8 +49,25 @@ My lines are:
     #[cfg(feature = "cuda")]
     pub mod gdn_smoke;
 
-Not touched: `Cargo.toml`, `Cargo.lock`, `src/kernels.rs`, `src/bin/rung0.rs`, `runga`, README,
-`tests/reference/**`, `tests/fixtures/**`, and every other lane's file.
+Not edited by this lane: `Cargo.toml`, `Cargo.lock`, `src/kernels.rs`, `src/bin/rung0.rs`,
+`runga`, README, `tests/reference/**`, `tests/fixtures/**`, and every other lane's file.
+
+`Cargo.toml` and `Cargo.lock` **did** change during this lane, and the change was not mine [V, by
+mtime and content]. At 20:12, L-cuda-M1's Cargo.toml switched from `ojas-core` to `ojas-io`, and
+cargo regenerated the lock. It went from M0's pinned 1,107 bytes (`2f15711f…`) to 1,186 bytes (md5
+`2c7ce4f0a22bfc10cfbec855c7c4d216`). My code depends on neither crate.
+
+**Late fixes (after commit `5475de0`).**
+- **`src/gdn.rs`:** the `SAFETY:` comments now count each launch's parameters correctly. The
+  forward has 15 (11 device pointers and 4 `unsigned int`). The backward has 22 (17 device
+  pointers, 4 `unsigned int` and one `unsigned long long`). The finish has 12.
+- **`src/gdn_kernels.rs`:** the only library call left in the CUDA body, `min(T, t0 + 64)`, is now
+  an explicit ternary.
+- After the fixes, a scan of the body's call sites (comment lines excluded) finds only these [V]:
+  - `__fadd_rn`, `__fsub_rn`, `__fmul_rn`, `__fdiv_rn`, `__fsqrt_rn`, `__shfl_xor_sync` and
+    `__syncthreads`;
+  - the module's own `qd_*` helpers, plus the crate's `qd_exp_nonpos`.
+- The new source hashes are in the table above and in the cross-build file.
 
 ## Design, with the evidence
 
@@ -119,7 +137,8 @@ Raw outputs are `AUDIT/ojas-training-2026-10-01/l-cuda-gdn-*.txt`.
 | `tests/device_gdn_published_mirror.rs` (host mirror vs f64) | yes | **8 passed** | `l-cuda-gdn-mirror-first-run.txt` (the first run after the bounds were written), `l-cuda-gdn-host-tests.txt` |
 | Whole crate, no feature | yes | lib 91, mirror 8, plus other lanes' targets; 0 failed | `l-cuda-gdn-host-tests.txt` |
 | Whole crate, `--features cuda` | yes | lib 93, rung0 4, mirror 8, refusal 1, …; 0 failed | `l-cuda-gdn-cuda-feature-tests.txt` |
-| `tests/device_gdn_published.rs` | **NOT RUN** | **10 ignored** (need sm_90) | same |
+| **Late re-run** of the whole crate, after the late fixes and M1's ojas-io migration | yes | no feature: lib 104, mirror 8, plus other lanes' targets; `--features cuda`: lib 104, rung0 4, mirror 8, refusal 1, …; 0 failed in both. The lane's 17 unit tests and 8 mirror tests are all among them, and pass | `l-cuda-gdn-late-rerun.txt` |
+| `tests/device_gdn_published.rs` | **NOT RUN** | **10 ignored** (need sm_90), in both runs | same |
 | `gdn_smoke::gdn_published_checks`, the timing | **NOT RUN** | — | — |
 
 **Totals for this lane:** 25 distinct tests run on the Mac and passing (17 + 8). **10 device tests
@@ -170,24 +189,38 @@ Every f64 check also checks:
 - **Clippy.** `cargo clippy --offline --all-targets --features cuda -- -D warnings`, and the same
   without the feature, both in a fresh target dir: **exit 0** (`l-cuda-gdn-clippy.txt`). Earlier, M1's
   `k8_act.rs` tripped `excessive_precision`; I told M1, M1 fixed it, then I ran these.
+  - **Late re-run, both modes: exit 0** (`l-cuda-gdn-late-rerun.txt`).
+    - I touched my lib and test files first, so clippy re-linted every target instead of replaying
+      a cached result.
+    - Before that, two lints in M1's files had blocked the lint of the test targets:
+      `k11_host.rs:338` `type_complexity` and `k11_golden.rs:715` `useless_conversion`. I told M1;
+      M1 fixed both.
 - **Format.**
   - `rustfmt --check` on my 5 src files: exit 0.
   - My 3 test files, checked as scratch copies with `reference` stubbed so rustfmt cannot reach the
     oracle's files: exit 0.
   - `cargo fmt --check` on the crate flags **only `src/npy.rs`**, another lane's new file
     (`l-cuda-gdn-fmt.txt`).
+  - At the late re-run:
+    - `rustfmt --check` on all 8 of my files: exit 0.
+    - `cargo fmt --check` lists diffs only in M1's in-flight files: `src/k11_golden.rs`,
+      `src/k11_host.rs`, `src/npy.rs`, `tests/fixture_pins.rs` and `tests/reference_k11_host.rs`.
+    - None is in a GDN file or `lib.rs`.
   - I never ran plain `cargo fmt`.
 - **Cross-build** (`l-cuda-gdn-cross-build.txt`). It uses M0's sysroot recipe in **my own target
   dir**, `/Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn`, because
   `cargo test --no-run` rebuilds `rung0`, and the shared dir holds the sha-pinned deployed one.
   - `cargo test --offline --release --no-run --target aarch64-unknown-linux-gnu --features cuda`:
     links 13 executables, exit 0.
-  - **Final artifacts:**
+  - **Final artifacts.** These come from the LATE rebuild at 20:32 CDT, after the late fixes. They
+    supersede the `14e35026…` / `c0e0bb4c…` pair in this file's commit `5475de0`:
     - `.../release/deps/device_gdn_published-81ac041bb9f4a1f2`: sha256
-      **`14e350269ce8ad804c1d32a4e38956c87ae9fcf8888e4ce72a1d29e54aa613b5`**, ELF aarch64 PIE,
-      10.4 MB;
+      **`f0e88668a89f5665043c1f71b0faf480c7b69edd207e6a55952c4a5735cbefb0`**, ELF aarch64 PIE,
+      10,367,712 bytes. It embeds the new kernel source: the ternary is present 3 times, and
+      `min(T, t0` is absent [V, `rg -a`];
     - `.../release/deps/device_gdn_published_mirror-fcd093ce8b5195bd`: sha256
-      `c0e0bb4ce9cde9d9ebab98002f99ce91f4ecc96f68a5932c7a4d23d7d751d213`.
+      `7205b5f61f92ec67da1f96c47d1372caac1f10c1a1a6a295afb7b6329a5ce828`, 9,455,520 bytes.
+    - Source hashes at that build are at the end of `l-cuda-gdn-cross-build.txt`.
   - Libraries: `NEEDED libgcc_s.so.1, libm.so.6, libc.so.6`.
   - glibc versions GLIBC_2.17 … **2.39**. The 2.39 references are weak (`pidfd_spawnp`,
     `pidfd_getpid`, from std's test-harness spawn); the box has 2.39
@@ -202,8 +235,8 @@ From the Mac, copy the test binary:
     KEY=~/.ssh/bharath_m5_macbook_pro.pem; BOX=ubuntu@192.222.51.246
     scp -i $KEY /Users/bharath/qd-campaign/target-aarch64-linux-ojas-qwen35-cuda-gdn/aarch64-unknown-linux-gnu/release/deps/device_gdn_published-81ac041bb9f4a1f2 $BOX:/home/ubuntu/bin/ojas-gdn-published-device
 
-On the box, check that `sha256sum /home/ubuntu/bin/ojas-gdn-published-device` equals `14e35026…13b5`,
-then run:
+On the box, check that `sha256sum /home/ubuntu/bin/ojas-gdn-published-device` equals
+`f0e88668a89f5665043c1f71b0faf480c7b69edd207e6a55952c4a5735cbefb0`, then run:
 
     flock /home/ubuntu/queue/gpu.lock timeout 900 env LD_LIBRARY_PATH=/home/ubuntu/qd-venv/lib/python3.12/site-packages/nvidia/cublas/lib:/home/ubuntu/qd-venv/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib /home/ubuntu/bin/ojas-gdn-published-device --ignored --test-threads=1 --nocapture 2>&1 | tee /home/ubuntu/ojas-cuda/gdn-published-$(date -u +%Y%m%dT%H%M%SZ).log
 
@@ -234,7 +267,18 @@ then run:
   bitwise against the mirror plus a repeat run.
 - Its float64 judgment is carried by the mirror suite, which holds the same 6 cases to the bound.
 
+**The README.** Its "Device tests on the box" section does not list `device_gdn_published`. The
+lead has asked L-cuda-M1, the README's owner, to add it, using the box command above.
+
+**`src/lib.rs`** was edited again at 20:26 by another lane; its sha256 is now `840f3daf…`. My five
+`pub mod` lines are unchanged [V, `rg -n gdn src/lib.rs`].
+
 ## Open (gap ids, all in `gaps.jsonl`)
+
+This branch merged main at `c88caca`, picking up `e21066c`'s fix for the date-less
+`GAP-L-CUDA-M0-LINUX-GLIBC239-NOT-RUN` citation. The `gaps.jsonl` conflict was resolved as the union
+of both sides: main's 20 records, then this lane's 9. Every line parses, and each of my 9 ids
+appears exactly once. `python/tests/test_gaps_ledger.py` passes **10/10** on the merged tree [V].
 
 - **Navigation:**
   - `GAP-L-CUDA-GDN-NO-LISTAGENTS-2026-10-01`
