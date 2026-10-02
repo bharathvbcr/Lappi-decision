@@ -276,7 +276,7 @@ lead has asked L-cuda-M1, the README's owner, to add it, using the box command a
 ## Open (gap ids, all in `gaps.jsonl`)
 
 This branch merged main at `c88caca`, picking up `e21066c`'s fix for the date-less
-`GAP-L-CUDA-M0-LINUX-GLIBC239-NOT-RUN` citation. The `gaps.jsonl` conflict was resolved as the union
+`GAP-L-CUDA-M0-LINUX-GLIBC239-NOT-RUN-2026-10-01` citation. The `gaps.jsonl` conflict was resolved as the union
 of both sides: main's 20 records, then this lane's 9. Every line parses, and each of my 9 ids
 appears exactly once. `python/tests/test_gaps_ledger.py` passes **10/10** on the merged tree [V].
 
