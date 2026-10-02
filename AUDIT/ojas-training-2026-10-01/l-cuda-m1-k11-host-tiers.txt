@@ -1,0 +1,30 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running tests/fixture_pins.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/fixture_pins-860c9b49f04a90ce)
+
+running 4 tests
+test the_decay_sensitive_copy_equals_its_pins ... ok
+test the_decay_sensitive_copy_equals_lappis_live_files ... ok
+test the_tiny_fixture_copy_equals_its_sums ... ok
+test the_tiny_fixture_copy_equals_tessls_live_fixture ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/reference_k11_host.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_k11_host-4e481289b68efaa1)
+
+running 4 tests
+test every_preregistered_mutation_clears_100x_in_kernel_order_arithmetic ... K11_MUTATION D1_tessl_default_weight_decay max_abs=6.325244903564453e-4 at_step=5 entry="norm.weight" ratio_over_bound=632.5
+K11_MUTATION D3_decay_not_lr_scaled max_abs=5.002021789550781e-4 at_step=5 entry="layers.3.self_attn.q_norm.weight" ratio_over_bound=500.2
+K11_MUTATION eps_inside_sqrt max_abs=3.5895705223083496e-2 at_step=5 entry="layers.9.linear_attn.dt_bias" ratio_over_bound=35895.7
+K11_MUTATION eps_before_bias_correction max_abs=4.876375198364258e-3 at_step=5 entry="layers.9.linear_attn.dt_bias" ratio_over_bound=4876.4
+K11_MUTATION lr_scale_missing max_abs=4.2531609535217285e-2 at_step=5 entry="layers.0.input_layernorm.weight" ratio_over_bound=42531.6
+K11_MUTATION D7_no_grad_stepped_as_zero max_abs=1.1716514825820923e-2 at_step=4 entry="span_head.start_proj.weight" ratio_over_bound=11716.5
+K11_MUTATION D7_model_wide_step_count max_abs=2.864733338356018e-3 at_step=5 entry="span_head.start_proj.weight" ratio_over_bound=2864.7
+ok
+test the_emulation_meets_the_adamw_f_float64_golden_as_a_sanity_check ... K11_ADAMW_F params_rel_max=2.8301741687563047e-7 (bound 2e-6) grad_sq_norm_rel=3.395170971838529e-8 (bound 2e-6)
+ok
+test the_emulation_meets_the_decay_sensitive_golden ... K11_DECAY_FLOOR max_abs=1.4901161193847656e-8 at_step=1 entry="layers.8.mlp.down_proj.weight" bound=1e-6 ratio=1.4901161193847656e-2
+ok
+test this_files_unmutated_replay_is_the_librarys_emulation_bit_for_bit ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

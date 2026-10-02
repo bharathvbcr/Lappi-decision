@@ -1,0 +1,499 @@
+== date
+Fri Oct  2 01:58:55 UTC 2026
+== ojas-io and ojas-core sources (sha256) at build time
+f70f0ce106f3056c08d2e15543cd335358cb674103034aba4e3f00a36c22aabc  /Users/bharath/Code/research/ojas/ojas-io/Cargo.toml
+c7afefb3f3f8f8d3bb8b7090ea755bfc3b37378d4f94296292ce88b078006dfd  /Users/bharath/Code/research/ojas/ojas-io/src/checkpoint.rs
+a0d37cd0867bcb98eaa2531033186d49d302d10e5009231d3d9b4f33c1768842  /Users/bharath/Code/research/ojas/ojas-io/src/error.rs
+6c8e6e18df3847ff54627fb32641c33ea6adfdb487cb5107cd57837644a3ac45  /Users/bharath/Code/research/ojas/ojas-io/src/half.rs
+9548df3ae535cec0a3f307f59ddb53812f1ebad5225d151f9eb40d094dd13069  /Users/bharath/Code/research/ojas/ojas-io/src/json.rs
+ec948c0690660f7ce1e7f0b322ef8442197c57a2fca2eb9c9ca1280f9a438d31  /Users/bharath/Code/research/ojas/ojas-io/src/lib.rs
+f41d8491442013557681f299802b47c80f55d1c3c43bb8e352a485e2edcce8b1  /Users/bharath/Code/research/ojas/ojas-io/src/open.rs
+43d332a84d7aa6c7a81c56217fdb0cbd094d21d0ae2a410d5037784432bb1364  /Users/bharath/Code/research/ojas/ojas-io/src/posread.rs
+bad85981abc1a955a649b1484754e23d6b787120dda85ec53524c1616d96b392  /Users/bharath/Code/research/ojas/ojas-io/src/replace.rs
+a5439dd128cafc5f9f161f817f8dbc836e596887b47a93f714ff30f84e21479e  /Users/bharath/Code/research/ojas/ojas-io/src/safetensors.rs
+a0ed06dfbe2b0951b9cd70444b4259fae6046a6850c38e1ca8b457711603cd72  /Users/bharath/Code/research/ojas/ojas-io/src/test_util.rs
+bf5a8db61ff2189b72d5b06c3ef96a796aaa67ffe467ffce644a0eae5ff72d1c  /Users/bharath/Code/research/ojas/ojas-core/Cargo.toml
+5259728caf1be368a8c544e2cebf66b55329b8798d7ad493c3f4871199ab3a10  /Users/bharath/Code/research/ojas/ojas-core/src/backend.rs
+ad4d76ead7844436c5ecd04ef485b7177dbf89ae38b48c0d20d439b2a5c11663  /Users/bharath/Code/research/ojas/ojas-core/src/budget.rs
+f51bdb85fa4f76ae3f896a1239c8d0ca07391f497b059bd367c6141788a24466  /Users/bharath/Code/research/ojas/ojas-core/src/checkpoint.rs
+c0a79e26ddae297742f5959e50c41ae75a0ec96a6f5f251fe3e5a7332edd2731  /Users/bharath/Code/research/ojas/ojas-core/src/dtype.rs
+56990f70b93a310ab7e67b7970a3cf4d1db295732acce350928376100e26e22b  /Users/bharath/Code/research/ojas/ojas-core/src/error.rs
+2d1dd7d2a1777100542e9d6d0cb9e9d18c30ef3efb4ab04d8bfcda8f0cee1fbc  /Users/bharath/Code/research/ojas/ojas-core/src/lib.rs
+464b2643c8e8f97d300c634d36bdbe7cb924b192a727ecfaf6267bb0758039da  /Users/bharath/Code/research/ojas/ojas-core/src/limits.rs
+9c0a079d128292b516f49b0d504aebc3205ae8e65aa4aa83e4c9cabea788df57  /Users/bharath/Code/research/ojas/ojas-core/src/shapes.rs
+c8700ecef36495f8d7f6db81a18d69209d5544e14051ce8a2f0183dd82cb9e85  /Users/bharath/Code/research/ojas/ojas-core/src/tensor.rs
+== Cargo.lock
+MD5 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/Cargo.lock) = 2c7ce4f0a22bfc10cfbec855c7c4d216
+bd1b8d9f6646072b296d45cfd0bc25a58f9d95f0c2342a251578c7a9b35c7ab3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/Cargo.lock
+== this crate's sources (sha256)
+88efccb8b30b36c0ba633f145423ebb6568e7fda977cde006f00033261403e72  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/bf16.rs
+1191975b3eb0ee8569347e52ee10990931bcee7d5be7f9a1437beed6a2855826  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/bin/rung0.rs
+6e1f72597ed4dd43511e479d60fd1224975bc11dbd024f510384066cc59ff57a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/bin/runga.rs
+15744a43a21053c9ba5b182ef8aeda3d1402f4da0610560840a4ab17bd4757ca  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/budget.rs
+fee042b9debb29334bd24f07ff5976f3e008f5c120758aef9c53ff19f95dcc3a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/buffer.rs
+811c0a5df39217c51fd8244681c361454e8bb4a6365a40064e90cf7eb69423f2  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/ce_rows.rs
+9d2ec2fe1f78430435cba4deacf7bbd9f968cfb22af2f8ec996079df93a319bd  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/ce_rows_cuda.rs
+7d75798d166fd4baf1e740fb51e45adc385928228e36c4671a1bc0764c19da2a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/check.rs
+f11af1f9492daea973f90cb273061335cbb21e8fd7052b308b6fb9a3f57c38aa  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/conv1d.rs
+c0057ff697fc740a8853247523c451878d4bcdd5ecd0b3df1bcbacfcd8adf48c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/conv1d_cuda.rs
+bf2facc4a43fed636ceedcb2cabbe1ffbe620853af5dd6fb32254a7038466658  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/embed.rs
+1bc307e8ae48ac72b65a1c614dd7486b0513625c0b89b9778fee596259aaeaa8  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/embed_cuda.rs
+0f06d50a99bdd518ae184fb8cea5d7f489c479ebc43ed5d92e81b0f25a971a13  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/error.rs
+14c95645796eb22495bd127e25b00ca9bb21853608b51d2c01a19c90f7f2c572  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gates_published.rs
+c2c4d56e2e02d7df49c6ecd57de59fd59367f039721a89fd4124f0e4428db9fa  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gates_published_cuda.rs
+a82799cfdf7d0bc4087cf25ddba184e111ea24dfe4de7ea883327eecbc5a2a95  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gdn.rs
+ed89e4ffecda85258c83b19e9411d5d692874639a0859dfc2357c3b4f46d065b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gdn_host.rs
+b09fb0d153dc452498c820861c9c1aa59a030667bb2aff0e878dce9e1e81493c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gdn_kernels.rs
+2d4d0977d26683673d1902ec6a633e90f263b49f0e672c1f488ef1b814e4d6f3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gdn_plan.rs
+b01f2ecf74a01faa92b45c86f0ec67d1cd8b0dca901a476b3b31b71a7c1a851a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gdn_smoke.rs
+2a5571470f569e30ea2dad3da6b2f98dd012e4dc6c9da671dcdff2c8c044e7db  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gemm.rs
+c035aff44d972522a0df463c25504ae5e221c60584c9e712d08c852748463e41  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/gemm_plan.rs
+0b95193c2c29a45a0e5b9379a929e7aaad0bb05da4f2f816e63c7aa8c5ee5c2c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/geometry.rs
+0e52736a710a879aa2f34f66ebc388f7d8ada7bc229fada95b12cb6fdb31e928  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/host_ref.rs
+53b9f0e13b2462fb909d5b3919a083b22e6fc14be57dce0f96fc3c52d518286e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/inputs.rs
+856b4bf3fe77dff377a23d8c3c83418ed2bb6b0ecd2600c4c818445d59352c57  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/json.rs
+d0abdbf06286e9cc6330623f47cf509b793374ec7514217b1e99a0e44d223bf2  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k0.rs
+c598ba1642cda40c9edc8dcf16cf42618b272e5aac867e2fad4a8f3c9e215be2  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k0_plan.rs
+c969a3e969f20587f730b9b71ea679f90f3dba4efce98940b86fc160755e1455  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k11.rs
+0f5858cc6137e248a785325d8e4d0fc5b14547efa02c0c28f2bb3d755d007d4e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k11_golden.rs
+fdd2ef809e33aa2f7c0477542ce53cf37118a0ebe755e08e9a55767f5b5e7e43  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k11_host.rs
+06c2cf308909c9b99356c5b0ffc14bc4ea37a007cb0eadb7464da28b4c9f9dec  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k11_kernels.rs
+75ee057dc7827fcbeae1f63bae8fbda2a34a2a24489104973be6feba0e30c05e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k11_smoke.rs
+163600bd82776eddc2d8502c1533a4a33836c8b066518298fab589cb37f6410f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k8.rs
+21edeca7d5369ad1d26b1301ee2a181c2d5cab3c96dfaaa15e42f0169a549547  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k8_act.rs
+2373887f34c1da66a3956d0cbd7c976ba96e95cc74307a9724cec51feccc76cb  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k8_kernels.rs
+7ab9538b2248230cade9daff21bf537fbcdea519108503d02572d373553ae4d3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k8_plan.rs
+8330a36d1dc93d64ad39c6083471bbba7e0072b4c29e7dc9a841e94b441a6e4b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/k8_smoke.rs
+e64ea8ab0d4eae2cda515572a659b8f6253a2d356fcc9c49a92666e61e63a738  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/kernels.rs
+85870c8dedbd47db63c5bd0b08dc84c46a6b2ef4e25d2e26ccb711c365aca553  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/lib.rs
+54d278cfaacbc73ec2c8fa1ba21e6be03804a45a6aa3b0a5f720e9ed57421cf1  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/libprobe.rs
+c32dca0ffb19d2bfb644c9d38e26c1a5cf79ff8b31cd9f06ddf72fae66150feb  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/npy.rs
+76e03ced473d013e56de7307a4b015deb50b4800cac58a264af91bdb4263a320  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/nvrtc_cache.rs
+a3c1bfd98701674ec6efa57bc30aa337220fa17c04f02d337a61a61f5f624c6c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/qk_norm_rope.rs
+0413e880a9f9316723feaa35c301b717d7902171130c06bf23a9b079d2e765b3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/qk_norm_rope_cuda.rs
+ce3e35599a6e8d797a4206f0e356c3ebbaa87045c136eafd044274115ef5f39b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/report_cli.rs
+3d5ea37f070917399c8a1f5501397188c3b8cc59e9b77c72d8cb7da60d5d781d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/rmsnorm.rs
+9ba117b87dffea6e020b34994a20db77279315ef4c8164b88ec9eb29d8b93cc4  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/rmsnorm_cuda.rs
+55795f4d01f5949405704fd976dca15453267fe322eb495782120045c2609472  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/rung0_cli.rs
+751879b97e8e86f6087f0591995442b425e6798d0fad965a8af09d863311d703  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/runtime.rs
+0bafe5aac7a326f3d167dbb3c22eaa88823b2a07984ad7374b2e835dd88a0a70  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/small_common.rs
+65c4e834f8731d519574244546ef301644a0f8ef45ec13bbb22e2d4a7b3b7e93  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/small_common_cuda.rs
+749e19c7e35b9d939a11b740c51b2640aa7e43ad4df15154f9905e419c7aba88  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/small_smoke.rs
+4bf1365d5243cdd46352454b422a0665e317ea89e6ad7ee1fc2194b770a1eeca  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/smoke.rs
+7d9d877a65a2cb25f84d0d912c9c924369eb81bf677af4d7b460496bf4642551  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/src/tiny_fixture_published.rs
+65bf611644f5f37e581d726564ac3eb5c3920f1430c26ba9d7249507fe53bd0a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_gdn_published.rs
+86a4c6754305beaa2e781f698cbfee38be968c8f9551807a00518e10ebf8895e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_gdn_published_common/mod.rs
+727b88ef05b2ba09f693a1fc3d7c02d586d61bfdfc5a13a5125ebb417f83e6b0  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_gdn_published_mirror.rs
+b839371c28e28c31fb6f7c1fab448280db530322ad0fdbc8a9067e1c7fefea62  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k0.rs
+3e16d3805b641bda57d7577c96735a9d1d953a525df5aac130169a1a3b38d55a  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k1.rs
+4052d075b2ced7ce20cdf78bdeefffe77a9bb21d3c84775cc1a43c6a60f17a33  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k10_ce_rows.rs
+6d19c371a0cbc333d7b92bfe761a6a2b04ee52485344ec7d7b02224792cd3bdb  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k11.rs
+af59f7d8475f7ecd41970d5922d08ad38e4635c9dbcf45614011a8d5f9ce74af  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k3_gates_published.rs
+ab2d116ae0bfb2f564b0bf56771935ecb83c9f51d73d2db4b374f209d9903345  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k4_conv1d.rs
+342eaab405b928b2ca1555016b2e79ee303455a9221ae4e9c4e28b14c1fce15f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k6_qk_norm_rope.rs
+8cecb2e15e6f86b3cb424e321418a0cc86ead485145cefa074cbbb777b72eb57  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k7_rmsnorm.rs
+69ccea959bf0e13d710aa7ad2e3362013738b27c7335e576f8454372d5d7f706  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k8.rs
+aa0683c0297ce436d464e8ee848cc84861ce95bed9409c489bc94248a5aaa82b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_k9_embed.rs
+fa497922fa12a5196a5a176961a173405062393131777725a2a619e9634c0d2c  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/device_small_common/mod.rs
+16552833a6432dcff7c6fec45f0e322fe6ed939f360d4d7a94d4403898fba8a4  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixture_pins.rs
+dc455ac993c29e8b34f4300c427aca55ff33ce437f9b67f78a454930eca98656  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fixtures/tessl/gdn_train_published.rs
+35ca3c82b0102b3050ade92c76706e40741e74ee42a224eb29fea95dfa1a504d  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/fmt_boundary.rs
+53b2ff3618a68f2631d098ae43ae7c04ddfeca1076584d3a1dd1cf1b5d5b1288  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/adamw.rs
+2dd6167c2e1acfc15693f70a26fcb5c3a0473d2976154282dafe7efb1f43af79  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/attn_pieces.rs
+e5e6bc5f3d8462bba5ce049065a29a12cab033655e2fc2d4f9d7a838c5437b33  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/ce.rs
+0ddfcf4f8e3a5e01d6da653efa55c98f8ff70eec404bcbe5067dc57e1a14d5cf  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/conv1d.rs
+f94a433522c8ee7abcbc90a98d14ed570ccb01604610196b8945a137d5565549  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/embed.rs
+9839c545e33b0956e2cd90ec461cc37aed4fa3f7fe5e599af5959e1db4da2dfe  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/fd.rs
+3ec3666a06023cf14577c2034ce16c111033988cde5398a2f3fc9ede22325869  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/gates_published.rs
+172580f0562951c3205b02d6b74aa7565bdc6a8a5d1e628b3293b06c197fdd39  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/gdn_published.rs
+812f3fb53ba9abeb3b521449a2adcc7070ba89fcc0cc0c26352f96f827068f48  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/goldens.rs
+d2052bd1a32438852404d38441d1facb1c99611d67e0a02d9e68734ed63eb96e  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/mod.rs
+851799ff058637b65b88cb20e33ac116f0b911d96bb3a99e0b4642b2b9013296  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/norms.rs
+5cd6f26bc09828c4c9eb685b40572ccb8585ff8363dbbe88355e3cf20f6d4a5b  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/npy.rs
+49dc46551ca1b825b8ed6249af693024ddc69ab80d8392ecdcddd516a45988d6  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/rng.rs
+d89cd8f10193baf1b44efb39dcda858a8accbc17bcc4266133ef5e6134038057  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference/sha256.rs
+9309d44d3c707bd44cee85ea185051784bb68ef6995c400df76f9a916e82c2fb  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_adamw.rs
+b7868e4c663ef7e57b3aeee7cc21d12bbd55b7e7a1e7090fae2254288e431240  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_gdn_published.rs
+f82e6a29c2a7159a4bc340d119d4b05580df7f53958e1a27258a2ca1d234ace7  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_gdn_published_vs_tessl.rs
+c77fee90ea9ef267d52d1aae6e029861c5c859de0f3b711c6b50d6a68ec32cdd  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_goldens_published.rs
+53729edb6605a951170641b73a66121a0d9a4e0c42c90acdc4fd3901b35fdd94  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_k11_host.rs
+69d5dcc51180e0eb550ad9c3b166d1f8cfa9b3b4b2780511e1aa72596279e36f  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/reference_kernels.rs
+03b22b3dfd5a3eb53e3666b0fcdcec55b1b3b37eb092a80fb33cc9f28d8bf9c8  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/tests/runtime_refusal.rs
+64f019ca3d20017cf86ce0a5fc9074a647bf1bad45ec115d5ad607324258e2c5  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/Cargo.toml
+a59350579f6ac29c757f979e72acd60db0fd4549f8db55ac28aab5b797a820a3  /Users/bharath/Code/research/ojas/ojas-qwen35-cuda/README.md
+== cargo test --offline (no features)
+   Compiling ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.73s
+     Running unittests src/lib.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/ojas_qwen35_cuda-91c6fb8f37a640f9)
+
+running 162 tests
+test bf16::tests::nans_stay_nans_with_the_quiet_bit_and_sign ... ok
+test bf16::tests::ties_go_to_even_and_carries_propagate ... ok
+test bf16::tests::overflow_rounds_to_infinity_and_infinities_stay ... ok
+test bf16::tests::signed_zeros_and_subnormals_are_kept ... ok
+test budget::tests::a_request_past_the_cap_is_refused_and_changes_nothing ... ok
+test budget::tests::overflowing_requests_are_refused ... ok
+test budget::tests::reservations_count_and_release_on_drop ... ok
+test budget::tests::a_zero_cap_is_refused ... ok
+test ce_rows::tests::chunks_cover_the_vocabulary_once_with_at_most_two_widths ... ok
+test ce_rows::tests::the_cuda_source_rescales_the_carried_sum_and_uses_the_crates_exp_and_log ... ok
+test ce_rows::tests::non_finite_losses_are_refused_by_row ... ok
+test ce_rows::tests::the_plan_refuses_empty_selections_bad_rows_targets_and_scales ... ok
+test check::tests::a_not_run_or_panicked_check_never_makes_the_whole_pass ... ok
+test gates_published::tests::the_cuda_source_keeps_torchs_threshold_and_the_published_decay ... ok
+test check::tests::bit_diffs_count_nan_payloads_and_length_differences ... ok
+test gates_published::tests::the_plan_refuses_overlapping_or_out_of_stride_windows ... ok
+test bf16::tests::every_bf16_value_round_trips_exactly ... ok
+test check::tests::tolerance_fails_on_non_finite_and_at_the_bound ... ok
+test conv1d::tests::a_batch_rows_gradient_does_not_reach_its_neighbour ... ok
+test embed::tests::ids_past_the_vocabulary_and_short_buffers_are_refused ... ok
+test conv1d::tests::the_plan_refuses_bad_widths_and_windows ... ok
+test embed::tests::runs_group_rows_by_id_in_position_order ... ok
+test error::tests::out_of_memory_maps_to_capacity_and_other_codes_to_driver ... ok
+test embed::tests::the_backward_adds_each_ids_rows_once_in_row_order ... ok
+test error::tests::library_missing_names_every_library ... ok
+test gates_published::tests::the_mirror_writes_only_the_gate_columns_of_dp ... ok
+test conv1d::tests::the_cuda_source_skips_the_zero_state_taps_and_recomputes_pre ... ok
+test budget::tests::concurrent_reservations_never_exceed_the_cap ... ok
+test check::tests::panic_payloads_become_text ... ok
+test gates_published::tests::rule_9_every_k3_name_says_published ... ok
+test gdn_host::tests::published_case_generator_is_on_tessls_unit_grid ... ok
+test gdn_host::tests::published_rel_of_max_names_unwritten_and_non_finite_outputs ... ok
+test gdn_host::tests::published_warp_sum_is_the_butterfly_tree_not_a_sequential_sum ... ok
+test gdn_kernels::tests::the_published_decay_uses_the_crates_one_exp ... ok
+test gdn_kernels::tests::the_published_module_defines_exactly_its_entries_and_every_name_says_published ... ok
+test gdn_kernels::tests::the_published_rule_decays_before_the_read_in_the_forward_and_the_recompute ... ok
+test gdn_kernels::tests::the_published_source_has_no_nul_no_include_and_no_atomics ... ok
+test gdn_plan::tests::published_plan_finish_grid_is_capped_not_sized_by_the_device ... ok
+test gdn_kernels::tests::the_published_float_arithmetic_is_explicitly_rounded ... ok
+test gdn_plan::tests::published_plan_with_equal_lengths_is_tessls_dense_layout ... ok
+test gdn_plan::tests::published_plan_refuses_what_the_kernels_cannot_run ... ok
+test gemm_plan::tests::index_helpers_match_the_storage_layouts ... ok
+test gdn_plan::tests::published_plan_offsets_and_lengths_for_variable_lengths ... ok
+test gemm_plan::tests::shapes_refuse_zero_sides_and_out_of_int_sides ... ok
+test gemm_plan::tests::wrong_mappings_are_caught ... ok
+test gemm_plan::tests::the_cublas_mapping_computes_the_row_major_product_for_every_layout ... ok
+test geometry::tests::empty_work_launches_nothing ... ok
+test geometry::tests::gemm_grid_tiles_the_output_and_refuses_too_many_rows ... ok
+test gdn_host::tests::published_mirror_refuses_misshapen_operands ... ok
+test geometry::tests::grid_stride_visits_every_element_exactly_once ... ok
+test gdn_plan::tests::published_plan_packed_tensors_split_into_each_sequences_b1_tensors ... ok
+test geometry::tests::huge_elementwise_work_is_capped_not_overflowed ... ok
+test host_ref::tests::accumulate_adds_the_previous_c_once ... ok
+test host_ref::tests::bf16_operands_round_before_multiplying ... ok
+test host_ref::tests::copy_cols_and_deliver_follow_their_plans ... ok
+test host_ref::tests::mul_add_is_fused_on_this_host ... ok
+test host_ref::tests::scatter_and_gather_follow_their_plans ... ok
+test inputs::tests::edge_cases_cover_every_class ... ok
+test host_ref::tests::ffma_emulation_is_close_to_f64_and_differs_from_unfused ... ok
+test inputs::tests::splitmix_f32_stays_in_range_and_repeats_by_seed ... ok
+test json::tests::non_finite_floats_are_strings_never_numbers ... ok
+test inputs::tests::tessl_patterns_match_their_formulas ... ok
+test json::tests::strings_are_escaped ... ok
+test k0_plan::tests::copy_cols_accepts_an_exact_fit_and_refuses_one_past ... ok
+test k0_plan::tests::copy_cols_refuses_overflowing_strides ... ok
+test k0_plan::tests::deliver_and_zero_check_their_ranges ... ok
+test k0_plan::tests::gather_allows_repeats_and_refuses_rows_past_h ... ok
+test k0_plan::tests::scatter_refuses_a_duplicate_row_naming_both_indices ... ok
+test k0_plan::tests::scatter_refuses_out_of_range_rows_and_shape_mismatches ... ok
+test k11_golden::tests::f32_quantizes_the_decay_multiplier_at_fs_lr ... ok
+test k11_host::tests::scalars_are_formed_in_f64_and_stored_as_f32 ... ok
+test json::tests::objects_keep_insertion_order_and_nest ... ok
+test k11_host::tests::tables_refuse_overlap_overrun_repeats_and_bad_values ... ok
+test k11_kernels::tests::the_adamw_body_uses_explicitly_rounded_arithmetic ... ok
+test k11_golden::tests::the_pre_fix_adamw_f_case_is_refused ... ok
+test k11_host::tests::a_grad_scale_of_one_leaves_the_gradient_bitwise ... ok
+test k11_host::tests::an_inactive_entry_is_untouched_and_keeps_its_own_count ... ok
+test k11_host::tests::hyperparameters_are_refused_as_tessl_refuses_them ... ok
+test gdn_host::tests::a_positive_log_decay_is_loud_in_the_published_mirror ... ok
+test k11_host::tests::the_update_is_torch_order_on_a_worked_element ... ok
+test k11_kernels::tests::the_kernel_constants_are_the_host_emulations ... ok
+test k11_kernels::tests::the_module_defines_its_entries_and_nothing_unsafe ... ok
+test k11_host::tests::squared_norm_partials_follow_the_fixed_tree ... ok
+test k8_act::tests::act_constants_match_host ... ok
+test k11_golden::tests::the_live_adamw_f_case_passes_and_its_retypings_do_not ... ok
+test k8_act::tests::exp_special_values_and_range_edges ... ok
+test k11_golden::tests::the_embedded_goldens_parse_and_name_fs_builder ... ok
+test k8_act::tests::sigmoid_and_silu_special_values ... ok
+test ce_rows::tests::the_online_lse_equals_one_pass_whatever_the_chunk ... ok
+test k8_act::tests::the_constants_are_what_they_claim ... ok
+test k8_act::tests::the_sweep_covers_the_edges_and_is_reproducible ... ok
+test k8_act::tests::the_prelude_is_guarded_and_self_contained ... ok
+test k8_kernels::tests::the_backward_multiplies_left_to_right ... ok
+test k8_plan::tests::every_nan_output_is_canonical ... ok
+test k8_plan::tests::plans_refuse_bad_windows_and_overlapping_shared_outputs ... ok
+test k8_plan::tests::the_elements_are_tessls_operand_order ... ok
+test k8_plan::tests::the_sweep_is_function_major ... ok
+test kernels::tests::every_gemm_entry_is_reachable ... ok
+test k8_kernels::tests::the_sweep_kernel_writes_the_host_sweeps_order ... ok
+test k8_kernels::tests::the_module_defines_exactly_its_entries ... ok
+test kernels::tests::every_module_defines_exactly_its_listed_entries ... ok
+test kernels::tests::sources_have_no_nul_no_include_and_no_float_atomics ... ok
+test k8_act::tests::exp_nonpos_is_exp_at_or_below_zero_and_nan_above ... ok
+test kernels::tests::strict_options_turn_fma_contraction_off ... ok
+test kernels::tests::the_device_rounding_is_the_host_rounding ... ok
+test libprobe::tests::ld_library_path_splits_in_order_and_drops_empties ... ok
+test libprobe::tests::maps_parsing_finds_the_loaded_cuda_libraries ... ok
+test npy::tests::reads_f64_f32_and_i64_in_c_order ... ok
+test npy::tests::refuses_what_it_does_not_read ... ok
+test nvrtc_cache::tests::a_colliding_hash_with_different_source_is_refused ... ok
+test libprobe::tests::the_refusal_says_whether_a_candidate_file_exists ... ok
+test nvrtc_cache::tests::fnv1a64_matches_its_published_test_vectors ... ok
+test nvrtc_cache::tests::a_failed_compile_caches_nothing ... ok
+test nvrtc_cache::tests::a_second_lookup_hits_and_does_not_compile ... ok
+test nvrtc_cache::tests::options_and_nvrtc_version_are_part_of_the_key ... ok
+test nvrtc_cache::tests::the_least_recently_used_entry_is_evicted_at_the_entry_bound ... ok
+test nvrtc_cache::tests::the_byte_bound_evicts_and_an_oversized_image_is_refused ... ok
+test qk_norm_rope::tests::inv_freq_is_transformers_and_refuses_bad_inputs ... ok
+test qk_norm_rope::tests::the_2b_layout_is_accepted_and_overlaps_are_refused ... ok
+test qk_norm_rope::tests::the_cuda_source_takes_the_angle_from_the_host_table_and_forms_one_plus_w ... ok
+test report_cli::tests::runga_refuses_a_small_budget_a_missing_value_and_unknown_flags ... ok
+test report_cli::tests::runga_takes_its_own_flags_and_hands_the_rest_to_rung0s_parser ... ok
+test qk_norm_rope::tests::the_gate_mirrors_write_only_the_gate_columns ... ok
+test report_cli::tests::the_watchdog_stands_down_when_main_already_wrote ... ok
+test report_cli::tests::an_existing_report_is_refused ... ok
+test rmsnorm::tests::gated_plans_check_windows_and_the_dim_cap ... ok
+test report_cli::tests::a_failed_report_write_still_ends_the_run_at_the_cap ... ok
+test rmsnorm::tests::plans_refuse_zero_sizes_bad_eps_and_wide_backward_rows ... ok
+test report_cli::tests::the_cap_writes_a_timeout_report_naming_the_phase_and_exits_3 ... ok
+test rmsnorm::tests::the_backward_mirror_accumulates_into_dx_when_asked ... ok
+test rmsnorm::tests::the_cuda_source_forms_one_plus_w_in_both_rms_norm_kernels_and_w_in_the_gated_one ... ok
+test rung0_cli::tests::missing_or_unknown_arguments_are_refused ... ok
+test rung0_cli::tests::defaults_and_explicit_values_parse ... ok
+test rmsnorm::tests::the_rms_mirror_is_the_zero_centred_norm_and_close_to_f64 ... ok
+test rung0_cli::tests::an_existing_report_is_refused_and_writes_are_atomic ... ok
+test rung0_cli::tests::the_cap_cannot_exceed_300_seconds_or_be_zero ... ok
+test small_common::tests::a_ragged_block_is_refused - should panic ... ok
+test small_common::tests::block_reductions_fold_warps_then_the_published_values ... ok
+test small_common::tests::col_sum_adds_blocks_in_order_from_the_offset ... ok
+test small_common::tests::checks_fail_on_non_finite_and_past_the_bound ... ok
+test small_common::tests::grids_are_shape_only_and_bounded ... ok
+test small_common::tests::the_warp_butterfly_is_the_same_in_every_lane_and_close_to_the_true_sum ... ok
+test small_common::tests::windows_refuse_crossing_rows_and_running_past_the_buffer ... ok
+test small_common::tests::thread_partials_visit_each_index_once_in_ascending_order ... ok
+test small_common::tests::every_small_module_passes_the_lint ... ok
+test small_common::tests::the_lint_catches_a_missing_entry_an_atomic_and_a_fast_exp ... ok
+test k8_act::tests::softplus_is_tessls_and_within_bounds_of_f64 ... ok
+test tiny_fixture_published::tests::the_embedded_fixture_parses_into_the_2bs_shape_family ... ok
+test tiny_fixture_published::tests::a_tampered_fixture_is_refused ... ok
+test tiny_fixture_published::tests::reading_the_directory_gives_the_embedded_fixture ... ok
+test report_cli::tests::a_held_report_lock_still_ends_the_run_at_the_cap ... ok
+test bf16::tests::integer_trick_matches_the_value_rounding_on_two_million_inputs ... ok
+test tiny_fixture_published::tests::a_symlinked_file_is_refused ... ok
+test k8_act::tests::sigmoid_silu_and_its_gradient_against_f64 ... ok
+test gdn_host::tests::the_published_decay_exp_is_within_its_pre_registered_ulps ... ok
+test gdn_host::tests::published_mirror_of_a_batch_is_the_concatenation_of_its_sequences ... ok
+test k11_host::tests::the_synthetic_cases_cover_both_lerp_forms_d7_and_the_clip ... ok
+test k8_plan::tests::the_cases_build_valid_plans_and_their_references_run ... ok
+test small_common::tests::syntax_only_every_small_module_parses_as_host_cxx_says_nothing_about_numerics ... ok
+test k8_act::tests::log_is_within_two_ulp_of_f64_and_handles_the_edges ... ok
+test k8_act::tests::exp_is_within_two_ulp_of_f64_over_its_whole_range ... ok
+test k8_act::tests::exp_on_the_nonpositive_range_measured_for_the_gdn_decay ... ok
+
+test result: ok. 162 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.76s
+
+     Running tests/device_gdn_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_gdn_published-4a9f1424ae132fa2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/device_gdn_published_mirror.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_gdn_published_mirror-3ad7374eb65e558f)
+
+running 8 tests
+test published_mirror_draws_tessls_test_operands ... ok
+test published_mirror_is_outside_the_bound_from_the_repo_rule ... ok
+test published_mirror_matches_the_f64_reference_across_chunk_edges_b1 ... ok
+test published_mirror_varlen_batch_matches_per_sequence_references ... ok
+test published_mirror_matches_the_f64_reference_across_chunk_edges_b2 ... ok
+test published_mirror_matches_the_f64_reference_on_every_smoke_case ... ok
+test published_mirror_matches_the_f64_reference_at_qwen35_2b_heads ... ok
+test published_mirror_matches_the_published_corpus ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.77s
+
+     Running tests/device_k0.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k0-773b9fad7923ceb4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/device_k1.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k1-924f3950059ba0c8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/device_k10_ce_rows.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k10_ce_rows-a096ba9fe0cbd7cd)
+
+running 2 tests
+test the_embedded_goldens_are_l_cuda_oracles_pinned_bytes ... ok
+test the_mirror_matches_the_one_pass_reference_whatever_the_chunk_and_operands ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.92s
+
+     Running tests/device_k11.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k11-4a93479eb1452467)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/device_k3_gates_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k3_gates_published-5fe7196d4967b3f9)
+
+running 3 tests
+test the_embedded_published_goldens_are_l_cuda_oracles_pinned_bytes ... ok
+test the_published_mirror_matches_the_reference_on_the_torch_golden ... ok
+test the_published_mirror_matches_the_reference_at_the_2b_heads_with_extremes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/device_k4_conv1d.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k4_conv1d-f9a5ef18d78027e2)
+
+running 3 tests
+test the_embedded_goldens_are_l_cuda_oracles_pinned_bytes ... ok
+test the_mirror_matches_the_reference_on_the_torch_goldens ... ok
+test the_mirror_matches_the_reference_at_the_2b_channels_and_kernel_width_2 ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.86s
+
+     Running tests/device_k6_qk_norm_rope.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k6_qk_norm_rope-e0afa5f34f25e1a9)
+
+running 4 tests
+test the_gate_mirror_matches_the_reference_on_the_torch_golden ... ok
+test the_embedded_goldens_are_l_cuda_oracles_pinned_bytes ... ok
+test the_qk_mirror_matches_the_reference_at_the_2b_head_layout ... ok
+test the_qk_mirror_matches_the_reference_on_the_golden_rows_at_positions_up_to_20001 ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.39s
+
+     Running tests/device_k7_rmsnorm.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k7_rmsnorm-ccadc1b8929f8a39)
+
+running 3 tests
+test the_mirrors_match_the_reference_on_the_torch_goldens ... ok
+test the_embedded_goldens_are_l_cuda_oracles_pinned_bytes ... ok
+test the_mirrors_match_the_reference_at_the_2b_shapes_in_fused_windows ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/device_k8.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k8-37327f13f59bfca7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/device_k9_embed.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k9_embed-8099ff598f70e517)
+
+running 3 tests
+test the_mirror_matches_the_reference_on_the_torch_golden ... ok
+test the_embedded_goldens_are_l_cuda_oracles_pinned_bytes ... ok
+test the_mirror_matches_the_reference_at_the_2b_hidden_size ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/fixture_pins.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/fixture_pins-860c9b49f04a90ce)
+
+running 4 tests
+test the_decay_sensitive_copy_equals_lappis_live_files ... ok
+test the_decay_sensitive_copy_equals_its_pins ... ok
+test the_tiny_fixture_copy_equals_tessls_live_fixture ... ok
+test the_tiny_fixture_copy_equals_its_sums ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/fmt_boundary.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/fmt_boundary-399a9777f251a9d2)
+
+running 4 tests
+test the_pre_fix_tessl_include_is_flagged ... ok
+test the_scanner_reads_path_attributes_the_way_rustc_writes_them ... ok
+test an_unresolvable_or_escaping_path_is_reported ... ok
+test no_path_attribute_in_this_crate_leaves_the_crate ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/reference_adamw.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_adamw-346fedb6200af56d)
+
+running 4 tests
+test k11_adamw_refuses_a_zero_lr_scale - should panic ... ok
+test k11_lower_layer_split_is_lappis_layerwise_param_groups ... ok
+test k11_torch_lerp_switches_form_at_one_half ... ok
+test k11_adamw_matches_torch_over_fs_groups_for_five_steps ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/reference_gdn_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_gdn_published-4b87577cb82cc291)
+
+running 8 tests
+test published_reference_refuses_a_misshapen_gate - should panic ... ok
+test published_reference_refuses_a_non_finite_operand - should panic ... ok
+test published_reference_refuses_an_empty_sequence - should panic ... ok
+test published_checkpoint_c_is_the_state_after_the_first_64c_tokens ... ok
+test published_recurrence_reproduces_the_published_corpus ... ok
+test the_repo_rule_does_not_reproduce_the_published_corpus ... ok
+test published_corpus_is_tessls_bytes_and_every_file_names_the_published_rule ... ok
+test published_backward_matches_central_differences_across_checkpoints ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.64s
+
+     Running tests/reference_gdn_published_vs_tessl.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_gdn_published_vs_tessl-4e79d87a6edbc7b6)
+
+running 3 tests
+test published_comparison_target_is_the_pinned_copy_of_tessls_file ... ok
+test the_copy_equals_tessls_live_file_and_the_pin ... ok
+test published_reference_matches_tessls_gdn_train_f64_at_the_chunk_edges ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.86s
+
+     Running tests/reference_goldens_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_goldens_published-d26aeedae9cbf242)
+
+running 3 tests
+test sha256_matches_the_fips_180_4_vectors ... ok
+test every_golden_is_pinned_by_the_manifest_and_gdn_and_gate_goldens_name_the_published_rule ... ok
+test published_reference_matches_the_transformers_golden_at_the_seam ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/reference_k11_host.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_k11_host-4e481289b68efaa1)
+
+running 4 tests
+test the_emulation_meets_the_adamw_f_float64_golden_as_a_sanity_check ... ok
+test every_preregistered_mutation_clears_100x_in_kernel_order_arithmetic ... ok
+test this_files_unmutated_replay_is_the_librarys_emulation_bit_for_bit ... ok
+test the_emulation_meets_the_decay_sensitive_golden ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/reference_kernels.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_kernels-b7e0abddc2f8a3cb)
+
+running 16 tests
+test k3_gates_published_match_the_torch_golden ... ok
+test k6_output_gate_matches_the_torch_golden_and_its_derivative ... ok
+test k7_rms_norm_backwards_are_the_derivative ... ok
+test k6_rope_angle_is_transformers_f32_angle ... ok
+test k4_conv1d_silu_backward_is_the_derivative ... ok
+test k10_cross_entropy_rows_gradients_are_the_derivative ... ok
+test k9_embedding_matches_the_torch_golden ... ok
+test k3_gates_published_backward_is_the_derivative_away_from_the_threshold ... ok
+test k6_transformers_rope_fixture_is_pinned ... ok
+test k6_norm_rope_matches_the_torch_golden_given_the_angle ... ok
+test k9_embedding_refuses_an_out_of_range_id - should panic ... ok
+test k6_norm_rope_matches_tessls_transformers_fixture_at_position_20000 ... ok
+test k7_rms_norms_match_the_torch_golden ... ok
+test k4_conv1d_silu_matches_the_torch_golden ... ok
+test k10_cross_entropy_rows_match_the_torch_golden ... ok
+test k6_norm_rope_backward_is_the_derivative ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/runtime_refusal.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/runtime_refusal-7084762b0f0eec0b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests ojas_qwen35_cuda
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test exit=0

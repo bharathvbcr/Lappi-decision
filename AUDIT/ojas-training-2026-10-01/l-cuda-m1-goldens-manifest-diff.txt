@@ -1,0 +1,73 @@
+9a10,64
+>    "f_builder": {
+>     "builder": "qd_train.optim.layerwise_param_groups -> build_optimizer(spec=real_ft_run.optimizer_spec('bf16', 'master'), beta2=DEFAULT_BETA2, fused=False) -> MasterWeightAdamW -> apply_lr, on bf16 shadow parameters",
+>     "built_class": "MasterWeightAdamW",
+>     "f_flags": {
+>      "--lower-layers-lr-scale": "0.1",
+>      "--lower-layers-n": "8",
+>      "--lr": "1e-5",
+>      "--optimizer": "master"
+>     },
+>     "f_flags_source": "/Users/bharath/Code/research/Lappi-decision/campaign/f-v4-preregistered.json",
+>     "f_flags_text": "J4's recipe (--optimizer master --lr 1e-5 --epoch --no-memorise) with --batch-tokens 35403, --lower-layers-n 8 --lower-layers-lr-scale 0.1, default (non-deterministic) kernels, --wall-clock-cap-s 32400 per seed, seeds 0, 1, 2; every seed also scores --needle-control 1024,2048,4096",
+>     "groups": [
+>      {
+>       "amsgrad": false,
+>       "betas": [
+>        0.9,
+>        0.999
+>       ],
+>       "capturable": false,
+>       "decoupled_weight_decay": true,
+>       "differentiable": false,
+>       "eps": 1e-08,
+>       "foreach": null,
+>       "fused": null,
+>       "lr": 1e-05,
+>       "lr_scale": 1.0,
+>       "maximize": false,
+>       "name": "base",
+>       "weight_decay": 0.01
+>      },
+>      {
+>       "amsgrad": false,
+>       "betas": [
+>        0.9,
+>        0.999
+>       ],
+>       "capturable": false,
+>       "decoupled_weight_decay": true,
+>       "differentiable": false,
+>       "eps": 1e-08,
+>       "foreach": null,
+>       "fused": null,
+>       "lr": 1.0000000000000002e-06,
+>       "lr_scale": 0.1,
+>       "maximize": false,
+>       "name": "base_lower",
+>       "weight_decay": 0.01
+>      }
+>     ],
+>     "inner_class": "AdamW",
+>     "lappi_optim": "/Users/bharath/Code/research/Lappi-decision/python/qd_train/optim.py",
+>     "lappi_optim_sha256": "08ef9b706f3ac2e75a4a97d8bd14fd6988452ea4da1c2533c0f5790898291ef5",
+>     "real_ft_run": "/Users/bharath/Code/research/Lappi-decision/tools/real_ft_run.py",
+>     "real_ft_run_sha256": "c02f35ed5487f0c45923ba8f93bbdac1a578cb8adc532304ce4374744857bd40"
+>    },
+22,23d76
+<    "lappi_optim": "/Users/bharath/Code/research/Lappi-decision/python/qd_train/optim.py",
+<    "lappi_optim_sha256": "08ef9b706f3ac2e75a4a97d8bd14fd6988452ea4da1c2533c0f5790898291ef5",
+27c80
+<    "source": "torch.optim.AdamW(foreach=False, fused=False) single-tensor path, torch/optim/adam.py:416-545",
+---
+>    "source": "F's builder's groups over float64 parameters; torch.optim.AdamW(foreach=False, fused=False) single-tensor path, torch/optim/adam.py:416-545",
+29c82,84
+<    "weight_decay": 0.01
+---
+>    "weight_decay": [
+>     0.01
+>    ]
+431c486
+<  "generator_sha256": "56fcd508b9a15bbd8231c8fef407ad399531646403578a52ee273fa7bc574f65",
+---
+>  "generator_sha256": "99588cd127eb596e8572b1c1f73f6b7ef03e3c0e3ef833ea18858fbb99b373e0",
