@@ -136,8 +136,10 @@ re-pin. Neither oracle was edited, since no Python test covers them.
 - **Not done, by scope:** the gate allows an exact byte copy of a pinned fixture anywhere under the
   same fixture root (probe a0), because its bytes are on record. That is the user's rule as
   stated. Inside a `SHA256SUMS` or JSON-`files` set, the consumer's completeness check refuses
-  it. A copy placed elsewhere under the root, outside every set, would also fail
-  `fixture_pins.rs`'s `every_binary_fixture_is_in_a_set_a_consumer_verifies`.
+  it. A copy placed elsewhere under the root, outside every set, fails `fixture_pins.rs`'s
+  `every_binary_fixture_is_in_a_set_a_consumer_verifies`. This was verified by copying a pinned
+  `.npy` to `crates/qd-train/tests/fixtures/zz-probe.npy`; the output was "binary fixtures in no
+  verified set ... zz-probe.npy", 1 failed. The copy was then removed.
 
 ## First command for the next lane
 
