@@ -62,7 +62,8 @@ MUTATIONS = [
      "        seeds.len() == F_SEEDS.len(),\n        \"the envelope is {ENVELOPE_PIN}"),
     ("M12", "R8 off: no arm identity check",
      "fn arm_identity(arm: &Arm, ft: &Row, reference: &Row) -> Result<()> {\n",
-     "fn arm_identity(arm: &Arm, ft: &Row, reference: &Row) -> Result<()> {\n    if arm.name != \"\" {\n        return Ok(());\n    }\n"),
+     "fn arm_identity(arm: &Arm, ft: &Row, reference: &Row) -> Result<()> {\n"
+     "    if arm.name != \"\" {\n        return Ok(());\n    }\n"),
     ("M13", "margin grid check off",
      "        close(value, exact.f64()),\n",
      "        true || close(value, exact.f64()),\n"),
@@ -82,8 +83,10 @@ MUTATIONS = [
      "&[\"val_shard_hash\", \"needle\", \"ood\"],",
      "&[],"),
     ("N1", "R9_room off: no_room never blocks",
-     "            Ok(match dir {\n                Dir::Higher => (2 * g * f - e * h) * v >= u * f * h,",
-     "            Ok(false && match dir {\n                Dir::Higher => (2 * g * f - e * h) * v >= u * f * h,"),
+     "            Ok(match dir {\n                Dir::Higher => (2 * g * f - e * h) * v >= u * f "
+     "* h,",
+     "            Ok(false && match dir {\n"
+     "                Dir::Higher => (2 * g * f - e * h) * v >= u * f * h,"),
     ("N2", "R9_room higher form at equality has room (>= -> >)",
      "Dir::Higher => (2 * g * f - e * h) * v >= u * f * h,",
      "Dir::Higher => (2 * g * f - e * h) * v > u * f * h,"),
@@ -98,7 +101,8 @@ MUTATIONS = [
      "        .filter_map(|r| r.refusal().filter(|s| s.starts_with(\"(b)\")))\n"),
     ("N6", "R9_room applied to J6(f)'s targets only",
      "        .flat_map(|(arm, _)| arm.targets.iter().map(|m| Room::of(arm, *m, &envelope)))",
-     "        .filter(|(arm, _)| arm.name == \"j6f\")\n        .flat_map(|(arm, _)| arm.targets.iter().map(|m| Room::of(arm, *m, &envelope)))"),
+     "        .filter(|(arm, _)| arm.name == \"j6f\")\n"
+     "        .flat_map(|(arm, _)| arm.targets.iter().map(|m| Room::of(arm, *m, &envelope)))"),
     ("N7", "an arm-row refusal propagates and drops the room already decided",
      "    let judged = judge_arms(inputs, arm_ledger, &envelope, arms);",
      "    let judged = Ok(judge_arms(inputs, arm_ledger, &envelope, arms)?);"),
@@ -118,7 +122,12 @@ def run_tests() -> tuple[int, str, list[str], bool]:
     result = re.findall(r"^test result: .*$", text, re.M)
     failed = sorted(set(re.findall(r"^test tests::(\S+) \.\.\. FAILED$", text, re.M)))
     compiled = bool(result)
-    return p.returncode, result[-1] if result else "(no test result: did not compile)", failed, compiled
+    return (
+        p.returncode,
+        result[-1] if result else "(no test result: did not compile)",
+        failed,
+        compiled,
+    )
 
 
 def main() -> int:

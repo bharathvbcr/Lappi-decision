@@ -46,7 +46,7 @@ def main() -> int:
     by = collections.defaultdict(lambda: {"sequences": 0, "tokens": 0, "positions": 0})
     rows = collections.defaultdict(set)
     composed_len_hist = collections.Counter()
-    for s, n in zip(seqs, lengths.tolist()):
+    for s, n in zip(seqs, lengths.tolist(), strict=False):
         cat = category(s["row_id"])
         b = buckets[bisect.bisect_left(buckets, n)]
         rec = by[cat]
@@ -83,12 +83,16 @@ def main() -> int:
     non_comp_seqs = total["sequences"] - comp["sequences"]
     # Added prose-noul rows: 4,000 (2,000 own-repo, 2,000 MMLU/CSQA contrast), measured at the
     # v4 noul rows' own mean tokens per sequence and sequences per row.
-    noul_cats = [k for k in by if k.startswith("defect.") and k not in ("defect.composed", "defect.qdm")]
+    noul_cats = [
+        k for k in by if k.startswith("defect.") and k not in ("defect.composed", "defect.qdm")
+    ]
     noul_tok = sum(by[k]["tokens"] for k in noul_cats)
     noul_seq = sum(by[k]["sequences"] for k in noul_cats)
     noul_rows = sum(len(rows[k]) for k in noul_cats)
     add_noul_rows = 4_000
-    add_noul_tokens = add_noul_rows * (noul_seq / noul_rows) * (noul_tok / noul_seq) if noul_rows else 0
+    add_noul_tokens = (
+        add_noul_rows * (noul_seq / noul_rows) * (noul_tok / noul_seq) if noul_rows else 0
+    )
     # CLINC re-key: 4 families x 134 oos rows leave train (clinc_oos_rekey.json); ~2 seqs? no:
     # each CLINC row is one choice sequence. Measured mean tokens per CLINC sequence.
     clinc = [k for k in by if k.startswith("intent.")]
@@ -98,7 +102,9 @@ def main() -> int:
     mc = [k for k in by if k.endswith("multiple_choice")]
     mc_mean = sum(by[k]["tokens"] for k in mc) / sum(by[k]["sequences"] for k in mc)
     eval_delta_tokens = -1_196 * mc_mean
-    v5_tokens = non_comp_tokens + v5_comp_tokens + add_noul_tokens + clinc_delta_tokens + eval_delta_tokens
+    v5_tokens = (
+        non_comp_tokens + v5_comp_tokens + add_noul_tokens + clinc_delta_tokens + eval_delta_tokens
+    )
     pad = measured["padding_share"]
     v5_positions = v5_tokens / (1 - pad)
     f_steps = 9_683
