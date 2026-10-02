@@ -27,7 +27,14 @@
 //! losses and repeats bit for bit, and it prints its distance from the reference for
 //! information.
 //!
-//! The `max_grad_norm = 150` arm Amendment 2 (iii) adds waits on L-oracle's fixture for it.
+//! Amendment 2 (iii)'s second arm, `max_grad_norm = 150` (`fp32_clip150`), runs under the same
+//! ExactF32 bars against its own reference. Its clip is active on 13 steps and inactive on 7, so
+//! both branches of the clip run in the composed step. It needs lr_scale like the other parity
+//! tests.
+//!
+//! The span head steps only on the 13 batches with a span row, on its own count, as torch's
+//! AdamW skips a `None` grad. The reference's `per_parameter.adamw_steps_taken` says so, and the
+//! CPU test below checks it against the batch plan.
 //!
 //! GPU only: `#[ignore]`, named `gpu_*`, run serialized in an agreed window:
 //!
@@ -81,7 +88,16 @@ fn recipe_lower() -> LowerLayers {
     }
 }
 
+/// The clip of arm `arm`, read from its manifest entry.
+fn arm_max_grad_norm(arm: &str) -> f64 {
+    json("manifest.json")["arms"][arm]["max_grad_norm"].as_f64().unwrap_or_else(|| panic!("arm {arm}: max_grad_norm"))
+}
+
 fn run(operands: Operands, lower: Option<LowerLayers>) -> Result<Run, TrainError> {
+    run_clipped(operands, lower, recipe::MAX_GRAD_NORM)
+}
+
+fn run_clipped(operands: Operands, lower: Option<LowerLayers>, max_grad_norm: f64) -> Result<Run, TrainError> {
     let snap = Snapshot::from_files(&dir().join("config.json"), &dir().join("init.safetensors")).unwrap();
     let mut p = Qwen35Provider::open(&snap, operands).unwrap();
     let mut o: LetterSpanObjective<RealBatch, HostSpanHead> =
@@ -95,7 +111,7 @@ fn run(operands: Operands, lower: Option<LowerLayers>) -> Result<Run, TrainError
             beta2: recipe::DEFAULT_BETA2,
             lower_layers: lower,
         },
-        max_grad_norm: recipe::MAX_GRAD_NORM,
+        max_grad_norm,
         epoch: 0,
         seed: 0,
         checkpoint: None,
@@ -147,11 +163,11 @@ fn losses_vs(run: &Run, arm: &str) -> (f64, f64) {
     (early, all)
 }
 
-/// Amendment 2 (i)'s final-weights measure against `fp32/final.safetensors`. Prints every
+/// Amendment 2 (i)'s final-weights measure against `<arm>/final.safetensors`. Prints every
 /// tensor over its own max and over its displacement from the init; returns the worst gated
 /// ratio and the tensor it is on.
-fn final_weights(run: &Run) -> (f64, String) {
-    let reference = tensors(&dir().join("fp32/final.safetensors"));
+fn final_weights(run: &Run, arm: &str) -> (f64, String) {
+    let reference = tensors(&dir().join(format!("{arm}/final.safetensors")));
     let init = tensors(&dir().join("init.safetensors"));
     assert_eq!(
         reference.keys().collect::<Vec<_>>(),
@@ -195,27 +211,44 @@ fn rung_b_recipe_and_head_are_the_ones_this_file_trains() {
     assert_eq!((lower.n, lower.lr_scale), (2, 0.1));
     let cfg = json("config.json");
     assert_eq!(init_head().hidden_size() as u64, cfg["text_config"]["hidden_size"].as_u64().unwrap());
+    // The clip-150 arm is F's recipe with only the clip changed, and both clip branches run.
+    let m = json("manifest.json");
+    assert_eq!(arm_max_grad_norm("fp32"), recipe::MAX_GRAD_NORM);
+    assert_eq!(arm_max_grad_norm("fp32_clip150"), 150.0);
+    let inactive = m["arms"]["fp32_clip150"]["clip_inactive_steps"].as_array().expect("clip_inactive_steps").len();
+    assert!(inactive > 0 && inactive < 20, "{inactive} of 20 steps unclipped");
+    // The span head steps only on a batch with a span row: torch skips its `None` grad, and the
+    // trainer skips a host entry with no gradient (`adamw_entry_step`).
+    let with_span = json("batches/plan.json")["batches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|b| !b["span_plan"].is_null())
+        .count() as u64;
+    assert_eq!(with_span, 13);
+    for (name, row) in m["per_parameter"].as_object().unwrap() {
+        let want = if name.starts_with("span_head.") { with_span } else { 20 };
+        assert_eq!(row["adamw_steps_taken"].as_u64(), Some(want), "{name}");
+    }
 }
 
-/// CPU only. Whether ojas-qwen35 can open the fixture, checked in whichever state the fixture is
-/// in, so it never passes vacuously.
-/// - As L-oracle first wrote it, the top-level `tie_word_embeddings` is `false` though
-///   `text_config` says `true`. The torch reference ties the head by construction (`backbone.py`
-///   logits against the embedding), but ojas-qwen35 refuses any `false`. Every GPU test in this
-///   file would then fail at `Snapshot::from_files` before training
-///   (`GAP-LTRAINER-RUNG-B-FIXTURE-UNTIED-TOP-LEVEL-2026-10-01`), so that refusal is asserted.
-/// - Once the fixture says `true`, the snapshot must open and match the head's width.
+/// CPU only. L-oracle's tie fix (`16231a3`): the fixture's top-level `tie_word_embeddings` is
+/// `true`, as its `text_config` and the torch reference (logits against the embedding) already
+/// were, and ojas-qwen35, which refuses any `false`, opens it at the span head's width. Before
+/// the fix every GPU test here failed at `Snapshot::from_files`
+/// (`GAP-LTRAINER-RUNG-B-FIXTURE-UNTIED-TOP-LEVEL-2026-10-01`).
 #[test]
-fn rung_b_fixture_config_opens_in_ojas_or_is_refused_for_its_untied_top_level_flag() {
+fn rung_b_fixture_config_is_tied_and_opens_in_ojas() {
     let cfg = json("config.json");
     assert_eq!(cfg["text_config"]["tie_word_embeddings"], true);
-    let opened = Snapshot::from_files(&dir().join("config.json"), &dir().join("init.safetensors"));
-    match (cfg["tie_word_embeddings"].as_bool(), opened) {
-        (Some(false), Err(e)) => assert!(e.to_string().contains("tie_word_embeddings is false"), "{e}"),
-        (Some(false), Ok(_)) => panic!("ojas-qwen35 accepted an untied flag it is documented to refuse"),
-        (_, Ok(snap)) => assert_eq!(snap.config.hidden as usize, init_head().hidden_size()),
-        (_, Err(e)) => panic!("the fixture's config does not open in ojas-qwen35: {e}"),
-    }
+    assert_eq!(cfg["tie_word_embeddings"], true, "the top-level flag");
+    let snap = Snapshot::from_files(&dir().join("config.json"), &dir().join("init.safetensors"))
+        .unwrap_or_else(|e| panic!("the fixture's config does not open in ojas-qwen35: {e}"));
+    println!(
+        "rung (b) fixture: top-level tie_word_embeddings {}; ojas-qwen35 opened it at hidden {}",
+        cfg["tie_word_embeddings"], snap.config.hidden
+    );
+    assert_eq!(snap.config.hidden as usize, init_head().hidden_size());
 }
 
 #[test]
@@ -226,11 +259,36 @@ fn gpu_rung_b_exact_f32_trains_as_torch_fp32_on_fs_recipe() {
     println!("rung (b) ExactF32 vs torch fp32, losses:");
     let (early, all) = losses_vs(&a, "fp32");
     println!("rung (b) ExactF32 vs torch fp32, final weights (Amendment 2 measure):");
-    let (worst, on) = final_weights(&a);
+    let (worst, on) = final_weights(&a, "fp32");
     println!("grads_step0: report-only at this rung; not measured by this test");
     let b = run(Operands::ExactF32, lower).unwrap();
     assert_eq!(bits(&a), bits(&b), "two Rust runs are bit-identical");
     assert_eq!(a.result.loss_log_digest().unwrap(), b.result.loss_log_digest().unwrap());
+    assert!(early <= 1e-5, "loss steps 0-5: {early:.3e} > 1e-5");
+    assert!(all <= 1e-4, "loss steps 0-19: {all:.3e} > 1e-4");
+    assert!(worst <= 1e-5, "final weights: {worst:.3e} > 1e-5 on {on}");
+}
+
+/// Amendment 2 (iii): the same ExactF32 bars against the `max_grad_norm = 150` reference, so
+/// the composed step runs both clip branches. The per-step clip coefficients are printed beside
+/// the reference's (report-only).
+#[test]
+#[ignore = "GPU; and F's two-group recipe is refused until tessl's per-entry lr_scale lands"]
+fn gpu_rung_b_exact_f32_clip_150_trains_as_torch_fp32_clip150() {
+    let lower = Some(recipe_lower());
+    let a = run_clipped(Operands::ExactF32, lower, arm_max_grad_norm("fp32_clip150"))
+        .expect("rung (b) needs tessl's per-entry lr_scale (ruling 6)");
+    println!("rung (b) ExactF32 clip 150 vs torch fp32_clip150, losses:");
+    let (early, all) = losses_vs(&a, "fp32_clip150");
+    println!("rung (b) ExactF32 clip 150, clip coefficient per step (report-only):");
+    for (s, (want, got)) in trajectory("fp32_clip150").iter().zip(&a.result.steps).enumerate() {
+        println!(
+            "  step {s:2}: rust {:.9} fp32_clip150 {:.9} (active {})",
+            got.clip_coefficient, want["clip_coef"], want["clip_active"]
+        );
+    }
+    println!("rung (b) ExactF32 clip 150 vs torch fp32_clip150, final weights (Amendment 2 measure):");
+    let (worst, on) = final_weights(&a, "fp32_clip150");
     assert!(early <= 1e-5, "loss steps 0-5: {early:.3e} > 1e-5");
     assert!(all <= 1e-4, "loss steps 0-19: {all:.3e} > 1e-4");
     assert!(worst <= 1e-5, "final weights: {worst:.3e} > 1e-5 on {on}");
@@ -258,6 +316,6 @@ fn gpu_rung_b_single_group_smoke_completes_finite_and_repeats_bit_for_bit() {
     assert_eq!(a.result.loss_log_digest().unwrap(), b.result.loss_log_digest().unwrap());
     println!("single-group smoke vs the two-group torch fp32 reference (information only; not a parity measure):");
     losses_vs(&a, "fp32");
-    let (worst, on) = final_weights(&a);
+    let (worst, on) = final_weights(&a, "fp32");
     println!("  worst gated ratio {worst:.3e} on {on} (a different recipe; no bar applies)");
 }
