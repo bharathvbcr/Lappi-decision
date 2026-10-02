@@ -28,6 +28,11 @@ fn fixtures() -> PathBuf {
     common::crate_dir().join("tests/fixtures")
 }
 
+/// L-oracle's rung (b) set, once every file in it matches its `manifest.json` `files` pins.
+fn tiny_published() -> PathBuf {
+    common::pins::verified(&fixtures().join("tiny-published"), common::pins::Form::JsonFiles)
+}
+
 fn oracle() -> Value {
     serde_json::from_str(&std::fs::read_to_string(fixtures().join("span-head-init-digest-tiny.json")).unwrap()).unwrap()
 }
@@ -38,7 +43,7 @@ fn hex(b: &[u8]) -> String {
 
 /// The tiny init's four `span_head.*` tensors: (name, shape, little-endian bytes).
 fn tiny_head_tensors() -> Vec<(String, Vec<usize>, Vec<u8>)> {
-    let file = SafeTensorsFile::open(&fixtures().join("tiny-published/init.safetensors")).unwrap();
+    let file = SafeTensorsFile::open(&tiny_published().join("init.safetensors")).unwrap();
     let mut out = Vec::new();
     for (name, info) in file.tensors() {
         if !name.starts_with("span_head.") {
@@ -72,7 +77,7 @@ fn tiny_head() -> SpanHead {
 #[test]
 fn the_tensor_set_digest_is_pythons_on_the_tiny_head() {
     let o = oracle();
-    let src = std::fs::read(fixtures().join("tiny-published/init.safetensors")).unwrap();
+    let src = std::fs::read(tiny_published().join("init.safetensors")).unwrap();
     assert_eq!(hex(&Sha256::digest(&src)), o["source_sha256"].as_str().unwrap(), "the fixture's source file");
     let tensors = tiny_head_tensors();
     assert_eq!(tensors.len(), 4);
