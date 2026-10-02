@@ -5728,9 +5728,21 @@ mod tests {
         let o = j6a_of(&fx);
         refused_with(&o, "room not decided");
         refused_with(&o, "(a) the pre-registration's amendments are pending");
-        // The committed file itself is pending.
-        assert!(prereg_j6a().get("amendments").is_none());
-        assert!(amendments_of(prereg_j6a().as_object().unwrap()).is_err());
+        // The committed file is in one of its two legitimate states, and this test needs no
+        // edit when the lead amends it: pending (no `amendments`: refused as pending), or
+        // amended (well-formed pins, build 2's snapshot not F's).
+        let committed = prereg_j6a();
+        let committed = committed.as_object().unwrap();
+        match committed.get("amendments") {
+            None => {
+                let err = amendments_of(committed).unwrap_err();
+                assert!(err.contains("amendments are pending"), "{err}");
+            }
+            Some(_) => {
+                let pins = amendments_of(committed).unwrap();
+                assert_ne!(pins.data_snapshot_hash, F_DATA_SNAPSHOT_HASH);
+            }
+        }
     }
 
     #[test]

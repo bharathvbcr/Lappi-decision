@@ -1,6 +1,6 @@
-after-state source sha256 fdaa3e433cee98a67cc27267fbb540f8c70f47e20bad26132139899f6e43be06
+after-state source sha256 b5347157e5c49d51399bdcfc30bb0c1db9492de6d436864b9f361b0dcf6706b7
 main 74aea95 source sha256 ea6296d8c47f1bf2374721ffcdc8168f1c4409ded34cefe88fc648696e742f46 (checker code before j6a)
-before-state = main's code + this lane's test module, sha256 51ba532791350885883067b52cd70a3139d6cd37aad6efb7f0d9319cb7436007
+before-state = main's code + this lane's test module, sha256 9e6fdafb45e35e4076b52211307fdab892bf14fa42bfaf9888579fe3d1acaa68
 command: cargo test -p qd-runtime --bin qd-post-f-rules
 
 [before] exit 101
@@ -87,129 +87,129 @@ error[E0425]: cannot find value `ID_ABSTAIN_COMMONSENSE` in this scope
      |                 ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
 
 error[E0425]: cannot find type `Pins` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5164:32
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5176:32
      |
-5164 |         type CliEdit = fn(&mut Pins);
+5176 |         type CliEdit = fn(&mut Pins);
      |                                ^^^^ not found in this scope
 
 error[E0425]: cannot find value `PERM_KNOWLEDGE` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5212:34
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5224:34
      |
-5212 |             [("j6a".to_string(), PERM_KNOWLEDGE.name.to_string())]
+5224 |             [("j6a".to_string(), PERM_KNOWLEDGE.name.to_string())]
      |                                  ^^^^^^^^^^^^^^ not found in this scope
 
 error[E0425]: cannot find value `ID_ABSTAIN_KNOWLEDGE` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5223:34
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5235:34
      |
-5223 |             [("j6a".to_string(), ID_ABSTAIN_KNOWLEDGE.name.to_string())]
+5235 |             [("j6a".to_string(), ID_ABSTAIN_KNOWLEDGE.name.to_string())]
      |                                  ^^^^^^^^^^^^^^^^^^^^ not found in this scope
 
 error[E0425]: cannot find value `ARM_J6A` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5332:18
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5344:18
      |
 4766 |     fn arm_j6a(o: &Outcome) -> &Value {
      |     --------------------------------- similarly named function `arm_j6a` defined here
 ...
-5332 |         assert!(!ARM_J6A.reads_control() && !ARM_J6A.reads_margin());
+5344 |         assert!(!ARM_J6A.reads_control() && !ARM_J6A.reads_margin());
      |                  ^^^^^^^
      |
 help: a function with a similar name exists
      |
-5332 -         assert!(!ARM_J6A.reads_control() && !ARM_J6A.reads_margin());
-5332 +         assert!(!arm_j6a.reads_control() && !ARM_J6A.reads_margin());
+5344 -         assert!(!ARM_J6A.reads_control() && !ARM_J6A.reads_margin());
+5344 +         assert!(!arm_j6a.reads_control() && !ARM_J6A.reads_margin());
      |
 
 error[E0425]: cannot find value `ARM_J6A` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5332:46
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5344:46
      |
 4766 |     fn arm_j6a(o: &Outcome) -> &Value {
      |     --------------------------------- similarly named function `arm_j6a` defined here
 ...
-5332 |         assert!(!ARM_J6A.reads_control() && !ARM_J6A.reads_margin());
+5344 |         assert!(!ARM_J6A.reads_control() && !ARM_J6A.reads_margin());
      |                                              ^^^^^^^
      |
 help: a function with a similar name exists
      |
-5332 -         assert!(!ARM_J6A.reads_control() && !ARM_J6A.reads_margin());
-5332 +         assert!(!ARM_J6A.reads_control() && !arm_j6a.reads_margin());
+5344 -         assert!(!ARM_J6A.reads_control() && !ARM_J6A.reads_margin());
+5344 +         assert!(!ARM_J6A.reads_control() && !arm_j6a.reads_margin());
      |
 
 error[E0425]: cannot find value `J6A_CODE_COMMIT` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5355:57
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5367:57
      |
-5355 |         assert!(ft_text.contains(&format!("code_commit {J6A_CODE_COMMIT}")));
+5367 |         assert!(ft_text.contains(&format!("code_commit {J6A_CODE_COMMIT}")));
      |                                                         ^^^^^^^^^^^^^^^ not found in this scope
 
 error[E0425]: cannot find value `DERIVED_RECIPE_KEYS` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5371:18
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5383:18
      |
-5371 |         for k in DERIVED_RECIPE_KEYS {
+5383 |         for k in DERIVED_RECIPE_KEYS {
      |                  ^^^^^^^^^^^^^^^^^^^ not found in this scope
 
 error[E0425]: cannot find value `REPLAY_SET_ROWS` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5380:20
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5392:20
      |
-5380 |         assert_eq!(REPLAY_SET_ROWS, 3568);
+5392 |         assert_eq!(REPLAY_SET_ROWS, 3568);
      |                    ^^^^^^^^^^^^^^^ not found in this scope
 
 error[E0425]: cannot find value `J6A_LABELS` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5404:21
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5416:21
      |
-5404 |         assert_eq!((J6A_LABELS.unreadable, J6A_LABELS.no_room), ("(a)", "(b)"));
+5416 |         assert_eq!((J6A_LABELS.unreadable, J6A_LABELS.no_room), ("(a)", "(b)"));
      |                     ^^^^^^^^^^ not found in this scope
 
 error[E0425]: cannot find value `J6A_LABELS` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5404:44
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5416:44
      |
-5404 |         assert_eq!((J6A_LABELS.unreadable, J6A_LABELS.no_room), ("(a)", "(b)"));
+5416 |         assert_eq!((J6A_LABELS.unreadable, J6A_LABELS.no_room), ("(a)", "(b)"));
      |                                            ^^^^^^^^^^ not found in this scope
 
 error[E0425]: cannot find value `J6A_CODE_COMMIT` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5408:59
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5420:59
      |
-5408 |         assert_eq!(rows.ft.str_at(&["code_commit"]), Some(J6A_CODE_COMMIT));
+5420 |         assert_eq!(rows.ft.str_at(&["code_commit"]), Some(J6A_CODE_COMMIT));
      |                                                           ^^^^^^^^^^^^^^^ not found in this scope
 
 error[E0425]: cannot find value `REPLAY_KEYS` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5417:18
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5429:18
      |
-5417 |         for k in REPLAY_KEYS {
+5429 |         for k in REPLAY_KEYS {
      |                  ^^^^^^^^^^^ not found in this scope
 
 error[E0425]: cannot find value `DERIVED_RECIPE_KEYS` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5420:18
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5432:18
      |
-5420 |         for k in DERIVED_RECIPE_KEYS.iter().chain(&["shard_hash", "tag"]) {
+5432 |         for k in DERIVED_RECIPE_KEYS.iter().chain(&["shard_hash", "tag"]) {
      |                  ^^^^^^^^^^^^^^^^^^^ not found in this scope
 
 error[E0425]: cannot find value `ARM_J6A` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5427:30
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5439:30
      |
 4766 |     fn arm_j6a(o: &Outcome) -> &Value {
      |     --------------------------------- similarly named function `arm_j6a` defined here
 ...
-5427 |                 let metric = ARM_J6A
+5439 |                 let metric = ARM_J6A
      |                              ^^^^^^^
      |
 help: a function with a similar name exists
      |
-5427 -                 let metric = ARM_J6A
-5427 +                 let metric = arm_j6a
+5439 -                 let metric = ARM_J6A
+5439 +                 let metric = arm_j6a
      |
 
 error[E0425]: cannot find value `ARM_J6A` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5431:28
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5443:28
      |
 4766 |     fn arm_j6a(o: &Outcome) -> &Value {
      |     --------------------------------- similarly named function `arm_j6a` defined here
 ...
-5431 |                     .chain(ARM_J6A.must_not_lose())
+5443 |                     .chain(ARM_J6A.must_not_lose())
      |                            ^^^^^^^
      |
 help: a function with a similar name exists
      |
-5431 -                     .chain(ARM_J6A.must_not_lose())
-5431 +                     .chain(arm_j6a.must_not_lose())
+5443 -                     .chain(ARM_J6A.must_not_lose())
+5443 +                     .chain(arm_j6a.must_not_lose())
      |
 
 error[E0061]: this function takes 5 arguments but 6 arguments were supplied
@@ -276,19 +276,25 @@ error[E0425]: cannot find function `sha256_hex` in this scope
      |                   ^^^^^^^^^^ not found in this scope
 
 error[E0425]: cannot find function `amendments_of` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5114:17
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5119:27
      |
-5114 |         assert!(amendments_of(prereg_j6a().as_object().unwrap()).is_err());
-     |                 ^^^^^^^^^^^^^ not found in this scope
+5119 |                 let err = amendments_of(committed).unwrap_err();
+     |                           ^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `amendments_of` in this scope
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5123:28
+     |
+5123 |                 let pins = amendments_of(committed).unwrap();
+     |                            ^^^^^^^^^^^^^ not found in this scope
 
 error[E0425]: cannot find function `j6a_agrees` in this scope
-    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5352:9
+    --> crates/qd-runtime/src/bin/qd_post_f_rules.rs:5364:9
      |
-5352 |         j6a_agrees(map).unwrap();
+5364 |         j6a_agrees(map).unwrap();
      |         ^^^^^^^^^^ not found in this scope
 
 Some errors have detailed explanations: E0061, E0422, E0425, E0599.
 For more information about an error, try `rustc --explain E0061`.
-error: could not compile `qd-runtime` (bin "qd-post-f-rules" test) due to 33 previous errors
+error: could not compile `qd-runtime` (bin "qd-post-f-rules" test) due to 34 previous errors
 
-[restored, sha256 fdaa3e433cee98a67cc27267fbb540f8c70f47e20bad26132139899f6e43be06, equal: True]
+[restored, sha256 b5347157e5c49d51399bdcfc30bb0c1db9492de6d436864b9f361b0dcf6706b7, equal: True]
