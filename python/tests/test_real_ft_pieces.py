@@ -367,7 +367,9 @@ def test_main_trains_on_exactly_what_ft_split_rows_returns(tmp_path, monkeypatch
     monkeypatch.setattr(rft, "resolve_rev", lambda repo, rev: rev)
     monkeypatch.setattr(
         rft, "ShardReader",
-        lambda *a, **k: SimpleNamespace(header=SimpleNamespace(data_snapshot_hash="d" * 64)),
+        lambda *a, **k: SimpleNamespace(header=SimpleNamespace(
+            data_snapshot_hash="d" * 64, exclusions_sha256="",
+        )),
     )
     monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
     monkeypatch.setattr(rft, "corpus_facts", lambda out, **kw: None)
@@ -379,7 +381,7 @@ def test_main_trains_on_exactly_what_ft_split_rows_returns(tmp_path, monkeypatch
                       "defect_download": None, "defect_max_rows": None,
                       "repo_history": True, "general_record": None,
                       "general_max_rows": None, "replay_partition": False,
-                      "defect_noul": None}]
+                      "defect_noul": None, "exclude_identity_keys": None}]
 
 
 @pytest.mark.usefixtures("qd_prep")

@@ -49,7 +49,7 @@ class _Reader:
     def __init__(self) -> None:
         self.header = SimpleNamespace(
             data_snapshot_hash="d" * 64, buckets=(135, 1105), remap_hash="r" * 64,
-            shard_hash=lambda: "t" * 64,
+            shard_hash=lambda: "t" * 64, exclusions_sha256="",
         )
         self.span_check = NotRun(reason="stub")
         self.checks = {"shard_remap_matches_header": NotRun(reason="stub")}

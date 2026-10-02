@@ -887,8 +887,8 @@ def sattolo_permutation(n: int, *, seed_text: str) -> list[int]:
 #: drift. Above the library default of 500, which does NOT converge on this corpus -- and
 #: an unconverged control is refused, so the budget is what makes the gate reachable at
 #: all. The ITERATION BUDGET moves, never the tolerance: the tolerance is what makes the
-#: control worth beating.
-LINEAR_CONTROL_MAX_ITER: Final[int] = 6_000
+#: control worth beating. 8,000 since 2026-10-02, with the step halving past 6,000.
+LINEAR_CONTROL_MAX_ITER: Final[int] = 8_000
 
 #: The linear control is fitted once per sweep, on CPU, with the GPU doing nothing. On the
 #: rung-0 corpus that is 38s and unremarkable. On the commitpackft corpus it projects to

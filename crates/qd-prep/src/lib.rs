@@ -15,12 +15,21 @@
 //! - [`lsh`]: `qd_data.minhash.candidate_pairs`, the banded-LSH bucketing that dedupe and the
 //!   split's cross-check run over those signatures: 24.6 s of the 78 s rebuild on the Mac
 //!   (one unprofiled run at load ~40).
+//! - [`containment`]: `qd_train.replay.decontaminate`'s word 8-gram containment with the
+//!   complete pair list, the v5 decontamination scan (the Python gold-side scan of 2026-10-02
+//!   peaked at 17.4 GB). [`pyunicode`] is Python's `\w` and `str.lower()`, from tables read
+//!   off CPython ([`pyunicode_tables`]); [`sha256`] the digests its attestation names.
 
 pub mod blake2b;
+pub mod containment;
 pub mod linfit;
 pub mod linwire;
 pub mod lsh;
 pub mod minhash;
 pub mod ngram;
 pub mod pairwise;
+pub mod pyunicode;
+#[rustfmt::skip]
+mod pyunicode_tables;
+pub mod sha256;
 pub mod wire;

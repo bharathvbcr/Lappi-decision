@@ -51,6 +51,7 @@ from .artifacts import SLOT_SPAN, Batch
 
 __all__ = [
     "ATTESTATION_VERSION",
+    "DecontamPair",
     "DecontamReport",
     "PriorCache",
     "PriorKLReplay",
@@ -133,8 +134,35 @@ def target_digest(texts: Mapping[str, str]) -> str:
 
 
 @dataclass(frozen=True)
+class DecontamPair:
+    """One (replay row, target row) whose containment is at or over the threshold.
+
+    ``containment`` is ``shared / target_ngrams``: the share of the target row's n-grams the
+    replay row contains. Both counts are kept so the ratio is exact on disk.
+    """
+
+    replay_row: str
+    target: str
+    target_row: str
+    shared: int
+    target_ngrams: int
+
+    @property
+    def containment(self) -> float:
+        return self.shared / self.target_ngrams
+
+
+@dataclass(frozen=True)
 class DecontamReport:
-    """What one decontamination compared and found. Counts are complete; examples capped."""
+    """What one decontamination compared and found. Counts are complete; examples capped.
+
+    ``pairs`` is complete as well: EVERY (replay row, target set, target row) at or over the
+    threshold, not only each row's best target (Fable's J6(a) ruling, Q5) -- a val row that
+    is some replay row's second-best target is a contaminated val row too. It is not part of
+    :meth:`to_json`, so the attestation stays version 1, byte for byte, and a reader of that
+    format (``real_ft_run``'s ``check_attestation``) is unaffected; a caller that needs it
+    writes it on its own (``tools/replay_decontam.py --hits-out``).
+    """
 
     n: int
     threshold: float
@@ -146,6 +174,7 @@ class DecontamReport:
     targets: dict[str, dict[str, Any]]
     hits: dict[str, int]
     hit_examples: list[dict[str, Any]] = field(default_factory=list)
+    pairs: tuple[DecontamPair, ...] = ()
 
     @property
     def clean(self) -> bool:
@@ -178,6 +207,8 @@ def decontaminate(
     A replay row hits target set ``T`` when, for some row ``t`` of ``T``, it contains at
     least ``threshold`` of ``t``'s n-grams (RSI's ``Containment.hit``). ``hits[T]`` counts
     replay rows, not pairs. Target rows with no n-gram are counted and cannot be hit.
+    ``pairs`` lists every (replay row, target row) at or over the threshold, in replay-row
+    order, then target-set order, then target-row order.
     """
     if n < 1 or not (0.0 < threshold <= 1.0):
         raise ReplayRefusal(f"n={n} threshold={threshold} is not a containment test")
@@ -208,6 +239,7 @@ def decontaminate(
         }
     hits = {name: 0 for name in targets}
     examples: list[dict[str, Any]] = []
+    pairs: list[DecontamPair] = []
     checked = too_short = 0
     for rid, text in sorted(replay.items()):
         grams = word_ngrams(text, n)
@@ -226,10 +258,17 @@ def decontaminate(
                         {"replay_row": rid, "target": name, "target_row": best[0],
                          "containment": round(best[1], 4)}
                     )
+                # Every target row over the threshold, not only `best`: the same comparison
+                # `best` was chosen by, so a row has pairs exactly when it is a hit.
+                pairs.extend(
+                    DecontamPair(rid, name, t, c, size[t])
+                    for t, c in sorted(counts.items())
+                    if c / size[t] >= threshold
+                )
     return DecontamReport(
         n=n, threshold=threshold, replay_rows_total=len(replay), replay_rows_checked=checked,
         replay_rows_too_short=too_short, targets=report_targets, hits=hits,
-        hit_examples=examples,
+        hit_examples=examples, pairs=tuple(pairs),
     )
 
 

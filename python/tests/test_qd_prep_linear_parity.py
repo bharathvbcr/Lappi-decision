@@ -55,6 +55,8 @@ import linear_control_native as native  # noqa: E402
 from qd_data.config import DataConfig  # noqa: E402
 from qd_data.mixture import build_mixture  # noqa: E402
 from qd_train.baseline import (  # noqa: E402
+    LR_CONSTANT_ITERS,
+    LR_HALVING_PERIOD,
     CharNGramHasher,
     ContextLengthFeatures,
     LinearBaseline,
@@ -309,6 +311,36 @@ def test_the_fit_is_the_sparse_reference_bit_for_bit(qd_prep_bin: Path, name: st
     x_eval = featurizer.transform(list(eval_docs))
     assert got.eval_logits.tobytes() == (x_eval.matmul(want.weights) + want.bias).tobytes()
     assert got.predictions == reference.predict(list(eval_docs))
+
+
+def test_the_step_halving_is_the_sparse_reference_bit_for_bit(qd_prep_bin: Path) -> None:
+    """Past ``LR_CONSTANT_ITERS`` the step halves every ``LR_HALVING_PERIOD`` (the
+    intent.domain limit cycle's fix, 2026-10-02), in both engines alike. ``tol=0`` so neither
+    stops early: every fit runs into the second halving, and the first 6,000 losses are the
+    constant-step fit's, bit for bit, in both."""
+    budget = LR_CONSTANT_ITERS + LR_HALVING_PERIOD + 100
+    docs, labels = _keyword_docs(48, 3, seed=5)
+
+    def model(max_iter: int) -> LinearBaseline:
+        return LinearBaseline(hasher=CharNGramHasher(dim=2**9), seed=0, max_iter=max_iter,
+                              tol=0.0, l2_grid=(1e-4, 1e-2), dense_budget_bytes=0)
+
+    want = model(budget).fit(list(docs), list(labels))
+    got = native.fit(qd_prep_bin, model(budget), docs, labels, docs[:4])
+    assert (want.converged, want.iterations) == (False, budget)
+    assert (got.fit.l2, got.fit.converged, got.fit.iterations) == (
+        want.l2, want.converged, want.iterations
+    )
+    assert got.fit.weights.tobytes() == want.weights.tobytes()
+    assert got.fit.bias.tobytes() == want.bias.tobytes()
+    assert np.asarray(got.fit.loss_history).tobytes() == np.asarray(want.loss_history).tobytes()
+    assert (np.float64(got.fit.final_grad_norm).tobytes()
+            == np.float64(want.final_grad_norm).tobytes())
+    for g in got.grid:
+        assert (g.converged, g.iterations) == (False, budget)
+    old = native.fit(qd_prep_bin, model(LR_CONSTANT_ITERS), docs, labels, docs[:4])
+    assert (np.asarray(old.fit.loss_history).tobytes()
+            == np.asarray(got.fit.loss_history[:LR_CONSTANT_ITERS]).tobytes())
 
 
 def test_the_fixtures_cover_what_the_parity_claim_needs() -> None:

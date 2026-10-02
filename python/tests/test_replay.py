@@ -120,6 +120,70 @@ def test_the_attestation_is_accepted_only_for_its_own_replay_set_and_targets():
                           required_targets=("val",))
 
 
+# --- the full pair list (Fable's J6(a) ruling, Q5) ----------------------------------------------
+
+
+def _pairs(report):
+    return {(p.replay_row, p.target, p.target_row) for p in report.pairs}
+
+
+def test_a_row_hitting_two_targets_lists_both():
+    """Fable's test. The val-side exclusion reads the target projection of the pair list, so
+    a val row that is only some replay row's SECOND-best target must still be listed:
+    ``hit_examples`` keeps the best target per (row, set) and would miss it."""
+    replay = {"r0": LONG_A + " and then " + LONG_B, "r1": "nothing in common with either one here"}
+    targets = {"val": {"va": LONG_A, "vb": LONG_B}, "heldout": {"ha": LONG_A}}
+    report = decontaminate(replay, targets)
+    assert _pairs(report) == {("r0", "val", "va"), ("r0", "val", "vb"), ("r0", "heldout", "ha")}
+    # hits[T] stays a count of replay rows, not of pairs.
+    assert report.hits == {"val": 1, "heldout": 1}
+    assert all(p.containment >= report.threshold for p in report.pairs)
+
+
+def test_the_pair_list_is_every_pair_at_or_above_the_threshold_and_nothing_below():
+    words = LONG_A.split()
+    grams_a = len(word_ngrams(LONG_A))
+    # The first 14 words carry 7 of LONG_A's 8-grams: under half, so no pair.
+    under = " ".join(words[:14])
+    # The first 18 words carry 11: at or over half, so a pair, with its exact counts.
+    over = " ".join(words[:18])
+    assert 7 / grams_a < 0.5 <= 11 / grams_a
+    report = decontaminate({"u": under, "o": over}, {"val": {"va": LONG_A}})
+    (pair,) = report.pairs
+    assert (pair.replay_row, pair.target, pair.target_row) == ("o", "val", "va")
+    assert (pair.shared, pair.target_ngrams) == (11, grams_a)
+    assert pair.containment == 11 / grams_a
+
+
+def test_the_pair_list_is_complete_past_the_examples_cap():
+    """``hit_examples`` stops at MAX_HIT_EXAMPLES (50); the pair list does not. The phase-4
+    attestation named 50 of its 185 hits, so the rows to exclude could not be read off it
+    (GAP-DECONTAM-ATTESTATION-NAMES-50-OF-N-HITS-2026-10-02)."""
+    replay = {f"r{i:02d}": f"row {i} " + LONG_A for i in range(60)}
+    report = decontaminate(replay, {"val": {"va": LONG_A}, "heldout": {"hb": LONG_B}})
+    assert report.hits == {"val": 60, "heldout": 0}
+    assert len(report.hit_examples) == 50
+    assert sorted(p.replay_row for p in report.pairs) == sorted(replay)
+
+
+def test_the_attestation_body_is_version_1_and_byte_identical_to_before_the_pair_list():
+    """Characterization: passes before and after the pair list was added, by design. The
+    sha256 below is the body ``tools/replay_decontam.py`` writes for this fixture at a502670,
+    before the change; ``real_ft_run`` at a502670 checks this format, so the pair list must
+    not enter it."""
+    import json
+
+    replay = {f"r{i:02d}": f"row {i} " + LONG_A for i in range(60)}
+    replay["rb"] = "x " + LONG_B
+    replay["short"] = "too short"
+    targets = {"val": {"va": LONG_A, "vb": LONG_B}, "heldout": {"ha": LONG_A}}
+    body = json.dumps(decontaminate(replay, targets).to_json(), indent=2, sort_keys=True) + "\n"
+    assert hashlib.sha256(body.encode()).hexdigest() == (
+        "8b56ba2486fe8262f387dc143c98c0b153ee510269b6ffbcbe593d1d79cc7c62"
+    )
+    assert json.loads(body)["version"] == 1 and "pairs" not in json.loads(body)
+
+
 # --- prior_kl ---------------------------------------------------------------------------------
 
 

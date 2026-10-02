@@ -145,7 +145,12 @@ OPTION_REPORT_ONLY: Final[str] = (
 #: ``rung0_real_run.LINEAR_CONTROL_MAX_ITER``; restated rather than imported because both of
 #: those import torch at module scope, and ``test_ft_linear_control`` pins the equality where
 #: torch exists. Raising it is allowed; lowering it to fit a cap weakens the opponent.
-DEFAULT_MAX_ITER: Final[int] = 6_000
+#: 6,000 until 2026-10-02; 8,000 since, with ``qd_train.baseline.step_size`` halving the step
+#: every 500 iterations past 6,000, because F seed 0's intent.domain control sat in a limit
+#: cycle at the constant step (c89b89a1) and converges at 6,093 under the schedule
+#: (HANDOFF/prep-containment-2026-10-02.md). Every fit that converged within 6,000 is
+#: unchanged bit for bit.
+DEFAULT_MAX_ITER: Final[int] = 8_000
 
 #: Letter kinds the eval row reports as ``val_top1.<kind>``; the verdicts must agree with them.
 LETTER_KIND_NAMES: Final[tuple[str, ...]] = ("choice", "score")
@@ -935,6 +940,11 @@ def score_against_option_control(
 # --- main ------------------------------------------------------------------------------
 
 
+def _note(args: argparse.Namespace) -> str:
+    """``--note``, as the row's notes end with it: a statement for the reader, never a key."""
+    return f". {args.note}" if args.note else ""
+
+
 def split_rows_function() -> Callable[..., tuple[list[DataRow], list[DataRow]]]:
     """``real_ft_run.ft_split_rows``, by name, or a refusal. Never a local copy."""
     try:
@@ -1002,8 +1012,19 @@ def main(argv: list[str] | None = None) -> int:
         help="exactly as the run was given it: the replay-only rows left the gold train "
              "split, so the control is not fitted on them",
     )
+    parser.add_argument(
+        "--exclude-identity-keys", type=Path, default=None,
+        help="exactly as the run was given it: the qd-prep containment exclusions.txt whose "
+             "train rows the run never saw, so the control is not fitted on them either. "
+             "Checked against the eval row's exclusions_sha256, in both directions",
+    )
     parser.add_argument("--control-cache", type=Path, default=None)
     parser.add_argument("--max-iter", type=int, default=DEFAULT_MAX_ITER)
+    parser.add_argument(
+        "--note", default="",
+        help="appended to the row's notes (not its recipe): e.g. that a re-run written to a "
+             "report-only ledger is not the row a gate reads unless the human says so",
+    )
     parser.add_argument(
         "--dense-budget-gb", type=float, default=24.0,
         help="only prices the --max-fit-minutes projection (calibrated on the Python engine, "
@@ -1070,6 +1091,25 @@ def main(argv: list[str] | None = None) -> int:
             f"and this control would hold out {args.hold_out_operator!r}: it would not be "
             "that arm's opponent"
         )
+    # The eval row carries the run's exclusion list (real_ft_run's RECIPE_PIECE_KEYS); a
+    # control fitted with another list, or none, is fitted on rows the model never saw.
+    exclusions_sha256 = ""
+    if args.exclude_identity_keys is not None:
+        try:
+            exclusions_sha256 = hashlib.sha256(
+                args.exclude_identity_keys.read_bytes()
+            ).hexdigest()
+        except OSError as exc:
+            raise Refused(
+                f"--exclude-identity-keys {args.exclude_identity_keys}: unreadable ({exc})"
+            ) from exc
+    recorded_exclusions = str((row.recipe or {}).get("exclusions_sha256", ""))
+    if recorded_exclusions != exclusions_sha256:
+        raise Refused(
+            f"the eval row's model was trained with exclusion list "
+            f"{recorded_exclusions or 'none'} and this control would apply "
+            f"{exclusions_sha256 or 'none'}: it would be fitted on a different train split"
+        )
     hold = HoldOut(args.operator_key, args.hold_out_operator) if args.hold_out_operator else None
     # Before the split rebuild, which is most of a run's wall clock before the first fit: a
     # control that cannot be fitted is refused while that costs nothing.
@@ -1082,6 +1122,7 @@ def main(argv: list[str] | None = None) -> int:
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
         general_record=args.general_record, general_max_rows=args.general_max_rows,
         replay_partition=args.replay_partition, defect_noul=args.defect_noul,
+        exclude_identity_keys=args.exclude_identity_keys,
     )
     # Rule 3 through this door too. A control fitted on a held-out family would not train a
     # model, but it would set the bar the model is measured against with data the model may
@@ -1132,6 +1173,9 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.replay_partition:
         recipe["replay_partition"] = True
+    if exclusions_sha256:
+        # Only when used, as real_ft_run's recipe pieces name it.
+        recipe["exclusions_sha256"] = exclusions_sha256
     if args.defect_noul is not None:
         # Only when used, as the pipeline's and real_ft_run's recipes record it: by the noul
         # corpus's examples sha256, so a control with the noul rows never hashes as one without.
@@ -1157,7 +1201,7 @@ def main(argv: list[str] | None = None) -> int:
         env=Environment.detect(device="cpu"), wall_clock_s=None, cost=None,
         recipe=recipe, quick=quick, quick_reason=quick_reason,
         notes=(f"tools/ft_linear_control.py: paired_margin_vs_linear for eval row {row.row_id}"
-               f" over {len(verdicts.correct)} letter rows"),
+               f" over {len(verdicts.correct)} letter rows{_note(args)}"),
     ) as recorder:
         started = time.monotonic()
         result = score_against_control(
@@ -1212,7 +1256,7 @@ def write_option_row(
         env=Environment.detect(device="cpu"), wall_clock_s=None, cost=None,
         recipe=recipe, quick=quick, quick_reason=quick_reason,
         notes=(f"tools/ft_linear_control.py --option-control for eval row {row.row_id}: "
-               f"{OPTION_REPORT_ONLY}"),
+               f"{OPTION_REPORT_ONLY}{_note(args)}"),
     ) as recorder:
         started = time.monotonic()
         result = score_against_option_control(

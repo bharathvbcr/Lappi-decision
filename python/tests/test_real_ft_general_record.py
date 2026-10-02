@@ -358,7 +358,9 @@ def test_main_forwards_the_record_and_pairs_a_general_set_by_its_index(
     monkeypatch.setattr(rft, "resolve_rev", lambda repo, rev: rev)
     monkeypatch.setattr(
         rft, "ShardReader",
-        lambda *a, **k: SimpleNamespace(header=SimpleNamespace(data_snapshot_hash="d" * 64)),
+        lambda *a, **k: SimpleNamespace(header=SimpleNamespace(
+            data_snapshot_hash="d" * 64, exclusions_sha256="",
+        )),
     )
     monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
     monkeypatch.setattr(rft, "corpus_facts", lambda out, **kw: facts.append(kw))

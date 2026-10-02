@@ -19,17 +19,30 @@ the ``noul`` line), which every row of a family shares. Replay rows arrive as to
 are decoded through the shard set's remap and the tokenizer that built it; byte-level BPE
 decodes to exactly the text it encoded.
 
+**The hit list (``--hits-out``).** The attestation names at most 50 hits
+(``MAX_HIT_EXAMPLES``), so the rows to rebuild without cannot be read off it. ``--hits-out``
+writes every (replay sequence, target row) pair at or over the threshold -- each sequence
+resolved to its ``(row_id, slot)`` through the shard set's sequence index and to its
+``identity_key`` through the replay manifest beside it -- and the distinct identity keys the
+pipeline's ``--replay-exclude`` takes. It is a separate file, so the attestation format does
+not change.
+
 Usage::
 
     python tools/replay_decontam.py --out OUT --replay-shards DIR \\
-        --tokenizer-json SNAPSHOT/tokenizer.json --attestation-out FILE [--rev REV]
+        --tokenizer-json SNAPSHOT/tokenizer.json --attestation-out FILE [--rev REV] \\
+        [--hits-out FILE]
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -44,6 +57,7 @@ from qd_data.rows import DataRow
 from qd_train.replay import (
     DEFAULT_N,
     DEFAULT_THRESHOLD,
+    DecontamReport,
     decontaminate,
     prompt_content,
     write_text_atomic,
@@ -53,6 +67,11 @@ from qd_train.shards import ShardReader
 REPO = Path(__file__).resolve().parents[1]
 #: The splits a replay row must not overlap: everything a number is ever reported on.
 TARGET_SPLITS: tuple[str, ...] = ("val", "heldout")
+#: What a hit list names as its writer; ``tools/real_tokenizer_pipeline.py --replay-exclude``
+#: reads only a file that says this.
+HITS_TOOL = "tools/replay_decontam.py --hits-out"
+#: The manifest the pipeline writes beside the replay shard set, under its ``--out``.
+REPLAY_MANIFEST = Path("data") / "pool" / "train-replay.json"
 
 
 def row_texts(rows: list[DataRow]) -> tuple[dict[str, str], dict[str, str]]:
@@ -119,6 +138,71 @@ def replay_texts(reader: ShardReader, tokenizer_json: Path) -> dict[str, str]:
     return out
 
 
+def replay_identity_keys(out: Path, *, data_snapshot_hash: str) -> dict[str, str]:
+    """``{row_id: identity_key}`` from the replay manifest beside the shards.
+
+    Refused unless the manifest is the one the replay shard set was written from: its
+    ``data_snapshot_hash`` is the one the shard header pins.
+    """
+    path = out / REPLAY_MANIFEST
+    if not path.is_file():
+        raise SystemExit(f"{path} is absent, so no replay row can be named by identity key")
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if raw.get("data_snapshot_hash") != data_snapshot_hash:
+        raise SystemExit(
+            f"{path} records data_snapshot_hash {raw.get('data_snapshot_hash')!r} but the "
+            f"replay shard header pins {data_snapshot_hash!r}: not this set's manifest"
+        )
+    return {str(e["row_id"]): str(e["identity_key"]) for e in raw["entries"]}
+
+
+def hit_list(
+    report: DecontamReport,
+    *,
+    sequences: Sequence[tuple[str, str]],
+    identity_of: Mapping[str, str],
+    replay_shard_hash: str,
+    corpus: Mapping[str, Any],
+    attestation_sha256: str,
+) -> dict[str, Any]:
+    """The ``--hits-out`` body: every pair, each replay sequence resolved to its row.
+
+    ``report``'s replay ids are sequence indices (as :func:`replay_texts` keys them);
+    ``sequences[i]`` is sequence ``i``'s ``(row_id, slot_name)``. A hit row the replay
+    manifest does not name stops the tool: an exclusion keyed by a guess is no exclusion.
+    """
+    pairs: list[dict[str, Any]] = []
+    for p in report.pairs:
+        seq = int(p.replay_row)
+        row_id, slot = sequences[seq]
+        if row_id not in identity_of:
+            raise SystemExit(
+                f"replay sequence {seq} is row {row_id!r}, which the replay manifest does not "
+                "name; refusing to write a hit list with a row it cannot key"
+            )
+        pairs.append({
+            "sequence": seq, "row_id": row_id, "slot_name": slot,
+            "identity_key": identity_of[row_id], "target": p.target,
+            "target_row": p.target_row, "shared": p.shared, "target_ngrams": p.target_ngrams,
+            "containment": p.containment,
+        })
+    pairs.sort(key=lambda d: (d["sequence"], d["target"], d["target_row"]))
+    return {
+        "tool": HITS_TOOL,
+        "version": 1,
+        "n": report.n,
+        "threshold": report.threshold,
+        "replay_shard_hash": replay_shard_hash,
+        "attestation_sha256": attestation_sha256,
+        "corpus": dict(corpus),
+        "hits": dict(report.hits),
+        # h: the distinct replay rows with at least one pair (= rows hit in any target set).
+        "replay_rows_hit": len({d["sequence"] for d in pairs}),
+        "identity_keys": sorted({d["identity_key"] for d in pairs}),
+        "pairs": pairs,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, required=True, help="the pipeline's --out")
@@ -144,11 +228,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--n", type=int, default=DEFAULT_N)
     parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
+    parser.add_argument(
+        "--hits-out", type=Path, default=None,
+        help="also write every (replay sequence, target row) pair at or over the threshold, "
+             "with each sequence's row_id, slot and identity_key, to this file: what the "
+             "pipeline's --replay-exclude reads. The attestation is unchanged by it",
+    )
     args = parser.parse_args(argv)
-    if args.attestation_out.exists():
-        raise SystemExit(f"{args.attestation_out} already exists; refusing to overwrite it")
-
-    import json
+    for path in (args.attestation_out, args.hits_out):
+        if path is not None and path.exists():
+            raise SystemExit(f"{path} already exists; refusing to overwrite it")
 
     from real_ft_run import check_defect_source, ft_splits, replay_corpus_identity
 
@@ -164,6 +253,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     targets, unrenderable = target_texts(splits)
     reader = ShardReader(args.replay_shards, config=config, repo_root=args.out)
+    identity_of: dict[str, str] | None = None
+    if args.hits_out is not None:
+        # Read before anything is compared or written, so a missing or foreign manifest
+        # stops the run rather than leaving an attestation with no hit list beside it.
+        identity_of = replay_identity_keys(
+            args.out, data_snapshot_hash=reader.header.data_snapshot_hash
+        )
     replay = replay_texts(reader, args.tokenizer_json)
     report = decontaminate(replay, targets, n=args.n, threshold=args.threshold)
     body = {
@@ -182,7 +278,24 @@ def main(argv: list[str] | None = None) -> int:
             general_max_rows=args.general_max_rows, defect_noul=args.defect_noul,
         ),
     }
-    write_text_atomic(args.attestation_out, json.dumps(body, indent=2, sort_keys=True) + "\n")
+    attestation_text = json.dumps(body, indent=2, sort_keys=True) + "\n"
+    write_text_atomic(args.attestation_out, attestation_text)
+    if args.hits_out is not None and identity_of is not None:
+        index = reader.sequence_index
+        if index is None:  # replay_texts already refused this; kept for the type
+            raise SystemExit(f"{reader.root}: no sequence index")
+        hits_body = hit_list(
+            report, sequences=index.sequences, identity_of=identity_of,
+            replay_shard_hash=reader.header.shard_hash(), corpus=body["corpus"],
+            attestation_sha256=hashlib.sha256(attestation_text.encode("utf-8")).hexdigest(),
+        )
+        hits_text = json.dumps(hits_body, indent=2, sort_keys=True) + "\n"
+        write_text_atomic(args.hits_out, hits_text)
+        print(
+            f"hit list: {len(hits_body['pairs'])} pair(s) over {hits_body['replay_rows_hit']} "
+            f"replay row(s), {len(hits_body['identity_keys'])} identity key(s) -> "
+            f"{args.hits_out} sha256 {hashlib.sha256(hits_text.encode('utf-8')).hexdigest()}"
+        )
     print(
         f"replay {reader.header.shard_hash()[:16]}: {report.replay_rows_checked} of "
         f"{report.replay_rows_total} rows checked ({report.replay_rows_too_short} too short "

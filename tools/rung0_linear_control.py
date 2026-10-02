@@ -70,8 +70,10 @@ from qd_train.mutate_adapter import read_example_objects  # noqa: E402
 from qd_train.tristate import NotRun, Ran, TriState  # noqa: E402
 
 #: Above the library default of 500, which does not converge on this corpus. See the
-#: module docstring: the ITERATION BUDGET moves, never the tolerance.
-DEFAULT_MAX_ITER: Final[int] = 6_000
+#: module docstring: the ITERATION BUDGET moves, never the tolerance. 8,000 since 2026-10-02,
+#: with the step halving past 6,000 (``qd_train.baseline.step_size``; ft_linear_control's
+#: ``DEFAULT_MAX_ITER`` says why).
+DEFAULT_MAX_ITER: Final[int] = 8_000
 
 #: A bound, because an unconverged control is refused and an unbounded one never returns.
 MAX_ITER_CEILING: Final[int] = 200_000

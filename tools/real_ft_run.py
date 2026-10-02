@@ -186,6 +186,7 @@ from qd_data.errors import QdRefusal
 from qd_data.render import DEFAULT_CAPS, second_pass_permutation
 from qd_data.rows import DataRow
 from qd_data.schema import NOUL_LETTER
+from qd_data.split import SplitReport
 from qd_train import composed_slice as cslice
 from qd_train.artifacts import (
     NO_SPAN,
@@ -195,6 +196,7 @@ from qd_train.artifacts import (
     SPAN_ABSTAIN,
     Batch,
     ShardContractViolation,
+    ShardHeader,
 )
 from qd_train.calibration_fit import ece_gate, letters_key
 from qd_train.eval_harness import (
@@ -316,6 +318,10 @@ RECIPE_PIECE_KEYS: Final[tuple[str, ...]] = (
     "max_steps",
     "train_dtype",
     "span_head_init",
+    # --exclude-identity-keys (Fable's v5 decontamination, 2026-10-02 Q2): the sha256 of the
+    # exclusions.txt whose train rows the set and this rebuild left out, read off the train
+    # header that check_exclusion_source checked against the flag.
+    "exclusions_sha256",
 )
 
 #: The dtypes ``--train-dtype`` trains the real tower in. ``bf16`` is every row so far and adds
@@ -375,6 +381,7 @@ def _recipe_pieces(
     checkpoint_skip_layers: int = 0, fused_adamw: bool = False,
     train_attention_mask: str = "padding", max_steps: int | None = None,
     train_dtype: str = "bf16", span_head_init: Mapping[str, str] | None = None,
+    exclusions_sha256: str = "",
 ) -> dict[str, object]:
     """The recipe keys for whichever ported pieces are on. Empty when none is.
 
@@ -390,6 +397,9 @@ def _recipe_pieces(
     its first N batches), ``train_dtype`` (only ``"fp32"``; ``"bf16"`` is every row so far)
     and ``span_head_init`` (the file ``--span-head-init`` loaded: its sha256 and content
     digest).
+
+    ``exclusions_sha256`` is the train header's (``--exclude-identity-keys``): ``""``, every
+    row so far, adds no key.
     """
     if train_attention_mask not in TRAIN_ATTENTION_MASKS:
         raise ValueError(
@@ -399,6 +409,8 @@ def _recipe_pieces(
     if train_dtype not in TRAIN_DTYPES:
         raise ValueError(f"train_dtype must be one of {TRAIN_DTYPES}, got {train_dtype!r}")
     out: dict[str, object] = {}
+    if exclusions_sha256:
+        out["exclusions_sha256"] = exclusions_sha256
     if max_steps is not None:
         out["max_steps"] = max_steps
     if train_dtype != "bf16":
@@ -2418,15 +2430,6 @@ def _train(
         plan = plan[:max_steps]
     width = max(int(b.tokens.shape[1]) for b in plan)
     steps = len(plan) * passes
-    pieces = _recipe_pieces(
-        lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
-        permutation=permutation, replay=replay, cap_s=cap_s, no_memorise=no_memorise,
-        batch_tokens=batch_tokens, shuffled_label=shuffled_label,
-        checkpoint_skip_layers=checkpoint_skip_layers, fused_adamw=fused_adamw,
-        train_attention_mask=train_attention_mask, max_steps=max_steps,
-        train_dtype=train_dtype,
-        span_head_init=None if span_head_init is None else span_head_init.recipe(),
-    )
     record_head_digest = record_span_head_init_digest or span_head_init is not None
     if backbone is None and (train_dtype != "bf16" or record_head_digest):
         raise ValueError(
@@ -2451,6 +2454,18 @@ def _train(
         )
     if permutation is not None and alphabets is None:
         raise ValueError("option permutation needs each plan batch's per-row alphabets")
+    # After the stand-in refusals above, which a test drives with no reader at all; the
+    # exclusion list's sha256 is the train header's (check_exclusion_source checked it).
+    pieces = _recipe_pieces(
+        lower_layers_n=lower_layers_n, lower_lr_scale=lower_lr_scale, beta2=beta2,
+        permutation=permutation, replay=replay, cap_s=cap_s, no_memorise=no_memorise,
+        batch_tokens=batch_tokens, shuffled_label=shuffled_label,
+        checkpoint_skip_layers=checkpoint_skip_layers, fused_adamw=fused_adamw,
+        train_attention_mask=train_attention_mask, max_steps=max_steps,
+        train_dtype=train_dtype,
+        span_head_init=None if span_head_init is None else span_head_init.recipe(),
+        exclusions_sha256=reader.header.exclusions_sha256,
+    )
     recipe: dict[str, object] = {
         "tool": "tools/real_ft_run.py", "tag": tag, "device": device,
         "lr": lr, "passes": passes, "batches": len(plan), "width": width,
@@ -3315,8 +3330,14 @@ def ft_splits(
     general_max_rows: int | None = None,
     replay_partition: bool = False,
     defect_noul: Path | None = None,
+    exclude_identity_keys: Path | None = None,
 ) -> dict[str, list[DataRow]]:
     """Every split of the corpus this tool's shard sets were built from, by split name.
+
+    ``exclude_identity_keys`` mirrors the pipeline's ``--exclude-identity-keys``: the same
+    ``qd_train.exclusions.apply_exclusions``, at the same point (after the split, before the
+    replay draw), so a set built with the list rebuilds with it. The split itself is
+    :func:`ft_split_report`; the rest of this docstring is about that build.
 
     The same "which rows" ``tools/real_tokenizer_pipeline.py``'s ``run`` answered, from the
     same functions in the same order, so a set built from the commitpackft download is
@@ -3348,13 +3369,7 @@ def ft_splits(
     it. A consistency pass that could not run is refused, as the pipeline refuses it: no
     shard set was ever written from such a mixture, so this rebuild has diverged from it.
     """
-    if defect_class is None and (
-        defect_download is not None or defect_max_rows is not None or defect_noul is not None
-    ):
-        raise ValueError(
-            "defect_download/defect_max_rows/defect_noul without defect_class read nothing"
-        )
-    if general_record is None and (general_max_rows is not None or replay_partition):
+    if general_record is None and replay_partition:
         raise ValueError(
             "general_max_rows/replay_partition without general_record read nothing: the "
             "replay slice is drawn from the general families' training rows"
@@ -3362,6 +3377,62 @@ def ft_splits(
     import real_tokenizer_pipeline as pipeline
 
     from qd_data.config import SPLITS
+    from qd_train.exclusions import apply_exclusions, containment_corpus
+
+    split_report = ft_split_report(
+        commitpackft=commitpackft, max_pairs=max_pairs, rev=rev, config=config,
+        defect_class=defect_class, defect_download=defect_download,
+        defect_max_rows=defect_max_rows, repo_history=repo_history,
+        general_record=general_record, general_max_rows=general_max_rows,
+        defect_noul=defect_noul,
+    )
+    corpus = containment_corpus(replay_corpus_identity(
+        rev=rev, max_pairs=max_pairs, commitpackft=commitpackft, defect_class=defect_class,
+        defect_max_rows=defect_max_rows, repo_history=repo_history,
+        general_record=general_record, general_max_rows=general_max_rows,
+        defect_noul=defect_noul,
+    )) if exclude_identity_keys is not None else {}
+    split_report, _exclusions, _excluded = apply_exclusions(
+        split_report, exclude_identity_keys, corpus=corpus
+    )
+    if replay_partition:
+        split_report, _replay, _partition = pipeline.split_off_replay(
+            split_report, seed=config.seed
+        )
+    return {name: list(split_report.rows_by_split.get(name, ())) for name in SPLITS}
+
+
+def ft_split_report(
+    *,
+    commitpackft: Path | None,
+    max_pairs: int,
+    rev: str,
+    config: DataConfig,
+    defect_class: Path | None = None,
+    defect_download: Path | None = None,
+    defect_max_rows: int | None = None,
+    repo_history: bool = True,
+    general_record: Path | None = None,
+    general_max_rows: int | None = None,
+    defect_noul: Path | None = None,
+) -> SplitReport:
+    """The ``qd_data.split.SplitReport`` :func:`ft_splits` starts from: every row of the
+    corpus, deduped and split, before any exclusion or replay draw. Returned whole because
+    ``tools/containment_scan.py`` attests the splitter's own post-conditions (keys (i) and
+    (iii) of Fable's rule) beside its n-gram scan. See :func:`ft_splits` for the build."""
+    if defect_class is None and (
+        defect_download is not None or defect_max_rows is not None or defect_noul is not None
+    ):
+        raise ValueError(
+            "defect_download/defect_max_rows/defect_noul without defect_class read nothing"
+        )
+    if general_record is None and general_max_rows is not None:
+        raise ValueError(
+            "general_max_rows/replay_partition without general_record read nothing: the "
+            "general families, and the replay slice drawn from them, come only from the record"
+        )
+    import real_tokenizer_pipeline as pipeline
+
     from qd_data.dedupe import dedupe
     from qd_data.mixture import build_mixture
     from qd_data.split import split
@@ -3409,12 +3480,7 @@ def ft_splits(
     # parity oracle (pipeline.native_minhash): the signatures were most of this rebuild's time.
     with pipeline.native_minhash(mixture.rows, config=config):
         report = dedupe(list(mixture.rows), config=config)
-        split_report = split(report, config=config)
-    if replay_partition:
-        split_report, _replay, _partition = pipeline.split_off_replay(
-            split_report, seed=config.seed
-        )
-    return {name: list(split_report.rows_by_split.get(name, ())) for name in SPLITS}
+        return split(report, config=config)
 
 
 def ft_split_rows(
@@ -3431,6 +3497,7 @@ def ft_split_rows(
     general_max_rows: int | None = None,
     replay_partition: bool = False,
     defect_noul: Path | None = None,
+    exclude_identity_keys: Path | None = None,
 ) -> tuple[list[DataRow], list[DataRow]]:
     """``(train_rows, val_rows)``: exactly the two splits ``main`` trains and scores on."""
     splits = ft_splits(
@@ -3439,6 +3506,7 @@ def ft_split_rows(
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record, general_max_rows=general_max_rows,
         replay_partition=replay_partition, defect_noul=defect_noul,
+        exclude_identity_keys=exclude_identity_keys,
     )
     return splits["train"], splits["val"]
 
@@ -3448,6 +3516,42 @@ TRAIN_MANIFEST: Final[str] = "data/pool/train.json"
 #: Where it writes the replay slice's manifest -- only under its ``--replay-shards``, whose
 #: ``split_off_replay`` took those rows out of the gold train split.
 REPLAY_MANIFEST: Final[str] = "data/pool/train-replay.json"
+
+
+def check_exclusion_source(header: ShardHeader, exclude_identity_keys: Path | None) -> None:
+    """Refuse a rebuild that disagrees with the shard set about the decontamination list.
+
+    A set whose train rows passed through ``--exclude-identity-keys`` names the list's sha256
+    in its header (``ShardHeader.exclusions_sha256``); the rebuild must apply the same list
+    or it labels and trains rows the set does not hold. Refused in both directions and on
+    any other file: the header names one list, or none.
+    """
+    given: str | None = None
+    if exclude_identity_keys is not None:
+        try:
+            given = hashlib.sha256(exclude_identity_keys.read_bytes()).hexdigest()
+        except OSError as exc:
+            raise SystemExit(
+                f"--exclude-identity-keys {exclude_identity_keys}: unreadable ({exc})"
+            ) from exc
+    recorded = header.exclusions_sha256 or None
+    if given == recorded:
+        return
+    if recorded is None:
+        raise SystemExit(
+            f"--exclude-identity-keys {exclude_identity_keys} was given, but this shard set "
+            "was built without an exclusion list: the rebuild would drop rows the set holds"
+        )
+    if given is None:
+        raise SystemExit(
+            f"this shard set was built with exclusion list {recorded} "
+            "(tools/real_tokenizer_pipeline.py --exclude-identity-keys): pass the same file "
+            "here, or the rebuild labels train rows the set does not hold"
+        )
+    raise SystemExit(
+        f"--exclude-identity-keys {exclude_identity_keys} is {given}, but the shard set was "
+        f"built with exclusion list {recorded}"
+    )
 
 
 def check_defect_source(out: Path, *, defect_class: Path | None) -> None:
@@ -7855,6 +7959,7 @@ def planned_ft_recipe(
             cap_s=args.wall_clock_cap_s, no_memorise=args.no_memorise,
             batch_tokens=batch_tokens, checkpoint_skip_layers=args.checkpoint_skip_layers,
             fused_adamw=args.fused_adamw, train_attention_mask=args.train_attention_mask,
+            exclusions_sha256=reader.header.exclusions_sha256,
         ),
     }
     if args.real_backbone is None:
@@ -8472,42 +8577,17 @@ def replay_corpus_identity(
 ) -> dict[str, object]:
     """What ``ft_splits`` was called with, as the replay attestation records it. One
     function, used by ``tools/replay_decontam.py`` to write it and by ``_replay_plan`` to
-    check it, so the two cannot spell the corpus differently. ``repo_history`` is named
-    only when False, and the general record only when given, so every attestation written
-    before either existed still matches. The record is named by its sha256, as the
-    pipeline's recipe names it: its general families are val and held-out targets too, and
-    an attestation made without them compared the replay set against fewer rows."""
-    if general_record is None and general_max_rows is not None:
-        raise ValueError("general_max_rows without general_record read nothing")
-    general: dict[str, object] = {}
-    if general_record is not None:
-        import real_tokenizer_pipeline as pipeline
+    check it, so the two cannot spell the corpus differently. Its body is the pipeline's
+    ``corpus_identity``, which the containment attestation and the pipeline's
+    ``--exclude-identity-keys`` check use too; this name stays for its callers."""
+    import real_tokenizer_pipeline as pipeline
 
-        general = {
-            "general_record_sha256": hashlib.sha256(general_record.read_bytes()).hexdigest(),
-            "general_max_rows": (
-                pipeline.DEFAULT_GENERAL_MAX_ROWS if general_max_rows is None
-                else general_max_rows
-            ),
-        }
-    return {
-        "rev": rev,
-        "max_pairs": max_pairs,
-        "commitpackft": None if commitpackft is None else commitpackft.name,
-        "defect_class": None if defect_class is None else defect_class.name,
-        "defect_max_rows": defect_max_rows,
-        **({} if repo_history else {"repo_history": False}),
-        **general,
-        # Named by its examples' sha256, and only when given, so every attestation written
-        # before it still matches: a corpus with the noul rows is not the corpus without.
-        **(
-            {} if defect_noul is None else {
-                "defect_noul_examples_sha256": str(json.loads(
-                    (defect_noul / "manifest.json").read_text(encoding="utf-8")
-                )["examples_sha256"]),
-            }
-        ),
-    }
+    return pipeline.corpus_identity(
+        rev=rev, max_pairs=max_pairs, commitpackft=commitpackft, defect_class=defect_class,
+        defect_max_rows=defect_max_rows, repo_history=repo_history,
+        general_record=general_record, general_max_rows=general_max_rows,
+        defect_noul=defect_noul,
+    )
 
 
 def check_replay_role(reader: ShardReader) -> None:
@@ -8814,6 +8894,15 @@ def main(argv: list[str] | None = None) -> int:
             "the shard set was built with the pipeline's --replay-shards, whose replay-only "
             "rows left the gold train split: rebuild the split the same way. Needs "
             "--general-record; checked against the replay manifest beside the train manifest"
+        ),
+    )
+    parser.add_argument(
+        "--exclude-identity-keys", type=Path, default=None,
+        help=(
+            "the qd-prep containment exclusions.txt the shard set was built with, exactly as "
+            "passed to tools/real_tokenizer_pipeline.py --exclude-identity-keys: the rebuild "
+            "drops the same train rows through qd_train.exclusions.apply_exclusions. Checked "
+            "against the train header's exclusions_sha256, in both directions"
         ),
     )
     parser.add_argument("--epoch", action="store_true", help="also run arm 1, the real epoch")
@@ -9533,6 +9622,7 @@ def main(argv: list[str] | None = None) -> int:
         return needle_worker_main(args, reader=reader, config=config, rev=rev)
 
     check_defect_source(args.out, defect_class=args.defect_class)
+    check_exclusion_source(reader.header, args.exclude_identity_keys)
     # Before the rebuild, which on the full defect corpus is minutes of work: what the
     # manifest says about the corpus decides both whether this rebuild can match it and,
     # below, which of this run's rows are quick.
@@ -9548,6 +9638,7 @@ def main(argv: list[str] | None = None) -> int:
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
         general_record=args.general_record, general_max_rows=args.general_max_rows,
         replay_partition=args.replay_partition, defect_noul=args.defect_noul,
+        exclude_identity_keys=args.exclude_identity_keys,
     )
     require_index = args.defect_class is not None or args.general_record is not None
     # --score-checkpoint trains nothing, and the train split's labels, inventory,

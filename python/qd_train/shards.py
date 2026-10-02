@@ -1451,6 +1451,7 @@ def write_shards(
     max_seq_len: int | None = None,
     span_collapse_policy: str = SPAN_COLLAPSE_REFUSE_ANY,
     report_only: bool = False,
+    exclusions_sha256: str = "",
 ) -> ShardHeader:
     """Tokenize a cleared corpus into a shard set and return its header.
 
@@ -1790,6 +1791,9 @@ def write_shards(
             "" if span_collapse_policy == SPAN_COLLAPSE_REFUSE_ANY else span_collapse_policy
         ),
         report_only=report_only,
+        # Empty unless the caller's train rows passed through an exclusion list
+        # (qd_train.exclusions), so every set written without one is what it was.
+        exclusions_sha256=exclusions_sha256,
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)

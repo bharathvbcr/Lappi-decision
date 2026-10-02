@@ -46,6 +46,26 @@ const BETA2: f64 = 0.999;
 const EPS: f64 = 1e-8;
 /// `np.clip(P, 1e-12, None)` inside the loss.
 const P_FLOOR: f64 = 1e-12;
+/// `qd_train.baseline.LR_CONSTANT_ITERS` and `LR_HALVING_PERIOD`, fixed there and here: the
+/// step is `lr` for this many iterations -- so every fit that converges within the old
+/// 6,000-iteration budget is unchanged bit for bit -- and halves every `LR_HALVING_PERIOD`
+/// after. Adam at a constant step can settle into a limit cycle that never meets the
+/// tolerance (F seed 0's intent.domain control, c89b89a1); the cycle's amplitude scales with
+/// the step.
+pub const LR_CONSTANT_ITERS: u32 = 6_000;
+pub const LR_HALVING_PERIOD: u32 = 500;
+
+/// `qd_train.baseline.step_size(lr, step)`: `lr * 0.5 ** n` with `n` halvings. `0.5^n` is a
+/// power of two, exact down to the subnormals and zero past them, as Python's float `**` is,
+/// so the product is the reference's bit for bit.
+pub fn step_size(lr: f64, step: u32) -> f64 {
+    if step <= LR_CONSTANT_ITERS {
+        return lr;
+    }
+    let halvings = (step - LR_CONSTANT_ITERS - 1) / LR_HALVING_PERIOD + 1;
+    // At most MAX_ITER / LR_HALVING_PERIOD = 20,000 halvings, well inside i32.
+    lr * 0.5f64.powi(halvings as i32)
+}
 /// Work items per thread, so threads that finish early take more: the Mac's efficiency cores
 /// are slower than its performance cores and n-gram rows differ in length.
 const CHUNKS_PER_THREAD: usize = 8;
@@ -451,6 +471,7 @@ fn train_once(
         // computed ahead. Meanwhile: the loss, and gb = diff.sum(axis=0) down each column.
         let bias_correction1 = 1.0 - BETA1.powf(f64::from(step));
         let bias_correction2 = 1.0 - BETA2.powf(f64::from(step));
+        let lr = step_size(hyper.lr, step);
         let (loss, gb) = {
             let (w_ref, mw_ref, vw_ref, diff_ref) = (&w, &mw, &vw, &diff);
             let csc = &csc;
@@ -501,7 +522,7 @@ fn train_once(
                             let vhat = v1 / bias_correction2;
                             m_row[c] = m1;
                             v_row[c] = v1;
-                            w_row[c] = w_ref[i] - (hyper.lr * mhat) / (vhat.sqrt() + EPS);
+                            w_row[c] = w_ref[i] - (lr * mhat) / (vhat.sqrt() + EPS);
                         }
                     }
                 },
@@ -535,7 +556,7 @@ fn train_once(
             vb[c] = vb[c] * BETA2 + one_minus_b2 * (grad * grad);
             let mhat = mb[c] / bias_correction1;
             let vhat = vb[c] / bias_correction2;
-            b[c] -= (hyper.lr * mhat) / (vhat.sqrt() + EPS);
+            b[c] -= (lr * mhat) / (vhat.sqrt() + EPS);
         }
     }
     Trained {
@@ -692,6 +713,22 @@ mod tests {
     use super::*;
 
     const TOP1: Selection<'static> = Selection::Top1;
+
+    #[test]
+    fn the_step_is_constant_through_the_old_budget_then_halves_every_period() {
+        let lr = 0.05;
+        for step in [1, 2, 5_999, 6_000] {
+            assert_eq!(step_size(lr, step).to_bits(), lr.to_bits(), "step {step}");
+        }
+        assert_eq!(step_size(lr, 6_001), lr / 2.0);
+        assert_eq!(step_size(lr, 6_500), lr / 2.0);
+        assert_eq!(step_size(lr, 6_501), lr / 4.0);
+        assert_eq!(step_size(lr, 7_000), lr / 4.0);
+        assert_eq!(step_size(lr, 12_000), lr / 4096.0);
+        // Powers of two: exact, and zero once 0.5^n underflows, as Python's `0.5 ** n` is.
+        assert_eq!(step_size(1.0, 6_000 + 500 * 1_074), f64::from_bits(1));
+        assert_eq!(step_size(1.0, 6_000 + 500 * 1_075), 0.0);
+    }
 
     /// A small problem with structure: class = (row % k), with features that mostly say so.
     fn problem(n: usize, d: usize, k: usize) -> (Csr, Vec<u32>, Vec<f64>) {
