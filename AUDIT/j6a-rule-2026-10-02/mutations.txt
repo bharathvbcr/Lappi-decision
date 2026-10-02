@@ -1,0 +1,341 @@
+source crates/qd-runtime/src/bin/qd_post_f_rules.rs sha256 fdaa3e433cee98a67cc27267fbb540f8c70f47e20bad26132139899f6e43be06
+command: cargo test -p qd-runtime --bin qd-post-f-rules
+
+[unmutated] exit 0: test result: ok. 73 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+M1 R7 target tie fires (higher: > -> >=): exit 101: test result: FAILED. 69 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+    FAILED a_target_at_exactly_max_plus_range_does_not_fire_and_one_hit_more_does
+    FAILED every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it
+    FAILED exact_forms_with_unequal_denominators_and_signed_margins
+    FAILED no_room_iff_the_bound_itself_does_not_clear
+
+M2 R7 target tie fires (lower: > -> >=): exit 101: test result: FAILED. 70 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+    FAILED every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it
+    FAILED exact_forms_with_unequal_denominators_and_signed_margins
+    FAILED no_room_iff_the_bound_itself_does_not_clear
+
+M3 R7 guard at its bound loses (higher): exit 101: test result: FAILED. 53 passed; 20 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED a_guard_at_its_bound_holds_and_one_count_past_it_loses
+    FAILED a_length_control_miss_blocks_j6f_and_not_j6dv4
+    FAILED a_paired_margin_envelope_with_no_room_refuses_on_signed_fractions
+    FAILED a_target_at_exactly_max_plus_range_does_not_fire_and_one_hit_more_does
+    FAILED both_arms_winning_refuses_and_keeps_both_verdicts
+    FAILED every_j6a_guard_holds_at_its_bound_and_loses_one_past_it
+    FAILED every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it
+    FAILED exact_forms_with_unequal_denominators_and_signed_margins
+    FAILED j6a_needs_no_control_or_letter_row
+    FAILED j6a_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied
+    FAILED j6b_against_j4_fires_on_the_real_rows
+    FAILED j6dv4_needs_no_needle_control_row_and_j6f_does
+    FAILED j6dv4_span_near_its_ceiling_refuses_and_never_fires_j6f
+    FAILED j6f_alone_fires_and_j6dv4_alone_fires
+    FAILED j6f_cannot_fire_when_twice_max_minus_min_reaches_1
+    FAILED letter_control_rows_are_selected_by_the_per_family_key
+    FAILED the_envelope_is_fs_seeds_0_1_2_only
+    FAILED the_leads_46_31_envelope_refuses_where_it_read_quiet
+    FAILED unseen_language_guards_j6dv4_and_not_j6f
+
+M4 R7 guard at its bound loses (lower): exit 101: test result: FAILED. 70 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+    FAILED a_guard_at_its_bound_holds_and_one_count_past_it_loses
+    FAILED every_j6a_guard_holds_at_its_bound_and_loses_one_past_it
+    FAILED exact_forms_with_unequal_denominators_and_signed_margins
+
+M5 R3 any target suffices: exit 101: test result: FAILED. 69 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+    FAILED a_target_at_exactly_max_plus_range_does_not_fire_and_one_hit_more_does
+    FAILED every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it
+    FAILED exact_forms_with_unequal_denominators_and_signed_margins
+    FAILED j6dv4_needs_every_target_to_clear
+
+M6 both arms winning picks J6(f) instead of refusing: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+    FAILED both_arms_winning_refuses_and_keeps_both_verdicts
+
+M7 R4 struck: no unseen-language guard on J6(d)-v4: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+    FAILED unseen_language_guards_j6dv4_and_not_j6f
+
+M8 R5 as first registered (controls guard J6(d)-v4), i.e. the amendment not applied: exit 101: test result: FAILED. 70 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+    FAILED a_length_control_miss_blocks_j6f_and_not_j6dv4
+    FAILED j6dv4_needs_no_needle_control_row_and_j6f_does
+    FAILED the_successor_rule_is_the_preregistrations_own_text
+
+M9 R5 amendment half-applied: J6(d)-v4 still requires its needle-control row: exit 101: test result: FAILED. 63 passed; 10 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED a_j6a_recipe_delta_outside_the_declared_keys_refuses
+    FAILED every_j6a_guard_holds_at_its_bound_and_loses_one_past_it
+    FAILED every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it
+    FAILED j6a_eval_row_is_one_comparable_epoch_score_val_row
+    FAILED j6a_must_be_quick_and_at_a502670
+    FAILED j6a_needs_no_control_or_letter_row
+    FAILED j6a_on_fs_snapshot_or_off_its_pin_refuses
+    FAILED j6a_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied
+    FAILED j6dv4_needs_no_needle_control_row_and_j6f_does
+
+M10 R1 struck: per-arm guards only, no base list: exit 101: test result: FAILED. 55 passed; 18 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED a_guard_at_its_bound_holds_and_one_count_past_it_loses
+    FAILED a_j6a_recipe_delta_outside_the_declared_keys_refuses
+    FAILED a_length_control_miss_blocks_j6f_and_not_j6dv4
+    FAILED a_missing_metric_refuses_even_when_an_arm_would_fire
+    FAILED a_not_run_metric_or_a_row_that_did_not_complete_refuses
+    FAILED a_preregistration_that_disagrees_with_the_checker_refuses
+    FAILED every_j6a_guard_holds_at_its_bound_and_loses_one_past_it
+    FAILED every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it
+    FAILED j6a_eval_row_is_one_comparable_epoch_score_val_row
+    FAILED j6a_must_be_quick_and_at_a502670
+    FAILED j6a_needs_no_control_or_letter_row
+    FAILED j6a_on_fs_snapshot_or_off_its_pin_refuses
+    FAILED j6a_refuses_while_amendments_are_pending
+    FAILED j6a_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied
+    FAILED j6b_against_j4_fires_on_the_real_rows
+    FAILED malformed_amendments_or_flags_that_disagree_with_them_refuse
+    FAILED the_j6a_rule_is_the_preregistrations_own_text
+
+M11 envelope pin: any three seeds: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+    FAILED the_envelope_is_fs_seeds_0_1_2_only
+
+M12 R8 off: no arm identity check: exit 101: test result: FAILED. 70 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+    FAILED j6b_against_j4_without_its_flags_is_refused_by_the_identity_check
+    FAILED swapped_or_wrong_arm_rows_refuse
+    FAILED the_successor_still_refuses_an_arm_on_another_snapshot
+
+M13 margin grid check off: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+    FAILED a_margin_off_its_integer_grid_refuses
+
+M14 letter-control row selected without the per-family key: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+    FAILED letter_control_rows_are_selected_by_the_per_family_key
+
+M15 an arm whose rows cannot be read counts as not winning (missing -> quiet): exit 101: test result: FAILED. 58 passed; 15 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED a_j6a_recipe_delta_outside_the_declared_keys_refuses
+    FAILED a_margin_off_its_integer_grid_refuses
+    FAILED a_missing_arm_letter_control_row_refuses_even_when_j6f_alone_would_fire
+    FAILED a_missing_arm_row_and_a_target_without_room_are_both_listed
+    FAILED a_missing_metric_refuses_even_when_an_arm_would_fire
+    FAILED a_not_run_metric_or_a_row_that_did_not_complete_refuses
+    FAILED j6a_eval_row_is_one_comparable_epoch_score_val_row
+    FAILED j6a_must_be_quick_and_at_a502670
+    FAILED j6a_on_fs_snapshot_or_off_its_pin_refuses
+    FAILED j6a_refuses_while_amendments_are_pending
+    FAILED j6dv4_needs_no_needle_control_row_and_j6f_does
+    FAILED malformed_amendments_or_flags_that_disagree_with_them_refuse
+    FAILED swapped_or_wrong_arm_rows_refuse
+    FAILED the_successor_still_refuses_an_arm_on_another_snapshot
+
+M16 ECE direction flipped (higher is better): exit 101: test result: FAILED. 59 passed; 14 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED a_guard_at_its_bound_holds_and_one_count_past_it_loses
+    FAILED a_j6a_recipe_delta_outside_the_declared_keys_refuses
+    FAILED a_preregistration_that_disagrees_with_the_checker_refuses
+    FAILED every_j6a_guard_holds_at_its_bound_and_loses_one_past_it
+    FAILED every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it
+    FAILED j6a_eval_row_is_one_comparable_epoch_score_val_row
+    FAILED j6a_must_be_quick_and_at_a502670
+    FAILED j6a_needs_no_control_or_letter_row
+    FAILED j6a_on_fs_snapshot_or_off_its_pin_refuses
+    FAILED j6a_refuses_while_amendments_are_pending
+    FAILED j6a_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied
+    FAILED malformed_amendments_or_flags_that_disagree_with_them_refuse
+    FAILED the_j6a_rule_is_the_preregistrations_own_text
+
+M17 in-distribution abstention direction flipped: exit 101: test result: FAILED. 58 passed; 15 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED a_guard_at_its_bound_holds_and_one_count_past_it_loses
+    FAILED a_j6a_recipe_delta_outside_the_declared_keys_refuses
+    FAILED a_preregistration_that_disagrees_with_the_checker_refuses
+    FAILED every_j6a_guard_holds_at_its_bound_and_loses_one_past_it
+    FAILED every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it
+    FAILED j6a_eval_row_is_one_comparable_epoch_score_val_row
+    FAILED j6a_must_be_quick_and_at_a502670
+    FAILED j6a_needs_no_control_or_letter_row
+    FAILED j6a_on_fs_snapshot_or_off_its_pin_refuses
+    FAILED j6a_refuses_while_amendments_are_pending
+    FAILED j6a_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied
+    FAILED malformed_amendments_or_flags_that_disagree_with_them_refuse
+    FAILED room_bounds_are_the_preregistered_ones_and_nothing_else
+    FAILED the_j6a_rule_is_the_preregistrations_own_text
+
+M18 eval comparability (val set / suites) not checked: exit 101: test result: FAILED. 71 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+    FAILED j6a_eval_row_is_one_comparable_epoch_score_val_row
+    FAILED swapped_or_wrong_arm_rows_refuse
+
+N1 R9_room off: no_room never blocks: exit 101: test result: FAILED. 64 passed; 9 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED a_missing_arm_row_and_a_target_without_room_are_both_listed
+    FAILED a_paired_margin_envelope_with_no_room_refuses_on_signed_fractions
+    FAILED an_f_seed_at_61_of_61_blocks_j6f_at_any_spread
+    FAILED j6dv4_span_near_its_ceiling_refuses_and_never_fires_j6f
+    FAILED j6f_cannot_fire_when_twice_max_minus_min_reaches_1
+    FAILED no_room_iff_the_bound_itself_does_not_clear
+    FAILED no_room_is_the_preregistered_count_form_in_both_directions
+    FAILED the_leads_46_31_envelope_refuses_where_it_read_quiet
+
+N2 R9_room higher form at equality has room (>= -> >): exit 101: test result: FAILED. 65 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+    FAILED a_missing_arm_row_and_a_target_without_room_are_both_listed
+    FAILED a_paired_margin_envelope_with_no_room_refuses_on_signed_fractions
+    FAILED an_f_seed_at_61_of_61_blocks_j6f_at_any_spread
+    FAILED j6dv4_span_near_its_ceiling_refuses_and_never_fires_j6f
+    FAILED j6f_cannot_fire_when_twice_max_minus_min_reaches_1
+    FAILED no_room_iff_the_bound_itself_does_not_clear
+    FAILED no_room_is_the_preregistered_count_form_in_both_directions
+    FAILED the_leads_46_31_envelope_refuses_where_it_read_quiet
+
+N3 R9_room lower form at equality has room (<= -> <): exit 101: test result: FAILED. 71 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+    FAILED no_room_iff_the_bound_itself_does_not_clear
+    FAILED no_room_is_the_preregistered_count_form_in_both_directions
+
+N4 R9_room lower-better uses the higher-better form: exit 101: test result: FAILED. 65 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED every_j6a_guard_holds_at_its_bound_and_loses_one_past_it
+    FAILED every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it
+    FAILED j6a_needs_no_control_or_letter_row
+    FAILED j6a_refuses_while_amendments_are_pending
+    FAILED j6a_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied
+    FAILED no_room_iff_the_bound_itself_does_not_clear
+    FAILED no_room_is_the_preregistered_count_form_in_both_directions
+
+N5 room decided and listed but no-room does not refuse: exit 101: test result: FAILED. 66 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED a_missing_arm_row_and_a_target_without_room_are_both_listed
+    FAILED a_paired_margin_envelope_with_no_room_refuses_on_signed_fractions
+    FAILED an_f_seed_at_61_of_61_blocks_j6f_at_any_spread
+    FAILED j6dv4_span_near_its_ceiling_refuses_and_never_fires_j6f
+    FAILED j6f_cannot_fire_when_twice_max_minus_min_reaches_1
+    FAILED the_leads_46_31_envelope_refuses_where_it_read_quiet
+
+N6 R9_room applied to J6(f)'s targets only: exit 101: test result: FAILED. 67 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED a_paired_margin_envelope_with_no_room_refuses_on_signed_fractions
+    FAILED j6a_refuses_while_amendments_are_pending
+    FAILED j6b_against_j4_fires_on_the_real_rows
+    FAILED j6dv4_span_near_its_ceiling_refuses_and_never_fires_j6f
+    FAILED room_is_decided_for_every_target_and_for_no_guard
+
+N7 an arm-row refusal propagates and drops the room already decided: exit 101: test result: FAILED. 69 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED a_missing_arm_row_and_a_target_without_room_are_both_listed
+    FAILED j6a_refuses_while_amendments_are_pending
+    FAILED j6b_against_j4_without_its_flags_is_refused_by_the_identity_check
+
+N8 R9_room lower bound L = 1 instead of 0: exit 101: test result: FAILED. 66 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED every_j6a_guard_holds_at_its_bound_and_loses_one_past_it
+    FAILED every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it
+    FAILED j6a_needs_no_control_or_letter_row
+    FAILED j6a_refuses_while_amendments_are_pending
+    FAILED j6a_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied
+    FAILED room_bounds_are_the_preregistered_ones_and_nothing_else
+
+J0 arm_identity's snapshot equality loosened (the check Fable says must stand): exit 101: test result: FAILED. 71 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+    FAILED swapped_or_wrong_arm_rows_refuse
+    FAILED the_successor_still_refuses_an_arm_on_another_snapshot
+
+J1 J6(a) on F's snapshot accepted: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+    FAILED j6a_on_fs_snapshot_or_off_its_pin_refuses
+
+J2 J6(a)'s snapshot not checked against build 2's pin: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+    FAILED j6a_on_fs_snapshot_or_off_its_pin_refuses
+
+J3 J6(a) quick not required: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+    FAILED j6a_must_be_quick_and_at_a502670
+
+J4 J6(a) code_commit not checked: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+    FAILED j6a_must_be_quick_and_at_a502670
+
+J5 a replay key on F's recipe accepted: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+    FAILED a_j6a_recipe_delta_outside_the_declared_keys_refuses
+
+J6 the replay keys' values not checked: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+    FAILED a_j6a_recipe_delta_outside_the_declared_keys_refuses
+
+J7 R1 off: batches / width compared: exit 101: test result: FAILED. 66 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED a_j6a_recipe_delta_outside_the_declared_keys_refuses
+    FAILED every_j6a_guard_holds_at_its_bound_and_loses_one_past_it
+    FAILED every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it
+    FAILED j6a_eval_row_is_one_comparable_epoch_score_val_row
+    FAILED j6a_needs_no_control_or_letter_row
+    FAILED j6a_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied
+
+J8 an undeclared recipe difference ignored: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+    FAILED a_j6a_recipe_delta_outside_the_declared_keys_refuses
+
+J9 J6(a)'s shard_hash not checked against its pin: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+    FAILED a_j6a_recipe_delta_outside_the_declared_keys_refuses
+
+J10 pending amendments accepted (the flags stand in for the file): exit 101: test result: FAILED. 71 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+    FAILED j6a_refuses_while_amendments_are_pending
+    FAILED malformed_amendments_or_flags_that_disagree_with_them_refuse
+
+J11 an extra key in amendments accepted: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+    FAILED malformed_amendments_or_flags_that_disagree_with_them_refuse
+
+J12 the flags not checked against the file's pins: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+    FAILED malformed_amendments_or_flags_that_disagree_with_them_refuse
+
+J13 h not bounded by the replay set: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+    FAILED malformed_amendments_or_flags_that_disagree_with_them_refuse
+
+J14 a pin's sha256 form not checked: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+    FAILED malformed_amendments_or_flags_that_disagree_with_them_refuse
+
+J15 J6(a) refusals under the successor's labels: exit 101: test result: FAILED. 66 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED a_j6a_recipe_delta_outside_the_declared_keys_refuses
+    FAILED a_preregistration_that_disagrees_with_the_checker_refuses
+    FAILED j6a_eval_row_is_one_comparable_epoch_score_val_row
+    FAILED j6a_refuses_while_amendments_are_pending
+    FAILED malformed_amendments_or_flags_that_disagree_with_them_refuse
+    FAILED the_j6a_rule_is_the_preregistrations_own_text
+
+J16 the pre-registration's structured fields not checked against the checker: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+    FAILED a_preregistration_that_disagrees_with_the_checker_refuses
+
+J17 a J6(a) target dropped: exit 101: test result: FAILED. 60 passed; 13 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED a_j6a_recipe_delta_outside_the_declared_keys_refuses
+    FAILED a_preregistration_that_disagrees_with_the_checker_refuses
+    FAILED every_j6a_guard_holds_at_its_bound_and_loses_one_past_it
+    FAILED every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it
+    FAILED j6a_eval_row_is_one_comparable_epoch_score_val_row
+    FAILED j6a_must_be_quick_and_at_a502670
+    FAILED j6a_needs_no_control_or_letter_row
+    FAILED j6a_on_fs_snapshot_or_off_its_pin_refuses
+    FAILED j6a_refuses_while_amendments_are_pending
+    FAILED j6a_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied
+    FAILED malformed_amendments_or_flags_that_disagree_with_them_refuse
+    FAILED the_j6a_rule_is_the_preregistrations_own_text
+
+J18 a J6(a) guard dropped (unseen-language): exit 101: test result: FAILED. 60 passed; 13 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED a_j6a_recipe_delta_outside_the_declared_keys_refuses
+    FAILED a_preregistration_that_disagrees_with_the_checker_refuses
+    FAILED every_j6a_guard_holds_at_its_bound_and_loses_one_past_it
+    FAILED every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it
+    FAILED j6a_eval_row_is_one_comparable_epoch_score_val_row
+    FAILED j6a_must_be_quick_and_at_a502670
+    FAILED j6a_needs_no_control_or_letter_row
+    FAILED j6a_on_fs_snapshot_or_off_its_pin_refuses
+    FAILED j6a_refuses_while_amendments_are_pending
+    FAILED j6a_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied
+    FAILED malformed_amendments_or_flags_that_disagree_with_them_refuse
+    FAILED the_j6a_rule_is_the_preregistrations_own_text
+
+J19 pending amendments not listed when an arm row failed first: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+    FAILED j6a_refuses_while_amendments_are_pending
+
+J21 pending amendments dropped when F's envelope does not resolve: exit 101: test result: FAILED. 72 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+    FAILED j6a_refuses_while_amendments_are_pending
+
+J20 J6(a) judged under R8 instead of its own identity: exit 101: test result: FAILED. 64 passed; 9 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+    FAILED a_ceilinged_j6a_target_refuses_under_r9_room
+    FAILED a_j6a_recipe_delta_outside_the_declared_keys_refuses
+    FAILED every_j6a_guard_holds_at_its_bound_and_loses_one_past_it
+    FAILED every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it
+    FAILED j6a_eval_row_is_one_comparable_epoch_score_val_row
+    FAILED j6a_must_be_quick_and_at_a502670
+    FAILED j6a_needs_no_control_or_letter_row
+    FAILED j6a_on_fs_snapshot_or_off_its_pin_refuses
+    FAILED j6a_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied
+
+[restored, sha256 fdaa3e433cee98a67cc27267fbb540f8c70f47e20bad26132139899f6e43be06, equal: True] exit 0: test result: ok. 73 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+mutations caught: 48 of 48

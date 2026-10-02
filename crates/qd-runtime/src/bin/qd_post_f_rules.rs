@@ -31,6 +31,14 @@
 //!   any arm row is read and listed as `cannot_clear`. The paired margin is compared as the
 //!   exact fraction `m / n_total` it is (a mean of per-row differences); ECE, which has no
 //!   count, on its f64.
+//! * `j6a` — (v) does J6(a), +replay on v4, win against F's envelope?
+//!   (`campaign/j6a-preregistered.json`, d66f3b0 / 74aea95: Fable's J6(a) ruling, Q4.) The
+//!   successor's envelope, comparison and R9_room on J6(a)'s targets (MMLU / CSQA permutation
+//!   consistency, higher; in-distribution abstention, lower) and guards, under J6(a)'s own
+//!   identity and declared data delta, never R8's. The pre-registration is read at run time: a
+//!   structured field that disagrees with this code refuses, and the six values it pins by
+//!   amendment (top-level `amendments`) must be present and repeated on the command line.
+//!   Words: `wins`, `quiet`, `refused`.
 //!
 //! Look-ups (ids on stdout, JSON on stderr): `ft-rows` checks a set of ft rows can be averaged
 //! or ensembled (completed, not quick, tag `epoch`, the seed claimed, one recipe and one data
@@ -91,8 +99,12 @@ const PREREG: &str = "campaign/f-j7prime-preregistered.json (54512e6)";
 const PREREG_F: &str = "campaign/f-v4-preregistered.json (3a1796d)";
 const PREREG_SUCC: &str = "campaign/f-successor-preregistered.json (ba1cedb, merged at bcb3c72; \
                            R5 struck at e9cff78; R9_room at 56d74cf)";
+/// The file as registered; the text a decision applied is the one whose sha256 it records.
+const PREREG_J6A: &str = "campaign/j6a-preregistered.json (d66f3b0, 74aea95)";
 /// A ledger larger than this is not one this repo writes (`qd-gate-report`'s cap).
 const MAX_LEDGER_BYTES: u64 = 256 * 1024 * 1024;
+/// A pre-registration read at run time is a few KiB; anything past this is not one.
+const MAX_PREREG_BYTES: u64 = 1024 * 1024;
 /// How far a recorded float may sit from its own counts before the row is refused.
 const VALUE_TOLERANCE: f64 = 1e-12;
 /// clap exits 2 on a usage error; a refusal is its own code.
@@ -263,6 +275,48 @@ enum Cmd {
         #[arg(long)]
         out: PathBuf,
     },
+    /// (v) Does J6(a) (+replay) win against F's envelope? Prints `wins`, `quiet` or `refused`
+    /// (anything could not be read, an identity or data-delta check failed, the amendments are
+    /// pending or disagree with these flags, or a target has no room: R9_room).
+    J6a {
+        /// campaign/j6a-preregistered.json as committed; read at run time and its sha256
+        /// recorded. Its structured fields must agree with this checker, and its top-level
+        /// `amendments` must carry the six pins below.
+        #[arg(long)]
+        preregistration: PathBuf,
+        /// F's ledger: the envelope's ft and epoch-score-val rows.
+        #[arg(long)]
+        f_ledger: PathBuf,
+        /// `SEED=FT_ROW_ID` for F's seeds 0, 1 and 2 exactly, in order (the envelope pin).
+        #[arg(long = "ft-row", required = true, value_parser = parse_ft_row)]
+        ft_rows: Vec<(i64, String)>,
+        /// J6(a)'s ledger (arm.ledger): its ft and epoch-score-val rows (R2).
+        #[arg(long)]
+        arm_ledger: PathBuf,
+        /// `0=FT_ROW_ID` of J6(a)'s run.
+        #[arg(long, value_parser = parse_ft_row)]
+        j6a_ft_row: (i64, String),
+        /// Build 2's train-manifest hash; must equal amendments.data_snapshot_hash.
+        #[arg(long)]
+        data_snapshot_hash: String,
+        /// Build 2's train shard hash; must equal amendments.shard_hash.
+        #[arg(long)]
+        shard_hash: String,
+        /// Build 2's replay shard hash; must equal amendments.replay_shard_hash.
+        #[arg(long)]
+        replay_shard_hash: String,
+        /// Decontam 2's attestation sha256; must equal amendments.replay_attestation_sha256.
+        #[arg(long)]
+        replay_attestation_sha256: String,
+        /// h, the distinct replay rows in the full hit list; must equal amendments.h.
+        #[arg(long = "h")]
+        h: u64,
+        /// The full hit list's sha256; must equal amendments.hit_list_sha256.
+        #[arg(long)]
+        hit_list_sha256: String,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Check ft rows can be averaged or ensembled together; print their ids in order.
     FtRows {
         #[arg(long)]
@@ -327,30 +381,61 @@ struct Inputs(Vec<Value>);
 
 impl Inputs {
     fn read(&mut self, path: &Path) -> Result<Ledger> {
-        let shown = path.display().to_string();
-        let meta = std::fs::metadata(path).map_err(|e| format!("{shown}: {e}"))?;
-        ensure!(
-            meta.len() <= MAX_LEDGER_BYTES,
-            "{shown}: {} bytes is over the {MAX_LEDGER_BYTES}-byte cap for a ledger",
-            meta.len()
-        );
-        let mut bytes = Vec::with_capacity(meta.len() as usize);
-        std::fs::File::open(path)
-            .and_then(|f| f.take(MAX_LEDGER_BYTES + 1).read_to_end(&mut bytes))
-            .map_err(|e| format!("{shown}: {e}"))?;
-        ensure!(
-            bytes.len() as u64 <= MAX_LEDGER_BYTES,
-            "{shown}: grew past {MAX_LEDGER_BYTES} bytes while it was read"
-        );
+        let (shown, bytes) = read_capped(path, MAX_LEDGER_BYTES, "a ledger")?;
         let rows = parse_rows(&bytes, &shown)?;
         self.0.push(json!({
             "path": shown,
-            "sha256": Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect::<String>(),
+            "sha256": sha256_hex(&bytes),
             "bytes": bytes.len(),
             "rows": rows.len(),
         }));
         Ok(Ledger { shown, rows })
     }
+    /// A pre-registration read at run time: its JSON object, with its sha256 recorded, so the
+    /// decision names exactly which text it applied.
+    fn read_preregistration(&mut self, path: &Path) -> Result<(Map<String, Value>, String)> {
+        let (shown, bytes) = read_capped(path, MAX_PREREG_BYTES, "a pre-registration")?;
+        let sha256 = sha256_hex(&bytes);
+        let parsed: Value =
+            serde_json::from_slice(&bytes).map_err(|e| format!("{shown}: not JSON: {e}"))?;
+        let Value::Object(map) = parsed else {
+            return Err(format!("{shown}: not a JSON object"));
+        };
+        self.0.push(json!({
+            "path": shown,
+            "role": "preregistration",
+            "sha256": sha256,
+            "bytes": bytes.len(),
+        }));
+        Ok((map, sha256))
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// A file's bytes, refused if it is (or grows while read to be) over `cap`.
+fn read_capped(path: &Path, cap: u64, what: &str) -> Result<(String, Vec<u8>)> {
+    let shown = path.display().to_string();
+    let meta = std::fs::metadata(path).map_err(|e| format!("{shown}: {e}"))?;
+    ensure!(
+        meta.len() <= cap,
+        "{shown}: {} bytes is over the {cap}-byte cap for {what}",
+        meta.len()
+    );
+    let mut bytes = Vec::with_capacity(meta.len() as usize);
+    std::fs::File::open(path)
+        .and_then(|f| f.take(cap + 1).read_to_end(&mut bytes))
+        .map_err(|e| format!("{shown}: {e}"))?;
+    ensure!(
+        bytes.len() as u64 <= cap,
+        "{shown}: grew past {cap} bytes while it was read"
+    );
+    Ok((shown, bytes))
 }
 
 /// Every line of a ledger as a row. The only line skipped is the empty one after the final
@@ -1378,8 +1463,9 @@ impl Room {
             _ => None,
         }
     }
-    /// Why this target refuses the decision, if it does: (c) no room, or (b) unreadable.
-    fn refusal(&self) -> Option<String> {
+    /// Why this target refuses the decision, if it does: no room, or unreadable, each under the
+    /// label its pre-registration gives it.
+    fn refusal(&self, labels: Labels) -> Option<String> {
         match &self.decided {
             Ok((min, max, bound, true)) => {
                 let (form, beyond) = match self.metric.dir {
@@ -1387,10 +1473,11 @@ impl Room {
                     Dir::Lower => ("2*min - max <=", "below min - range"),
                 };
                 Some(format!(
-                    "(c) {} target {} cannot clear: F's envelope leaves it no room (R9_room): \
+                    "{} {} target {} cannot clear: F's envelope leaves it no room (R9_room): \
                      {}-better with max {} and min {} has {form} {} = {}, so no candidate can \
                      land {beyond}; a target that could not be examined is not one that was \
                      examined and missed",
+                    labels.no_room,
                     self.arm,
                     self.metric.name,
                     dir_word(self.metric.dir),
@@ -1401,10 +1488,25 @@ impl Room {
                 ))
             }
             Ok(_) => None,
-            Err(e) => Some(format!("(b) {e}")),
+            Err(e) => Some(format!("{} {e}", labels.unreadable)),
         }
     }
 }
+
+/// How a pre-registration labels its refusals: a required row or value that could not be read
+/// (or an identity, data-delta or comparability check that failed), and a target its envelope
+/// leaves no room (R9_room). The successor's outcomes.refused calls them (b) and (c); J6(a)'s,
+/// (a) and (b).
+#[derive(Clone, Copy, Debug)]
+struct Labels {
+    unreadable: &'static str,
+    no_room: &'static str,
+}
+
+const SUCC_LABELS: Labels = Labels {
+    unreadable: "(b)",
+    no_room: "(c)",
+};
 
 fn dir_word(dir: Dir) -> &'static str {
     match dir {
@@ -1626,8 +1728,8 @@ fn comparable(rows: &SeedRows, reference: &SeedRows, what: &str) -> Result<()> {
 
 /// R8: the arm's ft row is the declared ablation of the envelope's recipe: the same data
 /// snapshot, and the same recipe but for exactly the arm's delta. Swapped or wrong ft ids
-/// refuse rather than name the wrong recipe.
-fn arm_identity(arm: &Arm, ft: &Row, reference: &Row) -> Result<()> {
+/// refuse rather than name the wrong recipe. Returns the delta it checked, for the JSON.
+fn arm_identity(arm: &Arm, ft: &Row, reference: &Row) -> Result<Value> {
     let what = format!("arm {} ft row {}", arm.name, ft.id());
     let data = ft.str_at(&["protocol", "data_snapshot_hash"]);
     ensure!(
@@ -1665,8 +1767,18 @@ fn arm_identity(arm: &Arm, ft: &Row, reference: &Row) -> Result<()> {
             changed
         );
     }
-    Ok(())
+    Ok(Value::Object(
+        arm.delta
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.map_or(Value::Null, |x| json!(x))))
+            .collect(),
+    ))
 }
+
+/// How an arm's ft row is identified against the envelope's seed-0 ft row: `arm_identity`
+/// (R8) for the successor's arms, J6(a)'s own (`replay_identity`) for j6a. It returns the JSON
+/// record of what it checked.
+type Identity<'a> = &'a dyn Fn(&Arm, &Row, &Row) -> Result<Value>;
 
 /// A metric's value on each envelope seed, and their minimum and maximum.
 fn envelope_range(m: Metric, envelope: &[SeedRows]) -> Result<(Vec<Val>, Val, Val)> {
@@ -1736,6 +1848,7 @@ fn decide_arms(
     envelope_ft: &[(i64, String)],
     arm_ledger: &Path,
     arms: &[(&Arm, &(i64, String))],
+    identity: Identity,
 ) -> Result<Decided> {
     let seeds: Vec<i64> = envelope_ft.iter().map(|(s, _)| *s).collect();
     ensure!(
@@ -1759,7 +1872,7 @@ fn decide_arms(
         .iter()
         .flat_map(|(arm, _)| arm.targets.iter().map(|m| Room::of(arm, *m, &envelope)))
         .collect();
-    let judged = judge_arms(inputs, arm_ledger, &envelope, arms);
+    let judged = judge_arms(inputs, arm_ledger, &envelope, arms, identity);
     Ok(Decided {
         envelope: json!({
             "pin": ENVELOPE_PIN,
@@ -1777,6 +1890,7 @@ fn judge_arms(
     arm_ledger: &Path,
     envelope: &[SeedRows],
     arms: &[(&Arm, &(i64, String))],
+    identity: Identity,
 ) -> Result<(Vec<bool>, Value)> {
     let arm_rows = inputs.read(arm_ledger)?;
     let reference = envelope
@@ -1797,7 +1911,7 @@ fn judge_arms(
             arm.reads_control(),
             arm.reads_margin(),
         )?;
-        arm_identity(arm, rows.ft, reference.ft)?;
+        let delta = identity(arm, rows.ft, reference.ft)?;
         comparable(&rows, reference, &format!("arm {}", arm.name))?;
         let mut cleared = Vec::new();
         let mut targets = Vec::new();
@@ -1822,11 +1936,7 @@ fn judge_arms(
             json!({
                 "wins": win,
                 "rows": rows.json(),
-                "recipe_delta": arm
-                    .delta
-                    .iter()
-                    .map(|(k, v)| (k.to_string(), v.map_or(Value::Null, |x| json!(x))))
-                    .collect::<Map<_, _>>(),
+                "recipe_delta": delta,
                 "targets_all_clear": targets_win(&cleared),
                 "targets": targets,
                 "must_not_lose_lost": lost,
@@ -1835,6 +1945,71 @@ fn judge_arms(
         );
     }
     Ok((wins, Value::Object(detail)))
+}
+
+/// A decision's JSON body, every refusal met so far in the order it was met (each once), and
+/// the arms' verdicts when they were judged.
+struct Settled {
+    because: Vec<String>,
+    body: Value,
+    wins: Option<Vec<bool>>,
+}
+
+impl Settled {
+    fn refuse(&mut self, reason: String) {
+        if !self.because.contains(&reason) {
+            self.because.push(reason);
+        }
+    }
+    /// The word and what follows it, or `refused` with every reason listed: any refusal wins
+    /// over any word, so a target that could not be examined never reads as one that was.
+    fn finish(mut self, word: Option<(&str, &str)>, refused_then: &str) -> Result<(String, Value)> {
+        if !self.because.is_empty() {
+            self.body["refused_because"] = json!(self.because);
+            self.body["then"] = json!(refused_then);
+            return Ok(("refused".to_string(), self.body));
+        }
+        let (word, then) =
+            word.ok_or_else(|| "the decision has neither a word nor a refusal".to_string())?;
+        self.body["then"] = json!(then);
+        Ok((word.to_string(), self.body))
+    }
+}
+
+/// The refusal when F's envelope does not resolve: there is no envelope, so no room was decided.
+fn no_envelope(labels: Labels, e: &str) -> String {
+    format!(
+        "{} {e}; room not decided: F's envelope did not resolve, so no target was examined for \
+         room (R9_room) and no arm was judged",
+        labels.unreadable
+    )
+}
+
+/// The decided envelope, room and arms as a decision's body, with the refusals they carry in
+/// the order they were met: room first (no room, or an envelope value that could not be read),
+/// both decided from the envelope before any arm row was read; then the arm phase's.
+fn settle(decided: Decided, labels: Labels, rule: &str) -> Settled {
+    let mut s = Settled {
+        because: Vec::new(),
+        body: json!({
+            "rule": rule,
+            "envelope": decided.envelope,
+            "room": decided.room.iter().map(Room::json).collect::<Vec<_>>(),
+            "cannot_clear": decided.room.iter().filter_map(Room::cannot_clear).collect::<Vec<_>>(),
+        }),
+        wins: None,
+    };
+    for reason in decided.room.iter().filter_map(|r| r.refusal(labels)) {
+        s.refuse(reason);
+    }
+    match decided.judged {
+        Err(e) => s.refuse(format!("{} {e}", labels.unreadable)),
+        Ok((wins, arms)) => {
+            s.body["arms"] = arms;
+            s.wins = Some(wins);
+        }
+    }
+    s
 }
 
 /// The successor decision. Every applicable refusal is listed in `refused_because`, in the
@@ -1856,78 +2031,490 @@ fn rule_successor(
         ft_rows,
         arm_ledger,
         &[(&ARM_J6F, j6f), (&ARM_J6DV4, j6dv4)],
+        &arm_identity,
     )
-    .map_err(|e| {
-        format!(
-            "(b) {e}; room not decided: F's envelope did not resolve, so no target was \
-             examined for room (R9_room) and no arm was judged"
-        )
-    })?;
-    let mut because: Vec<String> = Vec::new();
-    let mut add = |reason: String| {
-        if !because.contains(&reason) {
-            because.push(reason);
-        }
-    };
-    decided
-        .room
-        .iter()
-        .filter_map(Room::refusal)
-        .for_each(&mut add);
-    let mut body = json!({
-        "rule": "an arm wins iff every metric its flag was meant to move lands outside F's \
-                 three-seed envelope in the right direction by more than F's own seed range, and \
-                 no must-not-lose metric lands outside the envelope in the wrong direction \
-                 (f-v4-preregistered.json:13); F' runs the one winning arm's recipe. A target \
-                 the envelope leaves no room to clear refuses the decision (R9_room).",
-        "envelope": decided.envelope,
-        "room": decided.room.iter().map(Room::json).collect::<Vec<_>>(),
-        "cannot_clear": decided.room.iter().filter_map(Room::cannot_clear).collect::<Vec<_>>(),
-    });
-    let word = match decided.judged {
-        Err(e) => {
-            add(format!("(b) {e}"));
+    .map_err(|e| no_envelope(SUCC_LABELS, &e))?;
+    let mut s = settle(
+        decided,
+        SUCC_LABELS,
+        "an arm wins iff every metric its flag was meant to move lands outside F's three-seed \
+         envelope in the right direction by more than F's own seed range, and no must-not-lose \
+         metric lands outside the envelope in the wrong direction (f-v4-preregistered.json:13); \
+         F' runs the one winning arm's recipe. A target the envelope leaves no room to clear \
+         refuses the decision (R9_room).",
+    );
+    let word = match s.wins.as_deref() {
+        None => None,
+        Some(&[true, false]) => Some((
+            ARM_J6F.word,
+            "F' runs J6(f)'s recipe: F's argv without --lower-layers-n 8 --lower-layers-lr-scale 0.1, seeds 0 1 2",
+        )),
+        Some(&[false, true]) => Some((
+            ARM_J6DV4.word,
+            "F' runs J6(d)-v4's recipe: F's argv with --lr 3e-5 --beta2 0.95 in place of --lr 1e-5, seeds 0 1 2",
+        )),
+        Some(&[false, false]) => Some((
+            "quiet",
+            "no F'; re-plan from J7''s avg / ens3 / avg-np rows (Fable Q2)",
+        )),
+        Some(&[true, true]) => {
+            s.refuse(
+                "(a) both arms win, on different metrics (J6(f) on the 8K needle, J6(d)-v4 on \
+                 the margin and val top-1): the human decides; two one-seed wins are never \
+                 combined into an untested recipe"
+                    .to_string(),
+            );
             None
         }
-        Ok((wins, arms)) => {
-            body["arms"] = arms;
-            let &[f, d] = wins.as_slice() else {
-                return Err(format!("{} arm verdicts for two arms", wins.len()));
-            };
-            match (f, d) {
-                (true, false) => Some((
-                    ARM_J6F.word,
-                    "F' runs J6(f)'s recipe: F's argv without --lower-layers-n 8 --lower-layers-lr-scale 0.1, seeds 0 1 2",
-                )),
-                (false, true) => Some((
-                    ARM_J6DV4.word,
-                    "F' runs J6(d)-v4's recipe: F's argv with --lr 3e-5 --beta2 0.95 in place of --lr 1e-5, seeds 0 1 2",
-                )),
-                (false, false) => Some((
-                    "quiet",
-                    "no F'; re-plan from J7''s avg / ens3 / avg-np rows (Fable Q2)",
-                )),
-                (true, true) => {
-                    add(
-                        "(a) both arms win, on different metrics (J6(f) on the 8K needle, \
-                         J6(d)-v4 on the margin and val top-1): the human decides; two one-seed \
-                         wins are never combined into an untested recipe"
-                            .to_string(),
-                    );
-                    None
-                }
-            }
-        }
+        Some(other) => return Err(format!("{} arm verdicts for two arms", other.len())),
     };
-    if !because.is_empty() {
-        body["refused_because"] = json!(because);
-        body["then"] = json!("no F' until the human decides");
-        return Ok(("refused".to_string(), body));
+    s.finish(word, "no F' until the human decides")
+}
+
+// --- (v): j6a, campaign/j6a-preregistered.json -------------------------------------------------
+//
+// J6(a) (+replay on v4, seed 0, quick) read against F's seeds 0-2 with the successor's envelope,
+// comparison and R9_room (`decide_arms`, `settle`), under its own identity: J6(a) trains on
+// build 2, so R8's snapshot equality (`arm_identity`) cannot hold for it and is not loosened;
+// `replay_identity` checks J6(a)'s declared data delta instead. The pre-registration is read at
+// run time: its structured fields must agree with this code (a disagreement refuses), and the
+// six values it pins by amendment are read from its top-level `amendments`.
+
+/// The pre-registration's own words for the outcome.
+const J6A_WORDS: [&str; 3] = ["wins", "quiet", "refused"];
+/// J6(a)'s outcomes.refused calls a row / identity / data-delta failure (a), no room (b).
+const J6A_LABELS: Labels = Labels {
+    unreadable: "(a)",
+    no_room: "(b)",
+};
+/// arm.identity.ft_row: J6(a)'s ft row's code commit, a502670, as F's 973cd4e3 records it.
+const J6A_CODE_COMMIT: &str = "a5026707b6e3e57c253be32003ba32420f2d78e2";
+/// arm.replay_flags (Fable Q2): the unit weight, every 6th micro-batch, base to model.
+const REPLAY_WEIGHT: f64 = 1.0;
+const REPLAY_EVERY: i64 = 6;
+const REPLAY_DIRECTION: &str = "base_to_model";
+/// The five keys a502670 records for a replay run (tools/real_ft_run.py:359-363).
+const REPLAY_KEYS: [&str; 5] = [
+    "replay_shard_hash",
+    "replay_attestation_sha256",
+    "replay_weight",
+    "replay_every",
+    "replay_direction",
+];
+/// R1_derived_recipe_keys: derived by the batch planner from the train set; recorded and
+/// reported, not compared.
+const DERIVED_RECIPE_KEYS: [&str; 2] = ["batches", "width"];
+/// declared_data_delta: the replay set's 3,568 row_ids, of which h are excluded, so h <= 3,568.
+const REPLAY_SET_ROWS: u64 = 3568;
+/// The six values `amendments` must pin, in the pre-registration's order.
+const AMENDMENT_KEYS: [&str; 6] = [
+    "data_snapshot_hash",
+    "shard_hash",
+    "replay_shard_hash",
+    "replay_attestation_sha256",
+    "h",
+    "hit_list_sha256",
+];
+
+const PERM_KNOWLEDGE: Metric = count_metric(
+    "permutation_consistency.family.knowledge.multiple_choice",
+    Dir::Higher,
+);
+const PERM_COMMONSENSE: Metric = count_metric(
+    "permutation_consistency.family.commonsense.multiple_choice",
+    Dir::Higher,
+);
+const ID_ABSTAIN_KNOWLEDGE: Metric = count_metric(
+    "ood_abstain.in_distribution.family.knowledge.multiple_choice",
+    Dir::Lower,
+);
+const ID_ABSTAIN_COMMONSENSE: Metric = count_metric(
+    "ood_abstain.in_distribution.family.commonsense.multiple_choice",
+    Dir::Lower,
+);
+
+/// J6(a): +replay. Targets: MMLU / CSQA permutation consistency (higher) and in-distribution
+/// abstention (lower). Guards: the successor's base list, then defect_class in-distribution
+/// abstention and the three OOD categories. It reads no needle-control or letter-control row.
+/// Its identity is `replay_identity`, not a delta (`delta` is empty, so `arm_identity` would
+/// refuse its rows).
+const ARM_J6A: Arm = Arm {
+    name: "j6a",
+    word: "wins",
+    delta: &[],
+    targets: &[
+        PERM_KNOWLEDGE,
+        PERM_COMMONSENSE,
+        ID_ABSTAIN_KNOWLEDGE,
+        ID_ABSTAIN_COMMONSENSE,
+    ],
+    guards: &[ID_ABSTAIN_DC, PROSE, SCRAMBLED, UNSEEN],
+};
+
+/// The six values J6(a)'s pre-registration pins by amendment after build 2 and decontam 2.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Pins {
+    data_snapshot_hash: String,
+    shard_hash: String,
+    replay_shard_hash: String,
+    replay_attestation_sha256: String,
+    h: u64,
+    hit_list_sha256: String,
+}
+
+impl Pins {
+    fn json(&self) -> Value {
+        json!({
+            "data_snapshot_hash": self.data_snapshot_hash,
+            "shard_hash": self.shard_hash,
+            "replay_shard_hash": self.replay_shard_hash,
+            "replay_attestation_sha256": self.replay_attestation_sha256,
+            "h": self.h,
+            "hit_list_sha256": self.hit_list_sha256,
+        })
     }
-    let (word, then) =
-        word.ok_or_else(|| "the decision has neither a word nor a refusal".to_string())?;
-    body["then"] = json!(then);
-    Ok((word.to_string(), body))
+    /// Each hash a sha256 in lower-case hex, and h at most the replay set's 3,568 rows.
+    fn well_formed(&self, whose: &str) -> Result<()> {
+        for (key, v) in [
+            ("data_snapshot_hash", &self.data_snapshot_hash),
+            ("shard_hash", &self.shard_hash),
+            ("replay_shard_hash", &self.replay_shard_hash),
+            ("replay_attestation_sha256", &self.replay_attestation_sha256),
+            ("hit_list_sha256", &self.hit_list_sha256),
+        ] {
+            ensure!(
+                v.len() == 64 && v.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+                "{whose} {key} {v:?} is not a sha256 in lower-case hex"
+            );
+        }
+        ensure!(
+            self.h <= REPLAY_SET_ROWS,
+            "{whose} h {} is more than the replay set's {REPLAY_SET_ROWS} rows",
+            self.h
+        );
+        Ok(())
+    }
+}
+
+/// The pins the pre-registration's top-level `amendments` carries: exactly the six keys, each
+/// well-formed. Absent is pending; any other shape refuses.
+fn amendments_of(p: &Map<String, Value>) -> Result<Pins> {
+    let form = "an object with exactly data_snapshot_hash, shard_hash, replay_shard_hash, \
+                replay_attestation_sha256 and hit_list_sha256 (each a sha256 in lower-case hex) \
+                and h (an integer, 0..=3568)";
+    let Some(a) = p.get("amendments") else {
+        return Err(format!(
+            "the pre-registration's amendments are pending (no top-level \"amendments\"; \
+             amendments_pending: {}); the checker refuses until they are filled as {form}",
+            p.get("amendments_pending")
+                .map_or("absent".to_string(), Value::to_string)
+        ));
+    };
+    let a = a
+        .as_object()
+        .ok_or_else(|| format!("the pre-registration's amendments are {a}, not {form}"))?;
+    let extra: Vec<&String> = a
+        .keys()
+        .filter(|k| !AMENDMENT_KEYS.contains(&k.as_str()))
+        .collect();
+    ensure!(
+        extra.is_empty(),
+        "the pre-registration's amendments carry {extra:?}, which are not among the six; \
+         amendments is {form}"
+    );
+    let hash = |key: &str| -> Result<String> {
+        a.get(key)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| {
+                format!(
+                    "the pre-registration's amendments have no string {key}; amendments is {form}"
+                )
+            })
+    };
+    let pins = Pins {
+        data_snapshot_hash: hash("data_snapshot_hash")?,
+        shard_hash: hash("shard_hash")?,
+        replay_shard_hash: hash("replay_shard_hash")?,
+        replay_attestation_sha256: hash("replay_attestation_sha256")?,
+        h: a.get("h").and_then(Value::as_u64).ok_or_else(|| {
+            format!("the pre-registration's amendments have no integer h; amendments is {form}")
+        })?,
+        hit_list_sha256: hash("hit_list_sha256")?,
+    };
+    pins.well_formed("the pre-registration's amendments:")?;
+    Ok(pins)
+}
+
+/// The pins the pre-registration fixes, which the command line must repeat exactly. h and the
+/// hit list's sha256 are checked against the file only: no ledger row records them.
+fn pinned(p: &Map<String, Value>, cli: &Pins) -> Result<Pins> {
+    let filed = amendments_of(p)?;
+    cli.well_formed("the command line's")?;
+    let (f, c) = (filed.json(), cli.json());
+    for key in AMENDMENT_KEYS {
+        ensure!(
+            f[key] == c[key],
+            "--{} {} is not the pre-registration's pinned {}",
+            key.replace('_', "-"),
+            c[key],
+            f[key]
+        );
+    }
+    Ok(filed)
+}
+
+/// A metric as the pre-registration lists it: name, direction and form.
+fn listed(m: Metric) -> (&'static str, &'static str, &'static str) {
+    let form = match m.source {
+        Source::Count(_) => "count",
+        Source::Float(_) => "f64",
+        Source::Needle8k => "needle_worst_bucket",
+        Source::Control(_) => "control",
+        Source::Margin => "paired_margin",
+    };
+    (m.name, dir_word(m.dir), form)
+}
+
+/// The pre-registration's structured fields agree with this code: its words, its targets and
+/// guards (name, direction and form, in order) and its replay flags. A disagreement refuses: the
+/// file is what binds, and a checker applying anything else applies a rule nobody registered.
+fn j6a_agrees(p: &Map<String, Value>) -> Result<()> {
+    let words: Vec<&str> = p
+        .get("outcomes")
+        .and_then(|o| o.get("words"))
+        .and_then(Value::as_array)
+        .map(|w| w.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    ensure!(
+        words == J6A_WORDS,
+        "the pre-registration's outcomes.words are {words:?}, not this checker's {J6A_WORDS:?}"
+    );
+    let arm = p
+        .get("arm")
+        .and_then(Value::as_object)
+        .ok_or("the pre-registration has no arm object")?;
+    for (list, want) in [
+        ("targets", ARM_J6A.targets.to_vec()),
+        ("guards", ARM_J6A.must_not_lose()),
+    ] {
+        let got: Vec<(&str, &str, &str)> = arm
+            .get(list)
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("the pre-registration has no arm.{list} list"))?
+            .iter()
+            .map(|m| {
+                let form = m["form"].as_str().unwrap_or("");
+                // "needle_worst_bucket (campaign/f-successor-preregistered.json ...)" names
+                // its form, then where it is defined.
+                let form = form.split(' ').next().unwrap_or("");
+                (
+                    m["name"].as_str().unwrap_or(""),
+                    m["direction"].as_str().unwrap_or(""),
+                    form,
+                )
+            })
+            .collect();
+        let want: Vec<(&str, &str, &str)> = want.into_iter().map(listed).collect();
+        ensure!(
+            got == want,
+            "the pre-registration's arm.{list} are {got:?}, not this checker's {want:?}"
+        );
+    }
+    let flags = arm.get("replay_flags").unwrap_or(&Value::Null);
+    ensure!(
+        flags["replay_weight"].as_f64() == Some(REPLAY_WEIGHT)
+            && flags["replay_every"].as_i64() == Some(REPLAY_EVERY)
+            && flags["replay_direction"].as_str() == Some(REPLAY_DIRECTION),
+        "the pre-registration's arm.replay_flags (weight {}, every {}, direction {}) are not \
+         this checker's ({REPLAY_WEIGHT}, {REPLAY_EVERY}, {REPLAY_DIRECTION})",
+        flags["replay_weight"],
+        flags["replay_every"],
+        flags["replay_direction"]
+    );
+    Ok(())
+}
+
+/// J6(a)'s own identity (arm.identity.ft_row and .recipe), not R8's. The ft row is quick (one
+/// seed, by construction), at a502670, on build 2's snapshot, which is pinned and is not F's;
+/// its recipe is F seed 0's except shard_hash (pinned), exactly the five replay keys (pinned or
+/// registered values, none of them on F's recipe), and R1's derived keys, which are recorded
+/// and not compared. Returns what it checked, for the JSON.
+fn replay_identity(arm: &Arm, ft: &Row, reference: &Row, pins: &Pins) -> Result<Value> {
+    let what = format!("arm {} ft row {}", arm.name, ft.id());
+    ensure!(
+        ft.get(&["quick"]) == Some(&Value::Bool(true)),
+        "{what}: quick is {}, but J6(a) is one seed and quick by construction",
+        ft.get(&["quick"])
+            .map_or("absent".to_string(), Value::to_string)
+    );
+    ensure!(
+        ft.str_at(&["code_commit"]) == Some(J6A_CODE_COMMIT),
+        "{what}: code_commit {:?} is not {J6A_CODE_COMMIT} (a502670, as F's 973cd4e3)",
+        ft.str_at(&["code_commit"])
+    );
+    let data = ft.str_at(&["protocol", "data_snapshot_hash"]);
+    let f_data = reference.str_at(&["protocol", "data_snapshot_hash"]);
+    ensure!(
+        data == Some(pins.data_snapshot_hash.as_str()),
+        "{what}: data snapshot {data:?} is not build 2's pinned {}",
+        pins.data_snapshot_hash
+    );
+    ensure!(
+        f_data.is_some() && data != f_data,
+        "{what}: data snapshot {data:?} is F's ({f_data:?}): J6(a) trains on build 2, whose train \
+         set is F's minus the replay set (declared_data_delta)"
+    );
+    let (got, base) = (recipe_of(ft, &what)?, recipe_of(reference, &what)?);
+    ensure!(
+        got.get("tag").and_then(Value::as_str) == Some("epoch"),
+        "{what}: recipe.tag is {}, not epoch",
+        got.get("tag")
+            .map_or("absent".to_string(), Value::to_string)
+    );
+    ensure!(
+        got.get("shard_hash").and_then(Value::as_str) == Some(pins.shard_hash.as_str()),
+        "{what}: recipe.shard_hash is {}, not build 2's pinned {}",
+        got.get("shard_hash")
+            .map_or("absent".to_string(), Value::to_string),
+        pins.shard_hash
+    );
+    for key in REPLAY_KEYS {
+        ensure!(
+            !base.contains_key(key),
+            "envelope ft row {}: recipe.{key} is {}, but F ran no replay",
+            reference.id(),
+            base[key]
+        );
+        let v = got.get(key);
+        let ok = match key {
+            "replay_shard_hash" => v.and_then(Value::as_str) == Some(&pins.replay_shard_hash),
+            "replay_attestation_sha256" => {
+                v.and_then(Value::as_str) == Some(&pins.replay_attestation_sha256)
+            }
+            "replay_weight" => v.and_then(Value::as_f64) == Some(REPLAY_WEIGHT),
+            "replay_every" => v.and_then(Value::as_i64) == Some(REPLAY_EVERY),
+            "replay_direction" => v.and_then(Value::as_str) == Some(REPLAY_DIRECTION),
+            _ => false,
+        };
+        ensure!(
+            ok,
+            "{what}: recipe.{key} is {}, not the registered or pinned value",
+            v.map_or("absent".to_string(), Value::to_string)
+        );
+    }
+    let declared: BTreeSet<&str> = REPLAY_KEYS
+        .iter()
+        .chain(&DERIVED_RECIPE_KEYS)
+        .chain(&["shard_hash"])
+        .copied()
+        .collect();
+    let keys: BTreeSet<&String> = got.keys().chain(base.keys()).collect();
+    for key in keys {
+        if declared.contains(key.as_str()) {
+            continue;
+        }
+        ensure!(
+            got.get(key) == base.get(key),
+            "{what}: recipe.{key} is {}, not F seed 0's {}; J6(a) differs from F's recipe only \
+             by {declared:?} (arm.identity.recipe)",
+            got.get(key).map_or("absent".to_string(), Value::to_string),
+            base.get(key).map_or("absent".to_string(), Value::to_string)
+        );
+    }
+    Ok(json!({
+        "identity": "J6(a)'s own (campaign/j6a-preregistered.json arm.identity), not R8",
+        "quick": true,
+        "code_commit": J6A_CODE_COMMIT,
+        "data_snapshot_hash": data,
+        "f_data_snapshot_hash": f_data,
+        "shard_hash": pins.shard_hash,
+        "f_shard_hash": base.get("shard_hash"),
+        "replay": REPLAY_KEYS
+            .iter()
+            .map(|k| (k.to_string(), got.get(*k).cloned().unwrap_or(Value::Null)))
+            .collect::<Map<_, _>>(),
+        "derived_recorded_not_compared": DERIVED_RECIPE_KEYS
+            .iter()
+            .map(|k| (k.to_string(), json!({"j6a": got.get(*k), "f": base.get(*k)})))
+            .collect::<Map<_, _>>(),
+    }))
+}
+
+/// The J6(a) decision: `wins`, `quiet` or `refused`, every refusal listed in the order it was
+/// met. The pre-registration is read and checked first (a disagreement refuses before any
+/// ledger is read); pins that are pending or disagree with the command line refuse as (a), and
+/// room is still decided from the envelope and reported.
+fn rule_j6a(
+    inputs: &mut Inputs,
+    preregistration: &Path,
+    f_ledger: &Path,
+    ft_rows: &[(i64, String)],
+    arm_ledger: &Path,
+    j6a: &(i64, String),
+    cli: &Pins,
+) -> Result<(String, Value)> {
+    let (prereg, prereg_sha256) = inputs.read_preregistration(preregistration)?;
+    j6a_agrees(&prereg).map_err(|e| format!("{} {e}", J6A_LABELS.unreadable))?;
+    let pins = pinned(&prereg, cli);
+    let identity = |arm: &Arm, ft: &Row, reference: &Row| -> Result<Value> {
+        let pins = pins.as_ref().map_err(Clone::clone)?;
+        replay_identity(arm, ft, reference, pins)
+    };
+    let decided = decide_arms(
+        inputs,
+        f_ledger,
+        ft_rows,
+        arm_ledger,
+        &[(&ARM_J6A, j6a)],
+        &identity,
+    )
+    .map_err(|e| match &pins {
+        // No envelope, so nothing else is decided, but pins that are pending or disagree are
+        // a reason of their own and are listed beside it.
+        Err(p) => format!(
+            "{}; {} {p}",
+            no_envelope(J6A_LABELS, &e),
+            J6A_LABELS.unreadable
+        ),
+        Ok(_) => no_envelope(J6A_LABELS, &e),
+    })?;
+    let mut s = settle(
+        decided,
+        J6A_LABELS,
+        "J6(a) wins iff every target (MMLU / CSQA permutation consistency, higher; MMLU / CSQA \
+         in-distribution abstention, lower) lands outside F's three-seed envelope in the right \
+         direction by more than F's own seed range, and no guard lands outside it in the wrong \
+         direction (campaign/j6a-preregistered.json, f-v4-preregistered.json:13). A target the \
+         envelope leaves no room to clear refuses the decision (R9_room). 'wins' feeds the next \
+         re-plan only.",
+    );
+    if let Err(e) = &pins {
+        s.refuse(format!("{} {e}", J6A_LABELS.unreadable));
+    }
+    s.body["preregistration_sha256"] = json!(prereg_sha256);
+    s.body["amendments"] = match &pins {
+        Ok(p) => json!({
+            "pinned": p.json(),
+            "h_and_hit_list_checked_against": "the pre-registration only; no ledger row records them",
+        }),
+        Err(e) => json!({"not_pinned": e}),
+    };
+    let word = match s.wins.as_deref() {
+        None => None,
+        Some(&[true]) => Some((
+            ARM_J6A.word,
+            "J6(a) wins: this feeds the next re-plan only and starts nothing (one quick seed; \
+             rule 8)",
+        )),
+        Some(&[false]) => Some((
+            "quiet",
+            "J6(a) does not win: a target did not clear or a guard lost; the next re-plan reads \
+             the rows",
+        )),
+        Some(other) => return Err(format!("{} arm verdicts for one arm", other.len())),
+    };
+    s.finish(word, "no reading; the human decides from the rows")
 }
 
 // --- look-ups ----------------------------------------------------------------------------------
@@ -2032,6 +2619,7 @@ fn rule_name(cmd: &Cmd) -> &'static str {
         Cmd::Seeds34 { .. } => "seeds_3_4",
         Cmd::J6f { .. } => "j6f_position",
         Cmd::Successor { .. } => "f_successor",
+        Cmd::J6a { .. } => "j6a_replay",
         Cmd::FtRows { .. } => "ft_rows",
         Cmd::EvalRow { .. } => "eval_row",
     }
@@ -2040,6 +2628,7 @@ fn rule_name(cmd: &Cmd) -> &'static str {
 fn preregistration(cmd: &Cmd) -> &'static str {
     match cmd {
         Cmd::Successor { .. } => PREREG_SUCC,
+        Cmd::J6a { .. } => PREREG_J6A,
         _ => PREREG,
     }
 }
@@ -2072,6 +2661,35 @@ fn run(cmd: &Cmd) -> Outcome {
             arm_ledger,
             j6f_ft_row,
             j6dv4_ft_row,
+        ),
+        Cmd::J6a {
+            preregistration,
+            f_ledger,
+            ft_rows,
+            arm_ledger,
+            j6a_ft_row,
+            data_snapshot_hash,
+            shard_hash,
+            replay_shard_hash,
+            replay_attestation_sha256,
+            h,
+            hit_list_sha256,
+            ..
+        } => rule_j6a(
+            &mut inputs,
+            preregistration,
+            f_ledger,
+            ft_rows,
+            arm_ledger,
+            j6a_ft_row,
+            &Pins {
+                data_snapshot_hash: data_snapshot_hash.clone(),
+                shard_hash: shard_hash.clone(),
+                replay_shard_hash: replay_shard_hash.clone(),
+                replay_attestation_sha256: replay_attestation_sha256.clone(),
+                h: *h,
+                hit_list_sha256: hit_list_sha256.clone(),
+            },
         ),
         Cmd::FtRows { ledger, ft_rows } => lookup_ft_rows(&mut inputs, ledger, ft_rows),
         Cmd::EvalRow {
@@ -2139,7 +2757,8 @@ fn main() -> ExitCode {
         Cmd::Avgnp { out, .. }
         | Cmd::Seeds34 { out, .. }
         | Cmd::J6f { out, .. }
-        | Cmd::Successor { out, .. } => Some(out),
+        | Cmd::Successor { out, .. }
+        | Cmd::J6a { out, .. } => Some(out),
         Cmd::FtRows { .. } | Cmd::EvalRow { .. } => None,
     };
     if let Some(path) = out_path
@@ -3250,6 +3869,7 @@ mod tests {
             &ft_args(&J4_FT),
             &repo(J6B),
             &[(&ARM_J6B, &(0, J6B_FT.to_string()))],
+            &arm_identity,
         )
         .unwrap();
         // R9_room on the real rows: prose 2*9 - 2 = 16 < 60 and scrambled 2*8 - 3 = 13 < 60
@@ -3354,6 +3974,7 @@ mod tests {
             &ft_args(&J4_FT),
             &repo(J6B),
             &[(&arm, &(0, J6B_FT.to_string()))],
+            &arm_identity,
         )
         .unwrap()
         .judged
@@ -3423,6 +4044,12 @@ mod tests {
         ece: f64,
         /// Numerator of the paired margin over 2304 rows.
         margin: i64,
+        /// J6(a)'s targets: MMLU / CSQA permutation consistency (of 1485 / 1197) and
+        /// in-distribution abstention (of 1485 / 1197).
+        perm_know: u64,
+        perm_csqa: u64,
+        id_know: u64,
+        id_csqa: u64,
     }
 
     const NEEDLE_SIZES: [u64; 5] = [59, 61, 59, 60, 61];
@@ -3444,6 +4071,10 @@ mod tests {
             id_abstain: 13,
             ece: 0.0207,
             margin: 873,
+            perm_know: 1168,
+            perm_csqa: 1053,
+            id_know: 317,
+            id_csqa: 144,
         },
         Profile {
             needle: (4, 45),
@@ -3457,6 +4088,10 @@ mod tests {
             id_abstain: 15,
             ece: 0.0190,
             margin: 860,
+            perm_know: 1150,
+            perm_csqa: 1040,
+            id_know: 330,
+            id_csqa: 150,
         },
         Profile {
             needle: (4, 50),
@@ -3470,6 +4105,10 @@ mod tests {
             id_abstain: 11,
             ece: 0.0220,
             margin: 880,
+            perm_know: 1180,
+            perm_csqa: 1060,
+            id_know: 300,
+            id_csqa: 140,
         },
     ];
     /// Inside the envelope on every metric.
@@ -3505,10 +4144,12 @@ mod tests {
             "tag": "epoch", "tool": "tools/real_ft_run.py", "optimizer_recipe": "master",
             "lr": 1e-5, "lower_layers_n": 8, "lower_lr_scale": 0.1,
             "checkpoint_skip_layers": 6, "batch_tokens": 35403, "no_memorise": true,
+            "shard_hash": "5f".repeat(32), "batches": 9683, "width": 7936,
         });
         edit(recipe.as_object_mut().unwrap());
         json!({
             "row_id": id, "run_kind": "ft", "status": "completed", "quick": false,
+            "code_commit": "a5026707b6e3e57c253be32003ba32420f2d78e2",
             "protocol": {"seed": seed, "recipe_hash": recipe_hash, "data_snapshot_hash": "d"},
             "recipe": recipe,
         })
@@ -3533,6 +4174,10 @@ mod tests {
             ("val_top1.span", p.span, 7238),
             (PERM_DC.name, p.perm, 2304),
             (ID_ABSTAIN_DC.name, p.id_abstain, 2304),
+            (PERM_KNOWLEDGE.name, p.perm_know, 1485),
+            (PERM_COMMONSENSE.name, p.perm_csqa, 1197),
+            (ID_ABSTAIN_KNOWLEDGE.name, p.id_know, 1485),
+            (ID_ABSTAIN_COMMONSENSE.name, p.id_csqa, 1197),
         ] {
             m.insert(key.into(), ran(k, n));
         }
@@ -4565,6 +5210,36 @@ mod tests {
         refused_with(&o, "each arm is one seed-0 run");
     }
 
+    /// J6(a) gets its own identity (campaign/j6a-preregistered.json, Fable Q4); arm_identity's
+    /// snapshot equality for J6(f) and J6(d)-v4 is not loosened. A J6(f) or J6(d)-v4 ft row
+    /// shaped like J6(a)'s (build 2's snapshot, the five replay keys) still refuses through the
+    /// successor, on the snapshot, even when its recipe otherwise matches its delta.
+    #[test]
+    fn the_successor_still_refuses_an_arm_on_another_snapshot() {
+        for arm in [0xa6f, 0xa6d] {
+            let fx = succ_fixture(F_ENV, J6F_WINS, J6DV4_WINS, |_, a| {
+                let ft = rid(arm, 1);
+                let row = row_mut(a, &ft);
+                row["protocol"]["data_snapshot_hash"] = json!("b2".repeat(32));
+                let r = row["recipe"].as_object_mut().unwrap();
+                r.insert("replay_shard_hash".into(), json!("7e".repeat(32)));
+                r.insert("replay_attestation_sha256".into(), json!("a7".repeat(32)));
+                r.insert("replay_weight".into(), json!(1.0));
+                r.insert("replay_every".into(), json!(6));
+                r.insert("replay_direction".into(), json!("base_to_model"));
+            });
+            let o = succ_of(&fx);
+            refused_with(&o, "is not the envelope's");
+            refused_with(&o, &format!("ft row {}: data snapshot", rid(arm, 1)));
+        }
+        // The snapshot alone is enough.
+        let fx = succ_fixture(F_ENV, NEUTRAL, J6DV4_WINS, |_, a| {
+            let ft = rid(0xa6d, 1);
+            row_mut(a, &ft)["protocol"]["data_snapshot_hash"] = json!("b2".repeat(32));
+        });
+        refused_with(&succ_of(&fx), "is not the envelope's");
+    }
+
     #[test]
     fn an_envelope_seed_that_is_quick_or_off_recipe_refuses() {
         let fx = succ_fixture(F_ENV, J6F_WINS, NEUTRAL, |f, _| {
@@ -4577,5 +5252,810 @@ mod tests {
             row_mut(f, &ft)["protocol"]["recipe_hash"] = json!("other");
         });
         refused_with(&succ_of(&fx), "not one configuration");
+    }
+
+    // --- j6a: campaign/j6a-preregistered.json ------------------------------------------------
+    //
+    // F's envelope from the same synthetic F ledger; J6(a)'s ft and eval rows in their own
+    // ledger; the pre-registration is the committed file plus a filled top-level `amendments`.
+
+    const J6A_PREREG: &str = "campaign/j6a-preregistered.json";
+    /// F's ledger as pulled at 2c52b7a (seed 0's five rows; sha256 abb48449...).
+    const F_LEDGER_V4: &str = "ledger/gh200-p4-v4-2026-10-01.jsonl";
+    /// F's data snapshot, which J6(a)'s must differ from (arm.identity.ft_row).
+    const F_DATA_SNAPSHOT_HASH: &str =
+        "ea3215c4f36d57f74d291fb94c3fa8724fa5a14a303ea7572aa0dafb2a0933a1";
+    /// F's val shard (arm.identity.eval_row).
+    const F_VAL_SHARD_HASH: &str =
+        "ef06ab99eef107dd608424c80117b81b3986ce5ea827d2d4f47f990d960b1bc5";
+
+    fn prereg_j6a() -> Value {
+        serde_json::from_str(&std::fs::read_to_string(repo(J6A_PREREG)).unwrap()).unwrap()
+    }
+
+    fn j6a_pins() -> Pins {
+        Pins {
+            data_snapshot_hash: "b2".repeat(32),
+            shard_hash: "5b".repeat(32),
+            replay_shard_hash: "7e".repeat(32),
+            replay_attestation_sha256: "a7".repeat(32),
+            h: 185,
+            hit_list_sha256: "41".repeat(32),
+        }
+    }
+
+    /// J6(a)'s recipe as a502670 would record it: F's, with build 2's shard hash, the five
+    /// replay keys, and the batch planner's own batches and width (R1: not compared).
+    fn j6a_recipe(r: &mut Map<String, Value>) {
+        let p = j6a_pins();
+        r.insert("shard_hash".into(), json!(p.shard_hash));
+        r.insert("replay_shard_hash".into(), json!(p.replay_shard_hash));
+        r.insert(
+            "replay_attestation_sha256".into(),
+            json!(p.replay_attestation_sha256),
+        );
+        r.insert("replay_weight".into(), json!(1.0));
+        r.insert("replay_every".into(), json!(6));
+        r.insert("replay_direction".into(), json!("base_to_model"));
+        r.insert("batches".into(), json!(9214));
+        r.insert("width".into(), json!(7680));
+    }
+
+    struct J6a {
+        f: Temp,
+        arm: Temp,
+        prereg: Temp,
+        f_ft: Vec<(i64, String)>,
+        ft: (i64, String),
+        cli: Pins,
+    }
+
+    /// `edit` gets F's rows, J6(a)'s rows and the pre-registration, in that order.
+    fn j6a_fixture(
+        env: [Profile; 3],
+        arm: Profile,
+        edit: impl Fn(&mut Vec<Value>, &mut Vec<Value>, &mut Value),
+    ) -> J6a {
+        let mut f_rows = Vec::new();
+        let f_ft: Vec<(i64, String)> = env
+            .iter()
+            .enumerate()
+            .map(|(s, p)| {
+                (
+                    s as i64,
+                    s_run(&mut f_rows, 0xf0 + s as u64, s as i64, "r", p, |_| {}),
+                )
+            })
+            .collect();
+        let ft = rid(0xa6a, 1);
+        let mut a_rows = vec![
+            s_ft(&ft, 0, "ra", j6a_recipe),
+            s_eval(&rid(0xa6a, 2), 0, &ft, &arm),
+        ];
+        a_rows[0]["quick"] = json!(true);
+        a_rows[0]["protocol"]["data_snapshot_hash"] = json!(j6a_pins().data_snapshot_hash);
+        let mut prereg = prereg_j6a();
+        prereg["amendments"] = j6a_pins().json();
+        edit(&mut f_rows, &mut a_rows, &mut prereg);
+        let p = temp_path("j6a-preregistered.json");
+        std::fs::write(&p.0, serde_json::to_vec_pretty(&prereg).unwrap()).unwrap();
+        J6a {
+            f: temp_ledger(&f_rows),
+            arm: temp_ledger(&a_rows),
+            prereg: p,
+            f_ft,
+            ft: (0, ft),
+            cli: j6a_pins(),
+        }
+    }
+
+    fn j6a_of(fx: &J6a) -> Outcome {
+        let c = &fx.cli;
+        outcome(Cmd::J6a {
+            preregistration: fx.prereg.0.clone(),
+            f_ledger: fx.f.0.clone(),
+            ft_rows: fx.f_ft.clone(),
+            arm_ledger: fx.arm.0.clone(),
+            j6a_ft_row: fx.ft.clone(),
+            data_snapshot_hash: c.data_snapshot_hash.clone(),
+            shard_hash: c.shard_hash.clone(),
+            replay_shard_hash: c.replay_shard_hash.clone(),
+            replay_attestation_sha256: c.replay_attestation_sha256.clone(),
+            h: c.h,
+            hit_list_sha256: c.hit_list_sha256.clone(),
+            out: PathBuf::from("/unused"),
+        })
+    }
+
+    fn j6a(env: [Profile; 3], arm: Profile) -> Outcome {
+        j6a_of(&j6a_fixture(env, arm, |_, _, _| {}))
+    }
+
+    /// J6(a) clearing all four targets against F_ENV: permutation 1211 > 2*1180 - 1150 = 1210
+    /// and 1081 > 2*1060 - 1040 = 1080; in-distribution abstention 269 < 2*300 - 330 = 270 and
+    /// 129 < 2*140 - 150 = 130.
+    const J6A_WINS: Profile = Profile {
+        perm_know: 1211,
+        perm_csqa: 1081,
+        id_know: 269,
+        id_csqa: 129,
+        ..NEUTRAL
+    };
+
+    fn arm_j6a(o: &Outcome) -> &Value {
+        &o.json["detail"]["arms"]["j6a"]
+    }
+
+    #[test]
+    fn j6a_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied() {
+        let fx = j6a_fixture(F_ENV, J6A_WINS, |_, _, _| {});
+        let o = j6a_of(&fx);
+        assert_eq!((o.word.as_str(), o.refused), ("wins", false), "{}", o.json);
+        assert_eq!(o.json["rule"], "j6a_replay");
+        assert_eq!(o.json["preregistration"], PREREG_J6A);
+        let a = arm_j6a(&o);
+        assert_eq!(a["wins"], true);
+        assert_eq!(a["targets"].as_array().unwrap().len(), 4);
+        assert_eq!(a["must_not_lose"].as_array().unwrap().len(), 9);
+        // The identity is J6(a)'s own, and R1's derived keys are recorded, not compared.
+        let id = &a["recipe_delta"];
+        assert!(id["identity"].as_str().unwrap().contains("not R8"), "{id}");
+        assert_eq!(
+            id["derived_recorded_not_compared"]["batches"],
+            json!({"j6a": 9214, "f": 9683})
+        );
+        assert_eq!(id["replay"]["replay_every"], 6);
+        // The pre-registration's sha256 is in the JSON twice: as an input and in the detail.
+        let sha = sha256_hex(&std::fs::read(&fx.prereg.0).unwrap());
+        assert_eq!(o.json["detail"]["preregistration_sha256"], sha);
+        assert_eq!(o.json["inputs"][0]["role"], "preregistration");
+        assert_eq!(o.json["inputs"][0]["sha256"], sha);
+        assert_eq!(o.json["detail"]["amendments"]["pinned"], j6a_pins().json());
+        assert!(
+            o.json["detail"]["amendments"]["h_and_hit_list_checked_against"]
+                .as_str()
+                .unwrap()
+                .contains("no ledger row records them")
+        );
+        assert_eq!(o.json["detail"]["cannot_clear"], json!([]));
+        // Inside the envelope everywhere: quiet.
+        let o = j6a(F_ENV, NEUTRAL);
+        assert_eq!((o.word.as_str(), o.refused), ("quiet", false), "{}", o.json);
+        assert_eq!(arm_j6a(&o)["targets_all_clear"], false);
+    }
+
+    /// R7 and R3 on each of the four targets: exactly max + range (min - range) does not clear,
+    /// one count past it does, and one target short of clearing is quiet.
+    #[test]
+    fn every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it() {
+        for (tie, metric) in [
+            (
+                Profile {
+                    perm_know: 1210,
+                    ..J6A_WINS
+                },
+                PERM_KNOWLEDGE.name,
+            ),
+            (
+                Profile {
+                    perm_csqa: 1080,
+                    ..J6A_WINS
+                },
+                PERM_COMMONSENSE.name,
+            ),
+            (
+                Profile {
+                    id_know: 270,
+                    ..J6A_WINS
+                },
+                ID_ABSTAIN_KNOWLEDGE.name,
+            ),
+            (
+                Profile {
+                    id_csqa: 130,
+                    ..J6A_WINS
+                },
+                ID_ABSTAIN_COMMONSENSE.name,
+            ),
+        ] {
+            let o = j6a(F_ENV, tie);
+            assert_eq!(o.word, "quiet", "{metric}: {}", o.json);
+            let t = arm_j6a(&o)["targets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|t| t["metric"] == metric)
+                .unwrap()
+                .clone();
+            assert_eq!(t["clears"], false, "{metric}");
+        }
+        assert_eq!(j6a(F_ENV, J6A_WINS).word, "wins");
+        // The lower-better targets clear downward only: a rise in abstention never clears.
+        let o = j6a(
+            F_ENV,
+            Profile {
+                id_know: 1485,
+                ..J6A_WINS
+            },
+        );
+        assert_eq!(o.word, "quiet");
+    }
+
+    /// Each of the nine guards, in its own direction: at F's bound it holds (wins), one count
+    /// (or a 1e-4 ECE step) past it loses (quiet, naming it), and a move the right way holds.
+    #[test]
+    fn every_j6a_guard_holds_at_its_bound_and_loses_one_past_it() {
+        type Edit = fn(Profile) -> Profile;
+        let cases: [(&str, Edit, Edit, Edit); 9] = [
+            (
+                "val_top1.choice",
+                |p| Profile { choice: 9100, ..p },
+                |p| Profile { choice: 9099, ..p },
+                |p| Profile { choice: 10985, ..p },
+            ),
+            (
+                "val_top1.span",
+                |p| Profile { span: 6500, ..p },
+                |p| Profile { span: 6499, ..p },
+                |p| Profile { span: 7238, ..p },
+            ),
+            (
+                PERM_DC.name,
+                |p| Profile { perm: 2285, ..p },
+                |p| Profile { perm: 2284, ..p },
+                |p| Profile { perm: 2304, ..p },
+            ),
+            (
+                ECE_DC_KEY,
+                |p| Profile { ece: 0.0220, ..p },
+                |p| Profile { ece: 0.0221, ..p },
+                |p| Profile { ece: 0.0, ..p },
+            ),
+            (
+                "needle_8k_worst_bucket",
+                |p| Profile {
+                    needle: (4, 40),
+                    ..p
+                },
+                |p| Profile {
+                    needle: (4, 39),
+                    ..p
+                },
+                |p| Profile {
+                    needle: (4, 61),
+                    ..p
+                },
+            ),
+            (
+                ID_ABSTAIN_DC.name,
+                |p| Profile {
+                    id_abstain: 15,
+                    ..p
+                },
+                |p| Profile {
+                    id_abstain: 16,
+                    ..p
+                },
+                |p| Profile { id_abstain: 0, ..p },
+            ),
+            (
+                "ood_abstain.prose",
+                |p| Profile { prose: 50, ..p },
+                |p| Profile { prose: 49, ..p },
+                |p| Profile { prose: 60, ..p },
+            ),
+            (
+                "ood_abstain.scrambled",
+                |p| Profile { scrambled: 55, ..p },
+                |p| Profile { scrambled: 54, ..p },
+                |p| Profile { scrambled: 60, ..p },
+            ),
+            (
+                "ood_abstain.unseen-language",
+                |p| Profile { unseen: 20, ..p },
+                |p| Profile { unseen: 19, ..p },
+                |p| Profile { unseen: 60, ..p },
+            ),
+        ];
+        for (name, at_bound, past, right_way) in cases {
+            let o = j6a(F_ENV, at_bound(J6A_WINS));
+            assert_eq!(o.word, "wins", "{name} at its bound: {}", o.json);
+            let o = j6a(F_ENV, past(J6A_WINS));
+            assert_eq!(o.word, "quiet", "{name} one past: {}", o.json);
+            assert_eq!(arm_j6a(&o)["must_not_lose_lost"], json!([name]), "{name}");
+            let o = j6a(F_ENV, right_way(J6A_WINS));
+            assert_eq!(o.word, "wins", "{name} the right way: {}", o.json);
+        }
+    }
+
+    /// The declared data delta: J6(a)'s snapshot is build 2's pinned one and is not F's.
+    #[test]
+    fn j6a_on_fs_snapshot_or_off_its_pin_refuses() {
+        // Everything says build 2 is F's snapshot: the rows, the file and the flags agree, and
+        // the checker still refuses, because J6(a)'s train set is F's minus the replay set.
+        let mut fx = j6a_fixture(F_ENV, J6A_WINS, |f, a, p| {
+            for s in 0..3 {
+                row_mut(f, &rid(0xf0 + s, 1))["protocol"]["data_snapshot_hash"] =
+                    json!(F_DATA_SNAPSHOT_HASH);
+            }
+            a[0]["protocol"]["data_snapshot_hash"] = json!(F_DATA_SNAPSHOT_HASH);
+            p["amendments"]["data_snapshot_hash"] = json!(F_DATA_SNAPSHOT_HASH);
+        });
+        fx.cli.data_snapshot_hash = F_DATA_SNAPSHOT_HASH.to_string();
+        let o = j6a_of(&fx);
+        refused_with(&o, "(a) ");
+        refused_with(&o, "is F's");
+        // J6(a)'s row on a snapshot other than the pinned one.
+        let fx = j6a_fixture(F_ENV, J6A_WINS, |_, a, _| {
+            a[0]["protocol"]["data_snapshot_hash"] = json!("c3".repeat(32));
+        });
+        refused_with(&j6a_of(&fx), "is not build 2's pinned");
+    }
+
+    #[test]
+    fn a_j6a_recipe_delta_outside_the_declared_keys_refuses() {
+        type RecipeEdit = fn(&mut Map<String, Value>);
+        let cases: [(RecipeEdit, &str); 11] = [
+            (
+                |r| {
+                    r.insert("lr".into(), json!(3e-5));
+                },
+                "recipe.lr is",
+            ),
+            (
+                |r| {
+                    r.insert("beta2".into(), json!(0.95));
+                },
+                "recipe.beta2 is 0.95, not F seed 0's absent",
+            ),
+            (
+                |r| {
+                    r.remove("lower_layers_n");
+                },
+                "recipe.lower_layers_n is absent",
+            ),
+            (
+                |r| {
+                    r.remove("replay_every");
+                },
+                "recipe.replay_every is absent",
+            ),
+            (
+                |r| {
+                    r.insert("replay_weight".into(), json!(0.5));
+                },
+                "recipe.replay_weight is 0.5",
+            ),
+            (
+                |r| {
+                    r.insert("replay_every".into(), json!(7));
+                },
+                "recipe.replay_every is 7",
+            ),
+            (
+                |r| {
+                    r.insert("replay_direction".into(), json!("model_to_base"));
+                },
+                "recipe.replay_direction is",
+            ),
+            (
+                |r| {
+                    r.insert("replay_shard_hash".into(), json!("00".repeat(32)));
+                },
+                "recipe.replay_shard_hash is",
+            ),
+            (
+                |r| {
+                    r.insert("replay_attestation_sha256".into(), json!("00".repeat(32)));
+                },
+                "recipe.replay_attestation_sha256 is",
+            ),
+            (
+                |r| {
+                    r.insert("shard_hash".into(), json!("5f".repeat(32)));
+                },
+                "recipe.shard_hash is",
+            ),
+            (
+                |r| {
+                    r.insert("tag".into(), json!("epoch-x"));
+                },
+                "recipe.tag is",
+            ),
+        ];
+        for (edit, phrase) in cases {
+            let fx = j6a_fixture(F_ENV, J6A_WINS, |_, a, _| {
+                edit(a[0]["recipe"].as_object_mut().unwrap());
+            });
+            let o = j6a_of(&fx);
+            refused_with(&o, phrase);
+            refused_with(&o, "(a) ");
+        }
+        // F's own recipe carrying a replay key is not F.
+        let fx = j6a_fixture(F_ENV, J6A_WINS, |f, _, _| {
+            row_mut(f, &rid(0xf0, 1))["recipe"]["replay_weight"] = json!(1.0);
+        });
+        refused_with(&j6a_of(&fx), "but F ran no replay");
+    }
+
+    #[test]
+    fn j6a_must_be_quick_and_at_a502670() {
+        let fx = j6a_fixture(F_ENV, J6A_WINS, |_, a, _| {
+            a[0]["quick"] = json!(false);
+        });
+        refused_with(&j6a_of(&fx), "quick is false");
+        let fx = j6a_fixture(F_ENV, J6A_WINS, |_, a, _| {
+            a[0].as_object_mut().unwrap().remove("quick");
+        });
+        refused_with(&j6a_of(&fx), "quick is absent");
+        let fx = j6a_fixture(F_ENV, J6A_WINS, |_, a, _| {
+            a[0]["code_commit"] = json!("881ab304".repeat(5));
+        });
+        refused_with(&j6a_of(&fx), "is not a5026707");
+    }
+
+    /// While the file has no `amendments`, the checker refuses, even on a run that would win,
+    /// and still decides room from the envelope and reports it.
+    #[test]
+    fn j6a_refuses_while_amendments_are_pending() {
+        let fx = j6a_fixture(F_ENV, J6A_WINS, |_, _, p| {
+            p.as_object_mut().unwrap().remove("amendments");
+        });
+        let o = j6a_of(&fx);
+        refused_with(&o, "(a) the pre-registration's amendments are pending");
+        refused_with(&o, "amendments_pending: \"The lead fills these");
+        refused_with(&o, "an object with exactly data_snapshot_hash");
+        assert_eq!(o.json["detail"]["room"].as_array().unwrap().len(), 4);
+        assert_eq!(o.json["detail"]["cannot_clear"], json!([]));
+        assert!(o.json["detail"]["amendments"]["not_pinned"].is_string());
+        // Pending and a missing J6(a) eval row: both are listed, not only the first one met.
+        let fx = j6a_fixture(F_ENV, J6A_WINS, |_, a, p| {
+            p.as_object_mut().unwrap().remove("amendments");
+            a.truncate(1);
+        });
+        let o = j6a_of(&fx);
+        refused_with(
+            &o,
+            "(a) missing row: no completed eval row tagged epoch-score-val",
+        );
+        refused_with(&o, "(a) the pre-registration's amendments are pending");
+        // Pending and an envelope that does not resolve (today's state: F seeds 1 and 2 have no
+        // rows): both are listed, though no room was decided.
+        let fx = j6a_fixture(F_ENV, J6A_WINS, |f, _, p| {
+            p.as_object_mut().unwrap().remove("amendments");
+            f.retain(|r| r["protocol"]["seed"] == 0);
+        });
+        let o = j6a_of(&fx);
+        refused_with(&o, "room not decided");
+        refused_with(&o, "(a) the pre-registration's amendments are pending");
+        // The committed file itself is pending.
+        assert!(prereg_j6a().get("amendments").is_none());
+        assert!(amendments_of(prereg_j6a().as_object().unwrap()).is_err());
+    }
+
+    #[test]
+    fn malformed_amendments_or_flags_that_disagree_with_them_refuse() {
+        type PreregEdit = fn(&mut Value);
+        let cases: [(PreregEdit, &str); 7] = [
+            (
+                |p| p["amendments"]["note"] = json!("filled 2026-10-02"),
+                "carry [\"note\"], which are not among the six",
+            ),
+            (
+                |p| {
+                    p["amendments"].as_object_mut().unwrap().remove("h");
+                },
+                "have no integer h",
+            ),
+            (
+                |p| {
+                    p["amendments"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("hit_list_sha256");
+                },
+                "have no string hit_list_sha256",
+            ),
+            (
+                |p| p["amendments"]["shard_hash"] = json!("5B".repeat(32)),
+                "shard_hash \"5B5B",
+            ),
+            (
+                |p| p["amendments"]["replay_shard_hash"] = json!("7e".repeat(31)),
+                "is not a sha256 in lower-case hex",
+            ),
+            (
+                |p| p["amendments"]["h"] = json!(3569),
+                "h 3569 is more than the replay set's 3568 rows",
+            ),
+            (
+                |p| p["amendments"] = json!("filled"),
+                "amendments are \"filled\", not an object",
+            ),
+        ];
+        for (edit, phrase) in cases {
+            let fx = j6a_fixture(F_ENV, J6A_WINS, |_, _, p| edit(p));
+            let o = j6a_of(&fx);
+            refused_with(&o, phrase);
+            refused_with(&o, "(a) ");
+        }
+        // Each flag must repeat the file's pin exactly.
+        type CliEdit = fn(&mut Pins);
+        let flags: [(CliEdit, &str); 6] = [
+            (
+                |c| c.data_snapshot_hash = "c3".repeat(32),
+                "--data-snapshot-hash",
+            ),
+            (|c| c.shard_hash = "c3".repeat(32), "--shard-hash"),
+            (
+                |c| c.replay_shard_hash = "c3".repeat(32),
+                "--replay-shard-hash",
+            ),
+            (
+                |c| c.replay_attestation_sha256 = "c3".repeat(32),
+                "--replay-attestation-sha256",
+            ),
+            (
+                |c| c.h = 184,
+                "--h 184 is not the pre-registration's pinned 185",
+            ),
+            (|c| c.hit_list_sha256 = "c3".repeat(32), "--hit-list-sha256"),
+        ];
+        for (edit, phrase) in flags {
+            let mut fx = j6a_fixture(F_ENV, J6A_WINS, |_, _, _| {});
+            edit(&mut fx.cli);
+            refused_with(&j6a_of(&fx), phrase);
+        }
+        let mut fx = j6a_fixture(F_ENV, J6A_WINS, |_, _, _| {});
+        fx.cli.shard_hash = "not-a-hash".into();
+        refused_with(&j6a_of(&fx), "the command line's shard_hash");
+    }
+
+    /// R9_room on J6(a)'s targets, both directions, with its own label (b); a missing arm row
+    /// beside it is listed too, as (a).
+    #[test]
+    fn a_ceilinged_j6a_target_refuses_under_r9_room() {
+        // Higher-better at the ceiling: 2*1485 - 1300 = 1670 >= 1485.
+        let mut env = F_ENV;
+        for (p, k) in env.iter_mut().zip([1485, 1300, 1400]) {
+            p.perm_know = k;
+        }
+        let o = j6a(env, J6A_WINS);
+        refused_with(
+            &o,
+            "(b) j6a target permutation_consistency.family.knowledge",
+        );
+        refused_with(&o, "2*max - min >= U = 1");
+        assert_eq!(
+            cannot_clear(&o),
+            [("j6a".to_string(), PERM_KNOWLEDGE.name.to_string())]
+        );
+        // Lower-better at the floor: 2*0 - 20 <= 0.
+        let mut env = F_ENV;
+        for (p, k) in env.iter_mut().zip([0, 20, 10]) {
+            p.id_know = k;
+        }
+        let o = j6a(env, J6A_WINS);
+        refused_with(&o, "2*min - max <= L = 0");
+        assert_eq!(
+            cannot_clear(&o),
+            [("j6a".to_string(), ID_ABSTAIN_KNOWLEDGE.name.to_string())]
+        );
+        // With room (11..20: 2*11 - 20 = 2 > 0) the comparison decides: 1 < 2 clears.
+        let mut env = F_ENV;
+        for (p, k) in env.iter_mut().zip([11, 20, 15]) {
+            p.id_know = k;
+        }
+        let o = j6a(
+            env,
+            Profile {
+                id_know: 1,
+                ..J6A_WINS
+            },
+        );
+        assert_eq!(o.word, "wins", "{}", o.json);
+        // No room and a missing J6(a) eval row: both listed, room first.
+        let mut env = F_ENV;
+        for (p, k) in env.iter_mut().zip([1485, 1300, 1400]) {
+            p.perm_know = k;
+        }
+        let fx = j6a_fixture(env, J6A_WINS, |_, a, _| {
+            a.truncate(1);
+        });
+        let o = j6a_of(&fx);
+        let because: Vec<&str> = o.json["detail"]["refused_because"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r.as_str().unwrap())
+            .collect();
+        assert_eq!(because.len(), 2, "{because:?}");
+        assert!(because[0].starts_with("(b) j6a target"));
+        assert!(because[1].starts_with("(a) missing row"));
+    }
+
+    /// The file binds: a structured field that disagrees with the checker refuses before any
+    /// ledger is read.
+    #[test]
+    fn a_preregistration_that_disagrees_with_the_checker_refuses() {
+        type PreregEdit = fn(&mut Value);
+        let cases: [(PreregEdit, &str); 7] = [
+            (
+                |p| p["outcomes"]["words"] = json!(["wins", "quiet"]),
+                "outcomes.words are",
+            ),
+            (
+                |p| {
+                    p["arm"]["targets"].as_array_mut().unwrap().pop();
+                },
+                "arm.targets are",
+            ),
+            (
+                |p| p["arm"]["targets"][2]["direction"] = json!("higher"),
+                "arm.targets are",
+            ),
+            (
+                |p| p["arm"]["guards"][3]["form"] = json!("count"),
+                "arm.guards are",
+            ),
+            (
+                |p| p["arm"]["replay_flags"]["replay_weight"] = json!(0.5),
+                "arm.replay_flags",
+            ),
+            (
+                |p| p["arm"]["replay_flags"]["replay_every"] = json!(7),
+                "arm.replay_flags",
+            ),
+            (
+                |p| p["arm"]["replay_flags"]["replay_direction"] = json!("model_to_base"),
+                "arm.replay_flags",
+            ),
+        ];
+        for (edit, phrase) in cases {
+            let fx = j6a_fixture(F_ENV, J6A_WINS, |_, _, p| edit(p));
+            let o = j6a_of(&fx);
+            refused_with(&o, phrase);
+            refused_with(&o, "(a) the pre-registration's");
+            // Only the pre-registration was read.
+            assert_eq!(o.json["inputs"].as_array().unwrap().len(), 1, "{}", o.json);
+        }
+    }
+
+    #[test]
+    fn j6a_eval_row_is_one_comparable_epoch_score_val_row() {
+        let fx = j6a_fixture(F_ENV, J6A_WINS, |_, a, _| {
+            a[1]["recipe"]["val_shard_hash"] = json!("w");
+        });
+        refused_with(&j6a_of(&fx), "recipe.val_shard_hash");
+        let fx = j6a_fixture(F_ENV, J6A_WINS, |_, a, _| {
+            a[1]["recipe"]["ood"]["cases_per_category"] = json!(30);
+        });
+        refused_with(&j6a_of(&fx), "recipe.ood");
+        // R2: a second completed epoch-score-val row for the ft row refuses.
+        let fx = j6a_fixture(F_ENV, J6A_WINS, |_, a, _| {
+            let second = with_id(a[1].clone(), &rid(0xa6a, 3));
+            a.push(second);
+        });
+        refused_with(&j6a_of(&fx), "(a) ");
+        refused_with(&j6a_of(&fx), "epoch-score-val");
+        // J6(a)'s rows are read from its own ledger only.
+        let fx = j6a_fixture(F_ENV, J6A_WINS, |f, a, _| {
+            f.append(a);
+        });
+        refused_with(&j6a_of(&fx), "(a) ");
+    }
+
+    /// "No needle-control or letter-control row is required": an envelope without them decides.
+    #[test]
+    fn j6a_needs_no_control_or_letter_row() {
+        assert!(!ARM_J6A.reads_control() && !ARM_J6A.reads_margin());
+        let fx = j6a_fixture(F_ENV, J6A_WINS, |f, _, _| {
+            f.retain(|r| {
+                r["recipe"]["tag"] != json!(CONTROL_TAG) && r["metrics"].get(MARGIN_KEY).is_none()
+            });
+        });
+        let o = j6a_of(&fx);
+        assert_eq!(o.word, "wins", "{}", o.json);
+        assert_eq!(
+            o.json["detail"]["envelope"]["seeds"][0]["letter_control_row"],
+            Value::Null
+        );
+    }
+
+    /// The checker's constants are the pre-registration's text, and its literals are what F
+    /// seed 0's committed rows record.
+    #[test]
+    fn the_j6a_rule_is_the_preregistrations_own_text() {
+        let p = prereg_j6a();
+        let map = p.as_object().unwrap();
+        j6a_agrees(map).unwrap();
+        let id = &p["arm"]["identity"];
+        let ft_text = id["ft_row"].as_str().unwrap();
+        assert!(ft_text.contains(&format!("code_commit {J6A_CODE_COMMIT}")));
+        assert!(ft_text.contains("quick true"));
+        assert!(ft_text.contains(&format!("must differ from F's {F_DATA_SNAPSHOT_HASH}")));
+        let recipe_text = id["recipe"].as_str().unwrap();
+        assert!(recipe_text.contains(
+            "replay_shard_hash, replay_attestation_sha256, replay_weight = 1.0, replay_every = 6, \
+             replay_direction = 'base_to_model'"
+        ));
+        assert!(recipe_text.contains("shard_hash, which must equal build 2's train shard hash"));
+        assert!(
+            id["eval_row"]
+                .as_str()
+                .unwrap()
+                .contains(&format!("recipe.val_shard_hash = {F_VAL_SHARD_HASH}"))
+        );
+        let r1 = p["readings"]["R1_derived_recipe_keys"].as_str().unwrap();
+        for k in DERIVED_RECIPE_KEYS {
+            assert!(r1.contains(&format!("recipe.{k}")), "{k}");
+        }
+        assert!(
+            p["arm"]["declared_data_delta"]
+                .as_str()
+                .unwrap()
+                .contains("exactly the 3,568 row_ids")
+        );
+        assert_eq!(REPLAY_SET_ROWS, 3568);
+        let pending = p["amendments_pending"].as_str().unwrap();
+        for phrase in [
+            "train-manifest hash (data_snapshot_hash)",
+            "its train shard hash",
+            "the replay shard hash",
+            "attestation sha256",
+            "and h (with the full hit list's sha256)",
+            "Until they are filled, the checker refuses",
+        ] {
+            assert!(pending.contains(phrase), "{phrase}");
+        }
+        assert!(
+            p["envelope"]
+                .as_str()
+                .unwrap()
+                .contains("F seeds 0, 1 and 2 only, never seeds 3-4")
+        );
+        assert!(
+            p["outcomes"]["refused"]
+                .as_str()
+                .unwrap()
+                .contains("(b) a target has no room under R9_room (cannot_clear)")
+        );
+        assert_eq!((J6A_LABELS.unreadable, J6A_LABELS.no_room), ("(a)", "(b)"));
+        // The literals against F seed 0's committed rows (973cd4e3, f4feac15).
+        let ledger = Inputs::default().read(&repo(F_LEDGER_V4)).unwrap();
+        let rows = seed_rows(&ledger, 0, F_SEED0_FT, false, false).unwrap();
+        assert_eq!(rows.ft.str_at(&["code_commit"]), Some(J6A_CODE_COMMIT));
+        assert_eq!(
+            rows.ft.str_at(&["protocol", "data_snapshot_hash"]),
+            Some(F_DATA_SNAPSHOT_HASH)
+        );
+        assert_eq!(
+            rows.eval.str_at(&["recipe", "val_shard_hash"]),
+            Some(F_VAL_SHARD_HASH)
+        );
+        for k in REPLAY_KEYS {
+            assert!(rows.ft.get(&["recipe", k]).is_none(), "{k}");
+        }
+        for k in DERIVED_RECIPE_KEYS.iter().chain(&["shard_hash", "tag"]) {
+            assert!(rows.ft.get(&["recipe", k]).is_some(), "{k}");
+        }
+        // Every target and guard reads on f4feac15 with the value the file cites (f_seed0).
+        for list in ["targets", "guards"] {
+            for m in p["arm"][list].as_array().unwrap() {
+                let name = m["name"].as_str().unwrap();
+                let metric = ARM_J6A
+                    .targets
+                    .iter()
+                    .copied()
+                    .chain(ARM_J6A.must_not_lose())
+                    .find(|x| x.name == name)
+                    .unwrap();
+                let shown = match rows.read(metric).unwrap() {
+                    Val::Exact(r) => format!("{}/{}", r.num, r.den),
+                    Val::Float(x) => x.to_string(),
+                };
+                assert_eq!(shown, m["f_seed0"].as_str().unwrap(), "{name}");
+            }
+        }
     }
 }
