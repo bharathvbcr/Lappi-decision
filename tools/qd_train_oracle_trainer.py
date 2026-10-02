@@ -84,8 +84,8 @@ def schedules() -> list[dict]:
     ]
     # real_ft_run._control: warmup max(1, steps // 20), floor lr / 10 (real_ft_run.py:1833-1834).
     # (1e-5, 200) is rung (d)'s schedule: F's recipe at --max-steps 200, every step dumped.
-    for lr, steps in [(1e-5, 2), (1e-5, 19), (1e-5, 20), (1e-5, 21), (1e-5, 100), (1e-5, 200), (2e-5, 1505),
-                      (1e-5, 18197)]:
+    for lr, steps in [(1e-5, 2), (1e-5, 19), (1e-5, 20), (1e-5, 21), (1e-5, 100), (1e-5, 200),
+                      (2e-5, 1505), (1e-5, 18197)]:
         configs.append((lr, steps, max(1, steps // 20), lr / 10))
     for peak, total, warmup, floor in configs:
         s = LRSchedule(peak_lr=peak, total_steps=total, warmup_steps=warmup, min_lr=floor)
@@ -113,7 +113,10 @@ def floats() -> list[dict]:
             xs.append(x)
     for _ in range(300):
         xs.append(rng.uniform(-10, 10) * 10.0 ** rng.randint(-12, 20))
-    return [{"bits": struct.unpack("<Q", struct.pack("<d", x))[0], "repr": repr(x), "hex": x.hex()} for x in xs]
+    return [
+        {"bits": struct.unpack("<Q", struct.pack("<d", x))[0], "repr": repr(x), "hex": x.hex()}
+        for x in xs
+    ]
 
 
 def to_wire(v):
@@ -136,7 +139,9 @@ def json_cases() -> list[dict]:
         {"b": 1e-5, "a": [1, None, True, False], "z": {"y": 0.1, "x": "s"}},
         {"lr": 1e-05, "span_weight": 1.0, "batch_tokens": 35403, "wall_clock_cap_s": 32400.0,
          "tag": "epoch", "deterministic": False},
-        {"esc": "tab\there \"q\" \\ \n\r\b\f \x01 \x7f é ✓ 𝔘", "big": 1e16, "neg": -2.5e-7},
+        # The fraktur U is deliberate: a non-BMP character, which ensure_ascii writes as a
+        # surrogate pair, is the case the Rust writer has to reproduce.
+        {"esc": "tab\there \"q\" \\ \n\r\b\f \x01 \x7f é ✓ 𝔘", "big": 1e16, "neg": -2.5e-7},  # noqa: RUF001
         [0.0, -0.0, 5e-324, 1e300, "x"],
     ]
     out = []
@@ -150,26 +155,35 @@ def json_cases() -> list[dict]:
 
 
 def consumed_cases() -> list[dict]:
-    cases = [[], [[b"ab"]], [[b"a", b"b"]], [[b"a"], [b"b"]], [[b"", b"x" * 300, bytes(range(256))]]]
+    cases = [
+        [], [[b"ab"]], [[b"a", b"b"]], [[b"a"], [b"b"]], [[b"", b"x" * 300, bytes(range(256))]],
+    ]
     # One `trainer._fold`-shaped batch: index, bucket, int32 tokens [2,3], int32 lengths, then
     # the four optional arrays (two present, two absent), little-endian as numpy holds them.
     tokens = struct.pack("<6i", 5, 6, 7, 8, 9, 0)
     lengths = struct.pack("<2i", 3, 2)
     slot = struct.pack("<2b", 1, 3)
     target = struct.pack("<2q", 1, 0)
-    cases.append([[(4).to_bytes(8, "big"), (2).to_bytes(8, "big"), tokens, lengths, slot, target, b"", b""]])
+    cases.append([[
+        (4).to_bytes(8, "big"), (2).to_bytes(8, "big"), tokens, lengths, slot, target, b"", b"",
+    ]])
     out = []
     for folds in cases:
         p = ConsumedPrefix()
         for parts in folds:
             p.fold(*parts)
-        out.append({"folds": [[part.hex() for part in parts] for parts in folds], "digest": p.hexdigest()})
+        out.append({
+            "folds": [[part.hex() for part in parts] for parts in folds],
+            "digest": p.hexdigest(),
+        })
     return out
 
 
 def loss_log_case() -> dict:
     points = [(0, 0, 0, 2.5), (1, 0, 1, 1.25), (2, 0, 3, 0.8353729248046875), (5, 1, 0, 1e-9)]
-    log = LossLog(LossPoint(optimizer_step=s, epoch=e, batch_index=i, loss=x) for s, e, i, x in points)
+    log = LossLog(
+        LossPoint(optimizer_step=s, epoch=e, batch_index=i, loss=x) for s, e, i, x in points
+    )
     return {
         "points": [[s, e, i, h(x)] for s, e, i, x in points],
         "json": json.dumps(log.to_json(), sort_keys=True, separators=(",", ":")),
@@ -198,8 +212,12 @@ def adamw_case() -> dict:
     for p in params:
         p.requires_grad_(True)
     lr, beta2, steps = 1e-3, 0.999, 6
-    sched = LRSchedule(peak_lr=lr, total_steps=steps, warmup_steps=max(1, steps // 20), min_lr=lr / 10)
-    opt = torch.optim.AdamW(params, lr=lr, betas=(0.9, beta2), eps=1e-8, weight_decay=0.01, foreach=False)
+    sched = LRSchedule(
+        peak_lr=lr, total_steps=steps, warmup_steps=max(1, steps // 20), min_lr=lr / 10
+    )
+    opt = torch.optim.AdamW(
+        params, lr=lr, betas=(0.9, beta2), eps=1e-8, weight_decay=0.01, foreach=False
+    )
     record = []
     for step in range(steps):
         grads = [torch.randn(s, dtype=torch.float32) * (0.5 + step) for s in shapes]
@@ -234,8 +252,8 @@ def adamw_case() -> dict:
 def ledger_case() -> dict:
     """A row shaped as crates/qd-train's ledger.rs writes one, written by Python's own code."""
     recipe = {
-        "tool": "crates/qd-train-metal", "trainer": "qd-train-metal", "tag": "epoch", "device": "metal",
-        "lr": 1e-05, "passes": 1,
+        "tool": "crates/qd-train-metal", "trainer": "qd-train-metal", "tag": "epoch",
+        "device": "metal", "lr": 1e-05, "passes": 1,
         "batches": 3, "width": 1625, "span_weight": 1.0, "deterministic": True,
         "shard_hash": "d773b87666e1b042279271ab0f891246b7268d4ce0cad2c3e677bb415c147e1a",
         "backbone_snapshot": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c", "backbone_vocab": 248320,
@@ -243,7 +261,9 @@ def ledger_case() -> dict:
         "provider": "ojas-qwen35 over tessl", "operands": "bf16", "optimizer_groups": "single",
         "wall_clock_cap_s": 21600.0, "batch_tokens": 35403, "no_memorise": True,
     }
-    recipe_hash = hashlib.sha256(json.dumps(recipe, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    recipe_hash = hashlib.sha256(
+        json.dumps(recipe, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
     protocol = Protocol(
         data_snapshot_hash="e9e55ba7b9975872cf1680e71a05f68d5e34fba38aed16987309ea26a7abf225",
         tokenizer_hash="7fbd94d096a01bca55f22c1852ed490a6c19759560577b1ffb68e207932308a9",
@@ -251,9 +271,13 @@ def ledger_case() -> dict:
         recipe_hash=recipe_hash, seed=0,
     )
     points = [(0, 0, 0, 2.5), (1, 0, 1, 1.25), (2, 0, 2, 0.8353729248046875)]
-    log = LossLog(LossPoint(optimizer_step=s, epoch=e, batch_index=i, loss=x) for s, e, i, x in points)
+    log = LossLog(
+        LossPoint(optimizer_step=s, epoch=e, batch_index=i, loss=x) for s, e, i, x in points
+    )
     metrics = {
-        "train.termination": Ran(passed=True, value="steps_exhausted", detail="ft stopped after 3 optimizer step(s)"),
+        "train.termination": Ran(
+            passed=True, value="steps_exhausted", detail="ft stopped after 3 optimizer step(s)"
+        ),
         "train.optimizer_steps": Ran(passed=True, value=3),
         "train.micro_batches": Ran(passed=True, value=3),
         "train.supervised_tokens": Ran(passed=True, value=7, n=7, n_total=4875),
@@ -261,21 +285,25 @@ def ledger_case() -> dict:
         "train.padding_fraction": Ran(passed=True, value=1200 / 4875, n=1200, n_total=4875),
         "train.final_loss": Ran(passed=True, value=0.8353729248046875),
         "train.loss_log_digest": Ran(passed=True, value=log.digest()),
-        "train.consumed_digest": Ran(passed=True, value="ab" * 32,
-                                     detail="ConsumedPrefix over the 3 batch(es) this run consumed"),
+        "train.consumed_digest": Ran(
+            passed=True, value="ab" * 32,
+            detail="ConsumedPrefix over the 3 batch(es) this run consumed",
+        ),
         "train.projected_usd_at_cap": Ran(
             passed=True, value=0.0,
-            detail="local-metal: the Mac's own GPU, not billed, capped at 6.00 h -> $0.00 at the cap -- no "
-                   "approval required"),
-        "train.path": Ran(passed=True, value="ojas-qwen35 over tessl",
-                          detail="what this row ran on; compare rows only where this agrees or says why not"),
+            detail="local-metal: the Mac's own GPU, not billed, capped at 6.00 h -> $0.00 at the "
+                   "cap -- no approval required"),
+        "train.path": Ran(
+            passed=True, value="ojas-qwen35 over tessl",
+            detail="what this row ran on; compare rows only where this agrees or says why not",
+        ),
         "train.head_init_digest": Ran(
             passed=True, value="01" * 32,
             detail="sha256 of span_head_init-seed0.safetensors, the span head's initial weights"),
         "train.eta_projected_s": Ran(
             passed=True, value=12000.0,
-            detail="projected at optimizer step 10 from this process's elapsed time; the rule stops a run "
-                   "projected past 20700.0 s (the 21600.0 s cap less 900.0 s)"),
+            detail="projected at optimizer step 10 from this process's elapsed time; the rule "
+                   "stops a run projected past 20700.0 s (the 21600.0 s cap less 900.0 s)"),
         "deterministic_kernels": NotRun(reason="one run; repeat-run equality was not measured"),
     }
     env = Environment(
@@ -314,7 +342,8 @@ def ledger_case() -> dict:
                 noul_rate=NotRun(reason="noul rate not computed by this run"),
                 controls={c: NotRun(reason=f"control {c!r} was never evaluated by this run")
                           for c in REQUIRED_CONTROLS},
-                gates={g: NotRun(reason=f"gate {g!r} was never evaluated by this run") for g in REQUIRED_GATES},
+                gates={g: NotRun(reason=f"gate {g!r} was never evaluated by this run")
+                       for g in REQUIRED_GATES},
                 wall_clock_s=1234.5, wall_clock_source="recorder", cost_usd=0.0,
                 notes="crates/qd-train-metal rung (d) oracle row", recipe=recipe,
             )
@@ -356,7 +385,8 @@ def verify_ledger(path: Path) -> int:
             json.dumps(row.recipe, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
         if recipe_hash != row.protocol.recipe_hash:
-            print(f"{row.row_id}: recipe_hash {row.protocol.recipe_hash} != hash of stored recipe {recipe_hash}")
+            print(f"{row.row_id}: recipe_hash {row.protocol.recipe_hash} != hash of stored "
+                  f"recipe {recipe_hash}")
             return 1
         print(f"{row.row_id}: ok run_kind={row.run_kind} status={row.status} quick={row.quick} "
               f"steps={row.metrics['train.optimizer_steps'].to_json().get('value')}")
