@@ -1,0 +1,36 @@
+     Running unittests src/lib.rs (target/debug/deps/qd_runtime-19e373ea09e918d3)
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s
+     Running unittests src/main.rs (target/debug/deps/qd-8de453f797873ac5)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/qd_calib_fit.rs (target/debug/deps/qd_calib_fit-61518464a93b6fab)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/qd_gate_report.rs (target/debug/deps/qd_gate_report-bf4b9b41775a31e0)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/qd_margin_probe.rs (target/debug/deps/qd_margin_probe-ffc3b674bf879aab)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/qd_post_f_rules.rs (target/debug/deps/qd_post_f_rules-bd20bf07533940cc)
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+     Running tests/admission.rs (target/debug/deps/admission-d0652fe4878a03ae)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/answer_envelope_contract.rs (target/debug/deps/answer_envelope_contract-a7cf78e039f7f9f4)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/answering_procedure.rs (target/debug/deps/answering_procedure-4447947f8eb349d9)
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/calib_fit_roundtrip.rs (target/debug/deps/calib_fit_roundtrip-8d3411681a5ab136)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+     Running tests/calibration_hash_pin.rs (target/debug/deps/calibration_hash_pin-07f1d9c763a2ffa1)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/ensemble_backend.rs (target/debug/deps/ensemble_backend-fcbb08372c840c79)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/lifecycle.rs (target/debug/deps/lifecycle-a083caa543574c8b)
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+     Running tests/readonly_slot_isolation.rs (target/debug/deps/readonly_slot_isolation-c73aec304acf20dc)
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/refusal_is_not_noul.rs (target/debug/deps/refusal_is_not_noul-648b15c5edd787c7)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/render_contract.rs (target/debug/deps/render_contract-3e45adaedc08b125)
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/tracked_source_is_text.rs (target/debug/deps/tracked_source_is_text-296fc682159f5ac2)
+test no_tracked_source_file_contains_a_nul_byte ... FAILED
+thread 'no_tracked_source_file_contains_a_nul_byte' (147093043) panicked at crates/qd-runtime/tests/tracked_source_is_text.rs:170:5:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
