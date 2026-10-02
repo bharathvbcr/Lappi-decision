@@ -40,6 +40,7 @@ from qd_data.loaders import CsqaRow, MmluRow
 from qd_data.sources import PINNED_SPLIT_KEY
 from qd_data.split import split
 from qd_train.artifacts import ContrastRows, ShardContractViolation, ShardHeader
+from qd_train.containment_strip import STRIP_RULE, STRIP_VERSION
 from qd_train.contrast import (
     CONTRAST_PATHS,
     ContrastShortfall,
@@ -48,7 +49,6 @@ from qd_train.contrast import (
     contrast_rows_sha256,
     derive_contrast_rows,
 )
-from qd_train.containment_strip import STRIP_RULE, STRIP_VERSION
 from qd_train.exclusions import ATTESTATION_NAME, EXCLUSIONS_NAME, apply_exclusions
 from qd_train.shards import write_shards
 from qd_train.tristate import NotRun, Ran

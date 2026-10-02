@@ -1,0 +1,5 @@
+files 111 111 identical per-file outcome strings: True
+before . s F 2584 133 2  after 2584 133 2
+AUDIT/lint-2026-10-02/py-suite-after.log:8:collected 2719 items / 46 skipped
+AUDIT/lint-2026-10-02/py-suite-before.log:7:collected 2719 items / 46 skipped
+note: the 46 modules skipped at collection print no progress line, so the progress stream carries 133 of the 179 skips; 133 + 46 = 179 in both runs. Per-file outcome strings parsed from the progress lines of py-suite-before.log and py-suite-after.log by an inline python -c in the L-lint session.

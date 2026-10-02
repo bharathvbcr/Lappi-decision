@@ -88,7 +88,11 @@ def main() -> int:
         "lappi_commit_bodies_read": commits,
         "lappi_commit_body_distinct_questions": len(commit_qs),
         "doc_question_length_words_histogram": dict(
-            sorted(collections.Counter(min(60, 10 * (len(WORD.findall(q)) // 10)) for q in total).items())
+            sorted(
+                collections.Counter(
+                    min(60, 10 * (len(WORD.findall(q)) // 10)) for q in total
+                ).items()
+            )
         ),
     }
     OUT.write_text(json.dumps(out, indent=1) + "\n")

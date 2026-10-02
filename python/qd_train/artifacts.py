@@ -720,7 +720,9 @@ class Batch:
     `index` is the batch's deterministic position in the epoch, which is what makes S5's
     bit-exact resume possible: the order is a pure function of `(seed, epoch, batch_tokens)`
     and the shard set — `ShardReader._plan` mixes all four into its `SeedSequence` — never of
-    hidden iterator state.
+    hidden iterator state. The `seed` there is the plan seed, which `tools/real_ft_run.py`'s
+    epoch arm sets from `DataConfig().seed` unless `--batch-order seed` makes it the training
+    seed.
 
     All four, stated because this docstring used to say `(seed, epoch)` and
     `run_control.Checkpoint` was written from that sentence: it carried the seed and the

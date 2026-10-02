@@ -123,6 +123,25 @@ fn the_recipe_and_protocol_hash_as_python_hashes_them() {
     assert_eq!(r.protocol.hash().unwrap(), o["ledger"]["protocol_hash"].as_str().unwrap());
 }
 
+/// The recipe key `crates/qd-train-metal/src/run.rs` takes from the train shard header: named
+/// only for a format other than 1, so a v4 Metal ft row -- recipe and recipe_hash -- is the row
+/// it was, and a v5 one says what `real_ft_run.py --score-checkpoint` checks it against.
+#[test]
+fn a_prompt_format_other_than_1_is_a_recipe_key_and_1_is_none() {
+    assert!(ledger::prompt_format_extra(1).is_empty());
+    let v4 = FtRecipe { extra: ledger::prompt_format_extra(1), ..recipe() };
+    assert_eq!(v4.to_json().unwrap(), recipe().to_json().unwrap(), "format 1 adds no key");
+    assert!(v4.to_json().unwrap().get("prompt_format").is_none());
+    let hash = |r: &FtRecipe| Protocol::for_recipe(r, "d", "t", 0).unwrap().recipe_hash;
+    assert_eq!(hash(&v4), hash(&recipe()), "a v4 row's recipe_hash does not move");
+
+    let v5 = FtRecipe { extra: ledger::prompt_format_extra(2), ..recipe() };
+    let json = v5.to_json().unwrap();
+    assert_eq!(json["prompt_format"], 2);
+    assert!(json["prompt_format"].is_u64(), "an int, as Python's recipe holds it");
+    assert_ne!(hash(&v5), hash(&recipe()), "two layouts are two recipes");
+}
+
 #[test]
 fn rows_are_pythons_lines_and_chain_as_python_chains_them() {
     let o = common::trainer_oracle();

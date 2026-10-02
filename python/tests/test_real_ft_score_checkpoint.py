@@ -34,6 +34,7 @@ import ckpt_average  # noqa: E402
 import real_ft_run  # noqa: E402
 
 from qd_data.config import DataConfig  # noqa: E402
+from qd_data.render import PROMPT_FORMAT  # noqa: E402
 
 SHARD_HASH = "a" * 64
 #: The suite and protocol seed every --score-checkpoint run builds its suites at.
@@ -47,6 +48,9 @@ def _ft_row(row_id: str = "7f2c11db-3eb8-4361-9620-6b164ec37f1e", **recipe_over)
         "tag": "epoch", "device": "cuda", "shard_hash": SHARD_HASH,
         "backbone_snapshot": "snap", "attn_implementation": "sdpa", "lr": 1e-5,
         "span_weight": 1.0, "optimizer_recipe": "master",
+        # What this build's trainer writes off a format-2 train header; a row without it is a
+        # format-1 model, which --score-checkpoint refuses (test_prompt_format_chain.py).
+        "prompt_format": PROMPT_FORMAT,
     }
     recipe.update(recipe_over)
     return {
@@ -697,7 +701,7 @@ def tiny_master_checkpoints(tmp_path: Path, monkeypatch) -> TinyCheckpoints:
                 "shard_hash": reader.header.shard_hash(), "backbone_snapshot": snapshot.name,
                 "backbone_params": n_params, "backbone_vocab": vocab,
                 "attn_implementation": "sdpa", "lr": 1e-2, "span_weight": 1.0,
-                "optimizer_recipe": "master",
+                "optimizer_recipe": "master", "prompt_format": reader.header.prompt_format,
             },
             "protocol": {
                 "seed": s, "recipe_hash": RECIPE_HASH,

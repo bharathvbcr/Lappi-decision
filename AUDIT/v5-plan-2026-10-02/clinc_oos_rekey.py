@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "python"))
-from qd_data.split import assign_repo  # noqa: E402
+from qd_data.split import assign_repo
 
 D = Path(
     "/Users/bharath/.cache/qd-decision/general/clinc__clinc_oos/"
@@ -76,7 +76,9 @@ def main() -> int:
     out = {
         "fetch_dir": str(D),
         "seed": SEED,
-        "upstream_rows": {f"{k[0]}:{'oos' if k[1] else 'in_scope'}": v for k, v in sorted(upstream.items())},
+        "upstream_rows": {
+            f"{k[0]}:{'oos' if k[1] else 'in_scope'}": v for k, v in sorted(upstream.items())
+        },
         "v4_oos_repo_key_split": v4_oos_split,
         "intent_repo_keys_by_split_including_oos": dict(sorted(intents_split.items())),
         "candidate_key": "clinc-oos:{blake2b-8(utterance.strip())}",

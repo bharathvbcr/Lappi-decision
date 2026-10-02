@@ -20,8 +20,9 @@ RECORDS = [
         "tool": "read: ledger/gh200-p4-v4-2026-10-01.jsonl f4feac15 (recipe.needle, "
         "metrics.needle_suite_tokens); branch l-v5-train-build d4552f2 (needle.py, real_ft_run.py)",
         "question": "R9 and the noul-weight arm's needle guard read the 8K worst bucket 'on the "
-        "rebuilt suite' (campaign/v5-preregistered.DRAFT.json readings.R9, arm_noul_weight.guards). "
-        "Can qd-post-f-rules confirm from an eval row that it was scored on the rebuilt suite?",
+        "rebuilt suite' (campaign/v5-preregistered.DRAFT.json readings.R9, "
+        "arm_noul_weight.guards). Can qd-post-f-rules confirm from an eval row that it was scored "
+        "on the rebuilt suite?",
         "answer": "No [V, read]. recipe.needle records cases, cases_per_depth, hit_rule, "
         "min_recall, suite_seed and target_tokens (8192 for F and for v5 alike) and no suite "
         "digest; metrics.needle_suite_tokens.value is the median real length, and the max appears "

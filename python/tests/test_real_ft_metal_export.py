@@ -48,6 +48,7 @@ import real_ft_run as rft  # noqa: E402
 from test_real_ft_score_checkpoint import (  # noqa: E402
     _NO_NEEDLE,
     _NO_OOD,
+    PROMPT_FORMAT,
     SHARD_HASH,
     STEPS,
     SUITE_SEED,
@@ -74,6 +75,9 @@ def _metal_row(*, row_id: str = METAL_ID, seed: int = 0, steps: int = STEPS,
         "tag": "epoch", "device": METAL, "trainer": TRAINER, "shard_hash": SHARD_HASH,
         "backbone_snapshot": "snap", "attn_implementation": "sdpa", "lr": 1e-5,
         "span_weight": 1.0, "optimizer_recipe": "master",
+        # crates/qd-train-metal/src/run.rs writes it off a format-2 train header
+        # (ledger::prompt_format_extra); --score-checkpoint refuses a row without it.
+        "prompt_format": PROMPT_FORMAT,
     }
     row: dict = {
         "row_id": row_id, "run_kind": "ft", "status": "completed",

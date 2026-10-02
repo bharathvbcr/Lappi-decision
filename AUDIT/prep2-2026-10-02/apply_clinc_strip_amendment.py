@@ -18,7 +18,9 @@ ROOT = Path(__file__).resolve().parents[2]
 DRAFT = ROOT / "campaign" / "v5-preregistered.DRAFT.json"
 RULING = ROOT / "AUDIT" / "prep2-2026-10-02" / "fable-clinc-strip-ruling.md"
 
-quoted = [ln for ln in RULING.read_text(encoding="utf-8").splitlines() if ln.startswith("> Constant template")]
+quoted = [ln for ln in RULING.read_text(encoding="utf-8").splitlines() if ln.startswith("> "
+                                                                                        "Constant "
+                                                                                        "template")]
 if len(quoted) != 1:
     sys.exit(f"expected one quoted amendment paragraph, found {len(quoted)}")
 new_para = quoted[0][2:].replace("§", "section ").replace("—", "--")
@@ -62,11 +64,12 @@ sub(
     q(old_p),
     q(
         "the template strip's subsample re-run under STRIP_VERSION 2: the pass condition of "
-        "AUDIT/prep2-2026-10-02/fable-clinc-strip-ruling.md section 4 at 1/2/5% (CLINC 0 keys and 0 "
-        "enforced intent.* pairs; the non-intent exclusions byte-identical to version 1's by the three "
-        "pinned sha256; too_short_after_strip and key_ii_blind per set; CLEAN with the three splitter "
-        "checks), then on the full scan the CLINC rate, the key_ii_blind counts and the two zero-checks "
-        "(exact lower-cased match and contiguous word-subsequence) for the key-(ii)-blind val/held-out keys"
+        "AUDIT/prep2-2026-10-02/fable-clinc-strip-ruling.md section 4 at 1/2/5% (CLINC 0 keys and "
+        "0 enforced intent.* pairs; the non-intent exclusions byte-identical to version 1's by the "
+        "three pinned sha256; too_short_after_strip and key_ii_blind per set; CLEAN with the three "
+        "splitter checks), then on the full scan the CLINC rate, the key_ii_blind counts and the "
+        "two zero-checks (exact lower-cased match and contiguous word-subsequence) for the "
+        "key-(ii)-blind val/held-out keys"
     ),
 )
 bo0 = d["build_order"][0]
@@ -75,8 +78,8 @@ sub(
     q(
         bo0.replace(
             "the template strip and its subsample re-run (L-prep2) read before the full scan",
-            "the version-2 template strip (Fable's CLINC strip ruling) and its subsample re-run meeting "
-            "that ruling's section 4 pass condition before the full scan",
+            "the version-2 template strip (Fable's CLINC strip ruling) and its subsample re-run "
+            "meeting that ruling's section 4 pass condition before the full scan",
         )
     ),
 )
@@ -86,10 +89,10 @@ sub(
     q(
         applied
         + " Then on 2026-10-02 (~16:20 UTC), Fable's CLINC strip ruling "
-        "(AUDIT/prep2-2026-10-02/fable-clinc-strip-ruling.md, source sha256 ec2c1e6d...) replaced the "
-        "strip paragraph of data.decontamination.rule (version 2: question line in every family, "
-        "family-constant options, and every option value of the four intent.* families; key (ii)-blind "
-        "short utterances reported, no new key), through "
+        "(AUDIT/prep2-2026-10-02/fable-clinc-strip-ruling.md, source sha256 ec2c1e6d...) replaced "
+        "the strip paragraph of data.decontamination.rule (version 2: question line in every "
+        "family, family-constant options, and every option value of the four intent.* families; "
+        "key (ii)-blind short utterances reported, no new key), through "
         "AUDIT/prep2-2026-10-02/apply_clinc_strip_amendment.py."
     ),
 )

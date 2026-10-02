@@ -205,6 +205,19 @@ impl FtRecipe {
     }
 }
 
+/// The [`FtRecipe::extra`] keys a run on a shard set of `prompt_format` adds: `prompt_format`
+/// when it is not 1, nothing when it is (`real_ft_run._recipe_pieces`' rule), so every v4 ft
+/// row's recipe -- and its `recipe_hash` -- is what it was. `real_ft_run.py --score-checkpoint`
+/// refuses a row whose recipe format (absent = 1) is not the scorer's `PROMPT_FORMAT`, so a
+/// format-2 run that omitted the key could not be scored.
+pub fn prompt_format_extra(prompt_format: u64) -> BTreeMap<String, Value> {
+    let mut extra = BTreeMap::new();
+    if prompt_format != 1 {
+        extra.insert("prompt_format".to_owned(), Value::from(prompt_format));
+    }
+    extra
+}
+
 /// `real_ft_run._protocol` / `ledger.Protocol`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Protocol {
