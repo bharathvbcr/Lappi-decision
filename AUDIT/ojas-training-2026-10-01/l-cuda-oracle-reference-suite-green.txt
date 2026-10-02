@@ -1,0 +1,402 @@
+   Compiling ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.06s
+     Running unittests src/lib.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/ojas_qwen35_cuda-d1352579ef04a03f)
+
+running 62 tests
+test bf16::tests::every_bf16_value_round_trips_exactly ... ok
+test bf16::tests::integer_trick_matches_the_value_rounding_on_two_million_inputs ... ok
+test bf16::tests::nans_stay_nans_with_the_quiet_bit_and_sign ... ok
+test bf16::tests::overflow_rounds_to_infinity_and_infinities_stay ... ok
+test bf16::tests::signed_zeros_and_subnormals_are_kept ... ok
+test bf16::tests::ties_go_to_even_and_carries_propagate ... ok
+test budget::tests::a_request_past_the_cap_is_refused_and_changes_nothing ... ok
+test budget::tests::a_zero_cap_is_refused ... ok
+test budget::tests::concurrent_reservations_never_exceed_the_cap ... ok
+test budget::tests::overflowing_requests_are_refused ... ok
+test budget::tests::reservations_count_and_release_on_drop ... ok
+test check::tests::a_not_run_or_panicked_check_never_makes_the_whole_pass ... ok
+test check::tests::bit_diffs_count_nan_payloads_and_length_differences ... ok
+test check::tests::panic_payloads_become_text ... 
+thread 'check::tests::panic_payloads_become_text' (138872889) panicked at src/check.rs:301:50:
+Missing symbol cublasGemmEx
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+ok
+test check::tests::tolerance_fails_on_non_finite_and_at_the_bound ... ok
+test error::tests::library_missing_names_every_library ... ok
+test error::tests::out_of_memory_maps_to_capacity_and_other_codes_to_driver ... ok
+test gemm_plan::tests::index_helpers_match_the_storage_layouts ... ok
+test gemm_plan::tests::shapes_refuse_zero_sides_and_out_of_int_sides ... ok
+test gemm_plan::tests::the_cublas_mapping_computes_the_row_major_product_for_every_layout ... ok
+test gemm_plan::tests::wrong_mappings_are_caught ... ok
+test geometry::tests::empty_work_launches_nothing ... ok
+test geometry::tests::gemm_grid_tiles_the_output_and_refuses_too_many_rows ... ok
+test geometry::tests::grid_stride_visits_every_element_exactly_once ... ok
+test geometry::tests::huge_elementwise_work_is_capped_not_overflowed ... ok
+test host_ref::tests::accumulate_adds_the_previous_c_once ... ok
+test host_ref::tests::bf16_operands_round_before_multiplying ... ok
+test host_ref::tests::copy_cols_and_deliver_follow_their_plans ... ok
+test host_ref::tests::ffma_emulation_is_close_to_f64_and_differs_from_unfused ... ok
+test host_ref::tests::mul_add_is_fused_on_this_host ... ok
+test host_ref::tests::scatter_and_gather_follow_their_plans ... ok
+test inputs::tests::edge_cases_cover_every_class ... ok
+test inputs::tests::splitmix_f32_stays_in_range_and_repeats_by_seed ... ok
+test inputs::tests::tessl_patterns_match_their_formulas ... ok
+test json::tests::non_finite_floats_are_strings_never_numbers ... ok
+test json::tests::objects_keep_insertion_order_and_nest ... ok
+test json::tests::strings_are_escaped ... ok
+test k0_plan::tests::copy_cols_accepts_an_exact_fit_and_refuses_one_past ... ok
+test k0_plan::tests::copy_cols_refuses_overflowing_strides ... ok
+test k0_plan::tests::deliver_and_zero_check_their_ranges ... ok
+test k0_plan::tests::gather_allows_repeats_and_refuses_rows_past_h ... ok
+test k0_plan::tests::scatter_refuses_a_duplicate_row_naming_both_indices ... ok
+test k0_plan::tests::scatter_refuses_out_of_range_rows_and_shape_mismatches ... ok
+test kernels::tests::every_gemm_entry_is_reachable ... ok
+test kernels::tests::every_module_defines_exactly_its_listed_entries ... ok
+test kernels::tests::sources_have_no_nul_no_include_and_no_float_atomics ... ok
+test kernels::tests::strict_options_turn_fma_contraction_off ... ok
+test kernels::tests::the_device_rounding_is_the_host_rounding ... ok
+test libprobe::tests::ld_library_path_splits_in_order_and_drops_empties ... ok
+test libprobe::tests::maps_parsing_finds_the_loaded_cuda_libraries ... ok
+test libprobe::tests::the_refusal_says_whether_a_candidate_file_exists ... ok
+test nvrtc_cache::tests::a_colliding_hash_with_different_source_is_refused ... ok
+test nvrtc_cache::tests::a_failed_compile_caches_nothing ... ok
+test nvrtc_cache::tests::a_second_lookup_hits_and_does_not_compile ... ok
+test nvrtc_cache::tests::fnv1a64_matches_its_published_test_vectors ... ok
+test nvrtc_cache::tests::options_and_nvrtc_version_are_part_of_the_key ... ok
+test nvrtc_cache::tests::the_byte_bound_evicts_and_an_oversized_image_is_refused ... ok
+test nvrtc_cache::tests::the_least_recently_used_entry_is_evicted_at_the_entry_bound ... ok
+test rung0_cli::tests::an_existing_report_is_refused_and_writes_are_atomic ... ok
+test rung0_cli::tests::defaults_and_explicit_values_parse ... ok
+test rung0_cli::tests::missing_or_unknown_arguments_are_refused ... ok
+test rung0_cli::tests::the_cap_cannot_exceed_300_seconds_or_be_zero ... ok
+
+test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/device_k0.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k0-d68a54384beb1ef4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/device_k1.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k1-e11b00850a29928e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/reference_adamw.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_adamw-3e964bed516e9811)
+
+running 4 tests
+test k11_adamw_matches_torch_over_fs_groups_for_five_steps ... K11 step 1 grad_sq_norm: 0.000e0 of max|golden| 4.2032e1 (bound 1e-13)
+K11 step 1 params: 0.000e0 of max|golden| 9.7381e-1 (bound 1e-13)
+K11 step 2 grad_sq_norm: 3.429e-16 of max|golden| 4.1440e1 (bound 1e-13)
+K11 step 2 params: 0.000e0 of max|golden| 9.7382e-1 (bound 1e-13)
+K11 step 3 grad_sq_norm: 3.223e-16 of max|golden| 4.4093e1 (bound 1e-13)
+K11 step 3 params: 0.000e0 of max|golden| 9.7382e-1 (bound 1e-13)
+K11 step 4 grad_sq_norm: 0.000e0 of max|golden| 3.7317e1 (bound 1e-13)
+K11 step 4 params: 0.000e0 of max|golden| 9.7382e-1 (bound 1e-13)
+K11 step 5 grad_sq_norm: 2.990e-16 of max|golden| 4.7535e1 (bound 1e-13)
+K11 step 5 params: 0.000e0 of max|golden| 9.7382e-1 (bound 1e-13)
+ok
+test k11_adamw_refuses_a_zero_lr_scale - should panic ... 
+thread 'k11_adamw_refuses_a_zero_lr_scale' (138874325) panicked at tests/reference/adamw.rs:137:9:
+adamw: lr_scale[1] = 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+ok
+test k11_lower_layer_split_is_lappis_layerwise_param_groups ... ok
+test k11_torch_lerp_switches_form_at_one_half ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/reference_gdn_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_gdn_published-ca6ff0ba9c1dfe5e)
+
+running 8 tests
+test published_backward_matches_central_differences_across_checkpoints ... published T=1 dq: worst relative error vs central differences 2.72e-11 (bound 1e-7)
+published T=1 dk: worst relative error vs central differences 1.03e-10 (bound 1e-7)
+published T=1 dv: worst relative error vs central differences 4.72e-11 (bound 1e-7)
+published T=1 dg: worst relative error vs central differences 8.48e-11 (bound 1e-7)
+published T=1 dbeta: worst relative error vs central differences 3.21e-11 (bound 1e-7)
+published T=1 ds0: worst relative error vs central differences 7.06e-11 (bound 1e-7)
+published T=63 dq: worst relative error vs central differences 2.36e-10 (bound 1e-7)
+published T=63 dk: worst relative error vs central differences 7.71e-10 (bound 1e-7)
+published T=63 dv: worst relative error vs central differences 6.19e-10 (bound 1e-7)
+published T=63 dg: worst relative error vs central differences 8.78e-10 (bound 1e-7)
+published T=63 dbeta: worst relative error vs central differences 8.60e-10 (bound 1e-7)
+published T=63 ds0: worst relative error vs central differences 2.94e-10 (bound 1e-7)
+published T=64 dq: worst relative error vs central differences 2.63e-10 (bound 1e-7)
+published T=64 dk: worst relative error vs central differences 9.98e-10 (bound 1e-7)
+published T=64 dv: worst relative error vs central differences 7.83e-10 (bound 1e-7)
+published T=64 dg: worst relative error vs central differences 8.19e-10 (bound 1e-7)
+published T=64 dbeta: worst relative error vs central differences 8.00e-10 (bound 1e-7)
+published T=64 ds0: worst relative error vs central differences 5.44e-10 (bound 1e-7)
+published T=65 dq: worst relative error vs central differences 1.36e-10 (bound 1e-7)
+published T=65 dk: worst relative error vs central differences 4.37e-10 (bound 1e-7)
+published T=65 dv: worst relative error vs central differences 3.37e-10 (bound 1e-7)
+published T=65 dg: worst relative error vs central differences 3.44e-10 (bound 1e-7)
+published T=65 dbeta: worst relative error vs central differences 4.29e-10 (bound 1e-7)
+published T=65 ds0: worst relative error vs central differences 1.70e-10 (bound 1e-7)
+published T=130 dq: worst relative error vs central differences 2.18e-10 (bound 1e-7)
+published T=130 dk: worst relative error vs central differences 6.48e-10 (bound 1e-7)
+published T=130 dv: worst relative error vs central differences 4.88e-10 (bound 1e-7)
+published T=130 dg: worst relative error vs central differences 6.67e-10 (bound 1e-7)
+published T=130 dbeta: worst relative error vs central differences 5.08e-10 (bound 1e-7)
+published T=130 ds0: worst relative error vs central differences 2.40e-10 (bound 1e-7)
+ok
+test published_checkpoint_c_is_the_state_after_the_first_64c_tokens ... ok
+test published_corpus_is_tessls_bytes_and_every_file_names_the_published_rule ... 107 corpus files match tessl's SHA256SUMS; all 108 names say published
+ok
+test published_recurrence_reproduces_the_published_corpus ... published L1 (T=1): max err 0.000e0, 0.000e0 of max|golden| 1.6901
+published L1000 (T=1000): max err 8.882e-16, 1.412e-16 of max|golden| 6.2924
+published L127 (T=127): max err 8.882e-16, 2.242e-16 of max|golden| 3.9610
+published L127c16 (T=127): max err 8.882e-16, 2.242e-16 of max|golden| 3.9610
+published L127c64 (T=127): max err 8.882e-16, 2.242e-16 of max|golden| 3.9610
+published L129 (T=129): max err 8.882e-16, 1.738e-16 of max|golden| 5.1097
+published L129_gqa_kv3 (T=129): max err 8.882e-16, 1.563e-16 of max|golden| 5.6843
+published L63 (T=63): max err 7.216e-16, 1.056e-16 of max|golden| 6.8355
+published L64 (T=64): max err 8.882e-16, 1.491e-16 of max|golden| 5.9575
+published L64_gqa_kv2 (T=64): max err 8.882e-16, 1.859e-16 of max|golden| 4.7766
+published L65 (T=65): max err 6.661e-16, 2.091e-16 of max|golden| 3.1854
+published L65_tinyalpha (T=65): max err 5.551e-17, 1.162e-17 of max|golden| 4.7752
+published L8191 (T=8191): max err 1.776e-15, 2.448e-16 of max|golden| 7.2570
+published corpus: worst 2.448e-16 on L8191 over 13 cases (bound 1e-12)
+ok
+test published_reference_refuses_a_misshapen_gate - should panic ... 
+thread 'published_reference_refuses_a_misshapen_gate' (138875352) panicked at tests/reference/gdn_published.rs:145:13:
+assertion `left == right` failed: gdn_published: g has 3 elements, want 2 for Shape { b: 1, t: 2, h: 1, dk: 2, dv: 2 }
+  left: 3
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+ok
+test published_reference_refuses_a_non_finite_operand - should panic ... 
+thread 'published_reference_refuses_a_non_finite_operand' (138875353) panicked at tests/reference/gdn_published.rs:183:9:
+gdn_published: v[1] is not finite: NaN
+ok
+test published_reference_refuses_an_empty_sequence - should panic ... 
+thread 'published_reference_refuses_an_empty_sequence' (138875354) panicked at tests/reference/gdn_published.rs:110:9:
+gdn_published: every dimension must be non-zero, got Shape { b: 1, t: 0, h: 1, dk: 4, dv: 2 }
+ok
+test the_repo_rule_does_not_reproduce_the_published_corpus ... smallest repo-vs-published divergence (T>1): 1.448e-1
+ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.25s
+
+     Running tests/reference_gdn_published_vs_tessl.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_gdn_published_vs_tessl-8d9d37ce1830f69f)
+
+running 1 test
+test published_reference_matches_tessls_gdn_train_f64_at_the_chunk_edges ... published T=1 s0=false dfin=false o: 0.000e0 of max|tessl|, bit-identical: true
+published T=1 s0=false dfin=false final state: 0.000e0 of max|tessl|, bit-identical: true
+published T=1 s0=false dfin=false dq: 0.000e0 of max|tessl|, bit-identical: true
+published T=1 s0=false dfin=false dk: 0.000e0 of max|tessl|, bit-identical: true
+published T=1 s0=false dfin=false dv: 0.000e0 of max|tessl|, bit-identical: true
+published T=1 s0=false dfin=false dg: 0.000e0 of max|tessl|, bit-identical: true
+published T=1 s0=false dfin=false dbeta: 0.000e0 of max|tessl|, bit-identical: true
+published T=1 s0=false dfin=false ds0: 0.000e0 of max|tessl|, bit-identical: true
+published T=63 s0=true dfin=false o: 0.000e0 of max|tessl|, bit-identical: true
+published T=63 s0=true dfin=false final state: 0.000e0 of max|tessl|, bit-identical: true
+published T=63 s0=true dfin=false dq: 0.000e0 of max|tessl|, bit-identical: true
+published T=63 s0=true dfin=false dk: 0.000e0 of max|tessl|, bit-identical: true
+published T=63 s0=true dfin=false dv: 0.000e0 of max|tessl|, bit-identical: true
+published T=63 s0=true dfin=false dg: 0.000e0 of max|tessl|, bit-identical: true
+published T=63 s0=true dfin=false dbeta: 0.000e0 of max|tessl|, bit-identical: true
+published T=63 s0=true dfin=false ds0: 0.000e0 of max|tessl|, bit-identical: true
+published T=64 s0=false dfin=true o: 0.000e0 of max|tessl|, bit-identical: true
+published T=64 s0=false dfin=true final state: 0.000e0 of max|tessl|, bit-identical: true
+published T=64 s0=false dfin=true dq: 0.000e0 of max|tessl|, bit-identical: true
+published T=64 s0=false dfin=true dk: 0.000e0 of max|tessl|, bit-identical: true
+published T=64 s0=false dfin=true dv: 0.000e0 of max|tessl|, bit-identical: true
+published T=64 s0=false dfin=true dg: 0.000e0 of max|tessl|, bit-identical: true
+published T=64 s0=false dfin=true dbeta: 0.000e0 of max|tessl|, bit-identical: true
+published T=64 s0=false dfin=true ds0: 0.000e0 of max|tessl|, bit-identical: true
+published T=65 s0=true dfin=true o: 0.000e0 of max|tessl|, bit-identical: true
+published T=65 s0=true dfin=true final state: 0.000e0 of max|tessl|, bit-identical: true
+published T=65 s0=true dfin=true dq: 0.000e0 of max|tessl|, bit-identical: true
+published T=65 s0=true dfin=true dk: 0.000e0 of max|tessl|, bit-identical: true
+published T=65 s0=true dfin=true dv: 0.000e0 of max|tessl|, bit-identical: true
+published T=65 s0=true dfin=true dg: 0.000e0 of max|tessl|, bit-identical: true
+published T=65 s0=true dfin=true dbeta: 0.000e0 of max|tessl|, bit-identical: true
+published T=65 s0=true dfin=true ds0: 0.000e0 of max|tessl|, bit-identical: true
+published T=130 s0=true dfin=true o: 0.000e0 of max|tessl|, bit-identical: true
+published T=130 s0=true dfin=true final state: 0.000e0 of max|tessl|, bit-identical: true
+published T=130 s0=true dfin=true dq: 0.000e0 of max|tessl|, bit-identical: true
+published T=130 s0=true dfin=true dk: 0.000e0 of max|tessl|, bit-identical: true
+published T=130 s0=true dfin=true dv: 0.000e0 of max|tessl|, bit-identical: true
+published T=130 s0=true dfin=true dg: 0.000e0 of max|tessl|, bit-identical: true
+published T=130 s0=true dfin=true dbeta: 0.000e0 of max|tessl|, bit-identical: true
+published T=130 s0=true dfin=true ds0: 0.000e0 of max|tessl|, bit-identical: true
+published vs tessl in process: worst 0.000e0 (bound 1e-12), all bit-identical: true
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.14s
+
+     Running tests/reference_goldens_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_goldens_published-8be5690964fcf167)
+
+running 3 tests
+test every_golden_is_pinned_by_the_manifest_and_gdn_goldens_name_the_published_rule ... 193 goldens match manifest.json sha256s; 80 GDN files all say published
+ok
+test published_reference_matches_the_transformers_golden_at_the_seam ... published T=1 o: 5.115e-16 of max|golden| 6.7826e-2 (bound 1e-10)
+published T=1 fin: 1.698e-16 of max|golden| 6.5368e-1 (bound 1e-10)
+published T=1 dq: 5.415e-16 of max|golden| 3.2037e-2 (bound 1e-10)
+published T=1 dk: 4.051e-16 of max|golden| 4.1105e-1 (bound 1e-10)
+published T=1 dv: 9.241e-16 of max|golden| 6.0072e-1 (bound 1e-10)
+published T=1 dg: 1.939e-15 of max|golden| 1.1910e1 (bound 1e-10)
+published T=1 dbeta: 6.789e-16 of max|golden| 1.6353e0 (bound 1e-10)
+published T=1 ds0: 1.761e-16 of max|golden| 6.3042e-1 (bound 1e-10)
+published T=63 o: 8.724e-16 of max|golden| 5.5679e-2 (bound 1e-10)
+published T=63 fin: 3.232e-16 of max|golden| 3.7574e-2 (bound 1e-10)
+published T=63 dq: 4.385e-16 of max|golden| 2.7692e-2 (bound 1e-10)
+published T=63 dk: 6.631e-16 of max|golden| 8.3710e-2 (bound 1e-10)
+published T=63 dv: 8.466e-16 of max|golden| 1.9671e-1 (bound 1e-10)
+published T=63 dg: 1.197e-15 of max|golden| 2.0874e-1 (bound 1e-10)
+published T=63 dbeta: 6.120e-16 of max|golden| 1.8368e0 (bound 1e-10)
+published T=63 ds0: 5.742e-16 of max|golden| 9.0640e-3 (bound 1e-10)
+published T=64 o: 4.678e-16 of max|golden| 5.1914e-2 (bound 1e-10)
+published T=64 fin: 4.611e-16 of max|golden| 1.2040e-1 (bound 1e-10)
+published T=64 dq: 4.045e-16 of max|golden| 2.1445e-2 (bound 1e-10)
+published T=64 dk: 1.029e-15 of max|golden| 2.9674e-1 (bound 1e-10)
+published T=64 dv: 9.616e-16 of max|golden| 5.1957e-1 (bound 1e-10)
+published T=64 dg: 9.022e-16 of max|golden| 4.3070e-1 (bound 1e-10)
+published T=64 dbeta: 5.129e-16 of max|golden| 2.1646e0 (bound 1e-10)
+published T=64 ds0: 3.984e-16 of max|golden| 8.7081e-3 (bound 1e-10)
+published T=65 o: 9.918e-16 of max|golden| 6.9964e-2 (bound 1e-10)
+published T=65 fin: 4.292e-16 of max|golden| 1.2935e-1 (bound 1e-10)
+published T=65 dq: 3.020e-16 of max|golden| 3.4470e-2 (bound 1e-10)
+published T=65 dk: 7.148e-16 of max|golden| 4.6594e-1 (bound 1e-10)
+published T=65 dv: 8.706e-16 of max|golden| 7.6518e-1 (bound 1e-10)
+published T=65 dg: 2.228e-15 of max|golden| 2.3665e-1 (bound 1e-10)
+published T=65 dbeta: 3.430e-16 of max|golden| 1.7802e0 (bound 1e-10)
+published T=65 ds0: 3.973e-16 of max|golden| 1.3099e-2 (bound 1e-10)
+published T=130 o: 5.810e-16 of max|golden| 9.5550e-2 (bound 1e-10)
+published T=130 fin: 5.783e-16 of max|golden| 1.4398e-1 (bound 1e-10)
+published T=130 dq: 4.429e-16 of max|golden| 4.6999e-2 (bound 1e-10)
+published T=130 dk: 7.613e-16 of max|golden| 5.8333e-1 (bound 1e-10)
+published T=130 dv: 6.666e-16 of max|golden| 1.3324e0 (bound 1e-10)
+published T=130 dg: 1.724e-15 of max|golden| 4.6480e-1 (bound 1e-10)
+published T=130 dbeta: 3.967e-16 of max|golden| 1.1194e0 (bound 1e-10)
+published T=130 ds0: 3.594e-16 of max|golden| 1.4481e-2 (bound 1e-10)
+published vs transformers golden: worst 2.228e-15 (bound 1e-10)
+ok
+test sha256_matches_the_fips_180_4_vectors ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+
+     Running tests/reference_kernels.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_kernels-832438b77d9d6ca3)
+
+running 15 tests
+test k10_cross_entropy_rows_gradients_are_the_derivative ... K10 Mean dh: worst relative error vs central differences 1.53e-10 (bound 1e-7)
+K10 Mean dW: worst relative error vs central differences 3.14e-10 (bound 1e-7)
+K10 Sum dh: worst relative error vs central differences 3.54e-10 (bound 1e-7)
+K10 Sum dW: worst relative error vs central differences 6.13e-10 (bound 1e-7)
+ok
+test k10_cross_entropy_rows_match_the_torch_golden ... K10 ce_rows_c0 Mean scale=1 per_row: 1.485e-16 of max|golden| 5.9820e0 (bound 1e-12)
+K10 ce_rows_c0 Mean scale=1 loss: 0.000e0 of max|golden| 5.6806e0 (bound 1e-12)
+K10 ce_rows_c0 Mean scale=1 dh: 3.352e-16 of max|golden| 6.2094e-2 (bound 1e-12)
+K10 ce_rows_c0 Mean scale=1 dW: 1.141e-16 of max|golden| 2.4336e-1 (bound 1e-12)
+K10 ce_rows_c1 Sum scale=0.7 per_row: 2.963e-16 of max|golden| 5.9955e0 (bound 1e-12)
+K10 ce_rows_c1 Sum scale=0.7 loss: 0.000e0 of max|golden| 2.3626e1 (bound 1e-12)
+K10 ce_rows_c1 Sum scale=0.7 dh: 3.145e-16 of max|golden| 1.7650e-1 (bound 1e-12)
+K10 ce_rows_c1 Sum scale=0.7 dW: 1.627e-16 of max|golden| 6.8243e-1 (bound 1e-12)
+K10 ce_rows_c2 Mean scale=1 per_row: 7.118e-18 of max|golden| 3.7431e2 (bound 1e-12)
+K10 ce_rows_c2 Mean scale=1 loss: 0.000e0 of max|golden| 1.2810e2 (bound 1e-12)
+K10 ce_rows_c2 Mean scale=1 dh: 1.620e-18 of max|golden| 1.3918e1 (bound 1e-12)
+K10 ce_rows_c2 Mean scale=1 dW: 6.123e-17 of max|golden| 4.5329e-1 (bound 1e-12)
+ok
+test k3_gates_backward_is_the_derivative_away_from_the_threshold ... K3 da: worst relative error vs central differences 2.84e-10 (bound 1e-7)
+K3 db: worst relative error vs central differences 1.39e-10 (bound 1e-7)
+K3 dA_log: worst relative error vs central differences 1.46e-10 (bound 1e-7)
+K3 ddt_bias: worst relative error vs central differences 2.26e-10 (bound 1e-7)
+ok
+test k3_gates_match_the_torch_golden ... K3 g: 6.495e-18 of max|golden| 6.8375e1 (bound 1e-13)
+K3 beta: 5.566e-17 of max|golden| 9.9730e-1 (bound 1e-13)
+K3 da: 1.070e-16 of max|golden| 1.0372e0 (bound 1e-13)
+K3 db: 1.194e-16 of max|golden| 2.3253e-1 (bound 1e-13)
+K3 dA_log: 2.388e-16 of max|golden| 5.9520e1 (bound 1e-13)
+K3 ddt_bias: 4.753e-17 of max|golden| 2.3360e0 (bound 1e-13)
+ok
+test k4_conv1d_silu_backward_is_the_derivative ... K4 ConvShape { b: 2, t: 2, c: 2, k: 4 } dx: worst relative error vs central differences 1.56e-11 (bound 1e-7)
+K4 ConvShape { b: 2, t: 2, c: 2, k: 4 } dw: worst relative error vs central differences 2.27e-11 (bound 1e-7)
+K4 ConvShape { b: 2, t: 5, c: 3, k: 4 } dx: worst relative error vs central differences 6.94e-11 (bound 1e-7)
+K4 ConvShape { b: 2, t: 5, c: 3, k: 4 } dw: worst relative error vs central differences 7.53e-11 (bound 1e-7)
+K4 ConvShape { b: 1, t: 4, c: 2, k: 2 } dx: worst relative error vs central differences 3.42e-11 (bound 1e-7)
+K4 ConvShape { b: 1, t: 4, c: 2, k: 2 } dw: worst relative error vs central differences 4.25e-11 (bound 1e-7)
+K4 ConvShape { b: 2, t: 3, c: 1, k: 8 } dx: worst relative error vs central differences 4.26e-11 (bound 1e-7)
+K4 ConvShape { b: 2, t: 3, c: 1, k: 8 } dw: worst relative error vs central differences 5.65e-11 (bound 1e-7)
+ok
+test k4_conv1d_silu_matches_the_torch_golden ... K4 conv1d_silu_c0 ConvShape { b: 2, t: 9, c: 6, k: 4 } y: 1.423e-16 of max|golden| 3.1202e0 (bound 1e-12)
+K4 conv1d_silu_c0 ConvShape { b: 2, t: 9, c: 6, k: 4 } dx: 1.583e-16 of max|golden| 1.4026e0 (bound 1e-12)
+K4 conv1d_silu_c0 ConvShape { b: 2, t: 9, c: 6, k: 4 } dw: 2.852e-16 of max|golden| 6.2280e0 (bound 1e-12)
+K4 conv1d_silu_c1 ConvShape { b: 3, t: 2, c: 5, k: 4 } y: 8.642e-17 of max|golden| 1.2847e0 (bound 1e-12)
+K4 conv1d_silu_c1 ConvShape { b: 3, t: 2, c: 5, k: 4 } dx: 1.074e-16 of max|golden| 5.1701e-1 (bound 1e-12)
+K4 conv1d_silu_c1 ConvShape { b: 3, t: 2, c: 5, k: 4 } dw: 2.089e-16 of max|golden| 5.3147e-1 (bound 1e-12)
+K4 conv1d_silu_c2 ConvShape { b: 1, t: 70, c: 8, k: 4 } y: 2.238e-16 of max|golden| 3.9690e0 (bound 1e-12)
+K4 conv1d_silu_c2 ConvShape { b: 1, t: 70, c: 8, k: 4 } dx: 1.232e-16 of max|golden| 1.8028e0 (bound 1e-12)
+K4 conv1d_silu_c2 ConvShape { b: 1, t: 70, c: 8, k: 4 } dw: 2.561e-16 of max|golden| 8.6690e0 (bound 1e-12)
+ok
+test k6_norm_rope_backward_is_the_derivative ... K6 d=8 rot=8 pos=3 dx: worst relative error vs central differences 2.11e-10 (bound 1e-7)
+K6 d=8 rot=8 pos=3 dw: worst relative error vs central differences 1.70e-10 (bound 1e-7)
+K6 d=10 rot=4 pos=7 dx: worst relative error vs central differences 2.99e-10 (bound 1e-7)
+K6 d=10 rot=4 pos=7 dw: worst relative error vs central differences 2.29e-10 (bound 1e-7)
+K6 d=6 rot=0 pos=1 dx: worst relative error vs central differences 7.60e-11 (bound 1e-7)
+K6 d=6 rot=0 pos=1 dw: worst relative error vs central differences 6.88e-11 (bound 1e-7)
+K6 d=12 rot=6 pos=40 dx: worst relative error vs central differences 3.88e-10 (bound 1e-7)
+K6 d=12 rot=6 pos=40 dw: worst relative error vs central differences 1.47e-10 (bound 1e-7)
+K6 d=256 rot=64 pos=1234 dx: worst relative error vs central differences 4.57e-9 (bound 1e-7)
+K6 d=256 rot=64 pos=1234 dw: worst relative error vs central differences 7.79e-10 (bound 1e-7)
+ok
+test k6_norm_rope_matches_tessls_transformers_fixture_at_position_20000 ... K6 vs transformers fixture (T=5, Hq=2, D=256): worst abs 7.078e-7 (bound 5e-6)
+ok
+test k6_norm_rope_matches_the_torch_golden_given_the_angle ... K6 norm_rope y: 3.800e-16 of max|golden| 3.5062e0 (bound 1e-12)
+K6 norm_rope dx: 3.430e-16 of max|golden| 1.2947e0 (bound 1e-12)
+K6 norm_rope dw: 2.967e-16 of max|golden| 5.9880e0 (bound 1e-12)
+ok
+test k6_output_gate_matches_the_torch_golden_and_its_derivative ... K6 gate y: 1.155e-16 of max|golden| 9.6112e-1 (bound 1e-13)
+K6 gate do: 1.136e-16 of max|golden| 9.7731e-1 (bound 1e-13)
+K6 gate dgate: 2.329e-16 of max|golden| 2.3834e-1 (bound 1e-13)
+K6 gate do: worst relative error vs central differences 5.30e-11 (bound 1e-7)
+K6 gate dgate: worst relative error vs central differences 8.58e-11 (bound 1e-7)
+ok
+test k6_rope_angle_is_transformers_f32_angle ... K6 angle: 320/320 bit-identical to transformers' f32 angle, worst 0.00 ulp
+ok
+test k7_rms_norm_backwards_are_the_derivative ... K7 rms dx: worst relative error vs central differences 2.89e-10 (bound 1e-7)
+K7 rms dw: worst relative error vs central differences 1.07e-10 (bound 1e-7)
+K7 gated dx: worst relative error vs central differences 2.11e-10 (bound 1e-7)
+K7 gated dz: worst relative error vs central differences 1.53e-10 (bound 1e-7)
+K7 gated dw: worst relative error vs central differences 2.17e-10 (bound 1e-7)
+ok
+test k7_rms_norms_match_the_torch_golden ... K7 rms_norm_c0 y: 3.529e-16 of max|golden| 2.5167e0 (bound 1e-12)
+K7 rms_norm_c0 dx: 2.690e-16 of max|golden| 8.2539e-1 (bound 1e-12)
+K7 rms_norm_c0 dw: 1.175e-16 of max|golden| 3.7795e0 (bound 1e-12)
+K7 rms_norm_c1 y: 0.000e0 of max|golden| 2.5852e0 (bound 1e-12)
+K7 rms_norm_c1 dx: 2.577e-16 of max|golden| 8.6167e-1 (bound 1e-12)
+K7 rms_norm_c1 dw: 1.372e-16 of max|golden| 3.2366e0 (bound 1e-12)
+K7 gated_rms_norm_c0 y: 4.319e-16 of max|golden| 4.1124e0 (bound 1e-12)
+K7 gated_rms_norm_c0 dx: 5.137e-16 of max|golden| 3.4579e0 (bound 1e-12)
+K7 gated_rms_norm_c0 dz: 4.480e-16 of max|golden| 1.4869e0 (bound 1e-12)
+K7 gated_rms_norm_c0 dw: 1.982e-16 of max|golden| 8.9612e0 (bound 1e-12)
+K7 gated_rms_norm_c1 y: 1.119e-16 of max|golden| 1.9838e0 (bound 1e-12)
+K7 gated_rms_norm_c1 dx: 1.577e-16 of max|golden| 2.8153e0 (bound 1e-12)
+K7 gated_rms_norm_c1 dz: 1.675e-16 of max|golden| 6.6302e-1 (bound 1e-12)
+K7 gated_rms_norm_c1 dw: 3.790e-16 of max|golden| 2.3435e0 (bound 1e-12)
+ok
+test k9_embedding_matches_the_torch_golden ... K9 y: 0.000e0 of max|golden| 9.9873e-1 (bound 0e0)
+K9 dtable: 0.000e0 of max|golden| 2.1639e0 (bound 1e-13)
+ok
+test k9_embedding_refuses_an_out_of_range_id - should panic ... 
+thread 'k9_embedding_refuses_an_out_of_range_id' (138877229) panicked at tests/reference/embed.rs:14:9:
+embed: ids[1] = 4 is not below vocab 4
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/runtime_refusal.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/runtime_refusal-52188fbade0964b3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests ojas_qwen35_cuda
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

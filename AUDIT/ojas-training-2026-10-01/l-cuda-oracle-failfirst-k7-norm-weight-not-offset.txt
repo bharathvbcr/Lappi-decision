@@ -1,0 +1,33 @@
+   Compiling ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.57s
+     Running tests/reference_kernels.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_kernels-832438b77d9d6ca3)
+
+running 2 tests
+test k7_rms_norm_backwards_are_the_derivative ... FAILED
+test k7_rms_norms_match_the_torch_golden ... FAILED
+
+failures:
+
+---- k7_rms_norm_backwards_are_the_derivative stdout ----
+K7 rms dx: worst relative error vs central differences 1.30e0 (bound 1e-7)
+
+thread 'k7_rms_norm_backwards_are_the_derivative' (137476528) panicked at tests/reference/fd.rs:33:5:
+K7 rms dx: worst 1.30e0 against finite differences exceeds 1e-7
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- k7_rms_norms_match_the_torch_golden stdout ----
+K7 rms_norm_c0 y: 7.273e-1 of max|golden| 2.5167e0 (bound 1e-12)
+
+thread 'k7_rms_norms_match_the_torch_golden' (137476529) panicked at tests/reference/goldens.rs:130:5:
+K7 rms_norm_c0 y: max err 1.830e0 at 138 (got -0.4986732187241721 want 1.331616304618055), 7.273e-1 of max|golden|, over 1e-12
+
+
+failures:
+    k7_rms_norm_backwards_are_the_derivative
+    k7_rms_norms_match_the_torch_golden
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--test reference_kernels`
+error: 1 target failed:
+    `--test reference_kernels`
