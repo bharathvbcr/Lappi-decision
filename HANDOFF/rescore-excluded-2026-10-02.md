@@ -7,16 +7,17 @@ all 23,819 v4 MMLU/CSQA rows, because the 09-29 exclusion was never wired into a
 val rows (E_val) held out, and over E_val alone. It is report-only: no threshold, gate or
 population moves (rule 2).
 
-**F seeds 0 and 1 are re-scored** (rows `e663248b` and `9e521e77`, below). Both runs used
-L-replay's E_val at `/Users/bharath/qd-campaign/replay-v4-2026-10-02/gold-side/e-val.txt`:
-sha256 `e933ea3010ba136f3a5cf6d007ac2642fddef43ef9d74c14ca4d9faebcecb45c`, 215 keys (183 MMLU,
-32 CSQA, all slot `answer`). Seed 2 follows when its verdict files land on the box
-(`GAP-RESCORE-EXCLUDED-NOT-YET-RUN-2026-10-02`).
+**F seeds 0, 1 and 2 are re-scored** (rows `e663248b`, `9e521e77` and `10382ac2`, below). All
+three runs used L-replay's E_val at
+`/Users/bharath/qd-campaign/replay-v4-2026-10-02/gold-side/e-val.txt`, which is also committed as
+`AUDIT/replay-v4-build-2026-10-02/gold-side/e-val.txt`: sha256
+`e933ea3010ba136f3a5cf6d007ac2642fddef43ef9d74c14ca4d9faebcecb45c`, 215 keys (183 MMLU, 32 CSQA,
+all slot `answer`). The three-seed picture is under "Three seeds", below.
 
 ## What was measured
 
-Both rows are in ledger `ledger/mac-rescore-excluded-2026-10-02.jsonl`, whose chain verifies
-with 2 rows.
+All three rows are in ledger `ledger/mac-rescore-excluded-2026-10-02.jsonl`, whose chain
+verifies with 3 rows.
 
 ### Seed 0
 
@@ -153,6 +154,147 @@ gate's 0.05 bar, which is stated, not applied. CSQA's is `not_run` again, at 32 
 
 No failing gate passes either way.
 
+### Seed 2
+
+Row **`10382ac2-e70b-450c-b042-5b53d24a5c31`**:
+- `quick`, report-only, tag `gate-report-excluded`;
+- chained to `9e521e77`;
+- the same `code_commit` (`0264732`, clean), binary sha256 (`ec88665f…`) and E_val sha256 as
+  seeds 0 and 1;
+- written 2026-10-02 12:39:59 UTC.
+
+It re-reads F seed 2's eval row `8c3a774a-87d7-4452-a33b-49cc6fbd911e` (ft row `32990e1a…`). The
+box wrote the verdict files at 11:13 UTC, and they were pulled read-only at 12:35 UTC (local
+mtimes). Each is sha256-equal to the box's copy:
+- `verdicts-s2.jsonl` `dd4c6c8e…` (8,271,191 bytes);
+- `suite-verdicts-s2.jsonl` `8adc5be5…` (206,995 bytes);
+- the box ledger `14ec1d56…` (15 lines, 195,429 bytes).
+
+The box ledger only grew: its first 96,619 bytes hash to seed 1's pull, `00bf2152…`. That pull is
+kept as `box/gh200-p4-v4-2026-10-01.s1-pull.jsonl`.
+
+The branch was fast-forwarded to main `9f6b1fa`, which includes `a59c447`, before the run.
+
+Checks:
+- All 18223 verdict lines name `8c3a774a` and seed 2, and all 10985 letter lines carry
+  `row_logits`. The suite file holds only `needle_hunk_recall` (300) and `ood_abstain` (180).
+- Step 6 printed val hash `69d45fd0…`, verdict keys 18223, E_val keys 215 and absent 0, so the
+  default refuse path ran, with no allow flag.
+- The binary recomputed 65 of the eval row's own numbers equal, with none left uncompared.
+- The `full` values were also checked by hand against `8c3a774a`:
+  - pooled permutation 10181/10985 is the gate's value, which fails;
+  - knowledge permutation 1098/1485 and in-distribution abstention 387/1485;
+  - commonsense permutation 1071/1197 and in-distribution abstention 126/1197;
+  - pooled in-distribution abstention 945/10985;
+  - `val_top1.choice` 9146/10985;
+  - ECE k4 0.0166 over 3789 rows and k5 0.0339 over 1197.
+- The `only` and `excluded` counts were recounted from the raw verdict lines with `jq`,
+  independently of `qd-gate-report`, for all three seeds and both families (`correct` and
+  `permutation_agreed`, split by E_val membership). Every count equals the rows'. So seed 2's MMLU
+  `only` view, 85/183 correct and 86/183 agreed, is measured, not a scoring defect.
+- Peak RSS of step 7 was 295 MB (`/usr/bin/time -l`). The Mac was loaded by another lane's ojas
+  build, and the binary's own wall clock was 7.1 s, against 0.2-0.3 s on seeds 0 and 1.
+
+F seed 2, three views (count / n). All verified, read off row `10382ac2` by a script, not by hand:
+
+| Population | Metric | full | excluded (not in E_val) | only (E_val) |
+| --- | --- | --- | --- | --- |
+| knowledge.multiple_choice (MMLU) | top-1 | 894/1485 = 0.6020 | 809/1302 = 0.6214 | 85/183 = 0.4645 |
+| | permutation agreement | 1098/1485 = 0.7394 | 1012/1302 = 0.7773 | 86/183 = 0.4699 |
+| | in-distribution abstention | 387/1485 = 0.2606 | 290/1302 = 0.2227 | 97/183 = 0.5301 |
+| | ECE choice.k4 | 0.0282 | 0.0287 | 0.0450 (183 rows) |
+| | last option (k4) predicted sigma | -3.503 | -2.485 | -3.278 |
+| commonsense.multiple_choice (CSQA) | top-1 | 927/1197 = 0.7744 | 900/1165 = 0.7725 | 27/32 = 0.8438 |
+| | permutation agreement | 1071/1197 = 0.8947 | 1042/1165 = 0.8944 | 29/32 = 0.9062 |
+| | in-distribution abstention | 126/1197 = 0.1053 | 123/1165 = 0.1056 | 3/32 = 0.0938 |
+| | ECE choice.k5 | 0.0339 | 0.0341 | not_run (32 < 100) |
+| | last option (k5) predicted sigma | +0.376 | +0.458 | -0.453 |
+| pooled, every family | top-1 choice (`val_top1.choice`) | 9146/10985 = 0.8326 | 9034/10770 = 0.8388 | 112/215 = 0.5209 |
+| | permutation agreement (the gate's population) | 10181/10985 = 0.9268 | 10066/10770 = 0.9346 | 115/215 = 0.5349 |
+| | in-distribution abstention (the gate's half) | 945/10985 = 0.0860 | 845/10770 = 0.0785 | 100/215 = 0.4651 |
+| | ECE choice.k4 (defect_class + MMLU) | 0.0166 (3789) | 0.0157 (3606) | 0.0450 (183) |
+
+MMLU's `only` ECE ran over 183 rows, 12 of 15 bins with mass. CSQA's `only` predicted sigma is
+-0.453 for the third time, from the same 5-of-32 against 6-of-32 counts. Its mean-probability
+sigma, -0.514, differs again.
+
+Reading. This is report-only, and a quick row decides nothing (rule 8).
+
+**Seed 2's MMLU E_val rows break permutation.** They agree under permutation on 86 of 183 rows
+(0.4699), against 1012/1302 (0.7773) for the rest of MMLU. On seeds 0 and 1 the same 183 rows
+agreed on 148 and 140. Top-1 on them is 85/183 = 0.4645, against 0.6214.
+- MMLU's `excluded` permutation is steady across seeds (0.7834, 0.7727, 0.7773). Its `full` value
+  is not (0.7865, 0.7717, 0.7394). So seed 2's MMLU permutation drop on the eval row comes from
+  these 183 rows (inferred from the three views).
+- Why is not known. One hypothesis, inferred and not tested, is that F memorised a letter or
+  position from the gold-trained train copies of these questions, and that it breaks when the
+  permutation moves the answer. The probe is the first command below
+  (`GAP-RESCORE-SEED2-EVAL-MMLU-PERMUTATION-COLLAPSE-2026-10-02`).
+
+### Three seeds
+
+Every value below is derived by a script from rows `e663248b`, `9e521e77` and `10382ac2`.
+
+**Holding E_val out, excluded minus full:**
+
+| Metric | seed 0 | seed 1 | seed 2 |
+| --- | --- | --- | --- |
+| MMLU top-1 | +0.0035 | +0.0100 | +0.0193 |
+| MMLU permutation agreement | -0.0031 | +0.0009 | +0.0379 |
+| MMLU in-distribution abstention | +0.0031 | -0.0009 | -0.0379 |
+| MMLU ECE k4 | +0.0036 | -0.0001 | +0.0005 |
+| CSQA top-1 | -0.0022 | -0.0012 | -0.0019 |
+| CSQA permutation agreement | +0.0010 | -0.0003 | -0.0003 |
+| CSQA in-distribution abstention | -0.0010 | +0.0003 | +0.0003 |
+| CSQA ECE k5 | -0.0000 | +0.0020 | +0.0002 |
+| pooled top-1 choice | +0.0041 | +0.0048 | +0.0062 |
+| pooled permutation agreement (gate) | +0.0024 | +0.0029 | +0.0078 |
+| pooled in-distribution abstention (gate) | -0.0022 | -0.0026 | -0.0076 |
+| pooled ECE k4 | +0.0005 | -0.0008 | -0.0009 |
+
+**E_val rows against the rest of their family, only minus excluded:** z is a normal
+approximation (inferred, not tested), with no correction for the many comparisons here.
+
+| Metric | seed 0 | seed 1 | seed 2 |
+| --- | --- | --- | --- |
+| MMLU top-1 | 107/183 vs 798/1302: -0.0282 (z -0.73) | 101/183 vs 824/1302: -0.0810 (z -2.07) | 85/183 vs 809/1302: -0.1569 (z -4.00) |
+| MMLU permutation agreement | 148/183 vs 1020/1302: +0.0253 (z +0.81) | 140/183 vs 1006/1302: -0.0076 (z -0.23) | 86/183 vs 1012/1302: -0.3073 (z -7.95) |
+| MMLU ECE k4 | 0.0979 vs 0.0525 | 0.0712 vs 0.0326 | 0.0450 vs 0.0287 |
+| CSQA top-1 | 27/32 vs 887/1165: +0.0824 (z +1.26) | 26/32 vs 895/1165: +0.0443 (z +0.63) | 27/32 vs 900/1165: +0.0712 (z +1.09) |
+| CSQA permutation agreement | 27/32 vs 1026/1165: -0.0369 (z -0.57) | 29/32 vs 1041/1165: +0.0127 (z +0.24) | 29/32 vs 1042/1165: +0.0118 (z +0.23) |
+| CSQA ECE k5 | not_run (32) | not_run (32) | not_run (32) |
+
+**In MMLU and CSQA, in-distribution abstention is exactly 1 minus permutation agreement.** In
+every view of every seed, agreed + abstained = n: for example 86 + 97 = 183 and 1098 + 387 = 1485.
+The two pooled gates' populations therefore share these families' rows as one measurement.
+
+What moves the same way on all three seeds:
+- **MMLU top-1 rises when E_val is held out:** +0.0035, +0.0100, +0.0193. That is because MMLU's
+  E_val rows score below the rest on every seed (z -0.73, -2.07, -4.00). Fable's direction
+  ("contamination can only flatter", Q6) is not borne out for MMLU on any seed. These rows are
+  answered worse, not better.
+- **MMLU's ECE on E_val alone is above the rest on every seed** (0.0979, 0.0712, 0.0450, against
+  0.0525, 0.0326, 0.0287), over 183 rows each. Report-only; the 0.05 bar is stated, not applied.
+- **The pooled gates move toward their bars on every seed, and neither reaches it.**
+  - Permutation rises (+0.0024, +0.0029, +0.0078), at most to 0.9346, under 0.95.
+  - In-distribution abstention falls (-0.0022, -0.0026, -0.0076), at least to 0.0746, over 0.05.
+  - No failing gate passes on any seed.
+- **CSQA top-1 falls by at most 0.0022 on every seed.** Its 32 E_val rows score above the rest on
+  every seed (z +1.26, +0.63, +1.09), each within 1.3 SE.
+
+What the pooled shift is made of. A counterfactual, derived by script from the rows: the 215 E_val
+rows are given their own family's `excluded` rate, and the pooled full value is recomputed. That
+counterfactual alone, i.e. composition, accounts for these permutation shifts:
+- seed 0: +0.0027 of +0.0024;
+- seed 1: +0.0028 of +0.0029;
+- seed 2: +0.0027 of +0.0078.
+
+On seeds 0 and 1 the pooled rise is composition: E_val sits in the two weakest families. On seed
+2, the remaining +0.0051 comes from the E_val MMLU rows' permutation collapse above.
+
+What does not move consistently: MMLU permutation and abstention (one direction on seed 2, the
+other on seed 0), CSQA permutation, abstention and ECE, and pooled ECE k4.
+
 ## What changed
 
 | Commit | What |
@@ -164,7 +306,10 @@ No failing gate passes either way.
 | `0e00e9b` | F seed 0's row `e663248b` in `ledger/mac-rescore-excluded-2026-10-02.jsonl`, plus this file's measured section. |
 | `d68a5c3` | Runbook step 6 becomes one `jq` that writes no file. The harness refuses a redirect outside the project root, which the seed-0 run hit. |
 | `ffc6e6d` | Two gap updates: `GAP-RESCORE-EXCLUDED-NOT-YET-RUN-2026-10-02` (seed 0 done) and `GAP-RESCORE-ONLY-VIEW-ECE-NEEDS-100-ROWS-2026-10-02` (resolved with residual, 183/32). Also this table, and step 6 no longer names a file it does not write. |
-| this commit | F seed 1's row `9e521e77` in `ledger/mac-rescore-excluded-2026-10-02.jsonl`, the Seed 1 section above, and gap updates for seed 1. Three runbook fixes. Step 9's prefix check is now `head -c \| shasum`: macOS `cmp -n N` exits 1 with "EOF" when the shorter file is exactly N bytes, so it failed on a true prefix during the seed-1 run. Step 9 also copies into the lane's own checkout, not main's. Step 3 keeps the previous seed's ledger pull. |
+| `4b24a75` | F seed 1's row `9e521e77` in `ledger/mac-rescore-excluded-2026-10-02.jsonl`, the Seed 1 section above, and gap updates for seed 1. Three runbook fixes. Step 9's prefix check is now `head -c \| shasum`: macOS `cmp -n N` exits 1 with "EOF" when the shorter file is exactly N bytes, so it failed on a true prefix during the seed-1 run. Step 9 also copies into the lane's own checkout, not main's. Step 3 keeps the previous seed's ledger pull. |
+| `f364a52` | The first command for the next lane became seed 2's read-only step 3. |
+| (fast-forward) | The branch was fast-forwarded to main `9f6b1fa` before seed 2. It carries no change of this lane's. |
+| this commit | F seed 2's row `10382ac2`, the Seed 2 and Three seeds sections, and gap updates: `GAP-RESCORE-EXCLUDED-NOT-YET-RUN-2026-10-02` resolved, `GAP-RESCORE-ONLY-VIEW-ECE-NEEDS-100-ROWS-2026-10-02` now verified on three seeds, and the new `GAP-RESCORE-SEED2-EVAL-MMLU-PERMUTATION-COLLAPSE-2026-10-02`. Step 9's worktree cleanup is done: `run-wt` came out without `--force`. |
 
 ### The flag's semantics
 
@@ -243,12 +388,14 @@ and `test_gate_report_row.py`. It missed `test_gate_report_parity.py` and the co
 
 ## What is open
 
-- `GAP-RESCORE-EXCLUDED-NOT-YET-RUN-2026-10-02`: seeds 0 and 1 are done (rows `e663248b` and
-  `9e521e77`). Seed 2 waits for its verdict files on the box (about 10:30 UTC), then runs the
-  runbook below.
-- `GAP-RESCORE-ONLY-VIEW-ECE-NEEDS-100-ROWS-2026-10-02`: resolved with residual. On seeds 0 and
-  1, MMLU's `only` view has 183 rows and its ECE ran (0.0979 and 0.0712). CSQA's has 32 rows and
-  its ECE is `not_run`: not measured, which is not the same as calibrated.
+- `GAP-RESCORE-SEED2-EVAL-MMLU-PERMUTATION-COLLAPSE-2026-10-02` (new, open): on seed 2, MMLU's
+  E_val rows agree under permutation on 86/183, against 148 and 140 on seeds 0 and 1. Why is
+  unknown. The first command below is the probe.
+- `GAP-RESCORE-EXCLUDED-NOT-YET-RUN-2026-10-02`: resolved. All three seeds are re-scored (rows
+  `e663248b`, `9e521e77`, `10382ac2`).
+- `GAP-RESCORE-ONLY-VIEW-ECE-NEEDS-100-ROWS-2026-10-02`: resolved with residual. On all three
+  seeds, MMLU's `only` view has 183 rows and its ECE ran (0.0979, 0.0712, 0.0450). CSQA's has 32
+  rows and its ECE is `not_run`: not measured, which is not the same as calibrated.
 - `GAP-RESCORE-ABSENT-KEYS-UNDECIDABLE-FROM-VERDICTS-2026-10-02`: resolved with residual; the
   residual is step 6's pre-check.
 - `GAP-RESCORE-NAVIGATION-2026-10-02`: what DevMap, GitPulse and ListAgents could not answer.
@@ -263,7 +410,12 @@ whose eval row exists:
   (`ledger/gh200-p4-v4-2026-10-01.jsonl`, verified);
 - seed 1 is `aeca8d69-4733-4593-92de-2073021ed684`, from ft row `95fa4854…`; its files landed on
   the box at 05:25 UTC;
-- seed 2 is due at about 10:30 UTC.
+- seed 2 is `8c3a774a-87d7-4452-a33b-49cc6fbd911e`, from ft row `32990e1a…`; its files landed on
+  the box at 11:13 UTC.
+
+All three are re-scored, and the worktrees are removed (step 9). To re-run a seed, start again at
+step 1. The binary is still at `…/target/release/qd-gate-report` (`ec88665f…`), so step 2 can be
+skipped if its sha256 still matches.
 
 Everything is written under `/Users/bharath/qd-campaign/rescore-excluded-2026-10-02/`, outside
 any checkout. The harness blocks `cd`, `git -C` and redirects into variable paths, so every
@@ -461,12 +613,37 @@ When all seeds are in:
 come out without it. If it does not, something wrote inside it, and the rows' `code_commit` will
 say `-dirty`.
 
+Done after seed 2: both commands exited 0, and `run-wt` came out without `--force`. Still under
+`/Users/bharath/qd-campaign/rescore-excluded-2026-10-02/`:
+- `target/`, about 421 MB, holding the binary;
+- `report-s{0,1,2}.json`;
+- the box pulls, including `.s0-pull` and `.s1-pull`;
+- `e_val.txt` and the outside ledger.
+
+`target/` is regenerable; the rest is evidence.
+
 ## First command for the next lane
 
-For F seed 2, once `verdicts-s2.jsonl` is on the box (about 10:30 UTC). `build-wt`, `run-wt`
-(both at `0264732`), the binary and E_val already exist, so this is step 3, read-only:
+The re-score is complete. What is open is
+`GAP-RESCORE-SEED2-EVAL-MMLU-PERMUTATION-COLLAPSE-2026-10-02`.
 
-    ssh -i ~/.ssh/bharath_m5_macbook_pro.pem ubuntu@192.222.51.246 'ls -la /home/ubuntu/p4-v4/ && sha256sum /home/ubuntu/p4-v4/verdicts-s2.jsonl /home/ubuntu/p4-v4/suite-verdicts-s2.jsonl /home/ubuntu/ledger/gh200-p4-v4-2026-10-01.jsonl'
+The first command asks whether the MMLU permutation disagreements are position-locked: the model
+picks the same presented position under both orderings (`top_permuted == top`). It splits them by
+E_val membership, on the verdict files already pulled. It is read-only and writes no file:
 
-Then keep seed 1's ledger pull (step 3, `.s1-pull.jsonl`) before the `scp`, and continue through
-steps 4-9 with `s2`.
+    for s in 0 1 2; do jq -rn --arg s "$s" --rawfile e /Users/bharath/qd-campaign/rescore-excluded-2026-10-02/e_val.txt '([$e | split("\n")[] | select(length > 0) | {key: ., value: true}] | from_entries) as $ev | [inputs | select(.family_id == "knowledge.multiple_choice" and .kind == "choice" and (.permutation_agreed | not)) | {inE: ($ev["\(.row_id)#\(.slot_name)"] // false), locked: (.top_permuted == .top), noul: (.top == .noul_row or .top_permuted == .noul_row)}] | group_by([.inE, .locked, .noul]) | map("seed \($s) \(if .[0].inE then "only" else "excluded" end) position-locked=\(.[0].locked) noul-involved=\(.[0].noul): \(length)") | .[]' "/Users/bharath/qd-campaign/rescore-excluded-2026-10-02/box/verdicts-s$s.jsonl"; done
+
+What the fields mean, verified on seed 2's 10985 letter lines:
+- `perm` maps a presented position to an original row;
+- `top` is an original row, and `top_permuted` a presented position;
+- outside abstention, `permutation_agreed` equals `perm[top_permuted] == top`;
+- the 141 other lines abstain under both orderings, which counts as agreement.
+
+None of the probe's counts is in a ledger row yet. Whoever runs it records them before citing any
+of them (rule 5). The next step after that is which v4 train rows hit these 183 keys, and whether
+their gold letter differs from the val permutation. E_val came from L-replay's
+`AUDIT/replay-v4-build-2026-10-02/gold_side_check.py`. Its `gold-side/summary.json` records the
+train-to-val pairs only as counts and a hash (`pairs_total`, `pairs_sha256`), so getting the pairs
+means re-running that check (`HANDOFF/replay-v4-build-2026-10-02.md`). `replay-hits-build1.json`
+is not the right file: it compares the replay set against val and heldout, not F's gold-train
+rows.
