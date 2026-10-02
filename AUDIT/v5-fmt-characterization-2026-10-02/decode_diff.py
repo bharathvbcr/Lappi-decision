@@ -68,7 +68,7 @@ def json_diff(a: Any, b: Any, path: str = "") -> list[str]:
         return out
     if isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
         out = []
-        for i, (x, y) in enumerate(zip(a, b)):
+        for i, (x, y) in enumerate(zip(a, b, strict=True)):
             out.extend(json_diff(x, y, f"{path}[{i}]"))
         return out
     if a != b:
@@ -123,7 +123,10 @@ def main() -> int:
             unexplained += 1
             print("  UNEXPLAINED: sequence counts differ")
             continue
-        bad = [i for i, (o, n) in enumerate(zip(old_t, new_t)) if expected_format2(o) != n]
+        bad = [
+            i for i, (o, n) in enumerate(zip(old_t, new_t, strict=True))
+            if expected_format2(o) != n
+        ]
         print(f"  decode check: {len(old_t) - len(bad)}/{len(old_t)} sequences equal the "
               "old text with the format line inserted and the question line moved")
         for i in bad[:3]:
@@ -153,7 +156,8 @@ def main() -> int:
                           f"{ok}")
                 else:
                     d = (b.astype(np.int64) - a.astype(np.int64)).ravel()
-                    print(f"  supervision {key}: differs; deltas {dict(Counter(d.tolist()).most_common(8))}")
+                    common = dict(Counter(d.tolist()).most_common(8))
+                    print(f"  supervision {key}: differs; deltas {common}")
     print(f"UNEXPLAINED total: {unexplained}")
     return 1 if unexplained else 0
 

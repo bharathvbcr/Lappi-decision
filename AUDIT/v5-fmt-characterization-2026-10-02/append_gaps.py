@@ -6,7 +6,8 @@ record whose id is already current with the same status is skipped, so a second 
 nothing.
 
 Run from the worktree root:
-    PYTHONPATH=python /Users/bharath/.venvs/ml/bin/python AUDIT/v5-fmt-characterization-2026-10-02/append_gaps.py
+    PYTHONPATH=python /Users/bharath/.venvs/ml/bin/python \
+        AUDIT/v5-fmt-characterization-2026-10-02/append_gaps.py
 """
 
 from qd_train.gaps import append_gap, current_records

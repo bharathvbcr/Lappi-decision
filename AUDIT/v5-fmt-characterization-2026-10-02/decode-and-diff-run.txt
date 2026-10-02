@@ -1,6 +1,7 @@
-mac_heavy: 2026-10-02T20:11:09Z 'lead: format-2 characterization decode-and-diff (60-pair builds)' holds the lock (waited 0s; load 10.03, 1053 processes); running: bash /Users/bharath/Code/research/Lappi-decision/build/char-fmt2/run.sh
+mac_heavy: 2026-10-02T20:21:56Z 'lead: decode-and-diff rerun from the committed AUDIT scripts' waiting 0s for the lock; holder: label=lead: v5-build python suite at a94e9de (single process) pid=93247 start=2026-10-02T20:14:19Z cwd=/Users/bharath/Code/research/Lappi-decision 
+mac_heavy: 2026-10-02T20:24:16Z 'lead: decode-and-diff rerun from the committed AUDIT scripts' holds the lock (waited 140s; load 4.90, 1035 processes); running: bash /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/AUDIT/v5-fmt-characterization-2026-10-02/run.sh
 minhash: 55 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/target/release/qd-prep in 0.0 s (shingling and canaries included), 220 lookups, 8 canaries equal to the reference; 55 distinct texts shingled once, 220 lookups
-lsh: 2 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/target/release/qd-prep in 0.1 s (canaries included), 165 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+lsh: 2 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/target/release/qd-prep in 0.0 s (canaries included), 165 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
 tokenizer Qwen2Tokenizer for Qwen/Qwen3.5-2B-Base: vocab_size=248044 len=248077 fast=True
 corpus revision: dec48d8841db21ad0401effdb9fff724977fd47f -> dec48d8841db21ad0401effdb9fff724977fd47f
 
@@ -75,7 +76,7 @@ corpus: 60 real (commit, path) pairs, 0 real prose passages; blank_line_runs=Fal
   span_check, decode supplied : {"state": "not_run", "reason": "this shard set holds no SLOT_SPAN sequences, so there was no line-to-token mapping to verify. 0 of 0 verified is not a pass."}
   span_check, decode omitted  : {"state": "not_run", "reason": "this shard set holds no SLOT_SPAN sequences, so there was no line-to-token mapping to verify. 0 of 0 verified is not a pass."}
 built /Users/bharath/Code/research/Lappi-decision/build/char-fmt2/out-old from /Users/bharath/Code/research/Lappi-decision/build/char-fmt2/tree-92e1c74 (render.py prompt format: none (format 1))
-minhash: 55 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/target/release/qd-prep in 0.1 s (shingling and canaries included), 220 lookups, 8 canaries equal to the reference; 55 distinct texts shingled once, 220 lookups
+minhash: 55 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/target/release/qd-prep in 0.0 s (shingling and canaries included), 220 lookups, 8 canaries equal to the reference; 55 distinct texts shingled once, 220 lookups
 lsh: 2 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/target/release/qd-prep in 0.1 s (canaries included), 165 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
 tokenizer Qwen2Tokenizer for Qwen/Qwen3.5-2B-Base: vocab_size=248044 len=248077 fast=True
 corpus revision: dec48d8841db21ad0401effdb9fff724977fd47f -> dec48d8841db21ad0401effdb9fff724977fd47f
@@ -221,7 +222,7 @@ DIFF shards/val/tokens.u32
   ~ buckets[31]: 904 -> 913
   ~ code_fingerprint.defect_class.py: "cabb39bd7407648ff1b7e610e706b8d162d350e9dc3b852578e4c94fc94f891c" -> "1fe5d14b09c5339b10a387980e09db9a4ad27443bee593e3158c61c37f34ce52"
   ~ code_fingerprint.render.py: "be01486b70f06bc46c5c3382b2d7fe0c43fc29399e1e16485c248cc03ed60eda" -> "cc3179586c1cf08412d4ae485640754beeb01482711425c1fdce0ecf736d163a"
-  ~ created_at: "2026-10-02T20:11:15.688037+00:00" -> "2026-10-02T20:11:21.847252+00:00"
+  ~ created_at: "2026-10-02T20:24:22.245868+00:00" -> "2026-10-02T20:24:28.574278+00:00"
   ~ max_seq_len: 904 -> 913
   + prompt_format = 2
   ~ shard_hash: "87aebd645a0aa0e4f2296615d7888672fe9f70792679b2fb67d1f006c1f427a7" -> "8931e5511d33559db61d0f17d414dda98c093f96d7fb31bca3a24330bf5d28b3"
@@ -261,7 +262,7 @@ DIFF shards/val/tokens.u32
   ~ buckets[31]: 904 -> 913
   ~ code_fingerprint.defect_class.py: "cabb39bd7407648ff1b7e610e706b8d162d350e9dc3b852578e4c94fc94f891c" -> "1fe5d14b09c5339b10a387980e09db9a4ad27443bee593e3158c61c37f34ce52"
   ~ code_fingerprint.render.py: "be01486b70f06bc46c5c3382b2d7fe0c43fc29399e1e16485c248cc03ed60eda" -> "cc3179586c1cf08412d4ae485640754beeb01482711425c1fdce0ecf736d163a"
-  ~ created_at: "2026-10-02T20:11:15.752118+00:00" -> "2026-10-02T20:11:21.907714+00:00"
+  ~ created_at: "2026-10-02T20:24:22.309249+00:00" -> "2026-10-02T20:24:28.636716+00:00"
   ~ max_seq_len: 904 -> 913
   + prompt_format = 2
   ~ shard_hash: "87aebd645a0aa0e4f2296615d7888672fe9f70792679b2fb67d1f006c1f427a7" -> "8931e5511d33559db61d0f17d414dda98c093f96d7fb31bca3a24330bf5d28b3"
@@ -281,7 +282,7 @@ DIFF shards/val/tokens.u32
   ~ buckets[11]: 839 -> 848
   ~ code_fingerprint.defect_class.py: "cabb39bd7407648ff1b7e610e706b8d162d350e9dc3b852578e4c94fc94f891c" -> "1fe5d14b09c5339b10a387980e09db9a4ad27443bee593e3158c61c37f34ce52"
   ~ code_fingerprint.render.py: "be01486b70f06bc46c5c3382b2d7fe0c43fc29399e1e16485c248cc03ed60eda" -> "cc3179586c1cf08412d4ae485640754beeb01482711425c1fdce0ecf736d163a"
-  ~ created_at: "2026-10-02T20:11:15.698486+00:00" -> "2026-10-02T20:11:21.858999+00:00"
+  ~ created_at: "2026-10-02T20:24:22.260078+00:00" -> "2026-10-02T20:24:28.586025+00:00"
   ~ max_seq_len: 839 -> 848
   + prompt_format = 2
   ~ shard_hash: "522202e22c49ce8135c74e87cc41c2ce76c927ae1d07ac097368ac743f53fc91" -> "9ea9959096b0007c813249fc6a0a89e02567885419cc87e50f74c0dd1c77a2f1"
@@ -311,4 +312,4 @@ DIFF shards/val/tokens.u32
   supervision span_target: identical
   supervision target_index: shifted by each sequence's token delta: True
 UNEXPLAINED total: 0
-mac_heavy: 2026-10-02T20:11:27Z 'lead: format-2 characterization decode-and-diff (60-pair builds)' finished with exit 0
+mac_heavy: 2026-10-02T20:24:34Z 'lead: decode-and-diff rerun from the committed AUDIT scripts' finished with exit 0

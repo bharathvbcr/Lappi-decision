@@ -18,6 +18,7 @@ sys.path.insert(0, str(tree / "tools"))
 sys.path.insert(0, str(tree / "python"))
 
 import real_tokenizer_pipeline as pipeline  # noqa: E402
+
 import qd_data.render as render  # noqa: E402
 
 for mod in (pipeline, render):
