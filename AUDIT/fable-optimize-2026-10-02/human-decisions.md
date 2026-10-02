@@ -26,12 +26,55 @@ Asked by the lead in chat on 2026-10-02 at about 05:15 UTC, through AskUserQuest
 - Answer: **"Plan it; ask before launch (Recommended)"**
 - Effect: the lead prepares the v5 build, its pre-registration and its queue, then brings the human the final cost and timeline for a yes before any GPU time. No v5 GPU job launches on this answer alone.
 
+## Second round: on Fable's improve/Mac-inference ruling (asked ~06:20 UTC 2026-10-02)
+
+The ruling is `fable-improve-and-mac-inference-ruling.md`, beside this file. Questions and answers are verbatim.
+
+### 5. Source of the extra prose noul rows (G6)
+
+- Question: "Where should the extra prose 'decline to answer' training examples come from (G6)? Fable ranks this the top fix for seed-to-seed instability."
+- Answer: **"Both"** (option text: "Use both sources. Gives the strongest signal, but carries the test-meaning change too.")
+- Effect: v5's noul supply adds at least 3,000 prose-noul rows, question form favoured, from two sources:
+  - (i) prose from the human's own repositories (READMEs, commit bodies, issue text), approved for training on 2026-09-28;
+  - (ii) MMLU/CSQA **train** questions rendered under `code.defect_class` with gold Z, beside their own letter-gold rows.
+- Rule 3 holds: no val or held-out question is used, and the v5 exclusion list removes E_val hits from both uses.
+- Consequence the human accepted: under (ii), the OOD suite's prose category (val MMLU/CSQA questions under `code.defect_class`, `python/qd_train/ood.py:10-12`) is near-in-distribution by form for v5-trained models. v5's `ood_abstain.prose` is therefore not comparable to F's, and v5's pre-registration says so.
+
+### 6. The noul-weight arm
+
+- Question: "Fund an abstention loss-weight arm in v5 (abstain examples weighted 3–5×, three seeds, about $34 extra)?"
+- Answer: **"Yes, 3 seeds in v5 (Recommended)"**
+- Effect: a new `--noul-weight` flag; the arm is pre-registered before any row and runs on three seeds with v5. It launches only with v5, which still needs the human's final yes (item 4).
+
+### 7. Mac GPU checks for qd-metal
+
+- Question: "May lanes run the Mac GPU checks for the Metal backend (parity against the PyTorch reference, the snapshot-hash test, a latency benchmark)? An earlier session's permission check blocked these, so no Mac inference number has been measured with the real model."
+- Answer: **"Yes, one at a time (Recommended)"** (option text: "Only when the Mac is free: no other heavy process, swap not near its limit. It loads the 3.8 GB model, plus the PyTorch reference once. Results go to a new Mac ledger.")
+- Effect: this answers GAP-QDM-GPU-GATES-NOT-RUN's permission question. Lanes run `qd-metal-parity`, the snapshot-hash GPU test and the `--decision` benchmark one process at a time, only when no other heavy process runs and swap has room, and write rows to `ledger/mac-qd-metal-2026-10-02.jsonl`.
+
+### 8. Prompt order in v5
+
+- Question: "Should v5 put the code context before the question in the prompt? Then N questions about the same diff share one prefill (DevCouncil asks up to 128). It's a prompt-format change, so renderers, test goldens and v5's data all change."
+- Answer: **"Context first in v5"** (option text: "Large serving savings for multi-question callers. It adds a format change to v5, so its effect is mixed with v5's other changes.")
+- Effect: the v5 build renders the context before the question, in both renderers (Rust `crates/qd-runtime/src/render.rs` and the Python renderer). The `render_contract` goldens are regenerated for the v5 format version. The Python side lands in the v5 build commit with the other `python/qd_data` edit (Fable Q2), and the prompt's version marker changes so a v4-format model and a v5-format runtime refuse each other. v5's results carry this confound with its other changes.
+
+### 9. More training data
+
+- The human, in chat at ~06:25 UTC 2026-10-02, unprompted: "Train on more data if needed"
+- Effect: the v5 plan may grow the training corpus beyond v4's sources where Fable's ruling or the gates call for it. The candidates are more own-repo code and prose (approved 2026-09-28), more noul sources, more long composed rows for the 9-10k target, and more rows from the already-downloaded MMLU/CSQA/CLINC/SQuAD train splits. Four limits still hold:
+  - Rule 3: no val, held-out or task-holdout row ever trains.
+  - The v5 decontamination scan covers every added row.
+  - Every third-party source needs its licence checked.
+  - A new download needs the human's explicit yes, with filename, source and size stated; this message does not cover downloads.
+- The v5 pre-registration names each added source, its row count and its licence.
+
 ## Still open (the human's, unchanged by these answers)
 
 - G1 / `promotion_population`: on MMLU, permutation consistency and the in-distribution abstention cap cannot both pass under the pooled population (GAP-ABSTAIN-GATE-IN-DIST-EQUALS-PERMUTATION-DISAGREEMENT-2026-10-02).
 - `ece_population`: whether general-family rows count in `ece.lang` (GAP-ECE-LANG-REASON-STRING-MISATTRIBUTES-ROWS-2026-10-02).
 - `degenerate_head_floor`.
-- G6 (unseen-language abstention data), G8, G12 and H4/G5.
+- G6's unseen-language half (the prose half is item 5), G8 (ens3 serving cost), G12 and H4/G5.
+- A 4B base (Fable recommends against until v5 reads); the qd serve idle-timeout default for a resident 3.8 GB model.
 - Content-disjointness of the two task-holdout families (GAP-PORTED-HELDOUT-FAMILY-CONTENT-OVERLAPS-TRAIN).
 - Which linear-control row the margin gate reads after the refit (GAP-LINEAR-CONTROL-RERUN-WOULD-DOUBLE-THE-SELECTED-ROW-2026-10-02).
 - The first commit of the untracked `ojas-qwen35-cuda/` crate into ojas git, raised by the ojas session with the human.
