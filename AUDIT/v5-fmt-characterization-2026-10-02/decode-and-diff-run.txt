@@ -1,0 +1,314 @@
+mac_heavy: 2026-10-02T20:11:09Z 'lead: format-2 characterization decode-and-diff (60-pair builds)' holds the lock (waited 0s; load 10.03, 1053 processes); running: bash /Users/bharath/Code/research/Lappi-decision/build/char-fmt2/run.sh
+minhash: 55 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/target/release/qd-prep in 0.0 s (shingling and canaries included), 220 lookups, 8 canaries equal to the reference; 55 distinct texts shingled once, 220 lookups
+lsh: 2 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/target/release/qd-prep in 0.1 s (canaries included), 165 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+tokenizer Qwen2Tokenizer for Qwen/Qwen3.5-2B-Base: vocab_size=248044 len=248077 fast=True
+corpus revision: dec48d8841db21ad0401effdb9fff724977fd47f -> dec48d8841db21ad0401effdb9fff724977fd47f
+
+corpus: 60 real (commit, path) pairs, 0 real prose passages; blank_line_runs=False; capped=['bigcode/commitpackft']
+
+== stage 1: build_mixture ==
+  raw rows in: 60   DataRows out: 165
+  status: {"reason": "the read of ['bigcode/commitpackft'] hit its row bound, so this mixture is a capped sample of those sources, not their full contents", "state": "not_run"}
+  prompt consistency: {"detail": "165 of 165 rows grouped into 165 distinct rendered prompts; no prompt in the emitted rows carries two different gold answers", "n": 165, "n_total": 165, "passed": true, "state": "ran", "value": 0}
+    refused bigcode/commitpackft licence:agpl-3.0: 9
+    refused bigcode/commitpackft licence:lgpl-2.1: 6
+
+== stage 2: dedupe + split ==
+  rows in: 165   kept: 165
+  split counts: {'train': 86, 'val': 12, 'heldout': 67}
+  split status: {"n": 5, "n_total": 5, "passed": true, "state": "ran"}
+
+  NOT-RUN SNAPSHOT, accepted deliberately for this measurement:
+    data_snapshot: 1 of 3 inputs did not run -> mixture: the read of ['bigcode/commitpackft'] hit its row bound, so this mixture is a capped sample of those sources, not their full contents
+  train manifest: /Users/bharath/Code/research/Lappi-decision/build/char-fmt2/out-old/data/pool/train.json (86 entries)
+
+== stage 3: census (unmodified write_shards work, per row) ==
+  rows in: 86   rows that encoded: 86   sequences: 86   span sequences: 0
+    (no row was refused)
+  accepted line-start candidates: 0, of which 0 sit inside a token that begins earlier (accepted by design: the writer takes the token containing the line start)
+
+== stage 3b: does the obvious decode= argument work? ==
+  tokenizer.decode with no kwargs: {"state": "not_run", "reason": "no span row in this split projected to token positions, so whether the default decode would have been accepted was never exercised"}
+
+== stage 4: buckets and padding, under the real tokenizer ==
+  lengths: n=86 min=279 max=904 mean=609.8
+  quantiles: p10=355 p50=619 p90=831 p99=904
+  choose_buckets -> [279, 299, 317, 332, 358, 388, 418, 441, 457, 464, 481, 491, 504, 534, 550, 571, 598, 624, 679, 714, 727, 749, 773, 790, 799, 809, 817, 831, 852, 866, 876, 904]
+  occupancy: {0: 2, 1: 2, 2: 2, 3: 2, 4: 2, 5: 2, 6: 4, 7: 4, 8: 3, 9: 3, 10: 3, 11: 2, 12: 2, 13: 2, 14: 2, 15: 3, 16: 2, 17: 4, 18: 4, 19: 3, 20: 2, 21: 4, 22: 2, 23: 5, 24: 4, 25: 4, 26: 2, 27: 2, 28: 2, 29: 2, 30: 2, 31: 2}
+  padding_waste: {'state': 'ran', 'passed': True, 'value': 0.00448, 'n': 86, 'n_total': 86, 'detail': '236 padding of 52679 positions (0.45%) over 86 sequences; gate is <= 15%. buckets=[279, 299, 317, 332, 358, 388, 418, 441, 457, 464, 481, 491, 504, 534, 550, 571, 598, 624, 679, 714, 727, 749, 773, 790, 799, 809, 817, 831, 852, 866, 876, 904]'}
+
+== stage 5: remap over the real vocabulary (--vocab full) ==
+  source vocab 248320 -> kept 248320 (3088 distinct ids used by 59617 tokens)
+  counted over 98 tokenized sequence(s) -- train and val -- of which 86 train sequences reach the shard set; the difference is rows the writer excludes but still demands remap coverage for
+
+== stage 5b: the rows the remap was not built from ==
+  val: --vocab full keeps every tokenizer id, so every row of this split encodes by construction and a count here would measure nothing
+  heldout: --vocab full keeps every tokenizer id, so every row of this split encodes by construction and a count here would measure nothing
+
+== stage 6: write_shards with tokenize + token_offsets + decode ==
+  header: n_sequences=86 total_tokens=52443 max_seq_len=904 vocab_size=248320
+  buckets: [279, 299, 317, 332, 358, 388, 418, 441, 457, 464, 481, 491, 504, 534, 550, 571, 598, 624, 679, 714, 727, 749, 773, 790, 799, 809, 817, 831, 852, 866, 876, 904]
+  coverage.json: {"detail": "every row in the manifest was tokenized into the shard set", "n": 86, "n_total": 86, "passed": true, "state": "ran", "value": 86}
+
+== stage 6b: the val split, under the same remap ==
+  header: n_sequences=12 total_tokens=7174 vocab_size=248320
+  coverage: {"state": "ran", "passed": true, "value": 12, "n": 12, "n_total": 12, "detail": "every row in the manifest was tokenized into the shard set"}
+
+== stage 7: read back through ShardReader/Batch ==
+  checks: ['held_out_families_configured', 'shard_code_current', 'shard_not_packed', 'shard_path_not_held_out', 'shard_provenance_pinned', 'shard_remap_matches_header', 'shard_rev_matches', 'shard_split_trainable']
+  coverage: {'state': 'ran', 'passed': True, 'value': 86, 'n': 86, 'n_total': 86, 'detail': 'every row in the manifest was tokenized into the shard set'}
+  padding_waste: {'state': 'ran', 'passed': True, 'value': 0.00448, 'n': 86, 'n_total': 86, 'detail': '236 padding of 52679 positions (0.45%) over 86 sequences; gate is <= 15%. buckets=[279, 299, 317, 332, 358, 388, 418, 441, 457, 464, 481, 491, 504, 534, 550, 571, 598, 624, 679, 714, 727, 749, 773, 790, 799, 809, 817, 831, 852, 866, 876, 904]'}
+    sequences: 86
+    batches: 32
+    rows_in_batches: 86
+    span_rows: 0
+    gold_off_candidate: 0
+    candidate_in_padding: 0
+    target_not_before_last: 0
+    tail_not_one_letter: 0
+    decode_mismatch: 0
+
+== stage 8: the same corpus written WITHOUT decode= ==
+  artifacts identical between decode-checked and unchecked writes: ['coverage', 'header_without_created_at', 'span_check']
+  artifacts that differ: []
+  ShardReader.to_json() identical: False
+  span_check, decode supplied : {"state": "not_run", "reason": "this shard set holds no SLOT_SPAN sequences, so there was no line-to-token mapping to verify. 0 of 0 verified is not a pass."}
+  span_check, decode omitted  : {"state": "not_run", "reason": "this shard set holds no SLOT_SPAN sequences, so there was no line-to-token mapping to verify. 0 of 0 verified is not a pass."}
+built /Users/bharath/Code/research/Lappi-decision/build/char-fmt2/out-old from /Users/bharath/Code/research/Lappi-decision/build/char-fmt2/tree-92e1c74 (render.py prompt format: none (format 1))
+minhash: 55 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/target/release/qd-prep in 0.1 s (shingling and canaries included), 220 lookups, 8 canaries equal to the reference; 55 distinct texts shingled once, 220 lookups
+lsh: 2 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/target/release/qd-prep in 0.1 s (canaries included), 165 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+tokenizer Qwen2Tokenizer for Qwen/Qwen3.5-2B-Base: vocab_size=248044 len=248077 fast=True
+corpus revision: dec48d8841db21ad0401effdb9fff724977fd47f -> dec48d8841db21ad0401effdb9fff724977fd47f
+
+corpus: 60 real (commit, path) pairs, 0 real prose passages; blank_line_runs=False; capped=['bigcode/commitpackft']
+
+== stage 1: build_mixture ==
+  raw rows in: 60   DataRows out: 165
+  status: {"reason": "the read of ['bigcode/commitpackft'] hit its row bound, so this mixture is a capped sample of those sources, not their full contents", "state": "not_run"}
+  prompt consistency: {"detail": "165 of 165 rows grouped into 165 distinct rendered prompts; no prompt in the emitted rows carries two different gold answers", "n": 165, "n_total": 165, "passed": true, "state": "ran", "value": 0}
+    refused bigcode/commitpackft licence:agpl-3.0: 9
+    refused bigcode/commitpackft licence:lgpl-2.1: 6
+
+== stage 2: dedupe + split ==
+  rows in: 165   kept: 165
+  split counts: {'train': 86, 'val': 12, 'heldout': 67}
+  split status: {"n": 5, "n_total": 5, "passed": true, "state": "ran"}
+
+  NOT-RUN SNAPSHOT, accepted deliberately for this measurement:
+    data_snapshot: 1 of 3 inputs did not run -> mixture: the read of ['bigcode/commitpackft'] hit its row bound, so this mixture is a capped sample of those sources, not their full contents
+  train manifest: /Users/bharath/Code/research/Lappi-decision/build/char-fmt2/out-new/data/pool/train.json (86 entries)
+
+== stage 3: census (unmodified write_shards work, per row) ==
+  rows in: 86   rows that encoded: 86   sequences: 86   span sequences: 0
+    (no row was refused)
+  accepted line-start candidates: 0, of which 0 sit inside a token that begins earlier (accepted by design: the writer takes the token containing the line start)
+
+== stage 3b: does the obvious decode= argument work? ==
+  tokenizer.decode with no kwargs: {"state": "not_run", "reason": "no span row in this split projected to token positions, so whether the default decode would have been accepted was never exercised"}
+
+== stage 4: buckets and padding, under the real tokenizer ==
+  lengths: n=86 min=288 max=913 mean=618.8
+  quantiles: p10=364 p50=628 p90=840 p99=913
+  choose_buckets -> [288, 308, 326, 341, 367, 397, 427, 450, 466, 473, 490, 500, 513, 543, 559, 580, 607, 633, 688, 723, 736, 758, 782, 799, 808, 818, 826, 840, 861, 875, 885, 913]
+  occupancy: {0: 2, 1: 2, 2: 2, 3: 2, 4: 2, 5: 2, 6: 4, 7: 4, 8: 3, 9: 3, 10: 3, 11: 2, 12: 2, 13: 2, 14: 2, 15: 3, 16: 2, 17: 4, 18: 4, 19: 3, 20: 2, 21: 4, 22: 2, 23: 5, 24: 4, 25: 4, 26: 2, 27: 2, 28: 2, 29: 2, 30: 2, 31: 2}
+  padding_waste: {'state': 'ran', 'passed': True, 'value': 0.004415, 'n': 86, 'n_total': 86, 'detail': '236 padding of 53453 positions (0.44%) over 86 sequences; gate is <= 15%. buckets=[288, 308, 326, 341, 367, 397, 427, 450, 466, 473, 490, 500, 513, 543, 559, 580, 607, 633, 688, 723, 736, 758, 782, 799, 808, 818, 826, 840, 861, 875, 885, 913]'}
+
+== stage 5: remap over the real vocabulary (--vocab full) ==
+  source vocab 248320 -> kept 248320 (3090 distinct ids used by 60499 tokens)
+  counted over 98 tokenized sequence(s) -- train and val -- of which 86 train sequences reach the shard set; the difference is rows the writer excludes but still demands remap coverage for
+
+== stage 5b: the rows the remap was not built from ==
+  val: --vocab full keeps every tokenizer id, so every row of this split encodes by construction and a count here would measure nothing
+  heldout: --vocab full keeps every tokenizer id, so every row of this split encodes by construction and a count here would measure nothing
+
+== stage 6: write_shards with tokenize + token_offsets + decode ==
+  header: n_sequences=86 total_tokens=53217 max_seq_len=913 vocab_size=248320
+  buckets: [288, 308, 326, 341, 367, 397, 427, 450, 466, 473, 490, 500, 513, 543, 559, 580, 607, 633, 688, 723, 736, 758, 782, 799, 808, 818, 826, 840, 861, 875, 885, 913]
+  coverage.json: {"detail": "every row in the manifest was tokenized into the shard set", "n": 86, "n_total": 86, "passed": true, "state": "ran", "value": 86}
+
+== stage 6b: the val split, under the same remap ==
+  header: n_sequences=12 total_tokens=7282 vocab_size=248320
+  coverage: {"state": "ran", "passed": true, "value": 12, "n": 12, "n_total": 12, "detail": "every row in the manifest was tokenized into the shard set"}
+
+== stage 7: read back through ShardReader/Batch ==
+  checks: ['held_out_families_configured', 'shard_code_current', 'shard_not_packed', 'shard_path_not_held_out', 'shard_provenance_pinned', 'shard_remap_matches_header', 'shard_rev_matches', 'shard_split_trainable']
+  coverage: {'state': 'ran', 'passed': True, 'value': 86, 'n': 86, 'n_total': 86, 'detail': 'every row in the manifest was tokenized into the shard set'}
+  padding_waste: {'state': 'ran', 'passed': True, 'value': 0.004415, 'n': 86, 'n_total': 86, 'detail': '236 padding of 53453 positions (0.44%) over 86 sequences; gate is <= 15%. buckets=[288, 308, 326, 341, 367, 397, 427, 450, 466, 473, 490, 500, 513, 543, 559, 580, 607, 633, 688, 723, 736, 758, 782, 799, 808, 818, 826, 840, 861, 875, 885, 913]'}
+    sequences: 86
+    batches: 32
+    rows_in_batches: 86
+    span_rows: 0
+    gold_off_candidate: 0
+    candidate_in_padding: 0
+    target_not_before_last: 0
+    tail_not_one_letter: 0
+    decode_mismatch: 0
+
+== stage 8: the same corpus written WITHOUT decode= ==
+  artifacts identical between decode-checked and unchecked writes: ['coverage', 'header_without_created_at', 'span_check']
+  artifacts that differ: []
+  ShardReader.to_json() identical: False
+  span_check, decode supplied : {"state": "not_run", "reason": "this shard set holds no SLOT_SPAN sequences, so there was no line-to-token mapping to verify. 0 of 0 verified is not a pass."}
+  span_check, decode omitted  : {"state": "not_run", "reason": "this shard set holds no SLOT_SPAN sequences, so there was no line-to-token mapping to verify. 0 of 0 verified is not a pass."}
+built /Users/bharath/Code/research/Lappi-decision/build/char-fmt2/out-new from /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt (render.py prompt format: 2)
+old digest 92299328f419d303d4f12a197af85edd5fefd2dbb1856b70cd21a00eb830f414
+new digest 3c9ae50a8d92783e5eed90cf4391048bd70033d6060d57b83c2fb43c24c3fa60
+same data/heldout/heldout.json
+same data/pool/train.json
+same data/pool/val.json
+same shards/train/contradictions.json
+same shards/train/coverage.json
+DIFF shards/train/header.json
+DIFF shards/train/offsets.npy
+same shards/train/remap.json
+same shards/train/remap.npz
+same shards/train/sequence_index.json
+same shards/train/span_check.json
+DIFF shards/train/supervision.npz
+DIFF shards/train/tokens.u32
+same shards/train-no-decode/contradictions.json
+same shards/train-no-decode/coverage.json
+DIFF shards/train-no-decode/header.json
+DIFF shards/train-no-decode/offsets.npy
+same shards/train-no-decode/remap.json
+same shards/train-no-decode/remap.npz
+same shards/train-no-decode/sequence_index.json
+same shards/train-no-decode/span_check.json
+DIFF shards/train-no-decode/supervision.npz
+DIFF shards/train-no-decode/tokens.u32
+same shards/val/contradictions.json
+same shards/val/coverage.json
+DIFF shards/val/header.json
+DIFF shards/val/offsets.npy
+same shards/val/remap.json
+same shards/val/remap.npz
+same shards/val/sequence_index.json
+same shards/val/span_check.json
+DIFF shards/val/supervision.npz
+DIFF shards/val/tokens.u32
+--- json diff shards/train/header.json
+  ~ buckets[0]: 279 -> 288
+  ~ buckets[1]: 299 -> 308
+  ~ buckets[2]: 317 -> 326
+  ~ buckets[3]: 332 -> 341
+  ~ buckets[4]: 358 -> 367
+  ~ buckets[5]: 388 -> 397
+  ~ buckets[6]: 418 -> 427
+  ~ buckets[7]: 441 -> 450
+  ~ buckets[8]: 457 -> 466
+  ~ buckets[9]: 464 -> 473
+  ~ buckets[10]: 481 -> 490
+  ~ buckets[11]: 491 -> 500
+  ~ buckets[12]: 504 -> 513
+  ~ buckets[13]: 534 -> 543
+  ~ buckets[14]: 550 -> 559
+  ~ buckets[15]: 571 -> 580
+  ~ buckets[16]: 598 -> 607
+  ~ buckets[17]: 624 -> 633
+  ~ buckets[18]: 679 -> 688
+  ~ buckets[19]: 714 -> 723
+  ~ buckets[20]: 727 -> 736
+  ~ buckets[21]: 749 -> 758
+  ~ buckets[22]: 773 -> 782
+  ~ buckets[23]: 790 -> 799
+  ~ buckets[24]: 799 -> 808
+  ~ buckets[25]: 809 -> 818
+  ~ buckets[26]: 817 -> 826
+  ~ buckets[27]: 831 -> 840
+  ~ buckets[28]: 852 -> 861
+  ~ buckets[29]: 866 -> 875
+  ~ buckets[30]: 876 -> 885
+  ~ buckets[31]: 904 -> 913
+  ~ code_fingerprint.defect_class.py: "cabb39bd7407648ff1b7e610e706b8d162d350e9dc3b852578e4c94fc94f891c" -> "1fe5d14b09c5339b10a387980e09db9a4ad27443bee593e3158c61c37f34ce52"
+  ~ code_fingerprint.render.py: "be01486b70f06bc46c5c3382b2d7fe0c43fc29399e1e16485c248cc03ed60eda" -> "cc3179586c1cf08412d4ae485640754beeb01482711425c1fdce0ecf736d163a"
+  ~ created_at: "2026-10-02T20:11:15.688037+00:00" -> "2026-10-02T20:11:21.847252+00:00"
+  ~ max_seq_len: 904 -> 913
+  + prompt_format = 2
+  ~ shard_hash: "87aebd645a0aa0e4f2296615d7888672fe9f70792679b2fb67d1f006c1f427a7" -> "8931e5511d33559db61d0f17d414dda98c093f96d7fb31bca3a24330bf5d28b3"
+  ~ total_tokens: 52443 -> 53217
+--- json diff shards/train-no-decode/header.json
+  ~ buckets[0]: 279 -> 288
+  ~ buckets[1]: 299 -> 308
+  ~ buckets[2]: 317 -> 326
+  ~ buckets[3]: 332 -> 341
+  ~ buckets[4]: 358 -> 367
+  ~ buckets[5]: 388 -> 397
+  ~ buckets[6]: 418 -> 427
+  ~ buckets[7]: 441 -> 450
+  ~ buckets[8]: 457 -> 466
+  ~ buckets[9]: 464 -> 473
+  ~ buckets[10]: 481 -> 490
+  ~ buckets[11]: 491 -> 500
+  ~ buckets[12]: 504 -> 513
+  ~ buckets[13]: 534 -> 543
+  ~ buckets[14]: 550 -> 559
+  ~ buckets[15]: 571 -> 580
+  ~ buckets[16]: 598 -> 607
+  ~ buckets[17]: 624 -> 633
+  ~ buckets[18]: 679 -> 688
+  ~ buckets[19]: 714 -> 723
+  ~ buckets[20]: 727 -> 736
+  ~ buckets[21]: 749 -> 758
+  ~ buckets[22]: 773 -> 782
+  ~ buckets[23]: 790 -> 799
+  ~ buckets[24]: 799 -> 808
+  ~ buckets[25]: 809 -> 818
+  ~ buckets[26]: 817 -> 826
+  ~ buckets[27]: 831 -> 840
+  ~ buckets[28]: 852 -> 861
+  ~ buckets[29]: 866 -> 875
+  ~ buckets[30]: 876 -> 885
+  ~ buckets[31]: 904 -> 913
+  ~ code_fingerprint.defect_class.py: "cabb39bd7407648ff1b7e610e706b8d162d350e9dc3b852578e4c94fc94f891c" -> "1fe5d14b09c5339b10a387980e09db9a4ad27443bee593e3158c61c37f34ce52"
+  ~ code_fingerprint.render.py: "be01486b70f06bc46c5c3382b2d7fe0c43fc29399e1e16485c248cc03ed60eda" -> "cc3179586c1cf08412d4ae485640754beeb01482711425c1fdce0ecf736d163a"
+  ~ created_at: "2026-10-02T20:11:15.752118+00:00" -> "2026-10-02T20:11:21.907714+00:00"
+  ~ max_seq_len: 904 -> 913
+  + prompt_format = 2
+  ~ shard_hash: "87aebd645a0aa0e4f2296615d7888672fe9f70792679b2fb67d1f006c1f427a7" -> "8931e5511d33559db61d0f17d414dda98c093f96d7fb31bca3a24330bf5d28b3"
+  ~ total_tokens: 52443 -> 53217
+--- json diff shards/val/header.json
+  ~ buckets[0]: 277 -> 286
+  ~ buckets[1]: 283 -> 292
+  ~ buckets[2]: 285 -> 294
+  ~ buckets[3]: 288 -> 297
+  ~ buckets[4]: 643 -> 652
+  ~ buckets[5]: 650 -> 659
+  ~ buckets[6]: 756 -> 765
+  ~ buckets[7]: 761 -> 770
+  ~ buckets[8]: 772 -> 781
+  ~ buckets[9]: 808 -> 817
+  ~ buckets[10]: 812 -> 821
+  ~ buckets[11]: 839 -> 848
+  ~ code_fingerprint.defect_class.py: "cabb39bd7407648ff1b7e610e706b8d162d350e9dc3b852578e4c94fc94f891c" -> "1fe5d14b09c5339b10a387980e09db9a4ad27443bee593e3158c61c37f34ce52"
+  ~ code_fingerprint.render.py: "be01486b70f06bc46c5c3382b2d7fe0c43fc29399e1e16485c248cc03ed60eda" -> "cc3179586c1cf08412d4ae485640754beeb01482711425c1fdce0ecf736d163a"
+  ~ created_at: "2026-10-02T20:11:15.698486+00:00" -> "2026-10-02T20:11:21.858999+00:00"
+  ~ max_seq_len: 839 -> 848
+  + prompt_format = 2
+  ~ shard_hash: "522202e22c49ce8135c74e87cc41c2ce76c927ae1d07ac097368ac743f53fc91" -> "9ea9959096b0007c813249fc6a0a89e02567885419cc87e50f74c0dd1c77a2f1"
+  ~ total_tokens: 7174 -> 7282
+--- shard shards/train: 86 old / 86 new sequences
+  decode check: 86/86 sequences equal the old text with the format line inserted and the question line moved
+  token-count delta per sequence: {9: 86}
+  supervision candidate_offsets: identical
+  supervision candidate_positions: identical
+  supervision slot_kind: identical
+  supervision span_target: identical
+  supervision target_index: shifted by each sequence's token delta: True
+--- shard shards/train-no-decode: 86 old / 86 new sequences
+  decode check: 86/86 sequences equal the old text with the format line inserted and the question line moved
+  token-count delta per sequence: {9: 86}
+  supervision candidate_offsets: identical
+  supervision candidate_positions: identical
+  supervision slot_kind: identical
+  supervision span_target: identical
+  supervision target_index: shifted by each sequence's token delta: True
+--- shard shards/val: 12 old / 12 new sequences
+  decode check: 12/12 sequences equal the old text with the format line inserted and the question line moved
+  token-count delta per sequence: {9: 12}
+  supervision candidate_offsets: identical
+  supervision candidate_positions: identical
+  supervision slot_kind: identical
+  supervision span_target: identical
+  supervision target_index: shifted by each sequence's token delta: True
+UNEXPLAINED total: 0
+mac_heavy: 2026-10-02T20:11:27Z 'lead: format-2 characterization decode-and-diff (60-pair builds)' finished with exit 0
