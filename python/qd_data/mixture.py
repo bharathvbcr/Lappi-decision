@@ -115,6 +115,7 @@ __all__ = [
     "MAX_NAMED_GOLDS",
     "MAX_NAMED_ROW_IDS",
     "N_INTENT_OPTIONS",
+    "ClincKeys",
     "ConsistencyDrop",
     "MixtureResult",
     "PromptContradiction",
@@ -122,6 +123,7 @@ __all__ = [
     "abstention_supply",
     "build_mixture",
     "check_prompt_consistency",
+    "clinc_keys",
     "drop_contradictory_prompts",
     "rewrite_clinc",
     "rewrite_commitpackft",
@@ -448,6 +450,54 @@ def rewrite_commitpackft(
 # -- clinc/clinc_oos ---------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class ClincKeys:
+    """Where one CLINC utterance splits, what it is, and the digest both are built from."""
+
+    repo_key: str
+    identity_key: str
+    digest: str
+
+
+def clinc_keys(raw: ClincRow, utterance: str) -> ClincKeys:
+    """The split unit and identity of one CLINC utterance, for every CLINC family.
+
+    The one owner of both keys: :func:`rewrite_clinc` and
+    ``qd_data.general.rewrite_clinc_two_stage`` call this, so one utterance lands in one
+    repo split whichever CLINC family asks about it.
+
+    **In-scope rows split by intent.** CLINC has no repository, so the split unit is the
+    intent: every utterance of one intent moves together, because a row-level split over
+    150 intents with ~100 near-paraphrases each would put paraphrases on both sides.
+
+    **Out-of-scope rows split by utterance** (v5; human-decisions.md item 2,
+    GAP-CLINC-OOS-ONE-REPO-KEY-ONE-SPLIT-2026-10-02). Keyed by intent, all 1,350 oos
+    utterances shared ``clinc-intent:oos``, which the hash put in train, so no val or
+    held-out row of any CLINC family was ever an abstention. oos has no intent whose
+    paraphrases could straddle a boundary; its utterances are unrelated requests, so each
+    is its own unit: ``clinc-oos:<blake2b-8 of the stripped utterance>``. MinHash dedupe
+    still runs across them before the split.
+
+    **Identity does not move**: ``clinc-intent:<intent>::<digest>`` for every row, oos
+    included, exactly as v4 spelled it. Identity is a digest of the utterance, not the
+    enumeration index -- CLINC rows carry no id, and keying identity on position means a
+    pull at a different offset renames every row, which moves ``data_snapshot_hash`` for a
+    corpus that did not change. Keeping it stable across the re-key means a v4 identity
+    names the same utterance in a v5 build.
+    """
+    if raw.is_oos != (raw.intent == "oos"):
+        raise RowRefused(
+            reason_code="oos_flag_disagrees_with_intent",
+            expected="is_oos exactly when the intent is 'oos'",
+            actual=f"intent={raw.intent!r} is_oos={raw.is_oos}",
+            detail="the split unit follows the flag; a row whose two answers disagree has none",
+        )
+    digest = hashlib.blake2b(utterance.encode("utf-8"), digest_size=8).hexdigest()
+    intent_key = f"clinc-intent:{raw.intent}"
+    repo_key = f"clinc-oos:{digest}" if raw.is_oos else intent_key
+    return ClincKeys(repo_key=repo_key, identity_key=f"{intent_key}::{digest}", digest=digest)
+
+
 def rewrite_clinc(
     raw: ClincRow,
     *,
@@ -465,16 +515,10 @@ def rewrite_clinc(
         raise RowRefused(
             reason_code="empty_utterance", expected="a non-empty utterance", actual="",
         )
-    # CLINC has no repository. The split unit is the intent label, so every
-    # utterance of one intent moves together: a row-level split over 150 intents with
-    # ~100 near-paraphrases each would put paraphrases on both sides.
-    repo_key = f"clinc-intent:{raw.intent}"
-    # Identity is a digest of the utterance, not the enumeration index. CLINC rows
-    # carry no id, and keying identity on position means a pull at a different offset
-    # renames every row -- which moves `data_snapshot_hash` for a corpus that did not
-    # change. The index survives only in `row_id`, which the content hash excludes.
-    digest = hashlib.blake2b(utterance.encode("utf-8"), digest_size=8).hexdigest()
-    identity = f"{repo_key}::{digest}"
+    # Split unit and identity: see `clinc_keys`. The index survives only in `row_id`,
+    # which the content hash excludes.
+    keys = clinc_keys(raw, utterance)
+    repo_key, identity, digest = keys.repo_key, keys.identity_key, keys.digest
     row_id = f"clinc:{family_id}:{digest}:{index}"
 
     if family_id == "intent.classification":

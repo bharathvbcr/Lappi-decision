@@ -46,7 +46,7 @@ from typing import Final
 from .config import DataConfig
 from .licences import admit_licence
 from .loaders import ClincRow, CsqaRow, MmluRow
-from .mixture import RowRefused, _request, _row
+from .mixture import RowRefused, _request, _row, clinc_keys
 from .render import DEFAULT_CAPS, DeterministicRng
 from .rows import DataRow, GoldAnswer
 from .schema import MAX_CHOICE_OPTIONS, NOUL, ChoiceSlot
@@ -404,9 +404,9 @@ def rewrite_clinc_two_stage(
 ) -> DataRow:
     """One CLINC utterance as a stage-1 or a stage-2 question.
 
-    ``repo_key`` and ``identity_key`` are built exactly as
-    ``qd_data.mixture.rewrite_clinc`` builds them, so one utterance lands in one
-    repo split whichever CLINC family asks about it.
+    ``repo_key`` and ``identity_key`` come from ``qd_data.mixture.clinc_keys``, the
+    function ``qd_data.mixture.rewrite_clinc`` uses, so one utterance lands in one repo
+    split whichever CLINC family asks about it.
     """
     source = source_by_id("clinc/clinc_oos")
     admit_licence(source.declared_licence, config=config.licence, source=source.source_id)
@@ -415,9 +415,8 @@ def rewrite_clinc_two_stage(
         raise RowRefused(
             reason_code="empty_utterance", expected="a non-empty utterance", actual="",
         )
-    repo_key = f"clinc-intent:{raw.intent}"
-    digest = hashlib.blake2b(utterance.encode("utf-8"), digest_size=8).hexdigest()
-    identity = f"{repo_key}::{digest}"
+    keys = clinc_keys(raw, utterance)
+    repo_key, identity, digest = keys.repo_key, keys.identity_key, keys.digest
     row_id = f"clinc:{family_id}:{digest}:{index}"
 
     domain: str | None = None
