@@ -10,8 +10,12 @@
 # reads it by hand after the row exists.
 #
 # It runs only if BOTH:
-#   - fsucc's word ($Q/fsucc.word) is quiet. fires:<arm>, refused, absent or malformed: deferred
-#     to the re-plan (logged), exit 0;
+#   - fsucc's word ($Q/fsucc.word) is quiet, or it is refused for room alone: the newest
+#     fsucc-successor-*.json in $IDLE_DEC has detail.arms and every detail.refused_because entry
+#     begins "(c)", no F' ledger exists, and the human's advance yes is in
+#     $Q/j6a-on-room-refusal-yes. Anything else (fires:<arm>, another refusal, a missing JSON or
+#     pin, absent or malformed) defers to the re-plan (logged), exit 0. Fable's post-F ruling 2(a),
+#     AUDIT/post-f-2026-10-02/fable-post-f-ruling.md; campaign/j6a-preregistered.json arm.what, R4;
 #   - every pin below checks (exit 3 if not). The checks are: none is UNSET; the files exist;
 #     the attestation's sha256 equals its pin; it says "clean": true, with zero hits on val and
 #     heldout and every replay row checked.
@@ -76,11 +80,30 @@ for v in J6A_DATA REPLAY_DIR ATTESTATION ATTESTATION_SHA256; do
   [ "${!v}" = UNSET ] && UNSET_PINS="$UNSET_PINS $v"
 done
 WORD=$(read_succ_word)
-if [ "$WORD" != quiet ]; then
-  say "j6a DEFERRED to the re-plan: fsucc's word is '${WORD:-absent or not one of: $SUCC_WORDS}', not quiet (Fable Q2: j6a runs only if fsucc was quiet)"
+OK=no
+if [ "$WORD" = quiet ]; then OK=yes
+elif [ "$WORD" = refused ] && [ -s "$Q/j6a-on-room-refusal-yes" ] \
+     && [ ! -e /home/ubuntu/ledger/gh200-fsucc-j6f-2026-10-02.jsonl ] \
+     && [ ! -e /home/ubuntu/ledger/gh200-fsucc-j6dv4-2026-10-02.jsonl ]; then
+  J=$(ls -t "$IDLE_DEC"/fsucc-successor-*.json 2>/dev/null | head -1)
+  if [ -n "$J" ] && "$PY" -c '
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+det = d.get("detail")
+reasons = det.get("refused_because") if isinstance(det, dict) else None
+ok = (isinstance(det, dict) and isinstance(det.get("arms"), dict)
+      and isinstance(reasons, list) and len(reasons) >= 1
+      and all(isinstance(r, str) and r.startswith("(c)") for r in reasons))
+print("j6a: fsucc JSON " + sys.argv[1] + ": room-only refusal = " + str(ok) + "; reasons = " + json.dumps(reasons))
+sys.exit(0 if ok else 1)
+' "$J"; then OK=yes; fi
+fi
+if [ "$OK" != yes ]; then
+  say "j6a DEFERRED to the re-plan: fsucc's word is '${WORD:-absent or not one of: $SUCC_WORDS}' and it is not quiet or a (c)-only refusal with $Q/j6a-on-room-refusal-yes pinned"
   [ -n "$UNSET_PINS" ] && say "j6a: also deferred: pins UNSET:$UNSET_PINS"
   exit 0
 fi
+say "j6a: fsucc's word is '$WORD'; the run condition holds (quiet, or a (c)-only refusal with the human's advance yes: $(head -c 300 "$Q/j6a-on-room-refusal-yes" 2>/dev/null))"
 if [ -n "$UNSET_PINS" ]; then
   say "j6a deferred: pins UNSET:$UNSET_PINS (fsucc was quiet; fail-closed until the lead fills them from L-replay's HANDOFF); J6(a) NOT RUN"
   exit 3

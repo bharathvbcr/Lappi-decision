@@ -1,0 +1,46 @@
+# j6a run-condition test: fixture outputs, captured 2026-10-02 ~14:00 UTC
+
+The test is AUDIT/post-f-2026-10-02/j6a_cond_test.sh. It extracts the fsucc run-condition block
+from box_q_j6a.sh and runs it against 16 fixtures. Each fixture sets fsucc's word, the
+human's advance pin and the fsucc decision JSON. The test checks whether the block reaches the
+run path or defers.
+
+## OLD=1: the block at main 2663141, before Fable's amendment (lines 78-83)
+
+The test fails exactly the new case.
+
+    FAIL room_only_with_pin: expected run got defer
+        === j6a DEFERRED to the re-plan: fsucc's word is 'refused', not quiet (Fable Q2: j6a runs only if fsucc was quiet)
+    pass=15 fail=1
+
+## The amended block (lines 82-106)
+
+    PASS quiet (run)
+    PASS quiet_no_pin_needed (run)
+    PASS room_only_with_pin (run)
+    PASS room_only_no_pin (defer)
+    PASS room_only_empty_pin (defer)
+    PASS room_and_b (defer)
+    PASS room_no_arms (defer)
+    PASS arms_not_object (defer)
+    PASS both_win_a (defer)
+    PASS empty_reasons (defer)
+    PASS no_detail (defer)
+    PASS refused_no_json (defer)
+    PASS fires_j6f (defer)
+    PASS fires_j6dv4 (defer)
+    PASS absent_word (defer)
+    PASS malformed_word (defer)
+    pass=16 fail=0
+
+On both versions, `bash -n` passes. `shellcheck -x -S warning` reports nothing on the amended
+file.
+
+## Not tested here
+
+- The two F′-ledger checks use absolute box paths (/home/ubuntu/ledger/gh200-fsucc-*.jsonl).
+  Those paths do not exist on the Mac, so on the Mac those checks always pass.
+- The JSON is the shape qd-post-f-rules-succ writes. That is read from
+  `qd_post_f_rules.rs` `settle`/`finish`: `detail.arms`, plus `detail.refused_because` as a list
+  of reasons tagged "(c)"/"(b)"/"(a)". The test does not use a real fsucc JSON, because none
+  exists yet.
