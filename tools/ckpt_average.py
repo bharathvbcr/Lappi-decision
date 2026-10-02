@@ -68,6 +68,15 @@ head has no base and is averaged plainly. The manifest's ``norm_preserving`` blo
 c, every pair's cosine, N, lambda, the formula and the base's file digests;
 ``--lambda-not-derived-from-c`` replaces lambda and the block says so.
 
+**``--same-seed-trajectory``** (opt-in, ``--from tower``; v5's last-3 average): the one
+exception to "same step". The inputs are ONE run's ``--retain-tower-every`` snapshots at
+distinct steps -- RSI's "last k" in its own sense, points along one run -- and
+:func:`check_trajectory` refuses mixed seeds, steps that are not strictly ascending, a
+schedule, scalar or tree that differs, and an input whose loss log is not the start of the
+next one's. The manifest records the steps in a ``trajectory`` block and the latest as its
+``optimizer_step``. ``real_ft_run.py --score-checkpoint`` does not score one:
+:func:`read_manifest` refuses it by name (:data:`TRAJECTORY_NOT_SCORABLE` lists why).
+
 What this cannot check: which shard set each input trained on. A ``Checkpoint`` carries the
 batch order's ``consumed_digest`` but not the shard hash; the ledger rows of the runs do.
 Pass ``--ft-row-ids`` to record them in the manifest so the average names its sources;
@@ -84,6 +93,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import itertools
 import json
 import math
 import resource
@@ -203,17 +213,28 @@ def _check_against(
     first: _Facts, first_name: str, mine: _Facts, name: str, digests: dict[str, str]
 ) -> None:
     """Refuse unless ``mine`` is ``first``'s model at ``first``'s point, and new."""
-    if mine.schedule != first.schedule:
-        raise AverageRefusal(
-            f"{name} was trained on schedule {mine.schedule} and {first_name} "
-            f"on {first.schedule}. Different schedules are different runs, not seeds of one."
-        )
+    _check_schedule(first, first_name, mine, name)
     if mine.optimizer_step != first.optimizer_step:
         raise AverageRefusal(
             f"{name} is at optimizer step {mine.optimizer_step} and {first_name} at "
             f"{first.optimizer_step}; an average across two points of training is "
             "neither of them"
         )
+    _check_same_model(first, first_name, mine, name, digests)
+
+
+def _check_schedule(first: _Facts, first_name: str, mine: _Facts, name: str) -> None:
+    if mine.schedule != first.schedule:
+        raise AverageRefusal(
+            f"{name} was trained on schedule {mine.schedule} and {first_name} "
+            f"on {first.schedule}. Different schedules are different runs, not seeds of one."
+        )
+
+
+def _check_same_model(
+    first: _Facts, first_name: str, mine: _Facts, name: str, digests: dict[str, str]
+) -> None:
+    """The scalars, the trees name for name, and weights no other input already holds."""
     for scalar in MATCHED_SCALARS:
         if mine.scalars[scalar] != first.scalars[scalar]:
             raise AverageRefusal(
@@ -264,11 +285,54 @@ def _tensor(ref: TensorRef) -> Any:
     )
 
 
-def average(ckpts: Sequence[Checkpoint], names: Sequence[str]) -> dict[str, Any]:
-    """``{"tower.<k>": tensor, "span_head.<k>": tensor}``, averaged in fp32, cast back."""
+def check_trajectory(ckpts: Sequence[Checkpoint], names: Sequence[str]) -> list[int]:
+    """``--same-seed-trajectory``: refuse unless the inputs are ONE run's own snapshots at
+    distinct steps, and return those steps.
+
+    One seed; optimizer steps strictly ascending in the order given; one schedule; the same
+    scalars and trees; no two inputs holding the same weights; and each input's loss log
+    the start of the next one's -- the evidence, from the files alone, that they are points
+    of one run (the same recipe and the same batches) rather than runs that happen to share
+    a seed and a schedule. What it cannot see is the recipe itself; ``--ft-row-ids`` names
+    the run's ledger row.
+    """
+    _check_count(len(ckpts))
+    seeds = sorted({c.seed for c in ckpts})
+    if len(seeds) != 1:
+        raise AverageRefusal(
+            f"--same-seed-trajectory averages one run's snapshots, and these are seeds {seeds}: "
+            "an average across seeds at distinct steps is neither a trajectory nor an ensemble"
+        )
+    steps = [int(c.optimizer_step) for c in ckpts]
+    if any(b <= a for a, b in itertools.pairwise(steps)):
+        raise AverageRefusal(
+            f"--same-seed-trajectory takes distinct optimizer steps in ascending order; got "
+            f"{steps}. Name the snapshots in step order"
+        )
+    facts = [
+        _facts(c.model_state, schedule=c.schedule.to_json(), optimizer_step=c.optimizer_step,
+               where=n)
+        for c, n in zip(ckpts, names, strict=True)
+    ]
+    digests: dict[str, str] = {}
+    for mine, name in zip(facts, names, strict=True):
+        _check_schedule(facts[0], names[0], mine, name)
+        _check_same_model(facts[0], names[0], mine, name, digests)
+    for i in range(1, len(ckpts)):
+        head = ckpts[i - 1].loss_log.as_tuple()
+        if ckpts[i].loss_log.as_tuple()[: len(head)] != head:
+            raise AverageRefusal(
+                f"{names[i - 1]}'s loss log ({len(head)} steps) is not the start of "
+                f"{names[i]}'s: they are not points of one run"
+            )
+    return steps
+
+
+def _mean_trees(ckpts: Sequence[Checkpoint], names: Sequence[str]) -> dict[str, Any]:
+    """The averaging itself, once the inputs have been checked: float tensors in float32 and
+    cast back, a non-float one copied when every input holds it unchanged."""
     import torch
 
-    check_compatible(ckpts, names)
     out: dict[str, Any] = {}
     for tree_name in AVERAGED_TREES:
         keys = sorted(_tree(ckpts[0].model_state, tree_name, where=names[0]))
@@ -292,6 +356,40 @@ def average(ckpts: Sequence[Checkpoint], names: Sequence[str]) -> dict[str, Any]
                 acc += _tensor(r).to(torch.float32)
             out[f"{tree_name}.{key}"] = (acc / len(refs)).to(dtype)
     return out
+
+
+def average(ckpts: Sequence[Checkpoint], names: Sequence[str]) -> dict[str, Any]:
+    """``{"tower.<k>": tensor, "span_head.<k>": tensor}``, averaged in fp32, cast back."""
+    check_compatible(ckpts, names)
+    return _mean_trees(ckpts, names)
+
+
+#: What a ``--same-seed-trajectory`` manifest's ``trajectory.rule`` says the average is.
+TRAJECTORY_RULE: Final[str] = (
+    "the arithmetic mean of one run's own snapshots at distinct optimizer steps (one seed, "
+    "one schedule, each input's loss log the start of the next's), not N seeds at one step"
+)
+#: Why ``real_ft_run.py --score-checkpoint`` cannot score one (``read_manifest`` says so).
+TRAJECTORY_NOT_SCORABLE: Final[str] = (
+    "real_ft_run.py --score-checkpoint pairs an average with one ft row per input, each a "
+    "distinct seed at the average's one optimizer step (ckpt_average.read_manifest refuses "
+    "repeated seeds and ft rows, verify_sources one step per input; real_ft_run "
+    "_check_score_checkpoint_flags wants >= 2 seeds, _averaged_weights one row per input at "
+    "the row's last step and inputs named <tag>-seed<N>-<device>.json); scoring this one "
+    "needs each of those relaxed for the trajectory block alone, which is not written"
+)
+
+
+def trajectory_block(
+    ckpts: Sequence[Checkpoint], steps: Sequence[int], ft_row_id: str | None
+) -> dict[str, Any]:
+    """The manifest's ``trajectory`` block: the seed, every input's step in order, the run's
+    ft row when named, and the rule."""
+    return {
+        "seed": int(ckpts[0].seed), "optimizer_steps": [int(s) for s in steps],
+        "ft_row_id": ft_row_id, "rule": TRAJECTORY_RULE,
+    }
+
 
 
 # --- --from masters --------------------------------------------------------------------------
@@ -785,12 +883,14 @@ def write(
     tensor_sources: Mapping[str, str],
     master_index: Mapping[str, int],
     norm_preserving: Mapping[str, Any] | None = None,
+    trajectory: Mapping[str, Any] | None = None,
 ) -> Path:
     """The safetensors file and ``<out>.manifest.json``, each written atomically.
 
     Refuses to overwrite either: an average is an artifact other rows will name.
     ``norm_preserving`` is :func:`norm_preserving_average`'s block, recorded under that key
-    (and only then: a plain average's manifest is what it always was).
+    (and only then: a plain average's manifest is what it always was). ``trajectory`` is
+    ``--same-seed-trajectory``'s block (:func:`trajectory_block`), likewise only when given.
     """
     from safetensors.torch import save
 
@@ -800,6 +900,8 @@ def write(
         raise AverageRefusal(f"source {source!r} is not one of {SOURCES}")
     if norm_preserving is not None and source != "masters":
         raise AverageRefusal("a norm-preserving average is made from the fp32 masters")
+    if trajectory is not None and (source != "tower" or norm_preserving is not None):
+        raise AverageRefusal("a same-seed trajectory average is a plain mean of the towers")
     if set(tensor_sources) != set(tensors):
         raise AverageRefusal("tensor_sources must name exactly the tensors written")
     _refuse_existing(out)
@@ -830,6 +932,7 @@ def write(
         "tensor_sources": dict(sorted(tensor_sources.items())),
         "master_index": dict(sorted(master_index.items())),
         **({} if norm_preserving is None else {"norm_preserving": dict(norm_preserving)}),
+        **({} if trajectory is None else {"trajectory": dict(trajectory)}),
     }
     manifest = manifest_path(out)
     _atomic_write_bytes(
@@ -943,6 +1046,15 @@ def read_manifest(weights: Path) -> AverageManifest:
     body = json.loads(raw)
     if not isinstance(body, dict):
         raise AverageRefusal(f"{path}: a manifest is a JSON object")
+    if "trajectory" in body:
+        # Said first and by name: the checks below would refuse it too, for repeated seeds,
+        # which reads as a corrupt manifest rather than as a kind of average not scored here.
+        block = body["trajectory"]
+        steps = block.get("optimizer_steps") if isinstance(block, dict) else None
+        raise AverageRefusal(
+            f"{path} is a same-seed trajectory average (--same-seed-trajectory, steps "
+            f"{steps}): {TRAJECTORY_NOT_SCORABLE}"
+        )
     problems: list[str] = []
     if body.get("tool") != TOOL:
         problems.append(f"tool is {body.get('tool')!r}, not {TOOL!r}")
@@ -1110,11 +1222,33 @@ def main(argv: list[str] | None = None) -> int:
             "row of such an average is quick"
         ),
     )
+    parser.add_argument(
+        "--same-seed-trajectory", action="store_true",
+        help=(
+            "average ONE run's own snapshots at distinct optimizer steps (v5's last-3 "
+            "average of --retain-tower-every snapshots) instead of N seeds at one step: one "
+            "seed, steps ascending in the order given, one schedule, and each input's loss "
+            "log the start of the next's. --from tower only; --ft-row-ids names the run's one "
+            "ft row. The manifest's 'trajectory' block records the steps; real_ft_run.py "
+            "--score-checkpoint refuses to score it"
+        ),
+    )
     args = parser.parse_args(argv)
     resolved = [p.resolve() for p in args.checkpoints]
     if len(set(resolved)) != len(resolved):
         raise SystemExit("the same checkpoint was named twice; it would be weighted double")
-    if args.ft_row_ids and len(args.ft_row_ids) != len(args.checkpoints):
+    if args.same_seed_trajectory:
+        if args.source != "tower" or args.norm_preserving:
+            raise SystemExit(
+                "--same-seed-trajectory is a plain mean of one run's towers: --from tower, "
+                "without --norm-preserving (a snapshot keeps no fp32 masters)"
+            )
+        if len(args.ft_row_ids) > 1:
+            raise SystemExit(
+                f"--same-seed-trajectory averages one run: --ft-row-ids names its one ft row, "
+                f"got {len(args.ft_row_ids)}"
+            )
+    elif args.ft_row_ids and len(args.ft_row_ids) != len(args.checkpoints):
         raise SystemExit(
             f"{len(args.ft_row_ids)} --ft-row-ids for {len(args.checkpoints)} checkpoints"
         )
@@ -1134,6 +1268,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     names = [str(p) for p in args.checkpoints]
     norm_block: dict[str, Any] | None = None
+    trajectory: dict[str, Any] | None = None
     try:
         _refuse_existing(args.out)
         if args.norm_preserving:
@@ -1150,21 +1285,30 @@ def main(argv: list[str] | None = None) -> int:
             sources, master_index = done.sources, done.master_index
         else:
             ckpts = [Checkpoint.read(p) for p in args.checkpoints]
-            tensors = average(ckpts, names)
+            if args.same_seed_trajectory:
+                steps = check_trajectory(ckpts, names)
+                tensors = _mean_trees(ckpts, names)
+                trajectory = trajectory_block(
+                    ckpts, steps, args.ft_row_ids[0] if args.ft_row_ids else None
+                )
+            else:
+                tensors = average(ckpts, names)
             inputs = [
                 InputRecord(path=p, seed=c.seed, payload_digest=c.to_json()["payload_digest"])
                 for p, c in zip(args.checkpoints, ckpts, strict=True)
             ]
+            # The last input's: a trajectory average is recorded at its latest step, which
+            # for the seeds-at-one-step average is every input's.
             facts = _facts(
-                ckpts[0].model_state, schedule=ckpts[0].schedule.to_json(),
-                optimizer_step=ckpts[0].optimizer_step, where=names[0],
+                ckpts[-1].model_state, schedule=ckpts[-1].schedule.to_json(),
+                optimizer_step=ckpts[-1].optimizer_step, where=names[-1],
             )
             sources, master_index = {k: "tower" for k in tensors}, {}
         manifest = write(
             tensors, args.out, source=args.source, inputs=inputs,
             optimizer_step=facts.optimizer_step, schedule=facts.schedule,
             scalars=facts.scalars, ft_row_ids=args.ft_row_ids, tensor_sources=sources,
-            master_index=master_index, norm_preserving=norm_block,
+            master_index=master_index, norm_preserving=norm_block, trajectory=trajectory,
         )
     except AverageRefusal as exc:
         raise SystemExit(f"refused: {exc}") from exc
@@ -1179,6 +1323,12 @@ def main(argv: list[str] | None = None) -> int:
             f" lambda from c = {norm_block['lambda_from_c']:.6f}, applied lambda = "
             f"{norm_block['lambda']:.6f}"
             + ("" if norm_block["lambda_derived_from_c"] else " -- NOT DERIVED FROM c")
+        )
+    if trajectory is not None:
+        print(
+            f"same-seed trajectory: seed {trajectory['seed']}, steps "
+            f"{trajectory['optimizer_steps']}; real_ft_run.py --score-checkpoint refuses to "
+            "score it (ckpt_average.TRAJECTORY_NOT_SCORABLE)"
         )
     print(f"manifest: {manifest} (weights only; not a resume point)")
     # ru_maxrss is bytes on macOS and KiB on Linux.
