@@ -1,0 +1,552 @@
+L-cuda-gdn: the late re-run (2026-10-01, about 20:28-20:32 CDT; 2026-10-02T01:28-01:32Z)
+
+Why it was re-run. Two late fixes landed after commit 5475de0:
+- src/gdn.rs: the SAFETY parameter counts.
+- src/gdn_kernels.rs: min() replaced with a ternary.
+After them, src/gdn.rs is a82799cf and src/gdn_kernels.rs is b09fb0d1.
+
+Around these fixes, L-cuda-M1's changes were in progress in the same crate:
+- the ojas-io migration;
+- src/k11_golden.rs did not compile until about 20:28;
+- then two clippy lints in M1's k11 files, which M1 fixed.
+Everything below ran after M1 reported the crate green.
+
+== 1. clippy, full. Before each run, src/gdn_plan.rs and the two GDN test files were touched so
+   that clippy re-lints the lib and every target, instead of replaying a cached result.
+   An interim run, before M1's fix, allowed exactly two lints:
+   -A clippy::type_complexity -A clippy::useless_conversion.
+   It exited 0 and is superseded by the full runs below.
+
+$ cargo clippy --offline --manifest-path .../ojas-qwen35-cuda/Cargo.toml --all-targets --features cuda -- -D warnings
+
+    Checking ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.60s
+exit=0
+$ cargo clippy --offline --manifest-path .../ojas-qwen35-cuda/Cargo.toml --all-targets -- -D warnings
+    Checking ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.53s
+exit=0
+== 2. tests. $ cargo test --offline --manifest-path .../ojas-qwen35-cuda/Cargo.toml --features cuda   (observed exit=0)
+   Compiling ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.25s
+     Running unittests src/lib.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/ojas_qwen35_cuda-8401127a05112ea6)
+
+running 104 tests
+test bf16::tests::ties_go_to_even_and_carries_propagate ... ok
+test bf16::tests::nans_stay_nans_with_the_quiet_bit_and_sign ... ok
+test bf16::tests::overflow_rounds_to_infinity_and_infinities_stay ... ok
+test budget::tests::a_zero_cap_is_refused ... ok
+test bf16::tests::signed_zeros_and_subnormals_are_kept ... ok
+test budget::tests::reservations_count_and_release_on_drop ... ok
+test budget::tests::a_request_past_the_cap_is_refused_and_changes_nothing ... ok
+test check::tests::a_not_run_or_panicked_check_never_makes_the_whole_pass ... ok
+test check::tests::bit_diffs_count_nan_payloads_and_length_differences ... ok
+test error::tests::out_of_memory_maps_to_capacity_and_other_codes_to_driver ... ok
+test budget::tests::overflowing_requests_are_refused ... ok
+test error::tests::library_missing_names_every_library ... ok
+test check::tests::tolerance_fails_on_non_finite_and_at_the_bound ... ok
+test gdn_host::tests::published_rel_of_max_names_unwritten_and_non_finite_outputs ... ok
+test check::tests::panic_payloads_become_text ... ok
+test gdn_host::tests::published_case_generator_is_on_tessls_unit_grid ... ok
+test gdn_plan::tests::published_plan_finish_grid_is_capped_not_sized_by_the_device ... ok
+test gdn_plan::tests::published_plan_offsets_and_lengths_for_variable_lengths ... ok
+test gdn_kernels::tests::the_published_rule_decays_before_the_read_in_the_forward_and_the_recompute ... ok
+test bf16::tests::every_bf16_value_round_trips_exactly ... ok
+test gdn_plan::tests::published_plan_refuses_what_the_kernels_cannot_run ... ok
+test gdn_plan::tests::published_plan_with_equal_lengths_is_tessls_dense_layout ... ok
+test gemm_plan::tests::shapes_refuse_zero_sides_and_out_of_int_sides ... ok
+test geometry::tests::empty_work_launches_nothing ... ok
+test geometry::tests::gemm_grid_tiles_the_output_and_refuses_too_many_rows ... ok
+test gemm_plan::tests::wrong_mappings_are_caught ... ok
+test gdn_kernels::tests::the_published_float_arithmetic_is_explicitly_rounded ... ok
+test gemm_plan::tests::the_cublas_mapping_computes_the_row_major_product_for_every_layout ... ok
+test host_ref::tests::accumulate_adds_the_previous_c_once ... ok
+test host_ref::tests::copy_cols_and_deliver_follow_their_plans ... ok
+test host_ref::tests::mul_add_is_fused_on_this_host ... ok
+test host_ref::tests::scatter_and_gather_follow_their_plans ... ok
+test inputs::tests::edge_cases_cover_every_class ... ok
+test inputs::tests::tessl_patterns_match_their_formulas ... ok
+test json::tests::non_finite_floats_are_strings_never_numbers ... ok
+test inputs::tests::splitmix_f32_stays_in_range_and_repeats_by_seed ... ok
+test json::tests::objects_keep_insertion_order_and_nest ... ok
+test json::tests::strings_are_escaped ... ok
+test gdn_host::tests::published_warp_sum_is_the_butterfly_tree_not_a_sequential_sum ... ok
+test gdn_plan::tests::published_plan_packed_tensors_split_into_each_sequences_b1_tensors ... ok
+test gdn_kernels::tests::the_published_decay_uses_the_crates_one_exp ... ok
+test budget::tests::concurrent_reservations_never_exceed_the_cap ... ok
+test gemm_plan::tests::index_helpers_match_the_storage_layouts ... ok
+test gdn_kernels::tests::the_published_source_has_no_nul_no_include_and_no_atomics ... ok
+test geometry::tests::huge_elementwise_work_is_capped_not_overflowed ... ok
+test gdn_kernels::tests::the_published_module_defines_exactly_its_entries_and_every_name_says_published ... ok
+test host_ref::tests::bf16_operands_round_before_multiplying ... ok
+test geometry::tests::grid_stride_visits_every_element_exactly_once ... ok
+test k0_plan::tests::copy_cols_accepts_an_exact_fit_and_refuses_one_past ... ok
+test k0_plan::tests::copy_cols_refuses_overflowing_strides ... ok
+test host_ref::tests::ffma_emulation_is_close_to_f64_and_differs_from_unfused ... ok
+test k0_plan::tests::deliver_and_zero_check_their_ranges ... ok
+test k0_plan::tests::scatter_refuses_a_duplicate_row_naming_both_indices ... ok
+test k0_plan::tests::scatter_refuses_out_of_range_rows_and_shape_mismatches ... ok
+test k0_plan::tests::gather_allows_repeats_and_refuses_rows_past_h ... ok
+test k11_golden::tests::f32_quantizes_the_decay_multiplier_at_fs_lr ... ok
+test k11_golden::tests::the_pre_fix_adamw_f_case_is_refused ... ok
+test k11_host::tests::tables_refuse_overlap_overrun_repeats_and_bad_values ... ok
+test k8_act::tests::exp_special_values_and_range_edges ... ok
+test gdn_host::tests::published_mirror_refuses_misshapen_operands ... ok
+test k11_host::tests::squared_norm_partials_follow_the_fixed_tree ... ok
+test k11_host::tests::a_grad_scale_of_one_leaves_the_gradient_bitwise ... ok
+test gdn_host::tests::a_positive_log_decay_is_loud_in_the_published_mirror ... ok
+test k11_host::tests::an_inactive_entry_is_untouched_and_keeps_its_own_count ... ok
+test k11_host::tests::hyperparameters_are_refused_as_tessl_refuses_them ... ok
+test k11_host::tests::scalars_are_formed_in_f64_and_stored_as_f32 ... ok
+test k11_host::tests::the_update_is_torch_order_on_a_worked_element ... ok
+test k8_act::tests::act_constants_match_host ... ok
+test k11_golden::tests::the_live_adamw_f_case_passes_and_its_retypings_do_not ... ok
+test k8_act::tests::sigmoid_and_silu_special_values ... ok
+test k8_act::tests::the_constants_are_what_they_claim ... ok
+test k8_act::tests::the_sweep_covers_the_edges_and_is_reproducible ... ok
+test k8_act::tests::the_prelude_is_guarded_and_self_contained ... ok
+test kernels::tests::every_gemm_entry_is_reachable ... ok
+test kernels::tests::every_module_defines_exactly_its_listed_entries ... ok
+test kernels::tests::sources_have_no_nul_no_include_and_no_float_atomics ... ok
+test kernels::tests::strict_options_turn_fma_contraction_off ... ok
+test k11_golden::tests::the_embedded_goldens_parse_and_name_fs_builder ... ok
+test libprobe::tests::ld_library_path_splits_in_order_and_drops_empties ... ok
+test npy::tests::reads_f64_f32_and_i64_in_c_order ... ok
+test nvrtc_cache::tests::fnv1a64_matches_its_published_test_vectors ... ok
+test kernels::tests::the_device_rounding_is_the_host_rounding ... ok
+test libprobe::tests::maps_parsing_finds_the_loaded_cuda_libraries ... ok
+test libprobe::tests::the_refusal_says_whether_a_candidate_file_exists ... ok
+test nvrtc_cache::tests::a_colliding_hash_with_different_source_is_refused ... ok
+test npy::tests::refuses_what_it_does_not_read ... ok
+test nvrtc_cache::tests::a_failed_compile_caches_nothing ... ok
+test nvrtc_cache::tests::a_second_lookup_hits_and_does_not_compile ... ok
+test nvrtc_cache::tests::options_and_nvrtc_version_are_part_of_the_key ... ok
+test nvrtc_cache::tests::the_byte_bound_evicts_and_an_oversized_image_is_refused ... ok
+test rung0_cli::tests::defaults_and_explicit_values_parse ... ok
+test rung0_cli::tests::the_cap_cannot_exceed_300_seconds_or_be_zero ... ok
+test nvrtc_cache::tests::the_least_recently_used_entry_is_evicted_at_the_entry_bound ... ok
+test rung0_cli::tests::missing_or_unknown_arguments_are_refused ... ok
+test rung0_cli::tests::an_existing_report_is_refused_and_writes_are_atomic ... ok
+test k8_act::tests::exp_nonpos_is_exp_at_or_below_zero_and_nan_above ... ok
+test k8_act::tests::softplus_is_tessls_and_within_bounds_of_f64 ... ok
+test bf16::tests::integer_trick_matches_the_value_rounding_on_two_million_inputs ... ok
+test k8_act::tests::sigmoid_silu_and_its_gradient_against_f64 ... ok
+test gdn_host::tests::the_published_decay_exp_is_within_its_pre_registered_ulps ... ok
+test gdn_host::tests::published_mirror_of_a_batch_is_the_concatenation_of_its_sequences ... ok
+test k8_act::tests::log_is_within_two_ulp_of_f64_and_handles_the_edges ... ok
+test k8_act::tests::exp_is_within_two_ulp_of_f64_over_its_whole_range ... ok
+test k8_act::tests::exp_on_the_nonpositive_range_measured_for_the_gdn_decay ... ok
+
+test result: ok. 104 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.11s
+
+     Running unittests src/bin/rung0.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/rung0-0d74cfa395b98887)
+
+running 4 tests
+test tests::the_cap_writes_a_timeout_report_naming_the_phase_and_exits_3 ... ok
+test tests::a_failed_report_write_still_ends_the_run_at_the_cap ... ok
+test tests::the_watchdog_stands_down_when_main_already_wrote ... ok
+test tests::a_held_report_lock_still_ends_the_run_at_the_cap ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/device_gdn_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_gdn_published-6861b47fb5184f10)
+
+running 10 tests
+test published_gdn_device_checks_pass ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test published_gdn_forward_without_s_fin_writes_the_same_o_and_ckpt ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test published_gdn_is_bit_identical_over_five_runs_at_2b_heads_batched ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test published_gdn_matches_the_f64_reference_across_chunk_edges_b1 ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test published_gdn_matches_the_f64_reference_across_chunk_edges_b2 ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test published_gdn_matches_the_f64_reference_at_qwen35_2b_heads ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test published_gdn_matches_the_published_corpus ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test published_gdn_refuses_what_the_kernels_cannot_run ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test published_gdn_timing_b1_vs_batched_report_only ... ignored, needs an sm_90 NVIDIA GPU (about 15 GiB free); run on the box with --ignored
+test published_gdn_varlen_batch_matches_references_and_its_b1_launches_bitwise ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+
+test result: ok. 0 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/device_gdn_published_mirror.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_gdn_published_mirror-26ae09a16c3b65a4)
+
+running 8 tests
+test published_mirror_draws_tessls_test_operands ... ok
+test published_mirror_is_outside_the_bound_from_the_repo_rule ... ok
+test published_mirror_varlen_batch_matches_per_sequence_references ... ok
+test published_mirror_matches_the_f64_reference_across_chunk_edges_b1 ... ok
+test published_mirror_matches_the_f64_reference_across_chunk_edges_b2 ... ok
+test published_mirror_matches_the_f64_reference_on_every_smoke_case ... ok
+test published_mirror_matches_the_f64_reference_at_qwen35_2b_heads ... ok
+test published_mirror_matches_the_published_corpus ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.71s
+
+     Running tests/device_k0.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k0-7168afbfa38a7018)
+
+running 5 tests
+test an_allocation_past_the_budget_is_refused_before_the_driver ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test every_kernel_module_compiles_through_nvrtc_and_the_cache_hits_on_reuse ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test k0_kernels_match_the_host_bitwise_and_repeat_bit_identically ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test the_runtime_opens_an_sm90_device_with_cublas_in_default_math_and_no_atomics ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test uploads_and_downloads_are_length_checked_and_round_trip ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/device_k1.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k1-57d1748c758714b2)
+
+running 6 tests
+test bf16_cublas_agrees_with_the_bf16_ffma_oracle ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test bf16_cublas_matches_f64_within_tessls_bound_and_repeats ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test bf16_ffma_matches_the_host_bitwise_and_f64_within_tessls_bound ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test cublas_gemm_ex_accepts_bf16_operands_with_an_f32_c ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test every_engine_and_layout_is_bit_identical_over_25_runs ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+test exact_f32_ffma_matches_the_host_bitwise_and_f64_within_tessls_bound ... ignored, needs an sm_90 NVIDIA GPU; run on the box with --ignored
+
+test result: ok. 0 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fixture_pins.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/fixture_pins-02222bbf0bf318a2)
+
+running 4 tests
+test the_decay_sensitive_copy_equals_lappis_live_files ... ok
+test the_decay_sensitive_copy_equals_its_pins ... ok
+test the_tiny_fixture_copy_equals_tessls_live_fixture ... ok
+test the_tiny_fixture_copy_equals_its_sums ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/fmt_boundary.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/fmt_boundary-9d7004f30e267c27)
+
+running 4 tests
+test the_scanner_reads_path_attributes_the_way_rustc_writes_them ... ok
+test the_pre_fix_tessl_include_is_flagged ... ok
+test an_unresolvable_or_escaping_path_is_reported ... ok
+test no_path_attribute_in_this_crate_leaves_the_crate ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/reference_adamw.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_adamw-930d4e133039ab04)
+
+running 4 tests
+test k11_torch_lerp_switches_form_at_one_half ... ok
+test k11_adamw_refuses_a_zero_lr_scale - should panic ... ok
+test k11_lower_layer_split_is_lappis_layerwise_param_groups ... ok
+test k11_adamw_matches_torch_over_fs_groups_for_five_steps ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/reference_gdn_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_gdn_published-fa9a6a8b21d32cd7)
+
+running 8 tests
+test published_reference_refuses_an_empty_sequence - should panic ... ok
+test published_reference_refuses_a_misshapen_gate - should panic ... ok
+test published_reference_refuses_a_non_finite_operand - should panic ... ok
+test published_checkpoint_c_is_the_state_after_the_first_64c_tokens ... ok
+test published_recurrence_reproduces_the_published_corpus ... ok
+test the_repo_rule_does_not_reproduce_the_published_corpus ... ok
+test published_corpus_is_tessls_bytes_and_every_file_names_the_published_rule ... ok
+test published_backward_matches_central_differences_across_checkpoints ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.80s
+
+     Running tests/reference_gdn_published_vs_tessl.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_gdn_published_vs_tessl-a75fd493e634cdf3)
+
+running 3 tests
+test published_comparison_target_is_the_pinned_copy_of_tessls_file ... ok
+test the_copy_equals_tessls_live_file_and_the_pin ... ok
+test published_reference_matches_tessls_gdn_train_f64_at_the_chunk_edges ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.87s
+
+     Running tests/reference_goldens_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_goldens_published-2b429704c66f031e)
+
+running 3 tests
+test sha256_matches_the_fips_180_4_vectors ... ok
+test every_golden_is_pinned_by_the_manifest_and_gdn_and_gate_goldens_name_the_published_rule ... ok
+test published_reference_matches_the_transformers_golden_at_the_seam ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s
+
+     Running tests/reference_kernels.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_kernels-fdb0ff93aed646ef)
+
+running 16 tests
+test k3_gates_published_backward_is_the_derivative_away_from_the_threshold ... ok
+test k10_cross_entropy_rows_gradients_are_the_derivative ... ok
+test k4_conv1d_silu_matches_the_torch_golden ... ok
+test k6_norm_rope_matches_the_torch_golden_given_the_angle ... ok
+test k9_embedding_refuses_an_out_of_range_id - should panic ... ok
+test k7_rms_norm_backwards_are_the_derivative ... ok
+test k6_rope_angle_is_transformers_f32_angle ... ok
+test k9_embedding_matches_the_torch_golden ... ok
+test k3_gates_published_match_the_torch_golden ... ok
+test k4_conv1d_silu_backward_is_the_derivative ... ok
+test k6_norm_rope_matches_tessls_transformers_fixture_at_position_20000 ... ok
+test k10_cross_entropy_rows_match_the_torch_golden ... ok
+test k6_transformers_rope_fixture_is_pinned ... ok
+test k7_rms_norms_match_the_torch_golden ... ok
+test k6_output_gate_matches_the_torch_golden_and_its_derivative ... ok
+test k6_norm_rope_backward_is_the_derivative ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/runtime_refusal.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/runtime_refusal-816c8bdc633d7ab8)
+
+running 1 test
+test a_host_without_cuda_is_refused_by_library_name_not_by_a_panic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+   Doc-tests ojas_qwen35_cuda
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+$ cargo test --offline --manifest-path .../ojas-qwen35-cuda/Cargo.toml   (no feature; observed exit=0)
+   Compiling ojas-qwen35-cuda v0.1.0 (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.03s
+     Running unittests src/lib.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/ojas_qwen35_cuda-91c6fb8f37a640f9)
+
+running 104 tests
+test bf16::tests::nans_stay_nans_with_the_quiet_bit_and_sign ... ok
+test bf16::tests::overflow_rounds_to_infinity_and_infinities_stay ... ok
+test bf16::tests::signed_zeros_and_subnormals_are_kept ... ok
+test bf16::tests::ties_go_to_even_and_carries_propagate ... ok
+test budget::tests::a_request_past_the_cap_is_refused_and_changes_nothing ... ok
+test budget::tests::a_zero_cap_is_refused ... ok
+test budget::tests::overflowing_requests_are_refused ... ok
+test budget::tests::reservations_count_and_release_on_drop ... ok
+test check::tests::a_not_run_or_panicked_check_never_makes_the_whole_pass ... ok
+test check::tests::bit_diffs_count_nan_payloads_and_length_differences ... ok
+test bf16::tests::every_bf16_value_round_trips_exactly ... ok
+test error::tests::out_of_memory_maps_to_capacity_and_other_codes_to_driver ... ok
+test error::tests::library_missing_names_every_library ... ok
+test check::tests::panic_payloads_become_text ... ok
+test check::tests::tolerance_fails_on_non_finite_and_at_the_bound ... ok
+test budget::tests::concurrent_reservations_never_exceed_the_cap ... ok
+test gdn_host::tests::published_case_generator_is_on_tessls_unit_grid ... ok
+test gdn_host::tests::published_rel_of_max_names_unwritten_and_non_finite_outputs ... ok
+test gdn_host::tests::published_warp_sum_is_the_butterfly_tree_not_a_sequential_sum ... ok
+test gdn_kernels::tests::the_published_decay_uses_the_crates_one_exp ... ok
+test gdn_kernels::tests::the_published_float_arithmetic_is_explicitly_rounded ... ok
+test gdn_kernels::tests::the_published_module_defines_exactly_its_entries_and_every_name_says_published ... ok
+test gdn_kernels::tests::the_published_rule_decays_before_the_read_in_the_forward_and_the_recompute ... ok
+test gdn_host::tests::a_positive_log_decay_is_loud_in_the_published_mirror ... ok
+test gemm_plan::tests::index_helpers_match_the_storage_layouts ... ok
+test geometry::tests::gemm_grid_tiles_the_output_and_refuses_too_many_rows ... ok
+test gdn_host::tests::published_mirror_refuses_misshapen_operands ... ok
+test gdn_plan::tests::published_plan_finish_grid_is_capped_not_sized_by_the_device ... ok
+test gdn_plan::tests::published_plan_offsets_and_lengths_for_variable_lengths ... ok
+test gdn_kernels::tests::the_published_source_has_no_nul_no_include_and_no_atomics ... ok
+test gemm_plan::tests::shapes_refuse_zero_sides_and_out_of_int_sides ... ok
+test gdn_plan::tests::published_plan_with_equal_lengths_is_tessls_dense_layout ... ok
+test gdn_plan::tests::published_plan_refuses_what_the_kernels_cannot_run ... ok
+test gemm_plan::tests::wrong_mappings_are_caught ... ok
+test geometry::tests::empty_work_launches_nothing ... ok
+test geometry::tests::huge_elementwise_work_is_capped_not_overflowed ... ok
+test geometry::tests::grid_stride_visits_every_element_exactly_once ... ok
+test host_ref::tests::accumulate_adds_the_previous_c_once ... ok
+test host_ref::tests::bf16_operands_round_before_multiplying ... ok
+test host_ref::tests::copy_cols_and_deliver_follow_their_plans ... ok
+test host_ref::tests::mul_add_is_fused_on_this_host ... ok
+test host_ref::tests::scatter_and_gather_follow_their_plans ... ok
+test host_ref::tests::ffma_emulation_is_close_to_f64_and_differs_from_unfused ... ok
+test inputs::tests::edge_cases_cover_every_class ... ok
+test inputs::tests::tessl_patterns_match_their_formulas ... ok
+test inputs::tests::splitmix_f32_stays_in_range_and_repeats_by_seed ... ok
+test json::tests::non_finite_floats_are_strings_never_numbers ... ok
+test json::tests::objects_keep_insertion_order_and_nest ... ok
+test json::tests::strings_are_escaped ... ok
+test k0_plan::tests::copy_cols_refuses_overflowing_strides ... ok
+test k0_plan::tests::copy_cols_accepts_an_exact_fit_and_refuses_one_past ... ok
+test gdn_plan::tests::published_plan_packed_tensors_split_into_each_sequences_b1_tensors ... ok
+test k0_plan::tests::gather_allows_repeats_and_refuses_rows_past_h ... ok
+test k0_plan::tests::deliver_and_zero_check_their_ranges ... ok
+test k0_plan::tests::scatter_refuses_a_duplicate_row_naming_both_indices ... ok
+test k0_plan::tests::scatter_refuses_out_of_range_rows_and_shape_mismatches ... ok
+test k11_golden::tests::f32_quantizes_the_decay_multiplier_at_fs_lr ... ok
+test k11_golden::tests::the_pre_fix_adamw_f_case_is_refused ... ok
+test k11_host::tests::a_grad_scale_of_one_leaves_the_gradient_bitwise ... ok
+test k11_host::tests::an_inactive_entry_is_untouched_and_keeps_its_own_count ... ok
+test k11_host::tests::hyperparameters_are_refused_as_tessl_refuses_them ... ok
+test k11_host::tests::scalars_are_formed_in_f64_and_stored_as_f32 ... ok
+test k11_host::tests::tables_refuse_overlap_overrun_repeats_and_bad_values ... ok
+test gemm_plan::tests::the_cublas_mapping_computes_the_row_major_product_for_every_layout ... ok
+test k11_host::tests::the_update_is_torch_order_on_a_worked_element ... ok
+test k8_act::tests::act_constants_match_host ... ok
+test k11_host::tests::squared_norm_partials_follow_the_fixed_tree ... ok
+test k8_act::tests::exp_special_values_and_range_edges ... ok
+test k11_golden::tests::the_live_adamw_f_case_passes_and_its_retypings_do_not ... ok
+test k8_act::tests::sigmoid_and_silu_special_values ... ok
+test k8_act::tests::the_constants_are_what_they_claim ... ok
+test k8_act::tests::the_prelude_is_guarded_and_self_contained ... ok
+test k8_act::tests::the_sweep_covers_the_edges_and_is_reproducible ... ok
+test kernels::tests::every_gemm_entry_is_reachable ... ok
+test kernels::tests::every_module_defines_exactly_its_listed_entries ... ok
+test kernels::tests::sources_have_no_nul_no_include_and_no_float_atomics ... ok
+test kernels::tests::strict_options_turn_fma_contraction_off ... ok
+test k11_golden::tests::the_embedded_goldens_parse_and_name_fs_builder ... ok
+test kernels::tests::the_device_rounding_is_the_host_rounding ... ok
+test libprobe::tests::ld_library_path_splits_in_order_and_drops_empties ... ok
+test npy::tests::reads_f64_f32_and_i64_in_c_order ... ok
+test libprobe::tests::maps_parsing_finds_the_loaded_cuda_libraries ... ok
+test npy::tests::refuses_what_it_does_not_read ... ok
+test nvrtc_cache::tests::a_colliding_hash_with_different_source_is_refused ... ok
+test libprobe::tests::the_refusal_says_whether_a_candidate_file_exists ... ok
+test nvrtc_cache::tests::fnv1a64_matches_its_published_test_vectors ... ok
+test nvrtc_cache::tests::a_second_lookup_hits_and_does_not_compile ... ok
+test nvrtc_cache::tests::options_and_nvrtc_version_are_part_of_the_key ... ok
+test nvrtc_cache::tests::the_least_recently_used_entry_is_evicted_at_the_entry_bound ... ok
+test nvrtc_cache::tests::the_byte_bound_evicts_and_an_oversized_image_is_refused ... ok
+test rung0_cli::tests::defaults_and_explicit_values_parse ... ok
+test rung0_cli::tests::an_existing_report_is_refused_and_writes_are_atomic ... ok
+test nvrtc_cache::tests::a_failed_compile_caches_nothing ... ok
+test rung0_cli::tests::missing_or_unknown_arguments_are_refused ... ok
+test rung0_cli::tests::the_cap_cannot_exceed_300_seconds_or_be_zero ... ok
+test k8_act::tests::exp_nonpos_is_exp_at_or_below_zero_and_nan_above ... ok
+test k8_act::tests::softplus_is_tessls_and_within_bounds_of_f64 ... ok
+test bf16::tests::integer_trick_matches_the_value_rounding_on_two_million_inputs ... ok
+test k8_act::tests::sigmoid_silu_and_its_gradient_against_f64 ... ok
+test gdn_host::tests::the_published_decay_exp_is_within_its_pre_registered_ulps ... ok
+test gdn_host::tests::published_mirror_of_a_batch_is_the_concatenation_of_its_sequences ... ok
+test k8_act::tests::log_is_within_two_ulp_of_f64_and_handles_the_edges ... ok
+test k8_act::tests::exp_is_within_two_ulp_of_f64_over_its_whole_range ... ok
+test k8_act::tests::exp_on_the_nonpositive_range_measured_for_the_gdn_decay ... ok
+
+test result: ok. 104 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.58s
+
+     Running tests/device_gdn_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_gdn_published-4a9f1424ae132fa2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/device_gdn_published_mirror.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_gdn_published_mirror-3ad7374eb65e558f)
+
+running 8 tests
+test published_mirror_draws_tessls_test_operands ... ok
+test published_mirror_is_outside_the_bound_from_the_repo_rule ... ok
+test published_mirror_varlen_batch_matches_per_sequence_references ... ok
+test published_mirror_matches_the_f64_reference_across_chunk_edges_b1 ... ok
+test published_mirror_matches_the_f64_reference_across_chunk_edges_b2 ... ok
+test published_mirror_matches_the_f64_reference_on_every_smoke_case ... ok
+test published_mirror_matches_the_f64_reference_at_qwen35_2b_heads ... ok
+test published_mirror_matches_the_published_corpus ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.28s
+
+     Running tests/device_k0.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k0-773b9fad7923ceb4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/device_k1.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/device_k1-924f3950059ba0c8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fixture_pins.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/fixture_pins-860c9b49f04a90ce)
+
+running 4 tests
+test the_decay_sensitive_copy_equals_lappis_live_files ... ok
+test the_tiny_fixture_copy_equals_tessls_live_fixture ... ok
+test the_decay_sensitive_copy_equals_its_pins ... ok
+test the_tiny_fixture_copy_equals_its_sums ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/fmt_boundary.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/fmt_boundary-399a9777f251a9d2)
+
+running 4 tests
+test the_scanner_reads_path_attributes_the_way_rustc_writes_them ... ok
+test the_pre_fix_tessl_include_is_flagged ... ok
+test an_unresolvable_or_escaping_path_is_reported ... ok
+test no_path_attribute_in_this_crate_leaves_the_crate ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/reference_adamw.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_adamw-346fedb6200af56d)
+
+running 4 tests
+test k11_torch_lerp_switches_form_at_one_half ... ok
+test k11_adamw_refuses_a_zero_lr_scale - should panic ... ok
+test k11_lower_layer_split_is_lappis_layerwise_param_groups ... ok
+test k11_adamw_matches_torch_over_fs_groups_for_five_steps ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/reference_gdn_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_gdn_published-4b87577cb82cc291)
+
+running 8 tests
+test published_reference_refuses_an_empty_sequence - should panic ... ok
+test published_reference_refuses_a_non_finite_operand - should panic ... ok
+test published_reference_refuses_a_misshapen_gate - should panic ... ok
+test published_checkpoint_c_is_the_state_after_the_first_64c_tokens ... ok
+test published_recurrence_reproduces_the_published_corpus ... ok
+test the_repo_rule_does_not_reproduce_the_published_corpus ... ok
+test published_corpus_is_tessls_bytes_and_every_file_names_the_published_rule ... ok
+test published_backward_matches_central_differences_across_checkpoints ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.90s
+
+     Running tests/reference_gdn_published_vs_tessl.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_gdn_published_vs_tessl-4e79d87a6edbc7b6)
+
+running 3 tests
+test published_comparison_target_is_the_pinned_copy_of_tessls_file ... ok
+test the_copy_equals_tessls_live_file_and_the_pin ... ok
+test published_reference_matches_tessls_gdn_train_f64_at_the_chunk_edges ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.98s
+
+     Running tests/reference_goldens_published.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_goldens_published-d26aeedae9cbf242)
+
+running 3 tests
+test sha256_matches_the_fips_180_4_vectors ... ok
+test every_golden_is_pinned_by_the_manifest_and_gdn_and_gate_goldens_name_the_published_rule ... ok
+test published_reference_matches_the_transformers_golden_at_the_seam ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.90s
+
+     Running tests/reference_k11_host.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_k11_host-4e481289b68efaa1)
+
+running 4 tests
+test the_emulation_meets_the_adamw_f_float64_golden_as_a_sanity_check ... ok
+test every_preregistered_mutation_clears_100x_in_kernel_order_arithmetic ... ok
+test this_files_unmutated_replay_is_the_librarys_emulation_bit_for_bit ... ok
+test the_emulation_meets_the_decay_sensitive_golden ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/reference_kernels.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/reference_kernels-b7e0abddc2f8a3cb)
+
+running 16 tests
+test k3_gates_published_backward_is_the_derivative_away_from_the_threshold ... ok
+test k3_gates_published_match_the_torch_golden ... ok
+test k4_conv1d_silu_backward_is_the_derivative ... ok
+test k6_norm_rope_matches_tessls_transformers_fixture_at_position_20000 ... ok
+test k6_output_gate_matches_the_torch_golden_and_its_derivative ... ok
+test k6_rope_angle_is_transformers_f32_angle ... ok
+test k10_cross_entropy_rows_gradients_are_the_derivative ... ok
+test k4_conv1d_silu_matches_the_torch_golden ... ok
+test k6_norm_rope_matches_the_torch_golden_given_the_angle ... ok
+test k7_rms_norm_backwards_are_the_derivative ... ok
+test k9_embedding_matches_the_torch_golden ... ok
+test k9_embedding_refuses_an_out_of_range_id - should panic ... ok
+test k6_transformers_rope_fixture_is_pinned ... ok
+test k10_cross_entropy_rows_match_the_torch_golden ... ok
+test k7_rms_norms_match_the_torch_golden ... ok
+test k6_norm_rope_backward_is_the_derivative ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/runtime_refusal.rs (/Users/bharath/Code/research/ojas/ojas-qwen35-cuda/target/debug/deps/runtime_refusal-7084762b0f0eec0b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests ojas_qwen35_cuda
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
