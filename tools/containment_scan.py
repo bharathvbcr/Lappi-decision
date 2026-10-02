@@ -6,8 +6,10 @@ tool only rebuilds the corpus the way ``real_ft_run.ft_splits`` does -- through
 ``real_ft_run.ft_split_report``, the split before any exclusion or replay draw -- renders
 every row as ``tools/replay_decontam.py`` renders its targets (``render`` at ``seed=None``,
 cut where ``qd_train.replay.prompt_content`` cuts), strips the constant template text
-(``qd_train.containment_strip.strip_template``, v5's rule; the strip and what it removed are
-in the attestation's ``export.template_strip``), and hands the binary one request:
+(``qd_train.containment_strip.strip_template``, v5's rule at ``STRIP_VERSION`` 2: the question
+line, family-constant options, and every option value of the four intent.* families; the strip,
+what it removed and the per-set ``key_ii_blind`` keys are in the attestation's
+``export.template_strip``), and hands the binary one request:
 
 * sources: every ``train`` row of every family, gold or replay-drawn (the replay draw has
   not happened yet), one text per slot, keyed ``row_id#slot``;
@@ -390,7 +392,8 @@ def main(argv: list[str] | None = None) -> int:
     exported = time.monotonic()
     print(f"split {report.counts()} in {built - started:.1f} s; rendered "
           f"{ {s.name: len(s.rows) for s in sets} } slot text(s) in {rendered - built:.1f} s "
-          f"(template strip {'applied' if args.template_strip else 'NOT applied'}); "
+          f"(template strip version {strip['version']} "
+          f"{'applied' if args.template_strip else 'NOT applied'}); "
           f"request {size} bytes -> {request} in {exported - rendered:.1f} s")
     # The rows and their texts are the request's now: released before the binary loads its
     # own copy, so the two peaks do not stack.

@@ -1,0 +1,89 @@
+[
+ {
+  "scan": "/Users/bharath/qd-campaign/prep3-2026-10-02/scan-p01-v2",
+  "train_clinc_utterances": 246,
+  "val": {
+   "key_ii_blind": 4,
+   "key_ii_blind_matches_attestation": true,
+   "clinc_keys": 4,
+   "non_clinc_keys": [],
+   "clinc_keys_without_exactly_one_utterance": [],
+   "exact_match_in_train": 0,
+   "contiguous_word_subsequence_of_a_train_utterance": 0,
+   "exact_keys": [],
+   "subsequence_keys": [],
+   "subsequence_utterances": []
+  },
+  "heldout": {
+   "key_ii_blind": 2,
+   "key_ii_blind_matches_attestation": true,
+   "clinc_keys": 2,
+   "non_clinc_keys": [],
+   "clinc_keys_without_exactly_one_utterance": [],
+   "exact_match_in_train": 0,
+   "contiguous_word_subsequence_of_a_train_utterance": 0,
+   "exact_keys": [],
+   "subsequence_keys": [],
+   "subsequence_utterances": []
+  },
+  "computed_and_agrees_with_attestation": true
+ },
+ {
+  "scan": "/Users/bharath/qd-campaign/prep3-2026-10-02/scan-p02-v2",
+  "train_clinc_utterances": 464,
+  "val": {
+   "key_ii_blind": 9,
+   "key_ii_blind_matches_attestation": true,
+   "clinc_keys": 9,
+   "non_clinc_keys": [],
+   "clinc_keys_without_exactly_one_utterance": [],
+   "exact_match_in_train": 0,
+   "contiguous_word_subsequence_of_a_train_utterance": 0,
+   "exact_keys": [],
+   "subsequence_keys": [],
+   "subsequence_utterances": []
+  },
+  "heldout": {
+   "key_ii_blind": 7,
+   "key_ii_blind_matches_attestation": true,
+   "clinc_keys": 7,
+   "non_clinc_keys": [],
+   "clinc_keys_without_exactly_one_utterance": [],
+   "exact_match_in_train": 0,
+   "contiguous_word_subsequence_of_a_train_utterance": 0,
+   "exact_keys": [],
+   "subsequence_keys": [],
+   "subsequence_utterances": []
+  },
+  "computed_and_agrees_with_attestation": true
+ },
+ {
+  "scan": "/Users/bharath/qd-campaign/prep3-2026-10-02/scan-p05-v2",
+  "train_clinc_utterances": 1089,
+  "val": {
+   "key_ii_blind": 21,
+   "key_ii_blind_matches_attestation": true,
+   "clinc_keys": 21,
+   "non_clinc_keys": [],
+   "clinc_keys_without_exactly_one_utterance": [],
+   "exact_match_in_train": 0,
+   "contiguous_word_subsequence_of_a_train_utterance": 0,
+   "exact_keys": [],
+   "subsequence_keys": [],
+   "subsequence_utterances": []
+  },
+  "heldout": {
+   "key_ii_blind": 34,
+   "key_ii_blind_matches_attestation": true,
+   "clinc_keys": 34,
+   "non_clinc_keys": [],
+   "clinc_keys_without_exactly_one_utterance": [],
+   "exact_match_in_train": 0,
+   "contiguous_word_subsequence_of_a_train_utterance": 0,
+   "exact_keys": [],
+   "subsequence_keys": [],
+   "subsequence_utterances": []
+  },
+  "computed_and_agrees_with_attestation": true
+ }
+]
