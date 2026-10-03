@@ -41,14 +41,27 @@ May the scan run on the corpus flags directly, followed by one build with the ex
    - Path taken: one build, A7 with `--decisions-pool`, reconciled against `exclusions.txt`.
 2. **Identical corpus flags, the same `--rev` and a clean tree for the scan and the build.**
    - One flag list (`build/v5-build/v5_flags.sh`) feeds both:
-     - `--rev` 3a6b9fa (v5-build with both halves of v4), `--no-repo-history`;
+     - `--rev` ca48960. That is v5-build with:
+       - both halves of v4 (3a6b9fa);
+       - the v5-2gpu merges (ccac87e, db8701e);
+       - this amendment (4298020);
+       - qd-prep's MinHash request bound raised from 4 GiB to 16 GiB (ca48960).
+
+       None of these changes the Python data or training code. The first scan, at 4298020,
+       stopped at `qd-prep minhash`: its request was 4,534,193,280 bytes, over the 4 GiB bound
+       (`build/v5-build/scan-attempt2-minhash-bound.log`). Fable ruled to raise the bound, not
+       chunk, and named 32 GiB. 16 GiB was used instead, because linwire's test requires its
+       32 GiB bound to stay strictly above MinHash's. The class fix is
+       GAP-MINHASH-REQUEST-CARRIES-SHINGLE-BYTES-2026-10-03.
+     - `--no-repo-history`;
      - `--defect-class data/pool/commitpackft-composed-v2 --defect-download data/pool/commitpackft`;
      - `--defect-noul data/pool/defect-noul-v3c`;
      - `--general-record …/fetch-record-2026-09-29.json --general-max-rows 200000`;
      - `--decisions-pool` set to the bench's v4 pool, checked against its report's examples sha256.
    - No `--max-pairs` and no `--defect-max-rows`.
    - Cargo.lock is restored before each run.
-   - v5-2gpu is merged before the scan or after the build's ledger row, never between. Its
+   - v5-2gpu is merged before the scan or after the build's ledger row, never between. It was
+     merged before the scan (8ab473b → ccac87e; gaps.jsonl's conflict resolved as a union). Its
      branch changes none of python/qd_data, python/qd_train, tools or crates (`git diff --stat`
      from merge-base 1ab477f), so the merge does not move the build's code fingerprint.
 3. **Recorded.** This file, plus a DRAFT amendment to build_order[2] and [3]

@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/home/ubuntu/smoke/kernel_smoke.py", line 67, in <module>
+    out.logits.float().sum().backward()
+    ^^^^^^^^^^
+AttributeError: 'Qwen3_5ModelOutputWithPast' object has no attribute 'logits'

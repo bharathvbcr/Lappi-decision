@@ -1,0 +1,5 @@
+{"rows": 3, "width": 10240, "tokens": 30720, "first_s": 58.582, "steady_s": [1.098, 1.099, 1.1], "max_memory_allocated_gib": 30.21, "max_memory_reserved_gib": 32.45}
+{"rows": 4, "width": 8192, "tokens": 32768, "first_s": 3.332, "steady_s": [1.151, 1.146, 1.152], "max_memory_allocated_gib": 31.97, "max_memory_reserved_gib": 34.29}
+{"rows": 737, "width": 48, "tokens": 35376, "first_s": 18.509, "steady_s": [1.186, 1.185, 1.186], "max_memory_allocated_gib": 34.23, "max_memory_reserved_gib": 37.46}
+{"rows": 258, "width": 137, "tokens": 35346, "first_s": 3.421, "steady_s": [1.179, 1.178, 1.179], "max_memory_allocated_gib": 34.21, "max_memory_reserved_gib": 37.21}
+KERNEL SMOKE OK {"load_s": 16.3, "total_s": 114.1, "on_reference_path": []}

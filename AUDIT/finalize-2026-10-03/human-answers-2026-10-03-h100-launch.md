@@ -40,3 +40,18 @@ nohup pattern, using the downloads the human approved at ~18:42Z
 
 **Not covered.** Any GPU job before the queue's launch: a smoke or profiling run needs its own
 yes. Terminating the box stays the human's action.
+
+## Two more answers (AskUserQuestion, verbatim option chosen)
+
+| Time | The question, in short | The answer | Applied as |
+|---|---|---|---|
+| ~20:06Z | A smoke test on one H100 while v5's data builds: ≤30 min, <$5, kept apart from the v5 queue and ledgers, report-only | "Yes, run the smoke test (Recommended)" | `build/v5-h100/kernel_smoke.py` on GPU 0 under `timeout 1800`, in `/home/ubuntu/smoke/` (see below) |
+| ~20:25Z | If the v5 scan or build is killed by mac_heavy's 32 GiB RSS cap, rerun that step on the box's CPUs | "Yes, use the box if the cap trips (Recommended)" | Extends the pre-approved box-CPU fallback from "the Mac panics" to "the Mac's cap kills the job". Same code, inputs and checks. |
+
+**What the smoke actually ran.** The question said the trainer's memory probe on v4's data.
+That turned out not to be possible: `--probe-shapes` exists only in v5's code, and v5's code
+cannot rebuild v4's splits. So the smoke builds the tower the way `_real_step` does
+(`load_text_tower`, gradient checkpointing, the master layout, skip 6, sdpa, bf16). It refuses
+if the trainer's own fla check fails, then times forward and backward on random ids at v5's shape
+extremes. It runs no LM head, takes no optimizer step and writes no ledger row. The same limits
+apply as asked: one GPU, ≤30 min, report-only.
