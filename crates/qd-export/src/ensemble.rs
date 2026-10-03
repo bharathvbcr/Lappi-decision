@@ -10,8 +10,8 @@
 //! Every member is opened by the runtime's own reader (`Tower::open`: manifest and config
 //! binding) and every file its manifest lists is copied with its sha256 checked against that
 //! record, so the ensemble directory carries no byte its members' manifests do not vouch for.
-//! The members must agree on `config.json`, tokenizer and trained width and be N different
-//! towers; the trained width is not recorded anywhere upstream, so the operator states it per
+//! The members must agree on `config.json`, tokenizer, trained width and `trained_families`
+//! and be N different towers; the trained width is not recorded anywhere upstream, so the operator states it per
 //! member and cites where it came from (`trained_width_source`), and the manifest records both.
 
 use std::collections::BTreeMap;
@@ -26,7 +26,7 @@ use qd_runtime::ensemble::{MAX_MEMBERS, ensemble_weight_hash};
 use qd_runtime::hex;
 use qd_runtime::release::{
     CALIBRATION_FILE, ENSEMBLE_DECODE, ENSEMBLE_FORMAT, ENSEMBLE_MANIFEST_FILE, MANIFEST_FILE,
-    Tower,
+    Tower, describe_trained_families,
 };
 
 use crate::export::{
@@ -191,6 +191,14 @@ fn check_members(members: &[Member], widths: &[u64]) -> Result<()> {
             return Err(ensemble_refusal(format!(
                 "member {i} was trained at width {}, member 0 at {}",
                 widths[i], widths[0]
+            )));
+        }
+        // `Ensemble::open` refuses this too; the writer refuses what the reader refuses.
+        if tower.trained_families() != first.trained_families() {
+            return Err(ensemble_refusal(format!(
+                "member {i} has trained_families {}, member 0 has {}",
+                describe_trained_families(tower.trained_families()),
+                describe_trained_families(first.trained_families())
             )));
         }
         if let Some(j) = members[..i]

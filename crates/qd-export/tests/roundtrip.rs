@@ -232,6 +232,10 @@ fn snapshot_the_base_weights_export_at_248320_and_load_through_qd_metal() {
         tokenizer_sha256: "fe000e3ed39ed12b8d2481d527d44f93c65d37e87645d2dcc80d1bf9d50d2927".into(),
         expect_vocab_size: 248_320,
         calibration: None,
+        train_manifest: common::write_train_manifest(
+            &dir.0.join("train.json"),
+            &common::TRAINED_FAMILIES,
+        ),
         allow_extra: Vec::new(),
         out: out.clone(),
     })

@@ -23,8 +23,9 @@ use crate::safetensors::{sha256_file, Dtype, PlannedTensor, SafeTensorsFile, Ten
 /// the span head yet (`GAP-J7-EXPORT-SPAN-HEAD-UNSERVED`).
 pub use qd_runtime::release::{
     CALIBRATION_FILE, CONFIG_FILE, MANIFEST_FILE, MANIFEST_FORMAT, MAX_SMALL_FILE_BYTES,
-    SPAN_HEAD_FILE, TOKENIZER_FILE, WEIGHTS_FILE,
+    SPAN_HEAD_FILE, TOKENIZER_FILE, TRAINED_FAMILIES_KEY, WEIGHTS_FILE,
 };
+use qd_runtime::release::validate_trained_families;
 
 /// Every tokenizer file copied from the base snapshot. `tokenizer.json` is the one the loader
 /// reads and hashes into the backend's identity (`qd-metal/src/tokenizer.rs:28-37`); the other
@@ -70,6 +71,11 @@ pub struct ExportRequest {
     /// must all say this.
     pub expect_vocab_size: usize,
     pub calibration: Option<PathBuf>,
+    /// The train split's data manifest the tower was trained from
+    /// (`python/qd_data/manifest.py`, `split: "train"`). The release records its family set as
+    /// `trained_families`, and the runtime refuses every other task (Fable's pipeline ruling,
+    /// item 4). Required: a release that cannot say what it trained admits nothing.
+    pub train_manifest: PathBuf,
     pub allow_extra: Vec<AllowedExtra>,
     /// The release directory; must not exist.
     pub out: PathBuf,
@@ -81,6 +87,8 @@ pub struct ExportSummary {
     pub weight_hash: String,
     pub tokenizer_hash: String,
     pub calibration_hash: Option<String>,
+    /// The `trained_families` the manifest records: sorted, unique.
+    pub trained_families: Vec<String>,
     /// File name -> SHA-256 hex, for every file except the manifest itself.
     pub files: BTreeMap<String, String>,
     /// Tower tensors rounded from F32/F16, and copied from BF16.
@@ -179,6 +187,170 @@ fn read_source_manifest(path: &Path) -> Result<SourceManifest> {
     })
 }
 
+/// `qd_data.manifest.MANIFEST_FORMAT_VERSION`.
+const TRAIN_MANIFEST_FORMAT_VERSION: i64 = 1;
+/// The split whose families the weights were trained on (`qd_data.config.SPLITS`).
+const TRAIN_SPLIT: &str = "train";
+/// Bytes of a manifest string a refusal echoes back.
+const ECHO_BYTES: usize = 128;
+
+/// `s` quoted, cut to [`ECHO_BYTES`] on a character boundary.
+fn echo(s: &str) -> String {
+    if s.len() <= ECHO_BYTES {
+        return format!("{s:?}");
+    }
+    let mut end = ECHO_BYTES;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{:?} (first {end} of {} bytes)", &s[..end], s.len())
+}
+
+/// What the train manifest says the tower was trained on.
+struct TrainManifest {
+    path: PathBuf,
+    sha256: String,
+    /// As the file records it. Not re-derived here: the canonical-JSON port that re-derives it
+    /// is `qd-train`'s held-out door, and `qd-train` depends on this crate.
+    data_snapshot_hash: String,
+    n_rows: usize,
+    rows_by_family: BTreeMap<String, u64>,
+}
+
+impl TrainManifest {
+    /// The family set, sorted and unique: the keys of `rows_by_family`.
+    fn families(&self) -> Vec<String> {
+        self.rows_by_family.keys().cloned().collect()
+    }
+}
+
+/// Read the train split's data manifest (`Manifest.to_json()`, `python/qd_data/manifest.py`)
+/// for the families its entries hold.
+///
+/// Refused unless it is format 1, declares `split: "train"`, records a 64-hex
+/// `data_snapshot_hash`, `held_out_families` and an `n_rows` equal to its entry count, and every
+/// entry is a train row with a non-blank `family_id` outside the held-out families (CLAUDE.md
+/// rule 3: a train manifest naming one is not a manifest anything was trained from). The family
+/// set must also be one the runtime's reader accepts ([`validate_trained_families`]).
+///
+/// The file is read whole within [`MAX_SMALL_FILE_BYTES`] and parsed as one JSON document. The
+/// v4 train manifest is 152,784,427 bytes (`data/pool/train.json`), which fits; the export runs
+/// on the box, where its parse is not the memory that matters.
+fn read_train_manifest(path: &Path) -> Result<TrainManifest> {
+    let k = RefusalKind::TrainManifest;
+    let bad = |detail: String| refuse(k, format!("{}: {detail}", path.display()));
+    let bytes = read_small(path, k)?;
+    let doc: Value = serde_json::from_slice(&bytes).map_err(|e| bad(format!("not JSON: {e}")))?;
+    let obj = doc
+        .as_object()
+        .ok_or_else(|| bad("not a JSON object; a data manifest is one".to_string()))?;
+    let version = obj.get("manifest_format_version").and_then(Value::as_i64);
+    if version != Some(TRAIN_MANIFEST_FORMAT_VERSION) {
+        return Err(bad(format!(
+            "manifest_format_version is {}, not {TRAIN_MANIFEST_FORMAT_VERSION}; this reader does \
+             not interpret another format",
+            version.map_or_else(|| "absent or not an integer".to_string(), |v| v.to_string())
+        )));
+    }
+    let split = obj.get("split").and_then(Value::as_str);
+    if split != Some(TRAIN_SPLIT) {
+        return Err(bad(format!(
+            "split is {}, not {TRAIN_SPLIT:?}. A release records the families its weights were \
+             trained on, which are the train split's; a val or held-out manifest names others",
+            split.map_or_else(|| "absent or not a string".to_string(), echo)
+        )));
+    }
+    let data_snapshot_hash = obj
+        .get("data_snapshot_hash")
+        .and_then(Value::as_str)
+        .filter(|s| is_hex64(s))
+        .map(str::to_string)
+        .ok_or_else(|| bad("data_snapshot_hash is not 64 hex digits".to_string()))?;
+    let held_out = obj
+        .get("held_out_families")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            bad("held_out_families is not an array; without it a held-out family among the \
+                 entries could not be refused"
+                .to_string())
+        })?
+        .iter()
+        .map(|family| {
+            family
+                .as_str()
+                .ok_or_else(|| bad("held_out_families holds a value that is not a string".to_string()))
+        })
+        .collect::<Result<BTreeSet<&str>>>()?;
+    let entries = obj
+        .get("entries")
+        .and_then(Value::as_array)
+        .ok_or_else(|| bad("entries is not an array".to_string()))?;
+    if entries.is_empty() {
+        return Err(bad(
+            "no rows: entries is empty, so it names no family anything was trained on".to_string(),
+        ));
+    }
+    let n_rows = len64_of(entries.len())?;
+    if obj.get("n_rows").and_then(Value::as_u64) != Some(n_rows) {
+        return Err(bad(format!(
+            "n_rows is {}, but entries holds {n_rows}; the file is truncated or was edited",
+            obj.get("n_rows")
+                .map_or_else(|| "absent".to_string(), |n| echo(&n.to_string()))
+        )));
+    }
+    let mut rows_by_family: BTreeMap<String, u64> = BTreeMap::new();
+    for (i, entry) in entries.iter().enumerate() {
+        let row_id = entry
+            .get("row_id")
+            .and_then(Value::as_str)
+            .map_or_else(|| "absent".to_string(), echo);
+        let entry_split = entry.get("split").and_then(Value::as_str);
+        if entry_split != Some(TRAIN_SPLIT) {
+            return Err(bad(format!(
+                "entry {i} (row_id {row_id}) is split {}, in a manifest for split {TRAIN_SPLIT:?}",
+                entry_split.map_or_else(|| "absent or not a string".to_string(), echo)
+            )));
+        }
+        let family = entry
+            .get("family_id")
+            .and_then(Value::as_str)
+            .filter(|family| !qd_runtime::is_blank(family))
+            .ok_or_else(|| {
+                bad(format!(
+                    "entry {i} (row_id {row_id}) has no family_id, or a blank one"
+                ))
+            })?;
+        if held_out.contains(family) {
+            return Err(bad(format!(
+                "entry {i} (row_id {row_id}) names held-out family {}; the held-out families \
+                 {held_out:?} are never trained (CLAUDE.md rule 3), so no release was trained \
+                 from this manifest",
+                echo(family)
+            )));
+        }
+        *rows_by_family.entry(family.to_string()).or_default() += 1;
+    }
+    let train = TrainManifest {
+        path: path.to_path_buf(),
+        sha256: hex(&sha256(&bytes)),
+        data_snapshot_hash,
+        n_rows: entries.len(),
+        rows_by_family,
+    };
+    validate_trained_families(&train.families()).map_err(|detail| {
+        bad(format!(
+            "its families are not a list a release can record, and the runtime would refuse the \
+             release: {detail}"
+        ))
+    })?;
+    Ok(train)
+}
+
+/// A count as `u64`, refused rather than truncated.
+fn len64_of(n: usize) -> Result<u64> {
+    u64::try_from(n).map_err(|e| refuse(RefusalKind::Io, format!("count {n}: {e}")))
+}
+
 /// Structural equality in which numbers compare by value (`1` == `1.0`), so a table written
 /// with an integer literal is not refused for its spelling.
 fn same_json(a: &Value, b: &Value) -> bool {
@@ -238,6 +410,7 @@ struct Plan {
     dtype_counts: BTreeMap<&'static str, usize>,
     tokenizer: Vec<(&'static str, Vec<u8>)>,
     calibration: Option<(PathBuf, Vec<u8>, CalibrationTable)>,
+    train: TrainManifest,
 }
 
 fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
@@ -290,6 +463,9 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
         }
         None => None,
     };
+
+    // What the tower was trained on.
+    let train = read_train_manifest(&req.train_manifest)?;
 
     // The source manifest, against the source's header.
     let manifest_path = req
@@ -474,6 +650,7 @@ fn plan(req: &ExportRequest, src: &SafeTensorsFile) -> Result<Plan> {
         dtype_counts,
         tokenizer,
         calibration,
+        train,
     })
 }
 
@@ -644,8 +821,9 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
         None => None,
     };
     let calibration_hash = plan.calibration.as_ref().map(|(_, _, t)| t.hash());
+    let trained_families = plan.train.families();
 
-    let manifest = json!({
+    let mut manifest = json!({
         "format": MANIFEST_FORMAT,
         "tool": "qd-export",
         "tool_version": env!("CARGO_PKG_VERSION"),
@@ -701,7 +879,22 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
             },
         },
         "files": files,
+        // Where `trained_families` came from. The runtime reads only `trained_families`.
+        "train_manifest": {
+            "path": plan.train.path.display().to_string(),
+            "sha256": plan.train.sha256,
+            "split": TRAIN_SPLIT,
+            "n_rows": plan.train.n_rows,
+            "rows_by_family": plan.train.rows_by_family,
+            "data_snapshot_hash_as_recorded": plan.train.data_snapshot_hash,
+            "rule": "trained_families is the sorted, unique family_id set of this manifest's \
+                     entries. data_snapshot_hash is as the file records it, not re-derived here \
+                     (qd-train's held-out door re-derives it)",
+        },
     });
+    // The task families the tower was trained on: `qd_runtime::admission` refuses every other
+    // task as `task_not_trained` (Fable's pipeline ruling, item 4).
+    manifest[TRAINED_FAMILIES_KEY] = Value::from(trained_families.clone());
     let text = serde_json::to_string_pretty(&manifest).map_err(|e| refuse(RefusalKind::Io, e.to_string()))? + "\n";
     write_verified(&dir.join(MANIFEST_FILE), text.as_bytes(), RefusalKind::Io)?;
 
@@ -710,6 +903,7 @@ fn write_release(req: &ExportRequest, src: &SafeTensorsFile, plan: &Plan, dir: &
         weight_hash,
         tokenizer_hash,
         calibration_hash,
+        trained_families,
         files: shas,
         rounded,
         copied,

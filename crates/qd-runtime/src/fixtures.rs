@@ -480,6 +480,10 @@ pub fn all_refusals() -> Vec<Refusal> {
                 .map(|lang| lang.as_str().to_string())
                 .collect(),
         },
+        Refusal::TaskNotTrained {
+            task: "devcouncil.verdict".into(),
+            available: vec!["code.defect_class".into()],
+        },
         Refusal::RenderedPromptOverCap {
             cap: 802_816,
             actual: 900_000,

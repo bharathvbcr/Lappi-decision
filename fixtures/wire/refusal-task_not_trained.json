@@ -1,0 +1,12 @@
+{
+  "status": "refused",
+  "schema_version": 1,
+  "refusal": {
+    "kind": "task_not_trained",
+    "task": "devcouncil.verdict",
+    "available": [
+      "code.defect_class"
+    ]
+  },
+  "message": "task `devcouncil.verdict` is not one this release was trained on; it trained [\"code.defect_class\"]. The model was never shown a request of this task, so its answer would be read from a prompt shape it never saw. A release that does not record its trained families names none and admits no task"
+}

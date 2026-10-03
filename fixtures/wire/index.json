@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "count": 60,
+  "count": 61,
   "by_status": {
     "error": 12,
     "ok": 8,
-    "refused": 40
+    "refused": 41
   },
   "entries": [
     {
@@ -308,6 +308,12 @@
       "status": "refused",
       "kind": "context_language_not_in_pool",
       "note": "Refusal `context_language_not_in_pool`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: context's file `src/main.c` is unrecognised, a language the pool this task was trained on did not hold (it held [\"go\", \"python\", \"rust\", \"typescript\"]); the model was never shown one"
+    },
+    {
+      "file": "refusal-task_not_trained.json",
+      "status": "refused",
+      "kind": "task_not_trained",
+      "note": "Refusal `task_not_trained`: the request was not answerable as posed, so the model was never asked. A refusal carries no `slots`, no `value`, no `score` and no `noul` at any depth — reading one as an abstention is the confusion docs/schema-api.md forbids. Message: task `devcouncil.verdict` is not one this release was trained on; it trained [\"code.defect_class\"]. The model was never shown a request of this task, so its answer would be read from a prompt shape it never saw. A release that does not record its trained families names none and admits no task"
     },
     {
       "file": "refusal-rendered_prompt_over_cap.json",

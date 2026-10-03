@@ -171,10 +171,49 @@ pub struct Fixture {
     pub source: PathBuf,
     pub manifest: PathBuf,
     pub snapshot: PathBuf,
+    /// The train split's data manifest, holding [`TRAINED_FAMILIES`].
+    pub train_manifest: PathBuf,
     pub out: PathBuf,
 }
 
 pub const FT_ROW_IDS: [&str; 3] = ["row-seed0", "row-seed1", "row-seed2"];
+
+/// The families the fixture's train manifest holds, sorted. `devcouncil.verdict` is the task the
+/// serving tests ask; `code.defect_class` is a family training builds.
+pub const TRAINED_FAMILIES: [&str; 2] = ["code.defect_class", "devcouncil.verdict"];
+
+/// A train-split data manifest in `Manifest.to_json()`'s shape (`python/qd_data/manifest.py`),
+/// one row per family, written to `path`.
+pub fn write_train_manifest(path: &Path, families: &[&str]) -> PathBuf {
+    let entries: Vec<Value> = families
+        .iter()
+        .enumerate()
+        .map(|(i, family)| {
+            json!({
+                "row_id": format!("train-row-{i}"),
+                "content_hash": format!("{i:064x}"),
+                "split": "train",
+                "source_id": "test/source",
+                "host": "test",
+                "family_id": family,
+                "repo_key": format!("repo-{i}"),
+                "identity_key": format!("identity-{i}"),
+                "licence_id": "MIT",
+                "obligations": [],
+            })
+        })
+        .collect();
+    let manifest = json!({
+        "manifest_format_version": 1,
+        "split": "train",
+        "data_snapshot_hash": "ab".repeat(32),
+        "n_rows": entries.len(),
+        "held_out_families": ["code.language_id", "qa.answerability"],
+        "entries": entries,
+    });
+    std::fs::write(path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    path.to_path_buf()
+}
 
 pub fn tokenizer_sha256(snapshot: &Path) -> String {
     qd_runtime::hex(&qd_runtime::sha256(&std::fs::read(snapshot.join("tokenizer.json")).unwrap()))
@@ -222,12 +261,14 @@ pub fn build(tensors: &BTreeMap<String, Tensor>, config: &Value, manifest_edit: 
     std::fs::write(snapshot.join("vocab.json"), r#"{"A": 1}"#).unwrap();
     std::fs::write(snapshot.join("merges.txt"), "#version: 0.2\n").unwrap();
 
+    let train_manifest = write_train_manifest(&dir.0.join("train.json"), &TRAINED_FAMILIES);
     let out = dir.0.join("release");
     Fixture {
         dir,
         source,
         manifest: manifest_path,
         snapshot,
+        train_manifest,
         out,
     }
 }
@@ -245,6 +286,7 @@ impl Fixture {
             tokenizer_sha256: tokenizer_sha256(&self.snapshot),
             expect_vocab_size: VOCAB,
             calibration: None,
+            train_manifest: self.train_manifest.clone(),
             allow_extra: Vec::new(),
             out: self.out.clone(),
         }

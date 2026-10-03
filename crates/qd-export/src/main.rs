@@ -2,8 +2,9 @@
 //!
 //! ```text
 //! qd-export --source AVG.safetensors --base-snapshot SNAP --tokenizer-sha256 HEX \
-//!           --expect-vocab-size 248320 --out RELEASE [--calibration TABLE.json] \
-//!           [--source-manifest AVG.safetensors.manifest.json] [--allow-extra NAME=REASON]...
+//!           --expect-vocab-size 248320 --train-manifest TRAIN.json --out RELEASE \
+//!           [--calibration TABLE.json] [--source-manifest AVG.safetensors.manifest.json] \
+//!           [--allow-extra NAME=REASON]...
 //! ```
 //!
 //! Exit codes: 0 a release was written; 2 the export was refused (nothing is left behind);
@@ -49,6 +50,13 @@ struct Cli {
     #[arg(long, value_name = "PATH")]
     calibration: Option<PathBuf>,
 
+    /// The train split's data manifest the tower was trained from (python/qd_data/manifest.py,
+    /// split "train"; data/pool/train.json for v4). Its family set is recorded as
+    /// trained_families, and the runtime refuses every other task. Required: a release that
+    /// cannot say what it trained admits nothing.
+    #[arg(long, value_name = "PATH")]
+    train_manifest: PathBuf,
+
     /// Drop a source tensor the release would not carry, with the reason, e.g.
     /// `tower.rotary_emb.inv_freq=recomputed from config`. Repeatable. Every other extra tensor
     /// is refused.
@@ -69,6 +77,7 @@ fn main() -> ExitCode {
         tokenizer_sha256: cli.tokenizer_sha256,
         expect_vocab_size: cli.expect_vocab_size,
         calibration: cli.calibration,
+        train_manifest: cli.train_manifest,
         allow_extra: cli.allow_extra,
         out: cli.out,
     };
@@ -88,6 +97,7 @@ fn main() -> ExitCode {
                 Some(h) => println!("calibration_hash: {h}"),
                 None => println!("calibration_hash: none (no table passed)"),
             }
+            println!("trained_families: {}", s.trained_families.join(", "));
             for (name, sha) in &s.files {
                 println!("{sha}  {name}");
             }

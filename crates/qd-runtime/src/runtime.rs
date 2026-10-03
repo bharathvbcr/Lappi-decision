@@ -19,6 +19,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::admission::TrainedFamilies;
 use crate::answer::{answer, AnswerContext, Deadline};
 use crate::backend::{BackendIdentity, DecisionBackend};
 use crate::calibration::CalibrationTable;
@@ -55,6 +56,8 @@ pub struct Runtime {
     calibration: CalibrationTable,
     registry: HeadRegistry,
     caps: RenderCaps,
+    /// What admission checks a request's task against (`crate::admission`).
+    trained: TrainedFamilies,
     degraded: bool,
     cold_start: Duration,
 }
@@ -70,6 +73,7 @@ impl std::fmt::Debug for Runtime {
             .field("degraded", &self.degraded)
             .field("cold_start_ms", &self.cold_start.as_millis())
             .field("registered_tasks", &self.registry.tasks())
+            .field("trained_families", &self.trained)
             .finish()
     }
 }
@@ -80,6 +84,9 @@ impl Runtime {
     /// With no backend enabled this is [`BackendError::Unavailable`] — a typed error naming what is
     /// absent and why. **It is not an empty answer and it is not a `noul`.** K1-K7 do not exist
     /// yet; a build that pretended otherwise would be the worst bug this system can have.
+    ///
+    /// The reference backend comes from no release, so admission's task check does not run
+    /// ([`TrainedFamilies::NoRelease`]); every answer it gives is `degraded`.
     pub fn build(cfg: &RuntimeConfig) -> Result<Self, BackendError> {
         let started = Instant::now();
         if !cfg.enable_reference_backend {
@@ -99,6 +106,7 @@ impl Runtime {
             calibration,
             HeadRegistry::new(),
             cfg.caps,
+            TrainedFamilies::NoRelease,
             started.elapsed(),
         )
     }
@@ -111,6 +119,9 @@ impl Runtime {
     /// ([`Release::check_backend`]). A mismatch is [`BackendError::Unavailable`] carrying the
     /// release refusal: a runtime that cannot be built has nothing to answer with, and the model
     /// is never asked.
+    ///
+    /// Admission checks every request's task against the release's `trained_families`; a
+    /// release that does not record them admits no task ([`crate::admission`]).
     pub fn from_release(
         release: &Release,
         backend: Arc<dyn DecisionBackend>,
@@ -127,6 +138,7 @@ impl Runtime {
             release.calibration().clone(),
             registry,
             caps,
+            TrainedFamilies::of_release(release.trained_families()),
             Duration::ZERO,
         )
     }
@@ -138,7 +150,8 @@ impl Runtime {
     /// member per tower, in order, and each member reports its tower's weight and tokenizer
     /// hashes ([`crate::release::Tower::check_backend`]) and declares the ensemble's table.
     /// [`EnsembleBackend::new`] then refuses members that disagree on tokenizer, letter ids or
-    /// table. N-1 members are never built into a runtime.
+    /// table. N-1 members are never built into a runtime. Admission checks every request's task
+    /// against the members' `trained_families`, which [`Ensemble::open`] requires to agree.
     pub fn from_ensemble(
         ensemble: &Ensemble,
         members: Vec<Arc<dyn DecisionBackend>>,
@@ -181,19 +194,33 @@ impl Runtime {
             ensemble.calibration().clone(),
             registry,
             caps,
+            TrainedFamilies::of_release(ensemble.trained_families()),
             Duration::ZERO,
         )
     }
 
-    /// Build around a caller-supplied backend. This is the seam the Metal backend will arrive
-    /// through, and the one the tests drive.
+    /// Build around a caller-supplied backend, with no release. This is the seam the tests drive.
+    ///
+    /// There is no release, so there is no record of what the backend was trained on, and
+    /// admission's task check does not run ([`TrainedFamilies::NoRelease`];
+    /// [`Runtime::trained_families`] says so). Every model path in the product is built from a
+    /// release with [`Runtime::from_release`] (`crates/qd-metal/src/serve.rs`), which does check
+    /// it. Gating this seam too is open: its callers include test files another owner holds
+    /// uncommitted edits to (GAP-RUNTIME-WITH-BACKEND-RUNS-NO-TRAINED-FAMILY-CHECK-2026-10-03).
     pub fn with_backend(
         backend: Arc<dyn DecisionBackend>,
         calibration: CalibrationTable,
         registry: HeadRegistry,
         caps: RenderCaps,
     ) -> Result<Self, BackendError> {
-        Self::assemble(backend, calibration, registry, caps, Duration::ZERO)
+        Self::assemble(
+            backend,
+            calibration,
+            registry,
+            caps,
+            TrainedFamilies::NoRelease,
+            Duration::ZERO,
+        )
     }
 
     fn assemble(
@@ -201,6 +228,7 @@ impl Runtime {
         calibration: CalibrationTable,
         registry: HeadRegistry,
         caps: RenderCaps,
+        trained: TrainedFamilies,
         cold_start: Duration,
     ) -> Result<Self, BackendError> {
         caps.validate().map_err(|e| BackendError::Unavailable {
@@ -217,6 +245,7 @@ impl Runtime {
             calibration,
             registry,
             caps,
+            trained,
             degraded,
             cold_start,
         })
@@ -254,6 +283,12 @@ impl Runtime {
 
     pub fn calibration(&self) -> &CalibrationTable {
         &self.calibration
+    }
+
+    /// What a request's task is checked against: the release's record, a release without one,
+    /// or no release at all (the check not run).
+    pub fn trained_families(&self) -> &TrainedFamilies {
+        &self.trained
     }
 
     /// Compare every hash the caller pinned against the loaded build.
@@ -337,8 +372,9 @@ impl Runtime {
             }
         };
         self.check_hashes(&request.expect, &head_hash)?;
-        // Before the model: a context its task was never trained on is refused, not answered.
-        crate::admission::admit(request)?;
+        // Before the model: a task the release did not train, or a context its task was never
+        // trained on, is refused, not answered.
+        crate::admission::admit(request, &self.trained)?;
 
         let ctx = AnswerContext {
             backend: self.backend.as_ref(),
