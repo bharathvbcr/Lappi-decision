@@ -1,0 +1,200 @@
+{
+ "seed0": [
+  {
+   "tau": 0.0,
+   "rows": 2304,
+   "answered": 2291,
+   "abstained": 13,
+   "answered_wrong": 90,
+   "risk": 0.0393
+  },
+  {
+   "tau": 0.5,
+   "rows": 2304,
+   "answered": 2281,
+   "abstained": 23,
+   "answered_wrong": 86,
+   "risk": 0.0377
+  },
+  {
+   "tau": 0.6,
+   "rows": 2304,
+   "answered": 2253,
+   "abstained": 51,
+   "answered_wrong": 77,
+   "risk": 0.0342
+  },
+  {
+   "tau": 0.7,
+   "rows": 2304,
+   "answered": 2212,
+   "abstained": 92,
+   "answered_wrong": 58,
+   "risk": 0.0262
+  },
+  {
+   "tau": 0.8,
+   "rows": 2304,
+   "answered": 2183,
+   "abstained": 121,
+   "answered_wrong": 47,
+   "risk": 0.0215
+  },
+  {
+   "tau": 0.9,
+   "rows": 2304,
+   "answered": 2132,
+   "abstained": 172,
+   "answered_wrong": 35,
+   "risk": 0.0164
+  },
+  {
+   "tau": 0.95,
+   "rows": 2304,
+   "answered": 2077,
+   "abstained": 227,
+   "answered_wrong": 23,
+   "risk": 0.0111
+  },
+  {
+   "tau": 0.99,
+   "rows": 2304,
+   "answered": 1911,
+   "abstained": 393,
+   "answered_wrong": 8,
+   "risk": 0.0042
+  }
+ ],
+ "seed1": [
+  {
+   "tau": 0.0,
+   "rows": 2304,
+   "answered": 2283,
+   "abstained": 21,
+   "answered_wrong": 84,
+   "risk": 0.0368
+  },
+  {
+   "tau": 0.5,
+   "rows": 2304,
+   "answered": 2275,
+   "abstained": 29,
+   "answered_wrong": 82,
+   "risk": 0.036
+  },
+  {
+   "tau": 0.6,
+   "rows": 2304,
+   "answered": 2248,
+   "abstained": 56,
+   "answered_wrong": 68,
+   "risk": 0.0302
+  },
+  {
+   "tau": 0.7,
+   "rows": 2304,
+   "answered": 2227,
+   "abstained": 77,
+   "answered_wrong": 58,
+   "risk": 0.026
+  },
+  {
+   "tau": 0.8,
+   "rows": 2304,
+   "answered": 2195,
+   "abstained": 109,
+   "answered_wrong": 46,
+   "risk": 0.021
+  },
+  {
+   "tau": 0.9,
+   "rows": 2304,
+   "answered": 2137,
+   "abstained": 167,
+   "answered_wrong": 27,
+   "risk": 0.0126
+  },
+  {
+   "tau": 0.95,
+   "rows": 2304,
+   "answered": 2084,
+   "abstained": 220,
+   "answered_wrong": 22,
+   "risk": 0.0106
+  },
+  {
+   "tau": 0.99,
+   "rows": 2304,
+   "answered": 1923,
+   "abstained": 381,
+   "answered_wrong": 10,
+   "risk": 0.0052
+  }
+ ],
+ "seed2": [
+  {
+   "tau": 0.0,
+   "rows": 2304,
+   "answered": 2278,
+   "abstained": 26,
+   "answered_wrong": 79,
+   "risk": 0.0347
+  },
+  {
+   "tau": 0.5,
+   "rows": 2304,
+   "answered": 2271,
+   "abstained": 33,
+   "answered_wrong": 74,
+   "risk": 0.0326
+  },
+  {
+   "tau": 0.6,
+   "rows": 2304,
+   "answered": 2255,
+   "abstained": 49,
+   "answered_wrong": 65,
+   "risk": 0.0288
+  },
+  {
+   "tau": 0.7,
+   "rows": 2304,
+   "answered": 2219,
+   "abstained": 85,
+   "answered_wrong": 51,
+   "risk": 0.023
+  },
+  {
+   "tau": 0.8,
+   "rows": 2304,
+   "answered": 2180,
+   "abstained": 124,
+   "answered_wrong": 38,
+   "risk": 0.0174
+  },
+  {
+   "tau": 0.9,
+   "rows": 2304,
+   "answered": 2119,
+   "abstained": 185,
+   "answered_wrong": 28,
+   "risk": 0.0132
+  },
+  {
+   "tau": 0.95,
+   "rows": 2304,
+   "answered": 2065,
+   "abstained": 239,
+   "answered_wrong": 19,
+   "risk": 0.0092
+  },
+  {
+   "tau": 0.99,
+   "rows": 2304,
+   "answered": 1857,
+   "abstained": 447,
+   "answered_wrong": 8,
+   "risk": 0.0043
+  }
+ ]
+}
