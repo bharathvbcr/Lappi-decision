@@ -1,0 +1,541 @@
+{
+ "drops": "/Users/bharath/qd-campaign/v5-predrops-2026-10-03/pre-dedupe-drops.txt",
+ "as_built": {
+  "counts": {
+   "rows_in": 561681,
+   "kept": 555469,
+   "split": {
+    "train": 495208,
+    "val": 22315,
+    "heldout": 37946
+   }
+  },
+  "failed": [
+   "val/decider.commands: 66 missing, 0 extra; first missing ['decider.commands-val:016915f6d944b76f::bc9c7cc0069a814b', 'decider.commands-val:0242b89b7a7d600a::b6d247a9c5856450', 'decider.commands-val:073cd18476afa162::4743bc847484faec', 'decider.commands-val:0798ba24c7274ad4::318902c40f4725ea', 'decider.commands-val:081de6eb8122c77e::8939eca76af33303']",
+   "val/procedural.decisions: 24 missing, 0 extra; first missing ['procedural.decisions-val:evidence_sufficiency:train:10811::ca95da5a97eafd6c', 'procedural.decisions-val:evidence_sufficiency:train:16879::03345aacc3661c98', 'procedural.decisions-val:evidence_sufficiency:train:19712::87c65bfbe6541154', 'procedural.decisions-val:evidence_sufficiency:train:2588::df46b1af8b9df32a', 'procedural.decisions-val:evidence_sufficiency:train:3884::b047183065f1d31b']",
+   "val/vitaminc.nli: 1 missing, 0 extra; first missing ['vitaminc.nli-val:5eeb7d3fc9e77c0008d204ac::175260c24c07862d']",
+   "heldout/qa.answer_span: 7 missing, 0 extra; first missing ['squad-title:Bermuda::572950c96aef051400154cbc', 'squad-title:Bermuda::572950c96aef051400154cbd', 'squad-title:Bermuda::572950c96aef051400154cbe', 'squad-title:Bermuda::5ad419a1604f3c001a400471', 'squad-title:Bermuda::5ad419a1604f3c001a400472']"
+  ]
+ },
+ "with_drops": {
+  "rows_in": 557618,
+  "kept": 555500,
+  "split": {
+   "train": 495154,
+   "val": 22393,
+   "heldout": 37953
+  },
+  "failed": [
+   "val/decider.commands: 11 missing, 0 extra; first missing ['decider.commands-val:081de6eb8122c77e::8939eca76af33303', 'decider.commands-val:0a03c8b33b7e74d7::7d9b12d6f5a80216', 'decider.commands-val:2e658c88c63c39fd::94ec2ae67d29e646', 'decider.commands-val:5f96ed83884499f2::1f4a9270bbc8e759', 'decider.commands-val:869e12012dcfd33f::dfce71538339f3c2']",
+   "val/procedural.decisions: 1 missing, 0 extra; first missing ['procedural.decisions-val:state_perturbation:train:5715::45b6146ac6890278']",
+   "val/vitaminc.nli: 1 missing, 0 extra; first missing ['vitaminc.nli-val:5eeb7d3fc9e77c0008d204ac::175260c24c07862d']"
+  ],
+  "families": [
+   {
+    "split": "val",
+    "family": "arc.science",
+    "v4": 0,
+    "v5": 145,
+    "expected": 145,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "boolq.reading",
+    "v4": 0,
+    "v5": 288,
+    "expected": 288,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "code.defect_class",
+    "v4": 2304,
+    "v5": 2304,
+    "expected": 2304,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "commonsense.multiple_choice",
+    "v4": 1197,
+    "v5": 1197,
+    "expected": 1197,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "decider.commands",
+    "v4": 0,
+    "v5": 188,
+    "expected": 199,
+    "missing": 11,
+    "extra": 0,
+    "first_missing": [
+     "decider.commands-val:081de6eb8122c77e::8939eca76af33303",
+     "decider.commands-val:0a03c8b33b7e74d7::7d9b12d6f5a80216",
+     "decider.commands-val:2e658c88c63c39fd::94ec2ae67d29e646",
+     "decider.commands-val:5f96ed83884499f2::1f4a9270bbc8e759",
+     "decider.commands-val:869e12012dcfd33f::dfce71538339f3c2"
+    ],
+    "passed": false
+   },
+   {
+    "split": "val",
+    "family": "decider.routing",
+    "v4": 0,
+    "v5": 411,
+    "expected": 411,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "intent.classification",
+    "v4": 1500,
+    "v5": 1572,
+    "expected": 1572,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "intent.domain",
+    "v4": 1500,
+    "v5": 1572,
+    "expected": 1572,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "intent.in_scope",
+    "v4": 1500,
+    "v5": 1572,
+    "expected": 1572,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "intent.within_domain",
+    "v4": 1499,
+    "v5": 1571,
+    "expected": 1571,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "knowledge.multiple_choice",
+    "v4": 1485,
+    "v5": 1485,
+    "expected": 1485,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "openjev.evidence",
+    "v4": 0,
+    "v5": 588,
+    "expected": 588,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "openjev.game",
+    "v4": 0,
+    "v5": 31,
+    "expected": 31,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "openjev.nli",
+    "v4": 0,
+    "v5": 701,
+    "expected": 701,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "openjev.policy",
+    "v4": 0,
+    "v5": 701,
+    "expected": 701,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "openjev.routing",
+    "v4": 0,
+    "v5": 292,
+    "expected": 292,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "openjev.rubric",
+    "v4": 0,
+    "v5": 219,
+    "expected": 219,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "pairwise.helpfulness",
+    "v4": 0,
+    "v5": 372,
+    "expected": 372,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "procedural.decisions",
+    "v4": 0,
+    "v5": 700,
+    "expected": 701,
+    "missing": 1,
+    "extra": 0,
+    "first_missing": [
+     "procedural.decisions-val:state_perturbation:train:5715::45b6146ac6890278"
+    ],
+    "passed": false
+   },
+   {
+    "split": "val",
+    "family": "qa.answer_span",
+    "v4": 5139,
+    "v5": 5139,
+    "expected": 5139,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "synth.general",
+    "v4": 0,
+    "v5": 512,
+    "expected": 512,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "typed.workflow",
+    "v4": 0,
+    "v5": 133,
+    "expected": 133,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "val",
+    "family": "vitaminc.nli",
+    "v4": 0,
+    "v5": 700,
+    "expected": 701,
+    "missing": 1,
+    "extra": 0,
+    "first_missing": [
+     "vitaminc.nli-val:5eeb7d3fc9e77c0008d204ac::175260c24c07862d"
+    ],
+    "passed": false
+   },
+   {
+    "split": "heldout",
+    "family": "arc.science",
+    "v4": 0,
+    "v5": 0,
+    "expected": 0,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "boolq.reading",
+    "v4": 0,
+    "v5": 0,
+    "expected": 0,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "code.defect_class",
+    "v4": 2182,
+    "v5": 2182,
+    "expected": 2182,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "decider.commands",
+    "v4": 0,
+    "v5": 0,
+    "expected": 0,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "decider.routing",
+    "v4": 0,
+    "v5": 0,
+    "expected": 0,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "intent.classification",
+    "v4": 1200,
+    "v5": 1262,
+    "expected": 1262,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "intent.domain",
+    "v4": 1200,
+    "v5": 1262,
+    "expected": 1262,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "intent.in_scope",
+    "v4": 1200,
+    "v5": 1262,
+    "expected": 1262,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "intent.within_domain",
+    "v4": 1200,
+    "v5": 1262,
+    "expected": 1262,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "openjev.evidence",
+    "v4": 0,
+    "v5": 0,
+    "expected": 0,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "openjev.game",
+    "v4": 0,
+    "v5": 0,
+    "expected": 0,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "openjev.nli",
+    "v4": 0,
+    "v5": 0,
+    "expected": 0,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "openjev.policy",
+    "v4": 0,
+    "v5": 0,
+    "expected": 0,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "openjev.routing",
+    "v4": 0,
+    "v5": 0,
+    "expected": 0,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "openjev.rubric",
+    "v4": 0,
+    "v5": 0,
+    "expected": 0,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "pairwise.helpfulness",
+    "v4": 0,
+    "v5": 0,
+    "expected": 0,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "procedural.decisions",
+    "v4": 0,
+    "v5": 0,
+    "expected": 0,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "qa.answer_span",
+    "v4": 6563,
+    "v5": 6563,
+    "expected": 6563,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "qa.answerability",
+    "v4": 24160,
+    "v5": 24160,
+    "expected": 24160,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "synth.general",
+    "v4": 0,
+    "v5": 0,
+    "expected": 0,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "typed.workflow",
+    "v4": 0,
+    "v5": 0,
+    "expected": 0,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   },
+   {
+    "split": "heldout",
+    "family": "vitaminc.nli",
+    "v4": 0,
+    "v5": 0,
+    "expected": 0,
+    "missing": 0,
+    "extra": 0,
+    "first_missing": [],
+    "passed": true
+   }
+  ]
+ }
+}

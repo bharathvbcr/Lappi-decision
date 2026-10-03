@@ -1,0 +1,406 @@
+{
+ "n_keys": 4063,
+ "by_family": {
+  "decider.commands": 571,
+  "procedural.decisions": 3491,
+  "boolq.reading": 1
+ },
+ "residual": [
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:081de6eb8122c77e::8939eca76af33303",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:016915f6d944b76f::bc9c7cc0069a814b|750697eb9bee51f7c19b2f2493e1e634"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:0a03c8b33b7e74d7::7d9b12d6f5a80216",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:016915f6d944b76f::bc9c7cc0069a814b|750697eb9bee51f7c19b2f2493e1e634",
+    "decider.commands-val:081de6eb8122c77e::8939eca76af33303|1a505f31eed8259402af5974d595a07f"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:23039f1adf9e7fe4::0707946d6240c997",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:016915f6d944b76f::bc9c7cc0069a814b|750697eb9bee51f7c19b2f2493e1e634",
+    "decider.commands-val:081de6eb8122c77e::8939eca76af33303|1a505f31eed8259402af5974d595a07f",
+    "decider.commands-val:0a03c8b33b7e74d7::7d9b12d6f5a80216|d420c16a5dd5d486539c0c3da2352e3e"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:2e658c88c63c39fd::94ec2ae67d29e646",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:016915f6d944b76f::bc9c7cc0069a814b|750697eb9bee51f7c19b2f2493e1e634",
+    "decider.commands-val:081de6eb8122c77e::8939eca76af33303|1a505f31eed8259402af5974d595a07f",
+    "decider.commands-val:0a03c8b33b7e74d7::7d9b12d6f5a80216|d420c16a5dd5d486539c0c3da2352e3e"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:4e3769b55925c261::1ab9134764883e8a",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:016915f6d944b76f::bc9c7cc0069a814b|750697eb9bee51f7c19b2f2493e1e634",
+    "decider.commands-val:081de6eb8122c77e::8939eca76af33303|1a505f31eed8259402af5974d595a07f",
+    "decider.commands-val:0a03c8b33b7e74d7::7d9b12d6f5a80216|d420c16a5dd5d486539c0c3da2352e3e"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:5f96ed83884499f2::1f4a9270bbc8e759",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:0798ba24c7274ad4::318902c40f4725ea|d935013a3c0e8292b54522e933172c5c"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:7cbea0c8640859ca::945d26a2f21ca443",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:11bac4aae5a2d476::fe0b487f50ef1c2e|2614ae0bc4d9f5dfdf66849f75a1525b"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:869e12012dcfd33f::dfce71538339f3c2",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:016915f6d944b76f::bc9c7cc0069a814b|750697eb9bee51f7c19b2f2493e1e634",
+    "decider.commands-val:081de6eb8122c77e::8939eca76af33303|1a505f31eed8259402af5974d595a07f",
+    "decider.commands-val:0a03c8b33b7e74d7::7d9b12d6f5a80216|d420c16a5dd5d486539c0c3da2352e3e"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:8b961080321c6caa::ac95857563d9ad63",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:098fdcc335d29376::978e65fdedb10f89|8586d02bfe9d5fbee41126ce35ffe63e"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:a1cd4b2e818c451c::fbea021a168d1a64",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:6690540190d74e93::5743abc7ba81b170|4660325454a1809760bdf583688df7de"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:aaf665593cdbbfb6::5e6a1f20b8e2bbdc",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:0798ba24c7274ad4::318902c40f4725ea|d935013a3c0e8292b54522e933172c5c",
+    "decider.commands-val:5f96ed83884499f2::1f4a9270bbc8e759|2df3932c45457d53808822473e7185bf"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:aea8ce86315f68fc::8ede8180ec047b50",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:0798ba24c7274ad4::318902c40f4725ea|d935013a3c0e8292b54522e933172c5c",
+    "decider.commands-val:5f96ed83884499f2::1f4a9270bbc8e759|2df3932c45457d53808822473e7185bf",
+    "decider.commands-val:aaf665593cdbbfb6::5e6a1f20b8e2bbdc|7b7f7bce23646ca742dd6d949e93e8f5"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:b12850e584f85b05::81c9473475151c72",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:6b0f2a7dd04eed4b::01c8cb3a297f99fb|abb2019fed900c5bec08313b19f412f1"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:b456be0da0d4cb4e::a8069a3833c96b02",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:098fdcc335d29376::978e65fdedb10f89|8586d02bfe9d5fbee41126ce35ffe63e",
+    "decider.commands-val:8b961080321c6caa::ac95857563d9ad63|5b016c0585e75aaf92586ff9bd133605"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:b6d0e433823ebc67::3c53f349d5088e85",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:098fdcc335d29376::978e65fdedb10f89|8586d02bfe9d5fbee41126ce35ffe63e",
+    "decider.commands-val:8b961080321c6caa::ac95857563d9ad63|5b016c0585e75aaf92586ff9bd133605",
+    "decider.commands-val:b456be0da0d4cb4e::a8069a3833c96b02|26a934df5276d360e50bb943f7ca66d1"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:b753ab3cc69abeb6::d4004e80d5f9d1d8",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:0798ba24c7274ad4::318902c40f4725ea|d935013a3c0e8292b54522e933172c5c",
+    "decider.commands-val:5f96ed83884499f2::1f4a9270bbc8e759|2df3932c45457d53808822473e7185bf",
+    "decider.commands-val:aaf665593cdbbfb6::5e6a1f20b8e2bbdc|7b7f7bce23646ca742dd6d949e93e8f5"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:db169e2cee75c37b::6b114a53750e13b0",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:6cdc755ed4386b23::410cc9481f7ac018|7ab6bfef09bfe6972e3b8453022cb326"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:e13a0af4d6de5dff::8d53ef412182eb74",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:5c058c6f9094bad3::023a7f8b9c57ae3b|f5e8a4f263f96e57f280f023e4ccb5f2"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:ed3d3eb2fdb1c7c3::600d6c3d11f4030c",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:073cd18476afa162::4743bc847484faec|07b8e422221ee786df6cae4b08912384"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:f2ce2c4736c3eff4::d49776a72a51f019",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:e0778e5f27e6c97e::79ab224f79059007|49c4a84d14fcfa1df23002d5b665e0ce"
+   ]
+  },
+  {
+   "family": "val/decider.commands",
+   "key": "decider.commands-val:f49873674e2fcfa0::0b733f407478426e",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "decider.commands-val:6b0f2a7dd04eed4b::01c8cb3a297f99fb|abb2019fed900c5bec08313b19f412f1",
+    "decider.commands-val:b12850e584f85b05::81c9473475151c72|ccddd983fbe3db251ed9a726ea03f947"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:evidence_sufficiency:train:2588::df46b1af8b9df32a",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:evidence_sufficiency:train:16879::03345aacc3661c98|bdb52b73bb861aae9be773334f5d1099"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:evidence_sufficiency:train:3884::b047183065f1d31b",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:evidence_sufficiency:train:16879::03345aacc3661c98|bdb52b73bb861aae9be773334f5d1099",
+    "procedural.decisions-val:evidence_sufficiency:train:2588::df46b1af8b9df32a|d76ae20c05657d2de4a09cd0873fbda2"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:evidence_sufficiency:train:5609::7aaa3002d368a0e7",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:evidence_sufficiency:train:16879::03345aacc3661c98|bdb52b73bb861aae9be773334f5d1099",
+    "procedural.decisions-val:evidence_sufficiency:train:2588::df46b1af8b9df32a|d76ae20c05657d2de4a09cd0873fbda2",
+    "procedural.decisions-val:evidence_sufficiency:train:3884::b047183065f1d31b|5f1fe92736cd6898196e72e319f63817"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:evidence_sufficiency:train:700::2f3522ce12d9b30f",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:evidence_sufficiency:train:16879::03345aacc3661c98|bdb52b73bb861aae9be773334f5d1099",
+    "procedural.decisions-val:evidence_sufficiency:train:2588::df46b1af8b9df32a|d76ae20c05657d2de4a09cd0873fbda2",
+    "procedural.decisions-val:evidence_sufficiency:train:3884::b047183065f1d31b|5f1fe92736cd6898196e72e319f63817"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:policy_applicability:train:11199::c51f2a71dc0d3d40",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:policy_applicability:train:11194::82e9c82d47db3055|c7bc5ad8fb845077fbe3f9ff32d48fc5"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:policy_applicability:train:11974::1d7b1bcaead5e2f4",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:policy_applicability:train:11194::82e9c82d47db3055|c7bc5ad8fb845077fbe3f9ff32d48fc5",
+    "procedural.decisions-val:policy_applicability:train:11199::c51f2a71dc0d3d40|02fe3df15021062592568490fb765737"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:policy_applicability:train:8913::ecb47bf3baa68a82",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:policy_applicability:train:11986::58bcb8d191dcce2b|38b6982ecd9a80f315c59751643afd59"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:policy_applicability:train:9033::ca1a0abca233064a",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:policy_applicability:train:11986::58bcb8d191dcce2b|38b6982ecd9a80f315c59751643afd59",
+    "procedural.decisions-val:policy_applicability:train:8913::ecb47bf3baa68a82|c2a172afbb8b1f12b14081ef87384b68"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:state_perturbation:train:11709::6a4bb2c6bbf13a4b",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:state_perturbation:train:106::c174314b280e00a4|e94c7de5a6266f0d3d7c46d520bb3984"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:state_perturbation:train:12794::40d62dbbca18b7a9",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:state_perturbation:train:1108::b71c377f460544bd|1cf6040dbae3106ee4e3678665a58858"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:state_perturbation:train:1579::1abde353a49b2516",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:state_perturbation:train:1108::b71c377f460544bd|1cf6040dbae3106ee4e3678665a58858",
+    "procedural.decisions-val:state_perturbation:train:12794::40d62dbbca18b7a9|8ad0afbad3ee28e1d0444434e5bb3b58"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:state_perturbation:train:3148::ed26896d02623904",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:state_perturbation:train:106::c174314b280e00a4|e94c7de5a6266f0d3d7c46d520bb3984",
+    "procedural.decisions-val:state_perturbation:train:11709::6a4bb2c6bbf13a4b|05c9693eb742a33914214f7127fbe957"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:state_perturbation:train:3353::04835ab777a80d55",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:state_perturbation:train:1108::b71c377f460544bd|1cf6040dbae3106ee4e3678665a58858",
+    "procedural.decisions-val:state_perturbation:train:12794::40d62dbbca18b7a9|8ad0afbad3ee28e1d0444434e5bb3b58",
+    "procedural.decisions-val:state_perturbation:train:1579::1abde353a49b2516|51e1a54720a8d167e3de867ee6771e0c"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:state_perturbation:train:5715::45b6146ac6890278",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:state_perturbation:train:1108::b71c377f460544bd|1cf6040dbae3106ee4e3678665a58858",
+    "procedural.decisions-val:state_perturbation:train:12794::40d62dbbca18b7a9|8ad0afbad3ee28e1d0444434e5bb3b58",
+    "procedural.decisions-val:state_perturbation:train:1579::1abde353a49b2516|51e1a54720a8d167e3de867ee6771e0c"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:state_perturbation:train:5863::8b7bd3719c312cac",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:state_perturbation:train:106::c174314b280e00a4|e94c7de5a6266f0d3d7c46d520bb3984",
+    "procedural.decisions-val:state_perturbation:train:11709::6a4bb2c6bbf13a4b|05c9693eb742a33914214f7127fbe957",
+    "procedural.decisions-val:state_perturbation:train:3148::ed26896d02623904|53bb04f7a0ea60748c915a313798cce8"
+   ]
+  },
+  {
+   "family": "val/procedural.decisions",
+   "key": "procedural.decisions-val:state_perturbation:train:9839::f7df0158464d9939",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "procedural.decisions-val:state_perturbation:train:1108::b71c377f460544bd|1cf6040dbae3106ee4e3678665a58858",
+    "procedural.decisions-val:state_perturbation:train:12794::40d62dbbca18b7a9|8ad0afbad3ee28e1d0444434e5bb3b58",
+    "procedural.decisions-val:state_perturbation:train:1579::1abde353a49b2516|51e1a54720a8d167e3de867ee6771e0c"
+   ]
+  },
+  {
+   "family": "val/vitaminc.nli",
+   "key": "vitaminc.nli-val:5eeb7d3fc9e77c0008d204ac::175260c24c07862d",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "vitaminc.nli-val:5eeb6e68c9e77c0008d1b17f::580a11b054280ca6|0e6ebc4d215977fb86a988de962da3ba"
+   ]
+  },
+  {
+   "family": "heldout/qa.answer_span",
+   "key": "squad-title:Bermuda::572950c96aef051400154cbd",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "squad-title:Bermuda::572950c96aef051400154cbc|020a81fb57e4c0a7331522ccfddc7456"
+   ]
+  },
+  {
+   "family": "heldout/qa.answer_span",
+   "key": "squad-title:Bermuda::572950c96aef051400154cbe",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "squad-title:Bermuda::572950c96aef051400154cbc|020a81fb57e4c0a7331522ccfddc7456",
+    "squad-title:Bermuda::572950c96aef051400154cbd|0bc3c7b3a450ce7190e9e30a2e185d0d"
+   ]
+  },
+  {
+   "family": "heldout/qa.answer_span",
+   "key": "squad-title:Bermuda::5ad419a1604f3c001a400471",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "squad-title:Bermuda::572950c96aef051400154cbc|020a81fb57e4c0a7331522ccfddc7456",
+    "squad-title:Bermuda::572950c96aef051400154cbd|0bc3c7b3a450ce7190e9e30a2e185d0d",
+    "squad-title:Bermuda::572950c96aef051400154cbe|7a3e7c393193f0dac2b9d76290f41e13"
+   ]
+  },
+  {
+   "family": "heldout/qa.answer_span",
+   "key": "squad-title:Bermuda::5ad419a1604f3c001a400472",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "squad-title:Bermuda::572950c96aef051400154cbc|020a81fb57e4c0a7331522ccfddc7456",
+    "squad-title:Bermuda::572950c96aef051400154cbd|0bc3c7b3a450ce7190e9e30a2e185d0d",
+    "squad-title:Bermuda::572950c96aef051400154cbe|7a3e7c393193f0dac2b9d76290f41e13"
+   ]
+  },
+  {
+   "family": "heldout/qa.answer_span",
+   "key": "squad-title:Bermuda::5ad419a1604f3c001a400473",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "squad-title:Bermuda::572950c96aef051400154cbc|020a81fb57e4c0a7331522ccfddc7456",
+    "squad-title:Bermuda::572950c96aef051400154cbd|0bc3c7b3a450ce7190e9e30a2e185d0d",
+    "squad-title:Bermuda::572950c96aef051400154cbe|7a3e7c393193f0dac2b9d76290f41e13"
+   ]
+  },
+  {
+   "family": "heldout/qa.answer_span",
+   "key": "squad-title:Bermuda::5ad419a1604f3c001a400474",
+   "why": "an eval unit sorts ahead of it in its component",
+   "ahead": [
+    "squad-title:Bermuda::572950c96aef051400154cbc|020a81fb57e4c0a7331522ccfddc7456",
+    "squad-title:Bermuda::572950c96aef051400154cbd|0bc3c7b3a450ce7190e9e30a2e185d0d",
+    "squad-title:Bermuda::572950c96aef051400154cbe|7a3e7c393193f0dac2b9d76290f41e13"
+   ]
+  }
+ ]
+}
