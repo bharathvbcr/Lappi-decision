@@ -78,6 +78,11 @@ On every v4 row:
 The ece reason recorded on b45406b5: 8,681 of 10,985 letter rows carry no language, so ece.lang
 cannot be computed.
 
+**Correction (added after the wiring checks).** The `degenerate_head` part of the list above is
+wrong, and ruling 2 below repeats the error. That control ran on every score-val eval row: seed 0
+passed it; ens5, avg and seeds 1–4 failed it. See the "Correction to the record" section of
+`promotion-decision-brief.md`, in this directory.
+
 docs/ledger-schema.md:261-292, Promotion: every gate must be `ran`, and every control `ran` and
 `passed`.
 

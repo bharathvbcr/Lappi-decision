@@ -30,6 +30,9 @@ Every number below is a ledger value. The rows used:
      (`docs/ledger-schema.md`, Promotion).
    - On every v4 row, `ece`, `privileged_hunk` and `transfer_gate` are `not_run`, and their
      definitions are open human items.
+   - `paired_margin_vs_linear` and `shuffled_label` also read `not_run` on these rows. Both are
+     agent-owned wiring rather than open human decisions, and both are wired for v5 (see
+     "Wiring checks" below).
    - This is the finalize blocker. The data question sits downstream of it.
 4. **No own-prose backfill is needed.** About 1,963 own-prose units remain after the human's
    strike, above the 1,500 floor.
@@ -169,11 +172,24 @@ nothing here is graph-confirmed.
 - Separately, this gate's opponent is disputed. The linear control recognises mutation operators
   rather than judging the change (GAP-THE-CONTROL-CLASSIFIES-BY-GENERATOR-NOT-BY-CHANGE).
 
+**`shuffled_label` is wired, and it is the seventh control the promotion check needs.** It reads
+`not_run` on seed 0, ens5 and avg because J5′ writes it on a separate row.
+- `_record_shuffled_label` writes that row with the target eval row's own protocol and
+  `eval_row_id` (`build/v5-build-wt/tools/real_ft_run.py:8852-8900`), so the row joins the
+  target's seed family and is merged with it at promotion.
+- On v5, `box_q_v5j5.sh` writes those rows into v5's own ledger (`--ledger "$V5_LEDGER"`, line 63).
+- The J5′ now running on the box does the same for F seeds 0–2.
+- No human decision is needed for this control. It passes or fails on J5′'s rows.
+
 **The calibrated-margin half of `ood_abstain` is not a lever.**
 - v5 does not apply it; the scoring path has no input for it (`tools/real_ft_run.py`).
 - The quick, in-sample calibration fits show a fitted margin would abstain on 4,454 of seed 0's
   10,985 val rows (row ab966074 in `ledger/gh200-calib-fit-2026-10-01.jsonl`). That is about nine
   times the 504 cap.
+- So the fitter's coverage target and the gate's in-distribution cap are incompatible as built.
+  That is a defect in what the fit optimises, and it must be reconciled with the gate before any
+  export ships a calibration table. The reconciliation touches a gate, so the human owns it. It
+  is recorded here and not fixed.
 
 **v5's three seeds form one promotable seed family.**
 - `protocol_hash` includes the seed. Promotion compares `Protocol.hash_without_seed()`
