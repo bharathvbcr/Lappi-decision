@@ -77,7 +77,11 @@ The ruling is `fable-improve-and-mac-inference-ruling.md`, beside this file. Que
   - The open rulings are Fable's, recorded with decided_by "the human, by delegation (...), ruled
     by Fable".
   - The cost ceiling on v5 ($137 projected) is lifted. Fable's rulings of 2026-10-03 under it:
-    - the full admitted decision-data set, still quality-capped;
+    - the full admitted decision-data set, with Open-Jev NLI (5,000) and procedural (4,000 per
+      stratum, 25 strata) capped for redundancy, not cost. Uncapped, procedural alone was 580k
+      rows and 376M tokens and would have put the defect family's token share at 38.9%; capped,
+      the set is 197,384 rows and 118.0M tokens at a 64.6% share (inferred), against a bound of
+      two-thirds of v4's 83.7%;
     - v5 main-arm seeds 3-4;
     - the calibration fit reopened as a CPU lane, with c = 2.
     The record is AUDIT/hallucination-2026-10-03/ and the v5 draft's amendments.
