@@ -1,0 +1,125 @@
+{
+  "draft": "NOT BINDING. The lead's draft of v6's caller-family lane, for Fable's review. The DRAFT suffix keeps it from binding: no checker, waiter or lane may read it as a rule. This file covers ONE v6 lane, the families the human's callers would call that no release trains. The other items already deferred to v6 are listed under other_v6_items and are not designed here, so that nobody writes a second v6 draft that drifts from this one.",
+  "recorded": "2026-10-03, before any v6 data build, label, count, code change or ledger row exists anywhere. Nothing was built, measured, downloaded or labelled for v6. Every number below is a v4/F reading cited by ledger row, or a line in a file at the commit this draft lands on.",
+  "decision": "The human asked (2026-10-03): 'Lappi should be a more specialized model, but also cover other decisions to be competitive with its peer, have more weightage towards my use cases.' Fable ruled that v5's cap table is unchanged, because weight is a ratio over rows that exist, and of the callers' decisions only DevCouncil's verdict (code.defect_class) has rows. The callers' untrained decisions go to v6 and are pre-registered now so a lane can start: DevCouncil relevance, GitPulse commit type, severity and DevType routing (the lead's message to the bench, 2026-10-03). code.commit_intent is added because GitPulse's 'does this draft message match the patch' is that family (train-plan C2) and it has had 0 rows in every release.",
+  "basis": {
+    "plan": "docs/train-plan-2026-09-28.md:114 at HEAD: 'A6. Add lane C families once A5 shows the 2B beats its control on the mutation task.' Lane C is specified at lines 183-221.",
+    "a6_reading": "Met on a REPORT-ONLY reading. code.defect_class paired margin vs the linear control, all 2,304 val choice rows, quick false: +0.3789 (95% CI +0.3585..+0.3997) seed 0, +0.3815 (+0.3607..+0.4028) seed 1, +0.3811 (+0.3607..+0.4019) seed 2. Rows d877d6bc-6b6d-4c67-ae80-d95aad464b22, 84510263-5c12-4f14-aad0-ad81c1831f6f, 27a263d5-e959-469c-aa6c-bc276643f17e in ledger/mac-linear-control-refit-2026-10-02.jsonl. They re-run the control under the fixed fitter for F's eval rows f4feac15-db49-4159-bb9b-695866c855cc, aeca8d69-4733-4593-92de-2073021ed684 and 8c3a774a-87d7-4452-a33b-49cc6fbd911e (GAP-LINEAR-CONTROL-RERUN-WOULD-DOUBLE-THE-SELECTED-ROW-2026-10-02).",
+    "what_a6_does_not_say": "F's rows of record keep paired_margin_vs_linear not_run, and no gate reads the refit rows (their own notes). A6 is a sequencing condition for starting lane C's data work, not a promotion. Nothing here promotes or blocks a release."
+  },
+  "callers_today": {
+    "integration": "No DevCouncil, DevType or GitPulse code sends Lappi a request (grep over the three repos; not graph-confirmed). See GAP-SCHEMA-API-DOC-REQUEST-IS-NOT-A-TRAINED-REQUEST-2026-10-03, impact.",
+    "query_logs": "No caller logs real queries: docs/train-plan-2026-09-28.md:265-266 at HEAD, still unverified. 'Use cases' in this file are the plan's and the callers' code, not measured traffic.",
+    "admission": "The runtime answers a task id that no release trains (GAP-RUNTIME-ADMITS-TASKS-NO-RELEASE-FAMILY-TRAINS-2026-10-03, the human's call). Until that is decided, a caller that asks any family below before v6 ships gets an answer from an untrained prompt."
+  },
+  "holdout_rule": {
+    "status": "Pre-committed here, before any own-repo data exists, because rule 3 can only be applied cleanly before it does.",
+    "repo_set": "Every git repository under /Users/bharath/Code whose origin remote's owner is bharathvbcr, excluding /Users/bharath/Code/research/external (third-party clones). The lane enumerates the set first, writes it with each repo's origin URL and HEAD sha to the build manifest, and only then reads any commit. All of these are the human's own repos, usable for training and eval (human decision 2026-09-28; licence owner-granted).",
+    "split": "A repo is held out iff int(sha256(lowercase('owner/name' from its origin URL)).hexdigest()[:8], 16) % 5 == 0, about 20% of repos. Every family below draws train and val only from the other repos. Held-out repos feed only held-out eval sets, built under data/heldout/ so qd-train's path check refuses them.",
+    "the_300_diffs": "The ship gate's 300 hand-labelled held-out diffs (README.md:106-107 at HEAD; they do not exist) are to be drawn only from held-out repos, so v6 training is disjoint from them by construction.",
+    "real_devtype_queries": "Real DevType queries are held-out eval data by the README (same lines). No v6 training row may come from one."
+  },
+  "families": [
+    {
+      "family_id": "code.relevance.file",
+      "caller": "DevCouncil (jevgrep-shaped relevance; train-plan:188-198)",
+      "decision": "does file F help answer query Q",
+      "slots": "choice yes/no, plus noul",
+      "labels_by_construction": "Commit history of the own-repo train set: the commit message is Q, files the commit touched are positives, files in the same repo at the parent commit that it did not touch are hard negatives.",
+      "held_out_eval": "Repo-disjoint: the same construction over held-out repos.",
+      "blockers": "None for the builder. Counts per repo are unmeasured."
+    },
+    {
+      "family_id": "code.relevance.range",
+      "caller": "DevCouncil",
+      "decision": "do lines a-b of F implement or test the behaviour in Q",
+      "slots": "span",
+      "labels_by_construction": "The touched hunks of the commit are the positive spans (train-plan:193).",
+      "held_out_eval": "Repo-disjoint, as above.",
+      "blockers": "None for the builder."
+    },
+    {
+      "family_id": "code.file_role",
+      "caller": "DevCouncil",
+      "decision": "implementation / caller / test / fixture / helper",
+      "slots": "choice k5, plus noul",
+      "labels_by_construction": "DevMap graph edges (callers, tests-of) plus paths (train-plan:194).",
+      "held_out_eval": "Repo-disjoint, as above.",
+      "blockers": "Needs a built, healthy DevMap index for each source repo. Index availability per source repo is unmeasured."
+    },
+    {
+      "family_id": "gitpulse.commit_type",
+      "caller": "GitPulse (train-plan:205-215; GitPulse keeps its deterministic path and asks Lappi only on ambiguous classifications)",
+      "decision": "the conventional-commit type, one of GitPulse's 11 KNOWN_TYPES (/Users/bharath/Code/devtools/GitPulse/src-tauri/src/ai/commit_brief.rs:40)",
+      "slots": "choice k11, plus noul",
+      "labels_by_construction": "Own-repo commits whose subject already carries a conventional prefix: the prefix is the label. The diff is the context; the message is not shown.",
+      "held_out_eval": "Repo-disjoint, as above.",
+      "blockers": "How many own-repo commits carry a conventional prefix is unmeasured. commitpackft is too sparse for it: 687 of 69,893 raw messages carry a prefix (train-plan:217)."
+    },
+    {
+      "family_id": "gitpulse.commit_scope_breaking",
+      "caller": "GitPulse",
+      "decision": "scope (choice over the patch's candidate directories) and breaking change (yes/no)",
+      "slots": "two choice slots, plus noul",
+      "labels_by_construction": "The conventional prefix's (scope) and '!' or a BREAKING CHANGE footer, on the same commits as commit_type.",
+      "held_out_eval": "Repo-disjoint, as above.",
+      "blockers": "As commit_type. The headline-change span (train-plan:214) has no by-construction label and is not in this family."
+    },
+    {
+      "family_id": "code.commit_intent",
+      "caller": "GitPulse ('does this draft message match the patch', train-plan:215)",
+      "decision": "Does the diff implement what the commit message claims? (python/qd_data/sources.py:458-463, already defined)",
+      "slots": "choice yes/no, plus noul",
+      "labels_by_construction": "Positive: a commit's diff with its own message. Negative: the same diff with the message of another commit in the same repo.",
+      "held_out_eval": "Repo-disjoint, as above.",
+      "blockers": "0 rows in v4 because v4 passed no --commitpackft raw and set no repo history. v6 builds it from own-repo history, so no download is needed. The location of the 69,893-message commitpackft raw is unverified; /Users/bharath/qd-campaign/commitpackft-g6-2026-10-02 holds the G6 language subsets only."
+    }
+  ],
+  "open_for_fable": {
+    "status": "These have no label source or no reading yet, so they are questions, not families. Each lists the options for Fable to rule on.",
+    "severity": {
+      "caller": "DevCouncil's severity, a score slot with 5 bins",
+      "fact": "No release trains a score slot, and the score-slot loss is itself a v6 item (other_v6_items).",
+      "options": [
+        "(a) Teacher-labelled bins from the local 27B MLX teacher over own-repo and qd-mutate diffs, trained as soft labels. This needs the v6 score-slot loss and a teacher-agreement filter.",
+        "(b) A fixed table from qd-mutate's mutation class/operator to a bin. This adds no information beyond code.defect_class, which DevCouncil could map itself.",
+        "(c) Defer past v6. DevCouncil derives severity from defect_class until real labelled severities exist."
+      ]
+    },
+    "devtype.route": {
+      "caller": "DevType's palette routing to resolveDate / runMacro / findSnippet. Today this runs on Apple's on-device model (/Users/bharath/Code/apps/DevType/Sources/ExpanderEngine/AI/PaletteToolRouter.swift:7-10).",
+      "fact": "No family trains it. It is not a task-holdout family (those are code.language_id and qa.answerability, crates/qd-train/src/held_out.rs:50-51). Real DevType queries are held-out eval data (holdout_rule) and none exist.",
+      "options": [
+        "(a) Synthetic queries built by construction from DevType's own vocabulary (its snippet and macro names, and the date phrases its resolver accepts), with gold = the tool that resolves the query, plus a none/noul option. Real queries judge it once they exist.",
+        "(b) Proxy only: decider's routing data, already admitted in v5, with no DevType-specific family.",
+        "(c) Defer until DevType logs queries."
+      ]
+    },
+    "promotion": "Whether any caller family ever promotes or blocks a release is the human's record (docs/promotion-decisions.json, promotion_population; a human edits it). This draft makes every family report-only.",
+    "defect_share_bound": "Whether v5's dilution bound carries to v6 as is: code.defect_class's effective token share at least two-thirds of v4's 83.7%, so at least 55.8%.",
+    "holdout_fraction": "Whether 1 in 5 repos is the right held-out fraction, given that the own-repo set is a few dozen repos by directory count (not yet enumerated)."
+  },
+  "readings": {
+    "status": "Report-only. No threshold is set here (rule 2). Fable or the human may amend before v6's first ft row.",
+    "R1_family_margin": "Per family, the paired margin vs a linear control fitted on that family's train rows, over all of its val rows, on 3 seeds, in the refit fitter's schedule.",
+    "R2_heldout": "Per family, accuracy and abstention on its repo-disjoint held-out set, from held-out repos only.",
+    "R3_defect_non_regression": "code.defect_class's paired margin vs linear and its rows of record, against v5's on the same seeds.",
+    "R4_selective_risk": "selective_risk.family.{f}.p_top_ge_{tau} for each new family over the existing grid (0.5, 0.7, 0.9, 0.99)."
+  },
+  "build_order": [
+    "0. Fable reviews this draft; the review is applied by commit, and the file is renamed to campaign/v6-preregistered.json on main.",
+    "1. [lane, no human needed] Enumerate the own-repo set and apply the holdout rule; write the manifest (repo, origin URL, HEAD sha, split) before reading any commit.",
+    "2. [lane, no human needed] A qd-prep subcommand in Rust builds code.relevance.file, code.relevance.range, gitpulse.commit_type, gitpulse.commit_scope_breaking and code.commit_intent rows by construction. It reads history through the git CLI (a git library crate would be a new dependency and needs a yes), and has fixtures and tests. It runs under tools/mac_heavy.sh with cargo -j 2.",
+    "3. [lane, no human needed] Count rows per family and per repo; measure DevMap index availability per source repo for code.file_role.",
+    "4. [human or Fable] Rulings on open_for_fable. [Human] Any download (for example SWE-bench train for C1, if its licence clears). Teacher labelling for severity option (a) is a heavy Mac job under the one-at-a-time rule.",
+    "5. [human yes] Any GPU run: wall-clock cap, auto-terminate and a cost estimate (rule 4)."
+  ],
+  "other_v6_items": [
+    "Soft-label loss, score slots, the exact expected-reward loss arm, a p_top runtime rule and self-labelled abstention: AUDIT/fable-optimize-2026-10-02/human-decisions.md:98-101, AUDIT/hallucination-2026-10-03/README.md:96-100, AUDIT/finalize-2026-10-03/report-to-human-2026-10-03.md:75.",
+    "A clean Decision Index entry: CLINC test items are Lappi training data (GAP-DECISION-INDEX-PANEL-CLINC-AND-MMLU-TEST-ITEMS-ARE-LAPPI-TRAINING-DATA-2026-10-03).",
+    "The procedural cap readout: per-stratum val accuracy in v5 decides whether v6 lowers or raises the 4,000-per-stratum cap (bench patch notes)."
+  ],
+  "binds_iff": "After Fable's review is applied and the file is renamed to campaign/v6-preregistered.json on main, before the written_at of the first v6 data-build manifest and before any v6 ft row. A rule is never applied to a row that already existed.",
+  "committed_by": "the lead (session 'Model 2b LAPI training plan'), on main, 2026-10-03, for Fable's review. Not pushed.",
+  "amendments_pending": []
+}
