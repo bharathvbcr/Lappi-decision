@@ -39,9 +39,9 @@ strike = (
 )
 form_measured = (
     "lane L-v5-data (HANDOFF/v5-data-2026-10-02.md section 2): the walker reads a wrapped sentence "
-    "whole and refuses markup fragments, non-sentence starts and unbalanced quotes, so the question "
-    "form measured 197 units before the strike (1,953 paragraphs), not the planning inventory's "
-    "~599; the counts after the strike and after exclusions are filled at build time "
+    "whole and refuses markup fragments, non-sentence starts and unbalanced quotes, so the "
+    "question form measured 197 units before the strike (1,953 paragraphs), not the planning "
+    "inventory's ~599; the counts after the strike and after exclusions are filled at build time "
     "(amendments_pending); the 1,500 floor on the route is unchanged"
 )
 text = text.replace(

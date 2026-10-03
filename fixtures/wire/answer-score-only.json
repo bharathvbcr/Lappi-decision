@@ -5,11 +5,12 @@
   "degraded": true,
   "slots": {
     "severity": {
-      "value": 2,
+      "value": 1,
       "conformal_set": [
-        2
+        1,
+        5
       ],
-      "score": 0.465703800288614,
+      "score": 0.5984734296209133,
       "noul": false,
       "degraded": true
     }

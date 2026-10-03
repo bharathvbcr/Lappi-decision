@@ -14,6 +14,7 @@ Three things, each of which the first real build over the 50,177-row corpus hit:
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -221,3 +222,25 @@ def test_the_census_refuses_a_row_over_max_seq_len_whole_as_the_writer_does() ->
     # Its ids were still recorded: the writer encodes before it can measure, so the remap
     # must cover them.
     assert long_row.row_id in capped.id_rows
+
+
+def test_composed_length_bins_name_the_1k_they_hold_past_8k() -> None:
+    """v5's band runs real to ~10k: a 9.5k row is the 9-10k bin, not a capped 8-9k one, and a
+    row over the width is its own bin, written under neither policy."""
+    entries = [
+        (7_999, 9, True, True),
+        (8_500, 12, True, True),
+        (9_500, 20, True, False),
+        (10_300, 30, False, False),
+    ]
+    survival = pipeline.composed_span_survival(entries, by="length", policy="refuse-gold")
+    assert isinstance(survival, pipeline.Ran)
+    bins = json.loads(survival.detail)["bins"]
+    assert {k: v["rows"] for k, v in bins.items()} == {
+        "07000-07999": 1,
+        "08000-08999": 1,
+        "09000-09999": 1,
+        "10000-10999": 1,
+    }
+    assert bins["10000-10999"]["written"] == 0
+    assert bins["09000-09999"]["written_refuse_any"] == 0

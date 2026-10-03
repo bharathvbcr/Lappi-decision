@@ -15,13 +15,16 @@
 //! - `qd-prep containment --input IN --out-dir DIR`: a `QDPCTIN1` request (see
 //!   `qd_prep::containment`) -> `DIR/{pairs.tsv, exclusions.txt, attestation.json}`, the
 //!   complete word n-gram containment pair list `qd_train.replay.decontaminate` defines.
+//! - `qd-prep decisions --config C --fetch-record R --decider-dir D --target NAME=FILE ...
+//!   --out-dir DIR [--survey]`: the v5 general-decision pool (see `qd_prep::decisions`) ->
+//!   `DIR/{examples.jsonl, manifest.json, containment/}`, or `texts.jsonl` with `--survey`.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use qd_prep::{containment, linwire, lsh, wire};
+use qd_prep::{containment, decisions, linwire, lsh, wire};
 
 /// Threads are bounded whatever the host reports.
 const MAX_THREADS: usize = 256;
@@ -64,6 +67,114 @@ enum Command {
     /// Word n-gram containment with the complete pair list, as qd_train.replay.decontaminate
     /// defines it; writes pairs.tsv, exclusions.txt and attestation.json into --out-dir.
     Containment(DirIo),
+    /// The v5 general-decision pool: six typed-decision sources, decontaminated against the
+    /// external targets, split by group and capped by one table.
+    Decisions(DecisionsIo),
+    /// The decision pool's cap refresh between two surveys: every all-admitted stratum's cap
+    /// becomes its new train availability, the rest are kept (`decisions::refresh_train_caps`).
+    DecisionCaps(DecisionCapsIo),
+}
+
+/// `qd-prep decision-caps`' inputs.
+#[derive(clap::Args, Debug)]
+struct DecisionCapsIo {
+    /// The allocation config whose `train_caps` are refreshed (read, never written).
+    #[arg(long)]
+    config: PathBuf,
+    /// The `--survey` manifest the current caps were set from.
+    #[arg(long)]
+    before: PathBuf,
+    /// The `--survey` manifest of the new inputs.
+    #[arg(long)]
+    after: PathBuf,
+    /// Where to write `{"train_caps", "moved", inputs' sha256}`; refused if it exists.
+    #[arg(long)]
+    output: PathBuf,
+}
+
+/// `qd-prep decision-caps`: the config and two surveys in, the refreshed caps out.
+fn run_decision_caps(io: &DecisionCapsIo) -> Result<String, String> {
+    if io.output.exists() {
+        return Err(format!("{} exists; refusing to overwrite it", io.output.display()));
+    }
+    let read = |p: &PathBuf| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
+    let (config, before, after) = (read(&io.config)?, read(&io.before)?, read(&io.after)?);
+    let cfg = decisions::Config::parse(&config)?;
+    let (caps, moved) = decisions::refresh_train_caps(
+        &cfg.train_caps,
+        &decisions::survey_train_availability(&before)?,
+        &decisions::survey_train_availability(&after)?,
+    )?;
+    let sha = qd_prep::sha256::sha256_hex;
+    let out = serde_json::json!({
+        "schema": "qd-decision-caps/v1",
+        "config_sha256": sha(&config), "before_sha256": sha(&before), "after_sha256": sha(&after),
+        "train_caps": caps,
+        "moved": moved.iter().map(|(s, a, b)| serde_json::json!({"stratum": s, "from": a, "to": b}))
+            .collect::<Vec<_>>(),
+    });
+    let mut bytes = serde_json::to_vec_pretty(&out).map_err(|e| e.to_string())?;
+    bytes.push(b'\n');
+    std::fs::write(&io.output, bytes).map_err(|e| format!("{}: {e}", io.output.display()))?;
+    Ok(format!("{} cap(s) moved -> {}", moved.len(), io.output.display()))
+}
+
+/// `qd-prep decisions`' inputs: the policy (config) and the pinned data it names.
+#[derive(clap::Args, Debug)]
+struct DecisionsIo {
+    /// The allocation config (`data/decisions/*.json`, schema qd-decisions-config/v1).
+    #[arg(long)]
+    config: PathBuf,
+    /// The fetch record naming every downloaded source file and its sha256.
+    #[arg(long)]
+    fetch_record: PathBuf,
+    /// decider's `teacher_data` directory.
+    #[arg(long)]
+    decider_dir: PathBuf,
+    /// A decontamination target set, `NAME=FILE` of `{"id", "text"}` JSONL; repeat per set.
+    #[arg(long = "target", value_parser = parse_target)]
+    targets: Vec<(String, PathBuf)>,
+    /// The directory to create; refused if it, or DIR.partial, exists.
+    #[arg(long)]
+    out_dir: PathBuf,
+    /// Write every surviving candidate's text for token counting instead of the pool.
+    #[arg(long)]
+    survey: bool,
+    /// Worker threads for the containment scan; default every core, at most 256.
+    #[arg(long)]
+    threads: Option<usize>,
+}
+
+fn parse_target(s: &str) -> Result<(String, PathBuf), String> {
+    match s.split_once('=') {
+        Some((name, path)) if !name.is_empty() && !path.is_empty() => {
+            Ok((name.to_owned(), PathBuf::from(path)))
+        }
+        _ => Err(format!("{s:?} is not NAME=FILE")),
+    }
+}
+
+/// `qd-prep decisions`: the sources in, the pool directory out.
+fn run_decisions(io: &DecisionsIo) -> Result<String, String> {
+    if io.out_dir.exists() {
+        return Err(format!("{} exists; refusing to overwrite it", io.out_dir.display()));
+    }
+    let threads = match io.threads {
+        Some(0) => return Err("--threads 0 would do nothing".to_string()),
+        Some(n) => n,
+        None => std::thread::available_parallelism().map(usize::from).unwrap_or(1),
+    }
+    .min(MAX_THREADS);
+    let inputs = decisions::Inputs {
+        config: io.config.clone(),
+        fetch_record: io.fetch_record.clone(),
+        decider_dir: io.decider_dir.clone(),
+        targets: io.targets.clone(),
+        survey: io.survey,
+    };
+    let built = decisions::run(&inputs, threads)?;
+    decisions::write_out(&io.out_dir, &built)?;
+    Ok(format!("{} on {threads} thread(s) -> {}", built.summary, io.out_dir.display()))
 }
 
 /// The arguments of a subcommand whose answer is a directory of files.
@@ -185,6 +296,8 @@ fn main() -> ExitCode {
         Command::Linfit(io) => run(io, linwire::MAX_INPUT_BYTES, linwire::run_linfit),
         Command::Lsh(io) => run(io, lsh::MAX_INPUT_BYTES, lsh::run_lsh),
         Command::Containment(io) => run_containment(io),
+        Command::Decisions(io) => run_decisions(io),
+        Command::DecisionCaps(io) => run_decision_caps(io),
     };
     match result {
         Ok(line) => {

@@ -454,6 +454,25 @@ def _target(corpus: Corpus) -> tuple[LedgerRow, LedgerRow]:
     return evals[0], fts[0]
 
 
+def test_the_score_row_carries_a_class_share_beside_every_slot_shape(corpus: Corpus) -> None:
+    """Written by the real --score-val path: what the verdict reads under a share-only
+    degenerate_head_floor (qd_train.ledger DEGENERATE_SHARE_ONLY). A row without it reads
+    not_run under that rule, so every shape needs one, a failing shape included."""
+    target_eval, _ = _target(corpus)
+    shapes = [k for k in target_eval.metrics
+              if k.startswith("degenerate_head.choice.") and k.count(".") == 2]
+    assert shapes, sorted(target_eval.metrics)
+    for key in shapes:
+        share = target_eval.metrics.get(f"{key}.top_class_share")
+        assert isinstance(share, Ran), (key, share)
+        assert isinstance(share.value, float) and 0.0 < share.value <= 1.0
+        assert share.passed == (share.value <= 0.95)
+        assert share.n is not None and share.n_total is not None and share.n <= share.n_total
+        head = target_eval.metrics[key]
+        if isinstance(head, Ran):
+            assert share.n_total == head.n_total, (key, share, head)
+
+
 def _copy_ledger(corpus: Corpus, tmp_path: Path) -> Path:
     path = tmp_path / "ledger.jsonl"
     shutil.copyfile(corpus.ledger, path)
@@ -655,3 +674,92 @@ def test_two_seeds_in_one_invocation_each_train_with_no_inherited_permutation(
     assert sorted(r.protocol.seed for r in evals) == [0, 1]
     # Not run on the stand-in (no tokenizer.json), but each seed's row states its own.
     assert all("permutation_consistency" in r.gates for r in evals)
+
+
+# --- the whole-plan evaluation after training ------------------------------------------------
+
+
+def test_the_epoch_arm_never_runs_the_whole_plan_evaluation(
+    corpus: Corpus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The epoch arm (every F, v5, J5' and noul-weight run) records no floor metric, so the
+    no-grad pass over its whole train plan fed only the stdout report. On F it took about 57 min
+    of a 5 h 55 min seed (GAP-EPOCH-ARM-EVALUATES-THE-WHOLE-TRAIN-PLAN-FOR-NO-ROW-2026-10-03).
+    The arm must still write its ft and eval rows, and its report must say the pass did not
+    run rather than drop the key."""
+
+    def refuse(*args: object, **kwargs: object) -> dict[str, object]:
+        raise AssertionError("the epoch arm ran _evaluate, which no row of it records")
+
+    _patch(monkeypatch, (corpus.train, corpus.val))
+    monkeypatch.setattr(rft, "_evaluate", refuse)
+    ledger = tmp_path / "no-plan-eval.jsonl"
+    rft.main(_argv(corpus, ledger))
+
+    kinds = sorted(r.run_kind for r in Ledger(ledger).rows())
+    assert kinds == ["eval", "ft"]
+    assert f'"not_run": "{rft.PLAN_EVALUATION_NOT_RUN}"' in capsys.readouterr().out
+
+
+def test_skipping_the_whole_plan_evaluation_moves_no_hash_and_no_measurement(
+    corpus: Corpus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pre-change epoch arm, re-created by forcing the pass back on, against the fixture's
+    own epoch run of the same corpus and seed, which skips it. Both must have the same
+    protocols, and every gate, control and metric on the eval row must read the same state and
+    value: the scoring that follows the pass does not depend on it."""
+    original = rft._train
+
+    def with_the_pass(**kwargs: object) -> dict[str, object]:
+        return original(**{**kwargs, "evaluate_plan": True})
+
+    _patch(monkeypatch, (corpus.train, corpus.val))
+    monkeypatch.setattr(rft, "_train", with_the_pass)
+    ledger = tmp_path / "with-the-pass.jsonl"
+    rft.main(_argv(corpus, ledger))
+    target_eval, target_ft = _target(corpus)
+    rows = Ledger(ledger).rows()
+    (again_eval,) = [r for r in rows if r.run_kind == "eval"]
+    (again_ft,) = [r for r in rows if r.run_kind == "ft"]
+    assert again_ft.protocol.hash() == target_ft.protocol.hash()
+    assert again_eval.protocol.hash() == target_eval.protocol.hash()
+
+    # Identity, not measurement: each eval row names its own run's ft row.
+    link = "ft_run_row_id"
+    assert again_eval.metrics[link].to_json()["value"] == again_ft.row_id
+    assert target_eval.metrics[link].to_json()["value"] == target_ft.row_id
+
+    def measured(row: LedgerRow) -> dict[str, object]:
+        return {
+            f"{part}.{name}": (state.to_json().get("state"), state.to_json().get("value"))
+            for part, states in (("gate", row.gates), ("control", row.controls),
+                                 ("metric", row.metrics))
+            for name, state in states.items()
+            if (part, name) != ("metric", link)
+        }
+
+    assert measured(again_eval) == measured(target_eval)
+
+
+def test_the_memorise_arm_still_runs_the_whole_plan_evaluation(
+    corpus: Corpus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The memorise arm's verdict row records letter_loss_reached_its_floor and
+    span_loss_reached_its_floor from that pass, so it must still run there."""
+    calls: list[int] = []
+    original = rft._evaluate
+
+    def counted(*args: object, **kwargs: object) -> dict[str, object]:
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    _patch(monkeypatch, (corpus.train, corpus.val))
+    monkeypatch.setattr(rft, "_evaluate", counted)
+    ledger = tmp_path / "memorise.jsonl"
+    rft.main(["--out", str(corpus.out), "--rev", REV, "--devices", "cpu", "--seeds", "0",
+              "--ledger", str(ledger)])
+
+    assert calls, "the memorise arm did not evaluate its plan"
+    floors = [r for r in Ledger(ledger).rows() if "letter_loss_reached_its_floor" in r.metrics]
+    assert floors, "no row recorded the memorise arm's floor metric"

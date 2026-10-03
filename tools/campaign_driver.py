@@ -663,9 +663,12 @@ def durable_verified(cfg: Config, seq: int) -> tuple[bool, str]:
 
 
 def _cmdline(pid: int) -> str:
+    """The whole command line. ``-ww``: Linux procps cuts ``ps -o command=`` at 80 columns when
+    stdout is a pipe (macOS never does), which hid ``campaign_driver.py`` past column 80 and let
+    a second finalizer run beside a live one (the H100 box suite at 8e6a009, 2026-10-03)."""
     try:
-        return subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True,
-                              text=True, timeout=10, check=False).stdout
+        return subprocess.run(["ps", "-ww", "-o", "command=", "-p", str(pid)],
+                              capture_output=True, text=True, timeout=10, check=False).stdout
     except (OSError, subprocess.TimeoutExpired):
         return ""
 

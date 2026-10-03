@@ -180,7 +180,8 @@ def test_train_refuses_the_no_mask_switch_on_the_stand_in():
         rft._train(
             reader=None, plan=[SimpleNamespace(tokens=np.zeros((1, 4), dtype=np.int32))],
             passes=1, device="cpu", seed=0, hidden=8, heads=1, lr=1e-3, span_weight=1.0,
-            ledger=None, tag="t", quick_reasons=(), train_attention_mask="none",
+            ledger=None, tag="t", quick_reasons=(), evaluate_plan=False,
+            train_attention_mask="none",
         )
 
 
@@ -346,9 +347,9 @@ class _Stop(Exception):
     pass
 
 
-def test_main_trains_on_exactly_what_ft_split_rows_returns(tmp_path, monkeypatch):
-    """A spy on ``ft_split_rows`` and a tripwire on ``_labels``: whatever main hands the
-    labeller must be the train rows ``ft_split_rows`` returned, by identity."""
+def _spy_main(tmp_path, monkeypatch, *extra: str) -> tuple[list[dict], object, object]:
+    """``main`` with a spy on ``ft_split_rows`` and a tripwire on ``_labels``: the kwargs the
+    rebuild was called with, the rows the labeller was handed, and the train rows returned."""
     sentinel_train, sentinel_val = [object()], [object()]
     calls: list[dict] = []
 
@@ -374,14 +375,32 @@ def test_main_trains_on_exactly_what_ft_split_rows_returns(tmp_path, monkeypatch
     monkeypatch.setattr(rft, "check_defect_source", lambda out, *, defect_class: None)
     monkeypatch.setattr(rft, "corpus_facts", lambda out, **kw: None)
     with pytest.raises(_Stop) as got:
-        rft.main(["--out", str(tmp_path), "--max-pairs", "7", "--rev", rev])
-    assert got.value.args[0] is sentinel_train
-    assert calls == [{"commitpackft": None, "max_pairs": 7, "rev": rev,
+        rft.main(["--out", str(tmp_path), "--max-pairs", "7", "--rev", rev, *extra])
+    return calls, got.value.args[0], sentinel_train
+
+
+def test_main_trains_on_exactly_what_ft_split_rows_returns(tmp_path, monkeypatch):
+    """Whatever main hands the labeller must be the train rows ``ft_split_rows`` returned, by
+    identity, and the rebuild is called with exactly these arguments."""
+    calls, labelled, train = _spy_main(tmp_path, monkeypatch)
+    assert labelled is train
+    assert calls == [{"commitpackft": None, "max_pairs": 7, "rev": "a" * 40,
                       "config": calls[0]["config"], "defect_class": None,
                       "defect_download": None, "defect_max_rows": None,
                       "repo_history": True, "general_record": None,
                       "general_max_rows": None, "replay_partition": False,
-                      "defect_noul": None, "exclude_identity_keys": None}]
+                      "defect_noul": None, "exclude_identity_keys": None,
+                      "decisions_pool": None, "pre_dedupe_drops": None}]
+
+
+def test_main_hands_its_drop_list_to_ft_split_rows(tmp_path, monkeypatch):
+    """``--drop-before-dedupe`` reaches the rebuild. A trainer that dropped it would dedupe and
+    split a corpus other than the one the pipeline built (the v5 rebuild, 8e6a009)."""
+    drops = tmp_path / "drops.txt"
+    drops.write_text("some-repo:1|" + "0" * 64 + "\n", encoding="utf-8")
+    calls, labelled, train = _spy_main(tmp_path, monkeypatch, "--drop-before-dedupe", str(drops))
+    assert labelled is train
+    assert [c["pre_dedupe_drops"] for c in calls] == [drops]
 
 
 @pytest.mark.usefixtures("qd_prep")

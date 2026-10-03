@@ -27,8 +27,12 @@ pub const INPUT_MAGIC: &[u8; 8] = b"QDPMHIN1";
 pub const OUTPUT_MAGIC: &[u8; 8] = b"QDPMHOK1";
 /// More permutations than this is not a configuration `DataConfig` would accept (it uses 128).
 pub const MAX_NUM_PERM: u32 = 4096;
-/// An input past this is not a corpus this tool was built for (the phase-3 one is ~60 MB).
-pub const MAX_INPUT_BYTES: u64 = 4 << 30;
+/// An input past this is not a corpus this tool was built for. It was 4 GiB, sized to the
+/// phase-3 corpus (~60 MB); the v5 containment scan's request was 4,534,193,280 bytes
+/// (2026-10-03: the shingles travel as bytes, ~5x the text). 16 GiB is ~3.8x that. It stays
+/// under linwire's 32 GiB, which its own test requires (`the_bound_admits_the_measured_mixture_
+/// request`: linwire keeps a bound of its own, above this one, since J1's refusal at this one).
+pub const MAX_INPUT_BYTES: u64 = 16 << 30;
 /// Documents per call; the phase-3 corpus has ~50 thousand distinct shingle sets.
 pub const MAX_DOCS: u64 = 1 << 24;
 

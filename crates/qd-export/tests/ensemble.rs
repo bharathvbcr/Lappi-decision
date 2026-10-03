@@ -32,6 +32,9 @@ use serde_json::{Value, json};
 
 const WIDTH: u64 = 1105;
 const SOURCE: &str = "test: the width the members were trained at";
+/// The prompt format a v5 checkpoint's source manifest states, and the one this runtime serves.
+/// Written as the wire number, not `render::PROMPT_FORMAT`, so the file pins the contract.
+const V5_PROMPT_FORMAT: u64 = 2;
 
 /// The ensemble's table, fitted on the mean decode; not the reference table.
 fn ensemble_table() -> CalibrationTable {
@@ -53,11 +56,24 @@ fn ensemble_table() -> CalibrationTable {
 }
 
 /// One seed's release: the standard fixture with one tower tensor regenerated from `seed`, so
-/// every member is a different tower under one config and tokenizer.
+/// every member is a different tower under one config and tokenizer. Its source manifest states
+/// prompt format 2, and the export is checked to have stamped exactly that.
 fn member_release(
     seed: u64,
     config: &Value,
     tokenizer_suffix: &str,
+) -> (common::Fixture, ExportSummary) {
+    member_release_of_format(seed, config, tokenizer_suffix, Some(V5_PROMPT_FORMAT))
+}
+
+/// [`member_release`] from a source manifest stating `prompt_format` (none when `None`, as
+/// every checkpoint averaged before the format existed). The release is stamped with the
+/// source's format, absent = 1.
+fn member_release_of_format(
+    seed: u64,
+    config: &Value,
+    tokenizer_suffix: &str,
+    prompt_format: Option<u64>,
 ) -> (common::Fixture, ExportSummary) {
     let mut tensors = common::standard_tensors();
     let (name, shape) = tensors
@@ -66,12 +82,24 @@ fn member_release(
         .map(|(name, t)| (name.clone(), t.shape.clone()))
         .expect("the standard fixture has a layernorm");
     tensors.insert(name, common::bf16_tensor(&shape, 7000 + seed));
-    let fx = common::build(&tensors, config, |_| {});
+    let fx = common::build(&tensors, config, |m| {
+        if let Some(format) = prompt_format {
+            m["prompt_format"] = json!(format);
+        }
+    });
     if !tokenizer_suffix.is_empty() {
         let tokenizer = common::tiny_tokenizer_json() + tokenizer_suffix;
         std::fs::write(fx.snapshot.join("tokenizer.json"), tokenizer).unwrap();
     }
     let summary = export(&fx.request()).expect("a member release exports");
+    let manifest: Value =
+        serde_json::from_slice(&std::fs::read(fx.out.join(MANIFEST_FILE)).unwrap()).unwrap();
+    assert_eq!(manifest["format"], json!("qd-release.v2"));
+    assert_eq!(
+        manifest["expected_identity"]["prompt_format"],
+        json!(prompt_format.unwrap_or(1)),
+        "the member is stamped with its source's prompt format, absent = 1"
+    );
     (fx, summary)
 }
 
@@ -177,6 +205,56 @@ fn three_seeds_write_an_ensemble_the_runtime_reader_opens() {
         manifest["expected_identity"]["trained_width"],
         Value::from(WIDTH)
     );
+    // Stamped from the members' own releases, which the writer opened.
+    assert_eq!(
+        manifest["expected_identity"]["prompt_format"],
+        json!(V5_PROMPT_FORMAT)
+    );
+}
+
+// -- the prompt format ---------------------------------------------------------------------------
+
+/// Members exported from v4 checkpoints (source manifests that state no format, so stamped 1) do
+/// not open under this runtime, so the writer refuses them rather than writing an ensemble the
+/// runtime would then refuse -- or, worse, one that served format-2 prompts to v4 towers.
+#[test]
+fn members_exported_from_v4_checkpoints_are_refused_by_the_writer() {
+    let (a, _) = member_release_of_format(0, &common::tiny_config(), "", None);
+    let (b, _) = member_release_of_format(1, &common::tiny_config(), "", None);
+    let dir = common::TempDir::new("ensemble-v4");
+    let table = table_file(&dir.0);
+    let out = dir.0.join("ensemble");
+    export_refused(
+        &request(vec![a.out.clone(), b.out.clone()], &table, &out),
+        "prompt_format",
+    );
+
+    // One v4 member among format-2 ones is enough.
+    let (c, _) = seed(2);
+    export_refused(
+        &request(vec![c.out.clone(), a.out.clone()], &table, &out),
+        "member 1",
+    );
+}
+
+#[test]
+fn an_ensemble_manifest_without_the_members_prompt_format_is_refused() {
+    let (w, _) = written();
+    rewrite_ensemble_manifest(&w.out(), |m| {
+        m["expected_identity"]
+            .as_object_mut()
+            .unwrap()
+            .remove("prompt_format");
+    });
+    let err = Ensemble::open(&w.out()).expect_err("an ensemble that states no prompt format");
+    assert_eq!(err.kind.as_str(), "prompt_format", "{err}");
+    assert!(err.detail.contains("expected_identity.prompt_format"), "{err}");
+
+    let (w, _) = written();
+    rewrite_ensemble_manifest(&w.out(), |m| m["expected_identity"]["prompt_format"] = json!(1));
+    let err = Ensemble::open(&w.out()).expect_err("an ensemble stating another prompt format");
+    assert_eq!(err.kind.as_str(), "prompt_format", "{err}");
+    assert!(err.detail.contains("prompt_format 1"), "{err}");
 }
 
 // -- the writer refuses what cannot be averaged honestly -----------------------------------------

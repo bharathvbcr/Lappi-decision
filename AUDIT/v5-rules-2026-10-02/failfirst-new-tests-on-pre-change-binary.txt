@@ -1,0 +1,309 @@
+
+running 25 tests
+test a_missing_doubled_unfinished_or_incomparable_arm_row_refuses ... FAILED
+test a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read ... FAILED
+test a_target_v5_holds_on_every_seed_is_read_as_a_guard_the_arm_must_hold_everywhere ... FAILED
+test an_arm_holding_every_target_with_room_on_every_seed_and_losing_no_guard_wins ... FAILED
+test an_arm_holding_on_as_many_seeds_as_v5_does_not_clear ... FAILED
+test an_arm_that_is_not_v5_plus_exactly_the_two_added_keys_refuses ... FAILED
+test each_guard_holds_at_v5s_bound_and_loses_one_count_past_it_on_the_arms_worst_seed ... FAILED
+test eval_row_finds_a_v5_seeds_epoch_score_val_row ... ok
+test eval_row_on_fs_real_rows_is_the_unmodified_binarys_answer_byte_for_byte ... ok
+test f2_and_f3_are_read_from_the_noul_preregistration_and_must_agree_with_v5s_forms ... FAILED
+test no_target_with_room_is_no_room_for_the_waiter_and_refused_for_rows_that_exist_anyway ... FAILED
+test r9_continues_at_exactly_2n_eq_n_total_and_pauses_one_hit_below_in_either_bucket_size ... FAILED
+test r9_continues_at_exactly_5n_eq_4n_total_and_pauses_one_count_below ... FAILED
+test r9_refuses_a_preregistration_whose_words_it_does_not_apply ... FAILED
+test r9_refuses_missing_doubled_unfinished_or_malformed_rows_and_never_prints_a_word ... FAILED
+test r9s_thresholds_are_read_from_the_preregistration_not_from_this_code ... FAILED
+test room_and_the_added_keys_are_read_from_the_preregistration_not_from_this_code ... FAILED
+test room_iff_v5_holds_a_target_on_at_most_two_seeds_at_the_30_of_60_bar ... FAILED
+test room_refuses_unreadable_v5_rows_and_never_prints_room ... FAILED
+test seeds34_on_fs_real_rows_is_the_unmodified_binarys_decision_byte_for_byte ... ok
+test seeds34_reads_v5s_ledger_at_the_0_30_boundary_with_and_without_v5s_preregistration ... FAILED
+test seeds34_refuses_the_draft_and_a_threshold_that_is_not_0_30 ... FAILED
+test seeds34_under_v5s_preregistration_refuses_a_quick_or_shuffled_seed_fs_form_never_checked ... FAILED
+test the_absolute_guard_allows_46_of_2304_and_loses_at_47_inside_v5s_envelope ... FAILED
+test the_cli_refuses_an_arm_ledger_with_room_and_no_arm_ledger_without_it ... ok
+
+failures:
+
+---- a_missing_doubled_unfinished_or_incomparable_arm_row_refuses stdout ----
+
+thread 'a_missing_doubled_unfinished_or_incomparable_arm_row_refuses' (28875542) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:93:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-noulw'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read stdout ----
+
+thread 'a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read' (28875545) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:93:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-noulw'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- a_target_v5_holds_on_every_seed_is_read_as_a_guard_the_arm_must_hold_everywhere stdout ----
+
+thread 'a_target_v5_holds_on_every_seed_is_read_as_a_guard_the_arm_must_hold_everywhere' (28875548) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:99:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-noulw'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "wins"
+
+---- an_arm_holding_every_target_with_room_on_every_seed_and_losing_no_guard_wins stdout ----
+
+thread 'an_arm_holding_every_target_with_room_on_every_seed_and_losing_no_guard_wins' (28875551) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:99:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-noulw'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "wins"
+
+---- an_arm_holding_on_as_many_seeds_as_v5_does_not_clear stdout ----
+
+thread 'an_arm_holding_on_as_many_seeds_as_v5_does_not_clear' (28875554) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:99:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-noulw'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "quiet"
+
+---- an_arm_that_is_not_v5_plus_exactly_the_two_added_keys_refuses stdout ----
+
+thread 'an_arm_that_is_not_v5_plus_exactly_the_two_added_keys_refuses' (28875558) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:93:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-noulw'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- each_guard_holds_at_v5s_bound_and_loses_one_count_past_it_on_the_arms_worst_seed stdout ----
+
+thread 'each_guard_holds_at_v5s_bound_and_loses_one_count_past_it_on_the_arms_worst_seed' (28875563) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:99:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-noulw'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "wins"
+
+---- f2_and_f3_are_read_from_the_noul_preregistration_and_must_agree_with_v5s_forms stdout ----
+
+thread 'f2_and_f3_are_read_from_the_noul_preregistration_and_must_agree_with_v5s_forms' (28875569) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:93:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-noulw'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- no_target_with_room_is_no_room_for_the_waiter_and_refused_for_rows_that_exist_anyway stdout ----
+
+thread 'no_target_with_room_is_no_room_for_the_waiter_and_refused_for_rows_that_exist_anyway' (28875573) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:99:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-noulw'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "no_room"
+
+---- r9_continues_at_exactly_2n_eq_n_total_and_pauses_one_hit_below_in_either_bucket_size stdout ----
+
+thread 'r9_continues_at_exactly_2n_eq_n_total_and_pauses_one_hit_below_in_either_bucket_size' (28875576) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:99:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-pause'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "continue"
+
+---- r9_continues_at_exactly_5n_eq_4n_total_and_pauses_one_count_below stdout ----
+
+thread 'r9_continues_at_exactly_5n_eq_4n_total_and_pauses_one_count_below' (28875578) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:99:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-pause'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "continue"
+
+---- r9_refuses_a_preregistration_whose_words_it_does_not_apply stdout ----
+
+thread 'r9_refuses_a_preregistration_whose_words_it_does_not_apply' (28875580) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:93:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-pause'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- r9_refuses_missing_doubled_unfinished_or_malformed_rows_and_never_prints_a_word stdout ----
+
+thread 'r9_refuses_missing_doubled_unfinished_or_malformed_rows_and_never_prints_a_word' (28875582) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:93:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-pause'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- r9s_thresholds_are_read_from_the_preregistration_not_from_this_code stdout ----
+
+thread 'r9s_thresholds_are_read_from_the_preregistration_not_from_this_code' (28875584) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:99:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-pause'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "continue"
+
+---- room_and_the_added_keys_are_read_from_the_preregistration_not_from_this_code stdout ----
+
+thread 'room_and_the_added_keys_are_read_from_the_preregistration_not_from_this_code' (28875586) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:99:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-noulw'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "wins"
+
+---- room_iff_v5_holds_a_target_on_at_most_two_seeds_at_the_30_of_60_bar stdout ----
+
+thread 'room_iff_v5_holds_a_target_on_at_most_two_seeds_at_the_30_of_60_bar' (28875588) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:99:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-noulw'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "no_room"
+
+---- room_refuses_unreadable_v5_rows_and_never_prints_room stdout ----
+
+thread 'room_refuses_unreadable_v5_rows_and_never_prints_room' (28875590) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:93:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-noulw'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- seeds34_reads_v5s_ledger_at_the_0_30_boundary_with_and_without_v5s_preregistration stdout ----
+
+thread 'seeds34_reads_v5s_ledger_at_the_0_30_boundary_with_and_without_v5s_preregistration' (28875595) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:99:9:
+assertion `left == right` failed: error: unexpected argument '--preregistration' found
+
+Usage: qd-post-f-rules seeds34 --f-ledger <F_LEDGER> --ft-row <FT_ROWS> --out <OUT>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "quiet"
+
+---- seeds34_refuses_the_draft_and_a_threshold_that_is_not_0_30 stdout ----
+
+thread 'seeds34_refuses_the_draft_and_a_threshold_that_is_not_0_30' (28875598) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:93:9:
+assertion `left == right` failed: error: unexpected argument '--preregistration' found
+
+Usage: qd-post-f-rules seeds34 --f-ledger <F_LEDGER> --ft-row <FT_ROWS> --out <OUT>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- seeds34_under_v5s_preregistration_refuses_a_quick_or_shuffled_seed_fs_form_never_checked stdout ----
+
+thread 'seeds34_under_v5s_preregistration_refuses_a_quick_or_shuffled_seed_fs_form_never_checked' (28875600) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:93:9:
+assertion `left == right` failed: error: unexpected argument '--preregistration' found
+
+Usage: qd-post-f-rules seeds34 --f-ledger <F_LEDGER> --ft-row <FT_ROWS> --out <OUT>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- the_absolute_guard_allows_46_of_2304_and_loses_at_47_inside_v5s_envelope stdout ----
+
+thread 'the_absolute_guard_allows_46_of_2304_and_loses_at_47_inside_v5s_envelope' (28875603) panicked at crates/qd-runtime/tests/post_f_rules_v5.rs:99:9:
+assertion `left == right` failed: error: unrecognized subcommand 'v5-noulw'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "wins"
+
+
+failures:
+    a_missing_doubled_unfinished_or_incomparable_arm_row_refuses
+    a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read
+    a_target_v5_holds_on_every_seed_is_read_as_a_guard_the_arm_must_hold_everywhere
+    an_arm_holding_every_target_with_room_on_every_seed_and_losing_no_guard_wins
+    an_arm_holding_on_as_many_seeds_as_v5_does_not_clear
+    an_arm_that_is_not_v5_plus_exactly_the_two_added_keys_refuses
+    each_guard_holds_at_v5s_bound_and_loses_one_count_past_it_on_the_arms_worst_seed
+    f2_and_f3_are_read_from_the_noul_preregistration_and_must_agree_with_v5s_forms
+    no_target_with_room_is_no_room_for_the_waiter_and_refused_for_rows_that_exist_anyway
+    r9_continues_at_exactly_2n_eq_n_total_and_pauses_one_hit_below_in_either_bucket_size
+    r9_continues_at_exactly_5n_eq_4n_total_and_pauses_one_count_below
+    r9_refuses_a_preregistration_whose_words_it_does_not_apply
+    r9_refuses_missing_doubled_unfinished_or_malformed_rows_and_never_prints_a_word
+    r9s_thresholds_are_read_from_the_preregistration_not_from_this_code
+    room_and_the_added_keys_are_read_from_the_preregistration_not_from_this_code
+    room_iff_v5_holds_a_target_on_at_most_two_seeds_at_the_30_of_60_bar
+    room_refuses_unreadable_v5_rows_and_never_prints_room
+    seeds34_reads_v5s_ledger_at_the_0_30_boundary_with_and_without_v5s_preregistration
+    seeds34_refuses_the_draft_and_a_threshold_that_is_not_0_30
+    seeds34_under_v5s_preregistration_refuses_a_quick_or_shuffled_seed_fs_form_never_checked
+    the_absolute_guard_allows_46_of_2304_and_loses_at_47_inside_v5s_envelope
+
+test result: FAILED. 4 passed; 21 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+

@@ -63,7 +63,8 @@ MUTATIONS = [
      "        seeds.len() == F_SEEDS.len(),\n        \"the envelope is {ENVELOPE_PIN}"),
     ("M12", "R8 off: no arm identity check",
      "fn arm_identity(arm: &Arm, ft: &Row, reference: &Row) -> Result<Value> {\n",
-     "fn arm_identity(arm: &Arm, ft: &Row, reference: &Row) -> Result<Value> {\n    if arm.name != \"\" {\n        return Ok(Value::Null);\n    }\n"),
+     "fn arm_identity(arm: &Arm, ft: &Row, reference: &Row) -> Result<Value> {\n"
+     "    if arm.name != \"\" {\n        return Ok(Value::Null);\n    }\n"),
     ("M13", "margin grid check off",
      "        close(value, exact.f64()),\n",
      "        true || close(value, exact.f64()),\n"),
@@ -83,8 +84,10 @@ MUTATIONS = [
      "&[\"val_shard_hash\", \"needle\", \"ood\"],",
      "&[],"),
     ("N1", "R9_room off: no_room never blocks",
-     "            Ok(match dir {\n                Dir::Higher => (2 * g * f - e * h) * v >= u * f * h,",
-     "            Ok(false && match dir {\n                Dir::Higher => (2 * g * f - e * h) * v >= u * f * h,"),
+     "            Ok(match dir {\n                Dir::Higher => (2 * g * f - e * h) * v >= u * f "
+     "* h,",
+     "            Ok(false && match dir {\n"
+     "                Dir::Higher => (2 * g * f - e * h) * v >= u * f * h,"),
     ("N2", "R9_room higher form at equality has room (>= -> >)",
      "Dir::Higher => (2 * g * f - e * h) * v >= u * f * h,",
      "Dir::Higher => (2 * g * f - e * h) * v > u * f * h,"),
@@ -96,10 +99,12 @@ MUTATIONS = [
      "Dir::Lower => (2 * g * f - e * h) * v >= u * f * h,"),
     ("N5", "room decided and listed but no-room does not refuse",
      "for reason in decided.room.iter().filter_map(|r| r.refusal(labels)) {",
-     "for reason in decided\n        .room\n        .iter()\n        .filter_map(|r| r.refusal(labels).filter(|s| !s.contains(\"cannot clear\")))\n    {"),
+     "for reason in decided\n        .room\n        .iter()\n"
+     "        .filter_map(|r| r.refusal(labels).filter(|s| !s.contains(\"cannot clear\")))\n    {"),
     ("N6", "R9_room applied to J6(f)'s targets only",
      "        .flat_map(|(arm, _)| arm.targets.iter().map(|m| Room::of(arm, *m, &envelope)))",
-     "        .filter(|(arm, _)| arm.name == \"j6f\")\n        .flat_map(|(arm, _)| arm.targets.iter().map(|m| Room::of(arm, *m, &envelope)))"),
+     "        .filter(|(arm, _)| arm.name == \"j6f\")\n"
+     "        .flat_map(|(arm, _)| arm.targets.iter().map(|m| Room::of(arm, *m, &envelope)))"),
     ("N7", "an arm-row refusal propagates and drops the room already decided",
      "    let judged = judge_arms(inputs, arm_ledger, &envelope, arms, identity);",
      "    let judged = Ok(judge_arms(inputs, arm_ledger, &envelope, arms, identity)?);"),
@@ -159,8 +164,10 @@ MUTATIONS = [
      "    j6a_agrees(&prereg).map_err(|e| format!(\"{} {e}\", J6A_LABELS.unreadable))?;\n",
      "    let _ = j6a_agrees(&prereg);\n"),
     ("J17", "a J6(a) target dropped",
-     "        ID_ABSTAIN_KNOWLEDGE,\n        ID_ABSTAIN_COMMONSENSE,\n    ],\n    guards: &[ID_ABSTAIN_DC, PROSE, SCRAMBLED, UNSEEN],",
-     "        ID_ABSTAIN_KNOWLEDGE,\n    ],\n    guards: &[ID_ABSTAIN_DC, PROSE, SCRAMBLED, UNSEEN],"),
+     "        ID_ABSTAIN_KNOWLEDGE,\n        ID_ABSTAIN_COMMONSENSE,\n    ],\n"
+     "    guards: &[ID_ABSTAIN_DC, PROSE, SCRAMBLED, UNSEEN],",
+     "        ID_ABSTAIN_KNOWLEDGE,\n    ],\n"
+     "    guards: &[ID_ABSTAIN_DC, PROSE, SCRAMBLED, UNSEEN],"),
     ("J18", "a J6(a) guard dropped (unseen-language)",
      "guards: &[ID_ABSTAIN_DC, PROSE, SCRAMBLED, UNSEEN],",
      "guards: &[ID_ABSTAIN_DC, PROSE, SCRAMBLED],"),
@@ -169,7 +176,8 @@ MUTATIONS = [
      "    if let (false, Err(e)) = (true, &pins) {\n"),
     ("J21", "pending amendments dropped when F's envelope does not resolve",
      "        Err(p) => format!(\n            \"{}; {} {p}\",",
-     "        Err(_) => no_envelope(J6A_LABELS, &e),\n        Err(p) => format!(\n            \"{}; {} {p}\","),
+     "        Err(_) => no_envelope(J6A_LABELS, &e),\n        Err(p) => format!(\n"
+     "            \"{}; {} {p}\","),
     ("J20", "J6(a) judged under R8 instead of its own identity",
      "        replay_identity(arm, ft, reference, pins)\n",
      "        let _ = pins;\n        arm_identity(arm, ft, reference)\n"),
@@ -186,7 +194,12 @@ def run_tests() -> tuple[int, str, list[str], bool]:
     result = re.findall(r"^test result: .*$", text, re.M)
     failed = sorted(set(re.findall(r"^test tests::(\S+) \.\.\. FAILED$", text, re.M)))
     compiled = bool(result)
-    return p.returncode, result[-1] if result else "(no test result: did not compile)", failed, compiled
+    return (
+        p.returncode,
+        result[-1] if result else "(no test result: did not compile)",
+        failed,
+        compiled,
+    )
 
 
 def main() -> int:

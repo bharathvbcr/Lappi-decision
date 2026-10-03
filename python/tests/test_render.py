@@ -147,6 +147,50 @@ def test_every_training_prompt_shape_is_reachable_from_the_wire() -> None:
         assert trained.prompt_for("verdict") == served.prompt_for("verdict")
 
 
+#: The format-2 prefix of the sample request ``crates/qd-runtime/tests/render_contract.rs``
+#: renders (``common::sample_request``). The same bytes are that file's ``GOLDEN_PREFIX``,
+#: so the two lanes are pinned to one string: a drift on either side fails in that lane.
+#: Format 2 (v5, ``campaign/v5-preregistered.DRAFT.json`` ``format.layout_v5``): the
+#: ``<|qd_prompt_format|>2`` line follows ``<|qd_begin|>``, and the question line follows
+#: ``<|qd_context_end|>``. Task and route stay ahead of the context.
+GOLDEN_FORMAT_2_PREFIX = (
+    "<|qd_begin|>\n"
+    "<|qd_prompt_format|>2\n"
+    "<|qd_schema_version|>1\n"
+    "<|qd_task|>devcouncil.verdict\n"
+    "<|qd_route|>generic\n"
+    "<|qd_context_begin|>\n"
+    "fn add(a: i32, b: i32) -> i32 {\n    todo!()\n}\n\n"
+    "<|qd_context_end|>\n"
+    "<|qd_question|>Does this diff implement what the commit message claims?\n"
+)
+
+
+def test_the_prefix_is_the_format_2_layout_byte_for_byte() -> None:
+    """The golden the Rust lane pins too. The slot suffixes are format 1's, unchanged."""
+    request = Request(
+        task="devcouncil.verdict",
+        context=b"fn add(a: i32, b: i32) -> i32 {\n    todo!()\n}\n",
+        question="Does this diff implement what the commit message claims?",
+        slots=(
+            ChoiceSlot(name="verdict", options=("stub", "logic", "cosmetic", "clean")),
+            ScoreSlot(name="severity", bins=5),
+            SpanSlot(name="evidence"),
+        ),
+    )
+    rendered = render_for_serving(request.to_wire())
+    assert rendered.prefix == GOLDEN_FORMAT_2_PREFIX
+    assert [s.suffix for s in rendered.slots] == [
+        "<|qd_slot|>verdict\n<|qd_type|>choice\n<|qd_options_begin|>\n"
+        "A. stub\nB. logic\nC. cosmetic\nD. clean\nZ. noul\n<|qd_options_end|>\n<|qd_answer|>",
+        "<|qd_slot|>severity\n<|qd_type|>score\n<|qd_options_begin|>\n"
+        "A. 1\nB. 2\nC. 3\nD. 4\nE. 5\nZ. noul\n<|qd_options_end|>\n<|qd_answer|>",
+        "<|qd_slot|>evidence\n<|qd_type|>span\n<|qd_options_begin|>\n"
+        "Z. noul\n<|qd_options_end|>\n<|qd_answer|>",
+    ]
+    assert render(request, seed=None).prefix == GOLDEN_FORMAT_2_PREFIX
+
+
 def test_shuffle_is_reproducible_across_calls_and_is_a_real_permutation() -> None:
     options = tuple(f"opt{i}" for i in range(8))
     a, perm_a = shuffle_options(options, seed=5, example_id="x", slot_name="s")

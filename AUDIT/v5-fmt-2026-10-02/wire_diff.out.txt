@@ -1,0 +1,84 @@
+files: old=61 new=61 same_set=True
+byte-changed files: 6: ['answer-choice-only.json', 'answer-example-three-slots.json', 'answer-max-options.json', 'answer-score-only.json', 'answer-span-only.json', 'index.json']
+
+== answer-choice-only.json
+  keys identical at every level: True []
+  envelope fields ('status', 'schema_version', 'backend', 'degraded') identical: True
+  slot names identical: True ['verdict']
+  changed $.slots.verdict.score: 0.7240117515995799 -> 0.7049323200926146 (value)
+  changed leaf field names: ['score']
+  shape old: degraded=True {'verdict': 'abstained'}
+  shape new: degraded=True {'verdict': 'abstained'}
+  shape identical: True
+
+== answer-example-three-slots.json
+  keys identical at every level: True []
+  envelope fields ('status', 'schema_version', 'backend', 'degraded') identical: True
+  slot names identical: True ['evidence', 'severity', 'verdict']
+  changed $.slots.evidence.score: 0.9125933653549204 -> 0.19339990537324758 (value)
+  changed $.slots.severity.conformal_set: [2] -> [1, 5] (value)
+  changed $.slots.severity.score: 0.465703800288614 -> 0.5984734296209133 (value)
+  changed $.slots.severity.value: 2 -> 1 (value)
+  changed $.slots.verdict.conformal_set: ["stub", "clean"] -> ["cosmetic"] (value)
+  changed $.slots.verdict.score: 0.7240117515995799 -> 0.9345157871497498 (value)
+  changed $.slots.verdict.value: "clean" -> "cosmetic" (value)
+  changed leaf field names: ['conformal_set', 'score', 'value']
+  shape old: degraded=True {'evidence': 'abstained', 'severity': 'answered', 'verdict': 'answered'}
+  shape new: degraded=True {'evidence': 'abstained', 'severity': 'answered', 'verdict': 'answered'}
+  shape identical: True
+
+== answer-max-options.json
+  keys identical at every level: True []
+  envelope fields ('status', 'schema_version', 'backend', 'degraded') identical: True
+  slot names identical: True ['verdict']
+  changed $.slots.verdict.score: 0.8429932723124134 -> 0.05666807293584486 (value)
+  changed leaf field names: ['score']
+  shape old: degraded=True {'verdict': 'abstained'}
+  shape new: degraded=True {'verdict': 'abstained'}
+  shape identical: True
+
+== answer-score-only.json
+  keys identical at every level: True []
+  envelope fields ('status', 'schema_version', 'backend', 'degraded') identical: True
+  slot names identical: True ['severity']
+  changed $.slots.severity.conformal_set: [2] -> [1, 5] (value)
+  changed $.slots.severity.score: 0.465703800288614 -> 0.5984734296209133 (value)
+  changed $.slots.severity.value: 2 -> 1 (value)
+  changed leaf field names: ['conformal_set', 'score', 'value']
+  shape old: degraded=True {'severity': 'answered'}
+  shape new: degraded=True {'severity': 'answered'}
+  shape identical: True
+
+== answer-span-only.json
+  keys identical at every level: True []
+  envelope fields ('status', 'schema_version', 'backend', 'degraded') identical: True
+  slot names identical: True ['evidence']
+  changed $.slots.evidence.score: 0.2594779524218489 -> 0.6909071801033823 (value)
+  changed $.slots.evidence.value.end_line: 2 -> 4 (value)
+  changed $.slots.evidence.value.start_line: 2 -> 4 (value)
+  changed leaf field names: ['end_line', 'score', 'start_line']
+  shape old: degraded=True {'evidence': 'answered'}
+  shape new: degraded=True {'evidence': 'answered'}
+  shape identical: True
+
+== index.json
+  keys identical at every level: True []
+  envelope fields ('status', 'schema_version', 'backend', 'degraded') identical: True
+  slot names identical: True []
+  changed $.entries[0].request.context_b64: "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgewogICAgdG9kbyEoKQp9Cg==" -> "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgeyAvLyA2CiAgICB0b2RvISgpCn0K" (value)
+  changed $.entries[0].request.context_len: 46 -> 51 (value)
+  changed $.entries[2].request.context_b64: "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgewogICAgdG9kbyEoKQp9Cg==" -> "Zm4gYWRkKGE6IGkzMiwgYjogaTMyKSAtPiBpMzIgeyAvLyA2CiAgICB0b2RvISgpCn0K" (value)
+  changed $.entries[2].request.context_len: 46 -> 51 (value)
+  changed $.entries[3].request.context_b64: "YWxwaGEKYmV0YQpnYW1tYQpkZWx0YQo=" -> "YWxwaGEgMgpiZXRhCmdhbW1hCmRlbHRhCg==" (value)
+  changed $.entries[3].request.context_len: 23 -> 25 (value)
+  changed leaf field names: ['context_b64', 'context_len']
+  index entries: old=60 new=60 same_files=True
+  request changed: answer-example-three-slots.json: fields ['context_b64', 'context_len']
+    context old: b'fn add(a: i32, b: i32) -> i32 {\n    todo!()\n}\n'
+    context new: b'fn add(a: i32, b: i32) -> i32 { // 6\n    todo!()\n}\n'
+  request changed: answer-score-only.json: fields ['context_b64', 'context_len']
+    context old: b'fn add(a: i32, b: i32) -> i32 {\n    todo!()\n}\n'
+    context new: b'fn add(a: i32, b: i32) -> i32 { // 6\n    todo!()\n}\n'
+  request changed: answer-span-only.json: fields ['context_b64', 'context_len']
+    context old: b'alpha\nbeta\ngamma\ndelta\n'
+    context new: b'alpha 2\nbeta\ngamma\ndelta\n'

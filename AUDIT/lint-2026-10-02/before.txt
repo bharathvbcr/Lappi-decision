@@ -1,0 +1,76 @@
+label: before: fe1e642 (main 4be5d87 + merge of v5-build 935c062), ruff 0.16.8 from the main checkout .venv via a .venv symlink in this worktree
+gate command: .venv/bin/ruff check --config <worktree>/pyproject.toml <worktree> --output-format concise
+source: AUDIT/lint-2026-10-02/before-concise.txt
+total findings: 270 in 23 files
+
+by file:
+   121  AUDIT/v5-plan-2026-10-02/apply_review_amendments.py
+    28  AUDIT/prep2-2026-10-02/append_gaps_clinc_ruling.py
+    25  AUDIT/v5-plan-2026-10-02/append_gaps.py
+    15  AUDIT/j6g-rule-2026-10-02/append_gaps_staged.py
+     9  AUDIT/j6a-rule-2026-10-02/mutations.py
+     9  AUDIT/prep2-2026-10-02/apply_clinc_strip_amendment.py
+     8  AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py
+     8  AUDIT/prep2-2026-10-02/clinc_oracle.py
+     7  AUDIT/v5-plan-2026-10-02/append_gap_own_prose_strike.py
+     6  tools/qd_train_oracle_optimizer_table.py
+     5  AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py
+     5  AUDIT/succ-room-2026-10-02/mutations.py
+     4  AUDIT/post-f-2026-10-02/append_gap_j6a_resolved.py
+     4  AUDIT/v5-plan-2026-10-02/own_repo_inventory.py
+     4  AUDIT/v5-plan-2026-10-02/v4_token_accounting.py
+     4  tools/qd_train_oracle_head_digest.py
+     2  AUDIT/v5-plan-2026-10-02/clinc_oos_rekey.py
+     1  AUDIT/v5-plan-2026-10-02/apply_own_prose_strike.py
+     1  AUDIT/v5-plan-2026-10-02/count_v4_manifests.py
+     1  AUDIT/v5-plan-2026-10-02/own_repo_questions.py
+     1  AUDIT/v5-plan-2026-10-02/v5_accounting.py
+     1  AUDIT/v5-rules-2026-10-02/append_gaps.py
+     1  python/tests/test_contrast_rows.py
+
+by rule:
+   249  E501
+     6  RUF100
+     5  B007
+     5  E702
+     3  I001
+     1  B905
+     1  RUF005
+
+by file and rule:
+     9  E501    AUDIT/j6a-rule-2026-10-02/mutations.py
+     1  B007    AUDIT/j6g-rule-2026-10-02/append_gaps_staged.py
+    13  E501    AUDIT/j6g-rule-2026-10-02/append_gaps_staged.py
+     1  RUF100  AUDIT/j6g-rule-2026-10-02/append_gaps_staged.py
+     3  E501    AUDIT/post-f-2026-10-02/append_gap_j6a_resolved.py
+     1  RUF100  AUDIT/post-f-2026-10-02/append_gap_j6a_resolved.py
+     8  E501    AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py
+     4  E501    AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py
+     1  I001    AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py
+     1  B007    AUDIT/prep2-2026-10-02/append_gaps_clinc_ruling.py
+    26  E501    AUDIT/prep2-2026-10-02/append_gaps_clinc_ruling.py
+     1  RUF100  AUDIT/prep2-2026-10-02/append_gaps_clinc_ruling.py
+     9  E501    AUDIT/prep2-2026-10-02/apply_clinc_strip_amendment.py
+     3  B007    AUDIT/prep2-2026-10-02/clinc_oracle.py
+     5  E702    AUDIT/prep2-2026-10-02/clinc_oracle.py
+     5  E501    AUDIT/succ-room-2026-10-02/mutations.py
+     6  E501    AUDIT/v5-plan-2026-10-02/append_gap_own_prose_strike.py
+     1  RUF100  AUDIT/v5-plan-2026-10-02/append_gap_own_prose_strike.py
+    24  E501    AUDIT/v5-plan-2026-10-02/append_gaps.py
+     1  RUF100  AUDIT/v5-plan-2026-10-02/append_gaps.py
+     1  E501    AUDIT/v5-plan-2026-10-02/apply_own_prose_strike.py
+   121  E501    AUDIT/v5-plan-2026-10-02/apply_review_amendments.py
+     1  E501    AUDIT/v5-plan-2026-10-02/clinc_oos_rekey.py
+     1  RUF100  AUDIT/v5-plan-2026-10-02/clinc_oos_rekey.py
+     1  E501    AUDIT/v5-plan-2026-10-02/count_v4_manifests.py
+     3  E501    AUDIT/v5-plan-2026-10-02/own_repo_inventory.py
+     1  RUF005  AUDIT/v5-plan-2026-10-02/own_repo_inventory.py
+     1  E501    AUDIT/v5-plan-2026-10-02/own_repo_questions.py
+     1  B905    AUDIT/v5-plan-2026-10-02/v4_token_accounting.py
+     3  E501    AUDIT/v5-plan-2026-10-02/v4_token_accounting.py
+     1  E501    AUDIT/v5-plan-2026-10-02/v5_accounting.py
+     1  E501    AUDIT/v5-rules-2026-10-02/append_gaps.py
+     1  I001    python/tests/test_contrast_rows.py
+     4  E501    tools/qd_train_oracle_head_digest.py
+     5  E501    tools/qd_train_oracle_optimizer_table.py
+     1  I001    tools/qd_train_oracle_optimizer_table.py

@@ -92,7 +92,7 @@ def prose_paragraphs(text: str) -> tuple[int, int]:
     words = 0
     in_fence = False
     block: list[str] = []
-    for line in text.splitlines() + [""]:
+    for line in [*text.splitlines(), ""]:
         if line.strip().startswith("```"):
             in_fence = not in_fence
             block = []
@@ -152,7 +152,9 @@ def walk(repo: Path, nested: set[Path]) -> dict:
                 w = len(WORD.findall(text))
                 p, pw = prose_paragraphs(text)
                 if name.upper().startswith("README"):
-                    readmes.append({"path": str(e.relative_to(repo)), "words": w, "prose_paragraphs": p})
+                    readmes.append(
+                        {"path": str(e.relative_to(repo)), "words": w, "prose_paragraphs": p}
+                    )
                 else:
                     docs += 1
                     doc_words += w
@@ -200,8 +202,11 @@ def main() -> int:
     OUT.write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
     print(json.dumps(out["totals"], indent=1, sort_keys=True))
     for r in out["repos"]:
-        print(r["owner"], r["repo"], "readmes", r["readme_count"], "paras", r["prose_paragraphs_ge25w"],
-              "licence", r["licence_files"], "code", dict(list(r["code_files_by_language"].items())[:4]))
+        print(
+            r["owner"], r["repo"], "readmes", r["readme_count"], "paras",
+            r["prose_paragraphs_ge25w"], "licence", r["licence_files"], "code",
+            dict(list(r["code_files_by_language"].items())[:4]),
+        )
     return 0
 
 

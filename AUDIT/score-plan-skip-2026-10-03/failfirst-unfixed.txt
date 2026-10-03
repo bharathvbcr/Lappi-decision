@@ -1,0 +1,43 @@
+mac_heavy: 2026-10-03T00:48:14Z 'skip-fix fail-first: test_real_ft_prep on unfixed real_ft_run' holds the lock (waited 0s; load 0.66, 1071 processes); running: bash /Users/bharath/Code/research/Lappi-decision/build/v5_build_pytest.sh -q python/tests/test_real_ft_prep.py -p no:randomly
+v5-build-wt at 25007a8 plus:  M python/tests/test_real_ft_prep.py 
+.....FF...                                                               [100%]
+=================================== FAILURES ===================================
+___ test_a_score_plan_skips_the_train_relabel_and_the_epoch_plan_and_says_so ___
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ba57850>
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-28/test_a_score_plan_skips_the_tr0')
+capsys = <_pytest.capture.CaptureFixture object at 0x10ffb1fd0>
+
+    def test_a_score_plan_skips_the_train_relabel_and_the_epoch_plan_and_says_so(
+        monkeypatch, tmp_path, capsys
+    ):
+        """A --score-plan trains nothing either. Measured on the box, 2026-10-03: J7''s score plan
+        spent ~318 s single-threaded before its first GPU work (AUDIT/gpu-idle-preamble-2026-10-03),
+        because the skip above keyed on --score-checkpoint, which a plan refuses."""
+        calls, out = _run(monkeypatch, tmp_path, capsys, score=True, plan=True,
+                          val_labels=CONFIRMED)
+>       assert "relabel_train" not in calls and "_batch_inventory" not in calls
+E       AssertionError: assert ('relabel_train' not in ['ft_split_rows', 'relabel_train', 'open_val_set', 'prepare_second_pass', 'prepare_needle', 'prepare_ood', ...])
+
+python/tests/test_real_ft_prep.py:202: AssertionError
+__ test_a_score_plan_relabels_train_when_a_val_offered_letter_is_no_val_gold ___
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x110387650>
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-28/test_a_score_plan_relabels_tra0')
+capsys = <_pytest.capture.CaptureFixture object at 0x10ba519d0>
+
+    def test_a_score_plan_relabels_train_when_a_val_offered_letter_is_no_val_gold(
+        monkeypatch, tmp_path, capsys
+    ):
+        offers_c = [*CONFIRMED, _label("v4", "A", ("A", "C", "Z"))]
+        calls, out = _run(monkeypatch, tmp_path, capsys, score=True, plan=True,
+                          val_labels=offers_c)
+        assert calls.count("relabel_train") == 1
+>       assert "train relabel: run after all -- val or OOD rows offer letter(s) ['C']" in out
+E       assert "train relabel: run after all -- val or OOD rows offer letter(s) ['C']" in "val set: 3 sequences in 0 batches, remap rrrrrrrrrrrrrrrr (the train set's)\npermutation second pass: not run -- stub..., 0 have no letter row; letter-channel chunks 1 live of 1\ndevices: ['cpu'] (from --devices; auto-detection skipped)\n"
+
+python/tests/test_real_ft_prep.py:219: AssertionError
+=========================== short test summary info ============================
+FAILED python/tests/test_real_ft_prep.py::test_a_score_plan_skips_the_train_relabel_and_the_epoch_plan_and_says_so
+FAILED python/tests/test_real_ft_prep.py::test_a_score_plan_relabels_train_when_a_val_offered_letter_is_no_val_gold
+mac_heavy: 2026-10-03T00:48:18Z 'skip-fix fail-first: test_real_ft_prep on unfixed real_ft_run' finished with exit 1

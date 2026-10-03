@@ -8,10 +8,13 @@
 //!
 //! `release_manifest.json`'s `expected_identity` is the release's one statement of what goes
 //! together: the tower (`weight_hash`), the `config.json` it is served under (`config_sha256`),
-//! the tokenizer (`tokenizer_hash`) and the calibration table (`calibration_hash`). Two halves
-//! check it:
+//! the tokenizer (`tokenizer_hash`), the calibration table (`calibration_hash`) and the prompt
+//! format the tower was trained on (`prompt_format`). Two halves check it:
 //!
-//! * [`Release::open`] reads `config.json` and refuses unless its sha256 is the bound one **and**
+//! * [`Release::open`] refuses a manifest of another `format` than [`MANIFEST_FORMAT`], and one
+//!   whose `prompt_format` is absent or is not [`crate::render::PROMPT_FORMAT`], before it reads
+//!   anything else: a tower is never served a prompt layout it was not trained on.
+//!   It reads `config.json` and refuses unless its sha256 is the bound one **and**
 //!   the one `files` records. A same-shaped config from another revision (a different
 //!   `rope_theta`, say) beside the same tower is refused here, before a backend reads it.
 //!   It reads `calibration.json` the same way, parses it as the runtime's own
@@ -45,8 +48,11 @@
 //! each member's `config.json` is bound to its own tower), each checked against the manifest's
 //! record of it (`release_manifest.json` and `model.safetensors` sha256, weight, config and
 //! tokenizer hashes), and all N required to agree on config, tokenizer, trained width and
-//! trained families and to be N different towers. The ensemble's calibration table is read exactly as a release's. One
-//! failing member refuses the whole ensemble; N-1 towers are never served as N.
+//! trained families and to be N different towers. The ensemble's calibration table is read
+//! exactly as a release's. One failing member refuses the whole ensemble; N-1 towers are never
+//! served as N. The ensemble manifest's own `expected_identity.prompt_format` is held to the same
+//! rule as a member's, so an ensemble of v4 towers is refused by its manifest as well as by every
+//! member.
 //!
 //! # What this does not close
 //!
@@ -60,12 +66,17 @@ use serde_json::Value;
 
 use crate::backend::BackendIdentity;
 use crate::calibration::CalibrationTable;
-use crate::render::RenderCaps;
+use crate::render::{PROMPT_FORMAT, RenderCaps};
 
 /// The manifest's file name in a release directory.
 pub const MANIFEST_FILE: &str = "release_manifest.json";
 /// The manifest's `format`. A manifest that says anything else is refused, not interpreted.
-pub const MANIFEST_FORMAT: &str = "qd-release.v1";
+///
+/// `qd-release.v2` added the required `expected_identity.prompt_format` (prompt format 2, v5). A
+/// `qd-release.v1` release (every v4 export, F's included) is refused here by its format, and a
+/// v4-era runtime refuses a `qd-release.v2` release by the same check on its side: neither runtime
+/// serves a tower the prompt layout of the other.
+pub const MANIFEST_FORMAT: &str = "qd-release.v2";
 /// The model config the backend reads (`qd-metal/src/config.rs`).
 pub const CONFIG_FILE: &str = "config.json";
 /// The tower's tensors (`qd-metal/src/model.rs`).
@@ -163,6 +174,9 @@ pub enum ReleaseRefusalKind {
     MemberMismatch,
     /// Ensemble members disagree on config, tokenizer or trained width, or two are one tower.
     MembersDisagree,
+    /// The manifest states no prompt format, a malformed one, or one other than
+    /// [`crate::render::PROMPT_FORMAT`]: the tower was trained on another prompt layout.
+    PromptFormat,
     /// A release file could not be read.
     Io,
 }
@@ -178,6 +192,7 @@ impl ReleaseRefusalKind {
             ReleaseRefusalKind::IdentityMismatch => "identity_mismatch",
             ReleaseRefusalKind::MemberMismatch => "member_mismatch",
             ReleaseRefusalKind::MembersDisagree => "members_disagree",
+            ReleaseRefusalKind::PromptFormat => "prompt_format",
             ReleaseRefusalKind::Io => "io",
         }
     }
@@ -214,6 +229,7 @@ pub struct Tower {
     tokenizer_hash: String,
     /// `None` when the manifest does not record what the tower was trained on.
     trained_families: Option<Vec<String>>,
+    prompt_format: u32,
 }
 
 /// A release directory whose tower opened and whose calibration table hashes to the bound
@@ -332,6 +348,40 @@ impl Manifest {
             .collect::<Result<Vec<_>, _>>()?;
         validate_trained_families(&families).map_err(|detail| self.refuse(detail))?;
         Ok(Some(families))
+    }
+
+    /// `expected_identity.prompt_format`, refused unless it is a positive integer equal to
+    /// [`PROMPT_FORMAT`]: the prompt layout the tower was trained on must be the one this runtime
+    /// renders. `qd-export` stamps it from the checkpoint's source manifest, so a v4 checkpoint
+    /// exported after the change says 1 and is refused here, not mislabelled.
+    fn prompt_format(&self) -> Result<u32, ReleaseRefusal> {
+        let refuse = |detail: String| {
+            ReleaseRefusal::new(
+                ReleaseRefusalKind::PromptFormat,
+                format!("{}: {detail}", self.path.display()),
+            )
+        };
+        let Some(stated) = self.doc.pointer("/expected_identity/prompt_format") else {
+            return Err(refuse(
+                "expected_identity.prompt_format is absent, so nothing says which prompt layout \
+                 the tower was trained on; a release that does not bind it predates the binding. \
+                 Re-export it"
+                    .to_string(),
+            ));
+        };
+        let format = stated.as_u64().filter(|n| *n >= 1).ok_or_else(|| {
+            refuse(format!(
+                "expected_identity.prompt_format is {stated}, not a positive integer"
+            ))
+        })?;
+        if format != u64::from(PROMPT_FORMAT) {
+            return Err(refuse(format!(
+                "the tower was trained on prompt_format {format}, and this runtime renders \
+                 prompt_format {PROMPT_FORMAT}. Serving it would feed it a prompt layout it never \
+                 saw; serve it with the runtime of its own format, or retrain"
+            )));
+        }
+        Ok(PROMPT_FORMAT)
     }
 }
 
@@ -455,6 +505,8 @@ fn read_manifest(path: PathBuf, format: &str) -> Result<(Manifest, Vec<u8>), Rel
 /// [`Tower::open`], keeping the parsed manifest for a caller that reads more of it.
 fn open_tower(dir: &Path) -> Result<(Tower, Manifest), ReleaseRefusal> {
     let (manifest, bytes) = read_manifest(dir.join(MANIFEST_FILE), MANIFEST_FORMAT)?;
+    // First after the format: whether this release is for this runtime at all.
+    let prompt_format = manifest.prompt_format()?;
 
     let weight_hash = manifest.hex_at(&["expected_identity", "weight_hash"])?;
     let tokenizer_hash = manifest.hex_at(&["expected_identity", "tokenizer_hash"])?;
@@ -503,6 +555,7 @@ fn open_tower(dir: &Path) -> Result<(Tower, Manifest), ReleaseRefusal> {
         weight_hash,
         tokenizer_hash,
         trained_families,
+        prompt_format,
     };
     Ok((tower, manifest))
 }
@@ -588,6 +641,12 @@ impl Tower {
     /// does not record them.
     pub fn trained_families(&self) -> Option<&[String]> {
         self.trained_families.as_deref()
+    }
+
+    /// The prompt format the manifest binds: always [`crate::render::PROMPT_FORMAT`], because
+    /// [`Tower::open`] refuses any other.
+    pub fn prompt_format(&self) -> u32 {
+        self.prompt_format
     }
 }
 
@@ -708,6 +767,8 @@ impl Ensemble {
                 )));
             }
         }
+        // The members' own manifests are held to the same rule when each opens as a `Tower`.
+        manifest.prompt_format()?;
         let members = manifest
             .doc
             .get("members")

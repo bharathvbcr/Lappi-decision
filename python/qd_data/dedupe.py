@@ -41,6 +41,18 @@ corpus.
 **Every stage reports a tri-state.** A candidate-pair set that hit its bound is
 ``NotRun`` with the bound in the reason, never a clean dedupe over a partial pair
 list. That is the difference between "no near-duplicates" and "we stopped looking".
+
+**Structured decision rows are deduped by exact content, not by MinHash** (Fable's
+ruling, ``AUDIT/finalize-2026-10-03/dedupe-probe/RULING.md``). A row whose
+``metadata[NEAR_DUPLICATE_POLICY_KEY]`` is :data:`EXACT_CONTENT` -- the structured Open-Jev
+families -- shares ~2 KB of rule prose with its neighbours and carries its own facts as
+compact JSON that whitespace shingles barely see, so MinHash at 0.8 paired *distinct
+problems* (31-77% of the pairs it proposed had different gold answers) and its candidate
+search overflowed its bound. Such a row is a duplicate only of a row with the same
+``dedupe_text`` digest, in any repo, and it never enters the candidate search. The
+report says so -- the rows searched, the rows scoped out by family, and the ruling -- so
+a search over part of the corpus never reads as a search over all of it. A corpus with
+no such row takes exactly the path above and reports exactly what it reported before.
 """
 
 from __future__ import annotations
@@ -48,11 +60,11 @@ from __future__ import annotations
 import hashlib
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
 
 from qd_train.tristate import NotRun, Ran, TriState
 
-from .config import DataConfig
+from .config import DEFAULT_MAX_CANDIDATE_PAIRS, DataConfig
 from .minhash import (
     BandConfig,
     MinHasher,
@@ -65,17 +77,52 @@ from .rows import DataRow
 
 __all__ = [
     "DEFAULT_MAX_CANDIDATE_PAIRS",
+    "EXACT_CONTENT",
+    "NEAR_DUPLICATE_POLICY_KEY",
+    "NEAR_DUPLICATE_RULING",
     "ContentUnit",
     "DedupeReport",
     "DuplicateCluster",
+    "ExactContentCluster",
     "content_unit_key",
     "dedupe",
+    "near_duplicate_policy",
+    "text_digest",
 ]
 
-#: Bounded fan-out. At 0.8 Jaccard on a real corpus the candidate set is a small
-#: multiple of the unit count; a set this large means the corpus is pathological (for
-#: example every row identical) and the run must say so rather than grind.
-DEFAULT_MAX_CANDIDATE_PAIRS: int = 5_000_000
+#: Row metadata naming how a row's duplicates are found. Absent: MinHash at
+#: ``config.dedupe_threshold`` (the module docstring). Set by the rewriter of a source whose
+#: family the ruling below scoped out, never by a caller after the fact.
+NEAR_DUPLICATE_POLICY_KEY: Final[str] = "near_duplicate_policy"
+#: The one policy value: the row is a duplicate only of a row with the same ``dedupe_text``
+#: digest, in any repo, and it never enters the MinHash candidate search.
+EXACT_CONTENT: Final[str] = "exact_content"
+#: Why a row may carry :data:`EXACT_CONTENT`. Named in every report that scoped a row, so
+#: the part of the corpus the near-duplicate search did not cover carries its reason.
+NEAR_DUPLICATE_RULING: Final[str] = "AUDIT/finalize-2026-10-03/dedupe-probe/RULING.md"
+_POLICIES: Final[frozenset[str]] = frozenset({EXACT_CONTENT})
+
+
+def near_duplicate_policy(row: DataRow) -> str | None:
+    """``row``'s policy: ``None`` (MinHash) or :data:`EXACT_CONTENT`.
+
+    Any other value is refused: a misspelt policy read as "absent" would put a row the
+    ruling scoped out back into the search, and one read as "exact" would scope out a
+    row nobody ruled on.
+    """
+    value = row.metadata.get(NEAR_DUPLICATE_POLICY_KEY)
+    if value is not None and value not in _POLICIES:
+        raise ValueError(
+            f"{row.row_id}: metadata[{NEAR_DUPLICATE_POLICY_KEY!r}] is {value!r}; the only "
+            f"policy is {EXACT_CONTENT!r} ({NEAR_DUPLICATE_RULING}), or the key is absent"
+        )
+    return value
+
+
+def text_digest(text: str) -> str:
+    """The digest of compared text that :func:`content_unit_key` and the exact-content
+    policy both key on."""
+    return hashlib.blake2b(text.encode("utf-8"), digest_size=16).hexdigest()
 
 
 def content_unit_key(row: DataRow) -> str:
@@ -85,8 +132,7 @@ def content_unit_key(row: DataRow) -> str:
     boilerplate in one repo merge. Without the digest, two commits touching the same
     path merge into one unit and one of their texts is silently discarded.
     """
-    digest = hashlib.blake2b(row.dedupe_text.encode("utf-8"), digest_size=16).hexdigest()
-    return f"{row.identity_key}|{digest}"
+    return f"{row.identity_key}|{text_digest(row.dedupe_text)}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +170,34 @@ class DuplicateCluster:
 
 
 @dataclass(frozen=True, slots=True)
+class ExactContentCluster:
+    """Units of :data:`EXACT_CONTENT` rows with one ``dedupe_text`` digest: one problem.
+
+    Unlike a :class:`DuplicateCluster` it may sit in one repo -- identical content is one
+    problem wherever it sits -- and it may hold a MinHash unit (``minhash_unit_key``): an
+    exact row whose text equals a searched row's is dropped in that row's favour, so the
+    one owner of a searched text stays the MinHash path.
+    """
+
+    digest: str
+    kept_unit_key: str | None
+    minhash_unit_key: str | None
+    dropped_unit_keys: tuple[str, ...]
+    repo_keys: tuple[str, ...]
+    n_rows_dropped: int
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "digest": self.digest,
+            "kept_unit_key": self.kept_unit_key,
+            "minhash_unit_key": self.minhash_unit_key,
+            "dropped_unit_keys": list(self.dropped_unit_keys),
+            "repo_keys": list(self.repo_keys),
+            "n_rows_dropped": self.n_rows_dropped,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class DedupeReport:
     """What dedupe did, in enough detail to be re-derived."""
 
@@ -149,6 +223,18 @@ class DedupeReport:
     #: Exactly which rows were removed. Carried rather than re-derived, so a caller
     #: auditing the drop does not have to reproduce the clustering to find out.
     dropped_row_ids: frozenset[str] = frozenset()
+    #: Input rows the ruling scoped out of the MinHash search, by family, sorted. Empty for
+    #: a corpus with no :data:`EXACT_CONTENT` row, which then reports exactly as before.
+    exact_content_rows_by_family: tuple[tuple[str, int], ...] = ()
+    exact_content_clusters: tuple[ExactContentCluster, ...] = ()
+    #: The candidate-pair bound this search ran under. Reported only when it is not
+    #: :data:`DEFAULT_MAX_CANDIDATE_PAIRS`, so a pass under a raised bound is distinguishable
+    #: from a pass under the default and an unraised build's manifest is unchanged.
+    max_candidate_pairs: int = DEFAULT_MAX_CANDIDATE_PAIRS
+
+    @property
+    def n_exact_content_rows(self) -> int:
+        return sum(n for _, n in self.exact_content_rows_by_family)
 
     @property
     def n_possible_unit_pairs(self) -> int:
@@ -174,6 +260,20 @@ class DedupeReport:
         return self.band_config.recall_at_threshold
 
     def to_json(self) -> dict[str, Any]:
+        body = self._base_json()
+        if self.max_candidate_pairs != DEFAULT_MAX_CANDIDATE_PAIRS:
+            body["max_candidate_pairs"] = self.max_candidate_pairs
+        if self.exact_content_rows_by_family:
+            # Only when a row was scoped out, so an unscoped corpus's manifest is unchanged.
+            body["near_duplicate_scope"] = {
+                "ruling": NEAR_DUPLICATE_RULING,
+                "minhash_rows": self.n_input_rows - self.n_exact_content_rows,
+                "exact_content_rows_by_family": dict(self.exact_content_rows_by_family),
+            }
+            body["exact_content_clusters"] = [c.to_json() for c in self.exact_content_clusters]
+        return body
+
+    def _base_json(self) -> dict[str, Any]:
         return {
             "n_input_rows": self.n_input_rows,
             "n_input_units": self.n_input_units,
@@ -246,13 +346,17 @@ def dedupe(
     rows: list[DataRow] | tuple[DataRow, ...],
     *,
     config: DataConfig,
-    max_candidate_pairs: int = DEFAULT_MAX_CANDIDATE_PAIRS,
+    max_candidate_pairs: int | None = None,
 ) -> DedupeReport:
     """MinHash-LSH near-duplicate removal at ``config.dedupe_threshold``.
 
     Takes **all** rows -- pool and held-out together -- and returns the survivors.
-    There is deliberately no split argument: see the module docstring.
+    There is deliberately no split argument: see the module docstring. The candidate
+    bound is ``config.max_candidate_pairs`` unless ``max_candidate_pairs`` names one.
     """
+    bound = config.max_candidate_pairs if max_candidate_pairs is None else max_candidate_pairs
+    if bound < 1:
+        raise ValueError(f"max_candidate_pairs must be >= 1, got {bound}")
     rows = tuple(rows)
     ids = [r.row_id for r in rows]
     if len(set(ids)) != len(ids):
@@ -273,14 +377,31 @@ def dedupe(
             status=NotRun(
                 reason="dedupe received zero rows; nothing was compared, so nothing was cleared"
             ),
+            max_candidate_pairs=bound,
         )
 
+    policies = {r.row_id: near_duplicate_policy(r) for r in rows}
     units = _build_units(rows)
+    exact_keys: set[str] = set()
+    for key, unit in units.items():
+        unit_policies = {policies[rid] for rid in unit.row_ids}
+        if len(unit_policies) > 1:
+            raise ValueError(
+                f"content unit {key!r} holds rows with policies "
+                f"{sorted(str(p) for p in unit_policies)}: one text is either searched for "
+                "near-duplicates or scoped out, never both"
+            )
+        if unit_policies == {EXACT_CONTENT}:
+            exact_keys.add(key)
+    # The MinHash path, over the units the ruling did not scope out. With no scoped unit this
+    # is every unit, and everything below reads exactly as it did before the ruling.
+    searched = {k: u for k, u in units.items() if k not in exact_keys}
+
     hasher = MinHasher(num_perm=config.num_perm, seed=config.seed)
     shingled: dict[str, frozenset[bytes]] = {}
     signatures: dict[str, tuple[int, ...]] = {}
     n_truncated = 0
-    for key, unit in units.items():
+    for key, unit in searched.items():
         sh = shingle(unit.text, k=config.shingle_size)
         if not sh.shingles:
             # DataRow.__post_init__ refuses empty dedupe_text, so this is unreachable
@@ -293,11 +414,9 @@ def dedupe(
         shingled[key] = sh.shingles
         signatures[key] = hasher.signature(sh.shingles)
 
-    cands, truncated = candidate_pairs(
-        signatures, config=band_config, max_pairs=max_candidate_pairs
-    )
+    cands, truncated = candidate_pairs(signatures, config=band_config, max_pairs=bound)
 
-    uf = _UnionFind(sorted(units))
+    uf = _UnionFind(sorted(searched))
     edge_j: dict[tuple[str, str], float] = {}
     n_within = 0
     for a, b in sorted(cands):
@@ -313,7 +432,7 @@ def dedupe(
         uf.union(a, b)
 
     components: dict[str, list[str]] = {}
-    for key in sorted(units):
+    for key in sorted(searched):
         components.setdefault(uf.find(key), []).append(key)
 
     clusters: list[DuplicateCluster] = []
@@ -338,13 +457,38 @@ def dedupe(
         dropped_units.update(drop)
         dropped_rows.update(rows_dropped)
 
+    # The MinHash path's own counts, before the exact path adds to the sets: its detail below
+    # states what MinHash did, and the scope note states the rest.
+    n_minhash_dropped_rows, n_minhash_dropped_units = len(dropped_rows), len(dropped_units)
+    exact_clusters, exact_units_dropped, exact_rows_dropped = _exact_content_clusters(
+        units, exact_keys
+    )
+    dropped_units.update(exact_units_dropped)
+    dropped_rows.update(exact_rows_dropped)
+    exact_by_family = tuple(
+        sorted(Counter(r.family_id for r in rows if policies[r.row_id] == EXACT_CONTENT).items())
+    )
+    n_exact_rows = sum(n for _, n in exact_by_family)
+    scope_note = (
+        ""
+        if not exact_by_family
+        else (
+            f"; scoped out by {NEAR_DUPLICATE_RULING}: {n_exact_rows} rows of "
+            + ", ".join(f"{fam} ({n})" for fam, n in exact_by_family)
+            + f" are deduped by exact content digest ({len(exact_rows_dropped)} dropped) and "
+            f"were NOT searched for near-duplicates, so the search covered "
+            f"{len(rows) - n_exact_rows} of {len(rows)} rows"
+        )
+    )
+
     kept = tuple(r for r in rows if r.row_id not in dropped_rows)
 
     if truncated:
         status: TriState = NotRun(
             reason=(
-                f"candidate-pair search hit its bound of {max_candidate_pairs}; the pair "
+                f"candidate-pair search hit its bound of {bound}; the pair "
                 "list is partial, so the surviving rows are not a verified deduplicated set"
+                + scope_note
             )
         )
     else:
@@ -355,7 +499,7 @@ def dedupe(
         # Banded LSH proposed `len(cands)` of `n_possible` and exact Jaccard
         # confirmed exactly those, so `is_complete_coverage` is False unless the
         # banding happened to propose everything -- which is the honest reading.
-        n_units = len(units)
+        n_units = len(searched)
         n_possible = n_units * (n_units - 1) // 2
         recall = band_config.recall_at_threshold
         status = Ran(
@@ -364,8 +508,8 @@ def dedupe(
             n=min(len(cands), n_possible),
             n_total=n_possible,
             detail=(
-                f"{len(dropped_rows)} of {len(rows)} rows dropped across "
-                f"{len(dropped_units)} content units at Jaccard >= "
+                f"{n_minhash_dropped_rows} of {len(rows)} rows dropped across "
+                f"{n_minhash_dropped_units} content units at Jaccard >= "
                 f"{config.dedupe_threshold}; {len(edge_j)} confirmed pairs crossed a repo "
                 f"boundary and would have survived a repo-level split alone; "
                 f"{n_within} confirmed pairs were within one repo and were kept. "
@@ -375,6 +519,7 @@ def dedupe(
                 f"{recall:.4f}, so {len(cands)} of {n_possible} possible unit pairs "
                 f"were compared exactly and the confirmed-pair counts are a lower "
                 f"bound, not a complete enumeration"
+                + scope_note
             ),
         )
 
@@ -393,4 +538,50 @@ def dedupe(
         n_candidate_pairs=len(cands),
         status=status,
         dropped_row_ids=frozenset(dropped_rows),
+        max_candidate_pairs=bound,
+        exact_content_rows_by_family=exact_by_family,
+        exact_content_clusters=tuple(exact_clusters),
     )
+
+
+def _exact_content_clusters(
+    units: dict[str, ContentUnit], exact_keys: set[str]
+) -> tuple[list[ExactContentCluster], set[str], set[str]]:
+    """The exact-content path: scoped units grouped by the digest of their text alone.
+
+    In each group the lexicographically smallest unit key survives (as in the MinHash path,
+    so the survivor does not depend on input order) -- unless a searched unit has the same
+    text, in which case every scoped unit of the group is dropped in its favour: the MinHash
+    path stays the one owner of a text it searched.
+    """
+    by_digest: dict[str, list[str]] = {}
+    for key in sorted(exact_keys):
+        by_digest.setdefault(text_digest(units[key].text), []).append(key)
+    searched_owner: dict[str, str] = {}
+    for key in sorted(units):
+        if key not in exact_keys:
+            searched_owner.setdefault(text_digest(units[key].text), key)
+    clusters: list[ExactContentCluster] = []
+    dropped_units: set[str] = set()
+    dropped_rows: set[str] = set()
+    for digest, members in sorted(by_digest.items()):
+        owner = searched_owner.get(digest)
+        if owner is None and len(members) < 2:
+            continue
+        keep = None if owner is not None else members[0]
+        drop = tuple(members) if owner is not None else tuple(members[1:])
+        rows_dropped = [rid for k in drop for rid in units[k].row_ids]
+        involved = [*members, *([owner] if owner is not None else [])]
+        clusters.append(
+            ExactContentCluster(
+                digest=digest,
+                kept_unit_key=keep,
+                minhash_unit_key=owner,
+                dropped_unit_keys=drop,
+                repo_keys=tuple(sorted({units[k].repo_key for k in involved})),
+                n_rows_dropped=len(rows_dropped),
+            )
+        )
+        dropped_units.update(drop)
+        dropped_rows.update(rows_dropped)
+    return clusters, dropped_units, dropped_rows

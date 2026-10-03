@@ -25,7 +25,7 @@ use qd_runtime::calibration::CalibrationTable;
 use qd_runtime::reference::ReferenceBackend;
 use qd_runtime::registry::HeadRegistry;
 use qd_runtime::release::{MANIFEST_FILE, MANIFEST_FORMAT, Release, ReleaseRefusalKind};
-use qd_runtime::render::RenderCaps;
+use qd_runtime::render::{PROMPT_FORMAT, RenderCaps};
 use qd_runtime::runtime::Runtime;
 use qd_runtime::schema::{DecisionRequest, Response};
 use qd_runtime::wire::{Incoming, parse_line};
@@ -90,6 +90,7 @@ fn release_dir(tag: &str, trained: Option<Value>) -> Scratch {
             "tokenizer_hash": id.tokenizer_hash,
             "config_sha256": sha(config),
             "calibration_hash": table.hash(),
+            "prompt_format": PROMPT_FORMAT,
         },
         "files": {
             "config.json": {"sha256": sha(config)},

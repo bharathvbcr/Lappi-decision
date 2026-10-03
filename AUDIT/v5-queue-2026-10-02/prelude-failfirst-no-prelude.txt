@@ -1,0 +1,53 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.8, pytest-9.1.1, pluggy-1.6.0 -- /Users/bharath/.cache/uv/builds-v0/.tmp2T4Ksy/bin/python
+rootdir: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a
+configfile: pyproject.toml
+plugins: langsmith-0.9.2, anyio-4.14.1
+collecting ... collected 17 items
+
+python/tests/test_v5_prelude_mac.py::test_the_record_carries_every_plan_seeds_order_and_one_shape FAILED [  5%]
+python/tests/test_v5_prelude_mac.py::test_a_run_without_batch_order_seed_fails FAILED [ 11%]
+python/tests/test_v5_prelude_mac.py::test_a_shape_that_moves_with_the_seed_fails FAILED [ 17%]
+python/tests/test_v5_prelude_mac.py::test_two_plan_seeds_sharing_a_digest_fail FAILED [ 23%]
+python/tests/test_v5_prelude_mac.py::test_the_record_passes_the_waiters_own_check FAILED [ 29%]
+python/tests/test_v5_prelude_mac.py::test_check_argv_wants_v5_seed_0s_argv[argv0-True] FAILED [ 35%]
+python/tests/test_v5_prelude_mac.py::test_check_argv_wants_v5_seed_0s_argv[argv1-False] FAILED [ 41%]
+python/tests/test_v5_prelude_mac.py::test_check_argv_wants_v5_seed_0s_argv[argv2-False] FAILED [ 47%]
+python/tests/test_v5_prelude_mac.py::test_check_argv_wants_v5_seed_0s_argv[argv3-False] FAILED [ 52%]
+python/tests/test_v5_prelude_mac.py::test_check_argv_wants_v5_seed_0s_argv[argv4-False] FAILED [ 58%]
+python/tests/test_v5_prelude_mac.py::test_check_argv_wants_v5_seed_0s_argv[argv5-False] FAILED [ 64%]
+python/tests/test_v5_prelude_mac.py::test_check_argv_wants_v5_seed_0s_argv[argv6-False] FAILED [ 70%]
+python/tests/test_v5_prelude_mac.py::test_parse_refuses_its_own_options[ours0] FAILED [ 76%]
+python/tests/test_v5_prelude_mac.py::test_parse_refuses_its_own_options[ours1] FAILED [ 82%]
+python/tests/test_v5_prelude_mac.py::test_parse_refuses_its_own_options[ours2] FAILED [ 88%]
+python/tests/test_v5_prelude_mac.py::test_parse_refuses_its_own_options[ours3] FAILED [ 94%]
+python/tests/test_v5_prelude_mac.py::test_the_cli_writes_nothing_on_a_usage_error FAILED [100%]
+
+=============================== warnings summary ===============================
+python/tests/test_v5_prelude_mac.py::test_the_record_carries_every_plan_seeds_order_and_one_shape
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+python/tests/test_v5_prelude_mac.py::test_the_record_carries_every_plan_seeds_order_and_one_shape
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED python/tests/test_v5_prelude_mac.py::test_the_record_carries_every_plan_seeds_order_and_one_shape
+FAILED python/tests/test_v5_prelude_mac.py::test_a_run_without_batch_order_seed_fails
+FAILED python/tests/test_v5_prelude_mac.py::test_a_shape_that_moves_with_the_seed_fails
+FAILED python/tests/test_v5_prelude_mac.py::test_two_plan_seeds_sharing_a_digest_fail
+FAILED python/tests/test_v5_prelude_mac.py::test_the_record_passes_the_waiters_own_check
+FAILED python/tests/test_v5_prelude_mac.py::test_check_argv_wants_v5_seed_0s_argv[argv0-True]
+FAILED python/tests/test_v5_prelude_mac.py::test_check_argv_wants_v5_seed_0s_argv[argv1-False]
+FAILED python/tests/test_v5_prelude_mac.py::test_check_argv_wants_v5_seed_0s_argv[argv2-False]
+FAILED python/tests/test_v5_prelude_mac.py::test_check_argv_wants_v5_seed_0s_argv[argv3-False]
+FAILED python/tests/test_v5_prelude_mac.py::test_check_argv_wants_v5_seed_0s_argv[argv4-False]
+FAILED python/tests/test_v5_prelude_mac.py::test_check_argv_wants_v5_seed_0s_argv[argv5-False]
+FAILED python/tests/test_v5_prelude_mac.py::test_check_argv_wants_v5_seed_0s_argv[argv6-False]
+FAILED python/tests/test_v5_prelude_mac.py::test_parse_refuses_its_own_options[ours0]
+FAILED python/tests/test_v5_prelude_mac.py::test_parse_refuses_its_own_options[ours1]
+FAILED python/tests/test_v5_prelude_mac.py::test_parse_refuses_its_own_options[ours2]
+FAILED python/tests/test_v5_prelude_mac.py::test_parse_refuses_its_own_options[ours3]
+FAILED python/tests/test_v5_prelude_mac.py::test_the_cli_writes_nothing_on_a_usage_error
+======================== 17 failed, 2 warnings in 3.10s ========================
+<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

@@ -12,7 +12,9 @@ What this adds to theirs, all of it refusal:
   configuration), not N points along one run. Averaging only means something when they are
   the same configuration at the same point: the ``LRSchedule`` must be equal, the
   ``optimizer_step`` equal, ``vocab_size`` and ``span_weight`` equal, and the ``tower`` and
-  ``span_head`` trees must match name for name, dtype for dtype and shape for shape. RSI's
+  ``span_head`` trees must match name for name, dtype for dtype and shape for shape, and the
+  prompt format the weights were trained under must be one (``model_state['prompt_format']``,
+  absent = 1; the manifest states it at top level when it is not 1, for qd-export). RSI's
   version indexes ``st[k]`` and would raise a bare ``KeyError`` on the first two and
   silently broadcast on none of them; this says which input differs and how.
 * **No input twice.** The same file, or two files whose tensor sets have one digest, would
@@ -125,6 +127,10 @@ SOURCES: Final[tuple[str, ...]] = ("tower", "masters")
 MASTERS_PATH: Final[tuple[str, str]] = ("optimizer", "masters")
 #: The manifest is written beside the weights as ``<out>.manifest.json``.
 MANIFEST_SUFFIX: Final[str] = ".manifest.json"
+#: The prompt layout an input's weights were trained under, as ``QwenDecisionStep.state``
+#: writes it into ``model_state`` (only when it is not 1), and as the average's manifest states
+#: it at top level (only when it is not 1) for qd-export, which reads an absent key as 1.
+PROMPT_FORMAT_KEY: Final[str] = "prompt_format"
 TOOL: Final[str] = "tools/ckpt_average.py"
 #: Where the averaging rule was ported from, recorded in every manifest as ``source``.
 RSI_SOURCE: Final[str] = "RSI-Jev rsijev/train.py:189-200 average_checkpoints (MIT) @8f34a4f"
@@ -169,6 +175,17 @@ class _Facts:
     scalars: dict[str, Any]
     trees: dict[str, dict[str, tuple[str, tuple[int, ...]]]]
     weights_digest: str
+    prompt_format: int
+
+
+def prompt_format_of(state: Mapping[str, Any], *, where: str) -> int:
+    """The prompt format ``state`` (an input's ``model_state`` or an average's manifest) says
+    its weights were trained under: absent is 1, every checkpoint before v5's format 2; present,
+    an int >= 1, never a bool, as qd-export's ``read_source_manifest`` takes it."""
+    value = state.get(PROMPT_FORMAT_KEY, 1)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise AverageRefusal(f"{where}: {PROMPT_FORMAT_KEY} {value!r} is not an int >= 1")
+    return value
 
 
 def _tree(model_state: Mapping[str, Any], name: str, *, where: str) -> Mapping[str, TensorRef]:
@@ -199,6 +216,7 @@ def _facts(
                 f"{t}.{k}:{trees[t][k].digest()}" for t in AVERAGED_TREES for k in sorted(trees[t])
             ).encode()
         ).hexdigest(),
+        prompt_format=prompt_format_of(model_state, where=where),
     )
 
 
@@ -234,7 +252,14 @@ def _check_schedule(first: _Facts, first_name: str, mine: _Facts, name: str) -> 
 def _check_same_model(
     first: _Facts, first_name: str, mine: _Facts, name: str, digests: dict[str, str]
 ) -> None:
-    """The scalars, the trees name for name, and weights no other input already holds."""
+    """The prompt format, the scalars, the trees name for name, and weights no other input
+    already holds."""
+    if mine.prompt_format != first.prompt_format:
+        raise AverageRefusal(
+            f"{name} was trained on prompt format {mine.prompt_format} and {first_name} on "
+            f"{first.prompt_format}: an average across two prompt layouts is a model of "
+            "neither, and its manifest could state only one"
+        )
     for scalar in MATCHED_SCALARS:
         if mine.scalars[scalar] != first.scalars[scalar]:
             raise AverageRefusal(
@@ -884,6 +909,7 @@ def write(
     master_index: Mapping[str, int],
     norm_preserving: Mapping[str, Any] | None = None,
     trajectory: Mapping[str, Any] | None = None,
+    prompt_format: int = 1,
 ) -> Path:
     """The safetensors file and ``<out>.manifest.json``, each written atomically.
 
@@ -891,11 +917,15 @@ def write(
     ``norm_preserving`` is :func:`norm_preserving_average`'s block, recorded under that key
     (and only then: a plain average's manifest is what it always was). ``trajectory`` is
     ``--same-seed-trajectory``'s block (:func:`trajectory_block`), likewise only when given.
+    ``prompt_format`` is the inputs' one format (:func:`prompt_format_of`, checked equal across
+    them), written as the top-level key qd-export stamps the release with -- only when it is
+    not 1, so a v4 average's manifest, and the sha256 eval rows name it by, do not move.
     """
     from safetensors.torch import save
 
     from qd_train.run_control import _atomic_write_bytes
 
+    stated = prompt_format_of({PROMPT_FORMAT_KEY: prompt_format}, where="write")
     if source not in SOURCES:
         raise AverageRefusal(f"source {source!r} is not one of {SOURCES}")
     if norm_preserving is not None and source != "masters":
@@ -933,6 +963,7 @@ def write(
         "master_index": dict(sorted(master_index.items())),
         **({} if norm_preserving is None else {"norm_preserving": dict(norm_preserving)}),
         **({} if trajectory is None else {"trajectory": dict(trajectory)}),
+        **({} if stated == 1 else {PROMPT_FORMAT_KEY: stated}),
     }
     manifest = manifest_path(out)
     _atomic_write_bytes(
@@ -1099,6 +1130,10 @@ def read_manifest(weights: Path) -> AverageManifest:
         body.get("span_weight"), (int, float)
     ):
         problems.append("it records no vocab_size and span_weight")
+    try:
+        prompt_format_of(body, where="it")
+    except AverageRefusal as exc:
+        problems.append(str(exc))
     if "norm_preserving" in body:
         problems.extend(_norm_preserving_problems(
             body["norm_preserving"], n_inputs=len(inputs), source=body.get("from")
@@ -1309,6 +1344,7 @@ def main(argv: list[str] | None = None) -> int:
             optimizer_step=facts.optimizer_step, schedule=facts.schedule,
             scalars=facts.scalars, ft_row_ids=args.ft_row_ids, tensor_sources=sources,
             master_index=master_index, norm_preserving=norm_block, trajectory=trajectory,
+            prompt_format=facts.prompt_format,
         )
     except AverageRefusal as exc:
         raise SystemExit(f"refused: {exc}") from exc

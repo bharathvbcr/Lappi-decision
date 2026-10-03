@@ -16,7 +16,11 @@
 //!   0.767 / 0.426, 0.765 and 0.884; the rows' counts govern (below). Words: `qualifies`,
 //!   `fails`.
 //! * `seeds34` — (ii) do F's three 8K needle worst buckets spread by more than 0.30? Words:
-//!   `fires`, `quiet`.
+//!   `fires`, `quiet`. Its identity checks name no F row, hash or commit, so it reads any
+//!   run's ledger. With `--preregistration` (v5's, `seeds.seeds_3_4`) it reads that file's
+//!   threshold, which must be this rule's 0.30, adds its seeds' identity (`one_configuration`:
+//!   completed, quick false, one recipe and data snapshot) and records the file's words and
+//!   sha256; without it F's decision is byte for byte what it was.
 //! * `j6f` — (iii) does J6(f) run right after J5'? Iff F's 8K worst bucket is < 0.95 on >= 2 of
 //!   3 seeds, or any F seed has prose <= 9/60 or scrambled <= 8/60. Words: `fires`, `quiet`.
 //! * `successor` — (iv) does F' (fsucc) run, and on which v4 arm's recipe?
@@ -46,6 +50,28 @@
 //!   plus exactly `option_permutation_seed = 20260919`; any other difference refuses. The
 //!   pre-registration is read at run time and must agree with this code, the identity it states
 //!   included. Words: `wins`, `quiet`, `refused`.
+//! * `v5-pause` — (vii) R9 (`campaign/v5-preregistered.json` `readings.R9_pause_after_seed_0`):
+//!   after v5 seed 0's epoch-score-val row, do seeds 1-2 start? `continue` iff `val_top1.span`
+//!   and the 8K worst bucket meet the count forms R9 writes (`5*n >= 4*n_total`,
+//!   `2*n >= n_total`), else `pause`. A spending rule, not a gate.
+//! * `v5-noulw` — (viii) the noul-weight arm (`arm_noul_weight`) against v5 seeds 0-2. With
+//!   `--room`, its launch condition from v5's rows alone: `room` iff some target is held on
+//!   fewer than all of v5's seeds, else `no_room`. Without it, the arm's three seeds read under
+//!   `seed_holds` targets (a seed holds iff `2*n >= n_total`, the F2 bar of
+//!   `campaign/v4-noul-v3b-preregistered.json`), worst-seed strict-envelope guards and F3's
+//!   absolute guard. Words: `wins`, `quiet`, `refused`.
+//! * `tierb` — (ix) the Tier-B outcome rule (`recipe.tierb_outcome_rule` of the v5
+//!   pre-registration, as Fable amended it on 2026-10-03, before any outcome row existed:
+//!   AUDIT/tierb-outcome-2026-10-03/fable-tierb-outcome-ruling.md), which decides v5's
+//!   conditionals C2a (`--candidate nomask`) and C2b (`--candidate fused`). One candidate run's
+//!   training-run score row and fp32 all-gates re-score against phase-3 seeds 0-2's envelope,
+//!   its linear control's CI against eeda5db4's, and its gate flags against 58fd1532's. Words:
+//!   `pass`, `fail`, `refused`. Decided before the DRAFT is renamed, so unlike the other v5
+//!   rules it reads the DRAFT too and records which it read (`draft`).
+//!
+//! The v5 rules read their thresholds, seed sets, added recipe keys, targets and guards from the
+//! pre-registration at run time; a file whose words disagree with what this code applies, or
+//! that still carries the DRAFT's `draft` key, refuses before any ledger is read.
 //!
 //! Look-ups (ids on stdout, JSON on stderr): `ft-rows` checks a set of ft rows can be averaged
 //! or ensembled (completed, not quick, tag `epoch`, the seed claimed, one recipe and one data
@@ -87,7 +113,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
@@ -241,12 +267,17 @@ enum Cmd {
     },
     /// (ii) Do F's three 8K worst buckets spread by more than 0.30? Prints `fires` or `quiet`.
     Seeds34 {
-        /// F's ledger.
+        /// F's ledger (or v5's, with --preregistration).
         #[arg(long)]
         f_ledger: PathBuf,
         /// `SEED=FT_ROW_ID`, once for each of seeds 0, 1 and 2 (ids from F's logs).
         #[arg(long = "ft-row", required = true, value_parser = parse_ft_row)]
         ft_rows: Vec<(i64, String)>,
+        /// campaign/v5-preregistered.json, for v5's seeds 3-4: its seeds.seeds_3_4 threshold
+        /// must be this rule's, and its seeds.v5 identity (quick false, one configuration) is
+        /// applied. Omitted, the rule is F's, unchanged.
+        #[arg(long)]
+        preregistration: Option<PathBuf>,
         #[arg(long)]
         out: PathBuf,
     },
@@ -346,6 +377,77 @@ enum Cmd {
         /// `0=FT_ROW_ID` of J6(g)'s run (from /home/ubuntu/j6g-v4/train.log).
         #[arg(long, value_parser = parse_ft_row)]
         j6g_ft_row: (i64, String),
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// (vii) R9: after v5 seed 0's epoch-score-val row, do seeds 1-2 start? Prints `continue`,
+    /// `pause` (a spending rule, not a gate) or `refused`.
+    V5Pause {
+        /// campaign/v5-preregistered.json as committed; read at run time, its sha256 recorded.
+        /// The DRAFT (top-level `draft`) refuses.
+        #[arg(long)]
+        preregistration: PathBuf,
+        /// v5's ledger (/home/ubuntu/ledger/gh200-v5-<date>.jsonl).
+        #[arg(long)]
+        ledger: PathBuf,
+        /// `SEED=FT_ROW_ID` of the seed R9 names (0).
+        #[arg(long = "ft-row", value_parser = parse_ft_row)]
+        ft_row: (i64, String),
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// (viii) The noul-weight arm against v5 seeds 0-2. With --room: prints `room` or `no_room`
+    /// from v5's rows alone (the arm's launch condition). Without: `wins`, `quiet` or `refused`.
+    V5Noulw {
+        /// campaign/v5-preregistered.json as committed; read at run time, its sha256 recorded.
+        #[arg(long)]
+        preregistration: PathBuf,
+        /// campaign/v4-noul-v3b-preregistered.json: the F2 bar seed_holds cites and the F3 bound
+        /// the absolute guard cites; read at run time, its sha256 recorded.
+        #[arg(long)]
+        noul_preregistration: PathBuf,
+        /// v5's ledger: the envelope's ft and epoch-score-val rows.
+        #[arg(long)]
+        v5_ledger: PathBuf,
+        /// `SEED=FT_ROW_ID` for v5's seeds 0, 1 and 2 exactly, in order (never seeds 3-4).
+        #[arg(long = "ft-row", required = true, value_parser = parse_ft_row)]
+        ft_rows: Vec<(i64, String)>,
+        /// Decide the launch condition only; no arm row is read.
+        #[arg(long)]
+        room: bool,
+        /// The arm's ledger (/home/ubuntu/ledger/gh200-v5-noulw-<date>.jsonl).
+        #[arg(long, required_unless_present = "room", conflicts_with = "room")]
+        arm_ledger: Option<PathBuf>,
+        /// `SEED=FT_ROW_ID` for the arm's seeds 0, 1 and 2 exactly, in order.
+        #[arg(
+            long = "arm-ft-row",
+            value_parser = parse_ft_row,
+            required_unless_present = "room",
+            conflicts_with = "room"
+        )]
+        arm_ft_rows: Vec<(i64, String)>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// (ix) The Tier-B outcome rule for one candidate (v5's C2a / C2b). Prints `pass`, `fail` or
+    /// `refused`.
+    Tierb {
+        /// Which candidate's outcome run: `nomask` (C2a) or `fused` (C2b).
+        #[arg(long, value_enum)]
+        candidate: Candidate,
+        /// The candidate ledger: its ft row, both score rows and its linear-control row.
+        #[arg(long)]
+        ledger: PathBuf,
+        /// ledger/gh200-seed0-weights-2026-09-30.jsonl: the envelope rows, 7f2c11db and eeda5db4.
+        #[arg(long)]
+        phase3_ledger: PathBuf,
+        /// ledger/gh200-allgates-2026-09-30.jsonl: 58fd1532.
+        #[arg(long)]
+        allgates_ledger: PathBuf,
+        /// The v5 pre-registration, the DRAFT or the renamed file; read at run time, its sha256
+        /// and whether it is the DRAFT recorded.
+        #[arg(long)]
+        preregistration: PathBuf,
         #[arg(long)]
         out: PathBuf,
     },
@@ -986,12 +1088,18 @@ fn ft_row<'a>(ledger: &'a Ledger, seed: i64, id: &str) -> Result<&'a Row> {
     Ok(row)
 }
 
+/// Whether an eval row was scored from ft row `ft` of seed `seed`: the link every score row
+/// records (`metrics.ft_run_row_id`).
+fn scored_from(r: &Row, seed: i64, ft: &str) -> bool {
+    r.seed() == Some(seed) && r.str_at(&["metrics", "ft_run_row_id", "value"]) == Some(ft)
+}
+
 fn eval_row_of<'a>(ledger: &'a Ledger, seed: i64, ft: &str, tag: &str) -> Result<&'a Row> {
     ledger.one(
         "eval",
         tag,
         &format!("seed {seed} scored from ft row {ft}"),
-        |r| r.seed() == Some(seed) && r.str_at(&["metrics", "ft_run_row_id", "value"]) == Some(ft),
+        |r| scored_from(r, seed, ft),
     )
 }
 
@@ -1003,10 +1111,17 @@ fn f_seeds(inputs: &mut Inputs, f_ledger: &Path, ft_rows: &[(i64, String)]) -> R
         "these rules are about F's seeds {F_SEEDS:?}, given in that order; got {seeds:?}"
     );
     let ledger = inputs.read(f_ledger)?;
+    seeds_in(&ledger, ft_rows)
+}
+
+/// Each seed's ft row and its one completed epoch-score-val row in `ledger`, with the 8K worst
+/// bucket and the two OOD counts (ii) and (iii) read. Nothing here names a run: the ft ids
+/// given pin the rows, so it reads F's ledger or v5's alike.
+fn seeds_in(ledger: &Ledger, ft_rows: &[(i64, String)]) -> Result<Vec<FSeed>> {
     let mut out = Vec::new();
     for (seed, ft) in ft_rows {
-        let ft_row = ft_row(&ledger, *seed, ft)?;
-        let eval = eval_row_of(&ledger, *seed, ft, EVAL_TAG)?;
+        let ft_row = ft_row(ledger, *seed, ft)?;
+        let eval = eval_row_of(ledger, *seed, ft, EVAL_TAG)?;
         let prose = eval.count("metrics", "ood_abstain.prose")?;
         let scrambled = eval.count("metrics", "ood_abstain.scrambled")?;
         for (name, f) in [("prose", prose), ("scrambled", scrambled)] {
@@ -1030,12 +1145,36 @@ fn f_seeds(inputs: &mut Inputs, f_ledger: &Path, ft_rows: &[(i64, String)]) -> R
     Ok(out)
 }
 
+/// (ii). Without a pre-registration it is F's rule exactly as it was. With one (v5's), the file's
+/// `seeds.seeds_3_4` threshold must be this rule's 0.30, its `seeds.v5` seed set and identity
+/// (quick false, one recipe and data snapshot: `one_configuration`) are applied, and the decision
+/// records the file's words and sha256 instead of F's.
 fn rule_seeds34(
     inputs: &mut Inputs,
     f_ledger: &Path,
     ft_rows: &[(i64, String)],
+    preregistration: Option<&Path>,
 ) -> Result<(String, Value)> {
-    let seeds = f_seeds(inputs, f_ledger, ft_rows)?;
+    let Some(path) = preregistration else {
+        return Ok(seeds34_decision(&f_seeds(inputs, f_ledger, ft_rows)?, None));
+    };
+    let (p, sha256) = inputs.read_preregistration(path)?;
+    let reading = seeds34_reading(&p)?;
+    let seeds: Vec<i64> = ft_rows.iter().map(|(s, _)| *s).collect();
+    ensure!(
+        seeds == reading.seeds,
+        "seeds.v5 names seeds {:?}, given in that order; got {seeds:?}",
+        reading.seeds
+    );
+    let ledger = inputs.read(f_ledger)?;
+    one_configuration(&ledger, ft_rows)?;
+    let seeds = seeds_in(&ledger, ft_rows)?;
+    Ok(seeds34_decision(&seeds, Some((&reading, sha256.as_str()))))
+}
+
+/// The spread rule on the seeds' 8K worst buckets, and its JSON: F's words, or the
+/// pre-registration's when one was read.
+fn seeds34_decision(seeds: &[FSeed], v5: Option<(&Seeds34Reading, &str)>) -> (String, Value) {
     let mut max = seeds[0].worst_8k.frac;
     let mut min = max;
     for s in &seeds[1..] {
@@ -1047,7 +1186,7 @@ fn rule_seeds34(
         }
     }
     let fires = spread_exceeds(max, min, SPREAD_MAX);
-    let body = json!({
+    let mut body = json!({
         "rule": format!("seeds 3 and 4 run iff F's three 8K needle worst buckets spread by more than {}", SPREAD_MAX.text),
         "seeds": seeds.iter().map(FSeed::json).collect::<Vec<_>>(),
         "max": max.json(),
@@ -1060,7 +1199,21 @@ fn rule_seeds34(
             "no seeds 3-4; J7' averages and ensembles F's three seeds"
         },
     });
-    Ok((if fires { "fires" } else { "quiet" }.into(), body))
+    if let Some((reading, sha256)) = v5 {
+        body["rule"] = json!(format!(
+            "seeds 3 and 4 run iff the three 8K needle worst buckets spread by more than {} \
+             (seeds.seeds_3_4, read from the pre-registration: {:?})",
+            SPREAD_MAX.text, reading.text
+        ));
+        body["then"] = json!(if fires {
+            reading.fires.as_str()
+        } else {
+            "no seeds 3-4 (seeds.seeds_3_4)"
+        });
+        body["preregistration_sha256"] = json!(sha256);
+        body["not_checked"] = json!(NOT_CHECKED_SUITE);
+    }
+    (if fires { "fires" } else { "quiet" }.into(), body)
 }
 
 fn rule_j6f(
@@ -1634,6 +1787,26 @@ impl SeedRows<'_> {
 /// row without per-family margins (J4's d597ee7d) is not one; the option control records
 /// `linear_option_control.scored_eval_row_id` and is never one.
 fn letter_control_row<'a>(ledger: &'a Ledger, eval: &Row) -> Result<&'a Row> {
+    control_row_of(
+        ledger,
+        eval,
+        "letter-control",
+        &format!("carrying {MARGIN_KEY}"),
+        |r| r.get(&["metrics", MARGIN_KEY]).is_some(),
+    )
+}
+
+/// The one completed control row of `kind` that `which` accepts among those that name `eval` in
+/// `metrics.scored_eval_row_id`; its `recipe.eval_row_id` must name the same row. `what`
+/// describes `which` in the refusal. Shared by the letter control (`letter_control_row`) and
+/// tierb's linear control.
+fn control_row_of<'a>(
+    ledger: &'a Ledger,
+    eval: &Row,
+    kind: &str,
+    what: &str,
+    which: impl Fn(&Row) -> bool,
+) -> Result<&'a Row> {
     let found: Vec<&Row> = ledger
         .rows
         .iter()
@@ -1641,23 +1814,22 @@ fn letter_control_row<'a>(ledger: &'a Ledger, eval: &Row) -> Result<&'a Row> {
             r.completed()
                 && r.str_at(&["run_kind"]) == Some("eval")
                 && r.str_at(&["metrics", "scored_eval_row_id", "value"]) == Some(eval.id())
-                && r.get(&["metrics", MARGIN_KEY]).is_some()
+                && which(r)
         })
         .collect();
     let row = match found.len() {
         1 => found[0],
         0 => {
             return Err(format!(
-                "missing row: no completed letter-control row carrying {MARGIN_KEY} for eval \
-                 row {} in {}",
+                "missing row: no completed {kind} row {what} for eval row {} in {}",
                 eval.id(),
                 ledger.shown
             ));
         }
         n => {
             return Err(format!(
-                "{n} completed letter-control rows carry {MARGIN_KEY} for eval row {} in {} \
-                 ({}); which one decides is not this tool's call",
+                "{n} completed {kind} rows {what} for eval row {} in {} ({}); which one decides \
+                 is not this tool's call",
                 eval.id(),
                 ledger.shown,
                 found.iter().map(|r| r.id()).collect::<Vec<_>>().join(", ")
@@ -1666,7 +1838,7 @@ fn letter_control_row<'a>(ledger: &'a Ledger, eval: &Row) -> Result<&'a Row> {
     };
     ensure!(
         row.str_at(&["recipe", "eval_row_id"]) == Some(eval.id()),
-        "letter-control row {}: recipe.eval_row_id {:?} is not its scored eval row {}",
+        "{kind} row {}: recipe.eval_row_id {:?} is not its scored eval row {}",
         row.id(),
         row.str_at(&["recipe", "eval_row_id"]),
         eval.id()
@@ -1730,16 +1902,15 @@ fn recipe_of<'a>(row: &'a Row, what: &str) -> Result<&'a Map<String, Value>> {
         .ok_or_else(|| format!("{what}: row {} has no recipe object", row.id()))
 }
 
+/// The eval-row recipe keys `comparable` holds equal to the envelope's seed 0: the val set and
+/// the needle and OOD suites.
+const COMPARABLE_EVAL_KEYS: [&str; 3] = ["val_shard_hash", "needle", "ood"];
+
 /// Every row an arm or envelope seed is read from is comparable with the envelope's seed 0:
 /// the same val set and needle / OOD suites, the same length-control suite, and the same
 /// letter control (its recipe but for its own eval row id).
 fn comparable(rows: &SeedRows, reference: &SeedRows, what: &str) -> Result<()> {
-    same_recipe_keys(
-        rows.eval,
-        reference.eval,
-        &["val_shard_hash", "needle", "ood"],
-        what,
-    )?;
+    same_recipe_keys(rows.eval, reference.eval, &COMPARABLE_EVAL_KEYS, what)?;
     if let (Some(c), Some(r)) = (rows.control, reference.control) {
         same_recipe_keys(c, r, &["needle_control"], what)?;
     }
@@ -1815,9 +1986,17 @@ type Identity<'a> = &'a dyn Fn(&Arm, &Row, &Row) -> Result<Value>;
 /// A metric's value on each envelope seed, and their minimum and maximum.
 fn envelope_range(m: Metric, envelope: &[SeedRows]) -> Result<(Vec<Val>, Val, Val)> {
     let values: Vec<Val> = envelope.iter().map(|s| s.read(m)).collect::<Result<_>>()?;
+    let (min, max) = min_max(m.name, &values)?;
+    Ok((values, min, max))
+}
+
+/// The minimum and maximum of an envelope's values of metric `name`, compared exactly
+/// (`cmp_val`). Shared by `envelope_range` (envelope seeds read through `SeedRows`) and tierb
+/// (envelope rows pinned by eval row id).
+fn min_max(name: &str, values: &[Val]) -> Result<(Val, Val)> {
     let first = *values
         .first()
-        .ok_or_else(|| format!("{}: an empty envelope has no range", m.name))?;
+        .ok_or_else(|| format!("{name}: an empty envelope has no range"))?;
     let (mut min, mut max) = (first, first);
     for &v in &values[1..] {
         if cmp_val(v, min)? == std::cmp::Ordering::Less {
@@ -1827,7 +2006,7 @@ fn envelope_range(m: Metric, envelope: &[SeedRows]) -> Result<(Vec<Val>, Val, Va
             max = v;
         }
     }
-    Ok((values, min, max))
+    Ok((min, max))
 }
 
 /// One metric against the envelope: a target (does it clear?) or a guard (does it lose?).
@@ -2334,23 +2513,7 @@ fn arm_agrees<'p>(
         ("targets", checked.targets.to_vec()),
         ("guards", checked.must_not_lose()),
     ] {
-        let got: Vec<(&str, &str, &str)> = arm
-            .get(list)
-            .and_then(Value::as_array)
-            .ok_or_else(|| format!("the pre-registration has no arm.{list} list"))?
-            .iter()
-            .map(|m| {
-                let form = m["form"].as_str().unwrap_or("");
-                // "needle_worst_bucket (campaign/f-successor-preregistered.json ...)" names
-                // its form, then where it is defined.
-                let form = form.split(' ').next().unwrap_or("");
-                (
-                    m["name"].as_str().unwrap_or(""),
-                    m["direction"].as_str().unwrap_or(""),
-                    form,
-                )
-            })
-            .collect();
+        let got = listed_in(arm, "arm", list)?;
         let want: Vec<(&str, &str, &str)> = want.into_iter().map(listed).collect();
         ensure!(
             got == want,
@@ -2358,6 +2521,31 @@ fn arm_agrees<'p>(
         );
     }
     Ok(arm)
+}
+
+/// A pre-registration's metric list `{label}.{list}`, each entry as (name, direction, form). A
+/// form names itself first and may go on: "needle_worst_bucket (campaign/f-successor-...)",
+/// "count, plus absolute_guard", "count (pooled)". Shared by j6a, j6g and v5-noulw.
+fn listed_in<'p>(
+    arm: &'p Map<String, Value>,
+    label: &str,
+    list: &str,
+) -> Result<Vec<(&'p str, &'p str, &'p str)>> {
+    Ok(arm
+        .get(list)
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("the pre-registration has no {label}.{list} list"))?
+        .iter()
+        .map(|m| {
+            let form = m["form"].as_str().unwrap_or("");
+            let form = form.split(' ').next().unwrap_or("").trim_end_matches(',');
+            (
+                m["name"].as_str().unwrap_or(""),
+                m["direction"].as_str().unwrap_or(""),
+                form,
+            )
+        })
+        .collect())
 }
 
 /// The pre-registration's structured fields agree with this code: its words, its targets and
@@ -2832,6 +3020,2323 @@ fn rule_j6g(
     s.finish(word, "no reading; the human decides from the rows")
 }
 
+// --- (vii), (viii): v5, campaign/v5-preregistered.json -----------------------------------------
+//
+// R9's spending rule after v5 seed 0 (`v5-pause`), the noul-weight arm's launch condition
+// (`v5-noulw --room`) and its reading (`v5-noulw`), and v5's use of (ii) (`seeds34
+// --preregistration`). Each reads the binding file at run time. What it reads out of the file:
+// thresholds (the count forms R9, seed_holds and the absolute guard write, cross-checked against
+// the F2 / F3 texts of campaign/v4-noul-v3b-preregistered.json they cite), seed sets, the arm's
+// added recipe keys and their values, and its target and guard lists. What it checks the file
+// says: how each metric is read and which direction is better, and the rule's words (`says`).
+// Either kind of disagreement refuses before a ledger is read. The arithmetic is the
+// successor's: counts on the integers (`Frac`, `Rat`), the envelope range (`envelope_range`),
+// the strict guard (`loses`) and the row look-ups (`one_configuration`, `seed_rows`,
+// `comparable`).
+
+/// The file as it binds; the text a decision applied is the one whose sha256 it records.
+const PREREG_V5: &str = "campaign/v5-preregistered.json (the DRAFT renamed on main, binds_iff; \
+                         read at run time, its sha256 recorded)";
+/// arm_noul_weight.outcomes.words.
+const V5NW_WORDS: [&str; 3] = ["wins", "quiet", "refused"];
+/// arm_noul_weight.launch_condition's two words.
+const ROOM_WORDS: [&str; 2] = ["room", "no_room"];
+/// readings.R9_pause_after_seed_0's two words.
+const PAUSE_WORDS: [&str; 2] = ["continue", "pause"];
+/// R9 names the 8K gate's worst depth bucket in words, not by its listed name.
+const R9_NEEDLE_PHRASE: &str = "8K needle worst bucket";
+/// identity.ft_rows' pairing check follows the metric it names with these words (Fable's
+/// seed-order ruling, section 2).
+const PAIRED_PHRASE: &str = " equal to v5's ft row of the same seed";
+/// Pooled in-distribution abstention: every val choice row, CLINC's included (a v5 guard).
+const ID_ABSTAIN_POOLED: Metric = count_metric("ood_abstain.in_distribution", Dir::Lower);
+/// Every metric a v5 rule reads off an epoch-score-val row, under the name the pre-registration
+/// lists it by. A listed name outside this set refuses: the checker reads nothing it was not
+/// written to read.
+const V5_READABLE: [Metric; 10] = [
+    VAL_CHOICE,
+    VAL_SPAN,
+    PERM_DC,
+    ECE_DC,
+    NEEDLE_8K_WORST,
+    PROSE,
+    SCRAMBLED,
+    UNSEEN,
+    ID_ABSTAIN_DC,
+    ID_ABSTAIN_POOLED,
+];
+/// What no v5 rule can check from a row (GAP-V5-RULES-REBUILT-SUITE-NOT-ON-THE-ROW-2026-10-02).
+const NOT_CHECKED_SUITE: &str = "that the eval rows were scored on the rebuilt 8K needle suite: \
+     recipe.needle carries no suite digest and needle_suite_tokens records the median, so no row \
+     field tells the rebuilt suite from F's; recipe.needle is recorded for the reader \
+     (GAP-V5-RULES-REBUILT-SUITE-NOT-ON-THE-ROW-2026-10-02)";
+
+/// The string at `path` in a pre-registration.
+fn prereg_text<'p>(p: &'p Map<String, Value>, path: &[&str]) -> Result<&'p str> {
+    let mut cur = p.get(path[0]);
+    for key in &path[1..] {
+        cur = cur.and_then(|v| v.get(key));
+    }
+    cur.and_then(Value::as_str)
+        .ok_or_else(|| format!("the pre-registration has no string {}", path.join(".")))
+}
+
+/// The pre-registration's text at `path` says `phrase`, which is the rule this checker applies.
+/// An amended text changes the words and refuses until the checker follows it.
+fn says(p: &Map<String, Value>, path: &[&str], phrase: &str) -> Result<()> {
+    ensure!(
+        prereg_text(p, path)?.contains(phrase),
+        "the pre-registration's {} does not say {phrase:?}, which is the rule this checker \
+         applies",
+        path.join(".")
+    );
+    Ok(())
+}
+
+/// The DRAFT's own first words are that no checker, waiter or lane may read it as a rule; it
+/// binds only once renamed to campaign/v5-preregistered.json on main (binds_iff). A file that
+/// still carries its `draft` key is the DRAFT.
+fn not_a_draft(p: &Map<String, Value>) -> Result<()> {
+    ensure!(
+        !p.contains_key("draft"),
+        "the pre-registration still carries the DRAFT's top-level \"draft\" key, which says no \
+         checker may read it as a rule; it binds only once renamed to \
+         campaign/v5-preregistered.json on main without that key (binds_iff)"
+    );
+    Ok(())
+}
+
+fn count_word(n: usize) -> Option<&'static str> {
+    [
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+    ]
+    .get(n)
+    .copied()
+}
+
+/// `[0, 1, 2]` as the pre-registration writes it: "0, 1 and 2".
+fn and_list(seeds: &[i64]) -> String {
+    match seeds {
+        [] => String::new(),
+        [one] => one.to_string(),
+        [head @ .., last] => format!(
+            "{} and {last}",
+            head.iter()
+                .map(i64::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+/// A cursor over pre-registration prose, for the few forms a v5 rule reads out of its text.
+struct Words<'a>(&'a str);
+
+impl<'a> Words<'a> {
+    /// The text after the one occurrence of `anchor`; none, or more than one, refuses.
+    fn after(text: &'a str, anchor: &str, what: &str) -> Result<Words<'a>> {
+        let hits = text.matches(anchor).count();
+        ensure!(
+            hits == 1,
+            "{what}: {anchor:?} occurs {hits} time(s) in {text:?}, not once"
+        );
+        let at = text.find(anchor).map_or(text.len(), |i| i + anchor.len());
+        Ok(Words(&text[at..]))
+    }
+    fn shown(&self) -> String {
+        self.0.chars().take(48).collect()
+    }
+    /// `token` next, after any spaces; consumed if so.
+    fn eat(&mut self, token: &str) -> bool {
+        match self.0.trim_start().strip_prefix(token) {
+            Some(rest) => {
+                self.0 = rest;
+                true
+            }
+            None => false,
+        }
+    }
+    fn int(&mut self) -> Option<u64> {
+        let s = self.0.trim_start();
+        let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+        let v = s[..end].parse().ok()?;
+        self.0 = &s[end..];
+        Some(v)
+    }
+    /// A decimal as written ("0.30", "4.0", "12"): `num / den` with den a power of ten, and the
+    /// text. A trailing full stop is not a decimal point.
+    fn decimal(&mut self) -> Option<(u64, u64, &'a str)> {
+        let s = self.0.trim_start();
+        let int_end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+        if int_end == 0 {
+            return None;
+        }
+        let mut end = int_end;
+        if s[end..].starts_with('.') && s[end + 1..].starts_with(|c: char| c.is_ascii_digit()) {
+            let frac = &s[end + 1..];
+            end += 1 + frac
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(frac.len());
+        }
+        let shown = &s[..end];
+        let num: u64 = shown.replace('.', "").parse().ok()?;
+        let places = u32::try_from(end - int_end).ok()?.saturating_sub(1);
+        let den = 10u64.checked_pow(places)?;
+        self.0 = &s[end..];
+        Some((num, den, shown))
+    }
+    /// The text up to `end`, consumed with it.
+    fn until(&mut self, end: &str) -> Option<&'a str> {
+        let at = self.0.find(end)?;
+        let head = &self.0[..at];
+        self.0 = &self.0[at + end.len()..];
+        Some(head)
+    }
+    /// A key as a pre-registration writes one: `[A-Za-z0-9_.-]+`.
+    fn name(&mut self) -> Option<&'a str> {
+        let s = self.0.trim_start();
+        let end = s
+            .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')))
+            .unwrap_or(s.len());
+        // A sentence's full stop is not part of the name before it.
+        let end = s[..end].trim_end_matches('.').len();
+        if end == 0 {
+            return None;
+        }
+        self.0 = &s[end..];
+        Some(&s[..end])
+    }
+    /// `K/N`, as a bar or an example is printed.
+    fn ratio(&mut self) -> Option<(u64, u64)> {
+        let k = self.int()?;
+        if !self.eat("/") {
+            return None;
+        }
+        Some((k, self.int()?))
+    }
+}
+
+/// `a*n OP b*n_total`, as a pre-registration writes a count form (spacing free, a factor of 1
+/// unwritten): a count `n / n_total` meets it iff `a*n OP b*n_total`, on the integers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CountForm {
+    a: u64,
+    at_least: bool,
+    b: u64,
+}
+
+impl CountForm {
+    fn read(w: &mut Words, what: &str) -> Result<CountForm> {
+        let shown = w.shown();
+        let bad = || {
+            format!(
+                "{what}: {shown:?} is not a count form `a*n >= b*n_total` or `a*n <= b*n_total`"
+            )
+        };
+        let factor = |w: &mut Words| -> Result<u64> {
+            let save = w.0;
+            match w.int() {
+                None => Ok(1),
+                Some(k) if w.eat("*") => Ok(k),
+                Some(_) => {
+                    w.0 = save;
+                    Err(bad())
+                }
+            }
+        };
+        let a = factor(&mut *w)?;
+        ensure!(w.eat("n"), "{}", bad());
+        let at_least = if w.eat(">=") {
+            true
+        } else if w.eat("<=") {
+            false
+        } else {
+            return Err(bad());
+        };
+        let b = factor(&mut *w)?;
+        ensure!(
+            w.eat("n_total")
+                && !w
+                    .0
+                    .starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_'),
+            "{}",
+            bad()
+        );
+        ensure!(
+            a > 0 && b > 0,
+            "{what}: a factor of 0 in {shown:?} is not a bound"
+        );
+        Ok(CountForm { a, at_least, b })
+    }
+    fn meets(self, f: Frac) -> bool {
+        let (l, r) = (
+            u128::from(self.a) * u128::from(f.k),
+            u128::from(self.b) * u128::from(f.n),
+        );
+        if self.at_least { l >= r } else { l <= r }
+    }
+    /// The form is exactly the bound `n / n_total OP num / den`: `b * den == a * num`.
+    fn is_bound(self, num: u64, den: u64) -> bool {
+        u128::from(self.b) * u128::from(den) == u128::from(self.a) * u128::from(num)
+    }
+    fn text(self) -> String {
+        format!(
+            "{}*n {} {}*n_total",
+            self.a,
+            if self.at_least { ">=" } else { "<=" },
+            self.b
+        )
+    }
+}
+
+/// `seeds.v5`'s seed list ("0, 1, 2; one ft row and one completed epoch-score-val eval row
+/// each, quick false ..."), with the identity it states for each seed's rows.
+fn v5_seeds(p: &Map<String, Value>) -> Result<Vec<i64>> {
+    let path = ["seeds", "v5"];
+    let text = prereg_text(p, &path)?;
+    let head = text.split(';').next().unwrap_or("");
+    let seeds: Vec<i64> = head
+        .split(',')
+        .map(|s| {
+            s.trim().parse::<i64>().map_err(|_| {
+                format!("the pre-registration's seeds.v5 {text:?} does not open with its seed list")
+            })
+        })
+        .collect::<Result<_>>()?;
+    let distinct: BTreeSet<i64> = seeds.iter().copied().collect();
+    ensure!(
+        !seeds.is_empty() && distinct.len() == seeds.len(),
+        "the pre-registration's seeds.v5 names {seeds:?}: no seed, or one twice"
+    );
+    says(
+        p,
+        &path,
+        &format!("one ft row and one completed {EVAL_TAG} eval row each, quick false"),
+    )?;
+    Ok(seeds)
+}
+
+/// The metric a v5 rule lists as `name`, read the way this checker reads it, in the direction
+/// the list gives; a name it cannot read, or a direction it does not read it in, refuses.
+fn v5_metric(name: &str, direction: &str, what: &str) -> Result<Metric> {
+    let m = V5_READABLE
+        .iter()
+        .find(|m| m.name == name)
+        .copied()
+        .ok_or_else(|| {
+            format!(
+                "{what}: {name:?} is not a metric this checker reads off an {EVAL_TAG} row ({:?})",
+                V5_READABLE.iter().map(|m| m.name).collect::<Vec<_>>()
+            )
+        })?;
+    ensure!(
+        dir_word(m.dir) == direction,
+        "{what}: {name} is listed {direction:?}, but this checker reads it {}-better",
+        dir_word(m.dir)
+    );
+    Ok(m)
+}
+
+// --- (ii) on v5's seeds -------------------------------------------------------------------------
+
+/// What `seeds34 --preregistration` read from `seeds.seeds_3_4` and `seeds.v5`.
+struct Seeds34Reading {
+    text: String,
+    /// The file's own words for what runs when the rule fires.
+    fires: String,
+    seeds: Vec<i64>,
+}
+
+/// `seeds.seeds_3_4` names this rule and its threshold, which must be (ii)'s 0.30: the spread
+/// arithmetic is (ii)'s, so a different threshold refuses rather than run under the wrong one.
+fn seeds34_reading(p: &Map<String, Value>) -> Result<Seeds34Reading> {
+    not_a_draft(p)?;
+    let path = ["seeds", "seeds_3_4"];
+    let what = "seeds.seeds_3_4";
+    let text = prereg_text(p, &path)?;
+    let (num, den, shown) = Words::after(text, "spread by more than ", what)?
+        .decimal()
+        .ok_or_else(|| format!("{what}: no decimal after \"spread by more than\" in {text:?}"))?;
+    ensure!(
+        u128::from(num) * u128::from(SPREAD_MAX.den)
+            == u128::from(SPREAD_MAX.num) * u128::from(den),
+        "{what}: the spread threshold {shown} is not this rule's {}; (ii) applies only its own",
+        SPREAD_MAX.text
+    );
+    says(p, &path, "checked by qd-post-f-rules seeds34")?;
+    let mut w = Words::after(text, "seeds 3 and 4 run", what)?;
+    let fires = format!(
+        "seeds 3 and 4 run{}",
+        w.until(";")
+            .ok_or_else(|| format!("{what}: no ';' after \"seeds 3 and 4 run\""))?
+    );
+    Ok(Seeds34Reading {
+        text: text.to_string(),
+        fires,
+        seeds: v5_seeds(p)?,
+    })
+}
+
+// --- (vii): R9 ----------------------------------------------------------------------------------
+
+/// readings.R9_pause_after_seed_0, as this checker applies it.
+struct PauseRule {
+    text: String,
+    seed: i64,
+    tag: String,
+    span: CountForm,
+    needle: CountForm,
+    seeds: Vec<i64>,
+}
+
+fn pause_rule(p: &Map<String, Value>) -> Result<PauseRule> {
+    not_a_draft(p)?;
+    let path = ["readings", "R9_pause_after_seed_0"];
+    let what = "readings.R9_pause_after_seed_0";
+    let text = prereg_text(p, &path)?;
+    let mut w = Words::after(text, "after v5 seed ", what)?;
+    let seed = w
+        .int()
+        .and_then(|s| i64::try_from(s).ok())
+        .ok_or_else(|| format!("{what}: no seed after \"after v5 seed\""))?;
+    ensure!(
+        w.eat("'s"),
+        "{what}: \"after v5 seed {seed}\" is not followed by 's"
+    );
+    let tag = w
+        .until(" row")
+        .ok_or_else(|| format!("{what}: no row named after \"after v5 seed {seed}'s\""))?
+        .trim()
+        .to_string();
+    ensure!(
+        tag == EVAL_TAG,
+        "{what}: R9 reads the {tag:?} row; this checker reads val_top1.span and the 8K gate off \
+         the {EVAL_TAG} row"
+    );
+    says(
+        p,
+        &path,
+        &format!("qd-post-f-rules v5-pause prints {} iff", PAUSE_WORDS[0]),
+    )?;
+    says(p, &path, &format!("otherwise {}", PAUSE_WORDS[1]))?;
+    let span = CountForm::read(
+        &mut Words::after(text, &format!("{} has ", VAL_SPAN.name), what)?,
+        what,
+    )?;
+    let needle = CountForm::read(
+        &mut Words::after(text, &format!("{R9_NEEDLE_PHRASE} has "), what)?,
+        what,
+    )?;
+    ensure!(
+        span.at_least && needle.at_least,
+        "{what}: {} and {} are not both floors; R9 continues on counts at least their bounds",
+        span.text(),
+        needle.text()
+    );
+    let seeds = v5_seeds(p)?;
+    ensure!(
+        seeds.contains(&seed),
+        "{what}: seed {seed} is not one of seeds.v5's {seeds:?}"
+    );
+    Ok(PauseRule {
+        text: text.to_string(),
+        seed,
+        tag,
+        span,
+        needle,
+        seeds,
+    })
+}
+
+/// R9: after v5 seed 0's epoch-score-val row, `continue` iff val_top1.span and the 8K worst
+/// bucket each meet R9's count form, else `pause`. A spending rule, not a gate.
+fn rule_v5_pause(
+    inputs: &mut Inputs,
+    preregistration: &Path,
+    ledger: &Path,
+    ft: &(i64, String),
+) -> Result<(String, Value)> {
+    let (p, sha256) = inputs.read_preregistration(preregistration)?;
+    let rule = pause_rule(&p)?;
+    ensure!(
+        ft.0 == rule.seed,
+        "R9 reads v5 seed {}'s rows; --ft-row names seed {}",
+        rule.seed,
+        ft.0
+    );
+    let ledger = inputs.read(ledger)?;
+    let (rows, recipe_hash, data) = one_configuration(&ledger, std::slice::from_ref(ft))?;
+    let eval = eval_row_of(&ledger, ft.0, &ft.1, &rule.tag)?;
+    let span = eval.count("metrics", VAL_SPAN.name)?;
+    let worst = needle_8k(eval)?;
+    let (span_ok, needle_ok) = (rule.span.meets(span), rule.needle.meets(worst.frac));
+    let rest: Vec<i64> = rule
+        .seeds
+        .iter()
+        .copied()
+        .filter(|s| *s != rule.seed)
+        .collect();
+    let go = span_ok && needle_ok;
+    let body = json!({
+        "rule": rule.text,
+        "kind": "a spending rule, not a gate (R9)",
+        "preregistration_sha256": sha256,
+        "seed": ft.0,
+        "ft_row": ft.1,
+        "eval_row": eval.id(),
+        "code_commit": rows.first().and_then(|r| r.str_at(&["code_commit"])),
+        "recipe_hash": recipe_hash,
+        "data_snapshot_hash": data,
+        "val_top1.span": {"count": span.json(), "form": rule.span.text(), "meets": span_ok},
+        "needle_8k_worst": {"worst": worst.json(), "form": rule.needle.text(), "meets": needle_ok},
+        "suite": {
+            "recipe.needle": eval.get(&["recipe", "needle"]),
+            "needle_suite_tokens.value": eval.get(&["metrics", "needle_suite_tokens", "value"]),
+        },
+        "not_checked": NOT_CHECKED_SUITE,
+        "then": if go {
+            format!("v5 seeds {} start", and_list(&rest))
+        } else {
+            format!(
+                "v5 seeds {} wait until the human pins V5_CONTINUE (R9; a spending rule, not a gate)",
+                and_list(&rest)
+            )
+        },
+    });
+    Ok((PAUSE_WORDS[usize::from(!go)].to_string(), body))
+}
+
+// --- (viii): the noul-weight arm ----------------------------------------------------------------
+
+/// arm_noul_weight, and the F2 / F3 texts it cites, as this checker applies them.
+struct NoulwRule {
+    seeds: Vec<i64>,
+    /// identity.ft_rows: the arm's ft rows' recipe.tag.
+    ft_tag: String,
+    /// identity.ft_rows: the keys the arm's recipe adds to v5's same-seed recipe, and their values.
+    added: Vec<(String, Value)>,
+    /// identity.ft_rows' pairing check: the ft-row metric (`corpus.plan_order_digest`) the arm's
+    /// and v5's same-seed ft rows must both record, equal.
+    paired: String,
+    /// seed_holds: a seed holds a target iff its count meets this form...
+    holds: CountForm,
+    /// ...which is the F2 bar, over exactly this many cases.
+    bar: Frac,
+    /// comparison.room: a target has room iff v5 holds it on at most this many seeds.
+    room_at_most: usize,
+    targets: Vec<Metric>,
+    guards: Vec<Metric>,
+    /// comparison.absolute_guard: on every arm seed this metric meets this form (F3).
+    absolute: (Metric, CountForm),
+    /// The comparison texts applied, for the record.
+    applied: Value,
+}
+
+/// `except exactly two added keys, noul_weight = 4.0 and noul_weight_scope =
+/// 'code.defect_class'.`: each key with its value, a number or a quoted string.
+fn added_keys(text: &str, what: &str) -> Result<Vec<(String, Value)>> {
+    let mut w = Words::after(text, "except exactly ", what)?;
+    let word = w
+        .until(" added key")
+        .ok_or_else(|| format!("{what}: no \"added key\" after \"except exactly\""))?
+        .trim();
+    let n = (0..10)
+        .find(|&i| count_word(i) == Some(word))
+        .ok_or_else(|| format!("{what}: {word:?} is not a count of added keys"))?;
+    w.eat("s");
+    ensure!(
+        w.eat(",") || w.eat(":"),
+        "{what}: the added keys are not listed after \"{word} added key(s)\""
+    );
+    let mut out: Vec<(String, Value)> = Vec::new();
+    loop {
+        let key = w
+            .name()
+            .ok_or_else(|| format!("{what}: no key at {:?}", w.shown()))?;
+        ensure!(w.eat("="), "{what}: {key} is not followed by '='");
+        let value = if w.eat("'") {
+            json!(
+                w.until("'")
+                    .ok_or_else(|| format!("{what}: {key}'s quoted value is not closed"))?
+            )
+        } else {
+            let at = w.shown();
+            let (num, den, _) = w.decimal().ok_or_else(|| {
+                format!("{what}: {key}'s value at {at:?} is not a number or a quoted string")
+            })?;
+            json!(num as f64 / den as f64)
+        };
+        ensure!(
+            !out.iter().any(|(k, _)| k == key),
+            "{what}: {key} is added twice"
+        );
+        out.push((key.to_string(), value));
+        if !(w.eat("and") || w.eat(",")) {
+            break;
+        }
+    }
+    ensure!(
+        out.len() == n,
+        "{what}: \"{word} added key(s)\" lists {} ({:?})",
+        out.len(),
+        out.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>()
+    );
+    Ok(out)
+}
+
+/// The arm's block read and checked against what this checker applies; F2 and F3 read from
+/// campaign/v4-noul-v3b-preregistered.json (`noul`) and checked against the forms that cite them.
+fn noulw_rule(p: &Map<String, Value>, noul: &Map<String, Value>) -> Result<NoulwRule> {
+    not_a_draft(p)?;
+    let arm = p
+        .get("arm_noul_weight")
+        .and_then(Value::as_object)
+        .ok_or("the pre-registration has no arm_noul_weight object")?;
+    let a = |rest: &[&'static str]| -> Vec<&'static str> {
+        std::iter::once("arm_noul_weight")
+            .chain(rest.iter().copied())
+            .collect()
+    };
+    let seeds = v5_seeds(p)?;
+    let n = seeds.len();
+    let n_word = count_word(n).ok_or_else(|| format!("seeds.v5 names {n} seeds"))?;
+    let seed_list = and_list(&seeds);
+
+    // Words and the launch condition.
+    let words: Vec<&str> = arm
+        .get("outcomes")
+        .and_then(|o| o.get("words"))
+        .and_then(Value::as_array)
+        .map(|w| w.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    ensure!(
+        words == V5NW_WORDS,
+        "the pre-registration's arm_noul_weight.outcomes.words are {words:?}, not this checker's \
+         {V5NW_WORDS:?}"
+    );
+    says(
+        p,
+        &a(&["outcomes", "wins"]),
+        "every target with room clears and no guard (including the absolute guard and any \
+         no-room target read as a guard) loses",
+    )?;
+    says(p, &a(&["outcomes", "refused"]), "or no target has room")?;
+    says(
+        p,
+        &a(&["launch_condition"]),
+        &format!(
+            "qd-post-f-rules v5-noulw --room prints {} or {} from v5 seeds",
+            ROOM_WORDS[0], ROOM_WORDS[1]
+        ),
+    )?;
+
+    // The envelope and the rows.
+    says(p, &a(&["envelope"]), &format!("v5 seeds {seed_list} only"))?;
+    says(
+        p,
+        &a(&["arm_rows"]),
+        "from the arm ledger only; a second eval row for an arm ft row refuses",
+    )?;
+
+    // Identity: the ft rows.
+    let id_path = a(&["identity", "ft_rows"]);
+    let id_text = prereg_text(p, &id_path)?;
+    let id_seeds = seeds
+        .iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    for phrase in [
+        "completed".to_string(),
+        format!("protocol.seed {id_seeds} once each"),
+        "quick false".to_string(),
+        "code_commit equal to v5's".to_string(),
+        "protocol.data_snapshot_hash and recipe.shard_hash equal to v5's".to_string(),
+        "recipe equal to v5's ft recipe of the same seed".to_string(),
+        "Any other difference refuses".to_string(),
+    ] {
+        says(p, &id_path, &phrase)?;
+    }
+    let ft_tag = Words::after(id_text, "recipe.tag '", "arm_noul_weight.identity.ft_rows")?
+        .until("'")
+        .ok_or("arm_noul_weight.identity.ft_rows: recipe.tag's quote is not closed")?
+        .to_string();
+    let added = added_keys(id_text, "arm_noul_weight.identity.ft_rows")?;
+    let w_value = arm
+        .get("w")
+        .and_then(|w| w.get("value"))
+        .and_then(Value::as_f64)
+        .ok_or("the pre-registration has no number arm_noul_weight.w.value")?;
+    ensure!(
+        added
+            .iter()
+            .any(|(k, v)| k == "noul_weight" && v.as_f64() == Some(w_value)),
+        "arm_noul_weight.identity.ft_rows adds {added:?}, which does not set noul_weight to \
+         arm_noul_weight.w.value {w_value}"
+    );
+    // The pairing check (Fable's seed-order ruling, section 2): the ft-row metric named just
+    // before PAIRED_PHRASE is equal on the arm's and v5's same-seed ft rows.
+    let at = id_text.find(PAIRED_PHRASE).ok_or_else(|| {
+        format!(
+            "arm_noul_weight.identity.ft_rows does not say \"<metric>{PAIRED_PHRASE}\": the \
+             pairing check this checker applies"
+        )
+    })?;
+    ensure!(
+        id_text.matches(PAIRED_PHRASE).count() == 1,
+        "arm_noul_weight.identity.ft_rows names more than one paired metric"
+    );
+    let head = &id_text[..at];
+    let start = head
+        .char_indices()
+        .rev()
+        .find(|(_, c)| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')))
+        .map_or(0, |(i, c)| i + c.len_utf8());
+    let paired = head[start..].to_string();
+    ensure!(
+        !paired.is_empty() && !paired.starts_with('.') && !paired.ends_with('.'),
+        "arm_noul_weight.identity.ft_rows: no metric named before {PAIRED_PHRASE:?}"
+    );
+    says(
+        p,
+        &id_path,
+        &format!("{paired}{PAIRED_PHRASE}, absent on either side refuses"),
+    )?;
+
+    // Identity: the eval rows. Their tag, and the recipe keys held equal to v5 seed 0's, which
+    // must be `comparable`'s.
+    let ev_path = a(&["identity", "eval_rows"]);
+    let ev_text = prereg_text(p, &ev_path)?;
+    let tag = Words::after(ev_text, "tag ", "arm_noul_weight.identity.eval_rows")?
+        .until(";")
+        .ok_or("arm_noul_weight.identity.eval_rows: no ';' after its tag")?
+        .trim();
+    ensure!(
+        tag == EVAL_TAG,
+        "arm_noul_weight.identity.eval_rows reads the {tag:?} row; this checker reads every \
+         target and guard off the {EVAL_TAG} row"
+    );
+    says(p, &ev_path, "metrics.ft_run_row_id = the arm ft row")?;
+    says(
+        p,
+        &ev_path,
+        &format!("equal to v5 seed {}'s eval row", seeds[0]),
+    )?;
+    let keys: Vec<&str> = ev_text
+        .match_indices("recipe.")
+        .filter_map(|(i, _)| Words(&ev_text[i + "recipe.".len()..]).name())
+        .collect();
+    ensure!(
+        keys == COMPARABLE_EVAL_KEYS,
+        "arm_noul_weight.identity.eval_rows holds recipe keys {keys:?} equal to v5 seed {}'s; \
+         this checker holds {COMPARABLE_EVAL_KEYS:?}",
+        seeds[0]
+    );
+
+    // seed_holds, and the F2 bar it cites.
+    let tf_path = a(&["comparison", "targets_form"]);
+    let tf_text = prereg_text(p, &tf_path)?;
+    ensure!(
+        tf_text.starts_with("seed_holds."),
+        "arm_noul_weight.comparison.targets_form is not seed_holds"
+    );
+    let mut w = Words::after(
+        tf_text,
+        "its count is at least half: ",
+        "arm_noul_weight.comparison.targets_form",
+    )?;
+    let holds = CountForm::read(&mut w, "arm_noul_weight.comparison.targets_form")?;
+    ensure!(
+        w.eat("(>="),
+        "arm_noul_weight.comparison.targets_form: {} is not followed by its printed bar (>= K/N",
+        holds.text()
+    );
+    let printed = w
+        .ratio()
+        .ok_or("arm_noul_weight.comparison.targets_form: the printed bar is not K/N")?;
+    says(
+        p,
+        &tf_path,
+        "the F2 bar of campaign/v4-noul-v3b-preregistered.json",
+    )?;
+    says(
+        p,
+        &tf_path,
+        &format!(
+            "A target clears iff all {n_word} arm seeds hold AND the arm holds on strictly more \
+             seeds than v5's envelope does"
+        ),
+    )?;
+    let f2 = prereg_text(noul, &["ood_abstain_by_category", "bar"])?;
+    let mut f2w = Words(f2);
+    let f2_bar = (if f2w.eat(">=") { f2w.ratio() } else { None }).ok_or_else(|| {
+        format!("campaign/v4-noul-v3b-preregistered.json's F2 bar {f2:?} is not \">= K/N\"")
+    })?;
+    ensure!(
+        printed == f2_bar,
+        "seed_holds prints the F2 bar as {}/{}, but F2 is {f2:?}",
+        printed.0,
+        printed.1
+    );
+    let bar = Frac::new(f2_bar.0, f2_bar.1, "the F2 bar")?;
+    ensure!(
+        holds.at_least
+            && holds.is_bound(bar.k, bar.n)
+            && holds.meets(bar)
+            && (bar.k == 0
+                || !holds.meets(Frac {
+                    k: bar.k - 1,
+                    n: bar.n
+                })),
+        "seed_holds' {} is not the F2 bar {}/{} (at least {} of {} cases)",
+        holds.text(),
+        bar.k,
+        bar.n,
+        bar.k,
+        bar.n
+    );
+
+    // Room.
+    let room_text = prereg_text(p, &a(&["comparison", "room"]))?;
+    let mut w = Words::after(
+        room_text,
+        "a target has room iff v5 holds on at most ",
+        "arm_noul_weight.comparison.room",
+    )?;
+    let at_most = w.int();
+    let of = if w.eat("of its") { w.int() } else { None };
+    let (room_at_most, of) = match (at_most, of) {
+        (Some(k), Some(s)) if w.eat("seeds") => (k, s),
+        _ => {
+            return Err(
+                "arm_noul_weight.comparison.room: not \"at most K of its N seeds\"".to_string(),
+            );
+        }
+    };
+    let room_at_most =
+        usize::try_from(room_at_most).map_err(|_| "room bound overflows".to_string())?;
+    ensure!(
+        usize::try_from(of).ok() == Some(n),
+        "arm_noul_weight.comparison.room counts seeds of {of}, not seeds.v5's {n}"
+    );
+    says(
+        p,
+        &a(&["comparison", "room"]),
+        &format!(
+            "If exactly one target has no room it is read as a guard instead (the arm must hold \
+             on {n} of {n} seeds too)"
+        ),
+    )?;
+    says(
+        p,
+        &a(&["comparison", "room"]),
+        "if neither has room the arm does not launch",
+    )?;
+
+    // Guards' form: the strict envelope with the arm's worst seed.
+    for phrase in [
+        "strict envelope",
+        "with the arm's worst seed as the candidate",
+        "higher-better loses iff the arm's minimum < v5's minimum",
+        "lower-better loses iff the arm's maximum > v5's maximum",
+        "ties never lose",
+        "Counts on the integers n / n_total by i128 cross-multiplication",
+        "ECE on the recorded f64",
+    ] {
+        says(p, &a(&["comparison", "guards_form"]), phrase)?;
+    }
+
+    // Targets and guards, as listed.
+    let mut targets = Vec::new();
+    for (name, dir, form) in listed_in(arm, "arm_noul_weight", "targets")? {
+        let m = v5_metric(name, dir, "arm_noul_weight.targets")?;
+        ensure!(
+            form == "seed_holds" && matches!(m.source, Source::Count(_)),
+            "arm_noul_weight.targets: {name} is read as {form:?}; this checker reads targets as \
+             seed_holds on counts"
+        );
+        let category = name.strip_prefix("ood_abstain.").unwrap_or(name);
+        ensure!(
+            f2.contains(category),
+            "arm_noul_weight.targets: {name}'s category is not among the F2 bar's {f2:?}"
+        );
+        targets.push(m);
+    }
+    ensure!(!targets.is_empty(), "arm_noul_weight.targets is empty");
+    let mut guards = Vec::new();
+    for (name, dir, form) in listed_in(arm, "arm_noul_weight", "guards")? {
+        let m = v5_metric(name, dir, "arm_noul_weight.guards")?;
+        let want = listed(m).2;
+        ensure!(
+            form == want,
+            "arm_noul_weight.guards: {name} is read as {form:?}; this checker reads it as {want:?}"
+        );
+        ensure!(
+            !targets.iter().any(|t| t.name == m.name)
+                && !guards.iter().any(|g: &Metric| g.name == m.name),
+            "arm_noul_weight lists {name} twice"
+        );
+        guards.push(m);
+    }
+
+    // The absolute guard, and the F3 bound it cites.
+    let ag_path = a(&["comparison", "absolute_guard"]);
+    let ag_text = prereg_text(p, &ag_path)?;
+    let what = "arm_noul_weight.comparison.absolute_guard";
+    let mut w = Words::after(ag_text, "on every arm seed ", what)?;
+    let ag_name = w
+        .name()
+        .ok_or_else(|| format!("{what}: no metric after \"on every arm seed\""))?;
+    ensure!(w.eat("has"), "{what}: {ag_name} is not followed by \"has\"");
+    let ag_form = CountForm::read(&mut w, what)?;
+    ensure!(
+        w.eat("(<="),
+        "{what}: {} is not followed by its printed example (<= K/N",
+        ag_form.text()
+    );
+    let (ex_k, ex_n) = w
+        .ratio()
+        .ok_or_else(|| format!("{what}: the printed example is not K/N"))?;
+    let example = Frac::new(ex_k, ex_n, what)?;
+    ensure!(
+        !ag_form.at_least
+            && ag_form.meets(example)
+            && (ex_k >= ex_n
+                || !ag_form.meets(Frac {
+                    k: ex_k + 1,
+                    n: ex_n
+                })),
+        "{what}: {} does not make {ex_k}/{ex_n} the largest count it allows",
+        ag_form.text()
+    );
+    says(
+        p,
+        &ag_path,
+        "campaign/v4-noul-v3b-preregistered.json defect_class_in_distribution_abstention",
+    )?;
+    says(p, &ag_path, "one seed over it loses")?;
+    let raw_guards = arm
+        .get("guards")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let ag = guards
+        .iter()
+        .copied()
+        .find(|g| g.name == ag_name)
+        .ok_or_else(|| format!("{what}: {ag_name} is not among arm_noul_weight.guards"))?;
+    ensure!(
+        raw_guards
+            .iter()
+            .any(|g| g["name"].as_str() == Some(ag_name)
+                && g["form"]
+                    .as_str()
+                    .is_some_and(|f| f.contains("absolute_guard"))),
+        "{what}: arm_noul_weight.guards does not mark {ag_name} with its absolute_guard"
+    );
+    let f3 = prereg_text(noul, &["defect_class_in_distribution_abstention", "bound"])?;
+    let mut f3w = Words(f3);
+    let pct = (if f3w.eat("<=") {
+        f3w.int().filter(|_| f3w.eat("%"))
+    } else {
+        None
+    })
+    .ok_or_else(|| {
+        format!("campaign/v4-noul-v3b-preregistered.json's F3 bound {f3:?} is not \"<= P%\"")
+    })?;
+    ensure!(
+        ag_form.is_bound(pct, 100),
+        "{what}: {} is not F3's {f3:?}",
+        ag_form.text()
+    );
+
+    let applied = json!({
+        "targets_form": tf_text,
+        "room": room_text,
+        "guards_form": prereg_text(p, &a(&["comparison", "guards_form"]))?,
+        "absolute_guard": ag_text,
+        "identity": {"ft_rows": id_text, "eval_rows": ev_text},
+        "f2_bar": f2,
+        "f3_bound": f3,
+    });
+    Ok(NoulwRule {
+        seeds,
+        ft_tag,
+        added,
+        paired,
+        holds,
+        bar,
+        room_at_most,
+        targets,
+        guards,
+        absolute: (ag, ag_form),
+        applied,
+    })
+}
+
+/// A target's count on each seed, and whether the seed holds it (seed_holds).
+struct Held {
+    metric: Metric,
+    per_seed: Vec<(i64, Frac, bool)>,
+}
+
+impl Held {
+    fn of(rule: &NoulwRule, metric: Metric, rows: &[SeedRows]) -> Result<Held> {
+        let Source::Count(key) = metric.source else {
+            return Err(format!("{}: seed_holds is read on counts", metric.name));
+        };
+        let per_seed = rows
+            .iter()
+            .map(|s| {
+                let f = s.eval.count("metrics", key)?;
+                ensure!(
+                    f.n == rule.bar.n,
+                    "row {} {key} is over {} cases, not the {} the F2 bar is stated over",
+                    s.eval.id(),
+                    f.n,
+                    rule.bar.n
+                );
+                Ok((s.seed, f, rule.holds.meets(f)))
+            })
+            .collect::<Result<_>>()?;
+        Ok(Held { metric, per_seed })
+    }
+    fn holding(&self) -> usize {
+        self.per_seed.iter().filter(|(_, _, h)| *h).count()
+    }
+    fn json(&self) -> Value {
+        json!(
+            self.per_seed
+                .iter()
+                .map(|(s, f, h)| json!({"seed": s, "count": f.json(), "holds": h}))
+                .collect::<Vec<_>>()
+        )
+    }
+}
+
+/// The arm's ft row is v5's same-seed ft row plus exactly the added keys (identity.ft_rows):
+/// quick false, its tag, v5's code commit and data snapshot, every recipe key but the added
+/// ones equal, and the paired metric (v5's batch order for that seed) recorded on both rows and
+/// equal. Every failure is listed, not only the first.
+fn noulw_identity(rule: &NoulwRule, ft: &Row, v5: &Row) -> Result<Value> {
+    let what = format!("arm ft row {} (seed {:?})", ft.id(), ft.seed());
+    let shown = |v: Option<&Value>| v.map_or("absent".to_string(), Value::to_string);
+    let mut wrong: Vec<String> = Vec::new();
+    if ft.get(&["quick"]) != Some(&Value::Bool(false)) {
+        wrong.push(format!("quick is {}, not false", shown(ft.get(&["quick"]))));
+    }
+    if ft.tag() != Some(rule.ft_tag.as_str()) {
+        wrong.push(format!(
+            "recipe.tag is {:?}, not {:?}",
+            ft.tag(),
+            rule.ft_tag
+        ));
+    }
+    for (path, name) in [
+        (&["code_commit"][..], "code_commit"),
+        (
+            &["protocol", "data_snapshot_hash"][..],
+            "protocol.data_snapshot_hash",
+        ),
+        (&["recipe", "shard_hash"][..], "recipe.shard_hash"),
+    ] {
+        let (got, want) = (ft.str_at(path), v5.str_at(path));
+        if want.is_none() || got != want {
+            wrong.push(format!(
+                "{name} is {got:?}, not v5 seed {:?}'s {want:?}",
+                v5.seed()
+            ));
+        }
+    }
+    let (got, base) = (recipe_of(ft, &what)?, recipe_of(v5, &what)?);
+    for (key, want) in &rule.added {
+        if let Some(v) = base.get(key) {
+            wrong.push(format!(
+                "v5's ft row {}: recipe.{key} is {v}, but the arm adds it",
+                v5.id()
+            ));
+        }
+        let ok = match (got.get(key), want) {
+            (Some(g), Value::Number(_)) => g.as_f64().is_some() && g.as_f64() == want.as_f64(),
+            (Some(g), _) => g == want,
+            (None, _) => false,
+        };
+        if !ok {
+            wrong.push(format!(
+                "recipe.{key} is {}, not the added {want}",
+                shown(got.get(key))
+            ));
+        }
+    }
+    let keys: BTreeSet<&String> = got.keys().chain(base.keys()).collect();
+    for key in keys {
+        if !rule.added.iter().any(|(k, _)| k == key) && got.get(key) != base.get(key) {
+            wrong.push(format!(
+                "recipe.{key} is {}, not v5's {} (the arm differs from v5 only by {:?})",
+                shown(got.get(key)),
+                shown(base.get(key)),
+                rule.added
+                    .iter()
+                    .map(|(k, _)| k.as_str())
+                    .collect::<Vec<_>>()
+            ));
+        }
+    }
+    // The pairing check: both rows record the paired metric, as a non-empty string, equal.
+    let paired = |row: &Row| -> Result<String> {
+        row.ran("metrics", &rule.paired)?
+            .get("value")
+            .and_then(Value::as_str)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                format!(
+                    "row {} ({}): metrics.{} records no string value",
+                    row.id(),
+                    row.at,
+                    rule.paired
+                )
+            })
+    };
+    let order = match (paired(ft), paired(v5)) {
+        (Ok(a), Ok(b)) if a == b => Some(a),
+        (Ok(a), Ok(b)) => {
+            wrong.push(format!(
+                "metrics.{} is {a}, not v5 seed {:?}'s {b}: not v5's batch order (the pairing \
+                 check)",
+                rule.paired,
+                v5.seed()
+            ));
+            None
+        }
+        (a, b) => {
+            for e in [a.err(), b.err()].into_iter().flatten() {
+                wrong.push(format!(
+                    "{e} (the pairing check: absent on either side refuses)"
+                ));
+            }
+            None
+        }
+    };
+    ensure!(wrong.is_empty(), "{what}: {}", wrong.join("; "));
+    Ok(json!({
+        "seed": ft.seed(),
+        "arm_ft_row": ft.id(),
+        "v5_ft_row": v5.id(),
+        "added": rule.added.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<Map<_, _>>(),
+        "paired": {rule.paired.as_str(): order},
+    }))
+}
+
+/// The arm's rows read and judged: each target with room clears iff every arm seed holds it and
+/// the arm holds it on more seeds than v5; a target without room is a guard the arm holds on
+/// every seed; every listed guard compares the arm's worst seed with v5's envelope (strict);
+/// the absolute guard holds on every arm seed. Returns whether it wins, and the record.
+fn judge_noulw(
+    inputs: &mut Inputs,
+    rule: &NoulwRule,
+    envelope: &[SeedRows],
+    room: &[(Held, bool)],
+    arm_ledger: &Path,
+    arm_ft: &[(i64, String)],
+) -> Result<(bool, Value)> {
+    let seeds: Vec<i64> = arm_ft.iter().map(|(s, _)| *s).collect();
+    ensure!(
+        seeds == rule.seeds,
+        "the arm's ft rows are seeds {:?} (identity.ft_rows), given in that order; got {seeds:?}",
+        rule.seeds
+    );
+    let ledger = inputs.read(arm_ledger)?;
+    let reference = envelope
+        .first()
+        .ok_or_else(|| "an empty envelope".to_string())?;
+    let mut arm = Vec::new();
+    let mut identity = Vec::new();
+    for ((seed, ft), v5) in arm_ft.iter().zip(envelope) {
+        let rows = seed_rows(&ledger, *seed, ft, false, false)?;
+        identity.push(noulw_identity(rule, rows.ft, v5.ft)?);
+        comparable(&rows, reference, &format!("arm seed {seed}"))?;
+        arm.push(rows);
+    }
+    // The arm's three ft rows are one configuration, as v5's are: one recipe hash and data
+    // snapshot (batch_order = "seed" is a constant, so per-seed orders keep one recipe hash).
+    // The per-seed identity above does not compare protocol.recipe_hash; this does.
+    let (_, arm_recipe_hash, _) = one_configuration(&ledger, arm_ft)?;
+    let n = rule.seeds.len();
+    let mut lost: Vec<String> = Vec::new();
+    let mut cleared = true;
+    let mut targets = Vec::new();
+    for (v5_held, has_room) in room {
+        let held = Held::of(rule, v5_held.metric, &arm)?;
+        let (arm_n, v5_n) = (held.holding(), v5_held.holding());
+        let mut j = json!({
+            "target": v5_held.metric.name,
+            "room": has_room,
+            "v5_holds": v5_n,
+            "arm_holds": arm_n,
+            "of": n,
+            "arm_per_seed": held.json(),
+        });
+        if *has_room {
+            let clears = arm_n == n && arm_n > v5_n;
+            cleared &= clears;
+            j["clears"] = json!(clears);
+        } else {
+            let loses = arm_n < n;
+            if loses {
+                lost.push(format!(
+                    "{} (no room; read as a guard)",
+                    v5_held.metric.name
+                ));
+            }
+            j["read_as"] = json!("guard: the arm must hold on every seed");
+            j["loses"] = json!(loses);
+        }
+        targets.push(j);
+    }
+    let mut guards = Vec::new();
+    for m in &rule.guards {
+        let (v5_values, v5_min, v5_max) = envelope_range(*m, envelope)?;
+        let (arm_values, arm_min, arm_max) = envelope_range(*m, &arm)?;
+        let candidate = match m.dir {
+            Dir::Higher => arm_min,
+            Dir::Lower => arm_max,
+        };
+        let l = loses(candidate, v5_min, v5_max, m.dir)?;
+        if l {
+            lost.push(m.name.to_string());
+        }
+        guards.push(json!({
+            "metric": m.name,
+            "direction": dir_word(m.dir),
+            "v5": v5_values.iter().zip(envelope).map(|(v, s)| json!({"seed": s.seed, "value": v.json()})).collect::<Vec<_>>(),
+            "v5_min": v5_min.json(),
+            "v5_max": v5_max.json(),
+            "arm": arm_values.iter().zip(&arm).map(|(v, s)| json!({"seed": s.seed, "value": v.json()})).collect::<Vec<_>>(),
+            "candidate": candidate.json(),
+            "loses": l,
+        }));
+    }
+    let (am, form) = rule.absolute;
+    let Source::Count(key) = am.source else {
+        return Err(format!(
+            "{}: the absolute guard is read on a count",
+            am.name
+        ));
+    };
+    let per_seed: Vec<(i64, Frac, bool)> = arm
+        .iter()
+        .map(|s| {
+            let f = s.eval.count("metrics", key)?;
+            Ok((s.seed, f, form.meets(f)))
+        })
+        .collect::<Result<_>>()?;
+    let over: Vec<i64> = per_seed
+        .iter()
+        .filter(|(_, _, ok)| !ok)
+        .map(|(s, _, _)| *s)
+        .collect();
+    if !over.is_empty() {
+        lost.push(format!(
+            "{} absolute guard ({}) on seeds {over:?}",
+            am.name,
+            form.text()
+        ));
+    }
+    let win = cleared && lost.is_empty();
+    Ok((
+        win,
+        json!({
+            "wins": win,
+            "rows": arm.iter().map(SeedRows::json).collect::<Vec<_>>(),
+            "recipe_hash": arm_recipe_hash,
+            "identity": identity,
+            "targets_with_room_all_clear": cleared,
+            "targets": targets,
+            "guards": guards,
+            "absolute_guard": {
+                "metric": am.name,
+                "form": form.text(),
+                "per_seed": per_seed.iter().map(|(s, f, ok)| json!({"seed": s, "count": f.json(), "holds": ok})).collect::<Vec<_>>(),
+                "loses": !over.is_empty(),
+            },
+            "lost": lost,
+        }),
+    ))
+}
+
+/// (viii). Room is decided from v5's envelope alone, before the arm's ledger is opened. With
+/// `arm` absent (`--room`) the word is `room` iff some target has room, else `no_room`. With it,
+/// `wins`, `quiet` or `refused`; no target with room refuses, as does anything unreadable.
+fn rule_v5_noulw(
+    inputs: &mut Inputs,
+    preregistration: &Path,
+    noul_preregistration: &Path,
+    v5_ledger: &Path,
+    ft_rows: &[(i64, String)],
+    arm: Option<(&Path, &[(i64, String)])>,
+) -> Result<(String, Value)> {
+    let (p, sha256) = inputs.read_preregistration(preregistration)?;
+    let (noul, noul_sha256) = inputs.read_preregistration(noul_preregistration)?;
+    let rule = noulw_rule(&p, &noul)?;
+    let seeds: Vec<i64> = ft_rows.iter().map(|(s, _)| *s).collect();
+    ensure!(
+        seeds == rule.seeds,
+        "the envelope is v5 seeds {:?} only (arm_noul_weight.envelope), given in that order; got \
+         {seeds:?}",
+        rule.seeds
+    );
+    let env = inputs.read(v5_ledger)?;
+    one_configuration(&env, ft_rows)?;
+    let envelope: Vec<SeedRows> = ft_rows
+        .iter()
+        .map(|(seed, ft)| seed_rows(&env, *seed, ft, false, false))
+        .collect::<Result<_>>()?;
+    let reference = &envelope[0];
+    for s in &envelope[1..] {
+        comparable(s, reference, &format!("v5 envelope seed {}", s.seed))?;
+    }
+    // Room: "decided from the envelope alone, before the arm's rows are read".
+    let room: Vec<(Held, bool)> = rule
+        .targets
+        .iter()
+        .map(|m| {
+            let held = Held::of(&rule, *m, &envelope)?;
+            let has_room = held.holding() <= rule.room_at_most;
+            Ok((held, has_room))
+        })
+        .collect::<Result<_>>()?;
+    let any_room = room.iter().any(|(_, r)| *r);
+    let body = json!({
+        "rule": rule.applied,
+        "preregistration_sha256": sha256,
+        "noul_preregistration_sha256": noul_sha256,
+        "envelope": {
+            "pin": format!("v5 seeds {} only (never seeds 3-4, never F)", and_list(&rule.seeds)),
+            "seeds": envelope.iter().map(SeedRows::json).collect::<Vec<_>>(),
+        },
+        "seed_holds": {"form": rule.holds.text(), "f2_bar": rule.bar.json()},
+        "room": room.iter().map(|(h, r)| json!({
+            "target": h.metric.name,
+            "v5_holds": h.holding(),
+            "of": rule.seeds.len(),
+            "room_iff_at_most": rule.room_at_most,
+            "room": r,
+            "v5_per_seed": h.json(),
+        })).collect::<Vec<_>>(),
+        "not_checked": NOT_CHECKED_SUITE,
+    });
+    let Some((arm_ledger, arm_ft)) = arm else {
+        let mut body = body;
+        body["then"] = json!(if any_room {
+            "the noul-weight arm launches in its slot (arm_noul_weight.launch_condition)"
+        } else {
+            "the noul-weight arm does not launch unless the human pins V5NW_HUMAN_YES (R7); \
+             J5' takes the slot"
+        });
+        return Ok((ROOM_WORDS[usize::from(!any_room)].to_string(), body));
+    };
+    let mut s = Settled {
+        because: Vec::new(),
+        body,
+        wins: None,
+    };
+    if !any_room {
+        s.refuse(format!(
+            "no target has room: v5 holds every target on more than {} of its {} seeds, so none \
+             can clear; the arm does not launch (launch_condition) and rows that exist anyway \
+             read refused",
+            rule.room_at_most,
+            rule.seeds.len()
+        ));
+    }
+    match judge_noulw(inputs, &rule, &envelope, &room, arm_ledger, arm_ft) {
+        Ok((win, detail)) => {
+            s.body["arm"] = detail;
+            s.wins = Some(vec![win]);
+        }
+        Err(e) => s.refuse(e),
+    }
+    let word = match s.wins.as_deref() {
+        None => None,
+        Some(&[true]) => Some((
+            V5NW_WORDS[0],
+            "the noul-weight arm wins: this feeds the next re-plan only and promotes nothing",
+        )),
+        Some(&[false]) => Some((
+            V5NW_WORDS[1],
+            "the noul-weight arm does not win: a target with room did not clear or a guard lost; \
+             the next re-plan reads the rows",
+        )),
+        Some(other) => return Err(format!("{} verdicts for one arm", other.len())),
+    };
+    s.finish(word, "no reading; the human decides from the rows")
+}
+
+// --- (ix): tierb, the v5 pre-registration's recipe.tierb_outcome_rule ----------------------------
+//
+// The Tier-B outcome rule for one candidate run (no-mask, C2a; fused AdamW, C2b), as Fable amended
+// it on 2026-10-03 before any outcome row existed. The envelope reuses the successor's exact
+// comparison (`min_max`, `clears`), the row look-ups are the file's (`Ledger::one`,
+// `one_configuration`, `scored_from`, `control_row_of`, `same_recipe_keys`), and the
+// pre-registration is read at run time and must agree with this code (`tierb_agrees`).
+
+/// The file as it binds; the text a decision applied is the one whose sha256 it records.
+const PREREG_TIERB: &str = "campaign/v5-preregistered.json recipe.tierb_outcome_rule and \
+                            recipe.conditionals C2a / C2b (Fable's amendment of 2026-10-03; the \
+                            DRAFT or the renamed file, read at run time, its sha256 and draft \
+                            flag recorded)";
+/// outcome_rule.checker, .words, .on_word and .rule, as C2a and C2b write them.
+const TIERB_CHECKER: &str = "qd-post-f-rules tierb";
+const TIERB_WORDS: [&str; 3] = ["pass", "fail", "refused"];
+const TIERB_ON_WORD: &str = "pass";
+const TIERB_RULE: &str = "recipe.tierb_outcome_rule";
+/// envelope.rows: phase-3 seeds 0, 1 and 2's epoch-score-val rows, in the phase-3 ledger.
+const TIERB_ENVELOPE: [&str; 3] = [
+    "6d170b3c-5676-446b-b6be-5bb17d6d7aa0",
+    "60f29b07-c7d1-41a9-a8e5-af96227206a6",
+    "5c19c0e8-0e8d-4aa9-b9c6-73febce8a57d",
+];
+/// envelope.metrics.
+const TIERB_METRICS: [Metric; 2] = [VAL_CHOICE, VAL_SPAN];
+/// rows.identity: phase-3 seed 0's ft row, whose recipe the candidate's must agree with.
+const TIERB_FT: &str = "7f2c11db-3eb8-4361-9620-6b164ec37f1e";
+/// clauses.2: phase-3 seed 0's linear control, CI [+0.1359, +0.1651].
+const TIERB_CONTROL: &str = "eeda5db4-0e99-415c-9a9d-5bd0efc8b71b";
+const TIERB_CONTROL_CI: (i64, i64) = (1359, 1651);
+/// clauses.3: phase-3 seed 0's fp32 all-gates re-score of 7f2c11db.
+const TIERB_ALLGATES: &str = "58fd1532-3239-41eb-a506-33ba10079425";
+/// 58fd1532's gates as committed: `Some(passed)` for a gate that ran, `None` for one that did
+/// not. A reference row that says otherwise is not the row the rule names.
+const TIERB_ALLGATES_GATES: [(&str, Option<bool>); 5] = [
+    ("ece", Some(true)),
+    ("needle_hunk_recall", Some(false)),
+    ("ood_abstain", Some(false)),
+    ("paired_margin_vs_linear", None),
+    ("permutation_consistency", Some(true)),
+];
+const TIERB_SHARD_HASH: &str = "d773b87666e1b042279271ab0f891246b7268d4ce0cad2c3e677bb415c147e1a";
+const TIERB_VAL_SHARD_HASH: &str =
+    "105513b98887a24391339f8a19ac9dfef07645abd258a22482087b0699066a72";
+const TIERB_BACKBONE: &str = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c";
+/// The outcome run is one seed-0 run (tools/perf_tierb_outcome.sh `--seeds 0`).
+const TIERB_SEED: i64 = 0;
+/// rows.candidate: the linear control is the row this tool wrote.
+const LINEAR_CONTROL_TOOL: &str = "tools/ft_linear_control.py";
+const LINEAR_GATE: &str = "paired_margin_vs_linear";
+/// paired_margin_test's default bootstrap count, which every control row so far records.
+const CI_N_BOOT: u64 = 10_000;
+/// The straddling suffix paired_margin_test appends when lo <= 0 and hi >= 0.
+const CI_INCLUDES_ZERO: &str = " -- CI includes zero, so this is not a win";
+/// envelope.literal: the design doc's printed decimals, report-only.
+const TIERB_LITERAL: [(&str, [Dec; 2], &str); 2] = [
+    (
+        "val_top1.choice",
+        [
+            Dec {
+                num: 997,
+                den: 1000,
+                text: "0.997",
+            },
+            Dec {
+                num: 998,
+                den: 1000,
+                text: "0.998",
+            },
+        ],
+        "99.7-99.8%",
+    ),
+    (
+        "val_top1.span",
+        [
+            Dec {
+                num: 998,
+                den: 1000,
+                text: "0.998",
+            },
+            Dec {
+                num: 999,
+                den: 1000,
+                text: "0.999",
+            },
+        ],
+        "99.8-99.9%",
+    ),
+];
+
+/// rows.identity: the recipe keys the candidate's ft row must share with 7f2c11db, the value
+/// 7f2c11db itself must carry for each, and that value as rows.identity prints it.
+fn tierb_identity() -> [(&'static str, Value, &'static str); 8] {
+    [
+        ("shard_hash", json!(TIERB_SHARD_HASH), TIERB_SHARD_HASH),
+        ("batch_tokens", json!(16384), "16384"),
+        ("optimizer_recipe", json!("master"), "master"),
+        ("lr", json!(1e-05), "1e-05"),
+        ("no_memorise", json!(true), "true"),
+        ("passes", json!(1), "1"),
+        ("tag", json!("epoch"), "epoch"),
+        ("backbone_snapshot", json!(TIERB_BACKBONE), TIERB_BACKBONE),
+    ]
+}
+
+/// The candidate a tierb decision is about: each is screened alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum Candidate {
+    /// `--train-attention-mask none` (C2a): recipe.train_attention_mask = "none"
+    /// (1cf8e6d tools/real_ft_run.py:360).
+    Nomask,
+    /// `--fused-adamw` (C2b): recipe.optimizer_fused = true (e19dcf6 tools/real_ft_run.py:336-337).
+    Fused,
+}
+
+impl Candidate {
+    fn name(self) -> &'static str {
+        match self {
+            Candidate::Nomask => "nomask",
+            Candidate::Fused => "fused",
+        }
+    }
+    /// Its own recipe key and value: outcome_rule.candidate_recipe.
+    fn key(self) -> (&'static str, Value) {
+        match self {
+            Candidate::Nomask => ("train_attention_mask", json!("none")),
+            Candidate::Fused => ("optimizer_fused", json!(true)),
+        }
+    }
+    fn recipe(self) -> Value {
+        let (key, value) = self.key();
+        json!({ key: value })
+    }
+    /// The other candidate's key, and the one value of it this candidate's run may record.
+    /// `real_ft_run.py` writes `optimizer_fused` only when fused and `train_attention_mask` only
+    /// when it is not "padding" (1cf8e6d:357-360), so a masked row has no such key; "padding"
+    /// written out is still the masked path. `optimizer_fused` has no value a no-mask run carries.
+    fn other(self) -> (&'static str, Option<Value>) {
+        match self {
+            Candidate::Nomask => ("optimizer_fused", None),
+            Candidate::Fused => ("train_attention_mask", Some(json!("padding"))),
+        }
+    }
+}
+
+/// A signed number printed by Python's `{:+.4f}`, in ten-thousandths. The printed sign is kept
+/// apart, since "-0.0000" (a negative number that rounds to zero) is not "+0.0000".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Fixed4 {
+    negative: bool,
+    ten_thousandths: i64,
+}
+
+impl Fixed4 {
+    /// `[+-]D+.DDDD`, with no more than nine integer digits; anything else is not this form.
+    fn parse(s: &str) -> Option<Fixed4> {
+        let negative = match s.as_bytes().first()? {
+            b'+' => false,
+            b'-' => true,
+            _ => return None,
+        };
+        let (int, frac) = s[1..].split_once('.')?;
+        let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
+        if !digits(int) || int.len() > 9 || frac.len() != 4 || !digits(frac) {
+            return None;
+        }
+        let magnitude = int.parse::<i64>().ok()? * 10_000 + frac.parse::<i64>().ok()?;
+        Some(Fixed4 {
+            negative,
+            ten_thousandths: if negative { -magnitude } else { magnitude },
+        })
+    }
+    fn magnitude(self) -> String {
+        let m = self.ten_thousandths.abs();
+        format!("{}.{:04}", m / 10_000, m % 10_000)
+    }
+    /// As `{:+.4f}` printed it.
+    fn text(self) -> String {
+        format!(
+            "{}{}",
+            if self.negative { '-' } else { '+' },
+            self.magnitude()
+        )
+    }
+    /// `{-x:.4f}` of the number this prints: no plus sign, and a minus iff this one had none.
+    fn negated_plain(self) -> String {
+        format!(
+            "{}{}",
+            if self.negative { "" } else { "-" },
+            self.magnitude()
+        )
+    }
+}
+
+/// A paired-margin gate's 95% CI, read from its `detail` string: the only place a control row
+/// records it (GAP-LINEAR-CONTROL-CI-ONLY-IN-DETAIL-STRING-2026-10-03).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Ci {
+    point: Fixed4,
+    lo: Fixed4,
+    hi: Fixed4,
+    n_boot: u64,
+    passed: bool,
+}
+
+impl Ci {
+    fn json(&self) -> Value {
+        json!({
+            "point": self.point.ten_thousandths,
+            "lo": self.lo.ten_thousandths,
+            "hi": self.hi.ten_thousandths,
+            "unit": "1e-4 (the printed four decimals as integers)",
+            "printed": format!("{} [{}, {}]", self.point.text(), self.lo.text(), self.hi.text()),
+            "n_boot": self.n_boot,
+            "passed": self.passed,
+        })
+    }
+    /// Clause 2: the two intervals share a point, ends included.
+    fn overlaps(&self, other: &Ci) -> bool {
+        self.lo.ten_thousandths <= other.hi.ten_thousandths
+            && other.lo.ten_thousandths <= self.hi.ten_thousandths
+    }
+}
+
+/// The form `qd_train.eval_harness.paired_margin_test` writes (884b658
+/// python/qd_train/eval_harness.py:282-287), for refusals.
+const CI_FORM: &str = "\"paired margin {point:+.4f}, 95% CI [{lo:+.4f}, {hi:+.4f}] over {n_boot} \
+                       bootstrap resamples\" then \"\" iff lo > 0 (passed), else \" -- CI \
+                       includes zero, so this is not a win\" (hi >= 0) or \" -- the whole \
+                       interval is below zero, so this is not an inconclusive result: the \
+                       baseline beats the model by {-point:.4f} and the comparison separates \
+                       them\" (hi < 0)";
+
+/// The detail string paired_margin_test writes for these numbers, byte for byte. The suffix
+/// follows Python's own branches: `passed` (lo > 0), else hi < 0, which is the printed sign of
+/// hi, else the straddling sentence.
+fn ci_detail(point: Fixed4, lo: Fixed4, hi: Fixed4, n_boot: u64, passed: bool) -> String {
+    let suffix = if passed {
+        String::new()
+    } else if hi.negative {
+        format!(
+            " -- the whole interval is below zero, so this is not an inconclusive result: the \
+             baseline beats the model by {} and the comparison separates them",
+            point.negated_plain()
+        )
+    } else {
+        CI_INCLUDES_ZERO.to_string()
+    };
+    format!(
+        "paired margin {}, 95% CI [{}, {}] over {n_boot} bootstrap resamples{suffix}",
+        point.text(),
+        lo.text(),
+        hi.text()
+    )
+}
+
+/// The point, bounds and bootstrap count a paired-margin detail prints, read loosely; `paired_ci`
+/// then re-renders the whole string and requires it byte for byte.
+fn ci_numbers(detail: &str) -> Option<(Fixed4, Fixed4, Fixed4, u64)> {
+    let rest = detail.strip_prefix("paired margin ")?;
+    let (point, rest) = rest.split_once(", 95% CI [")?;
+    let (lo, rest) = rest.split_once(", ")?;
+    let (hi, rest) = rest.split_once("] over ")?;
+    let (n_boot, _) = rest.split_once(" bootstrap resamples")?;
+    Some((
+        Fixed4::parse(point)?,
+        Fixed4::parse(lo)?,
+        Fixed4::parse(hi)?,
+        n_boot.parse::<u64>().ok()?,
+    ))
+}
+
+/// `gates.paired_margin_vs_linear` of a control row, its CI parsed from `detail`. Refused: a gate
+/// that did not run; a detail that is not, byte for byte, what paired_margin_test writes for the
+/// numbers it prints (re-rendered and compared, so every deviation refuses); a bootstrap count
+/// other than 10000; lo above hi; a `passed` flag that is not `lo > 0` on the printed lo; a
+/// printed point that is not the gate's `value` to four places. At a rounding edge (lo printed
+/// "+0.0000" with passed true) the printed text cannot show what the float decided, and that
+/// refuses too.
+fn paired_ci(row: &Row) -> Result<Ci> {
+    let what = format!("row {} gates.{LINEAR_GATE}", row.id());
+    let gate = row.ran("gates", LINEAR_GATE)?;
+    let detail = gate
+        .get("detail")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{what}: no detail string, which is where the CI is recorded"))?;
+    let value = recorded_value(gate, &what)?;
+    let passed = gate
+        .get("passed")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| format!("{what}: no boolean passed"))?;
+    let off_form = |why: String| {
+        format!(
+            "{what}: detail {detail:?} is not in the form paired_margin_test writes ({why}); the \
+             form is {CI_FORM}"
+        )
+    };
+    let (point, lo, hi, n_boot) = ci_numbers(detail).ok_or_else(|| {
+        off_form(
+            "its point, bounds and bootstrap count do not parse as {:+.4f} and an integer".into(),
+        )
+    })?;
+    ensure!(
+        n_boot == CI_N_BOOT,
+        "{what}: {n_boot} bootstrap resamples, not the {CI_N_BOOT} every control row records"
+    );
+    ensure!(
+        lo.ten_thousandths <= hi.ten_thousandths,
+        "{what}: lo {} is above hi {}",
+        lo.text(),
+        hi.text()
+    );
+    ensure!(
+        passed == (lo.ten_thousandths > 0),
+        "{what}: passed is {passed} but the printed lo is {}; paired_margin_test passes iff lo > 0",
+        lo.text()
+    );
+    let expected = ci_detail(point, lo, hi, n_boot, passed);
+    if detail != expected {
+        return Err(off_form(format!(
+            "for passed {passed} and hi {} the suffix and text are {expected:?}",
+            hi.text()
+        )));
+    }
+    let shown = format!("{value:+.4}");
+    ensure!(
+        shown == point.text(),
+        "{what}: the printed point {} is not the gate's value {value} to four places ({shown})",
+        point.text()
+    );
+    Ok(Ci {
+        point,
+        lo,
+        hi,
+        n_boot,
+        passed,
+    })
+}
+
+/// The pre-registration's own words this checker applies, as (path under
+/// `recipe.tierb_outcome_rule`, a phrase that text must hold). Each pinned id and hash must appear
+/// in the field that names it, and each reading in the words the amendment wrote; an amended
+/// text changes them and refuses until the checker follows it.
+fn tierb_rule_text() -> Vec<(&'static [&'static str], String)> {
+    const INSIDE: &[&str] = &["envelope", "inside"];
+    const CANDIDATE: &[&str] = &["rows", "candidate"];
+    const IDENTITY: &[&str] = &["rows", "identity"];
+    const CLAUSE_1: &[&str] = &["clauses", "1"];
+    const CLAUSE_2: &[&str] = &["clauses", "2"];
+    const CLAUSE_3: &[&str] = &["clauses", "3"];
+    const WORD: &[&str] = &["word"];
+    let fixed = |t: i64| format!("+{}.{:04}", t / 10_000, t % 10_000);
+    let mut out: Vec<(&'static [&'static str], String)> = vec![
+        (INSIDE, "2*min - max <= c <= 2*max - min".into()),
+        (
+            INSIDE,
+            "compared on the rows' integer counts by cross-multiplication".into(),
+        ),
+        (INSIDE, "A range of 0 refuses".into()),
+        (
+            CANDIDATE,
+            "exactly one completed, non-quick ft row tagged epoch at seed 0".into(),
+        ),
+        (
+            CANDIDATE,
+            "eval row scored from it without score_dtype".into(),
+        ),
+        (
+            CANDIDATE,
+            "with score_dtype fp32 and the needle and OOD suites".into(),
+        ),
+        (
+            CANDIDATE,
+            format!("{LINEAR_CONTROL_TOOL} row whose recipe.eval_row_id is the first eval row"),
+        ),
+        (IDENTITY, TIERB_FT.into()),
+        (IDENTITY, "not the other candidate's key".into()),
+        (IDENTITY, format!("val_shard_hash {TIERB_VAL_SHARD_HASH}")),
+        (
+            CLAUSE_1,
+            "val_top1.choice and val_top1.span each inside the envelope".into(),
+        ),
+        (
+            CLAUSE_2,
+            format!(
+                "{TIERB_CONTROL}'s [{}, {}]",
+                fixed(TIERB_CONTROL_CI.0),
+                fixed(TIERB_CONTROL_CI.1)
+            ),
+        ),
+        (CLAUSE_2, "lo <= other hi and other lo <= hi".into()),
+        (
+            CLAUSE_2,
+            "a passed flag that disagrees with lo > 0 refuses".into(),
+        ),
+        (CLAUSE_3, TIERB_ALLGATES.into()),
+        (
+            CLAUSE_3,
+            "is ran with the same passed in the candidate's all-gates row".into(),
+        ),
+        (
+            CLAUSE_3,
+            "a gate ran there and not_run in the candidate refuses".into(),
+        ),
+        (WORD, "pass iff clauses 1, 2 and 3 all hold".into()),
+        (WORD, "Never pass by absence.".into()),
+    ];
+    for (key, _, printed) in tierb_identity() {
+        out.push((IDENTITY, format!("{key} {printed}")));
+    }
+    out
+}
+
+/// The pre-registration agrees with this code: the one conditional whose outcome_rule names this
+/// candidate carries this checker, its words, its on-word, this rule and this candidate's recipe
+/// key; `recipe.tierb_outcome_rule` lists this envelope's rows and metrics exactly; and its prose
+/// says every phrase of `tierb_rule_text`. Its `draft` key is not checked: the decision is taken
+/// before the rename, and the JSON records which file it read.
+fn tierb_agrees(p: &Map<String, Value>, candidate: Candidate) -> Result<()> {
+    let conditionals = p
+        .get("recipe")
+        .and_then(|r| r.get("conditionals"))
+        .and_then(Value::as_array)
+        .ok_or("the pre-registration has no recipe.conditionals list")?;
+    let found: Vec<&Map<String, Value>> = conditionals
+        .iter()
+        .filter_map(|c| c.get("outcome_rule").and_then(Value::as_object))
+        .filter(|o| o.get("candidate").and_then(Value::as_str) == Some(candidate.name()))
+        .collect();
+    ensure!(
+        found.len() == 1,
+        "the pre-registration has {} recipe.conditionals whose outcome_rule.candidate is {:?}, \
+         not one",
+        found.len(),
+        candidate.name()
+    );
+    let rule = found[0];
+    for (key, want) in [
+        ("checker", json!(TIERB_CHECKER)),
+        ("words", json!(TIERB_WORDS)),
+        ("on_word", json!(TIERB_ON_WORD)),
+        ("rule", json!(TIERB_RULE)),
+        ("candidate_recipe", candidate.recipe()),
+    ] {
+        ensure!(
+            rule.get(key) == Some(&want),
+            "the pre-registration's {} outcome_rule.{key} is {}, not this checker's {want}",
+            candidate.name(),
+            rule.get(key).map_or("absent".to_string(), Value::to_string)
+        );
+    }
+    let outcome = p
+        .get("recipe")
+        .and_then(|r| r.get("tierb_outcome_rule"))
+        .and_then(Value::as_object)
+        .ok_or(
+            "the pre-registration has no recipe.tierb_outcome_rule object, the rule C2a / C2b name",
+        )?;
+    let envelope = outcome.get("envelope");
+    let rows = envelope.and_then(|e| e.get("rows"));
+    ensure!(
+        rows == Some(&json!(TIERB_ENVELOPE)),
+        "the pre-registration's recipe.tierb_outcome_rule.envelope.rows are {}, not this \
+         checker's {TIERB_ENVELOPE:?}",
+        rows.map_or("absent".to_string(), Value::to_string)
+    );
+    let metrics = envelope.and_then(|e| e.get("metrics"));
+    let want: Vec<&str> = TIERB_METRICS.iter().map(|m| m.name).collect();
+    ensure!(
+        metrics == Some(&json!(want)),
+        "the pre-registration's recipe.tierb_outcome_rule.envelope.metrics are {}, not this \
+         checker's {want:?}",
+        metrics.map_or("absent".to_string(), Value::to_string)
+    );
+    for (tail, phrase) in tierb_rule_text() {
+        let path: Vec<&str> = ["recipe", "tierb_outcome_rule"]
+            .iter()
+            .chain(tail)
+            .copied()
+            .collect();
+        says(p, &path, &phrase)?;
+    }
+    Ok(())
+}
+
+/// A count metric of a row, exactly.
+fn count_val(row: &Row, m: Metric) -> Result<(Frac, Rat)> {
+    let f = row.count("metrics", m.name)?;
+    Ok((
+        f,
+        Rat::of_count(f, &format!("row {} {}", row.id(), m.name))?,
+    ))
+}
+
+/// `ka * a - kb * b` as a fraction, for the JSON: over the shared denominator when the two have
+/// one (every val count here), else over their product.
+fn combined(ka: i128, a: Rat, kb: i128, b: Rat) -> Result<Value> {
+    let ((an, ad), (bn, bd)) = (a.parts(), b.parts());
+    let (n, d) = if ad == bd {
+        (ka * an - kb * bn, ad)
+    } else {
+        (ka * an * bd - kb * bn * ad, ad * bd)
+    };
+    // Denominators are at most MAX_DENOMINATOR (1e9), so both fit an i64; refuse if not.
+    let fit = |v: i128| i64::try_from(v).map_err(|_| format!("{v} does not fit the JSON's i64"));
+    Ok(json!({"n": fit(n)?, "n_total": fit(d)?}))
+}
+
+/// "Inside the envelope": neither above max nor below min by more than the range, the exact
+/// complement of `clears` in both directions.
+fn inside(c: Val, min: Val, max: Val) -> Result<bool> {
+    Ok(!clears(c, min, max, Dir::Higher)? && !clears(c, min, max, Dir::Lower)?)
+}
+
+/// The envelope of one metric: its three rows' values, min and max (a range of 0 refuses).
+struct TierbEnvelope {
+    metric: Metric,
+    min: Val,
+    max: Val,
+    json: Value,
+}
+
+impl TierbEnvelope {
+    fn of(metric: Metric, rows: &[&Row]) -> Result<TierbEnvelope> {
+        let mut values = Vec::new();
+        let mut shown = Vec::new();
+        for r in rows {
+            let (f, rat) = count_val(r, metric)?;
+            values.push(Val::Exact(rat));
+            shown.push(json!({"row": r.id(), "n": f.k, "n_total": f.n, "value": f.f64()}));
+        }
+        let (min, max) = min_max(metric.name, &values)?;
+        ensure!(
+            cmp_val(min, max)? == std::cmp::Ordering::Less,
+            "{}: the envelope's range is 0 ({} on every row); a range of 0 refuses \
+             (envelope.inside), with no floor invented",
+            metric.name,
+            text(min)
+        );
+        let (Val::Exact(lo), Val::Exact(hi)) = (min, max) else {
+            return Err(format!("{}: the envelope is not exact counts", metric.name));
+        };
+        let json = json!({
+            "values": shown,
+            "min": min.json(),
+            "max": max.json(),
+            "range": combined(1, hi, 1, lo)?,
+            "inside_from": combined(2, lo, 1, hi)?,
+            "inside_to": combined(2, hi, 1, lo)?,
+        });
+        Ok(TierbEnvelope {
+            metric,
+            min,
+            max,
+            json,
+        })
+    }
+    /// One candidate row's value against this envelope, with the literal decimals beside it.
+    fn judge(&self, row: &Row) -> Result<(bool, Value)> {
+        let (f, rat) = count_val(row, self.metric)?;
+        let c = Val::Exact(rat);
+        let holds = inside(c, self.min, self.max)?;
+        let (bands, band_text) = TIERB_LITERAL
+            .iter()
+            .find(|(name, _, _)| *name == self.metric.name)
+            .map(|(_, bands, text)| (bands, *text))
+            .ok_or_else(|| format!("{}: no literal band", self.metric.name))?;
+        Ok((
+            holds,
+            json!({
+                "row": row.id(),
+                "candidate": c.json(),
+                "inside": holds,
+                "literal": {
+                    "band": band_text,
+                    "inside": bands.iter().any(|d| f.rounds_to(*d)),
+                    "role": "report-only: the design doc's printed decimals (the value printed \
+                             to one decimal percent lies in the band); it decides nothing",
+                },
+            }),
+        ))
+    }
+}
+
+/// The reference rows the rule names, each checked to be the row it names: the envelope rows,
+/// 7f2c11db (its identity keys at the pinned values), eeda5db4's CI (the pinned interval) and
+/// 58fd1532's gates (the pinned flags).
+struct TierbReference<'a> {
+    envelope: Vec<&'a Row>,
+    ft: &'a Row,
+    ci: Ci,
+    gates: Vec<(&'static str, bool)>,
+}
+
+fn tierb_reference<'a>(phase3: &'a Ledger, allgates: &'a Ledger) -> Result<TierbReference<'a>> {
+    let mut envelope = Vec::new();
+    for id in TIERB_ENVELOPE {
+        let r = phase3.by_id(id)?;
+        ensure!(
+            r.completed()
+                && r.str_at(&["run_kind"]) == Some("eval")
+                && r.tag() == Some(EVAL_TAG)
+                && r.get(&["recipe", "score_dtype"]).is_none(),
+            "envelope row {id} in {} is not a completed {EVAL_TAG} row scored in its training run \
+             (run_kind {:?}, status {:?}, tag {:?}, score_dtype {:?})",
+            phase3.shown,
+            r.str_at(&["run_kind"]),
+            r.str_at(&["status"]),
+            r.tag(),
+            r.get(&["recipe", "score_dtype"])
+        );
+        ensure!(
+            r.str_at(&["recipe", "val_shard_hash"]) == Some(TIERB_VAL_SHARD_HASH),
+            "envelope row {id}: recipe.val_shard_hash {:?} is not the pinned {TIERB_VAL_SHARD_HASH}",
+            r.str_at(&["recipe", "val_shard_hash"])
+        );
+        envelope.push(r);
+    }
+    let ft = ft_row(phase3, TIERB_SEED, TIERB_FT)?;
+    for (key, want, _) in tierb_identity() {
+        ensure!(
+            ft.get(&["recipe", key]) == Some(&want),
+            "reference ft row {TIERB_FT}: recipe.{key} is {}, not the pinned {want} \
+             (rows.identity)",
+            ft.get(&["recipe", key])
+                .map_or("absent".to_string(), Value::to_string)
+        );
+    }
+    let control = phase3.by_id(TIERB_CONTROL)?;
+    ensure!(
+        control.completed()
+            && control.str_at(&["recipe", "tool"]) == Some(LINEAR_CONTROL_TOOL)
+            && control.str_at(&["recipe", "eval_row_id"]) == Some(TIERB_ENVELOPE[0]),
+        "reference control row {TIERB_CONTROL} is not a completed {LINEAR_CONTROL_TOOL} row of \
+         {} (status {:?}, tool {:?}, eval_row_id {:?})",
+        TIERB_ENVELOPE[0],
+        control.str_at(&["status"]),
+        control.str_at(&["recipe", "tool"]),
+        control.str_at(&["recipe", "eval_row_id"])
+    );
+    let ci = paired_ci(control)?;
+    ensure!(
+        (ci.lo.ten_thousandths, ci.hi.ten_thousandths) == TIERB_CONTROL_CI,
+        "reference control row {TIERB_CONTROL}: its CI [{}, {}] is not the pinned [+0.1359, \
+         +0.1651]; the record and its row disagree",
+        ci.lo.text(),
+        ci.hi.text()
+    );
+    let all = allgates.by_id(TIERB_ALLGATES)?;
+    ensure!(
+        all.completed()
+            && all.str_at(&["run_kind"]) == Some("eval")
+            && all.tag() == Some(EVAL_TAG)
+            && scored_from(all, TIERB_SEED, TIERB_FT)
+            && all.str_at(&["recipe", "score_dtype"]) == Some("fp32")
+            && all.str_at(&["recipe", "val_shard_hash"]) == Some(TIERB_VAL_SHARD_HASH),
+        "reference all-gates row {TIERB_ALLGATES} in {} is not a completed fp32 {EVAL_TAG} \
+         re-score of {TIERB_FT} on val_shard_hash {TIERB_VAL_SHARD_HASH}",
+        allgates.shown
+    );
+    let row_gates = all
+        .get(&["gates"])
+        .and_then(Value::as_object)
+        .ok_or_else(|| format!("reference all-gates row {TIERB_ALLGATES}: no gates"))?;
+    let named: BTreeSet<&str> = TIERB_ALLGATES_GATES.iter().map(|(g, _)| *g).collect();
+    let recorded: BTreeSet<&str> = row_gates.keys().map(String::as_str).collect();
+    ensure!(
+        named == recorded,
+        "reference all-gates row {TIERB_ALLGATES}: gates {recorded:?}, not the pinned {named:?}"
+    );
+    let mut gates = Vec::new();
+    for (name, pinned) in TIERB_ALLGATES_GATES {
+        let g = &row_gates[name];
+        let state = g.get("state").and_then(Value::as_str);
+        let got = match state {
+            Some("ran") => Some(g.get("passed").and_then(Value::as_bool).ok_or_else(|| {
+                format!("reference all-gates row {TIERB_ALLGATES}: gates.{name} ran with no passed")
+            })?),
+            _ => None,
+        };
+        ensure!(
+            got == pinned,
+            "reference all-gates row {TIERB_ALLGATES}: gates.{name} is {state:?} with passed \
+             {got:?}, not the pinned {pinned:?} (ran with that passed, or not ran)"
+        );
+        if let Some(passed) = got {
+            gates.push((name, passed));
+        }
+    }
+    Ok(TierbReference {
+        envelope,
+        ft,
+        ci,
+        gates,
+    })
+}
+
+/// (ix) The Tier-B outcome rule for one candidate: `recipe.tierb_outcome_rule` of the v5
+/// pre-registration, applied as written there and as amended by Fable on 2026-10-03
+/// (AUDIT/tierb-outcome-2026-10-03/fable-tierb-outcome-ruling.md). In the file's own words:
+///
+/// * envelope.inside: "a value is inside iff it lands neither above the envelope's max nor below
+///   its min by MORE than the envelope's range (max - min): 2*min - max <= c <= 2*max - min, the
+///   exact complement of the successor's clears test in both directions, compared on the rows'
+///   integer counts by cross-multiplication, never the float. On these rows: choice 2325-2328 of
+///   2332 (range 1), span 2046-2052 of 2053 (range 2), computed at run time. A range of 0
+///   refuses."
+/// * envelope.literal: "the design doc's printed decimals (choice 99.7-99.8%, span 99.8-99.9%)
+///   are written to the JSON beside each value, report-only; they decide nothing"
+/// * clause 1: "the training run's eval row: val_top1.choice and val_top1.span each inside the
+///   envelope"
+/// * clause 2: "the control row's gates.paired_margin_vs_linear 95% CI, parsed from its detail
+///   string (the only place the CI is recorded; GAP-LINEAR-CONTROL-CI-ONLY-IN-DETAIL-STRING-
+///   2026-10-03) in exactly the form qd_train.eval_harness.paired_margin_test writes, intersects
+///   eeda5db4-0e99-415c-9a9d-5bd0efc8b71b's [+0.1359, +0.1651] (lo <= other hi and other lo <=
+///   hi, on the printed four-decimal bounds as integers); a detail that does not parse exactly, a
+///   printed point that disagrees with the gate's value, or a passed flag that disagrees with lo
+///   > 0 refuses"
+/// * clause 3: "the all-gates row: val_top1.choice and val_top1.span each inside the same
+///   envelope, and every gate whose state is ran in 58fd1532-3239-41eb-a506-33ba10079425
+///   (ledger/gh200-allgates-2026-09-30.jsonl; phase-3 seed 0's fp32 all-gates re-score of the
+///   masked path) is ran with the same passed in the candidate's all-gates row; a gate ran there
+///   and not_run in the candidate refuses. Flags only: no value comparison on needle, OOD or
+///   permutation beyond the envelope."
+/// * word: "pass iff clauses 1, 2 and 3 all hold; fail iff every input was read and some clause
+///   does not hold; refused otherwise (exit 3). Never pass by absence."
+///
+/// The rows (rows.candidate, rows.identity): exactly one completed ft row tagged epoch at seed 0
+/// (`Ledger::one`), not quick (`one_configuration`); its completed epoch-score-val rows
+/// (`scored_from`) are exactly one without score_dtype (the training run's) and one with
+/// score_dtype fp32 carrying the needle and OOD suites (the all-gates re-score), and any other
+/// dtype refuses; exactly one completed tools/ft_linear_control.py row of the first
+/// (`control_row_of`). The ft recipe agrees with 7f2c11db's on the eight identity keys
+/// (`same_recipe_keys`; 7f2c11db's own values are checked against the pinned ones), carries the
+/// candidate's key and value and not the other candidate's (`Candidate::other`); both eval rows
+/// carry the pinned val_shard_hash.
+///
+/// How the pre-registration is checked (`tierb_agrees`): its structured fields (the conditional's
+/// checker, words, on-word, rule and candidate_recipe; envelope.rows and envelope.metrics) must
+/// equal this code's; its prose fields must each contain the phrases of `tierb_rule_text`, which
+/// are every pinned id and hash in the field that names it, each identity key with its value, and
+/// the readings above in the amendment's words. Containment, not equality, so a typo fixed
+/// elsewhere in a sentence does not refuse, while any change to a pinned id, hash, bound or reading
+/// does. The DRAFT is accepted (this decision is taken before the rename) and `draft` records
+/// which file was read.
+///
+/// The control CI's printed bounds decide clause 2 as integers in ten-thousandths. At a rounding
+/// edge where the printed text cannot show what the float decided (lo "+0.0000" with passed true),
+/// `paired_ci` refuses rather than guess. Clause 1 is a low-power instrument at a 99.7% ceiling
+/// (the pre-registration's `power`): the control CI and the gate flags carry the test.
+fn rule_tierb(
+    inputs: &mut Inputs,
+    candidate: Candidate,
+    ledger: &Path,
+    phase3: &Path,
+    allgates: &Path,
+    preregistration: &Path,
+) -> Result<(String, Value)> {
+    let (p, prereg_sha256) = inputs.read_preregistration(preregistration)?;
+    let draft = p.contains_key("draft");
+    tierb_agrees(&p, candidate)?;
+    let phase3 = inputs.read(phase3)?;
+    let allgates = inputs.read(allgates)?;
+    let ledger = inputs.read(ledger)?;
+    let reference = tierb_reference(&phase3, &allgates)?;
+
+    // The candidate's ft row, its identity and its own key.
+    let ft = ledger.one(
+        "ft",
+        "epoch",
+        &format!(
+            "seed {TIERB_SEED} (the {} candidate's training run)",
+            candidate.name()
+        ),
+        |r| r.seed() == Some(TIERB_SEED),
+    )?;
+    let ft_id = ft.id().to_string();
+    one_configuration(&ledger, &[(TIERB_SEED, ft_id.clone())])?;
+    let what = format!("the {} candidate's ft row {ft_id}", candidate.name());
+    let identity: Vec<(&str, Value)> = tierb_identity()
+        .into_iter()
+        .map(|(k, v, _)| (k, v))
+        .collect();
+    let keys: Vec<&str> = identity.iter().map(|(k, _)| *k).collect();
+    same_recipe_keys(ft, reference.ft, &keys, &what)?;
+    let recipe = recipe_of(ft, &what)?;
+    let (key, value) = candidate.key();
+    ensure!(
+        recipe.get(key) == Some(&value),
+        "{what}: recipe.{key} is {}, not the {} candidate's {value} (its candidate_recipe)",
+        recipe
+            .get(key)
+            .map_or("absent".to_string(), Value::to_string),
+        candidate.name()
+    );
+    let (other, allowed) = candidate.other();
+    if let Some(v) = recipe.get(other) {
+        ensure!(
+            Some(v) == allowed.as_ref(),
+            "{what}: recipe.{other} is {v}, the other candidate's key; each candidate is screened \
+             alone (rows.identity)"
+        );
+    }
+
+    // Its two score rows, told apart by score_dtype, and its linear control.
+    let scored = |r: &Row| {
+        r.completed()
+            && r.str_at(&["run_kind"]) == Some("eval")
+            && r.tag() == Some(EVAL_TAG)
+            && scored_from(r, TIERB_SEED, &ft_id)
+    };
+    for r in ledger.rows.iter().filter(|r| scored(r)) {
+        let dtype = r.get(&["recipe", "score_dtype"]);
+        ensure!(
+            dtype.is_none() || dtype == Some(&json!("fp32")),
+            "row {} scored from ft row {ft_id} has score_dtype {}: neither the training run's \
+             --score-val (no score_dtype) nor the all-gates re-score (fp32); which one decides is \
+             not this tool's call",
+            r.id(),
+            dtype.map_or("absent".to_string(), Value::to_string)
+        );
+    }
+    let train_eval = ledger.one(
+        "eval",
+        EVAL_TAG,
+        &format!(
+            "seed {TIERB_SEED} scored from ft row {ft_id} without score_dtype (the training \
+             run's --score-val)"
+        ),
+        |r| scored_from(r, TIERB_SEED, &ft_id) && r.get(&["recipe", "score_dtype"]).is_none(),
+    )?;
+    let all_eval = ledger.one(
+        "eval",
+        EVAL_TAG,
+        &format!(
+            "seed {TIERB_SEED} scored from ft row {ft_id} with score_dtype fp32 (the all-gates \
+             re-score)"
+        ),
+        |r| {
+            scored_from(r, TIERB_SEED, &ft_id)
+                && r.str_at(&["recipe", "score_dtype"]) == Some("fp32")
+        },
+    )?;
+    for suite in ["needle", "ood"] {
+        ensure!(
+            all_eval
+                .get(&["recipe", suite])
+                .is_some_and(Value::is_object),
+            "row {}: the fp32 re-score of ft row {ft_id} has no recipe.{suite} suite, so it is not \
+             the all-gates re-score (rows.candidate)",
+            all_eval.id()
+        );
+    }
+    for r in [train_eval, all_eval] {
+        same_recipe_keys(
+            r,
+            reference.envelope[0],
+            &["val_shard_hash"],
+            "rows.identity: the candidate's eval rows are scored on phase-3's val set",
+        )?;
+    }
+    let control = control_row_of(
+        &ledger,
+        train_eval,
+        "linear-control",
+        &format!("written by {LINEAR_CONTROL_TOOL}"),
+        |r| r.str_at(&["recipe", "tool"]) == Some(LINEAR_CONTROL_TOOL),
+    )?;
+    let ci = paired_ci(control)?;
+
+    // Every input is read; the clauses.
+    let envelope: Vec<TierbEnvelope> = TIERB_METRICS
+        .iter()
+        .map(|m| TierbEnvelope::of(*m, &reference.envelope))
+        .collect::<Result<_>>()?;
+    let mut c1 = Map::new();
+    let mut c3 = Map::new();
+    let (mut c1_holds, mut c3_holds) = (true, true);
+    for e in &envelope {
+        let (holds, j) = e.judge(train_eval)?;
+        c1_holds &= holds;
+        c1.insert(e.metric.name.to_string(), j);
+        let (holds, j) = e.judge(all_eval)?;
+        c3_holds &= holds;
+        c3.insert(e.metric.name.to_string(), j);
+    }
+    c1.insert("holds".into(), json!(c1_holds));
+    let c2_holds = ci.overlaps(&reference.ci);
+    let mut gates = Vec::new();
+    for (name, want) in &reference.gates {
+        let g = all_eval.ran("gates", name).map_err(|e| {
+            format!(
+                "clause 3: gate {name} ran in {TIERB_ALLGATES} but not in the candidate's \
+                 all-gates row {}, which refuses: {e}",
+                all_eval.id()
+            )
+        })?;
+        let got = g.get("passed").and_then(Value::as_bool).ok_or_else(|| {
+            format!(
+                "clause 3: row {} gates.{name} ran with no boolean passed",
+                all_eval.id()
+            )
+        })?;
+        c3_holds &= got == *want;
+        gates.push(json!({"gate": name, "reference_passed": want, "candidate_passed": got, "same": got == *want}));
+    }
+    c3.insert("gates".into(), json!(gates));
+    c3.insert("holds".into(), json!(c3_holds));
+
+    let pass = c1_holds && c2_holds && c3_holds;
+    let body = json!({
+        "candidate": candidate.name(),
+        "candidate_recipe": candidate.recipe(),
+        "preregistration": {"sha256": prereg_sha256, "draft": draft},
+        "rule": "pass iff clauses 1, 2 and 3 all hold; fail iff every input was read and some \
+                 clause does not hold; refused otherwise (recipe.tierb_outcome_rule.word)",
+        "rows": {
+            "ft": ft_id,
+            "eval": train_eval.id(),
+            "allgates": all_eval.id(),
+            "control": control.id(),
+            "reference": {
+                "envelope": TIERB_ENVELOPE,
+                "identity_ft": TIERB_FT,
+                "control": TIERB_CONTROL,
+                "allgates": TIERB_ALLGATES,
+            },
+        },
+        "identity": identity.into_iter().map(|(k, v)| (k.to_string(), v)).collect::<Map<_, _>>(),
+        "envelope": {
+            "rows": TIERB_ENVELOPE,
+            "ledger": phase3.shown,
+            "metrics": envelope
+                .iter()
+                .map(|e| (e.metric.name.to_string(), e.json.clone()))
+                .collect::<Map<_, _>>(),
+            "inside": "2*min - max <= c <= 2*max - min: neither clears(c, min, max, higher) nor \
+                       clears(c, min, max, lower), on the integer counts",
+        },
+        "clauses": {
+            "1": Value::Object(c1),
+            "2": {
+                "holds": c2_holds,
+                "candidate_ci": ci.json(),
+                "reference_ci": reference.ci.json(),
+                "rule": "candidate lo <= reference hi and reference lo <= candidate hi, in \
+                         ten-thousandths",
+            },
+            "3": Value::Object(c3),
+        },
+        "power": "clause 1 is a low-power instrument at a 99.7% ceiling: the amendment makes it \
+                  satisfiable, not sharp; the control CI and the gate flags carry the test",
+        "then": if pass {
+            "pass: the candidate's flag is on for v5 as its conditional says (C2a also needs both \
+             P2 shapes' latest verdict pass)"
+        } else {
+            "fail: the candidate's flag stays off for v5"
+        },
+    });
+    let word = if pass { TIERB_WORDS[0] } else { TIERB_WORDS[1] };
+    Ok((word.to_string(), body))
+}
+
 // --- look-ups ----------------------------------------------------------------------------------
 
 fn lookup_ft_rows(
@@ -2936,6 +5441,10 @@ fn rule_name(cmd: &Cmd) -> &'static str {
         Cmd::Successor { .. } => "f_successor",
         Cmd::J6a { .. } => "j6a_replay",
         Cmd::J6g { .. } => "j6g_option_permutation",
+        Cmd::V5Pause { .. } => "v5_pause_after_seed_0",
+        Cmd::V5Noulw { room: true, .. } => "v5_noul_weight_room",
+        Cmd::V5Noulw { room: false, .. } => "v5_noul_weight",
+        Cmd::Tierb { .. } => "tierb_outcome",
         Cmd::FtRows { .. } => "ft_rows",
         Cmd::EvalRow { .. } => "eval_row",
     }
@@ -2946,6 +5455,13 @@ fn preregistration(cmd: &Cmd) -> &'static str {
         Cmd::Successor { .. } => PREREG_SUCC,
         Cmd::J6a { .. } => PREREG_J6A,
         Cmd::J6g { .. } => PREREG_J6G,
+        Cmd::Seeds34 {
+            preregistration: Some(_),
+            ..
+        }
+        | Cmd::V5Pause { .. }
+        | Cmd::V5Noulw { .. } => PREREG_V5,
+        Cmd::Tierb { .. } => PREREG_TIERB,
         _ => PREREG,
     }
 }
@@ -2959,8 +5475,11 @@ fn run(cmd: &Cmd) -> Outcome {
             ..
         } => rule_avgnp(&mut inputs, j7_ledger, j4_ledger),
         Cmd::Seeds34 {
-            f_ledger, ft_rows, ..
-        } => rule_seeds34(&mut inputs, f_ledger, ft_rows),
+            f_ledger,
+            ft_rows,
+            preregistration,
+            ..
+        } => rule_seeds34(&mut inputs, f_ledger, ft_rows, preregistration.as_deref()),
         Cmd::J6f {
             f_ledger, ft_rows, ..
         } => rule_j6f(&mut inputs, f_ledger, ft_rows),
@@ -3022,6 +5541,57 @@ fn run(cmd: &Cmd) -> Outcome {
             ft_rows,
             arm_ledger,
             j6g_ft_row,
+        ),
+        Cmd::V5Pause {
+            preregistration,
+            ledger,
+            ft_row,
+            ..
+        } => rule_v5_pause(&mut inputs, preregistration, ledger, ft_row),
+        Cmd::V5Noulw {
+            preregistration,
+            noul_preregistration,
+            v5_ledger,
+            ft_rows,
+            room,
+            arm_ledger,
+            arm_ft_rows,
+            ..
+        } => match (*room, arm_ledger) {
+            (true, _) => rule_v5_noulw(
+                &mut inputs,
+                preregistration,
+                noul_preregistration,
+                v5_ledger,
+                ft_rows,
+                None,
+            ),
+            (false, Some(arm)) => rule_v5_noulw(
+                &mut inputs,
+                preregistration,
+                noul_preregistration,
+                v5_ledger,
+                ft_rows,
+                Some((arm, arm_ft_rows)),
+            ),
+            (false, None) => Err("v5-noulw reads the arm's rows from --arm-ledger, or with \
+                                  --room reads none; neither was given"
+                .to_string()),
+        },
+        Cmd::Tierb {
+            candidate,
+            ledger,
+            phase3_ledger,
+            allgates_ledger,
+            preregistration,
+            ..
+        } => rule_tierb(
+            &mut inputs,
+            *candidate,
+            ledger,
+            phase3_ledger,
+            allgates_ledger,
+            preregistration,
         ),
         Cmd::FtRows { ledger, ft_rows } => lookup_ft_rows(&mut inputs, ledger, ft_rows),
         Cmd::EvalRow {
@@ -3091,7 +5661,10 @@ fn main() -> ExitCode {
         | Cmd::J6f { out, .. }
         | Cmd::Successor { out, .. }
         | Cmd::J6a { out, .. }
-        | Cmd::J6g { out, .. } => Some(out),
+        | Cmd::J6g { out, .. }
+        | Cmd::V5Pause { out, .. }
+        | Cmd::V5Noulw { out, .. }
+        | Cmd::Tierb { out, .. } => Some(out),
         Cmd::FtRows { .. } | Cmd::EvalRow { .. } => None,
     };
     if let Some(path) = out_path
@@ -3433,6 +6006,7 @@ mod tests {
         let o = outcome(Cmd::Seeds34 {
             f_ledger: repo(J4),
             ft_rows: ft_args(&J4_FT),
+            preregistration: None,
             out: PathBuf::from("/unused"),
         });
         assert!(!o.refused, "{}", o.json);
@@ -3567,6 +6141,7 @@ mod tests {
             Cmd::Seeds34 {
                 f_ledger,
                 ft_rows,
+                preregistration: None,
                 out,
             }
         })
@@ -3904,6 +6479,7 @@ mod tests {
         let o = outcome(Cmd::Seeds34 {
             f_ledger: ledger.0.clone(),
             ft_rows: vec![(0, FT[0].into()), (1, FT[1].into())],
+            preregistration: None,
             out: PathBuf::from("/unused"),
         });
         assert!(o.refused);
@@ -7171,5 +9747,121 @@ mod tests {
                 assert_eq!(shown, m["f_seed0"].as_str().unwrap(), "{name}");
             }
         }
+    }
+
+    // --- (ix): tierb's CI parser ------------------------------------------------------------
+
+    const TIERB_P3: &str = "ledger/gh200-seed0-weights-2026-09-30.jsonl";
+    const EEDA_DETAIL: &str =
+        "paired margin +0.1501, 95% CI [+0.1359, +0.1651] over 10000 bootstrap resamples";
+
+    fn as_row(v: Value) -> Row {
+        let Value::Object(map) = v else {
+            panic!("not an object")
+        };
+        Row {
+            at: "test".into(),
+            map,
+        }
+    }
+
+    fn with_gate(detail: &str, value: f64, passed: bool) -> Row {
+        let mut v = real_row(TIERB_P3, "eeda5db4");
+        let g = &mut v["gates"][LINEAR_GATE];
+        g["detail"] = json!(detail);
+        g["value"] = json!(value);
+        g["passed"] = json!(passed);
+        as_row(v)
+    }
+
+    #[test]
+    fn eeda5db4s_exact_detail_parses_to_its_printed_integers() {
+        let row = as_row(real_row(TIERB_P3, "eeda5db4"));
+        assert_eq!(
+            row.str_at(&["gates", LINEAR_GATE, "detail"]),
+            Some(EEDA_DETAIL)
+        );
+        let ci = paired_ci(&row).unwrap();
+        assert_eq!(ci.point.ten_thousandths, 1501);
+        assert_eq!(
+            (ci.lo.ten_thousandths, ci.hi.ten_thousandths),
+            TIERB_CONTROL_CI
+        );
+        assert_eq!(ci.n_boot, CI_N_BOOT);
+        assert!(ci.passed);
+        assert!(ci.overlaps(&ci));
+    }
+
+    #[test]
+    fn each_suffix_form_renders_byte_for_byte_and_round_trips() {
+        let f = |s: &str| Fixed4::parse(s).unwrap();
+        // passed: no suffix.
+        assert_eq!(
+            ci_detail(f("+0.1501"), f("+0.1359"), f("+0.1651"), 10_000, true),
+            EEDA_DETAIL
+        );
+        // Straddling zero, and wholly below it: the harness's two sentences.
+        let straddles = ci_detail(f("+0.0010"), f("-0.0050"), f("+0.0070"), 10_000, false);
+        assert!(straddles.ends_with(CI_INCLUDES_ZERO), "{straddles}");
+        let below = ci_detail(f("-0.0100"), f("-0.0200"), f("-0.0050"), 10_000, false);
+        assert!(
+            below.ends_with(
+                "the baseline beats the model by 0.0100 and the comparison separates them"
+            ),
+            "{below}"
+        );
+        for (detail, value) in [(straddles, 0.001), (below, -0.01)] {
+            let ci = paired_ci(&with_gate(&detail, value, false)).unwrap();
+            assert!(!ci.passed);
+        }
+        // "-0.0000" keeps its sign: Python prints it for a negative hi that rounds to zero, and
+        // takes the below-zero branch for it.
+        let z = f("-0.0000");
+        assert!(z.negative && z.ten_thousandths == 0 && z.text() == "-0.0000");
+        assert_eq!(f("+0.0000").negated_plain(), "-0.0000");
+        assert_eq!(f("-0.0100").negated_plain(), "0.0100");
+    }
+
+    #[test]
+    fn a_number_off_the_four_decimal_form_does_not_parse() {
+        for bad in [
+            "0.1501", "+.1501", "+0.150", "+0.15010", "+1e-4", "+0.15a1", "", "+",
+        ] {
+            assert_eq!(Fixed4::parse(bad), None, "{bad}");
+        }
+        assert_eq!(
+            Fixed4::parse("+1.0000").map(|x| x.ten_thousandths),
+            Some(10_000)
+        );
+    }
+
+    #[test]
+    fn a_ci_at_a_rounding_edge_or_off_its_flag_refuses() {
+        // lo printed +0.0000 with passed true: the text cannot show lo > 0.
+        let edge =
+            "paired margin +0.0100, 95% CI [+0.0000, +0.0200] over 10000 bootstrap resamples";
+        let e = paired_ci(&with_gate(edge, 0.01, true)).unwrap_err();
+        assert!(e.contains("passes iff lo > 0"), "{e}");
+        // A trailing space is a byte off the form.
+        let e = paired_ci(&with_gate(
+            &format!("{EEDA_DETAIL} "),
+            0.150_085_763_293_310_47,
+            true,
+        ))
+        .unwrap_err();
+        assert!(
+            e.contains("not in the form paired_margin_test writes"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn inside_is_the_complement_of_clears_at_both_ends() {
+        let v = |k: i64| Val::Exact(Rat { num: k, den: 2332 });
+        let (min, max) = (v(2326), v(2327));
+        let got: Vec<i64> = (2320..=2332)
+            .filter(|&k| inside(v(k), min, max).unwrap())
+            .collect();
+        assert_eq!(got, vec![2325, 2326, 2327, 2328]);
     }
 }

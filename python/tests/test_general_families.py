@@ -410,6 +410,17 @@ def test_mmlu_split_policy_is_pinned_and_mmlu_is_not_a_reportable_benchmark() ->
     assert source_by_id("clinc/clinc_oos").pinned_split_of("train") is None
 
 
+def test_clinc_is_not_a_reportable_benchmark() -> None:
+    """2026-10-03: CLINC's three upstream splits are all read and split by intent, so its test
+    utterances for the training intents are training data. The Decision Index panel scores
+    CLINC150+OOS on that test split, so a Lappi number there is not a clean claim
+    (GAP-DECISION-INDEX-PANEL-CLINC-AND-MMLU-TEST-ITEMS-ARE-LAPPI-TRAINING-DATA-2026-10-03)."""
+    clinc = source_by_id("clinc/clinc_oos")
+    assert clinc.benchmark_reportable is False
+    assert "NOT A REPORTABLE BENCHMARK FOR LAPPI" in clinc.evidence
+    assert "Decision Index" in clinc.evidence
+
+
 @pytest.mark.parametrize(("upstream", "pinned"), [("test", "train"), ("dev", "train"),
                                                   ("validation", "val")])
 def test_an_mmlu_row_carries_its_pinned_split_into_its_split_unit(

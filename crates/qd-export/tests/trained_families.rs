@@ -11,6 +11,7 @@ use std::process::{Command, Output};
 
 use qd_runtime::calibration::CalibrationTable;
 use qd_runtime::release::{MANIFEST_FILE, Release};
+use qd_runtime::render::PROMPT_FORMAT;
 use serde_json::{Value, json};
 
 const BIN: &str = env!("CARGO_BIN_EXE_qd-export");
@@ -83,13 +84,22 @@ fn run(fx: &common::Fixture, train_manifest: Option<&Path>) -> Output {
     cmd.output().expect("the binary runs")
 }
 
+/// The standard fixture of a checkpoint trained on the prompt format this runtime serves, so the
+/// release it exports is one `Release::open` accepts (`release_binding.rs` owns the refusal of
+/// every other format).
+fn served_format_fixture() -> common::Fixture {
+    common::build(&common::standard_tensors(), &common::tiny_config(), |m| {
+        m["prompt_format"] = json!(PROMPT_FORMAT);
+    })
+}
+
 fn release_manifest(out: &Path) -> Value {
     serde_json::from_slice(&std::fs::read(out.join(MANIFEST_FILE)).unwrap()).unwrap()
 }
 
 #[test]
 fn the_release_records_the_families_its_train_manifest_holds() {
-    let fx = common::standard();
+    let fx = served_format_fixture();
     let rows = [
         ("train", "code.defect_class"),
         ("train", "intent.in_scope"),

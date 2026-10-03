@@ -64,3 +64,16 @@ src = ["python"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "RUF", "SIM", "PTH"]
+
+# Records, not code to keep tidy: these three are evidence of what ran, so their bytes stay as
+# they ran. A sha256 of the first two is cited (recency-f-2026-10-02.json, the CLINC strip
+# ruling); the third is declared the record of what was appended. Ignored rule by rule, only
+# the rules each already breaks, per Fable's ruling on
+# GAP-L-LINT-PINNED-FILES-KEEP-THE-GATE-RED-2026-10-02
+# (AUDIT/post-f-2026-10-02/fable-v5-queue-readings-ruling.md). The gap's two oracle scripts
+# under tools/ are NOT ignored: they are reformatted, and their fixtures regenerated, by a
+# qd-train owner.
+[tool.ruff.lint.per-file-ignores]
+"AUDIT/post-f-2026-10-02/recency/recency_diagnostic.py" = ["E501", "I001"]
+"AUDIT/prep2-2026-10-02/clinc_oracle.py" = ["E702", "B007"]
+"AUDIT/post-f-2026-10-02/recency/append_gaps_recency.py" = ["E501"]

@@ -22,6 +22,7 @@
 
 pub mod blake2b;
 pub mod containment;
+pub mod decisions;
 pub mod linfit;
 pub mod linwire;
 pub mod lsh;

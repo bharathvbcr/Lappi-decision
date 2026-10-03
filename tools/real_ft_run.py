@@ -156,6 +156,7 @@ from ckpt_average import (
     AverageManifest,
     AverageRefusal,
     manifest_path,
+    prompt_format_of,
     read_average,
     read_manifest,
     verify_sources,
@@ -186,9 +187,10 @@ from torch import nn
 from qd_data.config import DataConfig
 from qd_data.defect_class import CHOICE_SLOT, DEFECT_FAMILY_ID, SPAN_SLOT
 from qd_data.errors import QdRefusal
-from qd_data.render import DEFAULT_CAPS, second_pass_permutation
+from qd_data.render import DEFAULT_CAPS, PROMPT_FORMAT, second_pass_permutation
 from qd_data.rows import DataRow
 from qd_data.schema import NOUL_LETTER
+from qd_data.sources import DECISION_FAMILIES
 from qd_data.split import SplitReport
 from qd_train import composed_slice as cslice
 from qd_train.artifacts import (
@@ -207,6 +209,7 @@ from qd_train.eval_harness import (
     permutation_consistency_state,
     permute_within_groups,
     shuffled_label_control,
+    top_class_share_state,
 )
 from qd_train.fused_ce import fused_linear_cross_entropy, resolve_chunk_size
 from qd_train.heads import (
@@ -330,7 +333,60 @@ RECIPE_PIECE_KEYS: Final[tuple[str, ...]] = (
     # --noul-weight (v5 arm_noul_weight): the weight and the family it is scoped to.
     "noul_weight",
     "noul_weight_scope",
+    # v5's prompt format 2 (campaign/v5-preregistered format): the layout the train shard set
+    # was rendered in, read off its header, never the render constant. A row scored from the
+    # model says which layout it was trained on, and --score-checkpoint refuses a model of
+    # another layout than this build renders (_ft_row).
+    "prompt_format",
+    # --batch-order seed (AUDIT/post-f-2026-10-02/fable-seed-order-ruling.md section 1): the
+    # constant string, never the plan seed, so every seed of one configuration shares one
+    # recipe_hash (qd_post_f_rules' one_configuration refuses an average or envelope that
+    # does not).
+    "batch_order",
+    # --probe-shapes (the 2x H100 memory probe, Fable's ruling 2026-10-03): a probe's model is
+    # one step per batch shape, so anything recorded from it hashes apart from a training run.
+    "probe_shapes_margin_gib",
 )
+
+#: ``--batch-order``'s one value: the epoch arm plans its batches at the TRAINING seed rather
+#: than at ``DataConfig().seed``, so seeds differ in order as well as in initialisation.
+BATCH_ORDER_SEED: Final[str] = "seed"
+BATCH_ORDERS: Final[tuple[str, ...]] = (BATCH_ORDER_SEED,)
+
+
+def plan_seed_for(batch_order: str | None, *, seed: int, config: DataConfig) -> int:
+    """The seed ``reader.batches`` plans the train set with, for a run at training seed ``seed``.
+
+    Without ``--batch-order``: ``config.seed``, as every run before v5 -- so every seed of an
+    F-era configuration trained on one order. With ``--batch-order seed``: ``seed`` itself.
+    Passed ONLY to the planner (and to :func:`_labels_by_batch`, which reads the same plan's
+    membership): ``config.seed`` also feeds ``data_snapshot_hash`` and every suite, alphabet
+    and inventory, none of which may move with the training seed.
+    """
+    if batch_order is None:
+        return config.seed
+    if batch_order == BATCH_ORDER_SEED:
+        return seed
+    raise ValueError(f"batch_order must be None or one of {BATCH_ORDERS}, got {batch_order!r}")
+
+
+def plan_order_digest(
+    reader: ShardReader, *, batch_tokens: int, plan_seed: int, max_width: int | None = None
+) -> str:
+    """sha256 over the plan's ``(bucket, rows)`` in order: which sequences, in which batches,
+    in which order -- without assembling a token. ``max_width`` keeps only the batches arm 2
+    trains on (``width <= max_width``, the rule that cuts ``plan_small`` from ``plan_all``).
+
+    The text hashed is ``json.dumps([[bucket, [row, ...]], ...], separators=(",", ":"))``.
+    ``ShardReader._plan`` is the planner ``reader.batches`` itself iterates, and the one
+    :func:`_labels_by_batch` already reads its membership from.
+    """
+    plans = reader._plan(batch_tokens=batch_tokens, seed=plan_seed, epoch=0)
+    body = [
+        [int(p.bucket), [int(i) for i in p.rows]]
+        for p in plans if max_width is None or int(p.width) <= max_width
+    ]
+    return hashlib.sha256(json.dumps(body, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 #: ``--noul-weight``'s scope (v5 reading R5): the weight multiplies noul-gold letter positions
 #: of ``code.defect_class`` rows only. CLINC's Z-gold rows and every other family stay
@@ -500,7 +556,8 @@ def _recipe_pieces(
     train_attention_mask: str = "padding", max_steps: int | None = None,
     train_dtype: str = "bf16", span_head_init: Mapping[str, str] | None = None,
     exclusions_sha256: str = "", min_lr: float | None = None,
-    noul_weight: float | None = None,
+    noul_weight: float | None = None, prompt_format: int = 1,
+    batch_order: str | None = None, probe_shapes: float | None = None,
 ) -> dict[str, object]:
     """The recipe keys for whichever ported pieces are on. Empty when none is.
 
@@ -526,6 +583,13 @@ def _recipe_pieces(
     ``noul_weight`` is ``--noul-weight``: ``None`` adds no key; given, it adds exactly two,
     ``noul_weight`` and ``noul_weight_scope`` -- the arm's identity
     (``arm_noul_weight.identity``) is v5's recipe plus these two.
+
+    ``prompt_format`` is the train header's (``ShardHeader.prompt_format``), never
+    ``qd_data.render.PROMPT_FORMAT``: 1, every row before v5's format 2, adds no key.
+
+    ``batch_order`` is ``--batch-order``: ``None`` (the plan at ``DataConfig().seed``, every
+    row so far) adds no key; given, the key is the constant string (``"seed"``), never the plan
+    seed, so the seeds of one configuration keep one recipe_hash.
     """
     if train_attention_mask not in TRAIN_ATTENTION_MASKS:
         raise ValueError(
@@ -534,7 +598,15 @@ def _recipe_pieces(
         )
     if train_dtype not in TRAIN_DTYPES:
         raise ValueError(f"train_dtype must be one of {TRAIN_DTYPES}, got {train_dtype!r}")
+    if isinstance(prompt_format, bool) or not isinstance(prompt_format, int) or prompt_format < 1:
+        raise ValueError(f"prompt_format must be an int >= 1, got {prompt_format!r}")
+    if batch_order is not None and batch_order not in BATCH_ORDERS:
+        raise ValueError(f"batch_order must be None or one of {BATCH_ORDERS}, got {batch_order!r}")
     out: dict[str, object] = {}
+    if prompt_format != 1:
+        out["prompt_format"] = prompt_format
+    if batch_order is not None:
+        out["batch_order"] = batch_order
     if noul_weight is not None:
         out["noul_weight"] = noul_weight
         out["noul_weight_scope"] = NOUL_WEIGHT_SCOPE
@@ -544,6 +616,9 @@ def _recipe_pieces(
         out["exclusions_sha256"] = exclusions_sha256
     if max_steps is not None:
         out["max_steps"] = max_steps
+    if probe_shapes is not None:
+        # A probe row hashes apart from every training row: its plan is one batch per shape.
+        out["probe_shapes_margin_gib"] = probe_shapes
     if train_dtype != "bf16":
         out["train_dtype"] = train_dtype
     if span_head_init is not None:
@@ -1677,12 +1752,17 @@ class ProgressLine:
     and, on cuda, the allocator's peak. The first step always prints, so a run that is
     stepping at all says so within one step. ``clock`` is the loop's own elapsed time, so
     no second clock is read here.
+
+    ``every_step`` is called after every optimizer step, before the throttle: the hook
+    ``--probe-shapes`` hangs its :class:`MemoryProbe` on, so the trainer is still handed this
+    one progress line.
     """
 
     def __init__(
         self, label: str, *, every_s: float = PROGRESS_EVERY_S,
         peak_bytes: Callable[[], int] | None = None,
         emit: Callable[[str], None] | None = None,
+        every_step: Callable[[Progress], None] | None = None,
     ) -> None:
         if not (math.isfinite(every_s) and every_s > 0.0):
             raise ValueError(f"every_s must be finite and positive, got {every_s!r}")
@@ -1690,9 +1770,12 @@ class ProgressLine:
         self.every_s = every_s
         self._peak = peak_bytes
         self._emit = emit if emit is not None else (lambda s: print(s, flush=True))
+        self._every_step = every_step
         self._last: float | None = None
 
     def __call__(self, p: Progress) -> None:
+        if self._every_step is not None:
+            self._every_step(p)
         if self._last is not None and p.elapsed_s - self._last < self.every_s:
             return
         self._last = p.elapsed_s
@@ -1707,6 +1790,104 @@ class ProgressLine:
         if self._peak is not None:
             line += f" peak {self._peak() / (1 << 30):.1f}GiB"
         self._emit(line)
+
+
+#: The devices ``--probe-shapes`` runs on: the ones whose allocator ``MemoryProbe`` reads.
+PROBE_DEVICES: Final[tuple[str, ...]] = ("cuda",)
+#: ``ProgressLine``'s throttle under ``--probe-shapes``: effectively none, so every probe step
+#: (one batch shape each, about 40 of them) prints its own line.
+PROBE_EVERY_S: Final[float] = 1e-9
+
+
+def probe_shape_order(plan: Sequence[Batch]) -> list[int]:
+    """``--probe-shapes``: the plan index of one batch per distinct ``(rows, width)``, the
+    first of each in plan order, costliest first.
+
+    Costliest is most positions, then widest. ``memory.py`` prices the narrowest bucket with
+    the most rows above the widest bucket (F's costliest shape was 258 x 137 at 63.81 GiB,
+    reproduced to the byte by AUDIT/finalize-2026-10-03/v5_h100_budget.py, against 60.01 GiB
+    for 3 x 10,240), so most positions comes first. Every distinct shape is stepped either
+    way; the order only decides how soon a shape that does not fit is found.
+    """
+    first: dict[tuple[int, int], int] = {}
+    for i, batch in enumerate(plan):
+        first.setdefault((int(batch.tokens.shape[0]), int(batch.tokens.shape[1])), i)
+    return [
+        first[shape]
+        for shape in sorted(first, key=lambda s: (-(s[0] * s[1]), -s[1], -s[0]))
+    ]
+
+
+class MemoryProbe:
+    """``--probe-shapes``' ``on_progress``: the allocator's peaks after every probe step,
+    kept current on the ft row as the metric ``memory_probe``.
+
+    One optimizer step per distinct batch shape on the real tower and recipe, so the peak is
+    the one a real run reaches, measured rather than priced. The metric is written before
+    step 1 as a failure ("no probe step completed") and replaced after every step.
+    ``RunRecorder`` writes the row on every exit path, so a probe killed by an out-of-memory
+    error still leaves a row, and that row says how many shapes completed and which one was
+    next. It passes only when every shape completed AND the reserved peak is at most the
+    device's total minus ``margin_bytes``. Reserved, not allocated: reserved is what the
+    caching allocator holds from the device, and it is what runs out.
+    """
+
+    METRIC = "memory_probe"
+
+    def __init__(
+        self, recorder: Any, *, shapes: Sequence[tuple[int, int]], margin_bytes: int,
+        total_bytes: int, read_peaks: Callable[[], tuple[int, int]],
+    ) -> None:
+        if not shapes:
+            raise ValueError("a memory probe needs at least one batch shape")
+        if margin_bytes <= 0 or total_bytes <= margin_bytes:
+            raise ValueError(
+                f"margin {margin_bytes} B against a device of {total_bytes} B leaves no budget"
+            )
+        self.recorder = recorder
+        self.shapes = list(shapes)
+        self.margin_bytes = margin_bytes
+        self.total_bytes = total_bytes
+        self._read_peaks = read_peaks
+        self.completed = 0
+        self.passed = False
+        recorder.metric(
+            self.METRIC,
+            Ran(passed=False, value=None, n=0, n_total=len(self.shapes),
+                detail=self._detail(None, None)),
+        )
+
+    def _detail(self, allocated: int | None, reserved: int | None) -> str:
+        gib = float(1 << 30)
+        done = f"{self.completed} of {len(self.shapes)} distinct (rows, width) shapes stepped"
+        if self.completed < len(self.shapes):
+            rows, width = self.shapes[self.completed]
+            done += (
+                f"; next {rows}x{width}" if self.completed else f"; none yet, first {rows}x{width}"
+            )
+        room = self.total_bytes - self.margin_bytes
+        budget = (
+            f"device total {self.total_bytes / gib:.2f} GiB minus margin "
+            f"{self.margin_bytes / gib:.2f} GiB = {room / gib:.2f} GiB"
+        )
+        if allocated is None or reserved is None:
+            return f"{done}; no peak read yet; budget {budget}"
+        return (
+            f"{done}; torch.cuda.max_memory_allocated {allocated / gib:.2f} GiB, "
+            f"max_memory_reserved {reserved / gib:.2f} GiB (process lifetime, model load "
+            f"included); budget {budget}"
+        )
+
+    def __call__(self, p: Progress) -> None:
+        self.completed = min(p.optimizer_step, len(self.shapes))
+        allocated, reserved = self._read_peaks()
+        fits = reserved <= self.total_bytes - self.margin_bytes
+        self.passed = fits and self.completed == len(self.shapes)
+        self.recorder.metric(
+            self.METRIC,
+            Ran(passed=self.passed, value=reserved, n=self.completed,
+                n_total=len(self.shapes), detail=self._detail(allocated, reserved)),
+        )
 
 
 class CheckpointSink:
@@ -1813,6 +1994,11 @@ def _resume_arm(path: Path) -> tuple[str, int, str]:
 #: needs and nothing a resume would. No optimizer state, so ``load_state`` refuses it and
 #: ``_resume_arm`` refuses its name: a snapshot is a model to score, never a resume point.
 SNAPSHOT_KEYS: Final[tuple[str, ...]] = ("tower", "span_head", "span_weight", "vocab_size")
+#: Kept beside :data:`SNAPSHOT_KEYS` when the step's state has it: the prompt layout the
+#: weights were trained under (``QwenDecisionStep.state``, only when it is not 1), which
+#: ``ckpt_average.py --same-seed-trajectory`` reads off every snapshot it averages. Dropping it
+#: would make a format-2 snapshot read as format 1.
+SNAPSHOT_OPTIONAL_KEYS: Final[tuple[str, ...]] = ("prompt_format",)
 
 
 def _snapshot_name(tag: str, seed: int, device: str, step: int) -> str:
@@ -1966,7 +2152,10 @@ class RetainingSink:
             position=ckpt.position, optimizer_step=step, seed=ckpt.seed,
             schedule=ckpt.schedule, loss_log=ckpt.loss_log,
             consumed_digest=ckpt.consumed_digest,
-            model_state={k: ckpt.model_state[k] for k in SNAPSHOT_KEYS},
+            model_state={
+                k: ckpt.model_state[k]
+                for k in (*SNAPSHOT_KEYS, *SNAPSHOT_OPTIONAL_KEYS) if k in ckpt.model_state
+            },
         )
         target = self.directory / _snapshot_name(self.tag, self.seed, self.device, step)
         t0 = time.monotonic()
@@ -2684,6 +2873,9 @@ def _real_step(
         fused_adamw=fused_adamw,
         train_attention_mask=train_attention_mask,
         noul_weight=noul_weight,
+        # The train set's layout, so the step's checkpoints state it (model_state, only when
+        # it is not 1): ckpt_average reads it there and a resume compares it.
+        prompt_format=reader.header.prompt_format,
     )
     return step, tower, budget
 
@@ -2691,7 +2883,7 @@ def _real_step(
 def _train(
     *, reader: ShardReader, plan: list[Batch], passes: int, device: str, seed: int,
     hidden: int, heads: int, lr: float, span_weight: float, ledger: Ledger, tag: str,
-    quick_reasons: Sequence[str], backbone: Path | None = None,
+    quick_reasons: Sequence[str], evaluate_plan: bool, backbone: Path | None = None,
     optimizer_recipe: str = "bf16",
     checkpoint_dir: Path | None = None, checkpoint_every: int = 0,
     resume_from: object | None = None, deterministic: bool = False,
@@ -2711,8 +2903,15 @@ def _train(
     train_dtype: str = "bf16", span_head_init: SpanHeadInit | None = None,
     record_span_head_init_digest: bool = False, min_lr: float | None = None,
     noul_weight: NoulWeightPlan | None = None, retain_tower_every: int = 0,
+    batch_order: str | None = None, plan_seed: int | None = None,
+    order_digest: str | None = None, probe_shapes: float | None = None,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
+
+    ``batch_order`` is ``--batch-order`` (a recipe key only when given); ``plan_seed`` and
+    ``order_digest`` are the seed ``plan`` was planned at and :func:`plan_order_digest` of it,
+    recorded as ``corpus.plan_seed`` and ``corpus.plan_order_digest`` on every ft row (NotRun
+    when the caller did not say).
 
     The batches are the real reader's, re-indexed: ``_train`` requires strictly increasing
     indices inside an epoch because S5 reconstructs a resume position from them, and a
@@ -2752,6 +2951,21 @@ def _train(
     a tower-and-span-head snapshot at every Nth optimizer step and the final one
     (:class:`RetainingSink`); it moves no recipe key and leaves ``checkpoint_every``'s
     resume checkpoint exactly as it was.
+
+    ``probe_shapes`` (``--probe-shapes MARGIN_GIB``, the 2x H100 memory probe): ``plan`` is
+    cut HERE, as under ``max_steps``, to one batch per distinct ``(rows, width)``
+    (:func:`probe_shape_order`, costliest first), and :class:`MemoryProbe` keeps the metric
+    ``memory_probe`` current on the ft row. Refused off cuda, with ``max_steps``, ``passes``
+    above 1, ``noul_weight``, ``replay``, ``shuffled_label``, ``resume_from``,
+    ``retain_tower_every`` and a ``checkpoint_dir``: a probe measures the recipe's memory,
+    trains no model worth keeping, and none of those changes what one step holds. A probe
+    that does not pass raises ``SystemExit`` after its row is written.
+
+    ``evaluate_plan`` is stated by every caller. True runs :func:`_evaluate`, a no-grad pass
+    over the whole plan, into ``run["final"]``. Only the memorise arm records anything from
+    it: :func:`_record_verdict`'s floor metrics and the arm's failure check. False leaves
+    ``run["final"]`` as ``{"not_run": PLAN_EVALUATION_NOT_RUN}``. It moves no recipe key, so
+    no hash changes.
     """
     if noul_weight is not None and len(noul_weight.rows) != len(plan):
         raise ValueError(
@@ -2773,6 +2987,31 @@ def _train(
         plan = plan[:max_steps]
         if noul_weight is not None:
             noul_weight = noul_weight.cut(max_steps)
+    if probe_shapes is not None:
+        refused = [
+            why for why, on in (
+                (f"device {device!r} (the probe reads torch.cuda's peaks)",
+                 device not in PROBE_DEVICES),
+                ("max_steps (both cut the plan)", max_steps is not None),
+                (f"{passes} passes (the probe steps each shape once)", passes != 1),
+                ("noul_weight", noul_weight is not None),
+                ("replay", replay is not None),
+                ("shuffled_label", shuffled_label is not None),
+                ("resume_from", resume_from is not None),
+                ("retain_tower_every", retain_tower_every != 0),
+                ("checkpoint_dir (a probe keeps no model)", checkpoint_dir is not None),
+            ) if on
+        ]
+        if refused:
+            raise ValueError(f"probe_shapes refuses {', '.join(refused)}")
+        if not (math.isfinite(probe_shapes) and probe_shapes > 0.0):
+            raise ValueError(
+                f"probe_shapes' margin must be finite and positive, got {probe_shapes!r}"
+            )
+        keep = probe_shape_order(plan)
+        plan = [plan[i] for i in keep]
+        if alphabets is not None:
+            alphabets = [alphabets[i] for i in keep]
     width = max(int(b.tokens.shape[1]) for b in plan)
     steps = len(plan) * passes
     record_head_digest = record_span_head_init_digest or span_head_init is not None
@@ -2842,6 +3081,8 @@ def _train(
         span_head_init=None if span_head_init is None else span_head_init.recipe(),
         exclusions_sha256=reader.header.exclusions_sha256, min_lr=min_lr,
         noul_weight=None if noul_weight is None else noul_weight.weight,
+        prompt_format=reader.header.prompt_format, batch_order=batch_order,
+        probe_shapes=probe_shapes,
     )
     recipe: dict[str, object] = {
         "tool": "tools/real_ft_run.py", "tag": tag, "device": device,
@@ -3210,6 +3451,22 @@ def _train(
         ("corpus.plan_max_width", width, "the widest padded batch this run trains on"),
     ):
         recorder.metric(name, Ran(passed=True, value=value, detail=detail))
+    # Which order: the plan seed and the order's digest, on every ft row (Fable's seed-order
+    # ruling section 1). Metrics, not recipe keys: they differ by seed under --batch-order seed
+    # and the recipe_hash must not. train.consumed_digest, the final checkpoint's, is the
+    # trainer's (qd_train.trainer).
+    for name, value, said in (
+        ("corpus.plan_seed", plan_seed,
+         "the seed the plan was drawn at: DataConfig().seed, or under --batch-order seed the "
+         "training seed"),
+        ("corpus.plan_order_digest", order_digest,
+         "sha256 over the plan's (bucket, rows) in order (plan_order_digest)"),
+    ):
+        recorder.metric(
+            name,
+            NotRun(reason="the caller did not say which plan this is")
+            if value is None else Ran(passed=True, value=value, detail=said),
+        )
 
     if permutation is not None:
         recorder.metric(
@@ -3262,6 +3519,17 @@ def _train(
             first_step=retain_first_step,
         )
 
+    probe: MemoryProbe | None = None
+    if probe_shapes is not None:
+        probe = MemoryProbe(
+            recorder,
+            shapes=[(int(b.tokens.shape[0]), int(b.tokens.shape[1])) for b in plan],
+            margin_bytes=int(probe_shapes * (1 << 30)),
+            total_bytes=int(torch.cuda.get_device_properties(device).total_memory),
+            read_peaks=lambda: (
+                int(torch.cuda.max_memory_allocated()), int(torch.cuda.max_memory_reserved())
+            ),
+        )
     result = train_ft(
         source(),
         epoch=0,
@@ -3276,12 +3544,26 @@ def _train(
         recorder=recorder,
         on_checkpoint=on_checkpoint,
         resume_from=resume_from,
+        # Under --probe-shapes: a line on every step (each is one shape's peak), the
+        # allocator's reserved peak rather than its allocated one, and the probe's metric
+        # kept current through every_step.
         on_progress=ProgressLine(
-            f"{tag} {device} seed={seed}",
-            peak_bytes=torch.cuda.max_memory_allocated if device == "cuda" else None,
+            f"{tag} {device} seed={seed}" + (" probe" if probe is not None else ""),
+            every_s=PROGRESS_EVERY_S if probe is None else PROBE_EVERY_S,
+            peak_bytes=(
+                None if device != "cuda"
+                else torch.cuda.max_memory_allocated if probe is None
+                else torch.cuda.max_memory_reserved
+            ),
+            every_step=probe,
         ),
     )
     wall = time.monotonic() - started
+    if probe is not None and not probe.passed:
+        raise SystemExit(
+            f"memory probe did not pass (ft row {result.row_id}): "
+            f"{recorder.metrics[MemoryProbe.METRIC].detail}"
+        )
     if on_checkpoint is not None:
         on_checkpoint.final(result.checkpoint)
     if noul_weight is not None:
@@ -3311,7 +3593,10 @@ def _train(
     # only path that computes both, so the batches where both logs are live are exactly the
     # span batches, and the first of those is the one the ratio is about.
     both = _first_joint_batch(step.letter_log, step.span_log)
-    final = _evaluate(step, plan, supervised, letter_floors, span_floors)
+    final: dict[str, object] = (
+        _evaluate(step, plan, supervised, letter_floors, span_floors)
+        if evaluate_plan else {"not_run": PLAN_EVALUATION_NOT_RUN}
+    )
     return {
         "tag": tag, "device": device, "seed": seed,
         # Carried out for the same reason as the backbone keys: the verdict row is billed on
@@ -3419,6 +3704,17 @@ def _plan_floors(plan: list[Batch], supervised: list[object]) -> tuple[float, fl
         else float("nan")
     )
     return letter, span
+
+
+#: ``run["final"]`` when :func:`_train` was told not to run :func:`_evaluate`. Only the memorise
+#: arm records anything from that pass. The epoch arm and the shuffled-label control record
+#: nothing from it. On F (GH200, 2026-10-01/02) the pass sat between each seed's ft row and its
+#: scoring for about 57 min of a 5 h 55 min seed
+#: (GAP-EPOCH-ARM-EVALUATES-THE-WHOLE-TRAIN-PLAN-FOR-NO-ROW-2026-10-03).
+PLAN_EVALUATION_NOT_RUN: Final[str] = (
+    "the whole-plan floor evaluation (_evaluate) did not run: this arm records no floor "
+    "metric from it; only the memorise arm does"
+)
 
 
 def _evaluate(
@@ -3795,12 +4091,17 @@ def ft_splits(
     replay_partition: bool = False,
     defect_noul: Path | None = None,
     exclude_identity_keys: Path | None = None,
+    decisions_pool: Path | None = None,
+    pre_dedupe_drops: Path | None = None,
 ) -> dict[str, list[DataRow]]:
     """Every split of the corpus this tool's shard sets were built from, by split name.
 
-    ``exclude_identity_keys`` mirrors the pipeline's ``--exclude-identity-keys``: the same
-    ``qd_train.exclusions.apply_exclusions``, at the same point (after the split, before the
-    replay draw), so a set built with the list rebuilds with it. The split itself is
+    ``exclude_identity_keys`` mirrors the pipeline's ``--exclude-identity-keys``, and v5's
+    contrast rows (``qd_train.contrast``, requested by the ``--defect-noul`` manifest) follow
+    it: both through the pipeline's own ``exclusions_then_contrast``, at the same point (after
+    the split, before the replay draw), so a set built with the list -- and with the contrast
+    rows that only that rebuild derives -- rebuilds with both. One call, not a copy of its two
+    steps, so the order and arguments cannot drift from the build's. The split itself is
     :func:`ft_split_report`; the rest of this docstring is about that build.
 
     The same "which rows" ``tools/real_tokenizer_pipeline.py``'s ``run`` answered, from the
@@ -3827,6 +4128,13 @@ def ft_splits(
     they are never gold-trained here either. val and held-out are untouched by it.
     ``defect_noul`` mirrors the pipeline's ``--defect-noul``: the same ``load_defect_rows``
     call appends the noul corpus's rows after the defect corpus's, in the same order.
+    ``decisions_pool`` mirrors the pipeline's ``--decisions-pool``: the general-decision
+    pool comes back through the pipeline's own ``load_decision_pool`` (read whole, checked
+    against its manifest's examples sha256), with the same refusal of a source already read.
+    ``pre_dedupe_drops`` mirrors the pipeline's ``--drop-before-dedupe``: the same
+    ``qd_train.exclusions.drop_before_dedupe`` call, at the same point (after
+    ``build_mixture``, before ``dedupe``), and the list's sha256 is in the corpus the
+    exclusion list is checked against, so a rebuild without it is refused there.
 
     ``build_mixture`` runs at the pipeline's ``PIPELINE_MAX_CONSISTENCY_ROWS``, not the
     library default: the two agree below 250,000 rows and build different row sets above
@@ -3841,24 +4149,27 @@ def ft_splits(
     import real_tokenizer_pipeline as pipeline
 
     from qd_data.config import SPLITS
-    from qd_train.exclusions import apply_exclusions, containment_corpus
+    from qd_train.exclusions import containment_corpus
 
     split_report = ft_split_report(
         commitpackft=commitpackft, max_pairs=max_pairs, rev=rev, config=config,
         defect_class=defect_class, defect_download=defect_download,
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record, general_max_rows=general_max_rows,
-        defect_noul=defect_noul,
+        defect_noul=defect_noul, decisions_pool=decisions_pool,
+        pre_dedupe_drops=pre_dedupe_drops,
     )
     corpus = containment_corpus(replay_corpus_identity(
         rev=rev, max_pairs=max_pairs, commitpackft=commitpackft, defect_class=defect_class,
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record, general_max_rows=general_max_rows,
-        defect_noul=defect_noul,
+        defect_noul=defect_noul, decisions_pool=decisions_pool,
+        drop_before_dedupe=pre_dedupe_drops,
     )) if exclude_identity_keys is not None else {}
-    split_report, _exclusions, _excluded = apply_exclusions(
-        split_report, exclude_identity_keys, corpus=corpus
-    )
+    split_report = pipeline.exclusions_then_contrast(
+        split_report, exclude_identity_keys=exclude_identity_keys, corpus=corpus,
+        defect_noul=defect_noul, config=config,
+    ).report
     if replay_partition:
         split_report, _replay, _partition = pipeline.split_off_replay(
             split_report, seed=config.seed
@@ -3879,6 +4190,8 @@ def ft_split_report(
     general_record: Path | None = None,
     general_max_rows: int | None = None,
     defect_noul: Path | None = None,
+    decisions_pool: Path | None = None,
+    pre_dedupe_drops: Path | None = None,
 ) -> SplitReport:
     """The ``qd_data.split.SplitReport`` :func:`ft_splits` starts from: every row of the
     corpus, deduped and split, before any exclusion or replay draw. Returned whole because
@@ -3930,6 +4243,19 @@ def ft_split_report(
         for dataset, rows in general.raw.items():
             raw[dataset] = list(rows)
         clinc_domain_map = general.clinc_domain_map
+    if decisions_pool is not None:
+        # The pipeline's own block (real_tokenizer_pipeline.run): build_mixture iterates the
+        # sources sorted, so only "before build_mixture" matters, not the position.
+        from qd_data.decisions import load_decision_pool, pool_data_config
+
+        # The pipeline's admission for a pool build (its opt-in sources, with the human's call);
+        # without it build_mixture refuses an opt-in source's rows at load.
+        config = pool_data_config(config)
+        pool = load_decision_pool(decisions_pool)
+        clash = sorted(set(pool.raw) & set(raw))
+        if clash:
+            raise SystemExit(f"--decisions-pool sources {clash} are already read by this run")
+        raw.update({source_id: list(rows) for source_id, rows in pool.raw.items()})
     mixture = build_mixture(
         raw, config=config, clinc_domain_map=clinc_domain_map,
         max_consistency_rows=pipeline.PIPELINE_MAX_CONSISTENCY_ROWS,
@@ -3940,10 +4266,14 @@ def ft_split_report(
             "pipeline refuses to write a shard set from such a mixture, so this rebuild is "
             f"not the one any shard set was written from: {mixture.prompt_consistency.reason}"
         )
+    # The pipeline's --drop-before-dedupe, through the same function at the same point.
+    from qd_train.exclusions import drop_before_dedupe
+
+    rows, _drops, _dropped = drop_before_dedupe(mixture.rows, pre_dedupe_drops, config=config)
     # Signed by crates/qd-prep (QD_PREP_BIN), byte-identical to qd_data.minhash, which is its
     # parity oracle (pipeline.native_minhash): the signatures were most of this rebuild's time.
-    with pipeline.native_minhash(mixture.rows, config=config):
-        report = dedupe(list(mixture.rows), config=config)
+    with pipeline.native_minhash(rows, config=config):
+        report = dedupe(list(rows), config=config)
         return split(report, config=config)
 
 
@@ -3962,6 +4292,8 @@ def ft_split_rows(
     replay_partition: bool = False,
     defect_noul: Path | None = None,
     exclude_identity_keys: Path | None = None,
+    decisions_pool: Path | None = None,
+    pre_dedupe_drops: Path | None = None,
 ) -> tuple[list[DataRow], list[DataRow]]:
     """``(train_rows, val_rows)``: exactly the two splits ``main`` trains and scores on."""
     splits = ft_splits(
@@ -3970,7 +4302,8 @@ def ft_split_rows(
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record, general_max_rows=general_max_rows,
         replay_partition=replay_partition, defect_noul=defect_noul,
-        exclude_identity_keys=exclude_identity_keys,
+        exclude_identity_keys=exclude_identity_keys, decisions_pool=decisions_pool,
+        pre_dedupe_drops=pre_dedupe_drops,
     )
     return splits["train"], splits["val"]
 
@@ -4066,6 +4399,12 @@ def check_defect_source(out: Path, *, defect_class: Path | None) -> None:
 GENERAL_ONLY_SOURCES: Final[tuple[str, ...]] = (
     "cais/mmlu", "tau/commonsense_qa", "clinc/clinc_oos",
 )
+#: Sources only ``--decisions-pool`` supplies: every source of the general-decision pool's
+#: families. A set fed by any of them is relabelled only with the pool, which ``ft_splits``
+#: reads through the pipeline's own ``load_decision_pool``.
+DECISION_POOL_SOURCES: Final[tuple[str, ...]] = tuple(
+    sorted({source_id for _, source_id, _ in DECISION_FAMILIES})
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -4093,6 +4432,7 @@ def general_record_datasets(record: Path | None) -> frozenset[str] | None:
 def corpus_facts(
     out: Path, *, data_snapshot_hash: str, repo_history: bool, commitpackft: Path | None,
     general_datasets: frozenset[str] | None = None, replay_partition: bool = False,
+    decisions_pool: bool = False,
 ) -> CorpusFacts:
     """Read the train manifest the pipeline wrote, and refuse what this rebuild cannot match.
 
@@ -4114,6 +4454,11 @@ def corpus_facts(
       the train manifest only under its ``--replay-shards``: without the partition the
       rebuild would gold-train rows the set keeps for replay, and with it on a set that
       had none it would drop rows the shards hold.
+    * ``decisions_pool`` is whether this run was given ``--decisions-pool``. A set fed by a
+      pool source (:data:`DECISION_POOL_SOURCES`) is refused without it, and a pool given for
+      a set no pool source fed is refused too: the first rebuild would drop the pool's rows,
+      the second would add rows the shards never held. Which pool is the right one is the
+      ``data_snapshot_hash`` pairing's question, answered by ``pair_labels``.
     """
     path = out / TRAIN_MANIFEST
     if not path.is_file():
@@ -4155,6 +4500,19 @@ def corpus_facts(
                 f"--general-record names {sorted(general_datasets)} but none of them fed "
                 f"{path}: this shard set was built without it"
             )
+    pooled = sorted(s for s in DECISION_POOL_SOURCES if int(n_input.get(s, 0)) > 0)
+    if pooled and not decisions_pool:
+        raise SystemExit(
+            f"{path}: {pooled} fed this shard set -- it was built with --decisions-pool, and "
+            "without the same --decisions-pool here the pool's rows are not rebuilt, so its "
+            "labels cannot be reconstructed. Refusing rather than pairing labels to a "
+            "different row set."
+        )
+    if decisions_pool and not pooled:
+        raise SystemExit(
+            f"--decisions-pool was given but no pool source fed {path}: this shard set was "
+            "built without it, and the rebuild would add rows the shards never held"
+        )
     built_with_replay = (out / REPLAY_MANIFEST).is_file()
     if built_with_replay and not replay_partition:
         raise SystemExit(
@@ -4208,9 +4566,19 @@ def max_steps_reason(max_steps: int) -> str:
     )
 
 
+def probe_shapes_reason(margin_gib: float) -> str:
+    """Rule 8's reason for a ``--probe-shapes`` run: it is a memory measurement, not a model."""
+    return (
+        f"memory probe (--probe-shapes {margin_gib:g}): the epoch arm stepped one batch of "
+        "each distinct (rows, width) shape of its plan, costliest first, under an LR schedule "
+        "over that many steps; a subsample and a truncated schedule, not a training run"
+    )
+
+
 def quick_reasons(
     *, tag: str, device: str, real_backbone: bool, corpus: CorpusFacts,
     termination: str | None = None, memorise_detail: str = "", max_steps: int | None = None,
+    probe_shapes: float | None = None,
 ) -> list[str]:
     """Every rule-8 reason that stands for one row, from the run's facts. Empty means none.
 
@@ -4249,6 +4617,8 @@ def quick_reasons(
         )
     if max_steps is not None:
         reasons.append(max_steps_reason(max_steps))
+    if probe_shapes is not None:
+        reasons.append(probe_shapes_reason(probe_shapes))
     if corpus.snapshot_not_run is not None:
         reasons.append(
             "the shard set's data snapshot is NotRun, so the corpus is a capped or partial "
@@ -4780,6 +5150,10 @@ def calibration_states(
     for key, (probs, gold) in letter_distributions(verdicts).items():
         eces[f"ece.{key}"] = ece_gate(probs, gold)
         degenerate[f"degenerate_head.{key}"] = degenerate_head_check(probs)
+        # Into the metrics only, for every shape, failing ones included. The promotion verdict
+        # reads it when degenerate_head_floor is decided share-only (qd_train.ledger
+        # DEGENERATE_SHARE_ONLY). The control below is unchanged.
+        metrics[f"degenerate_head.{key}.top_class_share"] = top_class_share_state(probs)
     eces.update(language_eces(verdicts))
     metrics.update(eces)
     metrics.update(degenerate)
@@ -5154,7 +5528,8 @@ class NeedleSuite:
     cases: list[NeedleCase]
     batches: list[Batch]
     labels_for: dict[int, list[Label]]
-    #: Real token count per case, re-measured: ``build_suite`` sizes by a 3-chars/token guess.
+    #: Real token count per case: the encoded span sequence, the quantity ``build_suite`` was
+    #: sized by (``prepare_needle``'s measure), each at most the suite's target.
     token_lengths: list[int]
     seed: int = 0
     not_run: str | None = None
@@ -5189,6 +5564,24 @@ def _repad(batch: Batch, width: int) -> Batch:
     )
 
 
+def needle_measure(
+    reader: ShardReader, *, tok: Any, config: DataConfig
+) -> Callable[[NeedleCase], int]:
+    """``build_suite``'s ``measure``: a case's real token count as :func:`prepare_needle`
+    encodes it -- ``needle_defect_row`` rendered and its span slot encoded by
+    ``encode_slot_batch`` -- so the size a case was grown to is the size it is scored at."""
+
+    def measure(case: NeedleCase) -> int:
+        _, _, encoded = encode_slot_batch(
+            needle_defect_row(case, config=config), slot_kind=SLOT_SPAN, tok=tok,
+            reader=reader, config=config, index=0, row_id=case.case_id,
+            where=f"needle case {case.case_id} (sizing)",
+        )
+        return int(encoded.ids.size)
+
+    return measure
+
+
 def prepare_needle(
     reader: ShardReader, *, config: DataConfig, enabled: bool,
     target_tokens: int = NEEDLE_TARGET_TOKENS,
@@ -5204,6 +5597,12 @@ def prepare_needle(
     make the hunk mapping trustworthy before anything is decoded: one candidate per rendered
     context line, and the encoded gold's line falling in the needle hunk. Either failing is
     a refusal, because a mapping off by one line scores the model against the wrong hunk.
+
+    Sizing (v5 readings R1, R2): ``build_suite`` is handed :func:`needle_measure` -- this
+    same render and encode, counting the span sequence's ids -- so every case, the gate's
+    and each ``--needle-control`` length's, is grown by whole filler hunks to at most
+    ``target_tokens`` real tokens with the next hunk not fitting. A case that encodes past
+    the target here is a refusal: the measure and this encode disagree.
     """
     if not enabled:
         return NeedleSuite([], [], {}, [], not_run="--needle was not given")
@@ -5212,7 +5611,7 @@ def prepare_needle(
     tok = _matching_tokenizer(reader, what="the needle suite")
     cases = build_suite(
         target_tokens=target_tokens, cases_per_depth=NEEDLE_CASES_PER_DEPTH,
-        seed=config.seed,
+        seed=config.seed, measure=needle_measure(reader, tok=tok, config=config),
     )
     batches: list[Batch] = []
     labels_for: dict[int, list[Label]] = {}
@@ -5223,6 +5622,11 @@ def prepare_needle(
             needle_defect_row(case, config=config), slot_kind=SLOT_SPAN, tok=tok,
             reader=reader, config=config, index=i, row_id=case.case_id, where=where,
         )
+        if int(encoded.ids.size) > target_tokens:
+            raise SystemExit(
+                f"{where}: encodes to {int(encoded.ids.size)} tokens, over the "
+                f"{target_tokens} target build_suite sized it to; the measure is not this encode"
+            )
         body = case.context[:-1] if case.context.endswith("\n") else case.context
         n_lines = CONTEXT_HEADER_LINES + len(body.split("\n"))
         if len(encoded.candidates) != n_lines:
@@ -5988,6 +6392,7 @@ def score_ood(
         scored, indist,
         choice_rule_abstentions(scored, val_second, val_second_pass.perms, gold_noul=True),
     ))
+    metrics.update(selective_risk_metrics(scored, indist))
     gate = ood_gate(
         ood_abstained=sum(ood.values()), ood_total=len(ood),
         in_abstained=in_k, in_total=len(indist),
@@ -6080,6 +6485,72 @@ def in_distribution_family_metrics(
             out[name] = Ran(
                 passed=True, value=k / len(flags), n=k, n_total=len(flags),
                 detail=f"{k} of {len(flags)}: {what}",
+            )
+    return out
+
+
+#: The p_top thresholds the selective-risk readout reports, fixed before any v5 row is read
+#: (campaign/v5-preregistered.DRAFT.json readings; AUDIT/hallucination-2026-10-03/). A grid, so
+#: nothing is chosen from it (rule 2): which threshold to serve is the calibration fit's, on val.
+SELECTIVE_RISK_GRID: Final[tuple[float, ...]] = (0.5, 0.7, 0.9, 0.99)
+
+
+def selective_risk_metrics(
+    scored: Mapping[str, object], indist: Mapping[str, bool],
+) -> dict[str, TriState]:
+    """REPORT-ONLY: how often the model answers wrong when it answers confidently.
+
+    ``selective_risk.family.{family_id}.p_top_ge_{tau:.2f}``, for each ``tau`` in
+    :data:`SELECTIVE_RISK_GRID`. The rows are the in-distribution bound's: ``indist``, the map
+    the gate reads, from :func:`choice_rule_abstentions`. A row counts as answered when the
+    runtime rule does not abstain on it and its decoded answer's probability (the first pass's
+    softmax over its own rows, uncalibrated) is at least ``tau``. ``n`` wrong of ``n_total``
+    answered, ``value`` their ratio. ``passed`` is True because a measurement carries no verdict.
+    A family with nothing answered at ``tau`` is :class:`NotRun` saying so. ``qd-gate-report``
+    recomputes every number.
+    """
+    rows: dict[str, tuple[object, float, bool]] = {}
+    for v in scored["verdicts"]:  # type: ignore[union-attr]
+        if v["kind"] != "choice" or bool(v["expected_abstain"]):
+            continue
+        z = np.asarray(v["row_logits"], dtype=np.float64)
+        z = np.exp(z - z.max())
+        p_top = float(z[int(v["top"])] / z.sum())  # type: ignore[call-overload]
+        rows[str(v["row_id"])] = (v.get("family_id"), p_top, bool(v["correct"]))
+    unknown = [r for r in indist if r not in rows]
+    if unknown:
+        raise SystemExit(f"{len(unknown)} in-distribution row(s) have no first-pass verdict, "
+                         f"e.g. {unknown[0]}")
+    missing = [r for r in indist if not isinstance(rows[r][0], str)]
+    if missing:
+        return {"selective_risk.family": NotRun(
+            reason=f"{len(missing)} of {len(indist)} choice rows {NO_FAMILY_REASON}")}
+    by_family: dict[str, list[tuple[float, bool]]] = {}
+    for row_id, abstained in indist.items():
+        family, p_top, correct = rows[row_id]
+        flags = by_family.setdefault(str(family), [])
+        if not abstained:
+            flags.append((p_top, correct))
+    out: dict[str, TriState] = {}
+    for family, answered_rows in sorted(by_family.items()):
+        in_bound = sum(1 for r in indist if rows[r][0] == family)
+        for tau in SELECTIVE_RISK_GRID:
+            name = f"selective_risk.family.{family}.p_top_ge_{tau:.2f}"
+            answered = [ok for p, ok in answered_rows if p >= tau]
+            if not answered:
+                out[name] = NotRun(reason=(
+                    f"no {family} val choice row is answered at p_top >= {tau:.2f} "
+                    f"(of {in_bound} in the in-distribution bound)"))
+                continue
+            wrong = sum(1 for ok in answered if not ok)
+            out[name] = Ran(
+                passed=True, value=wrong / len(answered), n=wrong, n_total=len(answered),
+                detail=(
+                    f"{wrong} wrong of {len(answered)} answered at p_top >= {tau:.2f}; "
+                    f"{in_bound - len(answered)} of the family's {in_bound} in-distribution "
+                    "rows abstained or fell below the threshold (uncalibrated p_top; "
+                    "report-only, not a gate)"
+                ),
             )
     return out
 
@@ -6669,10 +7140,16 @@ def _ft_max_steps(ft: Mapping[str, Any]) -> int | None:
     return value
 
 
-def _ft_row(ledger_path: Path, row_id: str) -> dict[str, Any]:
-    """The one ft row ``row_id`` names (a full id or a unique prefix), or a refusal."""
+def _ft_row(ledger_path: Path, row_id: str, *, where: str = "") -> dict[str, Any]:
+    """The one ft row ``row_id`` names (a full id or a unique prefix), or a refusal.
+
+    ``where`` names what is being scored (``"Metal export <name>"``) at the head of every
+    refusal, for a loader whose refusals all say so."""
+    say = f"{where}: " if where else ""
     if len(row_id) < 8:
-        raise SystemExit(f"--ft-row-id {row_id!r}: give at least 8 characters of the row id")
+        raise SystemExit(
+            f"{say}--ft-row-id {row_id!r}: give at least 8 characters of the row id"
+        )
     found = [
         row for row in (
             json.loads(line) for line in ledger_path.read_text(encoding="utf-8").splitlines()
@@ -6681,12 +7158,34 @@ def _ft_row(ledger_path: Path, row_id: str) -> dict[str, Any]:
         if str(row.get("row_id", "")).startswith(row_id)
     ]
     if len(found) != 1:
-        raise SystemExit(f"{ledger_path}: {len(found)} rows match --ft-row-id {row_id!r}, not 1")
+        raise SystemExit(
+            f"{say}{ledger_path}: {len(found)} rows match --ft-row-id {row_id!r}, not 1"
+        )
     row = found[0]
     if row.get("run_kind") != "ft" or row.get("status") != "completed":
         raise SystemExit(
-            f"row {row['row_id']} is a {row.get('status')} {row.get('run_kind')!r} row; "
+            f"{say}row {row['row_id']} is a {row.get('status')} {row.get('run_kind')!r} row; "
             "--score-checkpoint scores the model a completed ft row trained"
+        )
+    # Every scored model's ft row comes through here -- one seed's checkpoint, a Metal export,
+    # each row an average or an ensemble names -- before any weights are read. The DRAFT's
+    # format.refusal_both_ways.eval: a model trained on another prompt layout than this build
+    # renders would be scored on prompts it never saw. Absent is 1, every row before format 2.
+    recipe = row.get("recipe")
+    if not isinstance(recipe, dict):
+        raise SystemExit(
+            f"{say}row {row['row_id']} has no recipe: nothing says which model, or which "
+            "prompt format, it trained"
+        )
+    try:
+        trained_on = prompt_format_of(recipe, where=f"{say}row {row['row_id']}'s recipe")
+    except AverageRefusal as exc:
+        raise SystemExit(str(exc)) from exc
+    if trained_on != PROMPT_FORMAT:
+        raise SystemExit(
+            f"{say}row {row['row_id']} trained on prompt format {trained_on} and this build "
+            f"renders format {PROMPT_FORMAT} (qd_data.render.PROMPT_FORMAT): scoring it would "
+            "decode prompts in a layout the model never saw"
         )
     return row
 
@@ -7021,7 +7520,7 @@ def _metal_export_weights(
         raise SystemExit(f"{where} is seed {seed}; --seeds says {args.seeds}")
     manifest = _read_metal_manifest(path)
     body = manifest.body
-    ft = _ft_row(args.ft_ledger, row_id)
+    ft = _ft_row(args.ft_ledger, row_id, where=where)
     protocol = ft.get("protocol")
     if not isinstance(ft.get("recipe"), Mapping) or not (
         isinstance(protocol, Mapping) and isinstance(protocol.get("seed"), int)
@@ -8554,7 +9053,8 @@ def planned_ft_recipe(
             batch_tokens=batch_tokens, checkpoint_skip_layers=args.checkpoint_skip_layers,
             fused_adamw=args.fused_adamw, train_attention_mask=args.train_attention_mask,
             exclusions_sha256=reader.header.exclusions_sha256, min_lr=args.min_lr,
-            noul_weight=args.noul_weight,
+            noul_weight=args.noul_weight, prompt_format=reader.header.prompt_format,
+            batch_order=args.batch_order,
         ),
     }
     if args.real_backbone is None:
@@ -9012,6 +9512,7 @@ def _check_rungd_flags(args: argparse.Namespace) -> SpanHeadInit | None:
     on = [
         flag for flag, given in (
             ("--max-steps", args.max_steps is not None),
+            ("--probe-shapes", args.probe_shapes is not None),
             ("--train-dtype fp32", args.train_dtype != "bf16"),
             ("--span-head-init", args.span_head_init is not None),
             ("--span-head-init-digest", args.span_head_init_digest),
@@ -9041,6 +9542,35 @@ def _check_rungd_flags(args: argparse.Namespace) -> SpanHeadInit | None:
             raise SystemExit(
                 "--max-steps truncates the epoch arm (--epoch), the arm whose plan is one pass "
                 "of the epoch's order; the memorisation arm is not cut by it"
+            )
+    if args.probe_shapes is not None:
+        if not (math.isfinite(args.probe_shapes) and args.probe_shapes > 0.0):
+            raise SystemExit(
+                f"--probe-shapes {args.probe_shapes}: the margin is GiB of the device left "
+                "unreserved, and must be finite and positive"
+            )
+        refused = [
+            flag for flag, given in (
+                ("--max-steps", args.max_steps is not None),
+                ("--checkpoint-dir", args.checkpoint_dir is not None),
+                ("--resume-from", args.resume_from is not None),
+                ("--retain-tower-every", bool(args.retain_tower_every)),
+                ("--noul-weight", args.noul_weight is not None),
+                ("--replay-shards", args.replay_shards is not None),
+                ("--score-val", bool(args.score_val)),
+                ("--needle", bool(args.needle)),
+                ("--needle-control", args.needle_control is not None),
+                ("--ood", bool(args.ood)),
+            ) if given
+        ]
+        if refused:
+            raise SystemExit(
+                f"--probe-shapes with {', '.join(refused)}: the probe steps each batch shape "
+                "once to measure the recipe's memory, keeps no model and scores nothing"
+            )
+        if not args.epoch or not args.no_memorise:
+            raise SystemExit(
+                "--probe-shapes probes the epoch arm alone: give --epoch and --no-memorise"
             )
     if args.train_dtype == "fp32":
         if args.real_backbone is None:
@@ -9158,6 +9688,99 @@ def _permutation_spec(
     )
 
 
+@dataclasses.dataclass
+class SeedArms:
+    """One plan seed's batches and what is derived from them, for both arms.
+
+    ``plan_all`` is the epoch arm's plan, ``plan_small`` arm 2's cut of it (every batch at most
+    ``--max-width`` wide), each with its labels; ``epoch_alphabets`` (C1's option permutation),
+    ``noul_epoch`` and ``noul_memorise`` (``--noul-weight``) index those batches, so they are
+    rebuilt with them. ``order_digest`` and ``order_digest_small`` are :func:`plan_order_digest`
+    of the two. Without ``--batch-order`` there is one for the whole run; under ``--batch-order
+    seed`` one per training seed, and :meth:`release` drops the last before the next is built.
+    """
+
+    plan_seed: int
+    plan_all: list[Batch]
+    labels_by_batch_all: dict[int, list[Label]]
+    plan_small: list[Batch]
+    labels_small: dict[int, list[Label]]
+    order_digest: str
+    order_digest_small: str
+    epoch_alphabets: dict[int, list[tuple[str, ...] | None]] | None = None
+    noul_epoch: NoulWeightPlan | None = None
+    noul_memorise: NoulWeightPlan | None = None
+
+    def shape(self) -> tuple[int, ...]:
+        """What must not move with the plan seed: batch counts, the widest batch, rows and
+        padded positions of both arms' plans (``ShardReader._plan`` groups each bucket's
+        members by count alone, so only which sequence lands where depends on the seed)."""
+        return tuple(
+            f(plan)
+            for plan in (self.plan_all, self.plan_small)
+            for f in (
+                len,
+                lambda p: max((int(b.tokens.shape[1]) for b in p), default=0),
+                lambda p: sum(int(b.tokens.shape[0]) for b in p),
+                lambda p: sum(int(b.tokens.size) for b in p),
+            )
+        )
+
+    def release(self) -> None:
+        """Drop the batches, in place, so the next seed's plan is the only one held."""
+        self.plan_all.clear()
+        self.plan_small.clear()
+        self.labels_by_batch_all.clear()
+        self.labels_small.clear()
+        self.epoch_alphabets = None
+        self.noul_epoch = self.noul_memorise = None
+
+
+def seed_arms(
+    reader: ShardReader, labels: list[Label], *, config: DataConfig, batch_tokens: int,
+    plan_seed: int, max_width: int,
+) -> SeedArms:
+    """The plan drawn at ``plan_seed``, its labels and arm 2's cut of it (see :class:`SeedArms`;
+    the alphabets and noul plans are the caller's, after the checks it makes between)."""
+    plan_all = list(reader.batches(batch_tokens=batch_tokens, seed=plan_seed, epoch=0))
+    labels_by_batch_all = _labels_by_batch(
+        reader, plan_all, labels, config=config, batch_tokens=batch_tokens, plan_seed=plan_seed
+    )
+    keep = [i for i, b in enumerate(plan_all) if b.tokens.shape[1] <= max_width]
+    return SeedArms(
+        plan_seed=plan_seed,
+        plan_all=plan_all,
+        labels_by_batch_all=labels_by_batch_all,
+        plan_small=[plan_all[i] for i in keep],
+        labels_small={new: labels_by_batch_all[old] for new, old in enumerate(keep)},
+        order_digest=plan_order_digest(reader, batch_tokens=batch_tokens, plan_seed=plan_seed),
+        order_digest_small=plan_order_digest(
+            reader, batch_tokens=batch_tokens, plan_seed=plan_seed, max_width=max_width
+        ),
+    )
+
+
+def noul_plans(
+    arms: SeedArms, *, weight: float | None, epoch: bool, memorise: bool,
+    letter_id: Mapping[str, int],
+) -> tuple[NoulWeightPlan | None, NoulWeightPlan | None]:
+    """``(noul_epoch, noul_memorise)``: ``--noul-weight``'s plan over each arm that runs, or a
+    refusal naming why it cannot be planned."""
+    if weight is None:
+        return None, None
+    try:
+        return (
+            noul_weight_plan(
+                arms.plan_all, arms.labels_by_batch_all, weight=weight, letter_id=letter_id
+            ) if epoch else None,
+            noul_weight_plan(
+                arms.plan_small, arms.labels_small, weight=weight, letter_id=letter_id
+            ) if memorise else None,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
 def _alphabets(
     plan: list[Batch], labels_for: Mapping[int, list[Label]]
 ) -> dict[int, list[tuple[str, ...] | None]]:
@@ -9177,7 +9800,8 @@ def replay_corpus_identity(
     *, rev: str, max_pairs: int, commitpackft: Path | None, defect_class: Path | None,
     defect_max_rows: int | None, repo_history: bool = True,
     general_record: Path | None = None, general_max_rows: int | None = None,
-    defect_noul: Path | None = None,
+    defect_noul: Path | None = None, decisions_pool: Path | None = None,
+    drop_before_dedupe: Path | None = None,
 ) -> dict[str, object]:
     """What ``ft_splits`` was called with, as the replay attestation records it. One
     function, used by ``tools/replay_decontam.py`` to write it and by ``_replay_plan`` to
@@ -9190,7 +9814,8 @@ def replay_corpus_identity(
         rev=rev, max_pairs=max_pairs, commitpackft=commitpackft, defect_class=defect_class,
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record, general_max_rows=general_max_rows,
-        defect_noul=defect_noul,
+        defect_noul=defect_noul, decisions_pool=decisions_pool,
+        drop_before_dedupe=drop_before_dedupe,
     )
 
 
@@ -9237,6 +9862,7 @@ def _replay_plan(
         defect_class=args.defect_class, defect_max_rows=args.defect_max_rows,
         repo_history=args.repo_history, general_record=args.general_record,
         general_max_rows=args.general_max_rows, defect_noul=args.defect_noul,
+        decisions_pool=args.decisions_pool, drop_before_dedupe=args.pre_dedupe_drops,
     )
     if attestation.get("corpus") != corpus:
         raise SystemExit(
@@ -9440,6 +10066,17 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--batch-order", choices=BATCH_ORDERS, default=None,
+        help=(
+            "seed: plan each seed's batches at that training seed rather than at "
+            "DataConfig().seed, so seeds differ in batch order too (v5; Fable's seed-order "
+            "ruling). Absent: every seed trains on the one order drawn at DataConfig().seed, "
+            "as every run before v5, and no recipe key is added. Given: recipe key "
+            "batch_order='seed' (the constant, so every seed shares one recipe_hash). Every ft "
+            "row records corpus.plan_seed and corpus.plan_order_digest either way"
+        ),
+    )
+    parser.add_argument(
         "--noul-weight", type=float, default=None, metavar="W",
         help=(
             "v5 arm_noul_weight: multiply the letter cross-entropy by W at every supervised "
@@ -9522,6 +10159,14 @@ def main(argv: list[str] | None = None) -> int:
         help="as the pipeline's --general-max-rows: the same per-file bound; default its default",
     )
     parser.add_argument(
+        "--decisions-pool", type=Path, default=None,
+        help=(
+            "the general-decision pool the shard set was built with, exactly as passed to "
+            "tools/real_tokenizer_pipeline.py --decisions-pool. Required when the set's train "
+            "manifest was fed a pool source, refused when none was"
+        ),
+    )
+    parser.add_argument(
         "--replay-partition", action="store_true",
         help=(
             "the shard set was built with the pipeline's --replay-shards, whose replay-only "
@@ -9534,8 +10179,19 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "the qd-prep containment exclusions.txt the shard set was built with, exactly as "
             "passed to tools/real_tokenizer_pipeline.py --exclude-identity-keys: the rebuild "
-            "drops the same train rows through qd_train.exclusions.apply_exclusions. Checked "
+            "drops the same train rows, then derives the contrast rows a --defect-noul "
+            "manifest asks for, through the pipeline's exclusions_then_contrast. Checked "
             "against the train header's exclusions_sha256, in both directions"
+        ),
+    )
+    parser.add_argument(
+        "--drop-before-dedupe", type=Path, default=None, dest="pre_dedupe_drops",
+        help=(
+            "the pre-dedupe drop list the shard set was built with, exactly as passed to "
+            "tools/real_tokenizer_pipeline.py --drop-before-dedupe: the rebuild removes the "
+            "same train rows before dedupe. Its sha256 is part of the corpus, so with "
+            "--exclude-identity-keys a rebuild without it (or with another) is refused by "
+            "the exclusion list's attestation"
         ),
     )
     parser.add_argument("--epoch", action="store_true", help="also run arm 1, the real epoch")
@@ -9825,6 +10481,19 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--probe-shapes", type=float, default=None, metavar="MARGIN_GIB",
+        help=(
+            "the memory probe (Fable's 2x H100 ruling, 2026-10-03): step the epoch arm once on "
+            "each distinct (rows, width) batch shape of its plan, costliest first, on cuda, and "
+            "record the allocator's peaks as the ft row's memory_probe metric. Passes iff every "
+            "shape stepped and torch.cuda.max_memory_reserved is at most the device's total "
+            "minus MARGIN_GIB; exits non-zero after writing its row otherwise. A quick row "
+            "(rule 8) whose recipe names probe_shapes_margin_gib. Needs --epoch and "
+            "--no-memorise; refuses --max-steps, --checkpoint-dir, --resume-from, "
+            "--retain-tower-every, --noul-weight, --replay-shards and every scoring flag"
+        ),
+    )
+    parser.add_argument(
         "--train-dtype", choices=TRAIN_DTYPES, default="bf16",
         help=(
             "the dtype the real tower TRAINS in. 'bf16' (default) is every row so far. 'fp32' "
@@ -10048,6 +10717,13 @@ def main(argv: list[str] | None = None) -> int:
                 "--noul-weight with --shuffled-label: the control permutes the very golds the "
                 "weight selects, and no pre-registration asks for that control"
             )
+    if args.batch_order is not None and (
+        args.score_checkpoint is not None or args.score_plan is not None
+    ):
+        raise SystemExit(
+            "--batch-order orders the batches a run trains on; --score-checkpoint and "
+            "--score-plan train nothing (a scored model's order is its ft row's)"
+        )
 
     # Checkpointing is refused on the STAND-IN branch, and that is not a limitation being
     # worked around -- it is the whole point. `RealFtStep.load_state` raises by design
@@ -10327,6 +11003,7 @@ def main(argv: list[str] | None = None) -> int:
         repo_history=args.repo_history, commitpackft=args.commitpackft,
         general_datasets=general_record_datasets(args.general_record),
         replay_partition=args.replay_partition,
+        decisions_pool=args.decisions_pool is not None,
     )
     train_rows, val_rows = ft_split_rows(
         commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=rev, config=config,
@@ -10334,19 +11011,32 @@ def main(argv: list[str] | None = None) -> int:
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
         general_record=args.general_record, general_max_rows=args.general_max_rows,
         replay_partition=args.replay_partition, defect_noul=args.defect_noul,
-        exclude_identity_keys=args.exclude_identity_keys,
+        exclude_identity_keys=args.exclude_identity_keys, decisions_pool=args.decisions_pool,
+        pre_dedupe_drops=args.pre_dedupe_drops,
     )
-    require_index = args.defect_class is not None or args.general_record is not None
-    # --score-checkpoint trains nothing, and the train split's labels, inventory,
-    # contradictions and epoch plan feed no row it writes: on the phase-4 set they were ~37 s
-    # of a 143 s Mac prelude (one unprofiled run, 2026-10-01), paid with the GPU idle; see
-    # AUDIT/perf-ft-run-prep-2026-10-01.md for the interleaved A/B. What they did for scoring
-    # was confirm the tokenizer's letter ids against the train golds; the val golds confirm
-    # them too (open_val_set's merge_letter_ids), and where some offered letter is a gold
-    # nowhere in val, the train relabel still runs (below) -- so it is skipped only with a
-    # tokenizer.json to read every letter from, and only when nothing rests on it.
+    # A pool set is paired by its sequence index too: its rows, like the general record's,
+    # are not this repository's history, so only the index ties a sequence to its row.
+    require_index = (
+        args.defect_class is not None or args.general_record is not None
+        or args.decisions_pool is not None
+    )
+    # --score-checkpoint and --score-plan train nothing, and the train split's labels,
+    # inventory, contradictions and epoch plan feed no row either writes: on the phase-4 set
+    # they were ~37 s of a 143 s Mac prelude (one unprofiled run, 2026-10-01), paid with the GPU
+    # idle; see AUDIT/perf-ft-run-prep-2026-10-01.md for the interleaved A/B. A score plan paid
+    # them too until 2026-10-03, because the skip keyed on --score-checkpoint, which a plan
+    # refuses (AUDIT/gpu-idle-preamble-2026-10-03). What they did for scoring was confirm the
+    # tokenizer's letter ids against the train golds; the val golds confirm them too
+    # (open_val_set's merge_letter_ids), and where some offered letter is a gold nowhere in
+    # val, the train relabel still runs (below) -- so it is skipped only with a tokenizer.json
+    # to read every letter from, and only when nothing rests on it.
+    scoring_flag = (
+        "--score-checkpoint" if args.score_checkpoint is not None
+        else "--score-plan" if args.score_plan is not None
+        else None
+    )
     train_side: TrainRelabel | None = None
-    if args.score_checkpoint is None or args.tokenizer_json is None:
+    if scoring_flag is None or args.tokenizer_json is None:
         train_side = relabel_train(
             reader, train_rows, config=config, require_index=require_index,
             tokenizer_json=args.tokenizer_json,
@@ -10408,14 +11098,14 @@ def main(argv: list[str] | None = None) -> int:
         )
     train_skipped: str | None = None
     if train_side is None:
-        if val_set is None:  # --score-checkpoint is refused at argv time without --score-val
-            raise SystemExit("--score-checkpoint needs --score-val's val set")
+        if val_set is None:  # both scoring flags are refused at argv time without --score-val
+            raise SystemExit(f"{scoring_flag} needs --score-val's val set")
         unconfirmed = letters_no_val_gold_confirms(val_set, ood_suite)
         if unconfirmed:
             print(
                 f"train relabel: run after all -- val or OOD rows offer letter(s) {unconfirmed} "
                 "that no val row has as its gold, so their ids are confirmed against the "
-                "train golds, as before --score-checkpoint skipped them"
+                "train golds, as a training run confirms them"
             )
             train_side = relabel_train(
                 reader, train_rows, config=config, require_index=require_index,
@@ -10428,7 +11118,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
         else:
             train_skipped = (
-                "--score-checkpoint trains nothing and no row it writes reads the train "
+                f"{scoring_flag} trains nothing and no row it writes reads the train "
                 "split's labels, inventory or contradictions; every letter a val or OOD row "
                 f"offers was confirmed against the val golds, and the ids come from "
                 f"{args.tokenizer_json}"
@@ -10437,7 +11127,7 @@ def main(argv: list[str] | None = None) -> int:
         args.batch_tokens, widest=int(max(reader.header.buckets))
     )
     batch_info = (
-        None if args.score_checkpoint is not None
+        None if scoring_flag is not None
         else _batch_inventory(reader, batch_tokens=batch_tokens, seed=config.seed)
     )
 
@@ -10484,7 +11174,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if batch_info is None:
         print(
-            f"  epoch at batch_tokens={batch_tokens}: NOT RUN -- --score-checkpoint trains "
+            f"  epoch at batch_tokens={batch_tokens}: NOT RUN -- {scoring_flag} trains "
             "nothing, so no epoch is planned and no device is probed"
         )
     else:
@@ -10636,7 +11326,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"score row {score_row_id}")
         return 0
 
-    # Only --score-checkpoint, which returned above, skips the train relabel and the plan.
+    # Only scoring (--score-checkpoint and --score-plan, both returned above) skips the train
+    # relabel and the plan.
     if train_side is None or batch_info is None:
         raise RuntimeError("training reached without the train relabel or the epoch plan")
     labels, inventory = train_side.labels, train_side.inventory
@@ -10671,13 +11362,16 @@ def main(argv: list[str] | None = None) -> int:
                 + ("ok " + f"{probe.get('wall_s')}s" if probe["ok"] else f"REFUSED {probe['why']}")
             )
 
-    plan_all = list(reader.batches(batch_tokens=batch_tokens, seed=config.seed, epoch=0))
-    labels_by_batch_all = _labels_by_batch(
-        reader, plan_all, labels, config=config, batch_tokens=batch_tokens
+    # The plan both arms train on. Without --batch-order it is drawn at DataConfig().seed and
+    # is every seed's; under --batch-order seed this is the first seed's, and arms_for (below)
+    # draws each later seed's in its turn, one plan held at a time.
+    arms = seed_arms(
+        reader, labels, config=config, batch_tokens=batch_tokens,
+        plan_seed=plan_seed_for(args.batch_order, seed=int(args.seeds[0]), config=config),
+        max_width=args.max_width,
     )
-    keep = [i for i, b in enumerate(plan_all) if b.tokens.shape[1] <= args.max_width]
-    plan_small = [plan_all[i] for i in keep]
-    labels_small = {new: labels_by_batch_all[old] for new, old in enumerate(keep)}
+    plan_all, labels_by_batch_all = arms.plan_all, arms.labels_by_batch_all
+    plan_small, labels_small = arms.plan_small, arms.labels_small
 
     kinds_in_set = {name for name in inventory["per_kind"]}  # type: ignore[union-attr]
     kinds_in_plan = {
@@ -10715,20 +11409,14 @@ def main(argv: list[str] | None = None) -> int:
         )
     # --noul-weight over each arm's plan, before Ledger(args.ledger): the Mac prelude takes
     # these from main's frame there and prints the weighted-position count.
-    noul_epoch: NoulWeightPlan | None = None
-    noul_memorise: NoulWeightPlan | None = None
+    noul_epoch, noul_memorise = noul_plans(
+        arms, weight=args.noul_weight, epoch=args.epoch, memorise=not args.no_memorise,
+        letter_id=letter_id,
+    )
+    arms.epoch_alphabets, arms.noul_epoch, arms.noul_memorise = (
+        epoch_alphabets, noul_epoch, noul_memorise
+    )
     if args.noul_weight is not None:
-        try:
-            if args.epoch:
-                noul_epoch = noul_weight_plan(
-                    plan_all, labels_by_batch_all, weight=args.noul_weight, letter_id=letter_id
-                )
-            if not args.no_memorise:
-                noul_memorise = noul_weight_plan(
-                    plan_small, labels_small, weight=args.noul_weight, letter_id=letter_id
-                )
-        except ValueError as exc:
-            raise SystemExit(str(exc)) from exc
         for arm, nw in (("epoch", noul_epoch), ("memorise", noul_memorise)):
             if nw is None:
                 continue
@@ -10803,11 +11491,13 @@ def main(argv: list[str] | None = None) -> int:
 
     def reasons_for(tag: str, device: str, termination: str | None = None) -> list[str]:
         """This run's rule-8 reasons for one (arm, device); see :func:`quick_reasons`.
-        ``--max-steps`` cuts the epoch arm only, so only its rows carry that reason."""
+        ``--max-steps`` and ``--probe-shapes`` cut the epoch arm only, so only its rows carry
+        those reasons."""
         return quick_reasons(
             tag=tag, device=device, real_backbone=args.real_backbone is not None,
             corpus=corpus, termination=termination, memorise_detail=memorise_detail,
             max_steps=args.max_steps if tag == "epoch" else None,
+            probe_shapes=args.probe_shapes if tag == "epoch" else None,
         )
 
     report: dict[str, object] = {
@@ -10847,6 +11537,52 @@ def main(argv: list[str] | None = None) -> int:
             f"({rewritten} answer tokens rewritten), permutation "
             f"{shuffled.golds.digest[:16]}; span weight {args.span_weight}"
         )
+        arms.plan_all = plan_all
+
+    first_shape = arms.shape()
+
+    def arms_for(seed: int) -> SeedArms:
+        """The plan training seed ``seed`` trains on. The same object for every seed without
+        --batch-order; under --batch-order seed, the previous seed's plan is released and this
+        one's drawn, with everything derived from it rebuilt by the same calls as above."""
+        nonlocal arms
+        want = plan_seed_for(args.batch_order, seed=seed, config=config)
+        if want == arms.plan_seed:
+            return arms
+        arms.release()
+        arms = seed_arms(
+            reader, labels, config=config, batch_tokens=batch_tokens, plan_seed=want,
+            max_width=args.max_width,
+        )
+        if permutation is not None:
+            arms.epoch_alphabets = _alphabets(arms.plan_all, arms.labels_by_batch_all)
+        arms.noul_epoch, arms.noul_memorise = noul_plans(
+            arms, weight=args.noul_weight, epoch=args.epoch, memorise=not args.no_memorise,
+            letter_id=letter_id,
+        )
+        if shuffled is not None:
+            arms.plan_all, _ = apply_shuffled_golds(
+                arms.plan_all, arms.labels_by_batch_all, shuffled.golds, letter_id
+            )
+        if arms.shape() != first_shape:
+            raise SystemExit(
+                f"--batch-order seed: seed {seed}'s plan has shape {arms.shape()} and the first "
+                f"seed's {first_shape}. Batch counts, widths, rows and padding are the shard "
+                "set's, not the seed's; the recipe recorded the first seed's batches and width"
+            )
+        print(
+            f"batch order: seed {seed} plans at seed {want}, order digest "
+            f"{arms.order_digest[:16]} (arm 2 {arms.order_digest_small[:16]})",
+            flush=True,
+        )
+        return arms
+
+    print(
+        f"batch order: plan seed {arms.plan_seed} "
+        + ("(the training seed, --batch-order seed)" if args.batch_order else
+           "(DataConfig().seed: every seed trains on this one order)")
+        + f", order digest {arms.order_digest[:16]} (arm 2 {arms.order_digest_small[:16]})"
+    )
 
     if args.no_memorise:
         print("\narm 2: NOT RUN -- --no-memorise")
@@ -10863,8 +11599,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             continue
         for seed in args.seeds:
+            seed_plan = arms_for(seed)
             run = _train(
-                reader=reader, plan=plan_small, passes=args.passes, device=device, seed=seed,
+                reader=reader, plan=seed_plan.plan_small, passes=args.passes, device=device,
+                seed=seed, evaluate_plan=True,
                 hidden=args.hidden, heads=args.heads, lr=args.lr,
                 span_weight=args.span_weight, ledger=ledger,
                 checkpoint_dir=args.checkpoint_dir,
@@ -10891,12 +11629,18 @@ def main(argv: list[str] | None = None) -> int:
                 train_attention_mask=args.train_attention_mask,
                 train_dtype=args.train_dtype, span_head_init=span_head_init,
                 record_span_head_init_digest=args.span_head_init_digest, min_lr=args.min_lr,
-                noul_weight=noul_memorise, retain_tower_every=args.retain_tower_every,
+                noul_weight=seed_plan.noul_memorise,
+                retain_tower_every=args.retain_tower_every, batch_order=args.batch_order,
+                plan_seed=seed_plan.plan_seed, order_digest=seed_plan.order_digest_small,
             )
             step = run.pop("_step")
             decode_at = time.monotonic()
-            shipped = _decode(step, plan_small, labels_small, letter_id, noul_first=False)
-            defect = _decode(step, plan_small, labels_small, letter_id, noul_first=True)
+            shipped = _decode(
+                step, seed_plan.plan_small, seed_plan.labels_small, letter_id, noul_first=False
+            )
+            defect = _decode(
+                step, seed_plan.plan_small, seed_plan.labels_small, letter_id, noul_first=True
+            )
             decode_s = time.monotonic() - decode_at
             run["verdict_row_id"] = _record_verdict(
                 run, ledger=ledger, reader=reader, shipped=shipped, defect=defect,
@@ -10972,8 +11716,11 @@ def main(argv: list[str] | None = None) -> int:
                 report["arm1"].append({"device": device, "not_run": why})  # type: ignore[union-attr]
                 continue
             for seed in args.seeds:
+                seed_plan = arms_for(seed)
                 run = _train(
-                    reader=reader, plan=plan_all, passes=1, device=device, seed=seed,
+                    reader=reader, plan=seed_plan.plan_all, passes=1, device=device, seed=seed,
+                    # Nothing on this arm reads run["final"]: PLAN_EVALUATION_NOT_RUN.
+                    evaluate_plan=False,
                     hidden=args.hidden, heads=args.heads, lr=args.lr,
                     span_weight=args.span_weight, ledger=ledger,
                     checkpoint_dir=args.checkpoint_dir,
@@ -10995,7 +11742,8 @@ def main(argv: list[str] | None = None) -> int:
                     batch_tokens=recipe_batch_tokens,
                     lower_layers_n=args.lower_layers_n,
                     lower_lr_scale=args.lower_layers_lr_scale, beta2=args.beta2,
-                    permutation=permutation, alphabets=epoch_alphabets, replay=replay_plan,
+                    permutation=permutation, alphabets=seed_plan.epoch_alphabets,
+                    replay=replay_plan,
                     eval_widths=suite_widths(needle_suite, ood_suite),
                     shuffled_label=None if shuffled is None else SHUFFLED_LABEL_RECIPE,
                     checkpoint_skip_layers=args.checkpoint_skip_layers,
@@ -11004,8 +11752,10 @@ def main(argv: list[str] | None = None) -> int:
                     max_steps=args.max_steps, train_dtype=args.train_dtype,
                     span_head_init=span_head_init,
                     record_span_head_init_digest=args.span_head_init_digest,
-                    min_lr=args.min_lr, noul_weight=noul_epoch,
-                    retain_tower_every=args.retain_tower_every,
+                    min_lr=args.min_lr, noul_weight=seed_plan.noul_epoch,
+                    retain_tower_every=args.retain_tower_every, batch_order=args.batch_order,
+                    plan_seed=seed_plan.plan_seed, order_digest=seed_plan.order_digest,
+                    probe_shapes=args.probe_shapes,
                 )
                 step = run.pop("_step")
                 if shuffled is not None and val_set is not None:
@@ -11108,7 +11858,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _labels_by_batch(
     reader: ShardReader, plan: list[Batch], labels: list[Label], *, config: DataConfig,
-    batch_tokens: int,
+    batch_tokens: int, plan_seed: int | None = None,
 ) -> dict[int, list[Label]]:
     """Which :class:`Label` each row of each batch is.
 
@@ -11116,10 +11866,16 @@ def _labels_by_batch(
     only thing that knows which sequence landed in which row, so the membership is taken from
     it rather than re-derived. Checked: every row's stored ``target_index`` and ``slot_kind``
     must match the label's, over every row of every batch.
+
+    ``plan_seed`` is the seed ``plan`` was drawn at (:func:`plan_seed_for`); ``None`` is
+    ``config.seed``, as every plan before ``--batch-order seed``. A different seed is a
+    different membership that the slot-kind check below would not always catch.
     """
     # The plan ``plan`` was yielded from, so it must be the same batch_tokens: a different
     # value is a different grouping, and the check below would refuse it row by row.
-    plans = reader._plan(batch_tokens=batch_tokens, seed=config.seed, epoch=0)
+    plans = reader._plan(
+        batch_tokens=batch_tokens, seed=config.seed if plan_seed is None else plan_seed, epoch=0
+    )
     if len(plans) != len(plan):
         raise SystemExit(f"{len(plans)} planned batches against {len(plan)} yielded")
     out: dict[int, list[Label]] = {}

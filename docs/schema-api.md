@@ -11,18 +11,45 @@ produce byte-identical prompts for the same request.
 ```json
 {
   "schema_version": 1,
-  "task": "devcouncil.verdict",
-  "context_b64": "Zm4gYWRkKCkge30K",
-  "context_len": 12,
-  "question": "Does this diff implement what the commit message claims?",
+  "task": "code.defect_class",
+  "context_b64": "ZmlsZTogc3JjL2FkZC5ycwoKLS0tIGEvc3JjL2FkZC5ycworKysgYi9zcmMvYWRkLnJzCkBAIC0xICsxIEBACi1mbiBhZGQoYTogaTMyLCBiOiBpMzIpIC0+IGkzMiB7IGEgKyBiIH0KK2ZuIGFkZChhOiBpMzIsIGI6IGkzMikgLT4gaTMyIHsgYSAtIGIgfQ==",
+  "context_len": 145,
+  "question": "What kind of change is this diff, and which lines does it touch?",
   "slots": [
-    {"name": "verdict", "type": "choice", "options": ["stub", "logic", "cosmetic", "clean"]},
-    {"name": "severity", "type": "score", "bins": 5},
-    {"name": "evidence", "type": "span"}
+    {
+      "name": "defect_class",
+      "type": "choice",
+      "options": [
+        "stub",
+        "logic",
+        "cosmetic",
+        "clean"
+      ]
+    },
+    {
+      "name": "defect_span",
+      "type": "span"
+    }
   ],
-  "route": "generic"
+  "route": "generic",
+  "example_id": "qdm:code.defect_class:doc-example",
+  "metadata": {}
 }
 ```
+
+**This is the request training builds** for a one-line Rust diff
+(`python/tests/test_schema_api_doc.py` regenerates it through `qd_data.mixture.rewrite_defect_class`
+and requires this block to equal it). Copy its `task`, `question` and slot names exactly:
+- All three are rendered into the prompt, so a request that renames them serves the model a prompt
+  it never saw.
+- The runtime's admission check runs only for `task: code.defect_class`.
+
+Until 2026-10-03 this example showed `devcouncil.verdict` with slots `verdict` / `severity` /
+`evidence` and another family's question. No family trains that request
+(GAP-SCHEMA-API-DOC-REQUEST-IS-NOT-A-TRAINED-REQUEST-2026-10-03).
+
+A `score` slot (`{"name": ..., "type": "score", "bins": N}`) is part of the schema, but no released
+family trains one yet; score slots are planned for v6.
 
 - `context` crosses the FFI boundary as **bytes and a length, never a Swift `String`**. A `String`
   round-trip normalizes Unicode and would silently change token boundaries and therefore line spans.
@@ -222,6 +249,15 @@ code currently does and can never disagree with it, which is not a gate. The gen
 `crates/qd-runtime/src/fixtures.rs`; `tests/wire_fixtures.rs` also asserts the corpus covers **every**
 variant of both error enums, so a new variant fails a test rather than quietly going unexported.
 
+The answer fixtures are produced by the reference backend, whose answers are a function of the
+rendered prompt's bytes, so a change to the prompt (prompt format 2 was one) re-rolls them. Each
+answer fixture's intended shape -- which slots answer, which abstain, whether it is degraded -- is
+therefore pinned by name in `fixtures.rs`'s `tests::every_answer_fixture_shows_its_intended_shape`:
+a re-roll that loses an answered or an abstained shape fails there, and the fix is a new fixture
+input, not a new expected shape. Under format 2 the three-slot example and the score-only fixture
+read `fn add(a: i32, b: i32) -> i32 { // 6` as their first context line, and the span fixture
+`alpha 2`; the search that chose them is `AUDIT/v5-fmt-2026-10-02/fixture_search.py`.
+
 **Both halves exist.** `python/qd_wire/` is an independent parser for the answer side, and
 `python/tests/test_wire_golden_corpus.py` reads this corpus and re-derives every claim below from
 the bytes. That closes `GAP-XLANG-NO-PY-ANSWER-PARSER`, which had stood because there was no second
@@ -246,12 +282,10 @@ Three replies are possible and a caller must match all three. They are distingui
   "backend": "reference-deterministic-v1",
   "degraded": true,
   "slots": {
-    "verdict": {"value": "stub", "conformal_set": ["stub", "logic"], "score": 0.71,
-                "noul": false, "degraded": true},
-    "severity": {"value": 3, "conformal_set": [2, 3, 4], "score": 0.55,
-                 "noul": false, "degraded": true},
-    "evidence": {"value": {"start_line": 41, "end_line": 47}, "conformal_set": null,
-                 "score": 0.62, "noul": false, "degraded": true}
+    "defect_class": {"value": "logic", "conformal_set": ["logic", "stub"], "score": 0.71,
+                     "noul": false, "degraded": true},
+    "defect_span": {"value": {"start_line": 5, "end_line": 5}, "conformal_set": null,
+                    "score": 0.62, "noul": false, "degraded": true}
   }
 }
 ```
@@ -329,7 +363,8 @@ more). That is unchanged and still tracked as `GAP-XLANG-REFUSAL-VOCABULARIES`.
 
 ## Answering procedure
 
-1. Prefill the context **once**.
+1. Render the request's prefix in **prompt format 2** (below) and prefill it **once**. The prefix
+   is everything through the question line; each slot's suffix starts after it.
 2. **Snapshot** the recurrent GDN state and the attention KV.
 3. Answer each slot as a 1-token query **from the snapshot**. Never write back — the `readonly` flag
    on the decode kernel (K2) is the slot-isolation mechanism, one flag instead of a mask kernel.
@@ -355,6 +390,45 @@ more). That is unchanged and still tracked as `GAP-XLANG-REFUSAL-VOCABULARIES`.
 
 Step 4 is why permutation consistency (>= 95%) is a training gate and not only a runtime check: a
 model that fails it makes the second pass fire constantly and the abstain rate blows the cap.
+
+### The prompt the model sees: format 2
+
+One renderer per lane writes it, byte for byte the same: `python/qd_data/render.py` for training
+and `crates/qd-runtime/src/render.rs` for serving. Prompt format 2 (v5) puts the context **before**
+the question:
+
+```text
+<|qd_begin|>
+<|qd_prompt_format|>2
+<|qd_schema_version|>1
+<|qd_task|>T
+<|qd_route|>R
+<|qd_context_begin|>
+C
+<|qd_context_end|>
+<|qd_question|>Q
+```
+
+Then, for each slot, its suffix: `<|qd_slot|>`, `<|qd_type|>`, the option block with the reserved
+`Z. noul` row last, and `<|qd_answer|>`, the position the one-token query is answered from.
+
+- **Only the question moved.** Format 1 (v4) had no format line and rendered the question line
+  between the route and the context. Task and route stay ahead of the context, so N questions with
+  one task over one context share every byte through `<|qd_context_end|>`. The slot suffixes did
+  not change.
+- **The format is not the wire version.** The request's `schema_version` stays 1, so callers send
+  the same requests. The format is a property of the *model*: what it was trained on.
+- **Every marker has the shape `<|qd_...|>`, the format line's included**, so the one escape rule
+  covers it. A context or question carrying `<|qd_prompt_format|>` or `<|qd_question|>` is
+  rendered as text (`<\|...`), and the renderer's own lines stay the only markers.
+- **A model is never served another format than it was trained on.** The release manifest
+  (`qd-release.v2`) binds `expected_identity.prompt_format`, and `qd_runtime::release` refuses a
+  release whose format is not `render::PROMPT_FORMAT` (a v4 release, `qd-release.v1`, is refused
+  by its format, and a v4-era runtime refuses a `qd-release.v2` one). `qd-export` stamps the format
+  from the checkpoint's source manifest (`<avg>.manifest.json` `prompt_format`, an integer; absent
+  means 1), never from its own constant, so a v4 checkpoint exported now is refused, not
+  mislabelled. The shard header records the format its sequences were rendered in
+  (`ShardHeader.prompt_format`), and the shard reader refuses a set of another format.
 
 ### How many decodes each slot kind costs
 

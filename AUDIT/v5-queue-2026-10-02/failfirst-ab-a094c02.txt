@@ -1,0 +1,551 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.8, pytest-9.1.1, pluggy-1.6.0 -- /Users/bharath/.cache/uv/builds-v0/.tmpQAwnB6/bin/python
+rootdir: /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a
+configfile: pyproject.toml
+plugins: langsmith-0.9.2, anyio-4.14.1
+collecting ... collected 205 items
+
+python/tests/test_v5_queue_scripts.py::test_bash_n_parses_every_file[box_q_v5.sh] PASSED [  0%]
+python/tests/test_v5_queue_scripts.py::test_bash_n_parses_every_file[box_q_v5s34.sh] PASSED [  0%]
+python/tests/test_v5_queue_scripts.py::test_bash_n_parses_every_file[box_q_v5nw.sh] PASSED [  1%]
+python/tests/test_v5_queue_scripts.py::test_bash_n_parses_every_file[box_q_v5j5.sh] PASSED [  1%]
+python/tests/test_v5_queue_scripts.py::test_bash_n_parses_every_file[box_q_v5traj.sh] PASSED [  2%]
+python/tests/test_v5_queue_scripts.py::test_bash_n_parses_every_file[v5_common.sh] PASSED [  2%]
+python/tests/test_v5_queue_scripts.py::test_shellcheck_is_clean PASSED   [  3%]
+python/tests/test_v5_queue_scripts.py::test_committed_pins_are_unset_so_every_waiter_fails_closed PASSED [  3%]
+python/tests/test_v5_queue_scripts.py::test_caps_and_constants_are_the_pre_registrations PASSED [  4%]
+python/tests/test_v5_queue_scripts.py::test_held_out_and_containment_are_named_only_by_the_guard_that_refuses_them PASSED [  4%]
+python/tests/test_v5_queue_scripts.py::test_the_rules_binary_is_reached_only_through_its_pin_check FAILED [  5%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[continue pause-continue-0-True-continue] PASSED [  5%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[continue pause-pause-0-True-pause] PASSED [  6%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[continue pause-refused-3-True-refused] PASSED [  6%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[continue pause-continue-3-True-refused] PASSED [  7%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[continue pause-pause-3-True-refused] PASSED [  7%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[continue pause-refused-0-True-refused] PASSED [  8%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[continue pause--0-True-refused] PASSED [  8%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[continue pause--2-False-refused] PASSED [  9%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[continue pause-Continue-0-True-refused] PASSED [  9%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[continue pause-continue-0-False-refused] PASSED [ 10%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[continue pause-room-0-True-refused] PASSED [ 10%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[room no_room-room-0-True-room] PASSED [ 11%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[room no_room-no_room-0-True-no_room] PASSED [ 11%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[room no_room-refused-3-True-refused] PASSED [ 12%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[room no_room-room-1-True-refused] PASSED [ 12%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[room no_room-continue-0-True-refused] PASSED [ 13%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[fires quiet-fires-0-True-fires] PASSED [ 13%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[fires quiet-quiet-0-True-quiet] PASSED [ 14%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[fires quiet-refused-3-True-refused] PASSED [ 14%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[fires quiet-fires-3-True-refused] PASSED [ 15%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[wins quiet-wins-0-True-wins] PASSED [ 15%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[wins quiet-quiet-0-True-quiet] PASSED [ 16%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[wins quiet-refused-3-True-refused] PASSED [ 16%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[wins quiet-wins quiet-0-True-refused] PASSED [ 17%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[room no_room- room-0-True-refused] PASSED [ 17%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_reads_only_a_consistent_word[continue pause-continue\npause-0-True-refused] PASSED [ 18%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_never_runs_a_binary_that_is_not_the_pinned_one[continue] PASSED [ 18%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_never_runs_a_binary_that_is_not_the_pinned_one[room] PASSED [ 19%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_never_runs_a_binary_that_is_not_the_pinned_one[fires] PASSED [ 19%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_never_runs_a_binary_that_is_not_the_pinned_one[wins] PASSED [ 20%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_refuses_when_the_binary_is_absent PASSED [ 20%]
+python/tests/test_v5_queue_scripts.py::test_v5_rules_call_checks_the_pin_before_running PASSED [ 20%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[continue-0-True-continue] FAILED [ 21%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[pause-0-True-pause] FAILED [ 21%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[refused-3-True-refused] FAILED [ 22%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[hold-0-True-unknown:hold] FAILED [ 22%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[hold-0-False-unknown:hold] FAILED [ 23%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[Continue-0-True-unknown:Continue] FAILED [ 23%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[fires:j6f-0-True-unknown:fires:j6f] FAILED [ 24%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[continue-3-True-refused] FAILED [ 24%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[hold-3-True-refused] FAILED [ 25%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[hold-2-True-refused] FAILED [ 25%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[refused-0-True-refused] FAILED [ 26%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[continue-0-False-refused] FAILED [ 26%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[-0-True-refused] FAILED [ 27%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[wins quiet-0-True-refused] FAILED [ 27%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[continue\npause-0-True-refused] FAILED [ 28%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh-0-True-refused] FAILED [ 28%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[hold!-0-True-refused] FAILED [ 29%]
+python/tests/test_v5_queue_scripts.py::test_v5_rule_says_refused_for_a_binary_that_is_not_the_pinned_one FAILED [ 29%]
+python/tests/test_v5_queue_scripts.py::test_a_refusal_on_a_half_written_last_line_is_retried_and_the_answer_accepted[still half-written-reading] FAILED [ 30%]
+python/tests/test_v5_queue_scripts.py::test_a_refusal_on_a_half_written_last_line_is_retried_and_the_answer_accepted[still half-written-plain] FAILED [ 30%]
+python/tests/test_v5_queue_scripts.py::test_a_refusal_on_a_half_written_last_line_is_retried_and_the_answer_accepted[completed since-reading] FAILED [ 31%]
+python/tests/test_v5_queue_scripts.py::test_a_refusal_on_a_half_written_last_line_is_retried_and_the_answer_accepted[completed since-plain] FAILED [ 31%]
+python/tests/test_v5_queue_scripts.py::test_a_last_line_refusal_that_persists_is_held_after_k_attempts[reading] FAILED [ 32%]
+python/tests/test_v5_queue_scripts.py::test_a_last_line_refusal_that_persists_is_held_after_k_attempts[plain] FAILED [ 32%]
+python/tests/test_v5_queue_scripts.py::test_a_refusal_for_any_other_reason_is_held_at_once[another reason] FAILED [ 33%]
+python/tests/test_v5_queue_scripts.py::test_a_refusal_for_any_other_reason_is_held_at_once[the race and another reason] FAILED [ 33%]
+python/tests/test_v5_queue_scripts.py::test_a_refusal_for_any_other_reason_is_held_at_once[another reason and the race] FAILED [ 34%]
+python/tests/test_v5_queue_scripts.py::test_a_refusal_for_any_other_reason_is_held_at_once[exit 3 without refused on stdout] FAILED [ 34%]
+python/tests/test_v5_queue_scripts.py::test_a_refusal_for_any_other_reason_is_held_at_once[exit 2] FAILED [ 35%]
+python/tests/test_v5_queue_scripts.py::test_a_refusal_for_any_other_reason_is_held_at_once[exit 0] FAILED [ 35%]
+python/tests/test_v5_queue_scripts.py::test_a_refusal_for_any_other_reason_is_held_at_once[an --out that already exists] FAILED [ 36%]
+python/tests/test_v5_queue_scripts.py::test_a_malformed_line_that_is_not_the_last_line_is_not_retried[an inner line] FAILED [ 36%]
+python/tests/test_v5_queue_scripts.py::test_a_malformed_line_that_is_not_the_last_line_is_not_retried[an earlier line of a half-written ledger] FAILED [ 37%]
+python/tests/test_v5_queue_scripts.py::test_a_malformed_line_that_is_not_the_last_line_is_not_retried[a line past the end] FAILED [ 37%]
+python/tests/test_v5_queue_scripts.py::test_a_malformed_line_that_is_not_the_last_line_is_not_retried[a file the call names by a flag that is not a ledger] FAILED [ 38%]
+python/tests/test_v5_queue_scripts.py::test_a_malformed_line_that_is_not_the_last_line_is_not_retried[a ledger the call does not name] FAILED [ 38%]
+python/tests/test_v5_queue_scripts.py::test_the_read_race_retry_is_bounded_as_ruled FAILED [ 39%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_pause_action continue-run] PASSED [ 39%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_pause_action pause-hold] PASSED [ 40%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_pause_action refused-hold] PASSED [ 40%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_pause_action ''-hold] PASSED [ 40%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_pause_action 'continue '-hold] PASSED [ 41%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_pause_action room-hold] PASSED [ 41%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_pause_action unknown:continue-hold] PASSED [ 42%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_pause_action no-seed-0-row-hold] PASSED [ 42%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_room_action room no-run] PASSED [ 43%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_room_action room yes-run] PASSED [ 43%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_room_action no_room no-skip] PASSED [ 44%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_room_action no_room yes-run] PASSED [ 44%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_room_action refused yes-skip] PASSED [ 45%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_room_action refused no-skip] PASSED [ 45%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_room_action '' yes-skip] PASSED [ 46%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_room_action quiet yes-skip] PASSED [ 46%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_s34_action fires-run] PASSED [ 47%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_s34_action quiet-skip] PASSED [ 47%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_s34_action refused-notrun] PASSED [ 48%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_s34_action ''-notrun] PASSED [ 48%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_s34_action fires:j6f-notrun] PASSED [ 49%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_noulw_action wins-record] PASSED [ 49%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_noulw_action quiet-record] PASSED [ 50%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_noulw_action refused-record-refused] PASSED [ 50%]
+python/tests/test_v5_queue_scripts.py::test_each_word_maps_to_the_action_the_draft_names[v5_noulw_action ''-record-refused] PASSED [ 51%]
+python/tests/test_v5_queue_scripts.py::test_the_draft_names_these_words PASSED [ 51%]
+python/tests/test_v5_queue_scripts.py::test_v5_pins_unset_lists_every_unset_pin PASSED [ 52%]
+python/tests/test_v5_queue_scripts.py::test_v5_pins_check_refuses_a_malformed_pin[RULES_V5_SHA256=abc-RULES_V5_SHA256 is 'abc'] PASSED [ 52%]
+python/tests/test_v5_queue_scripts.py::test_v5_pins_check_refuses_a_malformed_pin[V5_LANE_AT=0123456-V5_LANE_AT is '0123456'] PASSED [ 53%]
+python/tests/test_v5_queue_scripts.py::test_v5_pins_check_refuses_a_malformed_pin[V5_DATE=04-10-2026-V5_DATE is '04-10-2026'] PASSED [ 53%]
+python/tests/test_v5_queue_scripts.py::test_v5_pins_check_refuses_a_malformed_pin[V5_C1=yes-V5_C1 is 'yes'] PASSED [ 54%]
+python/tests/test_v5_queue_scripts.py::test_v5_pins_check_refuses_a_malformed_pin[V5_C2B=ON-V5_C2B is 'ON'] PASSED [ 54%]
+python/tests/test_v5_queue_scripts.py::test_v5_pins_check_refuses_a_malformed_pin[V5_LOWER=dropped-V5_LOWER is 'dropped'] PASSED [ 55%]
+python/tests/test_v5_queue_scripts.py::test_v5_pins_check_refuses_a_malformed_pin[V5_LRSET=3e-5-V5_LRSET is '3e-5'] PASSED [ 55%]
+python/tests/test_v5_queue_scripts.py::test_v5_split_check[--out /home/ubuntu/phase5 --no-repo-history --rev 89abcdef0123456789abcdef0123456789abcdef --defect-class data/pool/commitpackft-composed-v2 --defect-noul data/pool/defect-noul-v3c --general-record "$REC" --general-max-rows 200000 --exclude-identity-keys /home/ubuntu/x.txt --real-backbone "$BACKBONE"-True-] PASSED [ 56%]
+python/tests/test_v5_queue_scripts.py::test_v5_split_check[--out /home/ubuntu/phase5 --no-repo-history --rev 89abcdef0123456789abcdef0123456789abcdef --defect-class data/pool/commitpackft-composed-v2 --defect-noul data/pool/defect-noul-v3c --general-record "$REC" --general-max-rows 200000 --exclude-identity-keys /home/ubuntu/x.txt --real-backbone "$BACKBONE" --defect-max-rows 5-True-] PASSED [ 56%]
+python/tests/test_v5_queue_scripts.py::test_v5_split_check[--out /home/ubuntu/phase5 --no-repo-history --rev 89abcdef0123456789abcdef0123456789abcdef --defect-class data/pool/commitpackft-composed-v2 --defect-noul data/pool/defect-noul-v3c --general-record "$REC" --general-max-rows 200000 --exclude-identity-keys /home/ubuntu/phase5/data/heldout/heldout.json --real-backbone "$BACKBONE"-False-rule 3] PASSED [ 57%]
+python/tests/test_v5_queue_scripts.py::test_v5_split_check[--out /home/ubuntu/phase5 --no-repo-history --rev 89abcdef0123456789abcdef0123456789abcdef --defect-class data/pool/commitpackft-composed-v2 --defect-noul data/pool/defect-noul-v3c --general-record "$REC" --general-max-rows 200000 --exclude-identity-keys /home/ubuntu/x.txt --real-backbone "$BACKBONE" --defect-noul /x/containment-request.jsonl-False-rule 3] PASSED [ 57%]
+python/tests/test_v5_queue_scripts.py::test_v5_split_check[--out /home/ubuntu/phase5 --no-repo-history --rev 89abcdef0123456789abcdef0123456789abcdef --defect-class data/pool/commitpackft-composed-v2 --defect-noul data/pool/defect-noul-v3c --general-record "$REC" --general-max-rows 200000 --exclude-identity-keys /home/ubuntu/x.txt --real-backbone "$BACKBONE" --lr 1e-5-False---lr is not a data flag] PASSED [ 58%]
+python/tests/test_v5_queue_scripts.py::test_v5_split_check[--out /home/ubuntu/phase5 --no-repo-history --rev 89abcdef0123456789abcdef0123456789abcdef --defect-class data/pool/commitpackft-composed-v2 --defect-noul data/pool/defect-noul-v3c --general-record "$REC" --general-max-rows 200000 --exclude-identity-keys /home/ubuntu/x.txt --real-backbone "$BACKBONE" --batch-order seed-False---batch-order is not a data flag] PASSED [ 58%]
+python/tests/test_v5_queue_scripts.py::test_v5_split_check[--out /home/ubuntu/phase5 --no-repo-history --rev 89abcdef0123456789abcdef0123456789abcdef --defect-class data/pool/commitpackft-composed-v2 --defect-noul data/pool/defect-noul-v3c --general-record "$REC" --general-max-rows 200000 --exclude-identity-keys /home/ubuntu/x.txt --real-backbone "$BACKBONE" --seeds 0-False---seeds is not a data flag] PASSED [ 59%]
+python/tests/test_v5_queue_scripts.py::test_v5_split_check[--out /home/ubuntu/phase5 --no-repo-history --rev 89abcdef0123456789abcdef0123456789abcdef --defect-class data/pool/commitpackft-composed-v2 --defect-noul data/pool/defect-noul-v3c --general-record "$REC" --general-max-rows 200000 --exclude-identity-keys /home/ubuntu/x.txt --real-backbone "$BACKBONE" --out /home/ubuntu/other-False-2 --out] PASSED [ 59%]
+python/tests/test_v5_queue_scripts.py::test_v5_split_check[--out /home/ubuntu/phase5 --no-repo-history --rev 89abcde --defect-class data/pool/commitpackft-composed-v2 --defect-noul data/pool/defect-noul-v3c --general-record "$REC" --general-max-rows 200000 --exclude-identity-keys /home/ubuntu/x.txt --real-backbone "$BACKBONE"-False-not a full 40-hex commit] PASSED [ 60%]
+python/tests/test_v5_queue_scripts.py::test_v5_split_check[--out /home/ubuntu/phase5 --no-repo-history --rev 89abcdef0123456789abcdef0123456789abcdef --defect-class data/pool/commitpackft-composed-v2 --defect-noul data/pool/defect-noul-v3c --general-record "$REC" --general-max-rows 200000 --exclude-identity-keys /home/ubuntu/x.txt --real-backbone /elsewhere-False-not the box's snapshot] PASSED [ 60%]
+python/tests/test_v5_queue_scripts.py::test_v5_split_check[--out /home/ubuntu/phase5 --no-repo-history --rev 89abcdef0123456789abcdef0123456789abcdef --defect-class data/pool/commitpackft-composed-v2 --defect-noul data/pool/defect-noul-v3c --general-record "$REC" --general-max-rows 200000 --exclude-identity-keys /home/ubuntu/x.txt -False-0 --real-backbone] PASSED [ 60%]
+python/tests/test_v5_queue_scripts.py::test_v5_split_check[--out phase5 --no-repo-history --rev 89abcdef0123456789abcdef0123456789abcdef --defect-class data/pool/commitpackft-composed-v2 --defect-noul data/pool/defect-noul-v3c --general-record "$REC" --general-max-rows 200000 --exclude-identity-keys /home/ubuntu/x.txt --real-backbone "$BACKBONE"-False-not an absolute path] PASSED [ 61%]
+python/tests/test_v5_queue_scripts.py::test_v5_ctl_split_drops_out_and_backbone PASSED [ 61%]
+python/tests/test_v5_queue_scripts.py::test_v5_recipe_is_f_plus_the_added_flags_and_the_pinned_conditionals[V5_C1=off V5_C2A=off V5_C2B=off V5_LOWER=keep V5_LRSET=f-want0] PASSED [ 62%]
+python/tests/test_v5_queue_scripts.py::test_v5_recipe_is_f_plus_the_added_flags_and_the_pinned_conditionals[V5_C1=on V5_C2A=off V5_C2B=off V5_LOWER=keep V5_LRSET=f-want1] PASSED [ 62%]
+python/tests/test_v5_queue_scripts.py::test_v5_recipe_is_f_plus_the_added_flags_and_the_pinned_conditionals[V5_C1=off V5_C2A=on V5_C2B=on V5_LOWER=keep V5_LRSET=f-want2] PASSED [ 63%]
+python/tests/test_v5_queue_scripts.py::test_v5_recipe_is_f_plus_the_added_flags_and_the_pinned_conditionals[V5_C1=off V5_C2A=off V5_C2B=off V5_LOWER=drop V5_LRSET=f-want3] PASSED [ 63%]
+python/tests/test_v5_queue_scripts.py::test_v5_recipe_is_f_plus_the_added_flags_and_the_pinned_conditionals[V5_C1=off V5_C2A=off V5_C2B=off V5_LOWER=keep V5_LRSET=j6dv4-want4] PASSED [ 64%]
+python/tests/test_v5_queue_scripts.py::test_v5_recipe_refuses_an_unset_or_unknown_decision[V5_C1=UNSET] PASSED [ 64%]
+python/tests/test_v5_queue_scripts.py::test_v5_recipe_refuses_an_unset_or_unknown_decision[V5_LRSET=UNSET] PASSED [ 65%]
+python/tests/test_v5_queue_scripts.py::test_v5_recipe_refuses_an_unset_or_unknown_decision[V5_LOWER=both] PASSED [ 65%]
+python/tests/test_v5_queue_scripts.py::test_v5_recipe_refuses_an_unset_or_unknown_decision[V5_C2B=maybe] PASSED [ 66%]
+python/tests/test_v5_queue_scripts.py::test_v5_read_prereg_reads_the_drafts_numbers PASSED [ 66%]
+python/tests/test_v5_queue_scripts.py::test_v5_read_prereg_refuses_the_draft_itself PASSED [ 67%]
+python/tests/test_v5_queue_scripts.py::test_v5_read_prereg_refuses_figures_that_disagree[<lambda>0] PASSED [ 67%]
+python/tests/test_v5_queue_scripts.py::test_v5_read_prereg_refuses_figures_that_disagree[<lambda>1] PASSED [ 68%]
+python/tests/test_v5_queue_scripts.py::test_v5_read_prereg_refuses_figures_that_disagree[<lambda>2] PASSED [ 68%]
+python/tests/test_v5_queue_scripts.py::test_v5_read_prereg_refuses_figures_that_disagree[<lambda>3] PASSED [ 69%]
+python/tests/test_v5_queue_scripts.py::test_v5_read_prereg_refuses_figures_that_disagree[<lambda>4] PASSED [ 69%]
+python/tests/test_v5_queue_scripts.py::test_v5_read_prereg_refuses_figures_that_disagree[<lambda>5] PASSED [ 70%]
+python/tests/test_v5_queue_scripts.py::test_v5_read_prereg_refuses_figures_that_disagree[<lambda>6] PASSED [ 70%]
+python/tests/test_v5_queue_scripts.py::test_v5_budget_ok_passes_inside_the_approved_total PASSED [ 71%]
+python/tests/test_v5_queue_scripts.py::test_v5_budget_ok_refuses_a_run_that_would_cross_it PASSED [ 71%]
+python/tests/test_v5_queue_scripts.py::test_v5_budget_ok_runs_past_it_only_on_the_humans_words PASSED [ 72%]
+python/tests/test_v5_queue_scripts.py::test_v5_budget_ok_adds_seeds_3_4_once_seeds34_fired PASSED [ 72%]
+python/tests/test_v5_queue_scripts.py::test_v5_spend_add_and_running_total PASSED [ 73%]
+python/tests/test_v5_queue_scripts.py::test_v5_prelude_check[<lambda>-True] PASSED [ 73%]
+python/tests/test_v5_queue_scripts.py::test_v5_prelude_check[<lambda>-False0] PASSED [ 74%]
+python/tests/test_v5_queue_scripts.py::test_v5_prelude_check[<lambda>-False1] PASSED [ 74%]
+python/tests/test_v5_queue_scripts.py::test_v5_prelude_check[<lambda>-False2] PASSED [ 75%]
+python/tests/test_v5_queue_scripts.py::test_v5_prelude_check[<lambda>-False3] PASSED [ 75%]
+python/tests/test_v5_queue_scripts.py::test_v5_prelude_check[<lambda>-False4] PASSED [ 76%]
+python/tests/test_v5_queue_scripts.py::test_v5_prelude_check[<lambda>-False5] PASSED [ 76%]
+python/tests/test_v5_queue_scripts.py::test_v5_prelude_check[<lambda>-False6] PASSED [ 77%]
+python/tests/test_v5_queue_scripts.py::test_v5_prelude_check[<lambda>-False7] PASSED [ 77%]
+python/tests/test_v5_queue_scripts.py::test_v5_prelude_check[<lambda>-False8] PASSED [ 78%]
+python/tests/test_v5_queue_scripts.py::test_v5_prelude_check[<lambda>-False9] PASSED [ 78%]
+python/tests/test_v5_queue_scripts.py::test_v5_prelude_check[<lambda>-False10] PASSED [ 79%]
+python/tests/test_v5_queue_scripts.py::test_v5_waits_for_each_gate_on_its_own[j5pp] PASSED [ 79%]
+python/tests/test_v5_queue_scripts.py::test_v5_waits_for_each_gate_on_its_own[j6a] PASSED [ 80%]
+python/tests/test_v5_queue_scripts.py::test_v5_waits_for_each_gate_on_its_own[j6g] PASSED [ 80%]
+python/tests/test_v5_queue_scripts.py::test_v5_waits_for_each_gate_on_its_own[launch] PASSED [ 80%]
+python/tests/test_v5_queue_scripts.py::test_v5_stop_ends_the_wait_for_the_launch_words PASSED [ 81%]
+python/tests/test_v5_queue_scripts.py::test_the_trajectory_cap_leaves_steps_not_run_and_the_controls_still_run PASSED [ 81%]
+python/tests/test_v5_queue_scripts.py::test_v5_with_its_pins_unset_trains_nothing_and_touches_done PASSED [ 82%]
+python/tests/test_v5_queue_scripts.py::test_v5_continue_runs_three_seeds_in_v5s_form PASSED [ 82%]
+python/tests/test_v5_queue_scripts.py::test_r9_holds_seeds_1_2_on_anything_but_continue[pause-0] PASSED [ 83%]
+python/tests/test_v5_queue_scripts.py::test_r9_holds_seeds_1_2_on_anything_but_continue[refused-3] PASSED [ 83%]
+python/tests/test_v5_queue_scripts.py::test_r9_holds_seeds_1_2_on_anything_but_continue[continue-3] PASSED [ 84%]
+python/tests/test_v5_queue_scripts.py::test_r9_holds_seeds_1_2_on_anything_but_continue[-0] PASSED [ 84%]
+python/tests/test_v5_queue_scripts.py::test_r9_hold_resumes_on_the_humans_continue PASSED [ 85%]
+python/tests/test_v5_queue_scripts.py::test_r9_never_runs_a_rules_binary_that_is_not_the_pinned_one FAILED [ 85%]
+python/tests/test_v5_queue_scripts.py::test_r9_hold_marker_says_why[said0-False-pause] FAILED [ 86%]
+python/tests/test_v5_queue_scripts.py::test_r9_hold_marker_says_why[said1-False-refused] FAILED [ 86%]
+python/tests/test_v5_queue_scripts.py::test_r9_hold_marker_says_why[said2-False-refused] FAILED [ 87%]
+python/tests/test_v5_queue_scripts.py::test_r9_hold_marker_says_why[said3-False-unknown:hold] FAILED [ 87%]
+python/tests/test_v5_queue_scripts.py::test_r9_hold_marker_says_why[said4-True-no-seed-0-row] FAILED [ 88%]
+python/tests/test_v5_queue_scripts.py::test_v5_refuses_a_run_past_the_approved_total_without_the_humans_words PASSED [ 88%]
+python/tests/test_v5_queue_scripts.py::test_v5_with_the_over_budget_words_runs PASSED [ 89%]
+python/tests/test_v5_queue_scripts.py::test_v5_refuses_stale_markers_and_an_existing_ledger PASSED [ 89%]
+python/tests/test_v5_queue_scripts.py::test_v5_refuses_a_rule3_split_in_its_data_dir PASSED [ 90%]
+python/tests/test_v5_queue_scripts.py::test_v5s34[fires-0-seeds0-0] PASSED [ 90%]
+python/tests/test_v5_queue_scripts.py::test_v5s34[quiet-0-seeds1-0] PASSED [ 91%]
+python/tests/test_v5_queue_scripts.py::test_v5s34[refused-3-seeds2-3] PASSED [ 91%]
+python/tests/test_v5_queue_scripts.py::test_v5s34[fires-3-seeds3-3] PASSED [ 92%]
+python/tests/test_v5_queue_scripts.py::test_v5nw[room-0-None-True-0] PASSED [ 92%]
+python/tests/test_v5_queue_scripts.py::test_v5nw[no_room-0-None-False-0] PASSED [ 93%]
+python/tests/test_v5_queue_scripts.py::test_v5nw[no_room-0--False-0] PASSED [ 93%]
+python/tests/test_v5_queue_scripts.py::test_v5nw[no_room-0-Bharath: run the arm anyway\n-True-0] PASSED [ 94%]
+python/tests/test_v5_queue_scripts.py::test_v5nw[refused-3-Bharath: run the arm anyway\n-False-3] PASSED [ 94%]
+python/tests/test_v5_queue_scripts.py::test_v5nw[room-3-Bharath: run the arm anyway\n-False-3] PASSED [ 95%]
+python/tests/test_v5_queue_scripts.py::test_v5nw[-0-Bharath: run the arm anyway\n-False-3] PASSED [ 95%]
+python/tests/test_v5_queue_scripts.py::test_v5j5_runs_three_shuffled_label_seeds_on_v5s_recipe PASSED [ 96%]
+python/tests/test_v5_queue_scripts.py::test_v5j5_is_skipped_without_three_completed_v5_ft_rows PASSED [ 96%]
+python/tests/test_v5_queue_scripts.py::test_each_reading_a_post_seed_waiter_may_race_is_retried_then_read[seeds34] FAILED [ 97%]
+python/tests/test_v5_queue_scripts.py::test_each_reading_a_post_seed_waiter_may_race_is_retried_then_read[room] FAILED [ 97%]
+python/tests/test_v5_queue_scripts.py::test_each_reading_a_post_seed_waiter_may_race_is_retried_then_read[arm reading] FAILED [ 98%]
+python/tests/test_v5_queue_scripts.py::test_each_reading_a_post_seed_waiter_may_race_is_retried_then_read[ft-rows] FAILED [ 98%]
+python/tests/test_v5_queue_scripts.py::test_each_reading_a_post_seed_waiter_may_race_is_retried_then_read[eval-row] FAILED [ 99%]
+python/tests/test_v5_queue_scripts.py::test_a_reading_whose_ledger_stays_half_written_is_refused_after_k_attempts FAILED [ 99%]
+python/tests/test_v5_queue_scripts.py::test_the_post_seed_waiter_refuses_a_bad_ft_row_and_still_touches_done PASSED [100%]
+
+=================================== FAILURES ===================================
+E   AssertionError: ['v5_rule', 'v5_rules_call']
+    assert ['v5_rule', 'v5_rules_call'] == ['v5_rules_run']
+      
+      At index 0 diff: 'v5_rule' != 'v5_rules_run'
+      Left contains one more item: 'v5_rules_call'
+      
+      Full diff:
+        [
+      -     'v5_rules_run',...
+      
+      ...Full output truncated (4 lines hidden), use '-vv' to show
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:249: AssertionError: ['v5_rule', 'v5_rules_call']
+E   AssertionError: assert '' == 'continue'
+      
+      - continue
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'continue'
+E   AssertionError: assert '' == 'pause'
+      
+      - pause
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'pause'
+E   AssertionError: assert '' == 'refused'
+      
+      - refused
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'refused'
+E   AssertionError: assert '' == 'unknown:hold'
+      
+      - unknown:hold
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'unknown:hold'
+E   AssertionError: assert '' == 'unknown:hold'
+      
+      - unknown:hold
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'unknown:hold'
+E   AssertionError: assert '' == 'unknown:Continue'
+      
+      - unknown:Continue
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'unknown:Continue'
+E   AssertionError: assert '' == 'unknown:fires:j6f'
+      
+      - unknown:fires:j6f
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'unknown:fires:j6f'
+E   AssertionError: assert '' == 'refused'
+      
+      - refused
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'refused'
+E   AssertionError: assert '' == 'refused'
+      
+      - refused
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'refused'
+E   AssertionError: assert '' == 'refused'
+      
+      - refused
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'refused'
+E   AssertionError: assert '' == 'refused'
+      
+      - refused
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'refused'
+E   AssertionError: assert '' == 'refused'
+      
+      - refused
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'refused'
+E   AssertionError: assert '' == 'refused'
+      
+      - refused
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'refused'
+E   AssertionError: assert '' == 'refused'
+      
+      - refused
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'refused'
+E   AssertionError: assert '' == 'refused'
+      
+      - refused
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'refused'
+E   AssertionError: assert '' == 'refused'
+      
+      - refused
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'refused'
+E   AssertionError: assert '' == 'refused'
+      
+      - refused
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:419: AssertionError: assert '' == 'refused'
+E   AssertionError: assert '' == 'refused'
+      
+      - refused
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:427: AssertionError: assert '' == 'refused'
+E   AssertionError: === rule t: refused; JSON in /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_refusal_on_a_half_writt0/dec/t-20261002T203752532653000.json (20:37:52)
+      WORD=refused SAID= JSON=/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_refusal_on_a_half_writt0/dec/t-20261002T203752532653000.json
+      {"tool": "qd-post-f-rules", "stub": true}
+      qd-post-f-rules: refused: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_refusal_on_a_half_writt0/ledger.jsonl line 3: malformed ledger line (EOF while parsing a string at line 1 column 16)
+      
+    assert 1 == 3
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:555: AssertionError: === rule t: refused; JSON in /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_refusal_on_a_half_writt0/dec/t-20261002T203752532653000.json (20:37:52)
+E   AssertionError: RC=3 GOT=[refused]
+      {"tool": "qd-post-f-rules", "stub": true}
+      qd-post-f-rules: refused: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_refusal_on_a_half_writt1/ledger.jsonl line 3: malformed ledger line (EOF while parsing a string at line 1 column 16)
+      
+    assert 1 == 3
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:555: AssertionError: RC=3 GOT=[refused]
+E   AssertionError: === rule t: refused; JSON in /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_refusal_on_a_half_writt2/dec/t-20261002T203752718857000.json (20:37:52)
+      WORD=refused SAID= JSON=/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_refusal_on_a_half_writt2/dec/t-20261002T203752718857000.json
+      {"tool": "qd-post-f-rules", "stub": true}
+      qd-post-f-rules: refused: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_refusal_on_a_half_writt2/ledger.jsonl line 3: malformed ledger line (EOF while parsing a string at line 1 column 16)
+      
+    assert 1 == 3
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:555: AssertionError: === rule t: refused; JSON in /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_refusal_on_a_half_writt2/dec/t-20261002T203752718857000.json (20:37:52)
+E   AssertionError: RC=3 GOT=[refused]
+      {"tool": "qd-post-f-rules", "stub": true}
+      qd-post-f-rules: refused: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_refusal_on_a_half_writt3/ledger.jsonl line 3: malformed ledger line (EOF while parsing a string at line 1 column 16)
+      
+    assert 1 == 3
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:555: AssertionError: RC=3 GOT=[refused]
+E   AssertionError: === rule t: refused; JSON in /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_last_line_refusal_that_0/dec/t-20261002T203752928034000.json (20:37:53)
+      WORD=refused SAID= JSON=/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_last_line_refusal_that_0/dec/t-20261002T203752928034000.json
+      {"tool": "qd-post-f-rules", "stub": true}
+      qd-post-f-rules: refused: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_last_line_refusal_that_0/ledger.jsonl line 3: malformed ledger line (EOF while parsing a string at line 1 column 16)
+      
+    assert 1 == 5
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:580: AssertionError: === rule t: refused; JSON in /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_last_line_refusal_that_0/dec/t-20261002T203752928034000.json (20:37:53)
+E   AssertionError: RC=3 GOT=[refused]
+      {"tool": "qd-post-f-rules", "stub": true}
+      qd-post-f-rules: refused: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_last_line_refusal_that_1/ledger.jsonl line 3: malformed ledger line (EOF while parsing a string at line 1 column 16)
+      
+    assert 1 == 5
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:580: AssertionError: RC=3 GOT=[refused]
+E   assert 1 == 2
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:636: assert 1 == 2
+E   assert 1 == 2
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:636: assert 1 == 2
+E   assert 1 == 2
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:636: assert 1 == 2
+E   assert 1 == 2
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:636: assert 1 == 2
+E   assert 1 == 2
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:636: assert 1 == 2
+E   assert 1 == 2
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:636: assert 1 == 2
+E   assert 1 == 2
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:636: assert 1 == 2
+E   assert 1 == 2
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:666: assert 1 == 2
+E   assert 1 == 2
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:666: assert 1 == 2
+E   assert 1 == 2
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:666: assert 1 == 2
+E   assert 1 == 2
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:666: assert 1 == 2
+E   assert 1 == 2
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:666: assert 1 == 2
+E   assert None
+     +  where None = <function search at 0x107e9bd70>('^V5_READ_TRIES=5$', '# shellcheck shell=bash\n# shellcheck disable=SC2034  # the names below are read by the waiters that source this file\n# Sourced, after post_f_common.sh and idle_common.sh, by the v5 block\'s waiters: box_q_v5.sh,\n# box_q_v5s34.sh, box_q_v5nw.sh, box_q_v5j5.sh and the per-seed box_q_v5traj.sh. Defines no job\n# and starts nothing.\n#\n# Binding text: campaign/v5-preregistered.json, the DRAFT (campaign/v5-preregistered.DRAFT.json)\n# renamed on main without its top-level `draft` key. This file reads only the renamed one, from\n# the pinned v5 lane; the rules binary refuses a file that still says draft. Block order\n# (launch.projected_gpu_hours.slot, build_order step 7, the human\'s answer 1 at 0b559bb):\n#   v5 seeds 0-2 (R9 may hold after seed 0) -> seeds 3-4 iff seeds34 fires -> the noul-weight\n#   arm x3 iff v5nw.room is room or V5NW_HUMAN_YES is pinned -> J5\' x3.\n# Each seed of v5, seeds 3-4 and the arm is followed by its own post-seed waiter\n# (box_q_v5traj.sh, markers <run>traj-s<N>.*): the trajectory-ood rows under gpu.lock, then the\n# CPU letter/option controls outside it. Its .done never gates the next seed.\n#\n# Decisions are never made here: v5-pause (R9), v5-n...ntrols for this seed"\n    exec 9>&-\n    return 0\n  fi\n  if [ -e "$m.queued" ]; then\n    say "${run}traj-s$seed is already queued; not starting a second"\n  else\n    mkdir -p "$V5_LOGS"\n    setsid nohup bash "$PF/box_q_v5traj.sh" "$run" "$seed" "$ft" \\\n      > "$V5_LOGS/q-${run}traj-s$seed.log" 2>&1 < /dev/null 9>&- &\n    say "${run}traj-s$seed started (log $V5_LOGS/q-${run}traj-s$seed.log)"\n  fi\n  exec 9>&-\n  t0=$(date +%s)\n  until [ -f "$m.started" ] || [ -f "$m.done" ]; do\n    if [ $(( $(date +%s) - t0 )) -ge "$V5_TRAJ_HANDOFF_MAX_S" ]; then\n      say "${run}traj-s$seed did not take gpu.lock within ${V5_TRAJ_HANDOFF_MAX_S}s; the queue goes on without waiting for it"\n      return 0\n    fi\n    sleep 5\n  done\n}\n\n# The CPU controls of box_f_controls.sh through idle_common.sh\'s controls_block, on v5\'s split.\n# controls_block reads CTL_SPLIT; bash\'s dynamic scope gives it this function\'s local copy, so\n# the block is reused, not copied.\nv5_controls() {\n  # shellcheck disable=SC2034  # read by controls_block (dynamic scope)\n  local -a CTL_SPLIT\n  v5_ctl_split\n  # shellcheck disable=SC2034\n  CTL_SPLIT=("${V5_CTL_SPLIT[@]}")\n  controls_block "$@"\n}\n', re.MULTILINE)
+     +    where <function search at 0x107e9bd70> = re.search
+     +    and   re.MULTILINE = re.M
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:693: assert None
+E   assert "refused (v5-...iter's log)\n" == 'refused\n'
+      
+      - refused
+      + refused (v5-pause on ft row 10e78f3b-6db3-4ce9-bfbb-54ccc195376e; the decision JSON is named in this waiter's log)
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:1546: assert "refused (v5-...iter's log)\n" == 'refused\n'
+E   assert "pause (v5-pa...iter's log)\n" == 'pause\n'
+      
+      - pause
+      + pause (v5-pause on ft row c09d1df0-bcf7-4c35-ab8e-f1370e90e39b; the decision JSON is named in this waiter's log)
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:1571: assert "pause (v5-pa...iter's log)\n" == 'pause\n'
+E   assert "refused (v5-...iter's log)\n" == 'refused\n'
+      
+      - refused
+      + refused (v5-pause on ft row a78cd492-d4c7-4070-9cf8-384b463d790a; the decision JSON is named in this waiter's log)
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:1571: assert "refused (v5-...iter's log)\n" == 'refused\n'
+E   assert "refused (v5-...iter's log)\n" == 'refused\n'
+      
+      - refused
+      + refused (v5-pause on ft row 5c42986f-4aa7-46d2-93fb-d47818f5c75b; the decision JSON is named in this waiter's log)
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:1571: assert "refused (v5-...iter's log)\n" == 'refused\n'
+E   assert "refused (v5-...iter's log)\n" == 'unknown:hold\n'
+      
+      - unknown:hold
+      + refused (v5-pause on ft row 3518df7c-1a5b-47c2-ac0c-67f5c4612485; the decision JSON is named in this waiter's log)
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:1571: assert "refused (v5-...iter's log)\n" == 'unknown:hold\n'
+E   assert "refused (v5-...iter's log)\n" == 'no-seed-0-row\n'
+      
+      - no-seed-0-row
+      + refused (v5-pause on ft row none; the decision JSON is named in this waiter's log)
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:1571: assert "refused (v5-...iter's log)\n" == 'no-seed-0-row\n'
+E   AssertionError: === v5 pre-registration: a v5/arm seed ~ 7.0 h, $16.0; a J5' seed ~ 6.0 h, $13.7; approved ~ $137.2 / 60.0 GPU-h (+$32.0 / +14.0 h iff seeds 3-4 run); arm --noul-weight 4 (20:38:33)
+      prelude record: digests {'0': '1111111111111111111111111111111111111111111111111111111111111111', '1': '2222222222222222222222222222222222222222222222222222222222222222', '2': '3333333333333333333333333333333333333333333333333333333333333333', '3': '4444444444444444444444444444444444444444444444444444444444444444', '4': '5555555555555555555555555555555555555555555555555555555555555555'}; mismatches: None
+      {"refused": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_0/box/ledger/gh200-v5-2026-10-04.jsonl line 1: malformed ledger line (EOF while parsing a string at line 1 column 16)"}
+      qd-post-f-rules: refused: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_0/box/ledger/gh200-v5-2026-10-04.jsonl line 1: malformed ledger line (EOF while parsing a string at line 1 column 16)
+      === rule seeds34: refused; JSON in /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_0/box/ledger/v5-decisions-2026-10-04/seeds34-20261002T203833444228000.json (20:38:33)
+      === v5s34: seeds34 'refused': seeds 3-4 NOT RUN (escalate; never read as quiet) (20:38:33)
+      
+    assert 3 == 0
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:1802: AssertionError: === v5 pre-registration: a v5/arm seed ~ 7.0 h, $16.0; a J5' seed ~ 6.0 h, $13.7; approved ~ $137.2 / 60.0 GPU-h (+$32.0 / +14.0 h iff seeds 3-4 run); arm --noul-weight 4 (20:38:33)
+E   AssertionError: === v5 pre-registration: a v5/arm seed ~ 7.0 h, $16.0; a J5' seed ~ 6.0 h, $13.7; approved ~ $137.2 / 60.0 GPU-h (+$32.0 / +14.0 h iff seeds 3-4 run); arm --noul-weight 4 (20:38:33)
+      prelude record: digests {'0': '1111111111111111111111111111111111111111111111111111111111111111', '1': '2222222222222222222222222222222222222222222222222222222222222222', '2': '3333333333333333333333333333333333333333333333333333333333333333', '3': '4444444444444444444444444444444444444444444444444444444444444444', '4': '5555555555555555555555555555555555555555555555555555555555555555'}; mismatches: None
+      {"refused": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_1/box/ledger/gh200-v5-2026-10-04.jsonl line 1: malformed ledger line (EOF while parsing a string at line 1 column 16)"}
+      qd-post-f-rules: refused: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_1/box/ledger/gh200-v5-2026-10-04.jsonl line 1: malformed ledger line (EOF while parsing a string at line 1 column 16)
+      === rule v5nw-room: refused; JSON in /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_1/box/ledger/v5-decisions-2026-10-04/v5nw-room-20261002T203833858805000.json (20:38:33)
+      === v5nw REFUSED: v5-noulw --room said 'refused'; the arm NOT RUN (a refused room makes every arm row read refused; V5NW_HUMAN_YES does not override it); J5' takes the slot (20:38:33)
+      
+    assert 3 == 0
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:1802: AssertionError: === v5 pre-registration: a v5/arm seed ~ 7.0 h, $16.0; a J5' seed ~ 6.0 h, $13.7; approved ~ $137.2 / 60.0 GPU-h (+$32.0 / +14.0 h iff seeds 3-4 run); arm --noul-weight 4 (20:38:33)
+E   AssertionError: === v5 pre-registration: a v5/arm seed ~ 7.0 h, $16.0; a J5' seed ~ 6.0 h, $13.7; approved ~ $137.2 / 60.0 GPU-h (+$32.0 / +14.0 h iff seeds 3-4 run); arm --noul-weight 4 (20:38:34)
+      prelude record: digests {'0': '1111111111111111111111111111111111111111111111111111111111111111', '1': '2222222222222222222222222222222222222222222222222222222222222222', '2': '3333333333333333333333333333333333333333333333333333333333333333', '3': '4444444444444444444444444444444444444444444444444444444444444444', '4': '5555555555555555555555555555555555555555555555555555555555555555'}; mismatches: None
+      === rule v5nw-room: room; JSON in /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_2/box/ledger/v5-decisions-2026-10-04/v5nw-room-20261002T203834195724000.json (20:38:34)
+      === v5nw: room: the arm runs (20:38:34)
+      === v5 running total: 0 GPU-h, $0 of the approved ~$137.2 / 60.0 GPU-h (20:38:34)
+      === cost: noul-weight arm seed 0 (--noul-weight 4) train+score: cap 32400 s = $20.61 at $2.29/h; pre-registration estimate ~ 7.0 h, $16.0 for the seed with its needle control and trajectory (20:38:34)
+      === noul-weight arm seed 0 (--noul-weight 4) at 0123456: --optimizer master --lr 1e-5 --epoch --no-memorise --batch-tokens 35403 --lower-layers-n 8 --lower-layers-lr-scale 0.1 --checkpoint-skip-layers 6 --min-lr 0 --batch-order seed --noul-weight 4 --seeds 0 -> /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_2/box/ledger/gh200-v5-noulw-2026-10-04.jsonl (20:38:34)
+      ft row eb7875f7-a83c-4069-adf1-eac9a6b6bfd4
+      === v5 running total: 0.0000 GPU-h, $0.00 of the approved ~$137.2 / 60.0 GPU-h (20:38:34)
+      === noul-weight arm seed 0 (--noul-weight 4) train+score done (exit 0) (20:38:34)
+      plan order digest, plan seed 0: ft row None DIFFERS FROM the prelude's 1111111111111111111111111111111111111111111111111111111111111111; report-only
+      === cost: arm seed 0 needle control: cap 5400 s = $3.44 at $2.29/h; pre-registration estimate (inside the seed's ~$16.0) (20:38:34)
+      === arm seed 0 needle control done (exit 0) (20:38:34)
+      === v5 running total: 0.0000 GPU-h, $0.00 of the approved ~$137.2 / 60.0 GPU-h (20:38:34)
+      === v5nwtraj-s0 started (log /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_2/box/logs/q-v5nwtraj-s0.log) (20:38:34)
+      === cost: noul-weight arm seed 1 (--noul-weight 4) train+score: cap 32400 s = $20.61 at $2.29/h; pre-registration estimate ~ 7.0 h, $16.0 for the seed with its needle control and trajectory (20:38:34)
+      === noul-weight arm seed 1 (--noul-weight 4) at 0123456: --optimizer master --lr 1e-5 --epoch --no-memorise --batch-tokens 35403 --lower-layers-n 8 --lower-layers-lr-scale 0.1 --checkpoint-skip-layers 6 --min-lr 0 --batch-order seed --noul-weight 4 --seeds 1 -> /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_2/box/ledger/gh200-v5-noulw-2026-10-04.jsonl (20:38:34)
+      ft row 29c48bd2-8d03-4cda-9dc7-cc78dfa4204a
+      === v5 running total: 0.0000 GPU-h, $0.00 of the approved ~$137.2 / 60.0 GPU-h (20:38:34)
+      === noul-weight arm seed 1 (--noul-weight 4) train+score done (exit 0) (20:38:34)
+      plan order digest, plan seed 1: ft row None DIFFERS FROM the prelude's 2222222222222222222222222222222222222222222222222222222222222222; report-only
+      === cost: arm seed 1 needle control: cap 5400 s = $3.44 at $2.29/h; pre-registration estimate (inside the seed's ~$16.0) (20:38:34)
+      === arm seed 1 needle control done (exit 0) (20:38:34)
+      === v5 running total: 0.0000 GPU-h, $0.00 of the approved ~$137.2 / 60.0 GPU-h (20:38:34)
+      === v5nwtraj-s1 started (log /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_2/box/logs/q-v5nwtraj-s1.log) (20:38:34)
+      === cost: noul-weight arm seed 2 (--noul-weight 4) train+score: cap 32400 s = $20.61 at $2.29/h; pre-registration estimate ~ 7.0 h, $16.0 for the seed with its needle control and trajectory (20:38:34)
+      === noul-weight arm seed 2 (--noul-weight 4) at 0123456: --optimizer master --lr 1e-5 --epoch --no-memorise --batch-tokens 35403 --lower-layers-n 8 --lower-layers-lr-scale 0.1 --checkpoint-skip-layers 6 --min-lr 0 --batch-order seed --noul-weight 4 --seeds 2 -> /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_2/box/ledger/gh200-v5-noulw-2026-10-04.jsonl (20:38:34)
+      ft row 111ca641-f0e0-48fb-a6e3-3cd5e3761a30
+      === v5 running total: 0.0000 GPU-h, $0.00 of the approved ~$137.2 / 60.0 GPU-h (20:38:34)
+      === noul-weight arm seed 2 (--noul-weight 4) train+score done (exit 0) (20:38:34)
+      plan order digest, plan seed 2: ft row None DIFFERS FROM the prelude's 3333333333333333333333333333333333333333333333333333333333333333; report-only
+      === cost: arm seed 2 needle control: cap 5400 s = $3.44 at $2.29/h; pre-registration estimate (inside the seed's ~$16.0) (20:38:35)
+      === arm seed 2 needle control done (exit 0) (20:38:35)
+      === v5 running total: 0.0003 GPU-h, $0.00 of the approved ~$137.2 / 60.0 GPU-h (20:38:35)
+      === v5nwtraj-s2 started (log /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_2/box/logs/q-v5nwtraj-s2.log) (20:38:35)
+      {"refused": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_2/box/ledger/gh200-v5-noulw-2026-10-04.jsonl line 4: malformed ledger line (EOF while parsing a string at line 1 column 16)"}
+      qd-post-f-rules: refused: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_2/box/ledger/gh200-v5-noulw-2026-10-04.jsonl line 4: malformed ledger line (EOF while parsing a string at line 1 column 16)
+      === rule v5nw: refused; JSON in /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_2/box/ledger/v5-decisions-2026-10-04/v5nw-20261002T203835213194000.json (20:38:35)
+      === v5nw: the arm's reading REFUSED ('refused'; JSON /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_2/box/ledger/v5-decisions-2026-10-04/v5nw-20261002T203835213194000.json); never read as quiet (20:38:35)
+      === v5 running total: 0.0003 GPU-h, $0.00 of the approved ~$137.2 / 60.0 GPU-h (20:38:35)
+      === v5nw all done (20:38:35)
+      
+    assert 1 == (2 + 1)
+     +  where 1 = len([['v5-noulw', '--preregistration', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_2/box/qd-lane-v5/campaign/v5-preregistered.json', '--noul-preregistration', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_2/box/qd-lane-v5/campaign/v4-noul-v3b-preregistered.json', '--v5-ledger', ...]])
+     +    where [['v5-noulw', '--preregistration', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_2/box/qd-lane-v5/campaign/v5-preregistered.json', '--noul-preregistration', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_2/box/qd-lane-v5/campaign/v4-noul-v3b-preregistered.json', '--v5-ledger', ...]] = calls_of(<test_v5_queue_scripts.Box object at 0x10b708f50>, 'v5-noulw')
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:1805: AssertionError: === v5 pre-registration: a v5/arm seed ~ 7.0 h, $16.0; a J5' seed ~ 6.0 h, $13.7; approved ~ $137.2 / 60.0 GPU-h (+$32.0 / +14.0 h iff seeds 3-4 run); arm --noul-weight 4 (20:38:34)
+E   AssertionError: === v5 pre-registration: a v5/arm seed ~ 7.0 h, $16.0; a J5' seed ~ 6.0 h, $13.7; approved ~ $137.2 / 60.0 GPU-h (+$32.0 / +14.0 h iff seeds 3-4 run); arm --noul-weight 4 (20:38:35)
+      prelude record: digests {'0': '1111111111111111111111111111111111111111111111111111111111111111', '1': '2222222222222222222222222222222222222222222222222222222222222222', '2': '3333333333333333333333333333333333333333333333333333333333333333', '3': '4444444444444444444444444444444444444444444444444444444444444444', '4': '5555555555555555555555555555555555555555555555555555555555555555'}; mismatches: None
+      {"refused": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_3/box/ledger/gh200-v5-2026-10-04.jsonl line 1: malformed ledger line (EOF while parsing a string at line 1 column 16)"}
+      qd-post-f-rules: refused: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_3/box/ledger/gh200-v5-2026-10-04.jsonl line 1: malformed ledger line (EOF while parsing a string at line 1 column 16)
+      refused
+      === v5j5 SKIPPED: v5's ft rows '--ft-row 0=00000000-aaaa-bbbb-cccc-dddddddddddd --ft-row 1=00000001-aaaa-bbbb-cccc-dddddddddddd --ft-row 2=00000002-aaaa-bbbb-cccc-dddddddddddd' in /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_3/box/ledger/gh200-v5-2026-10-04.jsonl are not three completed v5 ft rows (the binary's reason is above); runs_iff not met (20:38:35)
+      
+    assert 1 == (2 + 1)
+     +  where 1 = len([['ft-rows', '--ledger', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_3/box/ledger/gh200-v5-2026-10-04.jsonl', '--ft-row', '0=00000000-aaaa-bbbb-cccc-dddddddddddd', '--ft-row', ...]])
+     +    where [['ft-rows', '--ledger', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_3/box/ledger/gh200-v5-2026-10-04.jsonl', '--ft-row', '0=00000000-aaaa-bbbb-cccc-dddddddddddd', '--ft-row', ...]] = calls_of(<test_v5_queue_scripts.Box object at 0x10b708650>, 'ft-rows')
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:1805: AssertionError: === v5 pre-registration: a v5/arm seed ~ 7.0 h, $16.0; a J5' seed ~ 6.0 h, $13.7; approved ~ $137.2 / 60.0 GPU-h (+$32.0 / +14.0 h iff seeds 3-4 run); arm --noul-weight 4 (20:38:35)
+E   AssertionError: === v5 pre-registration: a v5/arm seed ~ 7.0 h, $16.0; a J5' seed ~ 6.0 h, $13.7; approved ~ $137.2 / 60.0 GPU-h (+$32.0 / +14.0 h iff seeds 3-4 run); arm --noul-weight 4 (20:38:35)
+      prelude record: digests {'0': '1111111111111111111111111111111111111111111111111111111111111111', '1': '2222222222222222222222222222222222222222222222222222222222222222', '2': '3333333333333333333333333333333333333333333333333333333333333333', '3': '4444444444444444444444444444444444444444444444444444444444444444', '4': '5555555555555555555555555555555555555555555555555555555555555555'}; mismatches: None
+      === v5j5 (J5' on v5) at 0123456: --optimizer master --lr 1e-5 --epoch --no-memorise --batch-tokens 35403 --lower-layers-n 8 --lower-layers-lr-scale 0.1 --checkpoint-skip-layers 6 --min-lr 0 --batch-order seed -> /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_4/box/ledger/gh200-v5-2026-10-04.jsonl (20:38:35)
+      === v5 running total: 0 GPU-h, $0 of the approved ~$137.2 / 60.0 GPU-h (20:38:36)
+      {"refused": "/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_4/box/ledger/gh200-v5-2026-10-04.jsonl line 1: malformed ledger line (EOF while parsing a string at line 1 column 16)"}
+      qd-post-f-rules: refused: /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_4/box/ledger/gh200-v5-2026-10-04.jsonl line 1: malformed ledger line (EOF while parsing a string at line 1 column 16)
+      === J5' seed 0 NOT RUN: v5 seed 0 has no single completed epoch-score-val eval row scored from ft row '00000000-aaaa-bbbb-cccc-dddddddddddd' (the binary's reason is above) (20:38:36)
+      === J5' seed 1 -> eval row eeeeeeee-1111-2222-3333-444444444444 (ft row 00000001-aaaa-bbbb-cccc-dddddddddddd) (20:38:36)
+      === cost: J5' seed 1: cap 32400 s = $20.61 at $2.29/h; pre-registration estimate ~ 6.0 h, $13.7 (20:38:36)
+      ft row d6c5dd21-85ed-4c4f-af26-e1145449ab69
+      === v5 running total: 0.0000 GPU-h, $0.00 of the approved ~$137.2 / 60.0 GPU-h (20:38:36)
+      === J5' seed 1 done (exit 0) (20:38:36)
+      === J5' seed 2 -> eval row eeeeeeee-1111-2222-3333-444444444444 (ft row 00000002-aaaa-bbbb-cccc-dddddddddddd) (20:38:36)
+      === cost: J5' seed 2: cap 32400 s = $20.61 at $2.29/h; pre-registration estimate ~ 6.0 h, $13.7 (20:38:36)
+      ft row ccc1c09f-ba43-41f1-a57d-8bfbe75a68e0
+      === v5 running total: 0.0000 GPU-h, $0.00 of the approved ~$137.2 / 60.0 GPU-h (20:38:36)
+      === J5' seed 2 done (exit 0) (20:38:36)
+      === v5 running total: 0.0000 GPU-h, $0.00 of the approved ~$137.2 / 60.0 GPU-h (20:38:36)
+      === v5j5 all done; the v5 block STOPS here (20:38:36)
+      
+    assert 3 == (1 + 3)
+     +  where 3 = len([['eval-row', '--ledger', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_4/box/ledger/gh200-v5-2026-10-04.jsonl', '--ft-row', '0=00000000-aaaa-bbbb-cccc-dddddddddddd'], ['eval-row', '--ledger', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_4/box/ledger/gh200-v5-2026-10-04.jsonl', '--ft-row', '1=00000001-aaaa-bbbb-cccc-dddddddddddd'], ['eval-row', '--ledger', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_4/box/ledger/gh200-v5-2026-10-04.jsonl', '--ft-row', '2=00000002-aaaa-bbbb-cccc-dddddddddddd']])
+     +    where [['eval-row', '--ledger', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_4/box/ledger/gh200-v5-2026-10-04.jsonl', '--ft-row', '0=00000000-aaaa-bbbb-cccc-dddddddddddd'], ['eval-row', '--ledger', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_4/box/ledger/gh200-v5-2026-10-04.jsonl', '--ft-row', '1=00000001-aaaa-bbbb-cccc-dddddddddddd'], ['eval-row', '--ledger', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_each_reading_a_post_seed_4/box/ledger/gh200-v5-2026-10-04.jsonl', '--ft-row', '2=00000002-aaaa-bbbb-cccc-dddddddddddd']] = calls_of(<test_v5_queue_scripts.Box object at 0x10bb8ecd0>, 'eval-row')
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:1805: AssertionError: === v5 pre-registration: a v5/arm seed ~ 7.0 h, $16.0; a J5' seed ~ 6.0 h, $13.7; approved ~ $137.2 / 60.0 GPU-h (+$32.0 / +14.0 h iff seeds 3-4 run); arm --noul-weight 4 (20:38:35)
+E   AssertionError: assert 1 == 5
+     +  where 1 = len([['seeds34', '--preregistration', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_reading_whose_ledger_st0/box/qd-lane-v5/campaign/v5-preregistered.json', '--f-ledger', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_reading_whose_ledger_st0/box/ledger/gh200-v5-2026-10-04.jsonl', '--ft-row', ...]])
+     +    where [['seeds34', '--preregistration', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_reading_whose_ledger_st0/box/qd-lane-v5/campaign/v5-preregistered.json', '--f-ledger', '/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-22/test_a_reading_whose_ledger_st0/box/ledger/gh200-v5-2026-10-04.jsonl', '--ft-row', ...]] = calls_of(<test_v5_queue_scripts.Box object at 0x10b47ae50>, 'seeds34')
+/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-afa17f069a43eb74a/python/tests/test_v5_queue_scripts.py:1830: AssertionError: assert 1 == 5
+=========================== short test summary info ============================
+FAILED python/tests/test_v5_queue_scripts.py::test_the_rules_binary_is_reached_only_through_its_pin_check
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[continue-0-True-continue]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[pause-0-True-pause]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[refused-3-True-refused]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[hold-0-True-unknown:hold]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[hold-0-False-unknown:hold]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[Continue-0-True-unknown:Continue]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[fires:j6f-0-True-unknown:fires:j6f]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[continue-3-True-refused]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[hold-3-True-refused]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[hold-2-True-refused]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[refused-0-True-refused]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[continue-0-False-refused]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[-0-True-refused]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[wins quiet-0-True-refused]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[continue\npause-0-True-refused]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh-0-True-refused]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_what_the_binary_said_as_a_marker_can_carry_it[hold!-0-True-refused]
+FAILED python/tests/test_v5_queue_scripts.py::test_v5_rule_says_refused_for_a_binary_that_is_not_the_pinned_one
+FAILED python/tests/test_v5_queue_scripts.py::test_a_refusal_on_a_half_written_last_line_is_retried_and_the_answer_accepted[still half-written-reading]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_refusal_on_a_half_written_last_line_is_retried_and_the_answer_accepted[still half-written-plain]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_refusal_on_a_half_written_last_line_is_retried_and_the_answer_accepted[completed since-reading]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_refusal_on_a_half_written_last_line_is_retried_and_the_answer_accepted[completed since-plain]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_last_line_refusal_that_persists_is_held_after_k_attempts[reading]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_last_line_refusal_that_persists_is_held_after_k_attempts[plain]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_refusal_for_any_other_reason_is_held_at_once[another reason]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_refusal_for_any_other_reason_is_held_at_once[the race and another reason]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_refusal_for_any_other_reason_is_held_at_once[another reason and the race]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_refusal_for_any_other_reason_is_held_at_once[exit 3 without refused on stdout]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_refusal_for_any_other_reason_is_held_at_once[exit 2]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_refusal_for_any_other_reason_is_held_at_once[exit 0]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_refusal_for_any_other_reason_is_held_at_once[an --out that already exists]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_malformed_line_that_is_not_the_last_line_is_not_retried[an inner line]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_malformed_line_that_is_not_the_last_line_is_not_retried[an earlier line of a half-written ledger]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_malformed_line_that_is_not_the_last_line_is_not_retried[a line past the end]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_malformed_line_that_is_not_the_last_line_is_not_retried[a file the call names by a flag that is not a ledger]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_malformed_line_that_is_not_the_last_line_is_not_retried[a ledger the call does not name]
+FAILED python/tests/test_v5_queue_scripts.py::test_the_read_race_retry_is_bounded_as_ruled
+FAILED python/tests/test_v5_queue_scripts.py::test_r9_never_runs_a_rules_binary_that_is_not_the_pinned_one
+FAILED python/tests/test_v5_queue_scripts.py::test_r9_hold_marker_says_why[said0-False-pause]
+FAILED python/tests/test_v5_queue_scripts.py::test_r9_hold_marker_says_why[said1-False-refused]
+FAILED python/tests/test_v5_queue_scripts.py::test_r9_hold_marker_says_why[said2-False-refused]
+FAILED python/tests/test_v5_queue_scripts.py::test_r9_hold_marker_says_why[said3-False-unknown:hold]
+FAILED python/tests/test_v5_queue_scripts.py::test_r9_hold_marker_says_why[said4-True-no-seed-0-row]
+FAILED python/tests/test_v5_queue_scripts.py::test_each_reading_a_post_seed_waiter_may_race_is_retried_then_read[seeds34]
+FAILED python/tests/test_v5_queue_scripts.py::test_each_reading_a_post_seed_waiter_may_race_is_retried_then_read[room]
+FAILED python/tests/test_v5_queue_scripts.py::test_each_reading_a_post_seed_waiter_may_race_is_retried_then_read[arm reading]
+FAILED python/tests/test_v5_queue_scripts.py::test_each_reading_a_post_seed_waiter_may_race_is_retried_then_read[ft-rows]
+FAILED python/tests/test_v5_queue_scripts.py::test_each_reading_a_post_seed_waiter_may_race_is_retried_then_read[eval-row]
+FAILED python/tests/test_v5_queue_scripts.py::test_a_reading_whose_ledger_stays_half_written_is_refused_after_k_attempts
+======================= 50 failed, 155 passed in 50.83s ========================

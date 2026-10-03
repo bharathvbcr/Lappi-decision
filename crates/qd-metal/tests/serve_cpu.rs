@@ -3,7 +3,8 @@
 //! `MetalBackend` (the only part that needs the GPU). Nothing here touches the GPU.
 //!
 //! The release directory is synthetic and bound to the reference backend's identity: the same
-//! manifest format `qd-export` writes (`qd-release.v1`), read by the same `Release::open`.
+//! manifest format `qd-export` writes (`qd-release.v2`, binding the prompt format the tower was
+//! trained on), read by the same `Release::open`.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -45,8 +46,8 @@ fn sha(bytes: &[u8]) -> String {
     qd_runtime::hex(&qd_runtime::sha256(bytes))
 }
 
-/// A release directory whose manifest binds `weight_hash` and the reference tokenizer hash, and
-/// records `devcouncil.verdict` (the task [`request_line`] asks) as trained.
+/// A release directory whose manifest binds `weight_hash`, the reference tokenizer hash and
+/// prompt format 2, and records `devcouncil.verdict` (the task [`request_line`] asks) as trained.
 fn release_dir(weight_hash: &str) -> PathBuf {
     release_dir_with(weight_hash, |_| {})
 }
@@ -64,12 +65,13 @@ fn release_dir_with(weight_hash: &str, edit: impl FnOnce(&mut Value)) -> PathBuf
     std::fs::write(dir.join("calibration.json"), &calibration).unwrap();
     std::fs::write(dir.join("model.safetensors"), weights).unwrap();
     let mut manifest = json!({
-        "format": "qd-release.v1",
+        "format": "qd-release.v2",
         "expected_identity": {
             "weight_hash": weight_hash,
             "tokenizer_hash": id.tokenizer_hash,
             "config_sha256": sha(config),
             "calibration_hash": table.hash(),
+            "prompt_format": 2,
         },
         "files": {
             "config.json": {"sha256": sha(config)},
@@ -214,6 +216,36 @@ fn what_is_not_a_release_is_refused_before_anything_serves() {
     assert_eq!(open_release(&dir).unwrap_err().kind, ReleaseRefusalKind::CalibrationMismatch);
     std::fs::remove_dir_all(&empty).unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A v4 release -- `qd-release.v1`, no prompt format, exactly what `qd-export` wrote for F -- and a
+/// v2 release that states no format or another one are each refused before anything serves: a
+/// format-2 runtime never feeds its prompts to a tower trained on format 1.
+#[test]
+fn a_release_of_another_prompt_format_is_refused_before_anything_serves() {
+    let weight_hash = ReferenceBackend::new(true).identity().weight_hash.clone();
+    let v4 = release_dir_with(&weight_hash, |m| {
+        m["format"] = json!("qd-release.v1");
+        m["expected_identity"].as_object_mut().unwrap().remove("prompt_format");
+    });
+    let err = open_release(&v4).unwrap_err();
+    assert_eq!(err.kind, ReleaseRefusalKind::Manifest, "{err}");
+    assert!(err.detail.contains("qd-release.v1"), "{err}");
+
+    let unstated = release_dir_with(&weight_hash, |m| {
+        m["expected_identity"].as_object_mut().unwrap().remove("prompt_format");
+    });
+    let err = open_release(&unstated).unwrap_err();
+    assert_eq!(err.kind.as_str(), "prompt_format", "{err}");
+
+    let format_1 = release_dir_with(&weight_hash, |m| m["expected_identity"]["prompt_format"] = json!(1));
+    let err = open_release(&format_1).unwrap_err();
+    assert_eq!(err.kind.as_str(), "prompt_format", "{err}");
+    assert!(err.detail.contains("prompt_format 1"), "{err}");
+
+    for dir in [v4, unstated, format_1] {
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
 
 #[test]

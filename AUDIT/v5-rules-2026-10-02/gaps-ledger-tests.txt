@@ -1,0 +1,22 @@
+..............................F                                          [100%]
+=================================== FAILURES ===================================
+______________ test_the_real_ledger_is_not_touched_by_any_of_this ______________
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-107/test_the_real_ledger_is_not_to0')
+
+    def test_the_real_ledger_is_not_touched_by_any_of_this(tmp_path: Path) -> None:
+        """Every test above passes an explicit path. This asserts the default is the repo's
+        own file and that nothing here wrote to it -- a test suite that appends to `gaps.jsonl`
+        on every run would be a novel way to corrupt the thing being protected.
+        """
+        from qd_train.gaps import DEFAULT_GAPS_PATH
+    
+        assert DEFAULT_GAPS_PATH.name == "gaps.jsonl"
+>       assert DEFAULT_GAPS_PATH.parent.name in ("qwen-decision", "Lappi-decision")
+E       AssertionError: assert 'agent-a1c0d704edd19f228' in ('qwen-decision', 'Lappi-decision')
+E        +  where 'agent-a1c0d704edd19f228' = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0d704edd19f228').name
+E        +    where PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0d704edd19f228') = PosixPath('/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0d704edd19f228/gaps.jsonl').parent
+
+python/tests/test_gaps_writer.py:212: AssertionError
+=========================== short test summary info ============================
+FAILED python/tests/test_gaps_writer.py::test_the_real_ledger_is_not_touched_by_any_of_this

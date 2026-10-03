@@ -41,13 +41,20 @@ The repo assignment is a keyed hash, not a shuffle:
 from __future__ import annotations
 
 import hashlib
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Final
 
 from qd_train.tristate import NotRun, Ran, TriState, aggregate
 
-from .config import SPLITS, DataConfig
-from .dedupe import DedupeReport
+from .config import DEFAULT_MAX_CANDIDATE_PAIRS, SPLITS, DataConfig
+from .dedupe import (
+    EXACT_CONTENT,
+    NEAR_DUPLICATE_RULING,
+    DedupeReport,
+    near_duplicate_policy,
+    text_digest,
+)
 from .minhash import MinHasher, candidate_pairs, choose_bands, exact_jaccard, shingle
 from .rows import DataRow
 from .sources import PINNED_SPLIT_KEY
@@ -193,6 +200,13 @@ class SplitReport:
     dedupe_status: TriState
     #: :data:`CONTENT_DISJOINT_FAMILIES` share no repo_key, identity_key or context.
     content_disjoint_families: TriState
+    #: No row the ruling scoped out of the near-duplicate search (``EXACT_CONTENT``) shares
+    #: its content digest with a row on another side of the split: that ruling's leak
+    #: definition. ``None`` when no row was scoped out, and then absent from every report.
+    exact_content_disjoint: TriState | None = None
+    #: The near-duplicate re-derivation's candidate bound; reported only when it is not
+    #: :data:`~qd_data.config.DEFAULT_MAX_CANDIDATE_PAIRS`, as dedupe's is.
+    max_candidate_pairs: int = DEFAULT_MAX_CANDIDATE_PAIRS
 
     @property
     def status(self) -> TriState:
@@ -217,6 +231,11 @@ class SplitReport:
                     if isinstance(self.content_disjoint_families, Ran)
                     else {}
                 ),
+                **(
+                    {"exact_content_disjoint": self.exact_content_disjoint}
+                    if self.exact_content_disjoint is not None
+                    else {}
+                ),
             },
             name="split",
         )
@@ -235,7 +254,7 @@ class SplitReport:
         return out
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        body: dict[str, Any] = {
             "counts": self.counts(),
             "holdout_breakdown": self.holdout_breakdown(),
             "repo_disjoint": self.repo_disjoint.to_json(),
@@ -246,8 +265,13 @@ class SplitReport:
             ),
             "dedupe_status": self.dedupe_status.to_json(),
             "content_disjoint_families": self.content_disjoint_families.to_json(),
-            "status": self.status.to_json(),
         }
+        if self.exact_content_disjoint is not None:
+            body["exact_content_disjoint"] = self.exact_content_disjoint.to_json()
+        if self.max_candidate_pairs != DEFAULT_MAX_CANDIDATE_PAIRS:
+            body["max_candidate_pairs"] = self.max_candidate_pairs
+        body["status"] = self.status.to_json()
+        return body
 
 
 def _key_disjointness(
@@ -281,13 +305,19 @@ def split(
     report: DedupeReport,
     *,
     config: DataConfig,
-    max_candidate_pairs: int = 5_000_000,
+    max_candidate_pairs: int | None = None,
 ) -> SplitReport:
     """Assign every surviving row to ``train``, ``val`` or ``heldout``.
 
     Takes a :class:`~qd_data.dedupe.DedupeReport` rather than rows, so the ordering
-    "dedupe across everything, *then* split" is enforced by the signature.
+    "dedupe across everything, *then* split" is enforced by the signature. The
+    near-duplicate re-derivation's candidate bound is ``config.max_candidate_pairs``
+    unless ``max_candidate_pairs`` names one -- the same bound dedupe reads, so a build
+    that raised it for dedupe cannot truncate here on the old literal.
     """
+    bound = config.max_candidate_pairs if max_candidate_pairs is None else max_candidate_pairs
+    if bound < 1:
+        raise ValueError(f"max_candidate_pairs must be >= 1, got {bound}")
     rows = report.kept
     assignments: list[SplitAssignment] = []
     for row in rows:
@@ -339,7 +369,7 @@ def split(
         rows,
         repo_split_of={a.row_id: a.repo_split for a in assignments},
         config=config,
-        max_candidate_pairs=max_candidate_pairs,
+        max_candidate_pairs=bound,
     )
     fam_ok = _held_out_families_absent(assignments, config=config)
 
@@ -352,6 +382,57 @@ def split(
         held_out_families_absent_from_training=fam_ok,
         dedupe_status=report.status,
         content_disjoint_families=content_disjoint_families(rows),
+        exact_content_disjoint=_exact_content_disjoint(
+            rows, split_of={a.row_id: a.split for a in assignments}
+        ),
+        max_candidate_pairs=bound,
+    )
+
+
+def _exact_content_disjoint(
+    rows: tuple[DataRow, ...], *, split_of: dict[str, str]
+) -> TriState | None:
+    """The ruling's leak check for rows it scoped out of the near-duplicate search.
+
+    For every ``EXACT_CONTENT`` row, every row (scoped or not) with the same ``dedupe_text``
+    digest must sit on the same side of the split. Independent of dedupe, which should have
+    left one row per digest: a dedupe that let a duplicate through is caught here rather than
+    trusted. Exhaustive -- a digest map, no bound -- so it either finds a crossing or there is
+    none. ``None`` when no row was scoped out.
+
+    It reads each row's **final** split (``SplitAssignment.split``: train, val or heldout,
+    family holdout included), where :func:`_cross_split_near_duplicates` reads the
+    ``repo_split``. That is deliberate, not a mismatch: the ruling defines this leak as the
+    same content on two sides of the split the model is trained and measured on, and a
+    family-held-out row is on the held-out side whatever its repo hash says.
+    """
+    scoped = [r for r in rows if near_duplicate_policy(r) == EXACT_CONTENT]
+    if not scoped:
+        return None
+    wanted = {text_digest(r.dedupe_text) for r in scoped}
+    sides: dict[str, dict[str, list[str]]] = {}
+    for r in rows:
+        d = text_digest(r.dedupe_text)
+        if d in wanted:
+            sides.setdefault(d, {}).setdefault(split_of[r.row_id], []).append(r.row_id)
+    crossing = sorted(
+        (d, by_split) for d, by_split in sides.items() if len(by_split) > 1
+    )
+    return Ran(
+        passed=not crossing,
+        value=len(crossing),
+        n=len(scoped),
+        n_total=len(scoped),
+        detail=(
+            f"{len(scoped)} rows scoped out by {NEAR_DUPLICATE_RULING}; every content digest "
+            "among them sits on one side of the split"
+            if not crossing
+            else f"{len(crossing)} content digest(s) of scoped rows span splits: "
+            + "; ".join(
+                ", ".join(f"{s}: {sorted(ids)[:3]}" for s, ids in sorted(by_split.items()))
+                for _, by_split in crossing[:5]
+            )
+        ),
     )
 
 
@@ -442,7 +523,25 @@ def _cross_split_near_duplicates(
     would mean a bug in dedupe reports itself as a clean split -- the same argument
     ``docs/hardening.md`` section 1 makes for re-deriving mutation spans from a
     textual diff rather than from the mutator.
+
+    Rows the ruling scoped out (``EXACT_CONTENT``) are not searched here either. The result
+    then covers the searched rows of all rows (``n`` of ``n_total``) and names the scoped
+    families, so it never reads as a search of the whole split; their leak check is
+    :func:`_exact_content_disjoint`.
     """
+    all_rows = rows
+    scoped = Counter(r.family_id for r in rows if near_duplicate_policy(r) == EXACT_CONTENT)
+    rows = tuple(r for r in rows if near_duplicate_policy(r) != EXACT_CONTENT)
+    scope_note = (
+        ""
+        if not scoped
+        else (
+            f"; {sum(scoped.values())} rows of "
+            + ", ".join(f"{fam} ({n})" for fam, n in sorted(scoped.items()))
+            + f" were not searched: exact content by {NEAR_DUPLICATE_RULING}, checked by "
+            "exact_content_disjoint instead"
+        )
+    )
     if len(rows) < 2:
         return NotRun(
             reason=(
@@ -482,7 +581,7 @@ def _cross_split_near_duplicates(
         passed=not offenders,
         value=len(offenders),
         n=len(rows),
-        n_total=len(rows),
+        n_total=len(all_rows),
         detail=(
             f"scanned {len(rows)} rows; {len(cands)} candidate pairs, {len(crossing)} of "
             "them crossing a repo split, none confirmed at threshold "
@@ -490,5 +589,6 @@ def _cross_split_near_duplicates(
             if not offenders
             else "near-duplicate pairs span a repo split boundary: "
             + ", ".join(f"{a}~{b} (J={j:.3f})" for a, b, j in offenders[:5])
-        ),
+        )
+        + scope_note,
     )

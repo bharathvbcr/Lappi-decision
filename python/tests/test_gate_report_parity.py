@@ -132,6 +132,7 @@ def _record_eval_row(ledger: Ledger, scored: dict[str, object], second: dict[str
     metrics["ood_abstain.in_distribution"] = Ran(passed=True, value=in_k / len(indist), n=in_k,
                                                  n_total=len(indist))
     metrics.update(rft.in_distribution_family_metrics(scored, indist, gold_noul))
+    metrics.update(rft.selective_risk_metrics(scored, indist))
     verdicts: list[dict[str, object]] = scored["verdicts"]  # type: ignore[assignment]
     for kind in ("choice", "span"):
         rows = [v for v in verdicts if v["kind"] == kind]
@@ -147,6 +148,20 @@ def _record_eval_row(ledger: Ledger, scored: dict[str, object], second: dict[str
         assert isinstance(pooled, Ran) and isinstance(pooled.value, float)
         metrics["ece.report.pooled"] = Ran(passed=True, value=pooled.value + 1e-9, n=pooled.n,
                                            n_total=pooled.n_total)
+    if tamper == "selective_risk":
+        name = min(k for k, s in metrics.items()
+                   if k.startswith("selective_risk.family.") and isinstance(s, Ran)
+                   and s.n is not None and s.n_total is not None and s.n < s.n_total)
+        risk = metrics[name]
+        assert isinstance(risk, Ran) and risk.n is not None and risk.n_total is not None
+        metrics[name] = Ran(passed=True, value=(risk.n + 1) / risk.n_total, n=risk.n + 1,
+                            n_total=risk.n_total)
+    if tamper == "top_class_share":
+        name = min(k for k in metrics if k.endswith(".top_class_share"))
+        share = metrics[name]
+        assert isinstance(share, Ran) and share.n is not None and share.n_total is not None
+        metrics[name] = Ran(passed=share.passed, value=(share.n - 1) / share.n_total,
+                            n=share.n - 1, n_total=share.n_total)
     with RunRecorder(
         ledger, protocol=Protocol("d" * 64, "t" * 64, "b" * 40, "r" * 64, SEED),
         run_kind="eval", repo=REPO, env=_env(), wall_clock_s=None, cost=None,
@@ -339,6 +354,8 @@ def test_the_promotion_population_is_the_records_verbatim(gate_report_bin, tmp_p
 @pytest.mark.parametrize(("tamper", "named"), [
     ("permutation_count", "gates.permutation_consistency"),
     ("report_ece", "metrics.ece.report.pooled"),
+    ("top_class_share", "metrics.degenerate_head.choice.k10.top_class_share"),
+    ("selective_risk", "metrics.selective_risk.family."),
 ])
 def test_numbers_that_disagree_with_their_eval_row_are_refused(gate_report_bin, tmp_path,
                                                                 tamper, named):

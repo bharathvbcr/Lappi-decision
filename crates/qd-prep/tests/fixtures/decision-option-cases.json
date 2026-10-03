@@ -1,0 +1,138 @@
+{
+ "about": "Option lists and the refusal both qd_prep::decisions::structural_refusal and qd_data.general._checked_options give them (null: admitted). Generated and checked against _checked_options; read by crates/qd-prep/src/decisions.rs's tests and python/tests/test_decisions_pool.py. casefold-only collisions ('Stra\u00dfe' / 'STRASSE') are a known divergence, documented at py_norm, and are not listed.",
+ "cases": [
+  {
+   "options": [
+    "yes",
+    "no"
+   ],
+   "refusal": null
+  },
+  {
+   "options": [
+    "a"
+   ],
+   "refusal": "too_few_options"
+  },
+  {
+   "options": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10",
+    "11",
+    "12",
+    "13",
+    "14",
+    "15",
+    "16"
+   ],
+   "refusal": null
+  },
+  {
+   "options": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10",
+    "11",
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17"
+   ],
+   "refusal": "too_many_options"
+  },
+  {
+   "options": [
+    "A b",
+    " a  B "
+   ],
+   "refusal": "duplicate_options"
+  },
+  {
+   "options": [
+    "a\u001cb",
+    "a b"
+   ],
+   "refusal": "duplicate_options"
+  },
+  {
+   "options": [
+    "a\u00a0b",
+    "A B"
+   ],
+   "refusal": "duplicate_options"
+  },
+  {
+   "options": [
+    "\u039f\u0394\u039f\u03a3",
+    "\u03bf\u03b4\u03bf\u03c2"
+   ],
+   "refusal": "duplicate_options"
+  },
+  {
+   "options": [
+    "\u0130stanbul",
+    "i\u0307stanbul"
+   ],
+   "refusal": "duplicate_options"
+  },
+  {
+   "options": [
+    "a",
+    " NOUL "
+   ],
+   "refusal": "option_named_noul"
+  },
+  {
+   "options": [
+    "a",
+    "noul: abstain"
+   ],
+   "refusal": null
+  },
+  {
+   "options": [
+    "a",
+    "  "
+   ],
+   "refusal": "empty_option"
+  },
+  {
+   "options": [
+    "a",
+    "\u001f"
+   ],
+   "refusal": "empty_option"
+  },
+  {
+   "options": [
+    "a",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   "refusal": null
+  },
+  {
+   "options": [
+    "a",
+    "\u00e9xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   "refusal": "option_too_long"
+  }
+ ]
+}

@@ -1,0 +1,98 @@
+{
+  "decision": "fires",
+  "detail": {
+    "max": {
+      "n": 59,
+      "n_total": 59,
+      "value": 1.0
+    },
+    "min": {
+      "n": 40,
+      "n_total": 61,
+      "value": 0.6557377049180327
+    },
+    "rule": "seeds 3 and 4 run iff F's three 8K needle worst buckets spread by more than 0.30",
+    "seeds": [
+      {
+        "eval_row": "f4feac15-db49-4159-bb9b-695866c855cc",
+        "ft_row": "973cd4e3-e0d2-4ff8-8588-b761cb842b75",
+        "ft_row_quick": false,
+        "needle_8k_worst": {
+          "bucket": "80-100%",
+          "n": 40,
+          "n_total": 61,
+          "value": 0.6557377049180327
+        },
+        "ood_abstain.prose": {
+          "n": 54,
+          "n_total": 60,
+          "value": 0.9
+        },
+        "ood_abstain.scrambled": {
+          "n": 58,
+          "n_total": 60,
+          "value": 0.9666666666666667
+        },
+        "seed": 0
+      },
+      {
+        "eval_row": "aeca8d69-4733-4593-92de-2073021ed684",
+        "ft_row": "95fa4854-6146-4824-b7ad-22bb54744ff1",
+        "ft_row_quick": false,
+        "needle_8k_worst": {
+          "bucket": "0-20%",
+          "n": 59,
+          "n_total": 59,
+          "value": 1.0
+        },
+        "ood_abstain.prose": {
+          "n": 0,
+          "n_total": 60,
+          "value": 0.0
+        },
+        "ood_abstain.scrambled": {
+          "n": 56,
+          "n_total": 60,
+          "value": 0.9333333333333333
+        },
+        "seed": 1
+      },
+      {
+        "eval_row": "8c3a774a-87d7-4452-a33b-49cc6fbd911e",
+        "ft_row": "32990e1a-0c61-49fa-9217-800eb845f27e",
+        "ft_row_quick": false,
+        "needle_8k_worst": {
+          "bucket": "80-100%",
+          "n": 47,
+          "n_total": 61,
+          "value": 0.7704918032786885
+        },
+        "ood_abstain.prose": {
+          "n": 1,
+          "n_total": 60,
+          "value": 0.016666666666666666
+        },
+        "ood_abstain.scrambled": {
+          "n": 58,
+          "n_total": 60,
+          "value": 0.9666666666666667
+        },
+        "seed": 2
+      }
+    ],
+    "spread": 0.34426229508196726,
+    "spread_exceeds": true,
+    "then": "seeds 3 and 4 run (cap 32,400 s each, with --needle-control 1024,2048,4096) before J7'; J7' averages and ensembles five; a three-seed average is not scored as a candidate"
+  },
+  "inputs": [
+    {
+      "bytes": 195429,
+      "path": "ledger/gh200-p4-v4-2026-10-01.jsonl",
+      "rows": 15,
+      "sha256": "14ec1d56b7c71ec0713f134ccc317aaf035391e543b93f2e2f398053f4163edf"
+    }
+  ],
+  "preregistration": "campaign/f-j7prime-preregistered.json (54512e6)",
+  "rule": "seeds_3_4",
+  "tool": "qd-post-f-rules"
+}

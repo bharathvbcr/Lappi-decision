@@ -37,6 +37,20 @@
 //!
 //! Output: a directory holding `pairs.tsv`, `exclusions.txt` and `attestation.json`
 //! (version 2), written as `DIR.partial` and renamed, so it appears whole or not at all.
+//!
+//! **Same-family scope** (Fable's ruling of 2026-10-03, ratified by the human:
+//! `AUDIT/finalize-2026-10-03/containment-scope-ruling-2026-10-03.md`). When the corpus object
+//! names `decisions_pool_same_family_not_enforced` (a sorted list of family ids, which
+//! `real_tokenizer_pipeline.corpus_identity` writes for a build that reads a general-decision
+//! pool), a pair whose source and target rows are of the SAME family in that list is still
+//! written to `pairs.tsv` but is not enforced: it excludes nothing and is not a remaining hit.
+//! Those families share task templates and rule prose between rows, so word 8-gram containment
+//! between two of their rows measures the template; their train/val hygiene is the pool's own
+//! (group-keyed draw, exact content, near-duplicate disjointness). Every pair across families,
+//! and every pair of a family not in the list, is enforced as before. The attestation counts
+//! what the scope left unenforced (`same_family_not_enforced`), and names the scope in its rule.
+//! The corpus object carries the list, so the build that applies `exclusions.txt` (which must
+//! match the attestation's corpus exactly) carries the same scope or is refused.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
@@ -107,6 +121,8 @@ pub struct Request<'b> {
     pub threshold: f64,
     pub corpus: &'b str,
     pub export: &'b str,
+    /// The corpus object's `decisions_pool_same_family_not_enforced`, or empty (module doc).
+    pub same_family_not_enforced: Vec<String>,
     pub checks: Vec<Check>,
     pub set_names: Vec<&'b str>,
     pub scans: Vec<Scan>,
@@ -146,6 +162,47 @@ fn json_object<'b>(s: &'b str, what: &str) -> Result<&'b str, String> {
     Ok(s)
 }
 
+/// The corpus object's key naming the same-family scope (module doc).
+pub const SAME_FAMILY_SCOPE_KEY: &str = "decisions_pool_same_family_not_enforced";
+
+/// Per scoped family: the enforced scans' pairs the scope left unenforced, the (set, row) source
+/// rows they hit, and the identity keys among those no enforced pair excluded.
+type ScopeTally<'a> = (u64, HashSet<(usize, usize)>, HashSet<&'a str>);
+
+/// The same-family scope the corpus object names: absent is no scope; present must be a
+/// non-empty, byte-sorted, unique list of non-empty family ids, or the request is refused.
+fn same_family_scope(corpus: &str) -> Result<Vec<String>, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(corpus).map_err(|e| format!("corpus is not JSON: {e}"))?;
+    let Some(scope) = value.get(SAME_FAMILY_SCOPE_KEY) else {
+        return Ok(Vec::new());
+    };
+    let items = scope
+        .as_array()
+        .ok_or_else(|| format!("corpus {SAME_FAMILY_SCOPE_KEY} is not a list"))?;
+    let mut families = Vec::with_capacity(items.len());
+    for item in items {
+        let family = item
+            .as_str()
+            .ok_or_else(|| format!("corpus {SAME_FAMILY_SCOPE_KEY} holds a non-string"))?;
+        families.push(field(family, SAME_FAMILY_SCOPE_KEY)?.to_string());
+    }
+    if families.is_empty() {
+        return Err(format!(
+            "corpus {SAME_FAMILY_SCOPE_KEY} is empty: name no scope rather than an empty one"
+        ));
+    }
+    if families
+        .windows(2)
+        .any(|w| w[0].as_bytes() >= w[1].as_bytes())
+    {
+        return Err(format!(
+            "corpus {SAME_FAMILY_SCOPE_KEY} is not byte-sorted and unique"
+        ));
+    }
+    Ok(families)
+}
+
 /// Parse and validate a request. Nothing is hashed until all of it has been read.
 pub fn parse(buf: &[u8]) -> Result<Request<'_>, String> {
     if buf.len() as u64 > MAX_INPUT_BYTES {
@@ -175,6 +232,7 @@ pub fn parse(buf: &[u8]) -> Result<Request<'_>, String> {
         ));
     }
     let corpus = json_object(take_str(&mut c, "corpus")?, "corpus")?;
+    let same_family_not_enforced = same_family_scope(corpus)?;
     let export = json_object(take_str(&mut c, "export")?, "export")?;
     let n_checks = c.u32("n_checks")?;
     if n_checks > MAX_CHECKS {
@@ -307,6 +365,7 @@ pub fn parse(buf: &[u8]) -> Result<Request<'_>, String> {
         threshold,
         corpus,
         export,
+        same_family_not_enforced,
         checks,
         set_names,
         scans,
@@ -698,11 +757,23 @@ impl Request<'_> {
                 p.target_ngrams
             ));
         }
-        // exclusions.txt: the enforced scans' source identity keys, byte-sorted, unique.
+        // A pair of an enforced scan is enforced unless the same-family scope covers it: source
+        // and target rows of one family the corpus names (module doc).
+        let scoped = |p: &Pair| -> bool {
+            let scan = &self.scans[p.scan];
+            let family = self.sets[scan.source][p.source_row].family;
+            family == self.sets[scan.target][p.target_row].family
+                && self
+                    .same_family_not_enforced
+                    .iter()
+                    .any(|f| f.as_str() == family)
+        };
+        let enforced_pair = |p: &Pair| self.scans[p.scan].enforced && !scoped(p);
+        // exclusions.txt: the enforced pairs' source identity keys, byte-sorted, unique.
         let mut excluded: Vec<&str> = found
             .pairs
             .iter()
-            .filter(|p| self.scans[p.scan].enforced)
+            .filter(|p| enforced_pair(p))
             .map(|p| self.sets[self.scans[p.scan].source][p.source_row].identity)
             .collect();
         excluded.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
@@ -724,9 +795,11 @@ impl Request<'_> {
             let source_rows: HashSet<usize> = mine.iter().map(|p| p.source_row).collect();
             let target_rows: HashSet<usize> = mine.iter().map(|p| p.target_row).collect();
             // Re-counted from the pairs, not assumed: a pair whose source row survives the
-            // exclusion is overlap the build would still train on.
+            // exclusion is overlap the build would still train on. On an enforced scan a pair
+            // the same-family scope covers is not a remaining hit; it is counted below instead.
             let left = mine
                 .iter()
+                .filter(|p| !scan.enforced || !scoped(p))
                 .filter(|p| !excluded_set.contains(self.sets[scan.source][p.source_row].identity))
                 .count() as u64;
             let mut by_family: BTreeMap<&str, (HashSet<usize>, u64)> = BTreeMap::new();
@@ -746,7 +819,7 @@ impl Request<'_> {
                     ("pairs", Json::Int(n_pairs)),
                 ]));
             }
-            scan_json.push(Json::Obj(vec![
+            let mut scan_fields = vec![
                 ("source", Json::Str(set(scan.source).to_string())),
                 ("target", Json::Str(set(scan.target).to_string())),
                 ("enforced", Json::Bool(scan.enforced)),
@@ -754,7 +827,13 @@ impl Request<'_> {
                 ("source_rows_hit", Json::Int(source_rows.len() as u64)),
                 ("target_rows_hit", Json::Int(target_rows.len() as u64)),
                 ("remaining_hits", Json::Int(left)),
-            ]));
+            ];
+            // Written only under a scope, so an unscoped attestation is the bytes it was.
+            if !self.same_family_not_enforced.is_empty() && scan.enforced {
+                let n_scoped = mine.iter().filter(|p| scoped(p)).count() as u64;
+                scan_fields.push(("pairs_same_family_not_enforced", Json::Int(n_scoped)));
+            }
+            scan_json.push(Json::Obj(scan_fields));
             if scan.enforced {
                 remaining.push((set(scan.target).to_string(), Json::Int(left)));
                 if left > 0 {
@@ -853,19 +932,76 @@ impl Request<'_> {
         let clean = reasons.is_empty();
         let pairs_sha256 = sha256_hex(pairs_tsv.as_bytes());
         let exclusions_sha256 = sha256_hex(exclusions.as_bytes());
-        let attestation = Json::Obj(vec![
+        let mut rule = String::from(
+            "a source row hits a target row when it contains at least `threshold` of the target \
+             row's distinct lower-cased \\w+ word n-grams, blake2b-64 hashed \
+             (qd_train.replay.decontaminate, every pair, not the best per row); keys (i) and \
+             (iii) are the splitter's checks below",
+        );
+        // The scope's own block: per family, the enforced scans' pairs it left unenforced, the
+        // source rows they hit, and the identity keys they alone hit (so not excluded).
+        let mut scope_block = None;
+        if !self.same_family_not_enforced.is_empty() {
+            rule.push_str(
+                "; a pair whose source and target rows are of the same family, for a family \
+                 named in same_family_not_enforced (the general-decision pool's; Fable, \
+                 2026-10-03), is listed in pairs.tsv but neither excludes its source row nor \
+                 counts as a remaining hit",
+            );
+            let mut by_family: BTreeMap<&str, ScopeTally<'_>> =
+                self.same_family_not_enforced
+                    .iter()
+                    .map(|f| (f.as_str(), (0, HashSet::new(), HashSet::new())))
+                    .collect();
+            for p in found.pairs.iter().filter(|p| self.scans[p.scan].enforced && scoped(p)) {
+                let source = self.scans[p.scan].source;
+                let row = &self.sets[source][p.source_row];
+                if let Some(e) = by_family.get_mut(row.family) {
+                    e.0 += 1;
+                    e.1.insert((source, p.source_row));
+                    if !excluded_set.contains(row.identity) {
+                        e.2.insert(row.identity);
+                    }
+                }
+            }
+            let (mut pairs, mut rows, mut keys) = (0u64, 0u64, 0u64);
+            let mut per_family = Vec::new();
+            for (family, (n_pairs, source_rows, not_excluded)) in &by_family {
+                pairs += n_pairs;
+                rows += source_rows.len() as u64;
+                keys += not_excluded.len() as u64;
+                per_family.push((
+                    (*family).to_string(),
+                    Json::Obj(vec![
+                        ("pairs", Json::Int(*n_pairs)),
+                        ("source_rows", Json::Int(source_rows.len() as u64)),
+                        (
+                            "source_identity_keys_not_excluded",
+                            Json::Int(not_excluded.len() as u64),
+                        ),
+                    ]),
+                ));
+            }
+            scope_block = Some(Json::Obj(vec![
+                (
+                    "families",
+                    Json::Arr(
+                        self.same_family_not_enforced
+                            .iter()
+                            .map(|f| Json::Str(f.clone()))
+                            .collect(),
+                    ),
+                ),
+                ("pairs", Json::Int(pairs)),
+                ("source_rows", Json::Int(rows)),
+                ("source_identity_keys_not_excluded", Json::Int(keys)),
+                ("by_family", Json::Map(per_family)),
+            ]));
+        }
+        let mut fields = vec![
             ("version", Json::Int(u64::from(ATTESTATION_VERSION))),
             ("tool", Json::Str("qd-prep containment".to_string())),
-            (
-                "rule",
-                Json::Str(
-                    "a source row hits a target row when it contains at least `threshold` of \
-                     the target row's distinct lower-cased \\w+ word n-grams, blake2b-64 \
-                     hashed (qd_train.replay.decontaminate, every pair, not the best per row); \
-                     keys (i) and (iii) are the splitter's checks below"
-                        .to_string(),
-                ),
-            ),
+            ("rule", Json::Str(rule)),
             ("n", Json::Int(self.n as u64)),
             ("threshold", Json::Float(self.threshold)),
             (
@@ -892,12 +1028,16 @@ impl Request<'_> {
             ("n_exclusions", Json::Int(excluded.len() as u64)),
             ("exclusions_sha256", Json::Str(exclusions_sha256)),
             ("remaining_hits", Json::Map(remaining)),
-            ("clean", Json::Bool(clean)),
-            (
-                "not_clean_because",
-                Json::Arr(reasons.into_iter().map(Json::Str).collect()),
-            ),
-        ]);
+        ];
+        if let Some(block) = scope_block {
+            fields.push(("same_family_not_enforced", block));
+        }
+        fields.push(("clean", Json::Bool(clean)));
+        fields.push((
+            "not_clean_because",
+            Json::Arr(reasons.into_iter().map(Json::Str).collect()),
+        ));
+        let attestation = Json::Obj(fields);
         let mut body = String::new();
         attestation.write(&mut body, 0);
         body.push('\n');
@@ -975,10 +1115,20 @@ mod tests {
         checks: &[(&str, u8)],
         rows: &[TestRow<'_>],
     ) -> Vec<u8> {
+        request_for("{\"rev\": \"x\"}", sets, scans, checks, rows)
+    }
+
+    fn request_for(
+        corpus: &str,
+        sets: &[&str],
+        scans: &[(u32, u32, bool)],
+        checks: &[(&str, u8)],
+        rows: &[TestRow<'_>],
+    ) -> Vec<u8> {
         let mut out = INPUT_MAGIC.to_vec();
         out.extend_from_slice(&8u32.to_le_bytes());
         out.extend_from_slice(&0.5f64.to_le_bytes());
-        s(&mut out, "{\"rev\": \"x\"}");
+        s(&mut out, corpus);
         s(&mut out, "{}");
         out.extend_from_slice(&(checks.len() as u32).to_le_bytes());
         for (name, state) in checks {
@@ -1161,6 +1311,79 @@ mod tests {
         let mut zero_threshold = good.clone();
         zero_threshold[12..20].copy_from_slice(&0.0f64.to_le_bytes());
         assert!(parse(&zero_threshold).unwrap_err().contains("threshold"));
+    }
+
+    const LONG_C: &str = "seven bright lanterns hung along the harbour wall while the night \
+                          ferry waited for the last passengers to come aboard";
+
+    /// Train rows: p1 (fam.p) holds a fam.p val row, p2 (fam.p) holds a fam.q val row, x1
+    /// (fam.x) holds a fam.x val row; one held-out row of fam.p is reported only.
+    fn scope_rows() -> [TestRow<'static>; 7] {
+        [
+            (0, "p1", "id-p1", "fam.p", LONG_A),
+            (0, "p2", "id-p2", "fam.p", LONG_B),
+            (0, "x1", "id-x1", "fam.x", LONG_C),
+            (1, "vp", "vid-p", "fam.p", LONG_A),
+            (1, "vq", "vid-q", "fam.q", LONG_B),
+            (1, "vx", "vid-x", "fam.x", LONG_C),
+            (2, "hp", "hid-p", "fam.p", LONG_A),
+        ]
+    }
+
+    fn scoped_run(corpus: &str) -> Written {
+        let buf = request_for(
+            corpus,
+            &["train", "val", "heldout"],
+            &[(0, 1, true), (0, 2, false)],
+            &[("identity_disjoint", 2), ("near_duplicate_disjoint", 2)],
+            &scope_rows(),
+        );
+        run(&buf, 2).expect("runs")
+    }
+
+    #[test]
+    fn a_same_family_pair_of_a_scoped_family_is_listed_but_not_enforced() {
+        let w = scoped_run(
+            "{\"rev\": \"x\", \"decisions_pool_same_family_not_enforced\": [\"fam.p\", \"fam.q\"]}",
+        );
+        let tsv = String::from_utf8(w.pairs_tsv).expect("utf8");
+        // Every pair is still listed: p1->vp, p1->hp, p2->vq, x1->vx.
+        assert_eq!(tsv.lines().count() - 1, 4, "{tsv}");
+        // p1 hits only its own family (scoped): kept. p2 hits fam.q from fam.p: excluded.
+        // x1's family is not in the scope: excluded.
+        assert_eq!(w.exclusions, b"id-p2\nid-x1\n");
+        let att = String::from_utf8(w.attestation).expect("utf8");
+        assert!(att.contains("\"clean\": true"), "{att}");
+        assert!(att.contains("\"remaining_hits\": {\n    \"val\": 0\n  }"), "{att}");
+        assert!(att.contains("\"pairs_same_family_not_enforced\": 1"), "{att}");
+        assert!(att.contains("\"same_family_not_enforced\": {"), "{att}");
+        assert!(att.contains("\"source_identity_keys_not_excluded\": 1"), "{att}");
+        assert!(att.contains("neither excludes its source row"), "{att}");
+    }
+
+    #[test]
+    fn without_a_scope_every_pair_of_an_enforced_scan_excludes_as_before() {
+        let w = scoped_run("{\"rev\": \"x\"}");
+        assert_eq!(w.exclusions, b"id-p1\nid-p2\nid-x1\n");
+        let att = String::from_utf8(w.attestation).expect("utf8");
+        assert!(!att.contains("same_family_not_enforced"), "{att}");
+        assert!(!att.contains("neither excludes its source row"), "{att}");
+    }
+
+    #[test]
+    fn a_malformed_scope_is_refused() {
+        for (corpus, why) in [
+            ("{\"decisions_pool_same_family_not_enforced\": []}", "empty"),
+            ("{\"decisions_pool_same_family_not_enforced\": \"fam.p\"}", "not a list"),
+            ("{\"decisions_pool_same_family_not_enforced\": [\"b\", \"a\"]}", "byte-sorted"),
+            ("{\"decisions_pool_same_family_not_enforced\": [\"a\", \"a\"]}", "byte-sorted"),
+            ("{\"decisions_pool_same_family_not_enforced\": [\"\"]}", "empty"),
+            ("{\"decisions_pool_same_family_not_enforced\": [1]}", "non-string"),
+        ] {
+            let buf = request_for(corpus, &["train", "val"], &[(0, 1, true)], &[], &[]);
+            let err = parse(&buf).unwrap_err();
+            assert!(err.contains(why), "{corpus}: {err}");
+        }
     }
 
     #[test]

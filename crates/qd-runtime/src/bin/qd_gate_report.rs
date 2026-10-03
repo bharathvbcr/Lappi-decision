@@ -708,19 +708,24 @@ fn shapes_of(rows: &[&Letter]) -> Vec<String> {
     seen
 }
 
-/// Mean entropy and the top predicted class's share: `degenerate_head_check`'s two numbers.
-fn head_numbers(rows: &[&Letter]) -> (f64, f64, usize) {
-    let entropies: Vec<f64> = rows.iter().map(|l| l.entropy).collect();
+/// The most predicted row and how many rows predict it (`eval_harness._top_class`: ties go to
+/// the lowest row, as numpy's `argmax` over the `bincount` does).
+fn top_class(rows: &[&Letter]) -> (usize, usize) {
     let width = rows[0].rows;
     let mut counts = vec![0usize; width];
     for l in rows {
         counts[l.argmax] += 1;
     }
-    let (top_class, top) =
-        counts.iter().enumerate().fold(
-            (0usize, 0usize),
-            |best, (c, k)| if *k > best.1 { (c, *k) } else { best },
-        );
+    counts.iter().enumerate().fold(
+        (0usize, 0usize),
+        |best, (c, k)| if *k > best.1 { (c, *k) } else { best },
+    )
+}
+
+/// Mean entropy and the top predicted class's share: `degenerate_head_check`'s two numbers.
+fn head_numbers(rows: &[&Letter]) -> (f64, f64, usize) {
+    let entropies: Vec<f64> = rows.iter().map(|l| l.entropy).collect();
+    let (top_class, top) = top_class(rows);
     (mean(&entropies), top as f64 / rows.len() as f64, top_class)
 }
 
@@ -761,6 +766,67 @@ fn in_distribution<'a>(
         out.insert(l.row_id.clone(), (abstained, l.family.clone()));
     }
     out
+}
+
+/// `real_ft_run.SELECTIVE_RISK_GRID`: the p_top thresholds of the selective-risk readout.
+const SELECTIVE_RISK_GRID: [f64; 4] = [0.5, 0.7, 0.9, 0.99];
+
+/// Per in-distribution choice row: its decoded answer's probability and whether it was right.
+/// The same rows and last-write-wins as [`in_distribution`], so the two maps join by `row_id`.
+fn confident_answers<'a>(
+    letters: impl IntoIterator<Item = &'a Letter>,
+) -> BTreeMap<String, (f64, bool)> {
+    let mut out = BTreeMap::new();
+    for l in letters {
+        if !matches!(l.kind, SlotKind::Choice) || l.expected_abstain {
+            continue;
+        }
+        out.insert(l.row_id.clone(), (l.probs[l.top], l.correct));
+    }
+    out
+}
+
+/// `real_ft_run.selective_risk_metrics`, recomputed: per family and threshold, `n` wrong of
+/// `n_total` answered (not abstained, p_top at or above the threshold). A family with nothing
+/// answered must not be recorded as ran.
+fn selective_risk_checks(
+    checks: &mut Checks<'_>,
+    indist: &BTreeMap<String, (bool, Option<String>)>,
+    answers: &BTreeMap<String, (f64, bool)>,
+) -> Result<()> {
+    let mut by_family: BTreeMap<&str, Vec<(f64, bool)>> = BTreeMap::new();
+    for (row_id, (abstained, family)) in indist {
+        let Some(family) = family.as_deref() else {
+            return Ok(());
+        };
+        let entry = by_family.entry(family).or_default();
+        if *abstained {
+            continue;
+        }
+        let Some(answer) = answers.get(row_id) else {
+            return Err(format!("row {row_id} is in the in-distribution bound with no answer"));
+        };
+        entry.push(*answer);
+    }
+    for (family, rows) in &by_family {
+        for tau in SELECTIVE_RISK_GRID {
+            let name = format!("selective_risk.family.{family}.p_top_ge_{tau:.2}");
+            let answered: Vec<bool> = rows.iter().filter(|(p, _)| *p >= tau).map(|r| r.1).collect();
+            if answered.is_empty() {
+                if let Some(r) = checks.ran_state("metrics", &name) {
+                    return Err(format!(
+                        "metrics.{name}: the eval row records it ran ({:?}), the verdicts \
+                         answer no row at that threshold",
+                        r.get("value")
+                    ));
+                }
+                continue;
+            }
+            let wrong = answered.iter().filter(|ok| !**ok).count();
+            checks.share_of("metrics", &name, wrong, answered.len())?;
+        }
+    }
+    Ok(())
 }
 
 /// What was compared with the eval row, and what could not be.
@@ -846,6 +912,27 @@ impl<'a> Checks<'a> {
                      {total}"
                 );
             }
+            self.checked.push(format!("{section}.{name}"));
+        }
+        Ok(())
+    }
+
+    /// A share recorded as `value` = `k / n` with `n` = `k` and `n_total` = `n`
+    /// (`eval_harness.top_class_share_state`): all three must equal the verdicts'.
+    fn share_of(&mut self, section: &str, name: &str, k: usize, n: usize) -> Result<()> {
+        if let Some(r) = self.ran_state(section, name) {
+            let share = k as f64 / n as f64;
+            let rec = (
+                r.get("value").and_then(Value::as_f64),
+                r.get("n").and_then(Value::as_u64),
+                r.get("n_total").and_then(Value::as_u64),
+            );
+            ensure!(
+                rec.0.is_some_and(|x| (x - share).abs() <= VALUE_TOLERANCE)
+                    && (rec.1, rec.2) == (Some(k as u64), Some(n as u64)),
+                "{section}.{name}: the eval row records {rec:?}, the verdicts give {share} \
+                 ({k}/{n}); these are not that row's verdicts"
+            );
             self.checked.push(format!("{section}.{name}"));
         }
         Ok(())
@@ -1144,6 +1231,9 @@ fn report_row(file: &VerdictFile, row: &EvalRow, suite: Option<&Vec<SuiteLine>>)
             n,
         )?;
     }
+    if !asked.is_empty() {
+        selective_risk_checks(&mut checks, &indist, &confident_answers(&file.letters))?;
+    }
     let mut ood_suite = Map::new();
     let mut needle_suite = Map::new();
     if let Some(lines) = suite {
@@ -1232,6 +1322,17 @@ fn report_row(file: &VerdictFile, row: &EvalRow, suite: Option<&Vec<SuiteLine>>)
                 &format!("degenerate_head.{shape}"),
                 entropy,
                 Some(rows.len()),
+            )?;
+        }
+        if !rows.is_empty() {
+            // Read by the promotion verdict under a share-only degenerate_head_floor; rows
+            // written before 2026-10-03 lack it and land in not_checked as absent.
+            let (_, top) = top_class(rows);
+            checks.share_of(
+                "metrics",
+                &format!("degenerate_head.{shape}.top_class_share"),
+                top,
+                rows.len(),
             )?;
         }
         head_inputs.insert(format!("degenerate_head.{shape}"), head);

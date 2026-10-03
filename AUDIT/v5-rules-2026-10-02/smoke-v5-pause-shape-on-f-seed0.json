@@ -1,0 +1,63 @@
+{
+  "decision": "continue",
+  "detail": {
+    "code_commit": "a5026707b6e3e57c253be32003ba32420f2d78e2",
+    "data_snapshot_hash": "ea3215c4f36d57f74d291fb94c3fa8724fa5a14a303ea7572aa0dafb2a0933a1",
+    "eval_row": "f4feac15-db49-4159-bb9b-695866c855cc",
+    "ft_row": "973cd4e3-e0d2-4ff8-8588-b761cb842b75",
+    "kind": "a spending rule, not a gate (R9)",
+    "needle_8k_worst": {
+      "form": "2*n >= 1*n_total",
+      "meets": true,
+      "worst": {
+        "bucket": "80-100%",
+        "n": 40,
+        "n_total": 61,
+        "value": 0.6557377049180327
+      }
+    },
+    "not_checked": "that the eval rows were scored on the rebuilt 8K needle suite: recipe.needle carries no suite digest and needle_suite_tokens records the median, so no row field tells the rebuilt suite from F's; recipe.needle is recorded for the reader (GAP-V5-RULES-REBUILT-SUITE-NOT-ON-THE-ROW-2026-10-02)",
+    "preregistration_sha256": "4ef5ebffebb8224bdc5f2e74214e23a682cd5ca7e6e2f900d7ac6eb409f8f55b",
+    "recipe_hash": "fb7810a52873f91f9fb4d6be0a4d01e4aa24a7386486671124c45cb5a087ae15",
+    "rule": "after v5 seed 0's epoch-score-val row, qd-post-f-rules v5-pause prints continue iff val_top1.span has 5*n >= 4*n_total and the 8K needle worst bucket has 2*n >= n_total on the rebuilt suite; otherwise pause: the waiter starts seeds 1-2 only once V5_CONTINUE is pinned by the human. A spending rule, not a gate (F seed 0/1 span 0.902/0.912, f4feac15/aeca8d69).",
+    "seed": 0,
+    "suite": {
+      "needle_suite_tokens.value": 8473,
+      "recipe.needle": {
+        "cases": 300,
+        "cases_per_depth": 60,
+        "hit_rule": "hunk-of-predicted-start-line",
+        "min_recall": 0.95,
+        "suite_seed": 20260919,
+        "target_tokens": 8192
+      }
+    },
+    "then": "v5 seeds 1 and 2 start",
+    "val_top1.span": {
+      "count": {
+        "n": 6529,
+        "n_total": 7238,
+        "value": 0.9020447637468914
+      },
+      "form": "5*n >= 4*n_total",
+      "meets": true
+    }
+  },
+  "inputs": [
+    {
+      "bytes": 59019,
+      "path": "target/v5-prereg-smoke.json",
+      "role": "preregistration",
+      "sha256": "4ef5ebffebb8224bdc5f2e74214e23a682cd5ca7e6e2f900d7ac6eb409f8f55b"
+    },
+    {
+      "bytes": 195429,
+      "path": "ledger/gh200-p4-v4-2026-10-01.jsonl",
+      "rows": 15,
+      "sha256": "14ec1d56b7c71ec0713f134ccc317aaf035391e543b93f2e2f398053f4163edf"
+    }
+  ],
+  "preregistration": "campaign/v5-preregistered.json (the DRAFT renamed on main, binds_iff; read at run time, its sha256 recorded)",
+  "rule": "v5_pause_after_seed_0",
+  "tool": "qd-post-f-rules"
+}

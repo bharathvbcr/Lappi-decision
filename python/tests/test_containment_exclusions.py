@@ -123,15 +123,59 @@ def _pipeline_or_skip():
 
 @pytest.mark.usefixtures("qd_prep")
 def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) -> None:
-    """Characterization, pinned at d554702: every shard file, sequence index and manifest of a
-    60-pair build, timestamps aside, is the bytes the pipeline wrote before the flag existed."""
+    """Characterization: every shard file, sequence index and manifest of a 60-pair build,
+    timestamps aside, is the bytes the pipeline wrote before the flag existed.
+
+    Pinned at d554702 as d67c7de0.... It has moved seven times since, each time by design and
+    with every moved byte accounted for. No move was a re-pin to whatever came out:
+
+    * L-v5-data -> 92299328...: the tokens, offsets and supervision are byte-identical. The
+      headers differ only in five qd_data code fingerprints and their derived hashes, and the
+      manifests only in admitted_source_ids and their derived hashes.
+      See GAP-L-V5DATA-CHARACTERIZATION-DIGEST-MOVES-2026-10-02.
+    * Prompt format 2 -> 3c9ae50a.... Every sequence of all three shard sets (86/86/12) decodes
+      to the format-1 text with exactly two edits: the format line inserted after the begin
+      line, and the question line moved after the context. Each sequence is 9 tokens longer;
+      target_index shifts by that delta; the other supervision arrays are identical. The headers
+      gain prompt_format 2 and move only in fingerprints and derived fields. Unexplained: 0.
+      See AUDIT/v5-fmt-characterization-2026-10-02/ and
+      GAP-L-V5FMT-CHARACTERIZATION-CRITERION-STALE-2026-10-02.
+    * b11e6e0 (CLINC not reportable) -> 9674f8fc..., unseen at the time because this test
+      skips on a host without the commitpackft download. A build at adbaec1 reproduces
+      3c9ae50a...; against it, 30 of 33 files are byte-identical and the three shard headers
+      differ only in code_fingerprint["sources.py"] and the shard_hash that covers it.
+    * The general-decision pool (bench v2 patch) -> d998d6d8...: against the 9674f8fc... build,
+      30 of 33 files are byte-identical, every manifest included (so admitted_source_ids and
+      data_snapshot_hash hold for a build without --decisions-pool), and the three headers
+      differ only in code_fingerprint (decisions.py added; loaders, manifest, mixture, sources
+      changed) and shard_hash. See
+      GAP-CHARACTERIZATION-PIN-STALE-SINCE-B11E6E0-SKIPPED-WITHOUT-COMMITPACKFT-2026-10-03.
+    * The pool's share-alike sources and probability check (bench v3 patch) -> acd6ea15...:
+      against the d998d6d8... build (build/char-v2/out-new, compared with its compare.py), 30 of
+      33 files are byte-identical, every manifest included, and the three shard headers differ
+      only in code_fingerprint["decisions.py"], code_fingerprint["sources.py"] and the
+      shard_hash that covers them. Differing binary files: 0.
+    * Exact-content dedupe for structured decision rows and the config-carried candidate bound
+      (the lead's v4 half, Fable's dedupe ruling) -> d65616af...: against the acd6ea15...
+      build (the bench's char-v3/out-v3, whose digest reproduces acd6ea15...), 30 of 33 files
+      are byte-identical, every manifest included -- a corpus with no scoped row and the default
+      bound writes no new report key -- and the three shard headers differ only in
+      code_fingerprint["config.py"], ["dedupe.py"], ["split.py"] and the shard_hash that
+      covers them. Differing binary files: 0.
+      AUDIT/finalize-2026-10-03/dedupe-probe/char-v4-compare.out.
+    * The pool's v4 half (bench): the exact-content marker, the pool's candidate bound in
+      pool_data_config, VitaminC in and two new pool targets -> 82e412c4...: against the
+      d65616af... build (build/char-v4/out-new, compared with char-v2's compare.py), 30 of 33
+      files are byte-identical, every manifest included, and the three shard headers differ
+      only in code_fingerprint["decisions.py"], code_fingerprint["sources.py"] and the
+      shard_hash that covers them. Differing binary files: 0."""
     pipeline = _pipeline_or_skip()
     pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev=PIN_REV, commitpackft=DOWNLOAD,
         val_shards=True, repo_history=False,
     )
     assert build_digest(tmp_path) == (
-        "d67c7de09c1cf2a5b80fe4eff6459fbf7c7df122432a2a38062d05efb5e9b76c"
+        "82e412c41fadf0b47965b9d0b4b4d3d25f54785be12dd53601c14a27e79e4287"
     )
 
 
@@ -196,12 +240,14 @@ def _report() -> SplitReport:
     return split(dedupe(list(mixture.rows), config=config), config=config)
 
 
-def _scan(binary: Path, report: SplitReport, out: Path) -> dict[str, Any]:
+def _scan(
+    binary: Path, report: SplitReport, out: Path, corpus: dict[str, object] = CORPUS
+) -> dict[str, Any]:
     config = DataConfig()
     sets, strip = scan_sets(report, config=config)
     request = out.with_name(out.name + ".request.bin")
     with request.open("xb") as fh:
-        write_request(fh, sets, scan_specs(sets), corpus=CORPUS,
+        write_request(fh, sets, scan_specs(sets), corpus=corpus,
                       export={"template_strip": strip}, checks=splitter_checks(report))
     run_containment(binary, request, out, threads=4, timeout_s=120.0)
     return json.loads((out / ATTESTATION_NAME).read_text(encoding="utf-8"))
@@ -472,6 +518,105 @@ def test_the_pipeline_refuses_an_unclean_list_and_a_list_beside_replay_exclude(
     with pytest.raises(ExclusionRefusal, match="not CLEAN"):
         pipeline.run(out=tmp_path / "b", max_pairs=1, blank_line_runs=False, rev=PIN_REV,
                      commitpackft=DOWNLOAD, repo_history=False, exclude_identity_keys=unclean)
+
+
+# --- the same-family scope (Fable, 2026-10-03; containment-scope-ruling-2026-10-03.md) ---------
+
+#: The contaminated rows are MMLU's: a train row holding a val row, both
+#: knowledge.multiple_choice, so a scope over that family covers exactly those pairs.
+SCOPED = "knowledge.multiple_choice"
+#: The corpus key, spelled out rather than imported (as STRIP_RULE_V1 below), so these tests
+#: fail on what the pre-scope code does, not on an import; the last test checks the constants.
+SAME_FAMILY_SCOPE_KEY = "decisions_pool_same_family_not_enforced"
+
+
+def _scoped_corpus(*families: str) -> dict[str, object]:
+    return {**CORPUS, SAME_FAMILY_SCOPE_KEY: sorted(families)}
+
+
+def test_a_scoped_scan_lists_same_family_pairs_and_excludes_none_of_them(
+    qd_prep_bin: Path, scanned, tmp_path: Path,
+) -> None:
+    """Fails against a qd-prep that predates the scope: it ignores the corpus key, excludes
+    the MMLU rows and writes no same_family_not_enforced block."""
+    report, out, unscoped = scanned
+    corpus = _scoped_corpus(SCOPED)
+    att = _scan(qd_prep_bin, report, tmp_path / "scoped", corpus=corpus)
+    assert att["clean"] is True, att["not_clean_because"]
+    block = att["same_family_not_enforced"]
+    assert block["families"] == [SCOPED]
+    unscoped_keys = set((out / EXCLUSIONS_NAME).read_text(encoding="utf-8").splitlines())
+    keys = set((tmp_path / "scoped" / EXCLUSIONS_NAME).read_text(encoding="utf-8").splitlines())
+    train = {r.identity_key: r.family_id for r in report.rows_by_split["train"]}
+    mmlu = {k for k in unscoped_keys if train[k] == SCOPED}
+    assert len(mmlu) >= 6, "the fixture's contaminated MMLU train rows were not found"
+    # The scoped family's same-family pairs exclude nothing; every other key still goes.
+    assert keys == unscoped_keys - mmlu
+    assert block["by_family"][SCOPED]["source_identity_keys_not_excluded"] == len(mmlu)
+    assert block["pairs"] > 0 and att["n_pairs"] == unscoped["n_pairs"], "every pair is listed"
+    # And the hook takes it, under the corpus that names the same scope.
+    new, exclusions, _ = apply_exclusions(
+        report, tmp_path / "scoped" / EXCLUSIONS_NAME, corpus=corpus
+    )
+    assert exclusions is not None and exclusions.keys == frozenset(keys)
+    assert {r.identity_key for r in new.rows_by_split["train"]} >= mmlu
+
+
+@pytest.mark.parametrize(("corpus_scope", "applied"), [
+    ([SCOPED], None),  # a qd-prep that ignored the corpus key: no block
+    (None, [SCOPED]),  # a block where the corpus names no scope
+    (["a.family", SCOPED], [SCOPED]),  # another family list applied
+])
+def test_an_attestation_whose_scope_is_not_this_builds_is_refused(
+    scanned, tmp_path: Path, corpus_scope: list[str] | None, applied: list[str] | None,
+) -> None:
+    """Fails against the pre-scope reader, which checks the corpus and nothing of the scope:
+    the first case is exactly an old binary's attestation for a scoped corpus."""
+    _report, out, _att = scanned
+    corpus = CORPUS if corpus_scope is None else _scoped_corpus(*corpus_scope)
+
+    def edit(a: dict[str, Any]) -> None:
+        a["corpus"] = dict(corpus)
+        if applied is None:
+            a.pop("same_family_not_enforced", None)
+        else:
+            a["same_family_not_enforced"] = {"families": applied, "pairs": 0}
+
+    listed = _copy(out, tmp_path, edit_att=edit)
+    with pytest.raises(ExclusionRefusal, match="did not apply this build's scope"):
+        read_exclusions(listed, corpus=corpus)
+
+
+def test_a_build_reading_a_decision_pool_names_its_scope_in_the_corpus(tmp_path: Path) -> None:
+    """corpus_identity writes the pool's families, byte-sorted, beside its examples sha256,
+    and refuses a pool manifest that names none; without a pool it writes neither key, so
+    every earlier attestation still matches. Fails against the pre-scope corpus_identity."""
+    import real_tokenizer_pipeline as pipeline
+
+    pool = tmp_path / "pool"
+    pool.mkdir()
+    (pool / "manifest.json").write_text(json.dumps({
+        "examples_sha256": "e" * 64, "text_bytes_by_family": {"b.fam": 2, "a.fam": 1},
+    }), encoding="utf-8")
+    base = dict(rev="r", max_pairs=60, commitpackft=None, defect_class=None,
+                defect_max_rows=None, repo_history=False)
+    with_pool = pipeline.corpus_identity(**base, decisions_pool=pool)
+    assert with_pool["decisions_pool_examples_sha256"] == "e" * 64
+    assert with_pool[SAME_FAMILY_SCOPE_KEY] == ["a.fam", "b.fam"]
+    without = pipeline.corpus_identity(**base)
+    assert "decisions_pool_examples_sha256" not in without
+    assert SAME_FAMILY_SCOPE_KEY not in without
+    (pool / "manifest.json").write_text(json.dumps({
+        "examples_sha256": "e" * 64, "text_bytes_by_family": {},
+    }), encoding="utf-8")
+    with pytest.raises(SystemExit, match="names no families"):
+        pipeline.corpus_identity(**base, decisions_pool=pool)
+    # The one Python spelling, which qd-prep's SAME_FAMILY_SCOPE_KEY must equal.
+    from qd_train.exclusions import SAME_FAMILY_SCOPE_KEY as owned
+
+    assert owned == SAME_FAMILY_SCOPE_KEY
+    rust = (REPO / "crates/qd-prep/src/containment.rs").read_text(encoding="utf-8")
+    assert f'pub const SAME_FAMILY_SCOPE_KEY: &str = "{SAME_FAMILY_SCOPE_KEY}";' in rust
 
 
 # --- the trainer's rebuild ---------------------------------------------------------------------

@@ -1,0 +1,16 @@
+..........                                                               [100%]
+==================================== PASSES ====================================
+_____________ test_every_supersedes_and_answers_reference_resolves _____________
+----------------------------- Captured stdout call -----------------------------
+gaps.jsonl references: 0 dangling in current records, 0 dangling across all 993 lines including history
+=========================== short test summary info ============================
+PASSED python/tests/test_gaps_ledger.py::test_every_line_is_one_valid_record_carrying_an_id
+PASSED python/tests/test_gaps_ledger.py::test_every_current_record_carries_the_required_keys
+PASSED python/tests/test_gaps_ledger.py::test_every_supersedes_and_answers_reference_resolves
+PASSED python/tests/test_gaps_ledger.py::test_the_last_line_for_an_id_is_the_one_a_reader_gets
+PASSED python/tests/test_gaps_ledger.py::test_every_gap_id_cited_in_a_tracked_file_exists_in_the_ledger
+PASSED python/tests/test_gaps_ledger.py::test_the_ledger_is_excluded_from_the_citation_scan_for_a_reason
+PASSED python/tests/test_gaps_ledger.py::test_an_undeclared_status_is_caught
+PASSED python/tests/test_gaps_ledger.py::test_every_status_in_the_ledger_is_one_of_the_pinned_vocabulary
+PASSED python/tests/test_gaps_ledger.py::test_open_and_closed_partition_the_ledger_with_nothing_left_over
+PASSED python/tests/test_gaps_ledger.py::test_the_two_statuses_that_read_as_open_are_counted_as_closed

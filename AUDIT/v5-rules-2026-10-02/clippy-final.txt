@@ -1,0 +1,4 @@
+mac_heavy: 2026-10-02T18:25:16Z 'L-v5-rules clippy' holds the lock (waited 0s); running: cargo clippy -j 4 --manifest-path /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0d704edd19f228/Cargo.toml -p qd-runtime --all-targets -- -D warnings
+    Checking qd-runtime v0.1.0 (/Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a1c0d704edd19f228/crates/qd-runtime)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s
+mac_heavy: 2026-10-02T18:25:16Z 'L-v5-rules clippy' finished with exit 0

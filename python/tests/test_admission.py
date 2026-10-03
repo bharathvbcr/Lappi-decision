@@ -42,9 +42,19 @@ from qd_data.sources import (
 
 
 def test_exactly_these_sources_are_admitted_unattended() -> None:
+    # bharathvbcr/own-repositories: the human's own repositories (decided 2026-09-28,
+    # docs/train-plan-2026-09-28.md), registered for v5's own-prose noul route
+    # (campaign/v5-preregistered.DRAFT.json data.sources[3]).
     assert {s.source_id for s in admitted_sources()} == {
         "bigcode/commitpackft", "clinc/clinc_oos", "rajpurkar/squad_v2",
         "qd-mutate/commitpackft", "cais/mmlu", "tau/commonsense_qa",
+        "bharathvbcr/own-repositories",
+        # The general-decision sources (qd_data.decisions; user 2026-10-03, data folded into v5).
+        "ZefanCai/Open-Jev-v1.1", "tasksource/procedural-typed-decisions",
+        "LocalLLaMA/typed-decisions", "n4ze3m/typed-decisions-synth", "nvidia/HelpSteer2",
+        "Mapika/decider/teacher_data",
+        # The share-alike pool sources that are not opt-in (ARC is; see qd_data.sources).
+        "google/boolq", "tals/vitaminc",
     }
 
 
@@ -271,9 +281,11 @@ def test_holding_out_a_family_that_would_never_load_is_refused() -> None:
         for f in TASK_FAMILIES.values()
         if f.source_id not in {s.source_id for s in admitted_sources()}
     ]
-    assert not unloadable, (
-        "every registered family currently loads, so this test builds its own"
-    )
+    # ARC is registered for the general-decision pool and is opt-in (share-alike), so under
+    # the default config its family is exactly the case: registered, never loaded.
+    assert unloadable == ["arc.science"]
+    with pytest.raises(ValueError, match="not otherwise admitted"):
+        DataConfig(held_out_families=("code.commit_intent", "arc.science"))
     with pytest.raises(ValueError, match="not registered task families"):
         DataConfig(held_out_families=("code.commit_intent", "never.loads"))
 

@@ -3,16 +3,18 @@
 Measured on the Mac, 2026-10-01, on the phase-4 v3 inputs J7g ran with: the prelude before a
 ``--score-checkpoint`` touches the GPU was 143 s, and ~38 s of it relabelled, inventoried and
 batched the TRAIN split -- for a run that trains nothing and writes no row that reads any of
-it. Those steps now run only where something rests on them: training always; scoring when no
-tokenizer.json supplies the letter ids, or when a val or OOD row offers a letter no val row
-has as its gold (the train golds were what confirmed that letter's id). Skipped, each says
-NOT RUN with its reason -- never the line a run that did it prints.
+it. Those steps now run only where something rests on them: training always; scoring
+(``--score-checkpoint`` or ``--score-plan``) when no tokenizer.json supplies the letter ids, or
+when a val or OOD row offers a letter no val row has as its gold (the train golds were what
+confirmed that letter's id). Skipped, each says NOT RUN with its reason -- never the line a run
+that did it prints.
 
 ``_labels`` also renders each row once: ``training_texts`` rendered it a second time.
 """
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -62,9 +64,10 @@ class _Reader:
 
 
 def _run(monkeypatch, tmp_path, capsys, *, score: bool, val_labels, ood_labels=(),
-         tokenizer: bool = True):
+         tokenizer: bool = True, plan: bool = False):
     """main() with every expensive step stubbed and counted, stopped where it would decode
-    (scoring) or probe a device (training)."""
+    (scoring: ``--score-checkpoint``, or ``--score-plan`` when ``plan``) or probe a device
+    (training)."""
     calls: list[str] = []
 
     def counted(name, value):
@@ -113,18 +116,26 @@ def _run(monkeypatch, tmp_path, capsys, *, score: bool, val_labels, ood_labels=(
         raise _Stop
 
     monkeypatch.setattr(rft, "_score_checkpoint", stop)
+    monkeypatch.setattr(rft, "run_score_plan", stop)
     monkeypatch.setattr(rft, "_probe_one", stop)
     backbone = tmp_path / "snapshot"
     backbone.mkdir(exist_ok=True)
     if tokenizer:
         (backbone / "tokenizer.json").write_text("{}", encoding="utf-8")
-    argv = ["--out", str(tmp_path), "--rev", "0" * 40, "--no-repo-history", "--seeds", "0",
+    argv = ["--out", str(tmp_path), "--rev", "0" * 40, "--no-repo-history",
             "--real-backbone", str(backbone), "--score-val", "--devices", "cpu"]
-    argv += (
-        ["--score-checkpoint", str(tmp_path / "epoch-seed0-cpu.json"),
-         "--ft-ledger", str(tmp_path / "ft.jsonl"), "--ft-row-id", "abcdefgh"]
-        if score else ["--epoch", "--no-memorise"]
-    )
+    if score and plan:
+        plan_json = tmp_path / "plan.json"
+        plan_json.write_text(json.dumps({"kinds": [{
+            "name": "seed0", "checkpoints": [str(tmp_path / "epoch-seed0-cpu.json")],
+            "ft_row_ids": ["abcdefgh"], "seeds": [0], "passes": ["gates"],
+        }]}), encoding="utf-8")
+        argv += ["--score-plan", str(plan_json), "--ft-ledger", str(tmp_path / "ft.jsonl")]
+    elif score:
+        argv += ["--seeds", "0", "--score-checkpoint", str(tmp_path / "epoch-seed0-cpu.json"),
+                 "--ft-ledger", str(tmp_path / "ft.jsonl"), "--ft-row-id", "abcdefgh"]
+    else:
+        argv += ["--seeds", "0", "--epoch", "--no-memorise"]
     with pytest.raises(_Stop):
         rft.main(argv)
     return calls, capsys.readouterr().out
@@ -178,6 +189,45 @@ def test_training_relabels_train_and_plans_the_epoch(monkeypatch, tmp_path, caps
     assert calls.count("relabel_train") == 1 and calls.count("_batch_inventory") == 1
     assert calls.index("relabel_train") < calls.index("open_val_set")
     assert "NOT RUN" not in out.split("devices:")[0]
+
+
+def test_a_score_plan_skips_the_train_relabel_and_the_epoch_plan_and_says_so(
+    monkeypatch, tmp_path, capsys
+):
+    """A --score-plan trains nothing either. Measured on the box, 2026-10-03: J7''s score plan
+    spent ~318 s single-threaded before its first GPU work (AUDIT/gpu-idle-preamble-2026-10-03),
+    because the skip above keyed on --score-checkpoint, which a plan refuses."""
+    calls, out = _run(monkeypatch, tmp_path, capsys, score=True, plan=True,
+                      val_labels=CONFIRMED)
+    assert "relabel_train" not in calls and "_batch_inventory" not in calls
+    assert calls.count("ft_split_rows") == 1, "val's labels still come from the rebuild"
+    assert "train relabel, per-kind inventory and contradictions: NOT RUN -- " in out
+    assert "--score-plan trains nothing and no row it writes" in out
+    assert "confirmed against the val golds" in out
+    assert "epoch at batch_tokens=1105: NOT RUN -- --score-plan trains nothing" in out
+    assert "  rows in -> out:" not in out, "a skipped inventory must not print as one"
+    assert "padding waste: stub padding" in out and "remap beside the shards:" in out
+
+
+def test_a_score_plan_relabels_train_when_a_val_offered_letter_is_no_val_gold(
+    monkeypatch, tmp_path, capsys
+):
+    offers_c = [*CONFIRMED, _label("v4", "A", ("A", "C", "Z"))]
+    calls, out = _run(monkeypatch, tmp_path, capsys, score=True, plan=True,
+                      val_labels=offers_c)
+    assert calls.count("relabel_train") == 1
+    assert "train relabel: run after all -- val or OOD rows offer letter(s) ['C']" in out
+    assert "  rows in -> out: 3 -> 3" in out
+    assert "_batch_inventory" not in calls, "the epoch plan is a training run's, whatever ran"
+
+
+def test_a_score_plan_without_a_tokenizer_json_relabels_train_first(
+    monkeypatch, tmp_path, capsys
+):
+    calls, out = _run(monkeypatch, tmp_path, capsys, score=True, plan=True,
+                      val_labels=CONFIRMED, tokenizer=False)
+    assert calls.index("relabel_train") < calls.index("open_val_set")
+    assert "NOT RUN -- --score-plan trains nothing and no row" not in out
 
 
 def test_letters_no_val_gold_confirms():

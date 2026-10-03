@@ -54,7 +54,9 @@ def main() -> int:
     defect_noul = by[("code.defect_class", "noul")]
     prose_noul_v4 = sum(
         r["rows"] for r in counts["splits"]["train"]["by_split_family_source_licence_kind"]
-        if r["family"] == "code.defect_class" and r["kind"] == "noul" and r["licence"] == "cc-by-sa-4.0"
+        if r["family"] == "code.defect_class"
+        and r["kind"] == "noul"
+        and r["licence"] == "cc-by-sa-4.0"
     )
     oos = rekey["oos_rekeyed_split"]
     clinc_oos_v4_train = rekey["oos_utterances"]
