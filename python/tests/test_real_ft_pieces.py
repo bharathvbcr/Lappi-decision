@@ -382,7 +382,8 @@ def test_main_trains_on_exactly_what_ft_split_rows_returns(tmp_path, monkeypatch
                       "defect_download": None, "defect_max_rows": None,
                       "repo_history": True, "general_record": None,
                       "general_max_rows": None, "replay_partition": False,
-                      "defect_noul": None, "exclude_identity_keys": None}]
+                      "defect_noul": None, "exclude_identity_keys": None,
+                      "decisions_pool": None}]
 
 
 @pytest.mark.usefixtures("qd_prep")

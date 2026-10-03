@@ -1008,6 +1008,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--general-max-rows", type=int, default=None)
     parser.add_argument(
+        "--decisions-pool", type=Path, default=None,
+        help="the general-decision pool, exactly as the run was given it: the split holds "
+             "the pool's families only through it",
+    )
+    parser.add_argument(
         "--replay-partition", action="store_true",
         help="exactly as the run was given it: the replay-only rows left the gold train "
              "split, so the control is not fitted on them",
@@ -1122,7 +1127,7 @@ def main(argv: list[str] | None = None) -> int:
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
         general_record=args.general_record, general_max_rows=args.general_max_rows,
         replay_partition=args.replay_partition, defect_noul=args.defect_noul,
-        exclude_identity_keys=args.exclude_identity_keys,
+        exclude_identity_keys=args.exclude_identity_keys, decisions_pool=args.decisions_pool,
     )
     # Rule 3 through this door too. A control fitted on a held-out family would not train a
     # model, but it would set the bar the model is measured against with data the model may
@@ -1181,6 +1186,12 @@ def main(argv: list[str] | None = None) -> int:
         # corpus's examples sha256, so a control with the noul rows never hashes as one without.
         recipe["defect_noul_examples_sha256"] = str(json.loads(
             (args.defect_noul / "manifest.json").read_text(encoding="utf-8")
+        )["examples_sha256"])
+    if args.decisions_pool is not None:
+        # Only when used, as the pipeline's recipe records it: by the pool's examples sha256,
+        # so a control fitted with the pool's rows never hashes as one without.
+        recipe["decisions_pool_examples_sha256"] = str(json.loads(
+            (args.decisions_pool / "manifest.json").read_text(encoding="utf-8")
         )["examples_sha256"])
     quick = bool(row.quick) or hold is not None
     quick_reason = (

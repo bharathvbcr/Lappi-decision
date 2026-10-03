@@ -387,12 +387,13 @@ def _fake_runner(
     if with_fn:
         # The real signature: the defect-class corpus is part of how the run built its split.
         # The general record, its per-file cap and the replay partition too (phase 4), and
-        # the v5 decontamination's exclusion list (2026-10-02).
+        # the v5 decontamination's exclusion list (2026-10-02), and v5's general-decision
+        # pool (2026-10-03).
         def ft_split_rows(*, commitpackft, max_pairs, rev, config, defect_class=None,
                           defect_download=None, defect_max_rows=None, repo_history=True,
                           general_record=None, general_max_rows=None,
                           replay_partition=False, defect_noul=None,
-                          exclude_identity_keys=None):
+                          exclude_identity_keys=None, decisions_pool=None):
             if calls is not None:
                 calls.append({"defect_class": defect_class, "defect_download": defect_download,
                               "defect_max_rows": defect_max_rows,
@@ -401,7 +402,8 @@ def _fake_runner(
                               "general_max_rows": general_max_rows,
                               "replay_partition": replay_partition,
                               "defect_noul": defect_noul,
-                              "exclude_identity_keys": exclude_identity_keys})
+                              "exclude_identity_keys": exclude_identity_keys,
+                              "decisions_pool": decisions_pool})
             return train, val
         module.ft_split_rows = ft_split_rows  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "real_ft_run", module)
@@ -604,7 +606,7 @@ def test_the_defect_class_corpus_reaches_the_runs_own_split_function(
                       "defect_max_rows": 40, "repo_history": True, "rev": REV,
                       "general_record": None, "general_max_rows": None,
                       "replay_partition": False, "defect_noul": None,
-                      "exclude_identity_keys": None}]
+                      "exclude_identity_keys": None, "decisions_pool": None}]
     assert Ledger(ledger).rows()[-1].recipe["defect_class"] == "corpus-v2"
     assert "defect_noul_examples_sha256" not in Ledger(ledger).rows()[-1].recipe
     assert "exclusions_sha256" not in Ledger(ledger).rows()[-1].recipe
@@ -730,6 +732,32 @@ def test_a_general_record_set_is_rebuilt_with_the_record_and_its_replay_partitio
     assert recipe["general_record_sha256"] == hashlib.sha256(b"[]").hexdigest()
     assert recipe["general_max_rows"] == 123
     assert recipe["replay_partition"] is True
+
+
+def test_a_decisions_pool_set_is_rebuilt_with_the_pool_and_names_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qd_prep: Path
+) -> None:
+    """v5 trains on the general-decision pool too (--decisions-pool). The control has to
+    rebuild that split with the pool's rows in, and its row names the pool by its examples
+    sha256, only when one was used."""
+    ledger, verdicts, train, val = _scorable(tmp_path)
+    pool = tmp_path / "pool"
+    pool.mkdir()
+    (pool / "manifest.json").write_text(
+        json.dumps({"examples_sha256": "e" * 64}), encoding="utf-8"
+    )
+    calls: list[dict[str, object]] = []
+    _fake_runner(monkeypatch, train, val, calls=calls)
+    ftc.main(["--ledger", str(ledger), "--verdicts", str(verdicts), "--rev", REV,
+              "--max-pairs", "80", "--decisions-pool", str(pool)])
+    assert [c["decisions_pool"] for c in calls] == [pool]
+    assert Ledger(ledger).rows()[-1].recipe["decisions_pool_examples_sha256"] == "e" * 64
+    # Without the flag the rebuild gets no pool and the row names none.
+    calls.clear()
+    ftc.main(["--ledger", str(ledger), "--verdicts", str(verdicts), "--rev", REV,
+              "--max-pairs", "80"])
+    assert [c["decisions_pool"] for c in calls] == [None]
+    assert "decisions_pool_examples_sha256" not in Ledger(ledger).rows()[-1].recipe
 
 
 def test_the_general_row_cap_is_recorded_resolved_not_as_null(

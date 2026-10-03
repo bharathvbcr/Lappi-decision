@@ -190,6 +190,7 @@ from qd_data.errors import QdRefusal
 from qd_data.render import DEFAULT_CAPS, PROMPT_FORMAT, second_pass_permutation
 from qd_data.rows import DataRow
 from qd_data.schema import NOUL_LETTER
+from qd_data.sources import DECISION_FAMILIES
 from qd_data.split import SplitReport
 from qd_train import composed_slice as cslice
 from qd_train.artifacts import (
@@ -3918,6 +3919,7 @@ def ft_splits(
     replay_partition: bool = False,
     defect_noul: Path | None = None,
     exclude_identity_keys: Path | None = None,
+    decisions_pool: Path | None = None,
 ) -> dict[str, list[DataRow]]:
     """Every split of the corpus this tool's shard sets were built from, by split name.
 
@@ -3953,6 +3955,9 @@ def ft_splits(
     they are never gold-trained here either. val and held-out are untouched by it.
     ``defect_noul`` mirrors the pipeline's ``--defect-noul``: the same ``load_defect_rows``
     call appends the noul corpus's rows after the defect corpus's, in the same order.
+    ``decisions_pool`` mirrors the pipeline's ``--decisions-pool``: the general-decision
+    pool comes back through the pipeline's own ``load_decision_pool`` (read whole, checked
+    against its manifest's examples sha256), with the same refusal of a source already read.
 
     ``build_mixture`` runs at the pipeline's ``PIPELINE_MAX_CONSISTENCY_ROWS``, not the
     library default: the two agree below 250,000 rows and build different row sets above
@@ -3974,13 +3979,13 @@ def ft_splits(
         defect_class=defect_class, defect_download=defect_download,
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record, general_max_rows=general_max_rows,
-        defect_noul=defect_noul,
+        defect_noul=defect_noul, decisions_pool=decisions_pool,
     )
     corpus = containment_corpus(replay_corpus_identity(
         rev=rev, max_pairs=max_pairs, commitpackft=commitpackft, defect_class=defect_class,
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record, general_max_rows=general_max_rows,
-        defect_noul=defect_noul,
+        defect_noul=defect_noul, decisions_pool=decisions_pool,
     )) if exclude_identity_keys is not None else {}
     split_report = pipeline.exclusions_then_contrast(
         split_report, exclude_identity_keys=exclude_identity_keys, corpus=corpus,
@@ -4006,6 +4011,7 @@ def ft_split_report(
     general_record: Path | None = None,
     general_max_rows: int | None = None,
     defect_noul: Path | None = None,
+    decisions_pool: Path | None = None,
 ) -> SplitReport:
     """The ``qd_data.split.SplitReport`` :func:`ft_splits` starts from: every row of the
     corpus, deduped and split, before any exclusion or replay draw. Returned whole because
@@ -4057,6 +4063,16 @@ def ft_split_report(
         for dataset, rows in general.raw.items():
             raw[dataset] = list(rows)
         clinc_domain_map = general.clinc_domain_map
+    if decisions_pool is not None:
+        # The pipeline's own block (real_tokenizer_pipeline.run): build_mixture iterates the
+        # sources sorted, so only "before build_mixture" matters, not the position.
+        from qd_data.decisions import load_decision_pool
+
+        pool = load_decision_pool(decisions_pool)
+        clash = sorted(set(pool.raw) & set(raw))
+        if clash:
+            raise SystemExit(f"--decisions-pool sources {clash} are already read by this run")
+        raw.update({source_id: list(rows) for source_id, rows in pool.raw.items()})
     mixture = build_mixture(
         raw, config=config, clinc_domain_map=clinc_domain_map,
         max_consistency_rows=pipeline.PIPELINE_MAX_CONSISTENCY_ROWS,
@@ -4089,6 +4105,7 @@ def ft_split_rows(
     replay_partition: bool = False,
     defect_noul: Path | None = None,
     exclude_identity_keys: Path | None = None,
+    decisions_pool: Path | None = None,
 ) -> tuple[list[DataRow], list[DataRow]]:
     """``(train_rows, val_rows)``: exactly the two splits ``main`` trains and scores on."""
     splits = ft_splits(
@@ -4097,7 +4114,7 @@ def ft_split_rows(
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record, general_max_rows=general_max_rows,
         replay_partition=replay_partition, defect_noul=defect_noul,
-        exclude_identity_keys=exclude_identity_keys,
+        exclude_identity_keys=exclude_identity_keys, decisions_pool=decisions_pool,
     )
     return splits["train"], splits["val"]
 
@@ -4193,6 +4210,12 @@ def check_defect_source(out: Path, *, defect_class: Path | None) -> None:
 GENERAL_ONLY_SOURCES: Final[tuple[str, ...]] = (
     "cais/mmlu", "tau/commonsense_qa", "clinc/clinc_oos",
 )
+#: Sources only ``--decisions-pool`` supplies: every source of the general-decision pool's
+#: families. A set fed by any of them is relabelled only with the pool, which ``ft_splits``
+#: reads through the pipeline's own ``load_decision_pool``.
+DECISION_POOL_SOURCES: Final[tuple[str, ...]] = tuple(
+    sorted({source_id for _, source_id, _ in DECISION_FAMILIES})
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -4220,6 +4243,7 @@ def general_record_datasets(record: Path | None) -> frozenset[str] | None:
 def corpus_facts(
     out: Path, *, data_snapshot_hash: str, repo_history: bool, commitpackft: Path | None,
     general_datasets: frozenset[str] | None = None, replay_partition: bool = False,
+    decisions_pool: bool = False,
 ) -> CorpusFacts:
     """Read the train manifest the pipeline wrote, and refuse what this rebuild cannot match.
 
@@ -4241,6 +4265,11 @@ def corpus_facts(
       the train manifest only under its ``--replay-shards``: without the partition the
       rebuild would gold-train rows the set keeps for replay, and with it on a set that
       had none it would drop rows the shards hold.
+    * ``decisions_pool`` is whether this run was given ``--decisions-pool``. A set fed by a
+      pool source (:data:`DECISION_POOL_SOURCES`) is refused without it, and a pool given for
+      a set no pool source fed is refused too: the first rebuild would drop the pool's rows,
+      the second would add rows the shards never held. Which pool is the right one is the
+      ``data_snapshot_hash`` pairing's question, answered by ``pair_labels``.
     """
     path = out / TRAIN_MANIFEST
     if not path.is_file():
@@ -4282,6 +4311,19 @@ def corpus_facts(
                 f"--general-record names {sorted(general_datasets)} but none of them fed "
                 f"{path}: this shard set was built without it"
             )
+    pooled = sorted(s for s in DECISION_POOL_SOURCES if int(n_input.get(s, 0)) > 0)
+    if pooled and not decisions_pool:
+        raise SystemExit(
+            f"{path}: {pooled} fed this shard set -- it was built with --decisions-pool, and "
+            "without the same --decisions-pool here the pool's rows are not rebuilt, so its "
+            "labels cannot be reconstructed. Refusing rather than pairing labels to a "
+            "different row set."
+        )
+    if decisions_pool and not pooled:
+        raise SystemExit(
+            f"--decisions-pool was given but no pool source fed {path}: this shard set was "
+            "built without it, and the rebuild would add rows the shards never held"
+        )
     built_with_replay = (out / REPLAY_MANIFEST).is_file()
     if built_with_replay and not replay_partition:
         raise SystemExit(
@@ -9527,7 +9569,7 @@ def replay_corpus_identity(
     *, rev: str, max_pairs: int, commitpackft: Path | None, defect_class: Path | None,
     defect_max_rows: int | None, repo_history: bool = True,
     general_record: Path | None = None, general_max_rows: int | None = None,
-    defect_noul: Path | None = None,
+    defect_noul: Path | None = None, decisions_pool: Path | None = None,
 ) -> dict[str, object]:
     """What ``ft_splits`` was called with, as the replay attestation records it. One
     function, used by ``tools/replay_decontam.py`` to write it and by ``_replay_plan`` to
@@ -9540,7 +9582,7 @@ def replay_corpus_identity(
         rev=rev, max_pairs=max_pairs, commitpackft=commitpackft, defect_class=defect_class,
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record, general_max_rows=general_max_rows,
-        defect_noul=defect_noul,
+        defect_noul=defect_noul, decisions_pool=decisions_pool,
     )
 
 
@@ -9587,6 +9629,7 @@ def _replay_plan(
         defect_class=args.defect_class, defect_max_rows=args.defect_max_rows,
         repo_history=args.repo_history, general_record=args.general_record,
         general_max_rows=args.general_max_rows, defect_noul=args.defect_noul,
+        decisions_pool=args.decisions_pool,
     )
     if attestation.get("corpus") != corpus:
         raise SystemExit(
@@ -9881,6 +9924,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--general-max-rows", type=int, default=None,
         help="as the pipeline's --general-max-rows: the same per-file bound; default its default",
+    )
+    parser.add_argument(
+        "--decisions-pool", type=Path, default=None,
+        help=(
+            "the general-decision pool the shard set was built with, exactly as passed to "
+            "tools/real_tokenizer_pipeline.py --decisions-pool. Required when the set's train "
+            "manifest was fed a pool source, refused when none was"
+        ),
     )
     parser.add_argument(
         "--replay-partition", action="store_true",
@@ -10696,6 +10747,7 @@ def main(argv: list[str] | None = None) -> int:
         repo_history=args.repo_history, commitpackft=args.commitpackft,
         general_datasets=general_record_datasets(args.general_record),
         replay_partition=args.replay_partition,
+        decisions_pool=args.decisions_pool is not None,
     )
     train_rows, val_rows = ft_split_rows(
         commitpackft=args.commitpackft, max_pairs=args.max_pairs, rev=rev, config=config,
@@ -10703,9 +10755,14 @@ def main(argv: list[str] | None = None) -> int:
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
         general_record=args.general_record, general_max_rows=args.general_max_rows,
         replay_partition=args.replay_partition, defect_noul=args.defect_noul,
-        exclude_identity_keys=args.exclude_identity_keys,
+        exclude_identity_keys=args.exclude_identity_keys, decisions_pool=args.decisions_pool,
     )
-    require_index = args.defect_class is not None or args.general_record is not None
+    # A pool set is paired by its sequence index too: its rows, like the general record's,
+    # are not this repository's history, so only the index ties a sequence to its row.
+    require_index = (
+        args.defect_class is not None or args.general_record is not None
+        or args.decisions_pool is not None
+    )
     # --score-checkpoint and --score-plan train nothing, and the train split's labels,
     # inventory, contradictions and epoch plan feed no row either writes: on the phase-4 set
     # they were ~37 s of a 143 s Mac prelude (one unprofiled run, 2026-10-01), paid with the GPU
