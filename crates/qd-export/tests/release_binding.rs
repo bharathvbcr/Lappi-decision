@@ -406,3 +406,58 @@ fn a_backend_declaring_another_calibration_table_is_not_built_into_a_runtime() {
         Ok(_) => panic!("a runtime was built around a backend declaring another table"),
     }
 }
+
+/// A runtime over an exported release admits only the families the release says it trained
+/// (Fable's pipeline ruling, item 4). The exported manifest's `trained_families` is set here, so
+/// the test is about the reader and the runtime, whatever the fixture's train manifest held.
+#[test]
+fn a_runtime_built_from_the_release_refuses_a_task_the_release_did_not_train() {
+    let table = fitted_table();
+    let serve = |trained: Option<Value>| {
+        let (fx, summary) = exported();
+        rewrite_manifest(&fx.out, |m| match trained {
+            Some(families) => m["trained_families"] = families,
+            None => {
+                m.as_object_mut()
+                    .expect("the manifest is an object")
+                    .remove("trained_families");
+            }
+        });
+        let release = Release::open(&fx.out).expect("the edited release opens");
+        let runtime = Runtime::from_release(
+            &release,
+            Arc::new(LoadedFrom::release(&summary, &table.hash())),
+            HeadRegistry::new(),
+            RenderCaps::DEFAULT,
+        )
+        .expect("a backend reporting the release's identity");
+        let response = runtime.answer(&four_option_request(&table.hash()), None);
+        (fx, response)
+    };
+
+    // `four_option_request` asks `devcouncil.verdict`.
+    let (_fx, response) = serve(Some(json!(["code.defect_class"])));
+    match response {
+        Response::Refused(envelope) => {
+            assert_eq!(envelope.refusal.kind(), "task_not_trained");
+            let value = serde_json::to_value(&envelope.refusal).unwrap();
+            assert_eq!(value["task"], json!("devcouncil.verdict"));
+            assert_eq!(value["available"], json!(["code.defect_class"]));
+        }
+        other => panic!("a task the release did not train was answered: {other:?}"),
+    }
+    let (_fx, response) = serve(Some(json!(["code.defect_class", "devcouncil.verdict"])));
+    match response {
+        Response::Ok(_) => {}
+        other => panic!("a task the release trained was not answered: {other:?}"),
+    }
+    let (_fx, response) = serve(None);
+    match response {
+        Response::Refused(envelope) => {
+            assert_eq!(envelope.refusal.kind(), "task_not_trained");
+            let value = serde_json::to_value(&envelope.refusal).unwrap();
+            assert_eq!(value["available"], json!([]));
+        }
+        other => panic!("a release that records no trained families answered: {other:?}"),
+    }
+}

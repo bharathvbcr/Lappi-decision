@@ -681,3 +681,77 @@ fn the_binary_writes_what_the_reader_opens_and_exits_2_on_a_refusal() {
         );
     }
 }
+
+// -- trained families (Fable's pipeline ruling, item 4) ------------------------------------------
+
+/// Set a member release's `trained_families`, as a release exported from another train manifest
+/// would carry it.
+fn set_trained_families(release: &Path, families: Value) -> String {
+    let path = release.join(MANIFEST_FILE);
+    let mut doc: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    doc["trained_families"] = families;
+    let bytes = serde_json::to_vec_pretty(&doc).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+    qd_runtime::hex(&qd_runtime::sha256(&bytes))
+}
+
+#[test]
+fn the_writer_refuses_members_trained_on_different_families() {
+    let (fixtures, _) = members(2);
+    let dir = common::TempDir::new("ensemble-tf");
+    let table = table_file(&dir.0);
+    let out = dir.0.join("ensemble");
+    set_trained_families(&fixtures[0].out, json!(["code.defect_class"]));
+    set_trained_families(
+        &fixtures[1].out,
+        json!(["code.change_scope", "code.defect_class"]),
+    );
+    let paths = fixtures.iter().map(|f| f.out.clone()).collect();
+    export_refused(&request(paths, &table, &out), "trained_families");
+}
+
+#[test]
+fn the_reader_refuses_members_trained_on_different_families() {
+    let (w, _) = written();
+    let sha = set_trained_families(&w.out().join("tower-1"), json!(["code.change_scope"]));
+    rewrite_ensemble_manifest(&w.out(), |m| {
+        m["members"][1]["release_manifest_sha256"] = Value::from(sha);
+    });
+    open_refused(
+        &w.out(),
+        ReleaseRefusalKind::MembersDisagree,
+        "trained_families",
+    );
+}
+
+#[test]
+fn a_runtime_built_from_the_ensemble_refuses_a_task_its_members_did_not_train() {
+    let (fixtures, summaries) = members(3);
+    for fx in &fixtures {
+        set_trained_families(&fx.out, json!(["code.defect_class"]));
+    }
+    let dir = common::TempDir::new("ensemble-tf-serve");
+    let table_path = table_file(&dir.0);
+    let out = dir.0.join("ensemble");
+    let paths = fixtures.iter().map(|f| f.out.clone()).collect();
+    let summary = export_ensemble(&request(paths, &table_path, &out))
+        .expect("three members trained on one family set write an ensemble");
+    let ensemble = Ensemble::open(&out).expect("the ensemble opens");
+    let table = ensemble_table().hash();
+    let runtime = Runtime::from_ensemble(
+        &ensemble,
+        loaded(&summaries, &table),
+        HeadRegistry::new(),
+        RenderCaps::DEFAULT,
+    )
+    .expect("every member loaded its tower");
+    // `pinned_request` asks `devcouncil.verdict`.
+    match runtime.answer(&pinned_request(&summary.weight_hash, &table), None) {
+        Response::Refused(envelope) => {
+            assert_eq!(envelope.refusal.kind(), "task_not_trained");
+            let value = serde_json::to_value(&envelope.refusal).unwrap();
+            assert_eq!(value["available"], json!(["code.defect_class"]));
+        }
+        other => panic!("the ensemble answered a task its members did not train: {other:?}"),
+    }
+}
