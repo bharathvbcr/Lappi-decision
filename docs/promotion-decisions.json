@@ -38,12 +38,12 @@
     "degenerate_head_floor": {
       "question": "Is the degenerate_head control's 0.15-nat entropy floor meaningful for a calibrated, near-certain head, on binary and four-way slots?",
       "gap": "GAP-DEGENERATE-HEAD-FAILS-ON-BINARY-SLOTS-TOO",
-      "status": "open",
-      "value": "mean predictive entropy >= 0.15 nats and no predicted class above 0.95, on every slot shape",
+      "status": "decided",
+      "value": "no predicted class above 0.95 of a slot shape's predictions, on every slot shape; the 0.15-nat mean-entropy floor is retired",
       "source": "python/qd_train/eval_harness.py DEFAULT_ENTROPY_FLOOR and DEFAULT_MAX_CLASS_SHARE as built",
-      "decided_by": null,
-      "decided_on": null,
-      "decision_ref": null
+      "decided_by": "the human, by delegation (\"For decisions ask fable and proceed with them\", in the lead's session, 2026-10-03 ~13:14Z), through the lead, ruled by Fable",
+      "decided_on": "2026-10-03",
+      "decision_ref": "AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md (main b2ad747), ruling 2. The floor penalises calibrated confidence, which is the model's design goal. ece measures whether confidence is earned, and the class-share bound catches the actual degeneracy, one class always. This is the one ruling that flips v4 verdicts: degenerate_head goes from fail to pass on ens5 (k2 entropy 0.1415, k16 0.1383), avg (k2 0.0956, k16 0.1312) and F seeds 1-4 (aeca8d69 k16 0.1337; 8c3a774a k2 0.0988, k16 0.1452; ebc83be6 k2 0.1433; d8c8300a k2 0.1252, k16 0.1474). Seed 0 passes either way. The largest top-class share on any slot of these seven rows is 0.517, against 0.95. No row promotes on this: every one still fails ood_abstain's suite half. Takes effect only through code that reads this record (GAP-PROMOTION-RECORD-IS-NOT-APPLIED-BY-THE-GATES-2026-10-03)."
     },
     "privileged_hunk_pass_rule": {
       "question": "What eligibility share makes privileged_hunk a ceiling rather than a vacuous control, and what is its pass rule?",
