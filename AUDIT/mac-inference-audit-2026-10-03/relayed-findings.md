@@ -91,6 +91,50 @@ What changes:
 If `backend.rs` calls `digest()` from a context where extra threads or the scratch matter, read
 this before merging.
 
+## Measured for `backend.rs`'s and `tokenizer.rs`'s owner (Fable ruling 2, step 6)
+
+The rows are on branch `qdm-digest-parallel` in `ledger/mac-qd-metal-eb-2026-10-03.jsonl`
+(commit 9fac7be). All are `quick`, all record the clean commit 75c683b, and the reading for each
+was declared before it ran.
+
+### Item E: `GpuRuntime::new` vs `new_inference`
+
+Rows: 94736e9b, a2ed6bc8, 552e6073, 91832401, run in ABBA order on the release weights.
+
+Result: there is no reason to switch the worker (`backend.rs:328`) to `new_inference`.
+
+| T | Δ min total_ms (inference − timestamps) | noise floor |
+|---|---|---|
+| 131 | +0.61 ms | 1.64 |
+| 409 | +0.68 ms | 0.89 |
+| 770 | +1.07 ms | 0.53 |
+
+- At T = 770 the slowdown is beyond the noise floor.
+- Dispatches (920) and commits (5) per decision are the same under both runtimes.
+- The ruling's estimate of a 0–5 ms gain did not show up.
+
+### Item B: product path (`MetalBackend`) vs the `Model`-driven path
+
+Row 02156dc5, on the base snapshot. Only the in-process delta is the reading.
+
+Equal work was checked: the product logits are bit-identical to the `Model` path's 5/5 at every
+T, and every timed prefill missed the cache.
+
+| T | Product path adds | Drift between the two `Model` phases |
+|---|---|---|
+| 131 | +1.86 ms | 0.39 |
+| 409 | +1.13 ms | 1.56 |
+| 8,192 | +12.20 ms | 3.03 |
+
+- At T = 409 the gap is within the drift.
+- At 8K, host tokenization alone is 10.64 ms of the 12.20 ms. That is
+  `QwenTokenizer::encode` of the prefix once, then of prefix + suffix again for each decode.
+- **Suggestion (the bench's, not verified):** encode only the suffix per decode and check the
+  token boundary. That could remove about 2/3 of those 10.64 ms at 8K.
+- **Caveat:** this measured the COMMITTED `backend.rs` and `tokenizer.rs`, not the dirty versions
+  in main. H1's quadratic tag scan in the dirty `encode_untrusted` is not measured, and would add
+  to this at long T.
+
 ## In clean files (the bench may fix these on its branch)
 
 These are separate commits after 1a, each with a fail-first test.
