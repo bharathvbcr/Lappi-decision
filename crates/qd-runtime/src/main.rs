@@ -25,6 +25,7 @@
 //! in the machine. Collapsing them would put a hash mismatch and a missing model in the same bucket.
 
 use std::io::{self, Write};
+use std::num::{NonZeroU64, NonZeroUsize};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -72,12 +73,12 @@ struct RuntimeArgs {
     reference_backend: bool,
 
     /// Wall clock for one request, end to end.
-    #[arg(long, value_name = "MS", default_value_t = 30_000)]
-    request_timeout_ms: u64,
+    #[arg(long, value_name = "MS", default_value_t = NonZeroU64::new(30_000).unwrap())]
+    request_timeout_ms: NonZeroU64,
 
     /// Concurrent in-flight requests. Beyond this the runtime replies `overloaded`.
-    #[arg(long, value_name = "N", default_value_t = 8)]
-    max_in_flight: usize,
+    #[arg(long, value_name = "N", default_value_t = NonZeroUsize::new(8).unwrap())]
+    max_in_flight: NonZeroUsize,
 }
 
 #[derive(Args, Debug)]
@@ -90,12 +91,12 @@ struct ServeArgs {
     ///
     /// `docs/hardening.md` §6: an agent that never evicts keeps 1.1 GB wired forever; one that
     /// evicts too eagerly makes every DevType call cold. Ten minutes is the plan's figure.
-    #[arg(long, value_name = "MS", default_value_t = 600_000)]
-    idle_timeout_ms: u64,
+    #[arg(long, value_name = "MS", default_value_t = NonZeroU64::new(600_000).unwrap())]
+    idle_timeout_ms: NonZeroU64,
 
     /// Concurrent connections. Beyond this a connection is told `overloaded` and closed.
-    #[arg(long, value_name = "N", default_value_t = 64)]
-    max_connections: usize,
+    #[arg(long, value_name = "N", default_value_t = NonZeroUsize::new(64).unwrap())]
+    max_connections: NonZeroUsize,
 
     #[command(flatten)]
     runtime: RuntimeArgs,
@@ -111,8 +112,8 @@ struct OneshotArgs {
     socket: Option<PathBuf>,
 
     /// Timeout for the socket attempt before falling back.
-    #[arg(long, value_name = "MS", default_value_t = 5_000)]
-    socket_timeout_ms: u64,
+    #[arg(long, value_name = "MS", default_value_t = NonZeroU64::new(5_000).unwrap())]
+    socket_timeout_ms: NonZeroU64,
 
     #[command(flatten)]
     runtime: RuntimeArgs,
@@ -126,8 +127,8 @@ impl RuntimeArgs {
                 enable_reference_backend: self.reference_backend,
             },
             idle_timeout: Duration::from_millis(idle_timeout_ms),
-            request_timeout: Duration::from_millis(self.request_timeout_ms),
-            max_in_flight: self.max_in_flight.max(1),
+            request_timeout: Duration::from_millis(self.request_timeout_ms.get()),
+            max_in_flight: self.max_in_flight.get(),
         }
     }
 }
@@ -170,9 +171,11 @@ fn run_serve(args: ServeArgs) -> Result<ExitCode, String> {
                 .to_string()
         })?;
 
-    let service = Arc::new(Service::new(args.runtime.service_config(args.idle_timeout_ms)));
+    let service = Arc::new(Service::new(
+        args.runtime.service_config(args.idle_timeout_ms.get()),
+    ));
     let mut options = ServeOptions::new(socket);
-    options.max_connections = args.max_connections.max(1);
+    options.max_connections = args.max_connections.get();
 
     let server = Server::bind(Arc::clone(&service), options)
         .map_err(|e| format!("could not bind the socket: {e}"))?;
@@ -205,7 +208,7 @@ fn run_oneshot(args: OneshotArgs) -> Result<ExitCode, String> {
         &service,
         args.socket.as_deref(),
         &line,
-        Duration::from_millis(args.socket_timeout_ms),
+        Duration::from_millis(args.socket_timeout_ms.get()),
     );
 
     let mut stdout = io::stdout().lock();
@@ -227,5 +230,57 @@ fn exit_code_for(reply: &[u8]) -> ExitCode {
         Some("refused") => ExitCode::from(2),
         Some("error") => ExitCode::from(3),
         _ => ExitCode::from(1),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Fail-first (audit 2026-10-03, M4): a zero bound used to parse. `--max-in-flight 0` and
+    /// `--max-connections 0` were coerced to 1, the timeouts were taken as zero (every request
+    /// expired at once, or the runtime was evicted after every request), and
+    /// `--socket-timeout-ms 0` made every socket attempt fail and fall back to the sidecar.
+    #[test]
+    fn a_zero_bound_is_refused_at_parse() {
+        let cases: [(&str, &str); 6] = [
+            ("serve", "--idle-timeout-ms"),
+            ("serve", "--max-connections"),
+            ("serve", "--request-timeout-ms"),
+            ("serve", "--max-in-flight"),
+            ("oneshot", "--socket-timeout-ms"),
+            ("oneshot", "--request-timeout-ms"),
+        ];
+        for (command, flag) in cases {
+            assert!(
+                Cli::try_parse_from(["qd", command, flag, "0"]).is_err(),
+                "qd {command} {flag} 0 was accepted"
+            );
+            assert!(
+                Cli::try_parse_from(["qd", command, flag, "1"]).is_ok(),
+                "qd {command} {flag} 1 was refused"
+            );
+        }
+    }
+
+    #[test]
+    fn the_defaults_are_unchanged() {
+        let Command::Serve(serve) = Cli::try_parse_from(["qd", "serve"]).unwrap().command else {
+            panic!("`qd serve` parsed as another command");
+        };
+        assert_eq!(
+            (
+                serve.idle_timeout_ms.get(),
+                serve.max_connections.get(),
+                serve.runtime.request_timeout_ms.get(),
+                serve.runtime.max_in_flight.get(),
+            ),
+            (600_000, 64, 30_000, 8)
+        );
+        let Command::Oneshot(oneshot) = Cli::try_parse_from(["qd", "oneshot"]).unwrap().command
+        else {
+            panic!("`qd oneshot` parsed as another command");
+        };
+        assert_eq!(oneshot.socket_timeout_ms.get(), 5_000);
     }
 }
