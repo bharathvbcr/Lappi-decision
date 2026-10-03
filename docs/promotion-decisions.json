@@ -58,12 +58,12 @@
     "transfer_gate_definition": {
       "question": "What is transfer_gate, and on what data is it measured?",
       "gap": "GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA",
-      "status": "open",
-      "value": "not specified: the control stays not_run",
+      "status": "decided",
+      "value": "retired as a promotion requirement for v5. Promotion under this record certifies the mutation-labelled distribution only, and every export and release note carries that line. The research question stays open in GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA",
       "source": "gaps.jsonl, GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA",
-      "decided_by": null,
-      "decided_on": null,
-      "decision_ref": null
+      "decided_by": "the human, by delegation (\"For decisions ask fable and proceed with them\", in the lead's session, 2026-10-03 ~13:14Z), through the lead, ruled by Fable",
+      "decided_on": "2026-10-03",
+      "decision_ref": "AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md (main b2ad747), ruling 2. No specification exists beyond docs/teacher-plan.md:126, and no natural held-out set labelled with these classes exists. Producing one means a human judging real commits. Takes effect only through code that reads this record (GAP-PROMOTION-RECORD-IS-NOT-APPLIED-BY-THE-GATES-2026-10-03)."
     }
   }
 }
