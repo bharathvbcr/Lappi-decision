@@ -6,6 +6,58 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## State at ~21:25Z (supersedes the sections below where they disagree)
+
+**Measured** (logs under `build/v5-build/`, gitignored):
+- **The scoped containment scan** at v5-build cd2967e (`scan-scoped.log`):
+  - CLEAN; 7,260 train keys excluded (= 104,905 unscoped − 97,645 the scope block leaves
+    unexcluded);
+  - attestation sha256 `70e2c2a9…`, exclusions `c38dd2ca…`;
+  - the CLINC zero-checks are unchanged (val: 1 exact, 1 subsequence; held-out: 1 subsequence),
+    as the human accepted them.
+- **The trial merge of v5-build into main** (`merge_test.log`, branch `v5-main-merge` at
+  2e33adf). Rust failures:
+  - two trained-families targets, caused by the merge (main's fixtures have no prompt_format);
+  - `post_f_rules_v5` (23) and `gate_report_exclude` (2), present on v5-build alone. The
+    noul-weight checker took seeds.v5's 0-4 where the arm envelope is 0-2, so the arm's room
+    reading would refuse at launch and the arm would never run. The gate-report golden predates
+    7320707/c59ccda.
+
+  Python: one failure, the worktree-name check (known). `python/qd_data` at the merge equals
+  cd2967e, so the shard fingerprint holds.
+- **The token-share method** (`build/v5-build/defect_token_share.py`) reproduces v4 exactly:
+  306,926,895 tokens, 83.7072%.
+- **Staged on the box and sha-verified:**
+  - the corpora → `/home/ubuntu/v5-stage/pool`;
+  - the decision pool at its Mac path;
+  - exclusions and attestation → `/home/ubuntu/v5-exclusions-2026-10-03`. The queue's split
+    check refuses any path containing "containment".
+
+**Changed:**
+- **main:**
+  - 3629505: GAP-MAIN-COMMITTED-CARGO-LOCK-STALE;
+  - 126c4b4: the human's optimize answer, "Launch as pre-registered";
+  - a2b4664: merge of `l-v5-freeze`, the freeze script.
+- **v5-build:** cd2967e, the same-family scope.
+- **Uncommitted, tested only after the build frees the lock:**
+  - in `build/v5-merge-wt`:
+    - the noul-weight seeds fix and the seeds34 retirement refusal, with tests;
+    - the gate-report golden (diff checked: 14 added not_checked names, nothing else);
+    - the prelude record's `needle_suite` block for item 5 (Fable ~21:20Z), with a test;
+  - on main: `AUDIT/finalize-2026-10-03/apply_v5_freeze.py`, item 5's fill reads that block.
+
+**Open, in order:** the build (`build/v5-build/build.log`, started 20:56Z), then:
+1. the merge tests with the fixes;
+2. v5-build: the ledger row and the Cargo.lock revert;
+3. main: the merge, reusing 2e33adf's resolutions, then the cherry-picked fixes;
+4. the freeze (`--scan` is the SCOPED scan; `--family-rates` and `--zero-checks` are
+   `build/v5-build/scoped-*.json`) and the readers patch, with `post_f_rules_v5.rs` through
+   `build/v5-build/readers_v5rules.py` (the lane's hunk at :493 no longer applies). That is L.
+5. At L: tests, the prelude, `build/v5-h100/musl_build_at_L.sh`,
+   `build/v5-h100/fill_pins.py`, `build/v5-h100/deploy_lane.sh`, the checks, the launch.
+
+**First command for the next lane:** `tail -n 5 build/v5-build/build.log`.
+
 ## What was measured
 
 No new ledger row: nothing trained, and no GPU job ran. The evidence:
