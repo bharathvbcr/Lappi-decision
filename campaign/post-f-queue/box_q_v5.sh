@@ -1,25 +1,41 @@
 #!/bin/bash
-# v5 queue: v5 seeds 0, 1, 2 (campaign/v5-preregistered.json seeds.v5; the human's yes, answer 1
-# at d24c865, on ~$137 / ~60 GPU-h). Appended after the post-F chain, never inserted:
-# launch.projected_gpu_hours.slot says the v5 waiter waits on j5pp.done, then wait_queued j6a,
-# then wait_queued j6g. Then it waits for the human's launch marker $Q/V5_LAUNCH_YES (non-empty,
-# the human's words; bounded).
-# Per seed, under gpu.lock, from the v5 lane (v5_common.sh):
-#   - train + score (--score-val --needle --ood) with recipe.base + recipe.added (--min-lr 0,
-#     --batch-order seed, --checkpoint-every 100000 --retain-tower-every 1000) and the pinned
-#     conditionals, cap 32,400 s (+1,800 s timeout margin), with its cost line;
-#   - F's needle control on its checkpoint, cap 5,400 s;
-#   - then gpu.lock passes to the seed's own post-seed waiter v5traj-s<N> (trajectory-ood rows,
-#     cap 3,600 s, then the CPU controls); its .done never gates the next seed.
-# R9 (readings.R9_pause_after_seed_0): right after seed 0's train+score, qd-post-f-rules-v5
-# v5-pause. continue: seeds 1-2 run. Anything else: HOLD, and $Q/v5.paused says why, as exactly
-# one of pause, refused, unknown:<word> or no-seed-0-row (v5_common.sh v5_rule's V5_SAID); seeds
-# 1-2 start only once the human writes $Q/V5_CONTINUE (bounded; $Q/V5_STOP ends the block).
-# The hold acts after seed 0's needle control and trajectory hand-off, which are seed 0's own
-# (already approved) spend.
-# Every run's estimate is checked against the approved total first (v5_budget_ok).
-# Downstream: box_q_v5s34.sh, box_q_v5nw.sh and box_q_v5j5.sh wait on v5.done. LAUNCH THEM
-# FIRST: wait_queued skips a waiter whose .queued is absent.
+# v5 queue, one GPU lane of the Lambda 2x H100 box: box_q_v5.sh LANE (LANE 0 or 1). One canonical
+# script serves both lanes; launch it twice, as box_q_v5.sh 0 and box_q_v5.sh 1.
+# The scheduling rule (Fable, 2026-10-03; campaign/v5-preregistered.json hardware.lanes): each
+# lane takes the earliest job in the human's order whose inputs are ready. The order is 11 jobs:
+# v5 seeds 0-4 (seeds.v5; unconditional since the amendment a29bca1, so seeds34 is not read), the
+# noul-weight arm x3 (seeds 0-2) iff v5nw.room is room or V5NW_HUMAN_YES is written, then J5' x3
+# (seeds 0-2). The inputs: v5 seed 0 none; v5 seeds 1-4 only V5_CONTINUE or R9's continue, and
+# only when R9 is kept (V5_R9); the arm v5nw.launch run, decided with v5nw.room from v5 seeds 0-2's
+# eval rows; every J5' seed v5 seeds 0-2's three completed ft rows (j5prime.runs_iff verbatim,
+# Fable's ruling via the lead, 2026-10-03), then its own seed's eval row (J5' trains on v5 seed
+# s's batch order and reads no checkpoint). So J5' runs ahead of the arm when a lane would
+# otherwise idle: that interleaving is a change to the human's order (answer 1 at 0b559bb), named
+# in the amendment (hardware.lanes, projected_gpu_hours.slot) for the human's yes. R9 waived, the
+# rule gives [s0|s1] [s2|s3] [s4|nw0] [nw1|nw2] [J5'0|J5'1] [J5'2|idle]; with no room, round 3 is
+# [s4|J5'0]; R9 kept, seed 0 runs alone until R9 speaks, and R9's hold holds both lanes (nothing
+# J5' or the arm needs can exist while seeds 1-2 are held). A decision whose inputs are done (the
+# room, the arm's reading) is made, once, by the first lane to pick after that, before its pick;
+# each decision word is written once to its file (v5r9.word, v5.paused, v5nw.room, v5nw.launch,
+# v5nw.word) and read by whoever needs it.
+# Lanes: lane N holds $Q/gpu<N>.lock (gpu0.lock or gpu1.lock) for every GPU step and runs it with
+# CUDA_VISIBLE_DEVICES=N; a seed's post-seed waiter (box_q_v5traj.sh) takes the same lane's lock,
+# handed over as before. Picks are made under the lanes' scheduling mutex $Q/v5.sched.lock, taken
+# after the lane's lock. Each job is the GH200 block's per-seed form (v5_common.sh v5_job_seed and
+# v5_job_j5), its estimate checked against the approved 11-run total beside what the other lane's
+# running job may still spend (v5_budget_ok).
+# Start: the human's $Q/V5_LAUNCH_YES (non-empty; bounded) and v5_verify; on this box there is no
+# post-F chain to wait on. Then the memory probe (hardware.probe), once, on lane 0 under
+# gpu0.lock, before any seed: tools/real_ft_run.py --probe-shapes 12 with v5's recipe
+# (--epoch --no-memorise) and data argv, no scoring flags, cap 1,800 s, into its own probe ledger.
+# A non-zero exit is retried once with PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True for that
+# call only; a second fail writes $Q/v5.probe-failed and both lanes wait (bounded) for the human's
+# $Q/V5_PROBE_YES. Lane 1 waits for the probe's result before its first pick.
+# Markers: $Q/v5lane<N>.queued / .started / .done; per job $Q/v5job-<job>.claimed / .done /
+# .spend. $Q/V5_STOP ends both lanes at their next pick or wait. A lane refuses to start over
+# markers an earlier launch left (stale, or decided once); the lead clears them.
+# The GH200's three chained waiters (box_q_v5s34.sh, box_q_v5nw.sh, box_q_v5j5.sh) are retired:
+# their runs and readings are these lanes' jobs and decisions.
 set -o pipefail
 # shellcheck source=post_f_common.sh
 source /home/ubuntu/post-f/post_f_common.sh || exit 3
@@ -27,69 +43,54 @@ source /home/ubuntu/post-f/post_f_common.sh || exit 3
 source /home/ubuntu/post-f/idle_common.sh || exit 3
 # shellcheck source=v5_common.sh
 source /home/ubuntu/post-f/v5_common.sh || exit 3
-trap 'touch /home/ubuntu/queue/v5.done' EXIT
-touch $Q/v5.queued
+LANE=$1
+case "$LANE" in
+  0|1) ;;
+  *) say "usage: box_q_v5.sh LANE (0 or 1, the box's GPU); got '$LANE'"; exit 2 ;;
+esac
+# Before the trap: a second copy of a lane, or a lane over an earlier launch's markers, must not
+# touch the markers it found.
+v5_lane_stale "$LANE" || exit 3
+trap 'touch "$Q/v5lane$LANE.done"' EXIT
+touch "$Q/v5lane$LANE.queued"
 UNSET_PINS=$(v5_pins_unset)
 if [ -n "$UNSET_PINS" ]; then
-  say "v5 deferred: pins UNSET:$UNSET_PINS (fail-closed until the lead fills them); v5 NOT RUN"
+  say "v5 lane $LANE deferred: pins UNSET:$UNSET_PINS (fail-closed until the lead fills them); v5 NOT RUN"
   exit 3
 fi
 PIN_PROBLEMS=$(v5_pins_check)
 if [ -n "$PIN_PROBLEMS" ]; then
-  say "v5 deferred: pins malformed: $(echo "$PIN_PROBLEMS" | tr '\n' ';'); v5 NOT RUN"
+  say "v5 lane $LANE deferred: pins malformed: $(echo "$PIN_PROBLEMS" | tr '\n' ';'); v5 NOT RUN"
   exit 3
 fi
-v5_split_check || { say "v5 deferred: V5_SPLIT refused; v5 NOT RUN"; exit 3; }
-v5_recipe || { say "v5 deferred: no recipe; v5 NOT RUN"; exit 3; }
-for m in "$V5_PAUSED" "$V5_CONTINUE" "$V5_STOP"; do
-  if [ -e "$m" ]; then say "v5: $m exists before v5 started (stale; the lead clears it); v5 NOT RUN"; exit 3; fi
-done
-until [ -f $Q/j5pp.done ]; do sleep 60; done
-for n in j6a j6g; do
-  if [ -f "$Q/$n.queued" ]; then say "v5: j5pp is done; $n is queued, so v5 waits for $n.done"
-  else say "v5: j5pp is done; $n is NOT queued, so v5 does not wait for it"; fi
-done
-wait_queued j6a j6g
-v5_wait_marker "$V5_LAUNCH_YES" "the human's v5 launch yes" || { say "v5 NOT RUN"; exit 3; }
-v5_verify || { say "v5 refused before gpu.lock; v5 NOT RUN"; exit 3; }
-if [ -e "$V5_LEDGER" ]; then say "v5: $V5_LEDGER exists; v5's rows go into a new ledger, refusing"; exit 3; fi
-say "v5 recipe (C1=$V5_C1 C2a=$V5_C2A C2b=$V5_C2B lower=$V5_LOWER lr=$V5_LRSET): ${V5_RECIPE[*]}"
-say "v5 data: ${V5_SPLIT[*]}"
+v5_split_check || { say "v5 lane $LANE deferred: V5_SPLIT refused; v5 NOT RUN"; exit 3; }
+v5_recipe || { say "v5 lane $LANE deferred: no recipe; v5 NOT RUN"; exit 3; }
+v5_lane_set "$LANE" || exit 3
+v5_wait_marker "$V5_LAUNCH_YES" "the human's v5 launch yes" || { say "v5 lane $LANE: v5 NOT RUN"; exit 3; }
+v5_verify || { say "v5 lane $LANE refused before gpu$LANE.lock; v5 NOT RUN"; exit 3; }
+say "v5 lane $LANE on GPU $V5_GPU: recipe (C1=$V5_C1 C2a=$V5_C2A C2b=$V5_C2B lower=$V5_LOWER lr=$V5_LRSET): ${V5_RECIPE[*]}"
+say "v5 lane $LANE data: ${V5_SPLIT[*]}"
 v5_total_line
 
-# --- seed 0, then R9 --------------------------------------------------------------------------
-v5_lock
-touch $Q/v5.started
-if [ -e "$V5_LEDGER" ]; then say "v5: $V5_LEDGER appeared while waiting for the lock; refusing"; exit 3; fi
-v5_train_seed v5 0 "v5 seed 0"
-FT0=$V5_FT
-# R9_WHY: continue, or the hold's reason as $Q/v5.paused carries it (Fable's ruling A): pause (the
-# reading), refused (the binary refused or could not be read or run), unknown:<word> (it said a
-# word R9 does not have), no-seed-0-row (seed 0 wrote no ft row, so v5-pause was not run).
-if [ -n "$FT0" ]; then
-  v5_rule v5-pause "continue pause" v5-pause --preregistration "$V5_PREREG" --ledger "$V5_LEDGER" --ft-row "0=$FT0"
-  R9_WHY=$V5_SAID
+if [ "$LANE" = 0 ]; then
+  for f in "$V5_LEDGER" "$V5NW_LEDGER" "$V5_PROBE_LEDGER"; do
+    if [ -e "$f" ]; then say "v5 lane 0: $f exists; v5's rows go into a new ledger, refusing"; exit 3; fi
+  done
+  v5_lock || exit 3
+  touch "$Q/v5lane0.started"
+  v5_probe
+  case $? in
+    0) ;;
+    1) v5_wait_marker "$V5_PROBE_YES" "the human's yes after the failed probe" || { say "v5 lane 0: the probe failed; v5 NOT RUN"; exit 3; } ;;
+    *) say "v5 lane 0: the probe could not run; v5 NOT RUN"; exit 3 ;;
+  esac
+  exec 9>&-
 else
-  R9_WHY=no-seed-0-row
-  say "R9: v5 seed 0 wrote no ft row; v5-pause NOT RUN; no-seed-0-row"
-fi
-v5_needle_control v5 0 "$FT0" "v5 seed 0"
-v5_post_seed v5 0 "$FT0"
-if [ "$(v5_pause_action "$R9_WHY")" = run ]; then
-  say "R9: continue: seeds 1-2 start"
-else
-  write_atomic "$V5_PAUSED" "$R9_WHY" || exit 3
-  say "R9: $R9_WHY: HOLD (v5-pause on ft row ${FT0:-none}). $V5_PAUSED says '$R9_WHY'; seeds 1-2 start only once the human writes $V5_CONTINUE ($V5_STOP ends v5 here)"
-  v5_wait_marker "$V5_CONTINUE" "R9's hold" || { say "R9: no continue: v5 seeds 1-2 NOT RUN"; exit 3; }
+  v5_wait_probe || { say "v5 lane 1: v5 NOT RUN"; exit 3; }
 fi
 
-# --- seeds 1, 2 -------------------------------------------------------------------------------
-for SEED in 1 2; do
-  v5_lock
-  v5_train_seed v5 "$SEED" "v5 seed $SEED"
-  FT=$V5_FT
-  v5_needle_control v5 "$SEED" "$FT" "v5 seed $SEED"
-  v5_post_seed v5 "$SEED" "$FT"
-done
+v5_lane_loop
+RC=$?
 v5_total_line
-say "v5 all done (seeds 0-2); v5s34, v5nw and v5j5 read its rows next"
+if [ "$RC" = 0 ]; then say "v5 lane $LANE all done"; fi
+exit "$RC"
