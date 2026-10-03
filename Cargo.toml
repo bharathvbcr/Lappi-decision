@@ -33,7 +33,7 @@ serde_json = "1"
 clap = { version = "4", features = ["derive"] }
 rand = "0.9"
 rand_chacha = "0.9"
-sha2 = "0.10"
+sha2 = "0.11"
 thiserror = "2"
 
 # Added 2026-09-19 at the user's explicit request, replacing the hand-written codec in
