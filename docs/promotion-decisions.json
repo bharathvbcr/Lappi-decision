@@ -48,12 +48,12 @@
     "privileged_hunk_pass_rule": {
       "question": "What eligibility share makes privileged_hunk a ceiling rather than a vacuous control, and what is its pass rule?",
       "gap": "GAP-PRIVILEGED-HUNK-IS-NEARLY-VACUOUS-ON-COMMITPACKFT",
-      "status": "open",
-      "value": "not set: the control stays not_run",
+      "status": "decided",
+      "value": "retired for v5: privileged_hunk is not a promotion requirement while the corpus's privileged window is the whole file on 48.0% of mutated examples; re-specified only for a corpus whose hunks are small",
       "source": "gaps.jsonl, GAP-PRIVILEGED-HUNK-IS-NEARLY-VACUOUS-ON-COMMITPACKFT",
-      "decided_by": null,
-      "decided_on": null,
-      "decision_ref": null
+      "decided_by": "the human, by delegation (\"For decisions ask fable and proceed with them\", in the lead's session, 2026-10-03 ~13:14Z), through the lead, ruled by Fable",
+      "decided_on": "2026-10-03",
+      "decision_ref": "AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md (main b2ad747), ruling 2. The gap's own measurement (GAP-PRIVILEGED-HUNK-IS-NEARLY-VACUOUS-ON-COMMITPACKFT): the window is the whole file on 20,014 of 41,728 mutated examples and 76.9% of the file at the median, so no eligibility share makes it a ceiling. Takes effect only through code that reads this record (GAP-PROMOTION-RECORD-IS-NOT-APPLIED-BY-THE-GATES-2026-10-03)."
     },
     "transfer_gate_definition": {
       "question": "What is transfer_gate, and on what data is it measured?",
