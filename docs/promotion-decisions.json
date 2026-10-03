@@ -5,13 +5,15 @@
     "promotion_population": {
       "question": "Which val population do permutation_consistency and ood_abstain's in-distribution bound judge promotion on: every family pooled (as built), each family separately, or code.defect_class with the general families report-only?",
       "gap": "GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS",
-      "status": "open",
-      "value": "pooled: every val family's choice rows, judged together",
-      "families": "all",
+      "status": "decided",
+      "value": "code.defect_class: the defect family's val choice rows judge permutation_consistency and ood_abstain's in-distribution bound; every general family is report-only",
+      "families": [
+        "code.defect_class"
+      ],
       "source": "the gates as built, not a ruling: tools/real_ft_run.py permutation_agreement and choice_rule_abstentions read every val choice row of every family; both were defined when val was code.defect_class only (gaps.jsonl, GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS, revised record)",
-      "decided_by": null,
-      "decided_on": null,
-      "decision_ref": null
+      "decided_by": "the human, by delegation (\"For decisions ask fable and proceed with them\", in the lead's session, 2026-10-03 ~13:14Z), through the lead, ruled by Fable",
+      "decided_on": "2026-10-03",
+      "decision_ref": "AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md (main b2ad747), ruling 2; the options and the counter-argument are in AUDIT/finalize-2026-10-03/promotion-decision-brief.md, row 1. Decided with v4's numbers in view. Pooled reading: permutation_consistency 93.2% (seed 0, f4feac15) and 93.7% (ens5, b45406b5) against a 95% floor; in-distribution abstentions 843 and 814 of 10,985 against a cap of 504. code.defect_class reading: 99.44% on both, and 13 of 2,304 abstentions on both (Wilson upper 0.0096). The suite half of ood_abstain is out-of-distribution by construction and does not change: 132/180 and 61/180 against 170. The rule takes effect only through code that reads this record (GAP-PROMOTION-RECORD-IS-NOT-APPLIED-BY-THE-GATES-2026-10-03)."
     },
     "average_may_promote": {
       "question": "May an average of seeds' weights, scored as an 'avg' eval row, be the promoted artifact in place of its seeds?",
