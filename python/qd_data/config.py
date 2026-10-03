@@ -24,7 +24,9 @@ from .sources import TASK_FAMILIES, admitted_task_families
 
 __all__ = [
     "DEFAULT_HELD_OUT_FAMILIES",
+    "DEFAULT_MAX_CANDIDATE_PAIRS",
     "N_HELD_OUT_FAMILIES",
+    "POOL_MAX_CANDIDATE_PAIRS",
     "SPLITS",
     "DataConfig",
     "Split",
@@ -32,6 +34,26 @@ __all__ = [
 
 Split = str
 SPLITS: Final[tuple[str, ...]] = ("train", "val", "heldout")
+
+#: The near-duplicate searches' candidate-pair bound (dedupe and the split's re-derivation).
+#: At 0.8 Jaccard on a code corpus the candidate set is a small multiple of the unit count, so
+#: a set this large meant the corpus was pathological (for example every row identical) and
+#: the run must say so rather than grind. Templated short-text decision rows broke that
+#: premise: at the banding b=16, r=8 a pair at J=0.6 is a candidate with probability 0.24, and
+#: the v5 pool's procedural and command families propose millions of such pairs while holding
+#: few duplicates (AUDIT/finalize-2026-10-03/dedupe-probe/RULING.md). A build that needs more
+#: sets ``DataConfig.max_candidate_pairs`` to a measured figure; reports name any bound that
+#: is not this one.
+DEFAULT_MAX_CANDIDATE_PAIRS: Final[int] = 5_000_000
+#: The bound for a build that reads the v5 decision pool, measured rather than guessed (Fable,
+#: 2026-10-03, RULING.md "(A)"). The pool's MinHash population -- every family but the four
+#: structured Open-Jev ones, which the ruling dedupes by exact content -- proposed 5,874,260
+#: candidate pairs in dedupe and 2,892,003 in the split's re-derivation (native path, ceiling
+#: 50M, peak RSS 8.9 GB, 93 s; AUDIT/finalize-2026-10-03/dedupe-probe/residual-measure.json).
+#: Twice the pool's count plus v4's whole-corpus 550,147 (a proxy for v5's non-pool rows, which
+#: are unmeasured) is 12.3M; rounded up. A build that still exceeds it reports NotRun and
+#: refuses, as at any bound.
+POOL_MAX_CANDIDATE_PAIRS: Final[int] = 12_500_000
 
 #: The plan fixes the count at two.
 N_HELD_OUT_FAMILIES: Final[int] = 2
@@ -73,6 +95,11 @@ class DataConfig:
     #: Bounds. Every batch, payload and read is bounded; these are the data lane's.
     max_rows_per_source: int = 2_000_000
     max_row_bytes: int = 1_048_576
+    #: The near-duplicate searches' candidate-pair bound (:data:`DEFAULT_MAX_CANDIDATE_PAIRS`).
+    #: Not in :meth:`fingerprint`: a bound decides only whether a search completes, and a
+    #: search that completes finds the same pairs under any bound, so it does not change the
+    #: data. A search that hits it reports ``NotRun``, and the build refuses.
+    max_candidate_pairs: int = DEFAULT_MAX_CANDIDATE_PAIRS
 
     metadata: dict[str, str] = field(default_factory=dict)
 
@@ -131,6 +158,11 @@ class DataConfig:
             )
         if self.max_rows_per_source < 1 or self.max_row_bytes < 1:
             raise ValueError("row bounds must be positive")
+        if self.max_candidate_pairs < 1:
+            raise ValueError(
+                f"max_candidate_pairs must be >= 1, got {self.max_candidate_pairs}: a bound "
+                "of 0 makes every near-duplicate search report NotRun"
+            )
         if not self.held_out_roots:
             raise ValueError(
                 "held_out_roots is empty: the training-time path check would then have "

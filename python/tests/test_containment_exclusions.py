@@ -126,7 +126,7 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
     """Characterization: every shard file, sequence index and manifest of a 60-pair build,
     timestamps aside, is the bytes the pipeline wrote before the flag existed.
 
-    Pinned at d554702 as d67c7de0.... It has moved five times since, each time by design and
+    Pinned at d554702 as d67c7de0.... It has moved six times since, each time by design and
     with every moved byte accounted for. No move was a re-pin to whatever came out:
 
     * L-v5-data -> 92299328...: the tokens, offsets and supervision are byte-identical. The
@@ -154,14 +154,22 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
       against the d998d6d8... build (build/char-v2/out-new, compared with its compare.py), 30 of
       33 files are byte-identical, every manifest included, and the three shard headers differ
       only in code_fingerprint["decisions.py"], code_fingerprint["sources.py"] and the
-      shard_hash that covers them. Differing binary files: 0."""
+      shard_hash that covers them. Differing binary files: 0.
+    * Exact-content dedupe for structured decision rows and the config-carried candidate bound
+      (the lead's v4 half, Fable's dedupe ruling) -> d65616af...: against the acd6ea15...
+      build (the bench's char-v3/out-v3, whose digest reproduces acd6ea15...), 30 of 33 files
+      are byte-identical, every manifest included -- a corpus with no scoped row and the default
+      bound writes no new report key -- and the three shard headers differ only in
+      code_fingerprint["config.py"], ["dedupe.py"], ["split.py"] and the shard_hash that
+      covers them. Differing binary files: 0.
+      AUDIT/finalize-2026-10-03/dedupe-probe/char-v4-compare.out."""
     pipeline = _pipeline_or_skip()
     pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev=PIN_REV, commitpackft=DOWNLOAD,
         val_shards=True, repo_history=False,
     )
     assert build_digest(tmp_path) == (
-        "acd6ea15c191281f1118177458a3a64d4a749e27b6f90d019e4f0c05653bb4b8"
+        "d65616af28544d143de0aac38469b140df7b653216e980e83dd8db9757f63dd9"
     )
 
 
