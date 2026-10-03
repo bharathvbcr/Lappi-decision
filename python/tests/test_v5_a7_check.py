@@ -1,7 +1,8 @@
 """The A7 checker: v5's val and held-out rows are v4's plus CLINC's oos rows, and nothing else.
 
-The gate's numbers are re-read from the DRAFT, so the checker's constants cannot drift from the
-pre-registration; the rest builds two tiny builds and changes one thing at a time.
+The gate's numbers are re-read from the pre-registration (campaign/v5-preregistered.json, the
+DRAFT as the freeze renamed it), so the checker's constants cannot drift from it; the rest builds
+two tiny builds and changes one thing at a time.
 """
 
 from __future__ import annotations
@@ -21,13 +22,13 @@ from qd_data.manifest import Manifest, ManifestEntry
 from qd_train.tristate import Ran
 
 REPO = Path(__file__).resolve().parents[2]
-DRAFT = REPO / "campaign" / "v5-preregistered.DRAFT.json"
+PREREG = REPO / "campaign" / "v5-preregistered.json"
 
 
 def _gate_text() -> str:
-    draft = json.loads(DRAFT.read_text(encoding="utf-8"))
-    hits = [s for s in draft["amendments_pending"] if isinstance(s, str) and s.startswith("(A7)")]
-    assert len(hits) == 1, f"{DRAFT} has {len(hits)} (A7) amendments"
+    prereg = json.loads(PREREG.read_text(encoding="utf-8"))
+    hits = [s for s in prereg["amendments_pending"] if isinstance(s, str) and s.startswith("(A7)")]
+    assert len(hits) == 1, f"{PREREG} has {len(hits)} (A7) amendments"
     return hits[0]
 
 
@@ -67,7 +68,7 @@ def test_the_constants_are_the_drafts_numbers() -> None:
         "intent.within_domain": within,
     }
     assert GATE.clinc["heldout"] == dict.fromkeys(GATE.clinc["val"], held)
-    effect = json.loads(DRAFT.read_text(encoding="utf-8"))
+    effect = json.loads(PREREG.read_text(encoding="utf-8"))
     blob = json.dumps(effect)
     oos = re.search(r"oos utterances: train [\d,]+, val ([\d,]+), held-out ([\d,]+)", blob)
     assert oos is not None

@@ -52,7 +52,8 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 QUEUE = Path(os.environ.get("QD_V5_QUEUE_DIR", str(REPO / "campaign" / "post-f-queue")))
-DRAFT = REPO / "campaign" / "v5-preregistered.DRAFT.json"
+#: The DRAFT as the freeze renamed it (AUDIT/finalize-2026-10-03/apply_v5_freeze.py).
+PREREG = REPO / "campaign" / "v5-preregistered.json"
 NOUL = REPO / "campaign" / "v4-noul-v3b-preregistered.json"
 BASH = "/bin/bash"
 WAITERS = ("box_q_v5.sh", "box_q_v5traj.sh")
@@ -151,9 +152,9 @@ def sha256(path: Path) -> str:
 
 
 def renamed_prereg() -> dict:
-    """The DRAFT as the rename will bind it: the same text without its top-level draft key."""
-    d = json.loads(DRAFT.read_text(encoding="utf-8"))
-    d.pop("draft")
+    """The pre-registration as it binds: the DRAFT renamed, with no top-level draft key."""
+    d = json.loads(PREREG.read_text(encoding="utf-8"))
+    assert "draft" not in d, f"{PREREG} still carries the DRAFT's draft key"
     return d
 
 
@@ -256,7 +257,7 @@ def test_committed_pins_are_unset_so_every_waiter_fails_closed() -> None:
 
 
 def test_caps_and_constants_are_the_pre_registrations() -> None:
-    draft = DRAFT.read_text(encoding="utf-8")
+    prereg = PREREG.read_text(encoding="utf-8")
     text = common_text()
     want = {
         "V5_TRAIN_CAP_S": ("32400", "--wall-clock-cap-s 32400"),
@@ -268,8 +269,8 @@ def test_caps_and_constants_are_the_pre_registrations() -> None:
     }
     for name, (value, phrase) in want.items():
         assert re.search(rf"^{name}={value}$", text, re.M), name
-        assert phrase in draft, f"the DRAFT does not say {phrase!r}"
-    assert "--batch-order seed" in draft and "--min-lr 0" in draft
+        assert phrase in prereg, f"the pre-registration does not say {phrase!r}"
+    assert "--batch-order seed" in prereg and "--min-lr 0" in prereg
 
 
 def test_the_probe_margin_and_cap_are_the_pre_registrations() -> None:
@@ -869,7 +870,7 @@ def test_each_word_maps_to_the_action_the_draft_names(tmp_path: Path, call: str,
 
 
 def test_the_draft_names_these_words() -> None:
-    d = json.loads(DRAFT.read_text(encoding="utf-8"))
+    d = json.loads(PREREG.read_text(encoding="utf-8"))
     r9 = d["readings"]["R9_pause_after_seed_0"]
     assert "prints continue iff" in r9 and "otherwise pause" in r9 and "V5_CONTINUE" in r9
     launch = d["arm_noul_weight"]["launch_condition"]
@@ -1233,7 +1234,8 @@ def test_v5_read_prereg_refuses_without_a_positive_per_gpu_rate(tmp_path: Path, 
 
 
 def test_v5_read_prereg_refuses_the_draft_itself(tmp_path: Path) -> None:
-    r = read_prereg(tmp_path, DRAFT.read_text(encoding="utf-8"))
+    # The DRAFT's form: the renamed file with its top-level draft key put back.
+    r = read_prereg(tmp_path, {"draft": "NOT BINDING.", **renamed_prereg()})
     assert "RC=3" in r.stdout and "'draft' key" in r.stdout
 
 

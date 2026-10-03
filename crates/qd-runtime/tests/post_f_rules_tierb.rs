@@ -1,5 +1,5 @@
 //! `qd-post-f-rules tierb`: the Tier-B outcome rule (`recipe.tierb_outcome_rule` of
-//! `campaign/v5-preregistered.DRAFT.json`, as amended by Fable on 2026-10-03), run the way the box
+//! `campaign/v5-preregistered.json`, as amended by Fable on 2026-10-03), run the way the box
 //! runs it: the binary, the one word it prints, its exit code and its `--out` JSON.
 //!
 //! Every candidate ledger here is built from phase-3 seed 0's real committed rows: ft 7f2c11db,
@@ -7,8 +7,8 @@
 //! (`ledger/gh200-seed0-weights-2026-09-30.jsonl`) and its fp32 all-gates re-score 58fd1532
 //! (`ledger/gh200-allgates-2026-09-30.jsonl`), with the candidate's recipe key injected into the
 //! ft recipe and whatever edit each test makes. The phase-3 and all-gates ledgers are the real
-//! files unless a test says otherwise; the pre-registration is the real DRAFT unless a test edits
-//! a copy.
+//! files unless a test says otherwise; the pre-registration is the real one (the DRAFT as the
+//! freeze renamed it, AUDIT/finalize-2026-10-03/apply_v5_freeze.py) unless a test edits a copy.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -20,7 +20,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_qd-post-f-rules");
 const REPO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
 const PHASE3: &str = "ledger/gh200-seed0-weights-2026-09-30.jsonl";
 const ALLGATES: &str = "ledger/gh200-allgates-2026-09-30.jsonl";
-const DRAFT: &str = "campaign/v5-preregistered.DRAFT.json";
+const PREREG: &str = "campaign/v5-preregistered.json";
 const EXIT_REFUSED: i32 = 3;
 
 const FT: &str = "7f2c11db-3eb8-4361-9620-6b164ec37f1e";
@@ -162,8 +162,8 @@ fn fx(candidate: &'static str) -> Fx {
     }
 }
 
-fn draft() -> Value {
-    serde_json::from_slice(&std::fs::read(repo(DRAFT)).unwrap()).unwrap()
+fn real_prereg() -> Value {
+    serde_json::from_slice(&std::fs::read(repo(PREREG)).unwrap()).unwrap()
 }
 
 fn go(f: &Fx) -> Run {
@@ -189,7 +189,7 @@ fn go(f: &Fx) -> Run {
             std::fs::write(&path, serde_json::to_vec_pretty(p).unwrap()).unwrap();
             path
         }
-        None => repo(DRAFT),
+        None => repo(PREREG),
     };
     let out = s.path("out.json");
     let o = Command::new(BIN)
@@ -252,10 +252,10 @@ fn conditional<'a>(p: &'a mut Value, id: &str) -> &'a mut Value {
 // --- the real rows ------------------------------------------------------------------------------
 
 /// The smoke: phase-3 seed 0's own rows, read as a candidate, pass every clause against the real
-/// phase-3 and all-gates ledgers and the real DRAFT. This is what proves the checker reads the
-/// real row formats (counts, the control's detail string, the fp32 row's gates).
+/// phase-3 and all-gates ledgers and the real pre-registration. This is what proves the checker
+/// reads the real row formats (counts, the control's detail string, the fp32 row's gates).
 #[test]
-fn phase3_seed0s_real_rows_pass_as_either_candidate_against_the_real_draft() {
+fn phase3_seed0s_real_rows_pass_as_either_candidate_against_the_real_preregistration() {
     for candidate in ["nomask", "fused"] {
         let r = go(&fx(candidate));
         r.said("pass");
@@ -264,7 +264,7 @@ fn phase3_seed0s_real_rows_pass_as_either_candidate_against_the_real_draft() {
         assert_eq!(j["decision"], json!("pass"));
         let d = &j["detail"];
         assert_eq!(d["candidate"], json!(candidate));
-        assert_eq!(d["preregistration"]["draft"], json!(true), "{d}");
+        assert_eq!(d["preregistration"]["draft"], json!(false), "{d}");
         assert_eq!(
             d["preregistration"]["sha256"].as_str().map(str::len),
             Some(64),
@@ -313,13 +313,16 @@ fn phase3_seed0s_real_rows_pass_as_either_candidate_against_the_real_draft() {
 
 #[test]
 fn the_draft_and_the_renamed_file_both_bind_and_say_which_was_read() {
-    let mut p = draft();
-    p.as_object_mut().unwrap().remove("draft");
+    // The DRAFT's form: the renamed file with its top-level `draft` key put back.
+    let mut p = real_prereg();
+    p.as_object_mut()
+        .unwrap()
+        .insert("draft".to_string(), json!("NOT BINDING."));
     let mut f = fx("nomask");
     f.prereg = Some(p);
     let r = go(&f);
     r.said("pass");
-    assert_eq!(r.json["detail"]["preregistration"]["draft"], json!(false));
+    assert_eq!(r.json["detail"]["preregistration"]["draft"], json!(true));
 }
 
 // --- clause 1, the envelope ---------------------------------------------------------------------
@@ -813,7 +816,7 @@ fn a_preregistration_that_disagrees_with_the_checker_refuses() {
         ),
     ];
     for (edit, phrase) in edits {
-        let mut p = draft();
+        let mut p = real_prereg();
         edit(&mut p);
         let mut f = fx("nomask");
         f.prereg = Some(p);
@@ -821,7 +824,7 @@ fn a_preregistration_that_disagrees_with_the_checker_refuses() {
     }
     // The other conditional's edit does not touch this candidate's decision, and does refuse
     // the other one.
-    let mut p = draft();
+    let mut p = real_prereg();
     conditional(&mut p, "C2b")["outcome_rule"]["candidate_recipe"] =
         json!({"optimizer_fused": false});
     let mut f = fx("nomask");
@@ -847,7 +850,7 @@ fn an_identity_or_clause_text_without_its_pinned_ids_refuses() {
         ("identity", "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"),
         ("3", ALL),
     ] {
-        let mut p = draft();
+        let mut p = real_prereg();
         let rule = &mut p["recipe"]["tierb_outcome_rule"];
         let field = if path == "identity" {
             &mut rule["rows"]["identity"]

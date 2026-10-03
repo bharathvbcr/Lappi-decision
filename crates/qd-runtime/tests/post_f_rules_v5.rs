@@ -6,9 +6,10 @@
 //! * `seeds34` and `eval-row` on a v5-shaped ledger, and `seeds34` on F's real rows pinned to the
 //!   decision the unmodified binary wrote (AUDIT/v5-rules-2026-10-02/characterization-*).
 //!
-//! The pre-registration is the real `campaign/v5-preregistered.DRAFT.json` with its top-level
-//! `draft` key removed, which is what the rename to `campaign/v5-preregistered.json` leaves; the
-//! DRAFT itself must refuse. F2 and F3 are the real `campaign/v4-noul-v3b-preregistered.json`.
+//! The pre-registration is the real `campaign/v5-preregistered.json`, the DRAFT as the freeze
+//! renamed it (AUDIT/finalize-2026-10-03/apply_v5_freeze.py), with no top-level `draft` key; the
+//! DRAFT's form, that file with a `draft` key put back, must refuse. F2 and F3 are the real
+//! `campaign/v4-noul-v3b-preregistered.json`.
 //! Ledger rows are F's real rows (`ledger/gh200-p4-v4-2026-10-01.jsonl`: ft 973cd4e3, eval
 //! f4feac15) re-identified as v5's, with the counts each test sets.
 
@@ -27,7 +28,7 @@ const F_FT: [&str; 3] = [
     "95fa4854-6146-4824-b7ad-22bb54744ff1",
     "32990e1a-0c61-49fa-9217-800eb845f27e",
 ];
-const DRAFT: &str = "campaign/v5-preregistered.DRAFT.json";
+const PREREG: &str = "campaign/v5-preregistered.json";
 const NOUL: &str = "campaign/v4-noul-v3b-preregistered.json";
 const EXIT_REFUSED: i32 = 3;
 /// The needle suite's depth buckets and F seed 0's bucket sizes (f4feac15).
@@ -295,16 +296,26 @@ fn eval_of<'a>(rows: &'a mut [Value], ft: &str) -> &'a mut Value {
 
 // --- the pre-registration ------------------------------------------------------------------------
 
-/// The real DRAFT as the rename leaves it: no `draft` key; then `edit`.
+/// The real pre-registration as the freeze renamed it (no `draft` key); then `edit`.
 fn prereg(s: &Scratch, edit: impl FnOnce(&mut Map<String, Value>)) -> PathBuf {
     let mut p: Map<String, Value> =
-        serde_json::from_str(&std::fs::read_to_string(repo(DRAFT)).unwrap()).unwrap();
-    assert!(p.remove("draft").is_some(), "the DRAFT has no draft key");
+        serde_json::from_str(&std::fs::read_to_string(repo(PREREG)).unwrap()).unwrap();
+    assert!(
+        !p.contains_key("draft"),
+        "the renamed pre-registration still carries the DRAFT's draft key"
+    );
     edit(&mut p);
     s.json(
         &format!("prereg-{}.json", N.fetch_add(1, Ordering::SeqCst)),
         &Value::Object(p),
     )
+}
+
+/// The DRAFT's form: the real pre-registration with its top-level `draft` key put back.
+fn draft(s: &Scratch) -> PathBuf {
+    prereg(s, |p| {
+        p.insert("draft".to_string(), json!("NOT BINDING."));
+    })
 }
 
 fn bound(s: &Scratch) -> PathBuf {
@@ -517,7 +528,7 @@ fn seeds34_refuses_the_draft_and_a_threshold_that_is_not_0_30() {
     let s = scratch();
     let (rows, ids) = seeds(0x5, false, v5_needles([54, 50, 40]));
     let ledger = s.ledger("gh200-v5.jsonl", &rows);
-    seeds34(&s, &ledger, &ids, Some(&repo(DRAFT))).refused_with("\"draft\" key");
+    seeds34(&s, &ledger, &ids, Some(&draft(&s))).refused_with("\"draft\" key");
     let p = conditional(&s, |p| {
         retext(
             p,
@@ -685,7 +696,7 @@ fn r9_refuses_a_preregistration_whose_words_it_does_not_apply() {
             ..BASE
         },
     );
-    pause(&s, &repo(DRAFT), &ledger, &ft0).refused_with("\"draft\" key");
+    pause(&s, &draft(&s), &ledger, &ft0).refused_with("\"draft\" key");
     let r9 = ["readings", "R9_pause_after_seed_0"];
     for (from, to, phrase) in [
         ("5*n >= 4*n_total", "at least 0.80", "is not a count form"),
@@ -949,7 +960,7 @@ fn room_refuses_unreadable_v5_rows_and_never_prints_room() {
         b.extend([String::from("--ft-row"), format!("{seed}={id}")]);
     }
     run(&s, &b).refused_with("given in that order; got [1, 0, 2]");
-    room(&s, &repo(DRAFT), &q, &ledger, &ids).refused_with("\"draft\" key");
+    room(&s, &draft(&s), &q, &ledger, &ids).refused_with("\"draft\" key");
 }
 
 // --- v5-noulw ----------------------------------------------------------------------------------
@@ -1590,7 +1601,7 @@ fn the_arms_three_ft_rows_must_be_one_configuration_like_v5s() {
 fn a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read() {
     let s = scratch();
     let fx = arm_fixture(&s, v5_room(), arm_holds(), |_, _| {});
-    noulw_with(&s, &repo(DRAFT), &repo(NOUL), &fx).refused_with("\"draft\" key");
+    noulw_with(&s, &draft(&s), &repo(NOUL), &fx).refused_with("\"draft\" key");
     type Edit = fn(&mut Map<String, Value>);
     let cases: [(Edit, &str); 13] = [
         (
