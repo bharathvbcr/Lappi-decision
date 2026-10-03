@@ -448,6 +448,13 @@ DATA_LANE_ONLY = {
 #: five languages including Swift, as a counter rather than a refusal; ``defect_class.py``
 #: returns a ``diff_is_not_a_hunk`` reason code for a noul row. Neither is a ``QdRefusal``.
 #: ``test_the_admission_shapes_are_built_here_rather_than_refused`` is what looked.
+#:
+#: ``task_not_trained`` is serving-time admission too (Fable's pipeline ruling, item 4): a
+#: release refuses a task outside its manifest's ``trained_families``, which only exist once a
+#: release is exported from a train manifest. This lane builds a request only for a family in
+#: ``sources.TASK_FAMILIES`` (``mixture.py::_request`` -> ``task_family_by_id``, whose unknown-id
+#: failure is a ``KeyError``, not a ``QdRefusal``), and it knows nothing of what a release
+#: trained, so no refusal here stands for the kind.
 NO_QD_DATA_COUNTERPART = {
     "ambiguous_envelope",
     "calibration_entry_missing",
@@ -459,6 +466,7 @@ NO_QD_DATA_COUNTERPART = {
     "registered_route_span_unsupported",
     "slot_field_not_allowed",
     "slot_name_over_cap",
+    "task_not_trained",
     "unknown_op",
 }
 

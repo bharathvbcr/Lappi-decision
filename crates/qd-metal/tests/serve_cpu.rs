@@ -45,13 +45,14 @@ fn sha(bytes: &[u8]) -> String {
     qd_runtime::hex(&qd_runtime::sha256(bytes))
 }
 
-/// A release directory whose manifest binds `weight_hash` and the reference tokenizer hash.
+/// A release directory whose manifest binds `weight_hash` and the reference tokenizer hash, and
+/// records `devcouncil.verdict` (the task [`request_line`] asks) as trained.
 fn release_dir(weight_hash: &str) -> PathBuf {
-    release_dir_trained(weight_hash, None)
+    release_dir_with(weight_hash, |_| {})
 }
 
-/// [`release_dir`], with `trained` written as the manifest's `trained_families` when given.
-fn release_dir_trained(weight_hash: &str, trained: Option<Value>) -> PathBuf {
+/// [`release_dir`], its manifest then changed by `edit`.
+fn release_dir_with(weight_hash: &str, edit: impl FnOnce(&mut Value)) -> PathBuf {
     let dir = scratch("release");
     let reference = ReferenceBackend::new(true);
     let id = reference.identity();
@@ -80,10 +81,9 @@ fn release_dir_trained(weight_hash: &str, trained: Option<Value>) -> PathBuf {
             "file_sha256": sha(&calibration),
             "table_hash": table.hash(),
         },
+        "trained_families": ["devcouncil.verdict"],
     });
-    if let Some(trained) = trained {
-        manifest["trained_families"] = trained;
-    }
+    edit(&mut manifest);
     std::fs::write(dir.join("release_manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
     dir
 }
@@ -153,16 +153,25 @@ fn a_release_bound_to_its_backend_answers_through_the_service() {
 /// says it trained. `request_line` asks `devcouncil.verdict`.
 #[test]
 fn the_product_path_refuses_a_task_the_release_did_not_train() {
-    let dir = release_dir_trained(
-        &ReferenceBackend::new(true).identity().weight_hash,
-        Some(json!(["code.defect_class"])),
-    );
+    let dir = release_dir_with(&ReferenceBackend::new(true).identity().weight_hash, |m| {
+        m["trained_families"] = json!(["code.defect_class"]);
+    });
     let service = service_over(&dir, Arc::new(AtomicUsize::new(0)));
     let r = reply(&service.handle_line(&request_line()));
     assert_eq!(r["status"], "refused", "{r}");
     assert_eq!(r["refusal"]["kind"], "task_not_trained", "{r}");
     assert_eq!(r["refusal"]["task"], "devcouncil.verdict", "{r}");
     assert_eq!(r["refusal"]["available"], json!(["code.defect_class"]), "{r}");
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    // A release that does not record what it trained (every v4 export) admits nothing.
+    let dir = release_dir_with(&ReferenceBackend::new(true).identity().weight_hash, |m| {
+        m.as_object_mut().unwrap().remove("trained_families");
+    });
+    let service = service_over(&dir, Arc::new(AtomicUsize::new(0)));
+    let r = reply(&service.handle_line(&request_line()));
+    assert_eq!(r["refusal"]["kind"], "task_not_trained", "{r}");
+    assert_eq!(r["refusal"]["available"], json!([]), "{r}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

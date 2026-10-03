@@ -214,6 +214,10 @@ REFUSAL_KINDS: Final[dict[str, dict[str, str]]] = {
         'cap': 'usize',
         'index': 'usize',
     },
+    'task_not_trained': {
+        'available': 'Vec<String>',
+        'task': 'String',
+    },
     'task_over_cap': {
         'actual': 'usize',
         'cap': 'usize',

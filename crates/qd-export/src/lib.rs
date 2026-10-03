@@ -14,7 +14,7 @@
 //! | `tokenizer_config.json`, `vocab.json`, `merges.txt` | (transformers) | the base snapshot's |
 //! | `span_head.safetensors` | none yet | the span pointer head, F32 |
 //! | `calibration.json` | `qd_runtime::release` | optional here, validated; a release without it is refused at load |
-//! | `release_manifest.json` | `qd_runtime::release` | every file's sha256, the source, and `expected_identity`: the tower's `weight_hash` bound to `config.json`'s sha256 and the tokenizer's |
+//! | `release_manifest.json` | `qd_runtime::release` | every file's sha256, the source, and `expected_identity`: the tower's `weight_hash` bound to `config.json`'s sha256 and the tokenizer's; `trained_families`, the train manifest's family set, which admission checks every request's task against |
 //!
 //! | Module | Holds |
 //! | --- | --- |

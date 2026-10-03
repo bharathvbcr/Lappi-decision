@@ -8,7 +8,8 @@
 //! ```text
 //! Release::open(dir)                     manifest, config and calibration bound, at startup
 //!   -> MetalBackend::start(snapshot = dir, calibration_hash = the release's table)
-//!   -> Runtime::from_release             refuses a backend that is not the release's tower
+//!   -> Runtime::from_release             refuses a backend that is not the release's tower, and
+//!                                        admits only the release's trained_families
 //!   -> Service::with_factory             the warm slot, idle eviction, poison and rebuild
 //!   -> Server::bind / run                the socket, one line in, one line out
 //! ```

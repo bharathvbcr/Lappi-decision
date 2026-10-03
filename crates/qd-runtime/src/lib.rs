@@ -9,7 +9,7 @@
 //! | [`context`] | "`context` crosses the FFI boundary as **bytes and a length**" |
 //! | [`b64`] | the codec behind `context_b64` — RFC 4648, canonical only |
 //! | [`refusal`] | "Refusals — fail closed, never truncate" |
-//! | [`admission`] | a `code.defect_class` context not in the trained diff shape or pool language |
+//! | [`admission`] | a task the release did not train; a `code.defect_class` context not in the trained diff shape or pool language |
 //! | [`wire`] | the JSON envelope, and the only way to build a validated request |
 //! | [`render`] | `docs/hardening.md` §3 — the context is adversarial by construction |
 //! | [`backend`] | the four operations a model backend must provide |

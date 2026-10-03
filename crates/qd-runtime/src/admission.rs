@@ -1,7 +1,28 @@
-//! Admission: a request whose context is not the shape its task was trained on is refused before
-//! the model is asked.
+//! Admission: a request whose task the release was not trained on, or whose context is not the
+//! shape its task was trained on, is refused before the model is asked.
 //!
-//! # What is checked, for which task
+//! # The task, for every request
+//!
+//! A request's `task` is its family id: training builds every request with `task=family_id`
+//! (`python/qd_data/mixture.py::_request`). A task id outside the families the weights were
+//! trained on reaches the model as a prompt shape it never saw, and gets back an answer that
+//! looks like any other (GAP-RUNTIME-ADMITS-TASKS-NO-RELEASE-FAMILY-TRAINS-2026-10-03). So the
+//! task is checked first, against [`TrainedFamilies`] (Fable's pipeline ruling, item 4):
+//!
+//! * [`TrainedFamilies::Recorded`] — the release's `trained_families`. Any other task is
+//!   [`Refusal::TaskNotTrained`], naming the families there are.
+//! * [`TrainedFamilies::Unrecorded`] — a release whose manifest does not record them. It cannot
+//!   say what it trained, so it admits no task (`available` empty).
+//! * [`TrainedFamilies::NoRelease`] — a runtime built without a release
+//!   ([`crate::runtime::Runtime::with_backend`], [`crate::runtime::Runtime::build`]): there is
+//!   no record to check against and the task check **does not run**. This is the test seam and
+//!   the reference backend, whose every answer is `degraded`; every model path in the product is
+//!   built from a release (`crates/qd-metal/src/serve.rs` through
+//!   [`crate::runtime::Runtime::from_release`]). The runtime reports which of the three it
+//!   holds ([`crate::runtime::Runtime::trained_families`]), so "not run" never reads as "passed"
+//!   (GAP-RUNTIME-WITH-BACKEND-RUNS-NO-TRAINED-FAMILY-CHECK-2026-10-03).
+//!
+//! # What is checked of the context, for which task
 //!
 //! Only [`DEFECT_CLASS_TASK`]. Its rows were built in one shape (`python/qd_data/mixture.py`,
 //! the `code.defect_class` rewriter, `header = f"file: {raw.path}\n\n"` then the diff): a
@@ -50,13 +71,58 @@ const EXCERPT_BYTES: usize = 80;
 /// Bytes of the path a refusal echoes back.
 const PATH_EXCERPT_BYTES: usize = 256;
 
-/// Refuse `request` if its task holds its context to a trained shape and the context is not in it.
-pub fn admit(request: &DecisionRequest) -> Result<(), Refusal> {
+/// What a runtime knows about the task families its weights were trained on. See the module docs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TrainedFamilies {
+    /// The release's `trained_families`, sorted and unique: any other task is refused.
+    Recorded(Vec<String>),
+    /// A release whose manifest does not record what it trained: every task is refused.
+    Unrecorded,
+    /// No release, so nothing to check against: the task check does not run.
+    NoRelease,
+}
+
+impl TrainedFamilies {
+    /// What a release, or every member of an ensemble, records.
+    pub fn of_release(families: Option<&[String]>) -> Self {
+        match families {
+            Some(families) => TrainedFamilies::Recorded(families.to_vec()),
+            None => TrainedFamilies::Unrecorded,
+        }
+    }
+
+    /// Whether a request's task is checked at all; `false` only for [`TrainedFamilies::NoRelease`].
+    pub fn is_checked(&self) -> bool {
+        !matches!(self, TrainedFamilies::NoRelease)
+    }
+}
+
+/// Refuse `request` if its task is not one the weights were trained on, or if its task holds its
+/// context to a trained shape and the context is not in it. The task is checked first: whether a
+/// context has the shape of a task is a question only for a task the release can answer.
+pub fn admit(request: &DecisionRequest, trained: &TrainedFamilies) -> Result<(), Refusal> {
+    admit_task(&request.task, trained)?;
     if request.task == DEFECT_CLASS_TASK {
         admit_defect_context(&request.context)
     } else {
         Ok(())
     }
+}
+
+/// Refuse `task` unless `trained` records it; admit it unchecked when there is no release.
+pub fn admit_task(task: &str, trained: &TrainedFamilies) -> Result<(), Refusal> {
+    let available = match trained {
+        TrainedFamilies::NoRelease => return Ok(()),
+        TrainedFamilies::Recorded(families) if families.iter().any(|family| family == task) => {
+            return Ok(());
+        }
+        TrainedFamilies::Recorded(families) => families.clone(),
+        TrainedFamilies::Unrecorded => Vec::new(),
+    };
+    Err(Refusal::TaskNotTrained {
+        task: task.to_string(),
+        available,
+    })
 }
 
 /// `bytes` as a short, escaped, lossless-where-possible excerpt for a refusal.
@@ -314,6 +380,31 @@ mod tests {
             }
             other => panic!("expected context_language_not_in_pool, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_task_is_admitted_only_by_a_record_that_names_it() {
+        let recorded = TrainedFamilies::Recorded(vec![
+            "code.change_scope".to_string(),
+            DEFECT_CLASS_TASK.to_string(),
+        ]);
+        admit_task(DEFECT_CLASS_TASK, &recorded).expect("a recorded family is admitted");
+        match admit_task("code.defect_clas", &recorded) {
+            Err(Refusal::TaskNotTrained { task, available }) => {
+                assert_eq!(task, "code.defect_clas");
+                assert_eq!(available, ["code.change_scope", DEFECT_CLASS_TASK]);
+            }
+            other => panic!("a near miss is not a trained family: {other:?}"),
+        }
+        match admit_task(DEFECT_CLASS_TASK, &TrainedFamilies::Unrecorded) {
+            Err(Refusal::TaskNotTrained { available, .. }) => assert!(available.is_empty()),
+            other => panic!("an unrecorded release admits nothing: {other:?}"),
+        }
+        assert_eq!(TrainedFamilies::of_release(None), TrainedFamilies::Unrecorded);
+        // No release: nothing to check against, and the runtime says the check is not run.
+        admit_task("anything", &TrainedFamilies::NoRelease).expect("not checked");
+        assert!(!TrainedFamilies::NoRelease.is_checked());
+        assert!(recorded.is_checked() && TrainedFamilies::Unrecorded.is_checked());
     }
 
     #[test]

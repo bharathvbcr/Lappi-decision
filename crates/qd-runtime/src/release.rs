@@ -25,14 +25,27 @@
 //! Nothing here parses `config.json` as a model config: which layouts a kernel runs is the
 //! backend's question. The runtime binds bytes.
 //!
+//! # What the release was trained on
+//!
+//! `trained_families` is the sorted, unique list of task family ids in the train split's
+//! manifest the tower was trained from (`qd-export --train-manifest` writes it). A request's
+//! `task` is its family id (`python/qd_data/mixture.py::_request`, `task=family_id`), so
+//! [`crate::admission`] refuses a task outside the list as
+//! [`crate::refusal::Refusal::TaskNotTrained`] (Fable's pipeline ruling, item 4). A manifest
+//! without the field (or with `null`) opens, and admits no task: a release that cannot say what
+//! it trained cannot admit anything. A recorded list that is empty, unsorted, repeated, over
+//! [`MAX_TRAINED_FAMILIES`], or holds an id no request could name is refused at open
+//! ([`validate_trained_families`]), so an empty `available` in a refusal always means "not
+//! recorded". An [`Ensemble`]'s members must record the same list, or record none alike.
+//!
 //! # An ensemble of towers
 //!
 //! [`Ensemble::open`] reads `ensemble_manifest.json` (`qd-ensemble.v1`, written by
 //! `qd-export-ensemble`): N member directories, each a full release opened as a [`Tower`] (so
 //! each member's `config.json` is bound to its own tower), each checked against the manifest's
 //! record of it (`release_manifest.json` and `model.safetensors` sha256, weight, config and
-//! tokenizer hashes), and all N required to agree on config, tokenizer and trained width and to
-//! be N different towers. The ensemble's calibration table is read exactly as a release's. One
+//! tokenizer hashes), and all N required to agree on config, tokenizer, trained width and
+//! trained families and to be N different towers. The ensemble's calibration table is read exactly as a release's. One
 //! failing member refuses the whole ensemble; N-1 towers are never served as N.
 //!
 //! # What this does not close
@@ -47,6 +60,7 @@ use serde_json::Value;
 
 use crate::backend::BackendIdentity;
 use crate::calibration::CalibrationTable;
+use crate::render::RenderCaps;
 
 /// The manifest's file name in a release directory.
 pub const MANIFEST_FILE: &str = "release_manifest.json";
@@ -68,6 +82,66 @@ pub const CALIBRATION_FILE: &str = "calibration.json";
 /// 2026-10-01). One constant for the writer and the reader, so a file the exporter accepted is
 /// never one the runtime refuses for its size.
 pub const MAX_SMALL_FILE_BYTES: u64 = 256 * 1024 * 1024;
+
+/// The manifest key naming the task families the tower was trained on. One spelling for the
+/// writer (`qd-export`) and the reader.
+pub const TRAINED_FAMILIES_KEY: &str = "trained_families";
+/// Bound on a recorded `trained_families`. The plan's data has about a dozen families; every
+/// `task_not_trained` refusal echoes the whole list, so the list is bounded like any payload.
+pub const MAX_TRAINED_FAMILIES: usize = 1024;
+
+/// Refuse a `trained_families` list a release must never carry, with what is wrong.
+///
+/// The reader runs it on every manifest that records the field and the writer on every list it
+/// writes, so a release the exporter wrote is never one the runtime refuses for its families. A
+/// family id is held to what a request's `task` can be: non-blank, no surrounding whitespace
+/// (a task is matched byte for byte), and within [`RenderCaps::DEFAULT`]'s task cap. The list is
+/// strictly ascending, which is sorted and unique in one check.
+pub fn validate_trained_families(families: &[String]) -> Result<(), String> {
+    let cap = RenderCaps::DEFAULT.max_task_bytes;
+    if families.len() > MAX_TRAINED_FAMILIES {
+        return Err(format!(
+            "{TRAINED_FAMILIES_KEY} lists {} families, over the bound of {MAX_TRAINED_FAMILIES}; \
+             every task_not_trained refusal names them all",
+            families.len()
+        ));
+    }
+    if families.is_empty() {
+        return Err(format!(
+            "{TRAINED_FAMILIES_KEY} is empty: a release trained on no task family is not a \
+             release. A release that cannot say what it trained omits the field, and admits no \
+             task"
+        ));
+    }
+    for (i, family) in families.iter().enumerate() {
+        if crate::is_blank(family) {
+            return Err(format!("{TRAINED_FAMILIES_KEY}[{i}] is blank"));
+        }
+        if family.len() > cap {
+            return Err(format!(
+                "{TRAINED_FAMILIES_KEY}[{i}] is {} bytes, over the {cap}-byte task cap; no \
+                 request could name it",
+                family.len()
+            ));
+        }
+        if family.trim() != family {
+            return Err(format!(
+                "{TRAINED_FAMILIES_KEY}[{i}] {family:?} has leading or trailing whitespace; a \
+                 request's task is matched byte for byte"
+            ));
+        }
+    }
+    if let Some(i) = families.windows(2).position(|pair| pair[0] >= pair[1]) {
+        return Err(format!(
+            "{TRAINED_FAMILIES_KEY} is not in strictly ascending order at index {} ({:?} then \
+             {:?}); the writer writes it sorted and unique",
+            i + 1,
+            families[i],
+            families[i + 1]
+        ));
+    }
+    Ok(())
+}
 
 /// Why a release was refused at load.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,6 +212,8 @@ pub struct Tower {
     config_sha256: String,
     weight_hash: String,
     tokenizer_hash: String,
+    /// `None` when the manifest does not record what the tower was trained on.
+    trained_families: Option<Vec<String>>,
 }
 
 /// A release directory whose tower opened and whose calibration table hashes to the bound
@@ -227,6 +303,47 @@ impl Manifest {
     /// The sha256 `files` records for `name`.
     fn file_sha256(&self, name: &str) -> Result<String, ReleaseRefusal> {
         self.hex_at(&["files", name, "sha256"])
+    }
+
+    /// `trained_families`: `None` when absent or `null`, else a list
+    /// [`validate_trained_families`] accepts.
+    fn trained_families(&self) -> Result<Option<Vec<String>>, ReleaseRefusal> {
+        let value = match self.doc.get(TRAINED_FAMILIES_KEY) {
+            None | Some(Value::Null) => return Ok(None),
+            Some(value) => value,
+        };
+        let items = value.as_array().ok_or_else(|| {
+            self.refuse(format!(
+                "{TRAINED_FAMILIES_KEY} is {}, not an array of family ids",
+                json_kind(value)
+            ))
+        })?;
+        let families = items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                item.as_str().map(str::to_string).ok_or_else(|| {
+                    self.refuse(format!(
+                        "{TRAINED_FAMILIES_KEY}[{i}] is {}, not a string",
+                        json_kind(item)
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        validate_trained_families(&families).map_err(|detail| self.refuse(detail))?;
+        Ok(Some(families))
+    }
+}
+
+/// A JSON value's kind, for a refusal that must not echo the value itself.
+fn json_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "a boolean",
+        Value::Number(_) => "a number",
+        Value::String(_) => "a string",
+        Value::Array(_) => "an array",
+        Value::Object(_) => "an object",
     }
 }
 
@@ -354,6 +471,7 @@ fn open_tower(dir: &Path) -> Result<(Tower, Manifest), ReleaseRefusal> {
                 ),
             )
         })?;
+    let trained_families = manifest.trained_families()?;
     let recorded_config = manifest.file_sha256(CONFIG_FILE)?;
     if recorded_config != bound_config {
         return Err(manifest.refuse(format!(
@@ -384,6 +502,7 @@ fn open_tower(dir: &Path) -> Result<(Tower, Manifest), ReleaseRefusal> {
         config_sha256,
         weight_hash,
         tokenizer_hash,
+        trained_families,
     };
     Ok((tower, manifest))
 }
@@ -464,6 +583,20 @@ impl Tower {
     pub fn tokenizer_hash(&self) -> &str {
         &self.tokenizer_hash
     }
+
+    /// The task families the tower was trained on, sorted and unique; `None` when the manifest
+    /// does not record them.
+    pub fn trained_families(&self) -> Option<&[String]> {
+        self.trained_families.as_deref()
+    }
+}
+
+/// A recorded family list, or that none is recorded, for a refusal that compares two.
+pub fn describe_trained_families(families: Option<&[String]>) -> String {
+    match families {
+        Some(families) => format!("{families:?}"),
+        None => "none recorded".to_string(),
+    }
 }
 
 impl Release {
@@ -523,6 +656,12 @@ impl Release {
     /// The calibration table, verified against the manifest's hashes.
     pub fn calibration(&self) -> &CalibrationTable {
         &self.calibration
+    }
+
+    /// The task families the tower was trained on; `None` when the manifest does not record
+    /// them, and then the release admits no task.
+    pub fn trained_families(&self) -> Option<&[String]> {
+        self.tower.trained_families()
     }
 }
 
@@ -681,6 +820,18 @@ impl Ensemble {
                     ),
                 ));
             }
+            if tower.trained_families() != first.trained_families() {
+                return Err(ReleaseRefusal::new(
+                    ReleaseRefusalKind::MembersDisagree,
+                    format!(
+                        "ensemble member {i} has trained_families {}, member 0 has {}. The mean \
+                         of towers trained on different task families answers no family set any \
+                         one of them was trained on",
+                        describe_trained_families(tower.trained_families()),
+                        describe_trained_families(first.trained_families())
+                    ),
+                ));
+            }
             if let Some(j) = towers[..i]
                 .iter()
                 .position(|other| other.weight_hash() == tower.weight_hash())
@@ -754,5 +905,12 @@ impl Ensemble {
     /// The ensemble's calibration table, verified against the manifest's hashes.
     pub fn calibration(&self) -> &CalibrationTable {
         &self.calibration
+    }
+
+    /// The task families every member was trained on ([`Ensemble::open`] refuses members that
+    /// disagree); `None` when the members do not record them, and then the ensemble admits no
+    /// task.
+    pub fn trained_families(&self) -> Option<&[String]> {
+        self.towers.first().and_then(Tower::trained_families)
     }
 }

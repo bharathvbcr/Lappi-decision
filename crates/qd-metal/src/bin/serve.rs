@@ -144,6 +144,16 @@ fn run(cli: Cli) -> Result<(), String> {
         cli.idle_timeout_ms,
         cli.request_timeout_ms,
     );
+    match release.trained_families() {
+        Some(families) => eprintln!(
+            "qd-metal-serve: admits the tasks the release was trained on: {}",
+            families.join(", ")
+        ),
+        None => eprintln!(
+            "qd-metal-serve: the release does not record trained_families, so every request is \
+             refused as task_not_trained; re-export it with qd-export --train-manifest"
+        ),
+    }
     server.run().map_err(|e| format!("serve failed: {e}"))
 }
 

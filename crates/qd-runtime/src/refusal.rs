@@ -229,6 +229,20 @@ pub enum Refusal {
         pool: Vec<String>,
     },
 
+    /// The shape of [`Refusal::RegisteredHeadMissing`]: the task asked for and the tasks there
+    /// are. `available` is empty only for a release that does not record its trained families,
+    /// because the release reader refuses a recorded list that is empty.
+    #[error(
+        "task `{task}` is not one this release was trained on; it trained {available:?}. The \
+         model was never shown a request of this task, so its answer would be read from a prompt \
+         shape it never saw. A release that does not record its trained families names none and \
+         admits no task"
+    )]
+    TaskNotTrained {
+        task: String,
+        available: Vec<String>,
+    },
+
     #[error(
         "the rendered prompt is {actual} bytes, over the cap of {cap}; the bound is on the bytes \
          the model sees, not only on those that arrived"
@@ -372,6 +386,7 @@ impl Refusal {
             Refusal::ContextNotUtf8 { .. } => "context_not_utf8",
             Refusal::ContextNotUnifiedDiff { .. } => "context_not_unified_diff",
             Refusal::ContextLanguageNotInPool { .. } => "context_language_not_in_pool",
+            Refusal::TaskNotTrained { .. } => "task_not_trained",
             Refusal::RenderedPromptOverCap { .. } => "rendered_prompt_over_cap",
             Refusal::EmptyOption { .. } => "empty_option",
             Refusal::OptionTextOverCap { .. } => "option_text_over_cap",

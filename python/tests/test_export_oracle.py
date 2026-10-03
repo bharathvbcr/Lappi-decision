@@ -77,6 +77,32 @@ def _tiny_tokenizer_json() -> str:
     )
 
 
+#: The families the oracle's train manifest holds, sorted: what the release records as
+#: ``trained_families`` (``qd-export --train-manifest``, Fable's pipeline ruling, item 4).
+TRAINED_FAMILIES = ["code.defect_class", "intent.in_scope"]
+
+
+def _train_manifest(dest: Path) -> Path:
+    """A train-split data manifest in ``qd_data.manifest.Manifest.to_json``'s shape, one row
+    per family. The exporter reads only its split, families and integrity fields."""
+    entries = [
+        {
+            "row_id": f"oracle-row-{i}", "content_hash": f"{i:064x}", "split": "train",
+            "source_id": "test/source", "host": "test", "family_id": family,
+            "repo_key": f"repo-{i}", "identity_key": f"identity-{i}", "licence_id": "MIT",
+            "obligations": [],
+        }
+        for i, family in enumerate(TRAINED_FAMILIES)
+    ]
+    manifest = {
+        "manifest_format_version": 1, "split": "train", "data_snapshot_hash": "cd" * 32,
+        "n_rows": len(entries), "held_out_families": ["code.language_id", "qa.answerability"],
+        "entries": entries,
+    }
+    dest.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return dest
+
+
 def _export_bin() -> Path:
     raw = os.environ.get("QD_EXPORT_BIN")
     if not raw:
@@ -181,6 +207,7 @@ def _average_and_export(
         [
             str(exe), "--source", str(avg), "--base-snapshot", str(base),
             "--tokenizer-sha256", pin, "--expect-vocab-size", str(TINY_VOCAB),
+            "--train-manifest", str(_train_manifest(tmp_path / "train.json")),
             "--out", str(release),
         ],
         capture_output=True, text=True, timeout=300, check=False,
@@ -217,6 +244,7 @@ def test_transformers_loads_the_rust_export_as_the_tower(tmp_path, dtype):
     want = hashlib.sha256(avg_manifest.read_bytes()).hexdigest()
     assert manifest["source"]["manifest_sha256"] == want
     assert manifest["conversion"]["hidden_size"] == TINY_HIDDEN
+    assert manifest["trained_families"] == TRAINED_FAMILIES
 
 
 def test_an_average_of_the_fp32_masters_exports_and_loads_as_the_tower(tmp_path):

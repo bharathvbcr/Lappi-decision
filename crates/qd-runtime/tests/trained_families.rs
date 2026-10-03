@@ -19,11 +19,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use qd_runtime::admission::TrainedFamilies;
 use qd_runtime::backend::DecisionBackend;
 use qd_runtime::calibration::CalibrationTable;
 use qd_runtime::reference::ReferenceBackend;
 use qd_runtime::registry::HeadRegistry;
-use qd_runtime::release::{MANIFEST_FILE, Release, ReleaseRefusalKind};
+use qd_runtime::release::{MANIFEST_FILE, MANIFEST_FORMAT, Release, ReleaseRefusalKind};
 use qd_runtime::render::RenderCaps;
 use qd_runtime::runtime::Runtime;
 use qd_runtime::schema::{DecisionRequest, Response};
@@ -83,7 +84,7 @@ fn release_dir(tag: &str, trained: Option<Value>) -> Scratch {
     std::fs::write(dir.0.join("calibration.json"), &calibration).unwrap();
     std::fs::write(dir.0.join("model.safetensors"), weights).unwrap();
     let mut manifest = json!({
-        "format": "qd-release.v1",
+        "format": MANIFEST_FORMAT,
         "expected_identity": {
             "weight_hash": id.weight_hash,
             "tokenizer_hash": id.tokenizer_hash,
@@ -243,4 +244,37 @@ fn a_malformed_trained_families_refuses_the_release_at_open() {
             Ok(_) => panic!("{tag}: a release with a malformed trained_families opened"),
         }
     }
+}
+
+#[test]
+fn the_release_and_the_runtime_report_what_a_task_is_checked_against() {
+    let families = vec!["code.change_scope".to_string(), DEFECT.to_string()];
+    let dir = release_dir("report", Some(json!(families)));
+    assert_eq!(
+        Release::open(&dir.0).expect("opens").trained_families(),
+        Some(&families[..])
+    );
+    assert_eq!(
+        runtime(&dir.0).trained_families(),
+        &TrainedFamilies::Recorded(families)
+    );
+
+    let dir = release_dir("report-absent", None);
+    assert_eq!(Release::open(&dir.0).expect("opens").trained_families(), None);
+    assert_eq!(runtime(&dir.0).trained_families(), &TrainedFamilies::Unrecorded);
+
+    // No release: the check does not run, and the runtime says so rather than reading as a
+    // check that ran and passed. The test seam still answers an untrained task; that is the open
+    // GAP-RUNTIME-WITH-BACKEND-RUNS-NO-TRAINED-FAMILY-CHECK-2026-10-03, characterized here so
+    // closing it changes this line on purpose.
+    let seam = Runtime::with_backend(
+        Arc::new(ReferenceBackend::new(true)),
+        CalibrationTable::reference(),
+        HeadRegistry::new(),
+        RenderCaps::DEFAULT,
+    )
+    .expect("assembles");
+    assert_eq!(seam.trained_families(), &TrainedFamilies::NoRelease);
+    assert!(!seam.trained_families().is_checked());
+    answered(seam.answer(&request(UNTRAINED, PROSE), None));
 }
