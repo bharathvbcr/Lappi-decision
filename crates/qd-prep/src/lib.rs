@@ -19,6 +19,10 @@
 //!   complete pair list, the v5 decontamination scan (the Python gold-side scan of 2026-10-02
 //!   peaked at 17.4 GB). [`pyunicode`] is Python's `\w` and `str.lower()`, from tables read
 //!   off CPython ([`pyunicode_tables`]); [`sha256`] the digests its attestation names.
+//! - [`spancheck`]: `qd_train.shards._span_token_positions` up to its decode check -- a span
+//!   slot's line starts and gold projected onto token positions, every refusal the reference
+//!   makes before it decodes, and the runs its decode check walks. The per-slot Python of shard
+//!   writing's stage 6 (`AUDIT/perf-pipeline-shards-2026-09-30.md`); decoding stays in Python.
 
 pub mod blake2b;
 pub mod containment;
@@ -33,4 +37,5 @@ pub mod pyunicode;
 #[rustfmt::skip]
 mod pyunicode_tables;
 pub mod sha256;
+pub mod spancheck;
 pub mod wire;
