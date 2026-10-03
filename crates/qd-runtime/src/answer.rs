@@ -552,7 +552,9 @@ pub fn readonly_decode(
     slot_index: usize,
 ) -> Result<(Logits, SlotIsolationCheck), BackendError> {
     let host_visible = backend.identity().state_host_visible;
-    let before = if host_visible {
+    // No state bytes hash to `sha256("")` on both sides of any decode: comparing them would record
+    // a pass that compared nothing, so an empty state is a check that did not run.
+    let before = if host_visible && !snapshot.state.is_empty() {
         Some(snapshot.state_digest())
     } else {
         None
@@ -574,6 +576,14 @@ pub fn readonly_decode(
                 state_hash: crate::hex(&before),
             }
         }
+        None if host_visible => SlotIsolationCheck::NotRun {
+            reason: format!(
+                "backend `{}` reports state_host_visible = true but its snapshot carries no state \
+                 bytes, so there was nothing to hash either side of the decode; slot isolation is \
+                 unverified for this answer",
+                backend.identity().name
+            ),
+        },
         None => SlotIsolationCheck::NotRun {
             reason: format!(
                 "backend `{}` reports state_host_visible = false, so the state buffer could not be \

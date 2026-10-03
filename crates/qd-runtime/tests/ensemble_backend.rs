@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use qd_runtime::backend::{
     BackendIdentity, DecisionBackend, DecodeMode, Logits, PrefillHandle, QueryKind, SlotQuery,
-    StateSnapshot,
+    StateBuffer, StateSnapshot,
 };
 use qd_runtime::calibration::CalibrationTable;
 use qd_runtime::ensemble::{EnsembleBackend, MAX_MEMBERS, ensemble_weight_hash};
@@ -24,6 +24,8 @@ enum Fault {
     Fails,
     NonFinite,
     WritesState,
+    /// Claims host-visible state (the reference identity does) but prefills and snapshots none.
+    EmptyState,
 }
 
 /// The reference backend's prefill and snapshot, with chosen logits and a chosen identity.
@@ -55,11 +57,19 @@ impl DecisionBackend for Scripted {
     }
 
     fn prefill(&self, prefix: &str) -> Result<PrefillHandle, BackendError> {
-        self.inner.prefill(prefix)
+        let mut handle = self.inner.prefill(prefix)?;
+        if let Fault::EmptyState = self.fault {
+            handle.state = StateBuffer::opaque();
+        }
+        Ok(handle)
     }
 
     fn snapshot(&self, handle: &PrefillHandle) -> Result<StateSnapshot, BackendError> {
-        self.inner.snapshot(handle)
+        let mut snapshot = self.inner.snapshot(handle)?;
+        if let Fault::EmptyState = self.fault {
+            snapshot.state = StateBuffer::opaque();
+        }
+        Ok(snapshot)
     }
 
     fn decode_slot(
@@ -80,6 +90,7 @@ impl DecisionBackend for Scripted {
             }
             Fault::NonFinite => values[1] = f32::NAN,
             Fault::WritesState => snapshot.state.as_mut_bytes().push(0xAB),
+            Fault::EmptyState => {}
         }
         Ok(Logits {
             kind: query.kind,
@@ -356,5 +367,37 @@ fn the_runtime_answers_through_an_ensemble_and_its_readonly_check_covers_every_m
         other => {
             panic!("a member that wrote its state under a read-only decode was missed: {other:?}")
         }
+    }
+}
+
+/// Fail-first (Fable ruling 2, section 3): a member that claims host-visible state but hands none
+/// was framed into a non-empty ensemble state, so the slot-isolation check recorded `Ran` for an
+/// answer it compared nothing of. The ensemble now refuses that member before any decode.
+#[test]
+fn a_member_claiming_visible_state_but_handing_none_is_refused() {
+    let members = || -> Vec<Arc<dyn DecisionBackend>> {
+        let mut empty = member("seed-1", &B);
+        empty.fault = Fault::EmptyState;
+        assert!(empty.identity.state_host_visible, "the case: the member claims visible state");
+        vec![
+            Arc::new(member("seed-0", &A)),
+            Arc::new(empty),
+            Arc::new(member("seed-2", &C)),
+        ]
+    };
+    let backend = EnsembleBackend::new(members()).expect("builds");
+    match backend.prefill("a prefix") {
+        Err(BackendError::PrefillFailed { detail }) => {
+            assert!(detail.contains("member 1") && detail.contains("handed none"), "{detail}");
+        }
+        other => panic!("an empty member state was framed and accepted: {other:?}"),
+    }
+    match runtime(members()).answer(&request(), None) {
+        Response::Ok(envelope) => panic!(
+            "answered (degraded = {}) over a member whose state nothing compared",
+            envelope.degraded
+        ),
+        Response::Error(_) => {}
+        other => panic!("expected the backend error, got {other:?}"),
     }
 }

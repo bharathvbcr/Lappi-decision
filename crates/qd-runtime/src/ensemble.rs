@@ -65,6 +65,27 @@ pub fn ensemble_weight_hash(member_weight_hashes: &[&str]) -> String {
     combined_hash("weights.v1", member_weight_hashes)
 }
 
+/// A member that says its state is host-visible must hand some over. Framed into the ensemble's
+/// state, an empty part is still hashed either side of a decode (the framing is never empty), so
+/// the runtime would record a slot-isolation check that ran for a member it compared nothing of.
+fn require_member_state(
+    i: usize,
+    member: &dyn DecisionBackend,
+    state: &StateBuffer,
+) -> Result<(), BackendError> {
+    let id = member.identity();
+    if id.state_host_visible && state.is_empty() {
+        return Err(BackendError::PrefillFailed {
+            detail: format!(
+                "ensemble member {i} (`{}`) claims host-visible state but handed none, so the \
+                 slot-isolation check would compare nothing of it",
+                id.name
+            ),
+        });
+    }
+    Ok(())
+}
+
 /// One member's part of the framed state.
 struct Part {
     backend: String,
@@ -303,6 +324,7 @@ impl DecisionBackend for EnsembleBackend {
             let handle = member
                 .prefill(prefix)
                 .map_err(|e| from_member(i, name, e))?;
+            require_member_state(i, member.as_ref(), &handle.state)?;
             match tokens {
                 None => tokens = Some(handle.token_count),
                 Some(t) if t == handle.token_count => {}
@@ -353,6 +375,7 @@ impl DecisionBackend for EnsembleBackend {
             let snap = member
                 .snapshot(&member_handle)
                 .map_err(|e| from_member(i, name, e))?;
+            require_member_state(i, member.as_ref(), &snap.state)?;
             out.push(Part {
                 backend: snap.backend,
                 prompt_digest: snap.prompt_digest,

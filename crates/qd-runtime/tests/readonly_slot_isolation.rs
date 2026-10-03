@@ -208,6 +208,38 @@ fn a_not_run_check_says_why() {
     }
 }
 
+/// Fail-first (audit 2026-10-03): an empty state hashed to `sha256("")` either side of the decode
+/// and was recorded as `Ran`, a pass over nothing.
+#[test]
+fn an_empty_state_is_a_check_that_did_not_run() {
+    let backend = Wrapped::new(Behaviour::ClaimsVisibleStateButHasNone);
+    let handle = backend.prefill("prefix").expect("prefills");
+    let mut snapshot = backend.snapshot(&handle).expect("snapshots");
+    assert!(snapshot.state.is_empty(), "the fixture must hand over no state bytes");
+    let query = letters_query("verdict", "suffix", 5);
+    match readonly_decode(&backend, &mut snapshot, &query, 0).expect("decodes") {
+        (_, SlotIsolationCheck::NotRun { reason }) => {
+            assert!(reason.contains("no state bytes"), "{reason}");
+        }
+        (_, SlotIsolationCheck::Ran { state_hash }) => {
+            panic!("an empty state read as a check that ran and passed ({state_hash})")
+        }
+    }
+}
+
+/// The same case end to end: the answer is degraded, as for a backend whose state is opaque.
+#[test]
+fn an_answer_over_an_empty_state_is_degraded() {
+    let request = common::validated(&common::sample_request());
+    match Wrapped::runtime(Behaviour::ClaimsVisibleStateButHasNone).answer(&request, None) {
+        Response::Ok(envelope) => assert!(
+            envelope.degraded,
+            "a slot-isolation check over no state bytes must not read as one that passed"
+        ),
+        other => panic!("a visible-but-empty backend still answers, degraded: {other:?}"),
+    }
+}
+
 // -- docs/hardening.md §6: recycled scratch --------------------------------------------------
 
 #[test]
