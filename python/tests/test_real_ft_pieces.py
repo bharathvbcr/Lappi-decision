@@ -180,7 +180,8 @@ def test_train_refuses_the_no_mask_switch_on_the_stand_in():
         rft._train(
             reader=None, plan=[SimpleNamespace(tokens=np.zeros((1, 4), dtype=np.int32))],
             passes=1, device="cpu", seed=0, hidden=8, heads=1, lr=1e-3, span_weight=1.0,
-            ledger=None, tag="t", quick_reasons=(), train_attention_mask="none",
+            ledger=None, tag="t", quick_reasons=(), evaluate_plan=False,
+            train_attention_mask="none",
         )
 
 

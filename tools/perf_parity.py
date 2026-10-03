@@ -152,7 +152,10 @@ def run_arm(args: argparse.Namespace) -> int:
         backbone=None if args.stand_in else args.backbone,
         optimizer_recipe="bf16" if args.stand_in else "master", deterministic=args.deterministic,
         attn_implementation="sdpa", n_gpus=1, usd_per_hour=2.29, instance="lambda-1xgh200",
-        cap_s=args.cap_s, batch_tokens=args.batch_tokens, **extra,
+        cap_s=args.cap_s, batch_tokens=args.batch_tokens,
+        # Kept on so wall_s keeps meaning what every recorded parity arm measured: the loop
+        # plus the whole-plan evaluation. train_wall_s is the loop alone.
+        evaluate_plan=True, **extra,
     )
     wall = time.perf_counter() - t0
     step = run.pop("_step")

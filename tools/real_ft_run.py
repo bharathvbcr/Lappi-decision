@@ -2769,7 +2769,7 @@ def _real_step(
 def _train(
     *, reader: ShardReader, plan: list[Batch], passes: int, device: str, seed: int,
     hidden: int, heads: int, lr: float, span_weight: float, ledger: Ledger, tag: str,
-    quick_reasons: Sequence[str], backbone: Path | None = None,
+    quick_reasons: Sequence[str], evaluate_plan: bool, backbone: Path | None = None,
     optimizer_recipe: str = "bf16",
     checkpoint_dir: Path | None = None, checkpoint_every: int = 0,
     resume_from: object | None = None, deterministic: bool = False,
@@ -2837,6 +2837,12 @@ def _train(
     a tower-and-span-head snapshot at every Nth optimizer step and the final one
     (:class:`RetainingSink`); it moves no recipe key and leaves ``checkpoint_every``'s
     resume checkpoint exactly as it was.
+
+    ``evaluate_plan`` is stated by every caller. True runs :func:`_evaluate`, a no-grad pass
+    over the whole plan, into ``run["final"]``. Only the memorise arm records anything from
+    it: :func:`_record_verdict`'s floor metrics and the arm's failure check. False leaves
+    ``run["final"]`` as ``{"not_run": PLAN_EVALUATION_NOT_RUN}``. It moves no recipe key, so
+    no hash changes.
     """
     if noul_weight is not None and len(noul_weight.rows) != len(plan):
         raise ValueError(
@@ -3413,7 +3419,10 @@ def _train(
     # only path that computes both, so the batches where both logs are live are exactly the
     # span batches, and the first of those is the one the ratio is about.
     both = _first_joint_batch(step.letter_log, step.span_log)
-    final = _evaluate(step, plan, supervised, letter_floors, span_floors)
+    final: dict[str, object] = (
+        _evaluate(step, plan, supervised, letter_floors, span_floors)
+        if evaluate_plan else {"not_run": PLAN_EVALUATION_NOT_RUN}
+    )
     return {
         "tag": tag, "device": device, "seed": seed,
         # Carried out for the same reason as the backbone keys: the verdict row is billed on
@@ -3521,6 +3530,17 @@ def _plan_floors(plan: list[Batch], supervised: list[object]) -> tuple[float, fl
         else float("nan")
     )
     return letter, span
+
+
+#: ``run["final"]`` when :func:`_train` was told not to run :func:`_evaluate`. Only the memorise
+#: arm records anything from that pass. The epoch arm and the shuffled-label control record
+#: nothing from it. On F (GH200, 2026-10-01/02) the pass sat between each seed's ft row and its
+#: scoring for about 57 min of a 5 h 55 min seed
+#: (GAP-EPOCH-ARM-EVALUATES-THE-WHOLE-TRAIN-PLAN-FOR-NO-ROW-2026-10-03).
+PLAN_EVALUATION_NOT_RUN: Final[str] = (
+    "the whole-plan floor evaluation (_evaluate) did not run: this arm records no floor "
+    "metric from it; only the memorise arm does"
+)
 
 
 def _evaluate(
@@ -11194,7 +11214,7 @@ def main(argv: list[str] | None = None) -> int:
             seed_plan = arms_for(seed)
             run = _train(
                 reader=reader, plan=seed_plan.plan_small, passes=args.passes, device=device,
-                seed=seed,
+                seed=seed, evaluate_plan=True,
                 hidden=args.hidden, heads=args.heads, lr=args.lr,
                 span_weight=args.span_weight, ledger=ledger,
                 checkpoint_dir=args.checkpoint_dir,
@@ -11311,6 +11331,8 @@ def main(argv: list[str] | None = None) -> int:
                 seed_plan = arms_for(seed)
                 run = _train(
                     reader=reader, plan=seed_plan.plan_all, passes=1, device=device, seed=seed,
+                    # Nothing on this arm reads run["final"]: PLAN_EVALUATION_NOT_RUN.
+                    evaluate_plan=False,
                     hidden=args.hidden, heads=args.heads, lr=args.lr,
                     span_weight=args.span_weight, ledger=ledger,
                     checkpoint_dir=args.checkpoint_dir,
