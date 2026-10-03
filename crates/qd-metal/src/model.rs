@@ -98,40 +98,6 @@ impl EmbedPath {
     }
 }
 
-/// How [`PrefixState::digest_by`] computes the v1 record. Both give the same bytes: each buffer is
-/// one ordinary SHA-256 either way, and only which thread computes it changes. Kept as a flag so
-/// `qd-metal-bench --decision` can time both arms interleaved (Fable's 2026-10-03 ruling, item 1a).
-/// The serial arm stays until the A/B is re-run on the `sha2` hardware-SHA build (ruling 1, step
-/// 3), or goes at once if the human declines that dependency.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DigestPath {
-    /// One SHA-256 per buffer, on the calling thread, straight from each buffer's host mapping:
-    /// the digest the v1 pins in `tests/gpu.rs` were captured from.
-    Serial,
-    /// Each buffer copied into a reused host scratch, one mapping at a time, then the buffers
-    /// hashed by `qd_runtime::sha256_slices_parallel`.
-    Parallel,
-}
-
-impl DigestPath {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            DigestPath::Serial => "serial",
-            DigestPath::Parallel => "parallel",
-        }
-    }
-
-    pub fn parse(s: &str) -> Result<Self> {
-        match s {
-            "serial" => Ok(DigestPath::Serial),
-            "parallel" => Ok(DigestPath::Parallel),
-            other => Err(MetalError::Input(format!(
-                "digest path {other:?} is not `serial` or `parallel`"
-            ))),
-        }
-    }
-}
-
 /// The v1 prefix-state record's domain tag.
 const DIGEST_V1_TAG: &[u8] = b"qd-metal.prefix-state.v1\0";
 
@@ -261,39 +227,19 @@ impl PrefixState {
 
     /// SHA-256 over the state **as it is in device memory**: the token count, then each
     /// buffer's tag, length and SHA-256, in a fixed order (the v1 record, [`digest_v1`]). Reading
-    /// maps the shared buffers, which first waits for every GPU command already encoded. The
-    /// buffers are hashed in parallel ([`DigestPath::Parallel`]); the bytes are the serial ones.
+    /// maps the shared buffers, which first waits for every GPU command already encoded. Each
+    /// buffer is one ordinary SHA-256, computed in parallel across buffers
+    /// ([`qd_runtime::sha256_slices_parallel`]): the bytes a one-thread loop would give, which
+    /// the 2026-10-03 A/B rows checked bit for bit before the one-thread loop was deleted.
     pub fn digest(&self) -> Result<[u8; 32]> {
-        self.digest_by(DigestPath::Parallel)
-    }
-
-    /// [`PrefixState::digest`] by an explicit [`DigestPath`], for the A/B and the bit-identity test.
-    pub fn digest_by(&self, path: DigestPath) -> Result<[u8; 32]> {
-        match path {
-            DigestPath::Serial => self.digest_serial(),
-            DigestPath::Parallel => DIGEST_SCRATCH.with(|cell| {
-                let mut scratch = cell.try_borrow_mut().map_err(|_| {
-                    MetalError::State("the prefix-state digest re-entered itself on one thread".into())
-                })?;
-                let out = self.digest_parallel(&mut scratch);
-                release_oversized_scratch(&mut scratch, self.scratch_retain_bytes);
-                out
-            }),
-        }
-    }
-
-    /// The v1 digest as it was before the parallel path, kept verbatim as the A/B's serial arm.
-    fn digest_serial(&self) -> Result<[u8; 32]> {
-        let mut acc = Vec::with_capacity(64 + 48 * (self.conv.len() * 2 + self.k.len() * 2));
-        acc.extend_from_slice(b"qd-metal.prefix-state.v1\0");
-        acc.extend_from_slice(&self.tokens.to_le_bytes());
-        for (tag, b) in self.buffers() {
-            let bytes = b.try_contents_u8().gpu("map state for hashing")?;
-            acc.extend_from_slice(tag.as_bytes());
-            acc.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
-            acc.extend_from_slice(&qd_runtime::sha256(&bytes));
-        }
-        Ok(qd_runtime::sha256(&acc))
+        DIGEST_SCRATCH.with(|cell| {
+            let mut scratch = cell.try_borrow_mut().map_err(|_| {
+                MetalError::State("the prefix-state digest re-entered itself on one thread".into())
+            })?;
+            let out = self.digest_parallel(&mut scratch);
+            release_oversized_scratch(&mut scratch, self.scratch_retain_bytes);
+            out
+        })
     }
 
     /// Copy every buffer into `scratch`, one host mapping at a time (each dropped before the next
@@ -1157,15 +1103,15 @@ pub fn weights_file(snapshot: &Path) -> Result<std::path::PathBuf> {
 mod digest_record_tests {
     use super::{
         digest_scratch_retain_bytes, digest_v1, prefix_state_nbytes, release_oversized_scratch,
-        DigestPath, DIGEST_SCRATCH_RETAIN_TOKENS,
+        DIGEST_SCRATCH_RETAIN_TOKENS,
     };
     use crate::config::tests_support::QWEN35_2B;
     use crate::config::ModelConfig;
 
     /// The v1 record against an independent oracle: Python's `hashlib` over the same layout
-    /// (`AUDIT/qdm-digest-2026-10-03/digest_v1_oracle.py`). Characterization: the record
-    /// layout is the one the serial digest builds, so this passes on both sides; it pins the
-    /// layout the GPU pins rely on without needing a GPU.
+    /// (`AUDIT/qdm-digest-2026-10-03/digest_v1_oracle.py`). It pins the record layout the GPU
+    /// pins rely on without a GPU, and with qd-runtime's `sha256_parallel_tests` (each parallel
+    /// hash equals the one-thread `sha256`) it is the tessl-independent guard on the digest code.
     #[test]
     fn the_v1_record_matches_an_independent_oracle() {
         let k: Vec<u8> = (0..=255u8).cycle().take(768).collect();
@@ -1209,15 +1155,5 @@ mod digest_record_tests {
         let mut longer: Vec<u8> = Vec::with_capacity(keep + 1);
         release_oversized_scratch(&mut longer, keep);
         assert_eq!(longer.capacity(), 0);
-    }
-
-    #[test]
-    fn digest_paths_parse_and_refuse() {
-        for p in [DigestPath::Serial, DigestPath::Parallel] {
-            assert_eq!(DigestPath::parse(p.as_str()).unwrap(), p);
-        }
-        for bad in ["", "Serial", "device", "parallel "] {
-            assert!(DigestPath::parse(bad).is_err(), "{bad:?} was accepted");
-        }
     }
 }

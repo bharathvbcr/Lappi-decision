@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use qd_metal::backend::{MetalBackend, MetalConfig, StateRecord};
-use qd_metal::model::{DigestPath, EmbedPath, Model, PrefixState, RECURRENT_MAX_SEQ};
+use qd_metal::model::{EmbedPath, Model, PrefixState, RECURRENT_MAX_SEQ};
 use qd_metal::tokenizer::QwenTokenizer;
 use qd_runtime::backend::{DecisionBackend, DecodeMode, QueryKind, SlotQuery};
 
@@ -248,14 +248,20 @@ const PIN_TESSL_HEAD: &str = "cf65d9d5d3deb97b0847e020a562ac8f15e6d5a9";
 /// code). Reproduced 2026-10-03 03:42Z on tessl [`PIN_TESSL_HEAD`] with the dirty tree ledger row
 /// `28505f4c` records in `tessl_dirty_files` (30 paths, kernels among them): a tessl change can move
 /// these without the digest being at fault, which the test's failure message says.
+///
+/// `prefill_8192` (221 MB, twelve ~17 MB K/V buffers: the size at which the parallel digest runs
+/// more than one round of 8 threads) was not in the pre-parallel capture. Its value was computed by
+/// BOTH the one-thread digest and the parallel one, equal, in three GPU slots before the one-thread
+/// digest was deleted: qdmgpu1 and qdmm4 (sha2 0.10) and qdm1b (sha2 0.11), 2026-10-03.
 const PINNED_V1: &[(&str, &str)] = &[
     ("prefill_short", "3ba7b21a3ec8e15a40d6f6e539dcd56007c28a6ec2ee20499ce1ea51719b6f6b"),
     ("write_back", "85b7dab4bd04ca714af1481b2c89f60dc8a59eea0abb0ae0758f0fc99e36121e"),
     ("prefill_2000", "408872926bc09797c3473be4c87a9746d46baf82c7f04693aa70f6e83e683749"),
+    ("prefill_8192", "41faece110e132f163652a9b03eea57a0b7b298aeb6d19b6e2db9d639a672b1c"),
 ];
 
-/// The three pinned states: the short prefill, a write-back extension of it (different K/V
-/// lengths), and a prefill of about 2,000 tokens, whose K/V buffers dominate the state.
+/// The four pinned states: the short prefill, a write-back extension of it (different K/V
+/// lengths), and prefills of 2,000 and 8,192 tokens, whose K/V buffers dominate the state.
 fn pinned_states(model: &Model, tok: &QwenTokenizer) -> Vec<(&'static str, PrefixState)> {
     let letters = tok.letter_ids().to_vec();
     let prefix = tok.encode(PREFIX).unwrap();
@@ -264,16 +270,19 @@ fn pinned_states(model: &Model, tok: &QwenTokenizer) -> Vec<(&'static str, Prefi
     let (a, _) = suffix.split_at(suffix.len() / 2);
     let (_, short) = model.prefill(&prefix).unwrap();
     let (_, extended) = continue_logprobs(model, &short, a, &letters, true);
-    let mut long_ids = Vec::new();
-    while long_ids.len() < 2000 {
-        long_ids.extend_from_slice(&prefix);
-    }
-    long_ids.truncate(2000);
-    let (_, long) = model.prefill(&long_ids).unwrap();
+    let repeated = |n: usize| -> PrefixState {
+        let mut ids = Vec::new();
+        while ids.len() < n {
+            ids.extend_from_slice(&prefix);
+        }
+        ids.truncate(n);
+        model.prefill(&ids).unwrap().1
+    };
     vec![
         ("prefill_short", short),
         ("write_back", extended.expect("write-back keeps a state")),
-        ("prefill_2000", long),
+        ("prefill_2000", repeated(2000)),
+        ("prefill_8192", repeated(8192)),
     ]
 }
 
@@ -286,12 +295,25 @@ fn gpu_prefix_state_digest_v1_is_pinned() {
         PIN_WEIGHT_HASH,
         "the pins were captured on Qwen3.5-2B-Base b1485b2f; refusing to compare on other weights"
     );
-    let got: Vec<(&str, String)> = pinned_states(&model, &tok)
-        .iter()
-        .map(|(name, s)| (*name, qd_runtime::hex(&s.digest().unwrap())))
-        .collect();
-    for (name, hex) in &got {
-        println!("v1 digest {name}: {hex}");
+    let mut got: Vec<(&str, String)> = Vec::new();
+    for (name, s) in &pinned_states(&model, &tok) {
+        // The GPU-free size formula the digest scratch's retain cap is computed from.
+        let formula = qd_metal::model::prefix_state_nbytes(model.config(), s.tokens()).unwrap();
+        assert_eq!(
+            s.nbytes(),
+            formula,
+            "{name}: device bytes vs prefix_state_nbytes"
+        );
+        let d = s.digest().unwrap();
+        // Twice more: the scratch is reused across digests on this thread.
+        assert_eq!(s.digest().unwrap(), d, "{name}: a repeat digest differs");
+        assert_eq!(s.digest().unwrap(), d, "{name}: a third digest differs");
+        println!(
+            "v1 digest {name} ({} MB): {}",
+            s.nbytes() / 1_000_000,
+            qd_runtime::hex(&d)
+        );
+        got.push((name, qd_runtime::hex(&d)));
     }
     let want: Vec<(&str, String)> = PINNED_V1.iter().map(|(n, h)| (*n, h.to_string())).collect();
     if got != want {
@@ -301,42 +323,11 @@ fn gpu_prefix_state_digest_v1_is_pinned() {
         );
         panic!(
             "the v1 prefix-state digests changed:\n  got    {got:?}\n  pinned {want:?}\nBlame the \
-             digest only after gpu_digest_paths_are_bit_identical fails: if serial == parallel \
-             there, tessl's kernels moved the state bytes ({tessl}; the pins were reproduced on \
-             {PIN_TESSL_HEAD} plus the dirty tree in ledger row 28505f4c)."
+             digest only after its CPU guards fail (qd-metal \
+             the_v1_record_matches_an_independent_oracle, qd-runtime sha256_parallel_tests): if \
+             they pass, tessl's kernels moved the state bytes ({tessl}; the pins were reproduced \
+             on {PIN_TESSL_HEAD} plus the dirty tree in ledger row 28505f4c)."
         );
-    }
-}
-
-/// The serial digest (one thread, the code the pins were captured from) against the parallel one,
-/// on the same three states plus an 8,192-token prefill whose 12 K/V buffers are each ~17 MB. The
-/// claim is bit identity of the v1 record. Characterization: it passes on both sides of the change
-/// by construction (each buffer is one ordinary SHA-256 either way); what proves the change worth
-/// making is the A/B row.
-#[test]
-#[ignore = "GPU + model snapshot"]
-fn gpu_digest_paths_are_bit_identical() {
-    let (model, tok) = setup();
-    let mut states = pinned_states(&model, &tok);
-    let prefix = tok.encode(PREFIX).unwrap();
-    let mut long_ids = Vec::new();
-    while long_ids.len() < 8192 {
-        long_ids.extend_from_slice(&prefix);
-    }
-    long_ids.truncate(8192);
-    let (_, long) = model.prefill(&long_ids).unwrap();
-    states.push(("prefill_8192", long));
-    for (name, s) in &states {
-        // The GPU-free size formula the digest scratch's retain cap is computed from.
-        let formula = qd_metal::model::prefix_state_nbytes(model.config(), s.tokens()).unwrap();
-        assert_eq!(s.nbytes(), formula, "{name}: device bytes vs prefix_state_nbytes");
-        let serial = s.digest_by(DigestPath::Serial).unwrap();
-        let parallel = s.digest_by(DigestPath::Parallel).unwrap();
-        assert_eq!(serial, parallel, "{name}: the parallel digest differs from the serial one");
-        // Twice more: the scratch is reused across digests on this thread.
-        assert_eq!(s.digest().unwrap(), parallel, "{name}: a repeat digest differs");
-        assert_eq!(s.digest().unwrap(), parallel, "{name}: a third digest differs");
-        println!("{name}: {} MB, serial == parallel == {}", s.nbytes() / 1_000_000, qd_runtime::hex(&parallel));
     }
 }
 

@@ -54,7 +54,7 @@ use serde_json::{json, Value};
 
 use crate::error::{MetalError, Result};
 use crate::ledger::{self, Provenance, TreeState};
-use crate::model::{DigestPath, EmbedPath, Model};
+use crate::model::{EmbedPath, Model};
 use crate::tokenizer::QwenTokenizer;
 
 pub const DEFAULT_T: [usize; 3] = [512, 2048, 8192];
@@ -77,34 +77,30 @@ const SLOT: &str = "defect_class";
 const CONTEXT_SOURCE: &str = include_str!("model.rs");
 const CONTEXT_SOURCE_NAME: &str = "crates/qd-metal/src/model.rs";
 
-/// One arm of the A/B: the one flag it varies. The flag it does not name runs at the product's
-/// setting (`embed=host`, `digest=parallel`), so every arm is fully determined by its name.
+/// One arm of the A/B: the one flag it varies. A flag it does not name runs at the product's
+/// setting, so every arm is fully determined by its name. (The `digest=serial|parallel` arms of
+/// the 2026-10-03 rows went with the one-thread digest; those rows keep their `digest_*` keys.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Arm {
     Embed(EmbedPath),
-    Digest(DigestPath),
 }
 
 impl Arm {
     pub fn name(&self) -> String {
         match self {
             Arm::Embed(e) => format!("embed={}", e.as_str()),
-            Arm::Digest(d) => format!("digest={}", d.as_str()),
         }
     }
 
-    /// `embed=host|device` or `digest=serial|parallel`.
+    /// `embed=host|device`.
     pub fn parse(s: &str) -> Result<Self> {
         match s.split_once('=') {
             Some(("embed", v)) => Ok(Arm::Embed(EmbedPath::parse(v)?)),
-            Some(("digest", v)) => Ok(Arm::Digest(DigestPath::parse(v)?)),
-            _ => Err(MetalError::Input(format!(
-                "arm {s:?} is not `embed=host|device` or `digest=serial|parallel`"
-            ))),
+            _ => Err(MetalError::Input(format!("arm {s:?} is not `embed=host|device`"))),
         }
     }
 
-    /// The metric-key form of the name: `embed_host`, `digest_serial`.
+    /// The metric-key form of the name: `embed_host`.
     fn key(&self) -> String {
         self.name().replace('=', "_")
     }
@@ -112,14 +108,6 @@ impl Arm {
     fn embed(&self) -> EmbedPath {
         match self {
             Arm::Embed(e) => *e,
-            Arm::Digest(_) => EmbedPath::Host,
-        }
-    }
-
-    fn digest(&self) -> DigestPath {
-        match self {
-            Arm::Embed(_) => DigestPath::Parallel,
-            Arm::Digest(d) => *d,
         }
     }
 }
@@ -174,7 +162,7 @@ fn parse_one(v: &str, what: &str) -> Result<usize> {
 /// Parse the arguments after `--decision`:
 ///
 /// ```text
-/// [T=512,2048,8192] [k=4] [--iters 7] [--warmup 2] [--arms embed=host,embed=device|digest=serial,digest=parallel]
+/// [T=512,2048,8192] [k=4] [--iters 7] [--warmup 2] [--arms embed=host,embed=device]
 /// [--snapshot DIR] (--ledger ledger/mac-qd-metal-<date>.jsonl | --no-ledger)
 /// ```
 pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
@@ -234,8 +222,9 @@ pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
             return Err(MetalError::Input(format!("arm {} is given twice", a.name())));
         }
     }
-    // An A/B varies one flag: `embed=device` against `digest=serial` differs from the product in a
-    // different flag on each side, so its delta is neither flag's.
+    // An A/B varies one flag: two arms naming different flags each differ from the product in a
+    // different flag, so their delta is neither flag's. (Unreachable while one flag remains; it
+    // holds the rule for the next one.)
     if let Some(a) = arms.iter().find(|a| std::mem::discriminant(*a) != std::mem::discriminant(&arms[0])) {
         return Err(MetalError::Input(format!(
             "arms {} and {} vary different flags; an A/B varies one",
@@ -438,7 +427,7 @@ fn ms(t: Instant) -> f64 {
 }
 
 /// Run one decision on `model` as it is configured.
-pub fn run_decision(model: &Model, p: &DecisionPrompt, answers: &[u32], digest: DigestPath) -> Result<Sample> {
+pub fn run_decision(model: &Model, p: &DecisionPrompt, answers: &[u32]) -> Result<Sample> {
     tessl::infer_trace::reset_token_counters();
     let t0 = Instant::now();
     let (out, state) = model.prefill(&p.prefix)?;
@@ -449,7 +438,7 @@ pub fn run_decision(model: &Model, p: &DecisionPrompt, answers: &[u32], digest: 
         .map_err(|e| MetalError::Gpu(format!("synchronize after the prefill: {e}")))?;
     let prefill_ms = ms(t0);
     let td = Instant::now();
-    let d0 = state.digest_by(digest)?;
+    let d0 = state.digest()?;
     let mut digest_ms = [ms(td), 0.0, 0.0];
     let mut decode_ms = [0.0; 2];
     let mut logits = Vec::with_capacity(2 * answers.len());
@@ -464,7 +453,7 @@ pub fn run_decision(model: &Model, p: &DecisionPrompt, answers: &[u32], digest: 
         }
         logits.extend_from_slice(&scores.logits);
         let td = Instant::now();
-        let d = state.digest_by(digest)?;
+        let d = state.digest()?;
         digest_ms[i + 1] = ms(td);
         if d != d0 {
             return Err(MetalError::State(format!(
@@ -533,7 +522,7 @@ pub fn run_t(model: &mut Model, prompt: &DecisionPrompt, answers: &[u32], arms: 
     for arm in arms {
         model.set_embed_path(arm.embed());
         for _ in 0..warmup {
-            run_decision(model, prompt, answers, arm.digest())?;
+            run_decision(model, prompt, answers)?;
         }
     }
     let mut results: Vec<ArmResult> = arms
@@ -546,7 +535,7 @@ pub fn run_t(model: &mut Model, prompt: &DecisionPrompt, answers: &[u32], arms: 
     for i in 0..iters {
         for j in arm_order(arms.len(), i) {
             model.set_embed_path(arms[j].embed());
-            results[j].samples.push(run_decision(model, prompt, answers, arms[j].digest())?);
+            results[j].samples.push(run_decision(model, prompt, answers)?);
         }
     }
     Ok(TResult {
@@ -842,25 +831,15 @@ mod tests {
         assert_eq!(parse_args(&strs(&["T=131,409", "--no-ledger"])).unwrap().ts, vec![131, 409]);
     }
 
+    /// The one-thread digest is gone, and with it the `digest=` arms: asking for them is refused,
+    /// not silently run as the product's parallel digest.
     #[test]
-    fn digest_arms_parse_and_fix_the_other_flag_at_the_product_setting() {
-        let a = parse_args(&strs(&["--arms", "digest=serial,digest=parallel", "--no-ledger"])).unwrap();
-        assert_eq!(a.arms, vec![Arm::Digest(DigestPath::Serial), Arm::Digest(DigestPath::Parallel)]);
-        assert_eq!(a.arms.iter().map(Arm::name).collect::<Vec<_>>(), ["digest=serial", "digest=parallel"]);
-        assert_eq!(a.arms.iter().map(Arm::key).collect::<Vec<_>>(), ["digest_serial", "digest_parallel"]);
-        // A digest arm gathers on the host; an embed arm digests in parallel.
-        assert_eq!((a.arms[0].embed(), a.arms[0].digest()), (EmbedPath::Host, DigestPath::Serial));
-        let e = Arm::Embed(EmbedPath::Device);
-        assert_eq!((e.embed(), e.digest()), (EmbedPath::Device, DigestPath::Parallel));
-        for bad in [
-            &["--arms", "digest=serial,digest=serial", "--no-ledger"][..],
-            &["--arms", "digest=", "--no-ledger"],
-            &["--arms", "digest", "--no-ledger"],
-            &["--arms", "digest=parallel,", "--no-ledger"],
-            &["--arms", "embed=device,digest=serial", "--no-ledger"],
-            &["--arms", "digest=parallel,embed=host", "--no-ledger"],
-        ] {
-            assert!(parse_args(&strs(bad)).is_err(), "{bad:?} was accepted");
+    fn the_retired_digest_arms_are_refused() {
+        for bad in ["digest=serial,digest=parallel", "digest=serial", "embed=host,digest=parallel"] {
+            let e = parse_args(&strs(&["--arms", bad, "--no-ledger"]))
+                .expect_err(&format!("--arms {bad} was accepted"))
+                .to_string();
+            assert!(e.contains("is not `embed=host|device`"), "{e}");
         }
     }
 
