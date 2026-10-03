@@ -1,0 +1,319 @@
+diff --git a/crates/qd-runtime/tests/post_f_rules_v5.rs b/crates/qd-runtime/tests/post_f_rules_v5.rs
+--- a/crates/qd-runtime/tests/post_f_rules_v5.rs
++++ b/crates/qd-runtime/tests/post_f_rules_v5.rs
+@@ -6,9 +6,10 @@
+ //! * `seeds34` and `eval-row` on a v5-shaped ledger, and `seeds34` on F's real rows pinned to the
+ //!   decision the unmodified binary wrote (AUDIT/v5-rules-2026-10-02/characterization-*).
+ //!
+-//! The pre-registration is the real `campaign/v5-preregistered.DRAFT.json` with its top-level
+-//! `draft` key removed, which is what the rename to `campaign/v5-preregistered.json` leaves; the
+-//! DRAFT itself must refuse. F2 and F3 are the real `campaign/v4-noul-v3b-preregistered.json`.
++//! The pre-registration is the real `campaign/v5-preregistered.json`, the DRAFT as the freeze
++//! renamed it (AUDIT/finalize-2026-10-03/apply_v5_freeze.py), with no top-level `draft` key; the
++//! DRAFT's form, that file with a `draft` key put back, must refuse. F2 and F3 are the real
++//! `campaign/v4-noul-v3b-preregistered.json`.
+ //! Ledger rows are F's real rows (`ledger/gh200-p4-v4-2026-10-01.jsonl`: ft 973cd4e3, eval
+ //! f4feac15) re-identified as v5's, with the counts each test sets.
+ 
+@@ -27,7 +28,7 @@
+     "95fa4854-6146-4824-b7ad-22bb54744ff1",
+     "32990e1a-0c61-49fa-9217-800eb845f27e",
+ ];
+-const DRAFT: &str = "campaign/v5-preregistered.DRAFT.json";
++const PREREG: &str = "campaign/v5-preregistered.json";
+ const NOUL: &str = "campaign/v4-noul-v3b-preregistered.json";
+ const EXIT_REFUSED: i32 = 3;
+ /// The needle suite's depth buckets and F seed 0's bucket sizes (f4feac15).
+@@ -295,16 +296,26 @@
+ 
+ // --- the pre-registration ------------------------------------------------------------------------
+ 
+-/// The real DRAFT as the rename leaves it: no `draft` key; then `edit`.
++/// The real pre-registration as the freeze renamed it (no `draft` key); then `edit`.
+ fn prereg(s: &Scratch, edit: impl FnOnce(&mut Map<String, Value>)) -> PathBuf {
+     let mut p: Map<String, Value> =
+-        serde_json::from_str(&std::fs::read_to_string(repo(DRAFT)).unwrap()).unwrap();
+-    assert!(p.remove("draft").is_some(), "the DRAFT has no draft key");
++        serde_json::from_str(&std::fs::read_to_string(repo(PREREG)).unwrap()).unwrap();
++    assert!(
++        !p.contains_key("draft"),
++        "the renamed pre-registration still carries the DRAFT's draft key"
++    );
+     edit(&mut p);
+     s.json(
+         &format!("prereg-{}.json", N.fetch_add(1, Ordering::SeqCst)),
+         &Value::Object(p),
+     )
++}
++
++/// The DRAFT's form: the real pre-registration with its top-level `draft` key put back.
++fn draft(s: &Scratch) -> PathBuf {
++    prereg(s, |p| {
++        p.insert("draft".to_string(), json!("NOT BINDING."));
++    })
+ }
+ 
+ fn bound(s: &Scratch) -> PathBuf {
+@@ -493,7 +504,7 @@
+     let s = scratch();
+     let (rows, ids) = seeds(0x5, false, v5_needles([54, 50, 40]));
+     let ledger = s.ledger("gh200-v5.jsonl", &rows);
+-    seeds34(&s, &ledger, &ids, Some(&repo(DRAFT))).refused_with("\"draft\" key");
++    seeds34(&s, &ledger, &ids, Some(&draft(&s))).refused_with("\"draft\" key");
+     let p = prereg(&s, |p| {
+         retext(
+             p,
+@@ -648,7 +659,7 @@
+             ..BASE
+         },
+     );
+-    pause(&s, &repo(DRAFT), &ledger, &ft0).refused_with("\"draft\" key");
++    pause(&s, &draft(&s), &ledger, &ft0).refused_with("\"draft\" key");
+     let r9 = ["readings", "R9_pause_after_seed_0"];
+     for (from, to, phrase) in [
+         ("5*n >= 4*n_total", "at least 0.80", "is not a count form"),
+@@ -881,7 +892,7 @@
+         b.extend([String::from("--ft-row"), format!("{seed}={id}")]);
+     }
+     run(&s, &b).refused_with("given in that order; got [1, 0, 2]");
+-    room(&s, &repo(DRAFT), &q, &ledger, &ids).refused_with("\"draft\" key");
++    room(&s, &draft(&s), &q, &ledger, &ids).refused_with("\"draft\" key");
+ }
+ 
+ // --- v5-noulw ----------------------------------------------------------------------------------
+@@ -1522,7 +1533,7 @@
+ fn a_preregistration_that_disagrees_with_the_checker_refuses_before_any_ledger_is_read() {
+     let s = scratch();
+     let fx = arm_fixture(&s, v5_room(), arm_holds(), |_, _| {});
+-    noulw_with(&s, &repo(DRAFT), &repo(NOUL), &fx).refused_with("\"draft\" key");
++    noulw_with(&s, &draft(&s), &repo(NOUL), &fx).refused_with("\"draft\" key");
+     type Edit = fn(&mut Map<String, Value>);
+     let cases: [(Edit, &str); 13] = [
+         (
+diff --git a/crates/qd-runtime/tests/post_f_rules_tierb.rs b/crates/qd-runtime/tests/post_f_rules_tierb.rs
+--- a/crates/qd-runtime/tests/post_f_rules_tierb.rs
++++ b/crates/qd-runtime/tests/post_f_rules_tierb.rs
+@@ -1,5 +1,5 @@
+ //! `qd-post-f-rules tierb`: the Tier-B outcome rule (`recipe.tierb_outcome_rule` of
+-//! `campaign/v5-preregistered.DRAFT.json`, as amended by Fable on 2026-10-03), run the way the box
++//! `campaign/v5-preregistered.json`, as amended by Fable on 2026-10-03), run the way the box
+ //! runs it: the binary, the one word it prints, its exit code and its `--out` JSON.
+ //!
+ //! Every candidate ledger here is built from phase-3 seed 0's real committed rows: ft 7f2c11db,
+@@ -7,8 +7,8 @@
+ //! (`ledger/gh200-seed0-weights-2026-09-30.jsonl`) and its fp32 all-gates re-score 58fd1532
+ //! (`ledger/gh200-allgates-2026-09-30.jsonl`), with the candidate's recipe key injected into the
+ //! ft recipe and whatever edit each test makes. The phase-3 and all-gates ledgers are the real
+-//! files unless a test says otherwise; the pre-registration is the real DRAFT unless a test edits
+-//! a copy.
++//! files unless a test says otherwise; the pre-registration is the real one (the DRAFT as the
++//! freeze renamed it, AUDIT/finalize-2026-10-03/apply_v5_freeze.py) unless a test edits a copy.
+ 
+ use std::path::{Path, PathBuf};
+ use std::process::Command;
+@@ -20,7 +20,7 @@
+ const REPO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+ const PHASE3: &str = "ledger/gh200-seed0-weights-2026-09-30.jsonl";
+ const ALLGATES: &str = "ledger/gh200-allgates-2026-09-30.jsonl";
+-const DRAFT: &str = "campaign/v5-preregistered.DRAFT.json";
++const PREREG: &str = "campaign/v5-preregistered.json";
+ const EXIT_REFUSED: i32 = 3;
+ 
+ const FT: &str = "7f2c11db-3eb8-4361-9620-6b164ec37f1e";
+@@ -162,8 +162,8 @@
+     }
+ }
+ 
+-fn draft() -> Value {
+-    serde_json::from_slice(&std::fs::read(repo(DRAFT)).unwrap()).unwrap()
++fn real_prereg() -> Value {
++    serde_json::from_slice(&std::fs::read(repo(PREREG)).unwrap()).unwrap()
+ }
+ 
+ fn go(f: &Fx) -> Run {
+@@ -189,7 +189,7 @@
+             std::fs::write(&path, serde_json::to_vec_pretty(p).unwrap()).unwrap();
+             path
+         }
+-        None => repo(DRAFT),
++        None => repo(PREREG),
+     };
+     let out = s.path("out.json");
+     let o = Command::new(BIN)
+@@ -252,10 +252,10 @@
+ // --- the real rows ------------------------------------------------------------------------------
+ 
+ /// The smoke: phase-3 seed 0's own rows, read as a candidate, pass every clause against the real
+-/// phase-3 and all-gates ledgers and the real DRAFT. This is what proves the checker reads the
+-/// real row formats (counts, the control's detail string, the fp32 row's gates).
+-#[test]
+-fn phase3_seed0s_real_rows_pass_as_either_candidate_against_the_real_draft() {
++/// phase-3 and all-gates ledgers and the real pre-registration. This is what proves the checker
++/// reads the real row formats (counts, the control's detail string, the fp32 row's gates).
++#[test]
++fn phase3_seed0s_real_rows_pass_as_either_candidate_against_the_real_preregistration() {
+     for candidate in ["nomask", "fused"] {
+         let r = go(&fx(candidate));
+         r.said("pass");
+@@ -264,7 +264,7 @@
+         assert_eq!(j["decision"], json!("pass"));
+         let d = &j["detail"];
+         assert_eq!(d["candidate"], json!(candidate));
+-        assert_eq!(d["preregistration"]["draft"], json!(true), "{d}");
++        assert_eq!(d["preregistration"]["draft"], json!(false), "{d}");
+         assert_eq!(
+             d["preregistration"]["sha256"].as_str().map(str::len),
+             Some(64),
+@@ -313,13 +313,16 @@
+ 
+ #[test]
+ fn the_draft_and_the_renamed_file_both_bind_and_say_which_was_read() {
+-    let mut p = draft();
+-    p.as_object_mut().unwrap().remove("draft");
++    // The DRAFT's form: the renamed file with its top-level `draft` key put back.
++    let mut p = real_prereg();
++    p.as_object_mut()
++        .unwrap()
++        .insert("draft".to_string(), json!("NOT BINDING."));
+     let mut f = fx("nomask");
+     f.prereg = Some(p);
+     let r = go(&f);
+     r.said("pass");
+-    assert_eq!(r.json["detail"]["preregistration"]["draft"], json!(false));
++    assert_eq!(r.json["detail"]["preregistration"]["draft"], json!(true));
+ }
+ 
+ // --- clause 1, the envelope ---------------------------------------------------------------------
+@@ -813,7 +816,7 @@
+         ),
+     ];
+     for (edit, phrase) in edits {
+-        let mut p = draft();
++        let mut p = real_prereg();
+         edit(&mut p);
+         let mut f = fx("nomask");
+         f.prereg = Some(p);
+@@ -821,7 +824,7 @@
+     }
+     // The other conditional's edit does not touch this candidate's decision, and does refuse
+     // the other one.
+-    let mut p = draft();
++    let mut p = real_prereg();
+     conditional(&mut p, "C2b")["outcome_rule"]["candidate_recipe"] =
+         json!({"optimizer_fused": false});
+     let mut f = fx("nomask");
+@@ -847,7 +850,7 @@
+         ("identity", "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"),
+         ("3", ALL),
+     ] {
+-        let mut p = draft();
++        let mut p = real_prereg();
+         let rule = &mut p["recipe"]["tierb_outcome_rule"];
+         let field = if path == "identity" {
+             &mut rule["rows"]["identity"]
+diff --git a/python/tests/test_v5_a7_check.py b/python/tests/test_v5_a7_check.py
+--- a/python/tests/test_v5_a7_check.py
++++ b/python/tests/test_v5_a7_check.py
+@@ -1,7 +1,8 @@
+ """The A7 checker: v5's val and held-out rows are v4's plus CLINC's oos rows, and nothing else.
+ 
+-The gate's numbers are re-read from the DRAFT, so the checker's constants cannot drift from the
+-pre-registration; the rest builds two tiny builds and changes one thing at a time.
++The gate's numbers are re-read from the pre-registration (campaign/v5-preregistered.json, the
++DRAFT as the freeze renamed it), so the checker's constants cannot drift from it; the rest builds
++two tiny builds and changes one thing at a time.
+ """
+ 
+ from __future__ import annotations
+@@ -21,13 +22,13 @@
+ from qd_train.tristate import Ran
+ 
+ REPO = Path(__file__).resolve().parents[2]
+-DRAFT = REPO / "campaign" / "v5-preregistered.DRAFT.json"
++PREREG = REPO / "campaign" / "v5-preregistered.json"
+ 
+ 
+ def _gate_text() -> str:
+-    draft = json.loads(DRAFT.read_text(encoding="utf-8"))
+-    hits = [s for s in draft["amendments_pending"] if isinstance(s, str) and s.startswith("(A7)")]
+-    assert len(hits) == 1, f"{DRAFT} has {len(hits)} (A7) amendments"
++    prereg = json.loads(PREREG.read_text(encoding="utf-8"))
++    hits = [s for s in prereg["amendments_pending"] if isinstance(s, str) and s.startswith("(A7)")]
++    assert len(hits) == 1, f"{PREREG} has {len(hits)} (A7) amendments"
+     return hits[0]
+ 
+ 
+@@ -67,7 +68,7 @@
+         "intent.within_domain": within,
+     }
+     assert GATE.clinc["heldout"] == dict.fromkeys(GATE.clinc["val"], held)
+-    effect = json.loads(DRAFT.read_text(encoding="utf-8"))
++    effect = json.loads(PREREG.read_text(encoding="utf-8"))
+     blob = json.dumps(effect)
+     oos = re.search(r"oos utterances: train [\d,]+, val ([\d,]+), held-out ([\d,]+)", blob)
+     assert oos is not None
+diff --git a/python/tests/test_v5_queue_scripts.py b/python/tests/test_v5_queue_scripts.py
+--- a/python/tests/test_v5_queue_scripts.py
++++ b/python/tests/test_v5_queue_scripts.py
+@@ -52,7 +52,8 @@
+ 
+ REPO = Path(__file__).resolve().parents[2]
+ QUEUE = Path(os.environ.get("QD_V5_QUEUE_DIR", str(REPO / "campaign" / "post-f-queue")))
+-DRAFT = REPO / "campaign" / "v5-preregistered.DRAFT.json"
++#: The DRAFT as the freeze renamed it (AUDIT/finalize-2026-10-03/apply_v5_freeze.py).
++PREREG = REPO / "campaign" / "v5-preregistered.json"
+ NOUL = REPO / "campaign" / "v4-noul-v3b-preregistered.json"
+ BASH = "/bin/bash"
+ WAITERS = ("box_q_v5.sh", "box_q_v5traj.sh")
+@@ -151,9 +152,9 @@
+ 
+ 
+ def renamed_prereg() -> dict:
+-    """The DRAFT as the rename will bind it: the same text without its top-level draft key."""
+-    d = json.loads(DRAFT.read_text(encoding="utf-8"))
+-    d.pop("draft")
++    """The pre-registration as it binds: the DRAFT renamed, with no top-level draft key."""
++    d = json.loads(PREREG.read_text(encoding="utf-8"))
++    assert "draft" not in d, f"{PREREG} still carries the DRAFT's draft key"
+     return d
+ 
+ 
+@@ -256,7 +257,7 @@
+ 
+ 
+ def test_caps_and_constants_are_the_pre_registrations() -> None:
+-    draft = DRAFT.read_text(encoding="utf-8")
++    prereg = PREREG.read_text(encoding="utf-8")
+     text = common_text()
+     want = {
+         "V5_TRAIN_CAP_S": ("32400", "--wall-clock-cap-s 32400"),
+@@ -268,8 +269,8 @@
+     }
+     for name, (value, phrase) in want.items():
+         assert re.search(rf"^{name}={value}$", text, re.M), name
+-        assert phrase in draft, f"the DRAFT does not say {phrase!r}"
+-    assert "--batch-order seed" in draft and "--min-lr 0" in draft
++        assert phrase in prereg, f"the pre-registration does not say {phrase!r}"
++    assert "--batch-order seed" in prereg and "--min-lr 0" in prereg
+ 
+ 
+ def test_the_probe_margin_and_cap_are_the_pre_registrations() -> None:
+@@ -869,7 +870,7 @@
+ 
+ 
+ def test_the_draft_names_these_words() -> None:
+-    d = json.loads(DRAFT.read_text(encoding="utf-8"))
++    d = json.loads(PREREG.read_text(encoding="utf-8"))
+     r9 = d["readings"]["R9_pause_after_seed_0"]
+     assert "prints continue iff" in r9 and "otherwise pause" in r9 and "V5_CONTINUE" in r9
+     launch = d["arm_noul_weight"]["launch_condition"]
+@@ -1233,7 +1234,8 @@
+ 
+ 
+ def test_v5_read_prereg_refuses_the_draft_itself(tmp_path: Path) -> None:
+-    r = read_prereg(tmp_path, DRAFT.read_text(encoding="utf-8"))
++    # The DRAFT's form: the renamed file with its top-level draft key put back.
++    r = read_prereg(tmp_path, {"draft": "NOT BINDING.", **renamed_prereg()})
+     assert "RC=3" in r.stdout and "'draft' key" in r.stdout
+ 
+ 
