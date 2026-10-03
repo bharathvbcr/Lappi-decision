@@ -28,12 +28,12 @@
     "ece_population": {
       "question": "Should the ece gate run over all letter rows, with only its per-language breakdown requiring language metadata?",
       "gap": "GAP-ECE-GATE-IS-NOT-RUN-ON-THE-FULL-MIXTURE",
-      "status": "open",
-      "value": "per slot shape and per language; a letter row with no language leaves the gate not_run",
+      "status": "decided",
+      "value": "the promotion population's letter rows (code.defect_class), per slot shape that family has; the per-language breakdown is report-only",
       "source": "tools/real_ft_run.py calibration_states and language_eces as built",
-      "decided_by": null,
-      "decided_on": null,
-      "decision_ref": null
+      "decided_by": "the human, by delegation (\"For decisions ask fable and proceed with them\", in the lead's session, 2026-10-03 ~13:14Z), through the lead, ruled by Fable",
+      "decided_on": "2026-10-03",
+      "decision_ref": "AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md (main b2ad747), ruling 2: one population decision drives every in-distribution gate, and another ECE population would bring back the pooled base-rate objection that promotion_population rejects. Readings for code.defect_class k4 (bar 0.05): seed 0 0.0207, ens5 0.0135, avg 0.0498. The rejected readings: one pooled ECE over all 10,985 letter rows gives 0.0498, 0.0431 and 0.0578; per slot shape over every family fails k10 (intent.domain) at 0.081/0.099 and k15 (intent.within_domain) at 0.190/0.177. Takes effect only through code that reads this record (GAP-PROMOTION-RECORD-IS-NOT-APPLIED-BY-THE-GATES-2026-10-03)."
     },
     "degenerate_head_floor": {
       "question": "Is the degenerate_head control's 0.15-nat entropy floor meaningful for a calibrated, near-certain head, on binary and four-way slots?",
