@@ -378,7 +378,10 @@ fn a_member_claiming_visible_state_but_handing_none_is_refused() {
     let members = || -> Vec<Arc<dyn DecisionBackend>> {
         let mut empty = member("seed-1", &B);
         empty.fault = Fault::EmptyState;
-        assert!(empty.identity.state_host_visible, "the case: the member claims visible state");
+        assert!(
+            empty.identity.state_host_visible,
+            "the case: the member claims visible state"
+        );
         vec![
             Arc::new(member("seed-0", &A)),
             Arc::new(empty),
@@ -388,7 +391,10 @@ fn a_member_claiming_visible_state_but_handing_none_is_refused() {
     let backend = EnsembleBackend::new(members()).expect("builds");
     match backend.prefill("a prefix") {
         Err(BackendError::PrefillFailed { detail }) => {
-            assert!(detail.contains("member 1") && detail.contains("handed none"), "{detail}");
+            assert!(
+                detail.contains("member 1") && detail.contains("handed none"),
+                "{detail}"
+            );
         }
         other => panic!("an empty member state was framed and accepted: {other:?}"),
     }

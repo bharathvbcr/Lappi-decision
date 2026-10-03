@@ -215,7 +215,10 @@ fn an_empty_state_is_a_check_that_did_not_run() {
     let backend = Wrapped::new(Behaviour::ClaimsVisibleStateButHasNone);
     let handle = backend.prefill("prefix").expect("prefills");
     let mut snapshot = backend.snapshot(&handle).expect("snapshots");
-    assert!(snapshot.state.is_empty(), "the fixture must hand over no state bytes");
+    assert!(
+        snapshot.state.is_empty(),
+        "the fixture must hand over no state bytes"
+    );
     let query = letters_query("verdict", "suffix", 5);
     match readonly_decode(&backend, &mut snapshot, &query, 0).expect("decodes") {
         (_, SlotIsolationCheck::NotRun { reason }) => {
