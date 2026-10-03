@@ -209,7 +209,9 @@
     "the G6 source: per-language rows after the licence filter and exclusions, the per-language cap, and the examples sha256",
     "C3's fsucc reading: the fsucc word, the decision JSON's sha256, detail.arms.j6dv4.wins, and which branch of the human's advance answer applies",
     "per-seed corpus.plan_order_digest as the Mac prelude printed them (AUDIT/post-f-2026-10-02/fable-seed-order-ruling.md section 5)",
-    "the batch_order key present on every v5, seeds 3-4, arm and J5' ft row (AUDIT/post-f-2026-10-02/fable-seed-order-ruling.md section 5)"
+    "the batch_order key present on every v5, seeds 3-4, arm and J5' ft row (AUDIT/post-f-2026-10-02/fable-seed-order-ruling.md section 5)",
+    "the human's docs/promotion-decisions.json record as it stands at v5 seed 0's ft row's written_at (promotion_population, ece_population, average_may_promote, degenerate_head_floor, privileged_hunk_pass_rule, transfer_gate_definition), with its commit sha: v5's gates and controls are read against that record, and an item still open there leaves its gate or control as built (AUDIT/finalize-2026-10-03/fable-data-and-promotion-ruling.md ruling 2, sections 0 and 2)",
+    "contingency, pre-registered 2026-10-03 before any v5 row exists (AUDIT/finalize-2026-10-03/fable-data-and-promotion-ruling.md ruling 1 section 4, ruling 2 section 4): if v5's ood_abstain suite-half target (ood_abstain.prose or ood_abstain.unseen-language, read as seed_holds) misses under the population the human's record names, the next step is more refusal data, not a recipe change: prose-noul at 2x from SQuAD paragraphs (the source of v4's 2,010 prose-noul rows) and the G6 unseen-language source at 2x"
   ],
   "build_order": [
     "0. Prerequisites: L-prep merged (containment, attestation v2, --exclude-identity-keys; 73758bd); L-j6g's checker subcommand merged (c314398); the version-2 template strip (Fable's CLINC strip ruling) and its subsample re-run meeting that ruling's section 4 pass condition before the full scan; the last v4 readers on main done (format.freeze).",
