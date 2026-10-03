@@ -343,6 +343,9 @@ RECIPE_PIECE_KEYS: Final[tuple[str, ...]] = (
     # recipe_hash (qd_post_f_rules' one_configuration refuses an average or envelope that
     # does not).
     "batch_order",
+    # --probe-shapes (the 2x H100 memory probe, Fable's ruling 2026-10-03): a probe's model is
+    # one step per batch shape, so anything recorded from it hashes apart from a training run.
+    "probe_shapes_margin_gib",
 )
 
 #: ``--batch-order``'s one value: the epoch arm plans its batches at the TRAINING seed rather
@@ -554,7 +557,7 @@ def _recipe_pieces(
     train_dtype: str = "bf16", span_head_init: Mapping[str, str] | None = None,
     exclusions_sha256: str = "", min_lr: float | None = None,
     noul_weight: float | None = None, prompt_format: int = 1,
-    batch_order: str | None = None,
+    batch_order: str | None = None, probe_shapes: float | None = None,
 ) -> dict[str, object]:
     """The recipe keys for whichever ported pieces are on. Empty when none is.
 
@@ -613,6 +616,9 @@ def _recipe_pieces(
         out["exclusions_sha256"] = exclusions_sha256
     if max_steps is not None:
         out["max_steps"] = max_steps
+    if probe_shapes is not None:
+        # A probe row hashes apart from every training row: its plan is one batch per shape.
+        out["probe_shapes_margin_gib"] = probe_shapes
     if train_dtype != "bf16":
         out["train_dtype"] = train_dtype
     if span_head_init is not None:
@@ -1746,12 +1752,17 @@ class ProgressLine:
     and, on cuda, the allocator's peak. The first step always prints, so a run that is
     stepping at all says so within one step. ``clock`` is the loop's own elapsed time, so
     no second clock is read here.
+
+    ``every_step`` is called after every optimizer step, before the throttle: the hook
+    ``--probe-shapes`` hangs its :class:`MemoryProbe` on, so the trainer is still handed this
+    one progress line.
     """
 
     def __init__(
         self, label: str, *, every_s: float = PROGRESS_EVERY_S,
         peak_bytes: Callable[[], int] | None = None,
         emit: Callable[[str], None] | None = None,
+        every_step: Callable[[Progress], None] | None = None,
     ) -> None:
         if not (math.isfinite(every_s) and every_s > 0.0):
             raise ValueError(f"every_s must be finite and positive, got {every_s!r}")
@@ -1759,9 +1770,12 @@ class ProgressLine:
         self.every_s = every_s
         self._peak = peak_bytes
         self._emit = emit if emit is not None else (lambda s: print(s, flush=True))
+        self._every_step = every_step
         self._last: float | None = None
 
     def __call__(self, p: Progress) -> None:
+        if self._every_step is not None:
+            self._every_step(p)
         if self._last is not None and p.elapsed_s - self._last < self.every_s:
             return
         self._last = p.elapsed_s
@@ -1776,6 +1790,104 @@ class ProgressLine:
         if self._peak is not None:
             line += f" peak {self._peak() / (1 << 30):.1f}GiB"
         self._emit(line)
+
+
+#: The devices ``--probe-shapes`` runs on: the ones whose allocator ``MemoryProbe`` reads.
+PROBE_DEVICES: Final[tuple[str, ...]] = ("cuda",)
+#: ``ProgressLine``'s throttle under ``--probe-shapes``: effectively none, so every probe step
+#: (one batch shape each, about 40 of them) prints its own line.
+PROBE_EVERY_S: Final[float] = 1e-9
+
+
+def probe_shape_order(plan: Sequence[Batch]) -> list[int]:
+    """``--probe-shapes``: the plan index of one batch per distinct ``(rows, width)``, the
+    first of each in plan order, costliest first.
+
+    Costliest is most positions, then widest. ``memory.py`` prices the narrowest bucket with
+    the most rows above the widest bucket (F's costliest shape was 258 x 137 at 63.81 GiB,
+    reproduced to the byte by AUDIT/finalize-2026-10-03/v5_h100_budget.py, against 60.01 GiB
+    for 3 x 10,240), so most positions comes first. Every distinct shape is stepped either
+    way; the order only decides how soon a shape that does not fit is found.
+    """
+    first: dict[tuple[int, int], int] = {}
+    for i, batch in enumerate(plan):
+        first.setdefault((int(batch.tokens.shape[0]), int(batch.tokens.shape[1])), i)
+    return [
+        first[shape]
+        for shape in sorted(first, key=lambda s: (-(s[0] * s[1]), -s[1], -s[0]))
+    ]
+
+
+class MemoryProbe:
+    """``--probe-shapes``' ``on_progress``: the allocator's peaks after every probe step,
+    kept current on the ft row as the metric ``memory_probe``.
+
+    One optimizer step per distinct batch shape on the real tower and recipe, so the peak is
+    the one a real run reaches, measured rather than priced. The metric is written before
+    step 1 as a failure ("no probe step completed") and replaced after every step.
+    ``RunRecorder`` writes the row on every exit path, so a probe killed by an out-of-memory
+    error still leaves a row, and that row says how many shapes completed and which one was
+    next. It passes only when every shape completed AND the reserved peak is at most the
+    device's total minus ``margin_bytes``. Reserved, not allocated: reserved is what the
+    caching allocator holds from the device, and it is what runs out.
+    """
+
+    METRIC = "memory_probe"
+
+    def __init__(
+        self, recorder: Any, *, shapes: Sequence[tuple[int, int]], margin_bytes: int,
+        total_bytes: int, read_peaks: Callable[[], tuple[int, int]],
+    ) -> None:
+        if not shapes:
+            raise ValueError("a memory probe needs at least one batch shape")
+        if margin_bytes <= 0 or total_bytes <= margin_bytes:
+            raise ValueError(
+                f"margin {margin_bytes} B against a device of {total_bytes} B leaves no budget"
+            )
+        self.recorder = recorder
+        self.shapes = list(shapes)
+        self.margin_bytes = margin_bytes
+        self.total_bytes = total_bytes
+        self._read_peaks = read_peaks
+        self.completed = 0
+        self.passed = False
+        recorder.metric(
+            self.METRIC,
+            Ran(passed=False, value=None, n=0, n_total=len(self.shapes),
+                detail=self._detail(None, None)),
+        )
+
+    def _detail(self, allocated: int | None, reserved: int | None) -> str:
+        gib = float(1 << 30)
+        done = f"{self.completed} of {len(self.shapes)} distinct (rows, width) shapes stepped"
+        if self.completed < len(self.shapes):
+            rows, width = self.shapes[self.completed]
+            done += (
+                f"; next {rows}x{width}" if self.completed else f"; none yet, first {rows}x{width}"
+            )
+        room = self.total_bytes - self.margin_bytes
+        budget = (
+            f"device total {self.total_bytes / gib:.2f} GiB minus margin "
+            f"{self.margin_bytes / gib:.2f} GiB = {room / gib:.2f} GiB"
+        )
+        if allocated is None or reserved is None:
+            return f"{done}; no peak read yet; budget {budget}"
+        return (
+            f"{done}; torch.cuda.max_memory_allocated {allocated / gib:.2f} GiB, "
+            f"max_memory_reserved {reserved / gib:.2f} GiB (process lifetime, model load "
+            f"included); budget {budget}"
+        )
+
+    def __call__(self, p: Progress) -> None:
+        self.completed = min(p.optimizer_step, len(self.shapes))
+        allocated, reserved = self._read_peaks()
+        fits = reserved <= self.total_bytes - self.margin_bytes
+        self.passed = fits and self.completed == len(self.shapes)
+        self.recorder.metric(
+            self.METRIC,
+            Ran(passed=self.passed, value=reserved, n=self.completed,
+                n_total=len(self.shapes), detail=self._detail(allocated, reserved)),
+        )
 
 
 class CheckpointSink:
@@ -2792,7 +2904,7 @@ def _train(
     record_span_head_init_digest: bool = False, min_lr: float | None = None,
     noul_weight: NoulWeightPlan | None = None, retain_tower_every: int = 0,
     batch_order: str | None = None, plan_seed: int | None = None,
-    order_digest: str | None = None,
+    order_digest: str | None = None, probe_shapes: float | None = None,
 ) -> dict[str, object]:
     """Run ``train_ft`` over ``plan`` repeated ``passes`` times. One optimizer step per batch.
 
@@ -2840,6 +2952,15 @@ def _train(
     (:class:`RetainingSink`); it moves no recipe key and leaves ``checkpoint_every``'s
     resume checkpoint exactly as it was.
 
+    ``probe_shapes`` (``--probe-shapes MARGIN_GIB``, the 2x H100 memory probe): ``plan`` is
+    cut HERE, as under ``max_steps``, to one batch per distinct ``(rows, width)``
+    (:func:`probe_shape_order`, costliest first), and :class:`MemoryProbe` keeps the metric
+    ``memory_probe`` current on the ft row. Refused off cuda, with ``max_steps``, ``passes``
+    above 1, ``noul_weight``, ``replay``, ``shuffled_label``, ``resume_from``,
+    ``retain_tower_every`` and a ``checkpoint_dir``: a probe measures the recipe's memory,
+    trains no model worth keeping, and none of those changes what one step holds. A probe
+    that does not pass raises ``SystemExit`` after its row is written.
+
     ``evaluate_plan`` is stated by every caller. True runs :func:`_evaluate`, a no-grad pass
     over the whole plan, into ``run["final"]``. Only the memorise arm records anything from
     it: :func:`_record_verdict`'s floor metrics and the arm's failure check. False leaves
@@ -2866,6 +2987,31 @@ def _train(
         plan = plan[:max_steps]
         if noul_weight is not None:
             noul_weight = noul_weight.cut(max_steps)
+    if probe_shapes is not None:
+        refused = [
+            why for why, on in (
+                (f"device {device!r} (the probe reads torch.cuda's peaks)",
+                 device not in PROBE_DEVICES),
+                ("max_steps (both cut the plan)", max_steps is not None),
+                (f"{passes} passes (the probe steps each shape once)", passes != 1),
+                ("noul_weight", noul_weight is not None),
+                ("replay", replay is not None),
+                ("shuffled_label", shuffled_label is not None),
+                ("resume_from", resume_from is not None),
+                ("retain_tower_every", retain_tower_every != 0),
+                ("checkpoint_dir (a probe keeps no model)", checkpoint_dir is not None),
+            ) if on
+        ]
+        if refused:
+            raise ValueError(f"probe_shapes refuses {', '.join(refused)}")
+        if not (math.isfinite(probe_shapes) and probe_shapes > 0.0):
+            raise ValueError(
+                f"probe_shapes' margin must be finite and positive, got {probe_shapes!r}"
+            )
+        keep = probe_shape_order(plan)
+        plan = [plan[i] for i in keep]
+        if alphabets is not None:
+            alphabets = [alphabets[i] for i in keep]
     width = max(int(b.tokens.shape[1]) for b in plan)
     steps = len(plan) * passes
     record_head_digest = record_span_head_init_digest or span_head_init is not None
@@ -2936,6 +3082,7 @@ def _train(
         exclusions_sha256=reader.header.exclusions_sha256, min_lr=min_lr,
         noul_weight=None if noul_weight is None else noul_weight.weight,
         prompt_format=reader.header.prompt_format, batch_order=batch_order,
+        probe_shapes=probe_shapes,
     )
     recipe: dict[str, object] = {
         "tool": "tools/real_ft_run.py", "tag": tag, "device": device,
@@ -3372,6 +3519,17 @@ def _train(
             first_step=retain_first_step,
         )
 
+    probe: MemoryProbe | None = None
+    if probe_shapes is not None:
+        probe = MemoryProbe(
+            recorder,
+            shapes=[(int(b.tokens.shape[0]), int(b.tokens.shape[1])) for b in plan],
+            margin_bytes=int(probe_shapes * (1 << 30)),
+            total_bytes=int(torch.cuda.get_device_properties(device).total_memory),
+            read_peaks=lambda: (
+                int(torch.cuda.max_memory_allocated()), int(torch.cuda.max_memory_reserved())
+            ),
+        )
     result = train_ft(
         source(),
         epoch=0,
@@ -3386,12 +3544,26 @@ def _train(
         recorder=recorder,
         on_checkpoint=on_checkpoint,
         resume_from=resume_from,
+        # Under --probe-shapes: a line on every step (each is one shape's peak), the
+        # allocator's reserved peak rather than its allocated one, and the probe's metric
+        # kept current through every_step.
         on_progress=ProgressLine(
-            f"{tag} {device} seed={seed}",
-            peak_bytes=torch.cuda.max_memory_allocated if device == "cuda" else None,
+            f"{tag} {device} seed={seed}" + (" probe" if probe is not None else ""),
+            every_s=PROGRESS_EVERY_S if probe is None else PROBE_EVERY_S,
+            peak_bytes=(
+                None if device != "cuda"
+                else torch.cuda.max_memory_allocated if probe is None
+                else torch.cuda.max_memory_reserved
+            ),
+            every_step=probe,
         ),
     )
     wall = time.monotonic() - started
+    if probe is not None and not probe.passed:
+        raise SystemExit(
+            f"memory probe did not pass (ft row {result.row_id}): "
+            f"{recorder.metrics[MemoryProbe.METRIC].detail}"
+        )
     if on_checkpoint is not None:
         on_checkpoint.final(result.checkpoint)
     if noul_weight is not None:
@@ -4377,9 +4549,19 @@ def max_steps_reason(max_steps: int) -> str:
     )
 
 
+def probe_shapes_reason(margin_gib: float) -> str:
+    """Rule 8's reason for a ``--probe-shapes`` run: it is a memory measurement, not a model."""
+    return (
+        f"memory probe (--probe-shapes {margin_gib:g}): the epoch arm stepped one batch of "
+        "each distinct (rows, width) shape of its plan, costliest first, under an LR schedule "
+        "over that many steps; a subsample and a truncated schedule, not a training run"
+    )
+
+
 def quick_reasons(
     *, tag: str, device: str, real_backbone: bool, corpus: CorpusFacts,
     termination: str | None = None, memorise_detail: str = "", max_steps: int | None = None,
+    probe_shapes: float | None = None,
 ) -> list[str]:
     """Every rule-8 reason that stands for one row, from the run's facts. Empty means none.
 
@@ -4418,6 +4600,8 @@ def quick_reasons(
         )
     if max_steps is not None:
         reasons.append(max_steps_reason(max_steps))
+    if probe_shapes is not None:
+        reasons.append(probe_shapes_reason(probe_shapes))
     if corpus.snapshot_not_run is not None:
         reasons.append(
             "the shard set's data snapshot is NotRun, so the corpus is a capped or partial "
@@ -9311,6 +9495,7 @@ def _check_rungd_flags(args: argparse.Namespace) -> SpanHeadInit | None:
     on = [
         flag for flag, given in (
             ("--max-steps", args.max_steps is not None),
+            ("--probe-shapes", args.probe_shapes is not None),
             ("--train-dtype fp32", args.train_dtype != "bf16"),
             ("--span-head-init", args.span_head_init is not None),
             ("--span-head-init-digest", args.span_head_init_digest),
@@ -9340,6 +9525,35 @@ def _check_rungd_flags(args: argparse.Namespace) -> SpanHeadInit | None:
             raise SystemExit(
                 "--max-steps truncates the epoch arm (--epoch), the arm whose plan is one pass "
                 "of the epoch's order; the memorisation arm is not cut by it"
+            )
+    if args.probe_shapes is not None:
+        if not (math.isfinite(args.probe_shapes) and args.probe_shapes > 0.0):
+            raise SystemExit(
+                f"--probe-shapes {args.probe_shapes}: the margin is GiB of the device left "
+                "unreserved, and must be finite and positive"
+            )
+        refused = [
+            flag for flag, given in (
+                ("--max-steps", args.max_steps is not None),
+                ("--checkpoint-dir", args.checkpoint_dir is not None),
+                ("--resume-from", args.resume_from is not None),
+                ("--retain-tower-every", bool(args.retain_tower_every)),
+                ("--noul-weight", args.noul_weight is not None),
+                ("--replay-shards", args.replay_shards is not None),
+                ("--score-val", bool(args.score_val)),
+                ("--needle", bool(args.needle)),
+                ("--needle-control", args.needle_control is not None),
+                ("--ood", bool(args.ood)),
+            ) if given
+        ]
+        if refused:
+            raise SystemExit(
+                f"--probe-shapes with {', '.join(refused)}: the probe steps each batch shape "
+                "once to measure the recipe's memory, keeps no model and scores nothing"
+            )
+        if not args.epoch or not args.no_memorise:
+            raise SystemExit(
+                "--probe-shapes probes the epoch arm alone: give --epoch and --no-memorise"
             )
     if args.train_dtype == "fp32":
         if args.real_backbone is None:
@@ -10235,6 +10449,19 @@ def main(argv: list[str] | None = None) -> int:
             "at N steps (warmup max(1, N//20), min lr lr/10). Must be below the epoch's batch "
             "count. A truncated schedule: the run, and every row scored from its model, is "
             "quick (rule 8). In the recipe as max_steps. Needs --epoch"
+        ),
+    )
+    parser.add_argument(
+        "--probe-shapes", type=float, default=None, metavar="MARGIN_GIB",
+        help=(
+            "the memory probe (Fable's 2x H100 ruling, 2026-10-03): step the epoch arm once on "
+            "each distinct (rows, width) batch shape of its plan, costliest first, on cuda, and "
+            "record the allocator's peaks as the ft row's memory_probe metric. Passes iff every "
+            "shape stepped and torch.cuda.max_memory_reserved is at most the device's total "
+            "minus MARGIN_GIB; exits non-zero after writing its row otherwise. A quick row "
+            "(rule 8) whose recipe names probe_shapes_margin_gib. Needs --epoch and "
+            "--no-memorise; refuses --max-steps, --checkpoint-dir, --resume-from, "
+            "--retain-tower-every, --noul-weight, --replay-shards and every scoring flag"
         ),
     )
     parser.add_argument(
@@ -11234,11 +11461,13 @@ def main(argv: list[str] | None = None) -> int:
 
     def reasons_for(tag: str, device: str, termination: str | None = None) -> list[str]:
         """This run's rule-8 reasons for one (arm, device); see :func:`quick_reasons`.
-        ``--max-steps`` cuts the epoch arm only, so only its rows carry that reason."""
+        ``--max-steps`` and ``--probe-shapes`` cut the epoch arm only, so only its rows carry
+        those reasons."""
         return quick_reasons(
             tag=tag, device=device, real_backbone=args.real_backbone is not None,
             corpus=corpus, termination=termination, memorise_detail=memorise_detail,
             max_steps=args.max_steps if tag == "epoch" else None,
+            probe_shapes=args.probe_shapes if tag == "epoch" else None,
         )
 
     report: dict[str, object] = {
@@ -11496,6 +11725,7 @@ def main(argv: list[str] | None = None) -> int:
                     min_lr=args.min_lr, noul_weight=seed_plan.noul_epoch,
                     retain_tower_every=args.retain_tower_every, batch_order=args.batch_order,
                     plan_seed=seed_plan.plan_seed, order_digest=seed_plan.order_digest,
+                    probe_shapes=args.probe_shapes,
                 )
                 step = run.pop("_step")
                 if shuffled is not None and val_set is not None:
