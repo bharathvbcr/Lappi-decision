@@ -73,9 +73,14 @@ const TASK: &str = "code.defect_class";
 const QUESTION: &str = "What kind of change is this diff?";
 const SLOT: &str = "defect_class";
 /// The context's source text. Throughput does not depend on which tokens; real code keeps the
-/// tokenizer's work and the prompt's shape realistic.
-const CONTEXT_SOURCE: &str = include_str!("model.rs");
-const CONTEXT_SOURCE_NAME: &str = "crates/qd-metal/src/model.rs";
+/// tokenizer's work and the prompt's shape realistic. It is frozen: the `model.rs` that rows
+/// 147da0cc and 28505f4c read (3d68484 + the tested 1a diff), so a later row feeds the same ids
+/// (`data_snapshot_hash` 3d38c835...) whatever model.rs has become. Reading the live model.rs
+/// made every edit to it a new input. A different context is a new file (`-v2`), never an edit
+/// of this one; `tests::the_bench_context_is_the_frozen_v1_file` pins its sha256, and every row
+/// records it as `context_sha256`.
+const CONTEXT_SOURCE: &str = include_str!("../fixtures/decision-context-v1.txt");
+const CONTEXT_SOURCE_NAME: &str = "crates/qd-metal/fixtures/decision-context-v1.txt";
 
 /// One arm of the A/B: the one flag it varies, every other flag at the product's setting, so an
 /// arm is fully determined by its name. No flag is left to vary: the `embed=host|device` and
@@ -594,6 +599,7 @@ pub fn recipe(args: &DecisionArgs, snapshot: &Path, vocab: usize) -> Result<Valu
         "interleaved": "every round runs every arm once, the order rotated each round",
         "request": {"task": TASK, "question": QUESTION, "slot": SLOT, "options": &OPTIONS[..args.k], "route": "generic"},
         "context_source": CONTEXT_SOURCE_NAME,
+        "context_sha256": qd_runtime::hex(&qd_runtime::sha256(CONTEXT_SOURCE.as_bytes())),
         "decision": "prefill + digest, then 2 read-only passes (run + score k+1 rows) each followed by a digest",
         "backbone_snapshot": snapshot.file_name().and_then(|n| n.to_str()).unwrap_or(""),
         "backbone_vocab": vocab,
@@ -866,6 +872,21 @@ mod tests {
         assert_eq!(median(&v), 4.0);
         assert_eq!(median(&[1.0, 3.0]), 2.0);
         assert!(median(&[]).is_nan());
+    }
+
+    /// The context is the frozen v1 file, byte for byte, and the row says which: an edit to the
+    /// fixture fails here rather than silently feeding later rows different ids.
+    #[test]
+    fn the_bench_context_is_the_frozen_v1_file() {
+        const V1_SHA256: &str = "32549c5c4ada77173dd0c5339992c31b087de3c8b0eed3ced74009b68785ebc0";
+        let sha = qd_runtime::hex(&qd_runtime::sha256(CONTEXT_SOURCE.as_bytes()));
+        assert_eq!(sha, V1_SHA256);
+        assert_eq!(CONTEXT_SOURCE.lines().count(), 1150);
+        let args = parse_args(&strs(&["--no-ledger"])).unwrap();
+        let r = recipe(&args, Path::new("/hf/snapshots/b1485b2f"), 248_320).unwrap();
+        assert_eq!(r["context_source"], CONTEXT_SOURCE_NAME);
+        assert!(CONTEXT_SOURCE_NAME.ends_with("fixtures/decision-context-v1.txt"));
+        assert_eq!(r["context_sha256"], V1_SHA256);
     }
 
     #[test]
