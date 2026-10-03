@@ -78,6 +78,7 @@ ANSWERS = "AUDIT/finalize-2026-10-03/human-answers-2026-10-03-v5-launch.md"
 #: before dedupe, and reading C for pool val rows deduplicated against another val row.
 ANSWERS_A7 = "AUDIT/finalize-2026-10-03/human-answers-2026-10-03-a7.md"
 ANSWERS_A7_C = "AUDIT/finalize-2026-10-03/human-answers-2026-10-03-a7-reading-c.md"
+ANSWERS_DIRTY = "AUDIT/finalize-2026-10-03/human-answers-2026-10-03-dirty-row.md"
 VERBATIM = "Yes to all, waive R9, approve ~$400"
 ACCOUNTING = "AUDIT/v5-plan-2026-10-02/v4_token_accounting.json"
 ACCOUNTING_SCRIPT = "AUDIT/v5-plan-2026-10-02/v4_token_accounting.py"
@@ -557,6 +558,7 @@ class Freeze:
         self.repo: Path = args.repo.resolve()
         self.items = [Item(i) for i in range(len(ANCHORS))]
         self.na: list[str] = []
+        self.dirty_accepted = False
         self.stamp = datetime.datetime.now(datetime.UTC)
         self.date = self.stamp.strftime("%Y-%m-%d")
 
@@ -574,6 +576,44 @@ class Freeze:
             return str(path.resolve().relative_to(self.repo))
         except ValueError:
             return str(path)
+
+    def _accepted_dirty_commit(self, commit: str, row: dict, recipe: dict) -> str | None:
+        """The 40-hex build commit under the human's -dirty caveat (ANSWERS_DIRTY), or None
+        when --accept-dirty-build-commit was not given. Bound to the one row the human answered
+        about: the flag names the human's answer file, the row is ``<40 hex>-dirty`` with that
+        commit equal to its ``recipe.rev``, and the answer names the row's ``row_id`` and the
+        verbatim choice. A clean row given the flag refuses too: the caveat is never stale."""
+        answer = self.a.accept_dirty_build_commit
+        if answer is None:
+            return None
+        # The answer file of the checkout this script runs from (AUDIT/finalize-2026-10-03/
+        # sits two levels below its root), never a copy elsewhere.
+        human = Path(__file__).resolve().parents[2] / ANSWERS_DIRTY
+        if answer.resolve() != human:
+            raise Refusal(
+                f"--accept-dirty-build-commit names {answer}, not the human's answer {human}"
+            )
+        m = re.fullmatch(r"([0-9a-f]{40})-dirty", commit)
+        if m is None:
+            raise Refusal(
+                f"--accept-dirty-build-commit: the build row's code_commit is {commit!r}, not "
+                "'<40 hex>-dirty'; the caveat is for the dirty row the human answered about"
+            )
+        if recipe.get("rev") != m.group(1):
+            raise Refusal(
+                f"--accept-dirty-build-commit: the row's commit {m.group(1)} is not its "
+                f"recipe.rev {recipe.get('rev')!r}"
+            )
+        text = answer.read_text(encoding="utf-8")
+        if str(row.get("row_id")) not in text:
+            raise Refusal(
+                f"--accept-dirty-build-commit: {ANSWERS_DIRTY} does not name row "
+                f"{row.get('row_id')}; the human's caveat is for another row"
+            )
+        if '"Accept as a caveat (Recommended)"' not in text:
+            raise Refusal(f"{ANSWERS_DIRTY} does not carry the human's verbatim acceptance")
+        self.dirty_accepted = True
+        return m.group(1)
 
     # --- step 1: item 24's gate, first ------------------------------------------------------
     def share_gate(self) -> None:
@@ -841,7 +881,15 @@ class Freeze:
         # 0
         x = it[0]
         commit = str(row.get("code_commit"))
-        if commit.endswith("-dirty") or not re.fullmatch(r"[0-9a-f]{40}", commit):
+        accepted = self._accepted_dirty_commit(commit, row, recipe)
+        if accepted is not None:
+            x.filled.append(
+                f"build commit {accepted} (code_commit of {ledger_ref} reads {commit!r}: the "
+                "only uncommitted entry was this ledger file, untracked since the first build's "
+                "row; the tracked tree was clean at the build's start; accepted as a caveat by "
+                f"the human, {ANSWERS_DIRTY}; recipe.rev {recipe.get('rev')})"
+            )
+        elif commit.endswith("-dirty") or not re.fullmatch(r"[0-9a-f]{40}", commit):
             x.not_filled.append(
                 f"the build commit: the build row's code_commit is {commit!r}, not a clean 40-hex commit ({ledger_ref})"
             )
@@ -1644,8 +1692,13 @@ class Freeze:
         return replace_once(text, applied, applied + sentence, what="amendments_applied")
 
     def _a7_amendments(self) -> str:
-        """The human's two A7 answers, when this build carries them, else the old closing."""
-        if self.drops_sha is None and (self.a7 or {}).get("reading") is None:
+        """The human's answers this build carries (the two A7 answers, the dirty-row caveat),
+        else the old closing."""
+        if (
+            self.drops_sha is None
+            and (self.a7 or {}).get("reading") is None
+            and not self.dirty_accepted
+        ):
             return " No gate, threshold or population moves."
         out = ""
         if self.drops_sha is not None:
@@ -1661,6 +1714,12 @@ class Freeze:
                 f" A7 is read under reading C ({ANSWERS_A7_C}): a pool val row dedupe removed in "
                 "favour of a val row of the same family counts as deduplicated within val, from "
                 "the build's own dedupe report; one removed in favour of a train row still refuses."
+            )
+        if self.dirty_accepted:
+            out += (
+                f" The build row's code_commit reads '<commit>-dirty'; the human accepted it as a "
+                f"caveat ({ANSWERS_DIRTY}): the only uncommitted entry was the build's own ledger "
+                "file, untracked since the first build's row, and the tracked tree was clean."
             )
         return out + " No threshold moves."
 
@@ -1746,6 +1805,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--build-log", type=Path)
     p.add_argument("--scan-log", type=Path)
+    p.add_argument(
+        "--accept-dirty-build-commit", type=Path,
+        help=f"the human's answer ({ANSWERS_DIRTY}) accepting the build row's '<commit>-dirty' "
+             "as a caveat; bound to that row (its row_id, its recipe.rev)",
+    )
     p.add_argument(
         "--gh200-state", help="the GH200 queue's marker state and its UTC time, as the lead read it"
     )

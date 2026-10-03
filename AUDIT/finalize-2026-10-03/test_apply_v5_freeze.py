@@ -547,6 +547,70 @@ class FreezeTest(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("did not ratify", err + out)
 
+    DIRTY_ROW = "c3bd0374-4b96-48dd-82fc-3cad25fef05a"
+
+    def _dirty(self, fx: Fixture, *, row_id: str, commit: str, rev: str) -> None:
+        """Rewrite ``fx``'s build row: its row_id, code_commit and recipe.rev."""
+        rows = [json.loads(x) for x in fx.ledger.read_text(encoding="utf-8").splitlines()]
+        build = next(r for r in rows if r["row_id"] == "build-row")
+        build["row_id"], build["code_commit"], build["recipe"]["rev"] = row_id, commit, rev
+        fx.ledger.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+    def test_a_dirty_build_row_is_filled_only_under_the_humans_caveat(self) -> None:
+        """The human's answer (2026-10-03, ANSWERS_DIRTY): the rebuild row's '<commit>-dirty'
+        fills item 0 only through --accept-dirty-build-commit naming that answer, and the
+        amendments say so. Without the flag item 0 stays not filled. Fails before the answer:
+        the flag did not exist."""
+        hexc = "ab" * 20
+        fx = Fixture(self.tmp / "plain")
+        self._dirty(fx, row_id=self.DIRTY_ROW, commit=hexc + "-dirty", rev=hexc)
+        rc, out, err = run(fx.argv())
+        self.assertEqual(rc, 0, err + out)
+        before = json.loads(DRAFT.read_text(encoding="utf-8"))
+        after = json.loads(fx.out.read_text(encoding="utf-8"))
+        fill0 = after["amendments_pending"][0][len(before["amendments_pending"][0]) :]
+        self.assertIn("not a clean 40-hex commit", fill0)
+        self.assertNotIn(fz.ANSWERS_DIRTY, after["amendments_applied"])
+
+        fx2 = Fixture(self.tmp / "caveat")
+        self._dirty(fx2, row_id=self.DIRTY_ROW, commit=hexc + "-dirty", rev=hexc)
+        rc, out, err = run(fx2.argv("--accept-dirty-build-commit", str(REPO_ROOT / fz.ANSWERS_DIRTY)))
+        self.assertEqual(rc, 0, err + out)
+        after = json.loads(fx2.out.read_text(encoding="utf-8"))
+        fill0 = after["amendments_pending"][0][len(before["amendments_pending"][0]) :]
+        self.assertIn(f"build commit {hexc} (code_commit of", fill0)
+        self.assertIn(f"accepted as a caveat by the human, {fz.ANSWERS_DIRTY}", fill0)
+        self.assertNotIn("not a clean 40-hex commit", fill0)
+        added = after["amendments_applied"][len(before["amendments_applied"]) :]
+        self.assertIn(fz.ANSWERS_DIRTY, added)
+        self.assertTrue(added.endswith(" No threshold moves."), added[-80:])
+
+    def test_the_dirty_caveat_refuses_any_row_or_file_it_was_not_given_for(self) -> None:
+        """Bound to the one row: another row_id, a commit that is not its recipe.rev, a clean
+        row, or an answer file that is not the human's each refuse, and nothing is written."""
+        hexc = "ab" * 20
+        answer = str(REPO_ROOT / fz.ANSWERS_DIRTY)
+        copy_ = self.tmp / "answer-copy.md"
+        shutil.copy(REPO_ROOT / fz.ANSWERS_DIRTY, copy_)
+        cases = [
+            ("other-row", dict(row_id="build-row", commit=hexc + "-dirty", rev=hexc), answer,
+             "does not name row"),
+            ("rev", dict(row_id=self.DIRTY_ROW, commit=hexc + "-dirty", rev="cd" * 20), answer,
+             "is not its recipe.rev"),
+            ("clean", dict(row_id=self.DIRTY_ROW, commit=hexc, rev=hexc), answer,
+             "not '<40 hex>-dirty'"),
+            ("file", dict(row_id=self.DIRTY_ROW, commit=hexc + "-dirty", rev=hexc), str(copy_),
+             "not the human's answer"),
+        ]
+        for name, row, path, why in cases:
+            with self.subTest(name):
+                fx = Fixture(self.tmp / name)
+                self._dirty(fx, **row)
+                rc, out, err = run(fx.argv("--accept-dirty-build-commit", path))
+                self.assertEqual(rc, 2, out)
+                self.assertIn(why, err + out)
+                self.assertFalse(fx.out.exists())
+
     def test_a_whole_v5_build_fills_every_item_and_copies_no_list(self) -> None:
         fx = Fixture(self.tmp)
         rc, out, err = run(fx.argv())
