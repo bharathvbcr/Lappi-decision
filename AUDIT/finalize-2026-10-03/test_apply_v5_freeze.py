@@ -481,6 +481,72 @@ class FreezeTest(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp)
 
+    def _rebuild(
+        self, fx: Fixture, *, att_drops: str, reading: str = "C (the human's answer)"
+    ) -> list[str]:
+        """The human's rebuild on ``fx``: a scan whose corpus names ``att_drops`` as its drop
+        list, a build row whose recipe names 'd1'*32, and an A7 report under ``reading`` at
+        --a7, beside the build output."""
+        scan = self.tmp / "scan-r"
+        scan.mkdir()
+        shutil.copy(SCAN / "exclusions.txt", scan / "exclusions.txt")
+        att = json.loads((SCAN / "attestation.json").read_text(encoding="utf-8"))
+        att["corpus"] = {**(att.get("corpus") or {}), "pre_dedupe_drops_sha256": att_drops}
+        (scan / "attestation.json").write_text(json.dumps(att), encoding="utf-8")
+        for path in (fx.rates, fx.zero):
+            doc = json.loads(path.read_text(encoding="utf-8"))
+            for e in doc:
+                e["scan"] = str(scan)
+            path.write_text(json.dumps(doc), encoding="utf-8")
+        rows = [json.loads(x) for x in fx.ledger.read_text(encoding="utf-8").splitlines()]
+        for r in rows:
+            r["recipe"]["pre_dedupe_drops_sha256"] = "d1" * 32
+        fx.ledger.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        a7 = json.loads((fx.build_out / "a7.json").read_text(encoding="utf-8"))
+        a7["reading"] = reading
+        a7["dedupe_report_sha256"] = "e" * 64
+        pool_row = next(r for r in a7["families"] if r.get("kind") == "decision-pool")
+        pool_row["deduplicated_within_val"] = 13
+        pool_row["deduplicated_within_val_keys"] = [[SECRET, SECRET]]
+        a7c = self.tmp / "a7-reading-c.json"
+        a7c.write_text(json.dumps(a7), encoding="utf-8")
+        argv = fx.argv("--a7", str(a7c))
+        argv[argv.index("--scan") + 1] = str(scan)
+        return argv
+
+    def test_the_rebuild_and_reading_c_are_named_with_the_humans_answers(self) -> None:
+        """The human's two A7 answers (2026-10-03): the build row's drop list and the scan's
+        corpus agree, A7 is read from --a7 under reading C, and the fill and the provenance
+        sentence name both answers. Fails before them: --a7 did not exist."""
+        fx = Fixture(self.tmp)
+        rc, out, err = run(self._rebuild(fx, att_drops="d1" * 32))
+        self.assertEqual(rc, 0, err + out)
+        before = json.loads(DRAFT.read_text(encoding="utf-8"))
+        text = fx.out.read_text(encoding="utf-8")
+        after = json.loads(text)
+        self.assertNotIn(SECRET, text)
+        fill11 = after["amendments_pending"][11][len(before["amendments_pending"][11]) :]
+        self.assertIn("a7-reading-c.json", fill11)
+        self.assertIn(f"under reading C ({fz.ANSWERS_A7_C}): 13 pool val row(s)", fill11)
+        added = after["amendments_applied"][len(before["amendments_applied"]) :]
+        self.assertIn(f"pre-dedupe drop list sha256 {'d1' * 32}", added)
+        self.assertIn(fz.ANSWERS_A7, added)
+        self.assertIn(fz.ANSWERS_A7_C, added)
+        self.assertTrue(added.endswith(" No threshold moves."), added[-80:])
+
+    def test_a_drop_list_the_scan_did_not_scan_or_an_unratified_reading_refuses(self) -> None:
+        fx = Fixture(self.tmp)
+        rc, out, err = run(self._rebuild(fx, att_drops="d2" * 32))
+        self.assertEqual(rc, 2, out)
+        self.assertIn("not one corpus", err + out)
+        self.assertFalse(fx.out.exists())
+        shutil.rmtree(self.tmp / "scan-r")
+        (self.tmp / "a7-reading-c.json").unlink()
+        fx2 = Fixture(self.tmp / "b")
+        rc, out, err = run(self._rebuild(fx2, att_drops="d1" * 32, reading="B (nobody's)"))
+        self.assertEqual(rc, 2, out)
+        self.assertIn("did not ratify", err + out)
+
     def test_a_whole_v5_build_fills_every_item_and_copies_no_list(self) -> None:
         fx = Fixture(self.tmp)
         rc, out, err = run(fx.argv())

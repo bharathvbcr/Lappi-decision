@@ -74,6 +74,10 @@ from typing import Any
 CHUNK = 1 << 20
 HEAD_LIMIT = 512 * CHUNK
 ANSWERS = "AUDIT/finalize-2026-10-03/human-answers-2026-10-03-v5-launch.md"
+#: The human's two A7 answers (2026-10-03): one rebuild with the knocking train rows removed
+#: before dedupe, and reading C for pool val rows deduplicated against another val row.
+ANSWERS_A7 = "AUDIT/finalize-2026-10-03/human-answers-2026-10-03-a7.md"
+ANSWERS_A7_C = "AUDIT/finalize-2026-10-03/human-answers-2026-10-03-a7-reading-c.md"
 VERBATIM = "Yes to all, waive R9, approve ~$400"
 ACCOUNTING = "AUDIT/v5-plan-2026-10-02/v4_token_accounting.json"
 ACCOUNTING_SCRIPT = "AUDIT/v5-plan-2026-10-02/v4_token_accounting.py"
@@ -691,6 +695,15 @@ class Freeze:
             f"{excl_sha} (scan), {recipe.get('exclusions_sha256')} (build row recipe), "
             f"{self.th.get('exclusions_sha256')} (train header)",
         )
+        # The pre-dedupe drop list (the human's rebuild, ANSWERS_A7): the build row's recipe
+        # and the scan's corpus name the same list, or neither names one.
+        self.drops_sha = recipe.get("pre_dedupe_drops_sha256")
+        att_drops = (self.att.get("corpus") or {}).get("pre_dedupe_drops_sha256")
+        if self.drops_sha != att_drops:
+            raise Refusal(
+                f"the build applied pre-dedupe drop list {self.drops_sha} and the scan at "
+                f"{a.scan} scanned a corpus with {att_drops}: not one corpus"
+            )
         # The decision pool.
         self.pool = read_json(a.pool / "manifest.json", "decision pool manifest")
         pool_sha = str(self.pool.get("examples_sha256"))
@@ -714,16 +727,27 @@ class Freeze:
             f"({recipe.get('decisions_pool_examples_sha256')}) and the scan scanned "
             f"({(self.att.get('corpus') or {}).get('decisions_pool_examples_sha256')})",
         )
-        # A7.
-        a7_path = out / "a7.json"
+        # A7: the build's own a7.json, or --a7 (reading C's standalone rerun on this build).
+        a7_path = a.a7 if a.a7 is not None else out / "a7.json"
         self.a7 = read_json(a7_path, "A7 report") if a7_path.is_file() else None
         self.a7_sha = sha256_file(a7_path) if self.a7 is not None else None
+        self.a7_path = a7_path
+        self.a7_within_val = 0
         if self.a7 is None:
             self.bind(False, f"{a7_path} does not exist: A7 has not run on this build")
         else:
             snaps = self.a7.get("data_snapshot_hash", {})
             if self.a7.get("passed") is not True:
                 raise Refusal(f"{a7_path}: A7 REFUSED ({self.a7.get('failed')}); rule 2")
+            reading = self.a7.get("reading")
+            if reading is not None and (
+                not str(reading).startswith("C ") or not self.a7.get("dedupe_report_sha256")
+            ):
+                raise Refusal(f"{a7_path}: A7 under reading {reading!r}, which the human did not ratify")
+            if reading is not None:
+                self.a7_within_val = sum(
+                    int(r.get("deduplicated_within_val", 0)) for r in self.a7["families"]
+                )
             if snaps.get("val", {}).get("v5") != self.val.hash or snaps.get("heldout", {}).get(
                 "v5"
             ) != self.held_head.get("data_snapshot_hash"):
@@ -1056,19 +1080,29 @@ class Freeze:
             "commit, which carries this file)"
         )
         prelude_text = self._read_text(self.repo / V5_PRELUDE)
-        no_needle = prelude_text is not None and "needle" not in prelude_text.lower()
-        it[5].pending = (
-            (
-                "not in the Mac prelude record (" + V5_PRELUDE + " has no needle field)"
-                if no_needle
-                else "the Mac prelude record was not checked for a needle field"
+        # Fable (~21:20Z): the prelude record carries the suite, because no ledger row can hold
+        # its digest (GAP-V5-RULES-REBUILT-SUITE-NOT-ON-THE-ROW-2026-10-02).
+        has_block = prelude_text is not None and '"needle_suite": needle' in prelude_text
+        if has_block:
+            it[5].pending = (
+                "the rebuilt needle suite's digest (needle_suite_digest: every case id and its "
+                "unpadded ids) and its real tokens per case, min/median/max as the "
+                f"needle_suite_tokens metric reads them, are {prelude_where} (its needle_suite "
+                "block, built by real_ft_run.main before the stop, on v5 seed 0's argv)"
             )
-            + ". The rebuilt suite is built when a seed is scored: min, median and max "
-            "needle_suite_tokens come from v5 seed 0's epoch-score-val row (metrics.needle_suite_tokens, "
-            "the median as its value, the rest in its detail); the suite's digest is on no row "
-            "(GAP-V5-RULES-REBUILT-SUITE-NOT-ON-THE-ROW-2026-10-02) and is filled from the scoring log "
-            "or stays not filled"
-        )
+        else:
+            it[5].pending = (
+                (
+                    "not in the Mac prelude record (" + V5_PRELUDE + " has no needle_suite block)"
+                    if prelude_text is not None
+                    else "the Mac prelude record was not checked for a needle_suite block"
+                )
+                + ". The rebuilt suite is built when a seed is scored: min, median and max "
+                "needle_suite_tokens come from v5 seed 0's epoch-score-val row "
+                "(metrics.needle_suite_tokens, the median as its value, the rest in its detail); "
+                "the suite's digest is on no row (GAP-V5-RULES-REBUILT-SUITE-NOT-ON-THE-ROW-2026-10-02) "
+                "and is filled from the scoring log or stays not filled"
+            )
         it[7].pending = (
             f"the batches and width are {prelude_where}. v5's recipe hash is not in the prelude record: "
             "it is v5 seed 0's ft row's protocol.recipe_hash, filled after that row"
@@ -1179,8 +1213,17 @@ class Freeze:
                     )
                 )
             snaps = self.a7["data_snapshot_hash"]
+            reading_c = (
+                f" under reading C ({ANSWERS_A7_C}): {n(self.a7_within_val)} pool val row(s) "
+                "deduplicated within val against a val row of the same family, each named in "
+                f"the report and read from the build's own dedupe report (sha256 "
+                f"{self.a7['dedupe_report_sha256']})"
+                if self.a7.get("reading") is not None else ""
+            )
+            a7_name = "a7.json" if self.a.a7 is None else self.rel(self.a7_path)
             x.filled.append(
-                f"a7.json (sha256 {self.a7_sha}) PASS, {self.a7['families_checked']} families, 0 failed; "
+                f"{a7_name} (sha256 {self.a7_sha}) PASS{reading_c}, "
+                f"{self.a7['families_checked']} families, 0 failed; "
                 + "; ".join(parts)
                 + f"; data_snapshot_hash val v4 {snaps['val']['v4']} / v5 {snaps['val']['v5']}, held-out v4 {snaps['heldout']['v4']} / v5 {snaps['heldout']['v5']}"
             )
@@ -1595,9 +1638,31 @@ class Freeze:
             "rulings (2026-10-03 ~20:30Z): each of the 29 amendments_pending items kept in its place, with its "
             "'Filled', 'Pending after launch' or 'Not filled' text appended; the draft key dropped; "
             + self.share_text.split(", from the build's")[0]
-            + f" against the bound {100 * self.bound:.4f}%. No gate, threshold or population moves."
+            + f" against the bound {100 * self.bound:.4f}%."
+            + self._a7_amendments()
         )
         return replace_once(text, applied, applied + sentence, what="amendments_applied")
+
+    def _a7_amendments(self) -> str:
+        """The human's two A7 answers, when this build carries them, else the old closing."""
+        if self.drops_sha is None and (self.a7 or {}).get("reading") is None:
+            return " No gate, threshold or population moves."
+        out = ""
+        if self.drops_sha is not None:
+            out += (
+                f" The build is the one rebuild the human ratified ({ANSWERS_A7}): the train rows "
+                "that knocked val and held-out rows out in dedupe left the corpus before dedupe "
+                f"(pre-dedupe drop list sha256 {self.drops_sha}, named in the build row's recipe "
+                "and the scan's corpus), because the DRAFT's remedy, an exclusion after the "
+                "split, cannot restore a dedupe knock-out."
+            )
+        if (self.a7 or {}).get("reading") is not None:
+            out += (
+                f" A7 is read under reading C ({ANSWERS_A7_C}): a pool val row dedupe removed in "
+                "favour of a val row of the same family counts as deduplicated within val, from "
+                "the build's own dedupe report; one removed in favour of a train row still refuses."
+            )
+        return out + " No threshold moves."
 
 
 def replace_once_raw(text: str, old: str, new: str, *, what: str) -> str:
@@ -1674,6 +1739,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--fetch-record", type=Path)
     p.add_argument("--family-rates", type=Path)
     p.add_argument("--zero-checks", type=Path)
+    p.add_argument(
+        "--a7", type=Path,
+        help="the A7 report to read (default: --build-out's a7.json); reading C's standalone "
+             "rerun on this build, which must say so in its 'reading'",
+    )
     p.add_argument("--build-log", type=Path)
     p.add_argument("--scan-log", type=Path)
     p.add_argument(
