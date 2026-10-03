@@ -1,0 +1,134 @@
+item 24 gate: code.defect_class effective token share 83.7072% (256,919,831 of 306,926,895 train tokens, /Users/bharath/qd-campaign/phase4-v4-2026-10-01/shards/train); bound two-thirds of v4's 83.7072% (256,919,831 of 306,926,895, AUDIT/v5-plan-2026-10-02/v4_token_accounting.json) = 55.8048% (two-thirds of the rounded 83.7% is 55.8000%)
+
+== FORMAT TEST (the numbers are not v5's) amendments_pending, filled ==
+
+[0] filled
+  Filled 2026-10-03: build commit 881ab304f15ea13529002391dda8520c2ea47af4 (code_commit of ledger/mac-phase4-v4-shards-2026-10-01.jsonl row d96409bd-4890-4d7f-9e7c-ca4cafbdb9a8 (written_at 2026-10-01T17:12:41.493205+00:00); recipe.rev 881ab304f15ea13529002391dda8520c2ea47af4); train-manifest hash (data_snapshot_hash) ea3215c4f36d57f74d291fb94c3fa8724fa5a14a303ea7572aa0dafb2a0933a1 (/Users/bharath/qd-campaign/phase4-v4-2026-10-01/data/pool/train.json, 289,142 rows, file sha256 7feb6ee68c36415a31d82805907437ac1875a135e71d232f4f53630814e99f25; equal to the row's protocol.data_snapshot_hash and the train shard header's); val manifest hash 69d45fd04fad01751b3f102f09041c0ba67176e44725dbeb977d550f4b0abbd4 (data/pool/val.json, 16,124 rows, file sha256 6f81735f2f4a404af321efbf7dc866e5446324178cf95ad861a5d244ac0b9dd6); held-out manifest hash 116a67c46e030bcffef3bbbd8dbabed7e5763f5bddc28c324df16e4dc72ef7a5 (data/heldout/heldout.json, 37,705 rows, file sha256 f8661e6b9187cf7d40f25357e31645a2819b44cb4555be999592c1202c65e082; read up to its entries only); train shard hash 8bcf56ad89bbf059f9926035b7b798796a0a41dd4960c2939b66671f24d2fb80 (shards/train/header.json: 363,950 sequences, 306,926,895 tokens, max width 7,936), val shard hash ef06ab99eef107dd608424c80117b81b3986ce5ea827d2d4f47f990d960b1bc5 (shards/val/header.json); remap hash e7d0890c547b43811f93e50dc0e582ba35eb2e75706ee0ad27186d6a89d502ab (shards/train/remap.json, equal to both headers').
+
+[1] partly filled
+  Filled 2026-10-03: the key is clinc-oos:<16 lower-hex> (repo_key of each CLINC oos utterance, the blake2b-8 digest of candidate_key; 0 distinct such keys in data/pool/train.json, every one of that form); train rows per CLINC family intent.classification 0, intent.domain 0, intent.in_scope 0, intent.within_domain 0. Not filled: val and held-out oos counts: no a7.json in the build output.
+
+[2] partly filled
+  Filled 2026-10-03: attestation sha256 dc04c447a5d61c6ada53c176c95ec14c9f46a417dd96da8ceda4818619af6614 (/Users/bharath/qd-campaign/v5-containment-v2-2026-10-03/attestation.json: version 2, CLEAN, remaining hits {'val': 0, 'heldout': 0}); exclusions_sha256 dc00f7e9d6e888ef2c70d2c3f9cf48c6d20f6d658a590153e53a2442da175841 (NOT the exclusions this build applied (format test)): 104,905 identity keys; train rows hit per source family and target set (attestation hits_by_source_family): train->heldout: boolq.reading 1, code.defect_class 12,778, intent.classification 2, intent.domain 2, intent.in_scope 2, intent.within_domain 2, qa.answer_span 3; train->val: arc.science 2, boolq.reading 10, code.defect_class 12,530, decider.commands 3,879, decider.routing 842, intent.classification 1, intent.domain 1, intent.in_scope 1, intent.within_domain 1, knowledge.multiple_choice 1,076, openjev.evidence 14,850, openjev.game 727, openjev.nli 4,999, openjev.policy 20,826, openjev.routing 5,902, openjev.rubric 2,820, pairwise.helpfulness 7, procedural.decisions 42,818, qa.answer_span 9, synth.general 2, typed.workflow 51, vitaminc.nli 30; train->heldout-family:qa.answerability (report-only): boolq.reading 3, qa.answer_span 17; val->heldout (report-only): code.defect_class 102. Not filled: excluded identity keys per source family: no --family-rates (AUDIT/prep2-2026-10-02/family_rates.py's output over this scan; it reads the request, which this script does not).
+
+[3] filled
+  Filled 2026-10-03: defect-noul-v3c examples sha256 b194f14c75e1ac959f3658e0dda6a07ef4c41ff026a416a39dd526a9dfb13a5e (the build row's recipe.defect_noul_examples_sha256); own-prose-v1 examples (units.jsonl) sha256 1e616fd16f7464b52a764737c06063400c398f8cdfbcc5454864ca538bbd22fe, manifest sha256 375f6af4faac424a2d1d0b28ca66929281c86b1dbeee3399a1af8d6509a9de90 (data/pool/defect-noul-v3c/manifest.json parts, file verified); train rows per route and form after exclusions (train manifest row ids joined to the parts' ids): v3b prose paragraph 1,005, v3b prose question 1,005, v3b scrambled lines 1,080, v3b scrambled tokens 1,080, v3b unseen-language template 834; composed-v2 examples sha256 a63563e5190aa413c579a911b560e105267c4829da460fb03d02289ab0d075a8 (the build row's recipe.defect_class_examples_sha256); composed train sequences per 1k real-token bin (shards/train lengths, v4's accounting method): 00000 142, 01000 7,746, 02000 7,633, 03000 7,528, 04000 7,512, 05000 7,599, 06000 7,921, 07000 3,881; composed rows per 1k real-token bin (the row's composed_span_survival_by_length): 00000-00999 91, 01000-01999 3,882, 02000-02999 3,819, 03000-03999 3,765, 04000-04999 3,766, 05000-05999 3,799, 06000-06999 3,977, 07000-07999 1,901; over_max_seq_len_composed_train 0 of 25,000 (target 0: met).
+
+[4] partly filled
+  Filled 2026-10-03: code.defect_class val choice slots written 2,304 (shards/val/sequence_index.json slot defect_class; expected 2,304: equal), span slots 2,099; own-prose or contrast rows in val: 0 of 2,304 code.defect_class val rows (no val.json row id under qdm:code.defect_class:own-prose: or :contrast:, no repo_key own-prose:). Not filled: own-prose or contrast rows in held-out: no a7.json, and held-out entries are not read here.
+
+[5] pending after launch
+  Pending after launch (freeze 2026-10-03): not in the Mac prelude record (campaign/post-f-queue/v5_prelude_mac.py has no needle field). The rebuilt suite is built when a seed is scored: min, median and max needle_suite_tokens come from v5 seed 0's epoch-score-val row (metrics.needle_suite_tokens, the median as its value, the rest in its detail); the suite's digest is on no row (GAP-V5-RULES-REBUILT-SUITE-NOT-ON-THE-ROW-2026-10-02) and is filled from the scoring log or stays not filled.
+
+[6] partly filled
+  Filled 2026-10-03: R4 is kept, under its own 'otherwise' clause, consistent with V5_LOWER=keep: its first condition (J6(f) holds prose) has no deciding row at launch; its second reads 2 of 5 with-flag F seeds hold prose (2n >= n_total, i.e. >= 30 of 60): seed 0 f4feac15 54/60, seed 1 aeca8d69 0/60, seed 2 8c3a774a 1/60, seed 3 ebc83be6 43/60, seed 4 d8c8300a 3/60 (ledger/gh200-p4-v4-2026-10-01.jsonl, epoch-score-val rows, sha256 6929b58e620aa31c5358e6a0b430d5ef2b92413550df444aa6726b967e8e08c1), fewer than half, so the drop turns on J6(f) alone, which has no row; C1, C2b and C3 are off by the human's answer ('Yes to all, waive R9, approve ~$400', ~18:42Z 2026-10-03, AUDIT/finalize-2026-10-03/human-answers-2026-10-03-v5-launch.md): V5_C1=off, V5_C2B=off, V5_LOWER=keep, V5_LRSET=f; C2a is off by Fable's ruling (item 23). Their GH200 rows are read afterwards, report-only. Not filled: the GH200 marker state and its time (not given to the script: --gh200-state).
+
+[7] pending after launch
+  Pending after launch (freeze 2026-10-03): the batches and width are recorded in the Mac prelude record (sha256 pinned at deploy as V5_PRELUDE_SHA256, checked by v5_common.sh v5_prelude_check against V5_LANE_AT); copied into this file by the first post-launch amendment, before seed 0's ft row (GAP-V5-FREEZE-PRELUDE-DIGESTS-CANNOT-LIVE-IN-THE-LANE-COMMIT-2026-10-03: the prelude runs at the lane commit, which carries this file). v5's recipe hash is not in the prelude record: it is v5 seed 0's ft row's protocol.recipe_hash, filled after that row.
+
+[8] partly filled
+  Filled 2026-10-03: C2a is off by Fable's ruling (item 23) and C2b by the human's answer ('Yes to all, waive R9, approve ~$400', ~18:42Z 2026-10-03, AUDIT/finalize-2026-10-03/human-answers-2026-10-03-v5-launch.md). Neither tierb word, decision JSON, candidate ledger nor row id exists at launch; they are read afterwards, report-only. Not filled: the GH200 marker state and its time (not given to the script: --gh200-state).
+
+[9] partly filled
+  Filled 2026-10-03: 9-10k supply: 0 composed train sequences of 9,000-9,999 real tokens (shards/train); compose --census counts file supply, not row lengths (HANDOFF/v5-data-2026-10-02.md section 6). Not filled: the build's peak RSS: no --build-log (the build row records none).
+
+[10] partly filled
+  Filled 2026-10-03: scan sets (attestation): train 573,286 rows (35,837 too short), val 24,619 rows (2,395 too short), heldout 15,968 rows (2,232 too short), heldout-family:code.language_id 0 rows (0 too short), heldout-family:qa.answerability 24,160 rows (0 too short). Not filled: exclusion count per source family: no --family-rates (AUDIT/prep2-2026-10-02/family_rates.py's output over this scan; it reads the request, which this script does not); the per-family hits are item 2's; containment runtime: no --scan-log (the attestation records none).
+
+[11] NOT FILLED
+  Not filled at the freeze (2026-10-03): no a7.json in /Users/bharath/qd-campaign/phase4-v4-2026-10-01.
+
+[12] filled
+  Filled 2026-10-03: data/pool/own-prose-v1/files.jsonl sha256 6233515780f4e21fda80bb26fbafd09bd937e769e8cf2a5b4fed8c0b5077040a (1,784 files; equal to own-prose-v1/manifest.json files.sha256, manifest sha256 375f6af4faac424a2d1d0b28ca66929281c86b1dbeee3399a1af8d6509a9de90); the human's tick, 'All but Lappi-decision (Recommended)' at d24c865 (data.sources[3].provenance): the 29 repos it admits (own-prose-v1/manifest.json admitted_repos) apps/AcademiaTrack, apps/Chronicle, apps/ChronosFlow, apps/Curio, apps/DevType, apps/M5Blade, apps/Meridian, apps/SalEdge, apps/TrailBlazer, devtools/DevCouncil, devtools/GitPulse, devtools/Jarvis, devtools/LiquiTask, devtools/Manvi, devtools/MarkDev, devtools/gusset, research/BINN, research/GenoThermalTargeting, research/MLSystemsLab, research/StressProject, research/tessl, scholarlm, scholarlm/wisdev-arc, web/BlueberryFarming, web/Lappi-BDay, web/Portfolio, web/Void, web/WhimsicalLove, web/bharathvbcr; then the human's strike, 'Strike personal + business (Recommended)' (data.sources[3].human_strike): repos web/Lappi-BDay, web/WhimsicalLove, web/bharathvbcr and paths scholarlm/docs/business/, research/BINN/writing/ (manifest strike); 25 repos hold units after both (totals.by_repo): apps/AcademiaTrack, apps/Chronicle, apps/ChronosFlow, apps/Curio, apps/DevType, apps/M5Blade, apps/Meridian, apps/SalEdge, apps/TrailBlazer, devtools/DevCouncil, devtools/GitPulse, devtools/Jarvis, devtools/LiquiTask, devtools/Manvi, devtools/MarkDev, devtools/gusset, research/BINN, research/GenoThermalTargeting, research/MLSystemsLab, research/StressProject, research/tessl, scholarlm, scholarlm/wisdev-arc, web/BlueberryFarming, web/Portfolio.
+
+[13] pending after launch
+  Pending after launch (freeze 2026-10-03): v5 seed 0's trajectory waiter (v5traj-s0): its trajectory-ood rows' wall clock from the first to the last, in v5's ledger.
+
+[14] filled
+  Filled 2026-10-03: campaign/post-f-queue/v5_common.sh (sha256 5cef7554bd8d184b8e5006528c30a62e33577b7dc743e6adff2aa698c784f50f): V5_CONTINUE=$Q/V5_CONTINUE (:115), V5NW_HUMAN_YES=$Q/V5NW_HUMAN_YES (:118), V5NW_ROOM=$Q/v5nw.room (:124); markers the lead writes with the human's words, an empty file not a yes.
+
+[15] partly filled
+  Filled 2026-10-03: subsample re-run under version 2 (AUDIT/prep3-2026-10-02/pass-check-v2.json, sha256 6fe54066373fa007741095933e5c79bc123fb71b5bb17afec8e5284270cc428f): pass at 1/2/5% — p01: (1) CLINC train keys excluded 0 of 246, enforced pairs with an intent row 0; (2) non-intent exclusions 8 keys, sha256 equal to version 1's; (3) key_ii_blind {'train': 102, 'val': 4, 'heldout': 2}, too_short_after_strip {'heldout': 8, 'heldout-family:code.language_id': 0, 'heldout-family:qa.answerability': 0, 'train': 408, 'val': 16}; (4) CLEAN True, splitter checks identity_disjoint ran/True, near_duplicate_disjoint ran/True, repo_disjoint ran/True | p02: (1) CLINC train keys excluded 0 of 464, enforced pairs with an intent row 0; (2) non-intent exclusions 16 keys, sha256 equal to version 1's; (3) key_ii_blind {'train': 197, 'val': 9, 'heldout': 7}, too_short_after_strip {'heldout': 28, 'heldout-family:code.language_id': 0, 'heldout-family:qa.answerability': 0, 'train': 788, 'val': 36}; (4) CLEAN True, splitter checks identity_disjoint ran/True, near_duplicate_disjoint ran/True, repo_disjoint ran/True | p05: (1) CLINC train keys excluded 0 of 1089, enforced pairs with an intent row 0; (2) non-intent exclusions 41 keys, sha256 equal to version 1's; (3) key_ii_blind {'train': 451, 'val': 21, 'heldout': 34}, too_short_after_strip {'heldout': 136, 'heldout-family:code.language_id': 0, 'heldout-family:qa.answerability': 0, 'train': 1804, 'val': 84}; (4) CLEAN True, splitter checks identity_disjoint ran/True, near_duplicate_disjoint ran/True, repo_disjoint ran/True; full scan (/Users/bharath/qd-campaign/v5-containment-v2-2026-10-03/attestation.json): strip version 2, key_ii_blind heldout 558, heldout-family:code.language_id 0, heldout-family:qa.answerability 0, train 8,962, val 599; too_short_after_strip {'heldout': 2232, 'heldout-family:code.language_id': 0, 'heldout-family:qa.answerability': 0, 'train': 35837, 'val': 2395}. Not filled: the CLINC rate on the full scan: no --family-rates (AUDIT/prep2-2026-10-02/family_rates.py's output over this scan; it reads the request, which this script does not); the two zero-checks on the full scan: no --zero-checks (AUDIT/prep3-2026-10-02/key_ii_blind_zero_checks.py's output over this scan).
+
+[16] filled
+  Filled 2026-10-03: commitpackft-g6-v1 examples sha256 ff277d02fb736145eeb01480d720cb6c4f0638094abe9230a5f12af60a9b5290 (file verified), per-language cap 300; per language rows after the licence filter / selected / train rows after exclusions: clojure 1,206/300/0, erlang 469/261/0, fortran 63/26/0, julia 170/101/0, ocaml 263/161/0, perl 1,229/300/0, r 117/50/0, tcl 99/56/0.
+
+[17] partly filled
+  Filled 2026-10-03: C3 is off by the human's answer ('Yes to all, waive R9, approve ~$400', ~18:42Z 2026-10-03, AUDIT/finalize-2026-10-03/human-answers-2026-10-03-v5-launch.md): V5_LOWER=keep, V5_LRSET=f. The fsucc word, its decision JSON, detail.arms.j6dv4.wins and the advance-answer branch do not exist at launch; they are read afterwards, report-only. Not filled: the GH200 marker state and its time (not given to the script: --gh200-state).
+
+[18] pending after launch
+  Pending after launch (freeze 2026-10-03): per plan seed 0-4 plan_order_digest is recorded in the Mac prelude record (sha256 pinned at deploy as V5_PRELUDE_SHA256, checked by v5_common.sh v5_prelude_check against V5_LANE_AT); copied into this file by the first post-launch amendment, before seed 0's ft row (GAP-V5-FREEZE-PRELUDE-DIGESTS-CANNOT-LIVE-IN-THE-LANE-COMMIT-2026-10-03: the prelude runs at the lane commit, which carries this file).
+
+[19] pending after launch
+  Pending after launch (freeze 2026-10-03): recipe.batch_order read on each v5 (seeds 0-4), noul-weight arm and J5' ft row as it is written, in v5's and the arm's ledgers.
+
+[20] pending after launch
+  Pending after launch (freeze 2026-10-03): docs/promotion-decisions.json as committed at v5 seed 0's ft row's written_at, with that commit's sha.
+
+[21] filled
+  Filled 2026-10-03: nothing is filled at the freeze: this is a contingency read only after v5's rows exist; supply as built (report-only): the G6 funnel renders 2,373 rows in band against 1,255 selected (2x is 2,510; commitpackft-g6-v1 manifest funnel, before its max_per_repo 3); v3b's SQuAD paragraph and question forms are at their stated ceiling, 3 per title over 335 train titles (defect-noul-v3b manifest preregistered.form_mix.basis), so 2x needs a new draw rule.
+
+[22] pending after launch
+  Pending after launch (freeze 2026-10-03): v5 seed 0's ft row's wall_clock_s against F's 16,024 s (973cd4e3), and the box log showing no _evaluate pass.
+
+[23] filled
+  Filled 2026-10-03: settled before the freeze by Fable's ruling as written above; no build value to fill. V5_C2A=off is a deploy pin (v5_common.sh, committed UNSET), not this file's.
+
+[24] filled + pending after launch
+  Filled 2026-10-03: code.defect_class's effective token share 83.7072% (256,919,831 of 306,926,895 real train tokens; 83.5453% of 323,073,710 positions at bucket width), from the build's shards/train (offsets.npy lengths by sequence_index.json row id, AUDIT/v5-plan-2026-10-02/v4_token_accounting.py's method, re-run on v4's shard set by this script and equal to AUDIT/v5-plan-2026-10-02/v4_token_accounting.json, sha256 5826f1bbdcda6737157d59bbfd0634907fdd35527ae42e30c5a5429edc0f710c); the bound is two-thirds of v4's 83.7072% (256,919,831 of 306,926,895) = 55.8048%: it holds; per source (train manifest joined to the shard set): cais/mmlu: 14,200 train rows, 3,044,446 tokens, licence mit 14,200 | clinc/clinc_oos: 84,569 train rows, 14,836,352 tokens, licence cc-by-3.0 84,569 | qd-mutate/commitpackft: 74,864 train rows, 256,919,831 tokens, licence mit 39,497, apache-2.0 16,755, bsd-3-clause 11,058, bsd-2-clause 3,921, cc-by-sa-4.0 2,010, isc 668, unlicense 606, cc0-1.0 349 | rajpurkar/squad_v2: 105,890 train rows, 30,647,358 tokens, licence cc-by-sa-4.0 105,890 | tau/commonsense_qa: 9,619 train rows, 1,478,908 tokens, licence mit 9,619; the decision pool's examples sha256 f3942c1475c695099064d792429e348d0172640db8b961c7874a608b7ee8bb79 (/Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/pool-v5-decisions-v4/manifest.json, examples.jsonl and /Users/bharath/qd-campaign/v5-decisions-data-2026-10-03/patches/POOL-RESULT-v4.md agree); val rows per new family (data/pool/val.json): arc.science 0, boolq.reading 0, decider.commands 0, decider.routing 0, openjev.evidence 0, openjev.game 0, openjev.nli 0, openjev.policy 0, openjev.routing 0, openjev.rubric 0, pairwise.helpfulness 0, procedural.decisions 0, synth.general 0, typed.workflow 0, vitaminc.nli 0, 0 in total. Pending after launch (freeze 2026-10-03): per-stratum val accuracy for procedural.decisions and per-family val results, report-only, from each seed's eval row.
+
+[25] pending after launch
+  Pending after launch (freeze 2026-10-03): each v5 seed's epoch-score-val row (ood_abstain suite-half per category, in-distribution abstention per family, calibration_states' selective-risk grid), and qd-gate-report's recomputation.
+
+[26] pending after launch
+  Pending after launch (freeze 2026-10-03): the CPU calibration lane's fit on val, after its three prerequisites; the margin's distance from the c = 2 policy and in-distribution abstention against the 5% Wilson cap on every seed's val.
+
+[27] pending after launch
+  Pending after launch (freeze 2026-10-03): the probe's row (the probe ledger) and v5 seed 0's ft row's wall_clock_s on the box, replacing launch.projected_cost_usd's GH200-cadence hours.
+
+[28] partly filled
+  Filled 2026-10-03: dedupe: 550,147 candidate pairs under max_candidate_pairs 5,000,000 (NOT the pool bound 12,500,000), status ran/True; split near_duplicate_disjoint: 702737 candidate pairs, ran/True, n 342,971 of 342,971; rebuilt decision pool examples sha256 f3942c1475c695099064d792429e348d0172640db8b961c7874a608b7ee8bb79 (format test: NOT the build's); too short to scan: arc-test 1 of 3,548, boolq-val 0 of 3,270, vitaminc-test 0 of 55,197. Not filled: scoped rows and exact-content drops: the train manifest's dedupe has no near_duplicate_scope; exact_content_disjoint: not in the train manifest's split_report.
+
+[amendments_applied] +
+  On 2026-10-03 (21:07Z) the build-time values were filled in place and the file renamed from campaign/v5-preregistered.DRAFT.json, by AUDIT/finalize-2026-10-03/apply_v5_freeze.py under Fable's freeze rulings (2026-10-03 ~20:30Z): each of the 29 amendments_pending items kept in its place, with its 'Filled', 'Pending after launch' or 'Not filled' text appended; the draft key dropped; code.defect_class's effective token share 83.7072% (256,919,831 of 306,926,895 real train tokens; 83.5453% of 323,073,710 positions at bucket width) against the bound 55.8048%. No gate, threshold or population moves.
+
+== summary ==
+  item  0: filled
+  item  1: partly filled; not filled: val and held-out oos counts: no a7.json in the build output
+  item  2: partly filled; not filled: excluded identity keys per source family: no --family-rates (AUDIT/prep2-2026-10-02/family_rates.py's output over this scan; it reads the request, which this script does not)
+  item  3: filled
+  item  4: partly filled; not filled: own-prose or contrast rows in held-out: no a7.json, and held-out entries are not read here
+  item  5: pending after launch
+  item  6: partly filled; not filled: the GH200 marker state and its time (not given to the script: --gh200-state)
+  item  7: pending after launch
+  item  8: partly filled; not filled: the GH200 marker state and its time (not given to the script: --gh200-state)
+  item  9: partly filled; not filled: the build's peak RSS: no --build-log (the build row records none)
+  item 10: partly filled; not filled: exclusion count per source family: no --family-rates (AUDIT/prep2-2026-10-02/family_rates.py's output over this scan; it reads the request, which this script does not); the per-family hits are item 2's | containment runtime: no --scan-log (the attestation records none)
+  item 11: NOT FILLED; not filled: no a7.json in /Users/bharath/qd-campaign/phase4-v4-2026-10-01
+  item 12: filled
+  item 13: pending after launch
+  item 14: filled
+  item 15: partly filled; not filled: the CLINC rate on the full scan: no --family-rates (AUDIT/prep2-2026-10-02/family_rates.py's output over this scan; it reads the request, which this script does not) | the two zero-checks on the full scan: no --zero-checks (AUDIT/prep3-2026-10-02/key_ii_blind_zero_checks.py's output over this scan)
+  item 16: filled
+  item 17: partly filled; not filled: the GH200 marker state and its time (not given to the script: --gh200-state)
+  item 18: pending after launch
+  item 19: pending after launch
+  item 20: pending after launch
+  item 21: filled
+  item 22: pending after launch
+  item 23: filled
+  item 24: filled + pending after launch
+  item 25: pending after launch
+  item 26: pending after launch
+  item 27: pending after launch
+  item 28: partly filled; not filled: scoped rows and exact-content drops: the train manifest's dedupe has no near_duplicate_scope | exact_content_disjoint: not in the train manifest's split_report
+  differences from the DRAFT's stated expectations: 
+    item 1: train oos rows {'intent.classification': 0, 'intent.domain': 0, 'intent.in_scope': 0, 'intent.within_domain': 0}, expected 1216 per family
+  NOT APPLICABLE under --format-test (each refuses on a real freeze):
+    the scan at /Users/bharath/qd-campaign/v5-containment-v2-2026-10-03 is not the one this build applied: exclusions sha256 dc00f7e9d6e888ef2c70d2c3f9cf48c6d20f6d658a590153e53a2442da175841 (scan), None (build row recipe), None (train header)
+    the decision pool f3942c1475c695099064d792429e348d0172640db8b961c7874a608b7ee8bb79 is not the one the build read (None) and the scan scanned (f3942c1475c695099064d792429e348d0172640db8b961c7874a608b7ee8bb79)
+    /Users/bharath/qd-campaign/phase4-v4-2026-10-01/a7.json does not exist: A7 has not run on this build
+    the build row read noul examples b194f14c75e1ac959f3658e0dda6a07ef4c41ff026a416a39dd526a9dfb13a5e, data/pool/defect-noul-v3c/manifest.json is 8a17a536b3a13abee1f0275636e99a0f3f920f445bd76faf6e18ec32dece10c8
+    item 28: the train manifest's dedupe ran under the default 5,000,000, not POOL_MAX_CANDIDATE_PAIRS 12500000
+  output parses; 29 items in order; no draft key; 107762 characters
+  --dry-run: nothing written
