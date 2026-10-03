@@ -21,6 +21,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from promotion_fixtures import as_built_record, record_decode_coverage
+
+import qd_train.ledger as ledger_module
 from qd_train.ledger import (
     NOT_APPLICABLE,
     Environment,
@@ -70,6 +73,19 @@ def _all_green(rec: RunRecorder, *, termination: str = "steps_exhausted") -> Non
         "train.termination",
         Ran(passed=termination != "wall_clock_cap", value=termination),
     )
+    # permutation_consistency and ood_abstain count outcomes, so condition 7 reads their
+    # coverage from the decode count real_ft_run writes; a complete run says it decoded all.
+    record_decode_coverage(rec)
+
+
+@pytest.fixture(autouse=True)
+def _as_built_decisions(tmp_path_factory: pytest.TempPathFactory,
+                        monkeypatch: pytest.MonkeyPatch) -> None:
+    """The verdict mechanics here are judged under the as-built record (every question open),
+    named, rather than the repo's, which a human decided on 2026-10-03 and may decide again.
+    The decided readings are tested in test_promotion_decisions."""
+    monkeypatch.setattr(ledger_module, "DEFAULT_DECISIONS_PATH",
+                        as_built_record(tmp_path_factory.mktemp("decisions")))
 
 
 # --------------------------------------------------------------------------
@@ -241,6 +257,7 @@ def _eval_and_control(
                 rec.gate(g, Ran(passed=True, value=1.0, n=300, n_total=300))
         for c in REQUIRED_CONTROLS:
             rec.control(c, Ran(passed=True, n=300, n_total=300))
+        record_decode_coverage(rec)
     eval_id = led.rows()[-1].row_id
     with RunRecorder(
         led, protocol=_protocol(seed if control_seed is None else control_seed),
@@ -452,6 +469,7 @@ def _rows_with_coverage(led: Ledger, gate_value, control_value=None) -> None:
                 "train.termination",
                 Ran(passed=True, value="steps_exhausted"),
             )
+            record_decode_coverage(rec)
 
 
 def test_a_capped_sample_does_not_promote(tmp_path: Path):
@@ -544,6 +562,7 @@ def test_a_training_row_that_never_says_how_it_ended_cannot_promote(tmp_path: Pa
                 rec.gate(g, Ran(passed=True, value=1.0, n=300, n_total=300))
             for c in REQUIRED_CONTROLS:
                 rec.control(c, Ran(passed=True, n=300, n_total=300))
+            record_decode_coverage(rec)
     assert other.promotion_verdict(_protocol(1).hash_without_seed()).promoted
 
 
