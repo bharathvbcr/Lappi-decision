@@ -118,6 +118,19 @@ seven rows, the largest top share on any slot is 0.517 (k2), against the 0.95 ba
   So under the verdict, v4's `degenerate_head` reads **not_run**, not pass. The "fail to pass"
   reading above was made by hand from the `degenerate_head.family.*` detail text, and the code
   does not parse text to reproduce it.
+- **A second reason no v4 row promoted, found while applying the record.** Condition 7 of the
+  verdict refuses a pass on a capped sample. It read `permutation_consistency` and `ood_abstain`'s
+  own `n/n_total` as coverage, but those count outcomes: rows agreeing of rows asked, and cases
+  abstained of suite cases. So every pass below 100% was refused as "a capped sample", the
+  defect family's 2291/2304 included, under any record.
+  - Fable ruled to fix it at the verdict. A registry, `OUTCOME_COUNT_GATES`, names the two gates,
+    and for them coverage is read from the row's `val_rows_decoded`. F's rows carry 18223/18223
+    there. An absent metric refuses and names it; a short one is a capped sample.
+  - No threshold moved.
+  - The honesty check above still holds: the suite half fails on every v4 row (132/180, 61/180,
+    62/180 against 170).
+  - Record: `GAP-CONDITION-7-READ-OUTCOME-COUNTS-AS-COVERAGE-2026-10-03`, fixed on v5-build with
+    fail-first tests in `python/tests/test_promotion_decisions.py`.
 
 ## The two facts returned to the human
 
