@@ -93,7 +93,12 @@ written. What stands now:
   VitaminC candidate check (more than ~1M candidates means the lead hears before the v5 build).
 - **The human's answers are in** (3d25ecc). None of the "still needed" items below is open,
   except the 300 diffs, which are unmet under rule 2.
-- **Lambda's 2× H100 was sold out at ~19:03Z** (the human: "2xh100 are out").
+- **The 2× H100 box is UP (superseding the next item):** the human launched it at ~19:46Z,
+  `ubuntu@68.209.74.244` ("2xh100 are back optimize training pipeline and start training";
+  `AUDIT/finalize-2026-10-03/human-answers-2026-10-03-h100-launch.md`). Python 3.12.15 was
+  installed with the human's yes. The venv setup started ~19:54Z (`/home/ubuntu/setup/h100_setup.log`).
+  The box watch is `~/qd-campaign/watch_h100.sh`. The 1× fallback and the V5_GPUS commit are dropped.
+- **(Superseded) Lambda's 2× H100 was sold out at ~19:03Z** (the human: "2xh100 are out").
   - Fable's ruling: wait, and the human rechecks at ~21:30Z.
   - If it is still out, the fallback is 1× H100 80GB SXM5 at $4.29/h: ~74 GPU-h ≈ $317 for the
     runs, ~$330–345 for the box, ~76–78 h of wall time. It needs:
