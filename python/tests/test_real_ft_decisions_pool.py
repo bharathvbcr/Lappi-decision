@@ -140,9 +140,11 @@ def test_the_corpus_identity_names_the_pool_only_when_given(tmp_path: Path) -> N
                           "defect_class": None, "defect_max_rows": None}
     assert rft.replay_corpus_identity(**kw) == kw
     pool = _pool(tmp_path / "pool")
-    sha = json.loads((pool / "manifest.json").read_text(encoding="utf-8"))["examples_sha256"]
+    recorded = json.loads((pool / "manifest.json").read_text(encoding="utf-8"))
     assert rft.replay_corpus_identity(**kw, decisions_pool=pool) == {
-        **kw, "decisions_pool_examples_sha256": sha,
+        **kw, "decisions_pool_examples_sha256": recorded["examples_sha256"],
+        # The containment same-family scope over the pool's families (containment-scope ruling).
+        "decisions_pool_same_family_not_enforced": sorted(recorded["text_bytes_by_family"]),
     }
 
 

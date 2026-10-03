@@ -118,7 +118,13 @@ from qd_train.artifacts import (
     padding_waste,
 )
 from qd_train.contrast import ContrastRecord, apply_contrast
-from qd_train.exclusions import Exclusions, apply_exclusions, containment_corpus, read_exclusions
+from qd_train.exclusions import (
+    SAME_FAMILY_SCOPE_KEY,
+    Exclusions,
+    apply_exclusions,
+    containment_corpus,
+    read_exclusions,
+)
 from qd_train.ledger import (
     DEFAULT_LEDGER_PATH,
     Environment,
@@ -1786,14 +1792,34 @@ def corpus_identity(
                 )["examples_sha256"]),
             }
         ),
-        # The general-decision pool, the same way: named only when given.
-        **(
-            {} if decisions_pool is None else {
-                "decisions_pool_examples_sha256": str(json.loads(
-                    (decisions_pool / "manifest.json").read_text(encoding="utf-8")
-                )["examples_sha256"]),
-            }
-        ),
+        # The general-decision pool, the same way: named only when given. With it, the
+        # containment scope over its families (decisions_pool_scope).
+        **({} if decisions_pool is None else decisions_pool_scope(decisions_pool)),
+    }
+
+
+def decisions_pool_scope(decisions_pool: Path) -> dict[str, object]:
+    """A general-decision pool as a corpus names it: its examples' sha256, and the families
+    whose same-family containment pairs are not enforced -- every family the pool holds, read
+    from its manifest's ``text_bytes_by_family``, byte-sorted (Fable's ruling of 2026-10-03,
+    ratified by the human, ``AUDIT/finalize-2026-10-03/containment-scope-ruling-2026-10-03.md``:
+    the pool's rows share task templates and rule prose within a family, so word 8-gram
+    containment between two rows of one family measures the template; the pool's own split
+    checks govern its train/val hygiene). Pairs across families stay enforced. Because the
+    scope is part of the corpus, a containment attestation made without it (or for other
+    families) does not match this build's corpus and its exclusion list is refused."""
+    manifest = json.loads((decisions_pool / "manifest.json").read_text(encoding="utf-8"))
+    families = manifest.get("text_bytes_by_family")
+    if not isinstance(families, dict) or not families or not all(
+        isinstance(f, str) and f for f in families
+    ):
+        raise SystemExit(
+            f"{decisions_pool}/manifest.json: text_bytes_by_family names no families; the "
+            "containment scope is read from it"
+        )
+    return {
+        "decisions_pool_examples_sha256": str(manifest["examples_sha256"]),
+        SAME_FAMILY_SCOPE_KEY: sorted(families, key=lambda f: f.encode("utf-8")),
     }
 
 

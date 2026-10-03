@@ -43,6 +43,7 @@ __all__ = [
     "ATTESTATION_NAME",
     "ATTESTATION_VERSION",
     "EXCLUSIONS_NAME",
+    "SAME_FAMILY_SCOPE_KEY",
     "ExclusionRefusal",
     "Exclusions",
     "apply_exclusions",
@@ -56,6 +57,10 @@ ATTESTATION_NAME: Final[str] = "attestation.json"
 ATTESTATION_VERSION: Final[int] = 2
 #: Bound on the list read: v4's whole train split is 289,142 rows.
 MAX_KEYS: Final[int] = 2_000_000
+#: The corpus key naming the same-family containment scope: Python's one spelling (the
+#: pipeline's ``corpus_identity`` writes it from here), and qd-prep containment's
+#: ``SAME_FAMILY_SCOPE_KEY``, which reads it from the request's corpus object.
+SAME_FAMILY_SCOPE_KEY: Final[str] = "decisions_pool_same_family_not_enforced"
 
 
 class ExclusionRefusal(SystemExit):
@@ -176,6 +181,19 @@ def read_exclusions(path: Path, *, corpus: Mapping[str, object]) -> Exclusions:
         raise ExclusionRefusal(
             f"{att_path} was made for corpus {att.get('corpus')}, and this build is "
             f"{dict(corpus)}: an exclusion list for another corpus excludes the wrong rows"
+        )
+    # The same-family scope (a corpus that reads a decision pool names one): the attestation
+    # must show the scan applied exactly it. A qd-prep that predates the scope ignores the
+    # corpus key and writes no block, so its list would carry the template hits the scope
+    # leaves out; a block where the corpus names no scope is a list made under another rule.
+    scope = corpus.get(SAME_FAMILY_SCOPE_KEY)
+    block = att.get("same_family_not_enforced")
+    applied = block.get("families") if isinstance(block, dict) else None
+    if (scope is None) != (block is None) or (scope is not None and applied != list(scope)):
+        raise ExclusionRefusal(
+            f"{att_path}: the corpus names same-family scope {scope!r} and the attestation "
+            f"shows {applied!r} applied (same_family_not_enforced): the scan did not apply "
+            "this build's scope (AUDIT/finalize-2026-10-03/containment-scope-ruling-2026-10-03.md)"
         )
     return Exclusions(path=path, keys=frozenset(keys), sha256=digest, attestation=att)
 

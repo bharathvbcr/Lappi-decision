@@ -251,9 +251,16 @@ def _write_pool(root: Path, lines: list[dict[str, object]], **manifest: object) 
     root.mkdir()
     body = "".join(json.dumps(x) + "\n" for x in lines).encode("utf-8")
     (root / "examples.jsonl").write_bytes(body)
+    # Every family the pool holds, as qd-prep decisions writes it (decisions.rs
+    # text_bytes_by_family); corpus_identity reads the containment scope from it.
+    families: dict[str, int] = {}
+    for x in lines:
+        fam = str(x.get("family_id"))
+        families[fam] = families.get(fam, 0) + len(str(x.get("context", "")))
     doc: dict[str, object] = {
         "schema": "qd-decisions/v1", "mode": "build", "examples": len(lines),
         "examples_sha256": hashlib.sha256(body).hexdigest(),
+        "text_bytes_by_family": families,
     }
     doc.update(manifest)
     (root / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
@@ -442,3 +449,8 @@ def test_the_corpus_identity_names_a_pool_only_when_given(tmp_path: Path) -> Non
     named = pipeline.corpus_identity(**kw, decisions_pool=pool)
     recorded = json.loads((pool / "manifest.json").read_text(encoding="utf-8"))
     assert named["decisions_pool_examples_sha256"] == recorded["examples_sha256"]
+    # With the pool, the containment scope over its families (containment-scope ruling).
+    assert named["decisions_pool_same_family_not_enforced"] == sorted(
+        recorded["text_bytes_by_family"]
+    )
+    assert "decisions_pool_same_family_not_enforced" not in pipeline.corpus_identity(**kw)
