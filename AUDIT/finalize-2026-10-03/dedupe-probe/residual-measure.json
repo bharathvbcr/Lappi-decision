@@ -1,0 +1,48 @@
+{
+  "pool_examples_sha256": "e3a03f3894563dc6cdb0acc5cc37704a1504cda648d3a8199436d66ce8a5af30",
+  "scoped_out": [
+    "openjev.evidence",
+    "openjev.policy",
+    "openjev.routing",
+    "openjev.rubric"
+  ],
+  "mixture_rows": 161086,
+  "ceiling": 50000000,
+  "dedupe_n_candidate_pairs": 5874260,
+  "dedupe_status": {
+    "state": "ran",
+    "passed": true,
+    "value": 5460,
+    "n": 5874260,
+    "n_total": 12974269155,
+    "detail": "5460 of 161086 rows dropped across 5460 content units at Jaccard >= 0.8; 20479 confirmed pairs crossed a repo boundary and would have survived a repo-level split alone; 9828 confirmed pairs were within one repo and were kept. LSH is a probabilistic candidate generator, not an exhaustive search: banding b=16, r=8 proposes a pair at J=0.8 with probability 0.9470, so 5874260 of 12974269155 possible unit pairs were compared exactly and the confirmed-pair counts are a lower bound, not a complete enumeration"
+  },
+  "dedupe_cross_repo_pairs": 20479,
+  "dedupe_within_repo_pairs": 9828,
+  "dedupe_dropped_rows": 5460,
+  "split_candidate_pairs": [
+    [
+      2892003,
+      false
+    ]
+  ],
+  "split_status": {
+    "state": "ran",
+    "passed": true,
+    "n": 5,
+    "n_total": 5
+  },
+  "near_duplicate_disjoint": {
+    "state": "ran",
+    "passed": true,
+    "value": 0,
+    "n": 155626,
+    "n_total": 155626,
+    "detail": "scanned 155626 rows; 2892003 candidate pairs, 117566 of them crossing a repo split, none confirmed at threshold 0.8"
+  },
+  "seconds": {
+    "native_setup": 16.1,
+    "dedupe": 46.7,
+    "split": 6.3
+  }
+}

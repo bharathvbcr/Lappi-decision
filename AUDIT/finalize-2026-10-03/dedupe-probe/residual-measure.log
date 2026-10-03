@@ -1,0 +1,8 @@
+mac_heavy: 2026-10-03T18:15:13Z 'dedupe-residual-ceiling' waiting 0s for the lock; holder: label=L-v5-2gpu full test_v5_queue_scripts.py on the new scripts, run 2 (single process) pid=66402 start=2026-10-03T18:12:45Z cwd=/Users/bharath/Code/research/ [... omitted end of long line]
+mac_heavy: 2026-10-03T18:15:33Z 'dedupe-residual-ceiling' holds the lock (waited 20s; load 8.39, 1349 processes); running: /usr/bin/time -l /Users/bharath/.venvs/ml/bin/python /Users/bharath/Code/research/Lappi-decision/AUDIT/finalize-2026-10-03/dedu [... omitted end of long line]
+minhash: 161066 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/target/release/qd-prep in 16.1 s (shingling and canaries included), 316712 lookups, 8 canaries equal to the reference; 161085 distinct texts shingle [... omitted end of long line]
+lsh: 2 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/target/release/qd-prep in 6.1 s (canaries included), 8766263 pairs, every canary equal to the reference; 0 handed to the reference (a negative boun [... omitted end of long line]
+{"pool_examples_sha256": "e3a03f3894563dc6cdb0acc5cc37704a1504cda648d3a8199436d66ce8a5af30", "scoped_out": ["openjev.evidence", "openjev.policy", "openjev.routing", "openjev.rubric"], "mixture_rows": 161086, "ceiling": 50000000, "dedupe_n_candidate_p [... omitted end of long line]
+       93.33 real        94.72 user         4.21 sys
+mac_heavy: 2026-10-03T18:17:07Z 'dedupe-residual-ceiling' finished with exit 0
+          8884469760  maximum resident set size

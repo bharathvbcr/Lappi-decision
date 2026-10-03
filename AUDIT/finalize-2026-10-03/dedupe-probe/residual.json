@@ -1,0 +1,57 @@
+{
+  "pool_examples_sha256": "e3a03f3894563dc6cdb0acc5cc37704a1504cda648d3a8199436d66ce8a5af30",
+  "scoped_out": [
+    "openjev.evidence",
+    "openjev.policy",
+    "openjev.routing",
+    "openjev.rubric"
+  ],
+  "rows_in": 161146,
+  "mixture_rows": 161086,
+  "dedupe_bound": 5000000,
+  "dedupe_n_candidate_pairs": 5000001,
+  "dedupe_status": {
+    "state": "not_run",
+    "reason": "candidate-pair search hit its bound of 5000000; the pair list is partial, so the surviving rows are not a verified deduplicated set"
+  },
+  "dedupe_cross_repo_pairs": 19823,
+  "dedupe_within_repo_pairs": 9735,
+  "dedupe_dropped_rows": 5397,
+  "dedupe_dropped_by_family": {
+    "decider.commands": 1286,
+    "arc.science": 1,
+    "boolq.reading": 81,
+    "pairwise.helpfulness": 1,
+    "procedural.decisions": 4028
+  },
+  "split_status": {
+    "state": "not_run",
+    "reason": "split: 1 of 5 inputs did not run -> dedupe: candidate-pair search hit its bound of 5000000; the pair list is partial, so the surviving rows are not a verified deduplicated set"
+  },
+  "near_duplicate_disjoint": {
+    "state": "ran",
+    "passed": false,
+    "value": 1,
+    "n": 155689,
+    "n_total": 155689,
+    "detail": "near-duplicate pairs span a repo split boundary: decision:procedural:evidence_sufficiency:train:11275:strongest_support_origin~decision:procedural:evidence_sufficiency:train:2982:strongest_support_origin (J=0.808)"
+  },
+  "seconds": {
+    "mixture": 17.8,
+    "dedupe": 471.5,
+    "split": 435.4
+  },
+  "content": {
+    "pool_rows": 211531,
+    "distinct_content": 211408,
+    "colliding_groups": 123,
+    "rows_in_colliding_groups": 246,
+    "groups_spanning_train_and_val": 0,
+    "groups_with_two_golds": 0,
+    "colliding_by_family": {
+      "arc.science": 1,
+      "openjev.policy": 122
+    },
+    "spanning_examples": []
+  }
+}

@@ -1,0 +1,24 @@
+files: old 33, new 33; only old []; only new []
+JSON shards/train/header.json: 4 field(s)
+    /code_fingerprint/config.py: "5cee1b28a678df679a7a525260fd0c0804e71fb25d263b9957c0049b662b9c3d" -> "870d3bfac48a96ec4c2bd33e3c1ee2d0002dc680a66e68300b1a5dba806723f5"
+    /code_fingerprint/dedupe.py: "2862e7a1fdde2e65616c0cafccd89bf54faa31dce030c67873c717456c21795a" -> "1d005c77819e81e76e297b065f632cf21cfdfd0756b3edc67396ee0247f698e7"
+    /code_fingerprint/split.py: "d555b4892a415e1092c502a0ceddb822d5284eb550b632b95d982c9dea02458a" -> "82fa4ade1744f45a4ff84e8f6fe86b50a438798d4b9c70c55439002ac434b0ae"
+    /shard_hash: "ce9cd6ea5f267edc6ec62fa1688ce09f922f08dac90f9a09b00342b0ff51c077" -> "3285b81ba558287ed93c20dc390d6a6f07ffbee1302deb5b861f27702797f089"
+JSON shards/train-no-decode/header.json: 4 field(s)
+    /code_fingerprint/config.py: "5cee1b28a678df679a7a525260fd0c0804e71fb25d263b9957c0049b662b9c3d" -> "870d3bfac48a96ec4c2bd33e3c1ee2d0002dc680a66e68300b1a5dba806723f5"
+    /code_fingerprint/dedupe.py: "2862e7a1fdde2e65616c0cafccd89bf54faa31dce030c67873c717456c21795a" -> "1d005c77819e81e76e297b065f632cf21cfdfd0756b3edc67396ee0247f698e7"
+    /code_fingerprint/split.py: "d555b4892a415e1092c502a0ceddb822d5284eb550b632b95d982c9dea02458a" -> "82fa4ade1744f45a4ff84e8f6fe86b50a438798d4b9c70c55439002ac434b0ae"
+    /shard_hash: "ce9cd6ea5f267edc6ec62fa1688ce09f922f08dac90f9a09b00342b0ff51c077" -> "3285b81ba558287ed93c20dc390d6a6f07ffbee1302deb5b861f27702797f089"
+JSON shards/val/header.json: 4 field(s)
+    /code_fingerprint/config.py: "5cee1b28a678df679a7a525260fd0c0804e71fb25d263b9957c0049b662b9c3d" -> "870d3bfac48a96ec4c2bd33e3c1ee2d0002dc680a66e68300b1a5dba806723f5"
+    /code_fingerprint/dedupe.py: "2862e7a1fdde2e65616c0cafccd89bf54faa31dce030c67873c717456c21795a" -> "1d005c77819e81e76e297b065f632cf21cfdfd0756b3edc67396ee0247f698e7"
+    /code_fingerprint/split.py: "d555b4892a415e1092c502a0ceddb822d5284eb550b632b95d982c9dea02458a" -> "82fa4ade1744f45a4ff84e8f6fe86b50a438798d4b9c70c55439002ac434b0ae"
+    /shard_hash: "dee7dbfb80e81e0406f2744aae45fb9acd412b87dc62f225fbf51370131ecc10" -> "81a593ba263b17f2ee5556c4320cdd5753a13b8d0604826f0274c7e89d264489"
+identical 30; differing json 3; differing binary 0
+differing field paths (all files):
+     3  /code_fingerprint/config.py
+     3  /code_fingerprint/dedupe.py
+     3  /code_fingerprint/split.py
+     3  /shard_hash
+build_digest old acd6ea15c191281f1118177458a3a64d4a749e27b6f90d019e4f0c05653bb4b8
+build_digest new d65616af28544d143de0aac38469b140df7b653216e980e83dd8db9757f63dd9

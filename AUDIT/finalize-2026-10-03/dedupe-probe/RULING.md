@@ -91,5 +91,86 @@ the sample's pair rate × n(n−1)/2.
 | `probe-spaced.out` | `4524ab2e89ccd72618acdd6db558996b27436481bd50e284b1c4b1da565c6230` |
 | `residual.py` | `868c6fde410f48b4fdbcb00ece116209fe39f079311feefc7a2295a6354c9fed` |
 
-`residual.py`'s result is appended below once it runs. It was queued behind the v3 verification
-on the Mac's one heavy-job lock.
+## The residual measurement: it truncated (~18:09Z)
+
+`residual.py` ran the pool minus the four families, under `mac_heavy`, on the pure-Python
+reference path: 928 s, peak RSS 7.27 GB. Output: `residual.json`.
+- **Dedupe hit the bound:** `n_candidate_pairs` 5,000,001, `not_run`.
+- **The split's re-derivation over the 155,689 kept rows completed.** It found 1 crossing pair:
+  procedural `evidence_sufficiency` train:11275 vs train:2982, at J=0.808, val/train, same gold
+  S1.
+- **The content check over the whole pool:**
+  - 211,531 rows, 211,408 distinct contents;
+  - 123 colliding groups (openjev.policy 122, arc.science 1);
+  - 0 span train and val;
+  - 0 have two golds.
+
+Fable's condition for a second build was not met, so the number came back instead.
+
+**Where the candidates come from.** `candidates_by_family.py` / `.out`: per family, a reservoir
+sample of ≤400 rows, exact Jaccard, and the pipeline's own LSH candidate probability. The banding
+is b=16, r=8, so P(0.5)=0.061, P(0.6)=0.237, P(0.7)=0.613 and P(0.8)=0.947.
+
+| Family | Expected candidates [I] | Sampled pairs ≥0.8 (different gold) [V] |
+|---|---|---|
+| procedural.decisions | ~4.49M | 1 (0) |
+| decider.commands | ~2.27M | 14 (2) |
+| openjev.nli | ~36k | 0 |
+| openjev.game | ~125k | 0 |
+| all other searched families | under 3k each | 0–1 |
+
+`pairs_look.py` / `.out` shows what those ≥0.8 pairs are. They are **true near-duplicates**:
+- decider.commands: the same command plus or minus a flag (`--no-pager`, `--volumes`), with the
+  same gold;
+- procedural: the crossing pair is one template with relabelled evidence items, same gold.
+
+The overflow is band work in J 0.5–0.8, not a pathological corpus.
+
+## Fable's second ruling (~18:20Z)
+
+- **(D), a per-family search, is refused.** Procedural alone is within sampling noise of 5M,
+  and cross-family pairs would go unsearched.
+- **(E), filtering candidates on signature agreement before the bound, is deferred.** It is the
+  right structural fix, but it changes what every dedupe run measures, and touches the Rust
+  LSH, the Python reference, the parity tests and the recall figures. It is recorded as
+  GAP-DEDUPE-LSH-BAND-CANDIDATES-NOT-DUPLICATES-2026-10-03.
+- **(A) is granted: a measured, recorded bound for builds that read the pool.** The default is
+  not moved. The earlier "the bound stays" protected real problems from deletion, and that
+  reason does not apply here.
+- **The measurement** (`residual_measure.py` / `.json` / `.log`): the native path at a 50M
+  ceiling, under `mac_heavy`, 93 s, peak RSS 8.9 GB.
+  - Dedupe: 5,874,260 candidates, completed, 5,460 rows dropped, 20,479 cross-repo pairs.
+  - The split's re-derivation: 2,892,003 candidates, completed, near_duplicate_disjoint
+    passed.
+- **The bound:** `POOL_MAX_CANDIDATE_PAIRS` = 12,500,000. That is twice the pool's count plus
+  v4's whole-corpus 550,147 (a proxy for v5's unmeasured non-pool rows), rounded up. It is
+  carried by `DataConfig.max_candidate_pairs`, which `pool_data_config` sets in the bench's v4.
+  Dedupe and split both read it, and both reports name a non-default bound. A build that still
+  exceeds it reports not_run and refuses.
+- **The draw key: yes.** Open-Jev's val draw is keyed on the scene (group_key) alone, not
+  (family, group). That closes the 3 painting-geometry scenes that were train in one family and
+  val in another. It only tightens the split, and the pool is not yet admitted.
+- **Pre-registration:** the four-family scoping, the bound with its basis, and the draw key go
+  into the v5 DRAFT as an amendment before any v5 result exists, after the v5-2gpu merge.
+
+## Landed
+
+- **v5-build 51272d5 (lead):** exact-content dedupe for marked rows, `exact_content_disjoint`,
+  the config-carried bound, and 15 tests.
+  - Fail-first: 7 fail on ce0acdf on their behaviour.
+  - The characterization re-pin, acd6ea15 → d65616af, is fully accounted
+    (`char-v4-compare.out`): 30 of 33 files are byte-identical, every manifest included, and 0
+    binary files differ.
+- **The bench's v4** (marker, `pool_data_config` bound, draw key) is cut on 51272d5.
+
+| File | sha256 |
+|---|---|
+| `residual.json` | `317d2066121a88a7994392b10548ffd139750eeb382fbf1892884341ec9927df` |
+| `candidates_by_family.py` | `079201102151d78db5ab83443f20e0ecc9b48a16ad9538be4bb48485fdee38f4` |
+| `candidates_by_family.out` | `81809145a59151826b4efe9ef21a7bcd58bac563312b77d6bd661ee2a8d599a7` |
+| `pairs_look.py` | `fa392a061cf9244fe88b0f89673692ed2f17af4c521fe96a45e5ae80287943c7` |
+| `pairs_look.out` | `74f1e4a8c82dfe17e1039f9b19390238784a41b5d7576695403b0fc8a741a190` |
+| `residual_measure.py` | `c431369238013d53d95d0b165e2661f3502c3ca2c19032f310d43ea596432516` |
+| `residual-measure.json` | `b57131a45b071d77f9d48ab31de5b21bbd5ce7442e351a64b8234b9be45be38c` |
+| `residual-measure.log` | `977e09e01b62e3c89a07b8bf48427580e10d63e972c1c3d2e132b83d355737e7` |
+| `char-v4-compare.out` | `daf0184b279b39b0c10610dd695f310f92e6208faec1e522750db4f2873d1d17` |

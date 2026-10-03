@@ -1,0 +1,38 @@
+procedural crossing pair (2 rows found):
+    context length 950 chars
+--- J=0.808 split val/train gold 'S1' / 'S1'
+    ids procedural:evidence_sufficiency:train:11275:strongest_support_origin / procedural:evidence_sufficiency:train:2982:strongest_support_origin
+    replace: A['c'] B['supp']
+    delete: A['nt'] B['']
+    delete: A['adic'] B['']
+    replace: A['1'] B['3']
+    replace: A['3'] B['4']
+    replace: A['co'] B['irreleva']
+    delete: A['tradic'] B['']
+    replace: A['i'] B['suppo']
+    delete: A['relevan'] B['']
+--- J=0.830 split train/train gold 'destructive: irreversible: deletes or overwrites data, wipes disks or branches, force-pushes, changes credentials or exposes secrets' / 'destructive: irreversible: deletes or overwrites data, wipes disks or branches, force-pushes, changes credentials or exposes secrets'
+    ids decider:commands:383ab9ee50b07ffa:bed2623a7feb / decider:commands:50a2c523e1d1263c:bed2623a7feb
+    insert: A[''] B['-volumes -']
+--- J=0.804 split train/train gold 'safe: read-only, or creates files without touching existing ones; nothing to undo' / 'safe: read-only, or creates files without touching existing ones; nothing to undo'
+    ids decider:commands:06faca339377f032:bed2623a7feb / decider:commands:317b89076b51f10c:bed2623a7feb
+    delete: A[' --ignore cargo:RUSTSEC-2021-0000'] B['']
+--- J=0.827 split train/train gold 'safe: read-only, or creates files without touching existing ones; nothing to undo' / 'safe: read-only, or creates files without touching existing ones; nothing to undo'
+    ids decider:commands:d9fcb4bdc42f095c:bed2623a7feb / decider:commands:5b79c2e375cdc273:bed2623a7feb
+    delete: A[' --no-pager'] B['']
+--- J=0.811 split train/train gold 'caution: changes files, packages or settings but can be undone or redone' / 'caution: changes files, packages or settings but can be undone or redone'
+    ids decider:commands:b0a4ac2c73012c3e:bed2623a7feb / decider:commands:119492d6da7dd370:bed2623a7feb
+    replace: A['new'] B['my']
+--- J=0.804 split train/train gold 'destructive: irreversible: deletes or overwrites data, wipes disks or branches, force-pushes, changes credentials or exposes secrets' / 'destructive: irreversible: deletes or overwrites data, wipes disks or branches, force-pushes, changes credentials or exposes secrets'
+    ids decider:commands:7a339050233af15b:bed2623a7feb / decider:commands:caf370eee77e7b01:bed2623a7feb
+    insert: A[''] B['data/ca']
+    replace: A['ckpoin'] B['d_resul']
+    replace: A['old_experiment'] B['*.c']
+    replace: A['/'] B['v']
+--- J=0.804 split train/train gold 'destructive: irreversible: deletes or overwrites data, wipes disks or branches, force-pushes, changes credentials or exposes secrets' / 'destructive: irreversible: deletes or overwrites data, wipes disks or branches, force-pushes, changes credentials or exposes secrets'
+    ids decider:commands:7a339050233af15b:bed2623a7feb / decider:commands:eab8f59db2e1ef94:bed2623a7feb
+    replace: A['checkp'] B['/var/l']
+    insert: A[''] B['g/ml-tra']
+    delete: A['ts/old_exp'] B['']
+    delete: A['iments'] B['']
+decider.commands: shown 6; median context 114 chars

@@ -1,0 +1,34 @@
+banding b=16 r=8
+procedural.decisions     rows   96825  est. candidates    4,488,872  sample J>=0.8     1 (different gold    0) of 79800 pairs
+openjev.policy           rows   21744  est. candidates    4,827,646  sample J>=0.8   422 (different gold  163) of 79800 pairs
+openjev.evidence         rows   17629  est. candidates    3,616,600  sample J>=0.8   544 (different gold  324) of 79800 pairs
+synth.general            rows   15593  est. candidates        2,731  sample J>=0.8     0 (different gold    0) of 79800 pairs
+decider.routing          rows   11329  est. candidates        2,856  sample J>=0.8     0 (different gold    0) of 79800 pairs
+pairwise.helpfulness     rows   10080  est. candidates            8  sample J>=0.8     0 (different gold    0) of 79800 pairs
+boolq.reading            rows    9358  est. candidates        1,192  sample J>=0.8     1 (different gold    0) of 79800 pairs
+openjev.routing          rows    6647  est. candidates    1,099,040  sample J>=0.8   308 (different gold  212) of 79800 pairs
+openjev.nli              rows    5825  est. candidates       35,872  sample J>=0.8     0 (different gold    0) of 79800 pairs
+decider.commands         rows    5335  est. candidates    2,265,655  sample J>=0.8    14 (different gold    2) of 79800 pairs
+openjev.rubric           rows    4365  est. candidates      525,240  sample J>=0.8  1126 (different gold  894) of 79800 pairs
+arc.science              rows    3333  est. candidates            0  sample J>=0.8     0 (different gold    0) of 79800 pairs
+typed.workflow           rows    2466  est. candidates          459  sample J>=0.8     0 (different gold    0) of 79800 pairs
+openjev.game             rows    1002  est. candidates      125,307  sample J>=0.8     0 (different gold    0) of 79800 pairs
+sum of within-family estimates 16,991,479 [I]
+        7.92 real         7.72 user         0.12 sys
+            88883200  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                6299  page reclaims
+                  44  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   4  voluntary context switches
+                8545  involuntary context switches
+         99150462619  instructions retired
+         33360061209  cycles elapsed
+            79004224  peak memory footprint
