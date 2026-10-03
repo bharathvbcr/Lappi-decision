@@ -63,8 +63,55 @@ No new ledger row: nothing trained, and no GPU job ran. The evidence:
     files. In the bare export it had refused an empty `git ls-files`, as designed.
 - ca9e9a3: report-to-human corrected: the box needs no rustup, and the disk floor is 600 GiB.
 - cf99884: the dedupe-bound ruling and its probe evidence, `AUDIT/finalize-2026-10-03/dedupe-probe/`.
+- c10612b: the residual measured on the native path (5.87M dedupe / 2.89M split candidates), Fable's
+  ruling (A) POOL_MAX_CANDIDATE_PAIRS = 12.5M, and (E) deferred as
+  GAP-DEDUPE-LSH-BAND-CANDIDATES-NOT-DUPLICATES-2026-10-03.
+- 3d25ecc: the human's answers on the v5 launch, verbatim ("Yes to all, waive R9, approve ~$400"),
+  `AUDIT/finalize-2026-10-03/human-answers-2026-10-03-v5-launch.md`.
+- 1a6f5d0: `AUDIT/finalize-2026-10-03/apply_v5_launch_amendment.py` (amendment 2), for L-v5-2gpu
+  to apply. Its dry run on v5-2gpu's DRAFT gives sha256 `6098345f…`; a rerun prints "already
+  applied".
+
+**v5-build, later:**
+- 51272d5: the lead's half of v4.
+  - Exact-content dedupe for the four structured Open-Jev families, which are scoped out of
+    MinHash and reported not_run by ruling; a leak is the same content digest across the final
+    split.
+  - `DataConfig.max_candidate_pairs`, with `POOL_MAX_CANDIDATE_PAIRS = 12_500_000`.
+  - 15 new tests, 7 of which failed first on ce0acdf (`build/failfirst-exact.log`).
+  - The characterization re-pinned to `d65616af…`, accounted by compare.py.
+  - Full suite: 4,113 passed; 2 failed, both environmental (the real-ledger guard and .venv
+    ruff); 49 skipped.
 
 ## What is open
+
+**Superseded at ~19:10Z.** The items below "The v5 decision pool is not admitted" are kept as
+written. What stands now:
+- **The dedupe design is settled and implemented** (51272d5). The second `qd-prep decisions`
+  build waits on the bench's v4 patch: the Open-Jev val draw key on group_key, owned by the bench.
+  The lead reviews the patch and applies it to v5-build. After that build, the bench runs the
+  VitaminC candidate check (more than ~1M candidates means the lead hears before the v5 build).
+- **The human's answers are in** (3d25ecc). None of the "still needed" items below is open,
+  except the 300 diffs, which are unmet under rule 2.
+- **Lambda's 2× H100 was sold out at ~19:03Z** (the human: "2xh100 are out").
+  - Fable's ruling: wait, and the human rechecks at ~21:30Z.
+  - If it is still out, the fallback is 1× H100 80GB SXM5 at $4.29/h: ~74 GPU-h ≈ $317 for the
+    runs, ~$330–345 for the box, ~76–78 h of wall time. It needs:
+    - the human's own "launch 1× H100" words;
+    - a lead amendment: hardware.box and lanes, ledger names h100x1-…, every price at $4.29,
+      launch.approved re-derived with no idle-GPU terms;
+    - the lane's V5_GPUS pin.
+  - L-v5-2gpu's reading at 0e5f2ff: lane 0 alone has no dependency on lane 1. The constant
+    `V5_GPUS=2` (v5_common.sh:100), the box-name check (:368) and the rate checks (:378-379)
+    refuse a 1× box before anything runs.
+- **L-v5-2gpu still owes:**
+  - amendment 2, launch.approved read and enforced, and the whitelist class fix (with
+    `--decisions-pool`); then its final sha, which the lead merges into v5-build with
+    `build/v5_build_merge.sh`;
+  - after that, as a separate commit, `V5_GPUS` as a fail-closed pin (UNSET, 1 or 2), and a
+    refusal of LANE ≥ V5_GPUS.
+
+The earlier list, as written:
 
 - **The v5 decision pool is not admitted.** Its one Mac build (examples sha256 `e3a03f38…`)
   hit the 5M candidate-pair bound in both dedupe and near_duplicate_disjoint, so split_status is
@@ -110,5 +157,5 @@ No new ledger row: nothing trained, and no GPU job ran. The evidence:
 ## The first command for the next lane
 
 ```bash
-tail -n 20 /Users/bharath/Code/research/Lappi-decision/build/dedupe-probe/residual.log
+bash /Users/bharath/Code/research/Lappi-decision/build/git_ro.sh /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a99795a6937ebaa6f log --oneline -8
 ```
