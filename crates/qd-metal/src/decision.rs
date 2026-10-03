@@ -54,7 +54,7 @@ use serde_json::{json, Value};
 
 use crate::error::{MetalError, Result};
 use crate::ledger::{self, Provenance, TreeState};
-use crate::model::{EmbedPath, Model};
+use crate::model::Model;
 use crate::tokenizer::QwenTokenizer;
 
 pub const DEFAULT_T: [usize; 3] = [512, 2048, 8192];
@@ -77,38 +77,37 @@ const SLOT: &str = "defect_class";
 const CONTEXT_SOURCE: &str = include_str!("model.rs");
 const CONTEXT_SOURCE_NAME: &str = "crates/qd-metal/src/model.rs";
 
-/// One arm of the A/B: the one flag it varies. A flag it does not name runs at the product's
-/// setting, so every arm is fully determined by its name. (The `digest=serial|parallel` arms of
-/// the 2026-10-03 rows went with the one-thread digest; those rows keep their `digest_*` keys.)
+/// One arm of the A/B: the one flag it varies, every other flag at the product's setting, so an
+/// arm is fully determined by its name. No flag is left to vary: the `embed=host|device` and
+/// `digest=serial|parallel` arms went with the paths they compared (their rows keep their
+/// `embed_*` / `digest_*` keys), and [`Arm::Product`] runs the product as it is, one arm whose
+/// samples are checked bit for bit against each other. A next flag, if one is approved, is a
+/// variant here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Arm {
-    Embed(EmbedPath),
+    Product,
 }
 
 impl Arm {
     pub fn name(&self) -> String {
         match self {
-            Arm::Embed(e) => format!("embed={}", e.as_str()),
+            Arm::Product => "product".to_string(),
         }
     }
 
-    /// `embed=host|device`.
+    /// `product`, the only arm there is.
     pub fn parse(s: &str) -> Result<Self> {
-        match s.split_once('=') {
-            Some(("embed", v)) => Ok(Arm::Embed(EmbedPath::parse(v)?)),
-            _ => Err(MetalError::Input(format!("arm {s:?} is not `embed=host|device`"))),
+        match s {
+            "product" => Ok(Arm::Product),
+            _ => Err(MetalError::Input(format!(
+                "arm {s:?} is not `product`, the one arm this bench runs"
+            ))),
         }
     }
 
-    /// The metric-key form of the name: `embed_host`.
+    /// The metric-key form of the name: `product`.
     fn key(&self) -> String {
         self.name().replace('=', "_")
-    }
-
-    fn embed(&self) -> EmbedPath {
-        match self {
-            Arm::Embed(e) => *e,
-        }
     }
 }
 
@@ -162,7 +161,7 @@ fn parse_one(v: &str, what: &str) -> Result<usize> {
 /// Parse the arguments after `--decision`:
 ///
 /// ```text
-/// [T=512,2048,8192] [k=4] [--iters 7] [--warmup 2] [--arms embed=host,embed=device]
+/// [T=512,2048,8192] [k=4] [--iters 7] [--warmup 2] [--arms product]
 /// [--snapshot DIR] (--ledger ledger/mac-qd-metal-<date>.jsonl | --no-ledger)
 /// ```
 pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
@@ -170,7 +169,7 @@ pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
     let mut k = DEFAULT_K;
     let mut iters = DEFAULT_ITERS;
     let mut warmup = DEFAULT_WARMUP;
-    let mut arms = vec![Arm::Embed(EmbedPath::Host), Arm::Embed(EmbedPath::Device)];
+    let mut arms = vec![Arm::Product];
     let mut ledger: Option<PathBuf> = None;
     let mut no_ledger = false;
     let mut snapshot = None;
@@ -223,8 +222,8 @@ pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
         }
     }
     // An A/B varies one flag: two arms naming different flags each differ from the product in a
-    // different flag, so their delta is neither flag's. (Unreachable while one flag remains; it
-    // holds the rule for the next one.)
+    // different flag, so their delta is neither flag's. (Unreachable while `product` is the only arm;
+    // it holds the rule for the next flag.)
     if let Some(a) = arms.iter().find(|a| std::mem::discriminant(*a) != std::mem::discriminant(&arms[0])) {
         return Err(MetalError::Input(format!(
             "arms {} and {} vary different flags; an A/B varies one",
@@ -518,9 +517,8 @@ pub fn arm_order(n_arms: usize, i: usize) -> Vec<usize> {
 /// Warm up every arm, then `iters` interleaved rounds. Every sample of every arm must give the
 /// same prefix-state digest and the same logits bits as the first arm's first sample when the
 /// arms are expected to agree bitwise; that is checked by the caller from the samples.
-pub fn run_t(model: &mut Model, prompt: &DecisionPrompt, answers: &[u32], arms: &[Arm], warmup: usize, iters: usize) -> Result<TResult> {
-    for arm in arms {
-        model.set_embed_path(arm.embed());
+pub fn run_t(model: &Model, prompt: &DecisionPrompt, answers: &[u32], arms: &[Arm], warmup: usize, iters: usize) -> Result<TResult> {
+    for _ in arms {
         for _ in 0..warmup {
             run_decision(model, prompt, answers)?;
         }
@@ -534,7 +532,6 @@ pub fn run_t(model: &mut Model, prompt: &DecisionPrompt, answers: &[u32], arms: 
         .collect();
     for i in 0..iters {
         for j in arm_order(arms.len(), i) {
-            model.set_embed_path(arms[j].embed());
             results[j].samples.push(run_decision(model, prompt, answers)?);
         }
     }
@@ -545,7 +542,8 @@ pub fn run_t(model: &mut Model, prompt: &DecisionPrompt, answers: &[u32], arms: 
 }
 
 /// Whether every sample of every arm produced the first sample's logits and state digest, bit
-/// for bit. The embed arms are exact by construction (`EmbedPath`), so a difference is a defect.
+/// for bit. The product repeats bit for bit (every sample of rows 147da0cc, 28505f4c and
+/// dc51c827 agreed, and the GPU pin test repeats each digest), so a difference is a defect.
 pub fn bit_identical(t: &TResult) -> (bool, usize, usize) {
     let Some(first) = t.arms.first().and_then(|a| a.samples.first()) else {
         return (false, 0, 0);
@@ -651,8 +649,8 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
                     same,
                     Value::from(n_same as u64),
                     "samples whose logits (both passes) and prefix-state digest equal the first \
-                     arm's first sample bit for bit; the embed arms and the digest arms are exact \
-                     by construction",
+                     arm's first sample bit for bit; the product repeats bit for bit, so every \
+                     sample must",
                 )
                 .with_coverage(n_same as u64, n as u64)
             },
@@ -742,7 +740,7 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
         wall_clock_s: ctx.wall_clock_s,
         wall_clock_source: WallClockSource::Caller,
         notes: format!(
-            "qd-metal decision latency on {} (weight hash {}). Arms bit-identical at every T: \
+            "qd-metal decision latency on {} (weight hash {}). Samples bit-identical at every T: \
              {all_same}.{}{}{}",
             ctx.snapshot.display(),
             ctx.weight_hash,
@@ -761,7 +759,7 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
                     args.ts
                 )
             },
-            if all_same { "" } else { " Arms disagreed bit for bit: status failed." },
+            if all_same { "" } else { " Samples disagreed bit for bit: status failed." },
         ),
         recipe,
     })
@@ -780,7 +778,7 @@ mod tests {
         let a = parse_args(&strs(&["T=512,2048,8192", "k=4", "--ledger", "/r/ledger/mac-qd-metal-2026-10-02.jsonl"])).unwrap();
         assert_eq!(a.ts, vec![512, 2048, 8192]);
         assert_eq!((a.k, a.iters, a.warmup), (4, 7, 2));
-        assert_eq!(a.arms.iter().map(Arm::name).collect::<Vec<_>>(), ["embed=host", "embed=device"]);
+        assert_eq!(a.arms.iter().map(Arm::name).collect::<Vec<_>>(), ["product"]);
         assert_eq!(a.row, RowTarget::Ledger(PathBuf::from("/r/ledger/mac-qd-metal-2026-10-02.jsonl")));
         let b = parse_args(&strs(&["--no-ledger"])).unwrap();
         assert_eq!(b.ts, DEFAULT_T.to_vec());
@@ -808,16 +806,16 @@ mod tests {
             &["k=4,5", "--no-ledger"],
             &["--iters", "0", "--no-ledger"],
             &["--iters", "--no-ledger"],
-            &["--arms", "embed=gpu", "--no-ledger"],
-            &["--arms", "embed=host,embed=host", "--no-ledger"],
+            &["--arms", "product,product", "--no-ledger"],
+            &["--arms", "", "--no-ledger"],
             &["--arms", "digest=device", "--no-ledger"],
             &["--wat", "--no-ledger"],
         ] {
             assert!(parse_args(&strs(bad)).is_err(), "{bad:?} was accepted");
         }
-        let a = parse_args(&strs(&["--iters", "3", "--warmup", "0", "--arms", "embed=device", "--no-ledger"])).unwrap();
+        let a = parse_args(&strs(&["--iters", "3", "--warmup", "0", "--arms", "product", "--no-ledger"])).unwrap();
         assert_eq!((a.iters, a.warmup), (3, 0));
-        assert_eq!(a.arms, vec![Arm::Embed(EmbedPath::Device)]);
+        assert_eq!(a.arms, vec![Arm::Product]);
     }
 
     /// Fail-first (Fable ruling 2, #6): a repeated T used to parse, run twice and write one set of
@@ -831,15 +829,24 @@ mod tests {
         assert_eq!(parse_args(&strs(&["T=131,409", "--no-ledger"])).unwrap().ts, vec![131, 409]);
     }
 
-    /// The one-thread digest is gone, and with it the `digest=` arms: asking for them is refused,
-    /// not silently run as the product's parallel digest.
+    /// The one-thread digest and the device embedding gather are gone, and with them the
+    /// `digest=` and `embed=` arms: asking for one is refused, naming the one arm there is, never
+    /// silently run as the product.
     #[test]
-    fn the_retired_digest_arms_are_refused() {
-        for bad in ["digest=serial,digest=parallel", "digest=serial", "embed=host,digest=parallel"] {
+    fn the_retired_arms_are_refused() {
+        for bad in [
+            "digest=serial,digest=parallel",
+            "digest=serial",
+            "embed=host,embed=device",
+            "embed=host",
+            "embed=device",
+            "product,embed=host",
+            "embed=host,digest=parallel",
+        ] {
             let e = parse_args(&strs(&["--arms", bad, "--no-ledger"]))
                 .expect_err(&format!("--arms {bad} was accepted"))
                 .to_string();
-            assert!(e.contains("is not `embed=host|device`"), "{e}");
+            assert!(e.contains("is not `product`, the one arm"), "{e}");
         }
     }
 

@@ -8,9 +8,10 @@
 //! ```
 //!
 //! `--decision` is [`qd_metal::decision`]: prefill + 2 read-only passes + 3 state digests +
-//! readback, interleaved A/B over `--arms` (default `embed=host,embed=device`), min-of-7 and
-//! median, `tessl::infer_trace` counts, one `throughput` row. Exit 0 when the row says completed
-//! and every arm agreed bit for bit, 1 when it records a failed check, 2 when it could not run.
+//! readback, interleaved over `--arms` (default and only arm `product`; an A/B adds an arm per
+//! flag it varies), min-of-7 and median, `tessl::infer_trace` counts, one `throughput` row.
+//! Exit 0 when the row says completed and every sample agreed bit for bit, 1 when it records a
+//! failed check, 2 when it could not run.
 //!
 //! The rest of this header is the prefill-only mode, which prints and writes no row.
 //!
@@ -140,7 +141,7 @@ fn run_decision(argv: &[String]) -> Result<bool> {
     tessl::infer_trace::set_enabled(true);
     println!("device: {}", rt.device_name());
     let t0 = Instant::now();
-    let mut model = Model::load(&rt, &snapshot)?;
+    let model = Model::load(&rt, &snapshot)?;
     let load_s = t0.elapsed().as_secs_f64();
     println!("weights loaded in {load_s:.1} s; weight hash {}", model.weight_hash());
 
@@ -148,7 +149,7 @@ fn run_decision(argv: &[String]) -> Result<bool> {
     let mut tessl_after = provenance.tessl.clone();
     for p in &prompts {
         let before = TreeState::read(&provenance.tessl.dir)?;
-        let r = decision::run_t(&mut model, p, &answers, &args.arms, args.warmup, args.iters)?;
+        let r = decision::run_t(&model, p, &answers, &args.arms, args.warmup, args.iters)?;
         tessl_after = TreeState::read(&provenance.tessl.dir)?;
         let moved = before != provenance.tessl || tessl_after != before;
         println!(

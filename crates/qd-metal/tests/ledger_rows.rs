@@ -19,8 +19,8 @@ use std::time::{Duration, Instant};
 
 use qd_metal::decision::{self, Arm, ArmResult, DecisionArgs, DecisionPrompt, RowTarget, RunContext, Sample, TResult};
 use qd_metal::ledger::{self, Provenance};
-use qd_metal::model::EmbedPath;
 use qd_metal::parity_row::{self, ModelFacts, ParityRun};
+use qd_train::tristate::{Coverage, TriState};
 use serde_json::{json, Value};
 
 fn repo() -> PathBuf {
@@ -165,7 +165,7 @@ fn decision_row_for_targets(provenance: Provenance, split_logits: bool, ts: Vec<
         k: 4,
         iters: 3,
         warmup: 1,
-        arms: vec![Arm::Embed(EmbedPath::Host), Arm::Embed(EmbedPath::Device)],
+        arms: vec![Arm::Product],
         row: RowTarget::None,
         snapshot: None,
     };
@@ -182,10 +182,18 @@ fn decision_row_for_targets(provenance: Provenance, split_logits: bool, ts: Vec<
             passes: [vec![1, 2, 3], vec![1, 3, 2]],
             rows: 5,
         },
-        arms: vec![
-            ArmResult { arm: args.arms[0], samples: vec![sample(200.0, &base), sample(190.0, &base), sample(210.0, &base)] },
-            ArmResult { arm: args.arms[1], samples: vec![sample(180.0, &other), sample(185.0, &other), sample(175.0, &other)] },
-        ],
+        // The one product arm; with `split_logits` its last three samples are one bit off.
+        arms: vec![ArmResult {
+            arm: args.arms[0],
+            samples: vec![
+                sample(200.0, &base),
+                sample(190.0, &base),
+                sample(210.0, &base),
+                sample(180.0, &other),
+                sample(185.0, &other),
+                sample(175.0, &other),
+            ],
+        }],
     };
     let ctx = RunContext {
         device: "Apple M5 Pro".into(),
@@ -306,12 +314,37 @@ fn no_usable_python_fails_rather_than_skips() {
     require_python_from(&[missing]);
 }
 
+fn coverage(t: &TriState) -> Option<Coverage> {
+    match t {
+        TriState::Ran { coverage, .. } => *coverage,
+        TriState::NotRun { .. } => None,
+    }
+}
+
+/// With the embed and digest arms gone the row has one arm, `product`, and still records the
+/// bit-identity of its samples under the key the 2026-10-03 rows used.
 #[test]
-fn arms_that_differ_by_one_bit_are_recorded_as_not_identical() {
+fn the_one_product_arm_still_records_bit_identity() {
+    let prov = Provenance::of(None).unwrap();
+    let d = decision_row(prov, false);
+    let t = &d.metrics["decision.t512.arms_bit_identical"];
+    assert!(t.is_pass(), "{t:?}");
+    assert_eq!(coverage(t), Some(Coverage { n: 6, n_total: 6 }), "{t:?}");
+    assert_eq!(d.recipe["arms"], json!(["product"]));
+    assert!(d.metrics.contains_key("decision.t512.product.total_ms"));
+    let retired = [".embed_", ".digest_serial", ".digest_parallel"];
+    for k in d.metrics.keys() {
+        assert!(!retired.iter().any(|r| k.contains(r)), "{k}");
+    }
+}
+
+#[test]
+fn samples_that_differ_by_one_bit_are_recorded_as_not_identical() {
     let prov = Provenance::of(None).unwrap();
     let d = decision_row(prov, true);
     let t = &d.metrics["decision.t512.arms_bit_identical"];
     assert!(t.is_fail(), "{t:?}");
+    assert_eq!(coverage(t), Some(Coverage { n: 3, n_total: 6 }), "{t:?}");
     // Fail-first (audit 2026-10-03): until then a row whose arms disagreed still said completed.
     assert_eq!(d.status, qd_train::ledger::Status::Failed, "a non-identical A/B row read as completed");
 }
