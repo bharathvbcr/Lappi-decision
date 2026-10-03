@@ -60,6 +60,14 @@
 //!   `seed_holds` targets (a seed holds iff `2*n >= n_total`, the F2 bar of
 //!   `campaign/v4-noul-v3b-preregistered.json`), worst-seed strict-envelope guards and F3's
 //!   absolute guard. Words: `wins`, `quiet`, `refused`.
+//! * `tierb` — (ix) the Tier-B outcome rule (`recipe.tierb_outcome_rule` of the v5
+//!   pre-registration, as Fable amended it on 2026-10-03, before any outcome row existed:
+//!   AUDIT/tierb-outcome-2026-10-03/fable-tierb-outcome-ruling.md), which decides v5's
+//!   conditionals C2a (`--candidate nomask`) and C2b (`--candidate fused`). One candidate run's
+//!   training-run score row and fp32 all-gates re-score against phase-3 seeds 0-2's envelope,
+//!   its linear control's CI against eeda5db4's, and its gate flags against 58fd1532's. Words:
+//!   `pass`, `fail`, `refused`. Decided before the DRAFT is renamed, so unlike the other v5
+//!   rules it reads the DRAFT too and records which it read (`draft`).
 //!
 //! The v5 rules read their thresholds, seed sets, added recipe keys, targets and guards from the
 //! pre-registration at run time; a file whose words disagree with what this code applies, or
@@ -105,7 +113,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
@@ -418,6 +426,28 @@ enum Cmd {
             conflicts_with = "room"
         )]
         arm_ft_rows: Vec<(i64, String)>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// (ix) The Tier-B outcome rule for one candidate (v5's C2a / C2b). Prints `pass`, `fail` or
+    /// `refused`.
+    Tierb {
+        /// Which candidate's outcome run: `nomask` (C2a) or `fused` (C2b).
+        #[arg(long, value_enum)]
+        candidate: Candidate,
+        /// The candidate ledger: its ft row, both score rows and its linear-control row.
+        #[arg(long)]
+        ledger: PathBuf,
+        /// ledger/gh200-seed0-weights-2026-09-30.jsonl: the envelope rows, 7f2c11db and eeda5db4.
+        #[arg(long)]
+        phase3_ledger: PathBuf,
+        /// ledger/gh200-allgates-2026-09-30.jsonl: 58fd1532.
+        #[arg(long)]
+        allgates_ledger: PathBuf,
+        /// The v5 pre-registration, the DRAFT or the renamed file; read at run time, its sha256
+        /// and whether it is the DRAFT recorded.
+        #[arg(long)]
+        preregistration: PathBuf,
         #[arg(long)]
         out: PathBuf,
     },
@@ -1058,12 +1088,18 @@ fn ft_row<'a>(ledger: &'a Ledger, seed: i64, id: &str) -> Result<&'a Row> {
     Ok(row)
 }
 
+/// Whether an eval row was scored from ft row `ft` of seed `seed`: the link every score row
+/// records (`metrics.ft_run_row_id`).
+fn scored_from(r: &Row, seed: i64, ft: &str) -> bool {
+    r.seed() == Some(seed) && r.str_at(&["metrics", "ft_run_row_id", "value"]) == Some(ft)
+}
+
 fn eval_row_of<'a>(ledger: &'a Ledger, seed: i64, ft: &str, tag: &str) -> Result<&'a Row> {
     ledger.one(
         "eval",
         tag,
         &format!("seed {seed} scored from ft row {ft}"),
-        |r| r.seed() == Some(seed) && r.str_at(&["metrics", "ft_run_row_id", "value"]) == Some(ft),
+        |r| scored_from(r, seed, ft),
     )
 }
 
@@ -1751,6 +1787,26 @@ impl SeedRows<'_> {
 /// row without per-family margins (J4's d597ee7d) is not one; the option control records
 /// `linear_option_control.scored_eval_row_id` and is never one.
 fn letter_control_row<'a>(ledger: &'a Ledger, eval: &Row) -> Result<&'a Row> {
+    control_row_of(
+        ledger,
+        eval,
+        "letter-control",
+        &format!("carrying {MARGIN_KEY}"),
+        |r| r.get(&["metrics", MARGIN_KEY]).is_some(),
+    )
+}
+
+/// The one completed control row of `kind` that `which` accepts among those that name `eval` in
+/// `metrics.scored_eval_row_id`; its `recipe.eval_row_id` must name the same row. `what`
+/// describes `which` in the refusal. Shared by the letter control (`letter_control_row`) and
+/// tierb's linear control.
+fn control_row_of<'a>(
+    ledger: &'a Ledger,
+    eval: &Row,
+    kind: &str,
+    what: &str,
+    which: impl Fn(&Row) -> bool,
+) -> Result<&'a Row> {
     let found: Vec<&Row> = ledger
         .rows
         .iter()
@@ -1758,23 +1814,22 @@ fn letter_control_row<'a>(ledger: &'a Ledger, eval: &Row) -> Result<&'a Row> {
             r.completed()
                 && r.str_at(&["run_kind"]) == Some("eval")
                 && r.str_at(&["metrics", "scored_eval_row_id", "value"]) == Some(eval.id())
-                && r.get(&["metrics", MARGIN_KEY]).is_some()
+                && which(r)
         })
         .collect();
     let row = match found.len() {
         1 => found[0],
         0 => {
             return Err(format!(
-                "missing row: no completed letter-control row carrying {MARGIN_KEY} for eval \
-                 row {} in {}",
+                "missing row: no completed {kind} row {what} for eval row {} in {}",
                 eval.id(),
                 ledger.shown
             ));
         }
         n => {
             return Err(format!(
-                "{n} completed letter-control rows carry {MARGIN_KEY} for eval row {} in {} \
-                 ({}); which one decides is not this tool's call",
+                "{n} completed {kind} rows {what} for eval row {} in {} ({}); which one decides \
+                 is not this tool's call",
                 eval.id(),
                 ledger.shown,
                 found.iter().map(|r| r.id()).collect::<Vec<_>>().join(", ")
@@ -1783,7 +1838,7 @@ fn letter_control_row<'a>(ledger: &'a Ledger, eval: &Row) -> Result<&'a Row> {
     };
     ensure!(
         row.str_at(&["recipe", "eval_row_id"]) == Some(eval.id()),
-        "letter-control row {}: recipe.eval_row_id {:?} is not its scored eval row {}",
+        "{kind} row {}: recipe.eval_row_id {:?} is not its scored eval row {}",
         row.id(),
         row.str_at(&["recipe", "eval_row_id"]),
         eval.id()
@@ -1931,9 +1986,17 @@ type Identity<'a> = &'a dyn Fn(&Arm, &Row, &Row) -> Result<Value>;
 /// A metric's value on each envelope seed, and their minimum and maximum.
 fn envelope_range(m: Metric, envelope: &[SeedRows]) -> Result<(Vec<Val>, Val, Val)> {
     let values: Vec<Val> = envelope.iter().map(|s| s.read(m)).collect::<Result<_>>()?;
+    let (min, max) = min_max(m.name, &values)?;
+    Ok((values, min, max))
+}
+
+/// The minimum and maximum of an envelope's values of metric `name`, compared exactly
+/// (`cmp_val`). Shared by `envelope_range` (envelope seeds read through `SeedRows`) and tierb
+/// (envelope rows pinned by eval row id).
+fn min_max(name: &str, values: &[Val]) -> Result<(Val, Val)> {
     let first = *values
         .first()
-        .ok_or_else(|| format!("{}: an empty envelope has no range", m.name))?;
+        .ok_or_else(|| format!("{name}: an empty envelope has no range"))?;
     let (mut min, mut max) = (first, first);
     for &v in &values[1..] {
         if cmp_val(v, min)? == std::cmp::Ordering::Less {
@@ -1943,7 +2006,7 @@ fn envelope_range(m: Metric, envelope: &[SeedRows]) -> Result<(Vec<Val>, Val, Va
             max = v;
         }
     }
-    Ok((values, min, max))
+    Ok((min, max))
 }
 
 /// One metric against the envelope: a target (does it clear?) or a guard (does it lose?).
@@ -4310,6 +4373,970 @@ fn rule_v5_noulw(
     s.finish(word, "no reading; the human decides from the rows")
 }
 
+// --- (ix): tierb, the v5 pre-registration's recipe.tierb_outcome_rule ----------------------------
+//
+// The Tier-B outcome rule for one candidate run (no-mask, C2a; fused AdamW, C2b), as Fable amended
+// it on 2026-10-03 before any outcome row existed. The envelope reuses the successor's exact
+// comparison (`min_max`, `clears`), the row look-ups are the file's (`Ledger::one`,
+// `one_configuration`, `scored_from`, `control_row_of`, `same_recipe_keys`), and the
+// pre-registration is read at run time and must agree with this code (`tierb_agrees`).
+
+/// The file as it binds; the text a decision applied is the one whose sha256 it records.
+const PREREG_TIERB: &str = "campaign/v5-preregistered.json recipe.tierb_outcome_rule and \
+                            recipe.conditionals C2a / C2b (Fable's amendment of 2026-10-03; the \
+                            DRAFT or the renamed file, read at run time, its sha256 and draft \
+                            flag recorded)";
+/// outcome_rule.checker, .words, .on_word and .rule, as C2a and C2b write them.
+const TIERB_CHECKER: &str = "qd-post-f-rules tierb";
+const TIERB_WORDS: [&str; 3] = ["pass", "fail", "refused"];
+const TIERB_ON_WORD: &str = "pass";
+const TIERB_RULE: &str = "recipe.tierb_outcome_rule";
+/// envelope.rows: phase-3 seeds 0, 1 and 2's epoch-score-val rows, in the phase-3 ledger.
+const TIERB_ENVELOPE: [&str; 3] = [
+    "6d170b3c-5676-446b-b6be-5bb17d6d7aa0",
+    "60f29b07-c7d1-41a9-a8e5-af96227206a6",
+    "5c19c0e8-0e8d-4aa9-b9c6-73febce8a57d",
+];
+/// envelope.metrics.
+const TIERB_METRICS: [Metric; 2] = [VAL_CHOICE, VAL_SPAN];
+/// rows.identity: phase-3 seed 0's ft row, whose recipe the candidate's must agree with.
+const TIERB_FT: &str = "7f2c11db-3eb8-4361-9620-6b164ec37f1e";
+/// clauses.2: phase-3 seed 0's linear control, CI [+0.1359, +0.1651].
+const TIERB_CONTROL: &str = "eeda5db4-0e99-415c-9a9d-5bd0efc8b71b";
+const TIERB_CONTROL_CI: (i64, i64) = (1359, 1651);
+/// clauses.3: phase-3 seed 0's fp32 all-gates re-score of 7f2c11db.
+const TIERB_ALLGATES: &str = "58fd1532-3239-41eb-a506-33ba10079425";
+/// 58fd1532's gates as committed: `Some(passed)` for a gate that ran, `None` for one that did
+/// not. A reference row that says otherwise is not the row the rule names.
+const TIERB_ALLGATES_GATES: [(&str, Option<bool>); 5] = [
+    ("ece", Some(true)),
+    ("needle_hunk_recall", Some(false)),
+    ("ood_abstain", Some(false)),
+    ("paired_margin_vs_linear", None),
+    ("permutation_consistency", Some(true)),
+];
+const TIERB_SHARD_HASH: &str = "d773b87666e1b042279271ab0f891246b7268d4ce0cad2c3e677bb415c147e1a";
+const TIERB_VAL_SHARD_HASH: &str =
+    "105513b98887a24391339f8a19ac9dfef07645abd258a22482087b0699066a72";
+const TIERB_BACKBONE: &str = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c";
+/// The outcome run is one seed-0 run (tools/perf_tierb_outcome.sh `--seeds 0`).
+const TIERB_SEED: i64 = 0;
+/// rows.candidate: the linear control is the row this tool wrote.
+const LINEAR_CONTROL_TOOL: &str = "tools/ft_linear_control.py";
+const LINEAR_GATE: &str = "paired_margin_vs_linear";
+/// paired_margin_test's default bootstrap count, which every control row so far records.
+const CI_N_BOOT: u64 = 10_000;
+/// The straddling suffix paired_margin_test appends when lo <= 0 and hi >= 0.
+const CI_INCLUDES_ZERO: &str = " -- CI includes zero, so this is not a win";
+/// envelope.literal: the design doc's printed decimals, report-only.
+const TIERB_LITERAL: [(&str, [Dec; 2], &str); 2] = [
+    (
+        "val_top1.choice",
+        [
+            Dec {
+                num: 997,
+                den: 1000,
+                text: "0.997",
+            },
+            Dec {
+                num: 998,
+                den: 1000,
+                text: "0.998",
+            },
+        ],
+        "99.7-99.8%",
+    ),
+    (
+        "val_top1.span",
+        [
+            Dec {
+                num: 998,
+                den: 1000,
+                text: "0.998",
+            },
+            Dec {
+                num: 999,
+                den: 1000,
+                text: "0.999",
+            },
+        ],
+        "99.8-99.9%",
+    ),
+];
+
+/// rows.identity: the recipe keys the candidate's ft row must share with 7f2c11db, the value
+/// 7f2c11db itself must carry for each, and that value as rows.identity prints it.
+fn tierb_identity() -> [(&'static str, Value, &'static str); 8] {
+    [
+        ("shard_hash", json!(TIERB_SHARD_HASH), TIERB_SHARD_HASH),
+        ("batch_tokens", json!(16384), "16384"),
+        ("optimizer_recipe", json!("master"), "master"),
+        ("lr", json!(1e-05), "1e-05"),
+        ("no_memorise", json!(true), "true"),
+        ("passes", json!(1), "1"),
+        ("tag", json!("epoch"), "epoch"),
+        ("backbone_snapshot", json!(TIERB_BACKBONE), TIERB_BACKBONE),
+    ]
+}
+
+/// The candidate a tierb decision is about: each is screened alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum Candidate {
+    /// `--train-attention-mask none` (C2a): recipe.train_attention_mask = "none"
+    /// (1cf8e6d tools/real_ft_run.py:360).
+    Nomask,
+    /// `--fused-adamw` (C2b): recipe.optimizer_fused = true (e19dcf6 tools/real_ft_run.py:336-337).
+    Fused,
+}
+
+impl Candidate {
+    fn name(self) -> &'static str {
+        match self {
+            Candidate::Nomask => "nomask",
+            Candidate::Fused => "fused",
+        }
+    }
+    /// Its own recipe key and value: outcome_rule.candidate_recipe.
+    fn key(self) -> (&'static str, Value) {
+        match self {
+            Candidate::Nomask => ("train_attention_mask", json!("none")),
+            Candidate::Fused => ("optimizer_fused", json!(true)),
+        }
+    }
+    fn recipe(self) -> Value {
+        let (key, value) = self.key();
+        json!({ key: value })
+    }
+    /// The other candidate's key, and the one value of it this candidate's run may record.
+    /// `real_ft_run.py` writes `optimizer_fused` only when fused and `train_attention_mask` only
+    /// when it is not "padding" (1cf8e6d:357-360), so a masked row has no such key; "padding"
+    /// written out is still the masked path. `optimizer_fused` has no value a no-mask run carries.
+    fn other(self) -> (&'static str, Option<Value>) {
+        match self {
+            Candidate::Nomask => ("optimizer_fused", None),
+            Candidate::Fused => ("train_attention_mask", Some(json!("padding"))),
+        }
+    }
+}
+
+/// A signed number printed by Python's `{:+.4f}`, in ten-thousandths. The printed sign is kept
+/// apart, since "-0.0000" (a negative number that rounds to zero) is not "+0.0000".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Fixed4 {
+    negative: bool,
+    ten_thousandths: i64,
+}
+
+impl Fixed4 {
+    /// `[+-]D+.DDDD`, with no more than nine integer digits; anything else is not this form.
+    fn parse(s: &str) -> Option<Fixed4> {
+        let negative = match s.as_bytes().first()? {
+            b'+' => false,
+            b'-' => true,
+            _ => return None,
+        };
+        let (int, frac) = s[1..].split_once('.')?;
+        let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
+        if !digits(int) || int.len() > 9 || frac.len() != 4 || !digits(frac) {
+            return None;
+        }
+        let magnitude = int.parse::<i64>().ok()? * 10_000 + frac.parse::<i64>().ok()?;
+        Some(Fixed4 {
+            negative,
+            ten_thousandths: if negative { -magnitude } else { magnitude },
+        })
+    }
+    fn magnitude(self) -> String {
+        let m = self.ten_thousandths.abs();
+        format!("{}.{:04}", m / 10_000, m % 10_000)
+    }
+    /// As `{:+.4f}` printed it.
+    fn text(self) -> String {
+        format!(
+            "{}{}",
+            if self.negative { '-' } else { '+' },
+            self.magnitude()
+        )
+    }
+    /// `{-x:.4f}` of the number this prints: no plus sign, and a minus iff this one had none.
+    fn negated_plain(self) -> String {
+        format!(
+            "{}{}",
+            if self.negative { "" } else { "-" },
+            self.magnitude()
+        )
+    }
+}
+
+/// A paired-margin gate's 95% CI, read from its `detail` string: the only place a control row
+/// records it (GAP-LINEAR-CONTROL-CI-ONLY-IN-DETAIL-STRING-2026-10-03).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Ci {
+    point: Fixed4,
+    lo: Fixed4,
+    hi: Fixed4,
+    n_boot: u64,
+    passed: bool,
+}
+
+impl Ci {
+    fn json(&self) -> Value {
+        json!({
+            "point": self.point.ten_thousandths,
+            "lo": self.lo.ten_thousandths,
+            "hi": self.hi.ten_thousandths,
+            "unit": "1e-4 (the printed four decimals as integers)",
+            "printed": format!("{} [{}, {}]", self.point.text(), self.lo.text(), self.hi.text()),
+            "n_boot": self.n_boot,
+            "passed": self.passed,
+        })
+    }
+    /// Clause 2: the two intervals share a point, ends included.
+    fn overlaps(&self, other: &Ci) -> bool {
+        self.lo.ten_thousandths <= other.hi.ten_thousandths
+            && other.lo.ten_thousandths <= self.hi.ten_thousandths
+    }
+}
+
+/// The form `qd_train.eval_harness.paired_margin_test` writes (884b658
+/// python/qd_train/eval_harness.py:282-287), for refusals.
+const CI_FORM: &str = "\"paired margin {point:+.4f}, 95% CI [{lo:+.4f}, {hi:+.4f}] over {n_boot} \
+                       bootstrap resamples\" then \"\" iff lo > 0 (passed), else \" -- CI \
+                       includes zero, so this is not a win\" (hi >= 0) or \" -- the whole \
+                       interval is below zero, so this is not an inconclusive result: the \
+                       baseline beats the model by {-point:.4f} and the comparison separates \
+                       them\" (hi < 0)";
+
+/// The detail string paired_margin_test writes for these numbers, byte for byte. The suffix
+/// follows Python's own branches: `passed` (lo > 0), else hi < 0, which is the printed sign of
+/// hi, else the straddling sentence.
+fn ci_detail(point: Fixed4, lo: Fixed4, hi: Fixed4, n_boot: u64, passed: bool) -> String {
+    let suffix = if passed {
+        String::new()
+    } else if hi.negative {
+        format!(
+            " -- the whole interval is below zero, so this is not an inconclusive result: the \
+             baseline beats the model by {} and the comparison separates them",
+            point.negated_plain()
+        )
+    } else {
+        CI_INCLUDES_ZERO.to_string()
+    };
+    format!(
+        "paired margin {}, 95% CI [{}, {}] over {n_boot} bootstrap resamples{suffix}",
+        point.text(),
+        lo.text(),
+        hi.text()
+    )
+}
+
+/// The point, bounds and bootstrap count a paired-margin detail prints, read loosely; `paired_ci`
+/// then re-renders the whole string and requires it byte for byte.
+fn ci_numbers(detail: &str) -> Option<(Fixed4, Fixed4, Fixed4, u64)> {
+    let rest = detail.strip_prefix("paired margin ")?;
+    let (point, rest) = rest.split_once(", 95% CI [")?;
+    let (lo, rest) = rest.split_once(", ")?;
+    let (hi, rest) = rest.split_once("] over ")?;
+    let (n_boot, _) = rest.split_once(" bootstrap resamples")?;
+    Some((
+        Fixed4::parse(point)?,
+        Fixed4::parse(lo)?,
+        Fixed4::parse(hi)?,
+        n_boot.parse::<u64>().ok()?,
+    ))
+}
+
+/// `gates.paired_margin_vs_linear` of a control row, its CI parsed from `detail`. Refused: a gate
+/// that did not run; a detail that is not, byte for byte, what paired_margin_test writes for the
+/// numbers it prints (re-rendered and compared, so every deviation refuses); a bootstrap count
+/// other than 10000; lo above hi; a `passed` flag that is not `lo > 0` on the printed lo; a
+/// printed point that is not the gate's `value` to four places. At a rounding edge (lo printed
+/// "+0.0000" with passed true) the printed text cannot show what the float decided, and that
+/// refuses too.
+fn paired_ci(row: &Row) -> Result<Ci> {
+    let what = format!("row {} gates.{LINEAR_GATE}", row.id());
+    let gate = row.ran("gates", LINEAR_GATE)?;
+    let detail = gate
+        .get("detail")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{what}: no detail string, which is where the CI is recorded"))?;
+    let value = recorded_value(gate, &what)?;
+    let passed = gate
+        .get("passed")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| format!("{what}: no boolean passed"))?;
+    let off_form = |why: String| {
+        format!(
+            "{what}: detail {detail:?} is not in the form paired_margin_test writes ({why}); the \
+             form is {CI_FORM}"
+        )
+    };
+    let (point, lo, hi, n_boot) = ci_numbers(detail).ok_or_else(|| {
+        off_form(
+            "its point, bounds and bootstrap count do not parse as {:+.4f} and an integer".into(),
+        )
+    })?;
+    ensure!(
+        n_boot == CI_N_BOOT,
+        "{what}: {n_boot} bootstrap resamples, not the {CI_N_BOOT} every control row records"
+    );
+    ensure!(
+        lo.ten_thousandths <= hi.ten_thousandths,
+        "{what}: lo {} is above hi {}",
+        lo.text(),
+        hi.text()
+    );
+    ensure!(
+        passed == (lo.ten_thousandths > 0),
+        "{what}: passed is {passed} but the printed lo is {}; paired_margin_test passes iff lo > 0",
+        lo.text()
+    );
+    let expected = ci_detail(point, lo, hi, n_boot, passed);
+    if detail != expected {
+        return Err(off_form(format!(
+            "for passed {passed} and hi {} the suffix and text are {expected:?}",
+            hi.text()
+        )));
+    }
+    let shown = format!("{value:+.4}");
+    ensure!(
+        shown == point.text(),
+        "{what}: the printed point {} is not the gate's value {value} to four places ({shown})",
+        point.text()
+    );
+    Ok(Ci {
+        point,
+        lo,
+        hi,
+        n_boot,
+        passed,
+    })
+}
+
+/// The pre-registration's own words this checker applies, as (path under
+/// `recipe.tierb_outcome_rule`, a phrase that text must hold). Each pinned id and hash must appear
+/// in the field that names it, and each reading in the words the amendment wrote; an amended
+/// text changes them and refuses until the checker follows it.
+fn tierb_rule_text() -> Vec<(&'static [&'static str], String)> {
+    const INSIDE: &[&str] = &["envelope", "inside"];
+    const CANDIDATE: &[&str] = &["rows", "candidate"];
+    const IDENTITY: &[&str] = &["rows", "identity"];
+    const CLAUSE_1: &[&str] = &["clauses", "1"];
+    const CLAUSE_2: &[&str] = &["clauses", "2"];
+    const CLAUSE_3: &[&str] = &["clauses", "3"];
+    const WORD: &[&str] = &["word"];
+    let fixed = |t: i64| format!("+{}.{:04}", t / 10_000, t % 10_000);
+    let mut out: Vec<(&'static [&'static str], String)> = vec![
+        (INSIDE, "2*min - max <= c <= 2*max - min".into()),
+        (
+            INSIDE,
+            "compared on the rows' integer counts by cross-multiplication".into(),
+        ),
+        (INSIDE, "A range of 0 refuses".into()),
+        (
+            CANDIDATE,
+            "exactly one completed, non-quick ft row tagged epoch at seed 0".into(),
+        ),
+        (
+            CANDIDATE,
+            "eval row scored from it without score_dtype".into(),
+        ),
+        (
+            CANDIDATE,
+            "with score_dtype fp32 and the needle and OOD suites".into(),
+        ),
+        (
+            CANDIDATE,
+            format!("{LINEAR_CONTROL_TOOL} row whose recipe.eval_row_id is the first eval row"),
+        ),
+        (IDENTITY, TIERB_FT.into()),
+        (IDENTITY, "not the other candidate's key".into()),
+        (IDENTITY, format!("val_shard_hash {TIERB_VAL_SHARD_HASH}")),
+        (
+            CLAUSE_1,
+            "val_top1.choice and val_top1.span each inside the envelope".into(),
+        ),
+        (
+            CLAUSE_2,
+            format!(
+                "{TIERB_CONTROL}'s [{}, {}]",
+                fixed(TIERB_CONTROL_CI.0),
+                fixed(TIERB_CONTROL_CI.1)
+            ),
+        ),
+        (CLAUSE_2, "lo <= other hi and other lo <= hi".into()),
+        (
+            CLAUSE_2,
+            "a passed flag that disagrees with lo > 0 refuses".into(),
+        ),
+        (CLAUSE_3, TIERB_ALLGATES.into()),
+        (
+            CLAUSE_3,
+            "is ran with the same passed in the candidate's all-gates row".into(),
+        ),
+        (
+            CLAUSE_3,
+            "a gate ran there and not_run in the candidate refuses".into(),
+        ),
+        (WORD, "pass iff clauses 1, 2 and 3 all hold".into()),
+        (WORD, "Never pass by absence.".into()),
+    ];
+    for (key, _, printed) in tierb_identity() {
+        out.push((IDENTITY, format!("{key} {printed}")));
+    }
+    out
+}
+
+/// The pre-registration agrees with this code: the one conditional whose outcome_rule names this
+/// candidate carries this checker, its words, its on-word, this rule and this candidate's recipe
+/// key; `recipe.tierb_outcome_rule` lists this envelope's rows and metrics exactly; and its prose
+/// says every phrase of `tierb_rule_text`. Its `draft` key is not checked: the decision is taken
+/// before the rename, and the JSON records which file it read.
+fn tierb_agrees(p: &Map<String, Value>, candidate: Candidate) -> Result<()> {
+    let conditionals = p
+        .get("recipe")
+        .and_then(|r| r.get("conditionals"))
+        .and_then(Value::as_array)
+        .ok_or("the pre-registration has no recipe.conditionals list")?;
+    let found: Vec<&Map<String, Value>> = conditionals
+        .iter()
+        .filter_map(|c| c.get("outcome_rule").and_then(Value::as_object))
+        .filter(|o| o.get("candidate").and_then(Value::as_str) == Some(candidate.name()))
+        .collect();
+    ensure!(
+        found.len() == 1,
+        "the pre-registration has {} recipe.conditionals whose outcome_rule.candidate is {:?}, \
+         not one",
+        found.len(),
+        candidate.name()
+    );
+    let rule = found[0];
+    for (key, want) in [
+        ("checker", json!(TIERB_CHECKER)),
+        ("words", json!(TIERB_WORDS)),
+        ("on_word", json!(TIERB_ON_WORD)),
+        ("rule", json!(TIERB_RULE)),
+        ("candidate_recipe", candidate.recipe()),
+    ] {
+        ensure!(
+            rule.get(key) == Some(&want),
+            "the pre-registration's {} outcome_rule.{key} is {}, not this checker's {want}",
+            candidate.name(),
+            rule.get(key).map_or("absent".to_string(), Value::to_string)
+        );
+    }
+    let outcome = p
+        .get("recipe")
+        .and_then(|r| r.get("tierb_outcome_rule"))
+        .and_then(Value::as_object)
+        .ok_or(
+            "the pre-registration has no recipe.tierb_outcome_rule object, the rule C2a / C2b name",
+        )?;
+    let envelope = outcome.get("envelope");
+    let rows = envelope.and_then(|e| e.get("rows"));
+    ensure!(
+        rows == Some(&json!(TIERB_ENVELOPE)),
+        "the pre-registration's recipe.tierb_outcome_rule.envelope.rows are {}, not this \
+         checker's {TIERB_ENVELOPE:?}",
+        rows.map_or("absent".to_string(), Value::to_string)
+    );
+    let metrics = envelope.and_then(|e| e.get("metrics"));
+    let want: Vec<&str> = TIERB_METRICS.iter().map(|m| m.name).collect();
+    ensure!(
+        metrics == Some(&json!(want)),
+        "the pre-registration's recipe.tierb_outcome_rule.envelope.metrics are {}, not this \
+         checker's {want:?}",
+        metrics.map_or("absent".to_string(), Value::to_string)
+    );
+    for (tail, phrase) in tierb_rule_text() {
+        let path: Vec<&str> = ["recipe", "tierb_outcome_rule"]
+            .iter()
+            .chain(tail)
+            .copied()
+            .collect();
+        says(p, &path, &phrase)?;
+    }
+    Ok(())
+}
+
+/// A count metric of a row, exactly.
+fn count_val(row: &Row, m: Metric) -> Result<(Frac, Rat)> {
+    let f = row.count("metrics", m.name)?;
+    Ok((
+        f,
+        Rat::of_count(f, &format!("row {} {}", row.id(), m.name))?,
+    ))
+}
+
+/// `ka * a - kb * b` as a fraction, for the JSON: over the shared denominator when the two have
+/// one (every val count here), else over their product.
+fn combined(ka: i128, a: Rat, kb: i128, b: Rat) -> Result<Value> {
+    let ((an, ad), (bn, bd)) = (a.parts(), b.parts());
+    let (n, d) = if ad == bd {
+        (ka * an - kb * bn, ad)
+    } else {
+        (ka * an * bd - kb * bn * ad, ad * bd)
+    };
+    // Denominators are at most MAX_DENOMINATOR (1e9), so both fit an i64; refuse if not.
+    let fit = |v: i128| i64::try_from(v).map_err(|_| format!("{v} does not fit the JSON's i64"));
+    Ok(json!({"n": fit(n)?, "n_total": fit(d)?}))
+}
+
+/// "Inside the envelope": neither above max nor below min by more than the range, the exact
+/// complement of `clears` in both directions.
+fn inside(c: Val, min: Val, max: Val) -> Result<bool> {
+    Ok(!clears(c, min, max, Dir::Higher)? && !clears(c, min, max, Dir::Lower)?)
+}
+
+/// The envelope of one metric: its three rows' values, min and max (a range of 0 refuses).
+struct TierbEnvelope {
+    metric: Metric,
+    min: Val,
+    max: Val,
+    json: Value,
+}
+
+impl TierbEnvelope {
+    fn of(metric: Metric, rows: &[&Row]) -> Result<TierbEnvelope> {
+        let mut values = Vec::new();
+        let mut shown = Vec::new();
+        for r in rows {
+            let (f, rat) = count_val(r, metric)?;
+            values.push(Val::Exact(rat));
+            shown.push(json!({"row": r.id(), "n": f.k, "n_total": f.n, "value": f.f64()}));
+        }
+        let (min, max) = min_max(metric.name, &values)?;
+        ensure!(
+            cmp_val(min, max)? == std::cmp::Ordering::Less,
+            "{}: the envelope's range is 0 ({} on every row); a range of 0 refuses \
+             (envelope.inside), with no floor invented",
+            metric.name,
+            text(min)
+        );
+        let (Val::Exact(lo), Val::Exact(hi)) = (min, max) else {
+            return Err(format!("{}: the envelope is not exact counts", metric.name));
+        };
+        let json = json!({
+            "values": shown,
+            "min": min.json(),
+            "max": max.json(),
+            "range": combined(1, hi, 1, lo)?,
+            "inside_from": combined(2, lo, 1, hi)?,
+            "inside_to": combined(2, hi, 1, lo)?,
+        });
+        Ok(TierbEnvelope {
+            metric,
+            min,
+            max,
+            json,
+        })
+    }
+    /// One candidate row's value against this envelope, with the literal decimals beside it.
+    fn judge(&self, row: &Row) -> Result<(bool, Value)> {
+        let (f, rat) = count_val(row, self.metric)?;
+        let c = Val::Exact(rat);
+        let holds = inside(c, self.min, self.max)?;
+        let (bands, band_text) = TIERB_LITERAL
+            .iter()
+            .find(|(name, _, _)| *name == self.metric.name)
+            .map(|(_, bands, text)| (bands, *text))
+            .ok_or_else(|| format!("{}: no literal band", self.metric.name))?;
+        Ok((
+            holds,
+            json!({
+                "row": row.id(),
+                "candidate": c.json(),
+                "inside": holds,
+                "literal": {
+                    "band": band_text,
+                    "inside": bands.iter().any(|d| f.rounds_to(*d)),
+                    "role": "report-only: the design doc's printed decimals (the value printed \
+                             to one decimal percent lies in the band); it decides nothing",
+                },
+            }),
+        ))
+    }
+}
+
+/// The reference rows the rule names, each checked to be the row it names: the envelope rows,
+/// 7f2c11db (its identity keys at the pinned values), eeda5db4's CI (the pinned interval) and
+/// 58fd1532's gates (the pinned flags).
+struct TierbReference<'a> {
+    envelope: Vec<&'a Row>,
+    ft: &'a Row,
+    ci: Ci,
+    gates: Vec<(&'static str, bool)>,
+}
+
+fn tierb_reference<'a>(phase3: &'a Ledger, allgates: &'a Ledger) -> Result<TierbReference<'a>> {
+    let mut envelope = Vec::new();
+    for id in TIERB_ENVELOPE {
+        let r = phase3.by_id(id)?;
+        ensure!(
+            r.completed()
+                && r.str_at(&["run_kind"]) == Some("eval")
+                && r.tag() == Some(EVAL_TAG)
+                && r.get(&["recipe", "score_dtype"]).is_none(),
+            "envelope row {id} in {} is not a completed {EVAL_TAG} row scored in its training run \
+             (run_kind {:?}, status {:?}, tag {:?}, score_dtype {:?})",
+            phase3.shown,
+            r.str_at(&["run_kind"]),
+            r.str_at(&["status"]),
+            r.tag(),
+            r.get(&["recipe", "score_dtype"])
+        );
+        ensure!(
+            r.str_at(&["recipe", "val_shard_hash"]) == Some(TIERB_VAL_SHARD_HASH),
+            "envelope row {id}: recipe.val_shard_hash {:?} is not the pinned {TIERB_VAL_SHARD_HASH}",
+            r.str_at(&["recipe", "val_shard_hash"])
+        );
+        envelope.push(r);
+    }
+    let ft = ft_row(phase3, TIERB_SEED, TIERB_FT)?;
+    for (key, want, _) in tierb_identity() {
+        ensure!(
+            ft.get(&["recipe", key]) == Some(&want),
+            "reference ft row {TIERB_FT}: recipe.{key} is {}, not the pinned {want} \
+             (rows.identity)",
+            ft.get(&["recipe", key])
+                .map_or("absent".to_string(), Value::to_string)
+        );
+    }
+    let control = phase3.by_id(TIERB_CONTROL)?;
+    ensure!(
+        control.completed()
+            && control.str_at(&["recipe", "tool"]) == Some(LINEAR_CONTROL_TOOL)
+            && control.str_at(&["recipe", "eval_row_id"]) == Some(TIERB_ENVELOPE[0]),
+        "reference control row {TIERB_CONTROL} is not a completed {LINEAR_CONTROL_TOOL} row of \
+         {} (status {:?}, tool {:?}, eval_row_id {:?})",
+        TIERB_ENVELOPE[0],
+        control.str_at(&["status"]),
+        control.str_at(&["recipe", "tool"]),
+        control.str_at(&["recipe", "eval_row_id"])
+    );
+    let ci = paired_ci(control)?;
+    ensure!(
+        (ci.lo.ten_thousandths, ci.hi.ten_thousandths) == TIERB_CONTROL_CI,
+        "reference control row {TIERB_CONTROL}: its CI [{}, {}] is not the pinned [+0.1359, \
+         +0.1651]; the record and its row disagree",
+        ci.lo.text(),
+        ci.hi.text()
+    );
+    let all = allgates.by_id(TIERB_ALLGATES)?;
+    ensure!(
+        all.completed()
+            && all.str_at(&["run_kind"]) == Some("eval")
+            && all.tag() == Some(EVAL_TAG)
+            && scored_from(all, TIERB_SEED, TIERB_FT)
+            && all.str_at(&["recipe", "score_dtype"]) == Some("fp32")
+            && all.str_at(&["recipe", "val_shard_hash"]) == Some(TIERB_VAL_SHARD_HASH),
+        "reference all-gates row {TIERB_ALLGATES} in {} is not a completed fp32 {EVAL_TAG} \
+         re-score of {TIERB_FT} on val_shard_hash {TIERB_VAL_SHARD_HASH}",
+        allgates.shown
+    );
+    let row_gates = all
+        .get(&["gates"])
+        .and_then(Value::as_object)
+        .ok_or_else(|| format!("reference all-gates row {TIERB_ALLGATES}: no gates"))?;
+    let named: BTreeSet<&str> = TIERB_ALLGATES_GATES.iter().map(|(g, _)| *g).collect();
+    let recorded: BTreeSet<&str> = row_gates.keys().map(String::as_str).collect();
+    ensure!(
+        named == recorded,
+        "reference all-gates row {TIERB_ALLGATES}: gates {recorded:?}, not the pinned {named:?}"
+    );
+    let mut gates = Vec::new();
+    for (name, pinned) in TIERB_ALLGATES_GATES {
+        let g = &row_gates[name];
+        let state = g.get("state").and_then(Value::as_str);
+        let got = match state {
+            Some("ran") => Some(g.get("passed").and_then(Value::as_bool).ok_or_else(|| {
+                format!("reference all-gates row {TIERB_ALLGATES}: gates.{name} ran with no passed")
+            })?),
+            _ => None,
+        };
+        ensure!(
+            got == pinned,
+            "reference all-gates row {TIERB_ALLGATES}: gates.{name} is {state:?} with passed \
+             {got:?}, not the pinned {pinned:?} (ran with that passed, or not ran)"
+        );
+        if let Some(passed) = got {
+            gates.push((name, passed));
+        }
+    }
+    Ok(TierbReference {
+        envelope,
+        ft,
+        ci,
+        gates,
+    })
+}
+
+/// (ix) The Tier-B outcome rule for one candidate: `recipe.tierb_outcome_rule` of the v5
+/// pre-registration, applied as written there and as amended by Fable on 2026-10-03
+/// (AUDIT/tierb-outcome-2026-10-03/fable-tierb-outcome-ruling.md). In the file's own words:
+///
+/// * envelope.inside: "a value is inside iff it lands neither above the envelope's max nor below
+///   its min by MORE than the envelope's range (max - min): 2*min - max <= c <= 2*max - min, the
+///   exact complement of the successor's clears test in both directions, compared on the rows'
+///   integer counts by cross-multiplication, never the float. On these rows: choice 2325-2328 of
+///   2332 (range 1), span 2046-2052 of 2053 (range 2), computed at run time. A range of 0
+///   refuses."
+/// * envelope.literal: "the design doc's printed decimals (choice 99.7-99.8%, span 99.8-99.9%)
+///   are written to the JSON beside each value, report-only; they decide nothing"
+/// * clause 1: "the training run's eval row: val_top1.choice and val_top1.span each inside the
+///   envelope"
+/// * clause 2: "the control row's gates.paired_margin_vs_linear 95% CI, parsed from its detail
+///   string (the only place the CI is recorded; GAP-LINEAR-CONTROL-CI-ONLY-IN-DETAIL-STRING-
+///   2026-10-03) in exactly the form qd_train.eval_harness.paired_margin_test writes, intersects
+///   eeda5db4-0e99-415c-9a9d-5bd0efc8b71b's [+0.1359, +0.1651] (lo <= other hi and other lo <=
+///   hi, on the printed four-decimal bounds as integers); a detail that does not parse exactly, a
+///   printed point that disagrees with the gate's value, or a passed flag that disagrees with lo
+///   > 0 refuses"
+/// * clause 3: "the all-gates row: val_top1.choice and val_top1.span each inside the same
+///   envelope, and every gate whose state is ran in 58fd1532-3239-41eb-a506-33ba10079425
+///   (ledger/gh200-allgates-2026-09-30.jsonl; phase-3 seed 0's fp32 all-gates re-score of the
+///   masked path) is ran with the same passed in the candidate's all-gates row; a gate ran there
+///   and not_run in the candidate refuses. Flags only: no value comparison on needle, OOD or
+///   permutation beyond the envelope."
+/// * word: "pass iff clauses 1, 2 and 3 all hold; fail iff every input was read and some clause
+///   does not hold; refused otherwise (exit 3). Never pass by absence."
+///
+/// The rows (rows.candidate, rows.identity): exactly one completed ft row tagged epoch at seed 0
+/// (`Ledger::one`), not quick (`one_configuration`); its completed epoch-score-val rows
+/// (`scored_from`) are exactly one without score_dtype (the training run's) and one with
+/// score_dtype fp32 carrying the needle and OOD suites (the all-gates re-score), and any other
+/// dtype refuses; exactly one completed tools/ft_linear_control.py row of the first
+/// (`control_row_of`). The ft recipe agrees with 7f2c11db's on the eight identity keys
+/// (`same_recipe_keys`; 7f2c11db's own values are checked against the pinned ones), carries the
+/// candidate's key and value and not the other candidate's (`Candidate::other`); both eval rows
+/// carry the pinned val_shard_hash.
+///
+/// How the pre-registration is checked (`tierb_agrees`): its structured fields (the conditional's
+/// checker, words, on-word, rule and candidate_recipe; envelope.rows and envelope.metrics) must
+/// equal this code's; its prose fields must each contain the phrases of `tierb_rule_text`, which
+/// are every pinned id and hash in the field that names it, each identity key with its value, and
+/// the readings above in the amendment's words. Containment, not equality, so a typo fixed
+/// elsewhere in a sentence does not refuse, while any change to a pinned id, hash, bound or reading
+/// does. The DRAFT is accepted (this decision is taken before the rename) and `draft` records
+/// which file was read.
+///
+/// The control CI's printed bounds decide clause 2 as integers in ten-thousandths. At a rounding
+/// edge where the printed text cannot show what the float decided (lo "+0.0000" with passed true),
+/// `paired_ci` refuses rather than guess. Clause 1 is a low-power instrument at a 99.7% ceiling
+/// (the pre-registration's `power`): the control CI and the gate flags carry the test.
+fn rule_tierb(
+    inputs: &mut Inputs,
+    candidate: Candidate,
+    ledger: &Path,
+    phase3: &Path,
+    allgates: &Path,
+    preregistration: &Path,
+) -> Result<(String, Value)> {
+    let (p, prereg_sha256) = inputs.read_preregistration(preregistration)?;
+    let draft = p.contains_key("draft");
+    tierb_agrees(&p, candidate)?;
+    let phase3 = inputs.read(phase3)?;
+    let allgates = inputs.read(allgates)?;
+    let ledger = inputs.read(ledger)?;
+    let reference = tierb_reference(&phase3, &allgates)?;
+
+    // The candidate's ft row, its identity and its own key.
+    let ft = ledger.one(
+        "ft",
+        "epoch",
+        &format!(
+            "seed {TIERB_SEED} (the {} candidate's training run)",
+            candidate.name()
+        ),
+        |r| r.seed() == Some(TIERB_SEED),
+    )?;
+    let ft_id = ft.id().to_string();
+    one_configuration(&ledger, &[(TIERB_SEED, ft_id.clone())])?;
+    let what = format!("the {} candidate's ft row {ft_id}", candidate.name());
+    let identity: Vec<(&str, Value)> = tierb_identity()
+        .into_iter()
+        .map(|(k, v, _)| (k, v))
+        .collect();
+    let keys: Vec<&str> = identity.iter().map(|(k, _)| *k).collect();
+    same_recipe_keys(ft, reference.ft, &keys, &what)?;
+    let recipe = recipe_of(ft, &what)?;
+    let (key, value) = candidate.key();
+    ensure!(
+        recipe.get(key) == Some(&value),
+        "{what}: recipe.{key} is {}, not the {} candidate's {value} (its candidate_recipe)",
+        recipe
+            .get(key)
+            .map_or("absent".to_string(), Value::to_string),
+        candidate.name()
+    );
+    let (other, allowed) = candidate.other();
+    if let Some(v) = recipe.get(other) {
+        ensure!(
+            Some(v) == allowed.as_ref(),
+            "{what}: recipe.{other} is {v}, the other candidate's key; each candidate is screened \
+             alone (rows.identity)"
+        );
+    }
+
+    // Its two score rows, told apart by score_dtype, and its linear control.
+    let scored = |r: &Row| {
+        r.completed()
+            && r.str_at(&["run_kind"]) == Some("eval")
+            && r.tag() == Some(EVAL_TAG)
+            && scored_from(r, TIERB_SEED, &ft_id)
+    };
+    for r in ledger.rows.iter().filter(|r| scored(r)) {
+        let dtype = r.get(&["recipe", "score_dtype"]);
+        ensure!(
+            dtype.is_none() || dtype == Some(&json!("fp32")),
+            "row {} scored from ft row {ft_id} has score_dtype {}: neither the training run's \
+             --score-val (no score_dtype) nor the all-gates re-score (fp32); which one decides is \
+             not this tool's call",
+            r.id(),
+            dtype.map_or("absent".to_string(), Value::to_string)
+        );
+    }
+    let train_eval = ledger.one(
+        "eval",
+        EVAL_TAG,
+        &format!(
+            "seed {TIERB_SEED} scored from ft row {ft_id} without score_dtype (the training \
+             run's --score-val)"
+        ),
+        |r| scored_from(r, TIERB_SEED, &ft_id) && r.get(&["recipe", "score_dtype"]).is_none(),
+    )?;
+    let all_eval = ledger.one(
+        "eval",
+        EVAL_TAG,
+        &format!(
+            "seed {TIERB_SEED} scored from ft row {ft_id} with score_dtype fp32 (the all-gates \
+             re-score)"
+        ),
+        |r| {
+            scored_from(r, TIERB_SEED, &ft_id)
+                && r.str_at(&["recipe", "score_dtype"]) == Some("fp32")
+        },
+    )?;
+    for suite in ["needle", "ood"] {
+        ensure!(
+            all_eval
+                .get(&["recipe", suite])
+                .is_some_and(Value::is_object),
+            "row {}: the fp32 re-score of ft row {ft_id} has no recipe.{suite} suite, so it is not \
+             the all-gates re-score (rows.candidate)",
+            all_eval.id()
+        );
+    }
+    for r in [train_eval, all_eval] {
+        same_recipe_keys(
+            r,
+            reference.envelope[0],
+            &["val_shard_hash"],
+            "rows.identity: the candidate's eval rows are scored on phase-3's val set",
+        )?;
+    }
+    let control = control_row_of(
+        &ledger,
+        train_eval,
+        "linear-control",
+        &format!("written by {LINEAR_CONTROL_TOOL}"),
+        |r| r.str_at(&["recipe", "tool"]) == Some(LINEAR_CONTROL_TOOL),
+    )?;
+    let ci = paired_ci(control)?;
+
+    // Every input is read; the clauses.
+    let envelope: Vec<TierbEnvelope> = TIERB_METRICS
+        .iter()
+        .map(|m| TierbEnvelope::of(*m, &reference.envelope))
+        .collect::<Result<_>>()?;
+    let mut c1 = Map::new();
+    let mut c3 = Map::new();
+    let (mut c1_holds, mut c3_holds) = (true, true);
+    for e in &envelope {
+        let (holds, j) = e.judge(train_eval)?;
+        c1_holds &= holds;
+        c1.insert(e.metric.name.to_string(), j);
+        let (holds, j) = e.judge(all_eval)?;
+        c3_holds &= holds;
+        c3.insert(e.metric.name.to_string(), j);
+    }
+    c1.insert("holds".into(), json!(c1_holds));
+    let c2_holds = ci.overlaps(&reference.ci);
+    let mut gates = Vec::new();
+    for (name, want) in &reference.gates {
+        let g = all_eval.ran("gates", name).map_err(|e| {
+            format!(
+                "clause 3: gate {name} ran in {TIERB_ALLGATES} but not in the candidate's \
+                 all-gates row {}, which refuses: {e}",
+                all_eval.id()
+            )
+        })?;
+        let got = g.get("passed").and_then(Value::as_bool).ok_or_else(|| {
+            format!(
+                "clause 3: row {} gates.{name} ran with no boolean passed",
+                all_eval.id()
+            )
+        })?;
+        c3_holds &= got == *want;
+        gates.push(json!({"gate": name, "reference_passed": want, "candidate_passed": got, "same": got == *want}));
+    }
+    c3.insert("gates".into(), json!(gates));
+    c3.insert("holds".into(), json!(c3_holds));
+
+    let pass = c1_holds && c2_holds && c3_holds;
+    let body = json!({
+        "candidate": candidate.name(),
+        "candidate_recipe": candidate.recipe(),
+        "preregistration": {"sha256": prereg_sha256, "draft": draft},
+        "rule": "pass iff clauses 1, 2 and 3 all hold; fail iff every input was read and some \
+                 clause does not hold; refused otherwise (recipe.tierb_outcome_rule.word)",
+        "rows": {
+            "ft": ft_id,
+            "eval": train_eval.id(),
+            "allgates": all_eval.id(),
+            "control": control.id(),
+            "reference": {
+                "envelope": TIERB_ENVELOPE,
+                "identity_ft": TIERB_FT,
+                "control": TIERB_CONTROL,
+                "allgates": TIERB_ALLGATES,
+            },
+        },
+        "identity": identity.into_iter().map(|(k, v)| (k.to_string(), v)).collect::<Map<_, _>>(),
+        "envelope": {
+            "rows": TIERB_ENVELOPE,
+            "ledger": phase3.shown,
+            "metrics": envelope
+                .iter()
+                .map(|e| (e.metric.name.to_string(), e.json.clone()))
+                .collect::<Map<_, _>>(),
+            "inside": "2*min - max <= c <= 2*max - min: neither clears(c, min, max, higher) nor \
+                       clears(c, min, max, lower), on the integer counts",
+        },
+        "clauses": {
+            "1": Value::Object(c1),
+            "2": {
+                "holds": c2_holds,
+                "candidate_ci": ci.json(),
+                "reference_ci": reference.ci.json(),
+                "rule": "candidate lo <= reference hi and reference lo <= candidate hi, in \
+                         ten-thousandths",
+            },
+            "3": Value::Object(c3),
+        },
+        "power": "clause 1 is a low-power instrument at a 99.7% ceiling: the amendment makes it \
+                  satisfiable, not sharp; the control CI and the gate flags carry the test",
+        "then": if pass {
+            "pass: the candidate's flag is on for v5 as its conditional says (C2a also needs both \
+             P2 shapes' latest verdict pass)"
+        } else {
+            "fail: the candidate's flag stays off for v5"
+        },
+    });
+    let word = if pass { TIERB_WORDS[0] } else { TIERB_WORDS[1] };
+    Ok((word.to_string(), body))
+}
+
 // --- look-ups ----------------------------------------------------------------------------------
 
 fn lookup_ft_rows(
@@ -4417,6 +5444,7 @@ fn rule_name(cmd: &Cmd) -> &'static str {
         Cmd::V5Pause { .. } => "v5_pause_after_seed_0",
         Cmd::V5Noulw { room: true, .. } => "v5_noul_weight_room",
         Cmd::V5Noulw { room: false, .. } => "v5_noul_weight",
+        Cmd::Tierb { .. } => "tierb_outcome",
         Cmd::FtRows { .. } => "ft_rows",
         Cmd::EvalRow { .. } => "eval_row",
     }
@@ -4433,6 +5461,7 @@ fn preregistration(cmd: &Cmd) -> &'static str {
         }
         | Cmd::V5Pause { .. }
         | Cmd::V5Noulw { .. } => PREREG_V5,
+        Cmd::Tierb { .. } => PREREG_TIERB,
         _ => PREREG,
     }
 }
@@ -4549,6 +5578,21 @@ fn run(cmd: &Cmd) -> Outcome {
                                   --room reads none; neither was given"
                 .to_string()),
         },
+        Cmd::Tierb {
+            candidate,
+            ledger,
+            phase3_ledger,
+            allgates_ledger,
+            preregistration,
+            ..
+        } => rule_tierb(
+            &mut inputs,
+            *candidate,
+            ledger,
+            phase3_ledger,
+            allgates_ledger,
+            preregistration,
+        ),
         Cmd::FtRows { ledger, ft_rows } => lookup_ft_rows(&mut inputs, ledger, ft_rows),
         Cmd::EvalRow {
             ledger,
@@ -4619,7 +5663,8 @@ fn main() -> ExitCode {
         | Cmd::J6a { out, .. }
         | Cmd::J6g { out, .. }
         | Cmd::V5Pause { out, .. }
-        | Cmd::V5Noulw { out, .. } => Some(out),
+        | Cmd::V5Noulw { out, .. }
+        | Cmd::Tierb { out, .. } => Some(out),
         Cmd::FtRows { .. } | Cmd::EvalRow { .. } => None,
     };
     if let Some(path) = out_path
@@ -8702,5 +9747,121 @@ mod tests {
                 assert_eq!(shown, m["f_seed0"].as_str().unwrap(), "{name}");
             }
         }
+    }
+
+    // --- (ix): tierb's CI parser ------------------------------------------------------------
+
+    const TIERB_P3: &str = "ledger/gh200-seed0-weights-2026-09-30.jsonl";
+    const EEDA_DETAIL: &str =
+        "paired margin +0.1501, 95% CI [+0.1359, +0.1651] over 10000 bootstrap resamples";
+
+    fn as_row(v: Value) -> Row {
+        let Value::Object(map) = v else {
+            panic!("not an object")
+        };
+        Row {
+            at: "test".into(),
+            map,
+        }
+    }
+
+    fn with_gate(detail: &str, value: f64, passed: bool) -> Row {
+        let mut v = real_row(TIERB_P3, "eeda5db4");
+        let g = &mut v["gates"][LINEAR_GATE];
+        g["detail"] = json!(detail);
+        g["value"] = json!(value);
+        g["passed"] = json!(passed);
+        as_row(v)
+    }
+
+    #[test]
+    fn eeda5db4s_exact_detail_parses_to_its_printed_integers() {
+        let row = as_row(real_row(TIERB_P3, "eeda5db4"));
+        assert_eq!(
+            row.str_at(&["gates", LINEAR_GATE, "detail"]),
+            Some(EEDA_DETAIL)
+        );
+        let ci = paired_ci(&row).unwrap();
+        assert_eq!(ci.point.ten_thousandths, 1501);
+        assert_eq!(
+            (ci.lo.ten_thousandths, ci.hi.ten_thousandths),
+            TIERB_CONTROL_CI
+        );
+        assert_eq!(ci.n_boot, CI_N_BOOT);
+        assert!(ci.passed);
+        assert!(ci.overlaps(&ci));
+    }
+
+    #[test]
+    fn each_suffix_form_renders_byte_for_byte_and_round_trips() {
+        let f = |s: &str| Fixed4::parse(s).unwrap();
+        // passed: no suffix.
+        assert_eq!(
+            ci_detail(f("+0.1501"), f("+0.1359"), f("+0.1651"), 10_000, true),
+            EEDA_DETAIL
+        );
+        // Straddling zero, and wholly below it: the harness's two sentences.
+        let straddles = ci_detail(f("+0.0010"), f("-0.0050"), f("+0.0070"), 10_000, false);
+        assert!(straddles.ends_with(CI_INCLUDES_ZERO), "{straddles}");
+        let below = ci_detail(f("-0.0100"), f("-0.0200"), f("-0.0050"), 10_000, false);
+        assert!(
+            below.ends_with(
+                "the baseline beats the model by 0.0100 and the comparison separates them"
+            ),
+            "{below}"
+        );
+        for (detail, value) in [(straddles, 0.001), (below, -0.01)] {
+            let ci = paired_ci(&with_gate(&detail, value, false)).unwrap();
+            assert!(!ci.passed);
+        }
+        // "-0.0000" keeps its sign: Python prints it for a negative hi that rounds to zero, and
+        // takes the below-zero branch for it.
+        let z = f("-0.0000");
+        assert!(z.negative && z.ten_thousandths == 0 && z.text() == "-0.0000");
+        assert_eq!(f("+0.0000").negated_plain(), "-0.0000");
+        assert_eq!(f("-0.0100").negated_plain(), "0.0100");
+    }
+
+    #[test]
+    fn a_number_off_the_four_decimal_form_does_not_parse() {
+        for bad in [
+            "0.1501", "+.1501", "+0.150", "+0.15010", "+1e-4", "+0.15a1", "", "+",
+        ] {
+            assert_eq!(Fixed4::parse(bad), None, "{bad}");
+        }
+        assert_eq!(
+            Fixed4::parse("+1.0000").map(|x| x.ten_thousandths),
+            Some(10_000)
+        );
+    }
+
+    #[test]
+    fn a_ci_at_a_rounding_edge_or_off_its_flag_refuses() {
+        // lo printed +0.0000 with passed true: the text cannot show lo > 0.
+        let edge =
+            "paired margin +0.0100, 95% CI [+0.0000, +0.0200] over 10000 bootstrap resamples";
+        let e = paired_ci(&with_gate(edge, 0.01, true)).unwrap_err();
+        assert!(e.contains("passes iff lo > 0"), "{e}");
+        // A trailing space is a byte off the form.
+        let e = paired_ci(&with_gate(
+            &format!("{EEDA_DETAIL} "),
+            0.150_085_763_293_310_47,
+            true,
+        ))
+        .unwrap_err();
+        assert!(
+            e.contains("not in the form paired_margin_test writes"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn inside_is_the_complement_of_clears_at_both_ends() {
+        let v = |k: i64| Val::Exact(Rat { num: k, den: 2332 });
+        let (min, max) = (v(2326), v(2327));
+        let got: Vec<i64> = (2320..=2332)
+            .filter(|&k| inside(v(k), min, max).unwrap())
+            .collect();
+        assert_eq!(got, vec![2325, 2326, 2327, 2328]);
     }
 }

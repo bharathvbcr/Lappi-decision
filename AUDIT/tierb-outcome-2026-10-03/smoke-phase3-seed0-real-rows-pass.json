@@ -1,0 +1,282 @@
+{
+  "decision": "pass",
+  "detail": {
+    "candidate": "nomask",
+    "candidate_recipe": {
+      "train_attention_mask": "none"
+    },
+    "clauses": {
+      "1": {
+        "holds": true,
+        "val_top1.choice": {
+          "candidate": {
+            "n": 2327,
+            "n_total": 2332,
+            "value": 0.9978559176672385
+          },
+          "inside": true,
+          "literal": {
+            "band": "99.7-99.8%",
+            "inside": true,
+            "role": "report-only: the design doc's printed decimals (the value printed to one decimal percent lies in the band); it decides nothing"
+          },
+          "row": "6d170b3c-5676-446b-b6be-5bb17d6d7aa0"
+        },
+        "val_top1.span": {
+          "candidate": {
+            "n": 2050,
+            "n_total": 2053,
+            "value": 0.9985387238188017
+          },
+          "inside": true,
+          "literal": {
+            "band": "99.8-99.9%",
+            "inside": true,
+            "role": "report-only: the design doc's printed decimals (the value printed to one decimal percent lies in the band); it decides nothing"
+          },
+          "row": "6d170b3c-5676-446b-b6be-5bb17d6d7aa0"
+        }
+      },
+      "2": {
+        "candidate_ci": {
+          "hi": 1651,
+          "lo": 1359,
+          "n_boot": 10000,
+          "passed": true,
+          "point": 1501,
+          "printed": "+0.1501 [+0.1359, +0.1651]",
+          "unit": "1e-4 (the printed four decimals as integers)"
+        },
+        "holds": true,
+        "reference_ci": {
+          "hi": 1651,
+          "lo": 1359,
+          "n_boot": 10000,
+          "passed": true,
+          "point": 1501,
+          "printed": "+0.1501 [+0.1359, +0.1651]",
+          "unit": "1e-4 (the printed four decimals as integers)"
+        },
+        "rule": "candidate lo <= reference hi and reference lo <= candidate hi, in ten-thousandths"
+      },
+      "3": {
+        "gates": [
+          {
+            "candidate_passed": true,
+            "gate": "ece",
+            "reference_passed": true,
+            "same": true
+          },
+          {
+            "candidate_passed": false,
+            "gate": "needle_hunk_recall",
+            "reference_passed": false,
+            "same": true
+          },
+          {
+            "candidate_passed": false,
+            "gate": "ood_abstain",
+            "reference_passed": false,
+            "same": true
+          },
+          {
+            "candidate_passed": true,
+            "gate": "permutation_consistency",
+            "reference_passed": true,
+            "same": true
+          }
+        ],
+        "holds": true,
+        "val_top1.choice": {
+          "candidate": {
+            "n": 2327,
+            "n_total": 2332,
+            "value": 0.9978559176672385
+          },
+          "inside": true,
+          "literal": {
+            "band": "99.7-99.8%",
+            "inside": true,
+            "role": "report-only: the design doc's printed decimals (the value printed to one decimal percent lies in the band); it decides nothing"
+          },
+          "row": "58fd1532-3239-41eb-a506-33ba10079425"
+        },
+        "val_top1.span": {
+          "candidate": {
+            "n": 2050,
+            "n_total": 2053,
+            "value": 0.9985387238188017
+          },
+          "inside": true,
+          "literal": {
+            "band": "99.8-99.9%",
+            "inside": true,
+            "role": "report-only: the design doc's printed decimals (the value printed to one decimal percent lies in the band); it decides nothing"
+          },
+          "row": "58fd1532-3239-41eb-a506-33ba10079425"
+        }
+      }
+    },
+    "envelope": {
+      "inside": "2*min - max <= c <= 2*max - min: neither clears(c, min, max, higher) nor clears(c, min, max, lower), on the integer counts",
+      "ledger": "/Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/ledger/gh200-seed0-weights-2026-09-30.jsonl",
+      "metrics": {
+        "val_top1.choice": {
+          "inside_from": {
+            "n": 2325,
+            "n_total": 2332
+          },
+          "inside_to": {
+            "n": 2328,
+            "n_total": 2332
+          },
+          "max": {
+            "n": 2327,
+            "n_total": 2332,
+            "value": 0.9978559176672385
+          },
+          "min": {
+            "n": 2326,
+            "n_total": 2332,
+            "value": 0.9974271012006861
+          },
+          "range": {
+            "n": 1,
+            "n_total": 2332
+          },
+          "values": [
+            {
+              "n": 2327,
+              "n_total": 2332,
+              "row": "6d170b3c-5676-446b-b6be-5bb17d6d7aa0",
+              "value": 0.9978559176672385
+            },
+            {
+              "n": 2326,
+              "n_total": 2332,
+              "row": "60f29b07-c7d1-41a9-a8e5-af96227206a6",
+              "value": 0.9974271012006861
+            },
+            {
+              "n": 2326,
+              "n_total": 2332,
+              "row": "5c19c0e8-0e8d-4aa9-b9c6-73febce8a57d",
+              "value": 0.9974271012006861
+            }
+          ]
+        },
+        "val_top1.span": {
+          "inside_from": {
+            "n": 2046,
+            "n_total": 2053
+          },
+          "inside_to": {
+            "n": 2052,
+            "n_total": 2053
+          },
+          "max": {
+            "n": 2050,
+            "n_total": 2053,
+            "value": 0.9985387238188017
+          },
+          "min": {
+            "n": 2048,
+            "n_total": 2053,
+            "value": 0.997564539698003
+          },
+          "range": {
+            "n": 2,
+            "n_total": 2053
+          },
+          "values": [
+            {
+              "n": 2050,
+              "n_total": 2053,
+              "row": "6d170b3c-5676-446b-b6be-5bb17d6d7aa0",
+              "value": 0.9985387238188017
+            },
+            {
+              "n": 2048,
+              "n_total": 2053,
+              "row": "60f29b07-c7d1-41a9-a8e5-af96227206a6",
+              "value": 0.997564539698003
+            },
+            {
+              "n": 2048,
+              "n_total": 2053,
+              "row": "5c19c0e8-0e8d-4aa9-b9c6-73febce8a57d",
+              "value": 0.997564539698003
+            }
+          ]
+        }
+      },
+      "rows": [
+        "6d170b3c-5676-446b-b6be-5bb17d6d7aa0",
+        "60f29b07-c7d1-41a9-a8e5-af96227206a6",
+        "5c19c0e8-0e8d-4aa9-b9c6-73febce8a57d"
+      ]
+    },
+    "identity": {
+      "backbone_snapshot": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
+      "batch_tokens": 16384,
+      "lr": 0.00001,
+      "no_memorise": true,
+      "optimizer_recipe": "master",
+      "passes": 1,
+      "shard_hash": "d773b87666e1b042279271ab0f891246b7268d4ce0cad2c3e677bb415c147e1a",
+      "tag": "epoch"
+    },
+    "power": "clause 1 is a low-power instrument at a 99.7% ceiling: the amendment makes it satisfiable, not sharp; the control CI and the gate flags carry the test",
+    "preregistration": {
+      "draft": true,
+      "sha256": "6a982214ec707ce6fffd2c11e02c8e327871edecdd4de3408099b6f1eee58138"
+    },
+    "rows": {
+      "allgates": "58fd1532-3239-41eb-a506-33ba10079425",
+      "control": "eeda5db4-0e99-415c-9a9d-5bd0efc8b71b",
+      "eval": "6d170b3c-5676-446b-b6be-5bb17d6d7aa0",
+      "ft": "7f2c11db-3eb8-4361-9620-6b164ec37f1e",
+      "reference": {
+        "allgates": "58fd1532-3239-41eb-a506-33ba10079425",
+        "control": "eeda5db4-0e99-415c-9a9d-5bd0efc8b71b",
+        "envelope": [
+          "6d170b3c-5676-446b-b6be-5bb17d6d7aa0",
+          "60f29b07-c7d1-41a9-a8e5-af96227206a6",
+          "5c19c0e8-0e8d-4aa9-b9c6-73febce8a57d"
+        ],
+        "identity_ft": "7f2c11db-3eb8-4361-9620-6b164ec37f1e"
+      }
+    },
+    "rule": "pass iff clauses 1, 2 and 3 all hold; fail iff every input was read and some clause does not hold; refused otherwise (recipe.tierb_outcome_rule.word)",
+    "then": "pass: the candidate's flag is on for v5 as its conditional says (C2a also needs both P2 shapes' latest verdict pass)"
+  },
+  "inputs": [
+    {
+      "bytes": 64737,
+      "path": "/Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/campaign/v5-preregistered.DRAFT.json",
+      "role": "preregistration",
+      "sha256": "6a982214ec707ce6fffd2c11e02c8e327871edecdd4de3408099b6f1eee58138"
+    },
+    {
+      "bytes": 89237,
+      "path": "/Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/ledger/gh200-seed0-weights-2026-09-30.jsonl",
+      "rows": 15,
+      "sha256": "79dfb12f17d6bb1476504c2d7081fbadc05b5d89ac11a964ff1227bb782b9262"
+    },
+    {
+      "bytes": 30075,
+      "path": "/Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/ledger/gh200-allgates-2026-09-30.jsonl",
+      "rows": 3,
+      "sha256": "64763fd82e8c4f4c6fcfe7d443829036d9ec2e5fbfca031b4f8c162b3bcaa7af"
+    },
+    {
+      "bytes": 29360,
+      "path": "/Users/bharath/Code/research/Lappi-decision/build/tierb-smoke-candidate.jsonl",
+      "rows": 4,
+      "sha256": "6b5c2b41c9fc9b8791736ed39a0df7766b47cd04c5641266a38c4f4754448b1a"
+    }
+  ],
+  "preregistration": "campaign/v5-preregistered.json recipe.tierb_outcome_rule and recipe.conditionals C2a / C2b (Fable's amendment of 2026-10-03; the DRAFT or the renamed file, read at run time, its sha256 and draft flag recorded)",
+  "rule": "tierb_outcome",
+  "tool": "qd-post-f-rules"
+}

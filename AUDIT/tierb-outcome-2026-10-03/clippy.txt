@@ -1,0 +1,33 @@
+mac_heavy: 2026-10-03T02:52:26Z 'tierb clippy' holds the lock (waited 0s; load 4.01, 1148 processes); running: cargo clippy -j 2 --manifest-path /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/Cargo.toml -p qd-runtime --all-targets -- -D warnings
+    Checking typenum v1.20.1
+    Checking utf8parse v0.2.2
+    Checking anstyle-parse v1.0.0
+    Checking serde_core v1.0.229
+    Checking generic-array v0.14.7
+    Checking colorchoice v1.0.5
+    Checking anstyle v1.0.14
+    Checking is_terminal_polyfill v1.70.2
+    Checking anstyle-query v1.1.5
+    Checking anstream v1.0.0
+    Checking block-buffer v0.10.4
+    Checking crypto-common v0.1.7
+    Checking libc v0.2.189
+    Checking clap_lex v1.1.0
+    Checking strsim v0.11.1
+    Checking clap_builder v4.6.6
+    Checking cpufeatures v0.2.17
+    Checking serde v1.0.229
+    Checking digest v0.10.7
+    Checking zmij v1.0.23
+    Checking itoa v1.0.18
+    Checking memchr v2.8.3
+    Checking cfg-if v1.0.4
+    Checking sha2 v0.10.9
+    Checking serde_json v1.0.151
+    Checking clap v4.6.6
+    Checking thiserror v2.0.20
+    Checking qd-lang v0.1.0 (/Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/crates/qd-lang)
+    Checking base64 v0.23.1
+    Checking qd-runtime v0.1.0 (/Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/crates/qd-runtime)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.01s
+mac_heavy: 2026-10-03T02:52:32Z 'tierb clippy' finished with exit 0

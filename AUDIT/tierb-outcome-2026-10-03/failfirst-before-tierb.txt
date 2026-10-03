@@ -1,0 +1,402 @@
+mac_heavy: 2026-10-03T02:27:50Z 'tierb checker test' waiting 0s for the lock; holder: label=hold for GitPulse spawn-storm batch steps 1-3 (peer 99751) pid=58529 start=2026-10-03T02:26:25Z cwd=/Users/bharath/Code/research/Lappi-decision 
+mac_heavy: 2026-10-03T02:32:50Z 'tierb checker test' holds the lock (waited 300s; load 3.23, 1148 processes); running: cargo test -j 2 --manifest-path /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/Cargo.toml -p qd-runtime --test post_f_rules_tierb --bin qd-post-f-rules -- --test-threads=2
+   Compiling qd-runtime v0.1.0 (/Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/crates/qd-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.71s
+     Running unittests src/bin/qd_post_f_rules.rs (build/v5-build-wt/target/debug/deps/qd_post_f_rules-bd20bf07533940cc)
+
+running 84 tests
+test tests::a_category_not_out_of_60_refuses ... ok
+test tests::a_ceilinged_j6g_target_refuses_under_r9_room ... ok
+test tests::a_ceilinged_j6a_target_refuses_under_r9_room ... ok
+test tests::a_cited_row_that_no_longer_prints_as_its_decimal_refuses ... ok
+test tests::a_gate_value_that_is_not_its_worst_bucket_refuses ... ok
+test tests::a_guard_at_its_bound_holds_and_one_count_past_it_loses ... ok
+test tests::a_choice_between_the_decimal_and_the_seed_minimum_fails_c ... ok
+test tests::a_j6a_recipe_delta_outside_the_declared_keys_refuses ... ok
+test tests::a_length_control_miss_blocks_j6f_and_not_j6dv4 ... ok
+test tests::a_malformed_line_refuses_even_a_half_written_last_one ... ok
+test tests::a_margin_off_its_integer_grid_refuses ... ok
+test tests::a_missing_arm_letter_control_row_refuses_even_when_j6f_alone_would_fire ... ok
+test tests::a_length_control_below_the_average_at_any_length_fails_b ... ok
+test tests::a_missing_arm_row_and_a_target_without_room_are_both_listed ... ok
+test tests::a_missing_avgnp_control_row_refuses_even_when_a_fails ... ok
+test tests::a_missing_metric_refuses_even_when_an_arm_would_fire ... ok
+test tests::a_missing_or_doubled_eval_row_refuses ... ok
+test tests::a_not_run_metric_or_a_row_that_did_not_complete_refuses ... ok
+test tests::a_not_run_metric_refuses ... ok
+test tests::a_missing_doubled_or_incomplete_j6g_row_refuses ... ok
+test tests::a_paired_margin_envelope_with_no_room_refuses_on_signed_fractions ... ok
+test tests::a_preregistration_that_disagrees_with_the_checker_refuses ... ok
+test tests::a_spread_of_exactly_0_30_is_quiet_and_one_hit_more_fires ... ok
+test tests::a_preregistration_that_disagrees_with_the_j6g_checker_refuses ... ok
+test tests::a_target_at_exactly_max_plus_range_does_not_fire_and_one_hit_more_does ... ok
+test tests::an_envelope_seed_that_is_quick_or_off_recipe_refuses ... ok
+test tests::an_envelope_that_does_not_resolve_decides_no_room ... ok
+test tests::an_f_seed_at_61_of_61_blocks_j6f_at_any_spread ... ok
+test tests::avgnp_needs_34_ood_abstentions_not_33 ... ok
+test tests::avgnp_qualifies_one_hit_above_the_average_everywhere ... ok
+test tests::both_arms_winning_refuses_and_keeps_both_verdicts ... ok
+test tests::a_tie_with_the_cited_row_passes_where_the_decimal_would_fail_it ... ok
+test tests::every_constant_is_the_preregistrations_own_text ... ok
+test tests::every_decimal_is_the_fraction_its_text_prints ... ok
+test tests::each_j6g_identity_difference_refuses ... ok
+test tests::every_j6a_target_ties_at_its_threshold_and_clears_one_count_past_it ... ok
+test tests::every_j6a_guard_holds_at_its_bound_and_loses_one_past_it ... ok
+test tests::every_j6g_target_ties_at_its_threshold_and_clears_one_count_past_it ... ok
+test tests::every_key_the_rule_reads_is_on_f_seed_0s_real_rows ... ok
+test tests::exact_forms_with_unequal_denominators_and_signed_margins ... ok
+test tests::f_seed_0s_own_rows_presented_as_j6g_refuse_on_identity ... ok
+test tests::ft_row_arguments_are_full_ids ... ok
+test tests::ft_rows_refuse_a_quick_row_another_recipe_or_a_wrong_seed ... ok
+test tests::j4_fires_j6f_on_the_needle_and_on_both_falsifiers ... ok
+test tests::every_j6g_guard_holds_at_its_bound_and_loses_one_past_it ... ok
+test tests::j4s_average_scored_as_avgnp_fails_a_with_b_and_c_passing ... ok
+test tests::j4s_seeds_spread_by_0_75_so_seeds_3_and_4_fire ... ok
+test tests::j4s_ft_rows_average_and_their_eval_rows_resolve ... ok
+test tests::j6a_must_be_quick_and_at_a502670 ... ok
+test tests::j6a_needs_no_control_or_letter_row ... ok
+test tests::j6a_eval_row_is_one_comparable_epoch_score_val_row ... ok
+test tests::j6a_on_fs_snapshot_or_off_its_pin_refuses ... ok
+test tests::j6a_refuses_while_amendments_are_pending ... ok
+test tests::j6a_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied ... ok
+test tests::j6b_against_j4_fires_on_the_real_rows ... ok
+test tests::j6b_against_j4_without_its_flags_is_refused_by_the_identity_check ... ok
+test tests::j6dv4_needs_no_needle_control_row_and_j6f_does ... ok
+test tests::j6dv4_needs_every_target_to_clear ... ok
+test tests::j6dv4_span_near_its_ceiling_refuses_and_never_fires_j6f ... ok
+test tests::j6f_alone_fires_and_j6dv4_alone_fires ... ok
+test tests::j6f_counts_a_seed_below_0_95_never_one_at_it_and_needs_two ... ok
+test tests::j6f_fires_on_prose_at_9_and_scrambled_at_8_and_not_one_above ... ok
+test tests::j6f_cannot_fire_when_twice_max_minus_min_reaches_1 ... ok
+test tests::j6g_is_compared_with_fs_seed_0_row_and_lists_every_identity_failure ... ok
+test tests::j6g_wins_or_is_quiet_in_its_own_words_and_records_what_it_applied ... ok
+test tests::j6g_eval_row_is_one_comparable_epoch_score_val_row ... ok
+test tests::letter_control_rows_are_selected_by_the_per_family_key ... ok
+test tests::no_room_iff_the_bound_itself_does_not_clear ... ok
+test tests::no_room_is_the_preregistered_count_form_in_both_directions ... ok
+test tests::quiet_when_both_arms_sit_inside_the_envelope ... ok
+test tests::room_bounds_are_the_preregistered_ones_and_nothing_else ... ok
+test tests::room_is_decided_for_every_target_and_for_no_guard ... ok
+test tests::seeds_other_than_fs_three_refuse ... ok
+test tests::swapped_or_wrong_arm_rows_refuse ... ok
+test tests::the_envelope_is_fs_seeds_0_1_2_only ... ok
+test tests::malformed_amendments_or_flags_that_disagree_with_them_refuse ... ok
+test tests::the_j6a_rule_is_the_preregistrations_own_text ... ok
+test tests::the_leads_46_31_envelope_refuses_where_it_read_quiet ... ok
+test tests::the_j6g_rule_is_the_preregistrations_own_text ... ok
+test tests::the_successor_rule_is_the_preregistrations_own_text ... ok
+test tests::the_successor_still_refuses_an_arm_on_another_snapshot ... ok
+test tests::the_reading_is_the_preregistrations_own_text ... ok
+test tests::unseen_language_guards_j6dv4_and_not_j6f ... ok
+test tests::the_verdict_is_the_rows_and_differs_from_the_decimals_on_exactly_four_values ... ok
+
+test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+
+     Running tests/post_f_rules_tierb.rs (build/v5-build-wt/target/debug/deps/post_f_rules_tierb-9b0bcfd53d848248)
+
+running 21 tests
+test a_control_detail_off_the_harness_form_refuses ... FAILED
+test a_control_ci_that_misses_the_reference_fails_and_a_touching_one_overlaps ... FAILED
+test a_control_gate_that_did_not_run_refuses ... FAILED
+test a_gate_ran_in_the_reference_but_not_in_the_candidate_refuses ... FAILED
+test a_quick_candidate_ft_row_refuses ... FAILED
+test a_preregistration_that_disagrees_with_the_checker_refuses ... FAILED
+test a_reference_row_that_disagrees_with_the_pinned_record_refuses ... FAILED
+test a_range_of_zero_refuses ... FAILED
+test an_eval_row_on_another_val_set_refuses ... FAILED
+test a_synthetic_candidate_inside_every_clause_passes ... FAILED
+test an_identity_key_off_phase3_seed0_refuses ... FAILED
+test an_identity_or_clause_text_without_its_pinned_ids_refuses ... FAILED
+test each_candidate_row_missing_refuses ... FAILED
+test each_candidate_row_present_twice_refuses ... FAILED
+test eval_rows_that_cannot_be_told_apart_by_score_dtype_refuse ... FAILED
+test phase3_seed0s_real_rows_pass_as_either_candidate_against_the_real_draft ... FAILED
+test the_allgates_row_outside_the_envelope_or_with_another_flag_fails ... FAILED
+test the_candidates_own_key_is_required_and_the_others_refused ... FAILED
+test the_envelope_is_inside_exactly_at_2min_minus_max_and_2max_minus_min ... FAILED
+test the_draft_and_the_renamed_file_both_bind_and_say_which_was_read ... FAILED
+test the_two_not_a_win_forms_parse_and_fail ... FAILED
+
+failures:
+
+---- a_control_detail_off_the_harness_form_refuses stdout ----
+
+thread 'a_control_detail_off_the_harness_form_refuses' (15043564) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:490:9:
+assertion `left == right` failed: "paired margin +0.1501, 95% CI [+0.1359, +0.1651] over 10000 bootstrap resamples.": error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_control_ci_that_misses_the_reference_fails_and_a_touching_one_overlaps stdout ----
+
+thread 'a_control_ci_that_misses_the_reference_fails_and_a_touching_one_overlaps' (15043563) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:110:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "pass"
+
+---- a_control_gate_that_did_not_run_refuses stdout ----
+
+thread 'a_control_gate_that_did_not_run_refuses' (15043638) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:104:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- a_gate_ran_in_the_reference_but_not_in_the_candidate_refuses stdout ----
+
+thread 'a_gate_ran_in_the_reference_but_not_in_the_candidate_refuses' (15043639) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:104:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- a_quick_candidate_ft_row_refuses stdout ----
+
+thread 'a_quick_candidate_ft_row_refuses' (15043652) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:104:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- a_preregistration_that_disagrees_with_the_checker_refuses stdout ----
+
+thread 'a_preregistration_that_disagrees_with_the_checker_refuses' (15043651) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:104:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- a_reference_row_that_disagrees_with_the_pinned_record_refuses stdout ----
+
+thread 'a_reference_row_that_disagrees_with_the_pinned_record_refuses' (15043674) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:104:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- a_range_of_zero_refuses stdout ----
+
+thread 'a_range_of_zero_refuses' (15043672) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:104:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- an_eval_row_on_another_val_set_refuses stdout ----
+
+thread 'an_eval_row_on_another_val_set_refuses' (15043691) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:104:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- a_synthetic_candidate_inside_every_clause_passes stdout ----
+
+thread 'a_synthetic_candidate_inside_every_clause_passes' (15043690) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:110:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "pass"
+
+---- an_identity_key_off_phase3_seed0_refuses stdout ----
+
+thread 'an_identity_key_off_phase3_seed0_refuses' (15043697) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:104:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- an_identity_or_clause_text_without_its_pinned_ids_refuses stdout ----
+
+thread 'an_identity_or_clause_text_without_its_pinned_ids_refuses' (15043698) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:104:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- each_candidate_row_missing_refuses stdout ----
+
+thread 'each_candidate_row_missing_refuses' (15043701) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:104:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- each_candidate_row_present_twice_refuses stdout ----
+
+thread 'each_candidate_row_present_twice_refuses' (15043704) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:104:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- eval_rows_that_cannot_be_told_apart_by_score_dtype_refuse stdout ----
+
+thread 'eval_rows_that_cannot_be_told_apart_by_score_dtype_refuse' (15043710) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:104:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- phase3_seed0s_real_rows_pass_as_either_candidate_against_the_real_draft stdout ----
+
+thread 'phase3_seed0s_real_rows_pass_as_either_candidate_against_the_real_draft' (15043716) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:110:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "pass"
+
+---- the_allgates_row_outside_the_envelope_or_with_another_flag_fails stdout ----
+
+thread 'the_allgates_row_outside_the_envelope_or_with_another_flag_fails' (15043720) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:110:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "fail"
+
+---- the_candidates_own_key_is_required_and_the_others_refused stdout ----
+
+thread 'the_candidates_own_key_is_required_and_the_others_refused' (15043721) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:104:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "refused"
+
+---- the_envelope_is_inside_exactly_at_2min_minus_max_and_2max_minus_min stdout ----
+
+thread 'the_envelope_is_inside_exactly_at_2min_minus_max_and_2max_minus_min' (15043789) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:110:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "pass"
+
+---- the_draft_and_the_renamed_file_both_bind_and_say_which_was_read stdout ----
+
+thread 'the_draft_and_the_renamed_file_both_bind_and_say_which_was_read' (15043762) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:110:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "pass"
+
+---- the_two_not_a_win_forms_parse_and_fail stdout ----
+
+thread 'the_two_not_a_win_forms_parse_and_fail' (15043814) panicked at crates/qd-runtime/tests/post_f_rules_tierb.rs:110:9:
+assertion `left == right` failed: error: unrecognized subcommand 'tierb'
+
+Usage: qd-post-f-rules <COMMAND>
+
+For more information, try '--help'.
+
+  left: ""
+ right: "fail"
+
+
+failures:
+    a_control_ci_that_misses_the_reference_fails_and_a_touching_one_overlaps
+    a_control_detail_off_the_harness_form_refuses
+    a_control_gate_that_did_not_run_refuses
+    a_gate_ran_in_the_reference_but_not_in_the_candidate_refuses
+    a_preregistration_that_disagrees_with_the_checker_refuses
+    a_quick_candidate_ft_row_refuses
+    a_range_of_zero_refuses
+    a_reference_row_that_disagrees_with_the_pinned_record_refuses
+    a_synthetic_candidate_inside_every_clause_passes
+    an_eval_row_on_another_val_set_refuses
+    an_identity_key_off_phase3_seed0_refuses
+    an_identity_or_clause_text_without_its_pinned_ids_refuses
+    each_candidate_row_missing_refuses
+    each_candidate_row_present_twice_refuses
+    eval_rows_that_cannot_be_told_apart_by_score_dtype_refuse
+    phase3_seed0s_real_rows_pass_as_either_candidate_against_the_real_draft
+    the_allgates_row_outside_the_envelope_or_with_another_flag_fails
+    the_candidates_own_key_is_required_and_the_others_refused
+    the_draft_and_the_renamed_file_both_bind_and_say_which_was_read
+    the_envelope_is_inside_exactly_at_2min_minus_max_and_2max_minus_min
+    the_two_not_a_win_forms_parse_and_fail
+
+test result: FAILED. 0 passed; 21 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+error: test failed, to rerun pass `-p qd-runtime --test post_f_rules_tierb`
+mac_heavy: 2026-10-03T02:32:58Z 'tierb checker test' finished with exit 101
