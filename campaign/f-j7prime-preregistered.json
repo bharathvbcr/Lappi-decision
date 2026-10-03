@@ -45,7 +45,8 @@
     },
     "p2_timing": "item 8 keeps its position (a gap after item 3's decision rows), with one new precondition: before T1 starts, the amended rule is on main with its tests and the committed calibration .out, and the box overlay is rebuilt at that commit (perf_nomask_p2.sh --build <sha>, CPU, plus both dry runs); otherwise item 8 waits for the next gap. The P2 statistic's marginal GPU cost is ~$0 (the sessions also carry the det self-repeat and the speed/memory benchmarks). Item 9 unchanged: after J5', iff both shapes pass. The measured step-1 dev is quoted in the HANDOFF whatever it is; above 0.5% it is reported as a finding even though it passes.",
     "tier_a_goldens": "move onto det no-mask only after T1's self-repeat is bit-identical (two runs, plus one pair at shape B) and the outcome run passes; the old goldens stay the record for the masked path",
-    "screen": "alone, not combined with fused AdamW"
+    "screen": "alone, not combined with fused AdamW",
+    "decision_2026_10_03": "P2 inconclusive on shapes A and B (fail_applications empty on both; verdict rows in perf/nomask-p2-verdicts.jsonl, 16 arm rows in perf/ledger-nomask-p2.jsonl). Dropped by Fable's ruling under the human's delegation of 2026-10-03 (AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md, ruling 3): amending tau after reading P2 is the trap p2_amendment_2 named. No tau amendment. Item 9 (the no-mask outcome run) does not run, and v5 trains with the padding mask (V5_C2A=off)."
   },
   "f_seed_watch": "continue; no agent-executed kill beyond those in force (non-finite loss, gradient clipping, the 32,400 s cap, the eta rule). Soft rule, raised to the human and never a kill: from step >= 600, per hour (~35 progress lines) the median and max of loss; message the human if two consecutive hours have a median >= the previous hour's, if any hour's median exceeds the first post-warmup hour's, or if peak memory passes 80 GiB",
   "queue_after_f_done": [
