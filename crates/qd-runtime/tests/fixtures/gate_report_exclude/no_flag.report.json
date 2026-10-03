@@ -39,6 +39,54 @@
             "why": "absent on the eval row"
           },
           {
+            "name": "metrics.selective_risk.family.code.defect_class.p_top_ge_0.50",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.selective_risk.family.code.defect_class.p_top_ge_0.70",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.selective_risk.family.code.defect_class.p_top_ge_0.90",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.selective_risk.family.code.defect_class.p_top_ge_0.99",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.selective_risk.family.commonsense.multiple_choice.p_top_ge_0.50",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.selective_risk.family.commonsense.multiple_choice.p_top_ge_0.70",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.selective_risk.family.commonsense.multiple_choice.p_top_ge_0.90",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.selective_risk.family.commonsense.multiple_choice.p_top_ge_0.99",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.selective_risk.family.knowledge.multiple_choice.p_top_ge_0.50",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.selective_risk.family.knowledge.multiple_choice.p_top_ge_0.70",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.selective_risk.family.knowledge.multiple_choice.p_top_ge_0.90",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.selective_risk.family.knowledge.multiple_choice.p_top_ge_0.99",
+            "why": "absent on the eval row"
+          },
+          {
             "name": "metrics.needle_hunk_recall.depth.0-4k",
             "why": "absent on the eval row"
           },
@@ -71,11 +119,19 @@
             "why": "absent on the eval row"
           },
           {
+            "name": "metrics.degenerate_head.choice.k4.top_class_share",
+            "why": "absent on the eval row"
+          },
+          {
             "name": "metrics.ece.choice.k5",
             "why": "absent on the eval row"
           },
           {
             "name": "metrics.degenerate_head.choice.k5",
+            "why": "absent on the eval row"
+          },
+          {
+            "name": "metrics.degenerate_head.choice.k5.top_class_share",
             "why": "absent on the eval row"
           },
           {

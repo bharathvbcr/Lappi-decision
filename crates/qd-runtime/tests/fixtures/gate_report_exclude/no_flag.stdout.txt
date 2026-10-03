@@ -4,7 +4,7 @@ open human decisions: ece_population (fixture-gap-ece); promotion_population (fi
 
 === eval row fixture-eval-row-seed-7 (seed 7) ===
 verdicts verdicts.jsonl sha256 f00744e868c00a8d1947832616f4ab120a9f8afd88175bd23826b6a1a1b715c6: 550 lines (510 letter, 40 span); ledger eval.jsonl
-cross-check: 4 recorded numbers recomputed from the verdicts and equal; 29 not compared
+cross-check: 4 recorded numbers recomputed from the verdicts and equal; 43 not compared
 
 G1 -- pooled = the gate's population and its recorded verdict; per family is report-only: no pass/fail, because whether a gate's bar applies per family is the human's ruling (GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS)
   ece
