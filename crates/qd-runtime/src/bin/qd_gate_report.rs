@@ -768,6 +768,67 @@ fn in_distribution<'a>(
     out
 }
 
+/// `real_ft_run.SELECTIVE_RISK_GRID`: the p_top thresholds of the selective-risk readout.
+const SELECTIVE_RISK_GRID: [f64; 4] = [0.5, 0.7, 0.9, 0.99];
+
+/// Per in-distribution choice row: its decoded answer's probability and whether it was right.
+/// The same rows and last-write-wins as [`in_distribution`], so the two maps join by `row_id`.
+fn confident_answers<'a>(
+    letters: impl IntoIterator<Item = &'a Letter>,
+) -> BTreeMap<String, (f64, bool)> {
+    let mut out = BTreeMap::new();
+    for l in letters {
+        if !matches!(l.kind, SlotKind::Choice) || l.expected_abstain {
+            continue;
+        }
+        out.insert(l.row_id.clone(), (l.probs[l.top], l.correct));
+    }
+    out
+}
+
+/// `real_ft_run.selective_risk_metrics`, recomputed: per family and threshold, `n` wrong of
+/// `n_total` answered (not abstained, p_top at or above the threshold). A family with nothing
+/// answered must not be recorded as ran.
+fn selective_risk_checks(
+    checks: &mut Checks<'_>,
+    indist: &BTreeMap<String, (bool, Option<String>)>,
+    answers: &BTreeMap<String, (f64, bool)>,
+) -> Result<()> {
+    let mut by_family: BTreeMap<&str, Vec<(f64, bool)>> = BTreeMap::new();
+    for (row_id, (abstained, family)) in indist {
+        let Some(family) = family.as_deref() else {
+            return Ok(());
+        };
+        let entry = by_family.entry(family).or_default();
+        if *abstained {
+            continue;
+        }
+        let Some(answer) = answers.get(row_id) else {
+            return Err(format!("row {row_id} is in the in-distribution bound with no answer"));
+        };
+        entry.push(*answer);
+    }
+    for (family, rows) in &by_family {
+        for tau in SELECTIVE_RISK_GRID {
+            let name = format!("selective_risk.family.{family}.p_top_ge_{tau:.2}");
+            let answered: Vec<bool> = rows.iter().filter(|(p, _)| *p >= tau).map(|r| r.1).collect();
+            if answered.is_empty() {
+                if let Some(r) = checks.ran_state("metrics", &name) {
+                    return Err(format!(
+                        "metrics.{name}: the eval row records it ran ({:?}), the verdicts \
+                         answer no row at that threshold",
+                        r.get("value")
+                    ));
+                }
+                continue;
+            }
+            let wrong = answered.iter().filter(|ok| !**ok).count();
+            checks.share_of("metrics", &name, wrong, answered.len())?;
+        }
+    }
+    Ok(())
+}
+
 /// What was compared with the eval row, and what could not be.
 struct Checks<'a> {
     row: &'a EvalRow,
@@ -1169,6 +1230,9 @@ fn report_row(file: &VerdictFile, row: &EvalRow, suite: Option<&Vec<SuiteLine>>)
             k,
             n,
         )?;
+    }
+    if !asked.is_empty() {
+        selective_risk_checks(&mut checks, &indist, &confident_answers(&file.letters))?;
     }
     let mut ood_suite = Map::new();
     let mut needle_suite = Map::new();

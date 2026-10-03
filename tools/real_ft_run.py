@@ -6149,6 +6149,7 @@ def score_ood(
         scored, indist,
         choice_rule_abstentions(scored, val_second, val_second_pass.perms, gold_noul=True),
     ))
+    metrics.update(selective_risk_metrics(scored, indist))
     gate = ood_gate(
         ood_abstained=sum(ood.values()), ood_total=len(ood),
         in_abstained=in_k, in_total=len(indist),
@@ -6241,6 +6242,72 @@ def in_distribution_family_metrics(
             out[name] = Ran(
                 passed=True, value=k / len(flags), n=k, n_total=len(flags),
                 detail=f"{k} of {len(flags)}: {what}",
+            )
+    return out
+
+
+#: The p_top thresholds the selective-risk readout reports, fixed before any v5 row is read
+#: (campaign/v5-preregistered.DRAFT.json readings; AUDIT/hallucination-2026-10-03/). A grid, so
+#: nothing is chosen from it (rule 2): which threshold to serve is the calibration fit's, on val.
+SELECTIVE_RISK_GRID: Final[tuple[float, ...]] = (0.5, 0.7, 0.9, 0.99)
+
+
+def selective_risk_metrics(
+    scored: Mapping[str, object], indist: Mapping[str, bool],
+) -> dict[str, TriState]:
+    """REPORT-ONLY: how often the model answers wrong when it answers confidently.
+
+    ``selective_risk.family.{family_id}.p_top_ge_{tau:.2f}``, for each ``tau`` in
+    :data:`SELECTIVE_RISK_GRID`. The rows are the in-distribution bound's: ``indist``, the map
+    the gate reads, from :func:`choice_rule_abstentions`. A row counts as answered when the
+    runtime rule does not abstain on it and its decoded answer's probability (the first pass's
+    softmax over its own rows, uncalibrated) is at least ``tau``. ``n`` wrong of ``n_total``
+    answered, ``value`` their ratio. ``passed`` is True because a measurement carries no verdict.
+    A family with nothing answered at ``tau`` is :class:`NotRun` saying so. ``qd-gate-report``
+    recomputes every number.
+    """
+    rows: dict[str, tuple[object, float, bool]] = {}
+    for v in scored["verdicts"]:  # type: ignore[union-attr]
+        if v["kind"] != "choice" or bool(v["expected_abstain"]):
+            continue
+        z = np.asarray(v["row_logits"], dtype=np.float64)
+        z = np.exp(z - z.max())
+        p_top = float(z[int(v["top"])] / z.sum())  # type: ignore[call-overload]
+        rows[str(v["row_id"])] = (v.get("family_id"), p_top, bool(v["correct"]))
+    unknown = [r for r in indist if r not in rows]
+    if unknown:
+        raise SystemExit(f"{len(unknown)} in-distribution row(s) have no first-pass verdict, "
+                         f"e.g. {unknown[0]}")
+    missing = [r for r in indist if not isinstance(rows[r][0], str)]
+    if missing:
+        return {"selective_risk.family": NotRun(
+            reason=f"{len(missing)} of {len(indist)} choice rows {NO_FAMILY_REASON}")}
+    by_family: dict[str, list[tuple[float, bool]]] = {}
+    for row_id, abstained in indist.items():
+        family, p_top, correct = rows[row_id]
+        flags = by_family.setdefault(str(family), [])
+        if not abstained:
+            flags.append((p_top, correct))
+    out: dict[str, TriState] = {}
+    for family, answered_rows in sorted(by_family.items()):
+        in_bound = sum(1 for r in indist if rows[r][0] == family)
+        for tau in SELECTIVE_RISK_GRID:
+            name = f"selective_risk.family.{family}.p_top_ge_{tau:.2f}"
+            answered = [ok for p, ok in answered_rows if p >= tau]
+            if not answered:
+                out[name] = NotRun(reason=(
+                    f"no {family} val choice row is answered at p_top >= {tau:.2f} "
+                    f"(of {in_bound} in the in-distribution bound)"))
+                continue
+            wrong = sum(1 for ok in answered if not ok)
+            out[name] = Ran(
+                passed=True, value=wrong / len(answered), n=wrong, n_total=len(answered),
+                detail=(
+                    f"{wrong} wrong of {len(answered)} answered at p_top >= {tau:.2f}; "
+                    f"{in_bound - len(answered)} of the family's {in_bound} in-distribution "
+                    "rows abstained or fell below the threshold (uncalibrated p_top; "
+                    "report-only, not a gate)"
+                ),
             )
     return out
 

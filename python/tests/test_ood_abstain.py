@@ -91,8 +91,11 @@ PERM = (1, 2, 3, 0)  # position j shows the option first shown at PERM[j]
 
 
 def _v(row: str, top: int, *, expected: bool = False) -> dict[str, object]:
+    # row_logits and correct, as every real letter verdict carries them: the selective-risk
+    # readout (real_ft_run.selective_risk_metrics) reads both.
     return {"kind": "choice", "row_id": row, "slot_name": "defect_class", "top": top,
-            "noul_row": 4, "expected_abstain": expected}
+            "noul_row": 4, "expected_abstain": expected, "correct": False,
+            "row_logits": [4.0 if i == top else 0.0 for i in range(5)]}
 
 
 def test_the_runtime_rule_abstains_on_noul_in_either_pass_or_on_disagreement():

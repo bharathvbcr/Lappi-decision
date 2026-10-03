@@ -108,6 +108,16 @@ an aggregate hides exactly the failure it is meant to catch:
   `ood_abstain.in_distribution.family.{family_id}`, whose `n`/`n_total` sum to the gate or pooled
   metric they break down; `ood_abstain.in_distribution.gold_noul.family.{family_id}`, the rows
   that bound excludes by contract; and `ece.family.{family_id}.{kind}.k{...}`
+- Per family and per threshold on `SELECTIVE_RISK_GRID` (0.5, 0.7, 0.9, 0.99), also
+  **report-only**: `selective_risk.family.{family_id}.p_top_ge_{tau}`.
+  - `n` is the wrong answers out of `n_total` answered.
+  - The rows are the in-distribution bound's.
+  - A row counts as answered when the runtime rule does not abstain on it and its decoded
+    answer's uncalibrated probability is at least `tau`.
+  - These are the confident-wrong readings v5 pre-registers (AUDIT/hallucination-2026-10-03/).
+  - `qd-gate-report` recomputes them.
+- `degenerate_head.choice.{shape}.top_class_share`: the share of the most predicted class.
+  The verdict reads it under a share-only `degenerate_head_floor`.
 
 A key that was not computed is present with `state: "not_run"` and a reason, or absent entirely.
 It is **never** present with a zero value.

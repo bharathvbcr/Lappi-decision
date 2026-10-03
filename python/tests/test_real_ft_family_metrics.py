@@ -289,6 +289,7 @@ def _v(row_id: str, top: int, *, family: str | None, k: int = 4,
     v: dict[str, object] = {
         "kind": "choice", "row_id": row_id, "slot_name": "s", "top": top, "noul_row": k,
         "expected_abstain": expected, "correct": False,
+        "row_logits": [4.0 if i == top else 0.0 for i in range(k + 1)],
     }
     if family is not None:
         v["family_id"] = family
@@ -400,6 +401,10 @@ def test_score_ood_breaks_the_in_distribution_bound_down_by_family_and_counts_no
     )
     pooled = metrics["ood_abstain.in_distribution"]
     assert _counts(pooled) == (2, 5), "fa1 answered noul; fb0 moved under the derangement"
+    # The selective-risk readout rides the same in-distribution map (fa: fa0 and fa2 answered,
+    # both wrong in this fixture; fb: fb1 answered).
+    assert _counts(metrics["selective_risk.family.fa.p_top_ge_0.50"]) == (2, 2)
+    assert _counts(metrics["selective_risk.family.fb.p_top_ge_0.50"]) == (1, 1)
     families = _by_family(metrics, "ood_abstain.in_distribution")
     assert {f: _counts(s) for f, s in families.items()} == {"fa": (1, 3), "fb": (1, 2)}
     assert all(isinstance(s, Ran) and s.passed for s in families.values())
@@ -429,6 +434,45 @@ def _calibrated(family: str | None, n: int, start: int = 0) -> list[dict[str, ob
             v["family_id"] = family
         rows.append(v)
     return rows
+
+
+def _sr(row: str, family: str | None, logits: list[float], correct: bool) -> dict[str, object]:
+    v: dict[str, object] = {
+        "kind": "choice", "row_id": row, "slot_name": "s", "top": 0, "noul_row": 2,
+        "expected_abstain": False, "correct": correct, "row_logits": logits,
+    }
+    if family is not None:
+        v["family_id"] = family
+    return v
+
+
+def test_selective_risk_counts_wrong_answers_among_the_confidently_answered() -> None:
+    """AUDIT/hallucination-2026-10-03: per family and p_top threshold, ``n`` wrong of
+    ``n_total`` answered. A row the runtime rule abstains on is never answered; a row whose
+    answer's probability is under the threshold is not answered at that threshold."""
+    sure, unsure = [5.0, 0.0, 0.0], [1.0, 0.0, 0.0]  # p_top 0.9867 and 0.5761
+    scored = {"verdicts": [
+        _sr("a0", "fa", sure, True), _sr("a1", "fa", sure, False),
+        _sr("a2", "fa", unsure, False), _sr("a3", "fa", sure, False),
+        _sr("b0", "fb", sure, True),
+        {**_sr("g0", "fa", sure, False), "expected_abstain": True},  # outside the bound
+    ]}
+    indist = {"a0": False, "a1": False, "a2": False, "a3": True, "b0": True}
+    got = rft.selective_risk_metrics(scored, indist)
+    assert set(got) == {f"selective_risk.family.{f}.p_top_ge_{t:.2f}"
+                        for f in ("fa", "fb") for t in rft.SELECTIVE_RISK_GRID}
+    fa = _by_family(got, "selective_risk")
+    assert _counts(fa["fa.p_top_ge_0.50"]) == (2, 3), "a0 right, a1 and a2 wrong; a3 abstained"
+    assert _counts(fa["fa.p_top_ge_0.70"]) == (1, 2), "a2 falls below 0.70"
+    assert _counts(fa["fa.p_top_ge_0.90"]) == (1, 2)
+    assert isinstance(fa["fa.p_top_ge_0.99"], NotRun)
+    assert all(isinstance(fa[f"fb.p_top_ge_{t:.2f}"], NotRun) for t in rft.SELECTIVE_RISK_GRID)
+    assert all(s.passed for s in got.values() if isinstance(s, Ran)), "report-only"
+
+    nameless = {"verdicts": [_sr("x0", None, sure, True)]}
+    only = rft.selective_risk_metrics(nameless, {"x0": False})
+    assert set(only) == {"selective_risk.family"} and isinstance(only["selective_risk.family"],
+                                                                 NotRun)
 
 
 def test_ece_per_family_runs_above_the_floor_says_why_below_it_and_leaves_the_gate_alone() -> None:
