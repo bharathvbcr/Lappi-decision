@@ -19,5 +19,7 @@ path = "src/main.rs"
 # written out here (RFC 7693) because no blake2 crate is in [workspace.dependencies], and the
 # threads are std::thread::scope. The binary is cross-built for the aarch64 box, which has no
 # Rust toolchain, so every dependency added here is one more thing that has to cross-compile.
+# serde_json (pure Rust, already in the lock) parses the decision sources for `decisions`.
 [dependencies]
 clap.workspace = true
+serde_json.workspace = true

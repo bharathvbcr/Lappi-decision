@@ -71,6 +71,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from repo_git import git_bytes, git_text, require_full_sha, resolve_rev, tracked_paths
 
 from qd_data.config import DataConfig
+from qd_data.decisions import load_decision_pool
 from qd_data.dedupe import dedupe
 from qd_data.defect_class import (
     CHOICE_SLOT as DEFECT_CHOICE_SLOT,
@@ -1748,7 +1749,7 @@ def corpus_identity(
     *, rev: str, max_pairs: int, commitpackft: Path | None, defect_class: Path | None,
     defect_max_rows: int | None, repo_history: bool = True,
     general_record: Path | None = None, general_max_rows: int | None = None,
-    defect_noul: Path | None = None,
+    defect_noul: Path | None = None, decisions_pool: Path | None = None,
 ) -> dict[str, object]:
     """What this pipeline's corpus inputs are -- equally, what ``real_ft_run.ft_splits`` was
     called with -- as an attestation records them. The one owner: the replay attestation
@@ -1782,6 +1783,14 @@ def corpus_identity(
             {} if defect_noul is None else {
                 "defect_noul_examples_sha256": str(json.loads(
                     (defect_noul / "manifest.json").read_text(encoding="utf-8")
+                )["examples_sha256"]),
+            }
+        ),
+        # The general-decision pool, the same way: named only when given.
+        **(
+            {} if decisions_pool is None else {
+                "decisions_pool_examples_sha256": str(json.loads(
+                    (decisions_pool / "manifest.json").read_text(encoding="utf-8")
                 )["examples_sha256"]),
             }
         ),
@@ -2346,6 +2355,7 @@ def run(
     gate_set: Path | None = None,
     replay_exclude: Path | None = None,
     exclude_identity_keys: Path | None = None,
+    decisions_pool: Path | None = None,
 ) -> Measured:
     """Build, measure and write one shard set, and return what was measured.
 
@@ -2403,6 +2413,7 @@ def run(
                 ("--defect-class (the slice names its own base corpus)", defect_class),
                 ("--defect-noul", defect_noul),
                 ("--general-record", general_record),
+                ("--decisions-pool", decisions_pool),
                 ("--commitpackft", commitpackft),
                 ("--replay-shards", replay_shards or None),
                 ("--exclude-identity-keys (the slice's train side trains nothing)",
@@ -2437,10 +2448,11 @@ def run(
     if defect_class is not None:
         refuse_report_only_corpus(defect_class)
     if not repo_history and commitpackft is None and defect_class is None and (
-        general_record is None
+        general_record is None and decisions_pool is None
     ) and report_only_slice is None:
         raise SystemExit(
-            "--no-repo-history with no --commitpackft, --defect-class or --general-record "
+            "--no-repo-history with no --commitpackft, --defect-class, --general-record or "
+            "--decisions-pool "
             "reads no source at all; there would be nothing to build"
         )
     config = DataConfig()
@@ -2451,7 +2463,7 @@ def run(
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record,
         general_max_rows=general_max_rows if general_record is not None else None,
-        defect_noul=defect_noul,
+        defect_noul=defect_noul, decisions_pool=decisions_pool,
     )) if exclude_identity_keys is not None else {}
     if exclude_identity_keys is not None:
         # Verified now, before minutes of building: the same check runs again where it is
@@ -2569,6 +2581,20 @@ def run(
             f"capped={list(general.capped) or 'none'}, clinc domain map="
             f"{general.clinc_domain_map is not None}"
         )
+    if decisions_pool is not None:
+        # Read whole or refused (load_decision_pool): every decision about a row was made
+        # by qd-prep decisions, and its manifest names the rows by sha256.
+        pool = load_decision_pool(decisions_pool)
+        clash = sorted(set(pool.raw) & set(raw))
+        if clash:
+            raise SystemExit(f"--decisions-pool sources {clash} are already read by this run")
+        raw.update({source_id: list(rows) for source_id, rows in pool.raw.items()})
+        code_source += (
+            f"; general-decision pool {decisions_pool} (examples sha256 "
+            f"{pool.examples_sha256[:16]}; "
+            + ", ".join(f"{s} {len(r)}" for s, r in sorted(pool.raw.items())) + ")"
+        )
+        print(f"\ndecision pool: {({s: len(r) for s, r in sorted(pool.raw.items())})}")
     print(
         f"\ncorpus: {commits_n} real (commit, path) pairs, {spans_n} real prose "
         f"passages; blank_line_runs={blank_line_runs}; capped={capped or 'none'}"
@@ -3305,6 +3331,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--decisions-pool",
+        type=Path,
+        default=None,
+        help=(
+            "a general-decision pool written by `qd-prep decisions` (examples.jsonl and "
+            "manifest.json): typed-decision rows, already decontaminated, split by group "
+            "and capped; read whole and checked against the manifest's examples sha256."
+        ),
+    )
+    parser.add_argument(
         "--general-max-rows",
         type=int,
         default=DEFAULT_GENERAL_MAX_ROWS,
@@ -3441,6 +3477,7 @@ def main(argv: list[str] | None = None) -> int:
         "report_only_slice": args.report_only_slice, "gate_set": args.gate_set,
         "replay_exclude": args.replay_exclude,
         "exclude_identity_keys": args.exclude_identity_keys,
+        "decisions_pool": args.decisions_pool,
     }
     if args.ledger is None:
         run(**run_kwargs)
@@ -3502,6 +3539,12 @@ def main(argv: list[str] | None = None) -> int:
             args.general_record.read_bytes()
         ).hexdigest()
         recipe["general_max_rows"] = args.general_max_rows
+    if args.decisions_pool is not None:
+        # Only when used. The pool's examples sha256 names it; load_decision_pool refuses
+        # examples that no longer match the manifest.
+        recipe["decisions_pool_examples_sha256"] = str(json.loads(
+            (args.decisions_pool / "manifest.json").read_text(encoding="utf-8")
+        )["examples_sha256"])
     if args.replay_shards:
         recipe["replay_shards"] = True
     if args.replay_exclude is not None:

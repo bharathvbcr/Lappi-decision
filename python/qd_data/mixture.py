@@ -83,6 +83,7 @@ from .loaders import (
     RawRow,
     SourceUnavailableRefusal,
     SquadRow,
+    TypedDecisionRow,
 )
 from .render import (
     DEFAULT_CAPS,
@@ -1440,6 +1441,11 @@ def build_mixture(
                 ):
                     routed += 1
                     continue
+                # A decision-pool row names its own family (one source feeds six Open-Jev
+                # families), so it is that family's row, routed, not five refusals.
+                if isinstance(raw, TypedDecisionRow) and raw.family_id != family_id:
+                    routed += 1
+                    continue
                 try:
                     rows.append(
                         _dispatch(
@@ -1688,8 +1694,18 @@ def _dispatch(
         if isinstance(raw, MmluRow):
             return general.rewrite_mmlu(raw, family_id=family_id, index=index, config=config)
         return general.rewrite_csqa(raw, family_id=family_id, index=index, config=config)
+    if isinstance(raw, TypedDecisionRow):
+        # Local import: qd_data.decisions imports this module's `_request`/`_row` funnel.
+        from . import decisions
+
+        return decisions.rewrite_typed_decision(
+            raw, family_id=family_id, index=index, config=config
+        )
     raise RowRefused(
         reason_code="unknown_raw_row_type",
-        expected="CommitPackFtRow | ClincRow | SquadRow | DefectRow | MmluRow | CsqaRow",
+        expected=(
+            "CommitPackFtRow | ClincRow | SquadRow | DefectRow | MmluRow | CsqaRow | "
+            "TypedDecisionRow"
+        ),
         actual=type(raw).__name__,
     )

@@ -50,6 +50,7 @@ __all__ = [
     "RawRow",
     "SourceUnavailableRefusal",
     "SquadRow",
+    "TypedDecisionRow",
     "check_read_admitted",
     "fetch_rows",
     "load_agentpack",
@@ -58,6 +59,7 @@ __all__ = [
     "parse_csqa",
     "parse_mmlu",
     "parse_squad",
+    "parse_typed_decision",
     "read_jsonl",
 ]
 
@@ -279,7 +281,80 @@ class CsqaRow:
             )
 
 
-RawRow = CommitPackFtRow | ClincRow | SquadRow | MmluRow | CsqaRow
+@dataclass(frozen=True, slots=True)
+class TypedDecisionRow:
+    """One finished question of the general-decision pool (``qd-prep decisions``).
+
+    Every decision about the row -- source parsing, label rule, licence, structural
+    refusals, decontamination, split, caps -- was made in Rust; this type only mirrors the
+    pool's ``examples.jsonl`` line and refuses one that is not that shape. ``split`` is the
+    pool's own group-keyed draw, pinned through the source's split table. Gold is the
+    option's text or ``noul`` (Open-Jev's ``abstain``), never both.
+    """
+
+    example_id: str
+    source_id: str
+    family_id: str
+    stratum: str
+    split: str
+    group_key: str
+    licence: str
+    context: str
+    slot_name: str
+    options: tuple[str, ...]
+    gold_option: str | None
+    gold_noul: bool
+    label_basis: str
+
+    def __post_init__(self) -> None:
+        _check_pinned(self.source_id, self.split)
+        where = f"decision pool row {self.example_id!r}"
+        if self.gold_noul == (self.gold_option is not None):
+            raise MalformedRowRefusal(
+                expected="exactly one of gold_option and gold_noul",
+                actual=f"gold_option={self.gold_option!r}, gold_noul={self.gold_noul}",
+                detail=where,
+            )
+        if self.gold_option is not None and self.gold_option not in self.options:
+            raise MalformedRowRefusal(
+                expected=f"gold_option among {len(self.options)} options",
+                actual=self.gold_option[:80], detail=where,
+            )
+        if not self.group_key or not self.stratum.startswith(f"{self.family_id}/"):
+            raise MalformedRowRefusal(
+                expected=f"a group key and a stratum under {self.family_id!r}",
+                actual=f"group_key={self.group_key!r}, stratum={self.stratum!r}",
+                detail=where,
+            )
+
+
+def parse_typed_decision(raw: dict[str, Any], *, where: str) -> TypedDecisionRow:
+    """One ``examples.jsonl`` line of a decision pool."""
+    options = _req_str_list(raw, "options", where=where)
+    gold_option = raw.get("gold_option")
+    if gold_option is not None and not isinstance(gold_option, str):
+        raise MalformedRowRefusal(
+            expected="'gold_option' as str or null", actual=type(gold_option).__name__,
+            detail=where,
+        )
+    return TypedDecisionRow(
+        example_id=_req_str(raw, "id", where=where),
+        source_id=_req_str(raw, "source_id", where=where),
+        family_id=_req_str(raw, "family_id", where=where),
+        stratum=_req_str(raw, "stratum", where=where),
+        split=_req_str(raw, "split", where=where),
+        group_key=_req_str(raw, "group_key", where=where),
+        licence=_req_str(raw, "licence", where=where),
+        context=_req_str(raw, "context", where=where),
+        slot_name=_req_str(raw, "slot_name", where=where),
+        options=options,
+        gold_option=gold_option,
+        gold_noul=_req_bool(raw, "gold_noul", where=where),
+        label_basis=_req_str(raw, "label_basis", where=where),
+    )
+
+
+RawRow = CommitPackFtRow | ClincRow | SquadRow | MmluRow | CsqaRow | TypedDecisionRow
 
 
 def _req_int(raw: dict[str, Any], key: str, *, where: str) -> int:

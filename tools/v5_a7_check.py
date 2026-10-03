@@ -5,9 +5,17 @@ per-family val and held-out counts and identity-key sets equal to v4's for every
 family; CLINC val 1,572 (within_domain 1,571) and held-out 1,262 per family; any other
 difference refuses (rule 2).
 
+A build with the general-decision pool (``--decisions-pool``) adds that pool's families, and
+the amendment's A7 is "v4's families byte-equal, new families at the counts stated here"
+(``campaign/v5-preregistered.DRAFT.json`` data.sources, 0e8d35c). Pass the same pool with
+``--decisions-pool``: each pool family's val rows must be exactly the pool's val rows, by
+identity key, as ``qd_data.decisions.rewrite_typed_decision`` builds them (the pool's own
+manifest names how many), and it may have no held-out rows. Every v4 family's check is
+unchanged, and without the flag a pool family refuses as any unnamed family does.
+
     python tools/v5_a7_check.py \\
         --v4 /Users/bharath/qd-campaign/phase4-v4-2026-10-01 --v5 <v5 build --out> \\
-        --report <path.json>
+        [--decisions-pool <the pool the v5 build read>] --report <path.json>
 
 Both builds are read through ``qd_data.manifest.Manifest.read``, which re-derives each file's
 ``data_snapshot_hash`` and refuses an edited one. The v4 baseline is itself checked against the
@@ -86,6 +94,44 @@ GATE = A7Gate(
 )
 
 
+@dataclass(frozen=True, slots=True)
+class PoolExpectation:
+    """What a build that read a general-decision pool must hold of that pool's families:
+    ``val[family]`` is the identity keys of the pool's val rows; held-out holds none."""
+
+    examples_sha256: str
+    val: dict[str, Counter[str]]
+
+    def families(self) -> set[str]:
+        return set(self.val)
+
+
+def pool_expectation(pool_dir: Path) -> PoolExpectation:
+    """Every val row of the pool, rewritten as the pipeline rewrites it. The pool is read
+    through ``load_decision_pool`` (checked against its manifest's sha256), and the per-family
+    counts must equal the manifest's ``val_by_family``, so the numbers checked are the ones the
+    pool states."""
+    from qd_data.config import DataConfig
+    from qd_data.decisions import load_decision_pool, rewrite_typed_decision
+
+    pool = load_decision_pool(pool_dir)
+    config = DataConfig()
+    val: dict[str, Counter[str]] = {}
+    for rows in pool.raw.values():
+        for i, raw in enumerate(rows):
+            if raw.split != "val":
+                continue
+            row = rewrite_typed_decision(raw, family_id=raw.family_id, index=i, config=config)
+            val.setdefault(row.family_id, Counter())[row.identity_key] += 1
+    stated = pool.manifest.get("val_by_family")
+    got = {f: sum(c.values()) for f, c in val.items()}
+    if stated != got:
+        raise SystemExit(
+            f"{pool_dir}: the pool's val rows per family are {got}, its manifest states {stated}"
+        )
+    return PoolExpectation(examples_sha256=pool.examples_sha256, val=val)
+
+
 def _identities(manifest: Manifest) -> dict[str, Counter[str]]:
     out: dict[str, Counter[str]] = {}
     for entry in manifest.entries:
@@ -112,9 +158,11 @@ def _read(root: Path, split: str) -> Manifest:
     return manifest
 
 
-def check_split(v4: Manifest, v5: Manifest, split: str, gate: A7Gate) -> list[dict[str, Any]]:
-    """One result per family the gate, v4 or v5 names. Each carries ``passed`` and, when it
-    failed, every reason."""
+def check_split(
+    v4: Manifest, v5: Manifest, split: str, gate: A7Gate, pool: PoolExpectation | None = None
+) -> list[dict[str, Any]]:
+    """One result per family the gate, v4, v5 or the pool names. Each carries ``passed`` and,
+    when it failed, every reason."""
     ids4 = _identities(v4)
     ids5 = _identities(v5)
     oos5: dict[str, Counter[str]] = {}
@@ -123,7 +171,8 @@ def check_split(v4: Manifest, v5: Manifest, split: str, gate: A7Gate) -> list[di
             oos5.setdefault(entry.family_id, Counter())[entry.identity_key] += 1
     oos4 = sum(1 for e in v4.entries if e.repo_key.startswith(OOS_REPO_PREFIX))
     results: list[dict[str, Any]] = []
-    for family in sorted(gate.families(split) | set(ids4) | set(ids5)):
+    pool_families = pool.families() if pool is not None else set()
+    for family in sorted(gate.families(split) | set(ids4) | set(ids5) | pool_families):
         want = ids4.get(family, Counter())
         got = ids5.get(family, Counter())
         reasons: list[str] = []
@@ -133,7 +182,19 @@ def check_split(v4: Manifest, v5: Manifest, split: str, gate: A7Gate) -> list[di
             "v4": sum(want.values()),
             "v5": sum(got.values()),
         }
-        if family not in gate.families(split):
+        if pool is not None and family in pool_families and family not in gate.families(split):
+            row["kind"] = "decision-pool"
+            expected = pool.val.get(family, Counter()) if split == "val" else Counter()
+            row["expected"] = sum(expected.values())
+            if row["v4"]:
+                reasons.append(f"baseline: v4 has {row['v4']} {split} rows of a pool family")
+            row.update(_diff(expected, got))
+            if row["missing"] or row["extra"]:
+                reasons.append(
+                    f"identity keys differ from the pool's {split} rows: {row['missing']} "
+                    f"missing, {row['extra']} extra"
+                )
+        elif family not in gate.families(split):
             row["kind"] = "not in the gate"
             reasons.append(f"{family} is not a {split} family the gate names")
         elif family in gate.non_clinc[split]:
@@ -182,19 +243,28 @@ def check_split(v4: Manifest, v5: Manifest, split: str, gate: A7Gate) -> list[di
     return results
 
 
-def check(v4_root: Path, v5_root: Path, *, gate: A7Gate = GATE) -> dict[str, Any]:
+def check(
+    v4_root: Path, v5_root: Path, *, gate: A7Gate = GATE, decisions_pool: Path | None = None
+) -> dict[str, Any]:
+    pool = pool_expectation(decisions_pool) if decisions_pool is not None else None
     families: list[dict[str, Any]] = []
     snapshots: dict[str, dict[str, str]] = {}
     for split in SPLIT_PATHS:
         v4 = _read(v4_root, split)
         v5 = _read(v5_root, split)
         snapshots[split] = {"v4": v4.snapshot_hash(), "v5": v5.snapshot_hash()}
-        families.extend(check_split(v4, v5, split, gate))
+        families.extend(check_split(v4, v5, split, gate, pool))
     failed = [f"{r['split']}/{r['family']}" for r in families if not r["passed"]]
     return {
         "gate": "A7 (campaign/v5-preregistered.DRAFT.json amendments_pending[11])",
         "v4": str(v4_root),
         "v5": str(v5_root),
+        **(
+            {} if pool is None else {
+                "decisions_pool": str(decisions_pool),
+                "decisions_pool_examples_sha256": pool.examples_sha256,
+            }
+        ),
         "data_snapshot_hash": snapshots,
         "passed": not failed,
         "families_checked": len(families),
@@ -208,8 +278,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--v4", required=True, type=Path, help="v4 build root (holds data/)")
     p.add_argument("--v5", required=True, type=Path, help="v5 build root (holds data/)")
     p.add_argument("--report", type=Path, help="write the full report here as well")
+    p.add_argument(
+        "--decisions-pool", type=Path,
+        help="the general-decision pool the v5 build read (its --decisions-pool); its families "
+        "are checked against the pool's own val rows",
+    )
     args = p.parse_args(argv)
-    report = check(args.v4, args.v5)
+    report = check(args.v4, args.v5, decisions_pool=args.decisions_pool)
     text = json.dumps(report, indent=1) + "\n"
     if args.report:
         write_text_atomic(args.report, text)

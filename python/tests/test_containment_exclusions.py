@@ -126,8 +126,8 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
     """Characterization: every shard file, sequence index and manifest of a 60-pair build,
     timestamps aside, is the bytes the pipeline wrote before the flag existed.
 
-    Pinned at d554702 as d67c7de0.... It has moved twice since, each time by design and with
-    every moved byte accounted for. Neither move was a re-pin to whatever came out:
+    Pinned at d554702 as d67c7de0.... It has moved four times since, each time by design and
+    with every moved byte accounted for. No move was a re-pin to whatever came out:
 
     * L-v5-data -> 92299328...: the tokens, offsets and supervision are byte-identical. The
       headers differ only in five qd_data code fingerprints and their derived hashes, and the
@@ -139,14 +139,24 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
       target_index shifts by that delta; the other supervision arrays are identical. The headers
       gain prompt_format 2 and move only in fingerprints and derived fields. Unexplained: 0.
       See AUDIT/v5-fmt-characterization-2026-10-02/ and
-      GAP-L-V5FMT-CHARACTERIZATION-CRITERION-STALE-2026-10-02."""
+      GAP-L-V5FMT-CHARACTERIZATION-CRITERION-STALE-2026-10-02.
+    * b11e6e0 (CLINC not reportable) -> 9674f8fc..., unseen at the time because this test
+      skips on a host without the commitpackft download. A build at adbaec1 reproduces
+      3c9ae50a...; against it, 30 of 33 files are byte-identical and the three shard headers
+      differ only in code_fingerprint["sources.py"] and the shard_hash that covers it.
+    * The general-decision pool (bench v2 patch) -> d998d6d8...: against the 9674f8fc... build,
+      30 of 33 files are byte-identical, every manifest included (so admitted_source_ids and
+      data_snapshot_hash hold for a build without --decisions-pool), and the three headers
+      differ only in code_fingerprint (decisions.py added; loaders, manifest, mixture, sources
+      changed) and shard_hash. See
+      GAP-CHARACTERIZATION-PIN-STALE-SINCE-B11E6E0-SKIPPED-WITHOUT-COMMITPACKFT-2026-10-03."""
     pipeline = _pipeline_or_skip()
     pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev=PIN_REV, commitpackft=DOWNLOAD,
         val_shards=True, repo_history=False,
     )
     assert build_digest(tmp_path) == (
-        "3c9ae50a8d92783e5eed90cf4391048bd70033d6060d57b83c2fb43c24c3fa60"
+        "d998d6d8734a2e33a6fcc1d4fae82502d5f38ec020539ce9589a8e0f55d220ad"
     )
 
 

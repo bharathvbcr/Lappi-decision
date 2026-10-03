@@ -49,6 +49,10 @@ def test_exactly_these_sources_are_admitted_unattended() -> None:
         "bigcode/commitpackft", "clinc/clinc_oos", "rajpurkar/squad_v2",
         "qd-mutate/commitpackft", "cais/mmlu", "tau/commonsense_qa",
         "bharathvbcr/own-repositories",
+        # The general-decision sources (qd_data.decisions; user 2026-10-03, data folded into v5).
+        "ZefanCai/Open-Jev-v1.1", "tasksource/procedural-typed-decisions",
+        "LocalLLaMA/typed-decisions", "n4ze3m/typed-decisions-synth", "nvidia/HelpSteer2",
+        "Mapika/decider/teacher_data",
     }
 
 

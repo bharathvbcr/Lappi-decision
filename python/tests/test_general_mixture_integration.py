@@ -130,5 +130,6 @@ def test_unknown_raw_row_type_names_every_row_type_dispatch_accepts() -> None:
         )
     assert refused.value.reason_code == "unknown_raw_row_type"
     assert refused.value.expected == (
-        "CommitPackFtRow | ClincRow | SquadRow | DefectRow | MmluRow | CsqaRow"
+        "CommitPackFtRow | ClincRow | SquadRow | DefectRow | MmluRow | CsqaRow | "
+        "TypedDecisionRow"
     )

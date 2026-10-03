@@ -44,7 +44,7 @@ from .dedupe import DedupeReport
 from .mixture import MixtureResult
 from .rows import DataRow, row_content_hash
 from .schema import canonical_json
-from .sources import admitted_sources, refusal_report
+from .sources import DECISION_FAMILIES, admitted_sources, refusal_report
 from .split import SplitReport
 
 __all__ = [
@@ -302,7 +302,15 @@ def build_manifests(
     mixture_json = mixture.to_json()
     dedupe_json = dedupe_report.to_json()
     split_json = split_report.to_json()
-    admitted = tuple(sorted(s.source_id for s in admitted_sources(config.licence)))
+    # The general-decision pool's sources are named only when this build read them
+    # (`--decisions-pool`): admitted_source_ids is hashed, so naming them in every manifest
+    # would move every data_snapshot_hash -- and the exclusion lists pinned to it -- for a build
+    # that never touched the pool (lead review 2026-10-03).
+    pool_sources = {source_id for _, source_id, _ in DECISION_FAMILIES}
+    admitted = tuple(sorted(
+        s.source_id for s in admitted_sources(config.licence)
+        if s.source_id not in pool_sources or s.source_id in mixture.n_input
+    ))
     refused = {k: tuple(v) for k, v in refusal_report(config.licence).items()}
 
     out: dict[str, Manifest] = {}
