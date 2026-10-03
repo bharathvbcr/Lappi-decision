@@ -222,9 +222,14 @@ DevCouncil and DevType call". That reason is wrong in two ways.
   `devtype.*` or routing: `python/qd_data/sources.py` defines code.change_scope,
   code.commit_intent, code.defect_class, code.language_id, commonsense.multiple_choice,
   intent.{classification,domain,in_scope,within_domain}, knowledge.multiple_choice,
-  qa.answer_span and qa.answerability. Routing is not a held-out family either. Those are
-  code.language_id and qa.answerability (`crates/qd-train/src/held_out.rs:50-51`), so routing is
-  simply untrained.
+  qa.answer_span and qa.answerability. Routing is not one of the two task-holdout families,
+  which are code.language_id and qa.answerability (`crates/qd-train/src/held_out.rs:50-51`).
+  It is held out in a different sense: the plan's held-out data is "300 hand-labelled diffs ...
+  plus real DevType queries", never trained on (README.md:106-107 at HEAD). Neither set exists:
+  nobody has labelled the diffs, and no caller logs queries (docs/train-plan-2026-09-28.md:265-267 at HEAD). So a v6 routing family must train
+  on some other source, and real DevType queries judge it once they exist. Today DevType routes
+  palette queries to `resolveDate`, `runMacro` and `findSnippet` with Apple's on-device model
+  (`~/Code/apps/DevType/Sources/ExpanderEngine/AI/PaletteToolRouter.swift:7-10`).
 - **What remains true.** [I] DevCouncil's verdict is the defect decision: code.defect_class is
   the family it would call, and it is 84% of v4's tokens.
 
