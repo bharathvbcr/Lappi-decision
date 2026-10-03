@@ -1,0 +1,69 @@
+GPU idle gaps on the GH200 (lambda-1xgh200, 192-222-51-246), from /home/ubuntu/logs/gpu.csv
+(nvidia-smi samples every 15 s), read over ssh on 2026-10-03 at ~00:40Z. A gap is a run of samples
+with utilization < 10%; listed are gaps of at least 4 samples (>= 1 min), with the sample count
+x 15 s rounded down to minutes.
+
+Command (box, read-only):
+  awk -F", " 'NR>1 && $1 >= "2026/10/01 00:00" { t=substr($1,1,19); u=$2+0;
+    if (u<10) { if (!inGap) {start=t; n=0; inGap=1} n++ }
+    else { if (inGap) { if (n>=4) printf "%s +%dmin\n", start, n*15/60; total+=n; inGap=0 } } all++ }
+    END { ... }' /home/ubuntu/logs/gpu.csv
+
+Output:
+2026/10/01 00:00:08 +93min
+2026/10/01 01:41:53 +8min
+2026/10/01 01:57:38 +8min
+2026/10/01 02:13:38 +27min
+2026/10/01 03:48:39 +7min
+2026/10/01 05:25:54 +4min
+2026/10/01 05:59:55 +2min
+2026/10/01 06:29:55 +2min
+2026/10/01 06:59:40 +42min
+2026/10/01 13:20:42 +5min
+2026/10/01 13:26:57 +7min
+2026/10/01 13:34:27 +7min
+2026/10/01 13:41:57 +5min
+2026/10/01 13:50:27 +5min
+2026/10/01 14:11:27 +7min
+2026/10/01 14:21:27 +6min
+2026/10/01 14:30:27 +10min
+2026/10/01 15:04:42 +6min
+2026/10/01 15:28:43 +6min
+2026/10/01 17:21:58 +5min
+2026/10/01 17:45:58 +4min
+2026/10/01 17:52:58 +9min
+2026/10/01 23:36:30 +3min
+2026/10/01 23:43:30 +7min
+2026/10/02 05:25:02 +3min
+2026/10/02 05:32:02 +7min
+2026/10/02 11:13:33 +3min
+2026/10/02 11:20:18 +6min
+2026/10/02 12:18:19 +8min
+2026/10/02 12:44:04 +4min
+2026/10/02 12:51:34 +7min
+2026/10/02 18:32:51 +3min
+2026/10/02 18:39:36 +6min
+2026/10/03 00:20:52 +3min
+2026/10/03 00:27:37 +10min
+2026/10/03 00:37:52 +0min (open)
+samples 11671, idle samples in gaps >=1min: 1535 (6.4 h of 48.6 h)
+
+Reading (inferred, from the queue logs' timestamps):
+- Before ~13:00 on 2026-10-01 the long gaps (93, 27, 42 min) are launch and hand waits, from
+  before the post-F queue ran unattended.
+- From 2026-10-01 13:20 to 2026-10-03 00:37 (about 35 h), the gaps are 3-10 min each and sum to
+  about 152 min, ~7% of the window, ~$5.80 at $2.29/h. Each one lines up with the start of a
+  tools/real_ft_run.py invocation: a seed's score-val (+3 min after the ft row), its needle
+  control (+6-7 min), and each queued job.
+- Decomposed, 2026-10-03, from q-j7p_cpu.log, q-j7p.log and gpu.csv:
+  - 00:27:42-00:31:56, the CPU-only averaging before J7' may take gpu.lock:
+    - ckpt_average.py masters, 84 s (Python);
+    - avg-np, 140 s (Python);
+    - qd-export, 30 s (Rust).
+  - 00:32:13-00:37:30, J7''s real_ft_run.py --score-plan startup, ~318 s single-threaded before
+    the first GPU sample >= 50%:
+    - qd-prep minhash 42.2 s + LSH 6.0 s (Rust);
+    - the remaining ~4.5 min is Python, not yet profiled: val-set build, permutation pass,
+      needle and OOD suites, and the train shard-set pass over 289,142 rows / 306,926,895 tokens.
+- The box's 24 h idle share at 2026-10-02 22:10Z was 4.6% of samples under 10%
+  (5,798 samples).
