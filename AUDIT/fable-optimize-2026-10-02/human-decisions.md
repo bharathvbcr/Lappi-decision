@@ -68,6 +68,34 @@ The ruling is `fable-improve-and-mac-inference-ruling.md`, beside this file. Que
   - A new download needs the human's explicit yes, with filename, source and size stated; this message does not cover downloads.
 - The v5 pre-registration names each added source, its row count and its licence.
 
+### 10. Decisions to Fable; the budget ceiling lifted (2026-10-03)
+
+- The human, in the lead's session, in chat:
+  - ~13:14Z: "For decisions ask fable and proceed with them";
+  - ~14:40Z: "Ask fable for decision, I don't care about budget if it's gonna be a great model".
+- Effect:
+  - The open rulings are Fable's, recorded with decided_by "the human, by delegation (...), ruled
+    by Fable".
+  - The cost ceiling on v5 ($137 projected) is lifted. Fable's rulings of 2026-10-03 under it:
+    - the full admitted decision-data set, still quality-capped;
+    - v5 main-arm seeds 3-4;
+    - the calibration fit reopened as a CPU lane, with c = 2.
+    The record is AUDIT/hallucination-2026-10-03/ and the v5 draft's amendments.
+  - The calibration fit was put to the human directly, as item 3 of
+    AUDIT/finalize-2026-10-03/report-to-human-2026-10-03.md, and the human handed it to Fable. That
+    is why it reopens despite the bench-session "no calibration bind in v5".
+- Four limits still hold. The sentence does not cover them:
+  - Rule 4 is unchanged. Every job carries its wall-clock cap, auto-terminate and cost estimate.
+  - The draft's launch rule still fires. At launch the human sees the final plan, cost and
+    timeline and says go; the cost half is answered in advance.
+  - Downloads still need the human's per-action yes, with filename, source and size. Fable cannot
+    grant them, and neither can this sentence.
+  - The hold on the v5 data build until the human reports the Apple Diagnostics result stands.
+- What stays v6 whatever the budget, per Fable: soft-label loss, score slots, the exact
+  expected-reward loss, a p_top runtime rule, and self-labelled abstention. The human's "data
+  only" for v5 (bench session) was a scoping answer, and cost does not reopen it. Stacking
+  untested recipe changes into one run would also make its result unattributable.
+
 ## Still open (the human's, unchanged by these answers)
 
 - G1 / `promotion_population`: on MMLU, permutation consistency and the in-distribution abstention cap cannot both pass under the pooled population (GAP-ABSTAIN-GATE-IN-DIST-EQUALS-PERMUTATION-DISAGREEMENT-2026-10-02).
