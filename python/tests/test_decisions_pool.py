@@ -451,7 +451,7 @@ def test_a7_counts_a_pool_val_row_the_build_refuses_as_refused_not_missing(
                         val_by_family={"openjev.policy": 2})
     idents = _pool_val_identities(plain)
     marked = _line(id="openjev:v9", split="val", group_key="v9",
-                   context="Which candidate‎ satisfies requirement 9?\n\n{\"n\": 9}")
+                   context="Which candidate\u200e satisfies requirement 9?\n\n{\"n\": 9}")
     lines = [*_pool_val_lines(), marked]
     pool = _write_pool(tmp_path / "pool", lines, val_by_family={"openjev.policy": 3})
     v4, v5, gate = _a7_builds(tmp_path, val_extra=_pool_rows(idents))
@@ -469,6 +469,72 @@ def test_a7_counts_a_pool_val_row_the_build_refuses_as_refused_not_missing(
     short = _write_pool(tmp_path / "short", lines, val_by_family={"openjev.policy": 2})
     with pytest.raises(SystemExit, match=r"built \+ refused"):
         check(v4, v5, gate=gate, decisions_pool=short)
+
+
+def _dedupe_report(path: Path, *, kept: str, dropped: str) -> Path:
+    """A build's --dedupe-report-out, as DedupeReport.to_json() writes it: one exact-content
+    cluster (the path the pool's rows take) keeping ``kept`` and removing ``dropped``."""
+    path.write_text(json.dumps({"clusters": [], "exact_content_clusters": [{
+        "digest": "d", "kept_unit_key": f"{kept}|d", "minhash_unit_key": None,
+        "dropped_unit_keys": [f"{dropped}|d"], "repo_keys": [], "n_rows_dropped": 1,
+    }]}), encoding="utf-8")
+    return path
+
+
+def test_a7_reading_c_counts_a_pool_val_row_deduplicated_against_another_val_row(
+    tmp_path: Path,
+) -> None:
+    """Reading C (the human, ~22:27Z 2026-10-03, AUDIT/finalize-2026-10-03/
+    human-answers-2026-10-03-a7-reading-c.md): a pool val row that dedupe removed in favour of
+    a val row of the same family is counted as deduplicated within val and named, not missing,
+    when the build's own dedupe report shows it. Without the report it still refuses. Fails
+    before reading C: check() took no dedupe_report."""
+    from v5_a7_check import check
+
+    pool = _write_pool(tmp_path / "pool", _pool_val_lines(), val_by_family={"openjev.policy": 2})
+    kept, lost = _pool_val_identities(pool)
+    v4, v5, gate = _a7_builds(tmp_path, val_extra=_pool_rows([kept]))
+    assert not check(v4, v5, gate=gate, decisions_pool=pool)["passed"]
+    evidence = _dedupe_report(tmp_path / "dedupe.json", kept=kept, dropped=lost)
+    report = check(v4, v5, gate=gate, decisions_pool=pool, dedupe_report=evidence)
+    assert report["passed"], [r for r in report["families"] if not r["passed"]]
+    row = next(r for r in report["families"]
+               if r["split"] == "val" and r["family"] == "openjev.policy")
+    assert (row["missing"], row["deduplicated_within_val"], row["deduplicated_within_val_keys"]) == (
+        0, 1, [[lost, kept]]
+    )
+    assert report["dedupe_report_sha256"] == hashlib.sha256(evidence.read_bytes()).hexdigest()
+
+
+def test_a7_reading_c_still_refuses_a_val_row_removed_for_a_train_row(tmp_path: Path) -> None:
+    """The knock-out reading C does not cover: the unit kept in the val row's place is a train
+    row (no v5 val row), so the row is missing and A7 refuses."""
+    from v5_a7_check import check
+
+    pool = _write_pool(tmp_path / "pool", _pool_val_lines(), val_by_family={"openjev.policy": 2})
+    kept, lost = _pool_val_identities(pool)
+    v4, v5, gate = _a7_builds(tmp_path, val_extra=_pool_rows([kept]))
+    evidence = _dedupe_report(tmp_path / "dedupe.json", kept="openjev.policy-train:t0::x",
+                              dropped=lost)
+    report = check(v4, v5, gate=gate, decisions_pool=pool, dedupe_report=evidence)
+    [row] = [r for r in report["families"] if not r["passed"]]
+    assert (row["family"], row["missing"], row["deduplicated_within_val"]) == (
+        "openjev.policy", 1, 0
+    )
+
+
+def test_a7_reading_c_refuses_a_report_that_is_not_this_builds(tmp_path: Path) -> None:
+    """A report that removed a row v5's val holds was written for another build."""
+    from v5_a7_check import check
+
+    pool = _write_pool(tmp_path / "pool", _pool_val_lines(), val_by_family={"openjev.policy": 2})
+    kept, lost = _pool_val_identities(pool)
+    v4, v5, gate = _a7_builds(tmp_path, val_extra=_pool_rows([kept, lost]))
+    evidence = _dedupe_report(tmp_path / "dedupe.json", kept=lost, dropped=kept)
+    with pytest.raises(SystemExit, match="not this build's report"):
+        check(v4, v5, gate=gate, decisions_pool=pool, dedupe_report=evidence)
+    with pytest.raises(SystemExit, match="give --decisions-pool"):
+        check(v4, v5, gate=gate, dedupe_report=evidence)
 
 
 def test_the_corpus_identity_names_a_pool_only_when_given(tmp_path: Path) -> None:

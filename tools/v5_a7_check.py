@@ -33,6 +33,7 @@ held-out row out in dedupe.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from collections import Counter
@@ -172,6 +173,60 @@ def _diff(want: Counter[str], got: Counter[str]) -> dict[str, Any]:
     }
 
 
+@dataclass(frozen=True, slots=True)
+class DedupeEvidence:
+    """The build's own dedupe report (``real_tokenizer_pipeline --dedupe-report-out``), read
+    for reading C: ``kept_for[unit]`` is the unit kept in place of each unit dedupe removed
+    (a near-duplicate component's kept unit, or an exact-content cluster's kept or searched
+    unit). Unit keys are ``identity_key|digest`` (``qd_data.dedupe.content_unit_key``)."""
+
+    path: Path
+    sha256: str
+    kept_for: dict[str, str]
+
+    def kept_identities(self, identity_key: str) -> list[str]:
+        """The identity keys kept in place of every removed unit of ``identity_key``."""
+        prefix = identity_key + "|"
+        return [kept.split("|", 1)[0] for unit, kept in self.kept_for.items()
+                if unit.startswith(prefix)]
+
+
+def read_dedupe_evidence(path: Path) -> DedupeEvidence:
+    """``path`` read whole, or a refusal: a report with no component list is not one."""
+    raw = path.read_bytes()
+    doc = json.loads(raw)
+    if not isinstance(doc, dict) or not isinstance(doc.get("clusters"), list):
+        raise SystemExit(f"--dedupe-report {path}: not a DedupeReport.to_json() (no clusters)")
+    kept_for: dict[str, str] = {}
+    for c in doc["clusters"]:
+        for unit in c["dropped_unit_keys"]:
+            kept_for[unit] = c["kept_unit_key"]
+    for c in doc.get("exact_content_clusters", []):
+        kept = c.get("kept_unit_key") or c.get("minhash_unit_key")
+        if not kept:
+            raise SystemExit(f"--dedupe-report {path}: an exact-content cluster keeps no unit")
+        for unit in c["dropped_unit_keys"]:
+            kept_for[unit] = kept
+    return DedupeEvidence(path=path, sha256=hashlib.sha256(raw).hexdigest(), kept_for=kept_for)
+
+
+def _within_val(
+    missing: Counter[str], got: Counter[str], evidence: DedupeEvidence
+) -> tuple[Counter[str], list[list[str]]]:
+    """Reading C (the human, ~22:27Z 2026-10-03, AUDIT/finalize-2026-10-03/
+    human-answers-2026-10-03-a7-reading-c.md): the keys of ``missing`` that dedupe removed in
+    favour of a row of the same family in v5's val (``got``), every removed unit of the key
+    so; and ``[key, kept]`` for each. A key removed in favour of anything else stays missing."""
+    within: Counter[str] = Counter()
+    named: list[list[str]] = []
+    for key, n in sorted(missing.items()):
+        kept = evidence.kept_identities(key)
+        if kept and all(k in got for k in kept):
+            within[key] = n
+            named.append([key, kept[0]])
+    return within, named
+
+
 def _read(root: Path, split: str) -> Manifest:
     path = root / SPLIT_PATHS[split]
     manifest = Manifest.read(path)
@@ -181,12 +236,28 @@ def _read(root: Path, split: str) -> Manifest:
 
 
 def check_split(
-    v4: Manifest, v5: Manifest, split: str, gate: A7Gate, pool: PoolExpectation | None = None
+    v4: Manifest, v5: Manifest, split: str, gate: A7Gate, pool: PoolExpectation | None = None,
+    evidence: DedupeEvidence | None = None,
 ) -> list[dict[str, Any]]:
     """One result per family the gate, v4, v5 or the pool names. Each carries ``passed`` and,
-    when it failed, every reason."""
+    when it failed, every reason. With ``evidence`` (reading C), a pool family's missing val
+    key that dedupe removed in favour of a row of the same family in v5's val is counted as
+    ``deduplicated_within_val`` and named, not missing; nothing else changes."""
     ids4 = _identities(v4)
     ids5 = _identities(v5)
+    if evidence is not None and pool is not None and split == "val":
+        # The report must be this build's: no pool val row v5 holds was removed by it. (Pool
+        # identity keys name their pinned split, so none is shared by design, unlike the
+        # task-holdout families' keys.)
+        removed = {u.split("|", 1)[0] for u in evidence.kept_for}
+        held = sorted(removed & {
+            e.identity_key for e in v5.entries if e.family_id in pool.families()
+        })
+        if held:
+            raise SystemExit(
+                f"--dedupe-report {evidence.path} removed {len(held)} unit(s) whose rows v5's "
+                f"val manifest holds, first {held[:3]}: it is not this build's report"
+            )
     oos5: dict[str, Counter[str]] = {}
     for entry in v5.entries:
         if entry.repo_key.startswith(OOS_REPO_PREFIX):
@@ -212,7 +283,12 @@ def check_split(
                 row["refused_by_build_mixture"] = dict(sorted(pool.refused[family].items()))
             if row["v4"]:
                 reasons.append(f"baseline: v4 has {row['v4']} {split} rows of a pool family")
-            row.update(_diff(expected, got))
+            within: Counter[str] = Counter()
+            if evidence is not None and split == "val":
+                within, named = _within_val(expected - got, got, evidence)
+                row["deduplicated_within_val"] = sum(within.values())
+                row["deduplicated_within_val_keys"] = named
+            row.update(_diff(expected - within, got))
             if row["missing"] or row["extra"]:
                 reasons.append(
                     f"identity keys differ from the pool's {split} rows: {row['missing']} "
@@ -268,16 +344,20 @@ def check_split(
 
 
 def check(
-    v4_root: Path, v5_root: Path, *, gate: A7Gate = GATE, decisions_pool: Path | None = None
+    v4_root: Path, v5_root: Path, *, gate: A7Gate = GATE, decisions_pool: Path | None = None,
+    dedupe_report: Path | None = None,
 ) -> dict[str, Any]:
     pool = pool_expectation(decisions_pool) if decisions_pool is not None else None
+    if dedupe_report is not None and pool is None:
+        raise SystemExit("--dedupe-report reads pool families' val rows: give --decisions-pool")
+    evidence = read_dedupe_evidence(dedupe_report) if dedupe_report is not None else None
     families: list[dict[str, Any]] = []
     snapshots: dict[str, dict[str, str]] = {}
     for split in SPLIT_PATHS:
         v4 = _read(v4_root, split)
         v5 = _read(v5_root, split)
         snapshots[split] = {"v4": v4.snapshot_hash(), "v5": v5.snapshot_hash()}
-        families.extend(check_split(v4, v5, split, gate, pool))
+        families.extend(check_split(v4, v5, split, gate, pool, evidence))
     failed = [f"{r['split']}/{r['family']}" for r in families if not r["passed"]]
     return {
         "gate": "A7 (campaign/v5-preregistered.DRAFT.json amendments_pending[11])",
@@ -290,6 +370,13 @@ def check(
                 "decisions_pool_val_refused": {
                     f: dict(sorted(c.items())) for f, c in sorted(pool.refused.items())
                 },
+            }
+        ),
+        **(
+            {} if evidence is None else {
+                "dedupe_report": str(evidence.path),
+                "dedupe_report_sha256": evidence.sha256,
+                "reading": "C (AUDIT/finalize-2026-10-03/human-answers-2026-10-03-a7-reading-c.md)",
             }
         ),
         "data_snapshot_hash": snapshots,
@@ -310,8 +397,15 @@ def main(argv: list[str] | None = None) -> int:
         help="the general-decision pool the v5 build read (its --decisions-pool); its families "
         "are checked against the pool's own val rows",
     )
+    p.add_argument(
+        "--dedupe-report", type=Path,
+        help="the v5 build's own dedupe report (its --dedupe-report-out). Reading C: a pool "
+        "family's val row that dedupe removed in favour of a val row of the same family is "
+        "counted as deduplicated within val and named, not missing",
+    )
     args = p.parse_args(argv)
-    report = check(args.v4, args.v5, decisions_pool=args.decisions_pool)
+    report = check(args.v4, args.v5, decisions_pool=args.decisions_pool,
+                   dedupe_report=args.dedupe_report)
     text = json.dumps(report, indent=1) + "\n"
     if args.report:
         write_text_atomic(args.report, text)
