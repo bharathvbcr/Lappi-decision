@@ -321,8 +321,15 @@ SOURCES: Final[dict[str, Source]] = {
                 "LICENSE file (19,467 B, 'Creative Commons Legal Code / Attribution 3.0 "
                 "Unported') is the stronger licence statement and matches the HF card's "
                 "cc-by-3.0, so the map is admitted under cc-by-3.0. GitHub's NOASSERTION "
-                "only means it does not parse CC legal code; it is not a licence"
+                "only means it does not parse CC legal code; it is not a licence. NOT A "
+                "REPORTABLE BENCHMARK FOR LAPPI (2026-10-03, "
+                "GAP-DECISION-INDEX-PANEL-CLINC-AND-MMLU-TEST-ITEMS-ARE-LAPPI-TRAINING-DATA-"
+                "2026-10-03): the train, validation and test splits are all read and split by "
+                "intent, so the test utterances of the training intents are training data. The "
+                "Decision Index scores CLINC150+OOS on that test split (5,500 cases, in its "
+                "panel), so a Lappi CLINC150 number there is partly a training-set number"
             ),
+            benchmark_reportable=False,
         ),
         Source(
             source_id="rajpurkar/squad_v2",
