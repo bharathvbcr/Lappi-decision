@@ -99,6 +99,26 @@ are the rows' `degenerate_head.family.*` metrics. Each of k2 (intent.in_scope) a
 (intent.classification) is a single family, so its family metric is that slot's share. Across all
 seven rows, the largest top share on any slot is 0.517 (k2), against the 0.95 bar.
 
+## Follow-ups after the ruling (Fable's second pass, same session)
+
+- **Ruling 3, the pin.** `V5_C2A=off` is not committed now. It is written at deploy with the
+  other pins, because committed pins stay the literal `UNSET` and
+  `python/tests/test_v5_queue_scripts.py` enforces that: setting it failed 44 of those tests. The
+  drop itself is recorded in both pre-registrations (v5-build 3723bbf). Fable accepted this
+  deviation from "apply all three edits now".
+- **Ruling 5, the queue trim: skipped.**
+  - There is no documented dequeue. j6a's waiter is already running. Its own run condition (the
+    fsucc word) does not read its `.queued` marker, which only its dependents check.
+  - j6a already carries the human's advance yes (`j6a-on-room-refusal-yes`).
+- **How the record is applied.** The promotion verdict applies the record in
+  `python/qd_train/ledger.py`. It does not rewrite the gates on rows: the ledger is
+  append-only, and the rows keep their as-built measurements.
+- **What the code will say about v4's `degenerate_head`.** The share-only rule reads a new
+  structured metric, `degenerate_head.choice.kN.top_class_share`, which v4 rows do not carry.
+  So under the verdict, v4's `degenerate_head` reads **not_run**, not pass. The "fail to pass"
+  reading above was made by hand from the `degenerate_head.family.*` detail text, and the code
+  does not parse text to reproduce it.
+
 ## The two facts returned to the human
 
 1. **Who owns the uncommitted edits in main's checkout?** These are `tokenizer.rs`,
