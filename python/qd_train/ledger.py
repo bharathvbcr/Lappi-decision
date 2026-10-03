@@ -33,15 +33,17 @@ import time
 import types
 import uuid
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Final, Literal, Self
 
 from qd_data.fingerprint import code_fingerprint
 
+from .eval_harness import DEFAULT_MAX_CLASS_SHARE, permutation_consistency_state
+from .ood import OOD_CATEGORIES, ood_gate
 from .run_control import CostEstimate, WallClockCap
-from .tristate import NotRun, Ran, TriState, parse_tristate
+from .tristate import NotRun, Ran, TriState, aggregate, parse_tristate
 
 __all__ = [
     "DEFAULT_DECISIONS_PATH",
@@ -177,6 +179,44 @@ REQUIRED_DECISIONS: tuple[str, ...] = (
 )
 #: A decisions record is a page of JSON; anything larger is not one.
 MAX_DECISIONS_BYTES: Final[int] = 1 << 20
+
+# How the verdict applies a DECIDED record (docs/ledger-schema.md, Promotion). The ledger is
+# append-only, so rows keep what they measured, as built. The record changes how the verdict
+# reads them:
+# - An open decision leaves its gate or control exactly as the row recorded it.
+# - A decided one is re-read from the row's own metrics.
+# - A decided value this verdict does not know how to apply makes the gate or control not_run.
+#   It never falls back to as built, so a ruling the code cannot apply cannot read as applied.
+#: A control leaves the required set only when its decision is decided AND its value is a
+#: string beginning with this word. Any other value keeps it required, as built.
+RETIRED_VALUE_PREFIX: Final[str] = "retired"
+#: Each control a decision may retire, with that decision.
+RETIRABLE_CONTROLS: Final[Mapping[str, str]] = {
+    "privileged_hunk": "privileged_hunk_pass_rule",
+    "transfer_gate": "transfer_gate_definition",
+}
+#: The ece_population value (as a prefix) the verdict applies: ``ece`` per slot shape over the
+#: decided promotion population's families, from each ``ece.family.<family>.choice.*`` metric.
+ECE_OVER_THE_POPULATION: Final[str] = "the promotion population's letter rows"
+#: The degenerate_head_floor value (as a prefix) the verdict applies: the class-share half
+#: alone, from each slot shape's ``degenerate_head.choice.<shape>.top_class_share`` metric.
+DEGENERATE_SHARE_ONLY: Final[str] = "no predicted class above 0.95"
+#: The suffix of the structured class-share metric tools/real_ft_run.py writes beside each
+#: ``degenerate_head.choice.<shape>`` (rows from 2026-10-03 on; earlier rows lack it).
+TOP_CLASS_SHARE_SUFFIX: Final[str] = ".top_class_share"
+#: Gates whose ``n``/``n_total`` count outcomes, not coverage. That is their producers' stated
+#: convention:
+#: - permutation_consistency: ``n`` agreeing of ``n_total`` asked
+#:   (eval_harness.permutation_consistency_state; tools/real_ft_run.py
+#:   permutation_family_metrics);
+#: - ood_abstain: ``n`` abstained of ``n_total`` suite cases (ood.ood_gate).
+#: For these two, condition 7 reads coverage from :data:`DECODE_COVERAGE_METRIC`. Reading their
+#: own counts as coverage refused every pass as a capped sample
+#: (GAP-CONDITION-7-READ-OUTCOME-COUNTS-AS-COVERAGE-2026-10-03).
+OUTCOME_COUNT_GATES: Final[tuple[str, ...]] = ("permutation_consistency", "ood_abstain")
+#: Written on every score-val eval row by tools/real_ft_run.py: ``n`` val rows decoded of
+#: ``n_total`` eligible.
+DECODE_COVERAGE_METRIC: Final[str] = "val_rows_decoded"
 _DECISION_STATUSES: frozenset[str] = frozenset({"open", "decided"})
 _DECIDER_FIELDS: tuple[str, ...] = ("decided_by", "decided_on", "decision_ref")
 
@@ -1094,6 +1134,9 @@ class PromotionVerdict:
     #: ``"seeds"``: three rows differing only in seed. ``"avg"``: one average's eval row and
     #: the seeds it averaged (:meth:`Ledger.promotion_verdict_avg`).
     kind: str = "seeds"
+    #: Every gate or control the decided record moved off the row's own state, with both
+    #: readings, and every control the record retired. Empty while the record is all open.
+    readings: tuple[str, ...] = ()
 
     def __str__(self) -> str:
         head = "PROMOTE" if self.promoted else "REFUSED"
@@ -1105,8 +1148,10 @@ class PromotionVerdict:
                else "UNKNOWN: the promotion decisions record could not be read")
         )
         body = "\n".join(f"  - {r}" for r in self.reasons)
+        read = "\n".join(f"  * {r}" for r in self.readings)
         return (f"{head} ({len(self.rows)} row(s))\n{population}"
-                + (f"\n{body}" if body else ""))
+                + (f"\n{body}" if body else "")
+                + (f"\n  read under the decisions record:\n{read}" if read else ""))
 
 
 def _git_commit(repo: Path) -> str:
@@ -1247,7 +1292,7 @@ class Ledger:
         (``docs/promotion-decisions.json``, or ``decisions_path``). A record that cannot be
         read refuses: a verdict that cannot say which population it judged does not promote.
         """
-        _, population, record_refusal = _read_decisions(decisions_path)
+        decisions, population, record_refusal = _read_decisions(decisions_path)
         candidates = [r for r in self.rows() if r.protocol.hash_without_seed() == seed_family]
         ids = tuple(r.row_id for r in candidates)
         reasons: list[str] = []
@@ -1271,11 +1316,12 @@ class Ledger:
                 "differing only in seed"
             )
 
-        reasons.extend(_unit_refusals(units))
+        unit_reasons, readings = _unit_refusals(units, decisions)
+        reasons.extend(unit_reasons)
         reasons.extend(record_refusal)
 
         if reasons:
-            return PromotionVerdict(False, tuple(reasons), ids, population)
+            return PromotionVerdict(False, tuple(reasons), ids, population, readings=readings)
         return PromotionVerdict(
             True,
             (
@@ -1285,6 +1331,7 @@ class Ledger:
             ),
             ids,
             population,
+            readings=readings,
         )
 
     def promotion_verdict_avg(
@@ -1401,7 +1448,8 @@ class Ledger:
             reasons.extend(_row_refusals(s))
         units, join_refusals = _promotion_units([avg, *supplements])
         reasons.extend(join_refusals)
-        reasons.extend(_unit_refusals(units))
+        unit_reasons, readings = _unit_refusals(units, decisions)
+        reasons.extend(unit_reasons)
 
         reasons.extend(record_refusal)
         verdict_on_averages = ""
@@ -1421,7 +1469,8 @@ class Ledger:
 
         ids = (avg.row_id, *(s.row_id for s in supplements), *(r.row_id for r in inputs))
         if reasons:
-            return PromotionVerdict(False, tuple(reasons), ids, population, "avg")
+            return PromotionVerdict(False, tuple(reasons), ids, population, "avg",
+                                    readings=readings)
         return PromotionVerdict(
             True,
             (
@@ -1435,6 +1484,7 @@ class Ledger:
             ids,
             population,
             "avg",
+            readings=readings,
         )
 
 
@@ -1523,27 +1573,248 @@ def _input_refusals(r: LedgerRow) -> list[str]:
     return reasons
 
 
-def _unit_refusals(units: list[tuple[LedgerRow, list[LedgerRow]]]) -> list[str]:
-    """Conditions 4, 5 and 7 on each unit: every gate and control, joined, ran and passed
-    at complete coverage."""
+def _brief(state: TriState | None) -> str:
+    """One gate or control state in a few words, for a line naming two readings."""
+    if state is None:
+        return "absent"
+    if isinstance(state, NotRun):
+        return f"not_run ({state.reason})"
+    value = state.value
+    shown = f" {value:.4g}" if isinstance(value, float) else ""
+    return f"{'PASS' if state.passed else 'FAIL'}{shown} [{state.coverage_str()}]"
+
+
+def _counts(row: LedgerRow, name: str) -> tuple[int, int] | str:
+    """A metric's ``n`` and ``n_total``, or why the row cannot supply them."""
+    m = row.metrics.get(name)
+    if m is None:
+        return f"{name} is absent from row {row.row_id}"
+    if isinstance(m, NotRun):
+        return f"{name} did not run on row {row.row_id} ({m.reason})"
+    n, n_total = m.n, m.n_total
+    if n is None or n_total is None:
+        return f"{name} on row {row.row_id} states no counts"
+    return int(n), int(n_total)
+
+
+def _population_families(decisions: PromotionDecisions | None) -> tuple[str, ...] | None:
+    """The decided promotion population's families; None while it is open or ``all``."""
+    if decisions is None:
+        return None
+    d = decisions.decisions["promotion_population"]
+    if d.status != "decided" or not isinstance(d.families, tuple):
+        return None
+    return d.families
+
+
+def _population_permutation(row: LedgerRow, families: tuple[str, ...]) -> TriState:
+    """``permutation_consistency`` over the population: its families' agree/asked counts
+    summed, through the gate's own function."""
+    agree = asked = 0
+    for family in families:
+        c = _counts(row, f"permutation_consistency.family.{family}")
+        if isinstance(c, str):
+            return NotRun(reason=f"permutation_consistency over the promotion population: {c}")
+        agree, asked = agree + c[0], asked + c[1]
+    state = permutation_consistency_state(agree=agree, asked=asked, total=asked)
+    if not isinstance(state, Ran):
+        return state
+    # The family metrics carry agree/asked only, so the rows each family excluded for having
+    # fewer than two live options are not known here; the gate's own detail would print 0.
+    return replace(state, detail=(
+        f"over the promotion population ({', '.join(families)}): the choice head agreed with "
+        f"itself across a derangement on {agree} of {asked} rows ({state.value:.1%}) against "
+        f"the gate's floor; rows with fewer than two live options were excluded per family by "
+        "the producer and are not restated by the family metrics"))
+
+
+def _population_ood(row: LedgerRow, families: tuple[str, ...]) -> TriState:
+    """``ood_abstain`` with its in-distribution half over the population. The suite half is
+    out-of-distribution by construction, so it is every OOD category, as built."""
+    ood_abstained = ood_total = 0
+    for category in OOD_CATEGORIES:
+        c = _counts(row, f"ood_abstain.{category}")
+        if isinstance(c, str):
+            return NotRun(reason=f"ood_abstain's suite half: {c}")
+        ood_abstained, ood_total = ood_abstained + c[0], ood_total + c[1]
+    in_abstained = in_total = 0
+    for family in families:
+        c = _counts(row, f"ood_abstain.in_distribution.family.{family}")
+        if isinstance(c, str):
+            return NotRun(reason=f"ood_abstain's in-distribution half over the population: {c}")
+        in_abstained, in_total = in_abstained + c[0], in_total + c[1]
+    return ood_gate(ood_abstained=ood_abstained, ood_total=ood_total,
+                    in_abstained=in_abstained, in_total=in_total)
+
+
+def _population_ece(row: LedgerRow, families: tuple[str, ...]) -> TriState:
+    """``ece`` per slot shape over the population: every ``ece.family.<f>.choice.*`` state."""
+    parts: dict[str, TriState] = {}
+    for family in families:
+        prefix = f"ece.family.{family}.choice."
+        found = {k: v for k, v in row.metrics.items() if k.startswith(prefix)}
+        if not found:
+            return NotRun(
+                reason=f"ece over the promotion population: no {prefix}* metric on row {row.row_id}"
+            )
+        parts.update(found)
+    return aggregate(parts, name="ece over the promotion population")
+
+
+def _share_only_degenerate(row: LedgerRow) -> TriState:
+    """``degenerate_head``'s class-share half alone, per slot shape, from the structured
+    ``.top_class_share`` metric. Absent on rows written before 2026-10-03: not_run, never a
+    number recovered from detail text."""
+    shapes = sorted(
+        k for k in row.metrics
+        if k.startswith("degenerate_head.choice.") and not k.endswith(TOP_CLASS_SHARE_SUFFIX)
+    )
+    if not shapes:
+        return NotRun(reason=f"no degenerate_head.choice.* metric on row {row.row_id}")
+    parts: dict[str, TriState] = {}
+    for shape in shapes:
+        name = shape + TOP_CLASS_SHARE_SUFFIX
+        m = row.metrics.get(name)
+        if m is None:
+            return NotRun(
+                reason=f"{name} is absent from row {row.row_id}: the class share is structured "
+                "only on rows tools/real_ft_run.py wrote from 2026-10-03 on"
+            )
+        if isinstance(m, NotRun):
+            return NotRun(reason=f"{name} did not run on row {row.row_id} ({m.reason})")
+        if not isinstance(m.value, (int, float)):
+            return NotRun(reason=f"{name} on row {row.row_id} carries no numeric share")
+        share = float(m.value)
+        parts[shape] = Ran(
+            passed=share <= DEFAULT_MAX_CLASS_SHARE, value=share, n=m.n, n_total=m.n_total,
+            detail=f"top predicted class share {share:.3f} vs max {DEFAULT_MAX_CLASS_SHARE}",
+        )
+    return aggregate(parts, name="degenerate_head (class share only)")
+
+
+def _decode_coverage_refusal(row: LedgerRow) -> str | None:
+    """Condition 7 for an outcome-count gate: why the row's decode coverage does not show that
+    every eligible val row was scored, or None when it does."""
+    m = row.metrics.get(DECODE_COVERAGE_METRIC)
+    if m is None:
+        return (f"its coverage cannot be read: {DECODE_COVERAGE_METRIC} is absent from row "
+                f"{row.row_id}, and this gate's own counts are outcomes, not coverage")
+    if isinstance(m, NotRun):
+        return f"its coverage cannot be read: {DECODE_COVERAGE_METRIC} did not run ({m.reason})"
+    if m.n is None:
+        return f"its coverage cannot be read: {DECODE_COVERAGE_METRIC} states no counts"
+    if not m.is_complete_coverage:
+        return (f"{DECODE_COVERAGE_METRIC} is only {m.coverage_str()}; a capped sample is not "
+                "complete coverage and does not promote")
+    return None
+
+
+def _record_rule(decisions: PromotionDecisions, name: str, rule: str) -> str:
+    return f"record {decisions.sha256[:12]}, {name} = {rule}"
+
+
+def _judged_gate(
+    gate: str, row: LedgerRow, as_built: TriState | None, decisions: PromotionDecisions | None
+) -> tuple[TriState | None, str | None]:
+    """The gate as the verdict judges it, and the line naming both readings when the decided
+    record moved it."""
+    if decisions is None:
+        return as_built, None
+    families = _population_families(decisions)
+    derived: TriState
+    if gate in ("permutation_consistency", "ood_abstain") and families is not None:
+        derived = (_population_permutation(row, families) if gate == "permutation_consistency"
+                   else _population_ood(row, families))
+        rule = _record_rule(decisions, "promotion_population", ", ".join(families))
+    elif gate == "ece" and decisions.decisions["ece_population"].status == "decided":
+        d = decisions.decisions["ece_population"]
+        if not (isinstance(d.value, str) and d.value.startswith(ECE_OVER_THE_POPULATION)):
+            derived = NotRun(reason=f"ece_population is decided as {d.value!r}, a value this "
+                             "verdict does not know how to apply")
+        elif families is None:
+            derived = NotRun(reason="ece_population is decided over the promotion population, "
+                             "and promotion_population is not decided to a list of families")
+        else:
+            derived = _population_ece(row, families)
+        rule = _record_rule(decisions, "ece_population", "per shape over the population")
+    else:
+        return as_built, None
+    return derived, (f"gate {gate!r}: as built {_brief(as_built)}; under {rule}: "
+                     f"{_brief(derived)}")
+
+
+def _judged_control(
+    ctl: str, row: LedgerRow, as_built: TriState | None, decisions: PromotionDecisions | None
+) -> tuple[TriState | None, str | None]:
+    """The control as the verdict judges it; see :func:`_judged_gate`."""
+    if decisions is None or ctl != "degenerate_head":
+        return as_built, None
+    d = decisions.decisions["degenerate_head_floor"]
+    if d.status != "decided":
+        return as_built, None
+    derived = (
+        _share_only_degenerate(row)
+        if isinstance(d.value, str) and d.value.startswith(DEGENERATE_SHARE_ONLY)
+        else NotRun(reason=f"degenerate_head_floor is decided as {d.value!r}, a value this "
+                    "verdict does not know how to apply")
+    )
+    rule = _record_rule(decisions, "degenerate_head_floor", "class share only")
+    return derived, f"control {ctl!r}: as built {_brief(as_built)}; under {rule}: {_brief(derived)}"
+
+
+def _required_controls(decisions: PromotionDecisions | None) -> tuple[tuple[str, ...], list[str]]:
+    """REQUIRED_CONTROLS less every control its decision retires, and a line for each."""
+    required: list[str] = []
+    retired: list[str] = []
+    for ctl in REQUIRED_CONTROLS:
+        name = RETIRABLE_CONTROLS.get(ctl)
+        d = decisions.decisions[name] if decisions is not None and name is not None else None
+        if (d is not None and decisions is not None and d.status == "decided"
+                and isinstance(d.value, str) and d.value.startswith(RETIRED_VALUE_PREFIX)):
+            retired.append(
+                f"control {ctl!r} is not required: {name} is decided as retired "
+                f"(record {decisions.sha256[:12]}, {d.gap})"
+            )
+            continue
+        required.append(ctl)
+    return tuple(required), retired
+
+
+def _unit_refusals(
+    units: list[tuple[LedgerRow, list[LedgerRow]]], decisions: PromotionDecisions | None
+) -> tuple[list[str], tuple[str, ...]]:
+    """Conditions 4, 5 and 7 on each unit: every required gate and control, joined, ran and
+    passed at complete coverage, each read under the decisions record (``RETIRED_VALUE_PREFIX``
+    and the rules beside it). Returns the refusals and the readings the record moved."""
     reasons: list[str] = []
+    controls, readings = _required_controls(decisions)
     for r, sups in units:
         label = r.row_id + "".join(f" + {s.row_id}" for s in sups)
         for gate in REQUIRED_GATES:
-            g = _joined(r.gates.get(gate), [s.gates.get(gate) for s in sups])
+            g, moved = _judged_gate(
+                gate, r, _joined(r.gates.get(gate), [s.gates.get(gate) for s in sups]),
+                decisions,
+            )
+            if moved is not None:
+                readings.append(f"{label}: {moved}")
+            under = " (read under the decisions record)" if moved is not None else ""
             if g is None:
                 reasons.append(
                     f"{label}: gate {gate!r} absent; an absent gate is not a passed gate"
                 )
             elif isinstance(g, NotRun):
                 reasons.append(
-                    f"{label}: gate {gate!r} did not run ({g.reason}); "
+                    f"{label}: gate {gate!r} did not run{under} ({g.reason}); "
                     "this blocks promotion"
                 )
             elif not g.passed:
                 reasons.append(
-                    f"{label}: gate {gate!r} ran and FAILED [{g.coverage_str()}]"
+                    f"{label}: gate {gate!r} ran and FAILED{under} [{g.coverage_str()}]"
                 )
+            elif gate in OUTCOME_COUNT_GATES:
+                short = _decode_coverage_refusal(r)
+                if short is not None:
+                    reasons.append(f"{label}: gate {gate!r} passed, but {short}")
             elif _states_partial_coverage(g):
                 reasons.append(
                     f"{label}: gate {gate!r} passed on only {g.coverage_str()} of the "
@@ -1551,15 +1822,21 @@ def _unit_refusals(units: list[tuple[LedgerRow, list[LedgerRow]]]) -> list[str]:
                     "and does not promote"
                 )
 
-        for ctl in REQUIRED_CONTROLS:
-            c = _joined(r.controls.get(ctl), [s.controls.get(ctl) for s in sups])
+        for ctl in controls:
+            c, moved = _judged_control(
+                ctl, r, _joined(r.controls.get(ctl), [s.controls.get(ctl) for s in sups]),
+                decisions,
+            )
+            if moved is not None:
+                readings.append(f"{label}: {moved}")
+            under = " (read under the decisions record)" if moved is not None else ""
             if c is None:
                 reasons.append(f"{label}: control {ctl!r} absent")
             elif isinstance(c, NotRun):
-                reasons.append(f"{label}: control {ctl!r} did not run ({c.reason})")
+                reasons.append(f"{label}: control {ctl!r} did not run{under} ({c.reason})")
             elif not c.passed:
                 reasons.append(
-                    f"{label}: control {ctl!r} ran and FAILED [{c.coverage_str()}]"
+                    f"{label}: control {ctl!r} ran and FAILED{under} [{c.coverage_str()}]"
                 )
             elif _states_partial_coverage(c):
                 reasons.append(
@@ -1567,7 +1844,7 @@ def _unit_refusals(units: list[tuple[LedgerRow, list[LedgerRow]]]) -> list[str]:
                     "eligible population; a capped sample is not complete coverage "
                     "and does not promote"
                 )
-    return reasons
+    return reasons, tuple(readings)
 
 
 def _weakest_coverage(rows: Sequence[LedgerRow]) -> str:

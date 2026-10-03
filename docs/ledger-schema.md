@@ -264,7 +264,7 @@ A result may promote a decision only if **all** hold:
 
 1. `status == "completed"`
 2. `quick == false`
-3. Three rows exist sharing a `protocol_hash` that differs only in `seed`
+3. Three rows share `Protocol.hash_without_seed()` (a seed family), with three distinct seeds
 4. Every gate in `gates` is `state: "ran"` — a `not_run` gate blocks promotion, it does not pass it
 5. Every control in `controls` is `ran` and `passed`
 6. `run_kind` is not in `NON_PROMOTING_RUN_KINDS` — currently `{build}`
@@ -290,6 +290,23 @@ one measured on 1000 of 1000. A `PROMOTE` states the weakest coverage it promote
 gates are a single observation with no population, and refusing those would make promotion
 unreachable rather than honest.
 
+**Two gates count outcomes, not coverage** (`OUTCOME_COUNT_GATES` in `python/qd_train/ledger.py`):
+
+- `permutation_consistency` stores `n` rows agreeing of `n_total` rows asked;
+- `ood_abstain` stores `n` cases abstained of `n_total` suite cases.
+
+A passing 2291/2304 or 174/180 is therefore not a capped sample. For these two gates, rule 7 reads
+coverage from the row's `val_rows_decoded` metric instead: `n` val rows decoded of `n_total`
+eligible, which `tools/real_ft_run.py` writes on every score-val row.
+
+- If the metric is absent, the verdict refuses and names it.
+- If it is short, the verdict refuses as a capped sample.
+
+Every other gate and control is judged on its own `n`/`n_total`. Until 2026-10-03 the verdict read
+these two gates' own counts as coverage, so every pass below 100% was refused
+(`GAP-CONDITION-7-READ-OUTCOME-COUNTS-AS-COVERAGE-2026-10-03`). The tests are at the end of
+`python/tests/test_promotion_decisions.py`.
+
 ### The human decisions record: `docs/promotion-decisions.json`
 
 The questions only a human may answer (rule 2) are **data a human edits**, not code. Every
@@ -298,10 +315,36 @@ verdict reads this file and carries what it read:
 - **`promotion_population`** on every `PromotionVerdict`: the val population the gates are
   judged on, its `families` (`"all"` or a list of family ids), `status` (`open` until a human
   rules), the `source` it rests on, who decided it and where, and the record's sha256. Nothing
-  in code infers it. Today it is `open`: the gates pool every val family's choice rows, as
-  built (`GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS`).
-- The other open questions: `average_may_promote`, `ece_population`, `degenerate_head_floor`,
+  in code infers it. As built, the gates pool every val family's choice rows
+  (`GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS`).
+- The other questions: `average_may_promote`, `ece_population`, `degenerate_head_floor`,
   `privileged_hunk_pass_rule`, `transfer_gate_definition`, each naming its gap.
+
+All six were decided on 2026-10-03, under the human's delegation
+(`AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md`).
+
+**How the verdict applies the record.** The verdict re-reads the record each time, so a row is
+never rewritten when a ruling changes.
+
+- An `open` question leaves the gate or control as built.
+- A `decided` one is re-derived from metrics already on the row, through the gate's own
+  function, with its threshold unchanged (rule 2).
+- A decided value the code does not know how to apply is `not_run`. It is never a silent fall
+  back to the as-built state.
+
+| question | when decided, the verdict reads |
+| --- | --- |
+| `promotion_population` (a list of families) | `permutation_consistency` from `permutation_consistency.family.<f>`, summed over the families; `ood_abstain` with its in-distribution half from `ood_abstain.in_distribution.family.<f>` and its suite half from every `ood_abstain.<category>`, unchanged. A missing family metric is `not_run`. Decided `"all"`, it is as built. |
+| `ece_population` (value starting `the promotion population's letter rows`) | `ece` aggregated from `ece.family.<f>.choice.*` over the population. It is `not_run` unless `promotion_population` is decided to a list. |
+| `degenerate_head_floor` (value starting `no predicted class above 0.95`) | `degenerate_head` from every `degenerate_head.choice.<shape>.top_class_share` at the 0.95 share; the entropy floor is not read. `tools/real_ft_run.py` writes the metric from v5-build's commit of 2026-10-03 on; a row without it (every v4 row) reads `not_run`. |
+| `privileged_hunk_pass_rule`, `transfer_gate_definition` (value starting `retired`) | that control is no longer required. Only a `decided` retirement retires. |
+| `average_may_promote` | the `avg` kind below. |
+
+Every state the record moved is listed on the verdict under `read under the decisions record`.
+Each line gives the as-built reading, the record's sha256 prefix and the derived reading. A refusal
+that comes from a moved state says so. The tests are `python/tests/test_promotion_decisions.py`.
+The ledger-mechanics tests in `test_ledger.py` judge under an as-built record they name
+(`python/tests/promotion_fixtures.py`), not the repo's.
 
 **Who edits it, and how.** A human, and only a human. To record a ruling, set the question's
 `status` to `"decided"`, set `value` (and `families`, for the population) to what was decided,
@@ -310,8 +353,8 @@ written: a HANDOFF section, a gap answer, a message), in a commit of its own who
 names the gap. `load_promotion_decisions` refuses a record missing a question, a `decided`
 question without all three of who/when/where, an `open` one with any of them set, and an open
 `average_may_promote` that says yes. A verdict whose record cannot be read refuses: it cannot
-say which population it judged. Changing a gate's code to follow a ruling is a separate change;
-the record is what says the ruling exists.
+say which population it judged. A ruling whose value the table above does not cover is
+`not_run` until the verdict learns to apply it. That is a code change with a fail-first test.
 
 ### The `avg` kind: one average of seeds
 
