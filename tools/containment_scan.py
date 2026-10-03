@@ -340,6 +340,11 @@ def main(argv: list[str] | None = None) -> int:
         help="as the pipeline's --decisions-pool: the pool's rows are scanned with every "
              "other row, and the corpus identity names the pool",
     )
+    parser.add_argument(
+        "--drop-before-dedupe", type=Path, default=None, dest="pre_dedupe_drops",
+        help="as the pipeline's --drop-before-dedupe: the listed train rows leave the corpus "
+             "before dedupe here too, and the corpus identity names the list by its sha256",
+    )
     parser.add_argument("--no-repo-history", dest="repo_history", action="store_false")
     parser.add_argument("--threads", type=int, default=None)
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
@@ -377,6 +382,7 @@ def main(argv: list[str] | None = None) -> int:
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
         general_record=args.general_record, general_max_rows=args.general_max_rows,
         defect_noul=args.defect_noul, decisions_pool=args.decisions_pool,
+        pre_dedupe_drops=args.pre_dedupe_drops,
     )
     built = time.monotonic()
     sets, strip = scan_sets(report, config=config, template_strip=args.template_strip)
@@ -388,7 +394,7 @@ def main(argv: list[str] | None = None) -> int:
         defect_class=args.defect_class, defect_max_rows=args.defect_max_rows,
         repo_history=args.repo_history, general_record=args.general_record,
         general_max_rows=args.general_max_rows, defect_noul=args.defect_noul,
-        decisions_pool=args.decisions_pool,
+        decisions_pool=args.decisions_pool, drop_before_dedupe=args.pre_dedupe_drops,
     ))
     with request.open("xb") as fh:
         size = write_request(

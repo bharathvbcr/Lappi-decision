@@ -4092,6 +4092,7 @@ def ft_splits(
     defect_noul: Path | None = None,
     exclude_identity_keys: Path | None = None,
     decisions_pool: Path | None = None,
+    pre_dedupe_drops: Path | None = None,
 ) -> dict[str, list[DataRow]]:
     """Every split of the corpus this tool's shard sets were built from, by split name.
 
@@ -4130,6 +4131,10 @@ def ft_splits(
     ``decisions_pool`` mirrors the pipeline's ``--decisions-pool``: the general-decision
     pool comes back through the pipeline's own ``load_decision_pool`` (read whole, checked
     against its manifest's examples sha256), with the same refusal of a source already read.
+    ``pre_dedupe_drops`` mirrors the pipeline's ``--drop-before-dedupe``: the same
+    ``qd_train.exclusions.drop_before_dedupe`` call, at the same point (after
+    ``build_mixture``, before ``dedupe``), and the list's sha256 is in the corpus the
+    exclusion list is checked against, so a rebuild without it is refused there.
 
     ``build_mixture`` runs at the pipeline's ``PIPELINE_MAX_CONSISTENCY_ROWS``, not the
     library default: the two agree below 250,000 rows and build different row sets above
@@ -4152,12 +4157,14 @@ def ft_splits(
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record, general_max_rows=general_max_rows,
         defect_noul=defect_noul, decisions_pool=decisions_pool,
+        pre_dedupe_drops=pre_dedupe_drops,
     )
     corpus = containment_corpus(replay_corpus_identity(
         rev=rev, max_pairs=max_pairs, commitpackft=commitpackft, defect_class=defect_class,
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record, general_max_rows=general_max_rows,
         defect_noul=defect_noul, decisions_pool=decisions_pool,
+        drop_before_dedupe=pre_dedupe_drops,
     )) if exclude_identity_keys is not None else {}
     split_report = pipeline.exclusions_then_contrast(
         split_report, exclude_identity_keys=exclude_identity_keys, corpus=corpus,
@@ -4184,6 +4191,7 @@ def ft_split_report(
     general_max_rows: int | None = None,
     defect_noul: Path | None = None,
     decisions_pool: Path | None = None,
+    pre_dedupe_drops: Path | None = None,
 ) -> SplitReport:
     """The ``qd_data.split.SplitReport`` :func:`ft_splits` starts from: every row of the
     corpus, deduped and split, before any exclusion or replay draw. Returned whole because
@@ -4258,10 +4266,14 @@ def ft_split_report(
             "pipeline refuses to write a shard set from such a mixture, so this rebuild is "
             f"not the one any shard set was written from: {mixture.prompt_consistency.reason}"
         )
+    # The pipeline's --drop-before-dedupe, through the same function at the same point.
+    from qd_train.exclusions import drop_before_dedupe
+
+    rows, _drops, _dropped = drop_before_dedupe(mixture.rows, pre_dedupe_drops, config=config)
     # Signed by crates/qd-prep (QD_PREP_BIN), byte-identical to qd_data.minhash, which is its
     # parity oracle (pipeline.native_minhash): the signatures were most of this rebuild's time.
-    with pipeline.native_minhash(mixture.rows, config=config):
-        report = dedupe(list(mixture.rows), config=config)
+    with pipeline.native_minhash(rows, config=config):
+        report = dedupe(list(rows), config=config)
         return split(report, config=config)
 
 
@@ -4281,6 +4293,7 @@ def ft_split_rows(
     defect_noul: Path | None = None,
     exclude_identity_keys: Path | None = None,
     decisions_pool: Path | None = None,
+    pre_dedupe_drops: Path | None = None,
 ) -> tuple[list[DataRow], list[DataRow]]:
     """``(train_rows, val_rows)``: exactly the two splits ``main`` trains and scores on."""
     splits = ft_splits(
@@ -4290,6 +4303,7 @@ def ft_split_rows(
         general_record=general_record, general_max_rows=general_max_rows,
         replay_partition=replay_partition, defect_noul=defect_noul,
         exclude_identity_keys=exclude_identity_keys, decisions_pool=decisions_pool,
+        pre_dedupe_drops=pre_dedupe_drops,
     )
     return splits["train"], splits["val"]
 
@@ -9787,6 +9801,7 @@ def replay_corpus_identity(
     defect_max_rows: int | None, repo_history: bool = True,
     general_record: Path | None = None, general_max_rows: int | None = None,
     defect_noul: Path | None = None, decisions_pool: Path | None = None,
+    drop_before_dedupe: Path | None = None,
 ) -> dict[str, object]:
     """What ``ft_splits`` was called with, as the replay attestation records it. One
     function, used by ``tools/replay_decontam.py`` to write it and by ``_replay_plan`` to
@@ -9800,6 +9815,7 @@ def replay_corpus_identity(
         defect_max_rows=defect_max_rows, repo_history=repo_history,
         general_record=general_record, general_max_rows=general_max_rows,
         defect_noul=defect_noul, decisions_pool=decisions_pool,
+        drop_before_dedupe=drop_before_dedupe,
     )
 
 
@@ -9846,7 +9862,7 @@ def _replay_plan(
         defect_class=args.defect_class, defect_max_rows=args.defect_max_rows,
         repo_history=args.repo_history, general_record=args.general_record,
         general_max_rows=args.general_max_rows, defect_noul=args.defect_noul,
-        decisions_pool=args.decisions_pool,
+        decisions_pool=args.decisions_pool, drop_before_dedupe=args.pre_dedupe_drops,
     )
     if attestation.get("corpus") != corpus:
         raise SystemExit(
@@ -10166,6 +10182,16 @@ def main(argv: list[str] | None = None) -> int:
             "drops the same train rows, then derives the contrast rows a --defect-noul "
             "manifest asks for, through the pipeline's exclusions_then_contrast. Checked "
             "against the train header's exclusions_sha256, in both directions"
+        ),
+    )
+    parser.add_argument(
+        "--drop-before-dedupe", type=Path, default=None, dest="pre_dedupe_drops",
+        help=(
+            "the pre-dedupe drop list the shard set was built with, exactly as passed to "
+            "tools/real_tokenizer_pipeline.py --drop-before-dedupe: the rebuild removes the "
+            "same train rows before dedupe. Its sha256 is part of the corpus, so with "
+            "--exclude-identity-keys a rebuild without it (or with another) is refused by "
+            "the exclusion list's attestation"
         ),
     )
     parser.add_argument("--epoch", action="store_true", help="also run arm 1, the real epoch")
@@ -10986,6 +11012,7 @@ def main(argv: list[str] | None = None) -> int:
         general_record=args.general_record, general_max_rows=args.general_max_rows,
         replay_partition=args.replay_partition, defect_noul=args.defect_noul,
         exclude_identity_keys=args.exclude_identity_keys, decisions_pool=args.decisions_pool,
+        pre_dedupe_drops=args.pre_dedupe_drops,
     )
     # A pool set is paired by its sequence index too: its rows, like the general record's,
     # are not this repository's history, so only the index ties a sequence to its row.

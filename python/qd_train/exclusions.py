@@ -19,6 +19,24 @@ for another corpus, or naming another file's sha256; and a key that
 names no train row. Only
 train rows move: val and held-out never do (rule 2), and an identity key a held-out row
 shares by design (the two task-holdout families) leaves that row where it is.
+
+The second list this module owns is the pre-dedupe drop list (:func:`drop_before_dedupe`,
+``--drop-before-dedupe``). It is the human's ratification of Fable's option B, ~21:52Z
+2026-10-03 (``AUDIT/finalize-2026-10-03/human-answers-2026-10-03-a7.md``).
+``qd_data.dedupe`` keeps the lexically smallest unit of a near-duplicate component, whatever
+its split, so a train row whose key sorts first removes its val or held-out twin. An
+exclusion after the split cannot restore that twin. The list therefore names those train rows,
+and they leave the corpus between ``build_mixture`` and ``dedupe``. The list has the same form
+as ``exclusions.txt``.
+
+Refused, before any row moves:
+- a list that is not byte-sorted, unique, non-empty LF lines;
+- a key that names no row of this corpus;
+- a key that names a row the split would put anywhere but train: its pinned split or
+  repo-hash split, and its family's hold-out, exactly as ``qd_data.split.split`` assigns them.
+
+The list's sha256 is part of the corpus (:func:`pre_dedupe_drops_identity`), so an exclusion
+list scanned without it is refused by :func:`read_exclusions` for a build with it.
 """
 
 from __future__ import annotations
@@ -26,15 +44,17 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
 from typing import Any, Final
 
+from qd_data.config import DataConfig
 from qd_data.fingerprint import code_fingerprint
 from qd_data.rows import DataRow
-from qd_data.split import SplitReport
+from qd_data.sources import PINNED_SPLIT_KEY
+from qd_data.split import HELD_OUT, SplitReport, assign_repo
 
 from .containment_strip import STRIP_RULE, STRIP_VERSION
 from .replay import DEFAULT_N, DEFAULT_THRESHOLD
@@ -43,12 +63,18 @@ __all__ = [
     "ATTESTATION_NAME",
     "ATTESTATION_VERSION",
     "EXCLUSIONS_NAME",
+    "PRE_DEDUPE_DROPS_KEY",
     "SAME_FAMILY_SCOPE_KEY",
     "ExclusionRefusal",
     "Exclusions",
+    "PreDedupeDrops",
     "apply_exclusions",
     "containment_corpus",
+    "drop_before_dedupe",
+    "pre_dedupe_drops_identity",
     "read_exclusions",
+    "read_pre_dedupe_drops",
+    "split_before_dedupe",
 ]
 
 #: The files ``qd-prep containment`` writes beside each other.
@@ -61,6 +87,10 @@ MAX_KEYS: Final[int] = 2_000_000
 #: pipeline's ``corpus_identity`` writes it from here), and qd-prep containment's
 #: ``SAME_FAMILY_SCOPE_KEY``, which reads it from the request's corpus object.
 SAME_FAMILY_SCOPE_KEY: Final[str] = "decisions_pool_same_family_not_enforced"
+#: The corpus key naming the pre-dedupe drop list, by its sha256. Written only when a list is
+#: given, so every corpus named before it still matches. qd-prep containment carries the
+#: corpus object into its attestation verbatim and reads only the scope key from it.
+PRE_DEDUPE_DROPS_KEY: Final[str] = "pre_dedupe_drops_sha256"
 
 
 class ExclusionRefusal(SystemExit):
@@ -226,3 +256,78 @@ def apply_exclusions(
         split_report, rows_by_split={**split_report.rows_by_split, "train": kept}
     )
     return report, exclusions, excluded
+
+
+@dataclass(frozen=True)
+class PreDedupeDrops:
+    """A verified pre-dedupe drop list: its keys and its sha256."""
+
+    path: Path
+    keys: frozenset[str]
+    sha256: str
+
+
+def read_pre_dedupe_drops(path: Path) -> PreDedupeDrops:
+    """``path`` read as an exclusion list is read (byte-sorted, unique, LF lines), non-empty."""
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise ExclusionRefusal(f"--drop-before-dedupe {path}: unreadable ({exc})") from exc
+    keys = _keys_of(path, raw)
+    if not keys:
+        raise ExclusionRefusal(f"--drop-before-dedupe {path}: no key; omit the flag instead")
+    return PreDedupeDrops(path=path, keys=frozenset(keys), sha256=hashlib.sha256(raw).hexdigest())
+
+
+def pre_dedupe_drops_identity(path: Path | None) -> dict[str, object]:
+    """The corpus key a drop list adds (:data:`PRE_DEDUPE_DROPS_KEY`), or nothing without one."""
+    if path is None:
+        return {}
+    return {PRE_DEDUPE_DROPS_KEY: read_pre_dedupe_drops(path).sha256}
+
+
+def split_before_dedupe(row: DataRow, *, config: DataConfig) -> str:
+    """The split ``qd_data.split.split`` gives ``row`` if it survives dedupe: its family's
+    hold-out, else its pinned split, else its repo's hash. The same three steps, from the
+    same functions, as that function's per-row assignment, which
+    ``test_pre_dedupe_drops`` checks row for row against ``split`` itself."""
+    if config.is_held_out_family(row.family_id):
+        return HELD_OUT
+    pinned = row.metadata.get(PINNED_SPLIT_KEY)
+    if pinned is not None:
+        return str(pinned)
+    return assign_repo(
+        row.repo_key, seed=config.seed, train_fraction=config.train_fraction,
+        val_fraction=config.val_fraction,
+    )
+
+
+def drop_before_dedupe(
+    rows: Sequence[DataRow], path: Path | None, *, config: DataConfig
+) -> tuple[tuple[DataRow, ...], PreDedupeDrops | None, tuple[DataRow, ...]]:
+    """``(kept, drops, dropped)``: ``rows`` (``build_mixture``'s) less every row whose
+    identity key ``path`` lists, for ``dedupe`` to read. ``path=None`` returns the rows as
+    they were. Every key must name at least one row, and every row it names must be one the
+    split puts in train (:func:`split_before_dedupe`): a list naming a val or held-out row
+    would shrink an eval set, which rule 2 forbids, so it is refused before any row moves."""
+    if path is None:
+        return tuple(rows), None, ()
+    drops = read_pre_dedupe_drops(path)
+    dropped = tuple(r for r in rows if r.identity_key in drops.keys)
+    unnamed = sorted(drops.keys - {r.identity_key for r in dropped})
+    if unnamed:
+        raise ExclusionRefusal(
+            f"{path}: {len(unnamed)} key(s) name no row of this corpus, first {unnamed[:3]}: "
+            "the list is not this build's"
+        )
+    eval_rows = sorted(
+        (r.identity_key, s) for r in dropped
+        if (s := split_before_dedupe(r, config=config)) != "train"
+    )
+    if eval_rows:
+        raise ExclusionRefusal(
+            f"{path}: {len(eval_rows)} listed row(s) would be split out of train, first "
+            f"{eval_rows[:3]}: a pre-dedupe drop removes train rows only (rule 2)"
+        )
+    kept = tuple(r for r in rows if r.identity_key not in drops.keys)
+    return kept, drops, dropped

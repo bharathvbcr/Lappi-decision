@@ -165,7 +165,7 @@ V5_BOX_YES="Bharath (human, ~16:26Z 2026-10-03, AUDIT/finalize-2026-10-03/report
 # two also reaches tools/ft_linear_control.py through v5_ctl_split. A test compares this list
 # with real_ft_run's source (test_v5_split_flags_are_the_data_flags_real_ft_run_rebuilds_its_
 # split_from), so a new data flag there fails it until it is named here.
-V5_SPLIT_FLAGS=" --out --no-repo-history --rev --defect-class --defect-download --defect-max-rows --defect-noul --general-record --general-max-rows --exclude-identity-keys --decisions-pool --replay-partition --real-backbone --commitpackft --max-pairs "
+V5_SPLIT_FLAGS=" --out --no-repo-history --rev --defect-class --defect-download --defect-max-rows --defect-noul --general-record --general-max-rows --exclude-identity-keys --decisions-pool --drop-before-dedupe --replay-partition --real-backbone --commitpackft --max-pairs "
 # Set by v5_lane_set: this process's lane (its GPU) and its cost argv. Empty until then, and
 # v5_lock refuses without a lane.
 V5_GPU=""

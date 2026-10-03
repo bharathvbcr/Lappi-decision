@@ -123,7 +123,10 @@ from qd_train.exclusions import (
     Exclusions,
     apply_exclusions,
     containment_corpus,
+    drop_before_dedupe,
+    pre_dedupe_drops_identity,
     read_exclusions,
+    read_pre_dedupe_drops,
 )
 from qd_train.ledger import (
     DEFAULT_LEDGER_PATH,
@@ -1756,6 +1759,7 @@ def corpus_identity(
     defect_max_rows: int | None, repo_history: bool = True,
     general_record: Path | None = None, general_max_rows: int | None = None,
     defect_noul: Path | None = None, decisions_pool: Path | None = None,
+    drop_before_dedupe: Path | None = None,
 ) -> dict[str, object]:
     """What this pipeline's corpus inputs are -- equally, what ``real_ft_run.ft_splits`` was
     called with -- as an attestation records them. The one owner: the replay attestation
@@ -1795,6 +1799,10 @@ def corpus_identity(
         # The general-decision pool, the same way: named only when given. With it, the
         # containment scope over its families (decisions_pool_scope).
         **({} if decisions_pool is None else decisions_pool_scope(decisions_pool)),
+        # The pre-dedupe drop list, by its sha256, only when given: the rows it removes
+        # before dedupe change which rows survive, so a scan of the corpus without it is
+        # another corpus's (qd_train.exclusions.drop_before_dedupe).
+        **pre_dedupe_drops_identity(drop_before_dedupe),
     }
 
 
@@ -2382,6 +2390,8 @@ def run(
     replay_exclude: Path | None = None,
     exclude_identity_keys: Path | None = None,
     decisions_pool: Path | None = None,
+    pre_dedupe_drops: Path | None = None,
+    dedupe_report_out: Path | None = None,
 ) -> Measured:
     """Build, measure and write one shard set, and return what was measured.
 
@@ -2396,7 +2406,21 @@ def run(
     attestation beside it) the train rows it names leave the train split right after
     ``split`` and before ``split_off_replay`` (``qd_train.exclusions.apply_exclusions``), and
     the train and replay headers carry its sha256. Without it nothing here changes.
+
+    With ``pre_dedupe_drops`` (``--drop-before-dedupe``) the train rows it names leave the
+    corpus between ``build_mixture`` and ``dedupe`` (``qd_train.exclusions.
+    drop_before_dedupe``), so a val or held-out row they knocked out in dedupe survives; its
+    sha256 is part of the corpus an exclusion list is checked against, and the recipe's.
+
+    With ``dedupe_report_out`` the stage-2 ``DedupeReport.to_json()`` (every near-duplicate
+    component: its kept unit and the units it removed) is written there, once, so a val or
+    held-out row's absence can be read from the build's own clusters (A7). It names identity
+    keys, not text, and is written outside ``out``. Without it nothing here changes.
     """
+    if dedupe_report_out is not None and dedupe_report_out.exists():
+        raise SystemExit(f"--dedupe-report-out {dedupe_report_out} exists; it is written once")
+    if pre_dedupe_drops is not None and report_only_slice is not None:
+        raise SystemExit("--drop-before-dedupe is a corpus build's; a report-only slice takes none")
     if exclude_identity_keys is not None and replay_exclude is not None:
         raise SystemExit(
             "--exclude-identity-keys and --replay-exclude together: the containment list "
@@ -2492,11 +2516,15 @@ def run(
         general_record=general_record,
         general_max_rows=general_max_rows if general_record is not None else None,
         defect_noul=defect_noul, decisions_pool=decisions_pool,
+        drop_before_dedupe=pre_dedupe_drops,
     )) if exclude_identity_keys is not None else {}
     if exclude_identity_keys is not None:
         # Verified now, before minutes of building: the same check runs again where it is
         # applied, after the split.
         read_exclusions(exclude_identity_keys, corpus=containment)
+    if pre_dedupe_drops is not None:
+        # The list's own form, now; its keys are checked against the rows where it applies.
+        read_pre_dedupe_drops(pre_dedupe_drops)
     tok = RealTokenizer.load(memo_limit=memo_limit)
     print(
         f"tokenizer {type(tok.tok).__name__} for {MODEL}: vocab_size={tok.tok.vocab_size} "
@@ -2656,11 +2684,35 @@ def run(
         for code, n in sorted(counts.items(), key=lambda kv: -kv[1]):
             print(f"    refused {source_id} {code}: {n}")
 
-    with native_minhash(mixture.rows, config=config):
-        report = dedupe(list(mixture.rows), config=config)
+    deduped_rows, drops, dropped_rows = drop_before_dedupe(
+        mixture.rows, pre_dedupe_drops, config=config
+    )
+    if drops is not None:
+        by_family = collections.Counter(r.family_id for r in dropped_rows)
+        extra_metrics["pre_dedupe_drops"] = Ran(
+            passed=True, value=len(dropped_rows), n=len(dropped_rows),
+            n_total=len(mixture.rows),
+            detail=(
+                f"{len(dropped_rows)} train row(s) under {len(drops.keys)} identity key(s) of "
+                f"{drops.path} (sha256 {drops.sha256}) left the corpus before dedupe, by "
+                f"family {dict(sorted(by_family.items()))}; every one is a row the split puts "
+                "in train"
+            ),
+        )
+        print(f"\n== stage 1b: pre-dedupe drops ==\n  {len(dropped_rows)} train row(s), "
+              f"{len(drops.keys)} key(s), sha256 {drops.sha256}, by family "
+              f"{dict(sorted(by_family.items()))}")
+    with native_minhash(deduped_rows, config=config):
+        report = dedupe(list(deduped_rows), config=config)
         split_report = split(report, config=config)
+    if dedupe_report_out is not None:
+        with dedupe_report_out.open("x", encoding="utf-8") as fh:
+            json.dump(report.to_json(), fh, sort_keys=True)
+            fh.write("\n")
     print("\n== stage 2: dedupe + split ==")
-    print(f"  rows in: {len(mixture.rows)}   kept: {len(report.kept)}")
+    print(f"  rows in: {len(deduped_rows)}   kept: {len(report.kept)}")
+    if dedupe_report_out is not None:
+        print(f"  dedupe report: {dedupe_report_out} ({len(report.clusters)} clusters)")
     print(f"  split counts: {split_report.counts()}")
     if DEFECT_SOURCE_ID in raw:
         # The number the rung-3 collapse (46/90, the val majority) is read against: a
@@ -3453,6 +3505,24 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--drop-before-dedupe", type=Path, default=None, dest="pre_dedupe_drops",
+        help=(
+            "a byte-sorted list of identity keys of train rows that leave the corpus between "
+            "build_mixture and dedupe, so the val or held-out twin they would knock out "
+            "survives (qd_train.exclusions.drop_before_dedupe; the human's ratification of "
+            "Fable's option B, 2026-10-03). Refused if a key names no row or a row the split "
+            "would not put in train. Its sha256 is part of the corpus"
+        ),
+    )
+    parser.add_argument(
+        "--dedupe-report-out", type=Path, default=None,
+        help=(
+            "write stage 2's dedupe report (DedupeReport.to_json: every near-duplicate "
+            "component, its kept unit and the units it removed) here, once, outside --out: "
+            "the evidence A7 reads a removed val or held-out row against"
+        ),
+    )
+    parser.add_argument(
         "--usd-per-hour", type=float, default=None,
         help="the instance rate from the provider's price page, on a rented box",
     )
@@ -3506,6 +3576,8 @@ def main(argv: list[str] | None = None) -> int:
         "replay_exclude": args.replay_exclude,
         "exclude_identity_keys": args.exclude_identity_keys,
         "decisions_pool": args.decisions_pool,
+        "pre_dedupe_drops": args.pre_dedupe_drops,
+        "dedupe_report_out": args.dedupe_report_out,
     }
     if args.ledger is None:
         run(**run_kwargs)
@@ -3585,6 +3657,11 @@ def main(argv: list[str] | None = None) -> int:
         # decides which train rows are written, and the train header names the same digest.
         recipe["exclusions_sha256"] = hashlib.sha256(
             args.exclude_identity_keys.read_bytes()
+        ).hexdigest()
+    if args.pre_dedupe_drops is not None:
+        # Only when used: the list decides which rows dedupe reads.
+        recipe["pre_dedupe_drops_sha256"] = hashlib.sha256(
+            args.pre_dedupe_drops.read_bytes()
         ).hexdigest()
     if args.max_seq_len is not None:
         # Only when used: it decides which rows are written.

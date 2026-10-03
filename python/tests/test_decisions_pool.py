@@ -436,6 +436,41 @@ def test_a7_refuses_a_pool_whose_rows_disagree_with_its_manifest(tmp_path: Path)
         check(v4, v5, gate=gate, decisions_pool=pool)
 
 
+def test_a7_counts_a_pool_val_row_the_build_refuses_as_refused_not_missing(
+    tmp_path: Path,
+) -> None:
+    """The first v5 build's A7 (2026-10-03, 21:42Z) raised RowRefused on a google/boolq val row
+    carrying U+200E. build_mixture refuses such a row and counts it
+    (invisible_format_characters), so no split holds it. A7 now counts it as refused, and the
+    manifest's val_by_family must equal built + refused (the human's ratification,
+    AUDIT/finalize-2026-10-03/human-answers-2026-10-03-a7.md). Fails before the fix: the
+    expectation raised. A built row that is absent still refuses (the test above)."""
+    from v5_a7_check import check
+
+    plain = _write_pool(tmp_path / "plain", _pool_val_lines(),
+                        val_by_family={"openjev.policy": 2})
+    idents = _pool_val_identities(plain)
+    marked = _line(id="openjev:v9", split="val", group_key="v9",
+                   context="Which candidate‎ satisfies requirement 9?\n\n{\"n\": 9}")
+    lines = [*_pool_val_lines(), marked]
+    pool = _write_pool(tmp_path / "pool", lines, val_by_family={"openjev.policy": 3})
+    v4, v5, gate = _a7_builds(tmp_path, val_extra=_pool_rows(idents))
+    report = check(v4, v5, gate=gate, decisions_pool=pool)
+    assert report["passed"], [r for r in report["families"] if not r["passed"]]
+    assert report["decisions_pool_val_refused"] == {
+        "openjev.policy": {"invisible_format_characters": 1}
+    }
+    row = next(r for r in report["families"]
+               if r["split"] == "val" and r["family"] == "openjev.policy")
+    assert (row["expected"], row["v5"], row["refused_by_build_mixture"]) == (
+        2, 2, {"invisible_format_characters": 1}
+    )
+    # The refused row is still the pool's: a manifest that leaves it out does not reconcile.
+    short = _write_pool(tmp_path / "short", lines, val_by_family={"openjev.policy": 2})
+    with pytest.raises(SystemExit, match=r"built \+ refused"):
+        check(v4, v5, gate=gate, decisions_pool=short)
+
+
 def test_the_corpus_identity_names_a_pool_only_when_given(tmp_path: Path) -> None:
     sys.path.insert(0, str(REPO / "tools"))
     import real_tokenizer_pipeline as pipeline

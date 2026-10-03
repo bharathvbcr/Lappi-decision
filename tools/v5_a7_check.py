@@ -10,7 +10,9 @@ the amendment's A7 is "v4's families byte-equal, new families at the counts stat
 (``campaign/v5-preregistered.DRAFT.json`` data.sources, 0e8d35c). Pass the same pool with
 ``--decisions-pool``: each pool family's val rows must be exactly the pool's val rows, by
 identity key, as ``qd_data.decisions.rewrite_typed_decision`` builds them (the pool's own
-manifest names how many), and it may have no held-out rows. Every v4 family's check is
+manifest names how many, built plus the rows ``rewrite_typed_decision`` refuses, which
+``build_mixture`` refuses too and the report counts by reason), and it may have no held-out
+rows. Every v4 family's check is
 unchanged, and without the flag a pool family refuses as any unnamed family does.
 
     python tools/v5_a7_check.py \\
@@ -34,7 +36,7 @@ import argparse
 import json
 import sys
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -97,10 +99,13 @@ GATE = A7Gate(
 @dataclass(frozen=True, slots=True)
 class PoolExpectation:
     """What a build that read a general-decision pool must hold of that pool's families:
-    ``val[family]`` is the identity keys of the pool's val rows; held-out holds none."""
+    ``val[family]`` is the identity keys of the pool's val rows that the pipeline builds;
+    held-out holds none. ``refused[family]`` counts the pool's val rows it refuses, by reason:
+    rows no split holds, so a build is expected to have neither them nor a gap for them."""
 
     examples_sha256: str
     val: dict[str, Counter[str]]
+    refused: dict[str, Counter[str]] = field(default_factory=dict)
 
     def families(self) -> set[str]:
         return set(self.val)
@@ -108,27 +113,45 @@ class PoolExpectation:
 
 def pool_expectation(pool_dir: Path) -> PoolExpectation:
     """Every val row of the pool, rewritten as the pipeline rewrites it. The pool is read
-    through ``load_decision_pool`` (checked against its manifest's sha256), and the per-family
-    counts must equal the manifest's ``val_by_family``, so the numbers checked are the ones the
-    pool states."""
+    through ``load_decision_pool`` (checked against its manifest's sha256), and per family
+    the rows built plus the rows refused must equal the manifest's ``val_by_family``, so the
+    numbers checked are the ones the pool states.
+
+    A row ``rewrite_typed_decision`` refuses (``RowRefused``) is counted and left out of the
+    expectation, as ``qd_data.mixture.build_mixture`` counts it and builds nothing from it.
+    The first v5 build's A7 (2026-10-03, 21:42Z) raised on a google/boolq val row carrying
+    U+200E instead. The human ratified this reading (AUDIT/finalize-2026-10-03/
+    human-answers-2026-10-03-a7.md). A row the pipeline built and dedupe then removed is
+    still expected, and its absence still refuses."""
     from qd_data.decisions import load_decision_pool, pool_data_config, rewrite_typed_decision
+    from qd_data.mixture import RowRefused
 
     pool = load_decision_pool(pool_dir)
     config = pool_data_config()
     val: dict[str, Counter[str]] = {}
+    refused: dict[str, Counter[str]] = {}
     for rows in pool.raw.values():
         for i, raw in enumerate(rows):
             if raw.split != "val":
                 continue
-            row = rewrite_typed_decision(raw, family_id=raw.family_id, index=i, config=config)
-            val.setdefault(row.family_id, Counter())[row.identity_key] += 1
+            val.setdefault(raw.family_id, Counter())
+            try:
+                row = rewrite_typed_decision(raw, family_id=raw.family_id, index=i, config=config)
+            except RowRefused as exc:
+                refused.setdefault(raw.family_id, Counter())[exc.reason_code] += 1
+                continue
+            val[row.family_id][row.identity_key] += 1
     stated = pool.manifest.get("val_by_family")
-    got = {f: sum(c.values()) for f, c in val.items()}
+    got = {
+        f: sum(val.get(f, Counter()).values()) + sum(refused.get(f, Counter()).values())
+        for f in set(val) | set(refused)
+    }
     if stated != got:
         raise SystemExit(
-            f"{pool_dir}: the pool's val rows per family are {got}, its manifest states {stated}"
+            f"{pool_dir}: the pool's val rows per family (built + refused) are {got}, its "
+            f"manifest states {stated}"
         )
-    return PoolExpectation(examples_sha256=pool.examples_sha256, val=val)
+    return PoolExpectation(examples_sha256=pool.examples_sha256, val=val, refused=refused)
 
 
 def _identities(manifest: Manifest) -> dict[str, Counter[str]]:
@@ -185,6 +208,8 @@ def check_split(
             row["kind"] = "decision-pool"
             expected = pool.val.get(family, Counter()) if split == "val" else Counter()
             row["expected"] = sum(expected.values())
+            if split == "val" and pool.refused.get(family):
+                row["refused_by_build_mixture"] = dict(sorted(pool.refused[family].items()))
             if row["v4"]:
                 reasons.append(f"baseline: v4 has {row['v4']} {split} rows of a pool family")
             row.update(_diff(expected, got))
@@ -262,6 +287,9 @@ def check(
             {} if pool is None else {
                 "decisions_pool": str(decisions_pool),
                 "decisions_pool_examples_sha256": pool.examples_sha256,
+                "decisions_pool_val_refused": {
+                    f: dict(sorted(c.items())) for f, c in sorted(pool.refused.items())
+                },
             }
         ),
         "data_snapshot_hash": snapshots,
