@@ -11,18 +11,45 @@ produce byte-identical prompts for the same request.
 ```json
 {
   "schema_version": 1,
-  "task": "devcouncil.verdict",
-  "context_b64": "Zm4gYWRkKCkge30K",
-  "context_len": 12,
-  "question": "Does this diff implement what the commit message claims?",
+  "task": "code.defect_class",
+  "context_b64": "ZmlsZTogc3JjL2FkZC5ycwoKLS0tIGEvc3JjL2FkZC5ycworKysgYi9zcmMvYWRkLnJzCkBAIC0xICsxIEBACi1mbiBhZGQoYTogaTMyLCBiOiBpMzIpIC0+IGkzMiB7IGEgKyBiIH0KK2ZuIGFkZChhOiBpMzIsIGI6IGkzMikgLT4gaTMyIHsgYSAtIGIgfQ==",
+  "context_len": 145,
+  "question": "What kind of change is this diff, and which lines does it touch?",
   "slots": [
-    {"name": "verdict", "type": "choice", "options": ["stub", "logic", "cosmetic", "clean"]},
-    {"name": "severity", "type": "score", "bins": 5},
-    {"name": "evidence", "type": "span"}
+    {
+      "name": "defect_class",
+      "type": "choice",
+      "options": [
+        "stub",
+        "logic",
+        "cosmetic",
+        "clean"
+      ]
+    },
+    {
+      "name": "defect_span",
+      "type": "span"
+    }
   ],
-  "route": "generic"
+  "route": "generic",
+  "example_id": "qdm:code.defect_class:doc-example",
+  "metadata": {}
 }
 ```
+
+**This is the request training builds** for a one-line Rust diff
+(`python/tests/test_schema_api_doc.py` regenerates it through `qd_data.mixture.rewrite_defect_class`
+and requires this block to equal it). Copy its `task`, `question` and slot names exactly:
+- All three are rendered into the prompt, so a request that renames them serves the model a prompt
+  it never saw.
+- The runtime's admission check runs only for `task: code.defect_class`.
+
+Until 2026-10-03 this example showed `devcouncil.verdict` with slots `verdict` / `severity` /
+`evidence` and another family's question. No family trains that request
+(GAP-SCHEMA-API-DOC-REQUEST-IS-NOT-A-TRAINED-REQUEST-2026-10-03).
+
+A `score` slot (`{"name": ..., "type": "score", "bins": N}`) is part of the schema, but no released
+family trains one yet; score slots are planned for v6.
 
 - `context` crosses the FFI boundary as **bytes and a length, never a Swift `String`**. A `String`
   round-trip normalizes Unicode and would silently change token boundaries and therefore line spans.
@@ -254,12 +281,10 @@ Three replies are possible and a caller must match all three. They are distingui
   "backend": "reference-deterministic-v1",
   "degraded": true,
   "slots": {
-    "verdict": {"value": "stub", "conformal_set": ["stub", "logic"], "score": 0.71,
-                "noul": false, "degraded": true},
-    "severity": {"value": 3, "conformal_set": [2, 3, 4], "score": 0.55,
-                 "noul": false, "degraded": true},
-    "evidence": {"value": {"start_line": 41, "end_line": 47}, "conformal_set": null,
-                 "score": 0.62, "noul": false, "degraded": true}
+    "defect_class": {"value": "logic", "conformal_set": ["logic", "stub"], "score": 0.71,
+                     "noul": false, "degraded": true},
+    "defect_span": {"value": {"start_line": 5, "end_line": 5}, "conformal_set": null,
+                    "score": 0.62, "noul": false, "degraded": true}
   }
 }
 ```
