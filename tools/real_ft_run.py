@@ -10614,16 +10614,23 @@ def main(argv: list[str] | None = None) -> int:
         exclude_identity_keys=args.exclude_identity_keys,
     )
     require_index = args.defect_class is not None or args.general_record is not None
-    # --score-checkpoint trains nothing, and the train split's labels, inventory,
-    # contradictions and epoch plan feed no row it writes: on the phase-4 set they were ~37 s
-    # of a 143 s Mac prelude (one unprofiled run, 2026-10-01), paid with the GPU idle; see
-    # AUDIT/perf-ft-run-prep-2026-10-01.md for the interleaved A/B. What they did for scoring
-    # was confirm the tokenizer's letter ids against the train golds; the val golds confirm
-    # them too (open_val_set's merge_letter_ids), and where some offered letter is a gold
-    # nowhere in val, the train relabel still runs (below) -- so it is skipped only with a
-    # tokenizer.json to read every letter from, and only when nothing rests on it.
+    # --score-checkpoint and --score-plan train nothing, and the train split's labels,
+    # inventory, contradictions and epoch plan feed no row either writes: on the phase-4 set
+    # they were ~37 s of a 143 s Mac prelude (one unprofiled run, 2026-10-01), paid with the GPU
+    # idle; see AUDIT/perf-ft-run-prep-2026-10-01.md for the interleaved A/B. A score plan paid
+    # them too until 2026-10-03, because the skip keyed on --score-checkpoint, which a plan
+    # refuses (AUDIT/gpu-idle-preamble-2026-10-03). What they did for scoring was confirm the
+    # tokenizer's letter ids against the train golds; the val golds confirm them too
+    # (open_val_set's merge_letter_ids), and where some offered letter is a gold nowhere in
+    # val, the train relabel still runs (below) -- so it is skipped only with a tokenizer.json
+    # to read every letter from, and only when nothing rests on it.
+    scoring_flag = (
+        "--score-checkpoint" if args.score_checkpoint is not None
+        else "--score-plan" if args.score_plan is not None
+        else None
+    )
     train_side: TrainRelabel | None = None
-    if args.score_checkpoint is None or args.tokenizer_json is None:
+    if scoring_flag is None or args.tokenizer_json is None:
         train_side = relabel_train(
             reader, train_rows, config=config, require_index=require_index,
             tokenizer_json=args.tokenizer_json,
@@ -10685,14 +10692,14 @@ def main(argv: list[str] | None = None) -> int:
         )
     train_skipped: str | None = None
     if train_side is None:
-        if val_set is None:  # --score-checkpoint is refused at argv time without --score-val
-            raise SystemExit("--score-checkpoint needs --score-val's val set")
+        if val_set is None:  # both scoring flags are refused at argv time without --score-val
+            raise SystemExit(f"{scoring_flag} needs --score-val's val set")
         unconfirmed = letters_no_val_gold_confirms(val_set, ood_suite)
         if unconfirmed:
             print(
                 f"train relabel: run after all -- val or OOD rows offer letter(s) {unconfirmed} "
                 "that no val row has as its gold, so their ids are confirmed against the "
-                "train golds, as before --score-checkpoint skipped them"
+                "train golds, as a training run confirms them"
             )
             train_side = relabel_train(
                 reader, train_rows, config=config, require_index=require_index,
@@ -10705,7 +10712,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
         else:
             train_skipped = (
-                "--score-checkpoint trains nothing and no row it writes reads the train "
+                f"{scoring_flag} trains nothing and no row it writes reads the train "
                 "split's labels, inventory or contradictions; every letter a val or OOD row "
                 f"offers was confirmed against the val golds, and the ids come from "
                 f"{args.tokenizer_json}"
@@ -10714,7 +10721,7 @@ def main(argv: list[str] | None = None) -> int:
         args.batch_tokens, widest=int(max(reader.header.buckets))
     )
     batch_info = (
-        None if args.score_checkpoint is not None
+        None if scoring_flag is not None
         else _batch_inventory(reader, batch_tokens=batch_tokens, seed=config.seed)
     )
 
@@ -10761,7 +10768,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if batch_info is None:
         print(
-            f"  epoch at batch_tokens={batch_tokens}: NOT RUN -- --score-checkpoint trains "
+            f"  epoch at batch_tokens={batch_tokens}: NOT RUN -- {scoring_flag} trains "
             "nothing, so no epoch is planned and no device is probed"
         )
     else:
@@ -10913,7 +10920,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"score row {score_row_id}")
         return 0
 
-    # Only --score-checkpoint, which returned above, skips the train relabel and the plan.
+    # Only scoring (--score-checkpoint and --score-plan, both returned above) skips the train
+    # relabel and the plan.
     if train_side is None or batch_info is None:
         raise RuntimeError("training reached without the train relabel or the epoch plan")
     labels, inventory = train_side.labels, train_side.inventory

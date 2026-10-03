@@ -1,0 +1,53 @@
+mac_heavy: 2026-10-03T00:49:18Z 'skip-fix: 40 real_ft_run test files, single process' holds the lock (waited 0s; load 0.90, 1082 processes); running: bash /Users/bharath/Code/research/Lappi-decision/build/v5_build_pytest.sh python/tests/test_batch_order.py python/tests/test_checkpoint_retain.py python/tests/test_ckpt_average_norm_preserving.py python/tests/test_containment_exclusions.py python/tests/test_defect_noul.py python/tests/test_ft_splits_contrast.py python/tests/test_gate_report_parity.py python/tests/test_mac_zero_shot_cuda.py python/tests/test_min_lr.py python/tests/test_needle_ft_contract.py python/tests/test_needle_handoff.py python/tests/test_needle_real_tokens.py python/tests/test_noul_weight.py python/tests/test_ood_abstain.py python/tests/test_ood_only_scoring.py python/tests/test_optim.py python/tests/test_prompt_format_chain.py python/tests/test_qd_prep_minhash_parity.py python/tests/test_real_ft_campaign.py python/tests/test_real_ft_composed_slice.py python/tests/test_real_ft_device_budget.py python/tests/test_real_ft_ensemble.py python/tests/test_real_ft_family_metrics.py python/tests/test_real_ft_final_checkpoint.py python/tests/test_real_ft_general_record.py python/tests/test_real_ft_metal_export.py python/tests/test_real_ft_mps_watermark.py python/tests/test_real_ft_permutation_consistency.py python/tests/test_real_ft_pieces.py python/tests/test_real_ft_prep.py python/tests/test_real_ft_progress.py python/tests/test_real_ft_protocol.py python/tests/test_real_ft_report_metrics.py python/tests/test_real_ft_rungd_flags.py python/tests/test_real_ft_score_checkpoint.py python/tests/test_real_ft_score_plan.py python/tests/test_real_ft_score_val.py python/tests/test_real_ft_shuffled_label.py python/tests/test_real_ft_suite_logits.py python/tests/test_v5_prelude_mac.py
+v5-build-wt at 25007a8 plus:  M python/tests/test_real_ft_prep.py  M tools/real_ft_run.py 
+........................................................................ [  8%]
+....................................sssssssssssssssssss................. [ 16%]
+........................................................................ [ 24%]
+........................................................................ [ 32%]
+............................................................ss.......... [ 41%]
+.s..............................................................s....... [ 49%]
+........................................................................ [ 57%]
+........................................................................ [ 65%]
+...............s........................................................ [ 73%]
+............................................................sss......... [ 82%]
+........................................................................ [ 90%]
+........................................................................ [ 98%]
+..............                                                           [100%]
+=============================== warnings summary ===============================
+python/tests/test_batch_order.py::test_the_order_digest_is_the_plans_bucket_and_rows_in_order
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+python/tests/test_batch_order.py::test_the_order_digest_is_the_plans_bucket_and_rows_in_order
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] python/tests/test_defect_noul.py:824: data/pool/defect-noul-v1 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:824: data/pool/defect-noul-v2 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:824: data/pool/defect-noul-v3 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:824: data/pool/defect-noul-v3b is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:857: data/pool/defect-noul-v1 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:857: data/pool/defect-noul-v2 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:857: data/pool/defect-noul-v3 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:857: data/pool/defect-noul-v3b is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:895: data/pool/defect-noul-v2 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:895: data/pool/defect-noul-v3 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:895: data/pool/defect-noul-v3b is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:965: data/pool/defect-noul-v2 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:965: data/pool/defect-noul-v3 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:965: data/pool/defect-noul-v3b is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:1001: data/pool/defect-noul-v2 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:1001: data/pool/defect-noul-v3 is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:1001: data/pool/defect-noul-v3b is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:1028: defect-noul-v1's rows, allowlist or the general record is not on this host
+SKIPPED [1] python/tests/test_defect_noul.py:1053: the noul corpus, the defect corpus or the download is not on this host
+SKIPPED [1] python/tests/test_qd_prep_minhash_parity.py:124: /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/data/pool/commitpackft-corpus-v2/examples.jsonl is not on disk
+SKIPPED [1] python/tests/test_qd_prep_minhash_parity.py:140: /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/data/pool/commitpackft-corpus-v2/examples.jsonl is not on disk
+SKIPPED [1] python/tests/test_qd_prep_minhash_parity.py:463: /Users/bharath/Code/research/Lappi-decision/build/v5-build-wt/data/pool/commitpackft-corpus-v2/examples.jsonl is not on disk
+SKIPPED [1] python/tests/test_real_ft_composed_slice.py:361: QD_SLICE_* do not name the real slice
+SKIPPED [1] python/tests/test_real_ft_pieces.py:456: the qd-mutate corpus or the commitpackft download is not on this host
+SKIPPED [1] python/tests/test_real_ft_rungd_flags.py:630: opt-in: set QD_SPAN_HEAD_INIT_H2048 to L-oracle's span_head_init-seed0.safetensors (main checkout, data/checkpoints/span-head-init/, ignored). Builds a hidden-2048 stand-in tower on CPU
+SKIPPED [2] python/tests/test_real_ft_rungd_flags.py:708: opt-in: set QD_BYTE_IDENTITY_BASE to the git ref the new flags were added on top of (e21066c). A differential against a fixed base fails by design once the tool legitimately changes, so it is run for the change, not on every suite
+851 passed, 27 skipped, 2 warnings in 82.93s (0:01:22)
+<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+mac_heavy: 2026-10-03T00:50:43Z 'skip-fix: 40 real_ft_run test files, single process' finished with exit 0
