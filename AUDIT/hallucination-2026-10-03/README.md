@@ -56,9 +56,13 @@ this file. They are throwaway analysis (Python's analysis-only role) and never s
 - No threshold, on either statistic, passes both bounds on any seed.
 - The OOD cases the model answers sit at a median p_top of 0.94-0.98. Its in-distribution wrong
   answers sit at 0.77-0.82, and its correct ones at 0.9997.
-- So on OOD input the model is not uncertain; it is confidently wrong. A threshold cannot separate
-  those cases from correct answers. Temperature scaling would not either, since it moves every
-  row's p_top in the same direction.
+- So on OOD input the model is not uncertain; it is confidently wrong. A threshold on p_top cannot
+  separate those cases from correct answers.
+- The margin sweep fails the same way. The margin is the statistic a temperature fit would
+  re-space by logit gap, so a fitted temperature is not expected to change this. That is
+  inferred, not measured.
+- OOD confidence was taken as the minimum over the suite's two option orders. That is
+  conservative in the threshold's favour, so it strengthens the conclusion.
 - Prose abstention is bimodal across seeds: 54, 0 and 1 of 60 (GAP-OOD-PROSE-ABSTENTION-BIMODAL-ACROSS-SEEDS-2026-10-02).
 
 **Consequence.** OOD hallucination is a training-side problem. v5 already carries both levers
@@ -80,7 +84,7 @@ uncalibrated p_top.
 | 0.99 | 393 / 8 (0.4%) | 381 / 10 (0.5%) | 447 / 8 (0.4%) |
 
 Every threshold trades abstentions for fewer wrong answers. Above about 0.7, in-distribution
-abstention passes the gate's 5% cap. The gate stays as it is. Where to sit on this curve is a
+abstention exceeds the gate's 5% cap. The gate stays as it is. Where to sit on this curve is a
 product cost, so it belongs to the human (section 5).
 
 ## 5. The reward system (Fable's ruling)
@@ -113,7 +117,38 @@ is pre-registered before v5's suite is read, and the fit runs on val, never on t
 
 - Per seed, the suite half per category, against F's three rows above.
 - In-distribution abstention per family.
-- The selective-risk table of section 4, per seed. It will be computed offline from the verdict
-  files, as here, unless it lands as a metric.
+- The selective-risk table of section 4, per seed, as a ledger metric. Rule 5 means a
+  pre-registered target needs a row. So it lands at write time in `calibration_states`, on a
+  fixed grid stated before any v5 row is read. It goes through the rule-2 characterization tests
+  and qd-gate-report's recompute, before v5's first ft row. It is pending, and it blocks launch.
 - The data lane's risk: about 130k prose-shaped decision rows that should be answered must not
   make defect-schema prose less likely to abstain. Report the prose category per seed against F's.
+
+## 7. The new verdict on F's real rows
+
+`verdict-f-seed-family.txt` is the output of this command, run 2026-10-03 against main d2972b1
+with the decided record e49fd446:
+
+`python -m qd_train.ledger verdict --ledger ledger/gh200-p4-v4-2026-10-01.jsonl --row-id f4feac15-db49-4159-bb9b-695866c855cc`
+
+The verdict is REFUSED, over 5 units and 11 rows: seeds 0-4, three of them with their two
+supplement rows. On real metric shapes it shows:
+
+- **Condition 7 clears.** No outcome-count gate is refused as a capped sample; each row's
+  `val_rows_decoded` is complete.
+- **The population readings render.** `permutation_consistency` as built fails pooled
+  (0.922-0.933) and passes on the defect family on every unit (2278-2293 of 2304). `ece` as built
+  is not_run (no language on 8,681 letter rows) and passes over the population on every unit.
+- **`ood_abstain` fails on every unit:** 132, 56, 68, 125 and 61 of 180 for seeds 0, 1, 2, 3 and
+  4. These match the rows' recorded gates. The in-distribution half is not what fails.
+- **`needle_hunk_recall` fails on four units** at depth 80-100%: 0.656, 0.770, 0.918 and 0.836,
+  against 0.95. Seed 1 passes at 1.000. This is the known long-context recall failure, which v5's
+  stretched composed lengths target.
+- **`degenerate_head` reads not_run.** v4 rows carry no structured class share, so this is
+  expected.
+- **`paired_margin_vs_linear` reads not_run** in this single-ledger run, because the linear
+  control rows live in another ledger. **`shuffled_label` reads not_run.** Neither changes the
+  outcome.
+
+So "no v4 row promotes" is verified by running the verdict, not inferred: the OOD suite half
+fails on every unit, and the needle fails on four of five.

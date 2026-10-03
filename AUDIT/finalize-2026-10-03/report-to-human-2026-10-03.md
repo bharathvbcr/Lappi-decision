@@ -48,9 +48,12 @@ want one anyway.
 - **The verdict also had a defect.** It refused every passing permutation or OOD gate as "a
   capped sample", because those gates count outcomes and it read them as coverage. It is fixed,
   under your delegation, and moves no threshold.
-- **The honesty check still holds: no v4 row promotes.** The OOD suite half fails on every one:
-  132/180, 56/180 and 68/180 for F seeds 0-2 (f4feac15, aeca8d69, 8c3a774a), against the 170 it
-  needs.
+- **The honesty check still holds: no v4 row promotes**, verified by running the new verdict on
+  F's real rows (AUDIT/hallucination-2026-10-03/verdict-f-seed-family.txt).
+  - The OOD suite half fails on all five seeds: 132, 56, 68, 125 and 61 of 180, against the 170 it
+    needs.
+  - `needle_hunk_recall` fails on four of five at depth 80-100%.
+  - The defect family's permutation consistency and ECE pass under the decided population.
 - **The per-shape class share** that the decided degenerate-head rule reads is written by the
   trainer and recomputed by qd-gate-report: v5-build c59ccda.
 - **The epoch arm** no longer evaluates the whole train plan for no row: v5-build 6f1546c, about
