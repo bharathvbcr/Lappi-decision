@@ -155,12 +155,17 @@ fn sample(total: f64, logits: &[f32]) -> Sample {
 }
 
 fn decision_row(provenance: Provenance, split_logits: bool) -> qd_train::ledger::Row {
+    decision_row_for_targets(provenance, split_logits, vec![512])
+}
+
+/// One T (512) always runs; `ts` is what the recipe says should have.
+fn decision_row_for_targets(provenance: Provenance, split_logits: bool, ts: Vec<usize>) -> qd_train::ledger::Row {
     let args = DecisionArgs {
-        ts: vec![512],
+        ts,
         k: 4,
         iters: 3,
         warmup: 1,
-        arms: vec![Arm { embed: EmbedPath::Host }, Arm { embed: EmbedPath::Device }],
+        arms: vec![Arm::Embed(EmbedPath::Host), Arm::Embed(EmbedPath::Device)],
         row: RowTarget::None,
         snapshot: None,
     };
@@ -307,6 +312,28 @@ fn arms_that_differ_by_one_bit_are_recorded_as_not_identical() {
     let d = decision_row(prov, true);
     let t = &d.metrics["decision.t512.arms_bit_identical"];
     assert!(t.is_fail(), "{t:?}");
+    // Fail-first (audit 2026-10-03): until then a row whose arms disagreed still said completed.
+    assert_eq!(d.status, qd_train::ledger::Status::Failed, "a non-identical A/B row read as completed");
+}
+
+#[test]
+fn a_complete_identical_run_is_the_only_completed_row() {
+    let prov = Provenance::of(None).unwrap();
+    let d = decision_row(prov, false);
+    assert_eq!(d.status, qd_train::ledger::Status::Completed);
+    assert!(d.metrics["t_coverage"].is_pass(), "{:?}", d.metrics["t_coverage"]);
+}
+
+/// Fail-first (audit 2026-10-03): `bench.rs` stops early when tessl moves, and a row built from
+/// the Ts that did run used to say completed whenever tessl read unchanged at the end.
+#[test]
+fn a_run_cut_short_is_a_capped_sample_not_a_completed_row() {
+    let prov = Provenance::of(None).unwrap();
+    let d = decision_row_for_targets(prov, false, vec![512, 2048]);
+    assert_eq!(d.status, qd_train::ledger::Status::Failed, "1 of 2 Ts read as a completed row");
+    let c = &d.metrics["t_coverage"];
+    assert!(c.is_fail(), "{c:?}");
+    assert!(d.notes.contains("Only 1 of 2 Ts ran"), "{}", d.notes);
 }
 
 #[test]

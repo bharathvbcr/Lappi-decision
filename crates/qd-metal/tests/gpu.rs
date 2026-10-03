@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use qd_metal::backend::{MetalBackend, MetalConfig, StateRecord};
-use qd_metal::model::{EmbedPath, Model, PrefixState, RECURRENT_MAX_SEQ};
+use qd_metal::model::{DigestPath, EmbedPath, Model, PrefixState, RECURRENT_MAX_SEQ};
 use qd_metal::tokenizer::QwenTokenizer;
 use qd_runtime::backend::{DecisionBackend, DecodeMode, QueryKind, SlotQuery};
 
@@ -166,6 +166,10 @@ fn gpu_backend_readonly_decode_leaves_the_runtime_hash_unchanged() {
     assert_ne!(snap.state_digest(), before, "write-back left the runtime's state hash unchanged");
     let rec = StateRecord::parse(snap.state.as_bytes()).unwrap();
     assert!(rec.tokens > handle.token_count as u64);
+    // The record also carries `tokens`, which a write-back always grows, so the hash moving above
+    // does not by itself show the device state moved; the record's device digest must (audit
+    // 2026-10-03: the assertion above alone is satisfied by the token count).
+    assert_ne!(rec.digest, before_rec.digest, "write-back left the device state digest unchanged");
 
     // A fresh snapshot of the same prefill is untouched by that write-back. Every snapshot is its
     // own entry (`Worker::snapshot` inserts one), so its record, and the runtime's hash of that
@@ -222,4 +226,132 @@ fn gpu_embed_paths_are_bit_identical() {
     assert_eq!(h.2, d.2, "a continuation's letter log-probs differ between the paths");
     assert_eq!(h.3, d.3, "a whole pass's letter logits differ between the paths");
     println!("embed paths bit-identical: {} gathered rows, prefix state, continuation and whole-pass letters", ids.len());
+}
+
+/// The tower the v1 pins below were captured on: Qwen3.5-2B-Base snapshot `b1485b2f`, the one
+/// [`setup`] resolves. A pin is a property of (weights, prompt, digest code); on other weights the
+/// test refuses rather than reporting a mismatch it cannot interpret.
+const PIN_WEIGHT_HASH: &str = "92f6bd1c32837882d87e8c2446ba23783563eb67811dbed71de493ef71fba2e1";
+
+/// v1 prefix-state digests (`PrefixState::digest`) of three fixed states, captured from the digest
+/// code as it stood **before** the parallel digest: Lappi `3d68484`, qd-metal `model.rs` sha256
+/// `b95db97c…` (one SHA-256 per buffer on one thread), `Cargo.lock` sha256 `3c536ef1…`, captured
+/// 2026-10-03 03:14Z and identical on a second process run. Characterization, not a fail-first
+/// test: it pins the bytes the runtime's slot-isolation check compares
+/// (`qd_runtime::answer::readonly_decode`), so any change to how the digest is computed must leave
+/// these exactly as they are.
+const PINNED_V1: &[(&str, &str)] = &[
+    ("prefill_short", "3ba7b21a3ec8e15a40d6f6e539dcd56007c28a6ec2ee20499ce1ea51719b6f6b"),
+    ("write_back", "85b7dab4bd04ca714af1481b2c89f60dc8a59eea0abb0ae0758f0fc99e36121e"),
+    ("prefill_2000", "408872926bc09797c3473be4c87a9746d46baf82c7f04693aa70f6e83e683749"),
+];
+
+/// The three pinned states: the short prefill, a write-back extension of it (different K/V
+/// lengths), and a prefill of about 2,000 tokens, whose K/V buffers dominate the state.
+fn pinned_states(model: &Model, tok: &QwenTokenizer) -> Vec<(&'static str, PrefixState)> {
+    let letters = tok.letter_ids().to_vec();
+    let prefix = tok.encode(PREFIX).unwrap();
+    let full = tok.encode(&format!("{PREFIX}{SUFFIX}")).unwrap();
+    let suffix = &full[prefix.len()..];
+    let (a, _) = suffix.split_at(suffix.len() / 2);
+    let (_, short) = model.prefill(&prefix).unwrap();
+    let (_, extended) = continue_logprobs(model, &short, a, &letters, true);
+    let mut long_ids = Vec::new();
+    while long_ids.len() < 2000 {
+        long_ids.extend_from_slice(&prefix);
+    }
+    long_ids.truncate(2000);
+    let (_, long) = model.prefill(&long_ids).unwrap();
+    vec![
+        ("prefill_short", short),
+        ("write_back", extended.expect("write-back keeps a state")),
+        ("prefill_2000", long),
+    ]
+}
+
+#[test]
+#[ignore = "GPU + model snapshot"]
+fn gpu_prefix_state_digest_v1_is_pinned() {
+    let (model, tok) = setup();
+    assert_eq!(
+        model.weight_hash(),
+        PIN_WEIGHT_HASH,
+        "the pins were captured on Qwen3.5-2B-Base b1485b2f; refusing to compare on other weights"
+    );
+    let got: Vec<(&str, String)> = pinned_states(&model, &tok)
+        .iter()
+        .map(|(name, s)| (*name, qd_runtime::hex(&s.digest().unwrap())))
+        .collect();
+    for (name, hex) in &got {
+        println!("v1 digest {name}: {hex}");
+    }
+    let want: Vec<(&str, String)> = PINNED_V1.iter().map(|(n, h)| (*n, h.to_string())).collect();
+    assert_eq!(got, want, "the v1 prefix-state digest changed");
+}
+
+/// The serial digest (one thread, the code the pins were captured from) against the parallel one,
+/// on the same three states plus an 8,192-token prefill whose 12 K/V buffers are each ~17 MB. The
+/// claim is bit identity of the v1 record. Characterization: it passes on both sides of the change
+/// by construction (each buffer is one ordinary SHA-256 either way); what proves the change worth
+/// making is the A/B row.
+#[test]
+#[ignore = "GPU + model snapshot"]
+fn gpu_digest_paths_are_bit_identical() {
+    let (model, tok) = setup();
+    let mut states = pinned_states(&model, &tok);
+    let prefix = tok.encode(PREFIX).unwrap();
+    let mut long_ids = Vec::new();
+    while long_ids.len() < 8192 {
+        long_ids.extend_from_slice(&prefix);
+    }
+    long_ids.truncate(8192);
+    let (_, long) = model.prefill(&long_ids).unwrap();
+    states.push(("prefill_8192", long));
+    for (name, s) in &states {
+        let serial = s.digest_by(DigestPath::Serial).unwrap();
+        let parallel = s.digest_by(DigestPath::Parallel).unwrap();
+        assert_eq!(serial, parallel, "{name}: the parallel digest differs from the serial one");
+        // Twice more: the scratch is reused across digests on this thread.
+        assert_eq!(s.digest().unwrap(), parallel, "{name}: a repeat digest differs");
+        assert_eq!(s.digest().unwrap(), parallel, "{name}: a third digest differs");
+        println!("{name}: {} MB, serial == parallel == {}", s.nbytes() / 1_000_000, qd_runtime::hex(&parallel));
+    }
+}
+
+/// Two row counts that used to be multiplied unchecked, each refused as the caller's input.
+///
+/// `score`: `RunOutput`'s fields are public, and `batch * seq` was a plain `u32` multiply. Built
+/// in release, 65,537 x 65,536 wrapped to 65,536 rows and the call reached tessl, which refused
+/// the 1-row residual as a `Gpu` error; in debug it panicked. Fails against the pre-fix code.
+///
+/// `run`: the MLP's `rows * intermediate` element count is converted to `u32` in the layer loop,
+/// after the activations are allocated and earlier layers encoded. The guard moves that refusal
+/// ahead of any allocation. Not run against the pre-fix code on purpose: there, 699,051 rows
+/// allocate the activations first, tens of GB on this Mac, before the layer loop refuses them.
+#[test]
+#[ignore = "GPU + model snapshot"]
+fn gpu_row_counts_past_u32_are_refused_as_input() {
+    use qd_metal::error::MetalError;
+
+    let (model, tok) = setup();
+    let ids = tok.encode(PREFIX).unwrap();
+    let t = u32::try_from(ids.len()).unwrap();
+    let mut out = model.run(&ids, 1, t, None, false, None).expect("run");
+    let letters = [ids[0]];
+    out.batch = 65_537;
+    out.seq = 65_536;
+    match model.score(&out, &[0], &letters) {
+        Err(MetalError::Input(m)) => assert!(m.contains("overflow"), "{m}"),
+        other => panic!("a wrapping batch x seq was not refused as input: {other:?}"),
+    }
+
+    let inter = model.config().intermediate;
+    let rows = u32::try_from(u32::MAX as usize / inter + 1).unwrap();
+    let huge = vec![0u32; rows as usize];
+    let started = std::time::Instant::now();
+    match model.run(&huge, 1, rows, None, false, None) {
+        Err(MetalError::Input(m)) => assert!(m.contains("mlp elements"), "{m}"),
+        other => panic!("{rows} rows x {inter} were not refused as input: {:?}", other.map(|o| o.seq)),
+    }
+    assert!(started.elapsed() < Duration::from_secs(5), "the refusal took {:?}", started.elapsed());
 }

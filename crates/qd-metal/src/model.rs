@@ -38,6 +38,7 @@
 //! (`attn_prefix_rows`, tessl 7095bec). The only copy is [`concat_kv`], and only when a
 //! write-back (batch 1) has to materialise the new state's contiguous `prefix ‖ suffix` cache.
 
+use std::cell::RefCell;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -95,6 +96,70 @@ impl EmbedPath {
             ))),
         }
     }
+}
+
+/// How [`PrefixState::digest_by`] computes the v1 record. Both give the same bytes: each buffer is
+/// one ordinary SHA-256 either way, and only which thread computes it changes. Kept as a flag so
+/// `qd-metal-bench --decision` can time both arms interleaved (Fable's 2026-10-03 ruling, item 1a).
+/// The serial arm stays until the A/B is re-run on the `sha2` hardware-SHA build (ruling 1, step
+/// 3), or goes at once if the human declines that dependency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DigestPath {
+    /// One SHA-256 per buffer, on the calling thread, straight from each buffer's host mapping:
+    /// the digest the v1 pins in `tests/gpu.rs` were captured from.
+    Serial,
+    /// Each buffer copied into a reused host scratch, one mapping at a time, then the buffers
+    /// hashed by `qd_runtime::sha256_slices_parallel`.
+    Parallel,
+}
+
+impl DigestPath {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DigestPath::Serial => "serial",
+            DigestPath::Parallel => "parallel",
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "serial" => Ok(DigestPath::Serial),
+            "parallel" => Ok(DigestPath::Parallel),
+            other => Err(MetalError::Input(format!(
+                "digest path {other:?} is not `serial` or `parallel`"
+            ))),
+        }
+    }
+}
+
+/// The v1 prefix-state record's domain tag.
+const DIGEST_V1_TAG: &[u8] = b"qd-metal.prefix-state.v1\0";
+
+/// A digest scratch larger than this is released after the digest instead of kept: about one
+/// state of 8.5K tokens (~225 MB) stays resident per thread, a longer context's does not.
+const DIGEST_SCRATCH_RETAIN_BYTES: usize = 256 << 20;
+
+thread_local! {
+    /// The host copy the parallel digest hashes, reused across digests on this thread. A copy is
+    /// needed at all because tessl's host lease is exclusive — one live mapping per runtime
+    /// (`runtime.rs` `acquire_access`) — and `GpuRuntime` is `!Send`, so the mapped bytes cannot be
+    /// handed to hashing threads; owned bytes can. Copying runs at memory bandwidth, a few ms at
+    /// 8K, against hundreds of ms of single-threaded SHA-256.
+    static DIGEST_SCRATCH: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The v1 record over per-buffer SHA-256s: the domain tag, the token count, then for each buffer
+/// in [`PrefixState`]'s fixed order its tag, its byte length and its SHA-256, all hashed once.
+fn digest_v1<'a>(tokens: u32, parts: impl IntoIterator<Item = (&'a str, usize, [u8; 32])>) -> [u8; 32] {
+    let mut acc = Vec::with_capacity(DIGEST_V1_TAG.len() + 4 + 48 * (8 + 8 + 32));
+    acc.extend_from_slice(DIGEST_V1_TAG);
+    acc.extend_from_slice(&tokens.to_le_bytes());
+    for (tag, len, hash) in parts {
+        acc.extend_from_slice(tag.as_bytes());
+        acc.extend_from_slice(&(len as u64).to_le_bytes());
+        acc.extend_from_slice(&hash);
+    }
+    qd_runtime::sha256(&acc)
 }
 
 struct GdnWeights {
@@ -161,9 +226,32 @@ impl PrefixState {
     }
 
     /// SHA-256 over the state **as it is in device memory**: the token count, then each
-    /// buffer's tag, length and SHA-256, in a fixed order. Reading maps the shared buffers,
-    /// which first waits for every GPU command already encoded.
+    /// buffer's tag, length and SHA-256, in a fixed order (the v1 record, [`digest_v1`]). Reading
+    /// maps the shared buffers, which first waits for every GPU command already encoded. The
+    /// buffers are hashed in parallel ([`DigestPath::Parallel`]); the bytes are the serial ones.
     pub fn digest(&self) -> Result<[u8; 32]> {
+        self.digest_by(DigestPath::Parallel)
+    }
+
+    /// [`PrefixState::digest`] by an explicit [`DigestPath`], for the A/B and the bit-identity test.
+    pub fn digest_by(&self, path: DigestPath) -> Result<[u8; 32]> {
+        match path {
+            DigestPath::Serial => self.digest_serial(),
+            DigestPath::Parallel => DIGEST_SCRATCH.with(|cell| {
+                let mut scratch = cell.try_borrow_mut().map_err(|_| {
+                    MetalError::State("the prefix-state digest re-entered itself on one thread".into())
+                })?;
+                let out = self.digest_parallel(&mut scratch);
+                if scratch.capacity() > DIGEST_SCRATCH_RETAIN_BYTES {
+                    *scratch = Vec::new();
+                }
+                out
+            }),
+        }
+    }
+
+    /// The v1 digest as it was before the parallel path, kept verbatim as the A/B's serial arm.
+    fn digest_serial(&self) -> Result<[u8; 32]> {
         let mut acc = Vec::with_capacity(64 + 48 * (self.conv.len() * 2 + self.k.len() * 2));
         acc.extend_from_slice(b"qd-metal.prefix-state.v1\0");
         acc.extend_from_slice(&self.tokens.to_le_bytes());
@@ -174,6 +262,29 @@ impl PrefixState {
             acc.extend_from_slice(&qd_runtime::sha256(&bytes));
         }
         Ok(qd_runtime::sha256(&acc))
+    }
+
+    /// Copy every buffer into `scratch`, one host mapping at a time (each dropped before the next
+    /// is taken: the lease is exclusive), then hash the copies in parallel.
+    fn digest_parallel(&self, scratch: &mut Vec<u8>) -> Result<[u8; 32]> {
+        scratch.clear();
+        scratch.reserve(self.nbytes());
+        let mut spans: Vec<(&'static str, std::ops::Range<usize>)> = Vec::new();
+        for (tag, b) in self.buffers() {
+            let start = scratch.len();
+            {
+                let bytes = b.try_contents_u8().gpu("map state for hashing")?;
+                scratch.extend_from_slice(&bytes);
+            }
+            spans.push((tag, start..scratch.len()));
+        }
+        let slices: Vec<&[u8]> = spans.iter().map(|(_, r)| &scratch[r.clone()]).collect();
+        let hashes =
+            qd_runtime::sha256_slices_parallel(&slices, qd_runtime::SHA256_PARALLEL_MAX_WORKERS);
+        Ok(digest_v1(
+            self.tokens,
+            spans.iter().zip(hashes).map(|((tag, r), h)| (*tag, r.len(), h)),
+        ))
     }
 }
 
@@ -586,6 +697,10 @@ impl Model {
         prefix
             .checked_add(seq)
             .ok_or_else(|| MetalError::Input("prefix + continuation exceeds u32 positions".into()))?;
+        // The MLP's element count is passed to the kernels as u32; refuse it here, before any
+        // allocation or dispatch, rather than in the layer loop after earlier layers are encoded.
+        // Saturating: a product past usize is past u32 too, and `to_u32` names it.
+        to_u32(rows.saturating_mul(inter), "mlp elements")?;
         let g_proj = rt.alloc_tensor_f32(&[rows, self.gdn.width() as usize]).gpu("gdn proj")?;
         let a_proj = rt.alloc_tensor_f32(&[rows, self.attn.width() as usize]).gpu("attn proj")?;
         let resid = rt.alloc_tensor_f32(&[rows, h]).gpu("resid")?;
@@ -906,7 +1021,10 @@ impl Model {
     /// restricted to the answer rows). Waits for the GPU.
     pub fn score(&self, out: &RunOutput, slot_rows: &[u32], answers: &[u32]) -> Result<Scores> {
         let rt = &self.rt;
-        let rows = out.batch * out.seq;
+        // `RunOutput`'s fields are public: a hand-built one must not wrap past the row check.
+        let rows = out.batch.checked_mul(out.seq).ok_or_else(|| {
+            MetalError::Input(format!("{} x {} rows overflow u32", out.batch, out.seq))
+        })?;
         if slot_rows.is_empty() || answers.is_empty() {
             return Err(MetalError::Input("scoring needs at least one slot row and one answer".into()));
         }
@@ -1000,4 +1118,34 @@ pub fn weights_file(snapshot: &Path) -> Result<std::path::PathBuf> {
         return Ok(single);
     }
     Err(MetalError::Weights(format!("{}: no safetensors index or model.safetensors", snapshot.display())))
+}
+
+#[cfg(test)]
+mod digest_record_tests {
+    use super::{digest_v1, DigestPath};
+
+    /// The v1 record against an independent oracle: Python's `hashlib` over the same layout
+    /// (`AUDIT/qdm-digest-2026-10-03/digest_v1_oracle.py`). Characterization: the record
+    /// layout is the one the serial digest builds, so this passes on both sides; it pins the
+    /// layout the GPU pins rely on without needing a GPU.
+    #[test]
+    fn the_v1_record_matches_an_independent_oracle() {
+        let k: Vec<u8> = (0..=255u8).cycle().take(768).collect();
+        let parts: [(&str, &[u8]); 4] = [("conv", b"abc"), ("gdn", b""), ("k", &k), ("v", b"\x00")];
+        let got = digest_v1(7, parts.iter().map(|(t, b)| (*t, b.len(), qd_runtime::sha256(b))));
+        assert_eq!(
+            qd_runtime::hex(&got),
+            "a1b6d7a836b2b373bcc9b3f2da2e3195ae7ae503a68e71934cabd39945d44079"
+        );
+    }
+
+    #[test]
+    fn digest_paths_parse_and_refuse() {
+        for p in [DigestPath::Serial, DigestPath::Parallel] {
+            assert_eq!(DigestPath::parse(p.as_str()).unwrap(), p);
+        }
+        for bad in ["", "Serial", "device", "parallel "] {
+            assert!(DigestPath::parse(bad).is_err(), "{bad:?} was accepted");
+        }
+    }
 }

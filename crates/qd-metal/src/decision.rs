@@ -8,7 +8,7 @@
 //! # What one decision is here
 //!
 //! One `choice` slot of `k` options, answered the way `qd_runtime::answer` answers it through
-//! [`crate::backend::MetalBackend`] (`backend.rs` prefill 462-476, decode 584-630):
+//! [`crate::backend::MetalBackend`] (its worker's `prefill` and `decode_slot`):
 //!
 //! ```text
 //! prefill(prefix)               -> PrefixState            Model::prefill
@@ -24,7 +24,8 @@
 //! `prefix + suffix` after the prefix's, refused if the boundary merges, as the backend does.
 //!
 //! This drives [`Model`] and not `MetalBackend`: the backend caches prefills by prompt digest
-//! (`backend.rs:448-461`), so every timed iteration after the first would skip the prefill, and
+//! (`prompt_digest`, the worker's `prefill`), so every timed iteration after the first would skip
+//! the prefill, and
 //! its `MetalConfig` cannot carry the A/B flags (`backend.rs` is another session's file today).
 //!
 //! # T
@@ -53,7 +54,7 @@ use serde_json::{json, Value};
 
 use crate::error::{MetalError, Result};
 use crate::ledger::{self, Provenance, TreeState};
-use crate::model::{EmbedPath, Model};
+use crate::model::{DigestPath, EmbedPath, Model};
 use crate::tokenizer::QwenTokenizer;
 
 pub const DEFAULT_T: [usize; 3] = [512, 2048, 8192];
@@ -76,32 +77,50 @@ const SLOT: &str = "defect_class";
 const CONTEXT_SOURCE: &str = include_str!("model.rs");
 const CONTEXT_SOURCE_NAME: &str = "crates/qd-metal/src/model.rs";
 
-/// One arm of the A/B: the flags a decision runs under.
+/// One arm of the A/B: the one flag it varies. The flag it does not name runs at the product's
+/// setting (`embed=host`, `digest=parallel`), so every arm is fully determined by its name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Arm {
-    pub embed: EmbedPath,
+pub enum Arm {
+    Embed(EmbedPath),
+    Digest(DigestPath),
 }
 
 impl Arm {
     pub fn name(&self) -> String {
-        format!("embed={}", self.embed.as_str())
+        match self {
+            Arm::Embed(e) => format!("embed={}", e.as_str()),
+            Arm::Digest(d) => format!("digest={}", d.as_str()),
+        }
     }
 
-    /// `embed=host` / `embed=device`.
+    /// `embed=host|device` or `digest=serial|parallel`.
     pub fn parse(s: &str) -> Result<Self> {
         match s.split_once('=') {
-            Some(("embed", v)) => Ok(Arm {
-                embed: EmbedPath::parse(v)?,
-            }),
+            Some(("embed", v)) => Ok(Arm::Embed(EmbedPath::parse(v)?)),
+            Some(("digest", v)) => Ok(Arm::Digest(DigestPath::parse(v)?)),
             _ => Err(MetalError::Input(format!(
-                "arm {s:?} is not `embed=host` or `embed=device`"
+                "arm {s:?} is not `embed=host|device` or `digest=serial|parallel`"
             ))),
         }
     }
 
-    /// The metric-key form of the name: `embed_host`.
+    /// The metric-key form of the name: `embed_host`, `digest_serial`.
     fn key(&self) -> String {
-        format!("embed_{}", self.embed.as_str())
+        self.name().replace('=', "_")
+    }
+
+    fn embed(&self) -> EmbedPath {
+        match self {
+            Arm::Embed(e) => *e,
+            Arm::Digest(_) => EmbedPath::Host,
+        }
+    }
+
+    fn digest(&self) -> DigestPath {
+        match self {
+            Arm::Embed(_) => DigestPath::Parallel,
+            Arm::Digest(d) => *d,
+        }
     }
 }
 
@@ -150,7 +169,7 @@ fn parse_one(v: &str, what: &str) -> Result<usize> {
 /// Parse the arguments after `--decision`:
 ///
 /// ```text
-/// [T=512,2048,8192] [k=4] [--iters 7] [--warmup 2] [--arms embed=host,embed=device]
+/// [T=512,2048,8192] [k=4] [--iters 7] [--warmup 2] [--arms embed=host,embed=device|digest=serial,digest=parallel]
 /// [--snapshot DIR] (--ledger ledger/mac-qd-metal-<date>.jsonl | --no-ledger)
 /// ```
 pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
@@ -158,14 +177,7 @@ pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
     let mut k = DEFAULT_K;
     let mut iters = DEFAULT_ITERS;
     let mut warmup = DEFAULT_WARMUP;
-    let mut arms = vec![
-        Arm {
-            embed: EmbedPath::Host,
-        },
-        Arm {
-            embed: EmbedPath::Device,
-        },
-    ];
+    let mut arms = vec![Arm::Embed(EmbedPath::Host), Arm::Embed(EmbedPath::Device)];
     let mut ledger: Option<PathBuf> = None;
     let mut no_ledger = false;
     let mut snapshot = None;
@@ -216,6 +228,15 @@ pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
         if arms[..i].contains(a) {
             return Err(MetalError::Input(format!("arm {} is given twice", a.name())));
         }
+    }
+    // An A/B varies one flag: `embed=device` against `digest=serial` differs from the product in a
+    // different flag on each side, so its delta is neither flag's.
+    if let Some(a) = arms.iter().find(|a| std::mem::discriminant(*a) != std::mem::discriminant(&arms[0])) {
+        return Err(MetalError::Input(format!(
+            "arms {} and {} vary different flags; an A/B varies one",
+            arms[0].name(),
+            a.name()
+        )));
     }
     let row = match (ledger, no_ledger) {
         (Some(p), false) => {
@@ -412,7 +433,7 @@ fn ms(t: Instant) -> f64 {
 }
 
 /// Run one decision on `model` as it is configured.
-pub fn run_decision(model: &Model, p: &DecisionPrompt, answers: &[u32]) -> Result<Sample> {
+pub fn run_decision(model: &Model, p: &DecisionPrompt, answers: &[u32], digest: DigestPath) -> Result<Sample> {
     tessl::infer_trace::reset_token_counters();
     let t0 = Instant::now();
     let (out, state) = model.prefill(&p.prefix)?;
@@ -423,7 +444,7 @@ pub fn run_decision(model: &Model, p: &DecisionPrompt, answers: &[u32]) -> Resul
         .map_err(|e| MetalError::Gpu(format!("synchronize after the prefill: {e}")))?;
     let prefill_ms = ms(t0);
     let td = Instant::now();
-    let d0 = state.digest()?;
+    let d0 = state.digest_by(digest)?;
     let mut digest_ms = [ms(td), 0.0, 0.0];
     let mut decode_ms = [0.0; 2];
     let mut logits = Vec::with_capacity(2 * answers.len());
@@ -438,7 +459,7 @@ pub fn run_decision(model: &Model, p: &DecisionPrompt, answers: &[u32]) -> Resul
         }
         logits.extend_from_slice(&scores.logits);
         let td = Instant::now();
-        let d = state.digest()?;
+        let d = state.digest_by(digest)?;
         digest_ms[i + 1] = ms(td);
         if d != d0 {
             return Err(MetalError::State(format!(
@@ -505,9 +526,9 @@ pub fn arm_order(n_arms: usize, i: usize) -> Vec<usize> {
 /// arms are expected to agree bitwise; that is checked by the caller from the samples.
 pub fn run_t(model: &mut Model, prompt: &DecisionPrompt, answers: &[u32], arms: &[Arm], warmup: usize, iters: usize) -> Result<TResult> {
     for arm in arms {
-        model.set_embed_path(arm.embed);
+        model.set_embed_path(arm.embed());
         for _ in 0..warmup {
-            run_decision(model, prompt, answers)?;
+            run_decision(model, prompt, answers, arm.digest())?;
         }
     }
     let mut results: Vec<ArmResult> = arms
@@ -519,8 +540,8 @@ pub fn run_t(model: &mut Model, prompt: &DecisionPrompt, answers: &[u32], arms: 
         .collect();
     for i in 0..iters {
         for j in arm_order(arms.len(), i) {
-            model.set_embed_path(arms[j].embed);
-            results[j].samples.push(run_decision(model, prompt, answers)?);
+            model.set_embed_path(arms[j].embed());
+            results[j].samples.push(run_decision(model, prompt, answers, arms[j].digest())?);
         }
     }
     Ok(TResult {
@@ -629,13 +650,18 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
         let (same, n_same, n) = bit_identical(t);
         m.insert(
             format!("{tk}.arms_bit_identical"),
-            tri(
-                same,
-                Value::from(n_same as u64),
-                "samples whose logits (both passes) and prefix-state digest equal the first arm's \
-                 first sample bit for bit; the embed arms are exact by construction",
-            )
-            .with_coverage(n_same as u64, n as u64),
+            if n == 0 {
+                TriState::not_run("no arm produced a sample at this T, so nothing was compared")
+            } else {
+                tri(
+                    same,
+                    Value::from(n_same as u64),
+                    "samples whose logits (both passes) and prefix-state digest equal the first \
+                     arm's first sample bit for bit; the embed arms and the digest arms are exact \
+                     by construction",
+                )
+                .with_coverage(n_same as u64, n as u64)
+            },
         );
         for a in &t.arms {
             let ak = format!("{tk}.{}", a.arm.key());
@@ -689,7 +715,20 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
         }
     }
     let all_same = results.iter().all(|t| bit_identical(t).0);
-    let status = if tessl_held { Status::Completed } else { Status::Failed };
+    // Every T the recipe names must have run: a run cut short (bench.rs stops when tessl moves)
+    // is a capped sample, never a complete row, even if tessl later reads unchanged again.
+    let ran_ts: Vec<usize> = results.iter().map(|t| t.prompt.target).collect();
+    let all_ts = ran_ts == args.ts;
+    m.insert(
+        "t_coverage".into(),
+        tri(
+            all_ts,
+            json!(ran_ts),
+            format!("the Ts that ran, against the recipe's t_targets {:?}", args.ts),
+        )
+        .with_coverage(ran_ts.len() as u64, args.ts.len() as u64),
+    );
+    let status = if tessl_held && all_ts && all_same { Status::Completed } else { Status::Failed };
     Ok(Row {
         run_kind: "throughput".into(),
         protocol,
@@ -709,15 +748,26 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
         wall_clock_s: ctx.wall_clock_s,
         wall_clock_source: WallClockSource::Caller,
         notes: format!(
-            "qd-metal decision latency on {} (Qwen3.5-2B-Base, the base weights every qd-metal tool \
-             resolves; no trained release exists on this Mac). Arms bit-identical at every T: {all_same}.{}",
+            "qd-metal decision latency on {} (weight hash {}). Arms bit-identical at every T: \
+             {all_same}.{}{}{}",
             ctx.snapshot.display(),
+            ctx.weight_hash,
             if tessl_held {
-                String::new()
+                ""
             } else {
                 " tessl changed during the run: the A/B is discarded (status failed) and must be re-run."
-                    .to_string()
-            }
+            },
+            if all_ts {
+                String::new()
+            } else {
+                format!(
+                    " Only {} of {} Ts ran ({ran_ts:?} of {:?}): a capped sample, status failed.",
+                    ran_ts.len(),
+                    args.ts.len(),
+                    args.ts
+                )
+            },
+            if all_same { "" } else { " Arms disagreed bit for bit: status failed." },
         ),
         recipe,
     })
@@ -773,7 +823,29 @@ mod tests {
         }
         let a = parse_args(&strs(&["--iters", "3", "--warmup", "0", "--arms", "embed=device", "--no-ledger"])).unwrap();
         assert_eq!((a.iters, a.warmup), (3, 0));
-        assert_eq!(a.arms, vec![Arm { embed: EmbedPath::Device }]);
+        assert_eq!(a.arms, vec![Arm::Embed(EmbedPath::Device)]);
+    }
+
+    #[test]
+    fn digest_arms_parse_and_fix_the_other_flag_at_the_product_setting() {
+        let a = parse_args(&strs(&["--arms", "digest=serial,digest=parallel", "--no-ledger"])).unwrap();
+        assert_eq!(a.arms, vec![Arm::Digest(DigestPath::Serial), Arm::Digest(DigestPath::Parallel)]);
+        assert_eq!(a.arms.iter().map(Arm::name).collect::<Vec<_>>(), ["digest=serial", "digest=parallel"]);
+        assert_eq!(a.arms.iter().map(Arm::key).collect::<Vec<_>>(), ["digest_serial", "digest_parallel"]);
+        // A digest arm gathers on the host; an embed arm digests in parallel.
+        assert_eq!((a.arms[0].embed(), a.arms[0].digest()), (EmbedPath::Host, DigestPath::Serial));
+        let e = Arm::Embed(EmbedPath::Device);
+        assert_eq!((e.embed(), e.digest()), (EmbedPath::Device, DigestPath::Parallel));
+        for bad in [
+            &["--arms", "digest=serial,digest=serial", "--no-ledger"][..],
+            &["--arms", "digest=", "--no-ledger"],
+            &["--arms", "digest", "--no-ledger"],
+            &["--arms", "digest=parallel,", "--no-ledger"],
+            &["--arms", "embed=device,digest=serial", "--no-ledger"],
+            &["--arms", "digest=parallel,embed=host", "--no-ledger"],
+        ] {
+            assert!(parse_args(&strs(bad)).is_err(), "{bad:?} was accepted");
+        }
     }
 
     #[test]
