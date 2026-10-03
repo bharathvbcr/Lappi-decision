@@ -18,12 +18,12 @@
     "average_may_promote": {
       "question": "May an average of seeds' weights, scored as an 'avg' eval row, be the promoted artifact in place of its seeds?",
       "gap": "GAP-AVERAGE-PROMOTION-IS-THE-HUMANS-DECISION",
-      "status": "open",
+      "status": "decided",
       "value": false,
       "source": "tools/real_ft_run.py AVERAGED_PROMOTION_NOTE (every averaged eval row says it does not make this decision); Fable F1 and D1-D3 in HANDOFF/gh200-phase4-2026-10-01.md",
-      "decided_by": null,
-      "decided_on": null,
-      "decision_ref": null
+      "decided_by": "the human, by delegation (\"For decisions ask fable and proceed with them\", in the lead's session, 2026-10-03 ~13:14Z), through the lead, ruled by Fable",
+      "decided_on": "2026-10-03",
+      "decision_ref": "AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md (main b2ad747), ruling 2: v5 promotes a three-seed recipe, not an average. The averaged model (c962cdd9) fails its own gate row: permutation_consistency 91.9%, 955 in-distribution abstentions against a cap of 504, and ood_abstain's suite half at 62/180."
     },
     "ece_population": {
       "question": "Should the ece gate run over all letter rows, with only its per-language breakdown requiring language metadata?",
