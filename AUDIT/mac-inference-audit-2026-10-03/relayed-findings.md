@@ -66,6 +66,31 @@ Fix: require `max_entries >= 2 × max_in_flight`, or pin the entries in use.
 - `:226-237`: Drop drains and joins without a bound.
 - `:335`: the worker uses `GpuRuntime::new()`, not `new_inference()`.
 
+## Coming behaviour change for `backend.rs`'s owner
+
+This is at Fable's request (ruling 2, 2026-10-03).
+
+When branch `qdm-digest-parallel` (item 1a) merges, `PrefixState::digest()` in
+`crates/qd-metal/src/model.rs` becomes the **parallel** digest, with no line of `backend.rs`
+changing.
+
+What stays the same:
+- The bytes are identical. The v1 pins match, and the A/B rows 147da0cc and 28505f4c are
+  bit-identical 14/14.
+
+What changes:
+- **Threads:** each digest now copies the state into a thread-local host scratch and hashes the
+  buffers on up to 8 threads (`qd_runtime::SHA256_PARALLEL_MAX_WORKERS`).
+- **Scratch memory:**
+  - A scratch up to 256 MiB stays resident on the calling thread, the GPU worker.
+  - At 16K tokens (~423 MB) the scratch is freed after every digest and allocated again on the
+    next one.
+  - Ruling 2 #1, a hardening item, follows on the same branch.
+- **Speed:** min-of-7 `digest_ms` is 5.3–6.1× faster at T = 131 to 8,192.
+
+If `backend.rs` calls `digest()` from a context where extra threads or the scratch matter, read
+this before merging.
+
 ## In clean files (the bench may fix these on its branch)
 
 These are separate commits after 1a, each with a fail-first test.
