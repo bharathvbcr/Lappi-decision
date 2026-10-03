@@ -83,9 +83,18 @@ rulings are recorded verbatim in `fable-pipeline-ruling.md`.
        flash-linear-attention 0.5.2, triton 3.7.1. The 71 packages are listed in
        `build/gh200-qd-venv-freeze-2026-10-03.txt`, read from the GH200's
        site-packages. One environment serves every v5 run and is recorded in the ledger.
-     - **Rust on the box (rustup),** to build x86_64 qd-prep and qd-post-f-rules natively. The
-       GH200's binaries are aarch64 and do not run on x86. The alternative is a cross-build on
-       the Mac, which needs the x86_64-linux target and a sysroot: also downloads.
+     - **~~Rust on the box (rustup)~~. CORRECTED ~17:35Z: not needed.** The GH200's binaries are
+       aarch64 and do not run on x86. The x86_64 binaries are instead cross-built on the Mac as
+       static musl executables (`x86_64-unknown-linux-musl`, linked by rust-lld), which needed
+       no download. Two builds at v5-build 1ab477f exist: qd-prep (sha256 `a719d37f…`) and
+       qd-post-f-rules (`6b55c1a1…`). They prove the toolchain works but are not what ships:
+       the shipped pair is rebuilt at the lane commit. Neither build has run yet.
+       - On the box they are checked by parity, and the split rebuild is timed. If musl's
+         allocator makes the rebuild more than about 2× the GH200's time, the fallback is a
+         glibc cross-build, which needs a sysroot download and your yes.
+       - **The box's disk:** eight seeds keep their checkpoints (v5 s0–s4 and the arm). Each
+         keeps about 65 GiB: twelve 3.5 GiB towers plus a 25 GB checkpoint. That is about
+         550 GiB in all, so the preflight refuses under 600 GiB free.
      - **The base weights,** rsynced box-to-box from the GH200's HF cache, not re-downloaded.
    - **The amendment, your yes:**
      - Every v5 row (seeds, arm, J5′, seeds 3–4) runs on the H100 box, none on the GH200.
