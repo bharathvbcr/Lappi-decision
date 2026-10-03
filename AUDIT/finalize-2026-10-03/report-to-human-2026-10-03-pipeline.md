@@ -8,8 +8,8 @@ rulings are recorded verbatim in `fable-pipeline-ruling.md`.
 
 1. **GPUs for v5. ANSWERED ~16:26Z: "Go with 2× H100 (Lambda)".**
    - v5 runs on one Lambda 2× H100 80 GB SXM5 box at $8.38/h, every v5 row on it.
-   - Because headroom is about 7.5 GiB, the widest-bucket memory probe is mandatory before
-     seed 0.
+   - A memory probe is mandatory before seed 0. It runs one real training step per distinct
+     batch shape in v5's plan. See the correction below.
    - Still needed from you, at launch time:
      - the setup downloads listed below;
      - the amendment items (R9, the conditionals, the ledger).
@@ -19,9 +19,29 @@ rulings are recorded verbatim in `fable-pipeline-ruling.md`.
    - **What doesn't fit:** the A100 40GB and the A10 cannot hold the run. F's GPU process held
      72.1 GiB on the GH200 (read-only `nvidia-smi`, 15:41Z, during j5p), against the 61.6 GiB
      torch reports allocating.
-   - **Headroom on the H100:** about 7.5 GiB. v5 trains at 10,240 tokens, against F's 7,936
-     (`width`, ft row 973cd4e3). So a short widest-bucket probe on the new box, under $1, must
-     pass before seed 0 starts.
+   - **Headroom on the H100. CORRECTED ~16:50Z.**
+     - The earlier "about 7.5 GiB" compared the wrong number. 72.1 GiB is the process-level
+       figure from `nvidia-smi`: torch's allocated peak, plus what the caching allocator kept
+       reserved on a 96 GB card where nothing pushed back. The H100 comparison uses torch's
+       allocated peak: 61.6 GiB (F seed 1, `train-s1.log`, as cited in
+       `AUDIT/fable-optimize-2026-10-02/fable-optimize-ruling.md`), against about 79 GiB.
+       That is about 17 GiB of headroom (inferred: the H100's usable total is from memory).
+     - Width was never the risk. `qd_train.memory`'s arithmetic reproduces F's recorded
+       `device_budget` estimate to the byte: 68,510,315,980 B (63.81 GiB), ft row 973cd4e3
+       (`v5_h100_budget.py`, output in `v5_h100_budget.out`, beside this file).
+       The costliest batch is the narrowest bucket with the most rows, 258×137.
+     - v5's widest batch, 3×10,240, prices at 60.0 GiB, below F's peak. Narrow buckets grow
+       slowly: 64.46 GiB at width 48.
+     - The run's own `device_budget` gate refuses before step 1 if the estimate exceeds free
+       CUDA memory.
+     - **The probe** is one real training step per distinct (rows, width) shape of v5's plan,
+       extremes first. It records `max_memory_allocated` and `max_memory_reserved` on a `quick`
+       row, takes about 10 min, and costs under $2.
+     - **Pass criterion and fallback,** both to be pre-registered:
+       - Pass: the reserved peak is at or below the device total minus a stated margin.
+       - On a fail: first `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, which changes no
+         arithmetic and no recipe key. If that fails too, stop and ask you. No recipe lever
+         moves without your yes.
    - **Cost:** about 60 GPU-h × $4.19 ≈ $250 for the runs, plus $8.38/h for setup and idle.
    - **Wall time after the data is attested:**
 
@@ -39,8 +59,10 @@ rulings are recorded verbatim in `fable-pipeline-ruling.md`.
      5. The arm's last seed.
 
      J5′ seed s needs only v5 seed s's eval row; the arm needs all three.
-   - **Launching:** you launch the box only when the lead says, about an hour before the data's
-     attestation lands, because it bills from launch. You terminate it on the lead's notice. The
+   - **Launching:** you launch the box only when the lead says, because it bills from launch.
+     That is about 2 h before the data's attestation lands (corrected ~16:50Z from 1 h):
+     setup takes 1–2 h and overlaps the build's tail, then the shards arrive, the probe runs,
+     and seed 0 starts. You terminate it on the lead's notice. The
      lead cannot launch or terminate boxes.
    - **Setup that needs your yes,** about 1–2 h, all downloads:
      - **The Python environment:** the GH200's versions as x86 wheels, from PyPI and the PyTorch
@@ -64,8 +86,8 @@ rulings are recorded verbatim in `fable-pipeline-ruling.md`.
    - **H200 instead** (Brev on Nebius, 1× H200 141 GB, x86_64, 16 vCPU, 200 GiB RAM, $6.52/h,
      stoppable at $0.04/h).
      - **It works, and it removes the one real risk.**
-       - Memory headroom goes from about 7.5 GiB to about 69 GiB. The probe still runs, but as a
-         measurement, not a gamble.
+       - Memory headroom over F's allocated peak goes from about 17 GiB to about 78 GiB. This
+         line said "7.5 to 69" before the ~16:50Z correction above. The probe runs either way.
        - H200 is the H100's GH100 die with 141 GB of HBM3e at 4.8 TB/s, so compute is the same
          and bandwidth is higher ([NVIDIA](https://www.nvidia.com/h200)).
      - **Per-run hours:** from the v5 DRAFT (Fable's v5 review §2.1), scaled from F's ft row
@@ -79,7 +101,7 @@ rulings are recorded verbatim in `fable-pipeline-ruling.md`.
 
        | | Wall time | Cost (60 GPU-h) | Memory risk |
        |---|---|---|---|
-       | 2× H100 (Lambda) | about 34 h | about $250 | about 7.5 GiB headroom |
+       | 2× H100 (Lambda) | about 34 h | about $250 | about 17 GiB over the allocated peak (corrected) |
        | 1× H200 (Brev) | about 60 h | about $390 | none |
        | 2× 1× H200 (Brev) | about 34 h | about $390 | none |
 

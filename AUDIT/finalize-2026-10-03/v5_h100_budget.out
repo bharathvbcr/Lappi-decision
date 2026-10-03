@@ -1,0 +1,21 @@
+header keys: ['buckets', 'code_fingerprint', 'corpus_rev', 'created_at', 'data_snapshot_hash', 'dtype', 'format', 'max_seq_len', 'n_sequences', 'packed', 'remap_hash', 'sequence_index_hash', 'shard_hash', 'split', 'tokenizer_hash', 'total_tokens', 'vocab_size']
+remap keys: ['format', 'remap_hash', 'source_vocab_size', 'special_ids', 'tokenizer_hash', 'vocab_size']
+skip layers: (3, 7, 11, 15, 19, 23)
+F: remap vocab 248320; costliest 258x137: 68510315980 B = 63.81 GiB; recorded 68510315980 (MATCH)
+   F shape 258x137: 63.81 GiB
+   F shape 171x207: 63.73 GiB
+   F shape 205x172: 63.67 GiB
+   F shape 132x268: 63.66 GiB
+v5 candidate widest 4x7936: 60.78 GiB
+v5 candidate widest 4x8192: 61.55 GiB
+v5 candidate widest 4x8704: 63.07 GiB
+v5 candidate widest 3x9216: 57.72 GiB
+v5 candidate widest 3x9728: 58.87 GiB
+v5 candidate widest 3x10240: 60.01 GiB
+narrow 737x48: 64.46 GiB
+narrow 553x64: 64.23 GiB
+narrow 442x80: 64.06 GiB
+narrow 354x100: 63.97 GiB
+narrow 295x120: 63.89 GiB
+narrow 258x137: 63.81 GiB
+narrow 221x160: 63.77 GiB
