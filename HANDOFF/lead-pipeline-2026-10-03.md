@@ -6,7 +6,79 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
-## State at ~21:25Z (supersedes the sections below where they disagree)
+## State at ~23:58Z: v5 LAUNCHED (supersedes everything below where they disagree)
+
+**Launched at 23:56:52Z.** `build/v5-h100/launch_lanes.sh` started both lanes on the 2× H100 box:
+`box_q_v5.sh 0` and `box_q_v5.sh 1`, each under nohup setsid in its own ssh call. It then wrote
+`/home/ubuntu/queue/V5_LAUNCH_YES` with the human's words: "68.209.74.244 ;  2xh100 are back
+optimize training pipeline and start training."
+
+At 23:57:51Z both lane logs (`/home/ubuntu/logs/q-v5lane{0,1}.log`) printed:
+- the launch yes;
+- the pre-registration's cost figures: approved ~$356.0 / 84.96 GPU-h, projected ~$309.7 / 74.0
+  GPU-h for the 11 runs, at $4.19 per GPU-h;
+- the prelude digests, with "mismatches: None";
+- the recipe: C1, C2a and C2b off, lower keep, lr f, `--checkpoint-skip-layers 6`.
+
+Lane 0 is running the memory probe on GPU 0. The probe has `--probe-shapes 12`, a 1,800 s cap
+and an estimate of $2.10, and writes to `/home/ubuntu/ledger/h100x2-v5-probe-2026-10-03.jsonl`.
+Lane 1 waits for the probe's marker before its first pick, as designed. So GPU 1 is idle during
+the probe.
+
+**L = main = 142a67c.** All L checks pass (`build/v5-build/L_checks2.log`):
+1. pytest, six files: pass.
+2. cargo `post_f_rules_v5` and `post_f_rules_tierb`: 21 and 34 passed.
+3. The lock cargo wrote is a669ae0e, restored afterwards; the tracked tree is clean.
+4. The Mac prelude: pass in 435 s.
+   - Record sha256 `83f531e6fbd4c3f55fc8d89ce0cc554b73211968426c4b73d1434967a00d98ed`.
+   - span_check 177,240/177,240.
+   - Padding waste 5.79%, against a gate of ≤15%.
+5. The musl build at L:
+   - `qd-prep` sha256 `900534f1c0cbcb83460eb52291f59b4939bcf0c25c804bc358ce62d2c5d22ef6`;
+   - `qd-post-f-rules` sha256 `6b3771fc496d5000bd88888ddd1cafe611c25982829ed4b66651d7d1323e606a`.
+
+**Pins and deploy.**
+- `build/v5-h100/fill_pins.py` filled the pins (sha256 `f2ac5e9a…`): pre-registration
+  `62749d4608d41fc3113635cabd38ca2ba0c21dcf578e707598d183bdd356af96`, the prelude record above,
+  and the binaries above.
+- `build/v5-h100/deploy.log`: every file was sha-checked on the box against the Mac.
+  - the lane bundle `f157493b…`, cloned and checked out at L, tracked tree clean;
+  - 23 shard files equal;
+  - both binaries equal;
+  - the queue files and the prelude record equal.
+- `build/v5-h100/box_prelaunch.sh` printed PASS: both GPUs at 0 MiB, no processes, no markers,
+  no v5 ledgers, `UNSET=[] CHECK=[]`.
+- Fable's extra rule-3 check, a `find` for `pairs.tsv`, `*.request.bin` and `*heldout*` over the
+  lane pool, the shards and `v5-stage`, printed nothing.
+
+**What `build/` (ignored) changed, recorded here because no committed file does:**
+- **deploy_lane.sh's guard** was `main == L`. A peer session ("Branch merge and cleanup", on its
+  user's instruction) moved main to 2922990, an `-s ours` merge of perf-pipeline-rust with a tree
+  identical to 142a67c. It then moved main back to 142a67c with a guarded `update-ref`. The guard
+  is now "L is an ancestor of main", and the script prints both trees. The box checks L out by
+  hash and asserts HEAD == L, so that is the real requirement.
+- **`git bundle verify`** fails outside a repository on the box's git 2.34.1 ("need a repository
+  to verify a bundle"). The first deploy attempt stopped there, with nothing created beyond the
+  copied bundle. The script now compares the bundle's sha256 on both ends, clones, and verifies
+  from inside the clone.
+
+**Peers.** The same peer deleted 68 fully merged branch refs. It recreated perf-pipeline-rust at
+4d9242c, and redoes its `-s ours` merge after this lane's all-clear.
+
+**Experiment 3** (short rows): no-mask +8.6%, cuDNN with the mask kept +5.4%. See
+`AUDIT/finalize-2026-10-03/h100-perf-experiments-2026-10-03.md`, run 3. The attention levers'
+gain grows with row width.
+
+**Measured on the Mac, not acted on:** the prelude spent 410 s in Python before `main reached
+Ledger(args.ledger)`. That is a candidate for a Rust port.
+
+**Open:**
+- the probe's marker (`v5.probe-passed` or `v5.probe-failed`);
+- seed 0's phases, the score phase first;
+- the box spend, which `watch_h100.sh` counts as box time since 19:45Z (tell the human at $350);
+- the v6 spancheck subagent, released after launch.
+
+## State at ~21:25Z (superseded by the section above)
 
 **Measured** (logs under `build/v5-build/`, gitignored):
 - **The scoped containment scan** at v5-build cd2967e (`scan-scoped.log`):
@@ -214,5 +286,5 @@ The earlier list, as written:
 ## The first command for the next lane
 
 ```bash
-bash /Users/bharath/Code/research/Lappi-decision/build/git_ro.sh /Users/bharath/Code/research/Lappi-decision/.claude/worktrees/agent-a99795a6937ebaa6f log --oneline -8
+ssh -i /Users/bharath/.ssh/bharath_m5_macbook_pro.pem -o BatchMode=yes ubuntu@68.209.74.244 'ls /home/ubuntu/queue; tail -n 5 /home/ubuntu/logs/q-v5lane0.log /home/ubuntu/logs/q-v5lane1.log'
 ```

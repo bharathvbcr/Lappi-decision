@@ -83,6 +83,34 @@ So widening selective checkpointing is not available on the 80 GB card at v5's b
   stack column (`record_shapes=False`). The cuBLASLt `nvjet_*` kernels carry no dtype in their
   names. A stack-recording profile is still needed.
 
+## Run 3: short rows (shape S) [V]
+
+**Setup.** Run 3 ended 23:45Z and used `exp3_run.sh` (`h100-perf-2026-10-03/`). It covers the
+short-row end of the width curve: shape S, widths 512-2,999, at the same 35,403 batch tokens. The
+24 picked batches span widths 547-2,746.
+- **GPU0:** the unmodified clone, `skip:6` and `skip:6+nomask`, three interleaved rounds.
+- **GPU1:** run 2's cuDNN overlay (mask kept), `skip:6`, three rounds.
+
+**Rounds.** All six GPU0 rounds and all three GPU1 rounds ran. Each process's round 0 of `skip:6`
+was warm-up (15,387 and 15,344 pos/s) and is excluded by the max. Rounds 1-2 agree to within 0.05%.
+
+| Config (run 3, shape S) | pos/s | vs skip:6 | Peak GiB |
+|---|---|---|---|
+| skip:6 (v5 as launched) | 21,957 | — | 59.2 |
+| skip:6+nomask | 23,856 | **+8.6%** | 58.2 |
+| skip:6, cuDNN attention, mask kept | 23,154 | **+5.4%** | 60.0 |
+
+**The gain from either attention lever grows with row width:**
+
+| Shape | nomask | cuDNN, mask kept |
+|---|---|---|
+| S | +8.6% | +5.4% |
+| M | +43.9% | +32.9% |
+| W | +80.8% | +55.5% |
+
+This matches the profile: padded attention is quadratic in width, so its share of the step shrinks
+on short rows. At S, v5's `skip:6` peaks at 59.2 GiB, within the 79.18 GiB card.
+
 ## What it means [I]
 
 1. **v5 is unchanged.** The human answered "Keep v5 as pre-registered (Recommended)" at ~23:26Z
@@ -101,10 +129,14 @@ So widening selective checkpointing is not available on the 80 GB card at v5's b
 4. **Rough v6 arithmetic [I].** At a blended +50-60% throughput, v5's projected 7.0 h per seed
    would be about 4.5 h. Across the plan's 74 GPU-hours, that is roughly 25 GPU-hours, or about $100
    at $4.19 per GPU-hour.
+   - **Run 3 lowers this.** At S the gain is only +5-9%, so the blend depends on how many of v5's
+     positions sit in short rows. Until the width histogram weights it, +50-60% is an upper end,
+     not an estimate.
 
 ## Not done here
 
 - Loss parity: perf_step `--mode parity`, and the P2 screen for either lever.
 - The fp32 GEMM owner.
 - cuDNN together with `+fused`.
-- An epoch-weighted blend over v5's real width histogram.
+- An epoch-weighted blend over v5's real width histogram. Run 3 adds the S point (widths
+  512-2,999) to the W and M points; the histogram's weights are still unread.
