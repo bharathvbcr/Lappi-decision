@@ -147,6 +147,12 @@ def _record_eval_row(ledger: Ledger, scored: dict[str, object], second: dict[str
         assert isinstance(pooled, Ran) and isinstance(pooled.value, float)
         metrics["ece.report.pooled"] = Ran(passed=True, value=pooled.value + 1e-9, n=pooled.n,
                                            n_total=pooled.n_total)
+    if tamper == "top_class_share":
+        name = min(k for k in metrics if k.endswith(".top_class_share"))
+        share = metrics[name]
+        assert isinstance(share, Ran) and share.n is not None and share.n_total is not None
+        metrics[name] = Ran(passed=share.passed, value=(share.n - 1) / share.n_total,
+                            n=share.n - 1, n_total=share.n_total)
     with RunRecorder(
         ledger, protocol=Protocol("d" * 64, "t" * 64, "b" * 40, "r" * 64, SEED),
         run_kind="eval", repo=REPO, env=_env(), wall_clock_s=None, cost=None,
@@ -339,6 +345,7 @@ def test_the_promotion_population_is_the_records_verbatim(gate_report_bin, tmp_p
 @pytest.mark.parametrize(("tamper", "named"), [
     ("permutation_count", "gates.permutation_consistency"),
     ("report_ece", "metrics.ece.report.pooled"),
+    ("top_class_share", "metrics.degenerate_head.choice.k10.top_class_share"),
 ])
 def test_numbers_that_disagree_with_their_eval_row_are_refused(gate_report_bin, tmp_path,
                                                                 tamper, named):

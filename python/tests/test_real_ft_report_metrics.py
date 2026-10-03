@@ -39,6 +39,14 @@ from qd_train.tristate import NotRun, Ran  # noqa: E402
 GOLDEN_SHA256 = "b2a7d9b030a290547c759677a7e28007b0e983105c3fb41d9586a3a979b46456"
 #: The names this change adds; everything else must be what it was.
 NEW_PREFIXES = ("ece.report.", "degenerate_head.family")
+#: Added later (2026-10-03): the per-shape class share the promotion verdict reads under a
+#: share-only degenerate_head_floor. A measurement with a verdict of its own, so it is outside
+#: the golden digest but not one of the report-only names above.
+SHARE_SUFFIX = ".top_class_share"
+
+
+def _is_new(name: str) -> bool:
+    return name.startswith(NEW_PREFIXES) or name.endswith(SHARE_SUFFIX)
 
 #: (family, kind, rows incl. noul, languages to cycle, count)
 FAMILIES = (
@@ -81,7 +89,7 @@ def _canonical(metrics: dict[str, object], ece: object, degenerate: object) -> s
         "ece": ece.to_json(),  # type: ignore[attr-defined]
         "degenerate_head": degenerate.to_json(),  # type: ignore[attr-defined]
         "metrics": {k: v.to_json() for k, v in sorted(metrics.items())  # type: ignore[attr-defined]
-                    if not k.startswith(NEW_PREFIXES)},
+                    if not _is_new(k)},
     }, sort_keys=True)
 
 
@@ -96,8 +104,10 @@ def test_no_report_metric_reaches_the_gate_or_the_control():
     assert isinstance(ece, NotRun), "the fixture has rows without a language, as the mixture"
     assert "report" not in ece.reason
     assert isinstance(degenerate, Ran)
-    shapes = {k for k in metrics if k.startswith("degenerate_head.choice.")}
+    shapes = {k for k in metrics if k.startswith("degenerate_head.choice.") and not _is_new(k)}
     assert (degenerate.n, degenerate.n_total) == (len(shapes), len(shapes))
+    shares = {k for k in metrics if k.endswith(SHARE_SUFFIX)}
+    assert {f"{k}{SHARE_SUFFIX}" for k in shapes} == shares
     for name in metrics:
         if name.startswith(NEW_PREFIXES):
             state = metrics[name]

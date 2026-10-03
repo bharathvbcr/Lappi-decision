@@ -38,6 +38,7 @@ __all__ = [
     "permute_within_groups",
     "shuffled_label_control",
     "split_conformal_threshold",
+    "top_class_share_state",
 ]
 
 _Label = TypeVar("_Label")
@@ -93,6 +94,36 @@ def _entropy(probs: np.ndarray) -> np.ndarray:
     return -np.sum(p * np.log(p), axis=1)
 
 
+def _top_class(probs: np.ndarray) -> tuple[int, int]:
+    """The most predicted class (argmax per row) and how many rows predict it."""
+    counts = np.bincount(np.argmax(probs, axis=1), minlength=probs.shape[1])
+    return int(counts.argmax()), int(counts.max())
+
+
+def top_class_share_state(
+    probs: np.ndarray, *, max_class_share: float = DEFAULT_MAX_CLASS_SHARE
+) -> TriState:
+    """``degenerate_head_check``'s class-share half as a measurement of its own.
+
+    It is recorded for every slot shape, failing ones included. The control's detail names the
+    share only when the control passes, and a share that exists only in prose cannot be read
+    back. ``value`` is the share; ``n`` of ``n_total`` rows predict the top class.
+    """
+    if probs.ndim != 2 or probs.shape[0] == 0:
+        return NotRun(
+            reason=f"the class share needs a 2-D non-empty probs array, got {probs.shape}"
+        )
+    top_class, top_count = _top_class(probs)
+    share = top_count / probs.shape[0]
+    return Ran(
+        passed=share <= max_class_share, value=share, n=top_count, n_total=int(probs.shape[0]),
+        detail=(
+            f"predicted class {top_class} takes {share:.3f} of {probs.shape[0]} predictions "
+            f"against a max of {max_class_share} (degenerate_head's class-share half)"
+        ),
+    )
+
+
 def degenerate_head_check(
     probs: np.ndarray,
     *,
@@ -119,12 +150,11 @@ def degenerate_head_check(
     if mean_entropy < entropy_floor:
         failures.append(f"mean predictive entropy {mean_entropy:.4f} < floor {entropy_floor}")
 
-    preds = np.argmax(probs, axis=1)
-    counts = np.bincount(preds, minlength=probs.shape[1])
-    top_share = float(counts.max() / counts.sum())
+    top_class, top_count = _top_class(probs)
+    top_share = top_count / probs.shape[0]
     if top_share > max_class_share:
         failures.append(
-            f"predicted class {int(counts.argmax())} takes {top_share:.3f} of predictions "
+            f"predicted class {top_class} takes {top_share:.3f} of predictions "
             f"> max {max_class_share}"
         )
 

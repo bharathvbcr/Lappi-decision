@@ -443,13 +443,16 @@ def test_ece_per_family_runs_above_the_floor_says_why_below_it_and_leaves_the_ga
     assert {k: v.to_json() for k, v in metrics.items() if k in old_metrics} == {
         k: v.to_json() for k, v in old_metrics.items()
     }
-    # The report-only additions, and nothing else: P2's per-family ECEs, then Fable G's
+    # The metric-only additions, and nothing else: P2's per-family ECEs, then Fable G's
     # per-family degenerate_head numbers and pooled / per-language ECE (family_heads,
-    # report_eces). Each is a metric only; the two states above are what promotion reads.
+    # report_eces), then the structured class share per slot shape (2026-10-03), which the
+    # verdict reads only under a share-only degenerate_head_floor. Each is a metric only; the
+    # two states above are unchanged.
     assert set(metrics) - set(old_metrics) == {
         "ece.family.fa.choice.k2", "ece.family.fb.choice.k2",
         "degenerate_head.family.fa.choice.k2", "degenerate_head.family.fb.choice.k2",
         "ece.report.pooled", "ece.report.lang.python",
+        "degenerate_head.choice.k2.top_class_share",
     }
 
     anonymous, _, _ = rft.calibration_states({"verdicts": _calibrated(None, 5)})
@@ -590,9 +593,10 @@ def test_rule_2_no_gate_state_moves(decodes: Decodes) -> None:
     assert {k: v.to_json() for k, v in metrics.items() if k in old_metrics} == {
         k: v.to_json() for k, v in old_metrics.items()
     }
-    # Every addition is a named report-only metric (P2's ece.family; Fable G's
-    # degenerate_head.family and ece.report), never a renamed or moved gate input.
+    # Every addition is a named metric (P2's ece.family; Fable G's degenerate_head.family and
+    # ece.report; the per-shape class share of 2026-10-03), never a renamed or moved gate input.
     assert all(k.startswith(("ece.family", "degenerate_head.family", "ece.report."))
+               or (k.startswith("degenerate_head.") and k.endswith(".top_class_share"))
                for k in set(metrics) - set(old_metrics))
 
     families = rft.permutation_family_metrics(scored, gate)

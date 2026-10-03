@@ -208,6 +208,7 @@ from qd_train.eval_harness import (
     permutation_consistency_state,
     permute_within_groups,
     shuffled_label_control,
+    top_class_share_state,
 )
 from qd_train.fused_ce import fused_linear_cross_entropy, resolve_chunk_size
 from qd_train.heads import (
@@ -4906,6 +4907,10 @@ def calibration_states(
     for key, (probs, gold) in letter_distributions(verdicts).items():
         eces[f"ece.{key}"] = ece_gate(probs, gold)
         degenerate[f"degenerate_head.{key}"] = degenerate_head_check(probs)
+        # Into the metrics only, for every shape, failing ones included. The promotion verdict
+        # reads it when degenerate_head_floor is decided share-only (qd_train.ledger
+        # DEGENERATE_SHARE_ONLY). The control below is unchanged.
+        metrics[f"degenerate_head.{key}.top_class_share"] = top_class_share_state(probs)
     eces.update(language_eces(verdicts))
     metrics.update(eces)
     metrics.update(degenerate)

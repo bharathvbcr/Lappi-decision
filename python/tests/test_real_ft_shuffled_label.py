@@ -454,6 +454,25 @@ def _target(corpus: Corpus) -> tuple[LedgerRow, LedgerRow]:
     return evals[0], fts[0]
 
 
+def test_the_score_row_carries_a_class_share_beside_every_slot_shape(corpus: Corpus) -> None:
+    """Written by the real --score-val path: what the verdict reads under a share-only
+    degenerate_head_floor (qd_train.ledger DEGENERATE_SHARE_ONLY). A row without it reads
+    not_run under that rule, so every shape needs one, a failing shape included."""
+    target_eval, _ = _target(corpus)
+    shapes = [k for k in target_eval.metrics
+              if k.startswith("degenerate_head.choice.") and k.count(".") == 2]
+    assert shapes, sorted(target_eval.metrics)
+    for key in shapes:
+        share = target_eval.metrics.get(f"{key}.top_class_share")
+        assert isinstance(share, Ran), (key, share)
+        assert isinstance(share.value, float) and 0.0 < share.value <= 1.0
+        assert share.passed == (share.value <= 0.95)
+        assert share.n is not None and share.n_total is not None and share.n <= share.n_total
+        head = target_eval.metrics[key]
+        if isinstance(head, Ran):
+            assert share.n_total == head.n_total, (key, share, head)
+
+
 def _copy_ledger(corpus: Corpus, tmp_path: Path) -> Path:
     path = tmp_path / "ledger.jsonl"
     shutil.copyfile(corpus.ledger, path)
