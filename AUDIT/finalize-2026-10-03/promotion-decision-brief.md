@@ -103,7 +103,7 @@ Under "each family separately", no v4 row passes. Permutation consistency per fa
 Five of the seven families also exceed the in-distribution cap.
 
 - **Fable's case for code-only:** the product contract is the code decision that DevCouncil and
-  DevType call. The gates were defined when val was code-only. A pooled bar across families with
+  DevType call. [Wrong for DevType, and no caller is wired: see the Correction at the end.] The gates were defined when val was code-only. A pooled bar across families with
   different base rates is a contract no caller invokes.
 - **The counter-argument:** the human may want knowledge held to a bar. Then "each family
   separately" plus C1 is the path, and no v4 row passes.
@@ -206,3 +206,36 @@ every v4 row. That is wrong.
 - It ran on every score-val eval row: seed 0 passed; ens5, avg and seeds 1–4 failed.
 - It reads `not_run` only on needle-control, linear-control and option-control rows, which do not
   evaluate it (`python/qd_train/ledger.py:1829-1842`).
+
+## Correction (2026-10-03, the lead): no caller calls the code decision, and DevType's decision is untrained
+
+The case for the code-only population said the product's contract is "the code decision that
+DevCouncil and DevType call". That reason is wrong in two ways.
+
+- **No caller calls Lappi today.** [V, by grep, not graph-confirmed: DevMap's store was malformed,
+  GAP-DEVMAP-DATABASE-MALFORMED-2026-10-03] No DevCouncil, DevType or GitPulse code sends Lappi a
+  request (GAP-SCHEMA-API-DOC-REQUEST-IS-NOT-A-TRAINED-REQUEST-2026-10-03, impact). The two callers
+  are the plan's (CLAUDE.md, first paragraph), not wired.
+- **DevType's decision is routing, and nothing trains it.** [V] The runtime names DevType as the
+  socket caller (`crates/qd-runtime/src/serve.rs:3`). Its task id `devtype.route` appears only in
+  runtime refusal fixtures (`crates/qd-runtime/src/fixtures.rs:526-530`). No training family is
+  `devtype.*` or routing: `python/qd_data/sources.py` defines code.change_scope,
+  code.commit_intent, code.defect_class, code.language_id, commonsense.multiple_choice,
+  intent.{classification,domain,in_scope,within_domain}, knowledge.multiple_choice,
+  qa.answer_span and qa.answerability. Routing is not a held-out family either. Those are
+  code.language_id and qa.answerability (`crates/qd-train/src/held_out.rs:50-51`), so routing is
+  simply untrained.
+- **What remains true.** [I] DevCouncil's verdict is the defect decision: code.defect_class is
+  the family it would call, and it is 84% of v4's tokens.
+
+**The decision stands.** The record's `promotion_population` keeps its value
+(docs/promotion-decisions.json). Of the three reasons given for it, two do not rest on DevType:
+
+1. The gates were defined when val was code.defect_class only (the record's `source`).
+2. A pooled bar across families with different base rates is a contract no caller invokes. That
+   reason holds more strongly now that no caller invokes any contract.
+
+code.defect_class is also the only family with a planned caller, DevCouncil.
+
+DevType routing goes to the v6 caller-family lane with DevCouncil relevance, GitPulse commit type,
+severity and commit_intent.

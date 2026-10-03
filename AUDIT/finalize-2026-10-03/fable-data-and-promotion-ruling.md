@@ -155,7 +155,7 @@ One more non-data lever, from the gate's own detail string: "the calibrated-marg
 One table, six rows, for each open item: the as-built value; what each option reads on ens5 (b45406b5) and on seed 0 with row ids; Fable's recommendation; and that the human writes the record, in its own commit, **before v5's first ft row's written_at** — ideally before the data build, so v5's gates are known when it's launched. Deciding now with v4 in view must be stated in `decision_ref`, with both readings' numbers; that transparency is what separates it from the post-hoc trap, and the gap predates the results.
 
 Recommendations to carry:
-- `promotion_population`: code.defect_class, general families report-only. The product's contract (CLAUDE.md: DevCouncil and DevType) is the code decision; the gates were defined when val was code-only; a pooled bar across families with different base rates is a contract no caller invokes. State the counter-argument too: the human may want knowledge held to a bar, in which case "each family separately" and C1 become the path, and no v4 passes.
+- `promotion_population`: code.defect_class, general families report-only. The product's contract (CLAUDE.md: DevCouncil and DevType) is the code decision [wrong for DevType, and no caller is wired: see the Correction at the end]; the gates were defined when val was code-only; a pooled bar across families with different base rates is a contract no caller invokes. State the counter-argument too: the human may want knowledge held to a bar, in which case "each family separately" and C1 become the path, and no v4 passes.
 - `ece_population`: run the gate pooled over all letter rows; per-language report-only where language exists. **Check** `ECE_THRESHOLD` against ens5's pooled 0.043 before claiming it would pass.
 - `average_may_promote`: leave false; v5 promotes a three-seed recipe, not an average.
 - `degenerate_head_floor`, `privileged_hunk_pass_rule`, `transfer_gate_definition`: each needs a definition or an explicit human retirement; until then no row promotes. Give the human what each control measures and the as-built reason it's not_run; don't propose values yourself without a Fable pass on each.
@@ -169,3 +169,36 @@ Recommendations to carry:
 ## 4. Still do
 
 The §4 contingency amendment, now worded on the population decision: *"If v5's suite-half target misses under the recorded population, next is 2× SQuAD-paragraph prose-noul / 2× G6 languages, not a recipe change."* And record this ruling verbatim beside the last one.
+
+## Correction (2026-10-03, the lead): no caller calls the code decision, and DevType's decision is untrained
+
+The case for the code-only population said the product's contract is "the code decision that
+DevCouncil and DevType call". That reason is wrong in two ways.
+
+- **No caller calls Lappi today.** [V, by grep, not graph-confirmed: DevMap's store was malformed,
+  GAP-DEVMAP-DATABASE-MALFORMED-2026-10-03] No DevCouncil, DevType or GitPulse code sends Lappi a
+  request (GAP-SCHEMA-API-DOC-REQUEST-IS-NOT-A-TRAINED-REQUEST-2026-10-03, impact). The two callers
+  are the plan's (CLAUDE.md, first paragraph), not wired.
+- **DevType's decision is routing, and nothing trains it.** [V] The runtime names DevType as the
+  socket caller (`crates/qd-runtime/src/serve.rs:3`). Its task id `devtype.route` appears only in
+  runtime refusal fixtures (`crates/qd-runtime/src/fixtures.rs:526-530`). No training family is
+  `devtype.*` or routing: `python/qd_data/sources.py` defines code.change_scope,
+  code.commit_intent, code.defect_class, code.language_id, commonsense.multiple_choice,
+  intent.{classification,domain,in_scope,within_domain}, knowledge.multiple_choice,
+  qa.answer_span and qa.answerability. Routing is not a held-out family either. Those are
+  code.language_id and qa.answerability (`crates/qd-train/src/held_out.rs:50-51`), so routing is
+  simply untrained.
+- **What remains true.** [I] DevCouncil's verdict is the defect decision: code.defect_class is
+  the family it would call, and it is 84% of v4's tokens.
+
+**The decision stands.** The record's `promotion_population` keeps its value
+(docs/promotion-decisions.json). Of the three reasons given for it, two do not rest on DevType:
+
+1. The gates were defined when val was code.defect_class only (the record's `source`).
+2. A pooled bar across families with different base rates is a contract no caller invokes. That
+   reason holds more strongly now that no caller invokes any contract.
+
+code.defect_class is also the only family with a planned caller, DevCouncil.
+
+DevType routing goes to the v6 caller-family lane with DevCouncil relevance, GitPulse commit type,
+severity and commit_intent.
