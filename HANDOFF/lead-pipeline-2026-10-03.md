@@ -44,26 +44,51 @@ No new ledger row: nothing trained, and no GPU job ran. The evidence:
 **v5-build:**
 - 3a2fc85: the bench's v2 decision pool, reviewed; the characterization re-pinned.
 - 1ab477f: the rebuild tools read the pool.
-- Uncommitted when this was written: `--probe-shapes` in tools/real_ft_run.py and
-  python/tests/test_real_ft_probe_shapes.py.
+- 43a075c: `--probe-shapes MARGIN_GIB`, the pre-registered memory probe.
   - 24 new tests failed first on 1ab477f (`build/v5-h100/probe-failfirst.log`).
   - The full suite was 4,096 passed and 4 failed. Two failures were environmental. The other
     two were caused by the change and are fixed: the trainer is again handed `ProgressLine(`,
     and the test docstring's references are now literals.
-  - The fix's re-run was waiting on the heavy lock at ~17:30Z.
+  - The re-run after the fix: 85 passed, 3 skipped (opt-in).
+- ce0acdf: the bench's v3, applied verbatim (patch d5a427e0…).
+  - qd-prep: 74 + 2 tests pass; clippy -D warnings is clean.
+  - Targeted: 123 passed.
+  - Full suite: 4,099 passed; 2 failed, both environmental (the real-ledger guard and .venv
+    ruff); 49 skipped (`build/v3-verify.log`).
+
+**Main, later:**
+- 4eca691: the 1bff325 merge verified, and its gap resolved.
+  - 25 test binaries passed in the clean export.
+  - tracked_source_is_text passed 12/12 once the export was made a repo of all 1,522 tracked
+    files. In the bare export it had refused an empty `git ls-files`, as designed.
+- ca9e9a3: report-to-human corrected: the box needs no rustup, and the disk floor is 600 GiB.
+- cf99884: the dedupe-bound ruling and its probe evidence, `AUDIT/finalize-2026-10-03/dedupe-probe/`.
 
 ## What is open
 
-- **The bench's v3:** approved unchanged (d5a427e0…). It goes onto v5-build after the probe
-  commit, with a full suite run. Its pool build (final.sh) held the heavy lock from 17:15Z.
+- **The v5 decision pool is not admitted.** Its one Mac build (examples sha256 `e3a03f38…`)
+  hit the 5M candidate-pair bound in both dedupe and near_duplicate_disjoint, so split_status is
+  not_run.
+  - **Fable's ruling** (`AUDIT/finalize-2026-10-03/dedupe-probe/RULING.md`): the bound stays.
+    For the structured Open-Jev families (policy, evidence, routing, rubric), dedupe uses exact
+    content and the near-duplicate check is not_run by ruling. A leak is the same content
+    digest across splits.
+  - **A second build is granted only if `residual.py` does not truncate.** Its output is
+    `build/dedupe-probe/residual.{log,json}`.
+  - **Before the v4 patch:**
+    - the bench's answers on group_key, per-group val, and the 123 collisions;
+    - the DRAFT amendment for the scoping, after the v5-2gpu merge;
+    - the file split: the bench owns qd-prep decisions.rs and qd_data/{decisions,sources}.py;
+      the lead owns qd_data/{dedupe,split,minhash,config}.py.
+  - **The planned seam:**
+    - `DataConfig.exact_content_families`, set by `pool_data_config`, in the fingerprint only
+      when non-empty, so no-pool hashes do not move;
+    - dedupe and split read it;
+    - the scoped families are recorded as not_run by ruling, with both row counts.
 - **The queue lane L-v5-2gpu** (a subagent in its own worktree, branch `v5-2gpu`). Spec:
   `build/v5-h100/queue-lane-spec.md` and its 17:45Z revision.
   - Its first commit runs `AUDIT/finalize-2026-10-03/apply_h100_amendment.py` on its own DRAFT.
   - The canonical DRAFT is v5-build's; main's copy is an older ancestor.
-- **The merge verification of 1bff325** (cargo test -p qd-runtime -p qd-export in a clean
-  export, `build/merge-verify/`). Two earlier attempts failed on infrastructure: tessl and ojas
-  path deps, then `--locked`. The third was waiting on the lock. Once it prints `test result:
-  ok`, append the resolution line for GAP-RUNTIME-ADMITS-TASKS-NO-RELEASE-FAMILY-TRAINS-2026-10-03.
 - **Gaps:**
   - GAP-DEVMAP-FTS5-CORRUPT-SEARCH-REFUSES-2026-10-03: devmap_search fails, so lookups fall
     back to rg;
@@ -85,5 +110,5 @@ No new ledger row: nothing trained, and no GPU job ran. The evidence:
 ## The first command for the next lane
 
 ```bash
-tail -n 8 /Users/bharath/Code/research/Lappi-decision/build/merge-verify/verify_1bff325.log
+tail -n 20 /Users/bharath/Code/research/Lappi-decision/build/dedupe-probe/residual.log
 ```
