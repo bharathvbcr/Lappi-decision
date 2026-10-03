@@ -34,6 +34,7 @@ uses 1ab477f's).
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -77,9 +78,16 @@ EXPANDABLE = "expandable_segments:True"
 #: The human's words on the box, as the report records them (item 1, ~16:26Z), with the report's
 #: multiplication sign, kept because the words are quoted verbatim.
 BOX_WORDS = "Go with 2\N{MULTIPLICATION SIGN} H100 (Lambda)"
-#: A stand-in for the human's yes on the 11-run plan, which the lead fills into the pin
-#: V5_HUMAN_YES at deploy, verbatim (the d24c865 yes covered ~$137 / ~60 GPU-h, not this plan).
-HUMAN_YES = "Bharath (human, stand-in for the dry runs): yes, the 11 runs on the 2x H100 box"
+#: The human's yes on the 11-run plan, verbatim (~18:42Z 2026-10-03,
+#: AUDIT/finalize-2026-10-03/human-answers-2026-10-03-v5-launch.md): what the lead fills into
+#: the pin V5_HUMAN_YES at deploy, and what launch.human_yes quotes (the d24c865 yes covered
+#: ~$137 / ~60 GPU-h, not this plan).
+HUMAN_YES = "Yes to all, waive R9, approve ~$400"
+#: The human's ceiling on the GPU steps (launch.approved.runs_usd / runs_gpu_hours) and the 11
+#: runs' projection (launch.projected_cost_usd.total / projected_gpu_hours.total), both the
+#: DRAFT's after the second amendment (7c1d791).
+APPROVED = ("356.0", "84.96")
+PROJECTED = ("309.7", "74.0")
 #: The recipe for the default decision pins (C1/C2a/C2b off, lower layers kept, F's lr):
 #: recipe.base's flags as ft row 973cd4e3 records them, then recipe.added's --min-lr 0 and
 #: --batch-order seed.
@@ -937,6 +945,10 @@ SPLIT_OK = (
     [
         (SPLIT_OK, True, ""),
         (SPLIT_OK + " --defect-max-rows 5", True, ""),
+        # v5-build 1ab477f: every split rebuild reads the decision pool, so v5's own data argv
+        # carries --decisions-pool (and a replay-built set --replay-partition)
+        (SPLIT_OK + " --decisions-pool /home/ubuntu/phase5/pool", True, ""),
+        (SPLIT_OK + " --replay-partition", True, ""),
         (
             SPLIT_OK.replace("/home/ubuntu/x.txt", "/home/ubuntu/phase5/data/heldout/heldout.json"),
             False,
@@ -969,6 +981,101 @@ def test_v5_ctl_split_drops_out_and_backbone(tmp_path: Path) -> None:
     assert "--out" not in got and "--real-backbone" not in got
     assert got[:3] == ["--no-repo-history", "--rev", BUILD_REV]
     assert "--exclude-identity-keys" in got
+
+
+def option_dests(tree: ast.AST) -> dict[str, set[str]]:
+    """Every argparse option of a module's ``add_argument`` calls, by dest: the ``dest=``
+    keyword where one is given, else the first long option with '-' read as '_'."""
+    out: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_argument"
+        ):
+            continue
+        opts = [
+            a.value
+            for a in node.args
+            if isinstance(a, ast.Constant) and isinstance(a.value, str) and a.value.startswith("--")
+        ]
+        if not opts:
+            continue
+        dest = next(
+            (
+                k.value.value
+                for k in node.keywords
+                if k.arg == "dest" and isinstance(k.value, ast.Constant)
+            ),
+            opts[0][2:].replace("-", "_"),
+        )
+        out.setdefault(dest, set()).update(opts)
+    return out
+
+
+def split_rebuild_flags() -> set[str]:
+    """The command-line flags ``tools/real_ft_run.py``'s ``main`` feeds its split rebuild: the
+    keywords of its one ``ft_split_rows`` call (which forwards each to ``ft_splits``), mapped to
+    the options whose dest they are. ``config`` is checked to be ``DataConfig()`` with no
+    arguments, so no argv reaches the rebuild through it."""
+    tree = ast.parse((REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8"))
+    main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main")
+    calls = [
+        n
+        for n in ast.walk(main)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "ft_split_rows"
+    ]
+    assert len(calls) == 1, f"main calls ft_split_rows {len(calls)} times"
+    names = {k.arg for k in calls[0].keywords}
+    assert None not in names, "ft_split_rows is called with **kwargs: its flags are unreadable here"
+    configs = [
+        n.value
+        for n in ast.walk(main)
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "config" for t in n.targets)
+    ]
+    assert len(configs) == 1 and ast.unparse(configs[0]) == "DataConfig()", [
+        ast.unparse(c) for c in configs
+    ]
+    dests = option_dests(tree)
+    names.discard("config")
+    assert names <= set(dests), f"no option has dest {sorted(names - set(dests))}"
+    return {opt for name in names for opt in dests[name]}
+
+
+def test_v5_split_flags_are_the_data_flags_real_ft_run_rebuilds_its_split_from() -> None:
+    """The class of V5_SPLIT_FLAGS missing --decisions-pool (v5-build 1ab477f made every split
+    rebuild read the pool; the whitelist did not follow, so v5_split_check would have refused
+    v5's own data argv on the box): the whitelist is exactly the flags real_ft_run feeds its
+    split rebuild, plus --out (the shard set it reads) and --real-backbone (its snapshot). A new
+    data flag in real_ft_run fails here until the whitelist names it. And every whitelisted
+    flag but those two reaches tools/ft_linear_control.py through v5_ctl_split, so that tool
+    must accept each.
+
+    WEAKER than an import: real_ft_run imports torch at module level, which this test file's
+    .venv lacks, so this reads the source (ast): main's one ft_split_rows call and the
+    add_argument calls. A rebuild that took argv some other way would pass here."""
+    m = re.search(r'^V5_SPLIT_FLAGS=" (.*) "$', common_text(), re.M)
+    assert m, "V5_SPLIT_FLAGS is not one quoted, space-padded list"
+    whitelist = set(m[1].split())
+    rebuild = split_rebuild_flags()
+    assert "--decisions-pool" in rebuild, "the rebuild no longer reads the pool: re-read this test"
+    tree = ast.parse((REPO / "tools" / "real_ft_run.py").read_text(encoding="utf-8"))
+    dests = option_dests(tree)
+    assert {"--out"} <= dests["out"] and {"--real-backbone"} <= dests["real_backbone"]
+    assert whitelist == rebuild | {"--out", "--real-backbone"}, (
+        f"missing {sorted(rebuild | {'--out', '--real-backbone'} - whitelist)}, "
+        f"extra {sorted(whitelist - rebuild - {'--out', '--real-backbone'})}"
+    )
+    control = {
+        opt
+        for opts in option_dests(
+            ast.parse((REPO / "tools" / "ft_linear_control.py").read_text(encoding="utf-8"))
+        ).values()
+        for opt in opts
+    }
+    ctl = whitelist - {"--out", "--real-backbone"}
+    assert ctl <= control, f"ft_linear_control.py lacks {sorted(ctl - control)}"
 
 
 @pytest.mark.parametrize(
@@ -1018,55 +1125,102 @@ def test_v5_recipe_refuses_an_unset_or_unknown_decision(tmp_path: Path, pins: st
 
 
 def read_prereg(
-    tmp: Path, prereg: dict | str, rate: str = USD_GPU, box: str = BOX
+    tmp: Path,
+    prereg: dict | str,
+    rate: str = USD_GPU,
+    box: str = BOX,
+    yes: str = HUMAN_YES,
 ) -> subprocess.CompletedProcess:
     p = tmp / "prereg.json"
     p.write_text(prereg if isinstance(prereg, str) else json.dumps(prereg), encoding="utf-8")
     return bash(
         lib(
-            tmp, f'V5_PREREG="{p}"; PY="{sys.executable}"; V5_USD_PER_GPU_HOUR={rate}; V5_BOX={box}'
+            tmp,
+            f'V5_PREREG="{p}"; PY="{sys.executable}"; V5_USD_PER_GPU_HOUR={rate}; V5_BOX={box}; '
+            f"V5_HUMAN_YES={shlex.quote(yes)}",
         )
         + """
 v5_read_prereg; echo "RC=$?"
 echo "NUMS=$V5_EST_SEED_USD $V5_EST_SEED_H $V5_EST_J5_USD $V5_EST_J5_H" \
-  "$V5_APPROVED_USD $V5_APPROVED_H $V5NW_W"
+  "$V5_APPROVED_USD $V5_APPROVED_H $V5NW_W $V5_PROJECTED_USD $V5_PROJECTED_H"
 """
     )
 
 
 def test_v5_read_prereg_reads_the_drafts_numbers(tmp_path: Path) -> None:
-    """Changed for the 2x H100 box: the DRAFT is the amended one (a29bca1), priced at the pinned
-    per-GPU rate ($4.19, no longer COST's GH200 $2.29), 11 runs: $309.7 / 74.0 GPU-h."""
+    """Changed for the 2x H100 box: the DRAFT is the amended one (a29bca1, then 7c1d791),
+    priced at the pinned per-GPU rate ($4.19, no longer COST's GH200 $2.29). The approved
+    figures are the human's ceiling, launch.approved ($356.0 / 84.96 GPU-h), not the 11 runs'
+    projection ($309.7 / 74.0 GPU-h), which is still read, checked and printed."""
     r = read_prereg(tmp_path, renamed_prereg())
     assert "RC=0" in r.stdout, r.stdout + r.stderr
-    assert "NUMS=29.3 7.0 25.1 6.0 309.7 74.0 4" in r.stdout
+    assert f"NUMS=29.3 7.0 25.1 6.0 {' '.join(APPROVED)} 4 {' '.join(PROJECTED)}" in r.stdout
+    assert (
+        f"approved (the human's ceiling on the GPU steps, launch.approved) ~ ${APPROVED[0]} / "
+        f"{APPROVED[1]} GPU-h; projected for the 11 runs ~ ${PROJECTED[0]} / {PROJECTED[1]} GPU-h"
+    ) in r.stdout
 
 
 def test_v5_read_prereg_prices_with_the_per_gpu_rate(tmp_path: Path) -> None:
-    """The per-seed $ is checked against the per-GPU rate: the amended DRAFT reads at $4.19 and
-    refuses at the GH200's $2.29 on exactly the two rate checks."""
+    """The per-seed $ and the ceiling's hours are checked against the per-GPU rate: the amended
+    DRAFT reads at $4.19 and refuses at the GH200's $2.29 on exactly the three rate checks."""
     r = read_prereg(tmp_path, renamed_prereg(), "2.29")
     assert "RC=3" in r.stdout and "REFUSED" in r.stdout, r.stdout + r.stderr
-    assert (
-        "v5 seed h x rate = v5 seed $" in r.stdout and "J5' seed h x rate = J5' seed $" in r.stdout
-    )
+    for check in (
+        "v5 seed h x rate = v5 seed $",
+        "J5' seed h x rate = J5' seed $",
+        "runs_gpu_hours x rate = runs_usd",
+    ):
+        assert check in r.stdout, check
     assert "the four blocks = total" not in r.stdout
 
 
-def test_v5_read_prereg_refuses_the_pre_amendment_form(tmp_path: Path) -> None:
-    """1ab477f's DRAFT (if_seeds_3_4, 60 GPU-h, priced at $2.29) is not the form this queue
-    reads: seeds 3-4 are a block of the total now, and there is no hours if_seeds_3_4."""
+def git_show_draft(rev: str) -> dict:
     old = subprocess.run(
-        ["git", "-C", str(REPO), "show", "1ab477f:campaign/v5-preregistered.DRAFT.json"],
+        ["git", "-C", str(REPO), "show", f"{rev}:campaign/v5-preregistered.DRAFT.json"],
         capture_output=True,
         text=True,
         check=False,
         timeout=30,
     )
     if old.returncode != 0:
-        pytest.skip(f"1ab477f is not in this checkout: NOT RUN ({old.stderr.strip()})")
+        pytest.skip(f"{rev} is not in this checkout: NOT RUN ({old.stderr.strip()})")
     d = json.loads(old.stdout)
     d.pop("draft")
+    return d
+
+
+def test_v5_read_prereg_refuses_a_draft_without_the_humans_ceiling(tmp_path: Path) -> None:
+    """a29bca1's DRAFT (the 2x H100 amendment only) has no launch.approved: the queue refuses it
+    rather than read the projection as approved."""
+    r = read_prereg(tmp_path, git_show_draft("a29bca1"))
+    assert "RC=3" in r.stdout and "launch.approved is absent" in r.stdout, r.stdout + r.stderr
+
+
+@pytest.mark.parametrize(
+    "yes",
+    [
+        "Yes to all, waive R9, approve ~$500",
+        "yes to all, waive R9, approve ~$400",
+        "Bharath (human, in chat 2026-10-03): yes, the 11 runs on the 2x H100 box",
+        " ",
+        "UNSET",
+    ],
+)
+def test_v5_read_prereg_refuses_a_human_yes_the_pre_registration_does_not_quote(
+    tmp_path: Path, yes: str
+) -> None:
+    """The filled V5_HUMAN_YES must appear verbatim in launch.human_yes: a deploy pin that
+    disagrees with the pre-registration does not run."""
+    r = read_prereg(tmp_path, renamed_prereg(), yes=yes)
+    assert "RC=3" in r.stdout and "is not verbatim in launch.human_yes" in r.stdout, r.stdout
+    assert HUMAN_YES in renamed_prereg()["launch"]["human_yes"]
+
+
+def test_v5_read_prereg_refuses_the_pre_amendment_form(tmp_path: Path) -> None:
+    """1ab477f's DRAFT (if_seeds_3_4, 60 GPU-h, priced at $2.29) is not the form this queue
+    reads: seeds 3-4 are a block of the total now, and there is no hours if_seeds_3_4."""
+    d = git_show_draft("1ab477f")
     for rate in ("2.29", USD_GPU):
         r = read_prereg(tmp_path, d, rate)
         assert "RC=3" in r.stdout and "REFUSED" in r.stdout, r.stdout + r.stderr
@@ -1120,6 +1274,14 @@ def test_v5_read_prereg_refuses_a_box_the_ledger_names_do_not_carry(
         lambda d: d["arm_noul_weight"]["w"].__setitem__("value", "4"),
         lambda d: d["launch"].pop("projected_gpu_hours"),
         lambda d: d.pop("hardware"),
+        # the human's ceiling (launch.approved, 7c1d791)
+        lambda d: d["launch"].pop("approved"),
+        lambda d: d["launch"]["approved"].__setitem__("runs_usd", 400.0),
+        lambda d: d["launch"]["approved"].__setitem__("runs_gpu_hours", 95.47),
+        lambda d: d["launch"]["approved"].__setitem__("runs_gpu_hours", "84.96"),
+        lambda d: d["launch"]["approved"].__setitem__("runs_usd", 0),
+        lambda d: d["launch"]["approved"].pop("runs_usd"),
+        lambda d: d["launch"].pop("human_yes"),
     ],
 )
 def test_v5_read_prereg_refuses_figures_that_disagree(tmp_path: Path, mutate) -> None:
@@ -1129,12 +1291,16 @@ def test_v5_read_prereg_refuses_figures_that_disagree(tmp_path: Path, mutate) ->
     assert "RC=3" in r.stdout and "REFUSED" in r.stdout, r.stdout
 
 
-#: v5_budget_ok's inputs as v5_read_prereg sets them from the amended DRAFT (a29bca1): $4.19 per
-#: GPU-hour, a seed ~ 7.0 h / $29.3, a J5' seed ~ 6.0 h / $25.1, 11 runs ~ $309.7 / 74.0 GPU-h.
+#: v5_budget_ok's inputs as v5_read_prereg sets them from the amended DRAFT (a29bca1, 7c1d791):
+#: $4.19 per GPU-hour, a seed ~ 7.0 h / $29.3, a J5' seed ~ 6.0 h / $25.1, and the human's
+#: ceiling on the GPU steps, launch.approved, $356.0 / 84.96 GPU-h (the projection, $309.7 /
+#: 74.0 GPU-h, is the estimate and is not what the budget enforces).
 DRAFT_MONEY = (
-    f"V5_USD_PER_GPU_HOUR={USD_GPU}; V5_APPROVED_USD=309.7; V5_APPROVED_H=74.0; "
+    f"V5_USD_PER_GPU_HOUR={USD_GPU}; V5_APPROVED_USD={APPROVED[0]}; V5_APPROVED_H={APPROVED[1]}; "
     "V5_EST_SEED_USD=29.3; V5_EST_SEED_H=7.0; V5_EST_J5_USD=25.1; V5_EST_J5_H=6.0"
 )
+#: The approved total as the budget's messages print it.
+APPROVED_LINE = f"~${APPROVED[0]} / {APPROVED[1]} GPU-h"
 
 
 def budget(
@@ -1147,7 +1313,8 @@ def budget(
 ) -> str:
     """Changed for the 2x H100 box: the rate variable is the pinned V5_USD_PER_GPU_HOUR (was
     V5_USD_PER_HOUR, read from COST's GH200 instance rate), and the figures are the amended
-    DRAFT's (11 runs); the approved total no longer grows on a seeds34 word."""
+    DRAFT's: the approved total is the human's ceiling (launch.approved), and it no longer grows
+    on a seeds34 word."""
     q = tmp / "q"
     q.mkdir(parents=True, exist_ok=True)
     if spent_s is not None:
@@ -1161,29 +1328,34 @@ def budget(
 
 
 def test_v5_budget_ok_passes_inside_the_approved_total(tmp_path: Path) -> None:
+    """Changed for the human's ceiling (launch.approved, $356.0 / 84.96 GPU-h; was the
+    projection's $309.7 / 74.0, which the queue no longer reads as approved)."""
     assert "RC=0" in budget(tmp_path / "a", None)
-    # 66 h = $276.54 spent; + ~$29.3 / 7.0 h = $305.84 / 73 h, inside $309.7 / 74.0 h
-    assert "RC=0" in budget(tmp_path / "b", 66 * 3600)
-    # 67 h = $280.73; + $29.3 = $310.03 crosses $309.7 although 67 + 7.0 = 74 h does not
-    assert "RC=3" in budget(tmp_path / "c", 67 * 3600)
+    # 77 h = $322.63 spent; + ~$29.3 / 7.0 h = $351.93 / 84 h, inside $356.0 / 84.96 h; it would
+    # have crossed the projection's $309.7 / 74.0 GPU-h
+    assert "RC=0" in budget(tmp_path / "b", 77 * 3600)
+    # 77.965 h = $326.67; + 7.0 h = 84.965 h crosses 84.96 GPU-h although $355.97 does not cross
+    # $356.0: each of the two limits refuses on its own
+    assert "RC=3" in budget(tmp_path / "c", 280674)
 
 
 def test_v5_budget_ok_refuses_a_run_that_would_cross_it(tmp_path: Path) -> None:
-    out = budget(tmp_path, 68 * 3600)  # 68 + 7.0 > 74 GPU-h
+    out = budget(tmp_path, 79 * 3600)  # 79 + 7.0 > 84.96 GPU-h
     assert "RC=3" in out and "REFUSED" in out and "NOT RUN" in out
+    assert f"would cross the approved {APPROVED_LINE}" in out, out
 
 
 def test_v5_budget_ok_runs_past_it_only_on_the_humans_words(tmp_path: Path) -> None:
-    assert "RC=3" in budget(tmp_path / "a", 68 * 3600, yes="")
-    out = budget(tmp_path / "b", 68 * 3600, yes="Bharath: yes, finish the block")
+    assert "RC=3" in budget(tmp_path / "a", 79 * 3600, yes="")
+    out = budget(tmp_path / "b", 79 * 3600, yes="Bharath: yes, finish the block")
     assert "RC=0" in out and "Bharath: yes, finish the block" in out
 
 
 def test_v5_budget_ok_does_not_grow_on_a_seeds34_word(tmp_path: Path) -> None:
     """Replaces test_v5_budget_ok_adds_seeds_3_4_once_seeds34_fired: seeds 3-4 are a block of
-    the approved 11-run total since the amendment a29bca1, so no word adds to it."""
-    out = budget(tmp_path, 68 * 3600, files={"v5s34.word": "fires\n"})
-    assert "RC=3" in out and "~$309.7 / 74.0 GPU-h" in out, out
+    the 11 runs since the amendment a29bca1, so no word adds to the approved total."""
+    out = budget(tmp_path, 79 * 3600, files={"v5s34.word": "fires\n"})
+    assert "RC=3" in out and APPROVED_LINE in out, out
 
 
 def test_v5_budget_ok_counts_what_the_other_lanes_running_jobs_may_still_spend(
@@ -1194,36 +1366,36 @@ def test_v5_budget_ok_counts_what_the_other_lanes_running_jobs_may_still_spend(
     is refused (exit 3). A running job counts its estimate less what v5.spend already holds for
     it (its own .spend), and a seed job runs until its trajectory waiter is done."""
     running = {"v5job-v5-s0.claimed": "lane 0\n"}
-    # 61 h spent + 7.0 h for v5-s0 still running + 7.0 h = 75 h > 74 h; alone 68 h fits
-    out = budget(tmp_path / "a", 61 * 3600, files=running)
+    # 72 h spent + 7.0 h for v5-s0 still running + 7.0 h = 86 h > 84.96 h; alone 79 h fits
+    out = budget(tmp_path / "a", 72 * 3600, files=running)
     assert "RC=4" in out and "waits" in out and "REFUSED" not in out, out
     # its job is done and no trajectory waiter was started: nothing is running
-    out = budget(tmp_path / "b", 61 * 3600, files={**running, "v5job-v5-s0.done": "ft x\n"})
+    out = budget(tmp_path / "b", 72 * 3600, files={**running, "v5job-v5-s0.done": "ft x\n"})
     assert "RC=0" in out, out
     # done, but its trajectory waiter is still running: it still counts
     out = budget(
         tmp_path / "c",
-        61 * 3600,
+        72 * 3600,
         files={**running, "v5job-v5-s0.done": "ft x\n", "v5traj-s0.queued": ""},
     )
     assert "RC=4" in out, out
-    # 6 of v5-s0's 7.0 h are already in v5.spend (62 h in all): 62 + 1 + 7 = 70 h fits;
-    # counting the whole estimate again (62 + 7 + 7 = 76 h) would not
-    out = budget(tmp_path / "d", 62 * 3600, files={**running, "v5job-v5-s0.spend": "21600\n"})
+    # 6 of v5-s0's 7.0 h are already in v5.spend (73 h in all): 73 + 1 + 7 = 81 h fits;
+    # counting the whole estimate again (73 + 7 + 7 = 87 h) would not
+    out = budget(tmp_path / "d", 73 * 3600, files={**running, "v5job-v5-s0.spend": "21600\n"})
     assert "RC=0" in out, out
     # over the total even alone: refused, whatever runs
-    out = budget(tmp_path / "e", 68 * 3600, files=running)
+    out = budget(tmp_path / "e", 79 * 3600, files=running)
     assert "RC=3" in out and "REFUSED" in out, out
 
 
 def test_v5_spend_add_and_running_total(tmp_path: Path) -> None:
     """Changed for the 2x H100 box: the rate is the pinned per-GPU rate ($4.19, was COST's
-    GH200 $2.29) and the approved total the amended DRAFT's."""
+    GH200 $2.29) and the approved total the amended DRAFT's ceiling (launch.approved)."""
     r = bash(
-        lib(tmp_path, f"V5_USD_PER_GPU_HOUR={USD_GPU}; V5_APPROVED_USD=309.7; V5_APPROVED_H=74.0")
+        lib(tmp_path, DRAFT_MONEY)
         + 'v5_spend_add "v5 seed 0 train+score" 3600; v5_spend_add "x" 7200'
     )
-    assert "v5 running total: 1.0000 GPU-h, $4.19 of the approved ~$309.7 / 74.0 GPU-h" in r.stdout
+    assert f"v5 running total: 1.0000 GPU-h, $4.19 of the approved {APPROVED_LINE}" in r.stdout
     assert "v5 running total: 3.0000 GPU-h, $12.57 of the approved" in r.stdout
     lines = (tmp_path / "q" / "v5.spend").read_text().splitlines()
     assert [ln.split("\t")[1:] for ln in lines] == [
@@ -1418,9 +1590,10 @@ MAIN = ("v5-s0", "v5-s1", "v5-s2", "v5-s3", "v5-s4")
 @pytest.mark.parametrize(
     ("r9", "files", "want"),
     [
-        # the spec's own case: lane B takes J5' s0 once s0 is done and s2 is not (here every
-        # main seed is taken, so J5' s0 is the earliest job whose inputs are ready)
-        ("waive", {**ran("v5-s0", "v5-s1"), **running("v5-s2", "v5-s3", "v5-s4")}, "job j5-s0"),
+        # J5' gates on j5prime.runs_iff verbatim (Fable's ruling via the lead, 2026-10-03): every
+        # J5' seed waits for v5 seeds 0-2 all done. The spec's own case (s0 done, s2 not) now
+        # waits; the derivation that let J5' s0 start there was not pre-registered
+        ("waive", {**ran("v5-s0", "v5-s1"), **running("v5-s2", "v5-s3", "v5-s4")}, "wait"),
         (
             "keep",
             {
@@ -1428,7 +1601,7 @@ MAIN = ("v5-s0", "v5-s1", "v5-s2", "v5-s3", "v5-s4")
                 **running("v5-s2", "v5-s3", "v5-s4"),
                 "v5r9.word": "continue\n",
             },
-            "job j5-s0",
+            "wait",
         ),
         # nothing has run: seed 0 first
         ("keep", {}, "job v5-s0"),
@@ -1476,32 +1649,27 @@ MAIN = ("v5-s0", "v5-s1", "v5-s2", "v5-s3", "v5-s4")
             {**ran(*MAIN, "v5nw-s0", "v5nw-s1", "v5nw-s2"), **ROOM, "v5nw.word": "quiet\n"},
             "job j5-s0",
         ),
-        # J5' s needs v5 seed s's ft row: a seed with none leaves its J5' out
+        # a v5 seed 0-2 that wrote no ft row: J5' is still a job once seeds 0-2 are done, and
+        # the job skips it, logged, on runs_iff (v5_job_j5); the pick reads no ft row
         (
             "waive",
-            {
-                **ran("v5-s0", "v5-s2", "v5-s3", "v5-s4"),
-                **ran("v5-s1", ft=False),
-                **NO_ROOM,
-                **ran("j5-s0"),
-            },
-            "job j5-s2",
+            {**ran("v5-s0", "v5-s2", "v5-s3", "v5-s4"), **ran("v5-s1", ft=False), **NO_ROOM},
+            "job j5-s0",
         ),
         (
             "waive",
             {
-                **ran("v5-s0", "v5-s2", "v5-s3", "v5-s4", "j5-s0", "j5-s2"),
+                **ran("v5-s0", "v5-s2", "v5-s3", "v5-s4", "j5-s0", "j5-s1", "j5-s2"),
                 **ran("v5-s1", ft=False),
                 **NO_ROOM,
             },
             "none",
         ),
+        # R9 kept and seed 0 ended with no word (a broken state): seeds 1-4 can never start, so
+        # neither can J5'; the arm's launch word is still unwritten, so the lane waits (bounded)
+        ("keep", ran("v5-s0"), "wait"),
         # a seed waiting for its rows keeps the lane waiting; nothing left is none
-        (
-            "waive",
-            {**ran("v5-s0", "v5-s1", "v5-s3", "v5-s4"), **running("v5-s2", "j5-s0", "j5-s1")},
-            "wait",
-        ),
+        ("waive", {**ran("v5-s0", "v5-s1", "v5-s3", "v5-s4"), **running("v5-s2")}, "wait"),
         ("waive", {**ran(*MAIN, "j5-s0", "j5-s1", "j5-s2"), **NO_ROOM}, "none"),
     ],
 )
@@ -1616,8 +1784,13 @@ def bash_pick(sim: Sim, lane: int) -> str:
     return got[-1]
 
 
-def oracle_input(sim: Sim, job: str) -> str:
-    """The spec's inputs (section 5), read from the model's state: ready, possible, impossible."""
+def oracle_input(sim: Sim, job: str, *, j5_per_seed: bool = False) -> str:
+    """The spec's inputs (section 5), read from the model's state: ready, possible, impossible.
+    J5' is j5prime.runs_iff verbatim (Fable's ruling via the lead): every J5' seed needs v5
+    seeds 0-2 done. ``j5_per_seed`` is the spec's earlier derivation (J5' seed s needs v5 seed
+    s only), kept to show the ruling costs nothing in any branch."""
+    if job.startswith("j5-") and not j5_per_seed:
+        return "ready" if {"v5-s0", "v5-s1", "v5-s2"} <= sim.done else "possible"
     if job == "v5-s0":
         return "ready"
     if job in ("v5-s1", "v5-s2", "v5-s3", "v5-s4"):
@@ -1633,9 +1806,10 @@ def oracle_input(sim: Sim, job: str) -> str:
     return "ready" if f"v5-s{job[-1]}" in sim.done else "possible"
 
 
-def oracle_pick(sim: Sim, lane: int) -> str:
+def oracle_pick(sim: Sim, lane: int, *, j5_per_seed: bool = False) -> str:
     """The greedy rule: decisions first, then the earliest job in the human's order whose
-    inputs are ready; an R9 hold holds every lane."""
+    inputs are ready; an R9 hold holds every lane (with runs_iff, nothing else could be ready
+    during it anyway)."""
     if sim.r9 != "waive" and sim.words.get("v5r9.word", "continue") != "continue" and not sim.cont:
         return "hold"
     if {"v5-s0", "v5-s1", "v5-s2"} <= sim.done and "v5nw.room" not in sim.words:
@@ -1647,7 +1821,7 @@ def oracle_pick(sim: Sim, lane: int) -> str:
     for job in JOBS:
         if job in sim.claimed:
             continue
-        state = oracle_input(sim, job)
+        state = oracle_input(sim, job, j5_per_seed=j5_per_seed)
         if state == "ready":
             return f"job {job}"
         waiting = waiting or state == "possible"
@@ -1682,6 +1856,19 @@ BRANCHES = [(r9, room) for r9 in ("waive", "continue", "pause") for room in ("ro
 
 
 @pytest.mark.parametrize(("r9", "room"), BRANCHES)
+def test_runs_iff_verbatim_costs_nothing_in_any_branch(tmp_path: Path, r9: str, room: str) -> None:
+    """Fable's reason for gating every J5' seed on v5 seeds 0-2 (j5prime.runs_iff verbatim)
+    rather than on its own seed: under the greedy order the lanes' sequences and the decisions'
+    ticks are the same either way, in every branch."""
+    verbatim = Sim(tmp_path / "verbatim", r9, room).run(oracle_pick)
+    per_seed = Sim(tmp_path / "per-seed", r9, room).run(
+        lambda sim, lane: oracle_pick(sim, lane, j5_per_seed=True)
+    )
+    assert verbatim.seq == per_seed.seq and verbatim.decided == per_seed.decided
+    assert verbatim.claim_tick == per_seed.claim_tick
+
+
+@pytest.mark.parametrize(("r9", "room"), BRANCHES)
 def test_every_branch_yields_the_greedy_sequence_per_lane(
     tmp_path: Path, r9: str, room: str
 ) -> None:
@@ -1703,9 +1890,10 @@ def test_every_branch_yields_the_greedy_sequence_per_lane(
 
 
 def test_the_hold_holds_j5_s0_until_the_humans_continue(tmp_path: Path) -> None:
-    """Under R9's hold nothing starts, J5' s0 included, although its seed is done at tick 2:
-    the block waits for the human, as the GH200's chain did (every later waiter waited on
-    v5.done, which the hold delayed)."""
+    """Under R9's hold nothing starts, J5' s0 included, until the human's continue, as the
+    GH200's chain did. With J5' gated on v5 seeds 0-2 (runs_iff verbatim) this is a
+    consequence of the inputs, not a new rule: nothing J5' or the arm needs can exist while
+    seeds 1-2 are held (Fable's ruling via the lead, 2026-10-03)."""
     sim = Sim(tmp_path, "pause", "no_room").run(bash_pick)
     assert sim.claim_tick["v5-s0"] == 0
     later = {j: t for j, t in sim.claim_tick.items() if j != "v5-s0"}
@@ -1805,7 +1993,13 @@ elif "tools/real_ft_run.py" in args and "--score-checkpoint" not in args:
         with open(os.path.join(ROOT, "bin", "qd-post-f-rules-v5"), "a") as f:
             f.write("\n# swapped after the waiter checked it\n")
     time.sleep(scen.get("train_sleep", 0))
-    if scen.get("train_fails"):
+    # train_fails: every training run fails; train_fails_seeds: v5's own runs (v5's ledger, not
+    # J5') of these seeds fail, writing no ft row
+    if scen.get("train_fails") or (
+        seed in scen.get("train_fails_seeds", [])
+        and "--shuffled-label" not in args
+        and "-noulw-" not in (opt("--ledger") or "")
+    ):
         rc = 1
     else:
         if opt("--verdicts-out"):
@@ -1965,11 +2159,14 @@ class Box:
         header = {"shard_hash": "a" * 64, "data_snapshot_hash": "b" * 64}
         (root / "v5data" / "shards" / "train" / "header.json").write_text(json.dumps(header))
         (root / "v5data" / "exclusions.txt").write_text("k1\n")
+        # v5's data argv as the box's will be: since v5-build 1ab477f every split rebuild reads
+        # the decision pool, so it carries --decisions-pool
         self.split = (
             f"--out {root}/v5data --no-repo-history --rev {BUILD_REV} "
             "--defect-class data/pool/commitpackft-composed-v2 "
             '--defect-noul data/pool/defect-noul-v3c --general-record "$REC" '
             f"--general-max-rows 200000 --exclude-identity-keys {root}/v5data/exclusions.txt "
+            f"--decisions-pool {root}/v5data/decisions-pool "
             '--real-backbone "$BACKBONE"'
         )
         decisions = {
@@ -2398,13 +2595,14 @@ def test_every_gpu_step_runs_on_its_lanes_gpu_under_its_lanes_lock(tmp_path: Pat
 def test_two_lanes_never_train_two_seeds_together_past_the_budget(tmp_path: Path) -> None:
     """Two lanes, room for one more seed only: seed 1 waits while seed 0 runs (exit 4 of
     v5_budget_ok, logged), and starts once seed 0 ended under its estimate; at no time do two
-    seeds train together. 64 h spent: 64 + 7 fits the 74.0 GPU-h, 64 + 7 + 7 does not."""
+    seeds train together. 72 h spent: 72 + 7 fits the approved 84.96 GPU-h (launch.approved),
+    72 + 7 + 7 does not."""
     box = Box(
         tmp_path,
         pins={"V5_R9": "waive"},
         scenario={"train_sleep": 0.6, "ft-rows": 1},
     )
-    (box.q / "v5.spend").write_text(f"2026-10-04T00:00:00Z\tearlier\t{64 * 3600}\t268.16\n")
+    (box.q / "v5.spend").write_text(f"2026-10-04T00:00:00Z\tearlier\t{72 * 3600}\t301.68\n")
     results = box.run_lanes(timeout=300)
     out = both(results)
     assert [rc for rc, _ in results] == [0, 0], out
@@ -2555,7 +2753,8 @@ def test_v5_continue_runs_its_seeds_in_v5s_form(tmp_path: Path) -> None:
         f"cost: v5 seed 0 train+score: cap 32400 s = $37.71 at ${USD_GPU}/GPU-h; "
         "pre-registration estimate ~ 7.0 h, $29.3" in out
     )
-    assert "v5 running total:" in out and "of the approved ~$309.7 / 74.0 GPU-h" in out
+    assert "v5 running total:" in out and f"of the approved {APPROVED_LINE}" in out
+    assert f"projected for the 11 runs ~ ${PROJECTED[0]} / {PROJECTED[1]} GPU-h" in out
     assert out.count("MATCHES the prelude's") == 5
     spend = (box.q / "v5.spend").read_text().splitlines()
     assert any("v5 seed 2 needle control" in ln for ln in spend)
@@ -2680,11 +2879,11 @@ def test_r9_hold_marker_says_why(
 
 
 def test_v5_refuses_a_run_past_the_approved_total_without_the_humans_words(tmp_path: Path) -> None:
-    """Changed for the 2x H100 box: the approved total is the amended DRAFT's 11 runs, $309.7 /
-    74.0 GPU-h, so 68 h already spent ($284.92 at $4.19/GPU-h) leaves no room for a seed; a
-    seed 0 that never ran holds R9 as no-seed-0-row."""
+    """Changed for the 2x H100 box: the approved total is the human's ceiling on the GPU steps,
+    launch.approved ($356.0 / 84.96 GPU-h), so 79 h already spent ($331.01 at $4.19/GPU-h)
+    leaves no room for a seed; a seed 0 that never ran holds R9 (kept here) as no-seed-0-row."""
     box = Box(tmp_path)
-    (box.q / "v5.spend").write_text(f"2026-10-04T00:00:00Z\tearlier\t{68 * 3600}\t284.92\n")
+    (box.q / "v5.spend").write_text(f"2026-10-04T00:00:00Z\tearlier\t{79 * 3600}\t331.01\n")
     ps = box.start_lanes()
     try:
         box.wait_for("v5.paused")
@@ -2696,13 +2895,13 @@ def test_v5_refuses_a_run_past_the_approved_total_without_the_humans_words(tmp_p
                 p.kill()
     out = both(results)
     assert box.training() == []
-    assert "v5 seed 0 REFUSED" in out and "would cross the approved ~$309.7 / 74.0 GPU-h" in out
+    assert "v5 seed 0 REFUSED" in out and f"would cross the approved {APPROVED_LINE}" in out
     assert (box.q / "v5.paused").read_text() == "no-seed-0-row\n"
 
 
 def test_v5_with_the_over_budget_words_runs(tmp_path: Path) -> None:
     box = Box(tmp_path)
-    (box.q / "v5.spend").write_text(f"2026-10-04T00:00:00Z\tearlier\t{68 * 3600}\t284.92\n")
+    (box.q / "v5.spend").write_text(f"2026-10-04T00:00:00Z\tearlier\t{79 * 3600}\t331.01\n")
     (box.q / "V5_OVER_BUDGET_YES").write_text("Bharath: finish v5 past the estimate\n")
     results = box.run_lanes()
     assert [rc for rc, _ in results] == [0, 0], both(results)
@@ -2791,7 +2990,7 @@ def test_seeds_3_4_run_unconditionally_and_seeds34_is_never_read(
         assert_training_form(argv, int(opt(argv, "--seeds")))
         assert opt(argv, "--ledger") == str(box.ledger)
     box.wait_for("v5traj-s3.done", "v5traj-s4.done")
-    assert "of the approved ~$309.7 / 74.0 GPU-h" in out
+    assert f"of the approved {APPROVED_LINE}" in out
     results2 = box.run_lanes()
     assert [r for r, _ in results2] == [3, 3] and "decided once" in both(results2)
 
@@ -2856,8 +3055,10 @@ def test_v5nw(tmp_path: Path, word: str, rc: int, yes: str | None, arm: bool) ->
 
 
 def test_v5j5_runs_three_shuffled_label_seeds_on_v5s_recipe(tmp_path: Path) -> None:
-    """Changed for the 2x H100 box: J5' seed s is a lane job once v5 seed s is done, checked
-    on that seed's own ft row (ft-rows with one --ft-row), not box_q_v5j5.sh's after v5.done."""
+    """Changed for the 2x H100 box: each J5' seed is a lane job once v5 seeds 0-2 are done,
+    and checks j5prime.runs_iff verbatim itself (ft-rows on all three v5 ft rows, as
+    box_q_v5j5.sh did after v5.done; Fable's ruling via the lead), then its own seed's eval
+    row."""
     box = Box(tmp_path, scenario={"eval-row": EVAL_ROW})
     results = box.run_lanes()
     out = both(results)
@@ -2877,18 +3078,19 @@ def test_v5j5_runs_three_shuffled_label_seeds_on_v5s_recipe(tmp_path: Path) -> N
         ):
             assert absent not in argv
     ft_rows = [c for c in box.rules() if c[0] == "ft-rows"]
-    assert len(ft_rows) == 3
-    assert sorted(c[c.index("--ft-row") + 1][:2] for c in ft_rows) == ["0=", "1=", "2="]
-    assert all(c.count("--ft-row") == 1 for c in ft_rows)
-    assert len([c for c in box.rules() if c[0] == "eval-row"]) == 3
+    assert len(ft_rows) == 3, "one runs_iff check per J5' seed"
+    for c in ft_rows:
+        assert [c[i + 1][:2] for i, a in enumerate(c) if a == "--ft-row"] == ["0=", "1=", "2="]
+    eval_rows = [c for c in box.rules() if c[0] == "eval-row"]
+    assert sorted(c[c.index("--ft-row") + 1][:2] for c in eval_rows) == ["0=", "1=", "2="]
+    assert all(c.count("--ft-row") == 1 for c in eval_rows)
     assert "pre-registration estimate ~ 6.0 h, $25.1" in out
 
 
-def test_v5j5_is_skipped_without_a_completed_v5_ft_row(tmp_path: Path) -> None:
-    """Replaces test_v5j5_is_skipped_without_three_completed_v5_ft_rows, whose box_q_v5j5.sh
-    checked all three v5 ft rows at once after v5.done: J5' seed s is now a lane job checked on v5
-    seed s's own ft row (hardware.lanes; GAP-V5-2GPU-J5-PER-SEED-VS-RUNS-IFF-2026-10-03), so each
-    seed is skipped on its own."""
+def test_v5j5_is_skipped_without_three_completed_v5_ft_rows(tmp_path: Path) -> None:
+    """Changed for the 2x H100 box: the three J5' seeds are lane jobs, each checking
+    j5prime.runs_iff on v5 seeds 0-2's three ft rows and skipped on its own .done when the
+    binary refuses them (box_q_v5j5.sh skipped all three at once after v5.done)."""
     box = Box(tmp_path, scenario={"ft-rows": 1})
     results = box.run_lanes()
     out = both(results)
@@ -2896,6 +3098,22 @@ def test_v5j5_is_skipped_without_a_completed_v5_ft_row(tmp_path: Path) -> None:
     assert out.count("v5j5 SKIPPED") == 3 and box.j5_training() == []
     for s in range(3):
         assert (box.q / f"v5job-j5-s{s}.done").read_text().startswith("skipped")
+
+
+def test_no_j5_seed_runs_when_a_v5_seed_0_2_wrote_no_ft_row(tmp_path: Path) -> None:
+    """j5prime.runs_iff verbatim ('v5 wrote three completed ft rows'): v5 seed 1 writes no ft
+    row, so J5' seeds 0 and 2 do not run either, although their own seeds' rows exist; each is
+    skipped, logged, and the binary is never asked about an empty ft row id."""
+    box = Box(tmp_path, pins={"V5_R9": "waive"}, scenario={"train_fails_seeds": ["1"]})
+    results = box.run_lanes()
+    out = both(results)
+    assert [r for r, _ in results] == [0, 0], out
+    assert seeds_of(box.v5_training()) == ["0", "1", "2", "3", "4"]
+    assert box.j5_training() == []
+    assert out.count("v5j5 SKIPPED") == 3 and "runs_iff" in out
+    for s in range(3):
+        assert (box.q / f"v5job-j5-s{s}.done").read_text().startswith("skipped")
+    assert [c for c in box.rules() if c[0] in ("ft-rows", "eval-row")] == []
 
 
 # Every reading a post-seed waiter or the other lane may race (Fable's ruling B): --room on
@@ -2933,8 +3151,9 @@ def calls_of(box: Box, key: str) -> list[list[str]]:
 def test_each_reading_a_post_seed_waiter_may_race_is_retried_then_read(
     tmp_path: Path, site: str
 ) -> None:
-    """Changed for the 2x H100 box: the readings are made by the lanes; J5''s look-ups are per
-    seed, so the race hits whichever seed's look-up comes first."""
+    """Changed for the 2x H100 box: the readings are made by the lanes; J5''s look-ups are made
+    once per J5' seed (ft-rows on all three v5 ft rows, eval-row on its own seed's), so the race
+    hits whichever seed's look-up comes first."""
     box, races = race_box(tmp_path, site)
     key = RACE_SITES[site][2][0]
     results = box.run_lanes()
@@ -2943,9 +3162,12 @@ def test_each_reading_a_post_seed_waiter_may_race_is_retried_then_read(
     # one reading each, plus one call per refused attempt; J5''s look-ups are once per seed
     reads = 3 if key in ("eval-row", "ft-rows") else 1
     assert len(calls_of(box, key)) == races + reads, out
-    if key in ("eval-row", "ft-rows"):
+    if key == "eval-row":
         seeds = sorted({c[c.index("--ft-row") + 1][:1] for c in calls_of(box, key)})
         assert seeds == ["0", "1", "2"]
+    if key == "ft-rows":
+        for c in calls_of(box, key):
+            assert [c[i + 1][:2] for i, a in enumerate(c) if a == "--ft-row"] == ["0=", "1=", "2="]
     assert "half-written" in out
     assert seeds_of(box.v5_training()) == ["0", "1", "2", "3", "4"]
     if site in ("room", "arm reading"):

@@ -7,14 +7,17 @@
 # noul-weight arm x3 (seeds 0-2) iff v5nw.room is room or V5NW_HUMAN_YES is written, then J5' x3
 # (seeds 0-2). The inputs: v5 seed 0 none; v5 seeds 1-4 only V5_CONTINUE or R9's continue, and
 # only when R9 is kept (V5_R9); the arm v5nw.launch run, decided with v5nw.room from v5 seeds 0-2's
-# eval rows; J5' seed s v5 seed s's completed ft row and its eval row (J5' trains on v5 seed s's
-# batch order and reads no checkpoint). So J5' runs ahead of the arm when a lane would otherwise
-# idle: that interleaving is a change to the human's order (answer 1 at 0b559bb), named in the
-# amendment (hardware.lanes, projected_gpu_hours.slot) for the human's yes. R9 waived, the rule
-# gives [s0|s1] [s2|s3] [s4|nw0] [nw1|nw2] [J5'0|J5'1] [J5'2|idle]; R9 kept, seed 0 runs alone
-# until R9 speaks. A decision whose inputs are done (the room, the arm's reading) is made, once,
-# by the first lane to pick after that, before its pick; each decision word is written once to
-# its file (v5r9.word, v5.paused, v5nw.room, v5nw.launch, v5nw.word) and read by whoever needs it.
+# eval rows; every J5' seed v5 seeds 0-2's three completed ft rows (j5prime.runs_iff verbatim,
+# Fable's ruling via the lead, 2026-10-03), then its own seed's eval row (J5' trains on v5 seed
+# s's batch order and reads no checkpoint). So J5' runs ahead of the arm when a lane would
+# otherwise idle: that interleaving is a change to the human's order (answer 1 at 0b559bb), named
+# in the amendment (hardware.lanes, projected_gpu_hours.slot) for the human's yes. R9 waived, the
+# rule gives [s0|s1] [s2|s3] [s4|nw0] [nw1|nw2] [J5'0|J5'1] [J5'2|idle]; with no room, round 3 is
+# [s4|J5'0]; R9 kept, seed 0 runs alone until R9 speaks, and R9's hold holds both lanes (nothing
+# J5' or the arm needs can exist while seeds 1-2 are held). A decision whose inputs are done (the
+# room, the arm's reading) is made, once, by the first lane to pick after that, before its pick;
+# each decision word is written once to its file (v5r9.word, v5.paused, v5nw.room, v5nw.launch,
+# v5nw.word) and read by whoever needs it.
 # Lanes: lane N holds $Q/gpu<N>.lock (gpu0.lock or gpu1.lock) for every GPU step and runs it with
 # CUDA_VISIBLE_DEVICES=N; a seed's post-seed waiter (box_q_v5traj.sh) takes the same lane's lock,
 # handed over as before. Picks are made under the lanes' scheduling mutex $Q/v5.sched.lock, taken

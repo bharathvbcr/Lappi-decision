@@ -160,7 +160,12 @@ V5_READ_RETRY_S=10
 # The human's words choosing the box, cited by every v5 row's --approved-by beside V5_HUMAN_YES.
 V5_BOX_YES="Bharath (human, ~16:26Z 2026-10-03, AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md item 1: 'Go with 2× H100 (Lambda)')"
 # The split flags a v5 data argv may carry: data only, never a recipe, run or scoring flag.
-V5_SPLIT_FLAGS=" --out --no-repo-history --rev --defect-class --defect-download --defect-max-rows --defect-noul --general-record --general-max-rows --exclude-identity-keys --real-backbone --commitpackft --max-pairs "
+# Exactly the flags tools/real_ft_run.py's main feeds its split rebuild (ft_split_rows ->
+# ft_splits), plus --out (the shard set) and --real-backbone (its snapshot); every one but those
+# two also reaches tools/ft_linear_control.py through v5_ctl_split. A test compares this list
+# with real_ft_run's source (test_v5_split_flags_are_the_data_flags_real_ft_run_rebuilds_its_
+# split_from), so a new data flag there fails it until it is named here.
+V5_SPLIT_FLAGS=" --out --no-repo-history --rev --defect-class --defect-download --defect-max-rows --defect-noul --general-record --general-max-rows --exclude-identity-keys --decisions-pool --replay-partition --real-backbone --commitpackft --max-pairs "
 # Set by v5_lane_set: this process's lane (its GPU) and its cost argv. Empty until then, and
 # v5_lock refuses without a lane.
 V5_GPU=""
@@ -313,21 +318,28 @@ v5_ctl_split() {
   done
 }
 
-# The renamed pre-registration: no draft key, the 2x H100 amendment's form, and the numbers this
-# queue prints, read from it. Sets V5_EST_SEED_USD/H (a v5 or arm seed), V5_EST_J5_USD/H (a J5'
-# seed), V5_APPROVED_USD/H (the 11 runs' total) and V5NW_W (arm_noul_weight.w.value). The per-seed
-# figures are launch.projected_cost_usd.check's, cross-checked against the four block totals and
-# the per-GPU rate V5_USD_PER_GPU_HOUR; the probe's margin and the ledger names' box are checked
-# against hardware.probe.margin_gib and seeds.ledger / hardware.ledger. Any disagreement refuses.
+# The renamed pre-registration: no draft key, the form of the 2x H100 amendment and of the
+# human's launch answers (launch.approved), and the numbers this queue prints, read from it. Sets
+# V5_EST_SEED_USD/H (a v5 or arm seed), V5_EST_J5_USD/H (a J5' seed), V5_APPROVED_USD/H (the
+# human's ceiling on the GPU steps: launch.approved.runs_usd / runs_gpu_hours, which the budget
+# enforces), V5_PROJECTED_USD/H (the 11 runs' projection, the estimate) and V5NW_W
+# (arm_noul_weight.w.value). The per-seed figures are launch.projected_cost_usd.check's,
+# cross-checked against the four block totals and the per-GPU rate V5_USD_PER_GPU_HOUR, and the
+# ceiling's hours against its dollars at that rate; the probe's margin and the ledger names' box
+# are checked against hardware.probe.margin_gib and seeds.ledger / hardware.ledger; and the
+# filled V5_HUMAN_YES must appear verbatim in launch.human_yes, so a deploy pin that disagrees
+# with the pre-registration does not run. A pre-registration without launch.approved refuses:
+# there is no fallback to the projection. Any disagreement refuses.
 v5_read_prereg() {
   local out
   if ! v5_positive "$V5_USD_PER_GPU_HOUR"; then
     say "V5_USD_PER_GPU_HOUR is '$V5_USD_PER_GPU_HOUR', not a positive rate; no rate to price with"; return 3
   fi
-  out=$("$PY" - "$V5_PREREG" "$V5_USD_PER_GPU_HOUR" "$V5_BOX" "$V5_PROBE_MARGIN_GIB" <<'PYEOF'
+  out=$("$PY" - "$V5_PREREG" "$V5_USD_PER_GPU_HOUR" "$V5_BOX" "$V5_PROBE_MARGIN_GIB" "$V5_HUMAN_YES" <<'PYEOF'
 import json, math, re, sys
 
 path, rate, box, margin = sys.argv[1], float(sys.argv[2]), sys.argv[3], float(sys.argv[4])
+human_yes_pin = sys.argv[5]
 
 
 def refuse(msg):
@@ -341,6 +353,19 @@ except (OSError, ValueError) as exc:
     refuse(f"unreadable ({exc})")
 if not isinstance(d, dict) or "draft" in d:
     refuse("it still carries the top-level 'draft' key: it binds only renamed without it")
+launch = d.get("launch")
+if not isinstance(launch, dict) or not isinstance(launch.get("approved"), dict):
+    refuse("launch.approved is absent: the human's ceiling is not in this pre-registration, and "
+           "the projection is never read as approved")
+approved = launch["approved"]
+runs_usd, runs_h = approved.get("runs_usd"), approved.get("runs_gpu_hours")
+for name, v in (("runs_usd", runs_usd), ("runs_gpu_hours", runs_h)):
+    if type(v) not in (int, float) or not math.isfinite(v) or v <= 0:
+        refuse(f"launch.approved.{name} is {v!r}, not a positive number")
+human_yes = launch.get("human_yes")
+if not isinstance(human_yes, str) or not human_yes_pin.strip() or human_yes_pin not in human_yes:
+    refuse(f"V5_HUMAN_YES {human_yes_pin!r} is not verbatim in launch.human_yes: the deploy pin "
+           "and the pre-registration disagree on the human's yes")
 num = r"([0-9]+(?:\.[0-9]+)?)"
 try:
     usd = d["launch"]["projected_cost_usd"]
@@ -377,19 +402,20 @@ checks = {
     "8 x v5 seed h + 3 x J5' seed h = total h": abs(8 * seed_h + 3 * j5_h - total_h) <= 0.05,
     "v5 seed h x rate = v5 seed $": abs(seed_h * rate - seed_usd) <= 0.1,
     "J5' seed h x rate = J5' seed $": abs(j5_h * rate - j5_usd) <= 0.1,
+    "runs_gpu_hours x rate = runs_usd": abs(runs_h * rate - runs_usd) <= 0.1,
 }
 bad = [k for k, ok in checks.items() if not ok]
 if bad:
     refuse(f"its cost figures disagree with each other or with ${rate}/GPU-h: {bad}")
-print(seed_usd, seed_h, j5_usd, j5_h, total_usd, total_h, w)
+print(seed_usd, seed_h, j5_usd, j5_h, runs_usd, runs_h, w, total_usd, total_h)
 PYEOF
 )
   case "$out" in
     REFUSED:*|"") say "${out:-the pre-registration read printed nothing}"; return 3 ;;
   esac
   read -r V5_EST_SEED_USD V5_EST_SEED_H V5_EST_J5_USD V5_EST_J5_H V5_APPROVED_USD V5_APPROVED_H \
-    V5NW_W <<< "$out"
-  say "v5 pre-registration: a v5/arm seed ~ ${V5_EST_SEED_H} h, \$${V5_EST_SEED_USD}; a J5' seed ~ ${V5_EST_J5_H} h, \$${V5_EST_J5_USD}; approved ~ \$${V5_APPROVED_USD} / ${V5_APPROVED_H} GPU-h for the 11 runs at \$${V5_USD_PER_GPU_HOUR}/GPU-h; arm --noul-weight ${V5NW_W}; probe margin ${V5_PROBE_MARGIN_GIB} GiB"
+    V5NW_W V5_PROJECTED_USD V5_PROJECTED_H <<< "$out"
+  say "v5 pre-registration: a v5/arm seed ~ ${V5_EST_SEED_H} h, \$${V5_EST_SEED_USD}; a J5' seed ~ ${V5_EST_J5_H} h, \$${V5_EST_J5_USD}; approved (the human's ceiling on the GPU steps, launch.approved) ~ \$${V5_APPROVED_USD} / ${V5_APPROVED_H} GPU-h; projected for the 11 runs ~ \$${V5_PROJECTED_USD} / ${V5_PROJECTED_H} GPU-h; at \$${V5_USD_PER_GPU_HOUR}/GPU-h; arm --noul-weight ${V5NW_W}; probe margin ${V5_PROBE_MARGIN_GIB} GiB"
 }
 
 # The Mac prelude's record against this waiter: written by v5_prelude_mac.py with exit 0 at the
@@ -924,6 +950,9 @@ v5_all_done() {
 }
 
 # True iff R9 holds the block: kept, its word read and not continue, and no V5_CONTINUE yet.
+# Both lanes then wait for the human. That holds only seeds 1-4 in effect: J5' (v5 seeds 0-2's
+# ft rows) and the arm (the room, from the same seeds' rows) cannot be ready while seeds 1-2 are
+# held, so the hold is a consequence of their inputs, not a further rule (Fable via the lead).
 v5_r9_holding() {
   [ "$V5_R9" = keep ] && [ -e "$V5R9_WORD" ] && [ "$(v5_word "$V5R9_WORD")" != continue ] && [ ! -s "$V5_CONTINUE" ]
 }
@@ -939,9 +968,12 @@ v5_word_input() {
 # v5_job_input JOB: ready, possible (its inputs may still come) or impossible. The inputs
 # (hardware.lanes): v5 seed 0 none; v5 seeds 1-4 R9's continue or V5_CONTINUE, only when R9 is
 # kept; the arm's seeds v5nw.launch run (decided with v5nw.room, from v5 seeds 0-2's eval rows);
-# J5' seed s v5 seed s's ft row (its job's .done says "ft <row>"; the job reads the ft and eval
-# rows themselves before it trains).
+# every J5' seed v5 seeds 0-2 done (j5prime.runs_iff verbatim, "v5 wrote three completed ft
+# rows": Fable's ruling via the lead, 2026-10-03). Whatever their results: the J5' job itself
+# checks the three ft rows and its own seed's eval row, and skips, logged, when they are not
+# there (v5_job_j5). J5' is impossible once one of v5 seeds 0-2 can never start.
 v5_job_input() {
+  local s
   case "$1" in
     v5-s0) echo ready ;;
     v5-s[1-4])
@@ -957,12 +989,11 @@ v5_job_input() {
       esac ;;
     v5nw-s[0-2]) v5_word_input "$V5NW_LAUNCH" run ;;
     j5-s[0-2])
-      if [ -e "$Q/v5job-v5-s${1#j5-s}.done" ]; then
-        case "$(v5_word "$Q/v5job-v5-s${1#j5-s}.done")" in "ft "*) echo ready ;; *) echo impossible ;; esac
-      elif [ -e "$Q/v5job-v5-s${1#j5-s}.claimed" ]; then echo possible
-      else
-        case "$(v5_job_input "v5-s${1#j5-s}")" in impossible) echo impossible ;; *) echo possible ;; esac
-      fi ;;
+      for s in 0 1 2; do
+        if [ -e "$Q/v5job-v5-s$s.done" ] || [ -e "$Q/v5job-v5-s$s.claimed" ]; then continue; fi
+        if [ "$(v5_job_input "v5-s$s")" = impossible ]; then echo impossible; return 0; fi
+      done
+      if v5_all_done v5-s0 v5-s1 v5-s2; then echo ready; else echo possible; fi ;;
     *) echo impossible ;;
   esac
 }
@@ -1127,23 +1158,33 @@ v5_job_seed() {
 }
 
 # v5_job_j5 SEED: J5', the shuffled_label control on v5's exact path (campaign/v5-preregistered.json
-# j5prime; box_q_j5pp.sh's form). J5' seed s runs once v5 seed s's ft row passes ft-rows on v5's
-# ledger (completed, quick false, tag epoch, the seed claimed: hardware.lanes reads J5' seed s's
-# inputs per seed) and eval-row names its epoch-score-val row; then v5's recipe flags as v5 ran
-# them (--batch-order seed: J5' seed s trains on v5 seed s's batch order; it reads no checkpoint)
+# j5prime; box_q_j5pp.sh's form). Each J5' seed runs iff v5 wrote three completed ft rows
+# (j5prime.runs_iff verbatim, Fable's ruling via the lead, 2026-10-03): v5 seeds 0-2's ft rows,
+# read from their training logs, pass ft-rows on v5's ledger (completed, quick false, tag epoch,
+# each seed claimed), as box_q_v5j5.sh checked them; a seed with no ft row is not asked about.
+# Then eval-row names v5 seed s's epoch-score-val row, and v5's recipe flags as v5 ran them
+# (--batch-order seed: J5' seed s trains on v5 seed s's batch order; it reads no checkpoint) run
 # with --score-val --shuffled-label TARGET, cap 32,400 s, rows into v5's ledger. No checkpoint
 # retention, no needle or OOD scoring. real_ft_run refuses before any tower loads a run whose
 # planned recipe differs from the target's ft row in anything but the shuffle and the span
 # weight. Sets V5_JOB_RESULT.
 v5_job_j5() {
-  local seed=$1 ft log target t0 rc
+  local seed=$1 ft log target t0 rc a missing=""
   ft=$(log_ft_row "$V5_OUT/train-s$seed.log")
   log=$V5_OUT/j5p-s$seed.log
   if [ -e "$log" ]; then say "J5' seed $seed: $log exists; refusing to run it twice"; V5_JOB_RESULT="refused: $log exists"; return 3; fi
-  v5_ft_args v5 --ft-row "$seed" || { V5_JOB_RESULT="refused: no run vars"; return 3; }
+  v5_ft_args v5 --ft-row 0 1 2 || { V5_JOB_RESULT="refused: no run vars"; return 3; }
+  for a in "${V5_FT_ARGS[@]}"; do
+    case "$a" in [0-2]=) missing="$missing ${a%=}" ;; esac
+  done
+  if [ -n "$missing" ]; then
+    say "v5j5 SKIPPED: J5' seed $seed: v5 seed(s)$missing wrote no ft row, so j5prime.runs_iff ('v5 wrote three completed ft rows') does not hold; J5' seed $seed NOT RUN"
+    V5_JOB_RESULT="skipped: runs_iff: no ft row for v5 seed(s)$missing"
+    return 0
+  fi
   if ! v5_rules_call ft-rows --ledger "$V5_LEDGER" "${V5_FT_ARGS[@]}"; then
-    say "v5j5 SKIPPED: J5' seed $seed: v5's ft row '${V5_FT_ARGS[*]}' in $V5_LEDGER is not a completed v5 ft row (the binary's reason is above); J5' seed $seed NOT RUN"
-    V5_JOB_RESULT="skipped: ft-rows refused ${V5_FT_ARGS[*]}"
+    say "v5j5 SKIPPED: J5' seed $seed: v5's ft rows '${V5_FT_ARGS[*]}' in $V5_LEDGER are not three completed v5 ft rows (j5prime.runs_iff; the binary's reason is above); J5' seed $seed NOT RUN"
+    V5_JOB_RESULT="skipped: runs_iff: ft-rows refused ${V5_FT_ARGS[*]}"
     return 0
   fi
   if ! target=$(v5_rules_call eval-row --ledger "$V5_LEDGER" --ft-row "$seed=$ft"); then
