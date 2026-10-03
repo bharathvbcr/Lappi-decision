@@ -2728,6 +2728,9 @@ def test_v5_with_the_over_budget_words_runs(tmp_path: Path) -> None:
     ],
 )
 def test_v5_refuses_stale_markers(tmp_path: Path, stale: str) -> None:
+    """Changed for the 2x H100 box (split from test_v5_refuses_stale_markers_and_an_existing_
+    ledger, whose markers were the GH200 waiter's three): both lanes refuse over every marker an
+    earlier launch writes, the probe's, the lanes' decision words and the per-job ones included."""
     box = Box(tmp_path)
     (box.q / stale).write_text("old\n")
     results = box.run_lanes()
@@ -2737,6 +2740,9 @@ def test_v5_refuses_stale_markers(tmp_path: Path, stale: str) -> None:
 
 @pytest.mark.parametrize("ledger", ["ledger", "arm_ledger", "probe_ledger"])
 def test_v5_refuses_an_existing_ledger(tmp_path: Path, ledger: str) -> None:
+    """Changed for the 2x H100 box (split from test_v5_refuses_stale_markers_and_an_existing_
+    ledger, which knew one gh200-v5 ledger): lane 0 refuses when any of the three ledgers named by
+    V5_BOX exists, and lane 1, waiting for the probe, refuses once lane 0 has ended."""
     box = Box(tmp_path)
     getattr(box, ledger).write_text("{}\n")
     results = box.run_lanes()
@@ -2879,6 +2885,10 @@ def test_v5j5_runs_three_shuffled_label_seeds_on_v5s_recipe(tmp_path: Path) -> N
 
 
 def test_v5j5_is_skipped_without_a_completed_v5_ft_row(tmp_path: Path) -> None:
+    """Replaces test_v5j5_is_skipped_without_three_completed_v5_ft_rows, whose box_q_v5j5.sh
+    checked all three v5 ft rows at once after v5.done: J5' seed s is now a lane job checked on v5
+    seed s's own ft row (hardware.lanes; GAP-V5-2GPU-J5-PER-SEED-VS-RUNS-IFF-2026-10-03), so each
+    seed is skipped on its own."""
     box = Box(tmp_path, scenario={"ft-rows": 1})
     results = box.run_lanes()
     out = both(results)
