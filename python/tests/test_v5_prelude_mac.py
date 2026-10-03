@@ -136,6 +136,35 @@ def test_the_record_carries_every_plan_seeds_order_and_one_shape(corpus, tmp_pat
     assert record["noul_weight"] == 4.0
     assert isinstance(record["noul_weighted_positions"], int)
     assert record["noul_supervised_positions"] >= record["noul_weighted_positions"]
+    # The toy argv has no --score-val, so main built no needle suite, and the record says why.
+    assert record["needle_suite"] == {"not_run": "no val set: --score-val was not given"}
+
+
+def test_the_needle_block_pins_the_suites_digest_and_token_range() -> None:
+    """amendments_pending item 5 reads the suite's digest from the record: no ledger row
+    carries it (GAP-V5-RULES-REBUILT-SUITE-NOT-ON-THE-ROW-2026-10-02)."""
+    prelude = _prelude()
+    ran = rft.NeedleSuite(
+        cases=[object()] * 4, batches=[], labels_for={},
+        token_lengths=[8821, 7577, 8473, 8100], digest="ab" * 32,
+    )
+    assert prelude.needle_block(ran) == {
+        "cases": 4,
+        "digest": "ab" * 32,
+        "tokens_min": 7577,
+        # lengths[len // 2] over the sorted lengths, as the needle_suite_tokens metric reads it.
+        "tokens_median": 8473,
+        "tokens_max": 8821,
+    }
+    none = rft.NeedleSuite([], [], {}, [], not_run="--needle was not given")
+    assert prelude.needle_block(none) == {"not_run": "--needle was not given"}
+    for broken in (
+        rft.NeedleSuite([object()], [], {}, [100], digest=""),
+        rft.NeedleSuite([], [], {}, [], digest="ab" * 32),
+    ):
+        with pytest.raises(prelude.PreludeFailed) as failed:
+            prelude.needle_block(broken)
+        assert failed.value.code == 3
 
 
 def test_a_run_without_batch_order_seed_fails(corpus, tmp_path):  # noqa: F811

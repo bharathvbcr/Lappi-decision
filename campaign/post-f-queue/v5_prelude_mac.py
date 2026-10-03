@@ -18,7 +18,9 @@ loads, taking main's locals from its frame there. Everything it prints is comput
     plan (``permutation.apply`` per batch with ``_alphabets``) and the "Option permutation seed
     ..." sentence; a ``PermutationRefusal`` fails;
   - the noul-weight position count: ``noul_weight_plan`` over main's seed-0 epoch plan at the
-    weight given (the arm's ``arm_noul_weight.w.value``), with the letter-mass ratio.
+    weight given (the arm's ``arm_noul_weight.w.value``), with the letter-mass ratio;
+  - the needle suite main built before the stop (amendments_pending item 5): its digest and
+    real tokens per case, min/median/max, or why main built none.
 
 Run it from anywhere. It changes into --root (a clean checkout with v5's corpora linked into
 data/pool) before main runs, because main reads data/pool/... relative to it:
@@ -85,6 +87,7 @@ FRAME_NAMES = (
     "epoch_alphabets",
     "letter_id",
     "replay_plan",
+    "needle_suite",
 )
 
 
@@ -236,6 +239,28 @@ def permuted_per_pass(
     return n
 
 
+def needle_block(suite: Any) -> dict[str, object]:
+    """amendments_pending item 5: the needle suite as main built it before the stop, its
+    ``digest`` (``needle_suite_digest``: every case id and its unpadded ids) and its real tokens
+    per case, min/median/max as the ``needle_suite_tokens`` metric reads them; or why main built
+    none. No ledger row carries the digest (GAP-V5-RULES-REBUILT-SUITE-NOT-ON-THE-ROW-2026-10-02),
+    so this record is where it is pinned."""
+    if suite.not_run is not None:
+        return {"not_run": suite.not_run}
+    lengths = sorted(suite.token_lengths)
+    if not lengths or not suite.digest:
+        raise PreludeFailed(
+            3, "PRELUDE FAILED: main's needle suite ran with no case lengths or no digest"
+        )
+    return {
+        "cases": len(suite.cases),
+        "digest": suite.digest,
+        "tokens_min": lengths[0],
+        "tokens_median": lengths[len(lengths) // 2],
+        "tokens_max": lengths[-1],
+    }
+
+
 def run_prelude(ft: Any, training: list[str], *, commit: str, noul_weight: float) -> dict:
     """The record, from ``ft`` (tools/real_ft_run.py, already imported from the checkout)."""
     t0 = time.monotonic()
@@ -333,6 +358,8 @@ def run_prelude(ft: Any, training: list[str], *, commit: str, noul_weight: float
                 f"{permuted}, not one count >= 1",
             )
 
+    needle = needle_block(captured["needle_suite"])
+    print(f"needle suite for item 5: {json.dumps(needle, sort_keys=True)}", flush=True)
     header = json.loads((reader.root / ft.HEADER_NAME).read_text(encoding="utf-8"))
     tokenizer = None if args.tokenizer_json is None else Path(args.tokenizer_json)
     ru = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -362,6 +389,7 @@ def run_prelude(ft: Any, training: list[str], *, commit: str, noul_weight: float
         "noul_weighted_positions": nw.weighted_positions,
         "noul_supervised_positions": nw.supervised_positions,
         "noul_weight_mass_ratio": nw.weight_mass_ratio,
+        "needle_suite": needle,
         "wall_s": round(time.monotonic() - t0, 1),
         "max_rss": ru,
         "max_rss_units": "bytes" if sys.platform == "darwin" else "KiB",
