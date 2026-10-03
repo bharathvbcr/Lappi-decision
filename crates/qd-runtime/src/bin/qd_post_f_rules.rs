@@ -3354,6 +3354,14 @@ fn seeds34_reading(p: &Map<String, Value>) -> Result<Seeds34Reading> {
     let path = ["seeds", "seeds_3_4"];
     let what = "seeds.seeds_3_4";
     let text = prereg_text(p, &path)?;
+    // The retirement (a29bca1) in the DRAFT's own words; the opening word alone would not survive
+    // an amendment that rewords it.
+    ensure!(
+        !(text.starts_with("retired")
+            || text.contains("qd-post-f-rules seeds34 is not read for the main arm")),
+        "{what} is retired for the main arm: seeds 3 and 4 are seeds.v5's, unconditional, so \
+         seeds34 has no reading under this pre-registration (the v5 queue does not call it)"
+    );
     let (num, den, shown) = Words::after(text, "spread by more than ", what)?
         .decimal()
         .ok_or_else(|| format!("{what}: no decimal after \"spread by more than\" in {text:?}"))?;
@@ -3584,6 +3592,44 @@ fn added_keys(text: &str, what: &str) -> Result<Vec<(String, Value)>> {
     Ok(out)
 }
 
+/// The arm's seeds: the list `arm_noul_weight.envelope` opens with ("v5 seeds 0, 1 and 2 only"),
+/// each one of seeds.v5's. Not seeds.v5 itself: since a29bca1 seeds.v5 is 0-4, and
+/// seeds.seeds_3_4 keeps seeds 3 and 4 out of the arm envelope (the arm stays at seeds 0-2,
+/// paired with the main arm's seeds 0-2, its pre-registered comparison).
+fn noulw_seeds(p: &Map<String, Value>) -> Result<Vec<i64>> {
+    let v5 = v5_seeds(p)?;
+    let what = "arm_noul_weight.envelope";
+    let text = prereg_text(p, &["arm_noul_weight", "envelope"])?;
+    ensure!(
+        text.starts_with("v5 seeds "),
+        "{what} does not open with \"v5 seeds \": {text:?}"
+    );
+    let mut w = Words::after(text, "v5 seeds ", what)?;
+    let list = w
+        .until(" only")
+        .ok_or_else(|| format!("{what}: no \" only\" after its seed list"))?;
+    let seeds: Vec<i64> = list
+        .split(", ")
+        .flat_map(|part| part.split(" and "))
+        .map(|s| {
+            s.parse::<i64>()
+                .map_err(|_| format!("{what}: {list:?} is not a seed list"))
+        })
+        .collect::<Result<_>>()?;
+    ensure!(
+        !seeds.is_empty() && and_list(&seeds) == list,
+        "{what}: {list:?} is not a seed list as the pre-registration writes one"
+    );
+    ensure!(
+        seeds.windows(2).all(|pair| pair[0] < pair[1]),
+        "{what}: seeds {seeds:?} are not ascending and distinct"
+    );
+    if let Some(s) = seeds.iter().find(|s| !v5.contains(s)) {
+        return Err(format!("{what}: seed {s} is not one of seeds.v5's {v5:?}"));
+    }
+    Ok(seeds)
+}
+
 /// The arm's block read and checked against what this checker applies; F2 and F3 read from
 /// campaign/v4-noul-v3b-preregistered.json (`noul`) and checked against the forms that cite them.
 fn noulw_rule(p: &Map<String, Value>, noul: &Map<String, Value>) -> Result<NoulwRule> {
@@ -3597,9 +3643,10 @@ fn noulw_rule(p: &Map<String, Value>, noul: &Map<String, Value>) -> Result<Noulw
             .chain(rest.iter().copied())
             .collect()
     };
-    let seeds = v5_seeds(p)?;
+    let seeds = noulw_seeds(p)?;
     let n = seeds.len();
-    let n_word = count_word(n).ok_or_else(|| format!("seeds.v5 names {n} seeds"))?;
+    let n_word =
+        count_word(n).ok_or_else(|| format!("arm_noul_weight.envelope names {n} seeds"))?;
     let seed_list = and_list(&seeds);
 
     // Words and the launch condition.

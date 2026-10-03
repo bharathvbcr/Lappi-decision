@@ -419,6 +419,30 @@ fn v5_needles(hits: [u64; 3]) -> [P; 3] {
     })
 }
 
+/// seeds.v5 and seeds.seeds_3_4 verbatim as the DRAFT carried them before a29bca1 made seeds 3
+/// and 4 unconditional: the pre-registration form under which seeds34 has a v5 reading. The v5
+/// form's tests run on it; the bound pre-registration, where the rule is retired, has its own test.
+const SEEDS_V5_CONDITIONAL: &str = "0, 1, 2; one ft row and one completed epoch-score-val eval \
+    row each, quick false (three seeds, full schedule, no subsample)";
+const SEEDS_3_4_CONDITIONAL: &str = "if v5's three 8K needle worst buckets (on the rebuilt suite) \
+    spread by more than 0.30, seeds 3 and 4 run in v5's form before J5'; checked by \
+    qd-post-f-rules seeds34 against v5's ledger (that the subcommand takes a ledger other than \
+    F's is inferred, not read; L-v5-rules confirms or adds it). They are never part of the arm \
+    envelope. seeds34 takes --f-ledger and --ft-row as paths (qd_post_f_rules.rs:243-252); \
+    L-v5-rules confirms its identity checks are not F-specific. Seeds 3 and 4 run with \
+    --batch-order seed, plan seeds 3 and 4 (AUDIT/post-f-2026-10-02/fable-seed-order-ruling.md \
+    section 2).";
+
+/// The bound pre-registration with its seeds block in the conditional form above; then `edit`.
+fn conditional(s: &Scratch, edit: impl FnOnce(&mut Map<String, Value>)) -> PathBuf {
+    prereg(s, |p| {
+        let seeds = p.get_mut("seeds").unwrap();
+        seeds["v5"] = json!(SEEDS_V5_CONDITIONAL);
+        seeds["seeds_3_4"] = json!(SEEDS_3_4_CONDITIONAL);
+        edit(p);
+    })
+}
+
 fn seeds34(s: &Scratch, ledger: &Path, ids: &[String], prereg: Option<&Path>) -> Run {
     let mut a = args(&[&"seeds34", &"--f-ledger", &ledger]);
     a.extend(ft_args("--ft-row", ids));
@@ -431,7 +455,7 @@ fn seeds34(s: &Scratch, ledger: &Path, ids: &[String], prereg: Option<&Path>) ->
 #[test]
 fn seeds34_reads_v5s_ledger_at_the_0_30_boundary_with_and_without_v5s_preregistration() {
     let s = scratch();
-    let p = bound(&s);
+    let p = conditional(&s, |_| {});
     // 54/60 - 36/60 = 0.30 exactly: not more than 0.30. One hit fewer: more.
     for (low, word) in [(36, "quiet"), (35, "fires")] {
         let (rows, ids) = seeds(0x5, false, v5_needles([54, 50, low]));
@@ -472,7 +496,7 @@ fn seeds34_reads_v5s_ledger_at_the_0_30_boundary_with_and_without_v5s_preregistr
 #[test]
 fn seeds34_under_v5s_preregistration_refuses_a_quick_or_shuffled_seed_fs_form_never_checked() {
     let s = scratch();
-    let p = bound(&s);
+    let p = conditional(&s, |_| {});
     let edits: [fn(&mut Value); 2] = [
         |r| r["quick"] = json!(true),
         |r| r["recipe"]["shuffled_label"] = json!("e1000000-0000-4000-8000-000000000000"),
@@ -494,7 +518,7 @@ fn seeds34_refuses_the_draft_and_a_threshold_that_is_not_0_30() {
     let (rows, ids) = seeds(0x5, false, v5_needles([54, 50, 40]));
     let ledger = s.ledger("gh200-v5.jsonl", &rows);
     seeds34(&s, &ledger, &ids, Some(&repo(DRAFT))).refused_with("\"draft\" key");
-    let p = prereg(&s, |p| {
+    let p = conditional(&s, |p| {
         retext(
             p,
             &["seeds", "seeds_3_4"],
@@ -509,12 +533,25 @@ fn seeds34_refuses_the_draft_and_a_threshold_that_is_not_0_30() {
         &"--f-ledger",
         &ledger,
         &"--preregistration",
-        &bound(&s),
+        &conditional(&s, |_| {}),
     ]);
     for (i, id) in ids.iter().enumerate() {
         a.extend([String::from("--ft-row"), format!("{}={id}", i + 1)]);
     }
     run(&s, &a).refused_with("seeds.v5 names seeds [0, 1, 2]");
+}
+
+/// Under the bound pre-registration seeds 3 and 4 are unconditional (a29bca1) and seeds.seeds_3_4
+/// says the rule is retired for the main arm: v5's form refuses by name, never reads a spread.
+/// F's form, which reads no pre-registration, is unchanged.
+#[test]
+fn seeds34_refuses_v5s_bound_preregistration_where_the_rule_is_retired() {
+    let s = scratch();
+    let (rows, ids) = seeds(0x5, false, v5_needles([54, 50, 40]));
+    let ledger = s.ledger("gh200-v5.jsonl", &rows);
+    seeds34(&s, &ledger, &ids, Some(&bound(&s)))
+        .refused_with("seeds.seeds_3_4 is retired for the main arm");
+    seeds34(&s, &ledger, &ids, None).said("quiet");
 }
 
 #[test]
@@ -837,6 +874,37 @@ fn room_iff_v5_holds_a_target_on_at_most_two_seeds_at_the_30_of_60_bar() {
         // --room reads the pre-registrations and v5's ledger, nothing else.
         assert_eq!(o.json["inputs"].as_array().unwrap().len(), 3);
     }
+}
+
+/// seeds.v5 names seeds 0-4 since a29bca1, and seeds.seeds_3_4 keeps seeds 3 and 4 out of the arm
+/// envelope, so the arm's seeds are the envelope's 0, 1 and 2. A checker that took seeds.v5's five
+/// refused the bound pre-registration, so the queue's room reading would have refused and the arm
+/// would never have run.
+#[test]
+fn the_arms_seeds_are_the_envelopes_not_seeds_v5s() {
+    let s = scratch();
+    let q = repo(NOUL);
+    let (rows, ids) = seeds(0x5, false, ood([0, 0, 0], [60, 60, 60]));
+    let ledger = s.ledger("gh200-v5.jsonl", &rows);
+    let p = bound(&s);
+    let doc: Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
+    assert!(
+        doc["seeds"]["v5"].as_str().unwrap().starts_with("0, 1, 2, 3, 4;"),
+        "the premise moved: seeds.v5 is {}",
+        doc["seeds"]["v5"]
+    );
+    room(&s, &p, &q, &ledger, &ids).said("room");
+    let envelope = |to: &'static str| {
+        prereg(&s, |p| {
+            retext(p, &["arm_noul_weight", "envelope"], "v5 seeds 0, 1 and 2 only", to)
+        })
+    };
+    room(&s, &envelope("v5 seeds 0, 1 and 7 only"), &q, &ledger, &ids)
+        .refused_with("seed 7 is not one of seeds.v5's");
+    room(&s, &envelope("v5 seeds 0 and 1 and 2 only"), &q, &ledger, &ids)
+        .refused_with("is not a seed list as the pre-registration writes one");
+    room(&s, &envelope("v5 seeds 2, 1 and 0 only"), &q, &ledger, &ids)
+        .refused_with("are not ascending and distinct");
 }
 
 #[test]
