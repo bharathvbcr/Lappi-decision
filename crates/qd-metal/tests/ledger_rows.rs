@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-use qd_metal::decision::{self, Arm, ArmResult, DecisionArgs, DecisionPrompt, RowTarget, RunContext, Sample, TResult};
+use qd_metal::decision::{self, Arm, ArmResult, DecisionArgs, DecisionPrompt, ProductPathT, ProductSample, RowTarget, RunContext, RuntimeKind, Sample, TResult};
 use qd_metal::ledger::{self, Provenance};
 use qd_metal::parity_row::{self, ModelFacts, ParityRun};
 use qd_train::tristate::{Coverage, TriState};
@@ -166,6 +166,7 @@ fn decision_row_for_targets(provenance: Provenance, split_logits: bool, ts: Vec<
         iters: 3,
         warmup: 1,
         arms: vec![Arm::Product],
+        runtime: RuntimeKind::Timestamps,
         row: RowTarget::None,
         snapshot: None,
     };
@@ -380,4 +381,135 @@ fn a_row_never_lands_outside_mac_qd_metal() {
         assert!(!dir.join(name).exists());
     }
     std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}
+
+/// One T of item B's measurement, every check held: 5 product samples, all matching.
+fn product_t(target: usize) -> ProductPathT {
+    let product = |total: f64| ProductSample {
+        total_ms: total,
+        prefill_ms: total * 0.5,
+        snapshot_ms: 0.02,
+        decode_ms: [total * 0.2, total * 0.2],
+    };
+    ProductPathT {
+        prompt: DecisionPrompt {
+            target,
+            context_lines: 3,
+            prefix: (0..115).collect(),
+            passes: [vec![1, 2, 3], vec![1, 3, 2]],
+            rows: 5,
+        },
+        model_before_ms: vec![90.0, 88.0, 91.0, 89.0, 92.0],
+        model_after_ms: vec![89.5, 90.0, 88.5, 91.0, 90.5],
+        product: [95.0, 93.0, 94.0, 96.0, 97.0].map(product).to_vec(),
+        encode_ms: vec![1.2, 1.1, 1.3, 1.25, 1.15],
+        logits_same: 5,
+        model_phases_same: true,
+        fresh_prefills: 5,
+    }
+}
+
+fn product_row(results: &[ProductPathT], ts: &[usize]) -> qd_train::ledger::Row {
+    let provenance = Provenance::of(None).unwrap();
+    let ctx = RunContext {
+        device: "Apple M5 Pro".into(),
+        snapshot: PathBuf::from("/hf/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c"),
+        vocab: 248_320,
+        weight_hash: "c".repeat(64),
+        tokenizer_hash: "fe000e3ed39ed12b8d2481d527d44f93c65d37e87645d2dcc80d1bf9d50d2927".into(),
+        load_s: 3.5,
+        wall_clock_s: 60.0,
+        tessl_after: provenance.tessl.clone(),
+        provenance,
+    };
+    decision::build_product_row(ts, 4, 2, results, &ctx).expect("the product row builds")
+}
+
+fn value(row: &qd_train::ledger::Row, key: &str) -> Value {
+    match &row.metrics[key] {
+        TriState::Ran { value, .. } => value.clone(),
+        TriState::NotRun { reason } => panic!("{key} did not run: {reason}"),
+    }
+}
+
+/// Item B's row: its own recipe mode, the delta as product min - Model min (88.0 = the smaller
+/// of the two Model phases' mins), the caveats in the notes, and a row Python verifies.
+#[test]
+fn the_product_path_row_reports_the_delta_and_its_caveats() {
+    let ts = [131, 409];
+    let row = product_row(&[product_t(131), product_t(409)], &ts);
+    assert_eq!(
+        row.status,
+        qd_train::ledger::Status::Completed,
+        "{}",
+        row.notes
+    );
+    assert_eq!(row.run_kind, "throughput");
+    assert_eq!(row.recipe["mode"], "product-path");
+    assert_eq!(row.recipe["t_targets"], json!([131, 409]));
+    assert_eq!(row.recipe["iters"], 5);
+    let delta = value(&row, "product_path.t131.delta_ms").as_f64().unwrap();
+    assert!((delta - (93.0 - 88.0)).abs() < 1e-9, "{delta}");
+    let model = value(&row, "product_path.t131.model_ms");
+    assert_eq!(model["min"], 88.0);
+    assert_eq!(model["min_after"], 88.5);
+    assert!(
+        (model["drift"].as_f64().unwrap() - 0.5).abs() < 1e-9,
+        "{model}"
+    );
+    assert_eq!(value(&row, "product_path.t409.product_ms")["min"], 93.0);
+    assert_eq!(value(&row, "product_path.t131.host_encode_ms"), 1.1);
+    let t = &row.metrics["product_path.t131.logits_bit_identical"];
+    assert!(t.is_pass(), "{t:?}");
+    assert_eq!(coverage(t), Some(Coverage { n: 5, n_total: 5 }));
+    for caveat in ["not measure H1", "base snapshot", "in-process delta"] {
+        assert!(
+            row.notes.contains(caveat),
+            "{caveat} missing from: {}",
+            row.notes
+        );
+    }
+    let path = scratch_ledger("product");
+    ledger::write_row(&path, &row).unwrap();
+    let v = python_verifies(&path);
+    assert_eq!(v[0]["status"], "completed");
+    assert_eq!(v[0]["quick"], true);
+    std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap()).unwrap();
+}
+
+/// A product-path row whose paths did not do the same work, or whose prefills hit the cache,
+/// or that lost a T, is a failed row: its delta would not be what the product adds.
+#[test]
+fn a_product_path_row_completes_only_when_every_check_held() {
+    let ts = [131, 409];
+    let mut differs = product_t(409);
+    differs.logits_same = 4;
+    let mut drifted = product_t(409);
+    drifted.model_phases_same = false;
+    for (what, broken) in [
+        ("logits", differs),
+        ("model phases", drifted),
+        ("cache hit", cached_t()),
+    ] {
+        let row = product_row(&[product_t(131), broken], &ts);
+        assert_eq!(
+            row.status,
+            qd_train::ledger::Status::Failed,
+            "{what}: {}",
+            row.notes
+        );
+    }
+    let short = product_row(&[product_t(131)], &ts);
+    assert_eq!(short.status, qd_train::ledger::Status::Failed);
+    assert!(short.metrics["t_coverage"].is_fail());
+    let t = &product_row(&[product_t(131), cached_t()], &ts).metrics["product_path.t409.fresh_prefills"];
+    assert!(t.is_fail(), "{t:?}");
+    assert_eq!(coverage(t), Some(Coverage { n: 3, n_total: 5 }));
+}
+
+fn cached_t() -> ProductPathT {
+    ProductPathT {
+        fresh_prefills: 3,
+        ..product_t(409)
+    }
 }

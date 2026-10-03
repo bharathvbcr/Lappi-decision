@@ -125,6 +125,61 @@ pub enum RowTarget {
     None,
 }
 
+/// The tessl runtime a run opens: one per process, so it is a run flag (`--runtime`), not an
+/// arm. qd-metal reads no GPU timestamps, so the two differ only in the CounterHeap work tessl
+/// does at each commit (tessl runtime.rs `new_inference`: "host encode tax").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeKind {
+    /// `GpuRuntime::new`, timestamps on: what `MetalBackend`'s worker opens. The default.
+    Timestamps,
+    /// `GpuRuntime::new_inference`, no CounterHeap timestamps.
+    Inference,
+}
+
+impl RuntimeKind {
+    pub fn name(&self) -> &'static str {
+        match self {
+            RuntimeKind::Timestamps => "timestamps",
+            RuntimeKind::Inference => "inference",
+        }
+    }
+
+    /// `timestamps|inference`.
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "timestamps" => Ok(RuntimeKind::Timestamps),
+            "inference" => Ok(RuntimeKind::Inference),
+            _ => Err(MetalError::Input(format!(
+                "--runtime {s:?} is not `timestamps|inference`"
+            ))),
+        }
+    }
+
+    /// Open the runtime as `MetalBackend`'s worker does, with this constructor.
+    pub fn open(&self) -> Result<std::sync::Arc<tessl::GpuRuntime>> {
+        let rt = match self {
+            RuntimeKind::Timestamps => tessl::GpuRuntime::new(),
+            RuntimeKind::Inference => tessl::GpuRuntime::new_inference(),
+        }
+        .map_err(MetalError::Gpu)?;
+        rt.set_async_encode(true).map_err(MetalError::Gpu)?;
+        Ok(rt)
+    }
+
+    /// The recipe's `runtime`. The default's text is the one every earlier row recorded.
+    fn recipe(&self) -> &'static str {
+        match self {
+            RuntimeKind::Timestamps => {
+                "tessl::GpuRuntime::new + set_async_encode(true), as MetalBackend's worker"
+            }
+            RuntimeKind::Inference => {
+                "tessl::GpuRuntime::new_inference + set_async_encode(true): no CounterHeap timestamps; \
+                 MetalBackend's worker opens ::new"
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecisionArgs {
     pub ts: Vec<usize>,
@@ -132,6 +187,7 @@ pub struct DecisionArgs {
     pub iters: usize,
     pub warmup: usize,
     pub arms: Vec<Arm>,
+    pub runtime: RuntimeKind,
     pub row: RowTarget,
     pub snapshot: Option<PathBuf>,
 }
@@ -166,7 +222,7 @@ fn parse_one(v: &str, what: &str) -> Result<usize> {
 /// Parse the arguments after `--decision`:
 ///
 /// ```text
-/// [T=512,2048,8192] [k=4] [--iters 7] [--warmup 2] [--arms product]
+/// [T=512,2048,8192] [k=4] [--iters 7] [--warmup 2] [--arms product] [--runtime timestamps]
 /// [--snapshot DIR] (--ledger ledger/mac-qd-metal-<date>.jsonl | --no-ledger)
 /// ```
 pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
@@ -175,6 +231,7 @@ pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
     let mut iters = DEFAULT_ITERS;
     let mut warmup = DEFAULT_WARMUP;
     let mut arms = vec![Arm::Product];
+    let mut runtime = RuntimeKind::Timestamps;
     let mut ledger: Option<PathBuf> = None;
     let mut no_ledger = false;
     let mut snapshot = None;
@@ -204,6 +261,7 @@ pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
                         .map(|s| Arm::parse(s.trim()))
                         .collect::<Result<_>>()?;
                 }
+                "--runtime" => runtime = RuntimeKind::parse(&value("--runtime")?)?,
                 "--ledger" => ledger = Some(PathBuf::from(value("--ledger")?)),
                 "--no-ledger" => no_ledger = true,
                 "--snapshot" => snapshot = Some(PathBuf::from(value("--snapshot")?)),
@@ -259,6 +317,7 @@ pub fn parse_args(args: &[String]) -> Result<DecisionArgs> {
         iters,
         warmup,
         arms,
+        runtime,
         row,
         snapshot,
     })
@@ -394,6 +453,12 @@ pub fn build_prompt(tok: &QwenTokenizer, target: usize, k: usize) -> Result<Deci
         passes,
         rows: k + 1,
     })
+}
+
+/// The text `p` was tokenized from: the rendered prefix and the two passes' suffixes, as a
+/// `DecisionBackend` caller hands them over (the product path tokenizes them itself).
+pub fn prompt_text(p: &DecisionPrompt, k: usize) -> Result<(String, [String; 2])> {
+    rendered(p.context_lines, k)
 }
 
 /// sha256 over every id the bench feeds, length-prefixed: the row's `data_snapshot_hash`.
@@ -603,7 +668,7 @@ pub fn recipe(args: &DecisionArgs, snapshot: &Path, vocab: usize) -> Result<Valu
         "decision": "prefill + digest, then 2 read-only passes (run + score k+1 rows) each followed by a digest",
         "backbone_snapshot": snapshot.file_name().and_then(|n| n.to_str()).unwrap_or(""),
         "backbone_vocab": vocab,
-        "runtime": "tessl::GpuRuntime::new + set_async_encode(true), as MetalBackend's worker",
+        "runtime": args.runtime.recipe(),
     }))
 }
 
@@ -771,6 +836,262 @@ pub fn build_row(args: &DecisionArgs, results: &[TResult], ctx: &RunContext) -> 
     })
 }
 
+/// One timed product-path decision through `MetalBackend` (item B), each call timed from the
+/// caller's side, job hop included.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProductSample {
+    pub total_ms: f64,
+    pub prefill_ms: f64,
+    pub snapshot_ms: f64,
+    pub decode_ms: [f64; 2],
+}
+
+/// Item B at one T: the product path against `run_decision` on the same ids, in one process,
+/// and the checks that make the two comparable.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProductPathT {
+    pub prompt: DecisionPrompt,
+    /// `run_decision` totals before and after the product phase.
+    pub model_before_ms: Vec<f64>,
+    pub model_after_ms: Vec<f64>,
+    pub product: Vec<ProductSample>,
+    /// The backend's host tokenization alone: the prefix once, prefix + suffix per pass.
+    pub encode_ms: Vec<f64>,
+    /// Product samples whose letter logits equal the Model path's bit for bit.
+    pub logits_same: usize,
+    /// Whether the two Model phases agreed bit for bit.
+    pub model_phases_same: bool,
+    /// Timed prefills that missed the cache (each got a new entry).
+    pub fresh_prefills: usize,
+}
+
+/// The product-path recipe: one fixed procedure, so only the Ts, `k` and the counts vary.
+pub fn product_recipe(
+    ts: &[usize],
+    k: usize,
+    warmup: usize,
+    iters: usize,
+    snapshot: &Path,
+    vocab: usize,
+) -> Value {
+    json!({
+        "tool": "crates/qd-metal/tests/gpu.rs gpu_product_path_host_cost_vs_model",
+        "mode": "product-path",
+        "label": "item B: MetalBackend product path vs Model-driven decision",
+        "t_targets": ts,
+        "k": k,
+        "iters": iters,
+        "warmup": warmup,
+        "phases": "Model, then MetalBackend, then Model, in one process with one model loaded at a time",
+        "model": "decision::run_decision: prefill + digest, 2 read-only passes each followed by a digest",
+        "product": "MetalBackend with the committed backend.rs/tokenizer.rs: prefill (tokenize, prompt \
+                    sha256, prefill, digest) + snapshot + 2 read-only decode_slot (re-tokenize prefix + \
+                    suffix, run, score, digest); max_entries 1, so every prefill misses the cache",
+        "request": {"task": TASK, "question": QUESTION, "slot": SLOT, "options": &OPTIONS[..k], "route": "generic"},
+        "context_source": CONTEXT_SOURCE_NAME,
+        "context_sha256": qd_runtime::hex(&qd_runtime::sha256(CONTEXT_SOURCE.as_bytes())),
+        "backbone_snapshot": snapshot.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+        "backbone_vocab": vocab,
+        "runtime": RuntimeKind::Timestamps.recipe(),
+    })
+}
+
+/// Item B's row. Completed only when every T ran and, at every T, the product's logits equalled
+/// the Model path's, the two Model phases agreed, every timed prefill missed the cache, and tessl
+/// held; the delta itself is reported, never judged.
+pub fn build_product_row(
+    ts: &[usize],
+    k: usize,
+    warmup: usize,
+    results: &[ProductPathT],
+    ctx: &RunContext,
+) -> Result<Row> {
+    let iters = results.first().map_or(0, |t| t.product.len());
+    let recipe = product_recipe(ts, k, warmup, iters, &ctx.snapshot, ctx.vocab);
+    let prompts: Vec<DecisionPrompt> = results.iter().map(|t| t.prompt.clone()).collect();
+    let protocol = Protocol {
+        data_snapshot_hash: inputs_digest(&prompts),
+        tokenizer_hash: ctx.tokenizer_hash.clone(),
+        backbone_commit: ledger::backbone_commit(&ctx.snapshot, ctx.vocab)?,
+        recipe_hash: ledger::recipe_hash(&recipe)?,
+        seed: 0,
+    };
+    let mut m: BTreeMap<String, TriState> = ctx.provenance.metrics();
+    let tessl_held = ctx.tessl_after == ctx.provenance.tessl;
+    m.insert(
+        "tessl_unchanged_during_run".into(),
+        tri(
+            tessl_held,
+            Value::from(ctx.tessl_after.digest()),
+            format!("after the last phase: {}", ctx.tessl_after.describe()),
+        ),
+    );
+    m.insert(
+        "load_s".into(),
+        tri(
+            true,
+            ledger::float(ctx.load_s)?,
+            "the first Model phase's Model::load wall clock",
+        ),
+    );
+    m.insert(
+        "weight_hash".into(),
+        tri(
+            true,
+            Value::from(ctx.weight_hash.as_str()),
+            "the loader's hash over every tensor it read",
+        ),
+    );
+    m.insert(
+        "device".into(),
+        tri(
+            true,
+            Value::from(ctx.device.as_str()),
+            "tessl GpuRuntime device",
+        ),
+    );
+    let mut checks_held = true;
+    for t in results {
+        let p = &t.prompt;
+        let tk = format!("product_path.t{}", p.target);
+        let n = t.product.len();
+        let same = n > 0 && t.logits_same == n && t.model_phases_same;
+        let fresh = n > 0 && t.fresh_prefills == n;
+        checks_held &= same && fresh;
+        m.insert(
+            format!("{tk}.tokens"),
+            tri(
+                true,
+                json!({"prefix": p.prefix.len(), "pass0": p.passes[0].len(), "pass1": p.passes[1].len(), "context_lines": p.context_lines}),
+                "prefix (prefill) tokens and each pass's suffix tokens",
+            ),
+        );
+        m.insert(
+            format!("{tk}.logits_bit_identical"),
+            tri(
+                same,
+                json!({"product_samples": t.logits_same, "model_phases_agree": t.model_phases_same}),
+                "product samples whose letter logits (both passes) equal the Model path's bit for bit, \
+                 and whether the two Model phases agreed: the two paths did the same work",
+            )
+            .with_coverage(t.logits_same as u64, n as u64),
+        );
+        m.insert(
+            format!("{tk}.fresh_prefills"),
+            tri(
+                fresh,
+                Value::from(t.fresh_prefills as u64),
+                "timed prefills that missed the cache (a new entry each)",
+            )
+            .with_coverage(t.fresh_prefills as u64, n as u64),
+        );
+        let before = min(&t.model_before_ms);
+        let after = min(&t.model_after_ms);
+        let model_min = before.min(after);
+        let col =
+            |f: &dyn Fn(&ProductSample) -> f64| -> Vec<f64> { t.product.iter().map(f).collect() };
+        let product_total = col(&|s: &ProductSample| s.total_ms);
+        let product_min = min(&product_total);
+        m.insert(
+            format!("{tk}.model_ms"),
+            tri(
+                true,
+                json!({"min": ledger::float(model_min)?, "min_before": ledger::float(before)?, "min_after": ledger::float(after)?,
+                       "drift": ledger::float((before - after).abs())?}),
+                format!("run_decision total, min of {} per Model phase; drift is |before - after|", t.model_before_ms.len()),
+            ),
+        );
+        m.insert(
+            format!("{tk}.product_ms"),
+            tri(
+                true,
+                json!({
+                    "min": ledger::float(product_min)?,
+                    "median": ledger::float(median(&product_total))?,
+                    "prefill_min": ledger::float(min(&col(&|s: &ProductSample| s.prefill_ms)))?,
+                    "snapshot_min": ledger::float(min(&col(&|s: &ProductSample| s.snapshot_ms)))?,
+                    "decode0_min": ledger::float(min(&col(&|s: &ProductSample| s.decode_ms[0])))?,
+                    "decode1_min": ledger::float(min(&col(&|s: &ProductSample| s.decode_ms[1])))?,
+                }),
+                format!("MetalBackend calls timed from the caller, min (and total median) of {n}"),
+            )
+            .with_coverage(n as u64, n as u64),
+        );
+        m.insert(
+            format!("{tk}.delta_ms"),
+            tri(
+                true,
+                ledger::float(product_min - model_min)?,
+                "product min total - Model min total: what the product path adds; report only (Fable ruling 2, step 6a)",
+            ),
+        );
+        m.insert(
+            format!("{tk}.host_encode_ms"),
+            tri(
+                true,
+                ledger::float(min(&t.encode_ms))?,
+                "QwenTokenizer::encode alone, as the backend calls it: the prefix once, prefix + suffix per pass; min",
+            ),
+        );
+    }
+    let ran_ts: Vec<usize> = results.iter().map(|t| t.prompt.target).collect();
+    let all_ts = ran_ts == ts;
+    m.insert(
+        "t_coverage".into(),
+        tri(
+            all_ts,
+            json!(ran_ts),
+            format!("the Ts that ran, against the recipe's t_targets {ts:?}"),
+        )
+        .with_coverage(ran_ts.len() as u64, ts.len() as u64),
+    );
+    let status = if tessl_held && all_ts && checks_held {
+        Status::Completed
+    } else {
+        Status::Failed
+    };
+    Ok(Row {
+        run_kind: "throughput".into(),
+        protocol,
+        status,
+        quick_reason:
+            "a latency measurement: one process, base weights, a fixed synthetic request per T; \
+                       rule 8: quick, excluded from every decision"
+                .into(),
+        code_commit: ctx.provenance.code_commit.clone(),
+        env: Environment {
+            torch: "n/a: Rust binary, no torch in the process".into(),
+            transformers_sha: "n/a: Rust binary, no transformers in the process".into(),
+            device: "metal".into(),
+            host: ctx.provenance.host.clone(),
+        },
+        metrics: m,
+        noul_rate: TriState::not_run("a benchmark decodes no verdicts against a gate"),
+        wall_clock_s: ctx.wall_clock_s,
+        wall_clock_source: WallClockSource::Caller,
+        notes: format!(
+            "Item B, product path vs Model-driven decision on {} (weight hash {}). Caveats: it times the \
+             committed backend.rs/tokenizer.rs (QwenTokenizer::encode), not main's uncommitted \
+             encode_untrusted, so it does not measure H1; it runs the base snapshot, so its absolute \
+             ms are not comparable to rows on the release weights; the reading is only the \
+             in-process delta. Identity checks held at every T: {checks_held}.{}{}",
+            ctx.snapshot.display(),
+            ctx.weight_hash,
+            if tessl_held {
+                ""
+            } else {
+                " tessl changed during the run: status failed."
+            },
+            if all_ts {
+                ""
+            } else {
+                " Not every T ran: a capped sample, status failed."
+            },
+        ),
+        recipe,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -872,6 +1193,31 @@ mod tests {
         assert_eq!(median(&v), 4.0);
         assert_eq!(median(&[1.0, 3.0]), 2.0);
         assert!(median(&[]).is_nan());
+    }
+
+    /// `--runtime` picks the constructor and the row says which. The default is the worker's and
+    /// keeps the text every earlier row recorded, so a default run's recipe does not move.
+    #[test]
+    fn the_runtime_is_a_run_flag_defaulting_to_the_workers() {
+        let at = |a: &[&str]| parse_args(&strs(a));
+        let default = at(&["--no-ledger"]).unwrap();
+        assert_eq!(default.runtime, RuntimeKind::Timestamps);
+        let inf = at(&["--runtime", "inference", "--no-ledger"]).unwrap();
+        assert_eq!(inf.runtime, RuntimeKind::Inference);
+        for bad in [
+            &["--runtime", "fast", "--no-ledger"][..],
+            &["--runtime", "", "--no-ledger"],
+            &["--runtime"],
+        ] {
+            assert!(at(bad).is_err(), "{bad:?} was accepted");
+        }
+        let snap = Path::new("/hf/snapshots/b1485b2f");
+        let r = recipe(&default, snap, 248_320).unwrap();
+        let worker = "tessl::GpuRuntime::new + set_async_encode(true), as MetalBackend's worker";
+        assert_eq!(r["runtime"], worker);
+        let r = recipe(&inf, snap, 248_320).unwrap();
+        let inference = r["runtime"].as_str().unwrap();
+        assert!(inference.starts_with("tessl::GpuRuntime::new_inference"));
     }
 
     /// The context is the frozen v1 file, byte for byte, and the row says which: an edit to the

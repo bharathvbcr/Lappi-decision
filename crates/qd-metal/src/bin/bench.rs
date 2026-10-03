@@ -136,10 +136,10 @@ fn run_decision(argv: &[String]) -> Result<bool> {
     let provenance = Provenance::of(None)?;
     println!("tessl: {}", provenance.tessl.describe());
 
-    let rt = tessl::GpuRuntime::new().map_err(MetalError::Gpu)?;
-    rt.set_async_encode(true).map_err(MetalError::Gpu)?;
+    let rt = args.runtime.open()?;
     tessl::infer_trace::set_enabled(true);
-    println!("device: {}", rt.device_name());
+    let kind = args.runtime.name();
+    println!("device: {}, runtime {kind}", rt.device_name());
     let t0 = Instant::now();
     let model = Model::load(&rt, &snapshot)?;
     let load_s = t0.elapsed().as_secs_f64();

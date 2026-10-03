@@ -5,7 +5,7 @@
 //! cargo test --release -p qd-metal --test gpu -- --ignored --test-threads=1
 //! ```
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use qd_metal::backend::{MetalBackend, MetalConfig, StateRecord};
 use qd_metal::model::{Model, PrefixState, RECURRENT_MAX_SEQ};
@@ -329,4 +329,259 @@ fn gpu_row_counts_past_u32_are_refused_as_input() {
         other => panic!("{rows} rows x {inter} were not refused as input: {:?}", other.map(|o| o.seq)),
     }
     assert!(started.elapsed() < Duration::from_secs(5), "the refusal took {:?}", started.elapsed());
+}
+
+fn ms_since(t: Instant) -> f64 {
+    t.elapsed().as_secs_f64() * 1e3
+}
+
+/// One product-path decision through [`MetalBackend`]: prefill, snapshot, and the two read-only
+/// `decode_slot` calls, each timed from the caller's side (job hop included). Also returns the
+/// letter logits of both passes and the prefill's entry id.
+fn product_decision(
+    backend: &MetalBackend,
+    prefix: &str,
+    suffixes: &[String; 2],
+    rows: usize,
+) -> (qd_metal::decision::ProductSample, Vec<f32>, u64) {
+    let t0 = Instant::now();
+    let handle = backend.prefill(prefix).expect("prefill");
+    let prefill_ms = ms_since(t0);
+    let ts = Instant::now();
+    let mut snap = backend.snapshot(&handle).expect("snapshot");
+    let snapshot_ms = ms_since(ts);
+    let mut decode_ms = [0.0; 2];
+    let mut logits = Vec::new();
+    for (i, suffix) in suffixes.iter().enumerate() {
+        let query = SlotQuery {
+            slot_name: "defect_class",
+            suffix,
+            rows,
+            kind: QueryKind::Letters,
+        };
+        let td = Instant::now();
+        let l = backend
+            .decode_slot(&mut snap, &query, DecodeMode::ReadOnly)
+            .expect("decode");
+        decode_ms[i] = ms_since(td);
+        logits.extend_from_slice(&l.values);
+    }
+    let total_ms = ms_since(t0);
+    let entry = StateRecord::parse(handle.state.as_bytes())
+        .expect("handle record")
+        .entry;
+    let sample = qd_metal::decision::ProductSample {
+        total_ms,
+        prefill_ms,
+        snapshot_ms,
+        decode_ms,
+    };
+    (sample, logits, entry)
+}
+
+/// Item B (Fable ruling 2, step 6a): the product path's cost over the Model-driven decision
+/// bench. At T = 131, 409, 8192 on the frozen bench context it times `MetalBackend` (the prefix
+/// tokenized once and prefix + suffix re-tokenized per pass, the prompt sha256, the job-channel
+/// hops, the entry bookkeeping) against `decision::run_decision` on the same ids. Phases run
+/// Model, backend, Model in one process, one model loaded at a time; `WARMUP` then `ITERS` per
+/// phase; the two Model phases bound the drift. The equal-work check: both paths' letter
+/// logits are bit-identical. `max_entries: 1` makes every prefill a cache miss (the snapshot
+/// evicts it), as every prefill in the Model bench is. On this branch it times the committed
+/// backend.rs/tokenizer.rs (`QwenTokenizer::encode`), not main's dirty `encode_untrusted`, so it
+/// does not measure H1.
+///
+/// It writes one `throughput` row (`decision::build_product_row`) to `QDM_PRODUCT_LEDGER`, or
+/// none when that is `none` (a development run; its numbers are not citable). The row is written
+/// before the checks are asserted, so a run whose checks fail is a failed row, not a missing one.
+#[test]
+#[ignore = "GPU + model snapshot"]
+fn gpu_product_path_host_cost_vs_model() {
+    use qd_metal::decision::{self, ProductPathT, RunContext};
+    use qd_metal::ledger::{self, Provenance, TreeState};
+
+    const WARMUP: usize = 2;
+    const ITERS: usize = 5;
+    const K: usize = 4;
+    const TS: [usize; 3] = [131, 409, 8192];
+    let target = std::env::var("QDM_PRODUCT_LEDGER").expect(
+        "say where the row goes: QDM_PRODUCT_LEDGER=ledger/mac-qd-metal-<date>.jsonl, or none",
+    );
+    let ledger_path = (target != "none").then(|| std::path::PathBuf::from(&target));
+    if let Some(p) = &ledger_path {
+        ledger::check_ledger_path(p).expect("a qd-metal ledger path");
+    }
+    let started = Instant::now();
+    let provenance = Provenance::of(None).expect("provenance");
+    let snapshot = qd_metal::config::resolve_snapshot(None).expect("snapshot");
+    let tok = QwenTokenizer::load(&snapshot.join("tokenizer.json")).expect("tokenizer");
+    let answers = tok.answer_ids(K + 1).unwrap();
+    let prompts: Vec<_> = TS
+        .iter()
+        .map(|&t| {
+            let p = decision::build_prompt(&tok, t, K).unwrap();
+            let text = decision::prompt_text(&p, K).unwrap();
+            (p, text)
+        })
+        .collect();
+
+    // The host tokenization the backend adds, timed alone: the prefix once, prefix + suffix twice.
+    let encode_ms: Vec<Vec<f64>> = prompts
+        .iter()
+        .map(|(p, (prefix, suffixes))| {
+            (0..ITERS)
+                .map(|_| {
+                    let t0 = Instant::now();
+                    assert_eq!(tok.encode(prefix).unwrap(), p.prefix);
+                    for s in suffixes {
+                        tok.encode(&format!("{prefix}{s}")).unwrap();
+                    }
+                    ms_since(t0)
+                })
+                .collect()
+        })
+        .collect();
+
+    // Per T: every total ms, and the first sample's logits. Also the facts the row records.
+    struct Phase {
+        per_t: Vec<(Vec<f64>, Vec<f32>)>,
+        device: String,
+        weight_hash: String,
+        vocab: usize,
+        load_s: f64,
+    }
+    let model_phase = || -> Phase {
+        let rt = decision::RuntimeKind::Timestamps.open().expect("runtime");
+        let t0 = Instant::now();
+        let model = Model::load(&rt, &snapshot).expect("load");
+        let load_s = t0.elapsed().as_secs_f64();
+        let mut per_t = Vec::new();
+        for (p, _) in &prompts {
+            for _ in 0..WARMUP {
+                decision::run_decision(&model, p, &answers).unwrap();
+            }
+            let s: Vec<_> = (0..ITERS)
+                .map(|_| decision::run_decision(&model, p, &answers).unwrap())
+                .collect();
+            per_t.push((s.iter().map(|x| x.total_ms).collect(), s[0].logits.clone()));
+        }
+        Phase {
+            per_t,
+            device: rt.device_name(),
+            weight_hash: model.weight_hash().to_string(),
+            vocab: model.config().vocab,
+            load_s,
+        }
+    };
+    let before = model_phase();
+
+    let backend = MetalBackend::start(MetalConfig {
+        snapshot: Some(snapshot.clone()),
+        calibration_hash: qd_runtime::calibration::CalibrationTable::reference().hash(),
+        queue_capacity: 4,
+        max_entries: 1,
+        max_tokens: 16_384,
+        job_timeout: Duration::from_secs(300),
+    })
+    .expect("backend");
+    let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<u32>>();
+    let mut last_entry = 0u64;
+    let mut product = Vec::new();
+    for (j, (_, (prefix, suffixes))) in prompts.iter().enumerate() {
+        let (mut samples, mut logits_same, mut fresh) = (Vec::new(), 0, 0);
+        for i in 0..WARMUP + ITERS {
+            let (s, logits, entry) = product_decision(&backend, prefix, suffixes, K + 1);
+            let is_fresh = entry > last_entry;
+            last_entry = entry;
+            if i >= WARMUP {
+                logits_same += usize::from(bits(&logits) == bits(&before.per_t[j].1));
+                fresh += usize::from(is_fresh);
+                samples.push(s);
+            }
+        }
+        product.push((samples, logits_same, fresh));
+    }
+    drop(backend);
+    let after = model_phase();
+    let tessl_after = TreeState::read(&provenance.tessl.dir).expect("tessl state");
+
+    let results: Vec<ProductPathT> = prompts
+        .iter()
+        .zip(product)
+        .enumerate()
+        .map(
+            |(j, ((p, _), (samples, logits_same, fresh)))| ProductPathT {
+                prompt: p.clone(),
+                model_before_ms: before.per_t[j].0.clone(),
+                model_after_ms: after.per_t[j].0.clone(),
+                product: samples,
+                encode_ms: encode_ms[j].clone(),
+                logits_same,
+                model_phases_same: bits(&before.per_t[j].1) == bits(&after.per_t[j].1),
+                fresh_prefills: fresh,
+            },
+        )
+        .collect();
+    let ctx = RunContext {
+        device: before.device.clone(),
+        snapshot: snapshot.clone(),
+        vocab: before.vocab,
+        weight_hash: before.weight_hash.clone(),
+        tokenizer_hash: tok.hash().to_string(),
+        load_s: before.load_s,
+        wall_clock_s: started.elapsed().as_secs_f64(),
+        provenance,
+        tessl_after,
+    };
+    let row = decision::build_product_row(&TS, K, WARMUP, &results, &ctx).expect("the row builds");
+    let value = |key: String| match &row.metrics[&key] {
+        qd_train::tristate::TriState::Ran { value, .. } => value.to_string(),
+        qd_train::tristate::TriState::NotRun { reason } => format!("not run: {reason}"),
+    };
+    for t in &results {
+        let k = format!("product_path.t{}", t.prompt.target);
+        println!("T={} ({} tok)", t.prompt.target, t.prompt.prefix.len());
+        for m in [
+            "model_ms",
+            "product_ms",
+            "delta_ms",
+            "host_encode_ms",
+            "logits_bit_identical",
+            "fresh_prefills",
+        ] {
+            println!("  {m}: {}", value(format!("{k}.{m}")));
+        }
+    }
+    match &ledger_path {
+        Some(p) => {
+            let stamp = ledger::write_row(p, &row).expect("the row is written");
+            println!("ledger row {} appended to {}", stamp.row_id, p.display());
+        }
+        None => println!("QDM_PRODUCT_LEDGER=none: NO ROW WRITTEN; these numbers are not citable"),
+    }
+    println!("status {:?}", row.status);
+
+    for t in &results {
+        let n = t.product.len();
+        assert_eq!(
+            t.logits_same, n,
+            "T={}: product vs Model logits",
+            t.prompt.target
+        );
+        assert!(
+            t.model_phases_same,
+            "T={}: the Model phases disagree",
+            t.prompt.target
+        );
+        assert_eq!(
+            t.fresh_prefills, n,
+            "T={}: a timed prefill hit the cache",
+            t.prompt.target
+        );
+    }
+    assert_eq!(
+        row.status,
+        qd_train::ledger::Status::Completed,
+        "{}",
+        row.notes
+    );
 }
