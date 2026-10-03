@@ -1,0 +1,1 @@
+{"config": "skip:6", "deterministic": [false], "max_pos_per_s": 21953.8, "min_step_s_median": 1.3197, "min_step_s_window_mean": 1.317, "not_ran": [], "peak_alloc_gib_max": 57.17, "pos_per_s_by_round": [21953.8, 21947.7, 21939.9], "rounds": 3, "rounds_ran": 3, "shape": "W", "timing": ["per-step sync"]}
