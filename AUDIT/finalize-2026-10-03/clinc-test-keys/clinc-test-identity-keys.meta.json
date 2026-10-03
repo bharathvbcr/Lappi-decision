@@ -1,0 +1,39 @@
+{
+ "tool": "build/clinc_test_keys.py",
+ "source": {
+  "dataset": "clinc/clinc_oos",
+  "config": "plus",
+  "split": "test",
+  "revision": "155b9c710419136e17307b80d0a13e68cd46b4ec",
+  "path": "/Users/bharath/.cache/qd-decision/general/clinc__clinc_oos/155b9c710419136e17307b80d0a13e68cd46b4ec/test.jsonl",
+  "sha256": "e1ee1b97838206c7c2c9f7b4c5d9ccaf86fe0f45a0685dd7406b238fcfa86820",
+  "rows": 5500
+ },
+ "keyed_by": "qd_data.mixture.clinc_keys (identity clinc-intent:<intent>::<blake2b-8>)",
+ "tree": "/Users/bharath/Code/research/Lappi-decision/build/v5-build-wt",
+ "rows_with_empty_utterance": 0,
+ "identity_keys": 5500,
+ "unique_identity_keys": 5500,
+ "keys_sha256": "17d027e43f959ef032a1b8a6983d98c668b2c2503347cf11aac7116dc0524529",
+ "v4_build": "/Users/bharath/qd-campaign/phase4-v4-2026-10-01",
+ "v4_manifest_entries_with_these_keys_by_split_and_family": {
+  "train": {
+   "intent.classification": 4958,
+   "intent.domain": 4957,
+   "intent.in_scope": 4958,
+   "intent.within_domain": 4958
+  },
+  "val": {
+   "intent.classification": 300,
+   "intent.domain": 300,
+   "intent.in_scope": 300,
+   "intent.within_domain": 300
+  },
+  "heldout": {
+   "intent.classification": 240,
+   "intent.domain": 240,
+   "intent.in_scope": 240,
+   "intent.within_domain": 240
+  }
+ }
+}

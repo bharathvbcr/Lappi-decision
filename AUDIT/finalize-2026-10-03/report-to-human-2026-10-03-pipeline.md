@@ -37,28 +37,41 @@ rulings are recorded verbatim in `fable-pipeline-ruling.md`.
      - **The probe** is one real training step per distinct (rows, width) shape of v5's plan,
        extremes first. It records `max_memory_allocated` and `max_memory_reserved` on a `quick`
        row, takes about 10 min, and costs under $2.
-     - **Pass criterion and fallback,** both to be pre-registered:
-       - Pass: the reserved peak is at or below the device total minus a stated margin.
-       - On a fail: first `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, which changes no
-         arithmetic and no recipe key. If that fails too, stop and ask you. No recipe lever
-         moves without your yes.
-   - **Cost:** about 60 GPU-h × $4.19 ≈ $250 for the runs, plus $8.38/h for setup and idle.
-   - **Wall time after the data is attested:**
+     - **Pass criterion and fallback,** pre-registered by Fable ~17:10Z:
+       - Pass: the reserved peak is at most the device total minus **12 GiB** (about 67 GiB on
+         an H100). Basis: F's reserved grew about 10.5 GiB over a full run, plus about 1 GiB
+         of CUDA context. v5's costliest step prices at 64.46 GiB or less.
+       - On a fail: first `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, at the same
+         12 GiB, which changes no arithmetic and no recipe key. If that fails too, stop and ask
+         you. No recipe lever moves without your yes.
+   - **Run count. CORRECTED ~17:40Z: 11 runs, not 9.**
+     - Fable ruled under your budget lift that v5's main run trains **seeds 0–4 unconditionally**.
+       Prose abstention is seed-bimodal on F (54, 0 and 1 of 60 on seeds 0–2), and three seeds
+       leave promotion to luck. The noul-weight arm stays at seeds 0–2, and J5′ stays ×3.
+     - The lead's 9-run figures (about $250, 34/41 h) left this out.
+   - **Cost:** about 74 GPU-h × $4.19 ≈ **$310** for the runs, plus $8.38/h for setup and idle.
+     These are the GH200-cadence estimates. A v5 seed is also about 57 min shorter than F's
+     (the whole-plan evaluation is gone), so this errs high. The box's measured hours replace
+     them.
+   - **Wall time after the data is attested (11 runs, two GPUs):**
 
-     | Seed-0 pause | Wall time | Idle GPU |
-     |---|---|---|
-     | Waived (recommended) | about 34 h | one GPU in the last round |
-     | Kept | about 41 h | GPU 1 for about 7 h while seed 0 runs alone |
+     | Seed-0 pause | Wall time | Box cost | Idle GPU |
+     |---|---|---|---|
+     | Waived (recommended) | about 41 h | about $344 | one GPU in the last round |
+     | Kept | about 48 h | about $400 | GPU 1 for about 7 h while seed 0 runs alone |
 
-     Adding a 1× H100 box (+$4.29/h) gets it to about 21 h.
-   - **Rounds** (two GPUs, pause waived):
+   - **Rounds** (two GPUs, pause waived). Rule: each GPU takes the earliest job in your order
+     whose inputs are ready.
      1. Seeds 0 and 1.
-     2. Seed 2 and J5′ seed 0.
-     3. J5′ seeds 1 and 2.
-     4. The noul-weight arm, two seeds.
-     5. The arm's last seed.
+     2. Seeds 2 and 3.
+     3. Seed 4 and arm seed 0.
+     4. Arm seeds 1 and 2.
+     5. J5′ seeds 0 and 1.
+     6. J5′ seed 2.
 
-     J5′ seed s needs only v5 seed s's eval row; the arm needs all three.
+     The arm needs v5 seeds 0–2's eval rows; J5′ seed s needs only v5 seed s's rows.
+     J5′ moves ahead of the arm only when a GPU would otherwise idle. This change to your
+     order (arm before J5′) needs your yes.
    - **Launching:** you launch the box only when the lead says, because it bills from launch.
      That is about 2 h before the data's attestation lands (corrected ~16:50Z from 1 h):
      setup takes 1–2 h and overlaps the build's tail, then the shards arrive, the probe runs,
@@ -99,7 +112,7 @@ rulings are recorded verbatim in `fable-pipeline-ruling.md`.
          optimistic.
      - **Options:**
 
-       | | Wall time | Cost (60 GPU-h) | Memory risk |
+       | | Wall time | Cost (60 GPU-h: the 9-run count, before the ~17:40Z correction) | Memory risk |
        |---|---|---|---|
        | 2× H100 (Lambda) | about 34 h | about $250 | about 17 GiB over the allocated peak (corrected) |
        | 1× H200 (Brev) | about 60 h | about $390 | none |
