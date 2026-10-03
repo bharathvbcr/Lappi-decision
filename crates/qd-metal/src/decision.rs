@@ -156,6 +156,11 @@ fn parse_list(v: &str, what: &str) -> Result<Vec<usize>> {
     if out.is_empty() || out.contains(&0) {
         return Err(MetalError::Input(format!("{what} must be positive counts, got {v:?}")));
     }
+    // A repeated T would run twice and write the same `decision.t<T>.*` keys, the second run
+    // silently replacing the first while `t_coverage` still matched the recipe.
+    if let Some((i, x)) = out.iter().enumerate().find(|&(i, x)| out[..i].contains(x)) {
+        return Err(MetalError::Input(format!("{what}: {x} is given twice (position {i}) in {v:?}")));
+    }
     Ok(out)
 }
 
@@ -824,6 +829,17 @@ mod tests {
         let a = parse_args(&strs(&["--iters", "3", "--warmup", "0", "--arms", "embed=device", "--no-ledger"])).unwrap();
         assert_eq!((a.iters, a.warmup), (3, 0));
         assert_eq!(a.arms, vec![Arm::Embed(EmbedPath::Device)]);
+    }
+
+    /// Fail-first (Fable ruling 2, #6): a repeated T used to parse, run twice and write one set of
+    /// `decision.t<T>.*` keys, the second run replacing the first under a passing `t_coverage`.
+    #[test]
+    fn a_repeated_t_is_refused() {
+        for bad in [&["T=512,512", "--no-ledger"][..], &["T=131,409,131", "--no-ledger"]] {
+            let e = parse_args(&strs(bad)).expect_err(&format!("{bad:?} was accepted")).to_string();
+            assert!(e.contains("given twice"), "{e}");
+        }
+        assert_eq!(parse_args(&strs(&["T=131,409", "--no-ledger"])).unwrap().ts, vec![131, 409]);
     }
 
     #[test]

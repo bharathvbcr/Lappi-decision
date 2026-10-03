@@ -135,9 +135,41 @@ impl DigestPath {
 /// The v1 prefix-state record's domain tag.
 const DIGEST_V1_TAG: &[u8] = b"qd-metal.prefix-state.v1\0";
 
-/// A digest scratch larger than this is released after the digest instead of kept: about one
-/// state of 8.5K tokens (~225 MB) stays resident per thread, a longer context's does not.
-const DIGEST_SCRATCH_RETAIN_BYTES: usize = 256 << 20;
+/// The digest scratch kept between digests is bounded by a state of this many tokens:
+/// `qd-metal-serve`'s default `--max-tokens` (bin/serve.rs), so the product's longest default
+/// context reuses its scratch (~423 MB on the 2B) instead of re-faulting it three times per
+/// decision. A longer context's scratch is released after its digest.
+pub const DIGEST_SCRATCH_RETAIN_TOKENS: u32 = 16_384;
+
+/// Device bytes of a batch-1 [`PrefixState`] of `tokens` tokens on `cfg`, the
+/// [`PrefixState::nbytes`] of such a state: per GDN layer the conv state `[conv_dim, kernel - 1]`
+/// and the recurrent state, per attention layer K and V `[tokens, kv_heads, head_dim]`, all f32.
+pub fn prefix_state_nbytes(cfg: &ModelConfig, tokens: u32) -> Result<usize> {
+    let gdn = cfg.gdn_layout()?;
+    let conv = gdn.conv_dim() as usize * (cfg.conv_kernel as usize - 1);
+    let recurrent = gdn.dims(1, 1).state_elems_per_row();
+    let per_pos = cfg.kv_heads as usize * cfg.head_dim as usize;
+    let elems = cfg
+        .n_gdn()
+        .checked_mul(conv + recurrent)
+        .zip(cfg.n_attention().checked_mul(2 * per_pos).and_then(|n| n.checked_mul(tokens as usize)))
+        .and_then(|(fixed, kv)| fixed.checked_add(kv))
+        .and_then(|n| n.checked_mul(4))
+        .ok_or_else(|| MetalError::Input(format!("a {tokens}-token prefix state overflows usize bytes")))?;
+    Ok(elems)
+}
+
+/// The most scratch a thread keeps between digests: the state of [`DIGEST_SCRATCH_RETAIN_TOKENS`].
+fn digest_scratch_retain_bytes(cfg: &ModelConfig) -> Result<usize> {
+    prefix_state_nbytes(cfg, DIGEST_SCRATCH_RETAIN_TOKENS)
+}
+
+/// Release `scratch` if it holds more than `keep` bytes of capacity.
+fn release_oversized_scratch(scratch: &mut Vec<u8>, keep: usize) {
+    if scratch.capacity() > keep {
+        *scratch = Vec::new();
+    }
+}
 
 thread_local! {
     /// The host copy the parallel digest hashes, reused across digests on this thread. A copy is
@@ -204,6 +236,8 @@ pub struct PrefixState {
     /// Per attention layer: `[1, tokens, kv_heads, head_dim]` f32, capacity exactly `tokens`.
     k: Vec<GpuBuffer>,
     v: Vec<GpuBuffer>,
+    /// [`digest_scratch_retain_bytes`] of the model that built this state.
+    scratch_retain_bytes: usize,
 }
 
 impl PrefixState {
@@ -242,9 +276,7 @@ impl PrefixState {
                     MetalError::State("the prefix-state digest re-entered itself on one thread".into())
                 })?;
                 let out = self.digest_parallel(&mut scratch);
-                if scratch.capacity() > DIGEST_SCRATCH_RETAIN_BYTES {
-                    *scratch = Vec::new();
-                }
+                release_oversized_scratch(&mut scratch, self.scratch_retain_bytes);
                 out
             }),
         }
@@ -1005,6 +1037,7 @@ impl Model {
                 gdn: state_gdn,
                 k: state_k,
                 v: state_v,
+                scratch_retain_bytes: digest_scratch_retain_bytes(cfg)?,
             })
         } else {
             None
@@ -1122,7 +1155,12 @@ pub fn weights_file(snapshot: &Path) -> Result<std::path::PathBuf> {
 
 #[cfg(test)]
 mod digest_record_tests {
-    use super::{digest_v1, DigestPath};
+    use super::{
+        digest_scratch_retain_bytes, digest_v1, prefix_state_nbytes, release_oversized_scratch,
+        DigestPath, DIGEST_SCRATCH_RETAIN_TOKENS,
+    };
+    use crate::config::tests_support::QWEN35_2B;
+    use crate::config::ModelConfig;
 
     /// The v1 record against an independent oracle: Python's `hashlib` over the same layout
     /// (`AUDIT/qdm-digest-2026-10-03/digest_v1_oracle.py`). Characterization: the record
@@ -1137,6 +1175,40 @@ mod digest_record_tests {
             qd_runtime::hex(&got),
             "a1b6d7a836b2b373bcc9b3f2da2e3195ae7ae503a68e71934cabd39945d44079"
         );
+    }
+
+    /// The size formula against states measured on the GPU: `state_mb` of the 2026-10-03 A/B
+    /// rows (147da0cc, 28505f4c) at prefixes of 115, 399, 762, 2033 and 8185 tokens.
+    #[test]
+    fn prefix_state_bytes_match_the_measured_states() {
+        let cfg = ModelConfig::from_json(QWEN35_2B).unwrap();
+        for (tokens, bytes) in [
+            (115, 23_027_712),
+            (399, 30_007_296),
+            (762, 38_928_384),
+            (2033, 70_164_480),
+            (8185, 221_356_032),
+        ] {
+            assert_eq!(prefix_state_nbytes(&cfg, tokens).unwrap(), bytes, "{tokens} tokens");
+        }
+    }
+
+    /// Fail-first (Fable ruling 2, #1): the retain cap was a fixed 256 MiB, below the ~423 MB
+    /// state of the 16,384 tokens `qd-metal-serve` admits by default, so that scratch was released
+    /// after every digest and re-faulted on the next. The capacity is reserved, never touched.
+    #[test]
+    fn the_scratch_of_a_default_max_tokens_state_is_kept() {
+        let cfg = ModelConfig::from_json(QWEN35_2B).unwrap();
+        let state = prefix_state_nbytes(&cfg, DIGEST_SCRATCH_RETAIN_TOKENS).unwrap();
+        assert!(state > 256 << 20, "the case this test is about: {state} bytes");
+        let keep = digest_scratch_retain_bytes(&cfg).unwrap();
+        let mut scratch: Vec<u8> = Vec::with_capacity(state);
+        release_oversized_scratch(&mut scratch, keep);
+        assert!(scratch.capacity() >= state, "a {state}-byte scratch was released (keep {keep})");
+        // One token past the bound is released: the cap still bounds.
+        let mut longer: Vec<u8> = Vec::with_capacity(keep + 1);
+        release_oversized_scratch(&mut longer, keep);
+        assert_eq!(longer.capacity(), 0);
     }
 
     #[test]

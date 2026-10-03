@@ -153,12 +153,30 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
 pub const SHA256_PARALLEL_MAX_WORKERS: std::num::NonZeroUsize =
     std::num::NonZeroUsize::new(8).unwrap();
 
+/// How many threads (the calling one included) [`sha256_slices_parallel`] uses for `slices`
+/// slices on a machine offering `available`: the caller's request, never above
+/// [`SHA256_PARALLEL_MAX_WORKERS`], the machine or the work. 1 (or 0 for no slices) is serial.
+pub fn sha256_worker_count(
+    max_workers: std::num::NonZeroUsize,
+    available: usize,
+    slices: usize,
+) -> usize {
+    max_workers
+        .get()
+        .min(SHA256_PARALLEL_MAX_WORKERS.get())
+        .min(available)
+        .min(slices)
+}
+
 /// [`sha256`] of every slice, in input order, computed on up to `max_workers` threads.
+///
+/// [`SHA256_PARALLEL_MAX_WORKERS`] is a ceiling no caller can raise: `max_workers` is a request
+/// that can only lower it ([`sha256_worker_count`]).
 ///
 /// `out[i] == sha256(slices[i])` bit for bit: each slice is one ordinary SHA-256 and only which
 /// thread computes it changes, so a record built from these hashes is the record a serial loop
-/// builds. The calling thread hashes too, beside `min(max_workers, SHA256_PARALLEL_MAX_WORKERS,
-/// available_parallelism, slices.len()) - 1` helpers in a `std::thread::scope`; all of them take
+/// builds. The calling thread hashes too, beside `sha256_worker_count(..) - 1` helpers in a
+/// `std::thread::scope`; all of them take
 /// slices largest-first from one shared cursor, so a long slice starts first rather than last.
 /// A helper the OS refuses to start costs speed, never coverage: the cursor still hands every
 /// slice to some thread. A panic in a helper is re-raised on the calling thread with its
@@ -170,11 +188,7 @@ pub fn sha256_slices_parallel(
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     let available = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
-    let workers = max_workers
-        .get()
-        .min(SHA256_PARALLEL_MAX_WORKERS.get())
-        .min(available)
-        .min(slices.len());
+    let workers = sha256_worker_count(max_workers, available, slices.len());
     if workers <= 1 {
         return slices.iter().map(|s| sha256(s)).collect();
     }
@@ -228,7 +242,28 @@ mod sha256_parallel_tests {
 
     use std::num::NonZeroUsize;
 
-    use super::{CounterRng, SHA256_PARALLEL_MAX_WORKERS, sha256, sha256_slices_parallel};
+    use super::{
+        CounterRng, SHA256_PARALLEL_MAX_WORKERS, sha256, sha256_slices_parallel,
+        sha256_worker_count,
+    };
+
+    /// The ceiling holds against any request, machine or batch: no argument raises it above 8.
+    #[test]
+    fn no_request_raises_the_thread_ceiling() {
+        let ceiling = SHA256_PARALLEL_MAX_WORKERS.get();
+        assert_eq!(ceiling, 8);
+        for request in [1, 2, 7, 8, 9, 18, 1000, usize::MAX] {
+            for available in [1, 6, 8, 18, 64, usize::MAX] {
+                for slices in [0, 1, 7, 48, 10_000] {
+                    let n = sha256_worker_count(nz(request), available, slices);
+                    assert!(n <= ceiling, "{request}/{available}/{slices} -> {n}");
+                    assert!(n <= request && n <= available && n <= slices, "{n}");
+                }
+            }
+        }
+        assert_eq!(sha256_worker_count(nz(usize::MAX), 18, 48), 8);
+        assert_eq!(sha256_worker_count(nz(3), 18, 48), 3);
+    }
 
     fn nz(n: usize) -> NonZeroUsize {
         NonZeroUsize::new(n).unwrap()

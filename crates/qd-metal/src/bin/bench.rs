@@ -198,10 +198,9 @@ fn run_decision(argv: &[String]) -> Result<bool> {
         tessl_after,
     };
     let row = decision::build_row(&args, &results, &ctx)?;
-    let complete = results.len() == prompts.len();
-    let ok = complete
-        && row.status == qd_train::ledger::Status::Completed
-        && results.iter().all(|r| decision::bit_identical(r).0);
+    // `build_row` owns "completed" (tessl held, every recipe T ran, arms bit-identical); the exit
+    // code reads it rather than restating the rule.
+    let ok = row.status == qd_train::ledger::Status::Completed;
     match &args.row {
         RowTarget::Ledger(path) => {
             let stamp = qd_metal::ledger::write_row(path, &row)?;
