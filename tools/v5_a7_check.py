@@ -111,11 +111,10 @@ def pool_expectation(pool_dir: Path) -> PoolExpectation:
     through ``load_decision_pool`` (checked against its manifest's sha256), and the per-family
     counts must equal the manifest's ``val_by_family``, so the numbers checked are the ones the
     pool states."""
-    from qd_data.config import DataConfig
-    from qd_data.decisions import load_decision_pool, rewrite_typed_decision
+    from qd_data.decisions import load_decision_pool, pool_data_config, rewrite_typed_decision
 
     pool = load_decision_pool(pool_dir)
-    config = DataConfig()
+    config = pool_data_config()
     val: dict[str, Counter[str]] = {}
     for rows in pool.raw.values():
         for i, raw in enumerate(rows):

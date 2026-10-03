@@ -1,6 +1,6 @@
 """The general-decision pool: ``qd-prep decisions``' rows as DataRows.
 
-``qd-prep decisions`` (``crates/qd-prep/src/decisions.rs``) reads the six typed-decision
+``qd-prep decisions`` (``crates/qd-prep/src/decisions.rs``) reads the decision
 sources, applies the label rule, the per-row licence, the structural refusals, the
 decontamination against the external targets, the group-keyed split and the caps, and
 writes ``DIR/{examples.jsonl, manifest.json, containment/}``. Every decision about a row is
@@ -17,6 +17,7 @@ split is pinned (``PINNED_SPLIT_KEY``) and is part of the repo key, as MMLU's is
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 from dataclasses import dataclass
@@ -25,12 +26,12 @@ from typing import Final
 
 from .config import DataConfig
 from .general import _checked_options
-from .licences import admit_licence
+from .licences import LicenceConfig, admit_licence
 from .loaders import MalformedRowRefusal, TypedDecisionRow, parse_typed_decision
 from .mixture import RowRefused, _request, _row
 from .rows import DataRow, GoldAnswer
 from .schema import ChoiceSlot
-from .sources import DECISION_FAMILIES, PINNED_SPLIT_KEY, source_by_id
+from .sources import DECISION_FAMILIES, DECISION_POOL_OPT_INS, PINNED_SPLIT_KEY, source_by_id
 
 __all__ = [
     "DECISION_POOL_SCHEMA",
@@ -38,6 +39,7 @@ __all__ = [
     "DecisionPool",
     "DecisionPoolError",
     "load_decision_pool",
+    "pool_data_config",
     "rewrite_typed_decision",
 ]
 
@@ -135,6 +137,24 @@ def load_decision_pool(pool_dir: Path) -> DecisionPool:
         raw={s: tuple(rows) for s, rows in raw.items()},
         examples_sha256=actual,
         manifest=manifest,
+    )
+
+
+def pool_data_config(config: DataConfig | None = None) -> DataConfig:
+    """``config`` (default ``DataConfig()``) with the pool's opt-in sources admitted, each with
+    the human call recorded in :data:`~qd_data.sources.DECISION_POOL_OPT_INS`. The one place
+    a build that reads a pool gets its admission from: the pipeline's build and every
+    ``ft_splits`` rebuild of it must admit the same sources, or the rebuild refuses ARC's rows
+    at load (``build_mixture``: an opt-in source not admitted). Apply it only when a pool is
+    read; a build without one keeps its config, so its manifests do not move."""
+    base = DataConfig() if config is None else config
+    opted = {**DECISION_POOL_OPT_INS, **base.licence.admitted_sources_by_human}
+    return dataclasses.replace(
+        base,
+        licence=LicenceConfig(
+            admitted_by_human=dict(base.licence.admitted_by_human),
+            admitted_sources_by_human=opted,
+        ),
     )
 
 

@@ -4238,8 +4238,11 @@ def ft_split_report(
     if decisions_pool is not None:
         # The pipeline's own block (real_tokenizer_pipeline.run): build_mixture iterates the
         # sources sorted, so only "before build_mixture" matters, not the position.
-        from qd_data.decisions import load_decision_pool
+        from qd_data.decisions import load_decision_pool, pool_data_config
 
+        # The pipeline's admission for a pool build (its opt-in sources, with the human's call);
+        # without it build_mixture refuses an opt-in source's rows at load.
+        config = pool_data_config(config)
         pool = load_decision_pool(decisions_pool)
         clash = sorted(set(pool.raw) & set(raw))
         if clash:

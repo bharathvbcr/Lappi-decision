@@ -71,7 +71,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from repo_git import git_bytes, git_text, require_full_sha, resolve_rev, tracked_paths
 
 from qd_data.config import DataConfig
-from qd_data.decisions import load_decision_pool
+from qd_data.decisions import load_decision_pool, pool_data_config
 from qd_data.dedupe import dedupe
 from qd_data.defect_class import (
     CHOICE_SLOT as DEFECT_CHOICE_SLOT,
@@ -2455,7 +2455,9 @@ def run(
             "--decisions-pool "
             "reads no source at all; there would be nothing to build"
         )
-    config = DataConfig()
+    # A build that reads the decision pool admits its opt-in sources (ARC), with the human's
+    # recorded call; one without keeps the default config, so its manifests do not move.
+    config = DataConfig() if decisions_pool is None else pool_data_config()
     extra_metrics: dict[str, TriState] = {}
     resolved = resolve_rev(REPO, rev)
     containment = containment_corpus(corpus_identity(

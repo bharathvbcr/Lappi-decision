@@ -5,7 +5,7 @@
   "mode_threshold": 0.6,
   "ngram_n": 8,
   "containment_threshold": 0.5,
-  "fetch_record_sha256": "72537a1781083afcce26f99555e3975fb7fcec7911eb4d5b2bf53bb7338848bc",
+  "fetch_record_sha256": "a30e35a5633e80a89cf9a70e6b8c027573099bd631fc3d92ffea264753170fa0",
   "decider_sha256": {
     "routing_messages.jsonl": "8a9ad3ada5336c27985ad3b656e0df08bfebe2c599f1b7b62366a2918bd860dd",
     "routing_terse.jsonl": "2ad5434ee0f826995188a7aeea65c22a4676647056583d68237dce92748da638",
@@ -13,13 +13,17 @@
   },
   "target_sha256": {
     "jevbench-public": "37466decf8abbb3dd5dd05077c69a5a93fb7807526e9acf37c8a62d13a118608",
-    "jevjudge": "b71f129028ca750ca6a42dda9b79107770450669ba16a02b8979f5a5d342febe"
+    "jevjudge": "b71f129028ca750ca6a42dda9b79107770450669ba16a02b8979f5a5d342febe",
+    "arc-test": "258cc54b47f83d743f3191490fa3a41ff3d968eae9e618b861d52a72b24893c9"
   },
   "val_cap_per_family": 1000,
   "val_floor_per_family": 100,
   "val_cap_total": 6000,
-  "train_caps_basis": "Train rows per stratum (family/task/type). Fable 2026-10-03 under the human's budget lift (\"I don't care about budget if it's gonna be a great model\"): every admitted row that passes the label rules, except two redundancy caps. Open-Jev NLI is capped at 5,000 rows. Procedural is capped at 4,000 per stratum, a seeded draw within each of its 25 task x type strata. Open-Jev strata are keyed by domain (openjev.<family>/<domain>/<type>; Fable 2026-10-03), a reporting level: they are all-admitted, so no number moves. The other numbers are each stratum's whole train availability after decontamination, as qd-prep decisions counted it. If an availability grows, the build takes only the listed number: the cap is a count, and a stratum missing from the table is refused. Pre-registered, report-only: per-stratum procedural val accuracy. At >= 99% v6 lowers the procedural cap; otherwise v6 raises it. A stratum the label rules empty is listed with cap 0 (qd-prep refuses a non-zero cap naming no stratum): procedural.decisions/partial_observation_calibration/yesno is empty because its answers are all fractional probabilities, refused as probability_question (lead review 2026-10-03).",
+  "train_caps_basis": "Train rows per stratum (family/task/type). Fable 2026-10-03 under the human's budget lift (\"I don't care about budget if it's gonna be a great model\"): every admitted row that passes the label rules, except two redundancy caps. Open-Jev NLI is capped at 5,000 rows. Procedural is capped at 4,000 per stratum, a seeded draw within each of its 25 task x type strata. Open-Jev strata are keyed by domain (openjev.<family>/<domain>/<type>; Fable 2026-10-03), a reporting level: they are all-admitted, so no number moves. The other numbers are each stratum's whole train availability after decontamination, as qd-prep decisions counted it. If an availability grows, the build takes only the listed number: the cap is a count, and a stratum missing from the table is refused. Pre-registered, report-only: per-stratum procedural val accuracy. At >= 99% v6 lowers the procedural cap; otherwise v6 raises it. A stratum the label rules empty is listed with cap 0 (qd-prep refuses a non-zero cap naming no stratum): procedural.decisions/partial_observation_calibration/yesno is empty because its answers are all fractional probabilities, refused as probability_question (lead review 2026-10-03). v3 (lead 2026-10-03): the share-alike sources the human admitted -- BoolQ and ARC (Challenge and Easy) train, every row that passes the rules; VitaminC capped at 0 by default, because every row carries big_bench_canary, a marker its authors use for data to keep out of training corpora (the human decides; turning it on is this one cap, at most 5,000 seeded, the Open-Jev NLI redundancy cap).",
   "train_caps": {
+    "arc.science/challenge/choice": 1060,
+    "arc.science/easy/choice": 2119,
+    "boolq.reading/yesno": 8975,
     "decider.commands/commands/choice": 2828,
     "decider.commands/commands/yesno": 2287,
     "decider.routing/routing_messages/choice": 6410,
@@ -100,6 +104,7 @@
     "typed.workflow/invoice_processing/choice": 170,
     "typed.workflow/invoice_processing/yesno": 540,
     "typed.workflow/security_incidents/choice": 156,
-    "typed.workflow/security_incidents/yesno": 432
+    "typed.workflow/security_incidents/yesno": 432,
+    "vitaminc.nli/choice": 0
   }
 }

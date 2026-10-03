@@ -10,6 +10,7 @@ manifest names, and the option refusals agree with Rust's on a shared fixture.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import sys
@@ -21,6 +22,7 @@ from qd_data.config import DataConfig
 from qd_data.decisions import (
     DecisionPoolError,
     load_decision_pool,
+    pool_data_config,
     rewrite_typed_decision,
 )
 from qd_data.errors import LicenceRefused
@@ -30,6 +32,7 @@ from qd_data.mixture import RowRefused, build_mixture
 from qd_data.schema import ChoiceSlot
 from qd_data.sources import (
     DECISION_FAMILIES,
+    DECISION_POOL_OPT_INS,
     PINNED_SPLIT_KEY,
     SlotKind,
     source_by_id,
@@ -43,6 +46,7 @@ if str(REPO / "tools") not in sys.path:
     sys.path.insert(0, str(REPO / "tools"))
 OPTION_CASES = REPO / "crates/qd-prep/tests/fixtures/decision-option-cases.json"
 OPEN_JEV = "ZefanCai/Open-Jev-v1.1"
+ARC = "allenai/ai2_arc"
 
 
 def _row(**over: object) -> TypedDecisionRow:
@@ -59,7 +63,7 @@ def _row(**over: object) -> TypedDecisionRow:
 
 
 def test_every_decision_family_is_a_choice_family_of_a_registered_pinned_source() -> None:
-    assert len(DECISION_FAMILIES) == 12
+    assert len(DECISION_FAMILIES) == 15
     for family_id, source_id, description in DECISION_FAMILIES:
         family = task_family_by_id(family_id)
         assert family.source_id == source_id
@@ -67,7 +71,45 @@ def test_every_decision_family_is_a_choice_family_of_a_registered_pinned_source(
         assert family.description == description and description.strip()
         source = source_by_id(source_id)
         assert dict(source.pinned_splits) == {"train": "train", "val": "val"}
-        assert source.licence_policy.licence_id in {"cc-by-4.0", "apache-2.0", "mit"}
+        assert source.licence_policy.licence_id in {
+            "cc-by-4.0", "apache-2.0", "mit", "cc-by-sa-3.0", "cc-by-sa-4.0",
+        }
+
+
+def _arc_row(i: int) -> TypedDecisionRow:
+    return _row(
+        example_id=f"arc:easy:Mercury_{i}", source_id=ARC, family_id="arc.science",
+        stratum="arc.science/easy/choice", group_key=f"Mercury_{i}", licence="cc-by-sa-4.0",
+        context=f"Which option correctly answers this science question?\n\nWhich gas, case {i}?",
+        options=("oxygen", "carbon dioxide", "helium", "neon"), gold_option="carbon dioxide",
+    )
+
+
+def test_arc_pool_rows_are_admitted_only_through_the_pool_config() -> None:
+    """ARC is opt-in (share-alike): a build without the pool's config refuses its rows at load,
+    and ``pool_data_config`` admits it with the human's recorded call, and nothing else."""
+    rows = {ARC: [_arc_row(i) for i in range(3)]}
+    with pytest.raises(LicenceRefused, match="opt-in: 'allenai/ai2_arc' is off by default"):
+        build_mixture(rows, config=DataConfig(), families=["arc.science"])
+    config = pool_data_config()
+    assert config.licence.admitted_sources_by_human == DECISION_POOL_OPT_INS == {
+        ARC: DECISION_POOL_OPT_INS[ARC]
+    }
+    assert DataConfig().licence.admitted_sources_by_human == {}, "the default is untouched"
+    assert dataclasses.replace(config, licence=DataConfig().licence) == DataConfig()
+    mixture = build_mixture(rows, config=config, families=["arc.science"])
+    assert sorted(r.row_id for r in mixture.rows) == [
+        f"decision:arc:easy:Mercury_{i}" for i in range(3)
+    ]
+
+
+def test_boolq_and_vitaminc_are_admitted_pool_sources_not_opt_in() -> None:
+    """Not opt-in on purpose: an opt-in source is named in every manifest's (hashed)
+    refused_sources, so it would move every no-pool data_snapshot_hash."""
+    for source_id in ("google/boolq", "tals/vitaminc"):
+        source = source_by_id(source_id)
+        assert not source.opt_in_note and not source.admission_refusals(DataConfig().licence)
+    assert "[U]" in source_by_id("tals/vitaminc").evidence, "the canary GUID is unverified"
 
 
 def test_option_refusals_agree_with_rust_on_the_shared_fixture() -> None:

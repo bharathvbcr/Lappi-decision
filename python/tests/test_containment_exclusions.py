@@ -126,7 +126,7 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
     """Characterization: every shard file, sequence index and manifest of a 60-pair build,
     timestamps aside, is the bytes the pipeline wrote before the flag existed.
 
-    Pinned at d554702 as d67c7de0.... It has moved four times since, each time by design and
+    Pinned at d554702 as d67c7de0.... It has moved five times since, each time by design and
     with every moved byte accounted for. No move was a re-pin to whatever came out:
 
     * L-v5-data -> 92299328...: the tokens, offsets and supervision are byte-identical. The
@@ -149,14 +149,19 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
       data_snapshot_hash hold for a build without --decisions-pool), and the three headers
       differ only in code_fingerprint (decisions.py added; loaders, manifest, mixture, sources
       changed) and shard_hash. See
-      GAP-CHARACTERIZATION-PIN-STALE-SINCE-B11E6E0-SKIPPED-WITHOUT-COMMITPACKFT-2026-10-03."""
+      GAP-CHARACTERIZATION-PIN-STALE-SINCE-B11E6E0-SKIPPED-WITHOUT-COMMITPACKFT-2026-10-03.
+    * The pool's share-alike sources and probability check (bench v3 patch) -> acd6ea15...:
+      against the d998d6d8... build (build/char-v2/out-new, compared with its compare.py), 30 of
+      33 files are byte-identical, every manifest included, and the three shard headers differ
+      only in code_fingerprint["decisions.py"], code_fingerprint["sources.py"] and the
+      shard_hash that covers them. Differing binary files: 0."""
     pipeline = _pipeline_or_skip()
     pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev=PIN_REV, commitpackft=DOWNLOAD,
         val_shards=True, repo_history=False,
     )
     assert build_digest(tmp_path) == (
-        "d998d6d8734a2e33a6fcc1d4fae82502d5f38ec020539ce9589a8e0f55d220ad"
+        "acd6ea15c191281f1118177458a3a64d4a749e27b6f90d019e4f0c05653bb4b8"
     )
 
 

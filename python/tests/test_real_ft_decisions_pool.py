@@ -39,7 +39,7 @@ sys.path.insert(0, str(REPO / "python"))
 import real_ft_run as rft  # noqa: E402
 import real_tokenizer_pipeline as pipeline  # noqa: E402
 from repo_git import resolve_rev  # noqa: E402
-from test_decisions_pool import OPEN_JEV, _line, _write_pool  # noqa: E402
+from test_decisions_pool import ARC, OPEN_JEV, _line, _write_pool  # noqa: E402
 from test_real_ft_general_record import (  # noqa: E402
     PINNED,
     _facts,
@@ -97,6 +97,42 @@ def test_the_rebuild_is_the_pipelines_own_split_with_the_pool_rows(
     # Without the pool the rebuild is a different corpus: every pool row is gone.
     bare = rft.ft_splits(commitpackft=None, max_pairs=3, rev=rev, config=config)
     assert not any(r.source_id == OPEN_JEV for rows in bare.values() for r in rows)
+
+
+@pytest.mark.usefixtures("qd_prep")
+def test_a_pool_with_an_opt_in_source_rebuilds_with_the_pipelines_admission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ARC is an opt-in source: the pipeline admits it for a pool build (``pool_data_config``),
+    so the rebuild must too, or ``build_mixture`` refuses ARC's rows at load and the set
+    cannot be rebuilt at all."""
+    lines = [
+        _line(id=f"arc:easy:Mercury_{i}", source_id=ARC, family_id="arc.science",
+              stratum="arc.science/easy/choice", group_key=f"Mercury_{i}",
+              licence="cc-by-sa-4.0", split="val" if i % 4 == 0 else "train",
+              context=" ".join(f"arc{i}x{j}" for j in range(16)),
+              options=[f"A{i}", f"B{i}", f"C{i}", f"D{i}"], gold_option=f"B{i}")
+        for i in range(12)
+    ]
+    pool = _write_pool(tmp_path / "pool", lines)
+    out = tmp_path / "out"
+    rev = resolve_rev(REPO, PINNED)
+    monkeypatch.setattr(pipeline.RealTokenizer, "load", lambda **_: _StubTokenizer())
+
+    def stop(*_a: object, **_k: object) -> None:
+        raise _ManifestsWritten
+
+    monkeypatch.setattr(pipeline, "census", stop)
+    with pytest.raises(_ManifestsWritten):
+        pipeline.run(out=out, max_pairs=3, blank_line_runs=False, rev=rev, decisions_pool=pool)
+
+    splits = rft.ft_splits(commitpackft=None, max_pairs=3, rev=rev, config=DataConfig(),
+                           decisions_pool=pool)
+    for name, rel in (("train", "data/pool/train.json"), ("val", "data/pool/val.json"),
+                      ("heldout", "data/heldout/heldout.json")):
+        assert sorted(r.row_id for r in splits[name]) == _manifest_ids(out / rel), name
+    arc = {name: [r for r in rows if r.source_id == ARC] for name, rows in splits.items()}
+    assert arc["train"] and arc["val"] and arc["heldout"] == []
 
 
 def test_the_corpus_identity_names_the_pool_only_when_given(tmp_path: Path) -> None:
