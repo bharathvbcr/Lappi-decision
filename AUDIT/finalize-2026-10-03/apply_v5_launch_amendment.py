@@ -27,7 +27,7 @@ box's non-run hours, which the queue cannot see (it counts GPU steps only):
 - setup and preflight, two GPUs for ~2 h: 2 x 2 x $4.19 = $16.76;
 - the last round's idle GPU (J5'2 alone, ~6.0 h): $25.14;
 - GPU 1 idling while lane 0 probes, up to the probe's 1,800 s cap: $2.10. The probe's own GPU
-  is in v5.spend already (GAP-V5-2GPU-PROBE-SPEND-IN-V5-SPEND), so it is not subtracted, and a
+  is in v5.spend already (GAP-V5-2GPU-PROBE-SPEND-IN-V5-SPEND-2026-10-03), so it is not subtracted, and a
   retry's second $2.10 is the box watch's to see.
 That leaves $356.00, or 84.96 GPU-h at $4.19. It is ~15% over the $309.7 projection, which is
 headroom for an H100 slower than the GH200's cadence. (Fable checked this derivation, ~18:55Z.)

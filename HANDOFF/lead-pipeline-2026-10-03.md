@@ -35,7 +35,7 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 
 **Changed:**
 - **main:**
-  - 3629505: GAP-MAIN-COMMITTED-CARGO-LOCK-STALE;
+  - 3629505: GAP-MAIN-COMMITTED-CARGO-LOCK-STALE-2026-10-03;
   - 126c4b4: the human's optimize answer, "Launch as pre-registered";
   - a2b4664: merge of `l-v5-freeze`, the freeze script.
 - **v5-build:** cd2967e, the same-family scope.
