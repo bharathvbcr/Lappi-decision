@@ -233,6 +233,9 @@ fn gpu_embed_paths_are_bit_identical() {
 /// test refuses rather than reporting a mismatch it cannot interpret.
 const PIN_WEIGHT_HASH: &str = "92f6bd1c32837882d87e8c2446ba23783563eb67811dbed71de493ef71fba2e1";
 
+/// tessl's HEAD when the pins were reproduced by the 1a GPU slot (2026-10-03 03:42Z).
+const PIN_TESSL_HEAD: &str = "cf65d9d5d3deb97b0847e020a562ac8f15e6d5a9";
+
 /// v1 prefix-state digests (`PrefixState::digest`) of three fixed states, captured from the digest
 /// code as it stood **before** the parallel digest: Lappi `3d68484`, qd-metal `model.rs` sha256
 /// `b95db97c…` (one SHA-256 per buffer on one thread), `Cargo.lock` sha256 `3c536ef1…`, captured
@@ -240,6 +243,11 @@ const PIN_WEIGHT_HASH: &str = "92f6bd1c32837882d87e8c2446ba23783563eb67811dbed71
 /// test: it pins the bytes the runtime's slot-isolation check compares
 /// (`qd_runtime::answer::readonly_decode`), so any change to how the digest is computed must leave
 /// these exactly as they are.
+///
+/// The state bytes are kernel output, so a pin is a property of (weights, tessl's kernels, digest
+/// code). Reproduced 2026-10-03 03:42Z on tessl [`PIN_TESSL_HEAD`] with the dirty tree ledger row
+/// `28505f4c` records in `tessl_dirty_files` (30 paths, kernels among them): a tessl change can move
+/// these without the digest being at fault, which the test's failure message says.
 const PINNED_V1: &[(&str, &str)] = &[
     ("prefill_short", "3ba7b21a3ec8e15a40d6f6e539dcd56007c28a6ec2ee20499ce1ea51719b6f6b"),
     ("write_back", "85b7dab4bd04ca714af1481b2c89f60dc8a59eea0abb0ae0758f0fc99e36121e"),
@@ -286,7 +294,18 @@ fn gpu_prefix_state_digest_v1_is_pinned() {
         println!("v1 digest {name}: {hex}");
     }
     let want: Vec<(&str, String)> = PINNED_V1.iter().map(|(n, h)| (*n, h.to_string())).collect();
-    assert_eq!(got, want, "the v1 prefix-state digest changed");
+    if got != want {
+        let tessl = qd_metal::ledger::Provenance::of(None).map_or_else(
+            |e| format!("tessl's tree could not be read: {e}"),
+            |p| format!("tessl is now {} with {} dirty paths", p.tessl.head, p.tessl.dirty.len()),
+        );
+        panic!(
+            "the v1 prefix-state digests changed:\n  got    {got:?}\n  pinned {want:?}\nBlame the \
+             digest only after gpu_digest_paths_are_bit_identical fails: if serial == parallel \
+             there, tessl's kernels moved the state bytes ({tessl}; the pins were reproduced on \
+             {PIN_TESSL_HEAD} plus the dirty tree in ledger row 28505f4c)."
+        );
+    }
 }
 
 /// The serial digest (one thread, the code the pins were captured from) against the parallel one,
@@ -308,6 +327,9 @@ fn gpu_digest_paths_are_bit_identical() {
     let (_, long) = model.prefill(&long_ids).unwrap();
     states.push(("prefill_8192", long));
     for (name, s) in &states {
+        // The GPU-free size formula the digest scratch's retain cap is computed from.
+        let formula = qd_metal::model::prefix_state_nbytes(model.config(), s.tokens()).unwrap();
+        assert_eq!(s.nbytes(), formula, "{name}: device bytes vs prefix_state_nbytes");
         let serial = s.digest_by(DigestPath::Serial).unwrap();
         let parallel = s.digest_by(DigestPath::Parallel).unwrap();
         assert_eq!(serial, parallel, "{name}: the parallel digest differs from the serial one");
