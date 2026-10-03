@@ -5,63 +5,65 @@
     "promotion_population": {
       "question": "Which val population do permutation_consistency and ood_abstain's in-distribution bound judge promotion on: every family pooled (as built), each family separately, or code.defect_class with the general families report-only?",
       "gap": "GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS",
-      "status": "open",
-      "value": "pooled: every val family's choice rows, judged together",
-      "families": "all",
+      "status": "decided",
+      "value": "code.defect_class: the defect family's val choice rows judge permutation_consistency and ood_abstain's in-distribution bound; every general family is report-only",
+      "families": [
+        "code.defect_class"
+      ],
       "source": "the gates as built, not a ruling: tools/real_ft_run.py permutation_agreement and choice_rule_abstentions read every val choice row of every family; both were defined when val was code.defect_class only (gaps.jsonl, GAP-GATES-POOL-THE-GENERAL-FAMILIES-INTO-DEFECT-CONTRACTS, revised record)",
-      "decided_by": null,
-      "decided_on": null,
-      "decision_ref": null
+      "decided_by": "the human, by delegation (\"For decisions ask fable and proceed with them\", in the lead's session, 2026-10-03 ~13:14Z), through the lead, ruled by Fable",
+      "decided_on": "2026-10-03",
+      "decision_ref": "AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md (main b2ad747), ruling 2; the options and the counter-argument are in AUDIT/finalize-2026-10-03/promotion-decision-brief.md, row 1. Decided with v4's numbers in view. Pooled reading: permutation_consistency 93.2% (seed 0, f4feac15) and 93.7% (ens5, b45406b5) against a 95% floor; in-distribution abstentions 843 and 814 of 10,985 against a cap of 504. code.defect_class reading: 99.44% on both, and 13 of 2,304 abstentions on both (Wilson upper 0.0096). The suite half of ood_abstain is out-of-distribution by construction and does not change: 132/180 and 61/180 against 170. The rule takes effect only through code that reads this record (GAP-PROMOTION-RECORD-IS-NOT-APPLIED-BY-THE-GATES-2026-10-03)."
     },
     "average_may_promote": {
       "question": "May an average of seeds' weights, scored as an 'avg' eval row, be the promoted artifact in place of its seeds?",
       "gap": "GAP-AVERAGE-PROMOTION-IS-THE-HUMANS-DECISION",
-      "status": "open",
+      "status": "decided",
       "value": false,
       "source": "tools/real_ft_run.py AVERAGED_PROMOTION_NOTE (every averaged eval row says it does not make this decision); Fable F1 and D1-D3 in HANDOFF/gh200-phase4-2026-10-01.md",
-      "decided_by": null,
-      "decided_on": null,
-      "decision_ref": null
+      "decided_by": "the human, by delegation (\"For decisions ask fable and proceed with them\", in the lead's session, 2026-10-03 ~13:14Z), through the lead, ruled by Fable",
+      "decided_on": "2026-10-03",
+      "decision_ref": "AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md (main b2ad747), ruling 2: v5 promotes a three-seed recipe, not an average. The averaged model (c962cdd9) fails its own gate row: permutation_consistency 91.9%, 955 in-distribution abstentions against a cap of 504, and ood_abstain's suite half at 62/180."
     },
     "ece_population": {
       "question": "Should the ece gate run over all letter rows, with only its per-language breakdown requiring language metadata?",
       "gap": "GAP-ECE-GATE-IS-NOT-RUN-ON-THE-FULL-MIXTURE",
-      "status": "open",
-      "value": "per slot shape and per language; a letter row with no language leaves the gate not_run",
+      "status": "decided",
+      "value": "the promotion population's letter rows (code.defect_class), per slot shape that family has; the per-language breakdown is report-only",
       "source": "tools/real_ft_run.py calibration_states and language_eces as built",
-      "decided_by": null,
-      "decided_on": null,
-      "decision_ref": null
+      "decided_by": "the human, by delegation (\"For decisions ask fable and proceed with them\", in the lead's session, 2026-10-03 ~13:14Z), through the lead, ruled by Fable",
+      "decided_on": "2026-10-03",
+      "decision_ref": "AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md (main b2ad747), ruling 2: one population decision drives every in-distribution gate, and another ECE population would bring back the pooled base-rate objection that promotion_population rejects. Readings for code.defect_class k4 (bar 0.05): seed 0 0.0207, ens5 0.0135, avg 0.0498. The rejected readings: one pooled ECE over all 10,985 letter rows gives 0.0498, 0.0431 and 0.0578; per slot shape over every family fails k10 (intent.domain) at 0.081/0.099 and k15 (intent.within_domain) at 0.190/0.177. Takes effect only through code that reads this record (GAP-PROMOTION-RECORD-IS-NOT-APPLIED-BY-THE-GATES-2026-10-03)."
     },
     "degenerate_head_floor": {
       "question": "Is the degenerate_head control's 0.15-nat entropy floor meaningful for a calibrated, near-certain head, on binary and four-way slots?",
       "gap": "GAP-DEGENERATE-HEAD-FAILS-ON-BINARY-SLOTS-TOO",
-      "status": "open",
-      "value": "mean predictive entropy >= 0.15 nats and no predicted class above 0.95, on every slot shape",
+      "status": "decided",
+      "value": "no predicted class above 0.95 of a slot shape's predictions, on every slot shape; the 0.15-nat mean-entropy floor is retired",
       "source": "python/qd_train/eval_harness.py DEFAULT_ENTROPY_FLOOR and DEFAULT_MAX_CLASS_SHARE as built",
-      "decided_by": null,
-      "decided_on": null,
-      "decision_ref": null
+      "decided_by": "the human, by delegation (\"For decisions ask fable and proceed with them\", in the lead's session, 2026-10-03 ~13:14Z), through the lead, ruled by Fable",
+      "decided_on": "2026-10-03",
+      "decision_ref": "AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md (main b2ad747), ruling 2. The floor penalises calibrated confidence, which is the model's design goal. ece measures whether confidence is earned, and the class-share bound catches the actual degeneracy, one class always. This is the one ruling that flips v4 verdicts: degenerate_head goes from fail to pass on ens5 (k2 entropy 0.1415, k16 0.1383), avg (k2 0.0956, k16 0.1312) and F seeds 1-4 (aeca8d69 k16 0.1337; 8c3a774a k2 0.0988, k16 0.1452; ebc83be6 k2 0.1433; d8c8300a k2 0.1252, k16 0.1474). Seed 0 passes either way. The largest top-class share on any slot of these seven rows is 0.517, against 0.95. No row promotes on this: every one still fails ood_abstain's suite half. Takes effect only through code that reads this record (GAP-PROMOTION-RECORD-IS-NOT-APPLIED-BY-THE-GATES-2026-10-03)."
     },
     "privileged_hunk_pass_rule": {
       "question": "What eligibility share makes privileged_hunk a ceiling rather than a vacuous control, and what is its pass rule?",
       "gap": "GAP-PRIVILEGED-HUNK-IS-NEARLY-VACUOUS-ON-COMMITPACKFT",
-      "status": "open",
-      "value": "not set: the control stays not_run",
+      "status": "decided",
+      "value": "retired for v5: privileged_hunk is not a promotion requirement while the corpus's privileged window is the whole file on 48.0% of mutated examples; re-specified only for a corpus whose hunks are small",
       "source": "gaps.jsonl, GAP-PRIVILEGED-HUNK-IS-NEARLY-VACUOUS-ON-COMMITPACKFT",
-      "decided_by": null,
-      "decided_on": null,
-      "decision_ref": null
+      "decided_by": "the human, by delegation (\"For decisions ask fable and proceed with them\", in the lead's session, 2026-10-03 ~13:14Z), through the lead, ruled by Fable",
+      "decided_on": "2026-10-03",
+      "decision_ref": "AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md (main b2ad747), ruling 2. The gap's own measurement (GAP-PRIVILEGED-HUNK-IS-NEARLY-VACUOUS-ON-COMMITPACKFT): the window is the whole file on 20,014 of 41,728 mutated examples and 76.9% of the file at the median, so no eligibility share makes it a ceiling. Takes effect only through code that reads this record (GAP-PROMOTION-RECORD-IS-NOT-APPLIED-BY-THE-GATES-2026-10-03)."
     },
     "transfer_gate_definition": {
       "question": "What is transfer_gate, and on what data is it measured?",
       "gap": "GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA",
-      "status": "open",
-      "value": "not specified: the control stays not_run",
+      "status": "decided",
+      "value": "retired as a promotion requirement for v5. Promotion under this record certifies the mutation-labelled distribution only, and every export and release note carries that line. The research question stays open in GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA",
       "source": "gaps.jsonl, GAP-TRANSFER-GATE-IS-NAMED-NOT-SPECIFIED-AND-HAS-NO-DATA",
-      "decided_by": null,
-      "decided_on": null,
-      "decision_ref": null
+      "decided_by": "the human, by delegation (\"For decisions ask fable and proceed with them\", in the lead's session, 2026-10-03 ~13:14Z), through the lead, ruled by Fable",
+      "decided_on": "2026-10-03",
+      "decision_ref": "AUDIT/finalize-2026-10-03/fable-delegated-decisions-ruling.md (main b2ad747), ruling 2. No specification exists beyond docs/teacher-plan.md:126, and no natural held-out set labelled with these classes exists. Producing one means a human judging real commits. Takes effect only through code that reads this record (GAP-PROMOTION-RECORD-IS-NOT-APPLIED-BY-THE-GATES-2026-10-03)."
     }
   }
 }
