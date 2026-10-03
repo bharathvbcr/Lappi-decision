@@ -609,6 +609,24 @@ def test_only_one_process_finalizes(env: dict[str, Path]) -> None:
     assert cd.acquire_lock(cfg)
 
 
+def test_a_campaign_process_is_known_past_column_80() -> None:
+    """Linux procps cut ``ps -o command=`` at 80 columns when stdout is a pipe, so a driver or
+    guard started from a long path read as not ours: a second finalizer ran beside a live one
+    and a live guard read as dead (the H100 box suite at 8e6a009). macOS never cut it, so this
+    fails only on Linux before the fix."""
+    pad = "/" + "x" * 160
+    holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", pad,
+                               "campaign_driver.py", "--guard"], start_new_session=True)
+    try:
+        line = cd._cmdline(holder.pid)
+        assert pad in line and line.rstrip().endswith("campaign_driver.py --guard"), line
+        assert cd._is_campaign_process(holder.pid)
+        assert cd._is_guard(holder.pid)
+    finally:
+        holder.kill()
+        holder.wait(timeout=30)
+
+
 # --- the Mac side ------------------------------------------------------------------------
 
 
