@@ -1,0 +1,17 @@
+[as-built] openjev.policy: est. family pairs J>=0.8 1,033,836, 0.5<=J<0.8 13,617,598
+openjev.policy: 21744 rows, sample 400, 79800 pairs; J>=0.8: 349 (0.4373%); of those, different gold 110, same group 5, same template 91 (same template AND same gold 28); 3590 templates; median context 2096 chars
+   differing context chars at J>=0.8: median 113, max 1145; min J 0.803
+[as-built] openjev.evidence: est. family pairs J>=0.8 1,164,391, 0.5<=J<0.8 7,253,107
+openjev.evidence: 17629 rows, sample 400, 79800 pairs; J>=0.8: 598 (0.7494%); of those, different gold 292, same group 12, same template 105 (same template AND same gold 38); 1829 templates; median context 2279 chars
+   differing context chars at J>=0.8: median 139, max 866; min J 0.802
+[as-built] openjev.routing: est. family pairs J>=0.8 76,118, 0.5<=J<0.8 4,629,342
+openjev.routing: 6647 rows, sample 400, 79800 pairs; J>=0.8: 275 (0.3446%); of those, different gold 221, same group 29, same template 275 (same template AND same gold 54); 584 templates; median context 2040 chars
+   differing context chars at J>=0.8: median 341, max 885; min J 0.800
+[as-built] openjev.rubric: est. family pairs J>=0.8 141,315, 0.5<=J<0.8 1,506,603
+openjev.rubric: 4365 rows, sample 400, 79800 pairs; J>=0.8: 1184 (1.4837%); of those, different gold 908, same group 41, same template 1184 (same template AND same gold 276); 241 templates; median context 2094 chars
+   differing context chars at J>=0.8: median 401, max 1235; min J 0.804
+[as-built] decider.commands: est. family pairs J>=0.8 8,380, 0.5<=J<0.8 5,805,134
+decider.commands: 5335 rows, sample 400, 79800 pairs; J>=0.8: 47 (0.0589%); of those, different gold 0, same group 0, same template 0 (same template AND same gold 0); 3450 templates; median context 114 chars
+   differing context chars at J>=0.8: median 12, max 37; min J 0.800
+[as-built] procedural.decisions: est. family pairs J>=0.8 0, 0.5<=J<0.8 8,164,929
+procedural.decisions: 96825 rows, sample 400, 79800 pairs; J>=0.8: 0 (0.0000%); of those, different gold 0, same group 0, same template 0 (same template AND same gold 0); 85325 templates; median context 1128 chars

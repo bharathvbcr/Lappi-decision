@@ -1,0 +1,18 @@
+[spaced] openjev.policy: est. family pairs J>=0.8 302,152, 0.5<=J<0.8 6,925,809
+openjev.policy: 21744 rows, sample 400, 79800 pairs; J>=0.8: 102 (0.1278%); of those, different gold 19, same group 10, same template 10 (same template AND same gold 3); 3590 templates; median context 2096 chars
+   differing context chars at J>=0.8: median 24, max 93; min J 0.800
+[spaced] openjev.evidence: est. family pairs J>=0.8 558,830, 0.5<=J<0.8 4,579,680
+openjev.evidence: 17629 rows, sample 400, 79800 pairs; J>=0.8: 287 (0.3596%); of those, different gold 161, same group 16, same template 16 (same template AND same gold 4); 1829 templates; median context 2279 chars
+   differing context chars at J>=0.8: median 101, max 228; min J 0.800
+[spaced] openjev.routing: est. family pairs J>=0.8 17,161, 0.5<=J<0.8 578,495
+openjev.routing: 6647 rows, sample 400, 79800 pairs; J>=0.8: 62 (0.0777%); of those, different gold 57, same group 52, same template 52 (same template AND same gold 4); 584 templates; median context 2040 chars
+   differing context chars at J>=0.8: median 10, max 65; min J 0.800
+[spaced] openjev.rubric: est. family pairs J>=0.8 8,235, 0.5<=J<0.8 354,361
+openjev.rubric: 4365 rows, sample 400, 79800 pairs; J>=0.8: 69 (0.0865%); of those, different gold 63, same group 69, same template 69 (same template AND same gold 6); 241 templates; median context 2094 chars
+   differing context chars at J>=0.8: median 7, max 65; min J 0.847
+[spaced] decider.commands: est. family pairs J>=0.8 16,047, 0.5<=J<0.8 6,231,274
+decider.commands: 5335 rows, sample 400, 79800 pairs; J>=0.8: 90 (0.1128%); of those, different gold 12, same group 0, same template 0 (same template AND same gold 0); 3450 templates; median context 114 chars
+   differing context chars at J>=0.8: median 10, max 37; min J 0.800
+[spaced] procedural.decisions: est. family pairs J>=0.8 6,990,120, 0.5<=J<0.8 115,307,601
+procedural.decisions: 96825 rows, sample 400, 79800 pairs; J>=0.8: 119 (0.1491%); of those, different gold 77, same group 0, same template 0 (same template AND same gold 0); 85325 templates; median context 1128 chars
+   differing context chars at J>=0.8: median 236, max 1857; min J 0.801
