@@ -126,7 +126,7 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
     """Characterization: every shard file, sequence index and manifest of a 60-pair build,
     timestamps aside, is the bytes the pipeline wrote before the flag existed.
 
-    Pinned at d554702 as d67c7de0.... It has moved six times since, each time by design and
+    Pinned at d554702 as d67c7de0.... It has moved seven times since, each time by design and
     with every moved byte accounted for. No move was a re-pin to whatever came out:
 
     * L-v5-data -> 92299328...: the tokens, offsets and supervision are byte-identical. The
@@ -162,14 +162,20 @@ def test_a_build_without_the_flag_writes_what_it_wrote_before(tmp_path: Path) ->
       bound writes no new report key -- and the three shard headers differ only in
       code_fingerprint["config.py"], ["dedupe.py"], ["split.py"] and the shard_hash that
       covers them. Differing binary files: 0.
-      AUDIT/finalize-2026-10-03/dedupe-probe/char-v4-compare.out."""
+      AUDIT/finalize-2026-10-03/dedupe-probe/char-v4-compare.out.
+    * The pool's v4 half (bench): the exact-content marker, the pool's candidate bound in
+      pool_data_config, VitaminC in and two new pool targets -> 82e412c4...: against the
+      d65616af... build (build/char-v4/out-new, compared with char-v2's compare.py), 30 of 33
+      files are byte-identical, every manifest included, and the three shard headers differ
+      only in code_fingerprint["decisions.py"], code_fingerprint["sources.py"] and the
+      shard_hash that covers them. Differing binary files: 0."""
     pipeline = _pipeline_or_skip()
     pipeline.run(
         out=tmp_path, max_pairs=60, blank_line_runs=False, rev=PIN_REV, commitpackft=DOWNLOAD,
         val_shards=True, repo_history=False,
     )
     assert build_digest(tmp_path) == (
-        "d65616af28544d143de0aac38469b140df7b653216e980e83dd8db9757f63dd9"
+        "82e412c41fadf0b47965b9d0b4b4d3d25f54785be12dd53601c14a27e79e4287"
     )
 
 

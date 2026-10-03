@@ -18,19 +18,21 @@ from pathlib import Path
 
 import pytest
 
-from qd_data.config import DataConfig
+from qd_data.config import DEFAULT_MAX_CANDIDATE_PAIRS, POOL_MAX_CANDIDATE_PAIRS, DataConfig
 from qd_data.decisions import (
     DecisionPoolError,
     load_decision_pool,
     pool_data_config,
     rewrite_typed_decision,
 )
+from qd_data.dedupe import EXACT_CONTENT, NEAR_DUPLICATE_POLICY_KEY, near_duplicate_policy
 from qd_data.errors import LicenceRefused
 from qd_data.general import _checked_options
 from qd_data.loaders import MalformedRowRefusal, TypedDecisionRow
 from qd_data.mixture import RowRefused, build_mixture
 from qd_data.schema import ChoiceSlot
 from qd_data.sources import (
+    DECISION_EXACT_CONTENT_FAMILIES,
     DECISION_FAMILIES,
     DECISION_POOL_OPT_INS,
     PINNED_SPLIT_KEY,
@@ -96,11 +98,63 @@ def test_arc_pool_rows_are_admitted_only_through_the_pool_config() -> None:
         ARC: DECISION_POOL_OPT_INS[ARC]
     }
     assert DataConfig().licence.admitted_sources_by_human == {}, "the default is untouched"
-    assert dataclasses.replace(config, licence=DataConfig().licence) == DataConfig()
+    # The licence and the candidate bound are all it changes.
+    assert dataclasses.replace(
+        config, licence=DataConfig().licence, max_candidate_pairs=DEFAULT_MAX_CANDIDATE_PAIRS
+    ) == DataConfig()
     mixture = build_mixture(rows, config=config, families=["arc.science"])
     assert sorted(r.row_id for r in mixture.rows) == [
         f"decision:arc:easy:Mercury_{i}" for i in range(3)
     ]
+
+
+def test_the_pool_config_carries_the_measured_candidate_bound() -> None:
+    """Every tool that reads the pool gets its bound from ``pool_data_config`` (Fable,
+    RULING.md "(A)"); a build without a pool keeps the default, so its manifests do not move."""
+    assert DataConfig().max_candidate_pairs == DEFAULT_MAX_CANDIDATE_PAIRS == 5_000_000
+    assert pool_data_config().max_candidate_pairs == POOL_MAX_CANDIDATE_PAIRS == 12_500_000
+    assert pool_data_config(pool_data_config()) == pool_data_config(), "idempotent"
+    named = dataclasses.replace(DataConfig(), max_candidate_pairs=7)
+    assert pool_data_config(named).max_candidate_pairs == 7, "a caller's own bound wins"
+
+
+#: The ruling's families, spelled out here rather than read from the table under test.
+_RULED_EXACT_CONTENT = {"openjev.policy", "openjev.evidence", "openjev.routing", "openjev.rubric"}
+
+
+def test_exactly_the_four_structured_open_jev_families_are_deduplicated_by_exact_content() -> None:
+    assert DECISION_EXACT_CONTENT_FAMILIES == _RULED_EXACT_CONTENT
+    config = pool_data_config()
+    for family_id, source_id, _ in DECISION_FAMILIES:
+        source = source_by_id(source_id)
+        raw = _row(
+            example_id=f"{family_id}:0", source_id=source_id, family_id=family_id,
+            stratum=f"{family_id}/choice",
+            licence="cc0-1.0" if source_id == OPEN_JEV else source.declared_licence,
+        )
+        row = rewrite_typed_decision(raw, family_id=family_id, index=0, config=config)
+        marked = row.metadata.get(NEAR_DUPLICATE_POLICY_KEY)
+        if family_id in _RULED_EXACT_CONTENT:
+            assert marked == EXACT_CONTENT, family_id
+            assert near_duplicate_policy(row) == EXACT_CONTENT
+        else:
+            assert NEAR_DUPLICATE_POLICY_KEY not in row.metadata, family_id
+            assert near_duplicate_policy(row) is None
+
+
+def test_no_other_rewriter_writes_the_near_duplicate_policy() -> None:
+    """The marker takes a row out of the MinHash search, so who may name its key is pinned: the
+    pool's rewriter, which writes it, and qd_data.dedupe, which defines and reads it (split
+    reads it through ``dedupe.near_duplicate_policy``). Any other module of qd_data or tools
+    naming the key is a second writer nobody ruled on."""
+    named = {
+        p.relative_to(REPO).as_posix()
+        for root in (REPO / "python/qd_data", REPO / "tools")
+        for p in root.rglob("*.py")
+        if "NEAR_DUPLICATE_POLICY_KEY" in p.read_text(encoding="utf-8")
+        or '"near_duplicate_policy"' in p.read_text(encoding="utf-8")
+    }
+    assert named == {"python/qd_data/decisions.py", "python/qd_data/dedupe.py"}
 
 
 def test_boolq_and_vitaminc_are_admitted_pool_sources_not_opt_in() -> None:

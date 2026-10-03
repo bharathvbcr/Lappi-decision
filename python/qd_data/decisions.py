@@ -24,14 +24,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from .config import DataConfig
+from .config import DEFAULT_MAX_CANDIDATE_PAIRS, POOL_MAX_CANDIDATE_PAIRS, DataConfig
+from .dedupe import EXACT_CONTENT, NEAR_DUPLICATE_POLICY_KEY
 from .general import _checked_options
-from .licences import LicenceConfig, admit_licence
+from .licences import admit_licence
 from .loaders import MalformedRowRefusal, TypedDecisionRow, parse_typed_decision
 from .mixture import RowRefused, _request, _row
 from .rows import DataRow, GoldAnswer
 from .schema import ChoiceSlot
-from .sources import DECISION_FAMILIES, DECISION_POOL_OPT_INS, PINNED_SPLIT_KEY, source_by_id
+from .sources import (
+    DECISION_EXACT_CONTENT_FAMILIES,
+    DECISION_FAMILIES,
+    DECISION_POOL_OPT_INS,
+    PINNED_SPLIT_KEY,
+    source_by_id,
+)
 
 __all__ = [
     "DECISION_POOL_SCHEMA",
@@ -141,20 +148,34 @@ def load_decision_pool(pool_dir: Path) -> DecisionPool:
 
 
 def pool_data_config(config: DataConfig | None = None) -> DataConfig:
-    """``config`` (default ``DataConfig()``) with the pool's opt-in sources admitted, each with
-    the human call recorded in :data:`~qd_data.sources.DECISION_POOL_OPT_INS`. The one place
-    a build that reads a pool gets its admission from: the pipeline's build and every
-    ``ft_splits`` rebuild of it must admit the same sources, or the rebuild refuses ARC's rows
-    at load (``build_mixture``: an opt-in source not admitted). Apply it only when a pool is
-    read; a build without one keeps its config, so its manifests do not move."""
+    """``config`` (default ``DataConfig()``) as a build that reads a pool runs it. The one place
+    such a build gets its settings from: the pipeline's build and every ``ft_splits`` rebuild
+    of it must agree, or the rebuild refuses ARC's rows at load (``build_mixture``: an opt-in
+    source not admitted) or stops its near-duplicate search at another bound.
+
+    - The pool's opt-in sources are admitted, each with the human call recorded in
+      :data:`~qd_data.sources.DECISION_POOL_OPT_INS`.
+    - The candidate-pair bound is :data:`~qd_data.config.POOL_MAX_CANDIDATE_PAIRS`, the figure
+      measured on the pool (Fable, 2026-10-03, RULING.md "(A)"). A caller that already named a
+      bound other than the default keeps its own, as its own licence admissions win.
+
+    Apply it only when a pool is read; a build without one keeps its config, so its manifests
+    do not move."""
     base = DataConfig() if config is None else config
     opted = {**DECISION_POOL_OPT_INS, **base.licence.admitted_sources_by_human}
+    bound = (
+        POOL_MAX_CANDIDATE_PAIRS
+        if base.max_candidate_pairs == DEFAULT_MAX_CANDIDATE_PAIRS
+        else base.max_candidate_pairs
+    )
     return dataclasses.replace(
         base,
-        licence=LicenceConfig(
+        licence=dataclasses.replace(
+            base.licence,
             admitted_by_human=dict(base.licence.admitted_by_human),
             admitted_sources_by_human=opted,
         ),
+        max_candidate_pairs=bound,
     )
 
 
@@ -200,5 +221,11 @@ def rewrite_typed_decision(
             "stratum": raw.stratum,
             "label_basis": raw.label_basis,
             PINNED_SPLIT_KEY: str(pinned),
+            # Exact-content dedupe, outside the MinHash search (DECISION_EXACT_CONTENT_FAMILIES).
+            **(
+                {NEAR_DUPLICATE_POLICY_KEY: EXACT_CONTENT}
+                if family_id in DECISION_EXACT_CONTENT_FAMILIES
+                else {}
+            ),
         },
     )

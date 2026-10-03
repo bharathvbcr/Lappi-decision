@@ -11,8 +11,9 @@
 //!   verifier-agreed `teacher_data` (routing_messages, routing_terse, commands), and the
 //!   share-alike set the human admitted on 2026-10-03: BoolQ `train`, ARC-Challenge and ARC-Easy
 //!   `train`, VitaminC `train`. No upstream val, test, calibration or OOD file is opened as
-//!   training data, so those stay reportable; ARC's test split is read only as a
-//!   decontamination target (`--target arc-test=...`).
+//!   training data, so those stay reportable; ARC's test split, BoolQ's validation split and
+//!   VitaminC's test split are read only as decontamination targets (`--target arc-test=...`,
+//!   `boolq-val=...`, `vitaminc-test=...`; the last two the human's yes of 2026-10-03).
 //! - **Choice-shaped only.** `score` questions are refused (they are v6's, with its loss). A
 //!   Jev-style yes/no question (the sources call the type `noul`; it is **not** Lappi's abstain)
 //!   becomes a two-option choice, "yes" / "no".
@@ -171,7 +172,8 @@ pub const VITAMINC_QUESTION: &str =
 
 /// What the manifest says of the upstream files no candidate is read from.
 const UPSTREAM_NOT_OPENED: &str = "every val, test, calibration and ood file of every source; \
-     ARC's test split is read only as the decontamination target arc-test, never as candidates";
+     ARC's test split, BoolQ's validation split and VitaminC's test split are read only as the \
+     decontamination targets arc-test, boolq-val and vitaminc-test, never as candidates";
 
 /// How far a probability vector's sum may be from 1. Measured on the train inputs on
 /// 2026-10-03 before the check existed (lead ruling that day): Open-Jev targets (135,705) and
@@ -533,8 +535,11 @@ impl Ctx<'_> {
         Ok(())
     }
 
-    fn split_of(&self, family: &str, group: &str) -> &'static str {
-        if unit_draw(self.cfg.seed, &["val", family, group]) < self.cfg.val_fraction {
+    /// The split of every row of `group` within `scope`. The scope is the unit a group key is
+    /// unique in: a family, except where one scene feeds several families (Open-Jev), where it
+    /// is the source, so a scene's questions all land on one side.
+    fn split_of(&self, scope: &str, group: &str) -> &'static str {
+        if unit_draw(self.cfg.seed, &["val", scope, group]) < self.cfg.val_fraction {
             "val"
         } else {
             "train"
@@ -613,7 +618,10 @@ fn open_jev(ctx: &mut Ctx<'_>, r: &Value) -> Result<(), String> {
             Value::String(s) => s.clone(),
             other => other.to_string(),
         };
-        let split = ctx.split_of(&family_id, group);
+        // Drawn per scene, not per (family, scene): painting-geometry scenes feed both evidence
+        // and routing, and a per-family draw put 3 of them in train in one and val in the other
+        // (lead ruling, v4).
+        let split = ctx.split_of(OPEN_JEV, group);
         Ok(Candidate {
             id: format!("openjev:{id}"),
             source_id: OPEN_JEV,
@@ -1064,8 +1072,8 @@ fn arc(ctx: &mut Ctx<'_>, set: &'static str, r: &Value) -> Result<(), String> {
 /// VitaminC: does the evidence support the claim, refute it, or neither. Grouped by `case_id`,
 /// so a contrastive pair (one claim against two revisions of its evidence) never straddles train
 /// and val. Every row also carries `big_bench_canary`, a marker its authors use for data to be
-/// kept out of training corpora; it is never read into a row, and whether VitaminC trains at
-/// all is the cap table's (`vitaminc.nli/choice`, 0 by default: lead ruling 2026-10-03).
+/// kept out of training corpora; it is never read into a row. How many rows train is the cap
+/// table's (`vitaminc.nli/choice`: 5,000 seeded, the human's yes of 2026-10-03).
 fn vitaminc(ctx: &mut Ctx<'_>, r: &Value) -> Result<(), String> {
     let made = (|| -> Result<Candidate, &'static str> {
         let id = r.get("unique_id").and_then(Value::as_str).ok_or("malformed")?;
@@ -1379,6 +1387,72 @@ pub fn select(cfg: &Config, candidates: &[Candidate]) -> Result<Vec<usize>, Stri
     chosen.sort_unstable();
     chosen.dedup();
     Ok(chosen)
+}
+
+/// One cap a refresh moved: `(stratum, cap before, cap after)`.
+pub type CapMove = (String, usize, usize);
+
+/// Each stratum's train availability, from a `--survey` manifest's `available`.
+pub fn survey_train_availability(manifest: &[u8]) -> Result<BTreeMap<String, usize>, String> {
+    let v: Value = serde_json::from_slice(manifest).map_err(|e| format!("survey manifest: {e}"))?;
+    if v.get("schema").and_then(Value::as_str) != Some(MANIFEST_SCHEMA)
+        || v.get("mode").and_then(Value::as_str) != Some("survey")
+    {
+        return Err(format!("not a {MANIFEST_SCHEMA:?} survey manifest"));
+    }
+    get(&v, "available", "survey manifest")?
+        .as_object()
+        .ok_or("survey manifest: \"available\" is not an object")?
+        .iter()
+        .map(|(k, x)| {
+            x.get("train")
+                .and_then(Value::as_u64)
+                .map(|n| (k.clone(), n as usize))
+                .ok_or_else(|| format!("survey manifest: available.{k}.train is not a count"))
+        })
+        .collect()
+}
+
+/// The mechanical cap refresh (lead, 2026-10-03, v4): a stratum whose cap equals its train
+/// availability in the `before` survey is all-admitted, and its cap becomes its availability in
+/// the `after` survey. Every other cap is kept: a redundancy cap (below its availability) and a
+/// 0. A stratum the label rules empty has no survey entry and is listed at 0, so a cap naming
+/// no surveyed stratum is refused unless it is 0, as are surveys whose strata differ. Nothing is
+/// set by hand: the table's caps are this function's output.
+pub fn refresh_train_caps(
+    caps: &BTreeMap<String, usize>,
+    before: &BTreeMap<String, usize>,
+    after: &BTreeMap<String, usize>,
+) -> Result<(BTreeMap<String, usize>, Vec<CapMove>), String> {
+    if before.keys().ne(after.keys()) {
+        let only = |a: &BTreeMap<String, usize>, b: &BTreeMap<String, usize>| -> Vec<String> {
+            a.keys().filter(|k| !b.contains_key(*k)).cloned().collect()
+        };
+        return Err(format!(
+            "the surveys' strata differ: only before {:?}, only after {:?}",
+            only(before, after),
+            only(after, before)
+        ));
+    }
+    let unsurveyed: Vec<&String> =
+        caps.iter().filter(|(k, n)| **n > 0 && !after.contains_key(*k)).map(|(k, _)| k).collect();
+    let uncapped: Vec<&String> = after.keys().filter(|k| !caps.contains_key(*k)).collect();
+    if !unsurveyed.is_empty() || !uncapped.is_empty() {
+        return Err(format!(
+            "caps and survey disagree: non-zero caps on unsurveyed strata {unsurveyed:?}, \
+             surveyed strata with no cap {uncapped:?}"
+        ));
+    }
+    let mut out = caps.clone();
+    let mut moved = Vec::new();
+    for (stratum, cap) in caps {
+        let (Some(was), Some(now)) = (before.get(stratum), after.get(stratum)) else { continue };
+        if *cap > 0 && cap == was && now != was {
+            out.insert(stratum.clone(), *now);
+            moved.push((stratum.clone(), *cap, *now));
+        }
+    }
+    Ok((out, moved))
 }
 
 /// What the run writes, before it is written.
@@ -1852,6 +1926,61 @@ mod tests {
         let strata: Vec<&str> = x.out.iter().map(|c| c.stratum.as_str()).collect();
         assert_eq!(strata, ["openjev.policy/support/choice", "openjev.policy/unlabelled/choice"]);
         assert_eq!(x.tallies[OPEN_JEV].refused["malformed_domain"], 1);
+    }
+
+    #[test]
+    fn an_open_jev_scene_that_feeds_two_families_lands_on_one_side() {
+        let c = cfg();
+        let mut x = ctx(&c);
+        for g in 0..400 {
+            for (family, kind) in [("evidence", "ev"), ("routing", "rt")] {
+                let mut row = open_jev_row(&["a", "b"], &[1.0, 0.0], "CC0-1.0", "choice");
+                row["group_id"] = json!(format!("painting-geometry-v1:scene{g}"));
+                row["id"] = json!(format!("painting-geometry-v1:scene{g}:{kind}"));
+                row["metadata"]["family"] = json!(family);
+                open_jev(&mut x, &row).unwrap();
+            }
+        }
+        assert_eq!(x.out.len(), 800);
+        let vals = x.out.iter().filter(|c| c.split == "val").count();
+        assert!(vals > 0, "the draw must put some scenes in val, or this test proves nothing");
+        for pair in x.out.chunks(2) {
+            assert_ne!(pair[0].family_id, pair[1].family_id);
+            assert_eq!(pair[0].split, pair[1].split, "{} straddles the split", pair[0].group_key);
+        }
+    }
+
+    #[test]
+    fn the_cap_refresh_moves_only_all_admitted_strata() {
+        let m = |xs: &[(&str, usize)]| -> BTreeMap<String, usize> {
+            xs.iter().map(|(k, n)| ((*k).to_owned(), *n)).collect()
+        };
+        let caps = m(&[("all", 10), ("same", 7), ("redundancy", 5), ("shrunk", 50), ("off", 0), ("empty", 0)]);
+        let before = m(&[("all", 10), ("same", 7), ("redundancy", 100), ("shrunk", 100), ("off", 40)]);
+        let after = m(&[("all", 12), ("same", 7), ("redundancy", 80), ("shrunk", 30), ("off", 35)]);
+        let (out, moved) = refresh_train_caps(&caps, &before, &after).unwrap();
+        assert_eq!(moved, vec![("all".to_owned(), 10, 12)], "only the all-admitted stratum moves");
+        assert_eq!(out["all"], 12);
+        assert_eq!(out["same"], 7, "all-admitted with no change in availability stays");
+        assert_eq!(out["redundancy"], 5, "a redundancy cap is not a count of what was available");
+        assert_eq!(out["shrunk"], 50, "nor is one whose availability fell under it: select takes less");
+        assert_eq!((out["off"], out["empty"]), (0, 0), "a 0 stays 0, surveyed or not");
+
+        let mut odd = after.clone();
+        odd.insert("new".into(), 3);
+        assert!(refresh_train_caps(&caps, &before, &odd).unwrap_err().contains("strata differ"));
+        let mut unsurveyed = caps.clone();
+        unsurveyed.insert("typo".into(), 9);
+        assert!(refresh_train_caps(&unsurveyed, &before, &after).unwrap_err().contains("\"typo\""));
+        let mut uncapped = caps.clone();
+        uncapped.remove("redundancy");
+        assert!(refresh_train_caps(&uncapped, &before, &after).unwrap_err().contains("\"redundancy\""));
+
+        let survey = json!({"schema": MANIFEST_SCHEMA, "mode": "survey",
+                            "available": {"all": {"train": 12, "val": 1}}});
+        assert_eq!(survey_train_availability(survey.to_string().as_bytes()).unwrap(), m(&[("all", 12)]));
+        let build = json!({"schema": MANIFEST_SCHEMA, "mode": "build", "available": {}});
+        assert!(survey_train_availability(build.to_string().as_bytes()).is_err(), "a build is not a survey");
     }
 
     #[test]
