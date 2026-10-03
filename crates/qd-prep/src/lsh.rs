@@ -39,7 +39,8 @@ use crate::wire::Cursor;
 pub const INPUT_MAGIC: &[u8; 8] = b"QDPLSIN1";
 pub const OUTPUT_MAGIC: &[u8; 8] = b"QDPLSOK1";
 /// The phase-4 rebuild's largest call is ~280 thousand keys of 128 values, ~290 MB; J1's is
-/// about twice that. 4 GiB is the MinHash request's bound, and as far past either.
+/// about twice that. 4 GiB is far past either: ~4.2 million keys of 128 u64 values. (It was
+/// the MinHash request's bound too until that one went to 16 GiB for v5's shingle bytes.)
 pub const MAX_INPUT_BYTES: u64 = 4 << 30;
 /// Keys per call. Reply indices are u32.
 pub const MAX_KEYS: u64 = 1 << 31;

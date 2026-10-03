@@ -51,13 +51,22 @@ fn linfit_and_ngrams_refuse_only_past_their_own_bound() {
 }
 
 #[test]
-fn minhash_keeps_its_four_gib_bound() {
+fn minhash_takes_the_v5_corpus_and_refuses_only_past_its_own_bound() {
     let bound = qd_prep::wire::MAX_INPUT_BYTES;
-    assert_eq!(bound, 4 << 30);
+    assert_eq!(bound, 16 << 30);
+    // The v5 containment scan's MinHash request was 4,534,193,280 bytes (2026-10-03), past the
+    // old 4 GiB bound. One byte past the old bound must now be read and refused for what it is
+    // (a sparse file of zeros has no magic), never for its size.
+    let (ok, stderr, wrote) = run_on_sparse("minhash", (4 << 30) + 1);
+    assert!(!ok && !wrote, "{stderr}");
+    assert!(
+        !stderr.contains("the bound is"),
+        "a request past 4 GiB was refused for its size: {stderr}"
+    );
     let (ok, stderr, wrote) = run_on_sparse("minhash", bound + 1);
     assert!(!ok && !wrote, "{stderr}");
     assert!(
-        stderr.contains(&format!("the bound is {bound}")),
-        "{stderr}"
+        stderr.contains(&format!("{} bytes; the bound is {bound}", bound + 1)),
+        "minhash refused at another bound: {stderr}"
     );
 }
