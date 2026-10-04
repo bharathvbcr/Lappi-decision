@@ -6,6 +6,78 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~10:55Z 2026-10-04: v6-startup merged; the human's four approvals and Fable's rulings
+
+**The human, ~10:30Z:** "Merge the fix", then "I approve all those decisions ask fable too".
+The four decisions were:
+1. merge `v6-startup`;
+2. the ~$2 box run of the 2B trajectory parity;
+3. the rerun of v5's CPU controls;
+4. `--split-cache` in v6's launches.
+
+**On main, in order:**
+- **14f9329, the control fix.** `qd_train/exclusions.corpus_matches` compares `max_pairs` only
+  where it bounds a row. Both attestation checks use it: `read_exclusions` and
+  `real_ft_run.py`'s replay check.
+  - Fail-first: in a detached worktree of main's HEAD, `test_exclusions_corpus_key.py` failed
+    with the box's exact error.
+  - After the fix: 176 passed, 3 opt-in skipped.
+  - Gap: GAP-V5-CONTROL-MAX-PAIRS-KEY-MISMATCH-2026-10-04.
+- **18a4e6d.** GAP-DEVMAP-LAPPI-DB-MALFORMED-2026-10-03, a record another session appended
+  uncommitted, committed alone and byte for byte so the merge could update `gaps.jsonl`. Fable
+  ruled it; `test_gaps_ledger.py` was green with that line first.
+- **fbd43f5, merge of `v6-startup` (b1f20ed..7138ed4).** Made in a temporary detached worktree,
+  with the `gaps.jsonl` end-of-file conflict resolved as a union. Main then took it by
+  `--ff-only`. The other session's 9 uncommitted paths in main's tree were unchanged across it
+  [V, status compared].
+  - `real_ft_run.py` auto-merged and kept both `corpus_matches` and `--split-cache`.
+  - `PLAN_MAX_KINDS` is still 8 (not among the four approvals).
+  - The lane's change to the existing `test_v5_queue_scripts.py` was read before the merge: it
+    still requires exactly one `ft_split_rows` binding and no `**kwargs`.
+
+**Tests on the merged tree** [V, `build/merge-v6/suite.log`]:
+- The full Python suite on the ML venv: all passed except three.
+  - Two are worktree-only: `test_gaps_writer` needs the checkout's name, and `test_lint_gate`
+    needs `.venv/bin/ruff`. Both were rerun in main after the fast-forward.
+  - `test_declared_dependencies` failed because the launcher lacked the declared `datasketch`.
+    Rerun with it: `test_minhash`, `test_export_oracle` and `test_declared_dependencies` pass,
+    with 4 skips (`QD_EXPORT_BIN` unset).
+- In main: `test_gaps_writer` and `test_gaps_ledger` pass.
+- `test_lint_gate::test_the_repository_has_no_ruff_findings` fails on 147 findings, every one
+  in a file the merge did not touch: 97 in `AUDIT/finalize-2026-10-03/apply_v5_freeze.py`, the
+  rest in other `AUDIT/finalize-2026-10-03/` scripts, `tools/qd_train_oracle_*.py` and
+  `python/tests/test_decisions_pool.py`. It predates this merge [I: by the file sets; not rerun
+  at 18a4e6d].
+- ruff is clean on every Python file the merge or the fix changed [V].
+
+**Fable's rulings on the four approvals:**
+- **Controls rerun: on the box, after the v5 queue. Not on the Mac, and not during the queue.**
+  - The rows are hash-chained (`prev_row_hash`) in the box's ledger, and the candidate rule reads
+    the control from that ledger.
+  - It is one CPU-only job: the fixed tool from merged main in a fresh clone (never the pinned
+    `qd-lane-v5`), over every v5 seed and the arm seeds. Roughly 10 calls × ~6 min ≈ 1 h ≈ $8.
+    Its cap and cost are stated at launch (rule 4).
+  - The existing candidate rule (Tier-B) finds the control row by `recipe.eval_row_id` and
+    `recipe.tool`, not by `code_commit` (`qd_post_f_rules.rs:5285-5290`) [V]. No v5 candidate
+    rule exists yet.
+- **`--split-cache` wiring.** v6 has no launch scripts yet. This line binds: every v6
+  `tools/real_ft_run.py` call carries `--split-cache <one 0700 dir per box on local disk>`, at
+  most 3.4 GB.
+  - Its first consumer is the post-queue controls job: run one seed's control with the cache
+    OFF and then HIT, and compare the two rows minus ids and timestamps. That is the on-box
+    check the lane could not run.
+- **The 2B trajectory parity** runs in the same post-queue session, after the controls. Its
+  command is `HANDOFF/v6-startup-2026-10-04.md` "Next": `timeout 1800`,
+  `--wall-clock-cap-s 1800`, at most $2.10, one GPU, its own ledger.
+- **`PLAN_MAX_KINDS` 8→16** stays out until the 2B parity holds.
+
+**Pending, post-queue (~17:00Z Oct 5):** one session on the H100 box.
+1. Controls with the cache OFF then HIT, then the rest.
+2. Then the parity.
+
+Launch needs its cap and cost stated, and it adds ~1.5 h of box time, ≈ $12. The projected box
+total is then ~$387, inside the human's ~$400.
+
 ## ~07:15Z 2026-10-04: where each v5 seed's GPU-idle time goes (measured; v6 targets)
 
 **Source.** Gawk-timestamped tails of the H100's lane, trajectory and train logs, in ignored
