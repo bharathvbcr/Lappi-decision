@@ -6,6 +6,35 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## 06:51Z 2026-10-04: v5 seeds 2 and 3 scored; both hold R9's bar, not poor
+
+Both exited 0: seed 2 at 06:48:56Z, seed 3 at 06:50:39Z. Ledger:
+`/home/ubuntu/ledger/h100x2-v5-2026-10-03.jsonl` on the H100 box. Rows [V, `read_v5_rows.py`
+and the rows' gate details]:
+- seed 2: ft 8079c966, score 2af3c80d;
+- seed 3: ft 1c8a0ab5, score e09b652a.
+
+| | F s0 / s1 / s2 (f4feac15, aeca8d69, 8c3a774a) | v5 s2 | v5 s3 |
+|---|---|---|---|
+| val_top1.span (of 7,238) | 0.902 / 0.912 / 0.905 | 0.913 | 0.908 |
+| val_top1.choice | 0.831 / 0.831 / 0.833 (of 10,985) | 0.839 (of 17,254) | 0.847 |
+| 8K needle worst bucket (gate 0.95) | 0.656 / 1.000 / 0.770 | 0.705 | **0.967, passes** |
+| OOD abstained of 180 (Wilson lower vs 0.9) | 73.3% / 31.1% / 37.8% | 84.4% (0.784) | 86.7% (0.809) |
+| in-distribution abstain (upper vs cap 0.05) | 7.7% / 8.4% / 8.6% | 6.5% (0.069) | 5.6% (0.060) |
+| permutation_consistency (floor 0.95) | 0.932 / 0.930 / 0.927 | 0.943 | 0.949 |
+
+**R9's bar holds on both seeds,** so by the rule written at ~03:05Z the results are not poor.
+The queue continues.
+
+**Against F:** v5 is ahead on every gate quantity. It still fails ood_abstain,
+permutation_consistency (seed 3 short by 0.001) and seed 2's needle gate. Rule 2 stands: these
+are readings, not promotions. The choice populations differ (v5's val set adds the new sources),
+so choice is not a like-for-like comparison.
+
+**Each seed's job continues** with its needle control (cap 5,400 s) and trajectory before the
+lanes pick seeds 0 and 1. A timestamped capture of that startup is being written to ignored
+`build/v5-h100/startup-capture-round2.log`.
+
 ## 04:53Z 2026-10-04: J6(f) done; the holder has the GH200's GPU
 
 **J6(f)** ended at 04:52:58Z ("item 6 all done", `/home/ubuntu/logs/q-j6f.log`). Its rows are
