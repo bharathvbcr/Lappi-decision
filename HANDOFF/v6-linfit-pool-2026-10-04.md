@@ -55,6 +55,10 @@ Mac (18 CPUs, unloaded) measurements are in `build/linfit-pool/notes.md` (git-ig
   `diff` and the loss terms stay `SharedF64s`; `row`/`load` removed. cargo test -p qd-prep --lib
   85 passed; the Python parity set 111 passed (the commitpackft pool data symlinked into the
   worktree, git-ignored).
+- ebf45ca: this handoff's second version (its box_ab3 conclusion is corrected below).
+- be65fa5 ("slices"): phase A and phase B bind a plain `&[f64]` from each snapshot guard once per
+  item. Bit for bit; cargo test -p qd-prep --lib 85 passed; the parity set 111 passed, 4 skipped
+  (no torch; the opt-in benchmark).
 
 ## The A/B results (interleaved, min over rounds; old = 7987d536, rows = 81cf0d0e, copy = a8312a5a)
 
@@ -82,25 +86,50 @@ So the anomaly is **neither the nice level nor oversubscription**. The old binar
 52 threads than at 26 on defect (74.9 vs 76.4) and slower on the small shapes (arc 6.9 vs 4.5,
 openjev 5.7 vs 3.2): which is why early attempt 3 runs on the 26 even CPUs.
 
-box_ab3 (17:58-17:59Z, nice 10, defect-k8, --iters 3): **1 thread: old 1,384 / copy 1,320 ms/it
-(0.95); 4 threads: 770 / 886 (1.15).** `with_team(1)` starts no worker and runs inline
-(`team.rs:9,266`), so the per-element code (the atomic cells of phase B's Adam loop) is not the
-cause: the loss appears only with threads, i.e. in the team mechanism. Old at 4 threads scales
-1.80x over 1; copy 1.49x.
+box_ab3 (17:58-17:59Z, nice 10, defect-k8, --iters 3): 1 thread: old 1,384 / copy 1,320 ms/it
+(0.95); 4 threads: 770 / 886 (1.15). **The conclusion first drawn from it was wrong.** It read:
+the per-element code is not the cause; the loss is the team mechanism, so `UnsafeCell` would
+not help. Two flaws:
+- At `--iters 3` the single-threaded transpose (~1.6 s a training run, once per run) dominates
+  ms/it.
+- At 1 thread, phase B's gain masked phase A's loss (box_ab8 below).
+
+The chain that found the cause (each run on the box, CPU only, under Fable's ~19:40Z ruling;
+`/home/ubuntu/logs/q-linfit-ab{4..11}.log`; `build/linfit-pool/notes.md`) [V]:
+
+| run | what | finding |
+|---|---|---|
+| ab4/ab5 | `with_team(threads+1)` ("plus1"), `SPIN = 0` ("spin0"), --iters 50 | 4 thr: copy 1.05, plus1 0.84, spin0 1.05; 26 thr: 1.18, 1.17, 1.19. Not the spin; plus1 only adds a thread |
+| ab6 | 26 thr pinned to the even CPUs vs free | 1.17 vs 1.15: not wake placement on hyperthread siblings |
+| ab7 | timed copy build | the leader's serial sections ~0.7 ms an iteration: not the snapshot copies |
+| ab8 | timed old vs timed copy | phase A +10% (4 thr) and +9% (26 thr), phase B -6% (4) and +14% (26): the hot loops |
+| ab9 | slices (a plain `&[f64]` bound from each snapshot guard once per item) | 4 thr 0.99, 26 thr 1.08 |
+| ab10 | slices2 (plus a per-item view of every `SharedF64s`) | 0.98 / 1.08: no further gain; slices reproduced at 0.97 / 1.07 |
+| ab11 | old vs slices, 26 thr on the even CPUs (attempt 3's configuration) | tiny 0.06, openjev-k4 0.59, openjev-k8 0.72, arc-k4 0.85, defect-k4 1.09, defect-k8 1.03 |
+
+**The cause:** indexed through the `RwLock` read guard, the loops over the nonzeros reloaded the
+snapshot `Vec`'s pointer and length for every nonzero. The loops' stores to the local `z` / `g`
+may alias the lock's memory as far as the compiler can tell. be65fa5 binds plain slices once
+per item.
 
 ## What is open
 
-**Neither team variant is deployable while the large tasks regress on the box** (defect is the
-v5 control's slowest task). By Fable's decision rule the `UnsafeCell` variant (branch
-`v6-linfit-pool-cell`, worktree `build/v6-linfit-pool-cell-wt`, uncommitted: `team.rs` only)
-would not help and stays on hold. Unexplained: what in the team mechanism costs ~15% at 4
-threads on x86 and nothing on the Mac. Candidates not yet tested: the team's `threads` counts
-the leader, which runs `meanwhile` before claiming items (`team.rs:203-204`), where the old
-code ran `threads` workers beside the caller's `meanwhile`; the leader's and workers' spin before
-parking (`team.rs:146-149, 207-210`) taking a hyperthread sibling's issue slots; the per-item
-`RwLock` read acquisitions sharing a cache line with the snapshot's `Vec` header. Discriminators: a bench with `with_team(threads + 1)` (the old
-code's thread count) and with the spin disabled. The box's CPUs are held by early attempt 3
-until <= 23:15Z 2026-10-04; the Mac does not show the effect.
+**be65fa5 ("slices") is the deployable candidate.** Projected on early attempt 3's 197 fits
+(4,974 s on 26 cores) with ab11's ratios by size band: 3,662-4,446 s (0.74-0.89x) [inferred:
+band ratios, not a replay].
+- The three defect-like tasks (>= 50M nonzeros, 1,471 s) get 3-9% slower.
+- The 43 start-up-bound tasks (588 s) and the length arm (226 s) get 3-15x faster.
+
+No rebuilt `qd-prep` reaches a v5 control without Fable's ruling and the human's yes.
+
+**The residual, open:** ~5.5 ms an iteration on defect-k8 at 26 threads (1.03-1.08).
+- ~0.8 ms of it is the leader's serial snapshot copies and grad norm (ab7).
+- Candidates for the rest, untested: phase B's Adam loop storing to atomic cells (no
+  vectorization); memory bandwidth at 26 threads.
+- The `UnsafeCell` variant (branch `v6-linfit-pool-cell`, worktree
+  `build/v6-linfit-pool-cell-wt`, uncommitted, `team.rs` only) would remove both the copies and
+  the atomics. It is the crate's first `unsafe`, a policy choice for the human. On hold until
+  the human decides.
 
 The f405be7 record below stands as the first measurement.
 
@@ -130,7 +159,7 @@ No rebuilt `qd-prep` reaches a v5 control without Fable's ruling and the human's
 
     bash build/linfit-pool/test.sh check --lib
 
-(then build a bench variant per discriminator with `build/linfit-pool/musl_bench.sh`, and run it
-on the box only after early attempt 3 has ended and on Fable's ruling, as
-`build/linfit-pool/box_ab3.sh` does; build/linfit-pool/ is git-ignored local tooling in main's
-checkout.)
+(the variants were built by `build/linfit-pool/diag_*.sh` in the detached worktree
+`build/v6-linfit-pool-diag-wt` and run by `build/linfit-pool/box_ab*.sh`; build/linfit-pool/ is
+git-ignored local tooling in main's checkout. Box runs need Fable's ruling and must not overlap a
+control or the lanes' ends.)
