@@ -46,8 +46,63 @@ Mac (18 CPUs, unloaded) measurements are in `build/linfit-pool/notes.md` (git-ig
   --lib 85 passed; the Python reference bit for bit (test_qd_prep_linear_parity and the five
   control test files) 109 passed, 0 failed, skips with reasons (no torch in the venv; the
   commitpackft corpus not in the worktree; the opt-in benchmark).
+- 121bdcc: this handoff's first version.
+- 150a2e7 ("rows"): `SharedF64s::row` and `team::load`, so each hot loop paid one bounds check
+  a row; `logits_row` takes a `w_row(at)` closure, so the fit's cells and a scoring pass's plain
+  slices share one arithmetic.
+- 7c7b410 ("copy", Fable's default remedy): phase A reads `W` and phase B reads `diff` from plain
+  `RwLock<Vec<f64>>` snapshots the leader copies between phases; `w_next`, `m`, `v`, `gW`,
+  `diff` and the loss terms stay `SharedF64s`; `row`/`load` removed. cargo test -p qd-prep --lib
+  85 passed; the Python parity set 111 passed (the commitpackft pool data symlinked into the
+  worktree, git-ignored).
+
+## The A/B results (interleaved, min over rounds; old = 7987d536, rows = 81cf0d0e, copy = a8312a5a)
+
+Mac, 18 threads unless noted (`build/linfit-pool/ab-copy-mac.log`, min of 5) [V]:
+defect-k8 old 54.3 / rows 75.2 / copy 56.2 ms/it; defect-k4 82.7 / 75.3 / 69.6;
+openjev-k8 (1 / 18 threads) copy/old 0.97 / 0.96; openjev-k4 0.63 / 0.86. On the Mac the copy
+removed the regression.
+
+H100 box (`/home/ubuntu/logs/q-linfit-ab{,2,3}.log`; CPU only, nice 19 unless noted, under the
+human's "yes, run the box A/B; don't ask me, ask fable", each further run on Fable's ruling) [V]:
+
+| shape | 26 thr on CPUs 26-51 (lanes + attempt 2 running) | 52 thr, all CPUs | copy/old, 52 thr |
+|---|---|---|---|
+| tiny (64 rows) | old 1.645, copy 0.089 | old 2.498, copy 0.099 | 0.04 |
+| openjev-k4 | 3.90 / 2.97 | 5.73 / 2.48 | 0.43 |
+| openjev-k8 | 5.03 / 5.18 | 6.87 / 3.81 | 0.55 |
+| openjev-k32 | 12.0 / 14.4 | 11.1 / 10.7 | 0.97 |
+| arc-k4 | 5.84 / 5.53 | 7.02 / 3.85 | 0.55 |
+| defect-k8 | 108.9 / 153.2 | 77.0 / 99.6 | **1.29** |
+| defect-k4 | 76.9 / 93.7 | 60.8 / 66.9 | **1.10** |
+
+box_ab2 (17:47-17:52Z, all 52 CPUs, the box otherwise idle but for the lanes): at nice 10,
+defect-k8 copy/old is 1.17 at 26 threads and 1.27 at 52; nice 19 at 26 threads gives 1.17 again.
+So the anomaly is **neither the nice level nor oversubscription**. The old binary is no faster at
+52 threads than at 26 on defect (74.9 vs 76.4) and slower on the small shapes (arc 6.9 vs 4.5,
+openjev 5.7 vs 3.2): which is why early attempt 3 runs on the 26 even CPUs.
+
+box_ab3 (17:58-17:59Z, nice 10, defect-k8, --iters 3): **1 thread: old 1,384 / copy 1,320 ms/it
+(0.95); 4 threads: 770 / 886 (1.15).** `with_team(1)` starts no worker and runs inline
+(`team.rs:9,266`), so the per-element code (the atomic cells of phase B's Adam loop) is not the
+cause: the loss appears only with threads, i.e. in the team mechanism. Old at 4 threads scales
+1.80x over 1; copy 1.49x.
 
 ## What is open
+
+**Neither team variant is deployable while the large tasks regress on the box** (defect is the
+v5 control's slowest task). By Fable's decision rule the `UnsafeCell` variant (branch
+`v6-linfit-pool-cell`, worktree `build/v6-linfit-pool-cell-wt`, uncommitted: `team.rs` only)
+would not help and stays on hold. Unexplained: what in the team mechanism costs ~15% at 4
+threads on x86 and nothing on the Mac. Candidates not yet tested: the team's `threads` counts
+the leader, which runs `meanwhile` before claiming items (`team.rs:203-204`), where the old
+code ran `threads` workers beside the caller's `meanwhile`; the leader's and workers' spin before
+parking (`team.rs:146-149, 207-210`) taking a hyperthread sibling's issue slots; the per-item
+`RwLock` read acquisitions sharing a cache line with the snapshot's `Vec` header. Discriminators: a bench with `with_team(threads + 1)` (the old
+code's thread count) and with the spin disabled. The box's CPUs are held by early attempt 3
+until <= 23:15Z 2026-10-04; the Mac does not show the effect.
+
+The f405be7 record below stands as the first measurement.
 
 **f405be7 is not deployable: it regresses the large tasks.** Mac A/B, interleaved, min of 5,
 old = 7af2810, new = f405be7 (build/linfit-pool/ab-mac.log):
@@ -68,11 +123,14 @@ forbid, the remedies are a policy choice for the human: an RwLock-guarded plain 
 and `diff` copied by the leader each iteration (safe; ~10% on small tasks), or `UnsafeCell`
 under the phase discipline (no runtime cost; the crate's first `unsafe`). Default: the safe copy.
 
-No box run of f405be7 has been proposed or made.
+No box run of f405be7 has been proposed or made; the box runs above used 150a2e7 and 7c7b410.
+No rebuilt `qd-prep` reaches a v5 control without Fable's ruling and the human's yes.
 
 ## First command for the next lane
 
     bash build/linfit-pool/test.sh check --lib
 
-(then `bash tools/mac_heavy.sh linfit-ab bash build/linfit-pool/ab_all.sh 5` after editing the
-shapes in ab_all.sh; build/linfit-pool/ is git-ignored local tooling in main's checkout.)
+(then build a bench variant per discriminator with `build/linfit-pool/musl_bench.sh`, and run it
+on the box only after early attempt 3 has ended and on Fable's ruling, as
+`build/linfit-pool/box_ab3.sh` does; build/linfit-pool/ is git-ignored local tooling in main's
+checkout.)
