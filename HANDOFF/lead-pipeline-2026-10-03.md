@@ -41,6 +41,17 @@ The human, in reply to the post-queue session's yes/no: "ask fable for advice". 
   ~$217".
 - **Launched at 22:57:30Z** (pid 1406115). Its log, `/home/ubuntu/logs/q-post-queue-launcher.log`,
   reads "launcher: waiting for … v5lane0.done and v5lane1.done".
+- The launcher's assumptions, checked against the box's own scripts (not only against the
+  test's fakes):
+  - `/home/ubuntu/post-f/box_q_v5.sh:54`'s EXIT trap writes `$Q/v5lane$LANE.done`, so it is
+    written on any lane exit, a crash included.
+  - At 23:03Z, `run`'s refusal pattern (`post_queue.sh:211`) matched only the two lanes' own
+    processes: `box_q_v5.sh 0` and `1`, their `real_ft_run.py` children, and `box_q_v5traj.sh`
+    for s4. The launcher's and `post_queue.sh`'s own command lines do not match it.
+  - `run` refuses until every `*traj-s*.queued` has its `.done` (`post_queue.sh:206-209`). The
+    lanes write s0–s3's; s4's comes from its own run (≤3,600 s).
+- The $350 and $400 tells come from `watch_h100.sh`'s thresholds (100/200/300/350/400). At
+  $8.38/h, $350 falls near ~13:35Z on 10-05.
 
 **Cost** [I]: the session's expected ~15.5 h is ~$130, with a ceiling of ~$217 at $8.38/h. The
 box stood at $225.23 at 22:37Z (`watch_h100.sh`). The lanes to ~06:00Z add ~$59 and the session
