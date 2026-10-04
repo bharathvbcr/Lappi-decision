@@ -225,6 +225,8 @@ fn parallel<T: Send, R>(
     meanwhile: impl FnOnce() -> R,
 ) -> R {
     let workers = threads.clamp(1, items.len().max(1));
+    #[cfg(test)]
+    crate::team::STARTED.with(|s| s.set(s.get() + workers));
     let queue = Mutex::new(items.into_iter());
     std::thread::scope(|scope| {
         for _ in 0..workers {
@@ -792,6 +794,29 @@ mod tests {
                 assert_eq!(many, one, "k={k}, {threads} threads");
             }
         }
+    }
+
+    /// The threads a fit starts must not grow with its iterations: on the H100 box each thread
+    /// start cost ~32 us, and starting them for each of an iteration's two phases was ~3.4 ms an
+    /// iteration at 52 threads (2026-10-04, `examples/linfit_bench.rs`).
+    #[test]
+    fn a_fit_starts_its_threads_per_training_run_not_per_iteration() {
+        let (x, y, w0) = problem(97, 64, 3);
+        let ord = order(97);
+        let started = |max_iter: u32| {
+            let mut h = hyper(3, max_iter);
+            // Never met, so every training run takes exactly max_iter iterations.
+            h.tol = 0.0;
+            let before = crate::team::STARTED.with(std::cell::Cell::get);
+            let got = fit(&x, &y, &ord, 19, &w0, &x, &h, TOP1, 4).expect("fits");
+            assert_eq!(got.refit.iterations, max_iter);
+            crate::team::STARTED.with(std::cell::Cell::get) - before
+        };
+        let (short, long) = (started(10), started(40));
+        assert_eq!(
+            long, short,
+            "40 iterations started {long} threads, 10 started {short}"
+        );
     }
 
     #[test]
