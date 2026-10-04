@@ -6,6 +6,80 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~18:05Z 2026-10-04: the fix merged (97bb3e2); attempt 3 runs on 26 physical cores, cap 18,000 s
+
+The human: "ok, merge it and launch attempt 3 after the suite".
+
+**The merge** [V]:
+- `v6-ctl-minrows` 97bb3e2 was fast-forwarded onto main (015585a → 97bb3e2) by
+  `build/ctl-minrows/ff_main.sh`. Main's status was unchanged: the peer's 16 paths, none of them
+  the commit's.
+- The full Python suite on the branch's worktree passed except the two known worktree-only
+  failures (`build/ctl-minrows/suite.log`):
+  - `test_gaps_writer::test_the_real_ledger_is_not_touched_by_any_of_this` checks the
+    directory's name.
+  - `test_lint_gate::test_ruff_is_installed_not_merely_declared` finds no `.venv` in a
+    worktree.
+
+  The fail-first run is in `build/ctl-minrows/failfirst.log`.
+- `git diff --stat 142a67c 97bb3e2 -- crates/qd-prep` is empty, so `post_queue.sh:86`'s
+  `qd-prep-v5` pin holds.
+- The bundle's sha256 is `6e3843ba…5cc50`, with one head, 97bb3e2; the checksum was checked at
+  both ends. The `print-early` and `check` dry-runs at 97bb3e2 found 0 required inputs missing.
+
+**Attempt 3** [V, the launch and the clone]:
+- Command: `post_queue.sh early 97bb3e2… --attempt 3 --ctl-cap-s 18000 --nice 19 --cpus
+  0,2,4,…,50`.
+- Started 18:04:39Z. Log: `/home/ubuntu/logs/q-post-queue-early-3.log`; root:
+  `/home/ubuntu/post-queue/early-3/`.
+- The clone is at 97bb3e2, and no tracked file changed.
+- The session cap is 18,600 s, so the check ends by ~23:15Z at the latest.
+
+Fable revised two of its earlier settings on box_ab2's evidence (~17:57Z):
+- **CPUs: the 26 even CPUs, one per physical core, not 0-51.**
+  - On the box, hyperthread siblings are the pairs (2i, 2i+1) [V,
+    `/sys/.../thread_siblings_list`].
+  - Attempt 3 runs the old binary, and for it 52 threads was never better than 26 [V,
+    `q-linfit-ab2.log`]: defect 74.9 vs 76.4 ms/it, arc 6.9 vs 4.5, openjev 5.7 vs 3.2.
+- **Cap: 18,000 s, not 10,800.** The projection comes from attempt 2's 58 timestamped fits [V,
+  `build/post-queue/project_early.py`]:
+  - The control has 332 tasks, not 300.
+  - The 58 fitted took 5,925 s on 13 cores × 2 threads; 17 tasks of at least 60 s account for
+    5,077 s of that.
+  - Of the 274 left, 263 are `synth.general` at 2.5–7 s each, 10 are `typed.workflow` and 1 is
+    `vitaminc.nli` (700 val rows).
+  - The length arm then runs over every task. F's 7 length tasks converged in 70–1,527
+    iterations (`c89b89a1`) [V].
+  - Projected total: 7,800–12,700 s [inferred]. 10,800 s risked attempt 1's outcome.
+- **The bound on the cap:** run mode refuses while any control is alive (`post_queue.sh:194`).
+  - At 18:01Z the lanes' current runs (v5 s4, J5′ s0) had training ETAs of 22:05–22:15Z, with
+    scoring after [V].
+  - The queue's later jobs (J5′ s1, s2) are inferred, not verified.
+  - So attempt 3 should end before the lanes do. If no further job is queued and scoring takes
+    under an hour, the worst case overlaps the lanes' end by minutes.
+- **The length arm** has run through the native engine only on F's 7 tasks [V: `c89b89a1`, and
+  the Mac refit rows `d877d6bc`, `84510263` and `27a263d5` reproduce its margins]. It has never
+  run over 332 tasks or on tiny ones.
+  - The fix covers both arms (`fit_task`).
+  - A late failure there is a first run of that arm, not a regression of the fix.
+
+**The team's large-shape anomaly (lane v6-linfit-pool), narrowed** [V, `q-linfit-ab2.log`,
+`q-linfit-ab3.log`; `build/linfit-pool/notes.md`]:
+- box_ab2: nice 10 vs 19, and 26 vs 52 threads, made no difference. It is neither the nice
+  level nor oversubscription.
+- box_ab3, defect-k8: the copy variant against old was 0.95 at 1 thread and 1.15 at 4.
+  - `with_team(1)` runs inline: it starts `threads - 1` workers (`team.rs:9,266`).
+  - So the per-element code (the atomic cells) is not the cause; the team mechanism is.
+- Per Fable's decision rule, the `UnsafeCell` branch (`v6-linfit-pool-cell`) would not help and
+  stays on hold.
+- The next diagnostics need the box's CPUs, which attempt 3 holds until ≤23:15Z.
+
+**Next:**
+- Watch attempt 3 with `build/post-queue/mon_early3.sh`, which counts each arm.
+- Check that the lanes' step rate holds near 1.81 s/step.
+- At the end, read the scratch row: `existing_controls.py` must exit 1.
+- The post-queue session itself still needs the human's yes.
+
 ## ~17:45Z 2026-10-04: attempt 2 crashed on a 3-row task; the post-queue controls would too
 
 The human: "yes, launch attempt 2 at 15:50Z"; later "Follow fable's advice and work on it",
