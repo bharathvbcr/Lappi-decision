@@ -20,7 +20,9 @@
 //! ordered after the last by the phase counter (released by the leader when it publishes,
 //! acquired by every claim) and by the completion count (released by every item, acquired by
 //! the leader before it returns). So which thread runs which item cannot change any value, and
-//! the crate stays free of `unsafe`.
+//! the crate stays free of `unsafe`. Atomic loads are not vectorized, so a loop whose `k`-wide
+//! multiply-add matters reads a plain snapshot instead, which the leader fills between phases
+//! with [`SharedF64s::copy_to`] (the fit's `W` and `diff`).
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -60,10 +62,14 @@ impl SharedF64s {
         self.0[i].store(value.to_bits(), Ordering::Relaxed);
     }
 
-    /// Cells `at..at + len`, bounds-checked once for a loop that reads them all with [`load`].
-    #[inline(always)]
-    pub fn row(&self, at: usize, len: usize) -> &[AtomicU64] {
-        &self.0[at..at + len]
+    /// Every cell's value into `out`, in index order: the leader's copy of shared cells into a
+    /// plain snapshot between phases, for a loop whose `k`-wide multiply-add the compiler
+    /// vectorizes over a plain slice and not over atomic loads.
+    pub fn copy_to(&self, out: &mut [f64]) {
+        assert_eq!(out.len(), self.len(), "a snapshot of {} cells", self.len());
+        for (o, cell) in out.iter_mut().zip(self.0.iter()) {
+            *o = f64::from_bits(cell.load(Ordering::Relaxed));
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -77,12 +83,6 @@ impl SharedF64s {
     pub fn to_vec(&self) -> Vec<f64> {
         (0..self.len()).map(|i| self.get(i)).collect()
     }
-}
-
-/// The `f64` in one cell of a [`SharedF64s::row`].
-#[inline(always)]
-pub fn load(cell: &AtomicU64) -> f64 {
-    f64::from_bits(cell.load(Ordering::Relaxed))
 }
 
 /// The phase being run, as the workers read it.

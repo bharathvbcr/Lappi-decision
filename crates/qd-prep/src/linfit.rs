@@ -35,12 +35,11 @@
 //! option of each validation row ([`Selection::BestOption`]) rather than per example.
 
 use std::collections::HashSet;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::ngram::Csr;
 use crate::pairwise::pairwise_sum;
-use crate::team::{Job, SharedF64s, load, with_team};
+use crate::team::{Job, SharedF64s, with_team};
 
 /// `_train_once`'s Adam constants, fixed there and here.
 const BETA1: f64 = 0.9;
@@ -372,9 +371,17 @@ fn logits(rows: Rows<'_>, w: &[f64], b: &[f64], threads: usize) -> Vec<f64> {
 ///
 /// Each iteration is two phases on one [`crate::team`] team, started once per call: phase A
 /// over runs of rows, phase B over runs of columns, with the leader's reductions between and
-/// beside them. The state the phases share lives in [`SharedF64s`] cells; every element is
-/// still written by exactly one item in a fixed order, so the result does not depend on the
-/// thread count or on which thread runs which item.
+/// beside them. Every element is still written by exactly one item in a fixed order, so the
+/// result does not depend on the thread count or on which thread runs which item.
+///
+/// The two loops over the nonzeros read plain slices, so the compiler can vectorize their
+/// `k`-wide multiply-add as the threads-per-phase loop did: phase A reads `W` from `w_now`,
+/// phase B reads `diff` from `diff_now`, each a snapshot the leader copies between phases
+/// (`d * k` and `n * k` values an iteration). Everything else the phases share is
+/// [`SharedF64s`] cells. Phase B writes the Adam step's `W` into `w_next`, and the leader copies
+/// it into `w_now` only when the gradient missed the tolerance, so a converged fit returns the
+/// `W` whose gradient was measured, as the reference's `break` does; `m` and `v` are updated in
+/// place, since a converged fit discards them.
 fn train_once(
     rows: Rows<'_>,
     n_cols: usize,
@@ -390,17 +397,14 @@ fn train_once(
     let csc = transpose(rows, n_cols);
     let dk = n_cols * k;
 
-    // W, m and v are double-buffered: phase B reads buffer `cur` and writes the Adam step's
-    // next values into `1 - cur`, and the leader flips `cur` only when the gradient did not
-    // meet the tolerance, so a converged fit returns the W whose gradient was measured, as the
-    // reference's `break` does.
-    let w = [SharedF64s::from_slice(w0), SharedF64s::zeros(dk)];
-    let mw = [SharedF64s::zeros(dk), SharedF64s::zeros(dk)];
-    let vw = [SharedF64s::zeros(dk), SharedF64s::zeros(dk)];
-    let cur = AtomicUsize::new(0);
+    let w_now = RwLock::new(w0.to_vec());
+    let w_next = SharedF64s::zeros(dk);
+    let mw = SharedF64s::zeros(dk);
+    let vw = SharedF64s::zeros(dk);
     let b = SharedF64s::zeros(k);
     let gw = SharedF64s::zeros(dk);
     let diff = SharedF64s::zeros(n * k);
+    let diff_now = RwLock::new(vec![0f64; n * k]);
     let log_terms = SharedF64s::zeros(n * k);
     // This iteration's step and bias corrections, written by the leader before phase B.
     let step = SharedF64s::zeros(3);
@@ -418,7 +422,7 @@ fn train_once(
     // Phase A, one item per run of rows: P = softmax(X @ W + b), the loss's
     // Y * log(clip(P)), and diff = (P - Y) / n.
     let phase_a = |item: usize| {
-        let wc = &w[cur.load(Ordering::Relaxed)];
+        let w = read(&w_now);
         let mut z = vec![0f64; k];
         let mut e = vec![0f64; k];
         for r in row_bounds[item]..row_bounds[item + 1] {
@@ -426,7 +430,7 @@ fn train_once(
             logits_row(
                 cols,
                 vals,
-                |at| wc.row(at, k).iter().map(load),
+                |at| w[at..at + k].iter().copied(),
                 |c| b.get(c),
                 &mut z,
             );
@@ -451,12 +455,9 @@ fn train_once(
             }
         }
     };
-    // Phase B, one item per run of columns: gW = X.T @ diff + (2*l2)*W, and the Adam step
-    // computed ahead into the other buffer.
+    // Phase B, one item per run of columns: gW = X.T @ diff + (2*l2)*W, and the Adam step.
     let phase_b = |item: usize| {
-        let now = cur.load(Ordering::Relaxed);
-        let (w_now, mw_now, vw_now) = (&w[now], &mw[now], &vw[now]);
-        let (w_next, mw_next, vw_next) = (&w[1 - now], &mw[1 - now], &vw[1 - now]);
+        let (w, d) = (read(&w_now), read(&diff_now));
         let (lr, bias_correction1, bias_correction2) = (step.get(0), step.get(1), step.get(2));
         let mut g = vec![0f64; k];
         for col in col_bounds[item]..col_bounds[item + 1] {
@@ -464,22 +465,21 @@ fn train_once(
             for e in csc.col_ptr[col]..csc.col_ptr[col + 1] {
                 let r = csc.rows[e] as usize;
                 let v = csc.vals[e];
-                for (gc, dc) in g.iter_mut().zip(diff.row(r * k, k)) {
-                    *gc += v * load(dc);
+                for (gc, dc) in g.iter_mut().zip(&d[r * k..r * k + k]) {
+                    *gc += v * dc;
                 }
             }
             for (c, &gc) in g.iter().enumerate() {
                 let i = col * k + c;
-                let wi = w_now.get(i);
-                let grad = gc + two_l2 * wi;
+                let grad = gc + two_l2 * w[i];
                 gw.set(i, grad);
-                let m1 = mw_now.get(i) * BETA1 + one_minus_b1 * grad;
-                let v1 = vw_now.get(i) * BETA2 + one_minus_b2 * (grad * grad);
+                let m1 = mw.get(i) * BETA1 + one_minus_b1 * grad;
+                let v1 = vw.get(i) * BETA2 + one_minus_b2 * (grad * grad);
                 let mhat = m1 / bias_correction1;
                 let vhat = v1 / bias_correction2;
-                mw_next.set(i, m1);
-                vw_next.set(i, v1);
-                w_next.set(i, wi - (lr * mhat) / (vhat.sqrt() + EPS));
+                mw.set(i, m1);
+                vw.set(i, v1);
+                w_next.set(i, w[i] - (lr * mhat) / (vhat.sqrt() + EPS));
             }
         }
     };
@@ -489,15 +489,13 @@ fn train_once(
     with_team(threads, &jobs, |team| {
         for t in 1..=hyper.max_iter {
             it = t;
-            let now = cur.load(Ordering::Relaxed);
             // Meanwhile: the loss's sum(W * W).
             let sum_ww = team.run(0, row_items, || {
-                pairwise_sum(dk, &|i| {
-                    let wi = w[now].get(i);
-                    wi * wi
-                })
+                let w = read(&w_now);
+                pairwise_sum(dk, &|i| w[i] * w[i])
             });
 
+            diff.copy_to(&mut write(&diff_now));
             let bias_correction1 = 1.0 - BETA1.powf(f64::from(t));
             let bias_correction2 = 1.0 - BETA2.powf(f64::from(t));
             let lr = step_size(hyper.lr, t);
@@ -508,10 +506,11 @@ fn train_once(
             let (loss, gb) = team.run(1, col_items, || {
                 let sum_log = pairwise_sum(n * k, &|i| log_terms.get(i));
                 let loss = (-sum_log) / n_f + l2 * sum_ww;
+                let d = read(&diff_now);
                 let mut gb = vec![0f64; k];
-                for r in 0..n {
-                    for (c, s) in gb.iter_mut().enumerate() {
-                        *s += diff.get(r * k + c);
+                for row in d.chunks_exact(k) {
+                    for (s, dc) in gb.iter_mut().zip(row) {
+                        *s += dc;
                     }
                 }
                 (loss, gb)
@@ -527,7 +526,7 @@ fn train_once(
                 converged = true;
                 break;
             }
-            cur.store(1 - now, Ordering::Relaxed);
+            w_next.copy_to(&mut write(&w_now));
             for c in 0..k {
                 let grad = gb[c];
                 mb[c] = mb[c] * BETA1 + one_minus_b1 * grad;
@@ -539,13 +538,24 @@ fn train_once(
         }
     });
     Trained {
-        w: w[cur.load(Ordering::Relaxed)].to_vec(),
+        w: w_now.into_inner().unwrap_or_else(PoisonError::into_inner),
         b: b.to_vec(),
         converged,
         iterations: it,
         grad_norm,
         history,
     }
+}
+
+/// A read guard on a snapshot no writer holds during a phase (poisoning is not a state here:
+/// a panic anywhere in the fit panics the fit).
+fn read(lock: &RwLock<Vec<f64>>) -> RwLockReadGuard<'_, Vec<f64>> {
+    lock.read().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The leader's write guard on a snapshot, taken only between phases.
+fn write(lock: &RwLock<Vec<f64>>) -> RwLockWriteGuard<'_, Vec<f64>> {
+    lock.write().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// `LinearBaseline.fit(docs, labels)` on `x` (every training row, in input order) and the
