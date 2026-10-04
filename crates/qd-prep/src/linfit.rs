@@ -40,7 +40,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::ngram::Csr;
 use crate::pairwise::pairwise_sum;
-use crate::team::{Job, SharedF64s, with_team};
+use crate::team::{Job, SharedF64s, load, with_team};
 
 /// `_train_once`'s Adam constants, fixed there and here.
 const BETA1: f64 = 0.9;
@@ -247,22 +247,22 @@ fn parallel<T: Send, R>(
 }
 
 /// `X @ W + b` for one row into `z` (`k` values): the products in the row's column order,
-/// summed from zero, then the bias added -- `CSR.matmul(W) + b`. `w(i)` and `b(c)` read the
-/// weights, so the fit's shared cells and a scoring pass's plain slices take the same path.
+/// summed from zero, then the bias added -- `CSR.matmul(W) + b`. `w_row(at)` yields `W`'s `k`
+/// values from flat index `at` and `b(c)` the bias, so the fit's shared cells and a scoring
+/// pass's plain slices take the same arithmetic.
 #[inline(always)]
-fn logits_row(
+fn logits_row<R: IntoIterator<Item = f64>>(
     cols: &[u32],
     vals: &[f64],
-    w: impl Fn(usize) -> f64,
+    w_row: impl Fn(usize) -> R,
     b: impl Fn(usize) -> f64,
     z: &mut [f64],
 ) {
     let k = z.len();
     z.fill(0.0);
     for (&c, &v) in cols.iter().zip(vals) {
-        let at = c as usize * k;
-        for (j, zc) in z.iter_mut().enumerate() {
-            *zc += v * w(at + j);
+        for (zc, wc) in z.iter_mut().zip(w_row(c as usize * k)) {
+            *zc += v * wc;
         }
     }
     for (j, zc) in z.iter_mut().enumerate() {
@@ -360,7 +360,7 @@ fn logits(rows: Rows<'_>, w: &[f64], b: &[f64], threads: usize) -> Vec<f64> {
         |(start, chunk): (usize, &mut [f64])| {
             for (j, z) in chunk.chunks_exact_mut(k).enumerate() {
                 let (cols, vals) = rows.row(start + j);
-                logits_row(cols, vals, |i| w[i], |c| b[c], z);
+                logits_row(cols, vals, |at| w[at..at + k].iter().copied(), |c| b[c], z);
             }
         },
         || (),
@@ -423,7 +423,13 @@ fn train_once(
         let mut e = vec![0f64; k];
         for r in row_bounds[item]..row_bounds[item + 1] {
             let (cols, vals) = rows.row(r);
-            logits_row(cols, vals, |i| wc.get(i), |c| b.get(c), &mut z);
+            logits_row(
+                cols,
+                vals,
+                |at| wc.row(at, k).iter().map(load),
+                |c| b.get(c),
+                &mut z,
+            );
             // _softmax: z - z.max(axis=1), exp, / its pairwise row sum.
             let mut m = z[0];
             for v in &z[1..] {
@@ -458,8 +464,8 @@ fn train_once(
             for e in csc.col_ptr[col]..csc.col_ptr[col + 1] {
                 let r = csc.rows[e] as usize;
                 let v = csc.vals[e];
-                for (c, gc) in g.iter_mut().enumerate() {
-                    *gc += v * diff.get(r * k + c);
+                for (gc, dc) in g.iter_mut().zip(diff.row(r * k, k)) {
+                    *gc += v * load(dc);
                 }
             }
             for (c, &gc) in g.iter().enumerate() {

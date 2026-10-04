@@ -60,6 +60,12 @@ impl SharedF64s {
         self.0[i].store(value.to_bits(), Ordering::Relaxed);
     }
 
+    /// Cells `at..at + len`, bounds-checked once for a loop that reads them all with [`load`].
+    #[inline(always)]
+    pub fn row(&self, at: usize, len: usize) -> &[AtomicU64] {
+        &self.0[at..at + len]
+    }
+
     pub fn len(&self) -> usize {
         self.0.len()
     }
@@ -71,6 +77,12 @@ impl SharedF64s {
     pub fn to_vec(&self) -> Vec<f64> {
         (0..self.len()).map(|i| self.get(i)).collect()
     }
+}
+
+/// The `f64` in one cell of a [`SharedF64s::row`].
+#[inline(always)]
+pub fn load(cell: &AtomicU64) -> f64 {
+    f64::from_bits(cell.load(Ordering::Relaxed))
 }
 
 /// The phase being run, as the workers read it.
