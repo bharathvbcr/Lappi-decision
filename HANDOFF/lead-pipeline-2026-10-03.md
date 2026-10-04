@@ -6,6 +6,43 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~17:45Z 2026-10-04: attempt 2 crashed on a 3-row task; the post-queue controls would too
+
+The human: "yes, launch attempt 2 at 15:50Z"; later "Follow fable's advice and work on it",
+"yes, run the box bench", and "yes, run the box A/B; don't ask me, ask fable for advice".
+
+**Attempt 2 of the early check** (`post_queue.sh early bbed808 --attempt 2 --ctl-cap-s 10800
+--nice 19 --cpus 0-25`, launched 15:50:11Z; CPUs 0-25 are 13 cores x 2 hyperthreads, half the
+box) [V, `/home/ubuntu/post-queue/early-2/`, its timestamped logs]:
+- The split rebuild ended 15:58:46Z. It fitted 58 tasks by 17:37:48Z. The first 14 (attempt 1's)
+  took 2,511 s of fits at 26 threads against attempt 1's 1,428 s at 52.
+- **Then it crashed on task 59, `synth.general/action_next`'s successor:**
+  `linear_control_native.fit` raised `ValueError: need at least 4 examples to fit and validate,
+  got 3`. The run recorder wrote row `2646e366` (`failed`). The guard counted 0 completed rows,
+  and the early check said FAILED: the fix of ~14:55Z did its job.
+- **The bug:** `fit_task` (`tools/ft_linear_control.py:439`) documents "Never raises for a weak
+  fit" and returns `not_run` for a single-class task, but not for one with fewer than 4 training
+  rows, which `LinearBaseline.fit` refuses. v5's 235 `synth.general` tasks include some that
+  small, so **every uncached v5 control at bbed808 dies at this task.** The post-queue session
+  is blocked until the fix is merged into main.
+- **What the fix changes in the gates** [inferred, from the code's docs]: the task becomes
+  `not_run` with its reason; the pooled `gates.paired_margin_vs_linear` is `not_run` whenever
+  any task is, as its docstring already says. v5's successor rule reads the code.defect_class
+  family margin (`MARGIN_KEY`, `crates/qd-runtime/src/bin/qd_post_f_rules.rs:1270`); the pooled
+  gate is read by the TierB outcome rule's clause 2 (`paired_ci`, `:4696`), which judges a TierB
+  control row. No threshold moves.
+- **Fable's rulings:** fix in `fit_task` before the single-class check (the reference's refusal
+  order), with a fail-first test, on its own branch, merged with fbd43f5's mechanics (local; the
+  human delegated the call to Fable). Attempt 3 (scratch ledger, CPU only, capped, ~$0) runs
+  under that delegation and is reported. Real-ledger writes still need the human's yes.
+- The length-only control runs over every task after the n-gram one; no attempt has reached it.
+
+**The control's per-iteration floor** (lane `v6-linfit-pool`, `HANDOFF/v6-linfit-pool-2026-10-04.md`
+on that branch): on the box a thread start costs ~32 us a thread a phase, ~3.4 ms an iteration
+at 52 threads. A team of threads per fit (bit for bit against the Python reference) cuts small
+shapes 2-2.3x at 52 threads, but loses 10-39% on a large shape. Not deployable yet; diagnosis
+continues.
+
 ## ~15:00Z 2026-10-04: v6-ctlcache merged (bbed808); v5 seeds 0 and 1 scored; the early control check hit its cap
 
 The human, ~13:40Z: "yes to both, merge and run the check; ask fable for more advice". Later:
