@@ -6,6 +6,41 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~20:50Z 2026-10-04: the GPUs stay busy to ~05-06Z (J5′ s1, s2 queued); the linfit loss found and fixed (be65fa5)
+
+**The queue after the current runs** [V for the rule and the recorded spend; the arithmetic
+inferred from the pre-registration's estimates]:
+- `box_q_v5.sh:4-17` gives the order v5 s0-4, the arm iff room, then J5′ s0-2. With no room the
+  rounds are [s4 | J5′0], then [J5′1 | J5′2]. J5′ s1 and s2's inputs exist: v5 s0-2's ft rows
+  and v5 s1/s2's eval rows.
+- `v5_budget_ok` (`v5_common.sh`) admits a job while spent + in-flight + its estimate stay
+  within the approved ~$356 / 84.96 GPU-h.
+- `/home/ubuntu/queue/v5.spend` records $131.49 and 31.4 GPU-h. With the two running jobs
+  (~$33 + ~$28) and two J5′ seeds (~$25 each), the total is ~$240.
+- So both lanes take J5′ s1 and s2 when v5 s4 and J5′ s0 end (~22:10-23:15Z), and the GPUs stay
+  busy to ~05:00-06:00Z.
+- The post-queue session's `run` mode needs `v5lane{0,1}.done`, so it cannot start before then.
+  It still needs the human's yes. Its clone path and started marker are absent [V].
+
+**The linfit loss, found and fixed** (lane v6-linfit-pool; branch commits be65fa5 and 620dde4;
+the chain in `HANDOFF/v6-linfit-pool-2026-10-04.md` on that branch) [V,
+`/home/ubuntu/logs/q-linfit-ab{4..11}.log`]:
+- Fable withdrew its ~17:57Z decision rule. box_ab3's "the loss is the team mechanism;
+  UnsafeCell would not help" was wrong:
+  - its `--iters 3` was dominated by the single-threaded transpose;
+  - at 1 thread, phase B's gain masked phase A's loss.
+- **The cause:** the hot loops indexed the W / diff snapshots through their `RwLock` read
+  guards, reloading the Vec header for every nonzero. be65fa5 binds plain slices once per item,
+  bit for bit: 85 Rust tests and 111 parity tests passed.
+- **Deployment table** (box_ab11, 26 threads on the even CPUs, slices/old): tiny 0.06,
+  openjev-k4 0.59, openjev-k8 0.72, arc-k4 0.85, defect-k4 1.09, defect-k8 1.03.
+- **Projected on early attempt 3's 197 fits:** 4,974 s → 3,662–4,446 s (0.74–0.89×)
+  [inferred: band ratios].
+- **The residual** on defect at 26 threads (1.03–1.08) is open, and the `UnsafeCell` variant
+  (the crate's first `unsafe`) is the human's choice.
+- No rebuilt `qd-prep` reaches a v5 control without Fable's ruling and the human's yes.
+- The box lane is closed: no further box runs in this lane.
+
 ## 19:36Z 2026-10-04: early attempt 3 complete; seed 2's OFF-arm control row 8f895758
 
 [V, `/home/ubuntu/logs/q-post-queue-early-3.log`, the control's stamped log and the scratch row,
@@ -126,8 +161,9 @@ Fable revised two of its earlier settings on box_ab2's evidence (~17:57Z):
 - box_ab3, defect-k8: the copy variant against old was 0.95 at 1 thread and 1.15 at 4.
   - `with_team(1)` runs inline: it starts `threads - 1` workers (`team.rs:9,266`).
   - So the per-element code (the atomic cells) is not the cause; the team mechanism is.
+    **(Wrong; corrected at ~20:50Z, the section above.)**
 - Per Fable's decision rule, the `UnsafeCell` branch (`v6-linfit-pool-cell`) would not help and
-  stays on hold.
+  stays on hold. **(The rule was withdrawn at ~20:37Z; see the section above.)**
 - The next diagnostics need the box's CPUs, which attempt 3 holds until ≤23:15Z.
 
 **Next:**
