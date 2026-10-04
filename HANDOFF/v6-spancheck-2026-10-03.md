@@ -253,7 +253,8 @@ the two paths at this size; they are not a v5-scale throughput [U].
 1. **Rust-side decode needs the `tokenizers` crate**, which is a new dependency and the owner's
    call. Until then decoding stays in Python: the decode check was 35.2 s of the AUDIT's 626.1 s
    profile.
-2. **The double encode under `--memo-limit 0`**, which v5-size builds use. The reference already
+2. **The double encode under `--memo-limit 0`.** The v5 data build's recorded command carries
+   that flag (`HANDOFF/v5-data-2026-10-02.md:262` and `:389`; read, not re-run). The reference already
    encodes each span sequence twice per write, once in `tokenize` and once in `token_offsets`:
    - in the AUDIT's profile, `encode_batch` ran 463,704 times (125.9 s) for 281,759 `tokenize`
      and 181,945 `offsets` calls, the census's included;
