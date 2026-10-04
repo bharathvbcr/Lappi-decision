@@ -74,6 +74,27 @@ Mac the binary reproduces its sparse operand bit for bit. ``QD_PREP_BIN`` must n
 and is checked before the split is rebuilt; there is no Python fallback. The row's recipe names
 the engine and the sha256 of the binary that ran.
 
+## The split cache (``--split-cache DIR --split-cache-shards DIR``)
+
+The split rebuild is most of a call's wall clock before the first fit: ~200 s on the Mac on v5's
+data, ~325 s on the H100 box, where v5's controls are about 16 calls over one split.
+``--split-cache DIR`` uses the cache ``real_ft_run.py --split-cache`` uses
+(``tools/split_cache.py``), with its key, checks and bounds; none of them is restated here. An
+entry whose key matches and which passes its checks is read back; otherwise the rebuild runs and
+is stored.
+
+* **The partial.** The rebuild is one ``functools.partial`` of ``ft_split_rows``. Its keywords
+  are what the uncached call passes and what the cache keys.
+* **The extra inputs.** What the rebuild reads beyond its arguments is named by
+  ``real_ft_run.split_rebuild_inputs``, reached by name as ``ft_split_rows`` is.
+* **The shard set.** ``--split-cache-shards DIR`` is the shard set's root: ``real_ft_run``'s
+  ``--out``, which the control is not otherwise given. Every cached row is checked against its
+  ``data/pool/{train,val}.json``. Before the rebuild, its ``train.json`` must name the eval row's
+  ``data_snapshot_hash``.
+* **Off by default, and not recipe.** With the flag, the row carries the cache's state as a
+  metric: ``split_cache`` on the letter row, ``linear_option_control.split_cache`` on the option
+  row, every one of whose keys carries that prefix. Without it, the row is what it was.
+
 RUN (on the machine that has torch; it imports the FT runner for the split)
 ---
     QD_PREP_BIN=<abs path> /Users/bharath/.venvs/ml/bin/python tools/ft_linear_control.py \\
@@ -84,10 +105,12 @@ RUN (on the machine that has torch; it imports the FT runner for the split)
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
 import sys
 import time
+import types
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -99,6 +122,7 @@ sys.path.insert(0, str(REPO / "python"))
 sys.path.insert(0, str(REPO / "tools"))
 
 import linear_control_native as native  # noqa: E402
+import split_cache  # noqa: E402
 from repo_git import require_full_sha  # noqa: E402
 
 from qd_data.config import DataConfig  # noqa: E402
@@ -154,6 +178,13 @@ DEFAULT_MAX_ITER: Final[int] = 8_000
 
 #: Letter kinds the eval row reports as ``val_top1.<kind>``; the verdicts must agree with them.
 LETTER_KIND_NAMES: Final[tuple[str, ...]] = ("choice", "score")
+
+#: ``--split-cache``'s state, in the form ``real_ft_run.py`` writes: ``hit``, ``miss`` or
+#: ``corrupt``, with the key. A metric, never a recipe key, so a cached and an uncached control of
+#: one eval row keep one recipe_hash. The letter row carries it under this name. The option row
+#: carries it under ``OPTION_ARM``'s prefix, as it does every key. Without the flag, neither row
+#: carries it.
+SPLIT_CACHE_METRIC: Final[str] = "split_cache"
 
 Key = tuple[str, str]
 
@@ -945,13 +976,18 @@ def _note(args: argparse.Namespace) -> str:
     return f". {args.note}" if args.note else ""
 
 
-def split_rows_function() -> Callable[..., tuple[list[DataRow], list[DataRow]]]:
-    """``real_ft_run.ft_split_rows``, by name, or a refusal. Never a local copy."""
+def _runner() -> types.ModuleType:
+    """``tools/real_ft_run.py``, the owner of the split rebuild, imported by name, or a refusal."""
     try:
         import real_ft_run
     except SystemExit as exc:  # real_ft_run refuses to import without torch
         raise Refused(f"tools/real_ft_run.py could not be imported: {exc}") from exc
-    fn = getattr(real_ft_run, "ft_split_rows", None)
+    return real_ft_run
+
+
+def split_rows_function() -> Callable[..., tuple[list[DataRow], list[DataRow]]]:
+    """``real_ft_run.ft_split_rows``, by name, or a refusal. Never a local copy."""
+    fn = getattr(_runner(), "ft_split_rows", None)
     if not callable(fn):
         raise Refused(
             "tools/real_ft_run.py has no ft_split_rows(). This tool rebuilds the split by "
@@ -960,6 +996,46 @@ def split_rows_function() -> Callable[..., tuple[list[DataRow], list[DataRow]]]:
             "a margin. It is owned by the lane that owns real_ft_run.py."
         )
     return fn
+
+
+def split_rebuild_inputs_function() -> Callable[..., tuple[dict[str, Path], dict[str, object]]]:
+    """``real_ft_run.split_rebuild_inputs``, by name, or a refusal. Never a local copy.
+
+    It names what the rebuild reads beyond its arguments, which ``--split-cache`` keys beside
+    them. A list kept here would miss the next input the runner's rebuild learns to read, and a
+    cache keyed without that input would hand back rows from before it changed."""
+    fn = getattr(_runner(), "split_rebuild_inputs", None)
+    if not callable(fn):
+        raise Refused(
+            "tools/real_ft_run.py has no split_rebuild_inputs(). --split-cache keys the split "
+            "rebuild by every input it reads, and only the runner that owns the rebuild can "
+            "name them; this tool refuses to carry its own list. Run without --split-cache."
+        )
+    return fn
+
+
+def check_shard_set(shards: Path, row: LedgerRow) -> None:
+    """Refuse a ``--split-cache-shards`` that is not the eval row's shard set, before the rebuild.
+
+    ``split_cache`` checks every cached row against the shard set's manifests, and the rebuilt
+    rows too before it stores them. Give it another build's manifests and every call is a miss
+    whose rows fail that check and are never stored: the whole rebuild on every call, and only
+    a metric would say so. The train manifest's ``data_snapshot_hash`` is the shard header's
+    (``real_ft_run.corpus_facts`` refuses otherwise), which is the eval row's protocol's
+    (``real_ft_run._protocol``), so the pairing is checked here, where it costs a manifest
+    read (0.8 s on v5's 270 MB train.json).
+    """
+    try:
+        manifests = split_cache.read_manifests(shards)
+    except split_cache.KeyUnavailable as exc:
+        raise Refused(f"--split-cache-shards {shards}: {exc}") from exc
+    if manifests.data_snapshot_hash != row.protocol.data_snapshot_hash:
+        raise Refused(
+            f"--split-cache-shards {shards}: its data/pool/train.json records data_snapshot_hash "
+            f"{manifests.data_snapshot_hash}, but eval row {row.row_id}'s model was trained on "
+            f"{row.protocol.data_snapshot_hash}. It is not that row's shard set, so no cached "
+            "row could be checked against it"
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1030,6 +1106,28 @@ def main(argv: list[str] | None = None) -> int:
              "list's attestation names, so a rebuild without it is refused there",
     )
     parser.add_argument("--control-cache", type=Path, default=None)
+    parser.add_argument(
+        "--split-cache", type=Path, default=None, metavar="DIR",
+        help=(
+            "read the split rebuild's result (the train and val rows: ~200 s of each call on "
+            "v5's data on the Mac) from DIR when an entry's key matches and the entry passes its "
+            "checks; otherwise rebuild and store it there. The cache real_ft_run.py "
+            "--split-cache uses (tools/split_cache.py): the key is every input the rebuild "
+            "reads, by content, and the code that reads them. Needs --split-cache-shards. Off "
+            "by default. Not recipe: the row carries a split_cache metric (hit, miss or "
+            "corrupt, with the key). DIR must be owned by the running user, not group- or "
+            "world-writable and not a symlink; it is created 0700 when absent. Not "
+            "--control-cache, which caches the letter control's fits"
+        ),
+    )
+    parser.add_argument(
+        "--split-cache-shards", type=Path, default=None, metavar="DIR",
+        help=(
+            "with --split-cache: the eval row's shard set, the directory real_ft_run.py was "
+            "given as --out. Every cached row is checked against its data/pool/{train,val}.json, "
+            "and before the rebuild its train.json must name the eval row's data_snapshot_hash"
+        ),
+    )
     parser.add_argument("--max-iter", type=int, default=DEFAULT_MAX_ITER)
     parser.add_argument(
         "--note", default="",
@@ -1055,6 +1153,18 @@ def main(argv: list[str] | None = None) -> int:
              f"and {OPTION_MARGIN}.* metrics, no gate ({OPTION_REPORT_ONLY})",
     )
     args = parser.parse_args(argv)
+    if args.split_cache_shards is not None and args.split_cache is None:
+        parser.error("--split-cache-shards without --split-cache reads nothing")
+    if args.split_cache is not None:
+        if args.split_cache_shards is None:
+            raise Refused(
+                "--split-cache needs --split-cache-shards: the eval row's shard set "
+                "(real_ft_run.py's --out), whose data/pool/{train,val}.json every cached row is "
+                "checked against"
+            )
+        # Refused in seconds, before the ledger, the verdicts or the split are read: the cache
+        # reads pickles. real_ft_run.py makes the same check at the same point.
+        split_cache.check_dir(args.split_cache)
     if args.option_control and args.hold_out_operator:
         raise Refused(
             "--option-control scores the tasks whose rows offer their own options; an "
@@ -1121,13 +1231,18 @@ def main(argv: list[str] | None = None) -> int:
             f"{recorded_exclusions or 'none'} and this control would apply "
             f"{exclusions_sha256 or 'none'}: it would be fitted on a different train split"
         )
+    if args.split_cache_shards is not None:
+        check_shard_set(args.split_cache_shards, row)
     hold = HoldOut(args.operator_key, args.hold_out_operator) if args.hold_out_operator else None
     # Before the split rebuild, which is most of a run's wall clock before the first fit: a
     # control that cannot be fitted is refused while that costs nothing.
     engine = native.prep_binary()
 
     config = DataConfig()
-    train_rows, val_rows = split_rows_function()(
+    # One set of keywords for the rebuild and for the split cache's key, so what is keyed is what
+    # is rebuilt: real_ft_run.main's own form.
+    rebuild = functools.partial(
+        split_rows_function(),
         commitpackft=args.commitpackft, max_pairs=max_pairs, rev=rev, config=config,
         defect_class=args.defect_class, defect_download=args.defect_download,
         defect_max_rows=args.defect_max_rows, repo_history=args.repo_history,
@@ -1136,6 +1251,19 @@ def main(argv: list[str] | None = None) -> int:
         exclude_identity_keys=args.exclude_identity_keys, decisions_pool=args.decisions_pool,
         pre_dedupe_drops=args.pre_dedupe_drops,
     )
+    split_cache_state: TriState | None = None
+    if args.split_cache is None:
+        train_rows, val_rows = rebuild()
+    else:
+        extra_inputs, extra_facts = split_rebuild_inputs_function()(
+            general_record=args.general_record, exclude_identity_keys=args.exclude_identity_keys,
+            repo_history=args.repo_history,
+        )
+        train_rows, val_rows, split_cache_state = split_cache.cached_split_rows(
+            args.split_cache, kwargs=rebuild.keywords, rebuild=rebuild,
+            extra_inputs=extra_inputs, extra_facts=extra_facts, out=args.split_cache_shards,
+            config=config, repo=REPO,
+        )
     # Rule 3 through this door too. A control fitted on a held-out family would not train a
     # model, but it would set the bar the model is measured against with data the model may
     # never see -- the same violation wearing a different hat (fit_linear_control.py).
@@ -1213,7 +1341,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.option_control:
         return write_option_row(
             args, row, verdicts, train_docs, val_docs, recipe=recipe, quick=quick,
-            quick_reason=quick_reason, engine=engine,
+            quick_reason=quick_reason, engine=engine, split_cache_state=split_cache_state,
         )
     # The recorder WRAPS the fit: on a rented box this CPU work is billed with the instance,
     # and a fit killed outside a block would leave no row saying it ran.
@@ -1236,6 +1364,8 @@ def main(argv: list[str] | None = None) -> int:
         recorder.measured(time.monotonic() - started)
         recorder.metric("scored_eval_row_id", Ran(passed=True, value=row.row_id,
                                                   detail="the eval row these verdicts are"))
+        if split_cache_state is not None:
+            recorder.metric(SPLIT_CACHE_METRIC, split_cache_state)
         recorder.metric("control_train_rows", Ran(
             passed=True, value=result.train_rows, detail=(
                 f"letter slots the control was fitted on; the holdout removed "
@@ -1252,7 +1382,7 @@ def main(argv: list[str] | None = None) -> int:
 def write_option_row(
     args: argparse.Namespace, row: LedgerRow, verdicts: Verdicts,
     train_docs: list[RequestDoc], val_docs: list[RequestDoc], *, recipe: dict[str, object],
-    quick: bool, quick_reason: str | None, engine: Path,
+    quick: bool, quick_reason: str | None, engine: Path, split_cache_state: TriState | None,
 ) -> int:
     """The per-option control's own supplement row: metrics only, never a gate.
 
@@ -1289,6 +1419,8 @@ def write_option_row(
         recorder.measured(time.monotonic() - started)
         recorder.metric(f"{OPTION_ARM}.scored_eval_row_id", Ran(
             passed=True, value=row.row_id, detail="the eval row these verdicts are"))
+        if split_cache_state is not None:
+            recorder.metric(f"{OPTION_ARM}.{SPLIT_CACHE_METRIC}", split_cache_state)
         recorder.metric(f"{OPTION_ARM}.train_rows", Ran(
             passed=True, value=result.train_rows,
             detail="training letter slots of the per-row-option tasks"))

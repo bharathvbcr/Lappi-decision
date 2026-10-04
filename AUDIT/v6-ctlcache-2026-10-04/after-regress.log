@@ -1,0 +1,29 @@
+# 2026-10-04T11:38:18Z HEAD 0dd472c561d4ebdd670aa9b28bdddb9e75a23040 dirty-tracked: 1
+# QD_PREP_BIN=/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep sha256 a38c0fdf726bbd834b42537ea00d7c78121509d33097b174bfd9476e7521474d
+# pytest python/tests/test_ft_linear_control_split_cache.py python/tests/test_ft_linear_control.py python/tests/test_option_control.py python/tests/test_length_control.py python/tests/test_control_label_space.py python/tests/test_linfit_step_schedule.py python/tests/test_split_cache.py python/tests/test_split_cache_main.py python/tests/test_v5_queue_scripts.py python/tests/test_tool_call_sites.py
+........................................................................ [ 15%]
+........................................................................ [ 30%]
+........................................................................ [ 45%]
+........................................................................ [ 60%]
+........................................................................ [ 75%]
+........................................................................ [ 90%]
+...............................................                          [100%]
+=============================== warnings summary ===============================
+python/tests/test_split_cache.py::test_rows_a_failed_load_unpickled_are_released_before_the_rebuild_runs
+  /Users/bharath/Code/research/Lappi-decision/build/v6-ctlcache-wt/python/tests/test_split_cache.py:651: FutureWarning: `torch.distributed.reduce_op` is deprecated, please use `torch.distributed.ReduceOp` instead
+    baseline = sum(isinstance(o, DataRow) for o in gc.get_objects())
+
+python/tests/test_split_cache.py::test_rows_a_failed_load_unpickled_are_released_before_the_rebuild_runs
+  /Users/bharath/Code/research/Lappi-decision/build/v6-ctlcache-wt/python/tests/test_split_cache.py:656: FutureWarning: `torch.distributed.reduce_op` is deprecated, please use `torch.distributed.ReduceOp` instead
+    live_at_rebuild.append(sum(isinstance(o, DataRow) for o in gc.get_objects()))
+
+python/tests/test_split_cache_main.py::test_plumbing_toy_corpus_split_cache_off_miss_hit_write_the_same_rows
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+python/tests/test_split_cache_main.py::test_plumbing_toy_corpus_split_cache_off_miss_hit_write_the_same_rows
+  <frozen importlib._bootstrap>:491: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+479 passed, 4 warnings in 422.16s (0:07:02)
+<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+# exit 0

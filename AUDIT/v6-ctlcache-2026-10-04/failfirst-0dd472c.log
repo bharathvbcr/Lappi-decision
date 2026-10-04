@@ -1,0 +1,467 @@
+# 2026-10-04T11:34:43Z HEAD 0dd472c561d4ebdd670aa9b28bdddb9e75a23040 dirty-tracked: 0
+# QD_PREP_BIN=/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep sha256 a38c0fdf726bbd834b42537ea00d7c78121509d33097b174bfd9476e7521474d
+# pytest python/tests/test_ft_linear_control_split_cache.py
+.FFFFFFFFF                                                               [100%]
+=================================== FAILURES ===================================
+_ test_miss_then_hit_write_the_letter_and_option_rows_the_uncached_run_writes __
+
+fx = Fixture(tmp=PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_miss...ty_keys': None, 'decisions_pool': None, 'pre_dedupe_drops': None}], inputs=[], refuse_rebuild=False, with_inputs=True))
+
+    def test_miss_then_hit_write_the_letter_and_option_rows_the_uncached_run_writes(
+        fx: Fixture,
+    ) -> None:
+        cache = fx.tmp / "split-cache"
+        flags = fx.cache_flags(cache)
+        assert ftc.main(fx.argv(write="letter-off")) == 0
+        assert ftc.main(fx.argv("--option-control", write="option-off")) == 0
+>       assert ftc.main(fx.argv(*flags, write="letter-miss")) == 0
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_ft_linear_control_split_cache.py:236: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/ft_linear_control.py:1057: in main
+    args = parser.parse_args(argv)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2012: in parse_args
+    self.error(msg)
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2785: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='python -m pytest', usage=None, description='Score an FT eval row against its char-n-gram linear c...paired_margin_vs_linear``.', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = 'python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn.../var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_miss_then_hit_write_the_l0/shards\n'
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2772: SystemExit
+----------------------------- Captured stdout call -----------------------------
+eval row 8ae43a69-42bd-4874-86ad-05f2c8b1bb3d seed 0: 40 letter verdict(s), 0 span
+control docs: 120 train (0 excluded), 40 val (0 excluded); tasks {'code.commit_intent/implements_claim': 20, 'commonsense.multiple_choice/answer': 20}
+paired_margin_vs_linear: Ran(passed=False, value=0.2, n=40, n_total=40, detail='paired margin +0.2000, 95% CI [-0.0250, +0.4250] over 10000 bootstrap resamples -- CI includes zero, so this is not a win', state='ran')
+wrote row 0c0575a6-67c4-42f7-b6d1-a28a3d32f734 to /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_miss_then_hit_write_the_l0/letter-off.jsonl
+eval row 8ae43a69-42bd-4874-86ad-05f2c8b1bb3d seed 0: 40 letter verdict(s), 0 span
+control docs: 120 train (0 excluded), 40 val (0 excluded); tasks {'code.commit_intent/implements_claim': 20, 'commonsense.multiple_choice/answer': 20}
+paired_margin_vs_linear_option.choice (report-only): Ran(passed=False, value=-0.35, n=20, n_total=20, detail="paired margin -0.3500, 95% CI [-0.5500, -0.1500] over 10000 bootstrap resamples -- the whole interval is below zero, so this is not an inconclusive result: the baseline beats the model by 0.3500 and the comparison separates them; over the 20 choice row(s) of the per-row-option tasks ['commonsense.multiple_choice/answer'], and none of the split's other 20 letter row(s)", state='ran')
+wrote row b99caac0-040a-4d75-a51a-92663399f23d to /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_miss_then_hit_write_the_l0/option-off.jsonl
+----------------------------- Captured stderr call -----------------------------
+task code.commit_intent/implements_claim (linear_control): qd-prep linfit: 60 rows x 65536 cols, 90737 nonzeros, 20 eval rows; features 0.00 s, fit 0.66 s on 18 thread(s); grid [l2=0.0001 8/12 converged in 598; l2=0.001 8/12 converged in 408; l2=0.01 9/12 converged in 153; l2=0.1 8/12 converged in 194]; refit l2=0.01 converged in 157 iterations (grad norm 7.746367e-5) -> /var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-prep-linfit-efrzgw6z/reply.bin
+task commonsense.multiple_choice/answer (linear_control): qd-prep linfit: 60 rows x 65536 cols, 57008 nonzeros, 20 eval rows; features 0.00 s, fit 1.39 s on 18 thread(s); grid [l2=0.0001 9/12 converged in 741; l2=0.001 6/12 converged in 341; l2=0.01 5/12 converged in 160; l2=0.1 5/12 converged in 203]; refit l2=0.0001 converged in 584 iterations (grad norm 9.992581e-5) -> /var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-prep-linfit-714i66f1/reply.bin
+task code.commit_intent/implements_claim (length_control): qd-prep linfit: 60 rows x 5 cols, 300 nonzeros, 20 eval rows; features 0.00 s, fit 0.08 s on 18 thread(s); grid [l2=0.0001 8/12 converged in 82; l2=0.001 8/12 converged in 96; l2=0.01 8/12 converged in 64; l2=0.1 8/12 converged in 70]; refit l2=0.0001 converged in 148 iterations (grad norm 9.888209e-5) -> /var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-prep-linfit-yzwfohhy/reply.bin
+task commonsense.multiple_choice/answer (length_control): qd-prep linfit: 60 rows x 5 cols, 300 nonzeros, 20 eval rows; features 0.00 s, fit 0.09 s on 18 thread(s); grid [l2=0.0001 2/12 converged in 112; l2=0.001 4/12 converged in 96; l2=0.01 2/12 converged in 100; l2=0.1 2/12 converged in 115]; refit l2=0.001 converged in 105 iterations (grad norm 7.423585e-5) -> /var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-prep-linfit-bzgwdgu2/reply.bin
+task commonsense.multiple_choice/answer (linear_option_control): qd-prep linfit: 360 rows x 131072 cols, 60846 nonzeros, 120 eval rows; features 0.00 s, fit 2.92 s on 18 thread(s); grid [l2=0.0001 12/12 converged in 2191; l2=0.001 12/12 converged in 715; l2=0.01 12/12 converged in 186; l2=0.1 12/12 converged in 201]; refit l2=0.0001 converged in 2191 iterations (grad norm 9.651986e-5); the grid counts validation ROWS, by each row's best option -> /var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-prep-linfit-9jqzv1yl/reply.bin
+usage: python -m pytest [-h] --ledger LEDGER [--eval-row EVAL_ROW]
+                        --verdicts VERDICTS [--write-ledger WRITE_LEDGER]
+                        [--commitpackft COMMITPACKFT] [--max-pairs MAX_PAIRS]
+                        [--no-repo-history] --rev REV
+                        [--defect-class DEFECT_CLASS]
+                        [--defect-download DEFECT_DOWNLOAD]
+                        [--defect-max-rows DEFECT_MAX_ROWS]
+                        [--defect-noul DEFECT_NOUL]
+                        [--general-record GENERAL_RECORD]
+                        [--general-max-rows GENERAL_MAX_ROWS]
+                        [--decisions-pool DECISIONS_POOL] [--replay-partition]
+                        [--exclude-identity-keys EXCLUDE_IDENTITY_KEYS]
+                        [--drop-before-dedupe PRE_DEDUPE_DROPS]
+                        [--control-cache CONTROL_CACHE] [--max-iter MAX_ITER]
+                        [--note NOTE] [--dense-budget-gb DENSE_BUDGET_GB]
+                        [--max-fit-minutes MAX_FIT_MINUTES]
+                        [--hold-out-operator HOLD_OUT_OPERATOR]
+                        [--operator-key OPERATOR_KEY] [--option-control]
+python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_miss_then_hit_write_the_l0/split-cache --split-cache-shards /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_miss_then_hit_write_the_l0/shards
+___ test_the_cache_keys_exactly_the_arguments_the_uncached_rebuild_is_handed ___
+
+fx = Fixture(tmp=PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_the_...ty_keys': None, 'decisions_pool': None, 'pre_dedupe_drops': None}], inputs=[], refuse_rebuild=False, with_inputs=True))
+
+    def test_the_cache_keys_exactly_the_arguments_the_uncached_rebuild_is_handed(fx: Fixture) -> None:
+        cache = fx.tmp / "split-cache"
+        assert ftc.main(fx.argv(write="off")) == 0
+>       assert ftc.main(fx.argv(*fx.cache_flags(cache), write="miss")) == 0
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_ft_linear_control_split_cache.py:272: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/ft_linear_control.py:1057: in main
+    args = parser.parse_args(argv)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2012: in parse_args
+    self.error(msg)
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2785: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='python -m pytest', usage=None, description='Score an FT eval row against its char-n-gram linear c...paired_margin_vs_linear``.', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = 'python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn.../var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_the_cache_keys_exactly_th0/shards\n'
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2772: SystemExit
+----------------------------- Captured stdout call -----------------------------
+eval row 4194c4bd-e224-401a-ae0a-82f45aabce19 seed 0: 40 letter verdict(s), 0 span
+control docs: 120 train (0 excluded), 40 val (0 excluded); tasks {'code.commit_intent/implements_claim': 20, 'commonsense.multiple_choice/answer': 20}
+paired_margin_vs_linear: Ran(passed=False, value=0.2, n=40, n_total=40, detail='paired margin +0.2000, 95% CI [-0.0250, +0.4250] over 10000 bootstrap resamples -- CI includes zero, so this is not a win', state='ran')
+wrote row 4e1fcf60-5f09-4747-9378-1d1b4955c975 to /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_the_cache_keys_exactly_th0/off.jsonl
+----------------------------- Captured stderr call -----------------------------
+task code.commit_intent/implements_claim (linear_control): qd-prep linfit: 60 rows x 65536 cols, 90737 nonzeros, 20 eval rows; features 0.00 s, fit 0.68 s on 18 thread(s); grid [l2=0.0001 8/12 converged in 598; l2=0.001 8/12 converged in 408; l2=0.01 9/12 converged in 153; l2=0.1 8/12 converged in 194]; refit l2=0.01 converged in 157 iterations (grad norm 7.746367e-5) -> /var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-prep-linfit-y69odqux/reply.bin
+task commonsense.multiple_choice/answer (linear_control): qd-prep linfit: 60 rows x 65536 cols, 57008 nonzeros, 20 eval rows; features 0.00 s, fit 1.39 s on 18 thread(s); grid [l2=0.0001 9/12 converged in 741; l2=0.001 6/12 converged in 341; l2=0.01 5/12 converged in 160; l2=0.1 5/12 converged in 203]; refit l2=0.0001 converged in 584 iterations (grad norm 9.992581e-5) -> /var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-prep-linfit-9coxn64r/reply.bin
+task code.commit_intent/implements_claim (length_control): qd-prep linfit: 60 rows x 5 cols, 300 nonzeros, 20 eval rows; features 0.00 s, fit 0.08 s on 18 thread(s); grid [l2=0.0001 8/12 converged in 82; l2=0.001 8/12 converged in 96; l2=0.01 8/12 converged in 64; l2=0.1 8/12 converged in 70]; refit l2=0.0001 converged in 148 iterations (grad norm 9.888209e-5) -> /var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-prep-linfit-ndc0i6oy/reply.bin
+task commonsense.multiple_choice/answer (length_control): qd-prep linfit: 60 rows x 5 cols, 300 nonzeros, 20 eval rows; features 0.00 s, fit 0.09 s on 18 thread(s); grid [l2=0.0001 2/12 converged in 112; l2=0.001 4/12 converged in 96; l2=0.01 2/12 converged in 100; l2=0.1 2/12 converged in 115]; refit l2=0.001 converged in 105 iterations (grad norm 7.423585e-5) -> /var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/qd-prep-linfit-t1zy_bg8/reply.bin
+usage: python -m pytest [-h] --ledger LEDGER [--eval-row EVAL_ROW]
+                        --verdicts VERDICTS [--write-ledger WRITE_LEDGER]
+                        [--commitpackft COMMITPACKFT] [--max-pairs MAX_PAIRS]
+                        [--no-repo-history] --rev REV
+                        [--defect-class DEFECT_CLASS]
+                        [--defect-download DEFECT_DOWNLOAD]
+                        [--defect-max-rows DEFECT_MAX_ROWS]
+                        [--defect-noul DEFECT_NOUL]
+                        [--general-record GENERAL_RECORD]
+                        [--general-max-rows GENERAL_MAX_ROWS]
+                        [--decisions-pool DECISIONS_POOL] [--replay-partition]
+                        [--exclude-identity-keys EXCLUDE_IDENTITY_KEYS]
+                        [--drop-before-dedupe PRE_DEDUPE_DROPS]
+                        [--control-cache CONTROL_CACHE] [--max-iter MAX_ITER]
+                        [--note NOTE] [--dense-budget-gb DENSE_BUDGET_GB]
+                        [--max-fit-minutes MAX_FIT_MINUTES]
+                        [--hold-out-operator HOLD_OUT_OPERATOR]
+                        [--operator-key OPERATOR_KEY] [--option-control]
+python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_the_cache_keys_exactly_th0/split-cache --split-cache-shards /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_the_cache_keys_exactly_th0/shards
+__ test_the_control_passes_every_parameter_of_the_real_runners_two_functions ___
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_the_control_passes_every_0')
+qd_prep = PosixPath('/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep')
+
+    def test_the_control_passes_every_parameter_of_the_real_runners_two_functions(
+        tmp_path: Path, qd_prep: Path,
+    ) -> None:
+        """The fake above cannot drift from the runner: its recorded keywords are the real
+        functions' parameter lists, name for name."""
+        pytest.importorskip("torch", reason="real_ft_run imports torch at module scope")
+        fixture = build_fixture(tmp_path)
+        with pytest.MonkeyPatch.context() as mp:
+            fixture.runner.install(mp)
+>           assert ftc.main(fixture.argv(*fixture.cache_flags(tmp_path / "c"), write="miss")) == 0
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_ft_linear_control_split_cache.py:298: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/ft_linear_control.py:1057: in main
+    args = parser.parse_args(argv)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2012: in parse_args
+    self.error(msg)
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2785: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='python -m pytest', usage=None, description='Score an FT eval row against its char-n-gram linear c...paired_margin_vs_linear``.', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = 'python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn.../var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_the_control_passes_every_0/shards\n'
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2772: SystemExit
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] --ledger LEDGER [--eval-row EVAL_ROW]
+                        --verdicts VERDICTS [--write-ledger WRITE_LEDGER]
+                        [--commitpackft COMMITPACKFT] [--max-pairs MAX_PAIRS]
+                        [--no-repo-history] --rev REV
+                        [--defect-class DEFECT_CLASS]
+                        [--defect-download DEFECT_DOWNLOAD]
+                        [--defect-max-rows DEFECT_MAX_ROWS]
+                        [--defect-noul DEFECT_NOUL]
+                        [--general-record GENERAL_RECORD]
+                        [--general-max-rows GENERAL_MAX_ROWS]
+                        [--decisions-pool DECISIONS_POOL] [--replay-partition]
+                        [--exclude-identity-keys EXCLUDE_IDENTITY_KEYS]
+                        [--drop-before-dedupe PRE_DEDUPE_DROPS]
+                        [--control-cache CONTROL_CACHE] [--max-iter MAX_ITER]
+                        [--note NOTE] [--dense-budget-gb DENSE_BUDGET_GB]
+                        [--max-fit-minutes MAX_FIT_MINUTES]
+                        [--hold-out-operator HOLD_OUT_OPERATOR]
+                        [--operator-key OPERATOR_KEY] [--option-control]
+python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_the_control_passes_every_0/c --split-cache-shards /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_the_control_passes_every_0/shards
+______ test_a_corrupt_entry_is_rebuilt_and_the_row_says_corrupt_never_hit ______
+
+fx = Fixture(tmp=PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_a_co...pytest-180/test_a_corrupt_entry_is_rebuil0/aux.json'), rebuilds=[], inputs=[], refuse_rebuild=False, with_inputs=True))
+
+    def test_a_corrupt_entry_is_rebuilt_and_the_row_says_corrupt_never_hit(fx: Fixture) -> None:
+        cache = fx.tmp / "split-cache"
+        flags = fx.cache_flags(cache)
+>       assert ftc.main(fx.argv(*flags, write="miss")) == 0
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_ft_linear_control_split_cache.py:313: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/ft_linear_control.py:1057: in main
+    args = parser.parse_args(argv)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2012: in parse_args
+    self.error(msg)
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2785: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='python -m pytest', usage=None, description='Score an FT eval row against its char-n-gram linear c...paired_margin_vs_linear``.', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = 'python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn.../var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_a_corrupt_entry_is_rebuil0/shards\n'
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2772: SystemExit
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] --ledger LEDGER [--eval-row EVAL_ROW]
+                        --verdicts VERDICTS [--write-ledger WRITE_LEDGER]
+                        [--commitpackft COMMITPACKFT] [--max-pairs MAX_PAIRS]
+                        [--no-repo-history] --rev REV
+                        [--defect-class DEFECT_CLASS]
+                        [--defect-download DEFECT_DOWNLOAD]
+                        [--defect-max-rows DEFECT_MAX_ROWS]
+                        [--defect-noul DEFECT_NOUL]
+                        [--general-record GENERAL_RECORD]
+                        [--general-max-rows GENERAL_MAX_ROWS]
+                        [--decisions-pool DECISIONS_POOL] [--replay-partition]
+                        [--exclude-identity-keys EXCLUDE_IDENTITY_KEYS]
+                        [--drop-before-dedupe PRE_DEDUPE_DROPS]
+                        [--control-cache CONTROL_CACHE] [--max-iter MAX_ITER]
+                        [--note NOTE] [--dense-budget-gb DENSE_BUDGET_GB]
+                        [--max-fit-minutes MAX_FIT_MINUTES]
+                        [--hold-out-operator HOLD_OUT_OPERATOR]
+                        [--operator-key OPERATOR_KEY] [--option-control]
+python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_a_corrupt_entry_is_rebuil0/split-cache --split-cache-shards /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_a_corrupt_entry_is_rebuil0/shards
+_______ test_an_unsafe_cache_dir_is_refused_before_the_verdicts_are_read _______
+
+fx = Fixture(tmp=PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_an_u...pytest-180/test_an_unsafe_cache_dir_is_re0/aux.json'), rebuilds=[], inputs=[], refuse_rebuild=False, with_inputs=True))
+
+    def test_an_unsafe_cache_dir_is_refused_before_the_verdicts_are_read(fx: Fixture) -> None:
+        """The cache reads pickles. A directory another user can write is refused at argv time:
+        the verdicts named here do not exist, and the refusal is the cache's, not theirs."""
+        shared = fx.tmp / "shared"
+        shared.mkdir()
+        shared.chmod(0o777)
+        absent = fx.tmp / "no-such-verdicts.jsonl"
+>       with pytest.raises(SystemExit, match="group- or world-writable"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'group- or world-writable'
+E         Actual message: '2'
+
+python/tests/test_ft_linear_control_split_cache.py:340: AssertionError
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] --ledger LEDGER [--eval-row EVAL_ROW]
+                        --verdicts VERDICTS [--write-ledger WRITE_LEDGER]
+                        [--commitpackft COMMITPACKFT] [--max-pairs MAX_PAIRS]
+                        [--no-repo-history] --rev REV
+                        [--defect-class DEFECT_CLASS]
+                        [--defect-download DEFECT_DOWNLOAD]
+                        [--defect-max-rows DEFECT_MAX_ROWS]
+                        [--defect-noul DEFECT_NOUL]
+                        [--general-record GENERAL_RECORD]
+                        [--general-max-rows GENERAL_MAX_ROWS]
+                        [--decisions-pool DECISIONS_POOL] [--replay-partition]
+                        [--exclude-identity-keys EXCLUDE_IDENTITY_KEYS]
+                        [--drop-before-dedupe PRE_DEDUPE_DROPS]
+                        [--control-cache CONTROL_CACHE] [--max-iter MAX_ITER]
+                        [--note NOTE] [--dense-budget-gb DENSE_BUDGET_GB]
+                        [--max-fit-minutes MAX_FIT_MINUTES]
+                        [--hold-out-operator HOLD_OUT_OPERATOR]
+                        [--operator-key OPERATOR_KEY] [--option-control]
+python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_an_unsafe_cache_dir_is_re0/shared --split-cache-shards /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_an_unsafe_cache_dir_is_re0/shards
+_____ test_each_flag_without_the_other_is_refused_before_anything_is_read ______
+
+fx = Fixture(tmp=PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_each...pytest-180/test_each_flag_without_the_oth0/aux.json'), rebuilds=[], inputs=[], refuse_rebuild=False, with_inputs=True))
+capsys = <_pytest.capture.CaptureFixture object at 0x111957b60>
+
+    def test_each_flag_without_the_other_is_refused_before_anything_is_read(
+        fx: Fixture, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        cache = fx.tmp / "split-cache"
+        absent = fx.tmp / "no-such-verdicts.jsonl"
+        with pytest.raises(ftc.Refused, match="--split-cache-shards"):
+>           ftc.main(fx.argv("--split-cache", str(cache), write="w", verdicts=absent))
+
+python/tests/test_ft_linear_control_split_cache.py:357: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/ft_linear_control.py:1057: in main
+    args = parser.parse_args(argv)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2012: in parse_args
+    self.error(msg)
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2785: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='python -m pytest', usage=None, description='Score an FT eval row against its char-n-gram linear c...paired_margin_vs_linear``.', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = 'python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_each_flag_without_the_oth0/split-cache\n'
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2772: SystemExit
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] --ledger LEDGER [--eval-row EVAL_ROW]
+                        --verdicts VERDICTS [--write-ledger WRITE_LEDGER]
+                        [--commitpackft COMMITPACKFT] [--max-pairs MAX_PAIRS]
+                        [--no-repo-history] --rev REV
+                        [--defect-class DEFECT_CLASS]
+                        [--defect-download DEFECT_DOWNLOAD]
+                        [--defect-max-rows DEFECT_MAX_ROWS]
+                        [--defect-noul DEFECT_NOUL]
+                        [--general-record GENERAL_RECORD]
+                        [--general-max-rows GENERAL_MAX_ROWS]
+                        [--decisions-pool DECISIONS_POOL] [--replay-partition]
+                        [--exclude-identity-keys EXCLUDE_IDENTITY_KEYS]
+                        [--drop-before-dedupe PRE_DEDUPE_DROPS]
+                        [--control-cache CONTROL_CACHE] [--max-iter MAX_ITER]
+                        [--note NOTE] [--dense-budget-gb DENSE_BUDGET_GB]
+                        [--max-fit-minutes MAX_FIT_MINUTES]
+                        [--hold-out-operator HOLD_OUT_OPERATOR]
+                        [--operator-key OPERATOR_KEY] [--option-control]
+python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_each_flag_without_the_oth0/split-cache
+_ test_a_shard_set_that_is_absent_or_not_the_eval_rows_is_refused_before_the_rebuild _
+
+fx = Fixture(tmp=PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_a_sh...pytest-180/test_a_shard_set_that_is_absen0/aux.json'), rebuilds=[], inputs=[], refuse_rebuild=False, with_inputs=True))
+
+    def test_a_shard_set_that_is_absent_or_not_the_eval_rows_is_refused_before_the_rebuild(
+        fx: Fixture,
+    ) -> None:
+        """Without this, a wrong directory on the box makes every call a miss whose rows fail the
+        manifest check and are never stored: the whole rebuild, every call, said only in a metric."""
+        cache = fx.tmp / "split-cache"
+        other = write_manifests(fx.tmp / "other-shards", fx.runner.train, fx.runner.val,
+                                snapshot="e" * 64)
+        with pytest.raises(ftc.Refused, match="data_snapshot_hash"):
+>           ftc.main(fx.argv(*fx.cache_flags(cache, other), write="w"))
+
+python/tests/test_ft_linear_control_split_cache.py:374: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/ft_linear_control.py:1057: in main
+    args = parser.parse_args(argv)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2012: in parse_args
+    self.error(msg)
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2785: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='python -m pytest', usage=None, description='Score an FT eval row against its char-n-gram linear c...paired_margin_vs_linear``.', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = 'python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn...olders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_a_shard_set_that_is_absen0/other-shards\n'
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2772: SystemExit
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] --ledger LEDGER [--eval-row EVAL_ROW]
+                        --verdicts VERDICTS [--write-ledger WRITE_LEDGER]
+                        [--commitpackft COMMITPACKFT] [--max-pairs MAX_PAIRS]
+                        [--no-repo-history] --rev REV
+                        [--defect-class DEFECT_CLASS]
+                        [--defect-download DEFECT_DOWNLOAD]
+                        [--defect-max-rows DEFECT_MAX_ROWS]
+                        [--defect-noul DEFECT_NOUL]
+                        [--general-record GENERAL_RECORD]
+                        [--general-max-rows GENERAL_MAX_ROWS]
+                        [--decisions-pool DECISIONS_POOL] [--replay-partition]
+                        [--exclude-identity-keys EXCLUDE_IDENTITY_KEYS]
+                        [--drop-before-dedupe PRE_DEDUPE_DROPS]
+                        [--control-cache CONTROL_CACHE] [--max-iter MAX_ITER]
+                        [--note NOTE] [--dense-budget-gb DENSE_BUDGET_GB]
+                        [--max-fit-minutes MAX_FIT_MINUTES]
+                        [--hold-out-operator HOLD_OUT_OPERATOR]
+                        [--operator-key OPERATOR_KEY] [--option-control]
+python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_a_shard_set_that_is_absen0/split-cache --split-cache-shards /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_a_shard_set_that_is_absen0/other-shards
+______ test_a_runner_without_split_rebuild_inputs_is_refused_not_replaced ______
+
+tmp_path = PosixPath('/private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_a_runner_without_split_re0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1121e1470>
+qd_prep = PosixPath('/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep')
+
+    def test_a_runner_without_split_rebuild_inputs_is_refused_not_replaced(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qd_prep: Path,
+    ) -> None:
+        fixture = build_fixture(tmp_path)
+        fixture.runner.with_inputs = False
+        fixture.runner.install(monkeypatch)
+        with pytest.raises(ftc.Refused, match="has no split_rebuild_inputs"):
+>           ftc.main(fixture.argv(*fixture.cache_flags(tmp_path / "c"), write="w"))
+
+python/tests/test_ft_linear_control_split_cache.py:389: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/ft_linear_control.py:1057: in main
+    args = parser.parse_args(argv)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2012: in parse_args
+    self.error(msg)
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2785: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='python -m pytest', usage=None, description='Score an FT eval row against its char-n-gram linear c...paired_margin_vs_linear``.', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = 'python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn.../var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_a_runner_without_split_re0/shards\n'
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py:2772: SystemExit
+----------------------------- Captured stderr call -----------------------------
+usage: python -m pytest [-h] --ledger LEDGER [--eval-row EVAL_ROW]
+                        --verdicts VERDICTS [--write-ledger WRITE_LEDGER]
+                        [--commitpackft COMMITPACKFT] [--max-pairs MAX_PAIRS]
+                        [--no-repo-history] --rev REV
+                        [--defect-class DEFECT_CLASS]
+                        [--defect-download DEFECT_DOWNLOAD]
+                        [--defect-max-rows DEFECT_MAX_ROWS]
+                        [--defect-noul DEFECT_NOUL]
+                        [--general-record GENERAL_RECORD]
+                        [--general-max-rows GENERAL_MAX_ROWS]
+                        [--decisions-pool DECISIONS_POOL] [--replay-partition]
+                        [--exclude-identity-keys EXCLUDE_IDENTITY_KEYS]
+                        [--drop-before-dedupe PRE_DEDUPE_DROPS]
+                        [--control-cache CONTROL_CACHE] [--max-iter MAX_ITER]
+                        [--note NOTE] [--dense-budget-gb DENSE_BUDGET_GB]
+                        [--max-fit-minutes MAX_FIT_MINUTES]
+                        [--hold-out-operator HOLD_OUT_OPERATOR]
+                        [--operator-key OPERATOR_KEY] [--option-control]
+python -m pytest: error: unrecognized arguments: --split-cache /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_a_runner_without_split_re0/c --split-cache-shards /private/var/folders/wl/qc_0nnp91cd5kfy179krkjxr0000gn/T/pytest-of-bharath/pytest-180/test_a_runner_without_split_re0/shards
+________ test_the_flags_are_documented_as_off_by_default_and_not_recipe ________
+
+    def test_the_flags_are_documented_as_off_by_default_and_not_recipe() -> None:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), pytest.raises(SystemExit):
+            ftc.main(["--help"])
+        flat = " ".join(out.getvalue().split())
+>       assert "--split-cache DIR" in flat and "--split-cache-shards DIR" in flat
+E       assert ('--split-cache DIR' in "usage: python -m pytest [-h] --ledger LEDGER [--eval-row EVAL_ROW] --verdicts VERDICTS [--write-ledger WRITE_LEDGER] ...own options, beside the letter control of record; adopting it as a gate's comparator is the human's decision under G1)")
+
+python/tests/test_ft_linear_control_split_cache.py:400: AssertionError
+9 failed, 1 passed in 18.50s
+# exit 1
