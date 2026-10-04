@@ -65,6 +65,20 @@ exists.
 - On the box, `check` finds every required input present. The arm's ledger and the verdicts of
   unscored seeds show as "not yet".
 - On the box, `print` under bash 5.1.16 shows 17 controls and 2 parity runs, and creates nothing.
+- **The guard's matching, on real rows:**
+  - A control row's `recipe.eval_row_id` is the full 36-character id. On v5's box, verdicts-s2
+    names `2af3c80d-…`, which is exactly the `row_id` of seed 2's `epoch-score-val` eval row.
+  - The option prefixes are the tool's own `OPTION_ARM` and `OPTION_MARGIN`
+    (`tools/ft_linear_control.py:135-136`).
+  - `existing_controls.py` on F's ledger finds letter row c89b89a1 and option row 4e8ec654 for
+    eval row f4feac15.
+
+**How to read the parity:**
+- **A against v5 crosses commits** (main against 142a67c). Fields this lane cannot predict, such
+  as `protocol_hash`, or `recipe_hash` if the recipe embeds code facts, may differ beyond the two
+  that are named. Read that compare field by field; a nonzero exit there is not by itself a cache
+  failure.
+- **B against A is at the same commit and must be exactly EQUAL.** That is the cache's own test.
 
 **Not verified:**
 - The real tools on the real rows, which only the session itself runs.
