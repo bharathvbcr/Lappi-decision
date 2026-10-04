@@ -6,6 +6,65 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~22:25Z 2026-10-04: early attempt 4 (be65fa5's qd-prep) is bit-exact on v5's control and only 2.5% faster; v5 s4 and J5′ s0 scored
+
+The human: "Ask fable for advice and work on it". Fable's rulings (~20:55Z):
+- UnsafeCell parked.
+- The new binary prepared with sha256, parity and a replay.
+- One binary per session.
+- The branch merged up to main.
+
+**Done** [V]:
+- `qd-prep` built from be65fa5 (`build/linfit-pool/musl_qdprep.sh`): sha256 `28f72e67…`, on the
+  box at `/home/ubuntu/bin/qd-prep-linfit-be65fa5`. `qd-prep-v5` (`900534f1…`) is untouched.
+- `post_queue.sh` gained `--qd-prep PATH` (default unchanged):
+  - it refuses a path that is not an executable file before anything starts;
+  - its say line names the binary and its sha256.
+- `post_queue_test.sh`: 71 passed (8 new), 0 failed. The script is git-ignored tooling,
+  sha256 `c67bcdb8…` at both ends.
+- Rows record the engine: `recipe.control_engine_sha256` (`tools/ft_linear_control.py:1306`).
+- `v6-linfit-pool` merged main at 7f0e3d1 (disjoint files; no push). The full Python suite there
+  passed but for the two known worktree-only failures (`build/linfit-pool/suite-merge.log`).
+
+**Early attempt 4** (`post_queue.sh early 97bb3e2 --attempt 4 --ctl-cap-s 14400 --nice 19 --cpus
+<even> --qd-prep /home/ubuntu/bin/qd-prep-linfit-be65fa5`; 20:53:30-22:23:26Z; row 96c693fc,
+guard exit 1) [V]:
+- **Bit-exact on the real workload.** `build/post-queue/compare_engine_rows.py` compared
+  8f895758 with 96c693fc over 4,179 leaf fields, 4,112 of them metrics. Equal in every metric,
+  gate and recipe field but `recipe.control_engine_sha256`, `row_id`, `wall_clock_s` and
+  `written_at`. The comparator was checked to flag a one-character change in a metric detail.
+- **Speed:**
+
+  | | attempt 3 | attempt 4 |
+  |---|---|---|
+  | n-gram arm (98 fits) | 4,749 s | 4,778 s (+0.6%) |
+  | length arm (98 fits) | 226 s | 70 s |
+  | total | 4,975 s | 4,848 s (−2.6%) |
+  | the control's wall_clock_s | 5,006 s | 4,881 s |
+
+  173 fits were faster, 9 slower. The slow ones are the large tasks that are probably
+  many-class: decider.routing 1.57×, openjev.policy 1.37×, openjev.evidence 1.30×,
+  intent.domain 1.19×, defect 1.06×. The class counts are unverified.
+- The ~20:50Z projection (0.74–0.89×) was wrong. The ab11 table had 4- and 8-class shapes only,
+  and box_ab part 1's 32-class openjev measured copy/old 1.20.
+
+**v5 s4 scored** (a51c5bf4) [V, `read_v5_rows.py`]:
+- span 0.907, choice 0.828;
+- needle worst bucket 0.966, which passes;
+- OOD abstained 86.1%, Wilson lower 0.803, which fails;
+- permutation consistency 0.929, which fails.
+
+R9's bar holds. Seed 4's choice accuracy and permutation consistency are the lowest of the five
+seeds.
+
+**J5′ s0** (the shuffled-label control on v5 s0's recipe, row ba375781): shuffled-label accuracy
+0.2370 vs chance 0.2769, ceiling 0.3049 at z = 3, n = 2,304. **Passed.**
+
+**Queue state:**
+- J5′ s1 is training on GPU 1 (started 22:06:16Z; first step 22:17:36Z).
+- v5 s4's needle control and trajectory run next on GPU 0, then J5′ s2.
+- The running total is $185.36 / 44.24 GPU-h at 22:17:50Z.
+
 ## ~20:50Z 2026-10-04: the GPUs stay busy to ~05-06Z (J5′ s1, s2 queued); the linfit loss found and fixed (be65fa5)
 
 **The queue after the current runs** [V for the rule and the recorded spend; the arithmetic
