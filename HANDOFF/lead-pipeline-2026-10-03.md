@@ -6,6 +6,46 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~03:05Z 2026-10-04: overnight rule, written before any v5 row exists
+
+**The human, ~02:40Z:** "I would sleep by 06:45 Z; if the results are poor, post-train and
+fine-tune it till morning, try to keep the GPU busy."
+
+**Asked and answered, ~03:00Z:** the queue already keeps both H100s fine-tuning until ~17:00Z
+Oct 5. So "post-train if poor" could only mean stopping the pre-registered queue (V5_STOP) and
+running something else. The human chose **"Continue as pre-registered (Recommended)"**. The
+alternative was v5's data with F's flags, quick-marked.
+
+**What this means:**
+- Whatever seeds 2 and 3 read, the queue runs on: seeds 0 and 1 at ~07:20Z, then the remaining
+  rounds.
+- The lead reads seeds 2 and 3 against R9's bar and reports beside F.
+
+**R9's bar, used here as a report-only spending reading, not a gate (rule 2 untouched):**
+- per seed, `val_top1.span` with 5n ≥ 4·n_total;
+- and the 8K needle worst depth bucket with 2n ≥ n_total;
+- "poor" = both seeds 2 and 3 fail it.
+
+F scored, on the GH200's `gh200-p4-v4-2026-10-01.jsonl` [V, read with the reader below]:
+
+| Row | span | 8K worst bucket |
+|---|---|---|
+| f4feac15 | 0.902 | 0.656 |
+| aeca8d69 | 0.912 | 1.000 |
+| 8c3a774a | 0.905 | 0.770 |
+
+**Hard failures** (no row, NaN, crash) stay on the standing contingency: re-queue by the repo
+rule; V5_STOP only if "decide room" is threatened.
+
+**The reader:** `build/v5-h100/read_v5_rows.py`, stdlib-only throwaway analysis. It prints each
+eval row's span count, 8K worst bucket, the bar and every gate's verdict. Run it as
+`ssh <box> 'python3 - <ledger>' < build/v5-h100/read_v5_rows.py`; v5's ledger is
+`/home/ubuntu/ledger/h100x2-v5-2026-10-03.jsonl` on 68.209.74.244. It was validated on F's rows
+above. Rows carry no seed field, so map seeds through the lane logs' `ft row` / eval lines.
+
+The lane's `v5-pause` is NOT RUN under `V5_R9=waive` (`v5_common.sh:1040`). That contradicts
+R9's "v5-pause's reading is still written, report-only"; the reader stands in for it here.
+
 ## ~01:31Z 2026-10-04: the GH200 is reserved for MLresearch after J6(f)
 
 **The human, ~01:25Z:** "spin a new session to work and hand over gh200 to work on MLresearch,
