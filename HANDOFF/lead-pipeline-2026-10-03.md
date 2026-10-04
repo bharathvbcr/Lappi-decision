@@ -36,8 +36,19 @@ So one snapshot is ~6.5 min of wall time for ~16 s of GPU. At that rate the 3,60
 pre-registered, so that is a finding to report, not to act on.
 
 **v6 targets, in order of size:**
-1. Trajectories through `--score-plan`: one startup for all snapshots. The open question:
-   `_check_score_plan_flags` lists `--ood` as clashing, and trajectory rows are OOD-only.
+1. Trajectories through `--score-plan`: one startup for all snapshots. Corrected by the
+   v6-startup lane, ~07:35Z. This section's first version said `_check_score_plan_flags` lists
+   `--ood` as clashing; it doesn't. `real_ft_run.py:9254-9263` is the `--shuffled-label` clash
+   list, and `_check_score_plan_flags` accepts `--ood`. A plan still cannot express the
+   trajectory row today:
+   - a plan's `ood` pass writes the diagnostic row (tag `<model>-ood-diagnostic`, metrics
+     `ood_diagnostic.*`, gate `ood_abstain.diagnostic`, no `checkpoint_step`);
+   - every plan needs `--score-val`.
+
+   The lane is drafting a `trajectory` plan pass on branch `v6-startup`. Its parity on a toy
+   corpus proves the plumbing only. The 2B parity needs v5's step snapshots, which exist only on
+   the H100 box, so it is written as a box command and is NOT RUN. Spending box time on it is
+   the human's call.
 2. Profile the ~3.6 min pre-MinHash Python phase.
 3. Cache the dedupe result in qd-prep, keyed by content and the binary's sha.
 
