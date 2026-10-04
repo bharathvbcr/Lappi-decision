@@ -50,10 +50,15 @@ on branch `v6-startup`), give a ~204 s split rebuild:
 So the Rust is ~15 s of ~204 s on the Mac [V, the lane's numbers]. The box's split is not
 measured. The Python share of startup is larger than the lead first reported.
 
-So one snapshot is ~6.5 min of wall time for ~16 s of GPU. At that rate the 3,600 s cap fits
-~9 of the 13 snapshots [I]. The count is to be checked against
-`/home/ubuntu/v5/traj-s2-step*.jsonl` when the trajectory ends. The trajectory is pinned and
-pre-registered, so that is a finding to report, not to act on.
+So one snapshot is ~6.5 min of wall time for ~16 s of GPU. The 3,600 s cap fit 9 of the 13
+snapshots on both seeds [V]:
+- `v5traj-s2` at 08:00:04Z: "the 3600s cap left steps 9000 10000 11000 12000 NOT RUN";
+- `v5traj-s3` at 08:00:41Z: the same four steps.
+
+The scoring order was 12176 first, then 1000–8000. The last-3 average row is NOT RUN on both,
+per GAP-V5TRAIN-TRAJECTORY-AVERAGE-NOT-SCORABLE-2026-10-02. The trajectory is pinned and
+pre-registered, so this is a finding reported to the human, not acted on. It will recur on
+every v5 seed. Seeds 0 and 1 were picked at 08:00:04Z and 08:00:41Z.
 
 **v6 targets, in order of size:**
 1. Trajectories through `--score-plan`: one startup for all snapshots. Corrected by the
