@@ -6,6 +6,41 @@ training pipeline robust and purpose-built." It also covers the human's GPU answ
 `AUDIT/finalize-2026-10-03/fable-pipeline-ruling.md`, and the human-facing state is in
 `AUDIT/finalize-2026-10-03/report-to-human-2026-10-03-pipeline.md`.
 
+## ~07:15Z 2026-10-04: where each v5 seed's GPU-idle time goes (measured; v6 targets)
+
+**Source.** Gawk-timestamped tails of the H100's lane, trajectory and train logs, in ignored
+`build/v5-h100/startup-capture-round2c.log`. The earlier `startup-capture-round2.log` used a
+per-line `date` fork that lagged ~3.5 min behind a burst; its timestamps are not used.
+
+**A seed's job is four steps, each a separate `tools/real_ft_run.py` process with its own
+startup:**
+1. train + score: ~11 min startup [V, 00:19:23 → step 1 ~00:30:18];
+2. needle control (`--score-checkpoint`): ~8 min startup [V, 06:48:57 → GPU ~06:57];
+3. trajectory: 13 step snapshots, each one `--score-checkpoint` OOD-only call
+   (`box_q_v5traj.sh:72-79`), all under one 3,600 s cap, holding the lane's GPU lock;
+4. CPU controls, outside the lock.
+
+**One trajectory call, `v5traj-s2` step 12176 [V, the capture]:**
+
+| Phase | Time |
+|---|---|
+| Python before MinHash | ~3.6 min [I: the MinHash line prints at 07:06:10 after 89.2 s; LSH took 32.2 s] |
+| MinHash + LSH in `qd-prep-v5` (Rust), the same input on every call | ~2.0 min |
+| val, OOD and shard load | ~12 s |
+| model load | ~24 s |
+| the OOD scoring itself | ~16 s on the GPU |
+
+So one snapshot is ~6.5 min of wall time for ~16 s of GPU. At that rate the 3,600 s cap fits
+~9 of the 13 snapshots [I]. The count is to be checked against
+`/home/ubuntu/v5/traj-s2-step*.jsonl` when the trajectory ends. The trajectory is pinned and
+pre-registered, so that is a finding to report, not to act on.
+
+**v6 targets, in order of size:**
+1. Trajectories through `--score-plan`: one startup for all snapshots. The open question:
+   `_check_score_plan_flags` lists `--ood` as clashing, and trajectory rows are OOD-only.
+2. Profile the ~3.6 min pre-MinHash Python phase.
+3. Cache the dedupe result in qd-prep, keyed by content and the binary's sha.
+
 ## 06:51Z 2026-10-04: v5 seeds 2 and 3 scored; both hold R9's bar, not poor
 
 Both exited 0: seed 2 at 06:48:56Z, seed 3 at 06:50:39Z. Ledger:
