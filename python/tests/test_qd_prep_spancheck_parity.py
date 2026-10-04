@@ -42,6 +42,7 @@ import sys
 import time
 import unicodedata
 from collections.abc import Callable, Sequence
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +88,10 @@ from qd_train.shards import (  # noqa: E402
 
 CONFIG = DataConfig()
 ANY, GOLD = SPAN_COLLAPSE_REFUSE_ANY, SPAN_COLLAPSE_REFUSE_GOLD
+#: The checkout whose ``data/pool`` the end-to-end build and the benchmark read (only read).
+#: A worktree holds the pool's tracked manifests and none of its downloads, so point this at
+#: a checkout that has them; without them those tests are SKIPPED, never passed.
+DATA_ROOT = Path(os.environ.get("QD_PREP_DATA_ROOT", str(REPO)))
 REFERENCE = pipeline._REFERENCE_SPAN_TOKEN_POSITIONS
 #: The ``qd-prep`` path of the tests that replace ``_run_prep``: nothing runs, nothing is built.
 NOT_RUN = Path("/nonexistent/qd-prep")
@@ -200,7 +205,7 @@ def _sequences(draw: st.DrawFn) -> Drawn:
     shape = draw(st.sampled_from(["bytes", "chars", "merged", "specials", "random"]))
     cuts = sorted(draw(st.sets(st.integers(1, n - 1), max_size=n))) if n > 1 else []
     bounds = [0, *cuts, n] if n else []
-    merged = list(zip(bounds, bounds[1:], strict=False))
+    merged = list(pairwise(bounds))
     if shape == "bytes":
         offsets = byte_offsets(text)
     elif shape == "chars":
@@ -229,9 +234,8 @@ def _sequences(draw: st.DrawFn) -> Drawn:
     if gold_kind == "lines":
         i = draw(st.integers(0, len(lines) - 1))
         gold: tuple[int, int] | None = (lines[i], lines[draw(st.integers(i, len(lines) - 1))])
-    elif gold_kind == "random":
-        gold = (draw(st.integers(0, n + 2)), draw(st.integers(0, n + 2)))
-    elif gold_kind == "flagged":
+    elif gold_kind in ("random", "flagged"):
+        # "flagged" also sets span_abstains, which the reference reads before the positions.
         gold = (draw(st.integers(0, n + 2)), draw(st.integers(0, n + 2)))
     else:
         gold = None
@@ -381,12 +385,16 @@ def test_write_shards_through_the_table_is_the_reference_byte_for_byte(
 
 
 def _chunks(text: str) -> tuple[list[int], list[tuple[int, int]]]:
-    """Fixed-width tokens whose width (64-127 characters) is a hash of the text, so line
-    starts collapse on some rows and not others, on the gold and off it. Ids are one byte of a
-    hash of each chunk, inside ``test_shards``' byte remap; not decodable, so decode=None."""
-    width = 64 + hashlib.blake2b(text.encode("utf-8"), digest_size=1).digest()[0] % 64
+    """Fixed-width tokens whose width is a hash of the text: one character on about half the
+    rows, where no two line starts can share a token, and 64-127 characters on the rest, where
+    the fixture's lines collapse, on the gold and off it. A width of 64 or more alone collapses
+    every row of the fixture, which leaves refuse-any nothing to answer from the reply. Ids are
+    one byte of a hash of each chunk, inside ``test_shards``' byte remap; not decodable, so
+    decode=None."""
+    digest = hashlib.blake2b(text.encode("utf-8"), digest_size=1).digest()[0]
+    width = 1 if digest < 128 else 64 + digest % 64
     bounds = [*range(0, len(text), width), len(text)]
-    offsets = list(zip(bounds, bounds[1:], strict=False))
+    offsets = list(pairwise(bounds))
     ids = [hashlib.blake2b(text[a:b].encode("utf-8"), digest_size=1).digest()[0]
            for a, b in offsets]
     return ids, offsets
@@ -416,6 +424,7 @@ def test_collapsed_lines_are_refused_or_shared_as_the_reference_does(
         "tokenize": _chunk_tokenize, "token_offsets": _chunk_offsets,
         "allow_unencodable": True, "allow_contradictions": True,
     }
+    answered: dict[str, int] = {}
     for policy in (ANY, GOLD):
         _write(snap, "train", tmp_path / f"reference-{policy}", span_collapse_policy=policy, **kw)
         with pipeline.native_spancheck(
@@ -426,8 +435,14 @@ def test_collapsed_lines_are_refused_or_shared_as_the_reference_does(
         assert _artifacts(tmp_path / f"native-{policy}") == _artifacts(
             tmp_path / f"reference-{policy}"
         )
-        assert table.native_answers > 0, "some span slot was answered from the reply"
-        assert any(why.startswith("refused:") for why in table.to_reference), table.to_reference
+        assert table.native_answers > 0, ("some span slot was answered from the reply", policy)
+        assert any(why.startswith("refused:") for why in table.to_reference), (
+            policy, table.to_reference
+        )
+        answered[policy] = table.native_answers
+    # Every row refuse-any answers, refuse-gold answers too; a row only refuse-gold answers is
+    # one whose collapsed lines are off the gold, so its shared candidates came from the reply.
+    assert answered[GOLD] > answered[ANY], answered
     # Not vacuous: lines collapse under this tokenizer, refused whole under refuse-any and on
     # the gold under refuse-gold.
     refused_any = _slot_refusals(tmp_path / f"reference-{ANY}")
@@ -737,6 +752,86 @@ def test_the_flag_is_off_unless_asked_for(
     assert seen == [False, True]
 
 
+def _measured(measured: pipeline.Measured, out: Path) -> dict[str, Any]:
+    """What ``run`` returned, comparably: every TriState by its JSON, the run's own directory
+    spelled ``<out>`` (the two builds write to two directories and nothing else differs)."""
+    text = json.dumps({
+        "metrics": {k: v.to_json() for k, v in measured.metrics.items()},
+        "gates": {k: v.to_json() for k, v in measured.gates.items()},
+        "data_snapshot_hash": measured.data_snapshot_hash,
+        "tokenizer_hash": measured.tokenizer_hash,
+        "notes": measured.notes,
+        "quick_reason": measured.quick_reason,
+    }, sort_keys=True)
+    parsed: dict[str, Any] = json.loads(text.replace(str(out), "<out>"))
+    return parsed
+
+
+@pytest.mark.parametrize("blank_line_runs", [False, True], ids=["single-blank", "blank-runs"])
+@pytest.mark.parametrize("policy", [ANY, GOLD])
+def test_the_pipeline_writes_every_shard_set_the_reference_writes(
+    qd_prep: Path, tmp_path: Path, policy: str, blank_line_runs: bool
+) -> None:
+    """The bar for ``--native-spancheck``, end to end: ``run`` with and without it, on the
+    real tokenizer, with the val set. Every shard set it writes -- train, val, and the train
+    set written without decode -- is the reference's in every file, and so is everything
+    ``run`` measured but the one metric the flag adds. Needs ``transformers``, the model's
+    tokenizer in the HF cache and the commitpackft download under :data:`DATA_ROOT`; SKIPPED
+    without any of them.
+
+    Blank-line runs are passages joined by two blank lines, which Qwen3.5's BPE merges into one
+    token holding several line starts. Every passage then collapses: refuse-any refuses each
+    such slot whole (at 2026-10-04T00:24Z, 88 of 88 lookups, each through the reference).
+    Under refuse-gold the train slots were answered from the reply (84 of 88), and the 4
+    refused were the val set's, which ``run`` writes under refuse-any whatever the train
+    policy. So refuse-any with blank-line runs is the case that carries the refusal path end
+    to end, and each of the other three must answer some slot from the reply."""
+    pytest.importorskip("transformers")
+    if not pipeline.MODEL_REF.exists():
+        pytest.skip(f"{pipeline.MODEL} is not in this host's HF cache")
+    download = DATA_ROOT / "data" / "pool" / "commitpackft"
+    if not any((download / f"{lang}.jsonl").exists() for lang in ("go", "python")):
+        pytest.skip(f"the commitpackft download is not under {download} (set QD_PREP_DATA_ROOT)")
+
+    built: dict[str, tuple[dict[str, Any], dict[str, dict[str, Any]]]] = {}
+    for arm, flag in (("reference", False), ("native", True)):
+        out = tmp_path / arm
+        measured = pipeline.run(
+            out=out, max_pairs=60, blank_line_runs=blank_line_runs, rev="HEAD",
+            commitpackft=download, val_shards=True, span_collapse_policy=policy,
+            spancheck_in_qd_prep=flag,
+        )
+        sets = {d.name: _artifacts(d) for d in sorted((out / "shards").iterdir())}
+        built[arm] = (_measured(measured, out), sets)
+    (ref, ref_sets), (nat, nat_sets) = built["reference"], built["native"]
+
+    assert sorted(ref_sets) == ["train", "train-no-decode", "val"], sorted(ref_sets)
+    assert sorted(nat_sets) == sorted(ref_sets)
+    for name in ref_sets:
+        assert sorted(nat_sets[name]) == sorted(ref_sets[name]), name
+        for file in ref_sets[name]:
+            assert nat_sets[name][file] == ref_sets[name][file], (name, file)
+
+    assert "native_spancheck" not in ref["metrics"], "without the flag, no metric"
+    native = nat["metrics"].pop("native_spancheck")
+    assert nat == ref
+    assert native["state"] == "ran" and native["passed"] is True, native
+    assert native["value"] == hashlib.sha256(qd_prep.read_bytes()).hexdigest()
+    detail = json.loads(native["detail"])
+    # Every call the writes made is counted: looked up (answered from the reply or handed to
+    # the reference, by reason) or passed straight to the reference.
+    assert native["n"] == detail["native_answers"], detail
+    assert native["n_total"] == detail["reads"] + detail["passthrough"], detail
+    assert detail["reads"] == detail["native_answers"] + sum(detail["to_reference"].values())
+    # Not vacuous: span slots were looked up, and answered from the reply -- or, where the
+    # docstring says every slot collapses under refuse-any, refused through the reference.
+    assert detail["reads"] > 0, detail
+    if policy == ANY and blank_line_runs:
+        assert detail["to_reference"].get("refused:lines_collapse", 0) > 0, detail
+    else:
+        assert detail["native_answers"] > 0, detail
+
+
 # -- the real tokenizer ------------------------------------------------------------------------
 
 QWEN_TOKENIZER = (
@@ -841,16 +936,16 @@ def test_benchmark_span_projection_reference_against_qd_prep_interleaved_min_of_
     values, and refusals by class and text -- are equal. Nothing here asserts a speed-up; the
     numbers are the finding.
 
-        QD_PREP_BENCH=1 QD_PREP_BENCH_DATA_ROOT=<checkout with data/pool> \\
+        QD_PREP_BENCH=1 QD_PREP_DATA_ROOT=<checkout with data/pool> \\
             pytest -s python/tests/test_qd_prep_spancheck_parity.py -k benchmark
     """
     from qd_data.defect_class import DEFECT_SOURCE_ID, load_defect_rows
     from qd_data.mixture import build_mixture
 
-    root = Path(os.environ.get("QD_PREP_BENCH_DATA_ROOT", str(REPO)))
+    root = DATA_ROOT
     corpus = root / "data" / "pool" / "commitpackft-corpus-v2"
     if not (corpus / "examples.jsonl").is_file():
-        pytest.skip(f"{corpus}/examples.jsonl is not on disk (set QD_PREP_BENCH_DATA_ROOT)")
+        pytest.skip(f"{corpus}/examples.jsonl is not on disk (set QD_PREP_DATA_ROOT)")
     tokenize, token_offsets, encode, decode = _bench_tokenizer(tokenizer)
     load = load_defect_rows(
         corpus, download_root=root / "data" / "pool" / "commitpackft", config=CONFIG,
