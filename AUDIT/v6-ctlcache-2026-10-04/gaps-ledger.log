@@ -1,0 +1,6 @@
+# 2026-10-04T11:54:18Z HEAD d49c95a50f2bf9f1db0991dbb064eafb530d71ce dirty-tracked: 0
+# QD_PREP_BIN=/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep sha256 a38c0fdf726bbd834b42537ea00d7c78121509d33097b174bfd9476e7521474d
+# pytest python/tests/test_gaps_ledger.py
+..........                                                               [100%]
+10 passed in 3.28s
+# exit 0

@@ -1,0 +1,6 @@
+# 2026-10-04T11:37:15Z HEAD 0dd472c561d4ebdd670aa9b28bdddb9e75a23040 dirty-tracked: 1
+# QD_PREP_BIN=/Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep sha256 a38c0fdf726bbd834b42537ea00d7c78121509d33097b174bfd9476e7521474d
+# pytest python/tests/test_ft_linear_control_split_cache.py
+..........                                                               [100%]
+10 passed in 41.06s
+# exit 0

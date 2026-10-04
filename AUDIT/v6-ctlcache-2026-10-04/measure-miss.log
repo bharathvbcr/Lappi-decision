@@ -1,0 +1,25 @@
+# 2026-10-04T11:47:31Z start miss HEAD 96e84d891e47f7ad6e63911b40335993889927ea dirty-tracked 0
+split cache: miss for key 335b0c2f1a74cafb07e57151fee3cb82014ec35d3aacfd0289878bc8d7e27813 (no entry for this key); rebuilding
+minhash: 485362 distinct sets signed by /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep in 55.8 s (shingling and canaries included), 941195 lookups, 8 canaries equal to the reference; 485474 distinct texts shingled once, 941195 lookups
+lsh: 2 candidate-pair searches banded by /Users/bharath/Code/research/Lappi-decision/build/v6-startup-wt/target/release/qd-prep in 13.3 s (canaries included), 7864424 pairs, every canary equal to the reference; 0 handed to the reference (a negative bound or a banding wider than the signatures)
+split cache: STORED /Users/bharath/Code/research/Lappi-decision/build/v6-ctlcache-wt/build/v6-ctlcache-measure/split-cache/335b0c2f1a74cafb07e57151fee3cb82014ec35d3aacfd0289878bc8d7e27813.rows.pkl (1707290395 bytes, entry and sidecar 12.4 s; key 1.7 s)
+MEASURE {"cached_split_rows_s": 217.29, "control_row_written": false, "label": "miss", "metric": {"detail": "key 335b0c2f1a74cafb07e57151fee3cb82014ec35d3aacfd0289878bc8d7e27813; no entry for this key; rebuilt and stored, entry sha256 0e1a955f7cb92857f014854a634b97f115772f794f5fa40ba67fa9402330b012", "passed": true, "state": "ran", "value": "miss"}, "rows_at_stop": 487407, "stopped": "after the split and the control's rule-3 check, at request_texts", "wall_to_stop_s": 218.67}
+      221.08 real       223.98 user        16.71 sys
+         28775661568  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             6376371  page reclaims
+                 300  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                2565  voluntary context switches
+              169949  involuntary context switches
+       3814412336993  instructions retired
+        890413511887  cycles elapsed
+         26545886976  peak memory footprint
+# 2026-10-04T11:51:12Z end miss rc=0
