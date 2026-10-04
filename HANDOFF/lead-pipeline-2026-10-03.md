@@ -33,12 +33,23 @@ copied to `build/post-queue/early3-row.jsonl` (git-ignored)]:
 - The pooled `gates.paired_margin_vs_linear` is **`not_run`**: "234 of 332 inputs did not run".
   The synth.general family margin is `not_run` too (234 of 267 inputs). Every other gate in the
   row is `not_run`: this tool measures only the margins.
-- **The pooled gate's `not_run` is structural for v5** [inferred]. Every uncached v5 control
-  will carry it, because the synth.general tasks the fix makes `not_run` are part of v5's split.
-  Single-class tasks were `not_run` before the fix too. Rule 2 stands: nothing here moves a
-  threshold.
-  - Open for Fable and the human: how the TierB rule's clause 2 (`paired_ci`,
-    `qd_post_f_rules.rs:4696`) treats a `not_run` pooled gate.
+- **The pooled gate's `not_run` is not new** [V]. F's three control rows carry it too:
+  - `c89b89a1`, `c0e438e6` and `3f72112a` have `gates.paired_margin_vs_linear` `not_run`,
+    because 1 of 7 tasks, `intent.domain/domain`, did not converge in 6,000 iterations.
+  - Every uncached v5 control will carry it as well [inferred], because v5's split holds the
+    synth.general tasks that cannot be fitted.
+  - Rule 2 stands: nothing here moves a threshold.
+- **Exit 3** is `ft_linear_control`'s "the pooled gate is not `Ran`" [V,
+  `tools/ft_linear_control.py:1387`].
+- **What reads the pooled gate** [V, `crates/qd-runtime/src/bin/qd_post_f_rules.rs`]:
+  - `paired_ci` (:4703) refuses a gate that did not run (`row.ran("gates", …)?` at :4705).
+  - Its callers are the TierB rules (:5064, the pinned phase-3 reference control; :5292, a
+    candidate's control row). A TierB candidate whose control row has a `not_run` pooled gate is
+    refused, closed and loud.
+  - v5's successor rule reads the code.defect_class family margin (`MARGIN_KEY`, :1270), which
+    ran and passed here.
+  - Whether a v5 row is ever a TierB candidate is not established [unverified]; the TierB rule
+    pins phase-3's `val_shard_hash`.
 - **intent.in_scope: −0.0293 [−0.0452, −0.0140], ran, failed**, the whole interval below zero.
   The n-gram and the length control give the same margin there.
 - **openjev.game: +0.1935 [−0.0323, +0.4194]** against the n-gram control: the CI includes
